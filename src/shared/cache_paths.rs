@@ -259,7 +259,10 @@ use sha2::{Digest, Sha256};
 /// Epoch 80: a literal takes the location of the expression using it on its
 /// line, so a debugger stops at the call, where an epoch-79 object stopped at
 /// the literal.
-pub const CACHE_EPOCH: u16 = 80;
+/// Epoch 81: the C runtime counts the values it hands out, shares and stores
+/// (0189 F3-1); a cached binary linked against the epoch-80 runtime freed a
+/// value an array, map or option still held.
+pub const CACHE_EPOCH: u16 = 81;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

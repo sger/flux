@@ -42,6 +42,60 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-125 — `make -C runtime/c test` does not build
+
+**Severity:** Low · **Area:** native runtime, tests · **Verified:** 2026-10-21 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-0
+
+`runtime/c/smoke_test.c` still uses the NaN-boxing API that c493978a replaced
+with pointer tagging (`flux_is_nanbox`, `flux_nanbox_tag`, `FLUX_TAG_*`,
+`FLUX_PAYLOAD_MASK`), so it no longer compiles. Past that, it would not link
+either: `flux_rt.c` now calls the Rust side (the async, replay and backtrace
+entry points), `tape.c`, and `flux_call_closure_c`, which codegen emits, and
+none of these are in `libflux_rt_nomain.a`. CI does not run it. The C
+runtime is tested through Flux programs instead: `tests/native_llvm`, the
+debug heap, and the parity ways.
+
+### KI-124 — Natively, a map's release frees its root and nothing under it
+
+**Severity:** Low · **Area:** native runtime, maps · **Verified:** 2026-10-21 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-1
+
+```flux
+fn build(n) {
+    map_set(map_set({}, "a", [n]), "b", [n + 1])
+}
+
+fn discard(m, keep) {
+    if keep { m } else { {} }
+}
+
+fn main() {
+    let d = discard(build(1), false)
+    0
+}
+```
+
+`flux --native --leak-check` reports 9 blocks live at exit, all allocated in
+`build`: the map nodes, both keys and both values. Map nodes are allocated
+with no child count (`alloc_node`, `runtime/c/hamt.c`), so a release frees
+the node it is given and never looks inside. Maps built from one another
+share nodes without counting them, which is safe only because of this: a
+map that released its contents would have to count what it shares first.
+Sharing a map across threads stops at the same place: `flux_rc_promote`
+promotes the root and none of its keys or values, so two workers reading one
+map update those values' counts without atomics.
+
+### KI-123 — Natively, an array releases at most its first 255 elements
+
+**Severity:** Low · **Area:** native runtime, arrays · **Verified:** 2026-10-21 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-1
+
+An array literal of 256 one-element lists, given to a function that drops
+it, leaves one block live at exit under `flux --native --leak-check`: the
+last list. With 255 elements nothing is left. The block header keeps the
+number of children to release in one byte, and `alloc_array`
+(`runtime/c/array.c`) caps it at 255, so elements past the 255th are never
+released. Sharing an array across threads stops at the same element: past
+the 255th, `flux_rc_promote` leaves the single-thread count in place.
+
 ### KI-122 — Natively, the async runtime releases one of its own closures twice
 
 **Severity:** Medium · **Area:** native runtime, async scheduler · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `llvm_heap` run over `tests/parity` · **Issue:** [#22](https://forgejo.spirosgerokostas.com/sger/flux/issues/22)

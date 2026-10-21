@@ -64,8 +64,16 @@ int64_t flux_string_concat(int64_t a, int64_t b) {
     FluxString *sa = string_ptr(a);
     FluxString *sb = string_ptr(b);
     if (!sa && !sb) return flux_string_new("", 0);
-    if (!sa) return b;
-    if (!sb) return a;
+    /* An argument returned as it is is counted once more for the caller,
+     * which was only lending it. */
+    if (!sa) {
+        flux_dup(b);
+        return b;
+    }
+    if (!sb) {
+        flux_dup(a);
+        return a;
+    }
 
     uint32_t new_len = sa->len + sb->len;
     uint32_t alloc_size = (uint32_t)(sizeof(FluxString) + new_len);

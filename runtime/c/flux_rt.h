@@ -179,6 +179,9 @@ extern __thread int flux_worker_thread;
  * worker boundaries; flux_rc_is_shared reports the current mode. */
 void flux_dup(int64_t val);
 void flux_drop(int64_t val);
+/* flux_dup on each of `n` values: what a primop copies out of a value it was
+ * lent, since the lender may release that value right after the call. */
+void flux_dup_range(const int64_t *vals, uint32_t n);
 int  flux_rc_is_unique(int64_t val);
 int  flux_rc_is_shared(int64_t val);
 void flux_rc_promote(int64_t val);

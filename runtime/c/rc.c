@@ -531,6 +531,10 @@ static void flux_drop_evidence(void *ptr) {
     flux_block_free(ptr);
 }
 
+void flux_dup_range(const int64_t *vals, uint32_t n) {
+    for (uint32_t i = 0; i < n; i++) flux_dup(vals[i]);
+}
+
 void flux_dup(int64_t val) {
     if (!flux_is_ptr(val)) return;
     void *ptr = flux_untag_ptr(val);

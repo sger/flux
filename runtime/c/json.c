@@ -276,6 +276,9 @@ static int64_t json_parse_object(JsonParser *p) {
         int64_t value = json_parse_value(p);
         if (p->error[0] != '\0') return FLUX_NONE;
         map = flux_hamt_set(map, key_val, value);
+        /* The map counts its own references to both. */
+        flux_drop(key_val);
+        flux_drop(value);
         json_skip_ws(p);
         if (p->pos < p->len && p->input[p->pos] == ',') {
             p->pos++;
@@ -540,6 +543,7 @@ static void json_stringify_value(JsonBuf *buf, JsonTags tags, int64_t value) {
             json_stringify_value(buf, tags, flux_hamt_get(map, key));
         }
         free(sorted);
+        flux_drop(keys);
         json_buf_byte(buf, '}');
     } else {
         json_buf_mem(buf, "null", 4);
