@@ -4,7 +4,9 @@
 //! - `verify_contract`: fatal semantic-contract checks for emitted Aether Core
 //! - `verify_diagnostics`: optional non-fatal optimization diagnostics
 
-use crate::core::{CoreExpr, CorePat, CoreTag};
+use std::collections::{HashMap, HashSet};
+
+use crate::core::{CoreBinder, CoreBinderId, CoreExpr, CorePat, CorePrimOp, CoreTag};
 
 use super::analysis::use_counts_aether;
 use super::reuse_analysis::diagnose_drop_body;
@@ -48,6 +50,9 @@ pub struct AetherDiagnostic {
 pub enum AetherDiagnosticKind {
     /// Case arm destructures value and reconstructs same shape — could reuse.
     MissedReuse,
+    /// A view (a value read out of something else that holds it, with no
+    /// reference of its own) given away without a copy (0189 rule 3).
+    ViewConsumed,
 }
 
 /// Verify the fatal Aether contract for an expression.
@@ -78,12 +83,7 @@ pub fn verify_def_contract_aether(
         Err(errors) => errors,
     };
     if let (AetherExpr::Lam { params, body, .. }, Some(signature)) = (expr, signature) {
-        let borrowed: Vec<crate::core::CoreBinderId> = params
-            .iter()
-            .zip(&signature.params)
-            .filter(|(_, mode)| **mode == super::borrow_infer::BorrowMode::Borrowed)
-            .map(|(param, _)| param.id)
-            .collect();
+        let borrowed = borrowed_params(params, signature);
         if !borrowed.is_empty() {
             check_borrowed_kept(body, &borrowed, &mut errors);
         }
@@ -92,6 +92,340 @@ pub fn verify_def_contract_aether(
         Ok(())
     } else {
         Err(errors)
+    }
+}
+
+/// The parameters `signature` marks Borrowed.
+fn borrowed_params(
+    params: &[CoreBinder],
+    signature: &super::borrow_infer::BorrowSignature,
+) -> Vec<CoreBinderId> {
+    params
+        .iter()
+        .zip(&signature.params)
+        .filter(|(_, mode)| **mode == super::borrow_infer::BorrowMode::Borrowed)
+        .map(|(param, _)| param.id)
+        .collect()
+}
+
+/// Reports every view of a definition given away without a copy: proposal
+/// 0189's rule 3, which the planner does not meet everywhere yet (0189 F3-2),
+/// so this is a diagnostic to count, not part of the contract.
+pub fn verify_def_views_aether(
+    expr: &AetherExpr,
+    signature: Option<&super::borrow_infer::BorrowSignature>,
+) -> Vec<AetherDiagnostic> {
+    let mut diags = Vec::new();
+    let mut views = Views::default();
+    match expr {
+        AetherExpr::Lam { params, body, .. } => {
+            let borrowed = signature
+                .map(|signature| borrowed_params(params, signature))
+                .unwrap_or_default();
+            for param in params {
+                views.bind(param, borrowed.contains(&param.id));
+            }
+            check_views(body, true, &mut views, &mut diags);
+        }
+        _ => check_views(expr, true, &mut views, &mut diags),
+    }
+    diags
+}
+
+/// What `check_views` knows on the path it walks.
+#[derive(Clone, Default)]
+struct Views {
+    /// Binders bound in the definition, and whether each is counted: only
+    /// these can be a lambda's or a handler's captures.
+    locals: HashMap<CoreBinderId, bool>,
+    /// The views on this path.
+    binders: HashSet<CoreBinderId>,
+    /// Copies made of a view and not yet given away on this path.
+    copies: HashMap<CoreBinderId, usize>,
+    /// The scrutinee each top-level pattern field was read from.
+    parents: HashMap<CoreBinderId, CoreBinderId>,
+}
+
+impl Views {
+    fn bind(&mut self, binder: &CoreBinder, view: bool) {
+        let counted = binder.rep.needs_rc();
+        self.locals.insert(binder.id, counted);
+        if view && counted {
+            self.binders.insert(binder.id);
+        }
+    }
+
+    /// A lambda's or a handler clause's body: the closure holds its own
+    /// reference to each capture, so inside the body a capture is a view.
+    fn function(&self, body: &AetherExpr, own: &[CoreBinder]) -> Views {
+        let mut inner = Views {
+            locals: self.locals.clone(),
+            ..Views::default()
+        };
+        for id in super::free_vars::collect_free_vars_aether(body) {
+            if self.locals.get(&id) == Some(&true) && !own.iter().any(|b| b.id == id) {
+                inner.binders.insert(id);
+            }
+        }
+        inner
+    }
+
+    fn give_away(&mut self, binder: CoreBinderId, diags: &mut Vec<AetherDiagnostic>) {
+        if !self.binders.contains(&binder) {
+            return;
+        }
+        match self.copies.get_mut(&binder) {
+            Some(copies) if *copies > 0 => *copies -= 1,
+            _ => diags.push(AetherDiagnostic {
+                kind: AetherDiagnosticKind::ViewConsumed,
+                message: format!("view {binder:?} is given away without a copy"),
+            }),
+        }
+    }
+}
+
+/// Walks `expr`, whose value is given away when `owned`, reporting each view
+/// given away with no `Dup` of it before.
+fn check_views(
+    expr: &AetherExpr,
+    owned: bool,
+    views: &mut Views,
+    diags: &mut Vec<AetherDiagnostic>,
+) {
+    match expr {
+        AetherExpr::Var { var, .. } => {
+            if owned && let Some(binder) = var.binder {
+                views.give_away(binder, diags);
+            }
+        }
+        AetherExpr::Lit(_, _) => {}
+        AetherExpr::Lam { params, body, .. } => {
+            let mut inner = views.function(body, params);
+            for param in params {
+                inner.bind(param, false);
+            }
+            check_views(body, true, &mut inner, diags);
+        }
+        AetherExpr::App { func, args, .. } => {
+            check_views(func, false, views, diags);
+            for arg in args {
+                check_views(arg, true, views, diags);
+            }
+        }
+        AetherExpr::AetherCall {
+            func,
+            args,
+            arg_modes,
+            ..
+        } => {
+            check_views(func, false, views, diags);
+            for (i, arg) in args.iter().enumerate() {
+                let lent = arg_modes.get(i) == Some(&super::borrow_infer::BorrowMode::Borrowed);
+                check_views(arg, !lent, views, diags);
+            }
+        }
+        AetherExpr::Let { var, rhs, body, .. } => {
+            match rhs.as_ref() {
+                // Another name for a view, or a field read out of a tuple.
+                AetherExpr::Var { var: of, .. }
+                    if of.binder.is_some_and(|b| views.binders.contains(&b)) =>
+                {
+                    views.bind(var, true);
+                }
+                AetherExpr::TupleField { object, .. }
+                    if matches!(object.as_ref(), AetherExpr::Var { .. }) =>
+                {
+                    views.bind(var, true);
+                }
+                // Whether the bound value is given away depends on the body;
+                // only what it gives away inside is checked.
+                _ => {
+                    check_views(rhs, false, views, diags);
+                    views.bind(var, false);
+                }
+            }
+            check_views(body, owned, views, diags);
+        }
+        AetherExpr::LetRec { var, rhs, body, .. } => {
+            views.bind(var, false);
+            check_views(rhs, false, views, diags);
+            check_views(body, owned, views, diags);
+        }
+        AetherExpr::LetRecGroup { bindings, body, .. } => {
+            for (var, _) in bindings {
+                views.bind(var, false);
+            }
+            for (_, rhs) in bindings {
+                check_views(rhs, false, views, diags);
+            }
+            check_views(body, owned, views, diags);
+        }
+        AetherExpr::Case {
+            scrutinee, alts, ..
+        } => {
+            check_views(scrutinee, false, views, diags);
+            let parent = match scrutinee.as_ref() {
+                AetherExpr::Var { var, .. } => var.binder,
+                _ => None,
+            };
+            let mut joined: Option<HashMap<CoreBinderId, usize>> = None;
+            for alt in alts {
+                let mut arm = views.clone();
+                match &alt.pat {
+                    // The matched value itself, under another name.
+                    CorePat::Var(binder) => {
+                        let view = parent.is_some_and(|p| views.binders.contains(&p));
+                        arm.bind(binder, view);
+                    }
+                    pat => {
+                        let mut binders = Vec::new();
+                        pattern_binders(pat, &mut binders);
+                        for binder in binders {
+                            arm.bind(binder, true);
+                        }
+                        // A nested field is held by an inner cell, which the
+                        // outer cell's unique path does not own.
+                        if let (
+                            Some(parent),
+                            CorePat::Con { fields, .. } | CorePat::Tuple(fields),
+                        ) = (parent, pat)
+                        {
+                            for field in fields {
+                                if let CorePat::Var(binder) = field {
+                                    arm.parents.insert(binder.id, parent);
+                                }
+                            }
+                        }
+                    }
+                }
+                if let Some(guard) = &alt.guard {
+                    check_views(guard, false, &mut arm, diags);
+                }
+                check_views(&alt.rhs, owned, &mut arm, diags);
+                joined = Some(match joined {
+                    None => arm.copies,
+                    Some(copies) => fewest(copies, &arm.copies),
+                });
+            }
+            // What follows the match runs after any one arm.
+            if let Some(copies) = joined {
+                views.copies = copies;
+            }
+        }
+        AetherExpr::Con { fields, .. } | AetherExpr::Reuse { fields, .. } => {
+            for field in fields {
+                check_views(field, true, views, diags);
+            }
+        }
+        AetherExpr::PrimOp { op, args, .. } => {
+            let stores = matches!(
+                op,
+                CorePrimOp::MakeTuple
+                    | CorePrimOp::MakeList
+                    | CorePrimOp::MakeArray
+                    | CorePrimOp::MakeHash
+            );
+            for arg in args {
+                check_views(arg, stores, views, diags);
+            }
+        }
+        AetherExpr::Perform { args, .. } => {
+            for arg in args {
+                check_views(arg, true, views, diags);
+            }
+        }
+        AetherExpr::Return { value, .. } => check_views(value, true, views, diags),
+        AetherExpr::MemberAccess { object, .. } => check_views(object, false, views, diags),
+        AetherExpr::TupleField { object, index, .. } => {
+            check_views(object, false, views, diags);
+            if owned
+                && let AetherExpr::Var { var, .. } = object.as_ref()
+                && let Some(binder) = var.binder
+            {
+                diags.push(AetherDiagnostic {
+                    kind: AetherDiagnosticKind::ViewConsumed,
+                    message: format!("field {index} of {binder:?} is given away without a copy"),
+                });
+            }
+        }
+        AetherExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            if let Some(parameter) = parameter {
+                check_views(parameter, true, views, diags);
+            }
+            check_views(body, owned, views, diags);
+            // The runtime lends a clause its arguments, state and `resume`,
+            // and releases them after it returns (`runtime/c/effects.c`).
+            for handler in handlers {
+                let own: Vec<CoreBinder> = handler
+                    .params
+                    .iter()
+                    .chain(&handler.state)
+                    .chain([&handler.resume])
+                    .copied()
+                    .collect();
+                let mut inner = views.function(&handler.body, &own);
+                for binder in &own {
+                    inner.bind(binder, true);
+                }
+                check_views(&handler.body, true, &mut inner, diags);
+            }
+        }
+        AetherExpr::Dup { var, body, .. } => {
+            if let Some(binder) = var.binder {
+                *views.copies.entry(binder).or_default() += 1;
+            }
+            check_views(body, owned, views, diags);
+        }
+        AetherExpr::Drop { body, .. } => check_views(body, owned, views, diags),
+        AetherExpr::DropSpecialized {
+            scrutinee,
+            unique_body,
+            shared_body,
+            ..
+        } => {
+            // On the unique side the cell is this path's alone: it hands the
+            // arm its one reference to each field it holds, in place of the
+            // copy drop_spec removed. A second use still needs a copy.
+            let mut unique = views.clone();
+            if let Some(cell) = scrutinee.binder {
+                for (field, _) in views.parents.iter().filter(|(_, p)| **p == cell) {
+                    *unique.copies.entry(*field).or_default() += 1;
+                }
+            }
+            check_views(unique_body, owned, &mut unique, diags);
+            let mut shared = views.clone();
+            check_views(shared_body, owned, &mut shared, diags);
+            views.copies = fewest(unique.copies, &shared.copies);
+        }
+    }
+}
+
+/// The copies left on both of two paths that join.
+fn fewest(
+    mut copies: HashMap<CoreBinderId, usize>,
+    other: &HashMap<CoreBinderId, usize>,
+) -> HashMap<CoreBinderId, usize> {
+    copies.retain(|binder, n| {
+        *n = (*n).min(other.get(binder).copied().unwrap_or(0));
+        *n > 0
+    });
+    copies
+}
+
+fn pattern_binders<'a>(pat: &'a CorePat, out: &mut Vec<&'a CoreBinder>) {
+    match pat {
+        CorePat::Var(binder) => out.push(binder),
+        CorePat::Con { fields, .. } | CorePat::Tuple(fields) => {
+            for field in fields {
+                pattern_binders(field, out);
+            }
+        }
+        CorePat::Lit(_) | CorePat::Wildcard | CorePat::EmptyList => {}
     }
 }
 
@@ -965,6 +1299,299 @@ mod tests {
             )
             .is_ok()
         );
+    }
+
+    /// A call that takes its one argument owned.
+    fn give(f: CoreBinder, arg: CoreExpr) -> CoreExpr {
+        CoreExpr::AetherCall {
+            func: Box::new(v(f)),
+            args: vec![arg],
+            arg_modes: vec![crate::aether::borrow_infer::BorrowMode::Owned],
+            guarded_borrowed_args: vec![false],
+            span: s(),
+        }
+    }
+
+    fn lam(params: Vec<CoreBinder>, body: CoreExpr) -> CoreExpr {
+        CoreExpr::Lam {
+            params,
+            param_types: vec![],
+            result_ty: None,
+            body: Box::new(body),
+            span: s(),
+        }
+    }
+
+    fn dup(x: CoreBinder, body: CoreExpr) -> CoreExpr {
+        CoreExpr::Dup {
+            var: crate::core::CoreVarRef::resolved(&x),
+            body: Box::new(body),
+            span: s(),
+        }
+    }
+
+    /// `case xs of [h | t] -> <rhs>, _ -> 0`.
+    fn on_cons(xs: CoreBinder, h: CoreBinder, t: CoreBinder, rhs: CoreExpr) -> CoreExpr {
+        CoreExpr::Case {
+            scrutinee: Box::new(v(xs)),
+            alts: vec![
+                CoreAlt {
+                    pat: CorePat::Con {
+                        tag: CoreTag::Cons,
+                        fields: vec![CorePat::Var(h), CorePat::Var(t)],
+                    },
+                    guard: None,
+                    rhs,
+                    span: s(),
+                },
+                CoreAlt {
+                    pat: CorePat::Wildcard,
+                    guard: None,
+                    rhs: CoreExpr::Lit(CoreLit::Int(0), s()),
+                    span: s(),
+                },
+            ],
+            join_ty: None,
+            span: s(),
+        }
+    }
+
+    fn views_consumed(
+        def: &CoreExpr,
+        signature: Option<&crate::aether::borrow_infer::BorrowSignature>,
+    ) -> usize {
+        super::verify_def_views_aether(def, signature)
+            .iter()
+            .filter(|d| d.kind == AetherDiagnosticKind::ViewConsumed)
+            .count()
+    }
+
+    #[test]
+    fn a_pattern_field_given_away_needs_a_copy() {
+        let mut interner = Interner::new();
+        let [f, xs, h, t] = ["f", "xs", "h", "t"].map(|name| interner.intern(name));
+        let (f, xs, h, t) = (binder(1, f), binder(2, xs), binder(3, h), binder(4, t));
+        let bare = lam(vec![f, xs], on_cons(xs, h, t, give(f, v(t))));
+        assert_eq!(views_consumed(&bare, None), 1);
+        let copied = lam(vec![f, xs], on_cons(xs, h, t, give(f, dup(t, v(t)))));
+        assert_eq!(views_consumed(&copied, None), 0);
+        // Read, not given away.
+        let lent = lam(vec![f, xs], on_cons(xs, h, t, v(f)));
+        assert_eq!(views_consumed(&lent, None), 0);
+    }
+
+    #[test]
+    fn a_field_of_a_unique_cell_is_its_own() {
+        let mut interner = Interner::new();
+        let [xs, h, t] = ["xs", "h", "t"].map(|name| interner.intern(name));
+        let (xs, h, t) = (binder(1, xs), binder(2, h), binder(3, t));
+        let rebuild = || CoreExpr::Con {
+            tag: CoreTag::Cons,
+            fields: vec![v(h), v(t)],
+            span: s(),
+        };
+        let specialized = CoreExpr::DropSpecialized {
+            scrutinee: crate::core::CoreVarRef::resolved(&xs),
+            unique_body: Box::new(rebuild()),
+            shared_body: Box::new(dup(h, dup(t, rebuild()))),
+            span: s(),
+        };
+        let def = lam(vec![xs], on_cons(xs, h, t, specialized));
+        assert_eq!(views_consumed(&def, None), 0);
+    }
+
+    #[test]
+    fn a_capture_returned_from_its_lambda_needs_a_copy() {
+        let mut interner = Interner::new();
+        let xs = binder(1, interner.intern("xs"));
+        let bare = lam(vec![xs], lam(vec![], v(xs)));
+        assert_eq!(views_consumed(&bare, None), 1);
+        let copied = lam(vec![xs], lam(vec![], dup(xs, v(xs))));
+        assert_eq!(views_consumed(&copied, None), 0);
+        // The lambda's own parameter is its own.
+        let own = lam(vec![xs], v(xs));
+        assert_eq!(views_consumed(&own, None), 0);
+    }
+
+    #[test]
+    fn a_handler_argument_returned_needs_a_copy() {
+        let mut interner = Interner::new();
+        let x = binder(1, interner.intern("x"));
+        let resume = binder(2, interner.intern("resume"));
+        let (effect, operation) = (interner.intern("Ask"), interner.intern("ask"));
+        let handle = |body| CoreExpr::Handle {
+            body: Box::new(CoreExpr::Lit(CoreLit::Int(0), s())),
+            effect,
+            parameter: None,
+            handlers: vec![crate::aether::AetherHandler {
+                operation,
+                params: vec![x],
+                param_types: vec![None],
+                state: None,
+                state_ty: None,
+                resume,
+                resume_ty: None,
+                body,
+                span: s(),
+            }],
+            span: s(),
+        };
+        assert_eq!(views_consumed(&lam(vec![], handle(v(x))), None), 1);
+        assert_eq!(views_consumed(&lam(vec![], handle(dup(x, v(x)))), None), 0);
+    }
+
+    #[test]
+    fn a_borrowed_parameter_given_away_needs_a_copy() {
+        use crate::aether::borrow_infer::{BorrowMode, BorrowProvenance, BorrowSignature};
+        let mut interner = Interner::new();
+        let f = binder(1, interner.intern("f"));
+        let xs = binder(2, interner.intern("xs"));
+        let def = lam(vec![f, xs], give(f, v(xs)));
+        let signature = |modes| BorrowSignature::new(modes, BorrowProvenance::Inferred);
+        let lent = signature(vec![BorrowMode::Borrowed, BorrowMode::Borrowed]);
+        assert_eq!(views_consumed(&def, Some(&lent)), 1);
+        let owned = signature(vec![BorrowMode::Borrowed, BorrowMode::Owned]);
+        assert_eq!(views_consumed(&def, Some(&owned)), 0);
+    }
+
+    #[test]
+    fn a_tuple_field_given_away_needs_a_copy() {
+        let mut interner = Interner::new();
+        let f = binder(1, interner.intern("f"));
+        let pair = binder(2, interner.intern("pair"));
+        let x = binder(3, interner.intern("x"));
+        let field = || CoreExpr::TupleField {
+            object: Box::new(v(pair)),
+            index: 0,
+            span: s(),
+        };
+        // `f(pair.0)`.
+        assert_eq!(
+            views_consumed(&lam(vec![f, pair], give(f, field())), None),
+            1
+        );
+        // `let x = pair.0 in f(x)`, and the same with a copy.
+        let named = |given| CoreExpr::Let {
+            var: x,
+            rhs: Box::new(field()),
+            body: Box::new(give(f, given)),
+            span: s(),
+        };
+        assert_eq!(views_consumed(&lam(vec![f, pair], named(v(x))), None), 1);
+        assert_eq!(
+            views_consumed(&lam(vec![f, pair], named(dup(x, v(x)))), None),
+            0
+        );
+    }
+
+    #[test]
+    fn a_copy_used_in_one_arm_is_gone_after_the_match() {
+        let mut interner = Interner::new();
+        let [f, xs, h, t, c, h2, t2, a] =
+            ["f", "xs", "h", "t", "c", "h2", "t2", "a"].map(|name| interner.intern(name));
+        let (f, xs, h, t, c) = (
+            binder(1, f),
+            binder(2, xs),
+            binder(3, h),
+            binder(4, t),
+            binder(5, c),
+        );
+        let (h2, t2, a) = (binder(6, h2), binder(7, t2), binder(8, a));
+        // `dup t in let a = (case c of [_ | _] -> f(t), _ -> 0) in f(t)`.
+        let body = dup(
+            t,
+            CoreExpr::Let {
+                var: a,
+                rhs: Box::new(on_cons(c, h2, t2, give(f, v(t)))),
+                body: Box::new(give(f, v(t))),
+                span: s(),
+            },
+        );
+        assert_eq!(
+            views_consumed(&lam(vec![f, xs, c], on_cons(xs, h, t, body)), None),
+            1
+        );
+    }
+
+    #[test]
+    fn a_unique_cell_hands_over_one_reference_per_field_it_holds() {
+        let mut interner = Interner::new();
+        let [xs, h, t, a] = ["xs", "h", "t", "a"].map(|name| interner.intern(name));
+        let (xs, h, t, a) = (binder(1, xs), binder(2, h), binder(3, t), binder(4, a));
+        let cons = |fields| CoreExpr::Con {
+            tag: CoreTag::Cons,
+            fields,
+            span: s(),
+        };
+        let specialized = |unique| CoreExpr::DropSpecialized {
+            scrutinee: crate::core::CoreVarRef::resolved(&xs),
+            unique_body: Box::new(unique),
+            shared_body: Box::new(CoreExpr::Lit(CoreLit::Int(0), s())),
+            span: s(),
+        };
+        // A field used twice needs a copy for the second use.
+        let twice = on_cons(xs, h, t, specialized(cons(vec![v(t), v(t)])));
+        assert_eq!(views_consumed(&lam(vec![xs], twice), None), 1);
+        // `a` belongs to the inner cell, which this path does not own.
+        let nested = CoreExpr::Case {
+            scrutinee: Box::new(v(xs)),
+            alts: vec![CoreAlt {
+                pat: CorePat::Con {
+                    tag: CoreTag::Cons,
+                    fields: vec![
+                        CorePat::Con {
+                            tag: CoreTag::Cons,
+                            fields: vec![CorePat::Var(a), CorePat::Wildcard],
+                        },
+                        CorePat::Var(t),
+                    ],
+                },
+                guard: None,
+                rhs: specialized(cons(vec![v(a), v(t)])),
+                span: s(),
+            }],
+            join_ty: None,
+            span: s(),
+        };
+        assert_eq!(views_consumed(&lam(vec![xs], nested), None), 1);
+    }
+
+    #[test]
+    fn a_name_for_the_whole_matched_value_is_a_view_only_if_the_value_is() {
+        use crate::aether::borrow_infer::{BorrowMode, BorrowProvenance, BorrowSignature};
+        let mut interner = Interner::new();
+        let [f, xs, ys] = ["f", "xs", "ys"].map(|name| interner.intern(name));
+        let (f, xs, ys) = (binder(1, f), binder(2, xs), binder(3, ys));
+        let def = lam(
+            vec![f, xs],
+            CoreExpr::Case {
+                scrutinee: Box::new(v(xs)),
+                alts: vec![CoreAlt {
+                    pat: CorePat::Var(ys),
+                    guard: None,
+                    rhs: give(f, v(ys)),
+                    span: s(),
+                }],
+                join_ty: None,
+                span: s(),
+            },
+        );
+        assert_eq!(views_consumed(&def, None), 0);
+        let lent = BorrowSignature::new(
+            vec![BorrowMode::Borrowed, BorrowMode::Borrowed],
+            BorrowProvenance::Inferred,
+        );
+        assert_eq!(views_consumed(&def, Some(&lent)), 1);
+    }
+
+    #[test]
+    fn an_unboxed_field_is_not_a_view() {
+        let mut interner = Interner::new();
+        let [f, xs, h, t] = ["f", "xs", "h", "t"].map(|name| interner.intern(name));
+        let (f, xs, t) = (binder(1, f), binder(2, xs), binder(4, t));
+        let h = CoreBinder::with_rep(CoreBinderId(3), h, crate::core::FluxRep::IntRep);
+        let def = lam(vec![f, xs], on_cons(xs, h, t, give(f, v(h))));
+        assert_eq!(views_consumed(&def, None), 0);
     }
 
     #[test]

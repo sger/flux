@@ -206,6 +206,10 @@ fn lower_program_to_ir_impl(
 
                 if aether_verify {
                     all_diags.extend(crate::aether::verify::verify_diagnostics_aether(&def.expr));
+                    all_diags.extend(crate::aether::verify::verify_def_views_aether(
+                        &def.expr,
+                        def.borrow_signature.as_ref(),
+                    ));
                 }
             }
 
