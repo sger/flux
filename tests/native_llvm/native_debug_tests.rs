@@ -4,8 +4,8 @@
 //! Each fixture in `tests/native_llvm/debug/` is built with
 //! `--native -g -o <binary>`. Then:
 //! - `llvm-dwarfdump --verify` must find no errors in the Flux debug
-//!   information: the `.dSYM` on macOS, elsewhere the Flux objects the build
-//!   cached;
+//!   information, in the Flux objects the build cached, and the line table
+//!   must name the program's source;
 //! - lldb, run in batch mode, must break at a Flux line, show Flux functions
 //!   in the backtrace, and step;
 //! - with the script loaded, `flux locals`, `flux print` and `flux bt` must
@@ -14,11 +14,21 @@
 //! lldb's exact output differs between versions, so the tests look for the
 //! lines that matter rather than snapshot whole sessions. A machine without
 //! lldb or llvm-dwarfdump skips those checks with a note; CI installs both.
+//!
+//! Each fixture is built once for the whole binary (`built`): a `-g` build
+//! and its `dsymutil` dominate this suite, and most fixtures are used by
+//! several tests. Nothing a test does changes the fixture's directory; a test
+//! that writes (a tape, its own program) does so in a scratch directory of
+//! its own. Each build keeps its own cache: what the standard library
+//! compiles to differs between programs, so one cache shared by builds that
+//! run at once would have them rewrite each other's objects.
 
 #![cfg(all(feature = "llvm", unix))]
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
+use std::sync::{Mutex, OnceLock};
 
 #[path = "../support/scratch.rs"]
 mod scratch;
@@ -48,8 +58,6 @@ fn copy_dir(from: &Path, to: &Path) {
     }
 }
 
-/// Builds `program` with `-g` into `binary`, without running it: for a
-/// program that ends with a runtime error.
 /// Native `-g` builds this suite runs at once. Each links the Rust runtime
 /// and runs `dsymutil`; cargo runs the tests on every core.
 const BUILDS_AT_ONCE: usize = 2;
@@ -75,15 +83,110 @@ fn build_slot() -> impl Drop {
     Slot
 }
 
-fn build_only(scratch: &Scratch, program: &str, binary: &str) {
-    let _slot = build_slot();
-    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(scratch.path())
-        .args([program, "--native", "-g", "--emit-binary", "-o", binary])
-        .args(scratch.cache_args())
-        .env("NO_COLOR", "1")
-        .output()
-        .expect("run flux");
+/// Whether fixture `program` is built with `-o` alone, which also runs it
+/// under `flux` and must succeed. The others end with a runtime error on
+/// purpose and are only built (`--emit-binary`). Both link the same objects.
+fn runs(program: &str) -> bool {
+    matches!(
+        program,
+        "calls.flx"
+            | "lambdas.flx"
+            | "matches.flx"
+            | "deep.flx"
+            | "values.flx"
+            | "twomods/main.flx"
+            | "adtmods/main.flx"
+            | "handlers.flx"
+            | "overflow.flx"
+            | "refs.flx"
+    )
+}
+
+/// Fixture `program`, built once for this test binary into a directory of
+/// its own: `app` and its `.dSYM`, a few hundred megabytes.
+fn built(program: &'static str) -> Lease {
+    static CLEANED: OnceLock<()> = OnceLock::new();
+    CLEANED.get_or_init(remove_dead_runs);
+    type Cell = OnceLock<Result<Scratch, String>>;
+    static BUILT: Mutex<BTreeMap<&'static str, &'static Cell>> = Mutex::new(BTreeMap::new());
+    let cell: &'static Cell = BUILT
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .entry(program)
+        .or_insert_with(|| Box::leak(Box::new(OnceLock::new())));
+    match cell.get_or_init(|| build_fixture(program)) {
+        Ok(scratch) => Lease { program, scratch },
+        Err(error) => panic!("{error}"),
+    }
+}
+
+/// One test's use of a fixture's build. The build is removed when the last
+/// test that uses it is done, so the run holds only the builds still to be
+/// used. A run of only some tests leaves its builds to the next run
+/// (`remove_dead_runs`).
+struct Lease {
+    program: &'static str,
+    scratch: &'static Scratch,
+}
+
+impl std::ops::Deref for Lease {
+    type Target = Scratch;
+
+    fn deref(&self) -> &Scratch {
+        self.scratch
+    }
+}
+
+impl Drop for Lease {
+    fn drop(&mut self) {
+        static LEFT: Mutex<BTreeMap<&'static str, usize>> = Mutex::new(BTreeMap::new());
+        let mut left = LEFT.lock().unwrap_or_else(|e| e.into_inner());
+        let left = left
+            .entry(self.program)
+            .or_insert_with(|| uses(self.program));
+        *left -= 1;
+        if *left == 0 {
+            let _ = std::fs::remove_dir_all(self.scratch.path());
+        }
+    }
+}
+
+/// How many times the tests in this file use fixture `program`: read from
+/// this file, so it cannot fall behind a test added or removed.
+fn uses(program: &str) -> usize {
+    let source = include_str!("native_debug_tests.rs");
+    source.matches(&format!("built(\"{program}\")")).count()
+        + usize::from(FIXTURES.contains(&program))
+}
+
+fn build_fixture(program: &str) -> Result<Scratch, String> {
+    let scratch = Scratch::new(&format!(
+        "native-debug-{}",
+        program.trim_end_matches(".flx").replace('/', "-")
+    ));
+    copy_dir(&fixture_dir(), scratch.path());
+    let mut args = vec![program, "--native", "-g"];
+    if !runs(program) {
+        args.push("--emit-binary");
+    }
+    args.extend(["-o", "app"]);
+    let output = flux_build(&scratch, &args)?;
+    if output.status.success() {
+        Ok(scratch)
+    } else {
+        Err(format!(
+            "flux {} failed for {program}:\n{}",
+            args[1..].join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        ))
+    }
+}
+
+/// Builds `program` into `binary` in a test's own scratch directory, without
+/// running it.
+fn build_private(scratch: &Scratch, program: &str, binary: &str) {
+    let args = [program, "--native", "-g", "--emit-binary", "-o", binary];
+    let output = flux_build(scratch, &args).unwrap_or_else(|e| panic!("{e}"));
     assert!(
         output.status.success(),
         "flux --native -g --emit-binary failed for {program}:\n{}",
@@ -91,22 +194,50 @@ fn build_only(scratch: &Scratch, program: &str, binary: &str) {
     );
 }
 
-/// Builds `program` with `-g` into `binary` and returns the build's output.
-fn build(scratch: &Scratch, program: &str, binary: &str) -> Output {
+/// Runs `flux` with `args` in `scratch`, on its cache.
+fn flux_build(scratch: &Scratch, args: &[&str]) -> Result<Output, String> {
     let _slot = build_slot();
-    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
+    Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(scratch.path())
-        .args([program, "--native", "-g", "-o", binary])
+        .args(args)
         .args(scratch.cache_args())
         .env("NO_COLOR", "1")
         .output()
-        .expect("run flux");
-    assert!(
-        output.status.success(),
-        "flux --native -g failed for {program}:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    output
+        .map_err(|e| format!("cannot run flux: {e}"))
+}
+
+/// Removes the builds earlier runs of this binary left behind: `built`'s
+/// directories are never dropped. A run still going is left alone.
+fn remove_dead_runs() {
+    let Ok(entries) = std::fs::read_dir(scratch::workspace_root().join("target/test-scratch"))
+    else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some(rest) = name.strip_prefix("native-debug-") else {
+            continue;
+        };
+        // `<label>-<pid>-<n>`.
+        let Some(pid) = rest
+            .rsplit('-')
+            .nth(1)
+            .and_then(|pid| pid.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        if pid != std::process::id() && !alive(pid) {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
+fn alive(pid: u32) -> bool {
+    Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
 }
 
 /// A tool from `env`, else the first of `names` on PATH, else (on macOS)
@@ -230,9 +361,8 @@ fn debug_builds_have_valid_dwarf_with_flux_lines() {
         eprintln!("note: llvm-dwarfdump not found; skipping (set FLUX_DWARFDUMP)");
         return;
     };
-    // Verifying a dSYM also walks the runtime's own DWARF, which takes a
-    // while: the fixtures run two at a time. One thread per fixture ran
-    // every build and `dsymutil` at once, which exhausted a 24 GB machine.
+    // The fixtures run two at a time. One thread per fixture ran every build
+    // and `dsymutil` at once, which exhausted a 24 GB machine.
     let next = std::sync::atomic::AtomicUsize::new(0);
     std::thread::scope(|threads| {
         for _ in 0..2 {
@@ -274,20 +404,15 @@ fn flux_objects(scratch: &Scratch) -> Vec<PathBuf> {
     objects
 }
 
-fn check_dwarf(dwarfdump: &[String], fixture: &str) {
-    let scratch = prepare(fixture);
-    // Built, not run: some fixtures end with a runtime error on purpose.
-    build_only(&scratch, fixture, "app");
+fn check_dwarf(dwarfdump: &[String], fixture: &'static str) {
+    let scratch = built(fixture);
     let debug = debug_file(&scratch, "app");
     let debug = debug.to_string_lossy();
-    // Outside macOS the linked binary carries the runtime's DWARF too, tens
-    // of megabytes that `--verify` takes the better part of an hour over
-    // and `flux_unit_errors` ignores: verify the Flux objects instead.
-    let verified = if cfg!(target_os = "macos") {
-        vec![PathBuf::from(&*debug)]
-    } else {
-        flux_objects(&scratch)
-    };
+    // The binary (its `.dSYM` on macOS) also carries the runtime's DWARF,
+    // C and Rust, hundreds of megabytes that `--verify` takes minutes over
+    // per fixture and `flux_unit_errors` ignores: verify the Flux objects,
+    // which hold the same Flux compile units.
+    let verified = flux_objects(&scratch);
     let mut errors = Vec::new();
     for path in &verified {
         let verify = run_tool(
@@ -322,8 +447,7 @@ fn every_module_gets_its_own_compile_unit() {
         eprintln!("note: llvm-dwarfdump not found; skipping (set FLUX_DWARFDUMP)");
         return;
     };
-    let scratch = prepare("twomods");
-    build(&scratch, "twomods/main.flx", "app");
+    let scratch = built("twomods/main.flx");
     let debug = debug_file(&scratch, "app");
     let info = run_tool(
         &dwarfdump,
@@ -387,8 +511,7 @@ fn lldb_breaks_at_a_flux_line_and_shows_flux_frames() {
         eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
         return;
     };
-    let scratch = prepare("calls");
-    build(&scratch, "calls.flx", "app");
+    let scratch = built("calls.flx");
     let session = lldb_session(
         &lldb,
         &scratch,
@@ -412,8 +535,7 @@ fn lldb_steps_over_and_into_flux_lines() {
         eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
         return;
     };
-    let scratch = prepare("calls");
-    build(&scratch, "calls.flx", "app");
+    let scratch = built("calls.flx");
     let session = lldb_session(
         &lldb,
         &scratch,
@@ -448,8 +570,7 @@ fn lldb_names_a_lambda_by_where_it_is() {
         eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
         return;
     };
-    let scratch = prepare("lambdas");
-    build(&scratch, "lambdas.flx", "app");
+    let scratch = built("lambdas.flx");
     let session = lldb_session(
         &lldb,
         &scratch,
@@ -466,8 +587,7 @@ fn lldb_names_a_lambda_by_where_it_is() {
 
 #[test]
 fn deep_tail_recursion_runs_in_a_debug_build() {
-    let scratch = prepare("deep");
-    build(&scratch, "deep.flx", "app");
+    let scratch = built("deep.flx");
     let output = Command::new(scratch.path().join("app"))
         .output()
         .expect("run the debug build");
@@ -583,8 +703,7 @@ fn lldb_counts_references() {
         eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
         return;
     };
-    let scratch = prepare("refs");
-    build(&scratch, "refs.flx", "app");
+    let scratch = built("refs.flx");
     let Some(session) = flux_session(
         &lldb,
         &scratch,
@@ -641,8 +760,7 @@ fn lldb_shows_flux_values() {
         eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
         return;
     };
-    let scratch = prepare("values");
-    build(&scratch, "values.flx", "app");
+    let scratch = built("values.flx");
     let Some(session) = flux_session(
         &lldb,
         &scratch,
@@ -689,8 +807,7 @@ fn lldb_shows_variables_once_they_are_bound() {
         eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
         return;
     };
-    let scratch = prepare("calls");
-    build(&scratch, "calls.flx", "app");
+    let scratch = built("calls.flx");
     let Some(session) = flux_session(
         &lldb,
         &scratch,
@@ -724,8 +841,7 @@ fn lldb_shows_captured_variables_and_local_function_names() {
         eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
         return;
     };
-    let scratch = prepare("lambdas");
-    build(&scratch, "lambdas.flx", "app");
+    let scratch = built("lambdas.flx");
     let Some(session) = flux_session(
         &lldb,
         &scratch,
@@ -764,8 +880,7 @@ fn lldb_shows_the_binders_of_the_arm_that_matched() {
         eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
         return;
     };
-    let scratch = prepare("matches");
-    build(&scratch, "matches.flx", "app");
+    let scratch = built("matches.flx");
     let Some(session) = flux_session(
         &lldb,
         &scratch,
@@ -786,8 +901,7 @@ fn lldb_names_constructors_another_module_declares() {
         eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
         return;
     };
-    let scratch = prepare("adtmods");
-    build(&scratch, "adtmods/main.flx", "app");
+    let scratch = built("adtmods/main.flx");
     let Some(session) = flux_session(
         &lldb,
         &scratch,
@@ -815,8 +929,7 @@ fn the_dsym_carries_the_lldb_script() {
         eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
         return;
     };
-    let scratch = prepare("values");
-    build(&scratch, "values.flx", "app");
+    let scratch = built("values.flx");
     let script = scratch
         .path()
         .join("app.dSYM/Contents/Resources/Python/app.py");
@@ -910,8 +1023,7 @@ fn a_handler_arm_shows_the_frames_it_suspended_and_the_handlers() {
         eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
         return;
     };
-    let scratch = prepare("handlers");
-    build(&scratch, "handlers.flx", "app");
+    let scratch = built("handlers.flx");
     let Some(session) = flux_session(
         &lldb,
         &scratch,
@@ -941,8 +1053,7 @@ fn more_frames_than_the_runtime_keeps_in_one_continuation() {
         eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
         return;
     };
-    let scratch = prepare("overflow");
-    build(&scratch, "overflow.flx", "app");
+    let scratch = built("overflow.flx");
     let Some(session) = flux_session(&lldb, &scratch, "app", ("overflow.flx", 49), &["flux bt"])
     else {
         return;
@@ -973,8 +1084,7 @@ fn stepping_across_a_perform_follows_the_handler() {
         eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
         return;
     };
-    let scratch = prepare("handlers");
-    build(&scratch, "handlers.flx", "app");
+    let scratch = built("handlers.flx");
     // Over a perform: the next line of the same call, after the handler
     // resumed it.
     let Some(over) = flux_session(
@@ -1036,8 +1146,7 @@ fn flux_threads_lists_the_fibers_and_what_each_waits_for() {
         eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
         return;
     };
-    let scratch = prepare("fibers");
-    build_only(&scratch, "fibers.flx", "app");
+    let scratch = built("fibers.flx");
     let Some(session) = fiber_session(
         &lldb,
         &scratch,
@@ -1093,8 +1202,7 @@ fn flux_catch_fibers_stops_where_a_fiber_fails() {
         eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
         return;
     };
-    let scratch = prepare("fibers");
-    build_only(&scratch, "fibers.flx", "app");
+    let scratch = built("fibers.flx");
     let Some(session) = fiber_session(
         &lldb,
         &scratch,
@@ -1134,8 +1242,7 @@ fn a_panicking_root_fiber_stops_once() {
         eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
         return;
     };
-    let scratch = prepare("root_panic");
-    build_only(&scratch, "root_panic.flx", "app");
+    let scratch = built("root_panic.flx");
     let Some(session) = fiber_session(
         &lldb,
         &scratch,
@@ -1168,8 +1275,7 @@ fn flux_catch_stops_at_runtime_errors_in_flux_frames() {
         eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
         return;
     };
-    let scratch = prepare("panic");
-    build_only(&scratch, "panic.flx", "app");
+    let scratch = built("panic.flx");
     let import = format!("command script import {}", lldb_script());
     let session = lldb_session(
         &lldb,
@@ -1221,7 +1327,7 @@ fn a_caught_panic_stops_at_the_call_to_panic() {
         "boom.flx",
         "fn check(n: Int) -> Int {\n    if n > 2 {\n        panic(\"too big\")\n    } else {\n        n\n    }\n}\n\nfn main() with IO {\n    print(to_string(check(3)))\n}\n",
     );
-    build_only(&scratch, "boom.flx", "boom");
+    build_private(&scratch, "boom.flx", "boom");
     let import = format!("command script import {}", lldb_script());
     let session = lldb_session(
         &lldb,
@@ -1244,10 +1350,10 @@ fn a_caught_panic_stops_at_the_call_to_panic() {
 
 /// Runs the binary with `FLUX_TAPE_RECORD` set, as an editor does: the
 /// program writes the tape on its own.
-fn record_tape(scratch: &Scratch, binary: &str, tape: &str) {
+fn record_tape(scratch: &Scratch, binary: &str, tape: &Path) {
     let output = Command::new(scratch.join(binary))
         .current_dir(scratch.path())
-        .env("FLUX_TAPE_RECORD", scratch.join(tape))
+        .env("FLUX_TAPE_RECORD", tape)
         .output()
         .expect("run the program");
     assert!(
@@ -1284,10 +1390,12 @@ fn lldb_runs_a_replay_to_an_event_and_back() {
         eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
         return;
     };
-    let scratch = prepare("tape");
-    build_only(&scratch, "tape.flx", "app");
-    record_tape(&scratch, "app", "run.jsonl");
-    let replay = format!("FLUX_TAPE_REPLAY={}", scratch.join("run.jsonl").display());
+    let scratch = built("tape.flx");
+    // The fixture's directory is shared: the tape goes in one of this test's.
+    let tapes = Scratch::new("native-debug-tapes");
+    let tape = tapes.join("run.jsonl");
+    record_tape(&scratch, "app", &tape);
+    let replay = format!("FLUX_TAPE_REPLAY={}", tape.display());
     let Some(session) = tape_session(
         &lldb,
         &scratch,
@@ -1331,9 +1439,9 @@ fn lldb_goes_forward_only_in_a_recording() {
         eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
         return;
     };
-    let scratch = prepare("tape");
-    build_only(&scratch, "tape.flx", "app");
-    let record = format!("FLUX_TAPE_RECORD={}", scratch.join("run.jsonl").display());
+    let scratch = built("tape.flx");
+    let tapes = Scratch::new("native-debug-tapes");
+    let record = format!("FLUX_TAPE_RECORD={}", tapes.join("run.jsonl").display());
     let Some(session) = tape_session(
         &lldb,
         &scratch,
@@ -1364,8 +1472,7 @@ fn lldb_says_when_a_run_has_no_tape() {
         eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
         return;
     };
-    let scratch = prepare("tape");
-    build_only(&scratch, "tape.flx", "app");
+    let scratch = built("tape.flx");
     let Some(session) = tape_session(
         &lldb,
         &scratch,
@@ -1404,8 +1511,7 @@ fn lldb_shows_an_inlined_lambda_as_a_frame() {
         eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
         return;
     };
-    let scratch = prepare("inlined");
-    build_only(&scratch, "inlined.flx", "app");
+    let scratch = built("inlined.flx");
     let Some(session) = flux_session(
         &lldb,
         &scratch,
