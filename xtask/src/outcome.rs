@@ -134,11 +134,13 @@ impl Outcome {
         println!("     {}", paint.bold(&pad("total", &total_time, width)));
     }
 
-    /// Wide enough that every time lines up, however long a line is.
+    /// Wide enough that every time lines up, however long a line is. A line
+    /// with no time is printed as it is, so it does not count.
     fn width(&self, times: &[String]) -> usize {
         self.entries
             .iter()
             .zip(times)
+            .filter(|(_, time)| !time.is_empty())
             .map(|(entry, time)| entry.line.chars().count() + 2 + time.chars().count())
             .chain([MIN_WIDTH])
             .max()
