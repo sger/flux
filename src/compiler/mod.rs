@@ -7145,9 +7145,21 @@ impl Compiler {
         out.push_str("Note: Reuses and FBIP describe the Aether planner. BorrowedCallGuards are native call-site Dup/Drop safeguards; guarded calls may suppress a callee's reuse for those arguments.\n\n");
 
         let mut total = crate::aether::AetherStats::default();
+        // Views given away without a copy are counted only when asked for,
+        // while the planner still leaves many (0189 F3-2).
+        let check_views = std::env::var("FLUX_AETHER_VERIFY").is_ok_and(|v| v == "1");
+        let mut views_consumed = 0;
 
         for def in aether.defs() {
             let stats = crate::aether::collect_stats(&def.expr);
+            let view_diags = if check_views {
+                crate::aether::verify::verify_def_views_aether(
+                    &def.expr,
+                    def.borrow_signature.as_ref(),
+                )
+            } else {
+                Vec::new()
+            };
             if stats.dups == 0
                 && stats.drops == 0
                 && stats.reuses == 0
@@ -7156,6 +7168,7 @@ impl Compiler {
                 && stats.handles == 0
                 && stats.guarded_borrowed_args == 0
                 && def.fip.is_none()
+                && view_diags.is_empty()
             {
                 continue;
             }
@@ -7190,7 +7203,9 @@ impl Compiler {
             )
             .err()
             .unwrap_or_default();
-            let verify_diags = crate::aether::verify::verify_diagnostics_aether(&def.expr);
+            let mut verify_diags = crate::aether::verify::verify_diagnostics_aether(&def.expr);
+            views_consumed += view_diags.len();
+            verify_diags.extend(view_diags);
             if verify_errors.is_empty() && verify_diags.is_empty() {
                 out.push_str("  verifier: ok\n");
             } else {
@@ -7258,6 +7273,9 @@ impl Compiler {
             "\n── Total ──\n  {}\n  FreshAllocs: {}\n",
             total, total.allocs
         ));
+        if check_views {
+            out.push_str(&format!("  ViewConsumed: {views_consumed}\n"));
+        }
         Ok(out)
     }
 
