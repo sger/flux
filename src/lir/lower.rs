@@ -1682,10 +1682,14 @@ impl<'a> FnLower<'a> {
         }
     }
 
-    /// The closure for a top-level function used as a value in this block,
-    /// creating it if this block has not made one yet.
+    /// The closure for a top-level function used as a value in this block. The
+    /// block allocates it once; each call returns its own reference.
     fn func_closure_in_block(&mut self, binder: CoreBinderId, func_id: LirFuncId) -> LirVar {
         if let Some(&var) = self.block_func_closures.get(&(self.current_block, binder)) {
+            // Aether plans no Dup for a global, and any use may give the closure
+            // away, so each later use takes its own reference. A borrowed use leaks
+            // it until top-level closures are static (0189 V5, audit M3).
+            self.emit(LirInstr::Dup { val: var });
             return var;
         }
         let var = self.fresh_var();
@@ -6675,6 +6679,60 @@ mod tests {
             name,
             rep: FluxRep::TaggedRep,
         }
+    }
+
+    /// `main` puts `inc` in a tuple twice. Both uses share the block's one
+    /// closure, so the second takes its own reference (0189 V5, audit M3).
+    #[test]
+    fn a_top_level_function_used_twice_as_a_value_takes_a_reference_per_use() {
+        let span = Span::default();
+        let x = mk_binder(1, Identifier::new(1));
+        let inc = mk_binder(2, Identifier::new(2));
+        let main = mk_binder(3, Identifier::new(3));
+        let both = CoreExpr::PrimOp {
+            op: crate::core::CorePrimOp::MakeTuple,
+            args: vec![
+                CoreExpr::bound_var(&inc, span),
+                CoreExpr::bound_var(&inc, span),
+            ],
+            span,
+        };
+        let program = CoreProgram {
+            defs: vec![
+                CoreDef::new(
+                    inc,
+                    CoreExpr::lambda(vec![x], CoreExpr::bound_var(&x, span), span),
+                    false,
+                    span,
+                ),
+                CoreDef::new(main, CoreExpr::lambda(vec![], both, span), false, span),
+            ],
+            top_level_items: Vec::new(),
+        };
+
+        // `main` is lowered twice (its def and the entry point), so check every
+        // function that builds the closure.
+        let lowered = super::lower_program(&program);
+        let shown = super::display_program(&lowered);
+        let mut checked = 0;
+        for func in &lowered.functions {
+            let instrs: Vec<&crate::lir::LirInstr> =
+                func.blocks.iter().flat_map(|b| b.instrs.iter()).collect();
+            for closure in instrs.iter().filter_map(|i| match i {
+                crate::lir::LirInstr::MakeClosure { dst, captures, .. } if captures.is_empty() => {
+                    Some(*dst)
+                }
+                _ => None,
+            }) {
+                let dups = instrs
+                    .iter()
+                    .filter(|i| matches!(i, crate::lir::LirInstr::Dup { val } if *val == closure))
+                    .count();
+                assert_eq!(dups, 1, "{} in:\n{shown}", func.qualified_name);
+                checked += 1;
+            }
+        }
+        assert!(checked > 0, "no closure of `inc`:\n{shown}");
     }
 
     #[test]
