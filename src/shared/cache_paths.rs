@@ -272,7 +272,10 @@ use sha2::{Digest, Sha256};
 /// constructor into any cell dropped in the arm.
 /// Epoch 85: a match guard copies what it gives away (Perceus audit M2); an
 /// epoch-84 unit could free a value a later arm still used.
-pub const CACHE_EPOCH: u16 = 85;
+/// Epoch 86: each use of a top-level function's closure in a block takes its
+/// own reference (0189 F3-2c, audit M3); an epoch-85 unit could release one
+/// closure twice.
+pub const CACHE_EPOCH: u16 = 86;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

@@ -1,0 +1,17 @@
+// 0189 V5: `inc` used twice as a value in one block. Both uses share the
+// block's one closure, and each Owned parameter of `hold` releases it
+// (Perceus audit M3).
+
+fn inc(x) {
+    x + 1
+}
+
+fn hold(f, g, k) {
+    if k { [f, g] } else { [] }
+}
+
+fn main() {
+    let a = hold(inc, inc, false)
+    print(len(a))
+    print(inc(1))
+}
