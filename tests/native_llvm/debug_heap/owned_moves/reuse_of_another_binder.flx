@@ -1,0 +1,34 @@
+// Inside the arm that matches Big on a lent `b`, the dead Option `o` is
+// dropped right before a Big is built. Its one-field cell must not be
+// reused for six fields (Perceus audit M1).
+
+data Big {
+    Big(Int, Int, Int, Int, Int, Int),
+    Small,
+}
+
+fn keep(o) {
+    o
+}
+
+fn f(o, b) {
+    let r = match b {
+        Big(a1, a2, a3, a4, a5, a6) -> Big(a1 + 1, a2, a3, a4, a5, a6),
+        Small -> match keep(o) {
+            Some(k) -> Big(k, k, k, k, k, k),
+            None -> Small,
+        },
+    }
+    print(b)
+    r
+}
+
+fn main() {
+    let b = Big(1, 2, 3, 4, 5, 6)
+    let o = Some(7)
+    let r = f(o, b)
+    let s = Some(8)
+    print(r)
+    print(b)
+    print(s)
+}
