@@ -1,0 +1,27 @@
+// 0189 V3: a handler arm returns the list it was given. The runtime lends a
+// clause its argument and releases it once the clause returns, so the arm
+// must hand back a copy.
+
+effect Ask {
+    ask: List<Int> -> List<Int>
+}
+
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn body(n) -> List<Int> with Ask {
+    perform Ask.ask(numbers(n))
+}
+
+fn echo(n) -> List<Int> {
+    body(n) handle Ask {
+        ask(resume, v) -> v
+    }
+}
+
+fn main() {
+    let ys = echo(1)
+    print(ys)
+    print(len(ys))
+}

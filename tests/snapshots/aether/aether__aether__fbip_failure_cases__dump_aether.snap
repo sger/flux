@@ -690,6 +690,17 @@ lam(a_arr, b_arr) ->
   let <sym:4001456> =
     MakeArray()
   aether_call[borrowed, borrowed] zip_go#190(0, <sym:4001456>#1456)
+── fn contains ──
+  Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  FreshAllocs: 0
+  verifier: ok
+lam(__dict_m7_466C6F772E4571_Eq, arr, x) ->
+  let <sym:4001458> =
+    lam(v) ->
+      let <sym:4001457> =
+        __dict_m7_466C6F772E4571_Eq#199.0
+      aether_call[owned, owned] <sym:4001457>#1457(v#200, dup x#198 in x#198)
+  aether_call[borrowed, borrowed] any#399(arr#197, <sym:4001458>#1458)
 ── fn reverse ──
   Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
@@ -1089,7 +1100,7 @@ lam(arr, pairs) ->
           a#324
   aether_call[owned, owned] update_many_go#323(arr#321, pairs#322)
 ── fn accum ──
-  Dups: 4  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 5  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(size, init, pairs, f) ->
@@ -1097,7 +1108,8 @@ lam(size, init, pairs, f) ->
     let <sym:4001555> =
       lam(_) ->
         drop _#340 in
-          init#330
+          dup init#330 in
+            init#330
     aether_call[borrowed, borrowed] tabulate#294(size#329, <sym:4001555>#1555)
   letrec accum_go =
     lam(a, ps) ->
@@ -2417,7 +2429,7 @@ lam(__dict_m7_466C6F772E4571_Eq, x, y) ->
         _ ->
           true
 ── fn print_all [yield×2] ──
-  Dups: 1  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  Yields: 2  Handles: 0  HandlerArms: 0
+  Dups: 1  Drops: 3  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  Yields: 2  Handles: 0  HandlerArms: 0
   FreshAllocs: 0
   verifier: ok
 lam(arr) ->
@@ -2442,15 +2454,14 @@ lam(arr) ->
               IAdd(i#914, 1)
             aether_call[owned] pa_go#913(<sym:4001755>#1755)
         _ ->
-            drop pa_go#913 in
           drop i#914 in
-              MakeTuple()
+            MakeTuple()
   let <sym:2000020> =
     aether_call[owned] pa_go#913(0)
   drop <sym:2000020>#912 in
     ()
 ── fn println_all [yield×2] ──
-  Dups: 1  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  Yields: 2  Handles: 0  HandlerArms: 0
+  Dups: 1  Drops: 3  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  Yields: 2  Handles: 0  HandlerArms: 0
   FreshAllocs: 0
   verifier: ok
 lam(arr) ->
@@ -2475,9 +2486,8 @@ lam(arr) ->
               IAdd(i#921, 1)
             aether_call[owned] pla_go#920(<sym:4001759>#1759)
         _ ->
-            drop pla_go#920 in
           drop i#921 in
-              MakeTuple()
+            MakeTuple()
   let <sym:2000022> =
     aether_call[owned] pla_go#920(0)
   drop <sym:2000022>#919 in
@@ -2714,7 +2724,7 @@ lam() ->
         aether_call[owned] __resume_default#1356(<sym:4001905>#1905)
 
 ── Total ──
-  Dups: 187  Drops: 91  Reuses: 14  DropSpecs: 11  BorrowedCallGuards: 41  FBIP: fbip(48)  Yields: 11  Handles: 5  HandlerArms: 11
+  Dups: 189  Drops: 89  Reuses: 14  DropSpecs: 11  BorrowedCallGuards: 41  FBIP: fbip(48)  Yields: 11  Handles: 5  HandlerArms: 11
   FreshAllocs: 48
 
 [ 1 of 19] Compiling  Add

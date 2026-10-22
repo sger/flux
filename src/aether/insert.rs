@@ -55,6 +55,20 @@ impl Scope {
         )
     }
 
+    /// Lends `ids` for a body planned next, returning the ones that were not
+    /// lent already, for `unlend` to take back after it.
+    fn lend(&mut self, ids: impl IntoIterator<Item = CoreBinderId>) -> Vec<CoreBinderId> {
+        ids.into_iter()
+            .filter(|id| self.borrowed_params.insert(*id))
+            .collect()
+    }
+
+    fn unlend(&mut self, ids: Vec<CoreBinderId>) {
+        for id in ids {
+            self.borrowed_params.remove(&id);
+        }
+    }
+
     /// Whether `binder` is a Borrowed parameter, or a field taken from one
     /// (through `field_parents`).
     fn lent(&self, binder: CoreBinderId, field_parents: &FieldParents) -> bool {
@@ -343,6 +357,15 @@ fn plan_expr(
                 scope.insert(param.id, *param);
                 param_ids.push(param.id);
             }
+            // Making the closure retains each capture (`flux_make_closure`),
+            // so inside the body a capture is lent, like a Borrowed
+            // parameter: giving it away takes a Dup, and only releasing the
+            // closure releases it (0189 V2).
+            let lent = scope.lend(
+                super::free_vars::collect_free_vars_aether(&body)
+                    .into_iter()
+                    .filter(|id| !param_ids.contains(id)),
+            );
 
             let body_plan = plan_expr(
                 *body,
@@ -355,6 +378,7 @@ fn plan_expr(
             for param in &params {
                 scope.remove(&param.id);
             }
+            scope.unlend(lent);
 
             let mut body_expr = body_plan.expr;
             for param in params.iter().rev() {
@@ -802,6 +826,11 @@ fn plan_expr(
                     scope.insert(state.id, state);
                     shadow_ids.push(state.id);
                 }
+                // The runtime lends a clause its `resume`, arguments and state,
+                // and releases the operation's argument once the clause
+                // returns (`runtime/c/effects.c`): one given away is copied
+                // (0189 V3).
+                let lent = scope.lend(shadow_ids.iter().copied());
 
                 let handler_plan = plan_expr(
                     handler.body,
@@ -814,6 +843,7 @@ fn plan_expr(
                 for shadow in &shadow_ids {
                     scope.remove(shadow);
                 }
+                scope.unlend(lent);
 
                 let mut env_before = handler_plan.env_before.clone();
                 env_before.remove_all(shadow_ids);
@@ -1339,7 +1369,7 @@ fn expr_uses_binder(expr: &CoreExpr, binder: CoreBinderId) -> bool {
     use_counts_aether(expr).get(&binder).cloned().unwrap_or(0) > 0
 }
 
-fn expr_drops_binder(expr: &CoreExpr, binder: CoreBinderId) -> bool {
+pub(super) fn expr_drops_binder(expr: &CoreExpr, binder: CoreBinderId) -> bool {
     match expr {
         CoreExpr::Drop { var, body, .. } => {
             var.binder == Some(binder) || expr_drops_binder(body, binder)
@@ -2050,6 +2080,109 @@ mod tests {
 
         let planned = insert_dup_drop_with_registry(expr, &BorrowRegistry::default());
         assert_eq!(drops(&planned, x), 0, "{planned:?}");
+    }
+
+    /// 0189 V2: making a closure retains its captures, so the closure holds
+    /// its own reference and each call that gives a capture away copies it.
+    #[test]
+    fn a_capture_given_away_is_copied() {
+        let mut interner = Interner::new();
+        let xs = binder(&mut interner, 1, "xs");
+        let f = interner.intern("f");
+
+        let returned = insert_dup_drop_with_registry(
+            lam(vec![xs], lam(vec![], var(xs))),
+            &BorrowRegistry::default(),
+        );
+        assert_eq!(dups(&returned, xs), 1, "{returned:?}");
+        assert_eq!(views_consumed(&returned), 0, "{returned:?}");
+
+        let passed = insert_dup_drop_with_registry(
+            lam(vec![xs], lam(vec![], call(f, vec![var(xs)]))),
+            &BorrowRegistry::default(),
+        );
+        assert_eq!(dups(&passed, xs), 1, "{passed:?}");
+        assert_eq!(views_consumed(&passed), 0, "{passed:?}");
+    }
+
+    /// `\() -> case c of 0 -> f(xs); _ -> 0`: the arm that does not give
+    /// `xs` away must not release it to even up, since the closure keeps it.
+    #[test]
+    fn a_lambda_never_releases_its_capture() {
+        let mut interner = Interner::new();
+        let xs = binder(&mut interner, 1, "xs");
+        let c = binder(&mut interner, 2, "c");
+        let f = interner.intern("f");
+        let arm = |pat, rhs| CoreAlt {
+            pat,
+            guard: None,
+            rhs,
+            span: Span::default(),
+        };
+        let body = CoreExpr::Case {
+            scrutinee: Box::new(var(c)),
+            alts: vec![
+                arm(CorePat::Lit(CoreLit::Int(0)), call(f, vec![var(xs)])),
+                arm(
+                    CorePat::Wildcard,
+                    CoreExpr::Lit(CoreLit::Int(0), Span::default()),
+                ),
+            ],
+            join_ty: None,
+            span: Span::default(),
+        };
+
+        let planned = insert_dup_drop_with_registry(
+            lam(vec![xs, c], lam(vec![], body)),
+            &BorrowRegistry::default(),
+        );
+        let CoreExpr::Lam { body: outer, .. } = &planned else {
+            unreachable!("planned a lambda");
+        };
+        assert_eq!(drops(outer, xs), 0, "{planned:?}");
+        assert_eq!(dups(outer, xs), 1, "{planned:?}");
+    }
+
+    /// 0189 V3: the runtime lends a clause its argument and releases it once
+    /// the clause returns (`runtime/c/effects.c`), so an arm that gives the
+    /// argument, or its `resume`, away copies it.
+    #[test]
+    fn a_handler_value_given_away_is_copied() {
+        let mut interner = Interner::new();
+        let resume = binder(&mut interner, 1, "resume");
+        let v = binder(&mut interner, 2, "v");
+        let f = interner.intern("f");
+        let effect = crate::syntax::builtin_effects::io_effect_symbol(&mut interner);
+        let op = interner.intern("ask");
+        let handle = |body| CoreExpr::Handle {
+            body: Box::new(CoreExpr::Lit(CoreLit::Unit, Span::default())),
+            effect,
+            parameter: None,
+            handlers: vec![CoreHandler {
+                operation: op,
+                params: vec![v],
+                param_types: vec![],
+                resume,
+                resume_ty: None,
+                state: None,
+                state_ty: None,
+                body,
+                span: Span::default(),
+            }],
+            span: Span::default(),
+        };
+
+        let returned =
+            insert_dup_drop_with_registry(lam(vec![], handle(var(v))), &BorrowRegistry::default());
+        assert_eq!(dups(&returned, v), 1, "{returned:?}");
+        assert_eq!(views_consumed(&returned), 0, "{returned:?}");
+
+        let stored = insert_dup_drop_with_registry(
+            lam(vec![], handle(call(f, vec![var(resume)]))),
+            &BorrowRegistry::default(),
+        );
+        assert_eq!(dups(&stored, resume), 1, "{stored:?}");
+        assert_eq!(views_consumed(&stored), 0, "{stored:?}");
     }
 
     #[test]

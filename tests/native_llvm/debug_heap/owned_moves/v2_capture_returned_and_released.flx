@@ -1,0 +1,23 @@
+// 0189 V2: a closure returns its capture, and each result goes to a call
+// that releases it. The closure keeps its own reference, so every call must
+// hand out a copy; the list is still intact when it is read at the end.
+
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn discard(xs, keep) {
+    if keep { xs } else { [] }
+}
+
+fn main() {
+    let xs = numbers(1)
+    let f = \() -> xs
+    let a = discard(f(), false)
+    let b = discard(f(), false)
+    let c = discard(f(), false)
+    print(a)
+    print(b)
+    print(c)
+    print(f())
+}
