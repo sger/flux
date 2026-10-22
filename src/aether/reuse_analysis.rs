@@ -1250,9 +1250,14 @@ fn build_reuse_expr(
     if blocked_outer_token.is_some() {
         return Err(ReuseFailureReason::SharedBranchOnly);
     }
-    let (tag, fields, span) = into_constructor_shape_for_tag_aether(body, pat_tag)
+    // Without a matched pattern the token's cell size is unknown, and Reuse
+    // writes the new fields into it unchecked.
+    let Some(expected) = pat_tag else {
+        return Err(ReuseFailureReason::ShapeMismatch);
+    };
+    let (tag, fields, span) = into_constructor_shape_for_tag_aether(body, Some(expected))
         .ok_or(ReuseFailureReason::ShapeMismatch)?;
-    if pat_tag.is_some_and(|expected| expected != &tag) {
+    if tag != *expected {
         return Err(ReuseFailureReason::ShapeMismatch);
     }
     if !is_heap_tag(&tag) {
@@ -1482,7 +1487,12 @@ fn try_rewrite_forwarded_wrapper_constructor(
     let Some((tag, fields, span)) = constructor_shape_for_expr(&body, None) else {
         return no_rewrite(body, ReuseFailureReason::ShapeMismatch);
     };
-    if pat_tag.is_some_and(|expected| expected == &tag) {
+    // The child is rebuilt in the token's cell, so it must be the matched
+    // constructor. A wrapper of that constructor is build_reuse_expr's case.
+    let Some(matched) = pat_tag else {
+        return no_rewrite(body, ReuseFailureReason::ShapeMismatch);
+    };
+    if *matched == tag {
         return no_rewrite(body, ReuseFailureReason::ShapeMismatch);
     }
 
@@ -1493,6 +1503,7 @@ fn try_rewrite_forwarded_wrapper_constructor(
             && let Some(field_expr) = try_rewrite_forwarded_child_field(
                 outer_token_binder,
                 field.clone(),
+                matched,
                 env,
                 blocked_outer_token,
             )
@@ -1526,6 +1537,7 @@ fn try_rewrite_forwarded_wrapper_constructor(
 fn try_rewrite_forwarded_child_field(
     child_token_binder: CoreBinderId,
     expr: CoreExpr,
+    matched: &CoreTag,
     env: &ReuseEnv,
     blocked_outer_token: Option<CoreBinderId>,
 ) -> Option<CoreExpr> {
@@ -1536,6 +1548,7 @@ fn try_rewrite_forwarded_child_field(
             binder: Some(child_token_binder),
         },
         resolved,
+        matched,
         blocked_outer_token,
     )
 }
@@ -1543,6 +1556,7 @@ fn try_rewrite_forwarded_child_field(
 fn build_child_reuse_expr(
     token: &CoreVarRef,
     expr: CoreExpr,
+    matched: &CoreTag,
     blocked_outer_token: Option<CoreBinderId>,
 ) -> Option<CoreExpr> {
     match expr {
@@ -1561,14 +1575,20 @@ fn build_child_reuse_expr(
             Some(CoreExpr::Let {
                 var,
                 rhs,
-                body: Box::new(build_child_reuse_expr(token, *body, blocked_outer_token)?),
+                body: Box::new(build_child_reuse_expr(
+                    token,
+                    *body,
+                    matched,
+                    blocked_outer_token,
+                )?),
                 span,
             })
         }
         other => {
             let token_binder = token.binder?;
             let (tag, fields, span) = into_constructor_shape_for_tag_aether(other, None)?;
-            if !is_heap_tag(&tag)
+            if &tag != matched
+                || !is_heap_tag(&tag)
                 || blocked_outer_token == Some(token_binder)
                 || fields
                     .iter()

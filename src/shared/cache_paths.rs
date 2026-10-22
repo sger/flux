@@ -267,7 +267,10 @@ use sha2::{Digest, Sha256};
 /// Epoch 83: a capture inside its lambda, and a handler clause's `resume`,
 /// arguments and state, are lent and copied when given away (0189 F3-2b);
 /// an epoch-82 unit gave away the closure's or the runtime's reference.
-pub const CACHE_EPOCH: u16 = 83;
+/// Epoch 84: only the value an arm matched is reused for the constructor it
+/// matched (Perceus audit M1); an epoch-83 unit could write a larger
+/// constructor into any cell dropped in the arm.
+pub const CACHE_EPOCH: u16 = 84;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

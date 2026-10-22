@@ -1967,8 +1967,8 @@ lam(xs, ys) ->
     _ ->
       ys#652
 ── fn lookup ──
-  Dups: 3  Drops: 3  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
-  FreshAllocs: 0
+  Dups: 3  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
+  FreshAllocs: 1
   verifier: ok
 lam(__dict_m7_466C6F772E4571_Eq, xs, key) ->
   case xs#660 of
@@ -1979,8 +1979,9 @@ lam(__dict_m7_466C6F772E4571_Eq, xs, key) ->
         aether_call[owned, owned] <sym:4001677>#1677(dup k#663 in k#663, dup key#661 in key#661)
       case <sym:4001678>#1678 of
         true ->
-          drop key#661 in
-            reuse __dict_m7_466C6F772E4571_Eq#662 as Some(dup v#664 in v#664)
+            drop key#661 in
+          drop __dict_m7_466C6F772E4571_Eq#662 in
+              Some(dup v#664 in v#664)
         _ ->
           aether_call[owned, borrowed, owned] lookup#659(__dict_m7_466C6F772E4571_Eq#662, t#665, key#661)
     _ ->
@@ -2724,8 +2725,8 @@ lam() ->
         aether_call[owned] __resume_default#1356(<sym:4001905>#1905)
 
 ── Total ──
-  Dups: 189  Drops: 89  Reuses: 14  DropSpecs: 11  BorrowedCallGuards: 41  FBIP: fbip(48)  Yields: 11  Handles: 5  HandlerArms: 11
-  FreshAllocs: 48
+  Dups: 189  Drops: 90  Reuses: 13  DropSpecs: 11  BorrowedCallGuards: 41  FBIP: fbip(49)  Yields: 11  Handles: 5  HandlerArms: 11
+  FreshAllocs: 49
 
 [ 1 of 19] Compiling  Add
 [ 2 of 19] Compiling  Assert
