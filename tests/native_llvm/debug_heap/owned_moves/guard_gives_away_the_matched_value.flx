@@ -1,0 +1,21 @@
+// The guard gives away the matched list itself, fails, and the next arm
+// returns it. The guard must give away a copy (Perceus audit M2).
+
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn discard(xs, keep) {
+    if keep { xs } else { [] }
+}
+
+fn test(xs) {
+    match xs {
+        [_ | _] if len(discard(xs, false)) > 5 -> [],
+        _ -> xs,
+    }
+}
+
+fn main() {
+    print(test(numbers(1)))
+}

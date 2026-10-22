@@ -594,6 +594,11 @@ fn plan_expr(
                     field_parents,
                 );
                 let (guard, branch_env) = if let Some(guard) = guard {
+                    // A failed guard falls through to the later arms, which may
+                    // still read or release what it uses, but `env_before` holds
+                    // only this arm's liveness. Lent, each value the guard gives
+                    // away is copied first (audit M2).
+                    let lent = scope.lend(super::free_vars::collect_free_vars_aether(&guard));
                     let guard_plan = plan_expr(
                         guard,
                         rhs_plan.env_before.clone(),
@@ -602,6 +607,7 @@ fn plan_expr(
                         scope,
                         field_parents,
                     );
+                    scope.unlend(lent);
                     (Some(guard_plan.expr), guard_plan.env_before)
                 } else {
                     (None, rhs_plan.env_before.clone())
@@ -1894,6 +1900,93 @@ mod tests {
             "{planned:?}"
         );
         assert_eq!(views_consumed(&planned), 0, "{planned:?}");
+    }
+
+    /// `lam(params) -> case scrutinee of Cons(h, t) if guard -> Nil; _ -> fallback`.
+    fn guarded_match(
+        params: Vec<CoreBinder>,
+        scrutinee: CoreBinder,
+        [h, t]: [CoreBinder; 2],
+        guard: CoreExpr,
+        fallback: CoreExpr,
+    ) -> CoreExpr {
+        lam(
+            params,
+            CoreExpr::Case {
+                scrutinee: Box::new(var(scrutinee)),
+                alts: vec![
+                    CoreAlt {
+                        pat: cons(h, t),
+                        guard: Some(guard),
+                        rhs: CoreExpr::Con {
+                            tag: crate::core::CoreTag::Nil,
+                            fields: vec![],
+                            span: Span::default(),
+                        },
+                        span: Span::default(),
+                    },
+                    CoreAlt {
+                        pat: CorePat::Wildcard,
+                        guard: None,
+                        rhs: fallback,
+                        span: Span::default(),
+                    },
+                ],
+                join_ty: None,
+                span: Span::default(),
+            },
+        )
+    }
+
+    /// A failed guard falls through to `_ -> x`, which still owns `x`, so the
+    /// guard gives away a copy (audit M2).
+    #[test]
+    fn a_guard_copies_a_value_a_later_arm_uses() {
+        let mut interner = Interner::new();
+        let [x, junk, h, t] = [(1, "x"), (2, "junk"), (3, "h"), (4, "t")]
+            .map(|(id, name)| binder(&mut interner, id, name));
+        let discard = interner.intern("discard");
+
+        let planned = insert_dup_drop_with_registry(
+            guarded_match(
+                vec![x, junk],
+                junk,
+                [h, t],
+                call(discard, vec![var(x)]),
+                var(x),
+            ),
+            &BorrowRegistry::default(),
+        );
+        assert_eq!(dups(&planned, x), 1, "{planned:?}");
+    }
+
+    /// The next arm reads the matched list again, so the guard gives away a
+    /// copy.
+    #[test]
+    fn a_guard_copies_the_matched_value_it_gives_away() {
+        let mut interner = Interner::new();
+        let [xs, h, t] =
+            [(1, "xs"), (2, "h"), (3, "t")].map(|(id, name)| binder(&mut interner, id, name));
+        let discard = interner.intern("discard");
+
+        let planned = insert_dup_drop_with_registry(
+            guarded_match(vec![xs], xs, [h, t], call(discard, vec![var(xs)]), var(xs)),
+            &BorrowRegistry::default(),
+        );
+        assert_eq!(dups(&planned, xs), 1, "{planned:?}");
+    }
+
+    #[test]
+    fn a_guard_that_only_reads_needs_no_copy() {
+        let mut interner = Interner::new();
+        let [x, junk, h, t] = [(1, "x"), (2, "junk"), (3, "h"), (4, "t")]
+            .map(|(id, name)| binder(&mut interner, id, name));
+
+        let planned = insert_dup_drop_with_registry(
+            guarded_match(vec![x, junk], junk, [h, t], var(x), var(x)),
+            &BorrowRegistry::default(),
+        );
+        assert_eq!(dups(&planned, x), 0, "{planned:?}");
     }
 
     fn field_of(object: CoreBinder, index: usize) -> CoreExpr {
