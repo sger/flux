@@ -1,0 +1,23 @@
+// drop_spec's unique path where only one arm can reuse the matched cell:
+// the other arm still owns the cell's fields, so the cell must not be
+// released there.
+
+data Pair2 {
+    Pair2(List<Int>, List<Int>),
+}
+
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn split(xs, acc, c) {
+    match xs {
+        [y | ys] -> if c { Pair2([y | acc], ys) } else { Pair2(acc, ys) },
+        _ -> Pair2(xs, acc),
+    }
+}
+
+fn main() {
+    print(split(numbers(1), [0], true))
+    print(split(numbers(5), [0], false))
+}

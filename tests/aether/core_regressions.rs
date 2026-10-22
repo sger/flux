@@ -143,9 +143,9 @@ fn lowered_core_and_interner(src: impl AsRef<str>) -> (AetherProgram, Interner) 
 
 /// How many `Dup`s of a binder named `name` the program holds.
 fn dups_named(core: &AetherProgram, interner: &Interner, name: &str) -> usize {
-    let Some(name) = interner.lookup(name) else {
-        return 0;
-    };
+    let name = interner
+        .lookup(name)
+        .unwrap_or_else(|| panic!("the program binds `{name}`"));
     core.defs
         .iter()
         .map(|def| {

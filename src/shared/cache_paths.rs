@@ -264,7 +264,10 @@ use sha2::{Digest, Sha256};
 /// value an array, map or option still held.
 /// Epoch 82: a pattern or tuple field given away is copied first (0189
 /// F3-2a); an epoch-81 unit moved it out of the cell that still held it.
-pub const CACHE_EPOCH: u16 = 82;
+/// Epoch 83: a capture inside its lambda, and a handler clause's `resume`,
+/// arguments and state, are lent and copied when given away (0189 F3-2b);
+/// an epoch-82 unit gave away the closure's or the runtime's reference.
+pub const CACHE_EPOCH: u16 = 83;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

@@ -407,9 +407,9 @@ fn is_heap_tag(tag: &CoreTag) -> bool {
 }
 
 /// The unique path of a `DropSpecialized`: a Con on its spine reuses the
-/// cell. When there is none, the cell may still be built further in, as one
-/// bound by a `let` and passed to a wrapper is; it is looked for there as a
-/// plain drop's body is, so splitting an arm never costs it its reuse.
+/// matched cell. When the walk finds none, the new cell may be bound by a
+/// `let` and passed to a wrapper; the plain-drop rewrite finds that case, so
+/// splitting the arm does not lose the reuse it had before.
 fn reuse_on_unique_path(
     scrutinee: &CoreVarRef,
     body: CoreExpr,
@@ -435,7 +435,14 @@ fn reuse_on_unique_path(
         pat_tag,
         None,
     );
-    if rewritten.reused {
+    // The plain-drop rewrite has every arm that does not reuse the cell drop
+    // it, which is right under a plain drop, where the fields were copied
+    // first. Here drop_spec took those copies out, so that drop would release
+    // the fields a second time.
+    let releases = scrutinee
+        .binder
+        .is_some_and(|id| super::insert::expr_drops_binder(&rewritten.expr, id));
+    if rewritten.reused && !releases {
         rewritten.expr
     } else {
         walked
@@ -560,6 +567,19 @@ mod tests {
         }
     }
 
+    fn drops_of(expr: &CoreExpr, token: CoreBinderId) -> usize {
+        match expr {
+            CoreExpr::Drop { var, body, .. } => {
+                usize::from(var.binder == Some(token)) + drops_of(body, token)
+            }
+            CoreExpr::Let { rhs, body, .. } => drops_of(rhs, token) + drops_of(body, token),
+            CoreExpr::Case { alts, .. } => alts.iter().map(|alt| drops_of(&alt.rhs, token)).sum(),
+            CoreExpr::DropSpecialized { unique_body, .. } => drops_of(unique_body, token),
+            CoreExpr::Dup { body, .. } => drops_of(body, token),
+            _ => 0,
+        }
+    }
+
     /// `[y | ys] -> Pair2([y | acc], ys)` once drop_spec has split it: the
     /// unique path holds `xs`'s cell alone, so the new cell bound in a `let`
     /// and passed to the wrapper reuses it, as it does under a plain `drop`.
@@ -614,5 +634,88 @@ mod tests {
 
         let rewritten = super::insert_reuse(expr);
         assert_eq!(reuses_of(&rewritten, xs.id), 1, "{rewritten:?}");
+    }
+
+    /// `[y | ys] -> if c { Pair2([y | acc], ys) } else { Pair2(acc, ys) }`
+    /// once split: only one arm can reuse `xs`. The other still owns `y` and
+    /// `ys` with no copy of its own (drop_spec took the copies out), so
+    /// releasing `xs` there would release them a second time.
+    #[test]
+    fn a_unique_path_never_releases_its_cell_in_an_arm_that_does_not_reuse_it() {
+        let mut interner = Interner::new();
+        let pair2 = interner.intern("Pair2");
+        let [xs, y, ys, acc, tmp, c] = [
+            (1, "xs"),
+            (2, "y"),
+            (3, "ys"),
+            (4, "acc"),
+            (5, "tmp"),
+            (6, "c"),
+        ]
+        .map(|(id, name)| CoreBinder::new(CoreBinderId(id), interner.intern(name)));
+        let pair = |first, second| CoreExpr::AetherCall {
+            func: Box::new(CoreExpr::Var {
+                var: CoreVarRef::unresolved(pair2),
+                span: Span::default(),
+            }),
+            args: vec![first, second],
+            arg_modes: vec![BorrowMode::Owned, BorrowMode::Owned],
+            guarded_borrowed_args: vec![false, false],
+            span: Span::default(),
+        };
+        let arms = |tail: &dyn Fn() -> CoreExpr| CoreExpr::Case {
+            scrutinee: Box::new(v(c)),
+            alts: vec![
+                CoreAlt {
+                    pat: CorePat::Lit(crate::core::CoreLit::Bool(true)),
+                    guard: None,
+                    rhs: CoreExpr::Let {
+                        var: tmp,
+                        rhs: Box::new(CoreExpr::Con {
+                            tag: CoreTag::Cons,
+                            fields: vec![v(y), v(acc)],
+                            span: Span::default(),
+                        }),
+                        body: Box::new(pair(v(tmp), tail())),
+                        span: Span::default(),
+                    },
+                    span: Span::default(),
+                },
+                CoreAlt {
+                    pat: CorePat::Wildcard,
+                    guard: None,
+                    rhs: pair(v(acc), tail()),
+                    span: Span::default(),
+                },
+            ],
+            join_ty: None,
+            span: Span::default(),
+        };
+        let expr = CoreExpr::Case {
+            scrutinee: Box::new(v(xs)),
+            alts: vec![CoreAlt {
+                pat: CorePat::Con {
+                    tag: CoreTag::Cons,
+                    fields: vec![CorePat::Var(y), CorePat::Var(ys)],
+                },
+                guard: None,
+                rhs: CoreExpr::DropSpecialized {
+                    scrutinee: CoreVarRef::resolved(&xs),
+                    unique_body: Box::new(arms(&|| v(ys))),
+                    shared_body: Box::new(arms(&|| CoreExpr::Dup {
+                        var: CoreVarRef::resolved(&ys),
+                        body: Box::new(v(ys)),
+                        span: Span::default(),
+                    })),
+                    span: Span::default(),
+                },
+                span: Span::default(),
+            }],
+            join_ty: None,
+            span: Span::default(),
+        };
+
+        let rewritten = super::insert_reuse(expr);
+        assert_eq!(drops_of(&rewritten, xs.id), 0, "{rewritten:?}");
     }
 }

@@ -973,9 +973,10 @@ fn check_diagnostics(expr: &AetherExpr, diags: &mut Vec<AetherDiagnostic>) {
                 check_diagnostics(&h.body, diags);
             }
         }
-        // The shared path is the unique one with the cell still held: it
-        // builds fresh cells by design, and what else it holds the unique
-        // path holds too.
+        // The shared path is the unique one with the cell still held: reuse
+        // there is blocked for every token (reuse.rs passes the scrutinee as
+        // `blocked_outer_token`), so a missed reuse on it can never be fixed,
+        // and what else it holds the unique path holds too.
         AetherExpr::DropSpecialized { unique_body, .. } => {
             check_diagnostics(unique_body, diags);
         }
