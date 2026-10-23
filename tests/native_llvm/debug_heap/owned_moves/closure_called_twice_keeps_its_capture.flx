@@ -1,0 +1,15 @@
+// PA R1: a closure called twice and then no more. Releasing it after its last
+// call must leave the list it captured to `xs`, which still holds it.
+
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn main() {
+    let xs = numbers(1)
+    let f = \() -> len(xs)
+    let a = f()
+    let b = f()
+    print(a + b)
+    print(xs)
+}

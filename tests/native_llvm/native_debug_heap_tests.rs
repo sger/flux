@@ -590,3 +590,31 @@ fn a_loop_that_makes_a_list_each_turn_stays_a_tail_call() {
         "1000 turns: {small}, 2000 turns: {large}"
     );
 }
+
+const LENDING_LOOP: &str = r"fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn walk(n, acc, prev) {
+    if n == 0 { acc } else {
+        walk(n - 1, acc + len(prev), numbers(n))
+    }
+}
+
+fn main() {
+    print(walk(SIZE, 0, []))
+}
+";
+
+/// A self tail call that lends the list it made to the next turn: `prev` is
+/// only read, so the caller still holds the list while the call runs.
+/// Releasing it after the call would take a frame per turn and overflow the
+/// stack at ten million turns, so the call stays a jump (PA R1).
+#[test]
+fn a_loop_that_lends_a_fresh_list_to_its_tail_call_stays_a_tail_call() {
+    let scratch = Scratch::new("debug-heap-lending-loop");
+    let path = scratch.write("lend_long.flx", &LENDING_LOOP.replace("SIZE", "10000000"));
+    let file = path.to_string_lossy();
+    let (native, stderr, code) = run(&scratch, &file, &["--native"], None);
+    assert_eq!((native.as_str(), code), ("29999997\n", 0), "{stderr}");
+}
