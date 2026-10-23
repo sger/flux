@@ -907,9 +907,33 @@ fn collect_heap_mode_details(run_results: &[super::RunResult]) -> Vec<MismatchDe
                 message: line.trim().to_string(),
             });
         }
+        // A freed cell that is only read never reaches a dup or a drop, so the
+        // debug heap cannot stop it: the program prints the poison and may
+        // still exit 0, as the Perceus audit's M2 did.
+        if let Some(line) = run
+            .stdout
+            .lines()
+            .find(|line| POISON_RENDERINGS.iter().any(|poison| line.contains(poison)))
+        {
+            details.push(MismatchDetail::HeapFault {
+                way: run.way,
+                message: format!("printed a freed value: {}", line.trim()),
+            });
+        }
     }
     details
 }
+
+/// How the debug heap's poison word, `0xDEADDEADDEADDEAD` (`FLUX_POISON` in
+/// `runtime/c/rc.c`), prints. A freed block keeps its header and loses its
+/// payload: a constructor's tag is the word's low 32 bits, a field read from
+/// it is odd and prints as an Int, and a boxed Float prints the word as a
+/// double.
+const POISON_RENDERINGS: &[&str] = &[
+    "tag=-559030611",
+    "-1200509093985980586",
+    "-1.19355048209882e+148",
+];
 
 /// Each run whose way `is_variant` against the run of `base_of(way)`, which
 /// it must behave like: the exit kind always agrees, stdout when both
@@ -1935,6 +1959,45 @@ mod tests {
             "panic: use after free: dropping a tuple that was already freed",
         )];
         assert_eq!(heap_labels(&run_results), ["heap_fault: llvm_heap"]);
+    }
+
+    #[test]
+    fn a_freed_constructor_in_heap_stdout_is_a_heap_fault() {
+        let run_results = vec![result(
+            Way::LlvmHeap,
+            ExitKind::Success,
+            "Some(<adt tag=-559030611>())\n",
+            "",
+        )];
+        let details = collect_heap_mode_details(&run_results);
+        assert_eq!(
+            details
+                .iter()
+                .map(mismatch_detail_label)
+                .collect::<Vec<_>>(),
+            ["heap_fault: llvm_heap"]
+        );
+        assert!(matches!(
+            &details[0],
+            MismatchDetail::HeapFault { message, .. } if message.contains("Some(<adt tag=-559030611>())")
+        ));
+    }
+
+    #[test]
+    fn a_freed_int_in_heap_stdout_is_a_heap_fault() {
+        let run_results = vec![
+            result(Way::Llvm, ExitKind::Success, "[1, 2, 3]\n", ""),
+            result(
+                Way::LlvmHeap,
+                ExitKind::Success,
+                "[-1200509093985980586, 2, 3]\n",
+                "",
+            ),
+        ];
+        assert_eq!(
+            heap_labels(&run_results),
+            ["heap stdout: llvm vs llvm_heap", "heap_fault: llvm_heap"]
+        );
     }
 
     #[test]
