@@ -10,6 +10,7 @@ use crate::core::{CoreBinderId, CorePat, CoreTag, CoreVarRef};
 use crate::diagnostics::position::Span;
 use crate::shared::opt_bisect;
 
+use super::analysis::ArmShape;
 use super::reuse_analysis::rewrite_drop_body;
 use super::{AetherExpr, into_constructor_shape_for_tag_aether};
 
@@ -46,30 +47,6 @@ fn pat_field_binder_ids(pat: &CorePat) -> Option<Vec<Option<CoreBinderId>>> {
             Some(ids)
         }
         _ => None,
-    }
-}
-
-/// The constructor a case arm matched and the binder it was matched on, linked
-/// to the arms around it. A shape describes its own binder's cell only: other
-/// binders die in the arm too, and their cells can be any size.
-struct ArmShape<'a> {
-    scrutinee: CoreBinderId,
-    binders: Option<&'a [Option<CoreBinderId>]>,
-    tag: &'a CoreTag,
-    outer: Option<&'a ArmShape<'a>>,
-}
-
-impl<'a> ArmShape<'a> {
-    /// The pattern binders and tag of the innermost arm that matched `var`, or
-    /// `(None, None)`. A value never changes constructor and a binder id is
-    /// never rebound, so an outer arm's match still holds here.
-    fn matched_by(
-        arm: Option<&'a ArmShape<'a>>,
-        var: Option<CoreBinderId>,
-    ) -> (Option<&'a [Option<CoreBinderId>]>, Option<&'a CoreTag>) {
-        std::iter::successors(arm, |arm| arm.outer)
-            .find(|arm| var == Some(arm.scrutinee))
-            .map_or((None, None), |arm| (arm.binders, Some(arm.tag)))
     }
 }
 

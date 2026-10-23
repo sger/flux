@@ -196,6 +196,9 @@ fn finish_run_context(request: RunProgramRequest<'_>, context: ProgramContext) -
     let mut compiler = Compiler::new_with_interner(request.path, graph_result.interner);
     compiler.set_strict_mode(request.session.strict_mode);
     compiler.set_debug_level(request.session.debug_level);
+    flux::aether::verify::set_contract_gate(
+        request.flags.backend.debug_heap || request.flags.backend.leak_check,
+    );
     if request.flags.runtime.profiling {
         compiler.set_profiling(true);
     }

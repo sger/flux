@@ -9,7 +9,7 @@
 use std::collections::{BTreeSet, HashMap};
 
 use crate::aether::{AetherAlt, AetherExpr, AetherHandler};
-use crate::core::{CoreBinderId, CoreExpr, CorePat};
+use crate::core::{CoreBinderId, CoreExpr, CorePat, CoreTag};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ValueDemand {
@@ -650,5 +650,29 @@ fn pat_binds(var: CoreBinderId, pat: &CorePat) -> bool {
 fn merge_counts(target: &mut HashMap<CoreBinderId, usize>, source: &HashMap<CoreBinderId, usize>) {
     for (&id, &count) in source {
         *target.entry(id).or_insert(0) += count;
+    }
+}
+
+/// The constructor a case arm matched and the binder it was matched on, linked
+/// to the arms around it. A shape describes its own binder's cell only: other
+/// binders die in the arm too, and their cells can be any size.
+pub(super) struct ArmShape<'a> {
+    pub(super) scrutinee: CoreBinderId,
+    pub(super) binders: Option<&'a [Option<CoreBinderId>]>,
+    pub(super) tag: &'a CoreTag,
+    pub(super) outer: Option<&'a ArmShape<'a>>,
+}
+
+impl<'a> ArmShape<'a> {
+    /// The pattern binders and tag of the innermost arm that matched `var`, or
+    /// `(None, None)`. A value never changes constructor and a binder id is
+    /// never rebound, so an outer arm's match still holds here.
+    pub(super) fn matched_by(
+        arm: Option<&'a ArmShape<'a>>,
+        var: Option<CoreBinderId>,
+    ) -> (Option<&'a [Option<CoreBinderId>]>, Option<&'a CoreTag>) {
+        std::iter::successors(arm, |arm| arm.outer)
+            .find(|arm| var == Some(arm.scrutinee))
+            .map_or((None, None), |arm| (arm.binders, Some(arm.tag)))
     }
 }
