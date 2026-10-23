@@ -67,11 +67,13 @@ lam(xs, f) ->
             aether_call[owned, borrowed] my_map#0(t#4, f#2)
           reuse xs#1 as Cons(<sym:4000066>#66, <sym:4000067>#67)
         shared ->
-          let <sym:4000066> =
-            aether_call[owned] f#2(dup h#3 in h#3)
-          let <sym:4000067> =
-            aether_call[owned, borrowed] my_map#0(dup t#4 in t#4, f#2)
-          Cons(<sym:4000066>#66, <sym:4000067>#67)
+          dup h#3 in
+            dup t#4 in
+              let <sym:4000066> =
+                aether_call[owned] f#2(h#3)
+              let <sym:4000067> =
+                aether_call[owned, borrowed] my_map#0(t#4, f#2)
+              Cons(<sym:4000066>#66, <sym:4000067>#67)
       }
     _ ->
       Nil
@@ -92,9 +94,10 @@ lam(opt, f) ->
             aether_call[owned] f#7(x#8)
           reuse opt#6 as Some(<sym:4000068>#68)
         shared ->
-          let <sym:4000068> =
-            aether_call[owned] f#7(dup x#8 in x#8)
-          Some(<sym:4000068>#68)
+          dup x#8 in
+            let <sym:4000068> =
+              aether_call[owned] f#7(x#8)
+            Some(<sym:4000068>#68)
       }
     _ ->
       None
@@ -109,12 +112,15 @@ lam(t) ->
         unique ->
           reuse t#10 as Node mask=0x1(Black, left#11, key#12, right#13)
         shared ->
-          aether_call[owned, owned, owned, owned] Node(Black, dup left#11 in left#11, dup key#12 in key#12, dup right#13 in right#13)
+          dup key#12 in
+            dup left#11 in
+              dup right#13 in
+                aether_call[owned, owned, owned, owned] Node(Black, left#11, key#12, right#13)
       }
     _ ->
       t#10
 ── fn my_filter ──
-  Dups: 4  Drops: 0  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
+  Dups: 4  Drops: 2  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(xs, f) ->
@@ -123,24 +129,28 @@ lam(xs, f) ->
       drop_specialized xs#18 {
         unique ->
           let <sym:4000070> =
-            aether_call[owned] f#19(h#20)
+            aether_call[owned] f#19(dup h#20 in h#20)
           case <sym:4000070>#70 of
             true ->
               let <sym:4000071> =
                 aether_call[owned, borrowed] my_filter#17(t#21, f#19)
               reuse xs#18 as Cons mask=0x2(h#20, <sym:4000071>#71)
             _ ->
-              aether_call[owned, borrowed] my_filter#17(t#21, f#19)
+              drop h#20 in
+                aether_call[owned, borrowed] my_filter#17(t#21, f#19)
         shared ->
-          let <sym:4000070> =
-            aether_call[owned] f#19(dup h#20 in h#20)
-          case <sym:4000070>#70 of
-            true ->
-              let <sym:4000071> =
-                aether_call[owned, borrowed] my_filter#17(dup t#21 in t#21, f#19)
-              Cons(dup h#20 in h#20, <sym:4000071>#71)
-            _ ->
-              aether_call[owned, borrowed] my_filter#17(dup t#21 in t#21, f#19)
+          dup h#20 in
+            dup t#21 in
+              let <sym:4000070> =
+                aether_call[owned] f#19(dup h#20 in h#20)
+              case <sym:4000070>#70 of
+                true ->
+                  let <sym:4000071> =
+                    aether_call[owned, borrowed] my_filter#17(t#21, f#19)
+                  Cons(h#20, <sym:4000071>#71)
+                _ ->
+                  drop h#20 in
+                    aether_call[owned, borrowed] my_filter#17(t#21, f#19)
       }
     _ ->
       Nil
@@ -162,7 +172,7 @@ lam() ->
         aether_call[owned] __resume_default#65(<sym:4000126>#126)
 
 ── Total ──
-  Dups: 10  Drops: 21  Reuses: 4  DropSpecs: 4  BorrowedCallGuards: 0  FBIP: fbip(4)  Yields: 0  Handles: 5  HandlerArms: 11
+  Dups: 10  Drops: 23  Reuses: 4  DropSpecs: 4  BorrowedCallGuards: 0  FBIP: fbip(4)  Yields: 0  Handles: 5  HandlerArms: 11
   FreshAllocs: 4
 
 [2, 4, 6]
