@@ -1,7 +1,7 @@
-// 0189 F3-4 guard: drop_spec's unique path removes the copy of every field
-// a match binds, nested ones and ones used twice included. The match-time
-// copy of each field (emit_match_ctor) makes up for it today; removing that
-// copy must not change what this prints.
+// 0189 F3-4: on drop_spec's unique path, the matched cell hands over one
+// reference to each of its own fields. drop_spec keeps the planner's copy of a
+// nested field and of each use after the first, since no match-time copy makes
+// up for them.
 
 data Tree {
     Leaf,

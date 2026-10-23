@@ -440,6 +440,11 @@ fn clip(text: &str) -> String {
 /// scratch directory, so one shape can be measured at two sizes and the
 /// blocks every program allocates (KI-119) cancel out.
 fn allocs_of(scratch: &Scratch, name: &str, source: &str) -> u64 {
+    stats_of(scratch, name, source).0
+}
+
+/// `(allocs, frees, live)` of `source` run on the debug heap.
+fn stats_of(scratch: &Scratch, name: &str, source: &str) -> (u64, u64, u64) {
     let path = scratch.write(name, source);
     let file = path.to_string_lossy();
     let (_, stderr, code) = run_env(
@@ -449,9 +454,7 @@ fn allocs_of(scratch: &Scratch, name: &str, source: &str) -> u64 {
         &[("FLUX_HEAP_STATS", "1")],
     );
     assert_eq!(code, 0, "{name}:\n{stderr}");
-    heap_stats(&stderr)
-        .unwrap_or_else(|| panic!("{name}:\n{stderr}"))
-        .0
+    heap_stats(&stderr).unwrap_or_else(|| panic!("{name}:\n{stderr}"))
 }
 
 const LINEAR_BUMP: &str = r"fn build(n, acc) {
@@ -471,25 +474,75 @@ fn main() {
 }
 ";
 
-/// A list built and then rebuilt cell by cell, with nothing else holding it.
-/// Building takes one block per cell; the rebuild takes none when it reuses
-/// each cell in place and one when it does not. Until 0189 F3-4 the rebuild
-/// copies, so the count sits at the top of the range.
-#[test]
-fn a_linear_rebuild_allocates_at_most_twice_per_cell() {
-    let scratch = Scratch::new("debug-heap-linear-bump");
+/// `source` with a guard on the rebuilding arm, which lowers through the
+/// pattern-check chain instead of the multi-arm match.
+fn guarded(source: &str) -> String {
+    let out = source.replace("[h | t] ->", "[h | t] if h >= 0 ->");
+    assert_ne!(out, source, "guarded: no rebuilding arm");
+    out
+}
+
+/// `source`, then the rebuilt list released. `discard` owns its argument and
+/// releases it there, so the release happens before the program's end and
+/// nothing else holds the list.
+fn released(source: &str) -> String {
+    let body = source.replace(
+        "    let ys = bump(build(SIZE, []))\n    print(len(ys))",
+        "    let ys = bump(build(SIZE, []))\n    let d = discard(ys, false)\n    print(len(d))",
+    );
+    assert_ne!(body, source, "released: no `main` to change");
+    body + "\nfn discard(xs, keep) {\n    if keep { xs } else { [] }\n}\n"
+}
+
+/// `stats_of(program)` at 2000 cells minus at 1000.
+fn per_thousand_cells(scratch: &Scratch, name: &str, program: &str) -> (u64, u64, u64) {
     let at = |n: u64| {
-        allocs_of(
-            &scratch,
-            &format!("bump_{n}.flx"),
-            &LINEAR_BUMP.replace("SIZE", &n.to_string()),
+        stats_of(
+            scratch,
+            &format!("{name}_{n}.flx"),
+            &program.replace("SIZE", &n.to_string()),
         )
     };
-    let per_thousand = at(2000) - at(1000);
-    assert!(
-        (1000..=2000).contains(&per_thousand),
-        "{per_thousand} blocks per 1000 cells"
-    );
+    let (small, large) = (at(1000), at(2000));
+    let diff = |a: u64, b: u64| {
+        b.checked_sub(a)
+            .unwrap_or_else(|| panic!("{name}: 1000 cells {small:?}, 2000 cells {large:?}"))
+    };
+    (
+        diff(small.0, large.0),
+        diff(small.1, large.1),
+        diff(small.2, large.2),
+    )
+}
+
+/// A list built and then rebuilt cell by cell, with nothing else holding it.
+/// Building takes one block per cell, and the rebuild reuses each cell in
+/// place. A match that copied the fields it binds made every tail shared, so
+/// the rebuild took a new block per cell (0189 F3-4).
+#[test]
+fn a_linear_rebuild_allocates_once_per_cell() {
+    let scratch = Scratch::new("debug-heap-linear-bump");
+    for (name, program) in [
+        ("bump", LINEAR_BUMP.to_string()),
+        ("guarded_bump", guarded(LINEAR_BUMP)),
+    ] {
+        let (allocs, _, _) = per_thousand_cells(&scratch, name, &program);
+        assert_eq!(allocs, 1000, "{name}: blocks per 1000 cells");
+    }
+}
+
+/// Releasing the rebuilt list frees every cell: none is left behind by a copy
+/// the match made and nothing released (0189 F3-4).
+#[test]
+fn a_rebuilt_list_released_leaves_nothing_behind() {
+    let scratch = Scratch::new("debug-heap-linear-bump-released");
+    for (name, program) in [
+        ("bump", released(LINEAR_BUMP)),
+        ("guarded_bump", released(&guarded(LINEAR_BUMP))),
+    ] {
+        let (_, _, live) = per_thousand_cells(&scratch, name, &program);
+        assert_eq!(live, 0, "{name}: blocks left live per 1000 cells");
+    }
 }
 
 const COUNTING_LOOP: &str = r"fn numbers(n) {
