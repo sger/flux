@@ -44,6 +44,9 @@ pub enum AetherErrorKind {
     /// A guard gives a value away without copying it. A failed guard falls
     /// through to the later arms, which may still use it (audit M2).
     GuardConsumes,
+    /// A binder read after a path released it, or a view read after the
+    /// value holding it was released without a copy of the view first.
+    UsedAfterRelease,
 }
 
 /// Non-fatal Aether diagnostic.
@@ -112,6 +115,7 @@ pub fn verify_def_contract_aether(
     // Rules about the planned dups and reuses, which the Core passes checked
     // by `verify_contract_aether` have not placed yet.
     check_reuse_tokens(expr, None, &mut errors);
+    check_reads_after_release(expr, &mut ReleasedSoFar::default(), &mut errors);
     errors.extend(
         verify_def_views_aether(expr, signature)
             .into_iter()
@@ -710,6 +714,256 @@ fn check_single_release(
                 if !released.contains(&binder) {
                     released.push(binder);
                 }
+            }
+        }
+    }
+}
+
+/// What one path has released, for [`check_reads_after_release`].
+#[derive(Clone, Default)]
+struct ReleasedSoFar {
+    /// Each binder the path released: `None` for one released itself,
+    /// `Some(holder)` for a view that went when `holder` was released.
+    gone: HashMap<CoreBinderId, Option<CoreBinderId>>,
+    /// Each view, by the value it was read out of: a pattern binder of a
+    /// match on that value, or `let y = x.i`, when its value is counted.
+    parents: HashMap<CoreBinderId, CoreBinderId>,
+    /// Views that took a reference of their own on every path here, and so
+    /// outlive the value they were read out of. A copy given away later is
+    /// still counted: the walk does not follow where references go.
+    copied: HashSet<CoreBinderId>,
+}
+
+impl ReleasedSoFar {
+    fn read(&self, binder: CoreBinderId, errors: &mut Vec<AetherError>) {
+        let message = match self.gone.get(&binder) {
+            None => return,
+            Some(None) => format!("binder {binder:?} is read after it was released"),
+            Some(Some(holder)) => {
+                format!("view {binder:?} is read after {holder:?}, which holds it, was released")
+            }
+        };
+        errors.push(AetherError {
+            kind: AetherErrorKind::UsedAfterRelease,
+            message,
+        });
+    }
+
+    /// Releases `binder`, and with it each view read out of it, at any
+    /// depth, that has no copy of its own.
+    fn release(&mut self, binder: CoreBinderId) {
+        // A view that releases its own copy is a view again.
+        self.copied.remove(&binder);
+        self.release_cell(binder);
+        let views: Vec<CoreBinderId> = self
+            .parents
+            .keys()
+            .copied()
+            .filter(|view| self.held_only_by(*view, binder))
+            .collect();
+        for view in views {
+            self.gone.entry(view).or_insert(Some(binder));
+        }
+    }
+
+    /// Releases `binder` alone: a `Reuse` writes its cell in place and a
+    /// drop-specialized match hands its fields over, so their views stay.
+    fn release_cell(&mut self, binder: CoreBinderId) {
+        self.gone.entry(binder).or_insert(None);
+    }
+
+    fn held_only_by(&self, view: CoreBinderId, holder: CoreBinderId) -> bool {
+        let mut current = view;
+        // A view's parent chain is acyclic; the bound is only a guard.
+        for _ in 0..64 {
+            if self.copied.contains(&current) {
+                return false;
+            }
+            match self.parents.get(&current) {
+                Some(&parent) if parent == holder => return true,
+                Some(&parent) => current = parent,
+                None => return false,
+            }
+        }
+        false
+    }
+
+    /// Joins two paths: what either released is gone, and a view is copied
+    /// only if both copied it.
+    fn merge(&mut self, other: Self) {
+        for (binder, holder) in other.gone {
+            self.gone.entry(binder).or_insert(holder);
+        }
+        self.parents.extend(other.parents);
+        self.copied.retain(|binder| other.copied.contains(binder));
+    }
+}
+
+/// Checks that no path reads a binder after releasing it, or reads a view
+/// after releasing the value it was read out of without copying the view
+/// first (`dup fields; drop xs`). `UnsafeDrop` looks only inside a `Drop`'s
+/// own body; this also covers reads after it, in the body of an enclosing
+/// `let` or after an enclosing match.
+fn check_reads_after_release(
+    expr: &AetherExpr,
+    path: &mut ReleasedSoFar,
+    errors: &mut Vec<AetherError>,
+) {
+    match expr {
+        AetherExpr::Var { var, .. } => {
+            if let Some(binder) = var.binder {
+                path.read(binder, errors);
+            }
+        }
+        AetherExpr::Lit(_, _) => {}
+        // Making the closure reads what it captures; its body is another
+        // function, with paths of its own.
+        AetherExpr::Lam { body, .. } => {
+            for binder in super::free_vars::collect_free_vars_aether(expr) {
+                path.read(binder, errors);
+            }
+            check_reads_after_release(body, &mut ReleasedSoFar::default(), errors);
+        }
+        AetherExpr::Return { value, .. } => check_reads_after_release(value, path, errors),
+        AetherExpr::App { func, args, .. } | AetherExpr::AetherCall { func, args, .. } => {
+            check_reads_after_release(func, path, errors);
+            for arg in args {
+                check_reads_after_release(arg, path, errors);
+            }
+        }
+        AetherExpr::Let { var, rhs, body, .. } => {
+            check_reads_after_release(rhs, path, errors);
+            if let AetherExpr::TupleField { object, .. } = rhs.as_ref()
+                && let AetherExpr::Var { var: object, .. } = object.as_ref()
+                && let Some(parent) = object.binder
+                && var.rep.needs_rc()
+            {
+                path.parents.insert(var.id, parent);
+            }
+            check_reads_after_release(body, path, errors);
+        }
+        AetherExpr::LetRec { rhs, body, .. } => {
+            check_reads_after_release(rhs, path, errors);
+            check_reads_after_release(body, path, errors);
+        }
+        AetherExpr::LetRecGroup { bindings, body, .. } => {
+            for (_, rhs) in bindings {
+                check_reads_after_release(rhs, path, errors);
+            }
+            check_reads_after_release(body, path, errors);
+        }
+        AetherExpr::Case {
+            scrutinee, alts, ..
+        } => {
+            check_reads_after_release(scrutinee, path, errors);
+            let matched = match scrutinee.as_ref() {
+                AetherExpr::Var { var, .. } => var.binder,
+                _ => None,
+            };
+            // A failed guard falls through to the next arm with what it
+            // released. Its copies are left out: a guard copies only what it
+            // gives away.
+            let mut fallthrough = path.clone();
+            let mut joined: Option<ReleasedSoFar> = None;
+            for alt in alts {
+                let mut arm = fallthrough.clone();
+                if let Some(parent) = matched {
+                    let mut binders = Vec::new();
+                    pattern_binders(&alt.pat, &mut binders);
+                    // An unboxed field is a copy of the value, not a view.
+                    for binder in binders.into_iter().filter(|b| b.rep.needs_rc()) {
+                        arm.parents.insert(binder.id, parent);
+                    }
+                }
+                if let Some(guard) = &alt.guard {
+                    check_reads_after_release(guard, &mut arm, errors);
+                    fallthrough.gone.clone_from(&arm.gone);
+                }
+                check_reads_after_release(&alt.rhs, &mut arm, errors);
+                match &mut joined {
+                    Some(joined) => joined.merge(arm),
+                    None => joined = Some(arm),
+                }
+            }
+            if let Some(joined) = joined {
+                *path = joined;
+            }
+        }
+        AetherExpr::Con { fields: args, .. }
+        | AetherExpr::PrimOp { args, .. }
+        | AetherExpr::Perform { args, .. } => {
+            for arg in args {
+                check_reads_after_release(arg, path, errors);
+            }
+        }
+        AetherExpr::MemberAccess { object, .. } | AetherExpr::TupleField { object, .. } => {
+            check_reads_after_release(object, path, errors)
+        }
+        AetherExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            if let Some(parameter) = parameter {
+                check_reads_after_release(parameter, path, errors);
+            }
+            check_reads_after_release(body, path, errors);
+            // Installing a clause reads what it captures; the clause runs as
+            // a function of its own.
+            for handler in handlers {
+                let own: Vec<CoreBinderId> = handler
+                    .params
+                    .iter()
+                    .chain(handler.state.iter())
+                    .chain(std::iter::once(&handler.resume))
+                    .map(|binder| binder.id)
+                    .collect();
+                for binder in super::free_vars::collect_free_vars_aether(&handler.body) {
+                    if !own.contains(&binder) {
+                        path.read(binder, errors);
+                    }
+                }
+                check_reads_after_release(&handler.body, &mut ReleasedSoFar::default(), errors);
+            }
+        }
+        AetherExpr::Dup { var, body, .. } => {
+            if let Some(binder) = var.binder {
+                path.read(binder, errors);
+                path.copied.insert(binder);
+            }
+            check_reads_after_release(body, path, errors);
+        }
+        // Releasing twice is `DoubleDrop`'s to report.
+        AetherExpr::Drop { var, body, .. } => {
+            if let Some(binder) = var.binder {
+                path.release(binder);
+            }
+            check_reads_after_release(body, path, errors);
+        }
+        AetherExpr::Reuse { token, fields, .. } => {
+            for field in fields {
+                check_reads_after_release(field, path, errors);
+            }
+            if let Some(binder) = token.binder {
+                path.release_cell(binder);
+            }
+        }
+        AetherExpr::DropSpecialized {
+            scrutinee,
+            unique_body,
+            shared_body,
+            ..
+        } => {
+            if let Some(binder) = scrutinee.binder {
+                path.read(binder, errors);
+            }
+            let mut shared = path.clone();
+            check_reads_after_release(unique_body, path, errors);
+            check_reads_after_release(shared_body, &mut shared, errors);
+            path.merge(shared);
+            if let Some(binder) = scrutinee.binder {
+                path.release_cell(binder);
             }
         }
     }
@@ -1687,6 +1941,67 @@ mod tests {
             ),
         );
         assert!(contract_errors(&expr).contains(&AetherErrorKind::DoubleDrop));
+    }
+
+    fn released_then(x: CoreBinder, y: CoreBinder, body: CoreExpr) -> CoreExpr {
+        CoreExpr::Let {
+            var: y,
+            rhs: Box::new(drop_in(x, CoreExpr::Lit(CoreLit::Int(0), s()))),
+            body: Box::new(body),
+            span: s(),
+        }
+    }
+
+    #[test]
+    fn a_read_after_a_release_is_rejected() {
+        let mut interner = Interner::new();
+        let x = binder(1, interner.intern("x"));
+        let y = binder(2, interner.intern("y"));
+        let flag = binder(3, interner.intern("flag"));
+        let lit = |n| CoreExpr::Lit(CoreLit::Int(n), s());
+
+        // Released in a binding's right-hand side, read in its body.
+        let read = released_then(x, y, v(x));
+        assert!(contract_errors(&read).contains(&AetherErrorKind::UsedAfterRelease));
+
+        // Captured after its release.
+        let captured = released_then(x, y, lam(vec![], v(x)));
+        assert!(contract_errors(&captured).contains(&AetherErrorKind::UsedAfterRelease));
+
+        // Released in one arm, read in the other: no path does both.
+        let apart = on_flag(flag, drop_in(x, lit(1)), v(x));
+        assert!(!contract_errors(&apart).contains(&AetherErrorKind::UsedAfterRelease));
+    }
+
+    #[test]
+    fn a_field_read_after_its_cell_is_released_needs_a_copy_first() {
+        let mut interner = Interner::new();
+        let xs = binder(1, interner.intern("xs"));
+        let h = binder(2, interner.intern("h"));
+        let t = binder(3, interner.intern("t"));
+
+        let freed = on_cons(xs, h, t, drop_in(xs, v(h)));
+        assert!(contract_errors(&freed).contains(&AetherErrorKind::UsedAfterRelease));
+
+        // `dup h; drop xs`: `h` holds its own reference.
+        let copied = on_cons(xs, h, t, dup(h, drop_in(xs, v(h))));
+        assert!(!contract_errors(&copied).contains(&AetherErrorKind::UsedAfterRelease));
+
+        // Copied on one path only: on the other, `h` goes with `xs`.
+        let flag = binder(4, interner.intern("flag"));
+        let lit = |n| CoreExpr::Lit(CoreLit::Int(n), s());
+        let one_path = on_cons(
+            xs,
+            h,
+            t,
+            CoreExpr::Let {
+                var: binder(5, interner.intern("k")),
+                rhs: Box::new(on_flag(flag, dup(h, lit(1)), lit(0))),
+                body: Box::new(drop_in(xs, v(h))),
+                span: s(),
+            },
+        );
+        assert!(contract_errors(&one_path).contains(&AetherErrorKind::UsedAfterRelease));
     }
 
     fn views_consumed(
