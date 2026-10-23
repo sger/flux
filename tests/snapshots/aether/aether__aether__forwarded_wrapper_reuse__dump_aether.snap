@@ -647,7 +647,7 @@ lam(arr) ->
     MakeArray()
   aether_call[owned, owned] flatten_go#181(0, <sym:4001447>#1447)
 ── fn zip ──
-  Dups: 2  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
+  Dups: 2  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(a_arr, b_arr) ->
@@ -685,14 +685,14 @@ lam(a_arr, b_arr) ->
                     let <sym:4001455> =
                       MakeTuple(dup va#191 in va#191, dup vb#192 in vb#192)
                     aether_call[borrowed, borrowed] push#207(acc#190, <sym:4001455>#1455)
-                  aether_call[borrowed, borrowed] zip_go#188(<sym:4001454>#1454, <sym:4001456>#1456)
+                  aether_call[owned, owned] zip_go#188(<sym:4001454>#1454, <sym:4001456>#1456)
                 _ ->
                   acc#190
             _ ->
               acc#190
   let <sym:4001457> =
     MakeArray()
-  aether_call[borrowed, borrowed] zip_go#188(0, <sym:4001457>#1457)
+  aether_call[owned, owned] zip_go#188(0, <sym:4001457>#1457)
 ── fn contains ──
   Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
@@ -733,7 +733,7 @@ lam(arr) ->
         _ ->
           MakeArray()
 ── fn maximum ──
-  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(arr) ->
@@ -762,11 +762,11 @@ lam(arr) ->
                       v#235
                   _ ->
                     best#234
-              aether_call[borrowed, owned] maximum_go#232(<sym:4001472>#1472, <sym:4001474>#1474)
+              aether_call[owned, owned] maximum_go#232(<sym:4001472>#1472, <sym:4001474>#1474)
             _ ->
               let <sym:4001475> =
                 IAdd(i#233, 1)
-              aether_call[borrowed, owned] maximum_go#232(<sym:4001475>#1475, best#234)
+              aether_call[owned, owned] maximum_go#232(<sym:4001475>#1475, best#234)
   let <sym:4001477> =
     let <sym:4001476> =
       Len(arr#230)
@@ -779,11 +779,11 @@ lam(arr) ->
         Index(arr#230, 0)
       case <sym:4001478>#1478 of
         Some(first) ->
-          aether_call[borrowed, owned] maximum_go#232(1, first#231)
+          aether_call[owned, owned] maximum_go#232(1, first#231)
         _ ->
           0
 ── fn minimum ──
-  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(arr) ->
@@ -812,11 +812,11 @@ lam(arr) ->
                       v#242
                   _ ->
                     best#241
-              aether_call[borrowed, owned] minimum_go#239(<sym:4001482>#1482, <sym:4001484>#1484)
+              aether_call[owned, owned] minimum_go#239(<sym:4001482>#1482, <sym:4001484>#1484)
             _ ->
               let <sym:4001485> =
                 IAdd(i#240, 1)
-              aether_call[borrowed, owned] minimum_go#239(<sym:4001485>#1485, best#241)
+              aether_call[owned, owned] minimum_go#239(<sym:4001485>#1485, best#241)
   let <sym:4001487> =
     let <sym:4001486> =
       Len(arr#237)
@@ -829,7 +829,7 @@ lam(arr) ->
         Index(arr#237, 0)
       case <sym:4001488>#1488 of
         Some(first) ->
-          aether_call[borrowed, owned] minimum_go#239(1, first#238)
+          aether_call[owned, owned] minimum_go#239(1, first#238)
         _ ->
           0
 ── fn sort_by ──
@@ -2249,14 +2249,14 @@ lam(xs, ys, f, acc) ->
     _ ->
       acc#758
 ── fn group_by_head ──
-  Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(2)
+  Dups: 2  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(2)
   FreshAllocs: 2
   verifier: ok
 lam(h, t, eq) ->
   let <sym:4001711> =
     let <sym:4001710> =
       lam(x) ->
-        aether_call[borrowed, borrowed] eq#766(h#764, x#767)
+        aether_call[owned, owned] eq#766(dup h#764 in h#764, x#767)
     aether_call[owned, borrowed] span#460(t#765, <sym:4001710>#1710)
   case <sym:4001711>#1711 of
     (prefix, rest) ->
@@ -2764,7 +2764,7 @@ lam() ->
         aether_call[owned] __resume_default#1357(<sym:4001908>#1908)
 
 ── Total ──
-  Dups: 198  Drops: 96  Reuses: 14  DropSpecs: 12  BorrowedCallGuards: 41  FBIP: fbip(52)  Yields: 11  Handles: 5  HandlerArms: 11
+  Dups: 199  Drops: 96  Reuses: 14  DropSpecs: 12  BorrowedCallGuards: 38  FBIP: fbip(52)  Yields: 11  Handles: 5  HandlerArms: 11
   FreshAllocs: 52
 
 [ 1 of 18] Compiling  Add

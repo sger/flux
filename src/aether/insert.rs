@@ -12,7 +12,7 @@ use crate::diagnostics::position::Span;
 use super::analysis::{
     AetherEnv, AetherPlan, ValueDemand, join_branch_envs, pat_binders, use_counts_aether,
 };
-use super::borrow_infer::{BorrowMode, BorrowRegistry};
+use super::borrow_infer::{BorrowCallee, BorrowMode, BorrowRegistry};
 use super::{AetherAlt as CoreAlt, AetherExpr, AetherHandler, constructor_shape_for_tag_aether};
 
 type CoreExpr = AetherExpr;
@@ -422,16 +422,7 @@ fn plan_expr(
             }
         }
         CoreExpr::App { func, args, span } => {
-            let resolved_callee = registry.and_then(|reg| match func.as_ref() {
-                CoreExpr::Var { var, .. } => Some(reg.classify_var_ref(var).borrow_callee),
-                CoreExpr::MemberAccess { object, member, .. } => match object.as_ref() {
-                    CoreExpr::Var { var, .. } => {
-                        Some(reg.resolve_member_access_callee(var.name, *member))
-                    }
-                    _ => None,
-                },
-                _ => None,
-            });
+            let resolved_callee = planned_callee(func.as_ref(), registry, scope);
             let arg_modes: Vec<_> = (0..args.len())
                 .map(|index| {
                     let borrowed = resolved_callee
@@ -480,16 +471,7 @@ fn plan_expr(
             guarded_borrowed_args: _,
             span,
         } => {
-            let resolved_callee = registry.and_then(|reg| match func.as_ref() {
-                CoreExpr::Var { var, .. } => Some(reg.classify_var_ref(var).borrow_callee),
-                CoreExpr::MemberAccess { object, member, .. } => match object.as_ref() {
-                    CoreExpr::Var { var, .. } => {
-                        Some(reg.resolve_member_access_callee(var.name, *member))
-                    }
-                    _ => None,
-                },
-                _ => None,
-            });
+            let resolved_callee = planned_callee(func.as_ref(), registry, scope);
             let arg_modes: Vec<_> = if let Some(reg) = registry {
                 (0..args.len())
                     .map(|index| {
@@ -1157,6 +1139,31 @@ fn plan_expr(
     }
 }
 
+/// The callee whose signature a call's arguments are planned by. A closure
+/// bound in this definition has none: a global of the same name may borrow
+/// its arguments, but the closure's body plans its parameters as owned, so
+/// a lent argument would be released by the callee. Other callees keep the
+/// registry's lookup by name, because a reference to a global can carry a
+/// binder id other than its definition's.
+fn planned_callee(
+    func: &CoreExpr,
+    registry: Option<&BorrowRegistry>,
+    scope: &Scope,
+) -> Option<BorrowCallee> {
+    let reg = registry?;
+    match func {
+        CoreExpr::Var { var, .. } if var.binder.is_some_and(|id| scope.contains_key(&id)) => {
+            Some(BorrowCallee::Unknown)
+        }
+        CoreExpr::Var { var, .. } => Some(reg.classify_var_ref(var).borrow_callee),
+        CoreExpr::MemberAccess { object, member, .. } => match object.as_ref() {
+            CoreExpr::Var { var, .. } => Some(reg.resolve_member_access_callee(var.name, *member)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 /// Decide which borrowed call arguments need an owning reference while the
 /// callee runs. A borrowed parameter is normally safe to pass without a
 /// clone, but the callee's reuse analysis only sees the reference count. If
@@ -1751,6 +1758,46 @@ mod tests {
         };
 
         let rewritten = insert_dup_drop_with_registry(expr, &BorrowRegistry::default());
+        let CoreExpr::Lam { body, .. } = rewritten else {
+            panic!("expected lambda body");
+        };
+        match body.as_ref() {
+            CoreExpr::AetherCall { arg_modes, .. } => {
+                assert_eq!(arg_modes, &[BorrowMode::Owned]);
+            }
+            other => panic!("expected AetherCall, got {other:?}"),
+        }
+    }
+
+    /// A closure bound locally takes its arguments owned, whatever a global
+    /// of the same name borrows: its body plans its parameters as its own.
+    #[test]
+    fn a_local_closure_never_takes_a_global_signature_by_name() {
+        let mut interner = Interner::new();
+        let f = binder(&mut interner, 1, "f");
+        let x = binder(&mut interner, 2, "x");
+        let mut registry = BorrowRegistry::default();
+        registry.by_name.insert(
+            f.name,
+            crate::aether::borrow_infer::BorrowSignature::new(
+                vec![BorrowMode::Borrowed],
+                crate::aether::borrow_infer::BorrowProvenance::Inferred,
+            ),
+        );
+
+        let expr = CoreExpr::Lam {
+            params: vec![f, x],
+            param_types: vec![],
+            result_ty: None,
+            body: Box::new(CoreExpr::App {
+                func: Box::new(var(f)),
+                args: vec![var(x)],
+                span: Span::default(),
+            }),
+            span: Span::default(),
+        };
+
+        let rewritten = insert_dup_drop_with_registry(expr, &registry);
         let CoreExpr::Lam { body, .. } = rewritten else {
             panic!("expected lambda body");
         };

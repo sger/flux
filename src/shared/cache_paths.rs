@@ -282,7 +282,10 @@ use sha2::{Digest, Sha256};
 /// L1, L2); an epoch-87 unit relied on the match-time copy to keep them.
 /// Epoch 89: a constructor match no longer copies the fields it binds (0189
 /// F3-4); an epoch-88 unit leaked one reference per field per match.
-pub const CACHE_EPOCH: u16 = 89;
+/// Epoch 90: a call to a closure bound in the calling function hands over
+/// its arguments; an epoch-89 unit lent them when a global of the same name
+/// borrowed them, and the closure released them (PA R1).
+pub const CACHE_EPOCH: u16 = 90;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
