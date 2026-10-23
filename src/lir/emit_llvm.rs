@@ -3572,20 +3572,14 @@ impl<'a> FnEmitter<'a> {
                         }),
                     )],
                 });
+                // No copy: a field is a view of the cell, and Aether's plan
+                // copies it before any use that needs its own reference
+                // (0189 F3-4).
                 extract_instrs.push(LlvmInstr::Load {
                     dst: this.var_local(*binder),
                     ty: LlvmType::i64(),
                     ptr: LlvmOperand::Local(field_ptr),
                     align: Some(8),
-                });
-                extract_instrs.push(LlvmInstr::Call {
-                    dst: None,
-                    tail: false,
-                    call_conv: Some(CallConv::Ccc),
-                    ret_ty: LlvmType::Void,
-                    callee: LlvmOperand::Global(GlobalId("flux_dup".to_string())),
-                    args: vec![(LlvmType::i64(), this.var(*binder))],
-                    attrs: Vec::new(),
                 });
             }
 

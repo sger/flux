@@ -280,7 +280,9 @@ use sha2::{Digest, Sha256};
 /// Epoch 88: an arm copies the fields it keeps before releasing the matched
 /// cell, and a unique cell hands over one reference per direct field (audit
 /// L1, L2); an epoch-87 unit relied on the match-time copy to keep them.
-pub const CACHE_EPOCH: u16 = 88;
+/// Epoch 89: a constructor match no longer copies the fields it binds (0189
+/// F3-4); an epoch-88 unit leaked one reference per field per match.
+pub const CACHE_EPOCH: u16 = 89;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

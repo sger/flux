@@ -1,6 +1,5 @@
 ---
 source: tests/native_llvm/llvm_adt.rs
-assertion_line: 350
 expression: render_module(&module)
 ---
 source_filename = "flux_lir"
@@ -571,10 +570,8 @@ match.extract.3.2:
   %ext.payload.3 = getelementptr inbounds %FluxAdt, ptr %ext.ptr.3, i32 0, i32 2, i32 0
   %ext.3.0 = getelementptr inbounds i64, ptr %ext.payload.3, i32 0
   %v2 = load i64, ptr %ext.3.0, align 8
-  call ccc void @flux_dup(i64 %v2)
   %ext.3.1 = getelementptr inbounds i64, ptr %ext.payload.3, i32 1
   %v3 = load i64, ptr %ext.3.1, align 8
-  call ccc void @flux_dup(i64 %v3)
   br label %bb3
 match.adt.3:
   %match.adtptr.4 = inttoptr i64 %v0 to ptr
@@ -684,7 +681,6 @@ match.extract.6.30:
   %ext.payload.6 = getelementptr inbounds %FluxAdt, ptr %ext.ptr.6, i32 0, i32 2, i32 0
   %ext.6.0 = getelementptr inbounds i64, ptr %ext.payload.6, i32 0
   %v11 = load i64, ptr %ext.6.0, align 8
-  call ccc void @flux_dup(i64 %v11)
   br label %bb6
 match.adt.31:
   %match.adtptr.32 = inttoptr i64 %v10 to ptr
