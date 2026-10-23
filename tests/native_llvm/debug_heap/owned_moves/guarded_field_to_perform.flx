@@ -1,0 +1,35 @@
+// PA L2: a guarded arm releases its matched list in the branch that does not
+// rebuild it, where a perform keeps drop_spec away. `h` is given to the
+// perform and used after it, so it must be copied before the list is released.
+
+effect Log {
+    log: List<Int> -> Int
+}
+
+fn lists(n) {
+    [[n], [n + 1], [n + 2]]
+}
+
+fn wrap(h, k) {
+    (h, k)
+}
+
+fn pick(xs, c) -> (List<Int>, Int) with Log {
+    match xs {
+        [h | t] if len(h) > 0 -> if c { (h, len(t)) } else {
+            let k = perform Log.log(h)
+            wrap(h, k)
+        },
+        _ -> ([], 0),
+    }
+}
+
+fn run(c) {
+    pick(lists(1), c) handle Log {
+        log(resume, v) -> resume(len(v))
+    }
+}
+
+fn main() {
+    print(run(false))
+}

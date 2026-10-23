@@ -1,6 +1,6 @@
-// 0189 V1: a guarded arm binds its fields without the match-time copy. The
-// list it matches is still held by `main`, so the arm's new cell shares the
-// tail with it; releasing the new cell must leave `xs` intact.
+// 0189 V1: a guarded arm gives a field away. The list it matches is still
+// held by `main`, so the arm's new cell shares the tail with it; releasing the
+// new cell must leave `xs` intact.
 
 fn lists(n) {
     [[n], [n + 1, n + 2]]
