@@ -4,6 +4,7 @@ use std::path::Path;
 use flux::aether::{AetherExpr as CoreExpr, AetherProgram, lower_core_to_aether_program};
 use flux::compiler::Compiler;
 use flux::core::{
+    CorePat,
     lower_ast::lower_program_ast,
     passes::{run_aether_passes_with_interner_and_registry, run_core_passes_with_interner},
 };
@@ -444,24 +445,84 @@ fn rebuild(xs) {
 fn main() { rebuild([("key", [1, 2])]) }
 "#;
     let core = lowered_core(src);
-    let has_owned_tuple = core
+    // `key` and `value` sit in the tuple cell, which the release of `xs` can
+    // free with the list cell, so the arm copies both first (audit L2). A
+    // unique list cell hands over only its own fields, so both paths keep
+    // the copies.
+    let (key, value) = core
         .defs
         .iter()
         .flat_map(|def| collect_core_exprs(&def.expr))
-        .any(|expr| {
-            matches!(
-                expr,
-                CoreExpr::PrimOp {
-                    op: flux::core::CorePrimOp::MakeTuple,
-                    args,
-                    ..
-                } if args.iter().any(|arg| matches!(arg, CoreExpr::Dup { .. }))
-            )
-        });
-    assert!(
-        has_owned_tuple,
-        "pattern fields transferred into a tuple must be duplicated"
-    );
+        .find_map(|expr| match expr {
+            CoreExpr::Case { alts, .. } => alts.iter().find_map(|alt| match &alt.pat {
+                CorePat::Con { fields, .. } => match fields.first() {
+                    Some(CorePat::Tuple(pair)) => match pair.as_slice() {
+                        [CorePat::Var(key), CorePat::Var(value)] => Some((key.id, value.id)),
+                        _ => None,
+                    },
+                    _ => None,
+                },
+                _ => None,
+            }),
+            _ => None,
+        })
+        .expect("the [(key, value) | rest] arm");
+    let dups_of = |body: &CoreExpr, binder| {
+        count_matching(
+            body,
+            &|expr| matches!(expr, CoreExpr::Dup { var, .. } if var.binder == Some(binder)),
+        )
+    };
+    let paths: Vec<_> = core
+        .defs
+        .iter()
+        .flat_map(|def| collect_core_exprs(&def.expr))
+        .filter_map(|expr| match expr {
+            CoreExpr::DropSpecialized {
+                unique_body,
+                shared_body,
+                ..
+            } => Some((unique_body.as_ref(), shared_body.as_ref())),
+            _ => None,
+        })
+        .collect();
+    assert!(!paths.is_empty(), "the arm should be drop-specialized");
+    for (unique, shared) in paths {
+        for path in [unique, shared] {
+            assert_eq!(
+                (dups_of(path, key), dups_of(path, value)),
+                (1, 1),
+                "{path:?}"
+            );
+        }
+    }
+}
+
+/// Audit L1: `Node(color, left, key, right) -> Node(color, left, key, left)`
+/// stores `left` twice. A unique cell hands over one reference to it, so the
+/// unique path keeps one copy for the second store.
+#[test]
+fn a_unique_cell_reused_with_a_field_twice_keeps_one_copy() {
+    let src = std::fs::read_to_string("examples/aether/drop_spec_branchy.flx")
+        .expect("fixture should exist");
+    let (core, interner) = lowered_core_and_interner(src);
+    let def = core
+        .defs
+        .iter()
+        .find(|def| interner.resolve(def.name) == "keep_or_dup_left")
+        .expect("keep_or_dup_left");
+    let unique_dups: Vec<usize> = collect_core_exprs(&def.expr)
+        .into_iter()
+        .filter_map(|expr| match expr {
+            CoreExpr::DropSpecialized { unique_body, .. } => {
+                Some(count_matching(unique_body, &|inner| {
+                    matches!(inner, CoreExpr::Dup { var, .. } if interner.resolve(var.name) == "left")
+                }))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(unique_dups, [1]);
 }
 
 #[test]

@@ -653,6 +653,25 @@ fn merge_counts(target: &mut HashMap<CoreBinderId, usize>, source: &HashMap<Core
     }
 }
 
+/// Extract field binder IDs from a constructor pattern, if applicable.
+/// Returns `Some(vec)` where `vec[i]` is the binder ID for field `i`, or `None`
+/// if the pattern field is not a simple variable binding.
+pub(super) fn pat_field_binder_ids(pat: &CorePat) -> Option<Vec<Option<CoreBinderId>>> {
+    match pat {
+        CorePat::Con { fields, .. } | CorePat::Tuple(fields) => {
+            let ids = fields
+                .iter()
+                .map(|f| match f {
+                    CorePat::Var(binder) => Some(binder.id),
+                    _ => None,
+                })
+                .collect();
+            Some(ids)
+        }
+        _ => None,
+    }
+}
+
 /// The constructor a case arm matched and the binder it was matched on, linked
 /// to the arms around it. A shape describes its own binder's cell only: other
 /// binders die in the arm too, and their cells can be any size.

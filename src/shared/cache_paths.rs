@@ -277,7 +277,10 @@ use sha2::{Digest, Sha256};
 /// closure twice.
 /// Epoch 87: a continuation takes a reference to each capture on entry (0189
 /// F3-2d, audit M4); an epoch-86 unit gave a capture away on every resume.
-pub const CACHE_EPOCH: u16 = 87;
+/// Epoch 88: an arm copies the fields it keeps before releasing the matched
+/// cell, and a unique cell hands over one reference per direct field (audit
+/// L1, L2); an epoch-87 unit relied on the match-time copy to keep them.
+pub const CACHE_EPOCH: u16 = 88;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

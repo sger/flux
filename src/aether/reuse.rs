@@ -10,7 +10,7 @@ use crate::core::{CoreBinderId, CorePat, CoreTag, CoreVarRef};
 use crate::diagnostics::position::Span;
 use crate::shared::opt_bisect;
 
-use super::analysis::ArmShape;
+use super::analysis::{ArmShape, pat_field_binder_ids};
 use super::reuse_analysis::rewrite_drop_body;
 use super::{AetherExpr, into_constructor_shape_for_tag_aether};
 
@@ -29,25 +29,6 @@ pub fn insert_reuse(expr: CoreExpr) -> CoreExpr {
 /// Insert reuse tokens into a backend-only Aether expression.
 pub fn insert_reuse_aether(expr: CoreExpr) -> CoreExpr {
     insert_reuse(expr)
-}
-
-/// Extract field binder IDs from a constructor pattern, if applicable.
-/// Returns `Some(vec)` where `vec[i]` is the binder ID for field `i`, or `None`
-/// if the pattern field is not a simple variable binding.
-fn pat_field_binder_ids(pat: &CorePat) -> Option<Vec<Option<CoreBinderId>>> {
-    match pat {
-        CorePat::Con { fields, .. } | CorePat::Tuple(fields) => {
-            let ids = fields
-                .iter()
-                .map(|f| match f {
-                    CorePat::Var(binder) => Some(binder.id),
-                    _ => None,
-                })
-                .collect();
-            Some(ids)
-        }
-        _ => None,
-    }
 }
 
 fn rewrite(expr: CoreExpr) -> CoreExpr {
