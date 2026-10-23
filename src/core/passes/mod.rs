@@ -375,11 +375,21 @@ fn run_aether_passes_with_optional_interner(
 ) -> Result<Vec<Diagnostic>, Diagnostic> {
     let (aether_program, warnings) =
         crate::aether::lower_core_to_aether_program(program, interner, preloaded_registry)?;
-    for def in aether_program.defs() {
-        verify_aether_contract_stage_aether(def, &def.expr, "lower_core_to_aether_program")?;
-    }
+    verify_aether_program_contract(&aether_program)?;
     *program = aether_program.into_core();
     Ok(warnings)
+}
+
+/// Checks every definition of a lowered program against the fatal Aether
+/// contract.
+#[allow(clippy::result_large_err)]
+pub(crate) fn verify_aether_program_contract(
+    program: &crate::aether::AetherProgram,
+) -> Result<(), Diagnostic> {
+    for def in program.defs() {
+        verify_aether_contract_stage_aether(def, &def.expr, "lower_core_to_aether_program")?;
+    }
+    Ok(())
 }
 
 /// Run semantic FBIP checking on annotated functions after Aether passes.

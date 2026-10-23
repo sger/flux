@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::core::{CoreBinder, CoreBinderId, CoreExpr, CorePat, CorePrimOp, CoreTag};
 
-use super::analysis::use_counts_aether;
+use super::analysis::{ArmShape, use_counts_aether};
 use super::reuse_analysis::diagnose_drop_body;
 use super::{AetherExpr, constructor_shape_for_tag_aether, is_heap_tag};
 
@@ -37,6 +37,13 @@ pub enum AetherErrorKind {
     /// released (dropped, reused or drop-specialized): its caller still
     /// holds it.
     BorrowedParamReleased,
+    /// A `Reuse` whose token is not the value an enclosing arm matched with
+    /// the same constructor: only that cell is known to have the right shape
+    /// and to be released on this path (audit M1).
+    ReuseOfUnmatchedToken,
+    /// A guard gives a value away without copying it. A failed guard falls
+    /// through to the later arms, which may still use it (audit M2).
+    GuardConsumes,
 }
 
 /// Non-fatal Aether diagnostic.
@@ -53,11 +60,31 @@ pub enum AetherDiagnosticKind {
     /// A view (a value read out of something else that holds it, with no
     /// reference of its own) given away without a copy (0189 rule 3).
     ViewConsumed,
+    /// A guard gives a value away without a copy; the contract reports it
+    /// as `GuardConsumes`.
+    GuardConsumed,
 }
 
 /// Verify the fatal Aether contract for an expression.
 pub fn verify_contract(expr: &CoreExpr) -> Result<(), Vec<AetherError>> {
     verify_contract_aether(&AetherExpr::from_core(expr.clone()))
+}
+
+static CONTRACT_GATE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Makes builds check the Aether contract. The driver turns it on for
+/// `--debug-heap` and `--leak-check`: those runs look for memory bugs, and an
+/// invalid plan is one the compiler can name before the program runs. The
+/// switch is process-wide, and the last call wins.
+pub fn set_contract_gate(on: bool) {
+    CONTRACT_GATE.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether builds check the Aether contract: set by [`set_contract_gate`],
+/// or by `FLUX_AETHER_VERIFY=1`.
+pub fn contract_gate() -> bool {
+    CONTRACT_GATE.load(std::sync::atomic::Ordering::Relaxed)
+        || std::env::var("FLUX_AETHER_VERIFY").is_ok_and(|v| v == "1")
 }
 
 /// Verify the fatal Aether contract for a backend-only Aether expression.
@@ -82,6 +109,18 @@ pub fn verify_def_contract_aether(
         Ok(()) => Vec::new(),
         Err(errors) => errors,
     };
+    // Rules about the planned dups and reuses, which the Core passes checked
+    // by `verify_contract_aether` have not placed yet.
+    check_reuse_tokens(expr, None, &mut errors);
+    errors.extend(
+        verify_def_views_aether(expr, signature)
+            .into_iter()
+            .filter(|diag| diag.kind == AetherDiagnosticKind::GuardConsumed)
+            .map(|diag| AetherError {
+                kind: AetherErrorKind::GuardConsumes,
+                message: diag.message,
+            }),
+    );
     if let (AetherExpr::Lam { params, body, .. }, Some(signature)) = (expr, signature) {
         let borrowed = borrowed_params(params, signature);
         if !borrowed.is_empty() {
@@ -144,6 +183,10 @@ struct Views {
     copies: HashMap<CoreBinderId, usize>,
     /// The scrutinee each top-level pattern field was read from.
     parents: HashMap<CoreBinderId, CoreBinderId>,
+    /// The values the enclosing guard was lent, and other names for them.
+    /// Giving one away without a copy breaks the contract; a value bound
+    /// inside the guard is an ordinary view.
+    lent: HashSet<CoreBinderId>,
 }
 
 impl Views {
@@ -176,6 +219,10 @@ impl Views {
         }
         match self.copies.get_mut(&binder) {
             Some(copies) if *copies > 0 => *copies -= 1,
+            _ if self.lent.contains(&binder) => diags.push(AetherDiagnostic {
+                kind: AetherDiagnosticKind::GuardConsumed,
+                message: format!("guard gives away {binder:?} without a copy"),
+            }),
             _ => diags.push(AetherDiagnostic {
                 kind: AetherDiagnosticKind::ViewConsumed,
                 message: format!("view {binder:?} is given away without a copy"),
@@ -230,6 +277,9 @@ fn check_views(
                 AetherExpr::Var { var: of, .. }
                     if of.binder.is_some_and(|b| views.binders.contains(&b)) =>
                 {
+                    if of.binder.is_some_and(|b| views.lent.contains(&b)) {
+                        views.lent.insert(var.id);
+                    }
                     views.bind(var, true);
                 }
                 AetherExpr::TupleField { object, .. }
@@ -299,7 +349,12 @@ fn check_views(
                     }
                 }
                 if let Some(guard) = &alt.guard {
-                    check_views(guard, false, &mut arm, diags);
+                    // A failed guard falls through to the later arms, which
+                    // may still use what it reads, so the planner lends the
+                    // guard every value it uses (audit M2).
+                    let mut lent = arm.function(guard, &[]);
+                    lent.lent = lent.binders.clone();
+                    check_views(guard, false, &mut lent, diags);
                 }
                 check_views(&alt.rhs, owned, &mut arm, diags);
                 joined = Some(match joined {
@@ -577,11 +632,14 @@ fn check_single_release(
             scrutinee, alts, ..
         } => {
             check_single_release(scrutinee, released, errors);
-            let entry = released.clone();
+            // A failed guard falls through to the next arm with what it
+            // released.
+            let mut fallthrough = released.clone();
             for alt in alts {
-                let mut path = entry.clone();
+                let mut path = fallthrough.clone();
                 if let Some(guard) = &alt.guard {
                     check_single_release(guard, &mut path, errors);
+                    fallthrough.clone_from(&path);
                 }
                 check_single_release(&alt.rhs, &mut path, errors);
                 for binder in path {
@@ -653,6 +711,115 @@ fn check_single_release(
                     released.push(binder);
                 }
             }
+        }
+    }
+}
+
+/// Checks that each `Reuse` writes into the cell of a value an enclosing arm
+/// matched with the same constructor: the cell is written in place with no
+/// size check (audit M1). Like the `reuse` pass, it forgets the arms inside a
+/// function, a handler clause, a guard and a scrutinee.
+fn check_reuse_tokens(
+    expr: &AetherExpr,
+    arm: Option<&ArmShape<'_>>,
+    errors: &mut Vec<AetherError>,
+) {
+    match expr {
+        AetherExpr::Var { .. } | AetherExpr::Lit(_, _) => {}
+        AetherExpr::Lam { body, .. } => check_reuse_tokens(body, None, errors),
+        AetherExpr::Return { value, .. } => check_reuse_tokens(value, arm, errors),
+        AetherExpr::App { func, args, .. } | AetherExpr::AetherCall { func, args, .. } => {
+            check_reuse_tokens(func, arm, errors);
+            for arg in args {
+                check_reuse_tokens(arg, arm, errors);
+            }
+        }
+        AetherExpr::Let { rhs, body, .. } | AetherExpr::LetRec { rhs, body, .. } => {
+            check_reuse_tokens(rhs, arm, errors);
+            check_reuse_tokens(body, arm, errors);
+        }
+        AetherExpr::LetRecGroup { bindings, body, .. } => {
+            for (_, rhs) in bindings {
+                check_reuse_tokens(rhs, arm, errors);
+            }
+            check_reuse_tokens(body, arm, errors);
+        }
+        AetherExpr::Case {
+            scrutinee, alts, ..
+        } => {
+            check_reuse_tokens(scrutinee, None, errors);
+            let matched = match scrutinee.as_ref() {
+                AetherExpr::Var { var, .. } => var.binder,
+                _ => None,
+            };
+            for alt in alts {
+                if let Some(guard) = &alt.guard {
+                    check_reuse_tokens(guard, None, errors);
+                }
+                let shape = match (matched, &alt.pat) {
+                    (Some(scrutinee), CorePat::Con { tag, .. }) => Some(ArmShape {
+                        scrutinee,
+                        binders: None,
+                        tag,
+                        outer: arm,
+                    }),
+                    _ => None,
+                };
+                check_reuse_tokens(&alt.rhs, shape.as_ref().or(arm), errors);
+            }
+        }
+        AetherExpr::Con { fields: args, .. }
+        | AetherExpr::PrimOp { args, .. }
+        | AetherExpr::Perform { args, .. } => {
+            for arg in args {
+                check_reuse_tokens(arg, arm, errors);
+            }
+        }
+        AetherExpr::MemberAccess { object, .. } | AetherExpr::TupleField { object, .. } => {
+            check_reuse_tokens(object, arm, errors);
+        }
+        AetherExpr::Handle {
+            body,
+            parameter,
+            handlers,
+            ..
+        } => {
+            if let Some(parameter) = parameter {
+                check_reuse_tokens(parameter, arm, errors);
+            }
+            check_reuse_tokens(body, arm, errors);
+            for handler in handlers {
+                check_reuse_tokens(&handler.body, None, errors);
+            }
+        }
+        AetherExpr::Dup { body, .. } | AetherExpr::Drop { body, .. } => {
+            check_reuse_tokens(body, arm, errors);
+        }
+        AetherExpr::Reuse {
+            token, tag, fields, ..
+        } => {
+            // An unresolved token is reported by `check_contract`.
+            if let Some(binder) = token.binder
+                && ArmShape::matched_by(arm, Some(binder)).1 != Some(tag)
+            {
+                errors.push(AetherError {
+                    kind: AetherErrorKind::ReuseOfUnmatchedToken,
+                    message: format!(
+                        "reuse token {binder:?} is not the value an enclosing {tag:?} arm matched"
+                    ),
+                });
+            }
+            for field in fields {
+                check_reuse_tokens(field, arm, errors);
+            }
+        }
+        AetherExpr::DropSpecialized {
+            unique_body,
+            shared_body,
+            ..
+        } => {
+            check_reuse_tokens(unique_body, arm, errors);
+            check_reuse_tokens(shared_body, arm, errors);
         }
     }
 }
@@ -1353,6 +1520,173 @@ mod tests {
             join_ty: None,
             span: s(),
         }
+    }
+
+    /// `case xs of <tag>(fields) [if guard] -> <rhs>, _ -> <other>`.
+    fn on_con(
+        xs: CoreBinder,
+        tag: CoreTag,
+        fields: Vec<CoreBinder>,
+        guard: Option<CoreExpr>,
+        rhs: CoreExpr,
+        other: CoreExpr,
+    ) -> CoreExpr {
+        CoreExpr::Case {
+            scrutinee: Box::new(v(xs)),
+            alts: vec![
+                CoreAlt {
+                    pat: CorePat::Con {
+                        tag,
+                        fields: fields.into_iter().map(CorePat::Var).collect(),
+                    },
+                    guard,
+                    rhs,
+                    span: s(),
+                },
+                CoreAlt {
+                    pat: CorePat::Wildcard,
+                    guard: None,
+                    rhs: other,
+                    span: s(),
+                },
+            ],
+            join_ty: None,
+            span: s(),
+        }
+    }
+
+    fn reuse(token: CoreBinder, tag: CoreTag, fields: Vec<CoreExpr>) -> CoreExpr {
+        CoreExpr::Reuse {
+            token: CoreVarRef::resolved(&token),
+            tag,
+            fields,
+            field_mask: None,
+            span: s(),
+        }
+    }
+
+    fn contract_errors(expr: &CoreExpr) -> Vec<AetherErrorKind> {
+        super::verify_def_contract_aether(expr, None)
+            .err()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|error| error.kind)
+            .collect()
+    }
+
+    #[test]
+    fn a_reuse_token_must_be_the_matched_value() {
+        let mut interner = Interner::new();
+        let xs = binder(1, interner.intern("xs"));
+        let h = binder(2, interner.intern("h"));
+        let t = binder(3, interner.intern("t"));
+        let ys = binder(4, interner.intern("ys"));
+        let zero = || CoreExpr::Lit(CoreLit::Int(0), s());
+        let in_cons_arm = |rhs| on_con(xs, CoreTag::Cons, vec![h, t], None, rhs, zero());
+
+        // The matched cell becomes the new one.
+        let matched = in_cons_arm(reuse(xs, CoreTag::Cons, vec![v(h), v(t)]));
+        assert!(contract_errors(&matched).is_empty());
+
+        // No arm matched `ys`, so its shape and its release are unknown (M1).
+        let other_value = in_cons_arm(reuse(ys, CoreTag::Cons, vec![v(h), v(t)]));
+        assert!(contract_errors(&other_value).contains(&AetherErrorKind::ReuseOfUnmatchedToken));
+
+        // The matched cell, built back as another constructor.
+        let other_tag = in_cons_arm(reuse(xs, CoreTag::Some, vec![v(h)]));
+        assert!(contract_errors(&other_tag).contains(&AetherErrorKind::ReuseOfUnmatchedToken));
+
+        // A closure may run after the arm released the cell, or many times.
+        let in_closure = in_cons_arm(lam(vec![], reuse(xs, CoreTag::Cons, vec![v(h), v(t)])));
+        assert!(contract_errors(&in_closure).contains(&AetherErrorKind::ReuseOfUnmatchedToken));
+
+        // A guard and a scrutinee run before the arm has matched anything.
+        let in_guard = on_con(
+            xs,
+            CoreTag::Cons,
+            vec![h, t],
+            Some(reuse(xs, CoreTag::Cons, vec![v(h), v(t)])),
+            zero(),
+            zero(),
+        );
+        assert!(contract_errors(&in_guard).contains(&AetherErrorKind::ReuseOfUnmatchedToken));
+        let in_scrutinee = in_cons_arm(CoreExpr::Case {
+            scrutinee: Box::new(reuse(xs, CoreTag::Cons, vec![v(h), v(t)])),
+            alts: vec![CoreAlt {
+                pat: CorePat::Wildcard,
+                guard: None,
+                rhs: zero(),
+                span: s(),
+            }],
+            join_ty: None,
+            span: s(),
+        });
+        assert!(contract_errors(&in_scrutinee).contains(&AetherErrorKind::ReuseOfUnmatchedToken));
+    }
+
+    #[test]
+    fn a_guard_gives_away_only_copies() {
+        let mut interner = Interner::new();
+        let xs = binder(1, interner.intern("xs"));
+        let h = binder(2, interner.intern("h"));
+        let t = binder(3, interner.intern("t"));
+        let f = binder(4, interner.intern("f"));
+        // `fn(xs, f) { match xs { [h | t] if <guard> -> 1, _ -> xs } }`
+        let guarded = |guard| {
+            lam(
+                vec![xs, f],
+                on_con(
+                    xs,
+                    CoreTag::Cons,
+                    vec![h, t],
+                    Some(guard),
+                    CoreExpr::Lit(CoreLit::Int(1), s()),
+                    v(xs),
+                ),
+            )
+        };
+
+        // A failed guard falls through to the arm that returns `xs` (M2).
+        let gives = guarded(give(f, v(xs)));
+        assert!(contract_errors(&gives).contains(&AetherErrorKind::GuardConsumes));
+
+        let copies = guarded(dup(xs, give(f, v(xs))));
+        assert!(contract_errors(&copies).is_empty());
+
+        // A field matched inside the guard was never lent to it: giving it
+        // away is the planner's open rule-3 gap, a diagnostic only.
+        let a = binder(5, interner.intern("a"));
+        let rest = binder(6, interner.intern("rest"));
+        let nested = guarded(on_con(
+            t,
+            CoreTag::Cons,
+            vec![a, rest],
+            None,
+            give(f, v(a)),
+            CoreExpr::Lit(CoreLit::Bool(false), s()),
+        ));
+        assert!(contract_errors(&nested).is_empty());
+        assert_eq!(views_consumed(&nested, None), 1);
+    }
+
+    #[test]
+    fn a_release_in_a_failed_guard_carries_into_the_later_arms() {
+        let mut interner = Interner::new();
+        let xs = binder(1, interner.intern("xs"));
+        let h = binder(2, interner.intern("h"));
+        let t = binder(3, interner.intern("t"));
+        let expr = lam(
+            vec![xs],
+            on_con(
+                xs,
+                CoreTag::Cons,
+                vec![h, t],
+                Some(drop_in(xs, CoreExpr::Lit(CoreLit::Bool(false), s()))),
+                CoreExpr::Lit(CoreLit::Int(1), s()),
+                drop_in(xs, CoreExpr::Lit(CoreLit::Int(0), s())),
+            ),
+        );
+        assert!(contract_errors(&expr).contains(&AetherErrorKind::DoubleDrop));
     }
 
     fn views_consumed(

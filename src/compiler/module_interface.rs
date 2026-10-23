@@ -741,8 +741,9 @@ pub fn compute_semantic_config_hash(strict_mode: bool, optimize_mode: bool) -> [
 /// builds then reuses each module's interface and recompiles only the
 /// artifacts. The VM keys its interfaces with this hash instead, since under
 /// `-g` it compiles every function it can on the AST path (0188 S2), which
-/// exports different globals. Without `-g` the two hashes are equal, so
-/// existing cache keys are unchanged.
+/// exports different globals. Without `-g`, a planted Aether fault or the
+/// Aether contract gate, the two hashes are equal, so existing cache keys are
+/// unchanged.
 pub fn compute_artifact_config_hash(
     strict_mode: bool,
     optimize_mode: bool,
@@ -755,6 +756,11 @@ pub fn compute_artifact_config_hash(
         marker.push_str("aether fault: ");
         marker.push_str(&fault);
         marker.push('\n');
+    }
+    // A cached module is never lowered again, so a build that checks the
+    // Aether contract must not reuse one built without the check.
+    if crate::aether::verify::contract_gate() {
+        marker.push_str("aether verified\n");
     }
     hash_bytes(marker.as_bytes())
 }
