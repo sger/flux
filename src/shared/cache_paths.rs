@@ -275,7 +275,9 @@ use sha2::{Digest, Sha256};
 /// Epoch 86: each use of a top-level function's closure in a block takes its
 /// own reference (0189 F3-2c, audit M3); an epoch-85 unit could release one
 /// closure twice.
-pub const CACHE_EPOCH: u16 = 86;
+/// Epoch 87: a continuation takes a reference to each capture on entry (0189
+/// F3-2d, audit M4); an epoch-86 unit gave a capture away on every resume.
+pub const CACHE_EPOCH: u16 = 87;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
