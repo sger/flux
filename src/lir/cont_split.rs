@@ -6,11 +6,12 @@
 //! synthesized function is then packaged as a closure and passed to
 //! `flux_yield_extend` on the yield path (slice 3b-ii handles the LLVM wiring).
 //!
-//! The synthesized function's body is a slice of the parent: its entry block
-//! copies the resume value and captured live vars into the parent's own
-//! variables, then jumps to the `cont` block. All CFG-reachable blocks from
-//! `cont` are copied in verbatim (SSA ids stay unique because they were
-//! unique in the parent).
+//! The synthesized function's body is a slice of the parent. The resume
+//! value arrives as its one param, named after the call's dst, and the
+//! closure-entry wrapper loads the captures under their parent names. The
+//! entry block takes a reference to each capture, then jumps to the `cont`
+//! block. All CFG-reachable blocks from `cont` are copied in verbatim (SSA
+//! ids stay unique because they were unique in the parent).
 //!
 //! Scope notes
 //! -----------
@@ -18,16 +19,16 @@
 //!   gate as slice 3a's emission).
 //! - Leaves `Call.yield_cont = None` when the cont block has no successors
 //!   reachable from entry — nothing to continue.
-//! - Nested yield checks inside the synthesized function itself are left for
-//!   a follow-up. The first-level split is the interesting case.
+//! - Synthesized functions are queued again, so yields inside them get their
+//!   own continuations.
 
 use std::collections::HashSet;
 
 use crate::core::FluxRep;
 use crate::lir::liveness::{self, FunctionLiveness};
 use crate::lir::{
-    BlockId, CtorArm, LirBlock, LirFnDebug, LirFnKind, LirFuncId, LirFunction, LirLoc, LirProgram,
-    LirTerminator, LirVar,
+    BlockId, CtorArm, LirBlock, LirFnDebug, LirFnKind, LirFuncId, LirFunction, LirInstr, LirLoc,
+    LirProgram, LirTerminator, LirVar,
 };
 
 /// The parent a lambda's continuation names: the debug information writes
@@ -185,9 +186,9 @@ fn synthesize_continuation(
     let parent = &program.functions[func_idx];
 
     // The closure's capture set: live_in(cont) ∪ {dst}. `dst` is the Call's
-    // result, which the cont block expects to have been bound. Including it
-    // in the capture set lets the synthesized function's entry block copy it
-    // into position from the resume value.
+    // result, which the cont block expects to have been bound. It becomes the
+    // synthesized function's param, so the resume value arrives under its
+    // name.
     let mut live_capture_set: Vec<LirVar> = live.live_in(site.cont).iter().copied().collect();
     if !live_capture_set.contains(&site.dst) {
         live_capture_set.push(site.dst);
@@ -242,13 +243,22 @@ fn synthesize_continuation(
         }
     }
 
-    // Trivial entry block (id=0) that jumps to the remapped cont.
+    // Entry block (id=0): take a reference to each capture, then jump to the
+    // remapped cont. The copied blocks follow the parent's plan for one run,
+    // which may give a capture away, and a multi-shot handler runs them once
+    // per resume (0189 V4, audit M4). The closure keeps its own references;
+    // `flux_dup` ignores scalars. Until the continuation is released (audit
+    // R4), each reference not given away leaks.
+    let entry_instrs: Vec<LirInstr> = capture_vars
+        .iter()
+        .map(|&val| LirInstr::Dup { val })
+        .collect();
     let entry_block = LirBlock {
         locs: Vec::new(),
         term_loc: Default::default(),
         id: BlockId(0),
         params: Vec::new(),
-        instrs: Vec::new(),
+        instrs: entry_instrs,
         terminator: LirTerminator::Jump(id_remap[&site.cont]),
     };
 
@@ -513,8 +523,8 @@ mod tests {
         assert_eq!(program.functions.len(), before);
     }
 
-    /// When a live var (other than dst) is live at cont, it should appear as
-    /// a capture param and get a Copy in the synthesized entry.
+    /// A var other than dst that is live at cont becomes a capture, and the
+    /// entry block takes a reference to it.
     #[test]
     fn extra_live_var_becomes_capture() {
         let mut program = LirProgram::new();
@@ -573,10 +583,13 @@ mod tests {
         // closure payload at entry by the wrapper).
         assert_eq!(synth.params, vec![v_dst]);
         assert_eq!(synth.capture_vars, vec![v_arg]);
-        // Entry is still empty (no Copies needed — closure wrapper loads
-        // captures automatically).
+        // Each resume takes its own reference to each capture (0189 V4, audit M4).
         let entry = &synth.blocks[0];
-        assert!(entry.instrs.is_empty());
+        assert!(
+            matches!(entry.instrs.as_slice(), [LirInstr::Dup { val }] if *val == v_arg),
+            "{:?}",
+            entry.instrs
+        );
     }
 
     #[test]

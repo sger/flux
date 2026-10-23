@@ -1,0 +1,31 @@
+// 0189 V4: a list live across a perform is given away after it, and the
+// handler resumes three times. Each resume re-runs the rest of `body`, so
+// each must hold its own reference to `xs` (Perceus audit M4).
+
+effect Ask {
+    ask: Int -> Int
+}
+
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn discard(xs, keep) {
+    if keep { xs } else { [] }
+}
+
+fn body(n) -> Int with Ask {
+    let xs = numbers(n)
+    let k = perform Ask.ask(1)
+    k + len(discard(xs, false))
+}
+
+fn thrice(n) -> Int {
+    body(n) handle Ask {
+        ask(resume, v) -> resume(v * 100) + resume(v * 10) + resume(v)
+    }
+}
+
+fn main() {
+    print(thrice(1))
+}
