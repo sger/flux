@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::core::{CoreBinder, CoreBinderId, CorePrimOp, CoreTag, CoreVarRef};
+use crate::core::{CoreBinder, CoreBinderId, CoreTag, CoreVarRef};
 use crate::diagnostics::position::Span;
 
 use super::analysis::{
@@ -835,17 +835,13 @@ fn plan_expr(
             }
         }
         CoreExpr::PrimOp { op, args, span } => {
-            let argument_demand = match op {
-                // Collection constructors take ownership of their elements.
-                CorePrimOp::MakeTuple
-                | CorePrimOp::MakeList
-                | CorePrimOp::MakeArray
-                | CorePrimOp::MakeHash => ValueDemand::Owned,
-                _ => ValueDemand::Borrowed,
-            };
             let (args, env_before) =
-                plan_expr_list(args, tail_env, registry, scope, field_parents, |_| {
-                    argument_demand
+                plan_expr_list(args, tail_env, registry, scope, field_parents, |index| {
+                    if op.takes_arg(index) {
+                        ValueDemand::Owned
+                    } else {
+                        ValueDemand::Borrowed
+                    }
                 });
             AetherPlan {
                 expr: CoreExpr::PrimOp { op, args, span },
@@ -1767,6 +1763,43 @@ mod tests {
             }
             other => panic!("expected AetherCall, got {other:?}"),
         }
+    }
+
+    /// A move primop takes over the value it sends, so a value read after the
+    /// send gets its own reference first (PA L3).
+    #[test]
+    fn a_move_primop_takes_its_value() {
+        let mut interner = Interner::new();
+        let ch = binder(&mut interner, 1, "ch");
+        let xs = binder(&mut interner, 2, "xs");
+        let ok = binder(&mut interner, 3, "ok");
+        let expr = CoreExpr::Lam {
+            params: vec![ch, xs],
+            param_types: vec![],
+            result_ty: None,
+            body: Box::new(CoreExpr::Let {
+                var: ok,
+                rhs: Box::new(CoreExpr::PrimOp {
+                    op: CorePrimOp::ChanTrySendMove,
+                    args: vec![var(ch), var(xs)],
+                    span: Span::default(),
+                }),
+                body: Box::new(var(xs)),
+                span: Span::default(),
+            }),
+            span: Span::default(),
+        };
+
+        let rewritten = insert_dup_drop_with_registry(expr, &BorrowRegistry::default());
+        let dups = |binder| {
+            count_binder_nodes(
+                &rewritten,
+                binder,
+                &|expr, binder| matches!(expr, CoreExpr::Dup { var, .. } if var.binder == Some(binder)),
+            )
+        };
+        assert_eq!(dups(xs.id), 1, "{rewritten:?}");
+        assert_eq!(dups(ch.id), 0, "{rewritten:?}");
     }
 
     /// A closure bound locally takes its arguments owned, whatever a global

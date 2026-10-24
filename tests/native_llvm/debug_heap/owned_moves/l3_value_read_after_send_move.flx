@@ -1,0 +1,25 @@
+// PA L3: a list sent with a move is read again by the sender. The channel
+// takes over the reference it is given, so the sender must keep one of its
+// own for the later read.
+
+import Flow.Channel as Channel
+
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn discard(xs, keep) {
+    if keep { xs } else { [] }
+}
+
+fn main() {
+    let ch = Channel.make(1)
+    let xs = numbers(1)
+    let ok = Channel.try_send_move(ch, xs)
+    let got = match Channel.try_recv(ch) {
+        Some(v) -> discard(v, false),
+        None -> [0],
+    }
+    print(got)
+    print(xs)
+}

@@ -2048,6 +2048,9 @@ pub extern "C" fn flux_async_task_spawn_scoped(scope: u64, closure: i64) -> i64 
 
 #[unsafe(no_mangle)]
 pub extern "C" fn flux_async_task_spawn_scoped_move(scope: u64, closure: i64) -> i64 {
+    // The closure is the caller's to give away (PA L3). With no runtime
+    // registered there is no release to call, so it leaks; a live scope
+    // always has one.
     let Some(cb) = callbacks() else {
         return -1;
     };

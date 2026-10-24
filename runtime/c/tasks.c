@@ -230,10 +230,9 @@ static int64_t flux_task_spawn_inner(int64_t closure, int move_owned, const char
     task_table_init_once();
 
     if (move_owned) {
-        if (!flux_rc_is_unique(closure)) {
-            flux_rc_promote(closure);
-            flux_dup(closure);
-        }
+        /* The caller hands over its reference (PA L3); the closure's
+         * captures may still be shared with this thread. */
+        flux_rc_promote(closure);
     } else {
         /* Promote to MT refcount mode then take an ownership reference. */
         flux_rc_promote(closure);
@@ -633,10 +632,9 @@ static int64_t flux_task_spawn_inner(int64_t closure, int move_owned, const char
     task_table_init_once();
 
     if (move_owned) {
-        if (!flux_rc_is_unique(closure)) {
-            flux_rc_promote(closure);
-            flux_dup(closure);
-        }
+        /* The caller hands over its reference (PA L3); the closure's
+         * captures may still be shared with this thread. */
+        flux_rc_promote(closure);
     } else {
         flux_rc_promote(closure);
         flux_dup(closure);
