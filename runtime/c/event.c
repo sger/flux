@@ -309,8 +309,8 @@ static int poll_event(int64_t id, int64_t *out) {
         int64_t inner = 0;
         if (!poll_event(ev->a, &inner)) return 0;
         int64_t args[1] = { inner };
+        /* The closure owns its argument and may release it, as in `call1`. */
         *out = flux_call_closure_c(ev->b, args, 1);
-        flux_drop(inner);
         return 1;
     }
     }
