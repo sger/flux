@@ -297,7 +297,10 @@ use sha2::{Digest, Sha256};
 /// Epoch 95: a match arm that gives the matched value away copies the
 /// fields it still uses first; an epoch-94 unit read them after the cell
 /// could be freed (PA L9).
-pub const CACHE_EPOCH: u16 = 95;
+/// Epoch 96: a value given away on one path is released on the others; an
+/// epoch-95 unit kept it on every path once any path gave it away (PA R1,
+/// KI-121).
+pub const CACHE_EPOCH: u16 = 96;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

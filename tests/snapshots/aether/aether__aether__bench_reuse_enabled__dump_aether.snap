@@ -312,7 +312,7 @@ lam(f, x) ->
   drop <sym:2000016>#117 in
     x#116
 ── fn map ──
-  Dups: 1  Drops: 5  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 1  Drops: 6  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(arr, f) ->
@@ -338,8 +338,9 @@ lam(arr, f) ->
                   let <sym:4001391> =
                     aether_call[owned] f#120(dup v#124 in v#124)
                   aether_call[borrowed, borrowed] push#207(acc#123, <sym:4001391>#1391)
+                  drop acc#123 in
                 drop <sym:4001389>#1389 in
-                  aether_call[owned, owned] map_go#121(<sym:4001390>#1390, <sym:4001392>#1392)
+                    aether_call[owned, owned] map_go#121(<sym:4001390>#1390, <sym:4001392>#1392)
             _ ->
               drop <sym:4001389>#1389 in
                 let <sym:4001393> =
@@ -350,7 +351,7 @@ lam(arr, f) ->
     MakeArray()
   aether_call[owned, owned] map_go#121(0, <sym:4001394>#1394)
 ── fn filter ──
-  Dups: 1  Drops: 9  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 1  Drops: 10  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(arr, pred) ->
@@ -379,8 +380,9 @@ lam(arr, pred) ->
                     drop idx#129 in
                       let <sym:4001400> =
                         aether_call[borrowed, borrowed] push#207(acc#130, v#131)
+                        drop acc#130 in
                       drop <sym:4001397>#1397 in
-                        aether_call[owned, owned] filter_go#128(<sym:4001399>#1399, <sym:4001400>#1400)
+                          aether_call[owned, owned] filter_go#128(<sym:4001399>#1399, <sym:4001400>#1400)
                 _ ->
                     drop <sym:4001398>#1398 in
                   drop <sym:4001397>#1397 in
@@ -549,7 +551,7 @@ lam(arr, pred) ->
                   aether_call[owned] all_go#156(<sym:4001426>#1426)
   aether_call[owned] all_go#156(0)
 ── fn find ──
-  Dups: 3  Drops: 12  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
+  Dups: 3  Drops: 13  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(arr, pred) ->
@@ -602,13 +604,14 @@ lam(arr, pred) ->
                               aether_call[owned] find_go#162(<sym:4001431>#1431)
               }
             _ ->
-              let <sym:4001432> =
-                IAdd(idx#163, 1)
-              drop idx#163 in
-                aether_call[owned] find_go#162(<sym:4001432>#1432)
+              drop <sym:4001429>#1429 in
+                let <sym:4001432> =
+                  IAdd(idx#163, 1)
+                drop idx#163 in
+                  aether_call[owned] find_go#162(<sym:4001432>#1432)
   aether_call[owned] find_go#162(0)
 ── fn count ──
-  Dups: 1  Drops: 8  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 1  Drops: 9  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(arr, pred) ->
@@ -638,7 +641,8 @@ lam(arr, pred) ->
                       drop idx#169 in
                         let <sym:4001438> =
                           IAdd(n#170, 1)
-                        aether_call[owned, owned] count_go#168(<sym:4001437>#1437, <sym:4001438>#1438)
+                        drop n#170 in
+                          aether_call[owned, owned] count_go#168(<sym:4001437>#1437, <sym:4001438>#1438)
                   _ ->
                     drop <sym:4001436>#1436 in
                       let <sym:4001439> =
@@ -727,7 +731,7 @@ lam(arr) ->
     MakeArray()
   aether_call[owned, owned] flatten_go#181(0, <sym:4001455>#1455)
 ── fn zip ──
-  Dups: 2  Drops: 9  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 2  Drops: 10  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(a_arr, b_arr) ->
@@ -767,9 +771,10 @@ lam(a_arr, b_arr) ->
                       let <sym:4001463> =
                         MakeTuple(dup va#191 in va#191, dup vb#192 in vb#192)
                       aether_call[borrowed, borrowed] push#207(acc#190, <sym:4001463>#1463)
+                        drop acc#190 in
                       drop <sym:4001461>#1461 in
                     drop <sym:4001460>#1460 in
-                        aether_call[owned, owned] zip_go#188(<sym:4001462>#1462, <sym:4001464>#1464)
+                          aether_call[owned, owned] zip_go#188(<sym:4001462>#1462, <sym:4001464>#1464)
                 _ ->
                       drop idx#189 in
                     drop <sym:4001461>#1461 in
@@ -970,7 +975,7 @@ lam(arr) ->
           drop <sym:4001496>#1496 in
               0
 ── fn range ──
-  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 0  Drops: 3  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(start, stop) ->
@@ -987,13 +992,14 @@ lam(start, stop) ->
             IAdd(i#252, 1)
           let <sym:4001501> =
             aether_call[borrowed, borrowed] push#207(acc#253, i#252)
-          drop i#252 in
-            aether_call[owned, owned] range_go#251(<sym:4001500>#1500, <sym:4001501>#1501)
+            drop i#252 in
+          drop acc#253 in
+              aether_call[owned, owned] range_go#251(<sym:4001500>#1500, <sym:4001501>#1501)
   let <sym:4001502> =
     MakeArray()
   aether_call[owned, owned] range_go#251(start#249, <sym:4001502>#1502)
 ── fn sort_by ──
-  Dups: 3  Drops: 14  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 3
+  Dups: 3  Drops: 15  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 3
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m8_466C6F772E4F7264_Ord, arr, f) ->
@@ -1027,12 +1033,13 @@ lam(__dict_m8_466C6F772E4F7264_Ord, arr, f) ->
                       let <sym:4001510> =
                         Len(sorted#268)
                       aether_call[borrowed, borrowed, borrowed] slice#213(sorted#268, idx#270, <sym:4001510>#1510)
+                      drop sorted#268 in
                     drop idx#270 in
-                      let <sym:4001512> =
-                        let <sym:4001511> =
-                          MakeArray(pair#269)
-                        aether_call[owned, owned] concat#395(left#273, <sym:4001511>#1511)
-                      aether_call[owned, owned] concat#395(<sym:4001512>#1512, right#272)
+                        let <sym:4001512> =
+                          let <sym:4001511> =
+                            MakeArray(pair#269)
+                          aether_call[owned, owned] concat#395(left#273, <sym:4001511>#1511)
+                        aether_call[owned, owned] concat#395(<sym:4001512>#1512, right#272)
                   _ ->
                     let <sym:4001513> =
                       IAdd(idx#270, 1)
@@ -1107,7 +1114,7 @@ lam(arr, n) ->
         n#276
   aether_call[borrowed, borrowed, borrowed] slice#213(arr#275, 0, <sym:4001527>#1527)
 ── fn swap ──
-  Dups: 0  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 0  Drops: 5  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(arr, i, j) ->
@@ -1121,8 +1128,9 @@ lam(arr, i, j) ->
         Some(vj) ->
           let <sym:4001534> =
             aether_call[borrowed, borrowed, borrowed] update#217(arr#281, i#282, vj#285)
+            drop arr#281 in
           drop <sym:4001533>#1533 in
-            aether_call[borrowed, borrowed, borrowed] update#217(<sym:4001534>#1534, j#283, vi#284)
+              aether_call[borrowed, borrowed, borrowed] update#217(<sym:4001534>#1534, j#283, vi#284)
         _ ->
             drop <sym:4001533>#1533 in
           drop <sym:4001532>#1532 in
@@ -1131,7 +1139,7 @@ lam(arr, i, j) ->
       drop <sym:4001532>#1532 in
         arr#281
 ── fn enumerate ──
-  Dups: 1  Drops: 3  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 1  Drops: 5  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(arr) ->
@@ -1156,18 +1164,20 @@ lam(arr) ->
                 let <sym:4001539> =
                   MakeTuple(idx#289, dup v#291 in v#291)
                 aether_call[borrowed, borrowed] push#207(acc#290, <sym:4001539>#1539)
+                drop acc#290 in
               drop <sym:4001537>#1537 in
-                aether_call[owned, owned] enumerate_go#288(<sym:4001538>#1538, <sym:4001540>#1540)
+                  aether_call[owned, owned] enumerate_go#288(<sym:4001538>#1538, <sym:4001540>#1540)
             _ ->
               drop <sym:4001537>#1537 in
                 let <sym:4001541> =
                   IAdd(idx#289, 1)
-                aether_call[owned, owned] enumerate_go#288(<sym:4001541>#1541, acc#290)
+                drop idx#289 in
+                  aether_call[owned, owned] enumerate_go#288(<sym:4001541>#1541, acc#290)
   let <sym:4001542> =
     MakeArray()
   aether_call[owned, owned] enumerate_go#288(0, <sym:4001542>#1542)
 ── fn tabulate ──
-  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(n, f) ->
@@ -1186,12 +1196,13 @@ lam(n, f) ->
             let <sym:4001545> =
               aether_call[owned] f#294(i#296)
             aether_call[borrowed, borrowed] push#207(acc#297, <sym:4001545>#1545)
-          aether_call[owned, owned] tabulate_go#295(<sym:4001544>#1544, <sym:4001546>#1546)
+          drop acc#297 in
+            aether_call[owned, owned] tabulate_go#295(<sym:4001544>#1544, <sym:4001546>#1546)
   let <sym:4001547> =
     MakeArray()
   aether_call[owned, owned] tabulate_go#295(0, <sym:4001547>#1547)
 ── fn from_list ──
-  Dups: 1  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 1  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(xs) ->
@@ -1201,7 +1212,8 @@ lam(xs) ->
         Cons(h, t) ->
           let <sym:4001548> =
             aether_call[borrowed, borrowed] push#207(acc#302, h#303)
-          aether_call[owned, owned] from_list_go#300(dup t#304 in t#304, <sym:4001548>#1548)
+          drop acc#302 in
+            aether_call[owned, owned] from_list_go#300(dup t#304 in t#304, <sym:4001548>#1548)
         _ ->
           drop ys#301 in
             acc#302
@@ -1209,7 +1221,7 @@ lam(xs) ->
     MakeArray()
   aether_call[owned, owned] from_list_go#300(xs#299, <sym:4001549>#1549)
 ── fn find_index ──
-  Dups: 1  Drops: 5  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
+  Dups: 1  Drops: 9  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(arr, pred) ->
@@ -1240,7 +1252,8 @@ lam(arr, pred) ->
                       drop <sym:4001553>#1553 in
                         let <sym:4001554> =
                           IAdd(idx#309, 1)
-                        aether_call[owned] find_index_go#308(<sym:4001554>#1554)
+                        drop idx#309 in
+                          aether_call[owned] find_index_go#308(<sym:4001554>#1554)
                 shared ->
                   dup v#310 in
                     let <sym:4001553> =
@@ -1253,15 +1266,18 @@ lam(arr, pred) ->
                         drop <sym:4001553>#1553 in
                           let <sym:4001554> =
                             IAdd(idx#309, 1)
-                          aether_call[owned] find_index_go#308(<sym:4001554>#1554)
+                          drop idx#309 in
+                            aether_call[owned] find_index_go#308(<sym:4001554>#1554)
               }
             _ ->
-              let <sym:4001555> =
-                IAdd(idx#309, 1)
-              aether_call[owned] find_index_go#308(<sym:4001555>#1555)
+              drop <sym:4001552>#1552 in
+                let <sym:4001555> =
+                  IAdd(idx#309, 1)
+                drop idx#309 in
+                  aether_call[owned] find_index_go#308(<sym:4001555>#1555)
   aether_call[owned] find_index_go#308(0)
 ── fn each_indexed ──
-  Dups: 2  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 2  Drops: 6  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(arr, f) ->
@@ -1286,15 +1302,17 @@ lam(arr, f) ->
               drop <sym:2000018>#317 in
                   let <sym:4001559> =
                     IAdd(idx#315, 1)
-                  aether_call[owned] each_indexed_go#314(<sym:4001559>#1559)
+                  drop idx#315 in
+                    aether_call[owned] each_indexed_go#314(<sym:4001559>#1559)
             _ ->
               drop <sym:4001558>#1558 in
                 let <sym:4001560> =
                   IAdd(idx#315, 1)
-                aether_call[owned] each_indexed_go#314(<sym:4001560>#1560)
+                drop idx#315 in
+                  aether_call[owned] each_indexed_go#314(<sym:4001560>#1560)
   aether_call[owned] each_indexed_go#314(0)
 ── fn update_many ──
-  Dups: 1  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 1  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(arr, pairs) ->
@@ -1308,13 +1326,14 @@ lam(arr, pairs) ->
             let <sym:4001562> =
               p#324.1
             aether_call[borrowed, borrowed, borrowed] update#217(a#322, <sym:4001561>#1561, <sym:4001562>#1562)
-          aether_call[owned, owned] update_many_go#321(<sym:4001563>#1563, dup rest#325 in rest#325)
+          drop a#322 in
+            aether_call[owned, owned] update_many_go#321(<sym:4001563>#1563, dup rest#325 in rest#325)
         _ ->
           drop ps#323 in
             a#322
   aether_call[owned, owned] update_many_go#321(arr#319, pairs#320)
 ── fn accum ──
-  Dups: 5  Drops: 5  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 5  Drops: 6  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(size, init, pairs, f) ->
@@ -1344,8 +1363,9 @@ lam(size, init, pairs, f) ->
                       p#334.1
                     aether_call[owned, owned] f#330(dup cur#336 in cur#336, dup <sym:4001568>#1568 in <sym:4001568>#1568)
                   aether_call[borrowed, borrowed, borrowed] update#217(a#332, <sym:4001567>#1567, <sym:4001569>#1569)
+                  drop a#332 in
                 drop <sym:4001566>#1566 in
-                  aether_call[owned, owned] accum_go#331(<sym:4001570>#1570, dup rest#335 in rest#335)
+                    aether_call[owned, owned] accum_go#331(<sym:4001570>#1570, dup rest#335 in rest#335)
               _ ->
                 drop <sym:4001566>#1566 in
                   aether_call[owned, owned] accum_go#331(a#332, dup rest#335 in rest#335)
@@ -1570,7 +1590,7 @@ lam(xs, pred) ->
     _ ->
       None
 ── fn count ──
-  Dups: 3  Drops: 3  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 3  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(xs, pred) ->
@@ -1585,7 +1605,8 @@ lam(xs, pred) ->
               drop <sym:4001595>#1595 in
                 let <sym:4001596> =
                   IAdd(n#417, 1)
-                aether_call[owned, owned] count_go#415(dup t#419 in t#419, <sym:4001596>#1596)
+                drop n#417 in
+                  aether_call[owned, owned] count_go#415(dup t#419 in t#419, <sym:4001596>#1596)
             _ ->
               drop <sym:4001595>#1595 in
                 aether_call[owned, owned] count_go#415(dup t#419 in t#419, n#417)
@@ -1640,7 +1661,7 @@ lam(xs, n) ->
     Nil
   aether_call[owned, owned, owned] take_acc#429(xs#427, n#428, <sym:4001601>#1601)
 ── fn drop ──
-  Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 1  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(xs, n) ->
@@ -1656,7 +1677,8 @@ lam(xs, n) ->
             ISub(n#437, 1)
           aether_call[owned, borrowed] drop#435(dup t#439 in t#439, <sym:4001603>#1603)
         _ ->
-          Nil
+          drop xs#436 in
+            Nil
 ── fn take_while ──
   Dups: 3  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
@@ -1704,7 +1726,7 @@ lam(xs, pred) ->
       drop xs#449 in
         Nil
 ── fn split_at ──
-  Dups: 4  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
+  Dups: 4  Drops: 3  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(xs, n) ->
@@ -1726,18 +1748,20 @@ lam(xs, n) ->
             (left, right) ->
               let <sym:4001612> =
                 Cons(dup h#456 in h#456, dup left#458 in left#458)
-              let <sym:7000000> =
-                MakeTuple(<sym:4001612>#1612, dup right#459 in right#459)
-              drop <sym:4001611>#1611 in
-                <sym:7000000>#4026531840
+              drop xs#454 in
+                let <sym:7000000> =
+                  MakeTuple(<sym:4001612>#1612, dup right#459 in right#459)
+                drop <sym:4001611>#1611 in
+                  <sym:7000000>#4026531840
         _ ->
-          let <sym:4001613> =
-            Nil
-          let <sym:4001614> =
-            Nil
-          MakeTuple(<sym:4001613>#1613, <sym:4001614>#1614)
+          drop xs#454 in
+            let <sym:4001613> =
+              Nil
+            let <sym:4001614> =
+              Nil
+            MakeTuple(<sym:4001613>#1613, <sym:4001614>#1614)
 ── fn span ──
-  Dups: 5  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
+  Dups: 5  Drops: 5  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(xs, pred) ->
@@ -1754,10 +1778,11 @@ lam(xs, pred) ->
               (left, right) ->
                 let <sym:4001617> =
                   Cons(dup h#463 in h#463, dup left#465 in left#465)
-                let <sym:7000000> =
-                  MakeTuple(<sym:4001617>#1617, dup right#466 in right#466)
-                drop <sym:4001616>#1616 in
-                  <sym:7000000>#4026531840
+                drop xs#461 in
+                  let <sym:7000000> =
+                    MakeTuple(<sym:4001617>#1617, dup right#466 in right#466)
+                  drop <sym:4001616>#1616 in
+                    <sym:7000000>#4026531840
         _ ->
           drop <sym:4001615>#1615 in
             let <sym:4001618> =
@@ -1830,7 +1855,7 @@ lam(xs) ->
     _ ->
       Nil
 ── fn length ──
-  Dups: 1  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 1  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(xs) ->
@@ -1840,13 +1865,14 @@ lam(xs) ->
         Cons(h, t) ->
           let <sym:4001624> =
             IAdd(acc#503, 1)
-          aether_call[owned, owned] length_go#501(dup t#505 in t#505, <sym:4001624>#1624)
+          drop acc#503 in
+            aether_call[owned, owned] length_go#501(dup t#505 in t#505, <sym:4001624>#1624)
         _ ->
           drop ys#502 in
             acc#503
   aether_call[owned, owned] length_go#501(xs#500, 0)
 ── fn init ──
-  Dups: 2  Drops: 4  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 1  FBIP: fbip(1)
+  Dups: 2  Drops: 5  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 1  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(xs) ->
@@ -1877,7 +1903,8 @@ lam(xs) ->
                       Nil
       }
     _ ->
-      aether_call[borrowed] panic#1210("init called on empty list")
+      drop xs#507 in
+        aether_call[borrowed] panic#1210("init called on empty list")
 ── fn range ──
   Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
@@ -2024,7 +2051,7 @@ lam(xs, x, acc) ->
     _ ->
       aether_call[owned] reverse#522(acc#572)
 ── fn clone_list ──
-  Dups: 2  Drops: 0  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
+  Dups: 2  Drops: 1  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(xs) ->
@@ -2043,9 +2070,10 @@ lam(xs) ->
               Cons(h#577, <sym:4001655>#1655)
       }
     _ ->
-      Nil
+      drop xs#576 in
+        Nil
 ── fn intersperse ──
-  Dups: 2  Drops: 1  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
+  Dups: 2  Drops: 2  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(xs, sep) ->
@@ -2064,8 +2092,9 @@ lam(xs, sep) ->
               Cons(h#582, <sym:4001656>#1656)
       }
     _ ->
+        drop xs#580 in
       drop sep#581 in
-        Nil
+          Nil
 ── fn is_prefix ──
   Dups: 2  Drops: 5  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
@@ -2210,7 +2239,7 @@ lam(__dict_m8_466C6F772E4F7264_Ord, xs) ->
     _ ->
       None
 ── fn sum ──
-  Dups: 1  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 1  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(xs) ->
@@ -2220,13 +2249,14 @@ lam(xs) ->
         Cons(h, t) ->
           let <sym:4001681> =
             IAdd(acc#638, h#639)
-          aether_call[owned, owned] sum_go#636(dup t#640 in t#640, <sym:4001681>#1681)
+          drop acc#638 in
+            aether_call[owned, owned] sum_go#636(dup t#640 in t#640, <sym:4001681>#1681)
         _ ->
           drop ys#637 in
             acc#638
   aether_call[owned, owned] sum_go#636(xs#635, 0)
 ── fn product ──
-  Dups: 1  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 1  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(xs) ->
@@ -2236,13 +2266,14 @@ lam(xs) ->
         Cons(h, t) ->
           let <sym:4001682> =
             IMul(acc#645, h#646)
-          aether_call[owned, owned] product_go#643(dup t#647 in t#647, <sym:4001682>#1682)
+          drop acc#645 in
+            aether_call[owned, owned] product_go#643(dup t#647 in t#647, <sym:4001682>#1682)
         _ ->
           drop ys#644 in
             acc#645
   aether_call[owned, owned] product_go#643(xs#642, 1)
 ── fn concat_lists ──
-  Dups: 2  Drops: 0  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
+  Dups: 2  Drops: 1  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(xs, ys) ->
@@ -2261,7 +2292,8 @@ lam(xs, ys) ->
               Cons(h#651, <sym:4001683>#1683)
       }
     _ ->
-      ys#650
+      drop xs#649 in
+        ys#650
 ── fn break_at ──
   Dups: 1  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
@@ -2314,7 +2346,7 @@ lam(__dict_m7_466C6F772E4571_Eq, xs, x) ->
     drop <sym:4001688>#1688 in
       <sym:7000000>#4026531840
 ── fn enumerate_go ──
-  Dups: 4  Drops: 1  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
+  Dups: 4  Drops: 4  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(xs, i) ->
@@ -2328,7 +2360,8 @@ lam(xs, i) ->
             let <sym:4001690> =
               IAdd(i#670, 1)
             aether_call[owned, owned] enumerate_go#668(t#672, <sym:4001690>#1690)
-          reuse xs#669 as Cons(<sym:4001689>#1689, <sym:4001691>#1691)
+          drop i#670 in
+            reuse xs#669 as Cons(<sym:4001689>#1689, <sym:4001691>#1691)
         shared ->
           dup h#671 in
             dup t#672 in
@@ -2338,13 +2371,15 @@ lam(xs, i) ->
                 let <sym:4001690> =
                   IAdd(i#670, 1)
                 aether_call[owned, owned] enumerate_go#668(t#672, <sym:4001690>#1690)
-              Cons(<sym:4001689>#1689, <sym:4001691>#1691)
+              drop i#670 in
+                Cons(<sym:4001689>#1689, <sym:4001691>#1691)
       }
     _ ->
+        drop xs#669 in
       drop i#670 in
-        Nil
+          Nil
 ── fn intersperse_rest ──
-  Dups: 4  Drops: 1  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(3)
+  Dups: 4  Drops: 2  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(3)
   FreshAllocs: 3
   verifier: ok
 lam(xs, sep) ->
@@ -2367,8 +2402,9 @@ lam(xs, sep) ->
               Cons(sep#675, <sym:4001693>#1693)
       }
     _ ->
+        drop xs#674 in
       drop sep#675 in
-        Nil
+          Nil
 ── fn intercalate_rest ──
   Dups: 2  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
@@ -2934,7 +2970,7 @@ lam(arr) ->
     MakeArray()
   aether_call[owned, owned] pi_go#927(0, <sym:4001777>#1777)
 ── fn gcd ──
-  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(a, b) ->
@@ -2965,7 +3001,8 @@ lam(a, b) ->
         _ ->
           let <sym:4001789> =
             IMod(x#1024, y#1025)
-          aether_call[owned, owned] gcd_go#1023(y#1025, <sym:4001789>#1789)
+          drop x#1024 in
+            aether_call[owned, owned] gcd_go#1023(y#1025, <sym:4001789>#1789)
   aether_call[owned, owned] gcd_go#1023(aa#1027, bb#1026)
 ── fn unwrap ──
   Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
@@ -2991,7 +3028,7 @@ lam(opt, default) ->
     _ ->
       default#1050
 ── fn map_option ──
-  Dups: 1  Drops: 0  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
+  Dups: 1  Drops: 1  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(opt, f) ->
@@ -3009,7 +3046,8 @@ lam(opt, f) ->
             Some(<sym:4001807>#1807)
       }
     _ ->
-      None
+      drop opt#1053 in
+        None
 ── fn flat_map_option ──
   Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
@@ -3021,7 +3059,7 @@ lam(opt, f) ->
     _ ->
       None
 ── fn __tc_m14_466C6F772E53656D6967726F7570_Semigroup_Option<a>_append ──
-  Dups: 5  Drops: 7  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
+  Dups: 5  Drops: 8  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(__dict_m14_466C6F772E53656D6967726F7570_Semigroup, x, y) ->
@@ -3051,14 +3089,15 @@ lam(__dict_m14_466C6F772E53656D6967726F7570_Semigroup, x, y) ->
                       Some(<sym:4001830>#1830)
           }
         _ ->
+            drop y#1240 in
           drop __dict_m14_466C6F772E53656D6967726F7570_Semigroup#1238 in
-            x#1239
+              x#1239
     _ ->
         drop x#1239 in
       drop __dict_m14_466C6F772E53656D6967726F7570_Semigroup#1238 in
           y#1240
 ── fn append_lists ──
-  Dups: 2  Drops: 0  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
+  Dups: 2  Drops: 1  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(xs, ys) ->
@@ -3077,7 +3116,8 @@ lam(xs, ys) ->
               Cons(h#1252, <sym:4001831>#1831)
       }
     _ ->
-      ys#1251
+      drop xs#1250 in
+        ys#1251
 ── fn join ──
   Dups: 1  Drops: 5  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
@@ -3193,7 +3233,7 @@ lam(n) ->
     Nil
   aether_call[owned, owned] build_go#1323(n#1322, <sym:4001874>#1874)
 ── fn map_enabled @fip ──
-  Dups: 2  Drops: 0  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
+  Dups: 2  Drops: 1  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
   fbip: NotProvable
@@ -3220,7 +3260,8 @@ lam(xs, f) ->
               Cons(<sym:4001875>#1875, <sym:4001876>#1876)
       }
     _ ->
-      Nil
+      drop xs#1327 in
+        Nil
 ── fn bench_map ──
   Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
@@ -3263,7 +3304,7 @@ lam() ->
         aether_call[owned] __resume_default#1365(<sym:4001917>#1917)
 
 ── Total ──
-  Dups: 211  Drops: 341  Reuses: 14  DropSpecs: 12  BorrowedCallGuards: 38  FBIP: fbip(50)  Yields: 11  Handles: 5  HandlerArms: 11
+  Dups: 211  Drops: 382  Reuses: 14  DropSpecs: 12  BorrowedCallGuards: 38  FBIP: fbip(50)  Yields: 11  Handles: 5  HandlerArms: 11
   FreshAllocs: 50
 
 [ 1 of 18] Compiling  Add
