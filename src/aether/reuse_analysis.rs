@@ -599,6 +599,52 @@ pub fn diagnose_drop_body(
     }
 }
 
+/// How a rewrite of `original`, with `var` an alias of `rhs`, used the
+/// binding. Fewer uses afterwards means some were replaced by a copy of
+/// `rhs`. `None`: none was. `Some(true)`: nothing names `var` any more, a
+/// release included, so the binding must go; kept, it builds the value a
+/// second time and gives its fields away twice. `Some(false)`: something
+/// still names it, or `rhs` can't move to where the copy runs, so the
+/// rewrite must be undone.
+fn inlined_binding(
+    var: CoreBinderId,
+    rhs: &CoreExpr,
+    original: &CoreExpr,
+    rewritten: &CoreExpr,
+) -> Option<bool> {
+    let uses = |expr: &CoreExpr| {
+        super::analysis::use_counts_aether(expr)
+            .get(&var)
+            .copied()
+            .unwrap_or(0)
+    };
+    if uses(rewritten) >= uses(original) {
+        return None;
+    }
+    Some(moves_freely(rhs) && !super::free_vars::collect_free_vars_aether(rewritten).contains(&var))
+}
+
+/// Whether evaluating `expr` later, where its copy is used, does the same as
+/// evaluating it at its binding: it only builds values, with no call and no
+/// effect to move past the bindings between.
+fn moves_freely(expr: &CoreExpr) -> bool {
+    match expr {
+        CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => true,
+        CoreExpr::Con { fields, .. } => fields.iter().all(moves_freely),
+        CoreExpr::Dup { body, .. } => moves_freely(body),
+        CoreExpr::Let { rhs, body, .. } => moves_freely(rhs) && moves_freely(body),
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
+            moves_freely(scrutinee)
+                && alts
+                    .iter()
+                    .all(|alt| alt.guard.is_none() && moves_freely(&alt.rhs))
+        }
+        _ => false,
+    }
+}
+
 fn rewrite_drop_body_with_env(
     token: &CoreVarRef,
     body: CoreExpr,
@@ -644,6 +690,7 @@ fn rewrite_drop_body_with_env(
                 );
             }
             let child_env = env.with_alias(var.id, &rhs);
+            let original_body = (*body).clone();
             let inner = rewrite_drop_body_with_env(
                 token,
                 *body,
@@ -652,6 +699,23 @@ fn rewrite_drop_body_with_env(
                 blocked_outer_token,
                 &child_env,
             );
+            if inner.reused {
+                match inlined_binding(var.id, &rhs, &original_body, &inner.expr) {
+                    Some(true) => return inner,
+                    Some(false) => {
+                        return no_rewrite(
+                            CoreExpr::Let {
+                                var,
+                                rhs,
+                                body: Box::new(original_body),
+                                span,
+                            },
+                            ReuseFailureReason::ProvenanceLost,
+                        );
+                    }
+                    None => {}
+                }
+            }
             if inner.reused {
                 ReuseRewrite {
                     expr: CoreExpr::Let {
@@ -680,13 +744,22 @@ fn rewrite_drop_body_with_env(
                 .binder
                 .and_then(|binder_id| env.aliases.get(&binder_id).cloned())
             {
-                return rewrite_drop_body_with_env(
+                let inner = rewrite_drop_body_with_env(
                     token,
                     alias,
                     drop_span,
                     pat_tag,
                     blocked_outer_token,
                     env,
+                );
+                // Not reused, the alias stays a read of its binding: a copy of
+                // the value here would build it a second time.
+                if inner.reused {
+                    return inner;
+                }
+                return no_rewrite(
+                    body,
+                    inner.reason.unwrap_or(ReuseFailureReason::ShapeMismatch),
                 );
             }
             no_rewrite(body, ReuseFailureReason::ShapeMismatch)
@@ -1299,12 +1372,21 @@ fn rewrite_forwarded_wrapper_body(
                 .binder
                 .and_then(|binder_id| env.aliases.get(&binder_id).cloned())
             {
-                return rewrite_forwarded_wrapper_body(
+                let inner = rewrite_forwarded_wrapper_body(
                     outer_token,
                     alias,
                     pat_tag,
                     env,
                     blocked_outer_token,
+                );
+                // Not reused, the alias stays a read of its binding, as in
+                // `rewrite_drop_body_with_env`.
+                if inner.reused {
+                    return inner;
+                }
+                return no_rewrite(
+                    expr,
+                    inner.reason.unwrap_or(ReuseFailureReason::ShapeMismatch),
                 );
             }
             no_rewrite(expr, ReuseFailureReason::ShapeMismatch)
@@ -1339,6 +1421,7 @@ fn rewrite_forwarded_wrapper_body(
             }
             let rhs = *rhs;
             let child_env = env.with_alias(var.id, &rhs);
+            let original_body = (*body).clone();
             let body_inner = rewrite_forwarded_wrapper_body(
                 outer_token,
                 *body,
@@ -1346,6 +1429,23 @@ fn rewrite_forwarded_wrapper_body(
                 &child_env,
                 blocked_outer_token,
             );
+            if body_inner.reused {
+                match inlined_binding(var.id, &rhs, &original_body, &body_inner.expr) {
+                    Some(true) => return body_inner,
+                    Some(false) => {
+                        return no_rewrite(
+                            CoreExpr::Let {
+                                var,
+                                rhs: Box::new(rhs),
+                                body: Box::new(original_body),
+                                span,
+                            },
+                            ReuseFailureReason::ProvenanceLost,
+                        );
+                    }
+                    None => {}
+                }
+            }
             if body_inner.reused {
                 ReuseRewrite {
                     expr: CoreExpr::Let {
@@ -2656,28 +2756,158 @@ mod tests {
             rewritten.reused,
             "alias-preserving case result should be reusable"
         );
+        // The case is `out`'s value rebuilt with reuses, so `out` goes: kept,
+        // it would build the cons a second time.
         match rewritten.expr {
-            CoreExpr::Let { body, .. } => match *body {
-                CoreExpr::Case { alts, .. } => {
-                    assert_eq!(alts.len(), 2);
-                    assert!(alts.iter().all(|alt| match &alt.rhs {
+            CoreExpr::Case { alts, .. } => {
+                assert_eq!(alts.len(), 2);
+                assert!(alts.iter().all(|alt| match &alt.rhs {
+                    CoreExpr::Reuse {
+                        tag: CoreTag::Cons, ..
+                    } => true,
+                    CoreExpr::Let { body, .. } => matches!(
+                        body.as_ref(),
                         CoreExpr::Reuse {
-                            tag: CoreTag::Cons, ..
-                        } => true,
-                        CoreExpr::Let { body, .. } => matches!(
-                            body.as_ref(),
-                            CoreExpr::Reuse {
-                                tag: CoreTag::Cons,
-                                ..
-                            }
-                        ),
-                        _ => false,
-                    }));
-                }
-                other => panic!("expected case body under preserved let, got {other:?}"),
-            },
-            other => panic!("expected let spine to be preserved, got {other:?}"),
+                            tag: CoreTag::Cons,
+                            ..
+                        }
+                    ),
+                    _ => false,
+                }));
+            }
+            other => panic!("expected the rebuilt case in place of `out`, got {other:?}"),
         }
+    }
+
+    /// The binders of [`rewrite_out_on_flag`]'s shape.
+    struct OnFlag {
+        xs: CoreBinder,
+        h: CoreBinder,
+        t: CoreBinder,
+        flag: CoreBinder,
+        out: CoreBinder,
+        f: CoreBinder,
+        pair: CoreTag,
+    }
+
+    fn on_flag_binders() -> OnFlag {
+        let mut interner = Interner::new();
+        OnFlag {
+            xs: binder(1, interner.intern("xs")),
+            h: binder(2, interner.intern("h")),
+            t: binder(3, interner.intern("t")),
+            flag: binder(4, interner.intern("flag")),
+            out: binder(5, interner.intern("out")),
+            f: binder(6, interner.intern("f")),
+            pair: CoreTag::Named(interner.intern("Pair2")),
+        }
+    }
+
+    /// `let out = <value> in case flag of true -> out, _ -> <other>`, rewritten
+    /// for a reuse of `xs`, matched as `Cons(h, t)`.
+    fn rewrite_out_on_flag(b: &OnFlag, value: CoreExpr, other: CoreExpr) -> super::ReuseRewrite {
+        let body = CoreExpr::Let {
+            var: b.out,
+            rhs: Box::new(value),
+            body: Box::new(CoreExpr::Case {
+                scrutinee: Box::new(v(b.flag)),
+                alts: vec![
+                    CoreAlt {
+                        pat: crate::core::CorePat::Lit(crate::core::CoreLit::Bool(true)),
+                        guard: None,
+                        rhs: v(b.out),
+                        span: s(),
+                    },
+                    CoreAlt {
+                        pat: crate::core::CorePat::Wildcard,
+                        guard: None,
+                        rhs: other,
+                        span: s(),
+                    },
+                ],
+                join_ty: None,
+                span: s(),
+            }),
+            span: s(),
+        };
+        rewrite_drop_body(
+            &CoreVarRef::resolved(&b.xs),
+            body,
+            s(),
+            Some(&[Some(b.h.id), Some(b.t.id)]),
+            Some(&CoreTag::Cons),
+            None,
+        )
+    }
+
+    fn con(tag: CoreTag, fields: Vec<CoreExpr>) -> CoreExpr {
+        CoreExpr::Con {
+            tag,
+            fields,
+            span: s(),
+        }
+    }
+
+    /// The first arm of the rewritten `case`, under the binding of `out` when
+    /// it is kept.
+    fn first_arm(expr: &CoreExpr) -> &CoreExpr {
+        let case = match expr {
+            CoreExpr::Let { body, .. } => body.as_ref(),
+            other => other,
+        };
+        match case {
+            CoreExpr::Case { alts, .. } => &alts[0].rhs,
+            other => panic!("expected the case: {other:?}"),
+        }
+    }
+
+    /// `out` is inlined into the reuse on one arm but still read on the
+    /// other, so the binding can't go: the rewrite is refused.
+    #[test]
+    fn a_binding_inlined_on_one_arm_and_read_on_another_is_not_forwarded() {
+        let b = on_flag_binders();
+        let read = CoreExpr::App {
+            func: Box::new(v(b.f)),
+            args: vec![v(b.out)],
+            span: s(),
+        };
+        let rewritten = rewrite_out_on_flag(&b, con(CoreTag::Cons, vec![v(b.h), v(b.t)]), read);
+        assert!(!rewritten.reused, "{:?}", rewritten.expr);
+        assert!(
+            matches!(first_arm(&rewritten.expr), CoreExpr::Var { var, .. } if var.binder == Some(b.out.id)),
+            "{:?}",
+            rewritten.expr
+        );
+    }
+
+    /// `out` is inlined into the reuse on one arm and released on the other.
+    /// The release still names it, so the binding stays.
+    #[test]
+    fn a_binding_inlined_on_one_arm_and_released_on_another_stays_bound() {
+        let b = on_flag_binders();
+        let release = CoreExpr::Drop {
+            var: CoreVarRef::resolved(&b.out),
+            body: Box::new(CoreExpr::Lit(crate::core::CoreLit::Int(0), s())),
+            span: s(),
+        };
+        let rewritten = rewrite_out_on_flag(&b, con(CoreTag::Cons, vec![v(b.h), v(b.t)]), release);
+        let free = crate::aether::free_vars::collect_free_vars_aether(&rewritten.expr);
+        assert!(!free.contains(&b.out.id), "{:?}", rewritten.expr);
+    }
+
+    /// `out` is a pair the matched cons can't hold, so nothing is reused: the
+    /// arm keeps reading `out`, rather than building a second pair.
+    #[test]
+    fn a_binding_not_reused_is_not_built_again() {
+        let b = on_flag_binders();
+        let pair = con(b.pair.clone(), vec![v(b.h), v(b.h)]);
+        let rewritten =
+            rewrite_out_on_flag(&b, pair, CoreExpr::Lit(crate::core::CoreLit::Int(0), s()));
+        assert!(
+            matches!(first_arm(&rewritten.expr), CoreExpr::Var { var, .. } if var.binder == Some(b.out.id)),
+            "{:?}",
+            rewritten.expr
+        );
     }
 
     #[test]

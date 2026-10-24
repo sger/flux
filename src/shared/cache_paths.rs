@@ -292,7 +292,9 @@ use sha2::{Digest, Sha256};
 /// reference when it was the only one (PA L3).
 /// Epoch 93: a value is released after its last use; an epoch-92 unit
 /// leaked every value its owner only read (PA R1, KI-121).
-pub const CACHE_EPOCH: u16 = 93;
+/// Epoch 94: a cons forwarded into its matched cell is built once; an
+/// epoch-93 unit built a second, unused copy that gave its fields away again.
+pub const CACHE_EPOCH: u16 = 94;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

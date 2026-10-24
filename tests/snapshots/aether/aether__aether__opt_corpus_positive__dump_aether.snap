@@ -3234,16 +3234,14 @@ lam(t, keep) ->
     _ ->
       t#1331
 ── fn forwarded_child ──
-  Dups: 1  Drops: 0  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(2)
-  FreshAllocs: 2
+  Dups: 1  Drops: 0  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
+  FreshAllocs: 1
   verifier: ok
 lam(xs, acc) ->
   case xs#1338 of
     Cons(y, ys) ->
       drop_specialized xs#1338 {
         unique ->
-          let <sym:4001885> =
-            Cons(y#1340, acc#1339)
           aether_call[owned, owned] Pair2(reuse Color#1338 as Cons mask=0x2(y#1340, acc#1339), ys#1341)
         shared ->
           dup ys#1341 in
@@ -3292,8 +3290,8 @@ lam() ->
         aether_call[owned] __resume_default#1379(<sym:4001939>#1939)
 
 ── Total ──
-  Dups: 222  Drops: 345  Reuses: 18  DropSpecs: 15  BorrowedCallGuards: 39  FBIP: fbip(51)  Yields: 11  Handles: 5  HandlerArms: 11
-  FreshAllocs: 51
+  Dups: 222  Drops: 345  Reuses: 18  DropSpecs: 15  BorrowedCallGuards: 39  FBIP: fbip(50)  Yields: 11  Handles: 5  HandlerArms: 11
+  FreshAllocs: 50
 
 [ 1 of 18] Compiling  Add
 [ 2 of 18] Compiling  Assert

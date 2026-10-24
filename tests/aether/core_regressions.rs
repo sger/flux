@@ -1532,6 +1532,43 @@ fn forwarded_wrapper_fixture_rewrites_only_the_inner_child() {
     );
 }
 
+/// `[y | ys] -> Pair2([y | acc], ys)`: the inner cons is rebuilt in the
+/// matched cell. The binding it was read from goes with it, or the unique
+/// path builds the cons a second time and gives `acc` away twice.
+#[test]
+fn a_forwarded_child_is_built_once() {
+    let src = std::fs::read_to_string("examples/aether/forwarded_wrapper_reuse.flx")
+        .expect("fixture should exist");
+    let (core, interner) = lowered_core_and_interner(src);
+    let def = core
+        .defs
+        .iter()
+        .find(|def| interner.resolve(def.name) == "forwarded_child")
+        .expect("forwarded_child");
+    let unique_bodies: Vec<&CoreExpr> = collect_core_exprs(&def.expr)
+        .into_iter()
+        .filter_map(|expr| match expr {
+            CoreExpr::DropSpecialized { unique_body, .. } => Some(unique_body.as_ref()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(unique_bodies.len(), 1, "{:?}", def.expr);
+    let unique = unique_bodies[0];
+    let cons_built = count_matching(unique, &|expr| {
+        matches!(
+            expr,
+            CoreExpr::Con {
+                tag: flux::core::CoreTag::Cons,
+                ..
+            } | CoreExpr::Reuse {
+                tag: flux::core::CoreTag::Cons,
+                ..
+            }
+        )
+    });
+    assert_eq!(cons_built, 1, "{unique:?}");
+}
+
 #[test]
 fn opt_corpus_positive_fixture_claims_match_current_core_shape() {
     let src = std::fs::read_to_string("examples/aether/opt_corpus_positive.flx")

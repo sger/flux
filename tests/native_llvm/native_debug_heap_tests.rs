@@ -729,3 +729,44 @@ fn values_last_used_by_a_read_are_released() {
     .collect();
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+const FORWARDED_CHILD: &str = r"type Pair2<T> = Pair2(T, T)
+
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn forwarded_child(xs, acc) {
+    match xs {
+        [y | ys] -> Pair2([y | acc], ys),
+        _ -> Pair2(xs, acc),
+    }
+}
+
+fn lengths(p) {
+    match p {
+        Pair2(a, b) -> len(a) + len(b),
+    }
+}
+
+fn count(n, total) {
+    if n == 0 { total } else {
+        let p = forwarded_child(numbers(n), [n])
+        count(n - 1, total + lengths(p))
+    }
+}
+
+fn main() {
+    print(count(SIZE, 0))
+}
+";
+
+/// A cons rebuilt in the cell of the list it was matched from, inside a
+/// fresh wrapper, is built once. A second, unused copy of it was left
+/// behind each turn, holding its fields with references it never had.
+#[test]
+fn a_forwarded_child_leaves_no_cell_behind() {
+    let scratch = Scratch::new("debug-heap-forwarded-child");
+    let (_, _, live) = per_thousand_cells(&scratch, "forwarded_child", FORWARDED_CHILD);
+    assert_eq!(live, 0, "blocks left live per 1000 turns");
+}
