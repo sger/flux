@@ -395,9 +395,12 @@ const OWNED_MOVES: &str = "tests/native_llvm/debug_heap/owned_moves";
 /// repros: places a value is handed out or shared without being counted. Each
 /// fixture prints on the debug heap what it prints on the VM: a freed value
 /// read back shows up as poison there.
+///
+/// The fixtures build on a few workers, each with a scratch directory and so
+/// a cache of its own: the native cache is not safe for two builds writing
+/// it at once, and one worker building them all takes minutes.
 #[test]
 fn owned_moves_print_what_the_vm_prints() {
-    let scratch = Scratch::new("debug-heap-owned-moves");
     let mut files: Vec<String> = std::fs::read_dir(workspace_root().join(OWNED_MOVES))
         .expect("owned_moves fixtures")
         .filter_map(|entry| {
@@ -409,21 +412,49 @@ fn owned_moves_print_what_the_vm_prints() {
         .collect();
     files.sort();
     assert!(!files.is_empty(), "no fixtures in {OWNED_MOVES}");
-    let failures: Vec<String> = files
-        .iter()
-        .filter_map(|name| {
-            let file = format!("{OWNED_MOVES}/{name}");
-            let (vm, _, vm_code) = run(&scratch, &file, &["--vm"], None);
-            let (heap, stderr, code) = run(&scratch, &file, &["--native", "--debug-heap"], None);
-            (vm.is_empty() || vm_code != 0 || (heap.as_str(), code) != (vm.as_str(), 0)).then(|| {
-                let (heap, stderr) = (clip(&heap), clip(&stderr));
-                format!(
-                    "{name}: vm {vm:?} (exit {vm_code}), debug heap {heap:?} (exit {code})\n{stderr}"
-                )
+    let workers = std::thread::available_parallelism()
+        .map_or(1, |n| n.get())
+        .min(4);
+    let mut failures: Vec<(String, String)> = std::thread::scope(|threads| {
+        let handles: Vec<_> = (0..workers)
+            .map(|worker| {
+                let files = &files;
+                threads.spawn(move || {
+                    let scratch = Scratch::new(&format!("debug-heap-owned-moves-{worker}"));
+                    files
+                        .iter()
+                        .skip(worker)
+                        .step_by(workers)
+                        .filter_map(|name| owned_move_failure(&scratch, name))
+                        .collect::<Vec<_>>()
+                })
             })
-        })
-        .collect();
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|handle| handle.join().expect("owned_moves worker"))
+            .collect()
+    });
+    failures.sort();
+    let report: Vec<String> = failures.into_iter().map(|(_, failure)| failure).collect();
+    assert!(report.is_empty(), "{}", report.join("\n"));
+}
+
+/// How fixture `name` fails to print on the debug heap what the VM prints,
+/// keyed by its name.
+fn owned_move_failure(scratch: &Scratch, name: &str) -> Option<(String, String)> {
+    let file = format!("{OWNED_MOVES}/{name}");
+    let (vm, _, vm_code) = run(scratch, &file, &["--vm"], None);
+    let (heap, stderr, code) = run(scratch, &file, &["--native", "--debug-heap"], None);
+    (vm.is_empty() || vm_code != 0 || (heap.as_str(), code) != (vm.as_str(), 0)).then(|| {
+        let (heap, stderr) = (clip(&heap), clip(&stderr));
+        (
+            name.to_string(),
+            format!(
+                "{name}: vm {vm:?} (exit {vm_code}), debug heap {heap:?} (exit {code})\n{stderr}"
+            ),
+        )
+    })
 }
 
 /// The start of a program's output: a freed string read back can print
