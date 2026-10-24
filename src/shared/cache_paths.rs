@@ -287,7 +287,10 @@ use sha2::{Digest, Sha256};
 /// borrowed them, and the closure released them (PA R1).
 /// Epoch 91: a wrapped event no longer releases the value its closure was
 /// given; an epoch-90 runtime released it a second time (PA R1).
-pub const CACHE_EPOCH: u16 = 91;
+/// Epoch 92: a move primop takes the value it is given and the caller hands
+/// it over; an epoch-91 unit lent it, and the runtime took the lender's
+/// reference when it was the only one (PA L3).
+pub const CACHE_EPOCH: u16 = 92;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

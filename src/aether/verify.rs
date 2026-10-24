@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::core::{CoreBinder, CoreBinderId, CoreExpr, CorePat, CorePrimOp, CoreTag};
+use crate::core::{CoreBinder, CoreBinderId, CoreExpr, CorePat, CoreTag};
 
 use super::analysis::{ArmShape, use_counts_aether};
 use super::reuse_analysis::diagnose_drop_body;
@@ -377,15 +377,8 @@ fn check_views(
             }
         }
         AetherExpr::PrimOp { op, args, .. } => {
-            let stores = matches!(
-                op,
-                CorePrimOp::MakeTuple
-                    | CorePrimOp::MakeList
-                    | CorePrimOp::MakeArray
-                    | CorePrimOp::MakeHash
-            );
-            for arg in args {
-                check_views(arg, stores, views, diags);
+            for (index, arg) in args.iter().enumerate() {
+                check_views(arg, op.takes_arg(index), views, diags);
             }
         }
         AetherExpr::Perform { args, .. } => {

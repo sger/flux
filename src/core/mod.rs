@@ -1951,20 +1951,41 @@ impl CorePrimOp {
         }
     }
 
-    /// Whether this primop borrows its arguments (no ownership transfer).
-    /// Most primops borrow; only `ArrayPush` and `ArrayConcat` consume args.
+    /// Whether this primop borrows its arguments when called by name, apart
+    /// from the ones it keeps ([`Self::takes_arg`]). `ArrayPush` and
+    /// `ArrayConcat` are recorded as consuming every argument.
     pub fn borrows_args(self) -> bool {
         !matches!(self, Self::ArrayPush | Self::ArrayConcat)
     }
 
-    /// Look up borrow mode for a named function that may be a primop.
-    /// Returns `Some((arity, borrows))` if the name resolves at any arity.
-    /// Used by Aether borrow inference.
-    pub fn resolve_borrow_info(name: &str) -> Option<(usize, bool)> {
+    /// Whether the primop keeps argument `index`: the collection
+    /// constructors store their elements, and the move primops hand the
+    /// value they send to the channel, task or event (`transfer_value`,
+    /// `runtime/c/channel.c`). The caller gives that argument away.
+    pub fn takes_arg(self, index: usize) -> bool {
+        match self {
+            Self::MakeTuple | Self::MakeList | Self::MakeArray | Self::MakeHash => true,
+            Self::TaskSpawnMove => index == 0,
+            Self::TaskSpawnScopedMove
+            | Self::ChanSendMove
+            | Self::ChanTrySendMove
+            | Self::EventSendMove => index == 1,
+            _ => false,
+        }
+    }
+
+    /// Look up borrow modes for a named function that may be a primop.
+    /// Returns whether each argument is borrowed if the name resolves at any
+    /// arity. Used by Aether borrow inference.
+    pub fn resolve_borrow_info(name: &str) -> Option<Vec<bool>> {
         // Try arities 0..=3 (covers all primops).
         for arity in 0..=3 {
             if let Some(op) = Self::from_name(name, arity) {
-                return Some((arity, op.borrows_args()));
+                return Some(
+                    (0..arity)
+                        .map(|index| op.borrows_args() && !op.takes_arg(index))
+                        .collect(),
+                );
             }
         }
         None

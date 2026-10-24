@@ -269,17 +269,22 @@ fn register_explicit_named_fallbacks(
 
     for (name, arity) in unresolved_callees {
         if let Some(interner) = interner
-            && let Some((primop_arity, borrows)) =
+            && let Some(borrows) =
                 crate::core::CorePrimOp::resolve_borrow_info(interner.resolve(name))
         {
-            let mode = if borrows {
-                BorrowMode::Borrowed
-            } else {
-                BorrowMode::Owned
-            };
+            let modes = borrows
+                .into_iter()
+                .map(|borrowed| {
+                    if borrowed {
+                        BorrowMode::Borrowed
+                    } else {
+                        BorrowMode::Owned
+                    }
+                })
+                .collect();
             registry.insert_named_if_absent(
                 name,
-                BorrowSignature::all(mode, primop_arity, BorrowProvenance::BaseRuntime),
+                BorrowSignature::new(modes, BorrowProvenance::BaseRuntime),
             );
             continue;
         }
@@ -505,17 +510,10 @@ fn collect_param_constraints(
         }
         CoreExpr::Lit(_, _) => {}
         CoreExpr::PrimOp { op, args, .. } => {
-            // A collection constructor keeps its elements: the planner hands
-            // them over (`insert.rs`), so a parameter put into one is owned.
-            let keeps = matches!(
-                op,
-                crate::core::CorePrimOp::MakeTuple
-                    | crate::core::CorePrimOp::MakeList
-                    | crate::core::CorePrimOp::MakeArray
-                    | crate::core::CorePrimOp::MakeHash
-            );
-            for arg in args {
-                if keeps {
+            // An argument the primop keeps is handed over by the planner
+            // (`insert.rs`), so a parameter given there is owned.
+            for (index, arg) in args.iter().enumerate() {
+                if op.takes_arg(index) {
                     collect_param_constraints(target, arg, registry, group_set, constraint);
                 } else {
                     collect_param_constraints_skip_direct(
@@ -1377,6 +1375,52 @@ mod tests {
                 .expect("push signature")
                 .params,
             vec![BorrowMode::Owned, BorrowMode::Owned]
+        );
+    }
+
+    /// The move primops take over the value they send (`transfer_value`,
+    /// `runtime/c/channel.c`), so a parameter given to one is owned (PA L3).
+    #[test]
+    fn a_parameter_given_to_a_move_primop_is_owned() {
+        let mut interner = Interner::new();
+        let ch = binder(1, interner.intern("ch"));
+        let value = binder(2, interner.intern("value"));
+        let body = CoreExpr::PrimOp {
+            op: crate::core::CorePrimOp::ChanTrySendMove,
+            args: vec![var_ref(ch), var_ref(value)],
+            span: span(),
+        };
+        assert_eq!(
+            modes_of(&mut interner, vec![ch, value], body),
+            vec![BorrowMode::Borrowed, BorrowMode::Owned]
+        );
+    }
+
+    /// A move primop called by name takes its value too (PA L3).
+    #[test]
+    fn a_move_primop_called_by_name_owns_its_value() {
+        let mut interner = Interner::new();
+        let send = interner.intern("chan_try_send_move");
+        let main = binder(1, interner.intern("main"));
+        let ch = binder(2, interner.intern("ch"));
+        let value = binder(3, interner.intern("value"));
+        let mut program = CoreProgram {
+            defs: vec![def(
+                main,
+                vec![ch, value],
+                CoreExpr::App {
+                    func: Box::new(ext_var(send)),
+                    args: vec![var_ref(ch), var_ref(value)],
+                    span: span(),
+                },
+                false,
+            )],
+            top_level_items: Vec::new(),
+        };
+        let registry = infer_borrow_modes(&mut program, Some(&interner));
+        assert_eq!(
+            registry.lookup_name(send).expect("send signature").params,
+            vec![BorrowMode::Borrowed, BorrowMode::Owned]
         );
     }
 
