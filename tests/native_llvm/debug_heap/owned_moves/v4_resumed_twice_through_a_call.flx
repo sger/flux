@@ -1,0 +1,48 @@
+// 0189 V4, one call deeper: the perform runs in a function the body calls,
+// so resuming also re-runs the rest of the body after that call. A list read
+// there, or given away there, must still be live on the second resume.
+
+effect Ask {
+    ask: Int -> Int
+}
+
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn discard(xs, keep) {
+    if keep { xs } else { [] }
+}
+
+fn ask_once(v) -> Int with Ask {
+    perform Ask.ask(v)
+}
+
+fn read_after(n) -> Int with Ask {
+    let xs = numbers(n)
+    let k = ask_once(len(xs))
+    k + len(xs)
+}
+
+fn given_after(n) -> Int with Ask {
+    let xs = numbers(n)
+    let k = ask_once(len(xs))
+    k + len(discard(xs, false))
+}
+
+fn twice_read(n) -> Int {
+    read_after(n) handle Ask {
+        ask(resume, v) -> resume(v * 10) + resume(v)
+    }
+}
+
+fn twice_given(n) -> Int {
+    given_after(n) handle Ask {
+        ask(resume, v) -> resume(v * 10) + resume(v)
+    }
+}
+
+fn main() {
+    print(twice_read(1))
+    print(twice_given(1))
+}
