@@ -285,7 +285,9 @@ use sha2::{Digest, Sha256};
 /// Epoch 90: a call to a closure bound in the calling function hands over
 /// its arguments; an epoch-89 unit lent them when a global of the same name
 /// borrowed them, and the closure released them (PA R1).
-pub const CACHE_EPOCH: u16 = 90;
+/// Epoch 91: a wrapped event no longer releases the value its closure was
+/// given; an epoch-90 runtime released it a second time (PA R1).
+pub const CACHE_EPOCH: u16 = 91;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
