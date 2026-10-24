@@ -375,11 +375,14 @@ fn use_closure(xs) {
 fn main() { use_closure(#[1, 2, 3]) }
 "#;
     let core = lowered_core(src);
-    let dups = core
-        .defs
-        .iter()
-        .flat_map(|def| collect_core_exprs(&def.expr))
-        .filter(|expr| matches!(expr, CoreExpr::Dup { .. }))
+    let use_closure = core.defs.get(1).expect("use_closure def");
+    let CoreExpr::Lam { params, .. } = &use_closure.expr else {
+        panic!("use_closure is a lambda");
+    };
+    let xs = params[0].id;
+    let dups = collect_core_exprs(&use_closure.expr)
+        .into_iter()
+        .filter(|expr| matches!(expr, CoreExpr::Dup { var, .. } if var.binder == Some(xs)))
         .count();
     assert_eq!(
         dups, 0,
@@ -1685,9 +1688,9 @@ fn fbip_failure_cases_fixture_reports_expected_warning_mix() {
 
 /// Nested matches that rebuild the inner list (`list_zip`'s shape): the
 /// inner list's cell is reused, and the outer one, whose cell nothing
-/// reuses, is never dropped here, let alone twice. The debug heap (0188
-/// S10c) caught it dropped once on entering the outer arm and again in each
-/// inner arm.
+/// reuses, is released once on each of its four paths, never twice. The
+/// debug heap (0188 S10c) caught it dropped once on entering the outer arm
+/// and again in each inner arm.
 #[test]
 fn nested_match_drops_neither_list_twice() {
     let src = r#"
@@ -1724,7 +1727,7 @@ fn main() { pairs([1, 2], [10, 20]) }
             &|expr| matches!(expr, CoreExpr::Reuse { token, .. } if token.binder == Some(binder)),
         )
     };
-    assert_eq!(drops_of(a), 0, "{body:?}");
+    assert_eq!(drops_of(a), 4, "{body:?}");
     assert_eq!(reuses_of(b), 1, "{body:?}");
     assert_eq!(drops_of(b), 0, "{body:?}");
     assert!(flux::aether::verify::verify_contract_aether(body).is_ok());

@@ -649,3 +649,83 @@ fn a_loop_that_lends_a_fresh_list_to_its_tail_call_stays_a_tail_call() {
     let (native, stderr, code) = run(&scratch, &file, &["--native"], None);
     assert_eq!((native.as_str(), code), ("29999997\n", 0), "{stderr}");
 }
+
+const CLOSURE_PER_TURN: &str = r"fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn count(n, acc) {
+    if n == 0 { acc } else {
+        let xs = numbers(n)
+        let f = \() -> len(xs)
+        count(n - 1, acc + f())
+    }
+}
+
+fn main() {
+    print(count(SIZE, 0))
+}
+";
+
+const LAMBDA_READS_ITS_PARAMETER: &str = r"fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn count(n, acc, f) {
+    if n == 0 { acc } else {
+        count(n - 1, acc + f(numbers(n)), f)
+    }
+}
+
+fn main() {
+    print(count(SIZE, 0, \ys -> len(ys)))
+}
+";
+
+const OWNED_THEN_READ: &str = r"fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn discard(xs, keep) {
+    if keep { xs } else { [] }
+}
+
+fn keep_len(xs) {
+    len(discard(xs, true))
+}
+
+fn count(n, acc) {
+    if n == 0 { acc } else {
+        let xs = numbers(n)
+        let a = keep_len(xs)
+        count(n - 1, acc + a + len(xs))
+    }
+}
+
+fn main() {
+    print(count(SIZE, 0))
+}
+";
+
+/// KI-121: a value whose last use reads it is released after that read: a
+/// list only lent, a closure only called and the list it captured, a
+/// lambda's parameter, and a list given away once and then read. Each turn
+/// makes the same blocks, so none is left at 2000 turns that was not at
+/// 1000.
+#[test]
+fn values_last_used_by_a_read_are_released() {
+    let scratch = Scratch::new("debug-heap-last-read");
+    let failures: Vec<String> = [
+        ("counting_loop", COUNTING_LOOP),
+        ("closure_per_turn", CLOSURE_PER_TURN),
+        ("lambda_reads_its_parameter", LAMBDA_READS_ITS_PARAMETER),
+        ("owned_then_read", OWNED_THEN_READ),
+    ]
+    .into_iter()
+    .filter_map(|(name, program)| {
+        let (_, _, live) = per_thousand_cells(&scratch, name, program);
+        (live != 0).then(|| format!("{name}: {live} blocks left live per 1000 turns"))
+    })
+    .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

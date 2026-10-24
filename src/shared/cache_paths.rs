@@ -290,7 +290,9 @@ use sha2::{Digest, Sha256};
 /// Epoch 92: a move primop takes the value it is given and the caller hands
 /// it over; an epoch-91 unit lent it, and the runtime took the lender's
 /// reference when it was the only one (PA L3).
-pub const CACHE_EPOCH: u16 = 92;
+/// Epoch 93: a value is released after its last use; an epoch-92 unit
+/// leaked every value its owner only read (PA R1, KI-121).
+pub const CACHE_EPOCH: u16 = 93;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
