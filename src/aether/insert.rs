@@ -4,9 +4,9 @@
 //! environment. `Dup` and `Drop` are emitted as local consequences of that
 //! environment instead of from whole-body use counts.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
-use crate::core::{CoreBinder, CoreBinderId, CoreTag, CoreVarRef};
+use crate::core::{CoreBinder, CoreBinderId, CorePrimOp, CoreTag, CoreVarRef};
 use crate::diagnostics::position::Span;
 
 use super::analysis::{
@@ -38,6 +38,11 @@ struct Scope {
     views: HashSet<CoreBinderId>,
     /// How many temporaries `temp` has handed out in this definition.
     temps: u32,
+    /// Binders owned from a right-hand side not known to make a fresh value
+    /// (a runtime function's result, a member read). Such a value may point
+    /// into an argument without a reference of its own, so an argument it
+    /// names is not released after its last use (`aliases_owned_unknown`).
+    owned_unknown: HashSet<CoreBinderId>,
 }
 
 impl Scope {
@@ -225,6 +230,8 @@ fn plan_expr(
                 false
             };
 
+            // The binding made the value, so it holds a reference of its own.
+            let owner = !view && var.rep.needs_rc() && produces_fresh_value(&rhs, registry);
             let body_plan = plan_expr(*body, tail_env, demand, registry, scope, field_parents);
             let mut binder_demand = binder_demand(&body_plan.env_before, var.id);
             let mut body_expr = body_plan.expr;
@@ -234,6 +241,30 @@ fn plan_expr(
             // A view only reads its field; each owned use copies it.
             if view && binder_demand == ValueDemand::Owned {
                 binder_demand = ValueDemand::Borrowed;
+            }
+            if owner
+                && binder_demand != ValueDemand::Ignore
+                && !body_plan.env_before.is_moved(var.id)
+            {
+                let (expr, released) = release_unmoved(
+                    var,
+                    body_expr,
+                    span,
+                    demand != ValueDemand::Owned,
+                    scope,
+                    registry,
+                );
+                body_expr = expr;
+                if released {
+                    binder_demand = ValueDemand::Owned;
+                }
+            }
+            if !owner
+                && !view
+                && binder_demand == ValueDemand::Owned
+                && !matches!(rhs.as_ref(), CoreExpr::Var { .. })
+            {
+                scope.owned_unknown.insert(var.id);
             }
 
             let mut rhs_tail = body_plan.env_before.clone();
@@ -270,11 +301,25 @@ fn plan_expr(
             span,
         } => {
             scope.insert(var.id, var);
+            let owner = var.rep.needs_rc() && matches!(rhs.as_ref(), CoreExpr::Lam { .. });
             let body_plan = plan_expr(*body, tail_env, demand, registry, scope, field_parents);
-            let binder_demand = binder_demand(&body_plan.env_before, var.id);
+            let mut binder_demand = binder_demand(&body_plan.env_before, var.id);
             let mut body_expr = body_plan.expr;
             if binder_demand == ValueDemand::Ignore {
                 body_expr = wrap_drop(var, body_expr, span);
+            } else if owner && !body_plan.env_before.is_moved(var.id) {
+                let (expr, released) = release_unmoved(
+                    var,
+                    body_expr,
+                    span,
+                    demand != ValueDemand::Owned,
+                    scope,
+                    registry,
+                );
+                body_expr = expr;
+                if released {
+                    binder_demand = ValueDemand::Owned;
+                }
             }
 
             let mut rhs_tail = body_plan.env_before.clone();
@@ -383,10 +428,14 @@ fn plan_expr(
 
             let mut body_expr = body_plan.expr;
             for param in params.iter().rev() {
-                if !body_plan.env_before.is_live(param.id)
-                    && !scope.borrowed_params.contains(&param.id)
-                {
+                if scope.borrowed_params.contains(&param.id) {
+                    continue;
+                }
+                if !body_plan.env_before.is_live(param.id) {
                     body_expr = wrap_drop(*param, body_expr, span);
+                } else if param.rep.needs_rc() && !body_plan.env_before.is_moved(param.id) {
+                    (body_expr, _) =
+                        release_unmoved(*param, body_expr, span, false, scope, registry);
                 }
             }
 
@@ -400,13 +449,11 @@ fn plan_expr(
             let mut captures: Vec<CoreBinderId> =
                 body_plan.env_before.live.iter().cloned().collect();
             captures.sort();
+            // Making the closure retains each capture, so it only reads them:
+            // the outer binding keeps its own reference.
             for capture in captures {
                 if !param_ids.contains(&capture) {
-                    if body_plan.env_before.is_owned(capture) {
-                        env_before.mark_owned(capture);
-                    } else if body_plan.env_before.is_borrowed(capture) {
-                        env_before.mark_borrowed(capture);
-                    }
+                    env_before.mark_borrowed(capture);
                 }
             }
 
@@ -667,8 +714,19 @@ fn plan_expr(
                 let mut env_without_pats = branch_env.clone();
                 env_without_pats.remove_all(pat_ids.iter().cloned());
 
-                if head_drop && let Some(scrut_binder) = scrutinee_var.as_ref() {
-                    rhs = wrap_drop(*scrut_binder, rhs, alt_span);
+                if let Some(scrut_binder) = scrutinee_var.as_ref() {
+                    // A name for the whole value is the value: giving it away
+                    // gives the scrutinee away.
+                    let moved_whole = matches!(&pat, crate::core::CorePat::Var(whole)
+                        if branch_env.is_moved(whole.id));
+                    if head_drop {
+                        rhs = wrap_drop(*scrut_binder, rhs, alt_span);
+                    }
+                    // Moved, not owned: owned would have compensation release
+                    // it in arms whose fields were planned as views of it.
+                    if head_drop || moved_whole {
+                        env_without_pats.mark_moved(scrut_binder.id);
+                    }
                 }
 
                 branch_plans.push(PlannedArm {
@@ -683,12 +741,14 @@ fn plan_expr(
                 });
             }
 
-            let joined = join_branch_envs(
+            let mut joined = join_branch_envs(
                 &branch_plans
                     .iter()
                     .map(|arm| arm.env_without_pats.clone())
                     .collect::<Vec<_>>(),
             );
+            // What an arm releases to balance the others is moved there.
+            let mut compensated: Vec<CoreBinderId> = Vec::new();
 
             let alts = branch_plans
                 .into_iter()
@@ -753,6 +813,7 @@ fn plan_expr(
                             .filter(|binder_id| !expr_drops_binder(&rhs, *binder_id))
                             .filter_map(|binder_id| scope.get(&binder_id).cloned())
                             .collect();
+                        compensated.extend(compensation.iter().map(|binder| binder.id));
                         let released = head_drop
                             || scrutinee_var
                                 .as_ref()
@@ -804,6 +865,9 @@ fn plan_expr(
                     },
                 )
                 .collect();
+            for binder in compensated {
+                joined.mark_moved(binder);
+            }
 
             let scrutinee_plan = plan_expr(
                 *scrutinee,
@@ -875,8 +939,11 @@ fn plan_expr(
                 plan_expr_list(args, tail_env, registry, scope, field_parents, |_| {
                     ValueDemand::Owned
                 });
+            // A value live across the effect stays with the continuation, so
+            // no binding releases it after its last use (a leak until PA step 7).
             for binder in env_before.live.clone() {
                 env_before.mark_owned(binder);
+                env_before.mark_moved(binder);
             }
             AetherPlan {
                 expr: CoreExpr::Perform {
@@ -980,7 +1047,10 @@ fn plan_expr(
             }
         }
         CoreExpr::Drop { var, body, span } => {
-            let body_plan = plan_expr(*body, tail_env, demand, registry, scope, field_parents);
+            let mut body_plan = plan_expr(*body, tail_env, demand, registry, scope, field_parents);
+            if let Some(binder) = var.binder {
+                body_plan.env_before.mark_moved(binder);
+            }
             AetherPlan {
                 expr: CoreExpr::Drop {
                     var,
@@ -1003,6 +1073,7 @@ fn plan_expr(
                 });
             if let Some(token_id) = token.binder {
                 env_before.mark_owned(token_id);
+                env_before.mark_moved(token_id);
             }
             AetherPlan {
                 expr: CoreExpr::Reuse {
@@ -1295,6 +1366,9 @@ fn plan_var(
             let needs_dup =
                 tail_env.is_live(id) || scope.views.contains(&id) || borrowed_parent || lent;
             tail_env.mark_owned(id);
+            if !needs_dup {
+                tail_env.mark_moved(id);
+            }
             let expr = if needs_dup {
                 if let Some(binder) = scope.get(&id).cloned() {
                     wrap_dups(binder, CoreExpr::Var { var, span }, span, 1)
@@ -1381,6 +1455,321 @@ fn wrap_dups(binder: CoreBinder, body: CoreExpr, span: Span, n: usize) -> CoreEx
         };
     }
     result
+}
+
+/// Releases `owner`, a binding that no path gives away, after its last use
+/// on each path of `body`. `lent_result` says the enclosing expression only
+/// reads `body`'s result. Returns the body, and whether any path got the
+/// release: a path whose last use is a call to a Flux function keeps the
+/// value instead, so the call stays a tail call (a counted leak, PA R1).
+fn release_unmoved(
+    owner: CoreBinder,
+    body: CoreExpr,
+    span: Span,
+    lent_result: bool,
+    scope: &mut Scope,
+    registry: Option<&BorrowRegistry>,
+) -> (CoreExpr, bool) {
+    let aliases = BTreeSet::from([owner.id]);
+    if aliases_owned_unknown(&body, &aliases, scope, registry) {
+        return (body, false);
+    }
+    let mut release = Release {
+        owner,
+        span,
+        registry,
+        released: false,
+    };
+    let body = release.after(body, &aliases, lent_result, scope);
+    (body, release.released)
+}
+
+/// Whether evaluating `expr` makes a value with a reference of its own: a
+/// constructor, a closure, a collection literal, what a Flux function
+/// returns (results are owned), or a runtime result the runtime counts.
+/// Other runtime functions and projections can hand back a reference into
+/// an argument.
+fn produces_fresh_value(expr: &CoreExpr, registry: Option<&BorrowRegistry>) -> bool {
+    match expr {
+        CoreExpr::Con { .. } | CoreExpr::Lam { .. } => true,
+        CoreExpr::PrimOp { op, .. } => matches!(
+            op,
+            CorePrimOp::MakeList
+                | CorePrimOp::MakeArray
+                | CorePrimOp::MakeTuple
+                | CorePrimOp::MakeHash
+                | CorePrimOp::Interpolate
+                // The runtime counts the value these hand out (0189 F3-1).
+                | CorePrimOp::ArrayGet
+                | CorePrimOp::Index
+                | CorePrimOp::HamtGet
+                | CorePrimOp::Unwrap
+        ),
+        CoreExpr::App { func, .. } | CoreExpr::AetherCall { func, .. } => {
+            calls_flux(func, registry)
+        }
+        CoreExpr::Let { body, .. }
+        | CoreExpr::LetRec { body, .. }
+        | CoreExpr::LetRecGroup { body, .. }
+        | CoreExpr::Dup { body, .. }
+        | CoreExpr::Drop { body, .. } => produces_fresh_value(body, registry),
+        CoreExpr::Case { alts, .. } => alts
+            .iter()
+            .all(|alt| produces_fresh_value(&alt.rhs, registry)),
+        _ => false,
+    }
+}
+
+/// Whether a call to `func` runs a Flux function rather than a runtime one.
+fn calls_flux(func: &CoreExpr, registry: Option<&BorrowRegistry>) -> bool {
+    match func {
+        CoreExpr::Var { var, .. } => match registry {
+            Some(reg) => match reg.classify_var_ref(var).borrow_callee {
+                BorrowCallee::BaseRuntime(_) => false,
+                BorrowCallee::Unknown => var.binder.is_some(),
+                _ => true,
+            },
+            None => var.binder.is_some(),
+        },
+        CoreExpr::MemberAccess { object, member, .. } => match (object.as_ref(), registry) {
+            (CoreExpr::Var { var, .. }, Some(reg)) => !matches!(
+                reg.resolve_member_access_callee(var.name, *member),
+                BorrowCallee::BaseRuntime(_) | BorrowCallee::Unknown
+            ),
+            _ => false,
+        },
+        _ => true,
+    }
+}
+
+fn mentions(expr: &CoreExpr, binders: &BTreeSet<CoreBinderId>) -> bool {
+    super::free_vars::collect_free_vars_aether(expr)
+        .iter()
+        .any(|id| binders.contains(id))
+}
+
+/// The binder a `let` adds to `aliases`: one whose value is computed from
+/// an alias without being made fresh may point into it. An unboxed value
+/// points into nothing.
+fn alias_of(
+    var: &CoreBinder,
+    rhs: &CoreExpr,
+    aliases: &BTreeSet<CoreBinderId>,
+    registry: Option<&BorrowRegistry>,
+) -> Option<CoreBinderId> {
+    (var.rep.needs_rc() && mentions(rhs, aliases) && !produces_fresh_value(rhs, registry))
+        .then_some(var.id)
+}
+
+/// Whether some alias of `aliases` in `expr` is owned from a value not known
+/// to be fresh: it may have given away a reference that is really part of
+/// the owner, so the owner is not released.
+fn aliases_owned_unknown(
+    expr: &CoreExpr,
+    aliases: &BTreeSet<CoreBinderId>,
+    scope: &Scope,
+    registry: Option<&BorrowRegistry>,
+) -> bool {
+    match expr {
+        CoreExpr::Let { var, rhs, body, .. } => {
+            let mut inner = aliases.clone();
+            if let Some(alias) = alias_of(var, rhs, aliases, registry) {
+                if scope.owned_unknown.contains(&alias) {
+                    return true;
+                }
+                inner.insert(alias);
+            }
+            aliases_owned_unknown(rhs, aliases, scope, registry)
+                || aliases_owned_unknown(body, &inner, scope, registry)
+        }
+        CoreExpr::LetRec { body, .. }
+        | CoreExpr::LetRecGroup { body, .. }
+        | CoreExpr::Dup { body, .. }
+        | CoreExpr::Drop { body, .. }
+        | CoreExpr::Return { value: body, .. } => {
+            aliases_owned_unknown(body, aliases, scope, registry)
+        }
+        CoreExpr::Case {
+            scrutinee, alts, ..
+        } => {
+            let matched = mentions(scrutinee, aliases);
+            alts.iter().any(|alt| {
+                let mut arm = aliases.clone();
+                if matched {
+                    arm.extend(pat_binders(&alt.pat));
+                }
+                aliases_owned_unknown(&alt.rhs, &arm, scope, registry)
+            })
+        }
+        _ => false,
+    }
+}
+
+/// Puts a Drop of `owner` right after the last read of it on each path of
+/// a body. `aliases` holds `owner` and every binder that may point into it:
+/// a binding whose value is computed from one of them without being made
+/// fresh, or a pattern variable of a match on one of them. The Drop waits
+/// for those too.
+///
+/// A read in a binding's right-hand side releases at the head of that
+/// binding's body, which keeps a tail call after it a tail call. When the
+/// last read is the result itself, the result is held in a temporary across
+/// the Drop, unless it is a call to a Flux function: that path keeps the
+/// value, so the call stays a tail call.
+struct Release<'a> {
+    owner: CoreBinder,
+    span: Span,
+    registry: Option<&'a BorrowRegistry>,
+    /// Set when some path gets the Drop.
+    released: bool,
+}
+
+impl Release<'_> {
+    fn drop_before(&mut self, body: CoreExpr) -> CoreExpr {
+        self.released = true;
+        wrap_drop(self.owner, body, self.span)
+    }
+
+    /// Releases after the last use in `body`, or before it when it reads no
+    /// alias.
+    fn after(
+        &mut self,
+        body: CoreExpr,
+        aliases: &BTreeSet<CoreBinderId>,
+        lent_result: bool,
+        scope: &mut Scope,
+    ) -> CoreExpr {
+        if mentions(&body, aliases) {
+            self.after_last_use(body, aliases, lent_result, scope)
+        } else {
+            self.drop_before(body)
+        }
+    }
+
+    fn after_last_use(
+        &mut self,
+        body: CoreExpr,
+        aliases: &BTreeSet<CoreBinderId>,
+        lent_result: bool,
+        scope: &mut Scope,
+    ) -> CoreExpr {
+        match body {
+            CoreExpr::Let {
+                var,
+                rhs,
+                body,
+                span,
+            } => {
+                let body = match alias_of(&var, &rhs, aliases, self.registry) {
+                    Some(alias) => {
+                        let mut inner = aliases.clone();
+                        inner.insert(alias);
+                        self.after(*body, &inner, lent_result, scope)
+                    }
+                    None => self.after(*body, aliases, lent_result, scope),
+                };
+                CoreExpr::Let {
+                    var,
+                    rhs,
+                    body: Box::new(body),
+                    span,
+                }
+            }
+            CoreExpr::LetRec {
+                var,
+                rhs,
+                body,
+                span,
+            } => CoreExpr::LetRec {
+                var,
+                rhs,
+                body: Box::new(self.after(*body, aliases, lent_result, scope)),
+                span,
+            },
+            CoreExpr::LetRecGroup {
+                bindings,
+                body,
+                span,
+            } => CoreExpr::LetRecGroup {
+                bindings,
+                body: Box::new(self.after(*body, aliases, lent_result, scope)),
+                span,
+            },
+            CoreExpr::Dup { var, body, span } => CoreExpr::Dup {
+                var,
+                body: Box::new(self.after(*body, aliases, lent_result, scope)),
+                span,
+            },
+            CoreExpr::Drop { var, body, span } => CoreExpr::Drop {
+                var,
+                body: Box::new(self.after(*body, aliases, lent_result, scope)),
+                span,
+            },
+            CoreExpr::Case {
+                scrutinee,
+                alts,
+                join_ty,
+                span,
+            } => {
+                let matched = mentions(&scrutinee, aliases);
+                let alts = alts
+                    .into_iter()
+                    .map(|alt| {
+                        let rhs = if matched {
+                            let mut arm = aliases.clone();
+                            arm.extend(pat_binders(&alt.pat));
+                            self.after(alt.rhs, &arm, lent_result, scope)
+                        } else {
+                            self.after(alt.rhs, aliases, lent_result, scope)
+                        };
+                        CoreAlt { rhs, ..alt }
+                    })
+                    .collect();
+                CoreExpr::Case {
+                    scrutinee,
+                    alts,
+                    join_ty,
+                    span,
+                }
+            }
+            // An early return leaves the function with an owned value:
+            // release before it goes.
+            CoreExpr::Return { value, span } => CoreExpr::Return {
+                value: Box::new(self.after(*value, aliases, false, scope)),
+                span,
+            },
+            CoreExpr::App { ref func, .. } | CoreExpr::AetherCall { ref func, .. }
+                if calls_flux(func, self.registry) =>
+            {
+                body
+            }
+            // A lent result took no reference of its own, so the enclosing
+            // expression would read it after the release.
+            result @ CoreExpr::Var { .. } if lent_result => result,
+            result => {
+                // A fresh value holds its own reference, and so does an owned
+                // `Var` (moved or copied). Anything else may point into the
+                // owner without one (`flux_unwrap_or`), so it takes a copy
+                // before the release.
+                let counted = produces_fresh_value(&result, self.registry)
+                    || (!lent_result && matches!(result, CoreExpr::Var { .. }));
+                let held = scope.temp();
+                let mut tail = self.drop_before(CoreExpr::Var {
+                    var: CoreVarRef::resolved(&held),
+                    span: self.span,
+                });
+                if !counted {
+                    tail = wrap_dups(held, tail, self.span, 1);
+                }
+                CoreExpr::Let {
+                    var: held,
+                    rhs: Box::new(result),
+                    body: Box::new(tail),
+                    span: self.span,
+                }
+            }
+        }
+    }
 }
 
 fn find_binder_in_pat(pat: &crate::core::CorePat, target: CoreBinderId) -> Option<CoreBinder> {
@@ -1603,7 +1992,9 @@ mod tests {
     use crate::aether::{
         AetherAlt as CoreAlt, AetherExpr as CoreExpr, AetherHandler as CoreHandler,
     };
-    use crate::core::{CoreBinder, CoreBinderId, CoreLit, CorePat, CorePrimOp, CoreVarRef};
+    use crate::core::{
+        CoreBinder, CoreBinderId, CoreLit, CorePat, CorePrimOp, CoreVarRef, FluxRep,
+    };
     use crate::diagnostics::position::Span;
     use crate::syntax::interner::Interner;
 
@@ -1626,8 +2017,10 @@ mod tests {
                 guarded_borrowed_args,
                 ..
             } => Some(guarded_borrowed_args.clone()),
+            CoreExpr::Let { rhs, body, .. } => {
+                borrowed_call_mask(rhs).or_else(|| borrowed_call_mask(body))
+            }
             CoreExpr::Lam { body, .. }
-            | CoreExpr::Let { body, .. }
             | CoreExpr::LetRec { body, .. }
             | CoreExpr::Dup { body, .. }
             | CoreExpr::Drop { body, .. }
@@ -2436,6 +2829,8 @@ mod tests {
 
     /// `\() -> case c of 0 -> f(xs); _ -> 0`: the arm that does not give
     /// `xs` away must not release it to even up, since the closure keeps it.
+    /// The outer function releases its own reference once the closure holds
+    /// one.
     #[test]
     fn a_lambda_never_releases_its_capture() {
         let mut interner = Interner::new();
@@ -2468,8 +2863,12 @@ mod tests {
         let CoreExpr::Lam { body: outer, .. } = &planned else {
             unreachable!("planned a lambda");
         };
-        assert_eq!(drops(outer, xs), 0, "{planned:?}");
-        assert_eq!(dups(outer, xs), 1, "{planned:?}");
+        let CoreExpr::Let { rhs: closure, .. } = outer.as_ref() else {
+            unreachable!("the closure held across the release: {outer:?}");
+        };
+        assert_eq!(drops(closure, xs), 0, "{planned:?}");
+        assert_eq!(dups(closure, xs), 1, "{planned:?}");
+        assert_eq!(drops(outer, xs), 1, "{planned:?}");
     }
 
     /// 0189 V3: the runtime lends a clause its argument and releases it once
@@ -2627,19 +3026,12 @@ mod tests {
         );
     }
 
-    #[test]
-    fn branch_borrow_only_path_does_not_force_dead_path_drop() {
-        let mut interner = Interner::new();
-        let x = binder(&mut interner, 1, "x");
+    /// `fn(x) { if true { len(x) } else { 0 } }`, `len` borrowing: the
+    /// lambda's parameter, the branch that reads `x` and the one that ignores it.
+    fn branch_read_lambda(interner: &mut Interner) -> (CoreBinder, CoreExpr, BorrowRegistry) {
+        let x = binder(interner, 1, "x");
         let len_name = interner.intern("len");
-        let mut registry = BorrowRegistry::default();
-        registry.by_name.insert(
-            len_name,
-            crate::aether::borrow_infer::BorrowSignature::new(
-                vec![BorrowMode::Borrowed],
-                crate::aether::borrow_infer::BorrowProvenance::BaseRuntime,
-            ),
-        );
+        let registry = borrowed_len_registry(interner);
 
         let expr = CoreExpr::Lam {
             params: vec![x],
@@ -2674,16 +3066,367 @@ mod tests {
             span: Span::default(),
         };
 
-        let rewritten = insert_dup_drop_with_registry(expr, &registry);
-        let drops_for_x = count_binder_nodes(
-            &rewritten,
-            x.id,
+        (x, expr, registry)
+    }
+
+    fn drops_of(expr: &CoreExpr, binder: CoreBinderId) -> usize {
+        count_binder_nodes(
+            expr,
+            binder,
             &|expr, binder| matches!(expr, CoreExpr::Drop { var, .. } if var.binder == Some(binder)),
+        )
+    }
+
+    fn dups_of(expr: &CoreExpr, binder: CoreBinderId) -> usize {
+        count_binder_nodes(
+            expr,
+            binder,
+            &|expr, binder| matches!(expr, CoreExpr::Dup { var, .. } if var.binder == Some(binder)),
+        )
+    }
+
+    fn assert_contract(expr: &CoreExpr) {
+        let result = crate::aether::verify::verify_contract_aether(expr);
+        assert!(result.is_ok(), "{result:?}\n{expr:?}");
+    }
+
+    /// KI-121: an owned parameter read in one branch and dead in the other is
+    /// released on both paths, after the read in one and at the arm's head in
+    /// the other.
+    #[test]
+    fn an_owned_parameter_read_in_one_branch_is_released_on_both() {
+        let mut interner = Interner::new();
+        let (x, expr, registry) = branch_read_lambda(&mut interner);
+        let rewritten = insert_dup_drop_with_registry(expr, &registry);
+        assert_eq!(drops_of(&rewritten, x.id), 2, "{rewritten:?}");
+        assert_contract(&rewritten);
+    }
+
+    /// A Borrowed parameter is the caller's to release, on every path.
+    #[test]
+    fn a_borrowed_parameter_read_in_one_branch_is_never_released() {
+        let mut interner = Interner::new();
+        let (x, expr, registry) = branch_read_lambda(&mut interner);
+        let rewritten =
+            super::insert_dup_drop_for_def(expr, &registry, std::iter::once(x.id).collect());
+        assert_eq!(drops_of(&rewritten, x.id), 0, "{rewritten:?}");
+        assert_contract(&rewritten);
+    }
+
+    /// `len` borrowing, and Flux functions `g()` (returns a fresh value),
+    /// `own(v)` (takes its argument) and `walk(v)` (borrows it).
+    fn release_registry(interner: &mut Interner) -> BorrowRegistry {
+        use crate::aether::borrow_infer::{BorrowProvenance, BorrowSignature};
+        let mut registry = borrowed_len_registry(interner);
+        for (name, params) in [
+            ("g", vec![]),
+            ("own", vec![BorrowMode::Owned]),
+            ("walk", vec![BorrowMode::Borrowed]),
+        ] {
+            registry.by_name.insert(
+                interner.intern(name),
+                BorrowSignature::new(params, BorrowProvenance::Inferred),
+            );
+        }
+        registry
+    }
+
+    fn let_in(var: CoreBinder, rhs: CoreExpr, body: CoreExpr) -> CoreExpr {
+        CoreExpr::Let {
+            var,
+            rhs: Box::new(rhs),
+            body: Box::new(body),
+            span: Span::default(),
+        }
+    }
+
+    /// Whether a `let` of `after` has `Drop binder` at the head of its body.
+    fn released_after(expr: &CoreExpr, binder: CoreBinderId, after: CoreBinderId) -> bool {
+        count_binder_nodes(expr, binder, &|expr, binder| {
+            matches!(
+                expr,
+                CoreExpr::Let { var, body, .. }
+                    if var.id == after
+                        && matches!(body.as_ref(), CoreExpr::Drop { var, .. } if var.binder == Some(binder))
+            )
+        }) == 1
+    }
+
+    /// KI-121: `let x = g(); let t = len(x); t`. `x` is a fresh value only
+    /// read, so it is released once, right after that read: at the head of
+    /// `t`'s body.
+    #[test]
+    fn a_fresh_value_only_read_is_released_after_its_last_read() {
+        let mut interner = Interner::new();
+        let x = binder(&mut interner, 1, "x");
+        // `len` returns an Int, which points into nothing.
+        let t = CoreBinder::with_rep(CoreBinderId(2), interner.intern("t"), FluxRep::IntRep);
+        let registry = release_registry(&mut interner);
+        let g = call(interner.intern("g"), vec![]);
+        let read = call(interner.intern("len"), vec![var(x)]);
+        let expr = lam(vec![], let_in(x, g, let_in(t, read, var(t))));
+
+        let rewritten = insert_dup_drop_with_registry(expr, &registry);
+        assert_eq!(drops_of(&rewritten, x.id), 1, "{rewritten:?}");
+        assert!(released_after(&rewritten, x.id, t.id), "{rewritten:?}");
+        assert_contract(&rewritten);
+    }
+
+    /// KI-121: `let x = g(); let a = own(x); let t = len(x); t`. The owned use
+    /// copies `x`, because it is read again; the read is the last use, so
+    /// the binding's own reference is released after it.
+    #[test]
+    fn an_owned_value_read_last_is_released_after_the_read() {
+        let mut interner = Interner::new();
+        let x = binder(&mut interner, 1, "x");
+        let a = binder(&mut interner, 2, "a");
+        // `len` returns an Int, which points into nothing.
+        let t = CoreBinder::with_rep(CoreBinderId(3), interner.intern("t"), FluxRep::IntRep);
+        let registry = release_registry(&mut interner);
+        let g = call(interner.intern("g"), vec![]);
+        let give = call(interner.intern("own"), vec![var(x)]);
+        let read = call(interner.intern("len"), vec![var(x)]);
+        let expr = lam(
+            vec![],
+            let_in(x, g, let_in(a, give, let_in(t, read, var(t)))),
         );
-        assert_eq!(
-            drops_for_x, 0,
-            "borrow-only branch joins should not synthesize dead-path drops for the binder"
+
+        let rewritten = insert_dup_drop_with_registry(expr, &registry);
+        assert_eq!(dups_of(&rewritten, x.id), 1, "{rewritten:?}");
+        assert_eq!(drops_of(&rewritten, x.id), 1, "{rewritten:?}");
+        assert!(released_after(&rewritten, x.id, t.id), "{rewritten:?}");
+        assert_contract(&rewritten);
+    }
+
+    /// `let xs = g(); case xs of Cons(h, t) -> Cons(h, t), _ -> 0`. The
+    /// rebuilding arm releases `xs` at its head for reuse, which gives the
+    /// value away: the binding must not release it again. The `_` arm still
+    /// leaks it until match arms release what they own.
+    #[test]
+    fn a_reused_let_bound_list_is_not_released_again() {
+        let mut interner = Interner::new();
+        let xs = binder(&mut interner, 1, "xs");
+        let h = binder(&mut interner, 2, "h");
+        let t = binder(&mut interner, 3, "t");
+        let registry = release_registry(&mut interner);
+        let g = call(interner.intern("g"), vec![]);
+        let matched = CoreExpr::Case {
+            scrutinee: Box::new(var(xs)),
+            alts: vec![
+                CoreAlt {
+                    pat: CorePat::Con {
+                        tag: crate::core::CoreTag::Cons,
+                        fields: vec![CorePat::Var(h), CorePat::Var(t)],
+                    },
+                    guard: None,
+                    rhs: CoreExpr::Con {
+                        tag: crate::core::CoreTag::Cons,
+                        fields: vec![var(h), var(t)],
+                        span: Span::default(),
+                    },
+                    span: Span::default(),
+                },
+                CoreAlt {
+                    pat: CorePat::Wildcard,
+                    guard: None,
+                    rhs: CoreExpr::Lit(CoreLit::Int(0), Span::default()),
+                    span: Span::default(),
+                },
+            ],
+            join_ty: None,
+            span: Span::default(),
+        };
+        let expr = lam(vec![], let_in(xs, g, matched));
+
+        let rewritten = insert_dup_drop_with_registry(expr, &registry);
+        assert_eq!(drops_of(&rewritten, xs.id), 1, "{rewritten:?}");
+        assert_contract(&rewritten);
+    }
+
+    /// `let x = g(); walk(x)`, `walk` a Flux function borrowing `x`.
+    /// Releasing `x` after the call would end the tail call, so it is left
+    /// unreleased (PA R1, a counted leak).
+    #[test]
+    fn a_tail_call_that_reads_the_value_gets_no_temporary() {
+        let mut interner = Interner::new();
+        let x = binder(&mut interner, 1, "x");
+        let registry = release_registry(&mut interner);
+        let g = call(interner.intern("g"), vec![]);
+        let tail = call(interner.intern("walk"), vec![var(x)]);
+        let expr = lam(vec![], let_in(x, g, tail));
+
+        let rewritten = insert_dup_drop_with_registry(expr, &registry);
+        assert_eq!(drops_of(&rewritten, x.id), 0, "{rewritten:?}");
+        let CoreExpr::Lam { body, .. } = &rewritten else {
+            panic!("expected a lambda");
+        };
+        let CoreExpr::Let { body, .. } = body.as_ref() else {
+            panic!("expected the binding of x: {body:?}");
+        };
+        assert!(
+            matches!(body.as_ref(), CoreExpr::AetherCall { .. }),
+            "{body:?}"
         );
+        assert_contract(&rewritten);
+    }
+
+    /// `let xs = g(); case xs of ys -> (let a = own(ys) in 0)`. `ys` is `xs`
+    /// itself, so giving `ys` away is the binding's release.
+    #[test]
+    fn a_var_pattern_given_away_moves_the_scrutinee() {
+        let mut interner = Interner::new();
+        let xs = binder(&mut interner, 1, "xs");
+        let ys = binder(&mut interner, 2, "ys");
+        let a = binder(&mut interner, 3, "a");
+        let registry = release_registry(&mut interner);
+        let g = call(interner.intern("g"), vec![]);
+        let give = call(interner.intern("own"), vec![var(ys)]);
+        let matched = CoreExpr::Case {
+            scrutinee: Box::new(var(xs)),
+            alts: vec![CoreAlt {
+                pat: CorePat::Var(ys),
+                guard: None,
+                rhs: let_in(a, give, CoreExpr::Lit(CoreLit::Int(0), Span::default())),
+                span: Span::default(),
+            }],
+            join_ty: None,
+            span: Span::default(),
+        };
+        let expr = lam(vec![], let_in(xs, g, matched));
+
+        let rewritten = insert_dup_drop_with_registry(expr, &registry);
+        assert_eq!(drops_of(&rewritten, xs.id), 0, "{rewritten:?}");
+        assert_eq!(drops_of(&rewritten, ys.id), 0, "{rewritten:?}");
+        assert_contract(&rewritten);
+    }
+
+    /// `letrec f = fn(n) { n } in let r = f(1) in r`: a local function only
+    /// called is released after its call (R1; its per-call self closure is
+    /// R5's).
+    #[test]
+    fn a_local_function_only_called_is_released() {
+        let mut interner = Interner::new();
+        let f = binder(&mut interner, 1, "f");
+        let n = binder(&mut interner, 2, "n");
+        let r = binder(&mut interner, 3, "r");
+        let registry = release_registry(&mut interner);
+        let invoke = CoreExpr::App {
+            func: Box::new(var(f)),
+            args: vec![CoreExpr::Lit(CoreLit::Int(1), Span::default())],
+            span: Span::default(),
+        };
+        let expr = lam(
+            vec![],
+            CoreExpr::LetRec {
+                var: f,
+                rhs: Box::new(lam(vec![n], var(n))),
+                body: Box::new(let_in(r, invoke, var(r))),
+                span: Span::default(),
+            },
+        );
+
+        let rewritten = insert_dup_drop_with_registry(expr, &registry);
+        assert_eq!(drops_of(&rewritten, f.id), 1, "{rewritten:?}");
+        assert!(released_after(&rewritten, f.id, r.id), "{rewritten:?}");
+        assert_contract(&rewritten);
+    }
+
+    /// `let xs = g(); let f = fn() { own(xs) }; let r = f() in r`. Making
+    /// the closure retains `xs`, so the binding still holds its own reference
+    /// and releases it; the closure, only called, is released too.
+    #[test]
+    fn a_value_captured_by_a_closure_is_released_by_its_owner() {
+        let mut interner = Interner::new();
+        let xs = binder(&mut interner, 1, "xs");
+        let f = binder(&mut interner, 2, "f");
+        let r = binder(&mut interner, 3, "r");
+        let registry = release_registry(&mut interner);
+        let g = call(interner.intern("g"), vec![]);
+        let give = call(interner.intern("own"), vec![var(xs)]);
+        let invoke = CoreExpr::App {
+            func: Box::new(var(f)),
+            args: vec![],
+            span: Span::default(),
+        };
+        let expr = lam(
+            vec![],
+            let_in(
+                xs,
+                g,
+                let_in(f, lam(vec![], give), let_in(r, invoke, var(r))),
+            ),
+        );
+
+        let rewritten = insert_dup_drop_with_registry(expr, &registry);
+        assert_eq!(drops_of(&rewritten, xs.id), 1, "{rewritten:?}");
+        assert_eq!(drops_of(&rewritten, f.id), 1, "{rewritten:?}");
+        assert!(released_after(&rewritten, f.id, r.id), "{rewritten:?}");
+        assert_contract(&rewritten);
+    }
+
+    /// `let y = (case true of _ -> let x = g() in x) in let n = len(y) in n`.
+    /// The block's result is only read, so it takes no reference of its own:
+    /// releasing `x` there would free what `len(y)` reads. `x` is left
+    /// unreleased (a counted leak, PA R1).
+    #[test]
+    fn a_value_the_enclosing_binding_only_reads_is_not_released() {
+        let mut interner = Interner::new();
+        let x = binder(&mut interner, 1, "x");
+        let y = binder(&mut interner, 2, "y");
+        let n = binder(&mut interner, 3, "n");
+        let registry = release_registry(&mut interner);
+        let g = call(interner.intern("g"), vec![]);
+        let block = CoreExpr::Case {
+            scrutinee: Box::new(CoreExpr::Lit(CoreLit::Bool(true), Span::default())),
+            alts: vec![CoreAlt {
+                pat: CorePat::Wildcard,
+                guard: None,
+                rhs: let_in(x, g, var(x)),
+                span: Span::default(),
+            }],
+            join_ty: None,
+            span: Span::default(),
+        };
+        let read = call(interner.intern("len"), vec![var(y)]);
+        let expr = lam(vec![], let_in(y, block, let_in(n, read, var(n))));
+
+        let rewritten = insert_dup_drop_with_registry(expr, &registry);
+        assert_eq!(drops_of(&rewritten, x.id), 0, "{rewritten:?}");
+        assert_contract(&rewritten);
+    }
+
+    /// `fn(xs) { len(xs) }`, `len` a runtime function. A runtime result may
+    /// point into its argument without a reference of its own
+    /// (`flux_unwrap_or`), so the result is copied before `xs` is released.
+    #[test]
+    fn a_runtime_result_is_copied_before_its_argument_is_released() {
+        let mut interner = Interner::new();
+        let xs = binder(&mut interner, 1, "xs");
+        let registry = release_registry(&mut interner);
+        let read = call(interner.intern("len"), vec![var(xs)]);
+        let expr = lam(vec![xs], read);
+
+        let rewritten = insert_dup_drop_with_registry(expr, &registry);
+        assert_eq!(drops_of(&rewritten, xs.id), 1, "{rewritten:?}");
+        let CoreExpr::Lam { body, .. } = &rewritten else {
+            panic!("expected a lambda");
+        };
+        let CoreExpr::Let {
+            var: held, body, ..
+        } = body.as_ref()
+        else {
+            panic!("expected the result held in a temporary: {body:?}");
+        };
+        assert!(
+            matches!(
+                body.as_ref(),
+                CoreExpr::Dup { var, body, .. }
+                    if var.binder == Some(held.id)
+                        && matches!(body.as_ref(), CoreExpr::Drop { var, .. } if var.binder == Some(xs.id))
+            ),
+            "{body:?}"
+        );
+        assert_contract(&rewritten);
     }
 
     /// The same binder lent and given in one call: guard the lent position
@@ -3122,7 +3865,8 @@ mod tests {
     }
 
     /// The other arm only reads `xs`, so this arm keeps the cell and copies
-    /// only the field it gives away.
+    /// only the field it gives away. Each arm then releases `xs` after its
+    /// last use.
     #[test]
     fn a_kept_cell_copies_only_the_fields_given_away() {
         let mut interner = Interner::new();
@@ -3148,7 +3892,7 @@ mod tests {
         );
         assert_eq!(
             (dups(&planned, h), dups(&planned, t), drops(&planned, xs)),
-            (1, 0, 0),
+            (1, 0, 2),
             "{planned:?}"
         );
     }

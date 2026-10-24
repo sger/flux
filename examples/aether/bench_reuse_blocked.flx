@@ -17,15 +17,19 @@ fn build_list(n) {
 }
 
 // Touching the scrutinee token in a field-computation call should block plain
-// Reuse while keeping the observable result the same.
+// Reuse while keeping the observable result the same. The call must own the
+// token: one that only borrowed it would let the caller release the cell
+// after the call, and that release becomes a reuse. Lengths are never
+// negative, so the branch that keeps the token never runs.
 fn touch_token(token, value) {
-    value
+    if len(token) < 0 { match [token] { _ -> value } } else { value }
 }
 
 // Helper for map blocked.
 @fip fn map_blocked(xs, f) {
     match xs {
-        [h | t] -> [touch_token(xs, f(h)) | map_blocked(t, f)],
+        // The fields are read before the call that takes the cell.
+        [h | t] -> [f(h) | touch_token(xs, map_blocked(t, f))],
         _ -> [],
     }
 }
