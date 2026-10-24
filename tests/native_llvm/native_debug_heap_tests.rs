@@ -761,6 +761,85 @@ fn main() {
 }
 ";
 
+const GROW_OTHER_SHAPE: &str = r"type Shape = Circle(Int) | Square(Int)
+
+fn make(n) {
+    if n % 2 == 0 { Circle(n) } else { Square(n) }
+}
+
+fn grow(s) {
+    match s {
+        Circle(r) -> Circle(r + 1),
+        _ -> Circle(0),
+    }
+}
+
+fn size(s) {
+    match s {
+        Circle(r) -> r,
+        Square(w) -> w,
+    }
+}
+
+fn count(n, total) {
+    if n == 0 { total } else {
+        let s = grow(make(n))
+        count(n - 1, total + size(s))
+    }
+}
+
+fn main() {
+    print(count(SIZE, 0))
+}
+";
+
+const WALK_GIVES_ITS_LIST_AWAY: &str = r"fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn keep(token, v) {
+    if len(token) < 0 { match [token] { _ -> v } } else { v }
+}
+
+fn walk(xs) {
+    match xs {
+        [h | t] -> [keep(xs, h) | walk(t)],
+        _ -> [],
+    }
+}
+
+fn count(n, total) {
+    if n == 0 { total } else {
+        let ys = walk(numbers(n))
+        count(n - 1, total + len(ys))
+    }
+}
+
+fn main() {
+    print(count(SIZE, 0))
+}
+";
+
+/// KI-121: a value given away or reused on one path is released on the
+/// others: the arm that does not rebuild a circle releases the square it
+/// matched, and the arm that gives the list a copy releases the list after
+/// its last read.
+#[test]
+fn a_value_moved_on_one_path_is_released_on_the_others() {
+    let scratch = Scratch::new("debug-heap-moved-on-one-path");
+    let failures: Vec<String> = [
+        ("grow_other_shape", GROW_OTHER_SHAPE),
+        ("walk_gives_its_list_away", WALK_GIVES_ITS_LIST_AWAY),
+    ]
+    .into_iter()
+    .filter_map(|(name, program)| {
+        let (_, _, live) = per_thousand_cells(&scratch, name, program);
+        (live != 0).then(|| format!("{name}: {live} blocks left live per 1000 turns"))
+    })
+    .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 /// A cons rebuilt in the cell of the list it was matched from, inside a
 /// fresh wrapper, is built once. A second, unused copy of it was left
 /// behind each turn, holding its fields with references it never had.

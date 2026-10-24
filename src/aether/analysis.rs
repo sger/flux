@@ -31,9 +31,6 @@ pub struct AetherEnv {
     pub live: BTreeSet<CoreBinderId>,
     pub owned: BTreeSet<CoreBinderId>,
     pub borrowed: BTreeSet<CoreBinderId>,
-    /// Binders whose own reference some path from here gives away or
-    /// releases. One that no path moves is still the binding's to release.
-    pub moved: BTreeSet<CoreBinderId>,
 }
 
 impl AetherEnv {
@@ -50,20 +47,10 @@ impl AetherEnv {
         }
     }
 
-    /// `binder`'s own reference is given away or released here.
-    pub fn mark_moved(&mut self, binder: CoreBinderId) {
-        self.moved.insert(binder);
-    }
-
-    pub fn is_moved(&self, binder: CoreBinderId) -> bool {
-        self.moved.contains(&binder)
-    }
-
     pub fn remove(&mut self, binder: CoreBinderId) {
         self.live.remove(&binder);
         self.owned.remove(&binder);
         self.borrowed.remove(&binder);
-        self.moved.remove(&binder);
     }
 
     pub fn remove_all<I>(&mut self, binders: I)
@@ -90,7 +77,6 @@ impl AetherEnv {
     pub fn union_from(&mut self, other: &Self) {
         self.live.extend(other.live.iter().copied());
         self.owned.extend(other.owned.iter().copied());
-        self.moved.extend(other.moved.iter().copied());
         for binder in other.borrowed.iter().copied() {
             self.live.insert(binder);
             if !self.owned.contains(&binder) {

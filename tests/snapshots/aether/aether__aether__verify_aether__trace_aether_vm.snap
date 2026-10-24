@@ -46,7 +46,7 @@ Aether Ownership Report
 Note: Reuses and FBIP describe the Aether planner. BorrowedCallGuards are native call-site Dup/Drop safeguards; guarded calls may suppress a callee's reuse for those arguments.
 
 ── fn my_map @fip ──
-  Dups: 2  Drops: 0  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
+  Dups: 2  Drops: 1  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
   fbip: NotProvable
@@ -73,9 +73,10 @@ lam(xs, f) ->
               Cons(<sym:4000066>#66, <sym:4000067>#67)
       }
     _ ->
-      Nil
+      drop xs#1 in
+        Nil
 ── fn option_map @fip ──
-  Dups: 1  Drops: 0  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
+  Dups: 1  Drops: 1  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
   fbip: NotProvable
@@ -97,7 +98,8 @@ lam(opt, f) ->
             Some(<sym:4000068>#68)
       }
     _ ->
-      None
+      drop opt#6 in
+        None
 ── fn set_black ──
   Dups: 3  Drops: 0  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fip
   FreshAllocs: 0
@@ -133,7 +135,7 @@ lam(xs) ->
     _ ->
       0
 ── fn my_filter ──
-  Dups: 4  Drops: 6  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
+  Dups: 4  Drops: 7  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(xs, f) ->
@@ -170,7 +172,8 @@ lam(xs, f) ->
                       aether_call[owned, borrowed] my_filter#17(t#21, f#19)
       }
     _ ->
-      Nil
+      drop xs#18 in
+        Nil
 ── fn my_sum ──
   Dups: 1  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
@@ -205,7 +208,7 @@ lam() ->
         aether_call[owned] __resume_default#65(<sym:4000126>#126)
 
 ── Total ──
-  Dups: 13  Drops: 34  Reuses: 4  DropSpecs: 4  BorrowedCallGuards: 0  FBIP: fbip(4)  Yields: 0  Handles: 5  HandlerArms: 11
+  Dups: 13  Drops: 37  Reuses: 4  DropSpecs: 4  BorrowedCallGuards: 0  FBIP: fbip(4)  Yields: 0  Handles: 5  HandlerArms: 11
   FreshAllocs: 4
 
 [cfg→vm] Running via CFG → bytecode VM backend...
