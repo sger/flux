@@ -294,7 +294,10 @@ use sha2::{Digest, Sha256};
 /// leaked every value its owner only read (PA R1, KI-121).
 /// Epoch 94: a cons forwarded into its matched cell is built once; an
 /// epoch-93 unit built a second, unused copy that gave its fields away again.
-pub const CACHE_EPOCH: u16 = 94;
+/// Epoch 95: a match arm that gives the matched value away copies the
+/// fields it still uses first; an epoch-94 unit read them after the cell
+/// could be freed (PA L9).
+pub const CACHE_EPOCH: u16 = 95;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

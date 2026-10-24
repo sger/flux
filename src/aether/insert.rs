@@ -1363,8 +1363,21 @@ fn plan_var(
             // An owned use of something the caller lent takes its own
             // reference: the caller keeps the one it lent.
             let lent = scope.lent(id, field_parents);
-            let needs_dup =
-                tail_env.is_live(id) || scope.views.contains(&id) || borrowed_parent || lent;
+            // A view read out of the value and still used after this would
+            // go with the value if the receiver frees it (audit L9). An
+            // unboxed field is a copy of the value it read, not a view.
+            let views_live_after = || {
+                field_parents.iter().any(|(child, _)| {
+                    tail_env.is_live(*child)
+                        && scope.get(child).is_none_or(|binder| binder.rep.needs_rc())
+                        && descends_from(*child, id, field_parents)
+                })
+            };
+            let needs_dup = tail_env.is_live(id)
+                || scope.views.contains(&id)
+                || borrowed_parent
+                || lent
+                || views_live_after();
             tail_env.mark_owned(id);
             if !needs_dup {
                 tail_env.mark_moved(id);
@@ -3426,6 +3439,135 @@ mod tests {
             ),
             "{body:?}"
         );
+        assert_contract(&rewritten);
+    }
+
+    /// `fn(xs) { case xs of Cons(h, t) -> <rhs>, _ -> 0 }`, planned.
+    fn planned_cons_arm(
+        xs: CoreBinder,
+        h: CoreBinder,
+        t: CoreBinder,
+        rhs: CoreExpr,
+        registry: &BorrowRegistry,
+    ) -> CoreExpr {
+        let matched = CoreExpr::Case {
+            scrutinee: Box::new(var(xs)),
+            alts: vec![
+                CoreAlt {
+                    pat: CorePat::Con {
+                        tag: crate::core::CoreTag::Cons,
+                        fields: vec![CorePat::Var(h), CorePat::Var(t)],
+                    },
+                    guard: None,
+                    rhs,
+                    span: Span::default(),
+                },
+                CoreAlt {
+                    pat: CorePat::Wildcard,
+                    guard: None,
+                    rhs: CoreExpr::Lit(CoreLit::Int(0), Span::default()),
+                    span: Span::default(),
+                },
+            ],
+            join_ty: None,
+            span: Span::default(),
+        };
+        insert_dup_drop_with_registry(lam(vec![xs], matched), registry)
+    }
+
+    /// PA L9: `case xs of Cons(h, t) -> let a = own(xs) in walk(t)`. `t` is
+    /// still read after `own` takes `xs`, which may free its cell and `t`
+    /// with it, so `own` gets a copy of `xs` instead of `xs` itself.
+    #[test]
+    fn a_scrutinee_whose_field_is_read_later_is_copied_when_given_away() {
+        let mut interner = Interner::new();
+        let [xs, h, t, a] = [(1, "xs"), (2, "h"), (3, "t"), (4, "a")]
+            .map(|(id, name)| binder(&mut interner, id, name));
+        let registry = release_registry(&mut interner);
+        let give = call(interner.intern("own"), vec![var(xs)]);
+        let read = call(interner.intern("walk"), vec![var(t)]);
+        let rewritten = planned_cons_arm(xs, h, t, let_in(a, give, read), &registry);
+
+        assert_eq!(dups_of(&rewritten, xs.id), 1, "{rewritten:?}");
+        assert_eq!(dups_of(&rewritten, t.id), 0, "{rewritten:?}");
+        assert_contract(&rewritten);
+    }
+
+    /// `case xs of Cons(h, t) -> case t of Cons(a, b) -> let k = own(xs) in
+    /// walk(b)`: `b` is read out of `t`, read out of `xs`, so it goes with
+    /// `xs` too.
+    #[test]
+    fn a_scrutinee_whose_field_of_a_field_is_read_later_is_copied() {
+        let mut interner = Interner::new();
+        let [xs, h, t, a, b, k] = [(1, "xs"), (2, "h"), (3, "t"), (4, "a"), (5, "b"), (6, "k")]
+            .map(|(id, name)| binder(&mut interner, id, name));
+        let registry = release_registry(&mut interner);
+        let give = call(interner.intern("own"), vec![var(xs)]);
+        let read = call(interner.intern("walk"), vec![var(b)]);
+        let inner = CoreExpr::Case {
+            scrutinee: Box::new(var(t)),
+            alts: vec![
+                CoreAlt {
+                    pat: CorePat::Con {
+                        tag: crate::core::CoreTag::Cons,
+                        fields: vec![CorePat::Var(a), CorePat::Var(b)],
+                    },
+                    guard: None,
+                    rhs: let_in(k, give, read),
+                    span: Span::default(),
+                },
+                CoreAlt {
+                    pat: CorePat::Wildcard,
+                    guard: None,
+                    rhs: CoreExpr::Lit(CoreLit::Int(0), Span::default()),
+                    span: Span::default(),
+                },
+            ],
+            join_ty: None,
+            span: Span::default(),
+        };
+        let rewritten = planned_cons_arm(xs, h, t, inner, &registry);
+
+        assert_eq!(dups_of(&rewritten, xs.id), 1, "{rewritten:?}");
+        assert_contract(&rewritten);
+    }
+
+    /// `case xs of Cons(h, t) -> let k = own(xs) in h + 1`, `h` an Int: a
+    /// copy of the value, not a view of the cell, so `xs` moves.
+    #[test]
+    fn a_scrutinee_whose_unboxed_field_is_read_later_still_moves() {
+        let mut interner = Interner::new();
+        let xs = binder(&mut interner, 1, "xs");
+        let h = CoreBinder::with_rep(CoreBinderId(2), interner.intern("h"), FluxRep::IntRep);
+        let [t, k] = [(3, "t"), (4, "k")].map(|(id, name)| binder(&mut interner, id, name));
+        let registry = release_registry(&mut interner);
+        let give = call(interner.intern("own"), vec![var(xs)]);
+        let read = CoreExpr::PrimOp {
+            op: CorePrimOp::IAdd,
+            args: vec![var(h), CoreExpr::Lit(CoreLit::Int(1), Span::default())],
+            span: Span::default(),
+        };
+        let rewritten = planned_cons_arm(xs, h, t, let_in(k, give, read), &registry);
+
+        assert_eq!(dups_of(&rewritten, xs.id), 0, "{rewritten:?}");
+        assert_contract(&rewritten);
+    }
+
+    /// `case xs of Cons(h, t) -> let n = len(xs) in walk(t)`: the arm only
+    /// reads `xs`, so its fields stay views of it, with no copies.
+    #[test]
+    fn an_arm_that_only_reads_its_scrutinee_keeps_views() {
+        let mut interner = Interner::new();
+        let [xs, h, t] =
+            [(1, "xs"), (2, "h"), (3, "t")].map(|(id, name)| binder(&mut interner, id, name));
+        let n = CoreBinder::with_rep(CoreBinderId(4), interner.intern("n"), FluxRep::IntRep);
+        let registry = release_registry(&mut interner);
+        let read_whole = call(interner.intern("len"), vec![var(xs)]);
+        let read = call(interner.intern("walk"), vec![var(t)]);
+        let rewritten = planned_cons_arm(xs, h, t, let_in(n, read_whole, read), &registry);
+
+        assert_eq!(dups_of(&rewritten, xs.id), 0, "{rewritten:?}");
+        assert_eq!(dups_of(&rewritten, t.id), 0, "{rewritten:?}");
         assert_contract(&rewritten);
     }
 

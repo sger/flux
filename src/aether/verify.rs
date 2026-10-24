@@ -722,9 +722,18 @@ struct ReleasedSoFar {
     /// match on that value, or `let y = x.i`, when its value is counted.
     parents: HashMap<CoreBinderId, CoreBinderId>,
     /// Views that took a reference of their own on every path here, and so
-    /// outlive the value they were read out of. A copy given away later is
-    /// still counted: the walk does not follow where references go.
+    /// outlive the value they were read out of, until an owned use or a
+    /// release hands that reference over.
     copied: HashSet<CoreBinderId>,
+    /// Binders that need no count: an owned use copies the value, so it
+    /// gives nothing away.
+    unboxed: HashSet<CoreBinderId>,
+    /// Binders bound in this definition. A top-level function or value is
+    /// not counted here: lowering copies it at each use (0189 F3-2c).
+    local: HashSet<CoreBinderId>,
+    /// References a `Dup` added on every path here and that nothing gave
+    /// away yet: an owned use hands one of these over first.
+    extra: HashMap<CoreBinderId, usize>,
 }
 
 impl ReleasedSoFar {
@@ -759,6 +768,58 @@ impl ReleasedSoFar {
         }
     }
 
+    fn bind(&mut self, binder: &CoreBinder) {
+        self.local.insert(binder.id);
+        if !binder.rep.needs_rc() {
+            self.unboxed.insert(binder.id);
+        }
+    }
+
+    /// A function body nested in this path: it starts with nothing released,
+    /// binding `params`.
+    fn function<'a>(&self, params: impl IntoIterator<Item = &'a CoreBinder>) -> Self {
+        let mut body = Self {
+            unboxed: self.unboxed.clone(),
+            local: self.local.clone(),
+            ..Self::default()
+        };
+        for param in params {
+            body.bind(param);
+        }
+        body
+    }
+
+    /// `arg` is given to an owned position: a bare binder hands its
+    /// reference over, and the receiver may free it, with every view read
+    /// out of it that has no copy of its own (audit L9).
+    fn give(&mut self, arg: &AetherExpr) {
+        // `dup x in x` hands over the copy the `Dup` made.
+        if let AetherExpr::Dup { body, .. } = arg {
+            return self.give(body);
+        }
+        if let AetherExpr::Var { var, .. } = arg
+            && let Some(binder) = var.binder
+            && self.local.contains(&binder)
+            && !self.unboxed.contains(&binder)
+        {
+            self.hand_over(binder);
+        }
+    }
+
+    /// `binder` gives one reference away: a copy a `Dup` made on this path
+    /// if one is left, else its own.
+    fn hand_over(&mut self, binder: CoreBinderId) {
+        match self.extra.get_mut(&binder) {
+            Some(count) if *count > 1 => *count -= 1,
+            Some(_) => {
+                // The last copy is gone: a view is a view again.
+                self.extra.remove(&binder);
+                self.copied.remove(&binder);
+            }
+            None => self.release(binder),
+        }
+    }
+
     /// Releases `binder` alone: a `Reuse` writes its cell in place and a
     /// drop-specialized match hands its fields over, so their views stay.
     fn release_cell(&mut self, binder: CoreBinderId) {
@@ -789,12 +850,23 @@ impl ReleasedSoFar {
         }
         self.parents.extend(other.parents);
         self.copied.retain(|binder| other.copied.contains(binder));
+        self.unboxed.extend(other.unboxed);
+        self.local.extend(other.local);
+        self.extra
+            .retain(|binder, count| match other.extra.get(binder) {
+                Some(theirs) => {
+                    *count = (*count).min(*theirs);
+                    true
+                }
+                None => false,
+            });
     }
 }
 
 /// Checks that no path reads a binder after releasing it, or reads a view
 /// after releasing the value it was read out of without copying the view
-/// first (`dup fields; drop xs`). `UnsafeDrop` looks only inside a `Drop`'s
+/// first (`dup fields; drop xs`). Giving a bare binder to an owned position
+/// counts as releasing it. `UnsafeDrop` looks only inside a `Drop`'s
 /// own body; this also covers reads after it, in the body of an enclosing
 /// `let` or after an enclosing match.
 fn check_reads_after_release(
@@ -811,20 +883,37 @@ fn check_reads_after_release(
         AetherExpr::Lit(_, _) => {}
         // Making the closure reads what it captures; its body is another
         // function, with paths of its own.
-        AetherExpr::Lam { body, .. } => {
+        AetherExpr::Lam { params, body, .. } => {
             for binder in super::free_vars::collect_free_vars_aether(expr) {
                 path.read(binder, errors);
             }
-            check_reads_after_release(body, &mut ReleasedSoFar::default(), errors);
+            check_reads_after_release(body, &mut path.function(params), errors);
         }
         AetherExpr::Return { value, .. } => check_reads_after_release(value, path, errors),
-        AetherExpr::App { func, args, .. } | AetherExpr::AetherCall { func, args, .. } => {
+        AetherExpr::App { func, args, .. } => {
             check_reads_after_release(func, path, errors);
             for arg in args {
                 check_reads_after_release(arg, path, errors);
             }
         }
+        AetherExpr::AetherCall {
+            func,
+            args,
+            arg_modes,
+            ..
+        } => {
+            check_reads_after_release(func, path, errors);
+            for arg in args {
+                check_reads_after_release(arg, path, errors);
+            }
+            for (arg, mode) in args.iter().zip(arg_modes) {
+                if *mode == super::borrow_infer::BorrowMode::Owned {
+                    path.give(arg);
+                }
+            }
+        }
         AetherExpr::Let { var, rhs, body, .. } => {
+            path.bind(var);
             check_reads_after_release(rhs, path, errors);
             if let AetherExpr::TupleField { object, .. } = rhs.as_ref()
                 && let AetherExpr::Var { var: object, .. } = object.as_ref()
@@ -835,11 +924,15 @@ fn check_reads_after_release(
             }
             check_reads_after_release(body, path, errors);
         }
-        AetherExpr::LetRec { rhs, body, .. } => {
+        AetherExpr::LetRec { var, rhs, body, .. } => {
+            path.bind(var);
             check_reads_after_release(rhs, path, errors);
             check_reads_after_release(body, path, errors);
         }
         AetherExpr::LetRecGroup { bindings, body, .. } => {
+            for (var, _) in bindings {
+                path.bind(var);
+            }
             for (_, rhs) in bindings {
                 check_reads_after_release(rhs, path, errors);
             }
@@ -860,9 +953,12 @@ fn check_reads_after_release(
             let mut joined: Option<ReleasedSoFar> = None;
             for alt in alts {
                 let mut arm = fallthrough.clone();
+                let mut binders = Vec::new();
+                pattern_binders(&alt.pat, &mut binders);
+                for binder in &binders {
+                    arm.bind(binder);
+                }
                 if let Some(parent) = matched {
-                    let mut binders = Vec::new();
-                    pattern_binders(&alt.pat, &mut binders);
                     // An unboxed field is a copy of the value, not a view.
                     for binder in binders.into_iter().filter(|b| b.rep.needs_rc()) {
                         arm.parents.insert(binder.id, parent);
@@ -882,9 +978,27 @@ fn check_reads_after_release(
                 *path = joined;
             }
         }
-        AetherExpr::Con { fields: args, .. }
-        | AetherExpr::PrimOp { args, .. }
-        | AetherExpr::Perform { args, .. } => {
+        AetherExpr::Con { fields, .. } => {
+            for field in fields {
+                check_reads_after_release(field, path, errors);
+            }
+            for field in fields {
+                path.give(field);
+            }
+        }
+        AetherExpr::PrimOp { op, args, .. } => {
+            for arg in args {
+                check_reads_after_release(arg, path, errors);
+            }
+            for (index, arg) in args.iter().enumerate() {
+                if op.takes_arg(index) {
+                    path.give(arg);
+                }
+            }
+        }
+        // An effect's arguments are not given away here: the continuation
+        // keeps what is live across the effect, as in the planner.
+        AetherExpr::Perform { args, .. } => {
             for arg in args {
                 check_reads_after_release(arg, path, errors);
             }
@@ -917,26 +1031,35 @@ fn check_reads_after_release(
                         path.read(binder, errors);
                     }
                 }
-                check_reads_after_release(&handler.body, &mut ReleasedSoFar::default(), errors);
+                let params = handler
+                    .params
+                    .iter()
+                    .chain(handler.state.iter())
+                    .chain(std::iter::once(&handler.resume));
+                check_reads_after_release(&handler.body, &mut path.function(params), errors);
             }
         }
         AetherExpr::Dup { var, body, .. } => {
             if let Some(binder) = var.binder {
                 path.read(binder, errors);
                 path.copied.insert(binder);
+                *path.extra.entry(binder).or_insert(0) += 1;
             }
             check_reads_after_release(body, path, errors);
         }
         // Releasing twice is `DoubleDrop`'s to report.
         AetherExpr::Drop { var, body, .. } => {
             if let Some(binder) = var.binder {
-                path.release(binder);
+                path.hand_over(binder);
             }
             check_reads_after_release(body, path, errors);
         }
         AetherExpr::Reuse { token, fields, .. } => {
             for field in fields {
                 check_reads_after_release(field, path, errors);
+            }
+            for field in fields {
+                path.give(field);
             }
             if let Some(binder) = token.binder {
                 path.release_cell(binder);
@@ -1995,6 +2118,127 @@ mod tests {
             },
         );
         assert!(contract_errors(&one_path).contains(&AetherErrorKind::UsedAfterRelease));
+    }
+
+    /// PA L9: a cell given to an owned parameter may be freed there, and its
+    /// fields with it, so a field read after the call needs a copy first.
+    #[test]
+    fn a_field_read_after_its_cell_is_given_away_is_rejected() {
+        let mut interner = Interner::new();
+        let [f, xs, h, t, a] = ["f", "xs", "h", "t", "a"].map(|name| interner.intern(name));
+        let (f, xs, h, t, a) = (
+            binder(1, f),
+            binder(2, xs),
+            binder(3, h),
+            binder(4, t),
+            binder(5, a),
+        );
+        let given_then_read = CoreExpr::Let {
+            var: a,
+            rhs: Box::new(give(f, v(xs))),
+            body: Box::new(give(f, dup(t, v(t)))),
+            span: s(),
+        };
+        let plan = lam(vec![f, xs], on_cons(xs, h, t, given_then_read));
+        assert!(contract_errors(&plan).contains(&AetherErrorKind::UsedAfterRelease));
+    }
+
+    #[test]
+    fn a_field_copied_before_its_cell_is_given_away_is_accepted() {
+        let mut interner = Interner::new();
+        let [f, xs, h, t, a] = ["f", "xs", "h", "t", "a"].map(|name| interner.intern(name));
+        let (f, xs, h, t, a) = (
+            binder(1, f),
+            binder(2, xs),
+            binder(3, h),
+            binder(4, t),
+            binder(5, a),
+        );
+        let copied_first = dup(
+            t,
+            CoreExpr::Let {
+                var: a,
+                rhs: Box::new(give(f, v(xs))),
+                body: Box::new(give(f, v(t))),
+                span: s(),
+            },
+        );
+        let plan = lam(vec![f, xs], on_cons(xs, h, t, copied_first));
+        assert!(!contract_errors(&plan).contains(&AetherErrorKind::UsedAfterRelease));
+    }
+
+    /// The planner copies an owned argument as `dup xs in xs`; that copy is
+    /// what the call takes. A second, bare give then hands over `xs`'s own
+    /// reference, so `t` may be gone by the read.
+    #[test]
+    fn a_field_read_after_a_copy_and_the_cell_are_given_away_is_rejected() {
+        let mut interner = Interner::new();
+        let [f, xs, h, t, a, b] = ["f", "xs", "h", "t", "a", "b"].map(|name| interner.intern(name));
+        let (f, xs, h, t, a, b) = (
+            binder(1, f),
+            binder(2, xs),
+            binder(3, h),
+            binder(4, t),
+            binder(5, a),
+            binder(6, b),
+        );
+        let gives = CoreExpr::Let {
+            var: a,
+            rhs: Box::new(give(f, dup(xs, v(xs)))),
+            body: Box::new(CoreExpr::Let {
+                var: b,
+                rhs: Box::new(give(f, v(xs))),
+                body: Box::new(give(f, dup(t, v(t)))),
+                span: s(),
+            }),
+            span: s(),
+        };
+        let plan = lam(vec![f, xs], on_cons(xs, h, t, gives));
+        assert!(contract_errors(&plan).contains(&AetherErrorKind::UsedAfterRelease));
+    }
+
+    /// A top-level function is copied at each use by lowering, so giving its
+    /// name away twice gives nothing of the definition's away.
+    #[test]
+    fn a_global_given_away_twice_is_accepted() {
+        let mut interner = Interner::new();
+        let f = binder(1, interner.intern("f"));
+        let global = binder(2, interner.intern("inc"));
+        let a = binder(3, interner.intern("a"));
+        let plan = lam(
+            vec![f],
+            CoreExpr::Let {
+                var: a,
+                rhs: Box::new(give(f, v(global))),
+                body: Box::new(give(f, v(global))),
+                span: s(),
+            },
+        );
+        assert!(!contract_errors(&plan).contains(&AetherErrorKind::UsedAfterRelease));
+    }
+
+    /// An unboxed value is copied by value, so giving it away leaves it
+    /// readable; the planner never counts it.
+    #[test]
+    fn an_unboxed_value_given_away_can_be_read_again_is_accepted() {
+        let mut interner = Interner::new();
+        let f = binder(1, interner.intern("f"));
+        let n = CoreBinder::with_rep(
+            CoreBinderId(2),
+            interner.intern("n"),
+            crate::core::FluxRep::IntRep,
+        );
+        let a = binder(3, interner.intern("a"));
+        let plan = lam(
+            vec![f, n],
+            CoreExpr::Let {
+                var: a,
+                rhs: Box::new(give(f, v(n))),
+                body: Box::new(v(n)),
+                span: s(),
+            },
+        );
+        assert!(!contract_errors(&plan).contains(&AetherErrorKind::UsedAfterRelease));
     }
 
     fn views_consumed(
