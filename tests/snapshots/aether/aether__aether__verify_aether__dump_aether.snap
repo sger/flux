@@ -3275,15 +3275,16 @@ lam(opt, f) ->
       drop opt#1327 in
         None
 ── fn set_black ──
-  Dups: 3  Drops: 1  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fip
+  Dups: 3  Drops: 2  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fip
   FreshAllocs: 0
   verifier: ok
 lam(t) ->
   case t#1331 of
-    Node(_, left, key, right) ->
+    Node(<sym:7500000>, left, key, right) ->
       drop_specialized t#1331 {
         unique ->
-          reuse t#1331 as Node mask=0x1(Black, left#1332, key#1333, right#1334)
+          drop <sym:7500000>#3758096384 in
+            reuse t#1331 as Node mask=0x1(Black, left#1332, key#1333, right#1334)
         shared ->
           dup key#1333 in
             dup left#1332 in
@@ -3368,7 +3369,7 @@ lam() ->
         aether_call[owned] __resume_default#1386(<sym:4001952>#1952)
 
 ── Total ──
-  Dups: 213  Drops: 412  Reuses: 17  DropSpecs: 13  BorrowedCallGuards: 38  FBIP: fbip(50)  Yields: 11  Handles: 5  HandlerArms: 11
+  Dups: 213  Drops: 413  Reuses: 17  DropSpecs: 13  BorrowedCallGuards: 38  FBIP: fbip(50)  Yields: 11  Handles: 5  HandlerArms: 11
   FreshAllocs: 50
 
 [ 1 of 18] Compiling  Add

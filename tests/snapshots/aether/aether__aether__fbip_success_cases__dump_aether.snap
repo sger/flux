@@ -3251,18 +3251,20 @@ lam(opt) ->
       drop opt#1326 in
         None
 ── fn set_black @fip ──
-  Dups: 3  Drops: 1  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fip
+  Dups: 3  Drops: 2  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fip
   FreshAllocs: 0
   verifier: ok
   fbip: NotProvable
     - calls imported or name-only function `Node` whose FBIP behavior is conservative
+    - constructor rebuild could not reuse an available token
     - control-flow join loses a precise allocation bound across paths
 lam(t) ->
   case t#1329 of
-    Node(_, left, key, right) ->
+    Node(<sym:7500000>, left, key, right) ->
       drop_specialized t#1329 {
         unique ->
-          reuse t#1329 as Node mask=0x1(Black, left#1330, key#1331, right#1332)
+          drop <sym:7500000>#3758096384 in
+            reuse t#1329 as Node mask=0x1(Black, left#1330, key#1331, right#1332)
         shared ->
           dup key#1331 in
             dup left#1330 in
@@ -3290,7 +3292,7 @@ lam() ->
         aether_call[owned] __resume_default#1358(<sym:4001908>#1908)
 
 ── Total ──
-  Dups: 206  Drops: 396  Reuses: 16  DropSpecs: 12  BorrowedCallGuards: 38  FBIP: fbip(49)  Yields: 11  Handles: 5  HandlerArms: 11
+  Dups: 206  Drops: 397  Reuses: 16  DropSpecs: 12  BorrowedCallGuards: 38  FBIP: fbip(49)  Yields: 11  Handles: 5  HandlerArms: 11
   FreshAllocs: 49
 
 [ 1 of 18] Compiling  Add

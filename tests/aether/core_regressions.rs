@@ -449,10 +449,10 @@ fn main() { rebuild([("key", [1, 2])]) }
 "#;
     let core = lowered_core(src);
     // `key` and `value` sit in the tuple cell, which the release of `xs` can
-    // free with the list cell, so the arm copies both first (audit L2). A
-    // unique list cell hands over only its own fields, so both paths keep
-    // the copies.
-    let (key, value) = core
+    // free with the list cell, so the arm copies both first (audit L2).
+    // Nothing names the tuple cell for a unique path to release, so the arm
+    // keeps its plain release, after the copies.
+    let (key, value, rhs) = core
         .defs
         .iter()
         .flat_map(|def| collect_core_exprs(&def.expr))
@@ -460,7 +460,9 @@ fn main() { rebuild([("key", [1, 2])]) }
             CoreExpr::Case { alts, .. } => alts.iter().find_map(|alt| match &alt.pat {
                 CorePat::Con { fields, .. } => match fields.first() {
                     Some(CorePat::Tuple(pair)) => match pair.as_slice() {
-                        [CorePat::Var(key), CorePat::Var(value)] => Some((key.id, value.id)),
+                        [CorePat::Var(key), CorePat::Var(value)] => {
+                            Some((key.id, value.id, &alt.rhs))
+                        }
                         _ => None,
                     },
                     _ => None,
@@ -470,35 +472,21 @@ fn main() { rebuild([("key", [1, 2])]) }
             _ => None,
         })
         .expect("the [(key, value) | rest] arm");
-    let dups_of = |body: &CoreExpr, binder| {
+    let dups_of = |binder| {
         count_matching(
-            body,
+            rhs,
             &|expr| matches!(expr, CoreExpr::Dup { var, .. } if var.binder == Some(binder)),
         )
     };
-    let paths: Vec<_> = core
-        .defs
-        .iter()
-        .flat_map(|def| collect_core_exprs(&def.expr))
-        .filter_map(|expr| match expr {
-            CoreExpr::DropSpecialized {
-                unique_body,
-                shared_body,
-                ..
-            } => Some((unique_body.as_ref(), shared_body.as_ref())),
-            _ => None,
-        })
-        .collect();
-    assert!(!paths.is_empty(), "the arm should be drop-specialized");
-    for (unique, shared) in paths {
-        for path in [unique, shared] {
-            assert_eq!(
-                (dups_of(path, key), dups_of(path, value)),
-                (1, 1),
-                "{path:?}"
-            );
-        }
-    }
+    assert_eq!((dups_of(key), dups_of(value)), (1, 1), "{rhs:?}");
+    assert_eq!(
+        count_matching(rhs, &|expr| matches!(
+            expr,
+            CoreExpr::DropSpecialized { .. }
+        )),
+        0,
+        "{rhs:?}"
+    );
 }
 
 /// Audit L1: `Node(color, left, key, right) -> Node(color, left, key, left)`
