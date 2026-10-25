@@ -983,6 +983,114 @@ fn a_forwarded_child_leaves_no_cell_behind() {
     assert_eq!(live, 0, "blocks left live per 1000 turns");
 }
 
+const ZEROS_OF_ROWS: &str = r"fn rows(n) {
+    [[n], [n + 1], [n + 2]]
+}
+
+fn zeros(xss) {
+    match xss {
+        [_ | rest] -> [0 | zeros(rest)],
+        _ -> []
+    }
+}
+
+fn count(n, total) {
+    if n == 0 { total } else {
+        let ys = zeros(rows(n))
+        count(n - 1, total + len(ys))
+    }
+}
+
+fn main() { print(count(SIZE, 0)) }
+";
+
+const KEEP_LEFT: &str = r"type Pair2<T> = Pair2(T, T)
+
+fn make(n) { Pair2([n], [n + 1]) }
+
+fn keep_left(p) {
+    match p {
+        Pair2(a, _) -> Pair2(a, []),
+    }
+}
+
+fn size(p) { match p { Pair2(a, b) -> len(a) + len(b) } }
+
+fn count(n, total) {
+    if n == 0 { total } else {
+        let p = keep_left(make(n))
+        count(n - 1, total + size(p))
+    }
+}
+
+fn main() { print(count(SIZE, 0)) }
+";
+
+const RESET_OPTION: &str = r"fn make(n) { Some([n]) }
+
+fn reset(o) {
+    match o {
+        Some(_) -> Some([0]),
+        _ -> None
+    }
+}
+
+fn size(o) { match o { Some(xs) -> len(xs), _ -> 0 } }
+
+fn count(n, total) {
+    if n == 0 { total } else {
+        let o = reset(make(n))
+        count(n - 1, total + size(o))
+    }
+}
+
+fn main() { print(count(SIZE, 0)) }
+";
+
+const SUM_PAIRS: &str = r"fn numbers(n) {
+    [n, n + 1, n + 2, n + 3]
+}
+
+fn pairs(xs) {
+    match xs {
+        [a | [b | t]] -> [a + b | pairs(t)],
+        _ -> []
+    }
+}
+
+fn count(n, total) {
+    if n == 0 { total } else {
+        let ys = pairs(numbers(n))
+        count(n - 1, total + len(ys))
+    }
+}
+
+fn main() { print(count(SIZE, 0)) }
+";
+
+/// A cell rebuilt in place holds new fields, so each old field nothing took
+/// over is released first: a wildcard, an unused binder, an inner cell. The
+/// first three split into unique and shared paths; the last two reuse the
+/// cell where its plain release was.
+#[test]
+fn a_reused_cell_releases_the_fields_it_does_not_keep() {
+    let scratch = Scratch::new("debug-heap-reused-cell-fields");
+    let failures: Vec<String> = [
+        ("wildcard", ZEROS_OF_ROWS.to_string()),
+        ("unused", ZEROS_OF_ROWS.replace("[_ | rest]", "[xs | rest]")),
+        ("constructor", KEEP_LEFT.to_string()),
+        ("plain", RESET_OPTION.to_string()),
+        ("inner_cell", SUM_PAIRS.to_string()),
+    ]
+    .into_iter()
+    .filter_map(|(name, program)| {
+        let (_, _, live) = per_thousand_cells(&scratch, name, &program);
+        (live != 0).then(|| format!("{name}: {live} blocks left live per 1000 turns"))
+    })
+    .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 const PERFORM_PER_TURN: &str = r"effect Ask {
     ask : (ARG) -> Int
 }
