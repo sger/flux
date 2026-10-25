@@ -632,6 +632,8 @@ int64_t flux_compose_trampoline_closure_entry(int64_t closure_raw, int64_t *args
     int64_t *payload = (int64_t *)((char *)clo_ptr + 24);
     int64_t conts_arr = payload[0];
     int32_t marker = (int32_t)flux_untag_int(payload[1]);
+    int delimits = flux_untag_int(payload[2]) != 0;
+    int64_t entry_evv = flux_thread_ctx.current_evv;
 
     if (nargs >= 2) {
         flux_update_state_for_marker(marker, args_ptr[1]);
@@ -648,8 +650,15 @@ int64_t flux_compose_trampoline_closure_entry(int64_t closure_raw, int64_t *args
                 int64_t outer = flux_array_at(conts_arr, flux_tag_int(j));
                 (void)flux_yield_extend(outer);
             }
-            return FLUX_YIELD_SENTINEL;
+            result = FLUX_YIELD_SENTINEL;
+            break;
         }
+    }
+    /* A deep handler is installed again around what `resume` runs: a perform
+     * there is handled at this resume, and its clause's result is the value
+     * `resume` returns, so the clause that called it goes on with that. */
+    if (delimits) {
+        return flux_yield_prompt(flux_tag_int((int64_t)marker), entry_evv, result);
     }
     return result;
 }
@@ -666,6 +675,8 @@ int64_t flux_compose_trampoline_closure_entry(int64_t closure_raw, int64_t *args
  * Single cont: returns it directly — no trampoline overhead.
  * Multiple conts: packages into an array and wraps in a trampoline closure.
  */
+static int64_t compose_into_closure(int delimits);
+
 int64_t flux_compose_conts(void) {
     if (flux_thread_ctx.conts_count == 0) {
         return flux_make_none();
@@ -675,7 +686,22 @@ int64_t flux_compose_conts(void) {
         flux_thread_ctx.conts_count = 0;
         return result;
     }
+    return compose_into_closure(0);
+}
 
+/*
+ * The `resume` a prompt hands its clause. Unlike a fold of pending frames
+ * (flux_compose_conts), it delimits: what it runs is handled by this handler
+ * again, so even a single continuation goes through the trampoline.
+ */
+int64_t flux_compose_resume(void) {
+    if (flux_thread_ctx.conts_count == 0) {
+        return flux_make_none();
+    }
+    return compose_into_closure(1);
+}
+
+static int64_t compose_into_closure(int delimits) {
     /* Package continuations into an array. */
     int64_t *elems = flux_thread_ctx.conts;
     int32_t count = flux_thread_ctx.conts_count;
@@ -689,7 +715,8 @@ int64_t flux_compose_conts(void) {
      * Header size = 24 bytes; payload is i64-aligned. We stash the conts
      * array (tagged pointer) as the single capture. */
     int64_t marker = flux_tag_int((int64_t)flux_thread_ctx.marker);
-    uint32_t payload_bytes = (uint32_t)(2 * sizeof(int64_t)); /* conts + marker */
+    /* conts + marker + delimits; only the first two are scanned. */
+    uint32_t payload_bytes = (uint32_t)(3 * sizeof(int64_t));
     uint32_t size = 24 + payload_bytes;
     void *mem = flux_gc_alloc_header(size, 2 /* scan_fsize = 2 captures */,
                                      FLUX_OBJ_CLOSURE);
@@ -709,6 +736,7 @@ int64_t flux_compose_conts(void) {
     clo->_pad            = 0;
     clo->payload[0]      = arr;
     clo->payload[1]      = marker;
+    clo->payload[2]      = flux_tag_int(delimits);
 
     return flux_tag_ptr(mem);
 }
@@ -815,7 +843,7 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
         int64_t yield_evv = yield_evv_local;
 
         /* Build the resume closure from accumulated continuations. */
-        int64_t resume_cont = flux_compose_conts();
+        int64_t resume_cont = flux_compose_resume();
 
         /* Clear yield state so the clause sees a clean slate (it may re-yield). */
         flux_thread_ctx.yielding    = 0;

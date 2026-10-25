@@ -314,7 +314,11 @@ use sha2::{Digest, Sha256};
 /// moved at its last use, and that release is split where it is, so a
 /// unique cell hands its fields over; an epoch-100 unit copied the view
 /// twice (PA R1, KI-121).
-pub const CACHE_EPOCH: u16 = 101;
+/// Epoch 102: the `resume` a clause gets handles what it runs with the same
+/// handler again; a binary linked against the epoch-101 runtime let a perform
+/// inside a resume escape to the outer prompt, losing the clause's later work
+/// (PA C2).
+pub const CACHE_EPOCH: u16 = 102;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
