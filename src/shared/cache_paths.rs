@@ -321,7 +321,10 @@ use sha2::{Digest, Sha256};
 /// Epoch 103: an evidence entry records whether its clause only resumes as
 /// its last act (six words, was five), and such a clause's resume stays flat
 /// instead of delimiting (PA C2).
-pub const CACHE_EPOCH: u16 = 103;
+/// Epoch 104: a perform gives its argument to the runtime, which releases it
+/// after the clause; a binary linked against the epoch-103 runtime copied it
+/// and kept every argument it was given (PA R2).
+pub const CACHE_EPOCH: u16 = 104;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

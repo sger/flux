@@ -38,19 +38,16 @@
  *
  *   - Producer: the LIR continuation lowering writes into the context's
  *     yield slots via flux_yield_to / OpYield-equivalent paths just before
- *     unwinding to the prompt. The values written are tagged Flux values
- *     borrowed from the producing frame's locals.
+ *     unwinding to the prompt. The perform gives its argument to the
+ *     context, and the prompt releases it after the clause; the clause and
+ *     state are borrowed from the evidence entry.
  *   - Consumer: flux_yield_prompt reads each slot into a local and clears
  *     it before invoking the handler clause or rethreading the
  *     continuation. After clearing, the slot no longer aliases the
  *     borrowed value.
- *   - Lifetime: the LIR lowering must keep the source value alive across
- *     the unwind window (no flux_drop between the write and the prompt
- *     consume). This is not enforced by the runtime — it is a directed
- *     invariant on the LIR generator. Switching these to explicit RC roots
- *     would require flux_dup on every yield write and flux_drop on the
- *     consume; deferred until the cost/benefit shifts (typically when
- *     concurrency lands).
+ *   - Lifetime: the borrowed slots stay alive only while the evidence
+ *     vector does, across the unwind window. This is not enforced by the
+ *     runtime.
  */
 
 #if defined(_MSC_VER)
@@ -347,14 +344,9 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
     int32_t m = (int32_t)flux_untag_int(entry[EVV_MARKER_OFF]);
     int64_t clause = entry[EVV_HANDLER_OFF];
 
-    /* Take an RC root on the payload so the invariant described at the top of
-     * this file is self-enforcing: any code between flux_yield_to and the
-     * flux_yield_prompt consume that drops the last caller-side reference
-     * will NOT free the value — the context holds its own owned reference.
-     * The matching flux_drop lives in flux_yield_prompt after the clause
-     * call (see below). */
-    flux_dup(arg);
-
+    /* The perform gives `arg` to the context: the caller holds no reference
+     * of its own afterwards, so the context's is the only one, released by
+     * flux_yield_prompt after the clause call. */
     flux_thread_ctx.yielding    = 1;
     flux_thread_ctx.marker      = m;
     flux_thread_ctx.clause      = clause;
@@ -578,6 +570,9 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
     /* Restore the outer counter; we're now unwinding past this perform. */
     flux_thread_ctx.resume_called = saved_count;
     flux_thread_ctx.direct_resume_marker = saved_direct_marker;
+
+    /* The clause only borrowed the argument the perform gave us. */
+    flux_drop(arg);
 
     return result;
 }
@@ -877,7 +872,7 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
         flux_thread_ctx.current_evv = yield_evv;
 
         /* Call the handler clause: clause(resume, [arg], [state]).
-         * op_arg carries the owned RC reference taken by flux_yield_to.
+         * op_arg carries the reference the perform gave flux_yield_to.
          * The clause receives it as a borrowed argument and will flux_dup
          * it if it needs to store it. We drop our owned reference after
          * the clause returns (regardless of which branch ran). */
@@ -894,7 +889,7 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
             int64_t args[2] = { resume_cont, op_arg };
             result = flux_call_closure_c(clause, args, 2);
         }
-        /* Release the RC root taken in flux_yield_to. */
+        /* Release the reference the perform gave flux_yield_to. */
         flux_drop(op_arg);
         /* Loop: if the clause re-yielded (resume inside triggered a nested
          * perform targeting this same handler), iterate. Otherwise exit. */
