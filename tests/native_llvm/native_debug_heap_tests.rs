@@ -943,6 +943,36 @@ fn a_matched_cell_reused_on_only_one_path_is_released() {
     }
 }
 
+const MERGE: &str = r"fn merge(left, right) {
+    match left {
+        [a | at] -> match right {
+            [b | bt] -> if a <= b { [a | merge(at, right)] } else { [b | merge(left, bt)] },
+            _ -> left
+        },
+        _ -> right
+    }
+}
+
+fn count(n, total) {
+    if n == 0 { total } else {
+        let ys = merge([n, n + 2, n + 4], [n + 1, n + 3, n + 5])
+        count(n - 1, total + len(ys))
+    }
+}
+
+fn main() { print(count(SIZE, 0)) }
+";
+
+/// KI-121: each arm keeps the other list whole and rebuilds in its own cell.
+/// The tail it passes on is copied once, before that cell may be released;
+/// a second copy where it is passed is a reference nothing gives back.
+#[test]
+fn a_merge_that_rebuilds_in_its_own_cells_copies_each_field_once() {
+    let scratch = Scratch::new("debug-heap-merge");
+    let (allocs, _, live) = per_thousand_cells(&scratch, "merge", MERGE);
+    assert_eq!(live, 0, "live per 1000 turns ({allocs} allocs)");
+}
+
 /// A cons rebuilt in the cell of the list it was matched from, inside a
 /// fresh wrapper, is built once. A second, unused copy of it was left
 /// behind each turn, holding its fields with references it never had.
