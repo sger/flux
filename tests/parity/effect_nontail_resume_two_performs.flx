@@ -1,0 +1,30 @@
+// parity: vm, llvm
+// expect: success
+// bug: A clause does more work after `resume` returns, and the resumed code
+//      performs again. Deep-handler semantics: the second perform runs its
+//      clause inside the first resume, so `((1 + 2) + 1) + 1 = 5`. The
+//      handle sits in a function that declares no effect, so nothing marks
+//      the clause's `resume` call as one that can yield.
+// parity-expected-stdout-begin
+// "5"
+// parity-expected-stdout-end
+
+effect Ask {
+    ask : (Int) -> Int
+}
+
+fn calc() -> Int with Ask {
+    let a = perform Ask.ask(1)
+    let b = perform Ask.ask(2)
+    a + b
+}
+
+fn run() -> Int {
+    calc() handle Ask {
+        ask(resume, v) -> resume(v) + 1
+    }
+}
+
+fn main() with IO {
+    print(to_string(run()))
+}
