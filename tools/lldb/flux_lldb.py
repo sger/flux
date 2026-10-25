@@ -1056,10 +1056,10 @@ def _command_thread(debugger, args, result):
 # ── Handlers (0188 S7) ──────────────────────────────────────────────────
 #
 # The runtime keeps the active handlers in the thread's evidence vector,
-# `flux_thread_ctx.current_evv` (effects.c): a count, then five words per
+# `flux_thread_ctx.current_evv` (effects.c): a count, then six words per
 # handler, oldest first.
 
-EVV_ENTRY_WORDS = 5
+EVV_ENTRY_WORDS = 6
 # The effects the compiler handles around `main`: internals, as in
 # `flux debug`.
 DEFAULT_HANDLED = {
