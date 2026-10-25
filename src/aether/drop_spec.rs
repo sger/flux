@@ -585,7 +585,7 @@ fn rewrite_mode(
             }
         }
         CoreExpr::Drop { var, body, span } => {
-            if var.binder == Some(scrutinee_id) {
+            if var.binder == Some(scrutinee_id) && mode == DropSpecMode::Unique {
                 rewrite_mode(body, mode, scrutinee_id, duped_fields)
             } else {
                 CoreExpr::Drop {
@@ -1167,7 +1167,7 @@ mod tests {
                         &|expr| matches!(expr, CoreExpr::Drop { var, .. } if var.binder == Some(xs.id)),
                     );
                     assert_eq!(unique_drops, 0);
-                    assert_eq!(shared_drops, 0);
+                    assert_eq!(shared_drops, 1);
                 }
                 other => panic!("expected DropSpecialized, got {other:?}"),
             },
@@ -1586,6 +1586,34 @@ mod tests {
             expr,
             &|expr| matches!(expr, CoreExpr::Dup { var, .. } if var.binder == Some(b.id)),
         )
+    }
+
+    #[test]
+    fn a_shared_path_keeps_its_scrutinee_release_after_the_field_copies() {
+        let mut interner = Interner::new();
+        let xs = binder(&mut interner, 1, "xs");
+        let h = binder(&mut interner, 2, "h");
+        let t = binder(&mut interner, 3, "t");
+        let rhs = dup_in(h, dup_in(t, drop_in(xs, cons_of(vec![var(h), var(t)]))));
+        let (_, shared) = specialized_paths(xs, cons_pat(CorePat::Var(h), CorePat::Var(t)), rhs);
+        let CoreExpr::Dup {
+            var: first, body, ..
+        } = &shared
+        else {
+            panic!("expected first copy: {shared:?}");
+        };
+        assert_eq!(first.binder, Some(h.id));
+        let CoreExpr::Dup {
+            var: second, body, ..
+        } = body.as_ref()
+        else {
+            panic!("expected second copy: {shared:?}");
+        };
+        assert_eq!(second.binder, Some(t.id));
+        assert!(
+            matches!(body.as_ref(), CoreExpr::Drop { var, .. } if var.binder == Some(xs.id)),
+            "{shared:?}"
+        );
     }
 
     /// Audit L1: `[h | t] -> [h | [h | t]]` stores `h` twice. A unique cell

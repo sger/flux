@@ -688,9 +688,8 @@ fn check_single_release(
             shared_body,
             ..
         } => {
-            // The scrutinee is released once on each side: the unique side
-            // may reuse it (its `Reuse` is that release) or frees it, the
-            // shared side gives up its reference on entry.
+            // Each side releases the scrutinee explicitly: reuse on the
+            // unique side, a drop after the copies on the shared side.
             let entry = released.clone();
             if scrutinee
                 .binder
@@ -701,7 +700,6 @@ fn check_single_release(
             let mut unique = entry.clone();
             check_single_release(unique_body, &mut unique, errors);
             let mut shared = entry.clone();
-            release(scrutinee, &mut shared, errors);
             check_single_release(shared_body, &mut shared, errors);
             for binder in unique.into_iter().chain(shared).chain(scrutinee.binder) {
                 if !released.contains(&binder) {
@@ -812,9 +810,13 @@ impl ReleasedSoFar {
         match self.extra.get_mut(&binder) {
             Some(count) if *count > 1 => *count -= 1,
             Some(_) => {
-                // The last copy is gone: a view is a view again.
+                // The last copy is gone: a view is a view again, and gone with
+                // its holder if that was released while the copy kept it.
                 self.extra.remove(&binder);
                 self.copied.remove(&binder);
+                if let Some(holder) = self.released_holder(binder) {
+                    self.gone.entry(binder).or_insert(Some(holder));
+                }
             }
             None => self.release(binder),
         }
@@ -824,6 +826,20 @@ impl ReleasedSoFar {
     /// drop-specialized match hands its fields over, so their views stay.
     fn release_cell(&mut self, binder: CoreBinderId) {
         self.gone.entry(binder).or_insert(None);
+    }
+
+    /// The nearest value holding `view`, at any depth, that is released.
+    fn released_holder(&self, view: CoreBinderId) -> Option<CoreBinderId> {
+        let mut current = view;
+        // A view's parent chain is acyclic; the bound is only a guard.
+        for _ in 0..64 {
+            let &parent = self.parents.get(&current)?;
+            if self.gone.contains_key(&parent) {
+                return Some(parent);
+            }
+            current = parent;
+        }
+        None
     }
 
     fn held_only_by(&self, view: CoreBinderId, holder: CoreBinderId) -> bool {
@@ -1621,7 +1637,11 @@ fn invalid_drop_specialized_uses_aether(
                     })
                     .sum::<usize>()
         }
-        AetherExpr::Dup { var, body, .. } | AetherExpr::Drop { var, body, .. } => {
+        AetherExpr::Drop { var, body, .. } => {
+            usize::from(!count_reuse_token && var.binder == Some(scrutinee_id))
+                + invalid_drop_specialized_uses_aether(body, scrutinee_id, count_reuse_token)
+        }
+        AetherExpr::Dup { var, body, .. } => {
             usize::from(var.binder == Some(scrutinee_id))
                 + invalid_drop_specialized_uses_aether(body, scrutinee_id, count_reuse_token)
         }
@@ -2167,6 +2187,18 @@ mod tests {
         assert!(!contract_errors(&plan).contains(&AetherErrorKind::UsedAfterRelease));
     }
 
+    /// `dup t; drop xs; drop t; f(t)`: the copy is released, and the cell
+    /// that held `t` is gone, so the read has nothing left to read.
+    #[test]
+    fn a_field_read_after_its_copy_and_its_cell_are_released_is_rejected() {
+        let mut interner = Interner::new();
+        let [f, xs, h, t] = ["f", "xs", "h", "t"].map(|name| interner.intern(name));
+        let (f, xs, h, t) = (binder(1, f), binder(2, xs), binder(3, h), binder(4, t));
+        let released_then_read = dup(t, drop_in(xs, drop_in(t, give(f, dup(t, v(t))))));
+        let plan = lam(vec![f, xs], on_cons(xs, h, t, released_then_read));
+        assert!(contract_errors(&plan).contains(&AetherErrorKind::UsedAfterRelease));
+    }
+
     /// The planner copies an owned argument as `dup xs in xs`; that copy is
     /// what the call takes. A second, bare give then hands over `xs`'s own
     /// reference, so `t` may be gone by the read.
@@ -2582,6 +2614,44 @@ mod tests {
                 .any(|e| e.kind == AetherErrorKind::InvalidDropSpecializedUse),
             "shared branch must not reuse the drop-specialized scrutinee"
         );
+    }
+
+    #[test]
+    fn contract_accepts_an_explicit_shared_path_release() {
+        let mut interner = Interner::new();
+        let xs = binder(1, interner.intern("xs"));
+        let h = binder(2, interner.intern("h"));
+        let t = binder(3, interner.intern("t"));
+        let rebuilt = || CoreExpr::Con {
+            tag: CoreTag::Cons,
+            fields: vec![v(h), v(t)],
+            span: s(),
+        };
+        let specialized = CoreExpr::DropSpecialized {
+            scrutinee: CoreVarRef::resolved(&xs),
+            unique_body: Box::new(CoreExpr::Reuse {
+                token: CoreVarRef::resolved(&xs),
+                tag: CoreTag::Cons,
+                fields: vec![v(h), v(t)],
+                field_mask: None,
+                span: s(),
+            }),
+            shared_body: Box::new(dup(
+                h,
+                dup(
+                    t,
+                    CoreExpr::Drop {
+                        var: CoreVarRef::resolved(&xs),
+                        body: Box::new(rebuilt()),
+                        span: s(),
+                    },
+                ),
+            )),
+            span: s(),
+        };
+        let expr = lam(vec![xs], on_cons(xs, h, t, specialized));
+        let result = verify_contract(&expr);
+        assert!(result.is_ok(), "{result:?}\n{expr:?}");
     }
 
     #[test]

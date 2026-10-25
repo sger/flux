@@ -10,8 +10,9 @@
 //! - `Reuse` may target only heap-allocating constructor tags and the reuse
 //!   token must not appear free in any field expression.
 //! - `DropSpecialized` must use a resolved scrutinee and both branches must
-//!   remain valid Aether expressions that do not use the scrutinee value after
-//!   specialization.
+//!   remain valid Aether expressions. The unique branch consumes its shell
+//!   through reuse on every path; the shared branch drops its reference after
+//!   copying the fields it keeps.
 //!
 //! The pass runs as the final Core IR transformation (after ANF normalization).
 //! Existing passes (1-7) never see Dup/Drop nodes.
