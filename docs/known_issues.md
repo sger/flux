@@ -42,6 +42,46 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-126 — Natively, a caught panic leaks what the frames it skipped held
+
+**Severity:** Low · **Area:** native runtime, panics · **Verified:** 2026-10-25 · **From:** the Perceus audit, R7 and C1
+
+A panic leaves by `longjmp` to the nearest catch point (`try_catch`, `try`,
+`assert_throws`). Every release still pending in the frames between the panic
+and the catch is skipped, so what those frames held is never freed:
+
+```flux
+fn numbers(n) { [n, n + 1, n + 2] }
+
+fn explode(n) -> Int { if n >= 0 { panic("boom") } else { n } }
+
+fn boom(n) -> Int {
+    let xs = numbers(n)
+    let r = explode(n)
+    r + len(xs)
+}
+
+fn attempt(n) -> Int {
+    let caught = try_catch(\() -> boom(n))
+    1
+}
+```
+
+Each call of `attempt` leaves the three cells of `xs` live under
+`--native --debug-heap`. A `handle` the panic skips leaves its evidence and
+its clause, two more blocks; C1 put the handlers back in charge, but does not
+release what the skipped handles built. Nothing is freed twice, so the program
+stays correct and only grows.
+
+Two ways out, each larger than a fix:
+
+- cleanup on unwinding: calls become LLVM `invoke`s whose landing pads release
+  what the frame holds, and a panic unwinds instead of jumping;
+- a panic as a final yield through the effect runtime, the way C1's
+  longer-term fix reads: the continuations it drops release what they hold.
+
+The VM is unaffected: its values are reference-counted by Rust.
+
 ### KI-125 — `make -C runtime/c test` does not build
 
 **Severity:** Low · **Area:** native runtime, tests · **Verified:** 2026-10-21 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-0
