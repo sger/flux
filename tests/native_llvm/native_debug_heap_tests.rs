@@ -1091,6 +1091,99 @@ fn a_reused_cell_releases_the_fields_it_does_not_keep() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+const RETURN_A_COUNT: &str = r"fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn pick(n) {
+    let xs = numbers(n)
+    let ys = numbers(n + 1)
+    if n > 0 { return len(xs) }
+    len(ys)
+}
+
+fn count(n, total) {
+    if n == 0 { total } else { count(n - 1, total + pick(n)) }
+}
+
+fn main() { print(count(SIZE, 0)) }
+";
+
+const RETURN_A_LIST: &str = r"fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn pick(n) {
+    let xs = numbers(n)
+    let ys = numbers(n + 1)
+    if n > 0 { return xs }
+    ys
+}
+
+fn count(n, total) {
+    if n == 0 { total } else { count(n - 1, total + len(pick(n))) }
+}
+
+fn main() { print(count(SIZE, 0)) }
+";
+
+const RETURN_PAST_A_PARAMETER: &str = r"fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn pick(xs, n) {
+    if n > 0 { return [n] }
+    xs
+}
+
+fn count(n, total) {
+    if n == 0 { total } else { count(n - 1, total + len(pick(numbers(n), n))) }
+}
+
+fn main() { print(count(SIZE, 0)) }
+";
+
+const RETURN_A_FIELD: &str = r"fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn pick(n) {
+    let rows = [numbers(n), numbers(n + 1)]
+    match rows {
+        [r | _] -> if len(r) > 0 { return r },
+        _ -> if n < 0 { return numbers(0) }
+    }
+    numbers(0)
+}
+
+fn count(n, total) {
+    if n == 0 { total } else { count(n - 1, total + len(pick(n))) }
+}
+
+fn main() { print(count(SIZE, 0)) }
+";
+
+/// An early return leaves the function with the values it holds still to
+/// release: those it never gives away go before it does, and a field it
+/// returns is copied out of its list first.
+#[test]
+fn an_early_return_releases_what_the_function_holds() {
+    let scratch = Scratch::new("debug-heap-early-return");
+    let failures: Vec<String> = [
+        ("count", RETURN_A_COUNT),
+        ("list", RETURN_A_LIST),
+        ("parameter", RETURN_PAST_A_PARAMETER),
+        ("field", RETURN_A_FIELD),
+    ]
+    .into_iter()
+    .filter_map(|(name, program)| {
+        let (_, _, live) = per_thousand_cells(&scratch, name, program);
+        (live != 0).then(|| format!("{name}: {live} blocks left live per 1000 turns"))
+    })
+    .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 const PERFORM_PER_TURN: &str = r"effect Ask {
     ask : (ARG) -> Int
 }
