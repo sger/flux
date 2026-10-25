@@ -317,6 +317,42 @@ fn collect_async_effect_binders(
         .collect()
 }
 
+/// Whether a handler clause uses `resume` only as a call it ends with: after
+/// such a call the clause has nothing left to do, so the resumed code needs no
+/// handler of its own around it.
+fn resumes_only_as_last_act(body: &AetherExpr, resume: CoreBinderId) -> bool {
+    let mentions =
+        |expr: &AetherExpr| crate::aether::free_vars::collect_free_vars_aether(expr).contains(&resume);
+    let last = |expr: &AetherExpr| resumes_only_as_last_act(expr, resume);
+    match body {
+        AetherExpr::App { func, args, .. } | AetherExpr::AetherCall { func, args, .. }
+            if matches!(func.as_ref(), AetherExpr::Var { var, .. } if var.binder == Some(resume)) =>
+        {
+            !args.iter().any(mentions)
+        }
+        AetherExpr::Let { rhs, body, .. } | AetherExpr::LetRec { rhs, body, .. } => {
+            !mentions(rhs) && last(body)
+        }
+        AetherExpr::Case {
+            scrutinee, alts, ..
+        } => {
+            !mentions(scrutinee)
+                && alts
+                    .iter()
+                    .all(|alt| !alt.guard.as_ref().is_some_and(mentions) && last(&alt.rhs))
+        }
+        AetherExpr::Dup { var, body, .. } | AetherExpr::Drop { var, body, .. } => {
+            var.binder != Some(resume) && last(body)
+        }
+        AetherExpr::DropSpecialized {
+            unique_body,
+            shared_body,
+            ..
+        } => last(unique_body) && last(shared_body),
+        other => !mentions(other),
+    }
+}
+
 // ── Qualified name resolution ────────────────────────────────────────────────
 
 /// Walk the `CoreTopLevelItem` tree to build a module-qualified name for each
@@ -3447,11 +3483,19 @@ impl<'a> FnLower<'a> {
             none
         };
 
+        // Not looked at on this path: every resume is delimited, which is
+        // right for any clause.
+        let tail_resumptive = self.fresh_var();
+        self.emit(LirInstr::Const {
+            dst: tail_resumptive,
+            value: LirConst::Tagged(crate::lir::nanbox_tag_int(0)),
+        });
+
         let new_evv = self.fresh_var();
         self.emit(LirInstr::PrimCall {
             dst: Some(new_evv),
             op: CorePrimOp::EvvInsert,
-            args: vec![saved_evv, htag, marker, handler_closure, state],
+            args: vec![saved_evv, htag, marker, handler_closure, state, tail_resumptive],
         });
 
         self.emit(LirInstr::PrimCall {
@@ -3522,11 +3566,18 @@ impl<'a> FnLower<'a> {
             none
         };
 
+        let tail_resumptive = self.fresh_var();
+        let resumes_last = resumes_only_as_last_act(&handlers[0].body, handlers[0].resume.id);
+        self.emit(LirInstr::Const {
+            dst: tail_resumptive,
+            value: LirConst::Tagged(crate::lir::nanbox_tag_int(i64::from(resumes_last))),
+        });
+
         let new_evv = self.fresh_var();
         self.emit(LirInstr::PrimCall {
             dst: Some(new_evv),
             op: CorePrimOp::EvvInsert,
-            args: vec![saved_evv, htag, marker, handler_closure, state],
+            args: vec![saved_evv, htag, marker, handler_closure, state, tail_resumptive],
         });
 
         self.emit(LirInstr::PrimCall {
@@ -6662,7 +6713,8 @@ fn suppress_yield_check_for_calls_into_block(blocks: &mut [LirBlock], target: Bl
 mod tests {
     use super::{
         build_qualified_names, lir_symbol_name_for_def, result_rep_for_aether_def_expr,
-        result_rep_for_def_expr, suppress_yield_check_for_calls_into_block,
+        result_rep_for_def_expr, resumes_only_as_last_act,
+        suppress_yield_check_for_calls_into_block,
     };
     use crate::aether::AetherExpr;
     use crate::core::{
@@ -6679,6 +6731,44 @@ mod tests {
             name,
             rep: FluxRep::TaggedRep,
         }
+    }
+
+    fn resume_call(resume: CoreBinder, arg: CoreBinder) -> AetherExpr {
+        AetherExpr::App {
+            func: Box::new(AetherExpr::bound_var(resume, Span::default())),
+            args: vec![AetherExpr::bound_var(arg, Span::default())],
+            span: Span::default(),
+        }
+    }
+
+    fn add(left: AetherExpr, right: AetherExpr) -> AetherExpr {
+        AetherExpr::PrimOp {
+            op: crate::core::CorePrimOp::Add,
+            args: vec![left, right],
+            span: Span::default(),
+        }
+    }
+
+    /// `resume(v)` ends the clause; `resume(v) + 1` and `resume(v) +
+    /// resume(v)` have work left after a resume, so what they resume needs
+    /// the handler around it again.
+    #[test]
+    fn a_clause_that_ends_with_its_resume_is_tail_resumptive() {
+        let [resume, v] = [1, 2].map(|id| mk_binder(id, Identifier::new(id)));
+        let one = AetherExpr::Lit(CoreLit::Int(1), Span::default());
+        assert!(resumes_only_as_last_act(&resume_call(resume, v), resume.id));
+        assert!(!resumes_only_as_last_act(
+            &add(resume_call(resume, v), one),
+            resume.id
+        ));
+        assert!(!resumes_only_as_last_act(
+            &add(resume_call(resume, v), resume_call(resume, v)),
+            resume.id
+        ));
+        assert!(resumes_only_as_last_act(
+            &AetherExpr::bound_var(v, Span::default()),
+            resume.id
+        ));
     }
 
     /// `main` puts `inc` in a tuple twice. Both uses share the block's one

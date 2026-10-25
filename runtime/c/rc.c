@@ -507,10 +507,10 @@ static inline void flux_block_free(void *ptr);
 
 /*
  * Evidence vectors are not compatible with the generic scan_fsize scanner:
- * their payload starts with a 32-bit count, followed by packed 5-word entries
+ * their payload starts with a 32-bit count, followed by packed 6-word entries
  * that mix tagged ints and owned references.
  */
-#define FLUX_EVV_ENTRY_WORDS  5
+#define FLUX_EVV_ENTRY_WORDS  6
 #define FLUX_EVV_HANDLER_OFF  2
 #define FLUX_EVV_PARENT_OFF   3
 #define FLUX_EVV_STATE_OFF    4

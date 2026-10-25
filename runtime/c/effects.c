@@ -69,6 +69,7 @@ typedef struct FluxEffectContext {
     int64_t  op_arg;               /* performed argument (unused for 0-arity) */
     int64_t  op_state;             /* current handler parameter, or 0 when absent */
     int32_t  op_arity;             /* user-visible arity of the op (0 or 1) */
+    int32_t  clause_tail_resumptive; /* the clause only resumes as its last act */
     int64_t  conts[FLUX_EFFECT_CONTS_MAX]; /* accumulated continuation closures */
     int32_t  conts_count;
     int64_t  yield_evv;            /* current_evv at yield time (slice 5-tr-fix) */
@@ -186,12 +187,13 @@ void flux_effect_context_release(void *snapshot_raw) {
  * with length = number of entries * 4 words.
  */
 
-#define EVV_ENTRY_WORDS  5
+#define EVV_ENTRY_WORDS  6
 #define EVV_HTAG_OFF     0
 #define EVV_MARKER_OFF   1
 #define EVV_HANDLER_OFF  2
 #define EVV_PARENT_OFF   3
 #define EVV_STATE_OFF    4
+#define EVV_TAIL_OFF     5  /* tagged int: the clause is tail-resumptive */
 
 /* Layout: { int32_t count; int64_t entries[]; } where entries are packed. */
 typedef struct {
@@ -255,7 +257,8 @@ int64_t flux_fresh_marker(void) {
  * Returns a new evidence vector with the entry added.
  * Entries are appended (not sorted) for simplicity — linear lookup by htag.
  */
-int64_t flux_evv_insert(int64_t evv, int64_t htag, int64_t marker, int64_t handler, int64_t state) {
+int64_t flux_evv_insert(int64_t evv, int64_t htag, int64_t marker, int64_t handler, int64_t state,
+                        int64_t tail_resumptive) {
     EvvArray *old = evv_unbox(evv);
     int32_t old_count = old ? old->count : 0;
     int32_t new_count = old_count + 1;
@@ -278,6 +281,7 @@ int64_t flux_evv_insert(int64_t evv, int64_t htag, int64_t marker, int64_t handl
     entry[EVV_HANDLER_OFF] = handler;
     entry[EVV_PARENT_OFF]  = evv;  /* save parent evv for restoration */
     entry[EVV_STATE_OFF]   = state;
+    entry[EVV_TAIL_OFF]    = tail_resumptive;
     evv_dup_owned_fields(entry);
 
     return evv_box(arr);
@@ -357,6 +361,8 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
     flux_thread_ctx.op_arg      = arg;
     flux_thread_ctx.op_state    = entry[EVV_STATE_OFF];
     flux_thread_ctx.op_arity    = (int32_t)flux_untag_int(arity);
+    flux_thread_ctx.clause_tail_resumptive =
+        flux_untag_int(entry[EVV_TAIL_OFF]) != 0;
     flux_thread_ctx.conts_count = 0;
     /* Slice 5-tr-fix: capture the evv at yield time so the composed
      * continuation can re-install it on resume. Nested handlers rely on
@@ -760,6 +766,7 @@ int64_t flux_async_suspend(int64_t request_id, int64_t resume_value) {
     flux_thread_ctx.op_arg      = request_id;
     flux_thread_ctx.op_state    = resume_value;
     flux_thread_ctx.op_arity    = 1;
+    flux_thread_ctx.clause_tail_resumptive = 0;
     flux_thread_ctx.conts_count = 0;
     flux_thread_ctx.yield_evv   = flux_thread_ctx.current_evv;
     return FLUX_YIELD_SENTINEL;
@@ -786,6 +793,7 @@ void flux_async_clear_suspend(void) {
     flux_thread_ctx.op_arg      = 0;
     flux_thread_ctx.op_state    = 0;
     flux_thread_ctx.op_arity    = 0;
+    flux_thread_ctx.clause_tail_resumptive = 0;
     flux_thread_ctx.conts_count = 0;
     flux_thread_ctx.yield_evv   = 0;
 }
@@ -840,10 +848,15 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
         int64_t op_arg   = flux_thread_ctx.op_arg;
         int64_t op_state = flux_thread_ctx.op_state;
         int32_t op_arity = flux_thread_ctx.op_arity;
+        int32_t tail_resumptive = flux_thread_ctx.clause_tail_resumptive;
         int64_t yield_evv = yield_evv_local;
 
-        /* Build the resume closure from accumulated continuations. */
-        int64_t resume_cont = flux_compose_resume();
+        /* Build the resume closure from accumulated continuations. A clause
+         * that only resumes as its last act has nothing to come back to, so
+         * a perform inside its resume can go on to this loop instead of a
+         * prompt of its own: a loop of such performs keeps a flat stack. */
+        int64_t resume_cont =
+            tail_resumptive ? flux_compose_conts() : flux_compose_resume();
 
         /* Clear yield state so the clause sees a clean slate (it may re-yield). */
         flux_thread_ctx.yielding    = 0;
@@ -852,6 +865,7 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
         flux_thread_ctx.op_arg      = 0;
         flux_thread_ctx.op_state    = 0;
         flux_thread_ctx.op_arity    = 0;
+        flux_thread_ctx.clause_tail_resumptive = 0;
         flux_thread_ctx.conts_count = 0;
         flux_thread_ctx.yield_evv         = 0;
 
