@@ -1029,3 +1029,53 @@ fn a_perform_takes_the_argument_it_is_given() {
     );
     assert_eq!(list, int, "live blocks: list sent vs its length sent");
 }
+
+const RESUME_PER_TURN: &str = r"effect Ask {
+    ask : (Int) -> Int
+}
+
+fn get(n) -> Int with Ask {
+    perform Ask.ask(n) + 1
+}
+
+fn count(n, total) -> Int with Ask {
+    if n == 0 { total } else {
+        let k = PERFORM
+        count(n - 1, total + k)
+    }
+}
+
+fn run() -> Int {
+    count(SIZE, 0) handle Ask {
+        ask(resume, x) -> CLAUSE
+    }
+}
+
+fn main() with IO {
+    print(to_string(run()))
+}
+";
+
+/// The continuation a clause resumes is released once the clause is done:
+/// one captured frame, two frames joined into one resume, and a resume
+/// that hands the clause back its later work. Nothing heap-allocated lives
+/// across the perform, so each turn leaves nothing behind.
+#[test]
+fn a_resumed_continuation_is_released() {
+    let scratch = Scratch::new("debug-heap-resume-continuation");
+    let failures: Vec<String> = [
+        ("one_frame", "perform Ask.ask(n)", "resume(x)"),
+        ("two_frames", "get(n)", "resume(x)"),
+        ("later_work", "perform Ask.ask(n)", "resume(x) + 0"),
+    ]
+    .into_iter()
+    .filter_map(|(name, perform, clause)| {
+        let program = RESUME_PER_TURN
+            .replace("PERFORM", perform)
+            .replace("CLAUSE", clause);
+        let (_, _, live) = per_thousand_cells(&scratch, name, &program);
+        (live != 0).then(|| format!("{name}: {live} blocks left live per 1000 turns"))
+    })
+    .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
