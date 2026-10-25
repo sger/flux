@@ -1079,3 +1079,193 @@ fn a_resumed_continuation_is_released() {
     .collect();
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+const READ_AFTER_PERFORM: &str = r"effect Ask {
+    ask : (Int) -> Int
+}
+
+fn get(n) -> Int with Ask {
+    perform Ask.ask(n) + 1
+}
+
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn count(n, total) -> Int with Ask {
+    if n == 0 { total } else {
+        let xs = numbers(n)
+        let k = PERFORM
+        count(n - 1, total + k + len(xs))
+    }
+}
+
+fn run() -> Int {
+    count(SIZE, 0) handle Ask {
+        ask(resume, x) -> CLAUSE
+    }
+}
+
+fn main() with IO {
+    print(to_string(run()))
+}
+";
+
+/// Live blocks of `program` at 3 turns and at 4, for a clause that resumes
+/// twice: each turn doubles the work, so the loop stays a few turns deep.
+fn live_at_three_and_four(scratch: &Scratch, name: &str, program: &str) -> (u64, u64) {
+    let at = |n: u64| {
+        let source = program.replace("SIZE", &n.to_string());
+        stats_of(scratch, &format!("{name}_{n}.flx"), &source).2
+    };
+    (at(3), at(4))
+}
+
+/// A list made before a perform and read after it is released after that
+/// read, however the clause resumes. A clause that resumes twice runs the
+/// rest of the turn twice, and each run releases the reference it was
+/// given.
+#[test]
+fn a_value_read_after_a_perform_is_released() {
+    let scratch = Scratch::new("debug-heap-read-after-perform");
+    let program = |clause: &str| {
+        READ_AFTER_PERFORM
+            .replace("PERFORM", "perform Ask.ask(n)")
+            .replace("CLAUSE", clause)
+    };
+    let mut failures: Vec<String> = [("one_frame", "resume(x)"), ("later_work", "resume(x) + 0")]
+        .into_iter()
+        .filter_map(|(name, clause)| {
+            let (_, _, live) = per_thousand_cells(&scratch, name, &program(clause));
+            (live != 0).then(|| format!("{name}: {live} blocks left live per 1000 turns"))
+        })
+        .collect();
+    let (three, four) =
+        live_at_three_and_four(&scratch, "resumed_twice", &program("resume(x) + resume(x)"));
+    if three != four {
+        failures.push(format!(
+            "resumed_twice: {three} blocks live at 3 turns, {four} at 4"
+        ));
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+const ABORT_PER_TURN: &str = r"effect Ask {
+    ask : (Int) -> Int
+}
+
+fn get(n) -> Int with Ask {
+    perform Ask.ask(n) + 1
+}
+
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn attempt(n) -> Int with Ask {
+    let xs = numbers(n)
+    BODY
+}
+
+fn try(n) -> Int {
+    attempt(n) handle Ask {
+        ask(resume, x) -> 0
+    }
+}
+
+fn count(n, total) {
+    if n == 0 { total } else { count(n - 1, total + try(n)) }
+}
+
+fn main() with IO {
+    print(to_string(count(500, 0)))
+}
+";
+
+const BORROWED_ACROSS_A_YIELD: &str = r"effect Ask {
+    ask : (Int) -> Int
+}
+
+fn get(n) -> Int with Ask {
+    perform Ask.ask(n) + 1
+}
+
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn walk(xs, n) -> Int with Ask {
+    let k = get(n)
+    k + len(xs)
+}
+
+fn count(n, total) -> Int with Ask {
+    if n == 0 { total } else {
+        let xs = numbers(n)
+        let r = walk(xs, n)
+        count(n - 1, total + r + len(xs))
+    }
+}
+
+fn run() -> Int {
+    count(SIZE, 0) handle Ask {
+        ask(resume, x) -> resume(x) + resume(x)
+    }
+}
+
+fn main() with IO {
+    print(to_string(run()))
+}
+";
+
+/// A call that performs inside it yields through the caller's frame, which
+/// becomes a continuation. The frame's own values move into it and each
+/// resume copies only those, so a list the frame made is released after
+/// its last read however the clause resumes, and a list it only borrows is
+/// never copied. A clause that never resumes frees the continuation, and
+/// with it the frame's list: it leaves no more behind than a frame that
+/// released the list before the call.
+#[test]
+fn a_value_live_across_a_yielding_call_is_released() {
+    let scratch = Scratch::new("debug-heap-across-a-yield");
+    let program = |clause: &str| {
+        READ_AFTER_PERFORM
+            .replace("PERFORM", "get(n)")
+            .replace("CLAUSE", clause)
+    };
+    let mut failures: Vec<String> = [("two_frames", "resume(x)"), ("later_work", "resume(x) + 0")]
+        .into_iter()
+        .filter_map(|(name, clause)| {
+            let (_, _, live) = per_thousand_cells(&scratch, name, &program(clause));
+            (live != 0).then(|| format!("{name}: {live} blocks left live per 1000 turns"))
+        })
+        .collect();
+    for (name, program) in [
+        ("resumed_twice", program("resume(x) + resume(x)")),
+        ("borrowed", BORROWED_ACROSS_A_YIELD.to_string()),
+    ] {
+        let (three, four) = live_at_three_and_four(&scratch, name, &program);
+        if three != four {
+            failures.push(format!(
+                "{name}: {three} blocks live at 3 turns, {four} at 4"
+            ));
+        }
+    }
+    let abort = |body: &str| ABORT_PER_TURN.replace("BODY", body);
+    let (_, _, kept) = stats_of(
+        &scratch,
+        "abort_kept.flx",
+        &abort("let k = get(n)\n    k + len(xs)"),
+    );
+    let (_, _, released) = stats_of(
+        &scratch,
+        "abort_released.flx",
+        &abort("let m = len(xs)\n    get(n) + m"),
+    );
+    if kept != released {
+        failures.push(format!(
+            "abort: {kept} blocks live with the list kept across the call, {released} without"
+        ));
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
