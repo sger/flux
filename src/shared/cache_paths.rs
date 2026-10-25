@@ -330,7 +330,10 @@ use sha2::{Digest, Sha256};
 /// Epoch 106: a frame that suspends hands its own references to the
 /// continuation, which copies only those on each resume; an epoch-105 unit
 /// kept them in the frame and copied every capture (PA).
-pub const CACHE_EPOCH: u16 = 106;
+/// Epoch 107: a value live across a perform is released after its last use,
+/// in the continuation; an epoch-106 unit kept it, and copied a borrowed one
+/// to keep it too (PA R1, KI-121).
+pub const CACHE_EPOCH: u16 = 107;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

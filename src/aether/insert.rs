@@ -1059,16 +1059,13 @@ fn plan_expr(
             owned_after,
             span,
         } => {
-            let (args, mut env_before) =
+            // The runtime takes the arguments. A value live across the effect
+            // needs nothing more: if the effect suspends, the frame hands what
+            // it holds to the continuation, and each resume copies it (`held`).
+            let (args, env_before) =
                 plan_expr_list(args, tail_env, registry, scope, field_parents, |_| {
                     ValueDemand::Owned
                 });
-            // A value live across the effect stays with the continuation: its
-            // binding releases it only right after the effect, if at all
-            // (`ReleasePath::after_effect`; a leak until PA step 7).
-            for binder in env_before.live.clone() {
-                env_before.mark_owned(binder);
-            }
             AetherPlan {
                 expr: CoreExpr::Perform {
                     effect,
@@ -1653,7 +1650,6 @@ fn release_owner(
         aliases,
         lent_result,
         position,
-        after_effect: false,
         matched: None,
     };
     let body = release.after(body, &path, scope);
@@ -1993,55 +1989,6 @@ fn gives_away(expr: &CoreExpr, whole: &BTreeSet<CoreBinderId>, owned: bool) -> b
     }
 }
 
-/// Whether evaluating `expr` may perform an effect, outside any closure it
-/// builds.
-fn performs(expr: &CoreExpr) -> bool {
-    match expr {
-        CoreExpr::Perform { .. } => true,
-        CoreExpr::Lam { .. } | CoreExpr::Var { .. } | CoreExpr::Lit(..) => false,
-        CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => performs(body),
-        CoreExpr::Return { value, .. } => performs(value),
-        CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
-            performs(rhs) || performs(body)
-        }
-        CoreExpr::LetRecGroup { bindings, body, .. } => {
-            bindings.iter().any(|(_, rhs)| performs(rhs)) || performs(body)
-        }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
-            performs(scrutinee)
-                || alts
-                    .iter()
-                    .any(|alt| alt.guard.as_ref().is_some_and(performs) || performs(&alt.rhs))
-        }
-        CoreExpr::Con { fields: args, .. }
-        | CoreExpr::Reuse { fields: args, .. }
-        | CoreExpr::PrimOp { args, .. } => args.iter().any(performs),
-        CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
-            performs(func) || args.iter().any(performs)
-        }
-        CoreExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
-            parameter.as_deref().is_some_and(performs)
-                || performs(body)
-                || handlers.iter().any(|h| performs(&h.body))
-        }
-        CoreExpr::DropSpecialized {
-            unique_body,
-            shared_body,
-            ..
-        } => performs(unique_body) || performs(shared_body),
-        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
-            performs(object)
-        }
-    }
-}
-
 /// What the walk knows about the owner on the path it is on.
 #[derive(Clone)]
 struct ReleasePath {
@@ -2055,11 +2002,6 @@ struct ReleasePath {
     lent_result: bool,
     /// Cleanup after a call is deferred only when it would end a tail call.
     position: TailPosition,
-    /// An effect ran earlier on this path, and the owner is live across it.
-    /// A release would be balanced, as for the effect leaf, but the path
-    /// keeps the owner until PA step 7 settles who releases what a
-    /// continuation holds (a counted leak).
-    after_effect: bool,
     /// The constructor an enclosing arm matched the owner with.
     matched: Option<CoreTag>,
 }
@@ -2099,8 +2041,6 @@ impl Release<'_> {
                 .is_some_and(|tag| rhs_has_compatible_tag(&body, tag));
         if used {
             self.after_last_use(body, path, scope)
-        } else if path.after_effect {
-            body
         } else {
             self.drop_before(body)
         }
@@ -2136,7 +2076,6 @@ impl Release<'_> {
                 inner
                     .aliases
                     .extend(alias_of(&var, &rhs, &path.aliases, self.registry));
-                inner.after_effect |= performs(&rhs);
                 let body = Box::new(self.after(*body, &inner, scope));
                 CoreExpr::Let {
                     var,
@@ -2228,11 +2167,7 @@ impl Release<'_> {
                     _ => None,
                 };
                 let whole_scrutinee = claimant.is_some_and(|id| path.whole.contains(&id));
-                let mut arms = path.clone();
-                arms.after_effect |= performs(&scrutinee)
-                    || alts
-                        .iter()
-                        .any(|alt| alt.guard.as_ref().is_some_and(performs));
+                let arms = path.clone();
                 let alts = alts
                     .into_iter()
                     .map(|alt| {
@@ -2286,20 +2221,10 @@ impl Release<'_> {
                     span,
                 }
             }
-            // Given away, or live across an effect: no release on this path.
-            // A release right after an effect runs in its continuation, which
-            // takes its own reference to each capture on every resume
-            // (`cont_split`, 0189 F3-2d), so it is balanced however often the
-            // handler resumes.
-            leaf if gives_away(&leaf, &path.whole, !path.lent_result)
-                || path.after_effect
-                || match &leaf {
-                    CoreExpr::Perform { args, .. } => args.iter().any(performs),
-                    other => performs(other),
-                } =>
-            {
-                leaf
-            }
+            // Given away: no release on this path. A release after an effect
+            // runs in its continuation, which holds what the frame held
+            // (`held`), so it is balanced however often the handler resumes.
+            leaf if gives_away(&leaf, &path.whole, !path.lent_result) => leaf,
             CoreExpr::App { ref func, .. } | CoreExpr::AetherCall { ref func, .. }
                 if path.position == TailPosition::Tail && calls_flux(func, self.registry) =>
             {
@@ -3947,10 +3872,11 @@ mod tests {
     }
 
     /// `let xs = g(); case true of true -> (let k = perform io.ask(1) in
-    /// len(xs)), _ -> len(xs)`. On the first path `xs` is live across the
-    /// effect and stays with the continuation; the second releases it.
+    /// len(xs)), _ -> len(xs)`. Each path releases `xs` after its read: on
+    /// the first that is after the effect, in its continuation, which holds
+    /// what the frame held.
     #[test]
-    fn a_value_live_across_an_effect_is_released_only_on_paths_without_one() {
+    fn a_value_live_across_an_effect_is_released_after_its_read() {
         let mut interner = Interner::new();
         let xs = binder(&mut interner, 1, "xs");
         let k = CoreBinder::with_rep(CoreBinderId(2), interner.intern("k"), FluxRep::IntRep);
@@ -3969,10 +3895,15 @@ mod tests {
         let expr = lam(vec![], let_in(xs, g, on_true(after_effect, read())));
 
         let rewritten = insert_dup_drop_with_registry(expr, &registry);
-        assert_eq!(drops_of(&rewritten, xs.id), 1, "{rewritten:?}");
+        assert_eq!(drops_of(&rewritten, xs.id), 2, "{rewritten:?}");
         assert!(
-            matches!(first_arm_rhs(&rewritten, 1), CoreExpr::Let { .. })
-                && drops_of(first_arm_rhs(&rewritten, 1), xs.id) == 1,
+            matches!(first_arm_rhs(&rewritten, 0), CoreExpr::Let { var, body, .. }
+                if var.id == k.id && drops_of(body, xs.id) == 1),
+            "{rewritten:?}"
+        );
+        assert_eq!(
+            drops_of(first_arm_rhs(&rewritten, 1), xs.id),
+            1,
             "{rewritten:?}"
         );
         assert_contract(&rewritten);
