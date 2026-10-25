@@ -324,7 +324,10 @@ use sha2::{Digest, Sha256};
 /// Epoch 104: a perform gives its argument to the runtime, which releases it
 /// after the clause; a binary linked against the epoch-103 runtime copied it
 /// and kept every argument it was given (PA R2).
-pub const CACHE_EPOCH: u16 = 104;
+/// Epoch 105: the prompt releases the resume it lends a clause, and the
+/// frames a resume pushes back on a second perform are counted; a binary
+/// linked against the epoch-104 runtime kept every continuation (PA R4, L4).
+pub const CACHE_EPOCH: u16 = 105;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

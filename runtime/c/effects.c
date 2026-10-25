@@ -649,6 +649,9 @@ int64_t flux_compose_trampoline_closure_entry(int64_t closure_raw, int64_t *args
         if (flux_thread_ctx.yielding != 0) {
             for (int64_t j = i + 1; j < count; j++) {
                 int64_t outer = flux_array_at(conts_arr, flux_tag_int(j));
+                /* The array keeps its own reference, for another resume of
+                 * this closure; the context needs one to give away. */
+                flux_dup(outer);
                 (void)flux_yield_extend(outer);
             }
             result = FLUX_YIELD_SENTINEL;
@@ -889,8 +892,11 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
             int64_t args[2] = { resume_cont, op_arg };
             result = flux_call_closure_c(clause, args, 2);
         }
-        /* Release the reference the perform gave flux_yield_to. */
+        /* Release the reference the perform gave flux_yield_to, and the
+         * resume: the clause only borrowed it, and a later step of the
+         * clause that still needs it holds a reference of its own. */
         flux_drop(op_arg);
+        flux_drop(resume_cont);
         /* Loop: if the clause re-yielded (resume inside triggered a nested
          * perform targeting this same handler), iterate. Otherwise exit. */
     }
