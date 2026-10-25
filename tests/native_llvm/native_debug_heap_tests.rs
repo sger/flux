@@ -1269,3 +1269,72 @@ fn a_value_live_across_a_yielding_call_is_released() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+const HANDLE_PER_TURN: &str = r"effect Ask {
+    ask : (Int) -> Int
+}
+
+effect Counter {
+    next : () -> Int
+}
+
+fn get(n) -> Int with Ask {
+    perform Ask.ask(n)
+}
+
+fn count_twice() -> Int with Counter {
+    let a = perform Counter.next()
+    a + perform Counter.next()
+}
+
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn attempt(n) -> Int {
+    HANDLE
+}
+
+fn count(n, total) {
+    if n == 0 { total } else { count(n - 1, total + attempt(n)) }
+}
+
+fn main() with IO {
+    print(to_string(count(SIZE, 0)))
+}
+";
+
+/// A `handle` releases what it installed once its body is done: the clause,
+/// with what the clause captured, and the handler chain it made. A clause
+/// with state gives the next one to `resume`, which replaces it, and can
+/// still read the state it was called with afterwards.
+#[test]
+fn a_handle_releases_its_clause_and_state() {
+    let scratch = Scratch::new("debug-heap-handle-per-turn");
+    let failures: Vec<String> = [
+        (
+            "plain",
+            "get(n) handle Ask {\n        ask(resume, x) -> resume(x + 1)\n    }",
+        ),
+        (
+            "captures",
+            "let xs = numbers(n)\n    get(n) handle Ask {\n        ask(resume, x) -> resume(x + len(xs))\n    }",
+        ),
+        (
+            "state",
+            "count_twice() handle Counter(numbers(n)) {\n        next(resume, state) -> resume(len(state), [len(state) | state])\n    }",
+        ),
+        (
+            "state_read_after_resume",
+            "count_twice() handle Counter(numbers(n)) {\n        next(resume, state) -> resume(1, [0]) + len(state)\n    }",
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(name, handle)| {
+        let program = HANDLE_PER_TURN.replace("HANDLE", handle);
+        let (_, _, live) = per_thousand_cells(&scratch, name, &program);
+        (live != 0).then(|| format!("{name}: {live} blocks left live per 1000 turns"))
+    })
+    .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

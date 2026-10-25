@@ -1031,8 +1031,10 @@ fn check_reads_after_release(
             handlers,
             ..
         } => {
+            // The handle gives its state to the runtime.
             if let Some(parameter) = parameter {
                 check_reads_after_release(parameter, path, errors);
+                path.give(parameter);
             }
             check_reads_after_release(body, path, errors);
             // Installing a clause reads what it captures; the clause runs as

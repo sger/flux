@@ -3523,12 +3523,18 @@ impl<'a> FnLower<'a> {
         }
         self.suppress_yield_check_for_calls_into_block(BlockId(self.current_block as u32));
 
-        // 5. Prompt check: restore evv and check for yields.
+        // 5. Prompt check: restore evv and check for yields. Nothing is
+        // counted on this path, so the evidence is not released.
+        let no_evv = self.fresh_var();
+        self.emit(LirInstr::Const {
+            dst: no_evv,
+            value: LirConst::Tagged(0),
+        });
         let result = self.fresh_var();
         self.emit(LirInstr::PrimCall {
             dst: Some(result),
             op: CorePrimOp::YieldPrompt,
-            args: vec![marker, saved_evv, body_result],
+            args: vec![marker, saved_evv, body_result, no_evv],
         });
 
         result
@@ -3610,11 +3616,13 @@ impl<'a> FnLower<'a> {
             self.active_parameterized_effects.remove(&effect);
         }
         self.suppress_yield_check_for_calls_into_block(BlockId(self.current_block as u32));
+        // The prompt releases `new_evv` once the body is done; it holds the
+        // clause and the state, which the handle gave it.
         let result = self.fresh_var();
         self.emit(LirInstr::PrimCall {
             dst: Some(result),
             op: CorePrimOp::YieldPrompt,
-            args: vec![marker, saved_evv, body_result],
+            args: vec![marker, saved_evv, body_result, new_evv],
         });
 
         result

@@ -169,7 +169,7 @@ fn walk(
             }
             walk(body, pending, given, counted);
             if let Some(parameter) = parameter {
-                walk(parameter, pending, false, counted);
+                walk(parameter, pending, true, counted);
             }
         }
         AetherExpr::Dup { var, body, .. } => {

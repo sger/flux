@@ -1899,7 +1899,7 @@ impl CorePrimOp {
             EvvSet | YieldExtend | FreshMarker => 1,
             YieldTo => 3,
             EvvInsert => 6,
-            YieldPrompt => 3,
+            YieldPrompt => 4,
             PerformDirect => 5,
         }
     }
