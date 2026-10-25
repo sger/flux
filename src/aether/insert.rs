@@ -1084,11 +1084,13 @@ fn plan_expr(
             handlers,
             span,
         } => {
+            // The handle gives its state to the runtime, which releases it
+            // with the handler.
             let parameter_plan = parameter.map(|p| {
                 plan_expr(
                     *p,
                     tail_env.clone(),
-                    demand,
+                    ValueDemand::Owned,
                     TailPosition::NonTail,
                     registry,
                     scope,

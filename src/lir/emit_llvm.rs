@@ -4279,7 +4279,12 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_yield_extend" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_yield_prompt" => (
             LlvmType::i64(),
-            vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64()],
+            vec![
+                LlvmType::i64(),
+                LlvmType::i64(),
+                LlvmType::i64(),
+                LlvmType::i64(),
+            ],
         ),
         "flux_is_yielding" => (LlvmType::i32(), vec![]),
         "flux_perform_direct" => (

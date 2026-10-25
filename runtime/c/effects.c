@@ -279,7 +279,9 @@ int64_t flux_evv_insert(int64_t evv, int64_t htag, int64_t marker, int64_t handl
     entry[EVV_PARENT_OFF]  = evv;  /* save parent evv for restoration */
     entry[EVV_STATE_OFF]   = state;
     entry[EVV_TAIL_OFF]    = tail_resumptive;
-    evv_dup_owned_fields(entry);
+    /* The handle gives the clause and the state; the parent stays the
+     * caller's, so the entry takes a reference of its own. */
+    flux_dup(evv);
 
     return evv_box(arr);
 }
@@ -351,7 +353,10 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
     flux_thread_ctx.marker      = m;
     flux_thread_ctx.clause      = clause;
     flux_thread_ctx.op_arg      = arg;
+    /* The clause gets a reference of its own to the state: a resume with a
+     * new one releases the entry's while the clause may still read it. */
     flux_thread_ctx.op_state    = entry[EVV_STATE_OFF];
+    flux_dup(flux_thread_ctx.op_state);
     flux_thread_ctx.op_arity    = (int32_t)flux_untag_int(arity);
     flux_thread_ctx.clause_tail_resumptive =
         flux_untag_int(entry[EVV_TAIL_OFF]) != 0;
@@ -410,23 +415,21 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
  */
 /*
  * Replace the parameterized handler state stored against `marker` in the
- * current evidence vector. Both the previous state and the new state are
- * RC-managed.
- *
- * Ordering matters (proposal 0171 Track 5b, item 2). We dup the new value
- * before dropping the old one so the operation is safe even when
- * next_state aliases *slot — i.e. resume(value, current_state). Reordering
- * to drop-then-dup would risk freeing the new value before the dup if the
- * caller happened to pass the same tagged pointer.
+ * current evidence vector. `resume(value, next_state)` gives `next_state`,
+ * and the slot takes that reference over. A clause that passes the state it
+ * was called with gave a copy, so releasing the old one leaves it alive; so
+ * does the clause's own reference, for a clause that reads it afterwards.
  */
 static void flux_update_state_for_marker(int32_t marker, int64_t next_state) {
     EvvArray *arr = evv_unbox(flux_thread_ctx.current_evv);
     int idx = evv_lookup_by_marker(arr, marker);
     if (idx >= 0) {
         int64_t *slot = &arr->data[idx * EVV_ENTRY_WORDS + EVV_STATE_OFF];
-        flux_dup(next_state);
-        flux_drop(*slot);
+        int64_t previous = *slot;
         *slot = next_state;
+        flux_drop(previous);
+    } else {
+        flux_drop(next_state);
     }
 }
 
@@ -490,6 +493,8 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
     int32_t marker = (int32_t)flux_untag_int(entry[EVV_MARKER_OFF]);
     int64_t clause = entry[EVV_HANDLER_OFF];
     int64_t state = entry[EVV_STATE_OFF];
+    /* As in flux_yield_to: the clause's own reference to the state. */
+    flux_dup(state);
 
     /* Save & reset the counter so nested performs don't confuse the detector. */
     int32_t saved_count = flux_thread_ctx.resume_called;
@@ -571,8 +576,10 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
     flux_thread_ctx.resume_called = saved_count;
     flux_thread_ctx.direct_resume_marker = saved_direct_marker;
 
-    /* The clause only borrowed the argument the perform gave us. */
+    /* The clause only borrowed the argument the perform gave us, and the
+     * state it was called with. */
     flux_drop(arg);
+    flux_drop(state);
 
     return result;
 }
@@ -662,7 +669,7 @@ int64_t flux_compose_trampoline_closure_entry(int64_t closure_raw, int64_t *args
      * there is handled at this resume, and its clause's result is the value
      * `resume` returns, so the clause that called it goes on with that. */
     if (delimits) {
-        return flux_yield_prompt(flux_tag_int((int64_t)marker), entry_evv, result);
+        return flux_yield_prompt(flux_tag_int((int64_t)marker), entry_evv, result, 0);
     }
     return result;
 }
@@ -808,7 +815,8 @@ void flux_async_clear_suspend(void) {
  *   - the handler clause result if this marker matches
  *   - FLUX_YIELD_SENTINEL if yielding but marker doesn't match (propagate)
  */
-int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result) {
+int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result,
+                          int64_t own_evv) {
     int32_t m = (int32_t)flux_untag_int(marker);
     int64_t result = body_result;
 
@@ -894,14 +902,20 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
         }
         /* Release the reference the perform gave flux_yield_to, and the
          * resume: the clause only borrowed it, and a later step of the
-         * clause that still needs it holds a reference of its own. */
+         * clause that still needs it holds a reference of its own. The same
+         * for the clause's reference to the state. */
         flux_drop(op_arg);
         flux_drop(resume_cont);
+        flux_drop(op_state);
         /* Loop: if the clause re-yielded (resume inside triggered a nested
          * perform targeting this same handler), iterate. Otherwise exit. */
     }
 
-    /* No more yields — restore parent evv and return the final value. */
+    /* No more yields — restore parent evv and return the final value. The
+     * handle's own evidence goes with it. On the way out with a yield for
+     * another handler it stays: a continuation may still run under it, and
+     * yield_evv names it. */
     flux_thread_ctx.current_evv = saved_evv;
+    flux_drop(own_evv);
     return result;
 }

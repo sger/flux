@@ -333,7 +333,11 @@ use sha2::{Digest, Sha256};
 /// Epoch 107: a value live across a perform is released after its last use,
 /// in the continuation; an epoch-106 unit kept it, and copied a borrowed one
 /// to keep it too (PA R1, KI-121).
-pub const CACHE_EPOCH: u16 = 107;
+/// Epoch 108: a handle gives its clause and state to the evidence, the prompt
+/// releases that evidence when the body is done (a fourth argument), and a
+/// clause holds its own reference to the state; an epoch-107 unit leaked all
+/// three (PA R3, L5).
+pub const CACHE_EPOCH: u16 = 108;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
