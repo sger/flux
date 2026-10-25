@@ -1012,11 +1012,14 @@ fn check_reads_after_release(
                 }
             }
         }
-        // An effect's arguments are not given away here: the continuation
-        // keeps what is live across the effect, as in the planner.
+        // The runtime takes an effect's arguments, and releases them after
+        // the clause.
         AetherExpr::Perform { args, .. } => {
             for arg in args {
                 check_reads_after_release(arg, path, errors);
+            }
+            for arg in args {
+                path.give(arg);
             }
         }
         AetherExpr::MemberAccess { object, .. } | AetherExpr::TupleField { object, .. } => {
