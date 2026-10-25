@@ -337,7 +337,10 @@ use sha2::{Digest, Sha256};
 /// releases that evidence when the body is done (a fourth argument), and a
 /// clause holds its own reference to the state; an epoch-107 unit leaked all
 /// three (PA R3, L5).
-pub const CACHE_EPOCH: u16 = 108;
+/// Epoch 109: a panic caught by a try puts back the evidence the try started
+/// under; a binary linked against the epoch-108 runtime kept the handlers the
+/// panic skipped installed (PA C1).
+pub const CACHE_EPOCH: u16 = 109;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

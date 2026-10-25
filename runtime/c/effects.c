@@ -244,6 +244,37 @@ void flux_evv_set(int64_t evv) {
     flux_thread_ctx.current_evv = evv;
 }
 
+/*
+ * A panic caught by a try leaves through no prompt: each handle it skipped
+ * never put back the evidence it replaced. A catch point saves the evidence
+ * it starts under, and puts it back when a panic reaches it, with no yield
+ * left in flight. The evidence of the skipped handles is not released.
+ */
+int64_t flux_effect_catch_point(void) {
+    return flux_thread_ctx.current_evv;
+}
+
+void flux_effect_unwound(int64_t evv) {
+    flux_thread_ctx.current_evv = evv;
+    if (flux_thread_ctx.yielding == 0) {
+        return;
+    }
+    flux_drop(flux_thread_ctx.op_arg);
+    flux_drop(flux_thread_ctx.op_state);
+    for (int32_t i = 0; i < flux_thread_ctx.conts_count; i++) {
+        flux_drop(flux_thread_ctx.conts[i]);
+    }
+    flux_thread_ctx.yielding    = 0;
+    flux_thread_ctx.marker      = 0;
+    flux_thread_ctx.clause      = 0;
+    flux_thread_ctx.op_arg      = 0;
+    flux_thread_ctx.op_state    = 0;
+    flux_thread_ctx.op_arity    = 0;
+    flux_thread_ctx.clause_tail_resumptive = 0;
+    flux_thread_ctx.conts_count = 0;
+    flux_thread_ctx.yield_evv   = 0;
+}
+
 int64_t flux_fresh_marker(void) {
     flux_thread_ctx.marker_counter++;
     return flux_tag_int((int64_t)flux_thread_ctx.marker_counter);

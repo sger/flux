@@ -2694,6 +2694,7 @@ int32_t flux_try_resume1_raw(int64_t continuation, int64_t value, int64_t *out) 
 int64_t flux_try(int64_t thunk) {
     jmp_buf buf;
     jmp_buf *prev = flux_try_jmp;
+    int64_t evv = flux_effect_catch_point();
     flux_try_jmp = &buf;
     flux_try_error_msg = 0;
 
@@ -2711,6 +2712,7 @@ int64_t flux_try(int64_t thunk) {
     } else {
         /* Error path: flux_panic called longjmp. */
         flux_try_jmp = prev;
+        flux_effect_unwound(evv);
         int64_t err_str = flux_string_new("error", 5);
         int64_t msg = flux_try_error_msg;
         if (msg == 0) {
@@ -2729,6 +2731,7 @@ int64_t flux_try(int64_t thunk) {
 int32_t flux_try_call0_raw(int64_t closure, int64_t *out) {
     jmp_buf buf;
     jmp_buf *prev = flux_try_jmp;
+    int64_t evv = flux_effect_catch_point();
     flux_try_jmp = &buf;
     flux_try_error_msg = 0;
 
@@ -2739,6 +2742,7 @@ int32_t flux_try_call0_raw(int64_t closure, int64_t *out) {
     }
 
     flux_try_jmp = prev;
+    flux_effect_unwound(evv);
     int64_t msg = flux_try_error_msg;
     if (msg == 0) {
         msg = flux_string_new("unknown error", 13);
@@ -2751,6 +2755,7 @@ int32_t flux_try_resume1_raw(int64_t continuation, int64_t value, int64_t *out) 
     int64_t args[1] = { value };
     jmp_buf buf;
     jmp_buf *prev = flux_try_jmp;
+    int64_t evv = flux_effect_catch_point();
     flux_try_jmp = &buf;
     flux_try_error_msg = 0;
 
@@ -2761,6 +2766,7 @@ int32_t flux_try_resume1_raw(int64_t continuation, int64_t value, int64_t *out) 
     }
 
     flux_try_jmp = prev;
+    flux_effect_unwound(evv);
     int64_t msg = flux_try_error_msg;
     if (msg == 0) {
         msg = flux_string_new("unknown error", 13);
@@ -2869,6 +2875,7 @@ int64_t flux_assert_throws(int64_t thunk, int64_t expected_msg) {
 int64_t flux_assert_throws(int64_t thunk, int64_t expected_msg) {
     jmp_buf buf;
     jmp_buf *prev = flux_try_jmp;
+    int64_t evv = flux_effect_catch_point();
     flux_try_jmp = &buf;
     flux_try_error_msg = 0;
 
@@ -2881,6 +2888,7 @@ int64_t flux_assert_throws(int64_t thunk, int64_t expected_msg) {
     } else {
         /* Thunk panicked — check message if expected_msg is provided. */
         flux_try_jmp = prev;
+        flux_effect_unwound(evv);
         if (expected_msg != 0 && flux_is_ptr(expected_msg)) {
             int64_t actual = flux_try_error_msg;
             if (actual != 0 && flux_is_ptr(actual)) {
