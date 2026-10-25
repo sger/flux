@@ -661,6 +661,41 @@ fn rewrite_drop_body_with_env(
     };
 
     match body {
+        // A field's last read and scalar branch temporaries can be released
+        // before the rebuild. Keep those operations in order while looking
+        // for the constructor that consumes this token.
+        CoreExpr::Drop { var, body, span } if var.binder != Some(token_binder) => {
+            let mut rewritten = rewrite_drop_body_with_env(
+                token,
+                *body,
+                drop_span,
+                pat_tag,
+                blocked_outer_token,
+                env,
+            );
+            rewritten.expr = CoreExpr::Drop {
+                var,
+                body: Box::new(rewritten.expr),
+                span,
+            };
+            rewritten
+        }
+        CoreExpr::Dup { var, body, span } if var.binder != Some(token_binder) => {
+            let mut rewritten = rewrite_drop_body_with_env(
+                token,
+                *body,
+                drop_span,
+                pat_tag,
+                blocked_outer_token,
+                env,
+            );
+            rewritten.expr = CoreExpr::Dup {
+                var,
+                body: Box::new(rewritten.expr),
+                span,
+            };
+            rewritten
+        }
         CoreExpr::Let {
             var,
             rhs,
@@ -897,6 +932,61 @@ fn rewrite_drop_body_with_env(
                     },
                     choose_reason(&reasons),
                 )
+            }
+        }
+        // Another value released with a check of its own count, as a field
+        // copied before the token's release is once its last read is done:
+        // each path of it may still build a cell in the token's, as each arm
+        // of a match may.
+        CoreExpr::DropSpecialized {
+            scrutinee,
+            unique_body,
+            shared_body,
+            span,
+        } if scrutinee.binder != Some(token_binder)
+            && !token_appears_in_expr(token_binder, &unique_body)
+            && !token_appears_in_expr(token_binder, &shared_body) =>
+        {
+            let rewrite = |body: AetherExpr| {
+                rewrite_drop_body_with_env(
+                    token,
+                    body,
+                    drop_span,
+                    pat_tag,
+                    blocked_outer_token,
+                    env,
+                )
+            };
+            let (unique, shared) = (rewrite(*unique_body), rewrite(*shared_body));
+            let reused = unique.reused || shared.reused;
+            // A path that reuses nothing drops the token itself once the
+            // other path took it.
+            let own_drop = |path: ReuseRewrite| {
+                if reused && !path.reused {
+                    CoreExpr::Drop {
+                        var: *token,
+                        body: Box::new(path.expr),
+                        span: drop_span,
+                    }
+                } else {
+                    path.expr
+                }
+            };
+            let reason = unique.reason.or(shared.reason);
+            let expr = CoreExpr::DropSpecialized {
+                scrutinee,
+                unique_body: Box::new(own_drop(unique)),
+                shared_body: Box::new(own_drop(shared)),
+                span,
+            };
+            if reused {
+                ReuseRewrite {
+                    expr,
+                    reused: true,
+                    reason: None,
+                }
+            } else {
+                no_rewrite(expr, reason.unwrap_or(ReuseFailureReason::ShapeMismatch))
             }
         }
         other => match build_reuse_expr(token, other.clone(), env, pat_tag, blocked_outer_token) {

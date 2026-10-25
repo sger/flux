@@ -120,6 +120,7 @@ struct FbipContext<'a> {
     summaries_by_name: &'a HashMap<Identifier, NamedFbipSummary>,
     interner: &'a Interner,
     current_def: Option<CoreBinderId>,
+    shared_tokens: &'a [CoreBinderId],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -169,6 +170,7 @@ pub fn analyze_program(
                 summaries_by_name: &summaries_by_name_snapshot,
                 interner,
                 current_def: Some(def.binder.id),
+                shared_tokens: &[],
             };
             let next = summarize_definition(def, &ctx);
             let prev = summaries.get(&def.binder.id);
@@ -234,6 +236,7 @@ pub fn analyze_program_aether(
                 summaries_by_name: &summaries_by_name_snapshot,
                 interner,
                 current_def: Some(def.binder.id),
+                shared_tokens: &[],
             };
             let next = summarize_definition_aether(def, &ctx);
             let prev = summaries.get(&def.binder.id);
@@ -600,9 +603,11 @@ fn analyze_expr_aether(expr: &AetherExpr, ctx: &FbipContext<'_>) -> FbipFact {
             analyze_expr_aether(object, ctx)
         }
         AetherExpr::Dup { body, .. } => analyze_expr_aether(body, ctx),
-        AetherExpr::Drop { body, .. } => {
+        AetherExpr::Drop { var, body, .. } => {
             let mut fact = analyze_expr_aether(body, ctx);
-            if fact.has_constructors {
+            if fact.has_constructors
+                && !var.binder.is_some_and(|id| ctx.shared_tokens.contains(&id))
+            {
                 fact.provable = false;
                 fact.capabilities
                     .insert(FbipCapability::NeedsConstructorToken);
@@ -611,13 +616,24 @@ fn analyze_expr_aether(expr: &AetherExpr, ctx: &FbipContext<'_>) -> FbipFact {
             fact
         }
         AetherExpr::DropSpecialized {
+            scrutinee,
             unique_body,
             shared_body,
             ..
-        } => join([
-            analyze_expr_aether(unique_body, ctx),
-            analyze_expr_aether(shared_body, ctx),
-        ]),
+        } => {
+            // A shared shell cannot provide a reuse token. Its explicit
+            // decrement does not change the fresh allocation bound.
+            let mut shared_tokens = ctx.shared_tokens.to_vec();
+            shared_tokens.extend(scrutinee.binder);
+            let shared_ctx = FbipContext {
+                shared_tokens: &shared_tokens,
+                ..*ctx
+            };
+            join([
+                analyze_expr_aether(unique_body, ctx),
+                analyze_expr_aether(shared_body, &shared_ctx),
+            ])
+        }
     }
 }
 
@@ -1635,7 +1651,7 @@ mod tests {
     }
 
     #[test]
-    fn drop_specialized_joins_conservatively() {
+    fn a_shared_scrutinee_release_does_not_claim_a_missing_reuse_token() {
         let mut interner = Interner::new();
         let x = binder(&mut interner, 2, "x");
         let token = binder(&mut interner, 3, "token");
@@ -1652,9 +1668,13 @@ mod tests {
                     field_mask: None,
                     span: Span::default(),
                 }),
-                shared_body: Box::new(AetherExpr::Con {
-                    tag: CoreTag::Some,
-                    fields: vec![AetherExpr::bound_var(x, Span::default())],
+                shared_body: Box::new(AetherExpr::Drop {
+                    var: CoreVarRef::resolved(&token),
+                    body: Box::new(AetherExpr::Con {
+                        tag: CoreTag::Some,
+                        fields: vec![AetherExpr::bound_var(x, Span::default())],
+                        span: Span::default(),
+                    }),
                     span: Span::default(),
                 }),
                 span: Span::default(),

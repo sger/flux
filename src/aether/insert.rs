@@ -120,6 +120,12 @@ struct FieldParent {
 
 type FieldParents = HashMap<CoreBinderId, FieldParent>;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TailPosition {
+    Tail,
+    NonTail,
+}
+
 /// Insert Dup/Drop annotations into a Core IR expression.
 pub fn insert_dup_drop(expr: CoreExpr) -> CoreExpr {
     let mut scope = Scope::new();
@@ -128,6 +134,7 @@ pub fn insert_dup_drop(expr: CoreExpr) -> CoreExpr {
         expr,
         AetherEnv::default(),
         ValueDemand::Owned,
+        TailPosition::Tail,
         None,
         &mut scope,
         &mut field_parents,
@@ -149,6 +156,7 @@ pub fn insert_dup_drop_with_registry(expr: CoreExpr, registry: &BorrowRegistry) 
         expr,
         AetherEnv::default(),
         ValueDemand::Owned,
+        TailPosition::Tail,
         Some(registry),
         &mut scope,
         &mut field_parents,
@@ -180,6 +188,7 @@ pub fn insert_dup_drop_for_def(
         expr,
         AetherEnv::default(),
         ValueDemand::Owned,
+        TailPosition::Tail,
         Some(registry),
         &mut scope,
         &mut field_parents,
@@ -191,6 +200,7 @@ fn plan_expr(
     expr: CoreExpr,
     tail_env: AetherEnv,
     demand: ValueDemand,
+    position: TailPosition,
     registry: Option<&BorrowRegistry>,
     scope: &mut Scope,
     field_parents: &mut FieldParents,
@@ -232,7 +242,15 @@ fn plan_expr(
 
             // The binding made the value, so it holds a reference of its own.
             let owner = !view && var.rep.needs_rc() && produces_fresh_value(&rhs, registry);
-            let body_plan = plan_expr(*body, tail_env, demand, registry, scope, field_parents);
+            let body_plan = plan_expr(
+                *body,
+                tail_env,
+                demand,
+                position,
+                registry,
+                scope,
+                field_parents,
+            );
             let mut binder_demand = binder_demand(&body_plan.env_before, var.id);
             let mut body_expr = body_plan.expr;
             if binder_demand == ValueDemand::Ignore && !view {
@@ -248,6 +266,7 @@ fn plan_expr(
                     body_expr,
                     span,
                     demand != ValueDemand::Owned,
+                    position,
                     scope,
                     registry,
                 );
@@ -270,6 +289,7 @@ fn plan_expr(
                 *rhs,
                 rhs_tail,
                 binder_demand,
+                TailPosition::NonTail,
                 registry,
                 scope,
                 field_parents,
@@ -299,7 +319,15 @@ fn plan_expr(
         } => {
             scope.insert(var.id, var);
             let owner = var.rep.needs_rc() && matches!(rhs.as_ref(), CoreExpr::Lam { .. });
-            let body_plan = plan_expr(*body, tail_env, demand, registry, scope, field_parents);
+            let body_plan = plan_expr(
+                *body,
+                tail_env,
+                demand,
+                position,
+                registry,
+                scope,
+                field_parents,
+            );
             let mut binder_demand = binder_demand(&body_plan.env_before, var.id);
             let mut body_expr = body_plan.expr;
             if binder_demand == ValueDemand::Ignore {
@@ -310,6 +338,7 @@ fn plan_expr(
                     body_expr,
                     span,
                     demand != ValueDemand::Owned,
+                    position,
                     scope,
                     registry,
                 );
@@ -325,6 +354,7 @@ fn plan_expr(
                 *rhs,
                 rhs_tail,
                 binder_demand,
+                TailPosition::NonTail,
                 registry,
                 scope,
                 field_parents,
@@ -352,7 +382,15 @@ fn plan_expr(
             for (var, _) in &bindings {
                 scope.insert(var.id, *var);
             }
-            let body_plan = plan_expr(*body, tail_env, demand, registry, scope, field_parents);
+            let body_plan = plan_expr(
+                *body,
+                tail_env,
+                demand,
+                position,
+                registry,
+                scope,
+                field_parents,
+            );
             let mut body_expr = body_plan.expr;
             // Insert drops for unused bindings
             for (var, _) in bindings.iter().rev() {
@@ -368,7 +406,15 @@ fn plan_expr(
                 let bd = binder_demand(&env, var.id);
                 let mut rhs_tail = env.clone();
                 rhs_tail.remove(var.id);
-                let rhs_plan = plan_expr(*rhs, rhs_tail, bd, registry, scope, field_parents);
+                let rhs_plan = plan_expr(
+                    *rhs,
+                    rhs_tail,
+                    bd,
+                    TailPosition::NonTail,
+                    registry,
+                    scope,
+                    field_parents,
+                );
                 env = rhs_plan.env_before;
                 env.remove(var.id);
                 new_bindings.push((var, Box::new(rhs_plan.expr)));
@@ -414,6 +460,7 @@ fn plan_expr(
                 *body,
                 AetherEnv::default(),
                 ValueDemand::Owned,
+                TailPosition::Tail,
                 registry,
                 scope,
                 field_parents,
@@ -431,7 +478,15 @@ fn plan_expr(
                 if !body_plan.env_before.is_live(param.id) {
                     body_expr = wrap_drop(*param, body_expr, span);
                 } else if param.rep.needs_rc() {
-                    (body_expr, _) = release_owner(*param, body_expr, span, false, scope, registry);
+                    (body_expr, _) = release_owner(
+                        *param,
+                        body_expr,
+                        span,
+                        false,
+                        TailPosition::Tail,
+                        scope,
+                        registry,
+                    );
                 }
             }
 
@@ -492,6 +547,7 @@ fn plan_expr(
                 *func,
                 env_after_args,
                 ValueDemand::Borrowed,
+                TailPosition::NonTail,
                 registry,
                 scope,
                 field_parents,
@@ -543,6 +599,7 @@ fn plan_expr(
                 *func,
                 env_after_args,
                 ValueDemand::Borrowed,
+                TailPosition::NonTail,
                 registry,
                 scope,
                 field_parents,
@@ -659,6 +716,7 @@ fn plan_expr(
                     rhs,
                     tail_env.clone(),
                     demand,
+                    position,
                     registry,
                     scope,
                     field_parents,
@@ -673,6 +731,7 @@ fn plan_expr(
                         guard,
                         rhs_plan.env_before.clone(),
                         ValueDemand::Borrowed,
+                        TailPosition::NonTail,
                         registry,
                         scope,
                         field_parents,
@@ -833,11 +892,32 @@ fn plan_expr(
                         );
                         // `dup fields; drop xs`: each kept field is copied before
                         // the release, or before it is given away.
-                        let rhs = kept_fields
+                        let copied: Vec<CoreBinder> = kept_fields
+                            .into_iter()
+                            .filter(|(_, given_away)| *given_away || released)
+                            .map(|(field, _)| field)
+                            .collect();
+                        // That copy is the field's own reference: a path that only
+                        // reads the field releases it after the last read.
+                        let rhs = copied.iter().filter(|field| field.rep.needs_rc()).fold(
+                            rhs,
+                            |body, field| {
+                                release_owner(
+                                    *field,
+                                    body,
+                                    alt_span,
+                                    demand != ValueDemand::Owned,
+                                    position,
+                                    scope,
+                                    registry,
+                                )
+                                .0
+                            },
+                        );
+                        let rhs = copied
                             .into_iter()
                             .rev()
-                            .filter(|(_, given_away)| *given_away || released)
-                            .fold(rhs, |body, (field, _)| wrap_dups(field, body, alt_span, 1));
+                            .fold(rhs, |body, field| wrap_dups(field, body, alt_span, 1));
 
                         CoreAlt {
                             pat,
@@ -853,6 +933,7 @@ fn plan_expr(
                 *scrutinee,
                 joined,
                 ValueDemand::Borrowed,
+                TailPosition::NonTail,
                 registry,
                 scope,
                 field_parents,
@@ -897,6 +978,7 @@ fn plan_expr(
                 *value,
                 tail_env,
                 ValueDemand::Owned,
+                TailPosition::Tail,
                 registry,
                 scope,
                 field_parents,
@@ -942,12 +1024,22 @@ fn plan_expr(
             handlers,
             span,
         } => {
-            let parameter_plan = parameter
-                .map(|p| plan_expr(*p, tail_env.clone(), demand, registry, scope, field_parents));
+            let parameter_plan = parameter.map(|p| {
+                plan_expr(
+                    *p,
+                    tail_env.clone(),
+                    demand,
+                    TailPosition::NonTail,
+                    registry,
+                    scope,
+                    field_parents,
+                )
+            });
             let body_plan = plan_expr(
                 *body,
                 tail_env.clone(),
                 demand,
+                position,
                 registry,
                 scope,
                 field_parents,
@@ -976,6 +1068,7 @@ fn plan_expr(
                     handler.body,
                     tail_env.clone(),
                     demand,
+                    TailPosition::Tail,
                     registry,
                     scope,
                     field_parents,
@@ -1016,7 +1109,15 @@ fn plan_expr(
             }
         }
         CoreExpr::Dup { var, body, span } => {
-            let body_plan = plan_expr(*body, tail_env, demand, registry, scope, field_parents);
+            let body_plan = plan_expr(
+                *body,
+                tail_env,
+                demand,
+                position,
+                registry,
+                scope,
+                field_parents,
+            );
             AetherPlan {
                 expr: CoreExpr::Dup {
                     var,
@@ -1027,7 +1128,15 @@ fn plan_expr(
             }
         }
         CoreExpr::Drop { var, body, span } => {
-            let body_plan = plan_expr(*body, tail_env, demand, registry, scope, field_parents);
+            let body_plan = plan_expr(
+                *body,
+                tail_env,
+                demand,
+                position,
+                registry,
+                scope,
+                field_parents,
+            );
             AetherPlan {
                 expr: CoreExpr::Drop {
                     var,
@@ -1071,6 +1180,7 @@ fn plan_expr(
                 *object,
                 tail_env,
                 ValueDemand::Borrowed,
+                TailPosition::NonTail,
                 registry,
                 scope,
                 field_parents,
@@ -1095,6 +1205,7 @@ fn plan_expr(
                 *object,
                 tail_env,
                 ValueDemand::Borrowed,
+                TailPosition::NonTail,
                 registry,
                 scope,
                 field_parents,
@@ -1137,6 +1248,7 @@ fn plan_expr(
                 *unique_body,
                 tail_env.clone(),
                 demand,
+                position,
                 registry,
                 scope,
                 field_parents,
@@ -1145,6 +1257,7 @@ fn plan_expr(
                 *shared_body,
                 tail_env.clone(),
                 demand,
+                position,
                 registry,
                 scope,
                 field_parents,
@@ -1160,6 +1273,7 @@ fn plan_expr(
                 },
                 joined,
                 ValueDemand::Borrowed,
+                TailPosition::NonTail,
                 registry,
                 scope,
                 field_parents,
@@ -1294,6 +1408,7 @@ where
             expr,
             env,
             demand_for_index(index),
+            TailPosition::NonTail,
             registry,
             scope,
             field_parents,
@@ -1446,13 +1561,14 @@ fn wrap_dups(binder: CoreBinder, body: CoreExpr, span: Span, n: usize) -> CoreEx
 /// Releases `owner` after its last use on each path of `body` that does not
 /// give it away. `lent_result` says the enclosing expression only reads
 /// `body`'s result. Returns the body, and whether any path got the release:
-/// a path whose last use is a call to a Flux function keeps the value
-/// instead, so the call stays a tail call (a counted leak, PA R1).
+/// a path whose last use is a Flux call in function-tail position keeps
+/// the value instead, so the call stays a tail call.
 fn release_owner(
     owner: CoreBinder,
     body: CoreExpr,
     span: Span,
     lent_result: bool,
+    position: TailPosition,
     scope: &mut Scope,
     registry: Option<&BorrowRegistry>,
 ) -> (CoreExpr, bool) {
@@ -1470,6 +1586,7 @@ fn release_owner(
         whole: aliases.clone(),
         aliases,
         lent_result,
+        position,
         after_effect: false,
         matched: None,
     };
@@ -1483,7 +1600,16 @@ fn release_owner(
 /// Other runtime functions and projections can hand back a reference into
 /// an argument.
 fn produces_fresh_value(expr: &CoreExpr, registry: Option<&BorrowRegistry>) -> bool {
+    fresh_result(expr, registry, &mut BTreeSet::new())
+}
+
+fn fresh_result(
+    expr: &CoreExpr,
+    registry: Option<&BorrowRegistry>,
+    fresh: &mut BTreeSet<CoreBinderId>,
+) -> bool {
     match expr {
+        CoreExpr::Var { var, .. } => var.binder.is_some_and(|id| fresh.contains(&id)),
         CoreExpr::Con { .. } | CoreExpr::Lam { .. } => true,
         CoreExpr::PrimOp { op, .. } => matches!(
             op,
@@ -1501,14 +1627,22 @@ fn produces_fresh_value(expr: &CoreExpr, registry: Option<&BorrowRegistry>) -> b
         CoreExpr::App { func, .. } | CoreExpr::AetherCall { func, .. } => {
             calls_flux(func, registry)
         }
-        CoreExpr::Let { body, .. }
-        | CoreExpr::LetRec { body, .. }
-        | CoreExpr::LetRecGroup { body, .. }
+        CoreExpr::Let { var, rhs, body, .. } | CoreExpr::LetRec { var, rhs, body, .. } => {
+            // Holding an owned call result across cleanup does not turn it
+            // into a view of the arguments that were lent to the call.
+            let inserted = fresh_result(rhs, registry, fresh) && fresh.insert(var.id);
+            let result = fresh_result(body, registry, fresh);
+            if inserted {
+                fresh.remove(&var.id);
+            }
+            result
+        }
+        CoreExpr::LetRecGroup { body, .. }
         | CoreExpr::Dup { body, .. }
-        | CoreExpr::Drop { body, .. } => produces_fresh_value(body, registry),
+        | CoreExpr::Drop { body, .. } => fresh_result(body, registry, fresh),
         CoreExpr::Case { alts, .. } => alts
             .iter()
-            .all(|alt| produces_fresh_value(&alt.rhs, registry)),
+            .all(|alt| fresh_result(&alt.rhs, registry, fresh)),
         _ => false,
     }
 }
@@ -1542,16 +1676,52 @@ fn mentions(expr: &CoreExpr, binders: &BTreeSet<CoreBinderId>) -> bool {
 }
 
 /// The binder a `let` adds to `aliases`: one whose value is computed from
-/// an alias without being made fresh may point into it. An unboxed value
-/// points into nothing.
+/// an alias without being made fresh may point into it. An unboxed value,
+/// or a runtime result that is always an Int or a Bool, points into
+/// nothing.
 fn alias_of(
     var: &CoreBinder,
     rhs: &CoreExpr,
     aliases: &BTreeSet<CoreBinderId>,
     registry: Option<&BorrowRegistry>,
 ) -> Option<CoreBinderId> {
-    (var.rep.needs_rc() && mentions(rhs, aliases) && !produces_fresh_value(rhs, registry))
-        .then_some(var.id)
+    (var.rep.needs_rc()
+        && !returns_scalar(rhs)
+        && mentions(rhs, aliases)
+        && !produces_fresh_value(rhs, registry))
+    .then_some(var.id)
+}
+
+/// Whether `expr` is a runtime operation whose result is an Int or a Bool,
+/// whatever rep its binder was given: such a result points into nothing.
+fn returns_scalar(expr: &CoreExpr) -> bool {
+    matches!(
+        expr,
+        CoreExpr::PrimOp {
+            op: CorePrimOp::Len
+                | CorePrimOp::HamtSize
+                | CorePrimOp::HamtContains
+                | CorePrimOp::Not
+                | CorePrimOp::Eq
+                | CorePrimOp::NEq
+                | CorePrimOp::Lt
+                | CorePrimOp::Le
+                | CorePrimOp::Gt
+                | CorePrimOp::Ge
+                | CorePrimOp::CmpEq
+                | CorePrimOp::CmpNe
+                | CorePrimOp::IsInt
+                | CorePrimOp::IsFloat
+                | CorePrimOp::IsString
+                | CorePrimOp::IsBool
+                | CorePrimOp::IsArray
+                | CorePrimOp::IsNone
+                | CorePrimOp::IsSome
+                | CorePrimOp::IsList
+                | CorePrimOp::IsMap,
+            ..
+        }
+    )
 }
 
 /// Whether some alias of `aliases` in `expr` is owned from a value not known
@@ -1817,6 +1987,8 @@ struct ReleasePath {
     whole: BTreeSet<CoreBinderId>,
     /// The enclosing expression only reads the result.
     lent_result: bool,
+    /// Cleanup after a call is deferred only when it would end a tail call.
+    position: TailPosition,
     /// An effect ran earlier on this path, and the owner is live across it.
     /// A release would be balanced, as for the effect leaf, but the path
     /// keeps the owner until PA step 7 settles who releases what a
@@ -1833,8 +2005,8 @@ struct ReleasePath {
 /// A read in a binding's right-hand side releases at the head of that
 /// binding's body, which keeps a tail call after it a tail call. When the
 /// last read is the result itself, the result is held in a temporary across
-/// the Drop, unless it is a call to a Flux function: that path keeps the
-/// value, so the call stays a tail call.
+/// the Drop, unless it is a Flux call in function-tail position: that path
+/// keeps the value, so the call stays a tail call.
 struct Release<'a> {
     owner: CoreBinder,
     span: Span,
@@ -2042,6 +2214,7 @@ impl Release<'_> {
             CoreExpr::Return { value, span } => {
                 let mut returned = path.clone();
                 returned.lent_result = false;
+                returned.position = TailPosition::Tail;
                 CoreExpr::Return {
                     value: Box::new(self.after(*value, &returned, scope)),
                     span,
@@ -2062,9 +2235,47 @@ impl Release<'_> {
                 leaf
             }
             CoreExpr::App { ref func, .. } | CoreExpr::AetherCall { ref func, .. }
-                if calls_flux(func, self.registry) =>
+                if path.position == TailPosition::Tail && calls_flux(func, self.registry) =>
             {
                 body
+            }
+            // A cell built from copies and from names that point into nothing
+            // the owner holds: the copies go first and the release before the
+            // cell, which stays last, where the reuse pass can build it in a
+            // released cell. For an owner a match took apart, keep the
+            // general result-holding path so its field copies are evaluated
+            // before its release.
+            CoreExpr::Con { tag, fields, span }
+                if path.matched.is_none()
+                    && fields.iter().all(|field| match field {
+                        CoreExpr::Lit(..) => true,
+                        CoreExpr::Var { var, .. } => {
+                            !var.binder.is_some_and(|id| path.aliases.contains(&id))
+                        }
+                        CoreExpr::Dup { var, body, .. } => copies_itself(var, body),
+                        _ => false,
+                    }) =>
+            {
+                let mut copies = Vec::new();
+                let fields = fields
+                    .into_iter()
+                    .map(|field| match field {
+                        CoreExpr::Dup { var, body, span } => {
+                            copies.push((var, span));
+                            *body
+                        }
+                        other => other,
+                    })
+                    .collect();
+                let cell = self.drop_before(CoreExpr::Con { tag, fields, span });
+                copies
+                    .into_iter()
+                    .rev()
+                    .fold(cell, |body, (var, span)| CoreExpr::Dup {
+                        var,
+                        body: Box::new(body),
+                        span,
+                    })
             }
             // A lent result took no reference of its own, so the enclosing
             // expression would read it after the release.
@@ -3870,6 +4081,88 @@ mod tests {
         assert_contract(&rewritten);
     }
 
+    fn assert_nested_lent_temporary_is_released(nested_case: bool) {
+        let mut interner = Interner::new();
+        let x = binder(&mut interner, 1, "x");
+        let y = binder(&mut interner, 2, "y");
+        let registry = release_registry(&mut interner);
+        let g = call(interner.intern("g"), vec![]);
+        let read = call(interner.intern("walk"), vec![var(x)]);
+        let rhs = let_in(x, g.clone(), read);
+        let rhs = if nested_case {
+            CoreExpr::Case {
+                scrutinee: Box::new(CoreExpr::Lit(CoreLit::Bool(true), Span::default())),
+                alts: vec![
+                    CoreAlt {
+                        pat: CorePat::Lit(CoreLit::Bool(true)),
+                        guard: None,
+                        rhs,
+                        span: Span::default(),
+                    },
+                    CoreAlt {
+                        pat: CorePat::Wildcard,
+                        guard: None,
+                        rhs: g,
+                        span: Span::default(),
+                    },
+                ],
+                join_ty: None,
+                span: Span::default(),
+            }
+        } else {
+            rhs
+        };
+        let expr = lam(vec![], let_in(y, rhs, var(y)));
+        let rewritten = insert_dup_drop_with_registry(expr, &registry);
+        assert_eq!(drops_of(&rewritten, x.id), 1, "{rewritten:?}");
+        let immediately_after_call = count_binder_nodes(&rewritten, x.id, &|expr, id| {
+            matches!(expr, CoreExpr::Let { var: held, rhs, body, .. }
+                if matches!(rhs.as_ref(), CoreExpr::AetherCall { args, .. }
+                    if matches!(args.as_slice(), [CoreExpr::Var { var, .. }] if var.binder == Some(id)))
+                && matches!(body.as_ref(), CoreExpr::Drop { var, body, .. }
+                    if var.binder == Some(id)
+                    && matches!(body.as_ref(), CoreExpr::Var { var, .. } if var.binder == Some(held.id))))
+        });
+        assert_eq!(immediately_after_call, 1, "{rewritten:?}");
+        assert_contract(&rewritten);
+    }
+
+    #[test]
+    fn a_temporary_lent_inside_a_binding_rhs_is_released_after_the_call() {
+        assert_nested_lent_temporary_is_released(false);
+    }
+
+    #[test]
+    fn a_temporary_lent_inside_a_binding_rhs_case_is_released_after_the_call() {
+        assert_nested_lent_temporary_is_released(true);
+    }
+
+    #[test]
+    fn cleanup_of_a_lent_temporary_keeps_the_call_result_fresh() {
+        use crate::aether::borrow_infer::{BorrowProvenance, BorrowSignature};
+        let mut interner = Interner::new();
+        let x = binder(&mut interner, 1, "x");
+        let y = binder(&mut interner, 2, "y");
+        let z = binder(&mut interner, 3, "z");
+        let mut registry = release_registry(&mut interner);
+        let pair = interner.intern("pair");
+        registry.by_name.insert(
+            pair,
+            BorrowSignature::new(
+                vec![BorrowMode::Borrowed, BorrowMode::Borrowed],
+                BorrowProvenance::Inferred,
+            ),
+        );
+        let fresh = call(interner.intern("g"), vec![]);
+        let rhs = let_in(z, fresh.clone(), call(pair, vec![var(x), var(z)]));
+        let tail = call(interner.intern("walk"), vec![var(y)]);
+        let expr = lam(vec![], let_in(x, fresh, let_in(y, rhs, tail)));
+        let planned = insert_dup_drop_with_registry(expr, &registry);
+        assert_eq!(drops_of(&planned, x.id), 1, "{planned:?}");
+        assert!(released_after(&planned, x.id, y.id), "{planned:?}");
+        assert_contract(&planned);
+    }
+
     /// `let xs = g(); case xs of ys -> (let a = own(ys) in 0)`. `ys` is `xs`
     /// itself, so giving `ys` away is the binding's release.
     #[test]
@@ -4624,5 +4917,169 @@ mod tests {
             (1, 0, 2),
             "{planned:?}"
         );
+    }
+
+    /// `fn(xs) case xs of Cons(h, t) -> let n = len(h) in Cons(n, t), _ -> 0`.
+    /// The arm releases `xs` at its head, so it copies `h` first; `h` is
+    /// then only read, so that copy is released after the read.
+    #[test]
+    fn a_field_copied_before_its_cell_is_released_is_released_after_its_last_read() {
+        let mut interner = Interner::new();
+        let [xs, h, t] =
+            [(1, "xs"), (2, "h"), (3, "t")].map(|(id, name)| binder(&mut interner, id, name));
+        let n = CoreBinder::with_rep(CoreBinderId(4), interner.intern("n"), FluxRep::IntRep);
+        let registry = release_registry(&mut interner);
+        let read = call(interner.intern("len"), vec![var(h)]);
+        let rewritten = planned_cons_arm(
+            xs,
+            h,
+            t,
+            let_in(n, read, cons_of(vec![var(n), var(t)])),
+            &registry,
+        );
+
+        assert_eq!(dups_of(&rewritten, h.id), 1, "{rewritten:?}");
+        assert_eq!(drops_of(&rewritten, h.id), 1, "{rewritten:?}");
+        assert!(released_after(&rewritten, h.id, n.id), "{rewritten:?}");
+        assert_contract(&rewritten);
+    }
+
+    /// The same arm, but `h` is given away on one path and only read on the
+    /// other: only the reading path releases it.
+    #[test]
+    fn a_field_given_away_on_one_path_is_released_on_the_other() {
+        let mut interner = Interner::new();
+        let [xs, h, t] =
+            [(1, "xs"), (2, "h"), (3, "t")].map(|(id, name)| binder(&mut interner, id, name));
+        let n = CoreBinder::with_rep(CoreBinderId(4), interner.intern("n"), FluxRep::IntRep);
+        let registry = release_registry(&mut interner);
+        let give = call(interner.intern("own"), vec![var(h)]);
+        let read = call(interner.intern("len"), vec![var(h)]);
+        let rhs = on_true(
+            cons_of(vec![give, var(t)]),
+            let_in(n, read, cons_of(vec![var(n), var(t)])),
+        );
+        let rewritten = planned_cons_arm(xs, h, t, rhs, &registry);
+
+        assert_eq!(drops_of(&rewritten, h.id), 1, "{rewritten:?}");
+        assert!(released_after(&rewritten, h.id, n.id), "{rewritten:?}");
+        assert_contract(&rewritten);
+    }
+
+    /// The release of `h` sits between `xs`'s release and the cell the arm
+    /// builds, and the reuse pass still builds that cell in `xs`'s.
+    #[test]
+    fn a_field_released_before_the_rebuilt_cell_keeps_its_reuse() {
+        let mut interner = Interner::new();
+        let [xs, h, t] =
+            [(1, "xs"), (2, "h"), (3, "t")].map(|(id, name)| binder(&mut interner, id, name));
+        let n = CoreBinder::with_rep(CoreBinderId(4), interner.intern("n"), FluxRep::IntRep);
+        let registry = release_registry(&mut interner);
+        let read = call(interner.intern("len"), vec![var(h)]);
+        let matched = case_of(
+            xs,
+            vec![
+                (cons(h, t), let_in(n, read, cons_of(vec![var(n), var(t)]))),
+                (CorePat::Wildcard, nil()),
+            ],
+        );
+        let planned =
+            crate::aether::run_aether_def_with_registry(lam(vec![xs], matched), &registry, None);
+        let reuses = count_binder_nodes(
+            &planned,
+            xs.id,
+            &|expr, binder| matches!(expr, CoreExpr::Reuse { token, .. } if token.binder == Some(binder)),
+        );
+        assert_eq!(reuses, 1, "{planned:?}");
+    }
+
+    /// `Cons(h, t) -> case h of Some(x) -> Cons(x, t), _ -> t`, `xs` matched
+    /// as a parameter. `h` is taken apart by a match, so its release stays a
+    /// plain drop on each arm: a split that nothing reuses would release it
+    /// on neither path.
+    #[test]
+    fn a_field_taken_apart_by_a_match_keeps_a_plain_release() {
+        let mut interner = Interner::new();
+        let [xs, h, t, x] = [(1, "xs"), (2, "h"), (3, "t"), (4, "x")]
+            .map(|(id, name)| binder(&mut interner, id, name));
+        let registry = release_registry(&mut interner);
+        let inner = CoreExpr::Case {
+            scrutinee: Box::new(var(h)),
+            alts: vec![
+                CoreAlt {
+                    pat: CorePat::Con {
+                        tag: crate::core::CoreTag::Some,
+                        fields: vec![CorePat::Var(x)],
+                    },
+                    guard: None,
+                    rhs: cons_of(vec![var(x), var(t)]),
+                    span: Span::default(),
+                },
+                CoreAlt {
+                    pat: CorePat::Wildcard,
+                    guard: None,
+                    rhs: var(t),
+                    span: Span::default(),
+                },
+            ],
+            join_ty: None,
+            span: Span::default(),
+        };
+        let matched = case_of(xs, vec![(cons(h, t), inner), (CorePat::Wildcard, nil())]);
+        let planned =
+            crate::aether::run_aether_def_with_registry(lam(vec![xs], matched), &registry, None);
+        let splits = count_binder_nodes(
+            &planned,
+            h.id,
+            &|expr, binder| matches!(expr, CoreExpr::DropSpecialized { scrutinee, .. } if scrutinee.binder == Some(binder)),
+        );
+        assert_eq!(splits, 0, "{planned:?}");
+        assert_eq!(drops_of(&planned, h.id), 2, "{planned:?}");
+    }
+
+    /// `let n = Len(h)`, `n` given a counted rep as ANF gives it: a length
+    /// points into nothing, so `h` is released right after it.
+    #[test]
+    fn a_length_of_a_field_is_not_an_alias_of_it() {
+        let mut interner = Interner::new();
+        let [xs, h, t, n] = [(1, "xs"), (2, "h"), (3, "t"), (4, "n")]
+            .map(|(id, name)| binder(&mut interner, id, name));
+        let registry = release_registry(&mut interner);
+        let read = CoreExpr::PrimOp {
+            op: CorePrimOp::Len,
+            args: vec![var(h)],
+            span: Span::default(),
+        };
+        let rewritten = planned_cons_arm(
+            xs,
+            h,
+            t,
+            let_in(n, read, cons_of(vec![var(n), var(t)])),
+            &registry,
+        );
+        assert!(released_after(&rewritten, h.id, n.id), "{rewritten:?}");
+        assert_contract(&rewritten);
+    }
+
+    /// `let m = Max(h, t)` may be `h` itself, so `h` waits for `m`'s use.
+    #[test]
+    fn a_result_that_may_be_an_argument_is_an_alias_of_it() {
+        let mut interner = Interner::new();
+        let [xs, h, t, m] = [(1, "xs"), (2, "h"), (3, "t"), (4, "m")]
+            .map(|(id, name)| binder(&mut interner, id, name));
+        let registry = release_registry(&mut interner);
+        let pick = CoreExpr::PrimOp {
+            op: CorePrimOp::Max,
+            args: vec![var(h), var(t)],
+            span: Span::default(),
+        };
+        let rewritten = planned_cons_arm(
+            xs,
+            h,
+            t,
+            let_in(m, pick, cons_of(vec![var(m), var(t)])),
+            &registry,
+        );
+        assert!(!released_after(&rewritten, h.id, m.id), "{rewritten:?}");
     }
 }

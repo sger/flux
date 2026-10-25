@@ -300,7 +300,17 @@ use sha2::{Digest, Sha256};
 /// Epoch 96: a value given away on one path is released on the others; an
 /// epoch-95 unit kept it on every path once any path gave it away (PA R1,
 /// KI-121).
-pub const CACHE_EPOCH: u16 = 96;
+/// Epoch 97: a field copied before its cell is released, then only read, is
+/// released after its last read, and a value read by a length or a
+/// comparison is released after that read; an epoch-96 unit kept both (PA
+/// R1, KI-121).
+/// Epoch 98: specialized drops retain the shared release and fall back to
+/// plain copies and a release when any unique path cannot reuse the shell.
+/// Epoch 99: owners lent to calls inside another binding's right-hand side
+/// are released after the call; only actual function-tail calls defer cleanup.
+/// Epoch 100: cleanup preserves the ownership of a held call result, and
+/// plain reuse walks through intervening copies and unrelated releases.
+pub const CACHE_EPOCH: u16 = 100;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

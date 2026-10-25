@@ -840,6 +840,109 @@ fn a_value_moved_on_one_path_is_released_on_the_others() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+const LENS_OF_ROWS: &str = r"fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn rows(n) {
+    [numbers(n), numbers(n + 1)]
+}
+
+fn lens(xss) {
+    match xss {
+        [xs | rest] -> [len(xs) | lens(rest)],
+        _ -> [],
+    }
+}
+
+fn count(n, total) {
+    if n == 0 { total } else {
+        let ys = lens(rows(n))
+        count(n - 1, total + len(ys))
+    }
+}
+
+fn main() {
+    print(count(SIZE, 0))
+}
+";
+
+/// KI-121: a field the arm copies before releasing its cell, and then only
+/// reads, is released after that read. Each row is read once and left
+/// behind, while the rebuild still reuses the outer list's cells: 8 blocks
+/// a turn, all freed.
+#[test]
+fn a_field_only_read_after_its_cell_is_released_is_released_too() {
+    let scratch = Scratch::new("debug-heap-field-only-read");
+    let (allocs, _, live) = per_thousand_cells(&scratch, "lens_of_rows", LENS_OF_ROWS);
+    assert_eq!((allocs, live), (8000, 0), "(allocs, live) per 1000 turns");
+}
+
+const ARRAY_TO_LIST: &str = r"fn to_list(arr, idx) {
+    if idx >= len(arr) { [] } else {
+        match arr[idx] {
+            Some(v) -> [v | to_list(arr, idx + 1)],
+            _ -> to_list(arr, idx + 1)
+        }
+    }
+}
+
+fn count(n, total) {
+    if n == 0 { total } else {
+        let ys = to_list([|n, n + 1, n + 2|], 0)
+        count(n - 1, total + len(ys))
+    }
+}
+
+fn main() {
+    print(count(SIZE, 0))
+}
+";
+
+/// KI-121: the option an index returns is matched and its value moved into
+/// a new cell; nothing reuses the option, so it is released, whether the
+/// cell is built before or after that release.
+#[test]
+fn an_option_matched_and_not_reused_is_released() {
+    let scratch = Scratch::new("debug-heap-array-to-list");
+    let (allocs, _, live) = per_thousand_cells(&scratch, "array_to_list", ARRAY_TO_LIST);
+    assert_eq!(live, 0, "live per 1000 turns ({allocs} allocs)");
+}
+
+const BRANCH_REBUILD: &str = r"fn cell(n) { Some(None) }
+fn read(opt) { match opt { Some(_) -> 1, _ -> 0 } }
+
+fn rebuild(opt, keep) {
+    match opt {
+        Some(v) -> if keep { Some(v) } else { None },
+        _ -> None
+    }
+}
+
+fn count(n, total) {
+    if n == 0 { total } else {
+        let xs = cell(n)
+        let ys = rebuild(xs, n % 2 == 0)
+        let next = total + read(ys) + EXTRA_READ
+        count(n - 1, next)
+    }
+}
+
+fn main() { print(count(SIZE, 0)) }
+";
+
+// A nullary payload isolates shell accounting from extra copies of heap fields.
+// The later read retains a second reference to the same cell across rebuild.
+#[test]
+fn a_matched_cell_reused_on_only_one_path_is_released() {
+    let scratch = Scratch::new("debug-heap-branch-rebuild");
+    for (name, extra_read) in [("unique", "0"), ("shared", "read(xs)")] {
+        let program = BRANCH_REBUILD.replace("EXTRA_READ", extra_read);
+        let (_, _, live) = per_thousand_cells(&scratch, name, &program);
+        assert_eq!(live, 0, "{name}: live per 1000 turns");
+    }
+}
+
 /// A cons rebuilt in the cell of the list it was matched from, inside a
 /// fresh wrapper, is built once. A second, unused copy of it was left
 /// behind each turn, holding its fields with references it never had.
