@@ -982,3 +982,50 @@ fn a_forwarded_child_leaves_no_cell_behind() {
     let (_, _, live) = per_thousand_cells(&scratch, "forwarded_child", FORWARDED_CHILD);
     assert_eq!(live, 0, "blocks left live per 1000 turns");
 }
+
+const PERFORM_PER_TURN: &str = r"effect Ask {
+    ask : (ARG) -> Int
+}
+
+fn count(n, total) -> Int with Ask {
+    if n == 0 { total } else {
+        let k = perform Ask.ask(SENT)
+        count(n - 1, total + k)
+    }
+}
+
+fn run() -> Int {
+    count(500, 0) handle Ask {
+        ask(resume, x) -> resume(READ)
+    }
+}
+
+fn main() with IO {
+    print(to_string(run()))
+}
+";
+
+/// A perform gives its argument to the clause. The same loop sending a
+/// fresh list or its length leaves the same blocks behind: a perform that
+/// copied its argument kept every list it sent.
+#[test]
+fn a_perform_takes_the_argument_it_is_given() {
+    let scratch = Scratch::new("debug-heap-perform-argument");
+    let program = |arg: &str, sent: &str, read: &str| {
+        PERFORM_PER_TURN
+            .replace("ARG", arg)
+            .replace("SENT", sent)
+            .replace("READ", read)
+    };
+    let (_, _, list) = stats_of(
+        &scratch,
+        "list.flx",
+        &program("List<Int>", "[n, n + 1, n + 2]", "len(x)"),
+    );
+    let (_, _, int) = stats_of(
+        &scratch,
+        "int.flx",
+        &program("Int", "len([n, n + 1, n + 2])", "x"),
+    );
+    assert_eq!(list, int, "live blocks: list sent vs its length sent");
+}
