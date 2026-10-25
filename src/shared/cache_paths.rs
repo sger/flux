@@ -340,7 +340,11 @@ use sha2::{Digest, Sha256};
 /// Epoch 109: a panic caught by a try puts back the evidence the try started
 /// under; a binary linked against the epoch-108 runtime kept the handlers the
 /// panic skipped installed (PA C1).
-pub const CACHE_EPOCH: u16 = 109;
+/// Epoch 110: a local function builds a closure of itself, or of a sibling,
+/// only when it reads one, and a group of local functions releases each
+/// member after its last use; an epoch-109 unit built them on every entry
+/// and released none (PA R5).
+pub const CACHE_EPOCH: u16 = 110;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
