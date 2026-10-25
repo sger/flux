@@ -635,6 +635,33 @@ fn plan_expr(
                 })
                 .collect();
 
+            // Pattern views of an owned value that some arm still uses. An arm
+            // that does not use it releases it to balance that arm, so each
+            // view it keeps is copied above the release first.
+            let parent_views: Vec<(CoreBinder, CoreBinderId, Vec<bool>, Vec<bool>)> = {
+                let mut views: Vec<_> = field_parents
+                    .iter()
+                    .filter(|(child, field)| {
+                        field.pattern
+                            && scope.views.contains(*child)
+                            && scrutinee_var.as_ref().is_none_or(|sv| sv.id != field.parent)
+                            && scope.get(&field.parent).is_some()
+                            && !scope.views.contains(&field.parent)
+                            && !scope.lent(field.parent, field_parents)
+                            && !tail_env.is_live(field.parent)
+                    })
+                    .filter_map(|(child, field)| {
+                        let binder = scope.get(child).copied()?;
+                        binder.rep.needs_rc().then(|| {
+                            let uses = |id| alts.iter().map(|alt| alt_uses_binder(alt, id)).collect();
+                            (binder, field.parent, uses(*child), uses(field.parent))
+                        })
+                    })
+                    .collect();
+                views.sort_by_key(|(binder, ..)| binder.id);
+                views
+            };
+
             let mut branch_plans = Vec::with_capacity(alts.len());
             for (index, alt) in alts.into_iter().enumerate() {
                 let CoreAlt {
@@ -712,6 +739,22 @@ fn plan_expr(
                     }
                 }
 
+                let owned_views: Vec<CoreBinder> = parent_views
+                    .iter()
+                    .filter(|(_, _, child_uses, parent_uses)| {
+                        child_uses[index]
+                            && !parent_uses[index]
+                            && parent_uses
+                                .iter()
+                                .enumerate()
+                                .any(|(other, uses)| other != index && *uses)
+                    })
+                    .map(|(binder, ..)| *binder)
+                    .collect();
+                for view in &owned_views {
+                    scope.views.remove(&view.id);
+                }
+
                 let rhs_plan = plan_expr(
                     rhs,
                     tail_env.clone(),
@@ -746,6 +789,9 @@ fn plan_expr(
                     scope.remove(binder_id);
                     scope.views.remove(binder_id);
                     field_parents.remove(binder_id);
+                }
+                for view in &owned_views {
+                    scope.views.insert(view.id);
                 }
 
                 // The owned fields the arm keeps, and whether it gives each
@@ -784,6 +830,7 @@ fn plan_expr(
                     pat_ids,
                     kept_fields,
                     head_drop,
+                    owned_views,
                 });
             }
 
@@ -805,6 +852,7 @@ fn plan_expr(
                          pat_ids,
                          kept_fields,
                          head_drop,
+                         owned_views,
                      }| {
                         let compensation: Vec<_> = joined
                             .owned
@@ -862,15 +910,17 @@ fn plan_expr(
                                 .is_some_and(|sv| compensation.iter().any(|b| b.id == sv.id));
                         // A view read out of a released value, at any depth, is
                         // still used below the release, so it takes its own
-                        // reference first. Its uses keep their own copies, so
-                        // this one is never paired: it leaks (KI-121).
+                        // reference first. Unless the arm planned it as owned,
+                        // its uses keep their own copies, so this one is never
+                        // paired: it leaks (KI-121).
                         let children_kept: Vec<Vec<CoreBinder>> = compensation
                             .iter()
                             .map(|binder| {
                                 let mut children: Vec<CoreBinder> = field_parents
                                     .keys()
                                     .filter(|child| {
-                                        descends_from(**child, binder.id, field_parents)
+                                        !owned_views.iter().any(|view| view.id == **child)
+                                            && descends_from(**child, binder.id, field_parents)
                                             && (env_without_pats.is_live(**child)
                                                 || expr_uses_binder(&rhs, **child))
                                     })
@@ -892,10 +942,13 @@ fn plan_expr(
                         );
                         // `dup fields; drop xs`: each kept field is copied before
                         // the release, or before it is given away.
+                        // An owned view takes its copy whether or not the release
+                        // happens: the arm planned it as holding one.
                         let copied: Vec<CoreBinder> = kept_fields
                             .into_iter()
                             .filter(|(_, given_away)| *given_away || released)
                             .map(|(field, _)| field)
+                            .chain(owned_views)
                             .collect();
                         // That copy is the field's own reference: a path that only
                         // reads the field releases it after the last read.
@@ -1509,6 +1562,9 @@ struct PlannedArm {
     kept_fields: Vec<(CoreBinder, bool)>,
     /// Whether the arm releases the matched cell at its head.
     head_drop: bool,
+    /// Views of a value this arm releases to balance another arm, planned
+    /// as owned: each holds the copy taken above that release.
+    owned_views: Vec<CoreBinder>,
 }
 
 /// Whether `child` was read out of `ancestor`, directly or through other
@@ -4740,11 +4796,11 @@ mod tests {
         );
         assert_eq!(drops(&planned, xs), 1, "{planned:?}");
         assert!(copied_before_release(&planned, xs, &[h, t]), "{planned:?}");
-        // The fields stay views, so each use keeps its own copy as well: one
-        // reference each leaks until views are released (KI-121).
+        // Each copy is the field's own reference from then on, so the cell
+        // takes it over rather than a second copy.
         assert_eq!(
             (dups(&planned, h), dups(&planned, t)),
-            (2, 2),
+            (1, 1),
             "{planned:?}"
         );
     }
@@ -5081,5 +5137,25 @@ mod tests {
             &registry,
         );
         assert!(!released_after(&rewritten, h.id, m.id), "{rewritten:?}");
+    }
+
+    /// `case xs of Cons(h, t) -> if c { own(t) } else { own(xs) }`: the
+    /// first path releases `xs` to balance the second, copying `t` above
+    /// that release. The copy is `t`'s own reference, so giving `t` away
+    /// moves it rather than copying again.
+    #[test]
+    fn a_view_copied_above_a_balancing_release_is_moved_at_its_last_use() {
+        let mut interner = Interner::new();
+        let [xs, h, t] =
+            [(1, "xs"), (2, "h"), (3, "t")].map(|(id, name)| binder(&mut interner, id, name));
+        let registry = release_registry(&mut interner);
+        let own = interner.intern("own");
+        let arm = on_true(call(own, vec![var(t)]), call(own, vec![var(xs)]));
+        let planned = insert_dup_drop_with_registry(
+            lam(vec![xs], case_of(xs, vec![(cons(h, t), arm), (CorePat::Wildcard, nil())])),
+            &registry,
+        );
+        assert_eq!(dups_of(&planned, t.id), 1, "{planned:?}");
+        assert_contract(&planned);
     }
 }

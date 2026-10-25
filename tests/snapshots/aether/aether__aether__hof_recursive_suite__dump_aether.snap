@@ -1704,7 +1704,8 @@ lam(xs, pred) ->
       case <sym:4001605>#1605 of
         true ->
           drop <sym:4001605>#1605 in
-            aether_call[owned, borrowed] drop_while#448(dup t#452 in t#452, pred#450)
+            dup t#452 in
+              aether_call[owned, borrowed] drop_while#448(t#452, pred#450)
         _ ->
           drop <sym:4001605>#1605 in
             xs#449
@@ -1758,17 +1759,19 @@ lam(xs, pred) ->
       case <sym:4001613>#1613 of
         true ->
           drop <sym:4001613>#1613 in
-            let <sym:4001614> =
-              aether_call[owned, borrowed] span#460(dup t#464 in t#464, pred#462)
-            case <sym:4001614>#1614 of
-              (left, right) ->
-                let <sym:4001615> =
-                  Cons(dup h#463 in h#463, dup left#465 in left#465)
-                drop xs#461 in
-                  let <sym:7000000> =
-                    MakeTuple(<sym:4001615>#1615, dup right#466 in right#466)
-                  drop <sym:4001614>#1614 in
-                    <sym:7000000>#4026531840
+            dup h#463 in
+              dup t#464 in
+                let <sym:4001614> =
+                  aether_call[owned, borrowed] span#460(t#464, pred#462)
+                case <sym:4001614>#1614 of
+                  (left, right) ->
+                    let <sym:4001615> =
+                      Cons(h#463, dup left#465 in left#465)
+                    drop xs#461 in
+                      let <sym:7000000> =
+                        MakeTuple(<sym:4001615>#1615, dup right#466 in right#466)
+                      drop <sym:4001614>#1614 in
+                        <sym:7000000>#4026531840
         _ ->
           drop <sym:4001613>#1613 in
             let <sym:4001616> =
@@ -2510,8 +2513,8 @@ lam(xs, key_fn) ->
       drop <sym:4001704>#1704 in
         aether_call[owned, owned, borrowed] merge_by_key#738(<sym:4001705>#1705, <sym:4001706>#1706, key_fn#734)
 ── fn merge_by_key ──
-  Dups: 11  Drops: 4  Reuses: 2  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
-  FreshAllocs: 0
+  Dups: 7  Drops: 6  Reuses: 2  DropSpecs: 2  BorrowedCallGuards: 0  FBIP: fbip(2)
+  FreshAllocs: 2
   verifier: ok
 lam(left, right, key_fn) ->
   case left#739 of
@@ -2531,17 +2534,33 @@ lam(left, right, key_fn) ->
                   <sym:7000000>#4026531840
           case <sym:4001709>#1709 of
             true ->
-              dup a#742 in
-                dup at#743 in
+              drop_specialized left#739 {
+                unique ->
                   let <sym:4001710> =
-                    aether_call[owned, owned, borrowed] merge_by_key#738(dup at#743 in at#743, right#740, key_fn#741)
-                  reuse left#739 as Cons mask=0x2(dup a#742 in a#742, <sym:4001710>#1710)
+                    aether_call[owned, owned, borrowed] merge_by_key#738(at#743, right#740, key_fn#741)
+                  reuse left#739 as Cons mask=0x2(a#742, <sym:4001710>#1710)
+                shared ->
+                  dup a#742 in
+                    dup at#743 in
+                      drop left#739 in
+                        let <sym:4001710> =
+                          aether_call[owned, owned, borrowed] merge_by_key#738(at#743, right#740, key_fn#741)
+                        Cons(a#742, <sym:4001710>#1710)
+              }
             _ ->
-              dup b#744 in
-                dup bt#745 in
+              drop_specialized right#740 {
+                unique ->
                   let <sym:4001711> =
-                    aether_call[owned, owned, borrowed] merge_by_key#738(left#739, dup bt#745 in bt#745, key_fn#741)
-                  reuse right#740 as Cons mask=0x2(dup b#744 in b#744, <sym:4001711>#1711)
+                    aether_call[owned, owned, borrowed] merge_by_key#738(left#739, bt#745, key_fn#741)
+                  reuse right#740 as Cons mask=0x2(b#744, <sym:4001711>#1711)
+                shared ->
+                  dup b#744 in
+                    dup bt#745 in
+                      drop right#740 in
+                        let <sym:4001711> =
+                          aether_call[owned, owned, borrowed] merge_by_key#738(left#739, bt#745, key_fn#741)
+                        Cons(b#744, <sym:4001711>#1711)
+              }
         _ ->
           drop right#740 in
             left#739
@@ -3043,7 +3062,7 @@ lam(opt, f) ->
     _ ->
       None
 ── fn __tc_m14_466C6F772E53656D6967726F7570_Semigroup_Option<a>_append ──
-  Dups: 5  Drops: 9  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
+  Dups: 3  Drops: 9  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(__dict_m14_466C6F772E53656D6967726F7570_Semigroup, x, y) ->
@@ -3058,7 +3077,7 @@ lam(__dict_m14_466C6F772E53656D6967726F7570_Semigroup, x, y) ->
                   let <sym:4001828> =
                     let <sym:4001827> =
                       __dict_m14_466C6F772E53656D6967726F7570_Semigroup#1238.0
-                    aether_call[owned, owned] <sym:4001827>#1827(dup u#1241 in u#1241, v#1242)
+                    aether_call[owned, owned] <sym:4001827>#1827(u#1241, v#1242)
                   drop __dict_m14_466C6F772E53656D6967726F7570_Semigroup#1238 in
                     reuse y#1240 as Some(<sym:4001828>#1828)
             shared ->
@@ -3069,7 +3088,7 @@ lam(__dict_m14_466C6F772E53656D6967726F7570_Semigroup, x, y) ->
                       let <sym:4001828> =
                         let <sym:4001827> =
                           __dict_m14_466C6F772E53656D6967726F7570_Semigroup#1238.0
-                        aether_call[owned, owned] <sym:4001827>#1827(dup u#1241 in u#1241, v#1242)
+                        aether_call[owned, owned] <sym:4001827>#1827(u#1241, v#1242)
                       drop __dict_m14_466C6F772E53656D6967726F7570_Semigroup#1238 in
                         Some(<sym:4001828>#1828)
           }
@@ -3295,8 +3314,8 @@ lam() ->
         aether_call[owned] __resume_default#1363(<sym:4001922>#1922)
 
 ── Total ──
-  Dups: 212  Drops: 399  Reuses: 15  DropSpecs: 10  BorrowedCallGuards: 38  FBIP: fbip(48)  Yields: 11  Handles: 5  HandlerArms: 11
-  FreshAllocs: 48
+  Dups: 206  Drops: 401  Reuses: 15  DropSpecs: 12  BorrowedCallGuards: 38  FBIP: fbip(50)  Yields: 11  Handles: 5  HandlerArms: 11
+  FreshAllocs: 50
 
 [ 1 of 18] Compiling  Add
 [ 2 of 18] Compiling  Assert

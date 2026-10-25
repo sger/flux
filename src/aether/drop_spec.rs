@@ -72,6 +72,14 @@ fn transform(expr: CoreExpr) -> CoreExpr {
                             .collect();
                         if !field_binders.is_empty() {
                             alt.rhs = try_specialize(*binder, &field_binders, alt.rhs, span);
+                            let split = matches!(
+                                &alt.rhs,
+                                CoreExpr::DropSpecialized { scrutinee, .. }
+                                    if scrutinee.binder == Some(binder.id)
+                            );
+                            if !split {
+                                alt.rhs = split_below_root(alt.rhs, *binder, &field_binders, span);
+                            }
                         }
                     }
 
@@ -250,6 +258,96 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             span,
         },
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => expr,
+    }
+}
+
+/// An arm that also gives its cell away cannot split at its root, but a path
+/// that only releases the cell can: each run of copies and releases that
+/// ends in a release of it, after a copy of one of its fields, is split
+/// where it is. A run is taken whole, so the release pairs with every field
+/// copy above it.
+fn split_below_root(
+    expr: CoreExpr,
+    cell: CoreBinder,
+    fields: &[CoreBinderId],
+    span: Span,
+) -> CoreExpr {
+    let below = |expr: CoreExpr| split_below_root(expr, cell, fields, span);
+    match expr {
+        CoreExpr::Dup { .. } | CoreExpr::Drop { .. } => {
+            let mut links = Vec::new();
+            let mut rest = expr;
+            loop {
+                match rest {
+                    CoreExpr::Dup { var, body, span } => {
+                        links.push((true, var, span));
+                        rest = *body;
+                    }
+                    CoreExpr::Drop { var, body, span } => {
+                        links.push((false, var, span));
+                        rest = *body;
+                    }
+                    other => {
+                        rest = other;
+                        break;
+                    }
+                }
+            }
+            let released_after_copy = links.iter().enumerate().any(|(at, (copy, var, _))| {
+                !copy
+                    && var.binder == Some(cell.id)
+                    && links[..at]
+                        .iter()
+                        .any(|(copy, var, _)| *copy && var.binder.is_some_and(|id| fields.contains(&id)))
+            });
+            let chain = links
+                .into_iter()
+                .rev()
+                .fold(below(rest), |body, (copy, var, span)| {
+                    let body = Box::new(body);
+                    if copy {
+                        CoreExpr::Dup { var, body, span }
+                    } else {
+                        CoreExpr::Drop { var, body, span }
+                    }
+                });
+            if released_after_copy {
+                try_specialize(cell, fields, chain, span)
+            } else {
+                chain
+            }
+        }
+        CoreExpr::Let {
+            var,
+            rhs,
+            body,
+            span,
+        } => CoreExpr::Let {
+            var,
+            rhs,
+            body: Box::new(below(*body)),
+            span,
+        },
+        CoreExpr::Case {
+            scrutinee,
+            alts,
+            join_ty,
+            span,
+        } => CoreExpr::Case {
+            scrutinee,
+            alts: alts
+                .into_iter()
+                .map(|mut alt| {
+                    alt.rhs = below(alt.rhs);
+                    alt
+                })
+                .collect(),
+            join_ty,
+            span,
+        },
+        // Anything else holds no run that ends this path, or is a function
+        // of its own. A release left unsplit keeps its plain form.
+        other => other,
     }
 }
 
@@ -1705,5 +1803,73 @@ mod tests {
             specialized_paths(xs, cons_pat(CorePat::Var(h), CorePat::Var(t)), rhs);
         assert_eq!(dups_of(&unique, h), 1, "{unique:?}");
         assert_eq!(dups_of(&shared, h), 2, "{shared:?}");
+    }
+
+    /// `Cons(h, t) -> if c { dup t; drop xs; Cons(h, t) } else { xs }`: the
+    /// arm gives `xs` away on one path, so it cannot split at its root, but
+    /// the path that only releases `xs` splits where the release is.
+    #[test]
+    fn a_release_below_the_arm_root_is_split_where_it_is() {
+        let mut interner = Interner::new();
+        let xs = binder(&mut interner, 1, "xs");
+        let h = binder(&mut interner, 2, "h");
+        let t = binder(&mut interner, 3, "t");
+        let released = dup_in(t, drop_in(xs, cons_of(vec![var(h), var(t)])));
+        let branch = CoreExpr::Case {
+            scrutinee: Box::new(CoreExpr::Lit(CoreLit::Bool(true), Span::default())),
+            alts: vec![
+                CoreAlt {
+                    pat: CorePat::Lit(CoreLit::Bool(true)),
+                    guard: None,
+                    rhs: released,
+                    span: Span::default(),
+                },
+                CoreAlt {
+                    pat: CorePat::Wildcard,
+                    guard: None,
+                    rhs: var(xs),
+                    span: Span::default(),
+                },
+            ],
+            join_ty: None,
+            span: Span::default(),
+        };
+        let expr = CoreExpr::Case {
+            scrutinee: Box::new(var(xs)),
+            alts: vec![CoreAlt {
+                pat: cons_pat(CorePat::Var(h), CorePat::Var(t)),
+                guard: None,
+                rhs: branch,
+                span: Span::default(),
+            }],
+            join_ty: None,
+            span: Span::default(),
+        };
+        let mut splits = Vec::new();
+        collect_splits(&specialize_drops(expr), xs, &mut splits);
+        let [(unique, shared)] = splits.as_slice() else {
+            panic!("expected one split of xs: {splits:?}");
+        };
+        assert_eq!(dups_of(unique, t), 0, "{unique:?}");
+        assert_eq!(dups_of(shared, t), 1, "{shared:?}");
+    }
+
+    fn collect_splits(expr: &CoreExpr, xs: CoreBinder, splits: &mut Vec<(CoreExpr, CoreExpr)>) {
+        match expr {
+            CoreExpr::DropSpecialized {
+                scrutinee,
+                unique_body,
+                shared_body,
+                ..
+            } if scrutinee.binder == Some(xs.id) => {
+                splits.push((unique_body.as_ref().clone(), shared_body.as_ref().clone()));
+            }
+            CoreExpr::Case { alts, .. } => {
+                for alt in alts {
+                    collect_splits(&alt.rhs, xs, splits);
+                }
+            }
+            _ => {}
+        }
     }
 }

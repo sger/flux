@@ -310,7 +310,11 @@ use sha2::{Digest, Sha256};
 /// are released after the call; only actual function-tail calls defer cleanup.
 /// Epoch 100: cleanup preserves the ownership of a held call result, and
 /// plain reuse walks through intervening copies and unrelated releases.
-pub const CACHE_EPOCH: u16 = 100;
+/// Epoch 101: a view copied above a release that balances another arm is
+/// moved at its last use, and that release is split where it is, so a
+/// unique cell hands its fields over; an epoch-100 unit copied the view
+/// twice (PA R1, KI-121).
+pub const CACHE_EPOCH: u16 = 101;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
