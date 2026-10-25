@@ -1753,6 +1753,18 @@ fn calls_flux(func: &CoreExpr, registry: Option<&BorrowRegistry>) -> bool {
     }
 }
 
+/// Whether a `return` in `expr` is reached through lets, matches and
+/// reference counting, where `Release::at_returns` looks.
+fn returns_early(expr: &CoreExpr) -> bool {
+    match expr {
+        CoreExpr::Return { .. } => true,
+        CoreExpr::Let { rhs, body, .. } => returns_early(rhs) || returns_early(body),
+        CoreExpr::Case { alts, .. } => alts.iter().any(|alt| returns_early(&alt.rhs)),
+        CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => returns_early(body),
+        _ => false,
+    }
+}
+
 fn mentions(expr: &CoreExpr, binders: &BTreeSet<CoreBinderId>) -> bool {
     super::free_vars::collect_free_vars_aether(expr)
         .iter()
@@ -2055,6 +2067,112 @@ impl Release<'_> {
     /// alias. A cell the reuse pass could build in the owner's counts as a
     /// use: the owner's fields, dead views by then, would be overwritten
     /// with the references they hold.
+    /// An early return leaves the function with an owned value: release
+    /// before it goes.
+    fn before_return(
+        &mut self,
+        value: CoreExpr,
+        span: Span,
+        path: &ReleasePath,
+        scope: &mut Scope,
+    ) -> CoreExpr {
+        let mut returned = path.clone();
+        returned.lent_result = false;
+        returned.position = TailPosition::Tail;
+        CoreExpr::Return {
+            value: Box::new(self.after(value, &returned, scope)),
+            span,
+        }
+    }
+
+    /// Releases the owner at each return `expr` reaches, and nowhere else:
+    /// on the paths that do not return, the owner outlives `expr`. A return
+    /// under a call, a constructor or a lambda is not reached.
+    fn at_returns(&mut self, expr: CoreExpr, path: &ReleasePath, scope: &mut Scope) -> CoreExpr {
+        match expr {
+            CoreExpr::Return { value, span } => self.before_return(*value, span, path, scope),
+            CoreExpr::Let {
+                var,
+                rhs,
+                body,
+                span,
+            } => {
+                let gives = gives_away(&rhs, &path.whole, false);
+                let rhs = Box::new(self.at_returns(*rhs, path, scope));
+                if gives || !returns_early(&body) {
+                    return CoreExpr::Let {
+                        var,
+                        rhs,
+                        body,
+                        span,
+                    };
+                }
+                let mut inner = path.clone();
+                if tail_bare(&rhs, &path.whole) {
+                    inner.whole.insert(var.id);
+                }
+                inner
+                    .aliases
+                    .extend(alias_of(&var, &rhs, &path.aliases, self.registry));
+                CoreExpr::Let {
+                    var,
+                    rhs,
+                    body: Box::new(self.at_returns(*body, &inner, scope)),
+                    span,
+                }
+            }
+            CoreExpr::Case {
+                scrutinee,
+                alts,
+                join_ty,
+                span,
+            } if !gives_away(&scrutinee, &path.whole, false)
+                && !alts.iter().any(|alt| {
+                    alt.guard
+                        .as_ref()
+                        .is_some_and(|guard| gives_away(guard, &path.whole, false))
+                }) =>
+            {
+                let reads = mentions(&scrutinee, &path.aliases);
+                let alts = alts
+                    .into_iter()
+                    .map(|alt| {
+                        if !returns_early(&alt.rhs) {
+                            return alt;
+                        }
+                        let mut arm = path.clone();
+                        if reads {
+                            arm.aliases.extend(pat_binders(&alt.pat));
+                        }
+                        let rhs = self.at_returns(alt.rhs, &arm, scope);
+                        CoreAlt { rhs, ..alt }
+                    })
+                    .collect();
+                CoreExpr::Case {
+                    scrutinee,
+                    alts,
+                    join_ty,
+                    span,
+                }
+            }
+            CoreExpr::Dup { var, body, span } => CoreExpr::Dup {
+                var,
+                body: Box::new(self.at_returns(*body, path, scope)),
+                span,
+            },
+            CoreExpr::Drop { var, body, span }
+                if !var.binder.is_some_and(|id| path.whole.contains(&id)) =>
+            {
+                CoreExpr::Drop {
+                    var,
+                    body: Box::new(self.at_returns(*body, path, scope)),
+                    span,
+                }
+            }
+            other => other,
+        }
+    }
+
     fn after(&mut self, body: CoreExpr, path: &ReleasePath, scope: &mut Scope) -> CoreExpr {
         let used = mentions(&body, &path.aliases)
             || path
@@ -2081,9 +2199,17 @@ impl Release<'_> {
                 body,
                 span,
             } => {
+                let gives = gives_away(&rhs, &path.whole, false);
+                // A return in the right-hand side leaves before the body,
+                // where the walk puts the release.
+                let rhs = if returns_early(&rhs) {
+                    Box::new(self.at_returns(*rhs, path, scope))
+                } else {
+                    rhs
+                };
                 // Given away here on some path: those paths need no release,
                 // and the walk keeps out of the others it cannot tell apart.
-                if gives_away(&rhs, &path.whole, false) {
+                if gives {
                     return CoreExpr::Let {
                         var,
                         rhs,
@@ -2232,17 +2358,7 @@ impl Release<'_> {
                     span,
                 }
             }
-            // An early return leaves the function with an owned value:
-            // release before it goes.
-            CoreExpr::Return { value, span } => {
-                let mut returned = path.clone();
-                returned.lent_result = false;
-                returned.position = TailPosition::Tail;
-                CoreExpr::Return {
-                    value: Box::new(self.after(*value, &returned, scope)),
-                    span,
-                }
-            }
+            CoreExpr::Return { value, span } => self.before_return(*value, span, path, scope),
             // Given away: no release on this path. A release after an effect
             // runs in its continuation, which holds what the frame held
             // (`held`), so it is balanced however often the handler resumes.
@@ -3718,6 +3834,62 @@ mod tests {
         let rewritten = insert_dup_drop_with_registry(expr, &registry);
         assert_eq!(drops_of(&rewritten, x.id), 1, "{rewritten:?}");
         assert!(released_after(&rewritten, x.id, t.id), "{rewritten:?}");
+        assert_contract(&rewritten);
+    }
+
+    /// `let x = g(); let u = case c { true -> return 1, _ -> () }; let t =
+    /// len(x); t`. The return leaves before the read, so `x` is released
+    /// there too, and the contract does not count that release on the path
+    /// that goes on to the read.
+    #[test]
+    fn an_early_return_releases_a_value_read_later() {
+        let mut interner = Interner::new();
+        let x = binder(&mut interner, 1, "x");
+        let c = CoreBinder::with_rep(CoreBinderId(2), interner.intern("c"), FluxRep::IntRep);
+        let u = binder(&mut interner, 3, "u");
+        let t = CoreBinder::with_rep(CoreBinderId(4), interner.intern("t"), FluxRep::IntRep);
+        let registry = release_registry(&mut interner);
+        let g = call(interner.intern("g"), vec![]);
+        let read = call(interner.intern("len"), vec![var(x)]);
+        let early = CoreExpr::Case {
+            scrutinee: Box::new(var(c)),
+            alts: vec![
+                CoreAlt {
+                    pat: CorePat::Lit(CoreLit::Bool(true)),
+                    guard: None,
+                    rhs: CoreExpr::Return {
+                        value: Box::new(CoreExpr::Lit(CoreLit::Int(1), Span::default())),
+                        span: Span::default(),
+                    },
+                    span: Span::default(),
+                },
+                CoreAlt {
+                    pat: CorePat::Wildcard,
+                    guard: None,
+                    rhs: CoreExpr::Lit(CoreLit::Unit, Span::default()),
+                    span: Span::default(),
+                },
+            ],
+            join_ty: None,
+            span: Span::default(),
+        };
+        let expr = lam(
+            vec![c],
+            let_in(x, g, let_in(u, early, let_in(t, read, var(t)))),
+        );
+
+        let rewritten = insert_dup_drop_with_registry(expr, &registry);
+        assert_eq!(drops_of(&rewritten, x.id), 2, "{rewritten:?}");
+        assert!(released_after(&rewritten, x.id, t.id), "{rewritten:?}");
+        assert_eq!(
+            count_binder_nodes(&rewritten, x.id, &|expr, binder| matches!(
+                expr,
+                CoreExpr::Return { value, .. }
+                    if matches!(value.as_ref(), CoreExpr::Drop { var, .. } if var.binder == Some(binder))
+            )),
+            1,
+            "{rewritten:?}"
+        );
         assert_contract(&rewritten);
     }
 
