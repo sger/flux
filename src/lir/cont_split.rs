@@ -27,8 +27,8 @@ use std::collections::HashSet;
 use crate::core::FluxRep;
 use crate::lir::liveness::{self, FunctionLiveness};
 use crate::lir::{
-    BlockId, CtorArm, LirBlock, LirFnDebug, LirFnKind, LirFuncId, LirFunction, LirInstr, LirLoc,
-    LirProgram, LirTerminator, LirVar,
+    BlockId, CtorArm, HeldAcross, LirBlock, LirFnDebug, LirFnKind, LirFuncId, LirFunction,
+    LirInstr, LirLoc, LirProgram, LirTerminator, LirVar, YieldCont,
 };
 
 /// The parent a lambda's continuation names: the debug information writes
@@ -85,7 +85,7 @@ pub fn split_continuations_with_options(mut program: LirProgram, force: bool) ->
         for mut site in sites {
             // Attempt synthesis first so we only burn a synthetic id when the
             // synthesis actually produces a function.
-            let (mut synthesized, live_captures) =
+            let (mut synthesized, live_captures, moved) =
                 match synthesize_continuation(&program, func_idx, &site, &live) {
                     Some(x) => x,
                     None => continue,
@@ -111,7 +111,11 @@ pub fn split_continuations_with_options(mut program: LirProgram, force: bool) ->
                 .find(|b| b.id == site.block_id)
                 .expect("call site block disappeared");
             if let LirTerminator::Call { yield_cont, .. } = &mut block.terminator {
-                *yield_cont = Some((site.synth_id, live_captures));
+                *yield_cont = Some(YieldCont {
+                    func: site.synth_id,
+                    captures: live_captures,
+                    moved,
+                });
             }
         }
     }
@@ -136,6 +140,8 @@ struct CallSite {
     cont: BlockId,
     /// Fresh LirFuncId reserved for the synthesized continuation.
     synth_id: LirFuncId,
+    /// What the frame holds across the call, when Aether planned it.
+    held: Option<HeldAcross>,
 }
 
 fn collect_call_sites(
@@ -151,6 +157,7 @@ fn collect_call_sites(
             kind,
             suppress_yield_check,
             yield_cont,
+            held,
             ..
         } = &block.terminator
         {
@@ -168,6 +175,7 @@ fn collect_call_sites(
                 dst: *dst,
                 cont: *cont,
                 synth_id: LirFuncId(u32::MAX), // placeholder, filled in below
+                held: held.as_deref().cloned(),
             });
         }
     }
@@ -175,14 +183,15 @@ fn collect_call_sites(
 }
 
 /// Synthesize a continuation LirFunction for one call site. Returns
-/// `(function, live_capture_vars)` or `None` if the cont subgraph is trivial
+/// `(function, live_capture_vars, moved)`, where `moved` are the frame's own
+/// references among the captures, or `None` if the cont subgraph is trivial
 /// enough that no synthesis is required.
 fn synthesize_continuation(
     program: &LirProgram,
     func_idx: usize,
     site: &CallSite,
     live: &FunctionLiveness,
-) -> Option<(LirFunction, Vec<LirVar>)> {
+) -> Option<(LirFunction, Vec<LirVar>, Vec<LirVar>)> {
     let parent = &program.functions[func_idx];
 
     // The closure's capture set: live_in(cont) ∪ {dst}. `dst` is the Call's
@@ -243,15 +252,14 @@ fn synthesize_continuation(
         }
     }
 
-    // Entry block (id=0): take a reference to each capture, then jump to the
-    // remapped cont. The copied blocks follow the parent's plan for one run,
-    // which may give a capture away, and a multi-shot handler runs them once
-    // per resume (0189 V4, audit M4). The closure keeps its own references;
-    // `flux_dup` ignores scalars. Until the continuation is released (audit
-    // R4), each reference not given away leaks.
-    let entry_instrs: Vec<LirInstr> = capture_vars
-        .iter()
-        .map(|&val| LirInstr::Dup { val })
+    // Entry block (id=0): take the references the frame held, then jump to
+    // the remapped cont. The copied blocks follow the parent's plan for one
+    // run, which releases them, and a multi-shot handler runs them once per
+    // resume (0189 V4, audit M4). The closure keeps its own references.
+    let (moved, copies) = frame_references(site.held.as_ref(), &capture_vars);
+    let entry_instrs: Vec<LirInstr> = copies
+        .into_iter()
+        .map(|val| LirInstr::Dup { val })
         .collect();
     let entry_block = LirBlock {
         locs: Vec::new(),
@@ -325,7 +333,30 @@ fn synthesize_continuation(
     // storing it into the payload would also require it to be live at the
     // call site, which isn't guaranteed (dst is only bound on the non-yield
     // return path).
-    Some((synthesized, capture_vars))
+    Some((synthesized, capture_vars, moved))
+}
+
+/// The frame's own references among `captures`, once per reference, and
+/// what each resume copies: those again, as the rest of the frame releases
+/// them. A value the frame only reads is read from the closure. Without
+/// Aether's word on a capture, a resume copies it and the frame keeps its
+/// own, which may leak but never releases a reference nobody holds.
+fn frame_references(held: Option<&HeldAcross>, captures: &[LirVar]) -> (Vec<LirVar>, Vec<LirVar>) {
+    let Some(held) = held else {
+        return (Vec::new(), captures.to_vec());
+    };
+    let moved: Vec<LirVar> = held
+        .owned
+        .iter()
+        .copied()
+        .filter(|var| captures.contains(var))
+        .collect();
+    let unknown = captures
+        .iter()
+        .copied()
+        .filter(|var| !held.owned.contains(var) && !held.lent.contains(var));
+    let copies = moved.iter().copied().chain(unknown).collect();
+    (moved, copies)
 }
 
 /// Rewrite a terminator's block-id references using `id_remap`. All
@@ -454,6 +485,7 @@ mod tests {
                 },
                 suppress_yield_check: false,
                 yield_cont: None,
+                held: None,
             },
         });
         f.blocks.push(LirBlock {
@@ -476,8 +508,9 @@ mod tests {
             dst: v_dst,
             cont: BlockId(1),
             synth_id: LirFuncId(100),
+            held: None,
         };
-        let (synth, captures) = synthesize_continuation(&program, 0, &site, &live)
+        let (synth, captures, _) = synthesize_continuation(&program, 0, &site, &live)
             .expect("synthesize should produce a function");
 
         // Capture set excludes dst (dst reaches the synth fn via its resume
@@ -549,6 +582,7 @@ mod tests {
                 },
                 suppress_yield_check: false,
                 yield_cont: None,
+                held: None,
             },
         });
         // bb1: uses v_arg (keeping it live through the call) + v_dst.
@@ -573,8 +607,11 @@ mod tests {
             dst: v_dst,
             cont: BlockId(1),
             synth_id: LirFuncId(100),
+            held: None,
         };
-        let (synth, captures) = synthesize_continuation(&program, 0, &site, &live).unwrap();
+        let (synth, captures, moved) = synthesize_continuation(&program, 0, &site, &live).unwrap();
+        // Lowering said nothing about what the frame holds: it keeps it all.
+        assert!(moved.is_empty());
 
         // Closure captures exclude dst — only v_arg is live at the call site
         // (dst is defined by the Call, not used across it).
@@ -590,6 +627,82 @@ mod tests {
             "{:?}",
             entry.instrs
         );
+    }
+
+    /// A capture the frame owns moves into the continuation, and each resume
+    /// copies it; one it only reads is read from the closure. A capture
+    /// lowering made on its own is copied and kept, as before.
+    #[test]
+    fn a_resume_copies_what_the_frame_owned() {
+        let mut program = LirProgram::new();
+        let mut f = empty_function(0, "f");
+        let [v_func, v_own, v_lent, v_tmp, v_dst] = [0, 1, 2, 3, 4].map(LirVar);
+        f.params = vec![v_func, v_own, v_lent, v_tmp];
+        f.blocks.push(LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
+            id: BlockId(0),
+            params: Vec::new(),
+            instrs: Vec::new(),
+            terminator: LirTerminator::Call {
+                dst: v_dst,
+                func: v_func,
+                args: Vec::new(),
+                cont: BlockId(1),
+                kind: CallKind::Indirect {
+                    async_capable: true,
+                },
+                suppress_yield_check: false,
+                yield_cont: None,
+                held: None,
+            },
+        });
+        f.blocks.push(LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
+            id: BlockId(1),
+            params: Vec::new(),
+            instrs: vec![
+                LirInstr::IAdd {
+                    dst: LirVar(5),
+                    a: v_own,
+                    b: v_lent,
+                },
+                LirInstr::IAdd {
+                    dst: LirVar(6),
+                    a: v_tmp,
+                    b: v_dst,
+                },
+            ],
+            terminator: LirTerminator::Return(LirVar(6)),
+        });
+        f.next_var = 7;
+        program.push_function(f);
+
+        let live = liveness::compute(&program.functions[0]);
+        let site = CallSite {
+            block_id: BlockId(0),
+            dst: v_dst,
+            cont: BlockId(1),
+            synth_id: LirFuncId(100),
+            held: Some(HeldAcross {
+                owned: vec![v_own],
+                lent: vec![v_lent],
+            }),
+        };
+        let (synth, captures, moved) = synthesize_continuation(&program, 0, &site, &live).unwrap();
+
+        assert_eq!(captures, vec![v_own, v_lent, v_tmp]);
+        assert_eq!(moved, vec![v_own]);
+        let copied: Vec<LirVar> = synth.blocks[0]
+            .instrs
+            .iter()
+            .map(|instr| match instr {
+                LirInstr::Dup { val } => *val,
+                other => panic!("entry block: {other:?}"),
+            })
+            .collect();
+        assert_eq!(copied, vec![v_own, v_tmp]);
     }
 
     #[test]
@@ -614,6 +727,7 @@ mod tests {
                 },
                 suppress_yield_check: true,
                 yield_cont: None,
+                held: None,
             },
         });
         f.blocks.push(LirBlock {
@@ -650,6 +764,7 @@ mod tests {
                 },
                 suppress_yield_check: false,
                 yield_cont: None,
+                held: None,
             },
         });
         f.blocks.push(LirBlock {

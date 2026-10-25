@@ -1434,6 +1434,7 @@ impl<'a> FnLower<'a> {
             kind: CallKind::DirectExtern { symbol },
             suppress_yield_check: false,
             yield_cont: None,
+            held: None,
         });
         self.switch_to_block(cont_idx);
         result
@@ -2712,19 +2713,21 @@ impl<'a> FnLower<'a> {
                 }
             }
             AetherExpr::App { func, args, .. } => {
-                self.lower_call_expr_aether(func, args, None, None)
+                self.lower_call_expr_aether(func, args, None, None, None)
             }
             AetherExpr::AetherCall {
                 func,
                 args,
                 arg_modes,
                 guarded_borrowed_args,
+                owned_after,
                 ..
             } => self.lower_call_expr_aether(
                 func,
                 args,
                 Some(arg_modes),
                 Some(guarded_borrowed_args),
+                Some(owned_after),
             ),
             AetherExpr::Let { var, rhs, body, .. } => {
                 let rhs_var = self.lower_expr_aether(rhs);
@@ -3080,8 +3083,9 @@ impl<'a> FnLower<'a> {
                 effect,
                 operation,
                 args,
+                owned_after,
                 ..
-            } => self.lower_perform_aether(*effect, *operation, args),
+            } => self.lower_perform_aether(*effect, *operation, args, owned_after),
             AetherExpr::MemberAccess { object, member, .. } => {
                 if let Some(globals) = self.globals_map {
                     let member_str = self.resolve_name(*member);
@@ -3708,6 +3712,7 @@ impl<'a> FnLower<'a> {
                 kind: CallKind::Direct { func_id },
                 suppress_yield_check: false,
                 yield_cont: None,
+                held: None,
             });
             self.switch_to_block(cont_idx);
             // Mark result as integer if the callee is known to return Int.
@@ -3741,6 +3746,7 @@ impl<'a> FnLower<'a> {
                 },
                 suppress_yield_check: false,
                 yield_cont: None,
+                held: None,
             });
             self.switch_to_block(cont_idx);
             if let Some(bid) = callee_binder
@@ -3772,6 +3778,7 @@ impl<'a> FnLower<'a> {
                 kind: CallKind::Direct { func_id },
                 suppress_yield_check: false,
                 yield_cont: None,
+                held: None,
             });
             self.switch_to_block(cont_idx);
             return result;
@@ -3799,6 +3806,7 @@ impl<'a> FnLower<'a> {
                 },
                 suppress_yield_check: false,
                 yield_cont: None,
+                held: None,
             });
             self.switch_to_block(cont_idx);
             return result;
@@ -3831,6 +3839,7 @@ impl<'a> FnLower<'a> {
             },
             suppress_yield_check: false,
             yield_cont: None,
+            held: None,
         });
 
         self.switch_to_block(cont_idx);
@@ -3843,6 +3852,7 @@ impl<'a> FnLower<'a> {
         args: &[AetherExpr],
         arg_modes: Option<&[crate::aether::borrow_infer::BorrowMode]>,
         guarded_borrowed_args: Option<&[bool]>,
+        owned_after: Option<&[CoreBinderId]>,
     ) -> LirVar {
         let resolved_name = match func {
             AetherExpr::Var { var, .. } if var.binder.is_none() => {
@@ -3918,6 +3928,7 @@ impl<'a> FnLower<'a> {
         let arg_vars: Vec<LirVar> = args.iter().map(|a| self.lower_expr_aether(a)).collect();
         let protected_borrowed_args =
             self.dup_guarded_borrowed_call_args(&arg_vars, arg_modes, guarded_borrowed_args);
+        let held = owned_after.map(|owned| self.held_across(owned, &protected_borrowed_args));
 
         if let Some(func_id) = direct_func_id {
             let cont_idx = self.new_block();
@@ -3937,6 +3948,7 @@ impl<'a> FnLower<'a> {
                 kind: CallKind::Direct { func_id },
                 suppress_yield_check: false,
                 yield_cont: None,
+                held: held.clone(),
             });
             self.switch_to_block(cont_idx);
             self.drop_protected_borrowed_call_args(&protected_borrowed_args);
@@ -3968,6 +3980,7 @@ impl<'a> FnLower<'a> {
                 },
                 suppress_yield_check: false,
                 yield_cont: None,
+                held: held.clone(),
             });
             self.switch_to_block(cont_idx);
             self.drop_protected_borrowed_call_args(&protected_borrowed_args);
@@ -3993,6 +4006,7 @@ impl<'a> FnLower<'a> {
                 kind: CallKind::Direct { func_id },
                 suppress_yield_check: false,
                 yield_cont: None,
+                held: held.clone(),
             });
             self.switch_to_block(cont_idx);
             self.drop_protected_borrowed_call_args(&protected_borrowed_args);
@@ -4019,6 +4033,7 @@ impl<'a> FnLower<'a> {
                 },
                 suppress_yield_check: false,
                 yield_cont: None,
+                held: held.clone(),
             });
             self.switch_to_block(cont_idx);
             self.drop_protected_borrowed_call_args(&protected_borrowed_args);
@@ -4052,6 +4067,7 @@ impl<'a> FnLower<'a> {
             },
             suppress_yield_check: false,
             yield_cont: None,
+            held: held.clone(),
         });
         self.switch_to_block(cont_idx);
         self.drop_protected_borrowed_call_args(&protected_borrowed_args);
@@ -4083,6 +4099,26 @@ impl<'a> FnLower<'a> {
             }
         }
         protected
+    }
+
+    /// What the frame holds across a call Aether planned: the references
+    /// `owned_after` names, and the guard copies of borrowed arguments, which
+    /// it releases after the call. Every other source variable it only reads.
+    fn held_across(&self, owned_after: &[CoreBinderId], guarded: &[LirVar]) -> Box<HeldAcross> {
+        let owned: Vec<LirVar> = owned_after
+            .iter()
+            .filter_map(|binder| self.env.get(binder).copied())
+            .chain(guarded.iter().copied())
+            .collect();
+        let mut lent: Vec<LirVar> = self
+            .env
+            .values()
+            .copied()
+            .filter(|var| !owned.contains(var))
+            .collect();
+        lent.sort_by_key(|var| var.0);
+        lent.dedup();
+        Box::new(HeldAcross { owned, lent })
     }
 
     fn drop_protected_borrowed_call_args(&mut self, arg_vars: &[LirVar]) {
@@ -4411,6 +4447,7 @@ impl<'a> FnLower<'a> {
                 kind: CallKind::YieldTo,
                 suppress_yield_check: false,
                 yield_cont: None,
+                held: None,
             });
             self.switch_to_block(cont_idx);
         } else {
@@ -4430,6 +4467,7 @@ impl<'a> FnLower<'a> {
         effect: Identifier,
         operation: Identifier,
         args: &[AetherExpr],
+        owned_after: &[CoreBinderId],
     ) -> LirVar {
         use crate::core::CorePrimOp;
 
@@ -4496,6 +4534,7 @@ impl<'a> FnLower<'a> {
                 kind: CallKind::YieldTo,
                 suppress_yield_check: false,
                 yield_cont: None,
+                held: Some(self.held_across(owned_after, &[])),
             });
             self.switch_to_block(cont_idx);
         } else {
@@ -4743,6 +4782,7 @@ impl<'a> FnLower<'a> {
                     kind: CallKind::YieldTo,
                     suppress_yield_check: false,
                     yield_cont: None,
+                    held: None,
                 });
                 self.switch_to_block(cont_idx);
                 result
@@ -6306,7 +6346,7 @@ fn display_terminator(term: &LirTerminator) -> String {
             cont,
             kind,
             suppress_yield_check,
-            yield_cont: _,
+            ..
         } => {
             let args_str: Vec<String> = args.iter().map(|v| format!("{v}")).collect();
             let kind_str = match kind {
@@ -7005,6 +7045,7 @@ mod tests {
                     },
                     suppress_yield_check: false,
                     yield_cont: None,
+                    held: None,
                 },
             },
             LirBlock {
@@ -7023,6 +7064,7 @@ mod tests {
                     },
                     suppress_yield_check: false,
                     yield_cont: None,
+                    held: None,
                 },
             },
         ];
