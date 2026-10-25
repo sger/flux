@@ -18,19 +18,20 @@
 use crate::shared::opt_bisect;
 use std::collections::BTreeSet;
 
-use crate::core::{CoreBinder, CoreBinderId, CoreVarRef};
+use crate::core::{CoreBinder, CoreBinderId, CorePat, CoreVarRef};
 use crate::diagnostics::position::Span;
 
 use super::{
     AetherAlt as CoreAlt, AetherExpr, AetherHandler,
     analysis::{pat_field_binder_ids, use_counts_aether},
+    free_vars::collect_free_vars_aether,
 };
 
 type CoreExpr = AetherExpr;
 
 /// Run drop specialization on a Core IR expression.
 pub fn specialize_drops(expr: CoreExpr) -> CoreExpr {
-    transform(expr)
+    transform(expr, &mut FieldNames::default())
 }
 
 /// Run drop specialization on a backend-only Aether expression.
@@ -38,7 +39,55 @@ pub fn specialize_drops_aether(expr: CoreExpr) -> CoreExpr {
     specialize_drops(expr)
 }
 
-fn transform(expr: CoreExpr) -> CoreExpr {
+/// Names for the fields an arm matches with a wildcard, from a range of
+/// their own.
+#[derive(Default)]
+struct FieldNames {
+    made: u32,
+}
+
+const FIRST_FIELD_ID: u32 = 0xE000_0000;
+const FIRST_FIELD_SYMBOL: u32 = 7_500_000;
+
+impl FieldNames {
+    /// `pat` with each wildcard field named, and every field's binder in
+    /// order, or `None` when a field is matched by an inner pattern.
+    fn name_fields(&mut self, pat: &CorePat) -> Option<(CorePat, Vec<CoreBinder>)> {
+        let (CorePat::Con { fields: pats, .. } | CorePat::Tuple(pats)) = pat else {
+            return None;
+        };
+        let mut binders = Vec::with_capacity(pats.len());
+        for field in pats {
+            binders.push(match field {
+                CorePat::Var(binder) => *binder,
+                CorePat::Wildcard => {
+                    let n = self.made;
+                    self.made += 1;
+                    CoreBinder::new(
+                        CoreBinderId(FIRST_FIELD_ID + n),
+                        crate::syntax::symbol::Symbol::new(FIRST_FIELD_SYMBOL + n),
+                    )
+                }
+                _ => return None,
+            });
+        }
+        let fields = binders.iter().copied().map(CorePat::Var).collect();
+        let named = match pat {
+            CorePat::Con { tag, .. } => CorePat::Con {
+                tag: tag.clone(),
+                fields,
+            },
+            _ => CorePat::Tuple(fields),
+        };
+        Some((named, binders))
+    }
+
+    fn made(&self, id: CoreBinderId) -> bool {
+        (FIRST_FIELD_ID..FIRST_FIELD_ID + self.made).contains(&id.0)
+    }
+}
+
+fn transform(expr: CoreExpr, fresh: &mut FieldNames) -> CoreExpr {
     match expr {
         CoreExpr::Case {
             scrutinee,
@@ -46,7 +95,7 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             join_ty,
             span,
         } => {
-            let scrutinee = Box::new(transform(*scrutinee));
+            let scrutinee = Box::new(transform(*scrutinee, fresh));
 
             // Extract scrutinee binder for specialization.
             let scrut_binder = match scrutinee.as_ref() {
@@ -57,29 +106,34 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             let alts = alts
                 .into_iter()
                 .map(|mut alt| {
-                    alt.rhs = transform(alt.rhs);
-                    alt.guard = alt.guard.map(transform);
+                    alt.rhs = transform(alt.rhs, fresh);
+                    alt.guard = alt.guard.map(|e| transform(e, fresh));
 
-                    // Try drop specialization on this alt's RHS
-                    if let Some(binder) = &scrut_binder {
-                        // Only the cell's own fields: a nested field is held
-                        // by an inner cell, which a unique outer cell does
-                        // not hand over (audit L1).
-                        let field_binders: Vec<CoreBinderId> = pat_field_binder_ids(&alt.pat)
-                            .into_iter()
-                            .flatten()
-                            .flatten()
-                            .collect();
-                        if !field_binders.is_empty() {
-                            alt.rhs = try_specialize(*binder, &field_binders, alt.rhs, span);
-                            let split = matches!(
-                                &alt.rhs,
-                                CoreExpr::DropSpecialized { scrutinee, .. }
-                                    if scrutinee.binder == Some(binder.id)
-                            );
-                            if !split {
-                                alt.rhs = split_below_root(alt.rhs, *binder, &field_binders, span);
-                            }
+                    // Try drop specialization on this alt's RHS. A unique
+                    // path releases each field it is not handed, so each one
+                    // needs a name: a field matched by an inner pattern is
+                    // held by a cell nothing names, and keeps the plain
+                    // release (audit L1).
+                    if let Some(binder) = &scrut_binder
+                        && pat_field_binder_ids(&alt.pat)
+                            .is_some_and(|ids| ids.iter().any(Option::is_some))
+                        && let Some((named, fields)) = fresh.name_fields(&alt.pat)
+                    {
+                        alt.rhs = try_specialize(*binder, &fields, alt.rhs, span);
+                        let split = matches!(
+                            &alt.rhs,
+                            CoreExpr::DropSpecialized { scrutinee, .. }
+                                if scrutinee.binder == Some(binder.id)
+                        );
+                        if !split {
+                            alt.rhs = split_below_root(alt.rhs, *binder, &fields, span);
+                        }
+                        let released = collect_free_vars_aether(&alt.rhs);
+                        if fields
+                            .iter()
+                            .any(|field| fresh.made(field.id) && released.contains(&field.id))
+                        {
+                            alt.pat = named;
                         }
                     }
 
@@ -103,8 +157,8 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             span,
         } => CoreExpr::Let {
             var,
-            rhs: Box::new(transform(*rhs)),
-            body: Box::new(transform(*body)),
+            rhs: Box::new(transform(*rhs, fresh)),
+            body: Box::new(transform(*body, fresh)),
             span,
         },
         CoreExpr::LetRec {
@@ -114,8 +168,8 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             span,
         } => CoreExpr::LetRec {
             var,
-            rhs: Box::new(transform(*rhs)),
-            body: Box::new(transform(*body)),
+            rhs: Box::new(transform(*rhs, fresh)),
+            body: Box::new(transform(*body, fresh)),
             span,
         },
         CoreExpr::LetRecGroup {
@@ -125,9 +179,9 @@ fn transform(expr: CoreExpr) -> CoreExpr {
         } => CoreExpr::LetRecGroup {
             bindings: bindings
                 .into_iter()
-                .map(|(var, rhs)| (var, Box::new(transform(*rhs))))
+                .map(|(var, rhs)| (var, Box::new(transform(*rhs, fresh))))
                 .collect(),
-            body: Box::new(transform(*body)),
+            body: Box::new(transform(*body, fresh)),
             span,
         },
         CoreExpr::Lam {
@@ -140,12 +194,12 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             params,
             param_types,
             result_ty,
-            body: Box::new(transform(*body)),
+            body: Box::new(transform(*body, fresh)),
             span,
         },
         CoreExpr::App { func, args, span } => CoreExpr::App {
-            func: Box::new(transform(*func)),
-            args: args.into_iter().map(transform).collect(),
+            func: Box::new(transform(*func, fresh)),
+            args: args.into_iter().map(|e| transform(e, fresh)).collect(),
             span,
         },
         CoreExpr::AetherCall {
@@ -156,8 +210,8 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             owned_after,
             span,
         } => CoreExpr::AetherCall {
-            func: Box::new(transform(*func)),
-            args: args.into_iter().map(transform).collect(),
+            func: Box::new(transform(*func, fresh)),
+            args: args.into_iter().map(|e| transform(e, fresh)).collect(),
             arg_modes,
             guarded_borrowed_args,
             owned_after,
@@ -165,16 +219,16 @@ fn transform(expr: CoreExpr) -> CoreExpr {
         },
         CoreExpr::Con { tag, fields, span } => CoreExpr::Con {
             tag,
-            fields: fields.into_iter().map(transform).collect(),
+            fields: fields.into_iter().map(|e| transform(e, fresh)).collect(),
             span,
         },
         CoreExpr::PrimOp { op, args, span } => CoreExpr::PrimOp {
             op,
-            args: args.into_iter().map(transform).collect(),
+            args: args.into_iter().map(|e| transform(e, fresh)).collect(),
             span,
         },
         CoreExpr::Return { value, span } => CoreExpr::Return {
-            value: Box::new(transform(*value)),
+            value: Box::new(transform(*value, fresh)),
             span,
         },
         CoreExpr::Perform {
@@ -186,7 +240,7 @@ fn transform(expr: CoreExpr) -> CoreExpr {
         } => CoreExpr::Perform {
             effect,
             operation,
-            args: args.into_iter().map(transform).collect(),
+            args: args.into_iter().map(|e| transform(e, fresh)).collect(),
             owned_after,
             span,
         },
@@ -197,13 +251,13 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             handlers,
             span,
         } => CoreExpr::Handle {
-            body: Box::new(transform(*body)),
+            body: Box::new(transform(*body, fresh)),
             effect,
-            parameter: parameter.map(|p| Box::new(transform(*p))),
+            parameter: parameter.map(|p| Box::new(transform(*p, fresh))),
             handlers: handlers
                 .into_iter()
                 .map(|mut h| {
-                    h.body = transform(h.body);
+                    h.body = transform(h.body, fresh);
                     h
                 })
                 .collect(),
@@ -211,12 +265,12 @@ fn transform(expr: CoreExpr) -> CoreExpr {
         },
         CoreExpr::Dup { var, body, span } => CoreExpr::Dup {
             var,
-            body: Box::new(transform(*body)),
+            body: Box::new(transform(*body, fresh)),
             span,
         },
         CoreExpr::Drop { var, body, span } => CoreExpr::Drop {
             var,
-            body: Box::new(transform(*body)),
+            body: Box::new(transform(*body, fresh)),
             span,
         },
         CoreExpr::Reuse {
@@ -228,7 +282,7 @@ fn transform(expr: CoreExpr) -> CoreExpr {
         } => CoreExpr::Reuse {
             token,
             tag,
-            fields: fields.into_iter().map(transform).collect(),
+            fields: fields.into_iter().map(|e| transform(e, fresh)).collect(),
             field_mask,
             span,
         },
@@ -239,8 +293,8 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             span,
         } => CoreExpr::DropSpecialized {
             scrutinee,
-            unique_body: Box::new(transform(*unique_body)),
-            shared_body: Box::new(transform(*shared_body)),
+            unique_body: Box::new(transform(*unique_body, fresh)),
+            shared_body: Box::new(transform(*shared_body, fresh)),
             span,
         },
         CoreExpr::MemberAccess {
@@ -248,7 +302,7 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             member,
             span,
         } => CoreExpr::MemberAccess {
-            object: Box::new(transform(*object)),
+            object: Box::new(transform(*object, fresh)),
             member,
             span,
         },
@@ -257,7 +311,7 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             index,
             span,
         } => CoreExpr::TupleField {
-            object: Box::new(transform(*object)),
+            object: Box::new(transform(*object, fresh)),
             index,
             span,
         },
@@ -273,7 +327,7 @@ fn transform(expr: CoreExpr) -> CoreExpr {
 fn split_below_root(
     expr: CoreExpr,
     cell: CoreBinder,
-    fields: &[CoreBinderId],
+    fields: &[CoreBinder],
     span: Span,
 ) -> CoreExpr {
     let below = |expr: CoreExpr| split_below_root(expr, cell, fields, span);
@@ -301,7 +355,7 @@ fn split_below_root(
                 !copy
                     && var.binder == Some(cell.id)
                     && links[..at].iter().any(|(copy, var, _)| {
-                        *copy && var.binder.is_some_and(|id| fields.contains(&id))
+                        *copy && fields.iter().any(|field| var.binder == Some(field.id))
                     })
             });
             let chain = links
@@ -359,11 +413,11 @@ fn split_below_root(
 /// Extracts a validated candidate skeleton and builds unique/shared branches.
 fn try_specialize(
     scrutinee: CoreBinder,
-    field_binders: &[CoreBinderId],
+    fields: &[CoreBinder],
     rhs: CoreExpr,
     span: Span,
 ) -> CoreExpr {
-    let Ok(candidate) = extract_candidate(scrutinee, field_binders, rhs.clone()) else {
+    let Ok(candidate) = extract_candidate(scrutinee, fields, rhs.clone()) else {
         return rhs;
     };
     let unique_body = rebuild_candidate(&candidate, DropSpecMode::Unique);
@@ -391,6 +445,8 @@ fn try_specialize(
 #[derive(Debug, Clone)]
 struct DropSpecCandidate {
     scrutinee: CoreBinder,
+    /// Every field of the cell, in order.
+    fields: Vec<CoreBinder>,
     duped_fields: Vec<CoreBinderId>,
     expr: CoreExpr,
 }
@@ -424,14 +480,15 @@ struct CandidateAccumulator {
 
 fn extract_candidate(
     scrutinee: CoreBinder,
-    field_binders: &[CoreBinderId],
+    fields: &[CoreBinder],
     rhs: CoreExpr,
 ) -> Result<DropSpecCandidate, DropSpecFailureReason> {
+    let field_binders: Vec<CoreBinderId> = fields.iter().map(|field| field.id).collect();
     let mut acc = CandidateAccumulator::default();
     let saw_drop = validate_skeleton(
         &rhs,
         scrutinee.id,
-        field_binders,
+        &field_binders,
         DropScanState::BeforeDrop,
         &mut Vec::new(),
         &mut acc,
@@ -444,6 +501,7 @@ fn extract_candidate(
     }
     Ok(DropSpecCandidate {
         scrutinee,
+        fields: fields.to_vec(),
         duped_fields: acc.duped_fields.into_iter().collect(),
         expr: rhs,
     })
@@ -657,42 +715,52 @@ fn validate_after_drop_body(
 }
 
 fn rebuild_candidate(candidate: &DropSpecCandidate, mode: DropSpecMode) -> CoreExpr {
-    rewrite_mode(
-        &candidate.expr,
-        mode,
-        candidate.scrutinee.id,
-        &candidate.duped_fields,
-    )
+    rewrite_mode(&candidate.expr, mode, candidate, &[])
 }
 
+/// `handed` holds the fields whose copies the unique side took out in the
+/// run of dups and drops just above `expr`.
 fn rewrite_mode(
     expr: &CoreExpr,
     mode: DropSpecMode,
-    scrutinee_id: CoreBinderId,
-    duped_fields: &[CoreBinderId],
+    cell: &DropSpecCandidate,
+    handed: &[CoreBinderId],
 ) -> CoreExpr {
+    let scrutinee_id = cell.scrutinee.id;
     match expr {
         CoreExpr::Dup { var, body, span } => {
-            let is_field_dup = var.binder.is_some_and(|id| duped_fields.contains(&id))
+            let is_field_dup = var.binder.is_some_and(|id| cell.duped_fields.contains(&id))
                 && pairs_with_release(body, var.binder, scrutinee_id);
-            let inner = rewrite_mode(body, mode, scrutinee_id, duped_fields);
             if is_field_dup && mode == DropSpecMode::Unique {
-                inner
+                let mut handed = handed.to_vec();
+                handed.extend(var.binder);
+                rewrite_mode(body, mode, cell, &handed)
             } else {
                 CoreExpr::Dup {
                     var: *var,
-                    body: Box::new(inner),
+                    body: Box::new(rewrite_mode(body, mode, cell, handed)),
                     span: *span,
                 }
             }
         }
         CoreExpr::Drop { var, body, span } => {
             if var.binder == Some(scrutinee_id) && mode == DropSpecMode::Unique {
-                rewrite_mode(body, mode, scrutinee_id, duped_fields)
+                // The cell stays for reuse, so the fields it was not handed
+                // are released here, as its release would have.
+                let body = rewrite_mode(body, mode, cell, &[]);
+                cell.fields
+                    .iter()
+                    .rev()
+                    .filter(|field| field.rep.needs_rc() && !handed.contains(&field.id))
+                    .fold(body, |body, field| CoreExpr::Drop {
+                        var: CoreVarRef::resolved(field),
+                        body: Box::new(body),
+                        span: *span,
+                    })
             } else {
                 CoreExpr::Drop {
                     var: *var,
-                    body: Box::new(rewrite_mode(body, mode, scrutinee_id, duped_fields)),
+                    body: Box::new(rewrite_mode(body, mode, cell, handed)),
                     span: *span,
                 }
             }
@@ -704,8 +772,8 @@ fn rewrite_mode(
             span,
         } => CoreExpr::Let {
             var: *var,
-            rhs: Box::new(rewrite_mode(rhs, mode, scrutinee_id, duped_fields)),
-            body: Box::new(rewrite_mode(body, mode, scrutinee_id, duped_fields)),
+            rhs: Box::new(rewrite_mode(rhs, mode, cell, &[])),
+            body: Box::new(rewrite_mode(body, mode, cell, &[])),
             span: *span,
         },
         CoreExpr::LetRec {
@@ -716,7 +784,7 @@ fn rewrite_mode(
         } => CoreExpr::LetRec {
             var: *var,
             rhs: rhs.clone(),
-            body: Box::new(rewrite_mode(body, mode, scrutinee_id, duped_fields)),
+            body: Box::new(rewrite_mode(body, mode, cell, &[])),
             span: *span,
         },
         CoreExpr::Lam {
@@ -729,14 +797,14 @@ fn rewrite_mode(
             params: params.clone(),
             param_types: param_types.clone(),
             result_ty: result_ty.clone(),
-            body: Box::new(rewrite_mode(body, mode, scrutinee_id, duped_fields)),
+            body: Box::new(rewrite_mode(body, mode, cell, &[])),
             span: *span,
         },
         CoreExpr::App { func, args, span } => CoreExpr::App {
-            func: Box::new(rewrite_mode(func, mode, scrutinee_id, duped_fields)),
+            func: Box::new(rewrite_mode(func, mode, cell, &[])),
             args: args
                 .iter()
-                .map(|arg| rewrite_mode(arg, mode, scrutinee_id, duped_fields))
+                .map(|arg| rewrite_mode(arg, mode, cell, &[]))
                 .collect(),
             span: *span,
         },
@@ -748,10 +816,10 @@ fn rewrite_mode(
             owned_after,
             span,
         } => CoreExpr::AetherCall {
-            func: Box::new(rewrite_mode(func, mode, scrutinee_id, duped_fields)),
+            func: Box::new(rewrite_mode(func, mode, cell, &[])),
             args: args
                 .iter()
-                .map(|arg| rewrite_mode(arg, mode, scrutinee_id, duped_fields))
+                .map(|arg| rewrite_mode(arg, mode, cell, &[]))
                 .collect(),
             arg_modes: arg_modes.clone(),
             guarded_borrowed_args: guarded_borrowed_args.clone(),
@@ -770,7 +838,7 @@ fn rewrite_mode(
                 .map(|alt| CoreAlt {
                     pat: alt.pat.clone(),
                     guard: alt.guard.clone(),
-                    rhs: rewrite_mode(&alt.rhs, mode, scrutinee_id, duped_fields),
+                    rhs: rewrite_mode(&alt.rhs, mode, cell, &[]),
                     span: alt.span,
                 })
                 .collect(),
@@ -781,7 +849,7 @@ fn rewrite_mode(
             tag: tag.clone(),
             fields: fields
                 .iter()
-                .map(|field| rewrite_mode(field, mode, scrutinee_id, duped_fields))
+                .map(|field| rewrite_mode(field, mode, cell, &[]))
                 .collect(),
             span: *span,
         },
@@ -789,12 +857,12 @@ fn rewrite_mode(
             op: *op,
             args: args
                 .iter()
-                .map(|arg| rewrite_mode(arg, mode, scrutinee_id, duped_fields))
+                .map(|arg| rewrite_mode(arg, mode, cell, &[]))
                 .collect(),
             span: *span,
         },
         CoreExpr::Return { value, span } => CoreExpr::Return {
-            value: Box::new(rewrite_mode(value, mode, scrutinee_id, duped_fields)),
+            value: Box::new(rewrite_mode(value, mode, cell, &[])),
             span: *span,
         },
         CoreExpr::Perform {
@@ -808,7 +876,7 @@ fn rewrite_mode(
             operation: *operation,
             args: args
                 .iter()
-                .map(|arg| rewrite_mode(arg, mode, scrutinee_id, duped_fields))
+                .map(|arg| rewrite_mode(arg, mode, cell, &[]))
                 .collect(),
             owned_after: owned_after.clone(),
             span: *span,
@@ -820,11 +888,11 @@ fn rewrite_mode(
             handlers,
             span,
         } => CoreExpr::Handle {
-            body: Box::new(rewrite_mode(body, mode, scrutinee_id, duped_fields)),
+            body: Box::new(rewrite_mode(body, mode, cell, &[])),
             effect: *effect,
             parameter: parameter
                 .as_ref()
-                .map(|p| Box::new(rewrite_mode(p, mode, scrutinee_id, duped_fields))),
+                .map(|p| Box::new(rewrite_mode(p, mode, cell, &[]))),
             handlers: handlers
                 .iter()
                 .map(|handler| AetherHandler {
@@ -835,7 +903,7 @@ fn rewrite_mode(
                     state_ty: handler.state_ty.clone(),
                     resume: handler.resume,
                     resume_ty: handler.resume_ty.clone(),
-                    body: rewrite_mode(&handler.body, mode, scrutinee_id, duped_fields),
+                    body: rewrite_mode(&handler.body, mode, cell, &[]),
                     span: handler.span,
                 })
                 .collect(),
@@ -852,7 +920,7 @@ fn rewrite_mode(
             tag: tag.clone(),
             fields: fields
                 .iter()
-                .map(|field| rewrite_mode(field, mode, scrutinee_id, duped_fields))
+                .map(|field| rewrite_mode(field, mode, cell, &[]))
                 .collect(),
             field_mask: *field_mask,
             span: *span,
@@ -864,8 +932,8 @@ fn rewrite_mode(
             span,
         } => CoreExpr::DropSpecialized {
             scrutinee: *scrutinee,
-            unique_body: Box::new(rewrite_mode(unique_body, mode, scrutinee_id, duped_fields)),
-            shared_body: Box::new(rewrite_mode(shared_body, mode, scrutinee_id, duped_fields)),
+            unique_body: Box::new(rewrite_mode(unique_body, mode, cell, &[])),
+            shared_body: Box::new(rewrite_mode(shared_body, mode, cell, &[])),
             span: *span,
         },
         _ => expr.clone(),
@@ -1515,7 +1583,7 @@ mod tests {
             span: Span::default(),
         };
 
-        let result = super::extract_candidate(xs, &[h.id, t.id], rhs.clone());
+        let result = super::extract_candidate(xs, &[h, t], rhs.clone());
         assert_eq!(result.err(), Some(DropSpecFailureReason::NoFieldDup));
         let specialized = specialize_drops(rhs.clone());
         assert_eq!(format!("{specialized:?}"), format!("{rhs:?}"));
@@ -1757,9 +1825,10 @@ mod tests {
     }
 
     /// Audit L1: a nested field is held by an inner cell, which the unique
-    /// outer cell does not hand over, so its copy stays.
+    /// outer cell does not hand over. Nothing names that cell for a unique
+    /// path to release, so the arm keeps its plain release and every copy.
     #[test]
-    fn unique_path_keeps_the_copies_of_nested_fields() {
+    fn a_nested_pattern_keeps_its_plain_release() {
         let mut interner = Interner::new();
         let xs = binder(&mut interner, 1, "xs");
         let h = binder(&mut interner, 2, "h");
@@ -1780,15 +1849,33 @@ mod tests {
                 ),
             ),
         );
-        let (unique, _) = specialized_paths(xs, pat, rhs);
+        let expr = CoreExpr::Case {
+            scrutinee: Box::new(var(xs)),
+            alts: vec![CoreAlt {
+                pat,
+                guard: None,
+                rhs,
+                span: Span::default(),
+            }],
+            join_ty: None,
+            span: Span::default(),
+        };
+        let CoreExpr::Case { alts, .. } = specialize_drops(expr) else {
+            panic!("expected case");
+        };
+        let rhs = &alts[0].rhs;
         assert_eq!(
-            (
-                dups_of(&unique, h),
-                dups_of(&unique, h2),
-                dups_of(&unique, t2)
-            ),
-            (0, 1, 1),
-            "{unique:?}"
+            (dups_of(rhs, h), dups_of(rhs, h2), dups_of(rhs, t2)),
+            (1, 1, 1),
+            "{rhs:?}"
+        );
+        assert_eq!(
+            count_matching(rhs, &|expr| matches!(
+                expr,
+                CoreExpr::DropSpecialized { .. }
+            )),
+            0,
+            "{rhs:?}"
         );
     }
 
@@ -1880,5 +1967,56 @@ mod tests {
             }
             _ => {}
         }
+    }
+
+    /// `[_ | t] -> f(t)`: a unique cell is not released, so its unique path
+    /// releases the field it was not handed, named in the arm's pattern,
+    /// and keeps the one whose copy it took out.
+    #[test]
+    fn unique_path_releases_a_field_it_was_not_handed() {
+        let mut interner = Interner::new();
+        let xs = binder(&mut interner, 1, "xs");
+        let t = binder(&mut interner, 3, "t");
+        let f = binder(&mut interner, 4, "f");
+        let call = CoreExpr::App {
+            func: Box::new(var(f)),
+            args: vec![var(t)],
+            span: Span::default(),
+        };
+        let expr = CoreExpr::Case {
+            scrutinee: Box::new(var(xs)),
+            alts: vec![CoreAlt {
+                pat: cons_pat(CorePat::Wildcard, CorePat::Var(t)),
+                guard: None,
+                rhs: dup_in(t, drop_in(xs, call)),
+                span: Span::default(),
+            }],
+            join_ty: None,
+            span: Span::default(),
+        };
+        let CoreExpr::Case { mut alts, .. } = specialize_drops(expr) else {
+            panic!("expected case");
+        };
+        let alt = alts.remove(0);
+        let CorePat::Con { fields, .. } = &alt.pat else {
+            panic!("expected a constructor pattern: {:?}", alt.pat);
+        };
+        let CorePat::Var(head) = fields[0] else {
+            panic!("expected the head named: {:?}", alt.pat);
+        };
+        let CoreExpr::DropSpecialized { unique_body, .. } = &alt.rhs else {
+            panic!("expected DropSpecialized: {:?}", alt.rhs);
+        };
+        let drops_of = |b: CoreBinder| {
+            count_matching(
+                unique_body,
+                &|expr| matches!(expr, CoreExpr::Drop { var, .. } if var.binder == Some(b.id)),
+            )
+        };
+        assert_eq!(
+            (drops_of(head), drops_of(t), dups_of(unique_body, t)),
+            (1, 0, 0),
+            "{unique_body:?}"
+        );
     }
 }

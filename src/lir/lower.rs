@@ -1325,6 +1325,10 @@ struct FnLower<'a> {
     /// The variables `FLUX_AETHER_FAULT` takes the Dups or Drops of (a test
     /// hook).
     faulted_vars: HashSet<LirVar>,
+    /// The cells whose unique path is being lowered. Drop specialization
+    /// already released the fields such a cell was not handed, so a reuse of
+    /// one writes over the rest.
+    unique_cells: Vec<CoreBinderId>,
 }
 
 struct FnLowerCtx<'a> {
@@ -1400,6 +1404,7 @@ impl<'a> FnLower<'a> {
             last_loc: LirLoc::NONE,
             binder_names: HashMap::new(),
             faulted_vars: HashSet::new(),
+            unique_cells: Vec::new(),
         }
     }
 
@@ -3312,6 +3317,22 @@ impl<'a> FnLower<'a> {
                     dst: reuse_ptr,
                     val: token_var,
                 });
+                // This reuse replaced a plain release, which would have
+                // released each field: the arm copied what it keeps.
+                if !token
+                    .binder
+                    .is_some_and(|cell| self.unique_cells.contains(&cell))
+                {
+                    for i in 0..field_vars.len() {
+                        let old = self.fresh_var();
+                        self.emit(LirInstr::Load {
+                            dst: old,
+                            ptr: reuse_ptr,
+                            offset: ADT_HEADER_SIZE + (i as i32) * 8,
+                        });
+                        self.emit(LirInstr::Drop { val: old });
+                    }
+                }
                 self.emit(LirInstr::StoreI32 {
                     ptr: reuse_ptr,
                     offset: 0,
@@ -3402,7 +3423,11 @@ impl<'a> FnLower<'a> {
                 });
 
                 self.switch_to_block(unique_idx);
+                self.unique_cells.extend(scrutinee.binder);
                 let unique_val = self.lower_expr_aether(unique_body);
+                if scrutinee.binder.is_some() {
+                    self.unique_cells.pop();
+                }
                 self.emit_copy_to_join_param(unique_val, join_id);
                 self.set_terminator(LirTerminator::Jump(join_id));
 

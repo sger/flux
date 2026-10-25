@@ -3250,15 +3250,17 @@ lam(xs) ->
     _ ->
       0
 ── fn fresh_tree ──
-  Dups: 2  Drops: 2  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fip
+  Dups: 2  Drops: 4  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fip
   FreshAllocs: 0
   verifier: ok
 lam(t) ->
   case t#1332 of
-    Node(_, left, _, right) ->
+    Node(<sym:7500000>, left, <sym:7500001>, right) ->
       drop_specialized t#1332 {
         unique ->
-          reuse t#1332 as Node mask=0x5(Black, left#1333, 0, right#1334)
+            drop <sym:7500001>#3758096385 in
+          drop <sym:7500000>#3758096384 in
+              reuse t#1332 as Node mask=0x5(Black, left#1333, 0, right#1334)
         shared ->
           dup left#1333 in
             dup right#1334 in
@@ -3301,7 +3303,7 @@ lam() ->
         aether_call[owned] __resume_default#1369(<sym:4001927>#1927)
 
 ── Total ──
-  Dups: 207  Drops: 400  Reuses: 14  DropSpecs: 11  BorrowedCallGuards: 38  FBIP: fbip(50)  Yields: 11  Handles: 5  HandlerArms: 11
+  Dups: 207  Drops: 402  Reuses: 14  DropSpecs: 11  BorrowedCallGuards: 38  FBIP: fbip(50)  Yields: 11  Handles: 5  HandlerArms: 11
   FreshAllocs: 50
 
 [ 1 of 18] Compiling  Add

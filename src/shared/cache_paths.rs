@@ -344,7 +344,10 @@ use sha2::{Digest, Sha256};
 /// only when it reads one, and a group of local functions releases each
 /// member after its last use; an epoch-109 unit built them on every entry
 /// and released none (PA R5).
-pub const CACHE_EPOCH: u16 = 110;
+/// Epoch 111: a cell reused in place releases each old field nothing took
+/// over, and a match on a nested pattern keeps its plain release; an
+/// epoch-110 unit wrote over those fields and leaked them (PA R6).
+pub const CACHE_EPOCH: u16 = 111;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
