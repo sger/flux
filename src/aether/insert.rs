@@ -644,7 +644,9 @@ fn plan_expr(
                     .filter(|(child, field)| {
                         field.pattern
                             && scope.views.contains(*child)
-                            && scrutinee_var.as_ref().is_none_or(|sv| sv.id != field.parent)
+                            && scrutinee_var
+                                .as_ref()
+                                .is_none_or(|sv| sv.id != field.parent)
                             && scope.get(&field.parent).is_some()
                             && !scope.views.contains(&field.parent)
                             && !scope.lent(field.parent, field_parents)
@@ -653,7 +655,8 @@ fn plan_expr(
                     .filter_map(|(child, field)| {
                         let binder = scope.get(child).copied()?;
                         binder.rep.needs_rc().then(|| {
-                            let uses = |id| alts.iter().map(|alt| alt_uses_binder(alt, id)).collect();
+                            let uses =
+                                |id| alts.iter().map(|alt| alt_uses_binder(alt, id)).collect();
                             (binder, field.parent, uses(*child), uses(field.parent))
                         })
                     })
@@ -5152,7 +5155,10 @@ mod tests {
         let own = interner.intern("own");
         let arm = on_true(call(own, vec![var(t)]), call(own, vec![var(xs)]));
         let planned = insert_dup_drop_with_registry(
-            lam(vec![xs], case_of(xs, vec![(cons(h, t), arm), (CorePat::Wildcard, nil())])),
+            lam(
+                vec![xs],
+                case_of(xs, vec![(cons(h, t), arm), (CorePat::Wildcard, nil())]),
+            ),
             &registry,
         );
         assert_eq!(dups_of(&planned, t.id), 1, "{planned:?}");

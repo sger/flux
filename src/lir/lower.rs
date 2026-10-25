@@ -321,13 +321,12 @@ fn collect_async_effect_binders(
 /// such a call the clause has nothing left to do, so the resumed code needs no
 /// handler of its own around it.
 fn resumes_only_as_last_act(body: &AetherExpr, resume: CoreBinderId) -> bool {
-    let mentions =
-        |expr: &AetherExpr| crate::aether::free_vars::collect_free_vars_aether(expr).contains(&resume);
+    let mentions = |expr: &AetherExpr| {
+        crate::aether::free_vars::collect_free_vars_aether(expr).contains(&resume)
+    };
     let last = |expr: &AetherExpr| resumes_only_as_last_act(expr, resume);
     match body {
-        AetherExpr::App { func, args, .. } | AetherExpr::AetherCall { func, args, .. }
-            if matches!(func.as_ref(), AetherExpr::Var { var, .. } if var.binder == Some(resume)) =>
-        {
+        AetherExpr::App { func, args, .. } | AetherExpr::AetherCall { func, args, .. } if matches!(func.as_ref(), AetherExpr::Var { var, .. } if var.binder == Some(resume)) => {
             !args.iter().any(mentions)
         }
         AetherExpr::Let { rhs, body, .. } | AetherExpr::LetRec { rhs, body, .. } => {
@@ -3495,7 +3494,14 @@ impl<'a> FnLower<'a> {
         self.emit(LirInstr::PrimCall {
             dst: Some(new_evv),
             op: CorePrimOp::EvvInsert,
-            args: vec![saved_evv, htag, marker, handler_closure, state, tail_resumptive],
+            args: vec![
+                saved_evv,
+                htag,
+                marker,
+                handler_closure,
+                state,
+                tail_resumptive,
+            ],
         });
 
         self.emit(LirInstr::PrimCall {
@@ -3577,7 +3583,14 @@ impl<'a> FnLower<'a> {
         self.emit(LirInstr::PrimCall {
             dst: Some(new_evv),
             op: CorePrimOp::EvvInsert,
-            args: vec![saved_evv, htag, marker, handler_closure, state, tail_resumptive],
+            args: vec![
+                saved_evv,
+                htag,
+                marker,
+                handler_closure,
+                state,
+                tail_resumptive,
+            ],
         });
 
         self.emit(LirInstr::PrimCall {

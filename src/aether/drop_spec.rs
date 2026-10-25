@@ -296,9 +296,9 @@ fn split_below_root(
             let released_after_copy = links.iter().enumerate().any(|(at, (copy, var, _))| {
                 !copy
                     && var.binder == Some(cell.id)
-                    && links[..at]
-                        .iter()
-                        .any(|(copy, var, _)| *copy && var.binder.is_some_and(|id| fields.contains(&id)))
+                    && links[..at].iter().any(|(copy, var, _)| {
+                        *copy && var.binder.is_some_and(|id| fields.contains(&id))
+                    })
             });
             let chain = links
                 .into_iter()
