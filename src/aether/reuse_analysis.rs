@@ -1187,6 +1187,7 @@ fn rewrite_nested_drop_sites(
             args,
             arg_modes,
             guarded_borrowed_args,
+            owned_after,
             span,
         } => {
             let func_inner = rewrite_nested_drop_sites(*func, env, blocked_outer_token);
@@ -1201,6 +1202,7 @@ fn rewrite_nested_drop_sites(
                 args,
                 arg_modes,
                 guarded_borrowed_args,
+                owned_after,
                 span,
             };
             if reused {
@@ -1248,11 +1250,13 @@ fn rewrite_nested_drop_sites(
             effect,
             operation,
             args,
+            owned_after,
             span,
         } => rewrite_nested_children(args, env, blocked_outer_token, |args| CoreExpr::Perform {
             effect,
             operation,
             args,
+            owned_after,
             span,
         }),
         CoreExpr::Handle {
@@ -1842,12 +1846,14 @@ fn rebuild_constructor_shape(
             func,
             arg_modes,
             guarded_borrowed_args,
+            owned_after,
             ..
         } => CoreExpr::AetherCall {
             func,
             args: fields,
             arg_modes,
             guarded_borrowed_args,
+            owned_after,
             span,
         },
         other => other,
@@ -2282,6 +2288,7 @@ mod tests {
                 effect: io,
                 operation: print,
                 args: vec![v(key)],
+                owned_after: Vec::new(),
                 span: s(),
             }),
             body: Box::new(CoreExpr::Con {
@@ -2322,6 +2329,7 @@ mod tests {
                 args: vec![v(h)],
                 arg_modes: vec![crate::aether::borrow_infer::BorrowMode::Owned],
                 guarded_borrowed_args: vec![false],
+                owned_after: Vec::new(),
                 span: s(),
             }),
             body: Box::new(CoreExpr::Let {
@@ -2334,6 +2342,7 @@ mod tests {
                         crate::aether::borrow_infer::BorrowMode::Borrowed,
                     ],
                     guarded_borrowed_args: vec![false, false],
+                    owned_after: Vec::new(),
                     span: s(),
                 }),
                 body: Box::new(CoreExpr::Con {
@@ -2387,6 +2396,7 @@ mod tests {
                 args: vec![v(xs)],
                 arg_modes: vec![crate::aether::borrow_infer::BorrowMode::Owned],
                 guarded_borrowed_args: vec![false],
+                owned_after: Vec::new(),
                 span: s(),
             }),
             body: Box::new(CoreExpr::Con {

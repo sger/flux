@@ -766,6 +766,7 @@ impl<'a> FnCtx<'a> {
                 operation,
                 args,
                 span,
+                ..
             } => {
                 let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr_aether(a)).collect();
                 let dest = self.ctx.alloc_var();

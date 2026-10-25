@@ -558,6 +558,8 @@ fn plan_expr(
                     args,
                     arg_modes,
                     guarded_borrowed_args,
+                    // The `held` pass fills this in on the finished plan.
+                    owned_after: Vec::new(),
                     span,
                 },
                 env_before: func_plan.env_before,
@@ -568,6 +570,7 @@ fn plan_expr(
             args,
             arg_modes: existing_arg_modes,
             guarded_borrowed_args: _,
+            owned_after: _,
             span,
         } => {
             let resolved_callee = planned_callee(func.as_ref(), registry, scope);
@@ -610,6 +613,8 @@ fn plan_expr(
                     args,
                     arg_modes,
                     guarded_borrowed_args,
+                    // The `held` pass fills this in on the finished plan.
+                    owned_after: Vec::new(),
                     span,
                 },
                 env_before: func_plan.env_before,
@@ -1051,6 +1056,7 @@ fn plan_expr(
             effect,
             operation,
             args,
+            owned_after,
             span,
         } => {
             let (args, mut env_before) =
@@ -1068,6 +1074,7 @@ fn plan_expr(
                     effect,
                     operation,
                     args,
+                    owned_after,
                     span,
                 },
                 env_before,
@@ -3954,6 +3961,7 @@ mod tests {
             effect,
             operation: interner.intern("ask"),
             args: vec![CoreExpr::Lit(CoreLit::Int(1), Span::default())],
+            owned_after: Vec::new(),
             span: Span::default(),
         };
         let mut read = || call(interner.intern("len"), vec![var(xs)]);

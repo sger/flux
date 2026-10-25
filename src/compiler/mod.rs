@@ -1041,6 +1041,7 @@ fn collect_aether_debug_details(
                 arg_modes,
                 guarded_borrowed_args,
                 span,
+                ..
             } => {
                 let callee = crate::aether::display::single_line_expr(func, interner);
                 details.call_sites.push(format!(
