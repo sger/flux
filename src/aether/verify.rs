@@ -361,12 +361,16 @@ fn check_views(
                     check_views(guard, false, &mut lent, diags);
                 }
                 check_views(&alt.rhs, owned, &mut arm, diags);
+                if leaves(&alt.rhs) {
+                    continue;
+                }
                 joined = Some(match joined {
                     None => arm.copies,
                     Some(copies) => fewest(copies, &arm.copies),
                 });
             }
-            // What follows the match runs after any one arm.
+            // What follows the match runs after any one arm that does not
+            // return.
             if let Some(copies) = joined {
                 views.copies = copies;
             }
@@ -580,6 +584,18 @@ pub fn verify_diagnostics_aether(expr: &AetherExpr) -> Vec<AetherDiagnostic> {
     diags
 }
 
+/// Whether every path through `expr` returns from the function, so that
+/// nothing after it runs.
+fn leaves(expr: &AetherExpr) -> bool {
+    match expr {
+        AetherExpr::Return { .. } => true,
+        AetherExpr::Let { rhs, body, .. } => leaves(rhs) || leaves(body),
+        AetherExpr::Case { alts, .. } => alts.iter().all(|alt| leaves(&alt.rhs)),
+        AetherExpr::Dup { body, .. } | AetherExpr::Drop { body, .. } => leaves(body),
+        _ => false,
+    }
+}
+
 /// Checks that no path releases a binder twice. `released` holds the
 /// binders released so far on the path being walked, in evaluation order;
 /// a case's arms each continue from it, and what follows the case continues
@@ -639,6 +655,9 @@ fn check_single_release(
                     fallthrough.clone_from(&path);
                 }
                 check_single_release(&alt.rhs, &mut path, errors);
+                if leaves(&alt.rhs) {
+                    continue;
+                }
                 for binder in path {
                     if !released.contains(&binder) {
                         released.push(binder);
@@ -985,6 +1004,9 @@ fn check_reads_after_release(
                     fallthrough.gone.clone_from(&arm.gone);
                 }
                 check_reads_after_release(&alt.rhs, &mut arm, errors);
+                if leaves(&alt.rhs) {
+                    continue;
+                }
                 match &mut joined {
                     Some(joined) => joined.merge(arm),
                     None => joined = Some(arm),
