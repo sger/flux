@@ -250,7 +250,7 @@ fn instr_def(instr: &LirInstr) -> Option<LirVar> {
 }
 
 /// Return the vars read by an instruction.
-fn instr_uses(instr: &LirInstr) -> Vec<LirVar> {
+pub(crate) fn instr_uses(instr: &LirInstr) -> Vec<LirVar> {
     match instr {
         LirInstr::Load { ptr, .. } => vec![*ptr],
         LirInstr::Store { ptr, val, .. } => vec![*ptr, *val],
@@ -302,7 +302,7 @@ fn instr_uses(instr: &LirInstr) -> Vec<LirVar> {
 /// at code-gen time. They must be counted as uses here or they'll go missing
 /// from the live-out set at the call site, which the yield-continuation
 /// splitter uses to decide what to spill.
-fn terminator_uses(term: &LirTerminator) -> Vec<LirVar> {
+pub(crate) fn terminator_uses(term: &LirTerminator) -> Vec<LirVar> {
     match term {
         LirTerminator::Return(v) => vec![*v],
         LirTerminator::Jump(_) => Vec::new(),

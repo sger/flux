@@ -392,18 +392,38 @@ fn plan_expr(
                 field_parents,
             );
             let mut body_expr = body_plan.expr;
-            // Insert drops for unused bindings
-            for (var, _) in bindings.iter().rev() {
+            // An unused binding is released first; a used one, as for
+            // `LetRec`, after its last use.
+            let mut released = BTreeSet::new();
+            for (var, rhs) in bindings.iter().rev() {
                 let bd = binder_demand(&body_plan.env_before, var.id);
                 if bd == ValueDemand::Ignore {
                     body_expr = wrap_drop(*var, body_expr, span);
+                } else if var.rep.needs_rc() && matches!(rhs.as_ref(), CoreExpr::Lam { .. }) {
+                    let (expr, was_released) = release_owner(
+                        *var,
+                        body_expr,
+                        span,
+                        demand != ValueDemand::Owned,
+                        position,
+                        scope,
+                        registry,
+                    );
+                    body_expr = expr;
+                    if was_released {
+                        released.insert(var.id);
+                    }
                 }
             }
 
             let mut env = body_plan.env_before.clone();
             let mut new_bindings = Vec::with_capacity(bindings.len());
             for (var, rhs) in bindings.into_iter().rev() {
-                let bd = binder_demand(&env, var.id);
+                let bd = if released.contains(&var.id) {
+                    ValueDemand::Owned
+                } else {
+                    binder_demand(&env, var.id)
+                };
                 let mut rhs_tail = env.clone();
                 rhs_tail.remove(var.id);
                 let rhs_plan = plan_expr(

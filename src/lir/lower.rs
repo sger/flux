@@ -317,6 +317,30 @@ fn collect_async_effect_binders(
         .collect()
 }
 
+/// Removes the closures in `vars` that nothing in `func` reads. A local
+/// function binds its own name, and its siblings', to closures built on
+/// entry, but its calls to them are direct and read none of them; nothing
+/// releases such a closure, so each entry left one behind.
+fn remove_unread_closures(func: &mut LirFunction, vars: &[LirVar]) {
+    let read: HashSet<LirVar> = func
+        .blocks
+        .iter()
+        .flat_map(|block| {
+            block
+                .instrs
+                .iter()
+                .flat_map(crate::lir::liveness::instr_uses)
+                .chain(crate::lir::liveness::terminator_uses(&block.terminator))
+        })
+        .collect();
+    for block in &mut func.blocks {
+        block.instrs.retain(|instr| {
+            !matches!(instr, LirInstr::MakeClosure { dst, .. }
+                if vars.contains(dst) && !read.contains(dst))
+        });
+    }
+}
+
 /// Whether a handler clause uses `resume` only as a call it ends with: after
 /// such a call the clause has nothing left to do, so the resumed code needs no
 /// handler of its own around it.
@@ -2837,6 +2861,7 @@ impl<'a> FnLower<'a> {
                             inner.bind_captured(binder_id, inner_var, &self.binder_names);
                         }
                         let self_var = inner.fresh_var();
+                        let mut own_closures = vec![self_var];
                         inner.emit(LirInstr::MakeClosure {
                             dst: self_var,
                             func_id: entry.synthetic_id,
@@ -2861,6 +2886,7 @@ impl<'a> FnLower<'a> {
                         for (j, entry_j) in entries.iter().enumerate() {
                             if j != i {
                                 let sibling_var = inner.fresh_var();
+                                own_closures.push(sibling_var);
                                 inner.emit(LirInstr::MakeClosure {
                                     dst: sibling_var,
                                     func_id: entry_j.synthetic_id,
@@ -2899,6 +2925,7 @@ impl<'a> FnLower<'a> {
                         }
                         let result = inner.lower_expr_aether(lam_body);
                         inner.set_terminator(LirTerminator::Return(result));
+                        remove_unread_closures(&mut inner.func, &own_closures);
                         temp_program.functions[entry.func_idx] = inner.func;
                     }
                 }
@@ -3023,6 +3050,7 @@ impl<'a> FnLower<'a> {
                     }
                     let result = inner.lower_expr_aether(lam_body);
                     inner.set_terminator(LirTerminator::Return(result));
+                    remove_unread_closures(&mut inner.func, &[self_var]);
                     let inner_func = inner.func;
                     *self.program = temp_program;
                     self.program.functions[func_idx] = inner_func;
