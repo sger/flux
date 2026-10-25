@@ -149,16 +149,21 @@ _]` in `main` (3 cells) and a tuple destructured with `let (a, b) = t` (1
 block). A variable passed twice in one call, owned first and borrowed
 second (`f(xs, xs)`), leaks the reference the borrowed position holds. Not checked on the VM, which frees through Rust's `Rc`.
 
-### KI-119 — Natively, the Console handler around `main` is never freed
+### KI-119 — Natively, a program that prints leaves a closure per `print` call
 
-**Severity:** Low · **Area:** LIR lowering, effect handlers · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `--leak-check` runs · **Issue:** [#19](https://forgejo.spirosgerokostas.com/sger/flux/issues/19)
+**Severity:** Low · **Area:** LIR lowering, effect handlers · **Verified:** 2026-10-25 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `--leak-check` runs · **Issue:** [#19](https://forgejo.spirosgerokostas.com/sger/flux/issues/19)
 
-`fn main() { print(1) }` leaves 5 blocks live at exit under `flux --native
---leak-check`: two closures and an effect handler allocated at `main`'s
-first line (the default `print` and `println` arms and their evidence), a
-closure at the `print` call, and a tuple allocated in the handler arm (its
-`()` result). Every program that prints leaks these, once per `print` call
-for the last two. A program that prints nothing leaks none of them.
+`fn main() { print(1) }` leaves 2 blocks live at exit under `flux --native
+--leak-check`: a closure allocated at the `print` call, and a tuple
+allocated in the default handler arm (its `()` result). Three `print` calls
+leave three closures and still one tuple. A program that prints nothing
+leaks none of them.
+
+The closure is most likely the top-level function value a call builds for
+a borrowed use, which nothing releases (not traced yet); that goes when
+top-level closures are static (Perceus audit step 10). Until 2026-10-25 the handlers around `main` leaked too, two closures
+and their evidence: a `handle` now releases its clause and evidence when its
+body is done (Perceus audit R3).
 
 This is why `--leak-check` is a flag of its own and `--debug-heap` alone
 does not report leaks.
