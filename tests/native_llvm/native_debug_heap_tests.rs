@@ -1338,3 +1338,46 @@ fn a_handle_releases_its_clause_and_state() {
     .collect();
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+const LOCAL_FUNCTION_PER_TURN: &str = r"fn turn(n) {
+    LOCAL
+}
+
+fn loop(n, total) {
+    if n == 0 { total } else { loop(n - 1, total + turn(n)) }
+}
+
+fn main() with IO {
+    print(to_string(loop(SIZE, 0)))
+}
+";
+
+/// A local recursive function calls itself directly, so it builds no
+/// closure of itself on entry: one per entry was left behind. The same for
+/// local functions that call each other, and for one that captures.
+#[test]
+fn a_local_function_leaves_no_closure_behind() {
+    let scratch = Scratch::new("debug-heap-local-function");
+    let failures: Vec<String> = [
+        (
+            "own",
+            "fn go(i, acc) {\n        if i == 0 { acc } else { go(i - 1, acc + i) }\n    }\n    let r = go(3, n)\n    r + 0",
+        ),
+        (
+            "captures",
+            "let k = n % 2\n    fn go(i, acc) {\n        if i == 0 { acc } else { go(i - 1, acc + i + k) }\n    }\n    let r = go(3, n)\n    r + 0",
+        ),
+        (
+            "group",
+            "fn even(i) {\n        if i == 0 { 1 } else { odd(i - 1) }\n    }\n    fn odd(i) {\n        if i == 0 { 0 } else { even(i - 1) }\n    }\n    let r = even(n % 4)\n    r + 0",
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(name, local)| {
+        let program = LOCAL_FUNCTION_PER_TURN.replace("LOCAL", local);
+        let (_, _, live) = per_thousand_cells(&scratch, name, &program);
+        (live != 0).then(|| format!("{name}: {live} blocks left live per 1000 turns"))
+    })
+    .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
