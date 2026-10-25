@@ -68,6 +68,7 @@ fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
             args,
             arg_modes,
             guarded_borrowed_args,
+            owned_after,
             span,
         } => CoreExpr::AetherCall {
             func: Box::new(specialize_with_env(*func, env)),
@@ -77,6 +78,7 @@ fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
                 .collect(),
             arg_modes,
             guarded_borrowed_args,
+            owned_after,
             span,
         },
         CoreExpr::Let {
@@ -188,6 +190,7 @@ fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
             effect,
             operation,
             args,
+            owned_after,
             span,
         } => CoreExpr::Perform {
             effect,
@@ -196,6 +199,7 @@ fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
                 .into_iter()
                 .map(|arg| specialize_with_env(arg, env))
                 .collect(),
+            owned_after,
             span,
         },
         CoreExpr::Handle {
@@ -319,6 +323,7 @@ fn specialize_with_env_aether(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
             args,
             arg_modes,
             guarded_borrowed_args,
+            owned_after,
             span,
         } => AetherExpr::AetherCall {
             func: Box::new(specialize_with_env_aether(*func, env)),
@@ -328,6 +333,7 @@ fn specialize_with_env_aether(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
                 .collect(),
             arg_modes,
             guarded_borrowed_args,
+            owned_after,
             span,
         },
         AetherExpr::Let {
@@ -441,6 +447,7 @@ fn specialize_with_env_aether(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
             effect,
             operation,
             args,
+            owned_after,
             span,
         } => AetherExpr::Perform {
             effect,
@@ -449,6 +456,7 @@ fn specialize_with_env_aether(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
                 .into_iter()
                 .map(|arg| specialize_with_env_aether(arg, env))
                 .collect(),
+            owned_after,
             span,
         },
         AetherExpr::Handle {

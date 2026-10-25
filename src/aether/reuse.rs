@@ -143,6 +143,7 @@ fn rewrite_with_ctx(
             args,
             arg_modes,
             guarded_borrowed_args,
+            owned_after,
             span,
         } => CoreExpr::AetherCall {
             func: Box::new(rewrite_with_ctx(*func, arm, blocked_outer_token)),
@@ -152,6 +153,7 @@ fn rewrite_with_ctx(
                 .collect(),
             arg_modes,
             guarded_borrowed_args,
+            owned_after,
             span,
         },
         CoreExpr::Case {
@@ -217,6 +219,7 @@ fn rewrite_with_ctx(
             effect,
             operation,
             args,
+            owned_after,
             span,
         } => CoreExpr::Perform {
             effect,
@@ -225,6 +228,7 @@ fn rewrite_with_ctx(
                 .into_iter()
                 .map(|a| rewrite_with_ctx(a, arm, blocked_outer_token))
                 .collect(),
+            owned_after,
             span,
         },
         CoreExpr::Handle {
@@ -670,6 +674,7 @@ mod tests {
                 args: vec![v(tmp), tail],
                 arg_modes: vec![BorrowMode::Owned, BorrowMode::Owned],
                 guarded_borrowed_args: vec![false, false],
+                owned_after: Vec::new(),
                 span: Span::default(),
             }),
             span: Span::default(),
@@ -730,6 +735,7 @@ mod tests {
             args: vec![first, second],
             arg_modes: vec![BorrowMode::Owned, BorrowMode::Owned],
             guarded_borrowed_args: vec![false, false],
+            owned_after: Vec::new(),
             span: Span::default(),
         };
         let arms = |tail: &dyn Fn() -> CoreExpr| CoreExpr::Case {

@@ -26,6 +26,7 @@ pub mod drop_spec;
 pub mod fbip_analysis;
 pub mod free_vars;
 pub mod fusion;
+pub mod held;
 pub mod insert;
 pub mod reuse;
 pub mod reuse_analysis;
@@ -33,8 +34,8 @@ pub mod reuse_spec;
 pub mod verify;
 
 use crate::core::{
-    CoreAlt, CoreBinder, CoreDef, CoreExpr, CoreHandler, CoreLit, CorePat, CorePrimOp, CoreProgram,
-    CoreTag, CoreTopLevelItem, CoreType, CoreVarRef,
+    CoreAlt, CoreBinder, CoreBinderId, CoreDef, CoreExpr, CoreHandler, CoreLit, CorePat,
+    CorePrimOp, CoreProgram, CoreTag, CoreTopLevelItem, CoreType, CoreVarRef,
 };
 use crate::diagnostics::position::Span;
 use crate::shared::opt_bisect;
@@ -99,6 +100,10 @@ pub enum AetherExpr {
         /// Aether provenance/liveness and is deliberately separate from the
         /// callee's borrow mode.
         guarded_borrowed_args: Vec<bool>,
+        /// The binders this function holds a reference to right after the
+        /// call, once per reference (`held`). A call that suspends turns the
+        /// frame into a continuation, which takes these over.
+        owned_after: Vec<CoreBinderId>,
         span: Span,
     },
     Let {
@@ -152,6 +157,8 @@ pub enum AetherExpr {
         effect: Identifier,
         operation: Identifier,
         args: Vec<AetherExpr>,
+        /// As for `AetherCall`: what the continuation of the effect takes over.
+        owned_after: Vec<CoreBinderId>,
         span: Span,
     },
     Handle {
@@ -397,6 +404,7 @@ impl AetherExpr {
                 effect,
                 operation,
                 args: args.into_iter().map(Self::from_core).collect(),
+                owned_after: Vec::new(),
                 span,
             },
             CoreExpr::Handle {
@@ -519,6 +527,7 @@ impl AetherExpr {
                 operation,
                 args,
                 span,
+                ..
             } => CoreExpr::Perform {
                 effect,
                 operation,
@@ -1000,7 +1009,8 @@ pub fn run_aether_expr(expr: AetherExpr) -> AetherExpr {
     let expr = drop_spec::specialize_drops_aether(expr);
     let expr = fusion::fuse_dup_drop_aether(expr);
     let expr = reuse::insert_reuse_aether(expr);
-    reuse_spec::specialize_reuse_aether(expr)
+    let expr = reuse_spec::specialize_reuse_aether(expr);
+    held::annotate_owned_after(expr)
 }
 
 /// Run the Aether pipeline with a borrow registry for cross-function
@@ -1042,7 +1052,8 @@ pub fn run_aether_def_with_registry(
     let expr = drop_spec::specialize_drops_aether(expr);
     let expr = fusion::fuse_dup_drop_aether(expr);
     let expr = reuse::insert_reuse_aether(expr);
-    reuse_spec::specialize_reuse_aether(expr)
+    let expr = reuse_spec::specialize_reuse_aether(expr);
+    held::annotate_owned_after(expr)
 }
 
 #[allow(clippy::result_large_err)]

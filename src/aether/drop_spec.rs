@@ -153,12 +153,14 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             args,
             arg_modes,
             guarded_borrowed_args,
+            owned_after,
             span,
         } => CoreExpr::AetherCall {
             func: Box::new(transform(*func)),
             args: args.into_iter().map(transform).collect(),
             arg_modes,
             guarded_borrowed_args,
+            owned_after,
             span,
         },
         CoreExpr::Con { tag, fields, span } => CoreExpr::Con {
@@ -179,11 +181,13 @@ fn transform(expr: CoreExpr) -> CoreExpr {
             effect,
             operation,
             args,
+            owned_after,
             span,
         } => CoreExpr::Perform {
             effect,
             operation,
             args: args.into_iter().map(transform).collect(),
+            owned_after,
             span,
         },
         CoreExpr::Handle {
@@ -741,6 +745,7 @@ fn rewrite_mode(
             args,
             arg_modes,
             guarded_borrowed_args,
+            owned_after,
             span,
         } => CoreExpr::AetherCall {
             func: Box::new(rewrite_mode(func, mode, scrutinee_id, duped_fields)),
@@ -750,6 +755,7 @@ fn rewrite_mode(
                 .collect(),
             arg_modes: arg_modes.clone(),
             guarded_borrowed_args: guarded_borrowed_args.clone(),
+            owned_after: owned_after.clone(),
             span: *span,
         },
         CoreExpr::Case {
@@ -795,6 +801,7 @@ fn rewrite_mode(
             effect,
             operation,
             args,
+            owned_after,
             span,
         } => CoreExpr::Perform {
             effect: *effect,
@@ -803,6 +810,7 @@ fn rewrite_mode(
                 .iter()
                 .map(|arg| rewrite_mode(arg, mode, scrutinee_id, duped_fields))
                 .collect(),
+            owned_after: owned_after.clone(),
             span: *span,
         },
         CoreExpr::Handle {
@@ -1438,6 +1446,7 @@ mod tests {
                 effect: crate::syntax::builtin_effects::io_effect_symbol(&mut interner),
                 operation: interner.intern("print"),
                 args: vec![var(h), var(t)],
+                owned_after: Vec::new(),
                 span: Span::default(),
             }),
             span: Span::default(),

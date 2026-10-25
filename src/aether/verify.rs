@@ -1864,6 +1864,7 @@ mod tests {
             args: vec![arg],
             arg_modes: vec![crate::aether::borrow_infer::BorrowMode::Owned],
             guarded_borrowed_args: vec![false],
+            owned_after: Vec::new(),
             span: s(),
         }
     }
@@ -2664,6 +2665,7 @@ mod tests {
             args: vec![v(x)],
             arg_modes: vec![],
             guarded_borrowed_args: vec![false],
+            owned_after: Vec::new(),
             span: s(),
         };
         let err = verify_contract(&expr).expect_err("expected invalid aether_call mode count");
@@ -2844,6 +2846,7 @@ mod tests {
                         effect: io,
                         operation: print,
                         args: vec![v(key)],
+                        owned_after: Vec::new(),
                         span: s(),
                     }),
                     body: Box::new(CoreExpr::Con {
