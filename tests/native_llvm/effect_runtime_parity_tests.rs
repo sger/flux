@@ -174,6 +174,11 @@ fn effect_multi_shot_two_performs_parity() {
 }
 
 #[test]
+fn effect_try_panic_restores_handler_parity() {
+    assert_parity_with_yield_checks("effect_try_panic_restores_handler.flx", "\"8\"");
+}
+
+#[test]
 fn guide_io_and_time_native_matches_vm() {
     let path = "examples/guide_type_system/04_with_io_and_with_time.flx";
     let (vm_lines, vm_ok) = run_guide_fixture(path, false);
