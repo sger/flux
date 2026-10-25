@@ -957,6 +957,8 @@ int64_t flux_ho_find(int64_t collection, int64_t func);
 /* Evidence vector management. */
 int64_t flux_evv_get(void);
 void    flux_evv_set(int64_t evv);
+int64_t flux_effect_catch_point(void);
+void    flux_effect_unwound(int64_t evv);
 int64_t flux_fresh_marker(void);
 int64_t flux_evv_insert(int64_t evv, int64_t htag, int64_t marker, int64_t handler, int64_t state,
                         int64_t tail_resumptive);

@@ -13,6 +13,14 @@ use super::VM;
 // We don't need it here since the IP is already advanced during capture, but kept for documentation.
 const _OP_PERFORM_SIZE: usize = 3;
 
+/// Where an invocation started, for unwinding it on an error.
+#[derive(Clone, Copy)]
+struct InvokeStart {
+    sp: usize,
+    frame_index: usize,
+    handlers: usize,
+}
+
 impl VM {
     /// Capture a single frame's continuation piece as a freshly allocated
     /// `Value::Continuation`. Only the (effectively inert) `OpReturnCheck`
@@ -184,12 +192,21 @@ impl VM {
         Ok(())
     }
 
-    fn unwind_invoke_error(&mut self, start_sp: usize, start_frame_index: usize) {
-        while self.frame_index > start_frame_index {
+    /// Leaves the frames, stack and handlers an invocation added, as an
+    /// error from it does: a `handle` it entered never reached the code
+    /// that uninstalls it.
+    fn unwind_invoke_error(&mut self, start: InvokeStart) {
+        while self.frame_index > start.frame_index {
             let return_slot = self.pop_frame_return_slot();
             let _ = self.reset_sp(return_slot);
         }
-        let _ = self.reset_sp(start_sp);
+        let _ = self.reset_sp(start.sp);
+        // As `OpEndHandle` does for each: the evidence goes back to what the
+        // outermost of them replaced.
+        if let Some(outermost) = self.handler_stack.get(start.handlers) {
+            self.context.evidence = outermost.saved_evv.clone();
+            self.handler_stack.truncate(start.handlers);
+        }
     }
 
     pub(super) fn execute_call(&mut self, num_args: usize) -> Result<(), String> {
@@ -546,8 +563,11 @@ impl VM {
     pub fn invoke_value(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, String> {
         match callee {
             Value::Closure(closure) => {
-                let start_sp = self.sp;
-                let start_frame_index = self.frame_index;
+                let start = InvokeStart {
+                    sp: self.sp,
+                    frame_index: self.frame_index,
+                    handlers: self.handler_stack.len(),
+                };
                 let num_args = args.len();
                 if num_args != closure.function.num_parameters {
                     return Err(format!(
@@ -585,11 +605,11 @@ impl VM {
                         if vm.frame_index == target_frame_index
                             && vm.current_frame().ip >= vm.current_frame().instructions().len()
                         {
-                            vm.unwind_invoke_error(start_sp, start_frame_index);
+                            vm.unwind_invoke_error(start);
                             return Err("callable exited without return".to_string());
                         }
                         if let Err(err) = vm.execute_current_instruction(Some(target_frame_index)) {
-                            vm.unwind_invoke_error(start_sp, start_frame_index);
+                            vm.unwind_invoke_error(start);
                             return Err(err);
                         }
                     }
