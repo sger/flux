@@ -210,6 +210,7 @@ fn outline_instr_site(
                 kind: CallKind::Direct { func_id: helper_id },
                 suppress_yield_check: true,
                 yield_cont: None,
+                held: None,
             },
         );
         let old_term_loc = std::mem::replace(&mut block.term_loc, outlined_loc);
@@ -522,6 +523,7 @@ mod tests {
                         },
                         suppress_yield_check: false,
                         yield_cont: None,
+                        held: None,
                     }
                 } else {
                     LirTerminator::Call {
@@ -534,6 +536,7 @@ mod tests {
                         },
                         suppress_yield_check: false,
                         yield_cont: None,
+                        held: None,
                     }
                 },
             });

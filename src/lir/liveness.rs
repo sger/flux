@@ -328,8 +328,8 @@ fn terminator_uses(term: &LirTerminator) -> Vec<LirVar> {
             if let CallKind::DirectClosure { captures, .. } = kind {
                 v.extend(captures.iter().copied());
             }
-            if let Some((_, captures)) = yield_cont {
-                v.extend(captures.iter().copied());
+            if let Some(yield_cont) = yield_cont {
+                v.extend(yield_cont.captures.iter().copied());
             }
             v
         }
@@ -458,6 +458,7 @@ mod tests {
                 },
                 suppress_yield_check: false,
                 yield_cont: None,
+                held: None,
             },
         });
         f.blocks.push(LirBlock {

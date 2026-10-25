@@ -278,6 +278,31 @@ pub enum LirInstr {
 
 // ── Block terminators ────────────────────────────────────────────────────────
 
+/// What a frame holds across a call Aether planned. If the call suspends,
+/// the frame becomes a continuation that takes these over.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct HeldAcross {
+    /// One entry per reference the frame holds after the call and releases
+    /// later.
+    pub owned: Vec<LirVar>,
+    /// Source variables the frame only reads after the call.
+    pub lent: Vec<LirVar>,
+}
+
+/// The continuation a call that suspends leaves behind.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct YieldCont {
+    pub func: LirFuncId,
+    /// What is live after the call, stored in the continuation closure,
+    /// which takes a reference of its own to each.
+    pub captures: Vec<LirVar>,
+    /// The frame's own references among `captures`, once per reference.
+    /// The yield releases them once the closure holds its own, and each
+    /// resume copies them again, because the rest of the frame releases
+    /// them. A borrowed capture is only read, from the closure.
+    pub moved: Vec<LirVar>,
+}
+
 /// The terminator of a basic block — exactly one per block.
 #[derive(Debug, Clone)]
 pub enum LirTerminator {
@@ -322,7 +347,10 @@ pub enum LirTerminator {
         /// When present, the LLVM emitter inserts a yield check after the call:
         /// if `flux_is_yielding()`, build a closure from this function + captured
         /// live vars, call `flux_yield_extend`, and return YIELD_SENTINEL.
-        yield_cont: Option<(LirFuncId, Vec<LirVar>)>,
+        yield_cont: Option<YieldCont>,
+        /// What the frame holds across the call, when Aether planned it.
+        /// `None` for a call lowering made on its own.
+        held: Option<Box<HeldAcross>>,
     },
     /// Constructor pattern match on a scrutinee value.
     ///

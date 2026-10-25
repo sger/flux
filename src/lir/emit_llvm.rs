@@ -2904,7 +2904,7 @@ impl<'a> FnEmitter<'a> {
     fn emit_yield_check_after_call(
         &mut self,
         cont: BlockId,
-        yield_cont: Option<(LirFuncId, &[LirVar])>,
+        yield_cont: Option<&YieldCont>,
     ) -> LlvmTerminator {
         // Label ids unique per call site.
         let slot = self.next_tmp;
@@ -2974,9 +2974,14 @@ impl<'a> FnEmitter<'a> {
     ///   (e.g. the cont subgraph was trivially empty).
     fn build_yield_block_instrs(
         &mut self,
-        yield_cont: Option<(LirFuncId, &[LirVar])>,
+        yield_cont: Option<&YieldCont>,
     ) -> (Vec<LlvmInstr>, LlvmTerminator) {
-        let Some((func_id, captures)) = yield_cont else {
+        let Some(YieldCont {
+            func: func_id,
+            captures,
+            moved,
+        }) = yield_cont
+        else {
             return (
                 Vec::new(),
                 LlvmTerminator::Ret {
@@ -2991,6 +2996,7 @@ impl<'a> FnEmitter<'a> {
 
         self.needed_decls.insert("flux_yield_extend".to_string());
 
+        let func_id = *func_id;
         let target = self
             .program
             .func_by_id(func_id)
@@ -3079,6 +3085,23 @@ impl<'a> FnEmitter<'a> {
             attrs: Vec::new(),
         });
 
+        // The closure holds its own reference to each capture now: the frame
+        // lets go of its own, which the continuation copies on each resume.
+        if !self.worker_mode && !moved.is_empty() {
+            self.needed_decls.insert("flux_drop".to_string());
+            for var in moved {
+                instrs.push(LlvmInstr::Call {
+                    dst: None,
+                    tail: false,
+                    call_conv: Some(CallConv::Ccc),
+                    ret_ty: LlvmType::Void,
+                    callee: LlvmOperand::Global(GlobalId("flux_drop".to_string())),
+                    args: vec![(LlvmType::i64(), self.var(*var))],
+                    attrs: Vec::new(),
+                });
+            }
+        }
+
         // %sentinel = call i64 @flux_yield_extend(i64 %closure)
         let sentinel = self.tmp();
         instrs.push(LlvmInstr::Call {
@@ -3164,6 +3187,7 @@ impl<'a> FnEmitter<'a> {
                 kind,
                 suppress_yield_check,
                 yield_cont,
+                ..
             } => {
                 match kind {
                     CallKind::Direct { func_id } => {
@@ -3253,9 +3277,7 @@ impl<'a> FnEmitter<'a> {
                     // The parent's cont block is only ever entered via the
                     // synthesized continuation fn, never via straight-line
                     // fall-through, so %dst is never defined in the parent.
-                    let passed_cont: Option<(LirFuncId, &[LirVar])> =
-                        yield_cont.as_ref().map(|(id, caps)| (*id, caps.as_slice()));
-                    let (instrs, term) = self.build_yield_block_instrs(passed_cont);
+                    let (instrs, term) = self.build_yield_block_instrs(yield_cont.as_ref());
                     for instr in instrs {
                         self.emit(instr);
                     }
@@ -3269,9 +3291,7 @@ impl<'a> FnEmitter<'a> {
                     // continuation are known non-suspending call sites after
                     // cont_split filtering, so they must not observe a stale
                     // yielding flag and return a bare sentinel.
-                    let passed_cont: Option<(LirFuncId, &[LirVar])> =
-                        yield_cont.as_ref().map(|(id, caps)| (*id, caps.as_slice()));
-                    self.emit_yield_check_after_call(*cont, passed_cont)
+                    self.emit_yield_check_after_call(*cont, yield_cont.as_ref())
                 } else {
                     // Default output (yield checks disabled): branch straight
                     // to `cont`. Byte-identical to pre-slice-3a IR.
