@@ -1965,3 +1965,39 @@ fn a_local_function_leaves_no_closure_behind() {
     .collect();
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+const WIDE_ARRAY: &str = r"import Flow.Array exposing (concat)
+
+fn build(lo, hi) {
+    if hi - lo == 1 { [| [lo] |] } else {
+        let mid = (lo + hi) / 2
+        concat(build(lo, mid), build(mid, hi))
+    }
+}
+
+fn main() with IO {
+    print(len(build(0, SIZE)))
+}
+";
+
+/// An array releases every element, each a list of its own. Its header
+/// counted the elements to release in one byte, capped at 255, so the rest
+/// stayed live; 70000 is past the 65535 a 16-bit index reaches too (KI-123).
+/// Halving builds it without the quadratic copying of a `push` per element.
+#[test]
+fn an_array_releases_every_element() {
+    let scratch = Scratch::new("debug-heap-wide-array");
+    let at = |n: u64| {
+        stats_of(
+            &scratch,
+            &format!("wide_array_{n}.flx"),
+            &WIDE_ARRAY.replace("SIZE", &n.to_string()),
+        )
+        .2
+    };
+    let (one, wide) = (at(1), at(70000));
+    assert_eq!(
+        wide, one,
+        "an array of 70000 lists left {wide} blocks live, one of 1 left {one}"
+    );
+}
