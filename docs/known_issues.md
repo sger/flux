@@ -42,6 +42,36 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-127 — On the VM, a function with about a hundred `let`s computes a wrong result
+
+**Severity:** High · **Area:** VM, bytecode · **Verified:** 2026-10-26 · **From:** the Perceus audit, step 10
+
+A function that binds many values with `let` gives a wrong answer on the
+VM, with no error. The native backend gives the right one:
+
+```flux
+fn total(n) {
+    let v0 = n + 0
+    let v1 = n + 1
+    // … one `let` per value, up to v99
+    v0 + v1 + … + v99
+}
+
+fn main() {
+    print(total(len([1, 2])))
+}
+```
+
+With 80 `let`s both backends print 3320. With 100 the VM prints 6340
+instead of 5150, and the error grows with the count (120 `let`s: 10270
+instead of 7380; 200: 668425 instead of 20300). Summing through a chain of
+`let`s (`let s1 = s0 + v1`, …) instead of one long expression is just as
+wrong, so it is not the size of one expression. The cause is not known yet.
+
+A closure that sums 254 captured values is also wrong on the VM (32892
+instead of 32640; 253 are right), so `a_value_with_255_fields_runs` runs its
+closure case natively only.
+
 ### KI-126 — Natively, a caught panic leaks what the frames it skipped held
 
 **Severity:** Low · **Area:** native runtime, panics · **Verified:** 2026-10-25 · **From:** the Perceus audit, R7 and C1
