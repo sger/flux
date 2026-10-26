@@ -1645,9 +1645,7 @@ fn wrap_dups(binder: CoreBinder, body: CoreExpr, span: Span, n: usize) -> CoreEx
 
 /// Releases `owner` after its last use on each path of `body` that does not
 /// give it away. `lent_result` says the enclosing expression only reads
-/// `body`'s result. Returns the body, and whether any path got the release:
-/// a path whose last use is a Flux call in function-tail position keeps
-/// the value instead, so the call stays a tail call.
+/// `body`'s result. Returns the body, and whether any path got the release.
 fn release_owner(
     owner: CoreBinder,
     body: CoreExpr,
@@ -1864,6 +1862,20 @@ fn aliases_owned_unknown(
     }
 }
 
+/// Whether `call` names nothing in `aliases` except as a copy, `dup a in
+/// a`, passed as an argument: once the copies are made it needs nothing the
+/// owner holds.
+fn takes_only_copies(call: &CoreExpr, aliases: &BTreeSet<CoreBinderId>) -> bool {
+    let (CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. }) = call else {
+        return false;
+    };
+    !mentions(func, aliases)
+        && args.iter().all(|arg| match arg {
+            CoreExpr::Dup { var, body, .. } if copies_itself(var, body) => true,
+            other => !mentions(other, aliases),
+        })
+}
+
 /// Whether `dup var in body` is a copy of `var` and nothing more.
 fn copies_itself(var: &CoreVarRef, body: &CoreExpr) -> bool {
     matches!(body, CoreExpr::Var { var: inner, .. } if inner.binder == var.binder)
@@ -2034,7 +2046,8 @@ struct ReleasePath {
     whole: BTreeSet<CoreBinderId>,
     /// The enclosing expression only reads the result.
     lent_result: bool,
-    /// Cleanup after a call is deferred only when it would end a tail call.
+    /// Whether the body ends the function, where a call stays a tail call
+    /// when the release can go before it.
     position: TailPosition,
     /// The constructor an enclosing arm matched the owner with.
     matched: Option<CoreTag>,
@@ -2047,8 +2060,8 @@ struct ReleasePath {
 /// A read in a binding's right-hand side releases at the head of that
 /// binding's body, which keeps a tail call after it a tail call. When the
 /// last read is the result itself, the result is held in a temporary across
-/// the Drop, unless it is a Flux call in function-tail position: that path
-/// keeps the value, so the call stays a tail call.
+/// the Drop, unless it is a call in function-tail position given only
+/// copies of what the owner holds: the Drop goes before that call.
 struct Release<'a> {
     owner: CoreBinder,
     span: Span,
@@ -2363,10 +2376,42 @@ impl Release<'_> {
             // runs in its continuation, which holds what the frame held
             // (`held`), so it is balanced however often the handler resumes.
             leaf if gives_away(&leaf, &path.whole, !path.lent_result) => leaf,
-            CoreExpr::App { ref func, .. } | CoreExpr::AetherCall { ref func, .. }
-                if path.position == TailPosition::Tail && calls_flux(func, self.registry) =>
+            // A call in function-tail position given only copies of what the
+            // owner holds: the copies go first and the release before the
+            // call, which stays last and so stays a tail call. A call that
+            // still reads the owner takes the general path below, and the
+            // release after it ends the tail call: a recursive call is not
+            // one of these, since borrow inference makes a parameter it lends
+            // an owned value to owned.
+            mut call @ (CoreExpr::App { .. } | CoreExpr::AetherCall { .. })
+                if path.position == TailPosition::Tail
+                    && takes_only_copies(&call, &path.aliases) =>
             {
-                body
+                let mut copies = Vec::new();
+                if let CoreExpr::App { args, .. } | CoreExpr::AetherCall { args, .. } = &mut call {
+                    for arg in args.iter_mut() {
+                        let copied = matches!(arg, CoreExpr::Dup { var, body, .. }
+                            if copies_itself(var, body)
+                                && var.binder.is_some_and(|id| path.aliases.contains(&id)));
+                        if !copied {
+                            continue;
+                        }
+                        let unit = CoreExpr::Lit(crate::core::CoreLit::Unit, self.span);
+                        if let CoreExpr::Dup { var, body, span } = std::mem::replace(arg, unit) {
+                            copies.push((var, span));
+                            *arg = *body;
+                        }
+                    }
+                }
+                let call = self.drop_before(call);
+                copies
+                    .into_iter()
+                    .rev()
+                    .fold(call, |body, (var, span)| CoreExpr::Dup {
+                        var,
+                        body: Box::new(body),
+                        span,
+                    })
             }
             // A cell built from copies and from names that point into nothing
             // the owner holds: the copies go first and the release before the
@@ -2791,6 +2836,16 @@ mod tests {
         self_count + children
     }
 
+    /// The call `expr` ends in. A call that only reads a value its function
+    /// owns, here the closure `f`, is held in a temporary while the value is
+    /// released after it.
+    fn held_call(expr: &CoreExpr) -> &CoreExpr {
+        match expr {
+            CoreExpr::Let { rhs, .. } => rhs,
+            other => other,
+        }
+    }
+
     #[test]
     fn indirect_calls_default_to_owned_aether_call_modes() {
         let mut interner = Interner::new();
@@ -2813,7 +2868,7 @@ mod tests {
         let CoreExpr::Lam { body, .. } = rewritten else {
             panic!("expected lambda body");
         };
-        match body.as_ref() {
+        match held_call(&body) {
             CoreExpr::AetherCall { arg_modes, .. } => {
                 assert_eq!(arg_modes, &[BorrowMode::Owned]);
             }
@@ -2890,7 +2945,7 @@ mod tests {
         let CoreExpr::Lam { body, .. } = rewritten else {
             panic!("expected lambda body");
         };
-        match body.as_ref() {
+        match held_call(&body) {
             CoreExpr::AetherCall { arg_modes, .. } => {
                 assert_eq!(arg_modes, &[BorrowMode::Owned]);
             }
@@ -4246,11 +4301,12 @@ mod tests {
         ));
     }
 
-    /// `let x = g(); walk(x)`, `walk` a Flux function borrowing `x`.
-    /// Releasing `x` after the call would end the tail call, so it is left
-    /// unreleased (PA R1, a counted leak).
+    /// `let x = g(); walk(x)`, `walk` a Flux function borrowing `x`. The
+    /// caller still holds `x` when the call returns, so the call is held in a
+    /// temporary and `x` released after it (KI-128): kept for the tail call,
+    /// nothing released it.
     #[test]
-    fn a_tail_call_that_reads_the_value_gets_no_temporary() {
+    fn a_tail_call_that_reads_the_value_is_followed_by_its_release() {
         let mut interner = Interner::new();
         let x = binder(&mut interner, 1, "x");
         let registry = release_registry(&mut interner);
@@ -4259,17 +4315,84 @@ mod tests {
         let expr = lam(vec![], let_in(x, g, tail));
 
         let rewritten = insert_dup_drop_with_registry(expr, &registry);
-        assert_eq!(drops_of(&rewritten, x.id), 0, "{rewritten:?}");
+        assert_eq!(drops_of(&rewritten, x.id), 1, "{rewritten:?}");
         let CoreExpr::Lam { body, .. } = &rewritten else {
             panic!("expected a lambda");
         };
         let CoreExpr::Let { body, .. } = body.as_ref() else {
             panic!("expected the binding of x: {body:?}");
         };
+        let CoreExpr::Let { rhs, body, .. } = body.as_ref() else {
+            panic!("expected the call held in a temporary: {body:?}");
+        };
         assert!(
-            matches!(body.as_ref(), CoreExpr::AetherCall { .. }),
+            matches!(rhs.as_ref(), CoreExpr::AetherCall { .. }),
+            "{rhs:?}"
+        );
+        assert!(
+            matches!(body.as_ref(), CoreExpr::Drop { var, .. } if var.binder == Some(x.id)),
             "{body:?}"
         );
+        assert_contract(&rewritten);
+    }
+
+    /// `case xs of Cons(h, t) -> own(t)`: the call takes a copy of `t` and
+    /// nothing else of `xs`, so `xs` is released before the call, which stays
+    /// last and so a tail call (KI-128).
+    #[test]
+    fn a_tail_call_given_only_copies_comes_after_the_release() {
+        let mut interner = Interner::new();
+        let [xs, h, t] =
+            [(1, "xs"), (2, "h"), (3, "t")].map(|(id, name)| binder(&mut interner, id, name));
+        let registry = release_registry(&mut interner);
+        let own_tail = call(interner.intern("own"), vec![var(t)]);
+        let expr = lam(
+            vec![xs],
+            CoreExpr::Case {
+                scrutinee: Box::new(var(xs)),
+                alts: vec![
+                    CoreAlt {
+                        pat: CorePat::Con {
+                            tag: crate::core::CoreTag::Cons,
+                            fields: vec![CorePat::Var(h), CorePat::Var(t)],
+                        },
+                        guard: None,
+                        rhs: own_tail,
+                        span: Span::default(),
+                    },
+                    CoreAlt {
+                        pat: CorePat::Wildcard,
+                        guard: None,
+                        rhs: CoreExpr::Lit(CoreLit::Int(0), Span::default()),
+                        span: Span::default(),
+                    },
+                ],
+                join_ty: None,
+                span: Span::default(),
+            },
+        );
+
+        let rewritten = insert_dup_drop_with_registry(expr, &registry);
+        let CoreExpr::Lam { body, .. } = &rewritten else {
+            panic!("expected a lambda");
+        };
+        let CoreExpr::Case { alts, .. } = body.as_ref() else {
+            panic!("expected the match: {body:?}");
+        };
+        let mut arm = &alts[0].rhs;
+        let mut released = false;
+        loop {
+            match arm {
+                CoreExpr::Dup { body, .. } => arm = body,
+                CoreExpr::Drop { var, body, .. } => {
+                    released |= var.binder == Some(xs.id);
+                    arm = body;
+                }
+                _ => break,
+            }
+        }
+        assert!(released, "{:?}", alts[0].rhs);
+        assert!(matches!(arm, CoreExpr::AetherCall { .. }), "{arm:?}");
         assert_contract(&rewritten);
     }
 

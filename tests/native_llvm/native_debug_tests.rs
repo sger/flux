@@ -866,10 +866,18 @@ fn lldb_shows_captured_variables_and_local_function_names() {
             .any(|line| line.starts_with("#1 map_acc at List.flx:")),
         "{session}"
     );
+    // `map` releases its local function after calling it, so the call is not
+    // a tail call and `map` keeps its frame (KI-128).
     assert!(
         lines
             .iter()
-            .any(|line| line.starts_with("#2 main at lambdas.flx:4:")),
+            .any(|line| line.starts_with("#2 map at List.flx:")),
+        "{session}"
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.starts_with("#3 main at lambdas.flx:4:")),
         "{session}"
     );
 }

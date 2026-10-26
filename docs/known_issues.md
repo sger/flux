@@ -42,40 +42,40 @@ Severity is about consequence, not effort:
 
 ## Open
 
-### KI-128 — Natively, a value only lent to a call in tail position is never released
+### KI-129 — Natively, a value copied into a `print`'s argument and read after it is never released
 
-**Severity:** Medium · **Area:** Aether, drop insertion · **Verified:** 2026-10-26 · **From:** the Perceus audit, R5 and step 10
-
-Aether keeps a value whose last use is a call in tail position, so that the
-call can stay a tail call. When the call only borrows the value, nothing
-releases it afterwards:
+**Severity:** Medium · **Area:** Aether, drop insertion, effects · **Verified:** 2026-10-26 · **From:** KI-128, the stress fixture's leak
 
 ```flux
-fn turn(xs) { sum(bump(xs)) }
+fn numbers(n) { [n, n + 1, n + 2] }
+fn sum(xs) { match xs { [h | t] -> h + sum(t), _ -> 0 } }
+fn keep(xs) { xs }
+
+fn go(n) with IO {
+    let xs = numbers(n)
+    print(len(keep(xs)))
+    print(sum(xs))
+}
+
+fn main() { go(len([1])) }
 ```
 
-`bump(xs)` builds a new list, `sum` only reads it, and the call to `sum` is
-the function's last act, so the new list is never freed: 3 blocks per call
-for a 3-cell list under `--native --debug-heap`. Written as
-`let r = sum(bump(xs))` followed by `r + 0`, nothing is left. A closure
-`\() -> sum(bump(xs))` leaks the same way.
+`xs` is never released: its 3 cells are live at exit under `--native
+--debug-heap`. Aether gives `go` no Drop of `xs` at all, not even after
+`sum(xs)`, its last use. It takes all three parts:
 
-The same rule leaks in local functions:
+- a copy of `xs` (`keep(dup xs in xs)`) inside the argument of a
+  `perform`;
+- a later read of `xs`;
+- that read coming after the `perform`.
 
-- A local function that walks a list it is given, ending each arm in a tail
-  call to itself, never releases the list (3 blocks per call for 3 cells).
-  The same function at top level releases it, because its parameter is
-  inferred to be borrowed; a local function's parameters are not inferred.
-  `List.count` is written this way, and leaks 4 blocks per call on a
-  3-element list.
-- A local function that captures a value, called in tail position
-  (`go(3, n)` as the enclosing function's last expression), leaves one block
-  behind per call; called as `let r = go(3, n)`, nothing.
+`let a = len(keep(xs))` followed by `print(a)` releases it, and so does
+`print(1)` followed by `print(sum(xs))`.
 
-A program's own last line counts too. `task_shared_stress.flx` ends `main`
-with `print(sum(xs) + total(t) + len(name))`, the last use of its 50-cell
-list, so 53 blocks are live at exit whether its tasks run 10, 20 or 40
-rounds, or none; without that line, 3.
+`tests/parity/task_shared_stress.flx` has this shape in `main`:
+`print(round(20, xs, …))` copies the list into `round`, and
+`print(sum(xs) + total(t) + len(name))` reads it after. That is the 53
+blocks it leaves at exit, which KI-128 first took for its own.
 
 ### KI-126 — Natively, a caught panic leaks what the frames it skipped held
 
@@ -2231,6 +2231,52 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-128 — Natively, a value only lent to a call in tail position was never released — FIXED 2026-10-26
+
+**Severity:** Medium · **Area:** Aether, drop insertion, borrow inference · **Verified fixed:** 2026-10-26 · **From:** the Perceus audit, R5 and step 10
+
+Aether kept a value whose last use was a call in tail position, so that the
+call could stay a tail call. When the call only borrowed the value, nothing
+released it afterwards. Each of these left its blocks on every call under
+`--native --debug-heap`:
+
+- **A value lent to the last call.** In `fn turn(xs) { total(bump(xs)) }`,
+  `total` only reads the list `bump` builds.
+- **A local function walking a list it is given.** Each arm ends in a tail
+  call to itself. A local function's parameters are not inferred, so they
+  are owned, and the walked cell was never released. `List.count` is
+  written this way.
+- **A local function called last with a value it captured.** The closure
+  and what it held were left.
+- **A loop lending each turn's fresh list to the next turn.**
+  `walk(n - 1, acc + len(prev), numbers(n))`, with `prev` borrowed.
+
+**The fix.** The release walker (`Release::after_last_use`,
+`src/aether/insert.rs`) handles the three shapes:
+
+1. **A call given only copies of what the owner holds**, as in
+   `go(dup t in t, s)` in a match on `ys`. The copies are made first and
+   the owner released before the call, which stays last and so a tail call.
+2. **A recursive tail call lending an owned value to its own parameter.**
+   Borrow inference (`TailCaller`, `src/aether/borrow_infer.rs`) makes
+   that parameter owned, as Lean's `preserveTailCall` does. A fresh value
+   forces it, and a parameter of the caller passes its own mode on. The
+   call then gives the value away and stays a jump.
+3. **Anything else** is released after the call, like any other read. That
+   call is no longer a tail call. Natively it costs one frame, since
+   recursion goes through shape 2 or through closure calls, which native
+   never turns into jumps.
+
+The stress fixture's 53 blocks at exit were a different bug, now KI-129.
+
+Tests: `a_value_lent_to_a_tail_call_is_released` in
+`tests/native_llvm/native_debug_heap_tests.rs` runs the four shapes above
+and `List.count`: none leaves a block per turn. The lending loop still runs
+ten million turns natively
+(`a_loop_that_lends_a_fresh_list_to_its_tail_call_stays_a_tail_call`).
+Unit tests cover each shape in `insert.rs` and the inference rule in
+`borrow_infer.rs`.
 
 ### KI-127 — On the VM, a function with about a hundred `let`s computed a wrong result — FIXED 2026-10-26
 

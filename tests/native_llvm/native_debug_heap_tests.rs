@@ -637,10 +637,11 @@ fn main() {
 }
 ";
 
-/// A self tail call that lends the list it made to the next turn: `prev` is
-/// only read, so the caller still holds the list while the call runs.
-/// Releasing it after the call would take a frame per turn and overflow the
-/// stack at ten million turns, so the call stays a jump (PA R1).
+/// A self tail call that hands the list it made to the next turn, which only
+/// reads it. Releasing it after the call would take a frame per turn and
+/// overflow the stack at ten million turns. Instead `prev` is owned, since a
+/// recursive tail call passes it a fresh value: the call gives the list away
+/// and stays a jump, and the next turn releases it (KI-128).
 #[test]
 fn a_loop_that_lends_a_fresh_list_to_its_tail_call_stays_a_tail_call() {
     let scratch = Scratch::new("debug-heap-lending-loop");
