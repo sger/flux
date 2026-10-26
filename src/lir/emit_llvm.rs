@@ -705,6 +705,9 @@ fn is_worker_eligible(func: &LirFunction) -> bool {
 /// block whose count is there is never copied, released or freed.
 const STATIC_RC: i128 = 0x4000_0000;
 const STATIC_HEADER_SIZE: i64 = 8;
+/// A heap object counts the fields its release walks in one byte; the Core
+/// passes reject anything larger (E087).
+const MAX_SCANNED_FIELDS: usize = 255;
 const FLUX_OBJ_STRING_TAG: i128 = 0xF1;
 
 /// Values that are the same every time they are made: string literals, and
@@ -1893,6 +1896,7 @@ impl<'a> FnEmitter<'a> {
                 self.emit_make_collection(*dst, elements, "flux_array_new");
             }
             LirInstr::MakeTuple { dst, elements } => {
+                debug_assert!(elements.len() <= MAX_SCANNED_FIELDS, "E087 missed a tuple");
                 // flux_make_tuple is emitted by emit_adt_support (fastcc LLVM helper).
                 self.emit_make_collection_fastcc(*dst, elements, "flux_make_tuple");
             }
@@ -2526,6 +2530,10 @@ impl<'a> FnEmitter<'a> {
     }
 
     fn emit_make_closure(&mut self, dst: LirVar, func_id: LirFuncId, captures: &[LirVar]) {
+        debug_assert!(
+            captures.len() <= MAX_SCANNED_FIELDS,
+            "E087 missed a closure"
+        );
         let target = self
             .program
             .func_by_id(func_id)
@@ -2828,6 +2836,10 @@ impl<'a> FnEmitter<'a> {
     }
 
     fn emit_make_ctor(&mut self, dst: LirVar, ctor_tag: i32, fields: &[LirVar]) {
+        debug_assert!(
+            fields.len() <= MAX_SCANNED_FIELDS,
+            "E087 missed a constructor"
+        );
         // Built-in constructors with dedicated C runtime functions
         // that use flux_gc_alloc_header (correct RC metadata).
         match (ctor_tag, fields.len()) {

@@ -780,6 +780,14 @@ pub const CROSS_MODULE_CONSTRUCTOR_ACCESS: ErrorCode = ErrorCode {
     hint: Some("Use the module's public factory/accessor functions instead."),
 };
 
+pub const TOO_MANY_FIELDS: ErrorCode = ErrorCode {
+    code: "E087",
+    title: "TOO MANY FIELDS",
+    error_type: ErrorType::Compiler,
+    message: "A {} can hold at most 255 {}; this one has {}.",
+    hint: Some("Group some of them into a value of their own, such as a record or a list."),
+};
+
 pub const CROSS_MODULE_CONSTRUCTOR_ACCESS_WARNING: ErrorCode = ErrorCode {
     code: "W201",
     title: "CROSS-MODULE CONSTRUCTOR ACCESS",
@@ -1790,6 +1798,18 @@ pub fn cross_module_constructor_access_error(span: Span, ctor: &str, module: &st
         &CROSS_MODULE_CONSTRUCTOR_ACCESS,
         &[ctor, module],
         "<unknown>",
+        span,
+    )
+}
+
+/// Create a "too many fields" error (E087): a constructor, tuple or closure
+/// with more than the 255 fields or captures a value can hold. A Core pass
+/// raises it, which knows no file: the driver supplies the program's.
+pub fn too_many_fields(span: Span, what: &str, items: &str, count: usize) -> Diagnostic {
+    Diagnostic::make_error(
+        &TOO_MANY_FIELDS,
+        &[what, items, &count.to_string()],
+        "",
         span,
     )
 }

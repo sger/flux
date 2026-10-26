@@ -68,9 +68,11 @@ instead of 7380; 200: 668425 instead of 20300). Summing through a chain of
 `let`s (`let s1 = s0 + v1`, …) instead of one long expression is just as
 wrong, so it is not the size of one expression. The cause is not known yet.
 
-A closure that sums 254 captured values is also wrong on the VM (32892
-instead of 32640; 253 are right), so `a_value_with_255_fields_runs` runs its
-closure case natively only.
+A closure that sums 254 values made from one argument (`let v = n + i`, …) is
+also wrong on the VM (32892 instead of 32640; 253 are right): the simplifier
+copies each cheap `n + i` into the closure's body, so the body holds all 254
+sums. A closure that captures 255 values it reads only once is right on both
+backends.
 
 ### KI-126 — Natively, a caught panic leaks what the frames it skipped held
 

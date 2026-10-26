@@ -356,7 +356,10 @@ use sha2::{Digest, Sha256};
 /// replaces with the module's current path; an epoch-113 unit kept the path it
 /// was built at, which a unit shared through the store from another copy of
 /// the program left the debugger unable to read.
-pub const CACHE_EPOCH: u16 = 114;
+/// Epoch 115: a constructor, tuple or closure with more than 255 fields or
+/// captures is an error (E087); an epoch-114 unit built one, and natively
+/// leaked every field past the 255th.
+pub const CACHE_EPOCH: u16 = 115;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
