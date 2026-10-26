@@ -2383,10 +2383,9 @@ int64_t flux_rt_index(int64_t collection, int64_t key) {
         flux_dup(elems[idx]);
         return flux_wrap_some(elems[idx]);
     }
+    case FLUX_OBJ_MAP:
+        return flux_hamt_get_option(collection, key);
     case FLUX_OBJ_ADT: {
-        if (flux_is_hamt(ptr)) {
-            return flux_hamt_get_option(collection, key);
-        }
         /* Cons list: ctor_tag=4, traverse to nth element. */
         int32_t ctor_tag = *(int32_t *)ptr;
         if (ctor_tag == 4) {
@@ -2409,12 +2408,8 @@ int64_t flux_rt_index(int64_t collection, int64_t key) {
         }
         return flux_index_unsupported(collection);
     }
-    default: {
-        if (flux_is_hamt(ptr)) {
-            return flux_hamt_get_option(collection, key);
-        }
+    default:
         return flux_index_unsupported(collection);
-    }
     }
 }
 
@@ -2435,11 +2430,8 @@ int64_t flux_type_of(int64_t val) {
         case FLUX_OBJ_ARRAY:   return flux_string_new("Array", 5);
         case FLUX_OBJ_TUPLE:   return flux_string_new("Tuple", 5);
         case FLUX_OBJ_CLOSURE: return flux_string_new("Function", 8);
+        case FLUX_OBJ_MAP:     return flux_string_new("Map", 3);
         case FLUX_OBJ_ADT: {
-            /* Check HAMT first — HAMT kind values collide with ADT ctor_tags. */
-            if (flux_is_hamt(ptr)) {
-                return flux_string_new("Map", 3);
-            }
             int32_t first_i32 = *(int32_t *)ptr;
             int32_t second_i32 = *((int32_t *)ptr + 1);
             if (first_i32 >= 0 && first_i32 <= 255 && second_i32 >= 0 && second_i32 <= 100) {
@@ -2454,12 +2446,8 @@ int64_t flux_type_of(int64_t val) {
             }
             return flux_string_new("Adt", 3);
         }
-        default: {
-            if (flux_is_hamt(ptr)) {
-                return flux_string_new("Map", 3);
-            }
+        default:
             return flux_string_new("Object", 6);
-        }
         }
     }
 
@@ -3371,14 +3359,11 @@ int64_t flux_is_array(int64_t val) {
     return flux_make_bool(flux_obj_tag(ptr) == FLUX_OBJ_ARRAY);
 }
 
-/* is_map(val) → bool (true if val is a HAMT map).
- * HAMTs don't have a FLUX_OBJ_* tag, so we check if it's a boxed pointer
- * that is NOT any of the known object types. */
+/* is_map(val) → bool (true if val is a HAMT map). */
 int64_t flux_is_map(int64_t val) {
     if (!flux_is_ptr(val)) return flux_make_bool(0);
     void *ptr = flux_untag_ptr(val);
     if (!ptr) return flux_make_bool(0);
-    /* HAMT nodes have no FluxHeader — identify by structural checks only. */
     return flux_make_bool(flux_is_hamt(ptr));
 }
 

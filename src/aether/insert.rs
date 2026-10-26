@@ -1711,6 +1711,13 @@ fn fresh_result(
                 | CorePrimOp::Index
                 | CorePrimOp::HamtGet
                 | CorePrimOp::Unwrap
+                // A new map, or the same one counted again, holding its own
+                // references to what it shares (KI-124).
+                | CorePrimOp::HamtSet
+                | CorePrimOp::HamtDelete
+                | CorePrimOp::HamtMerge
+                | CorePrimOp::HamtKeys
+                | CorePrimOp::HamtValues
         ),
         CoreExpr::App { func, .. } | CoreExpr::AetherCall { func, .. } => {
             calls_flux(func, registry)

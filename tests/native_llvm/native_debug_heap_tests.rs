@@ -2002,12 +2002,12 @@ fn an_array_releases_every_element() {
     );
 }
 
-const MAP_PER_TURN: &str = r"import Flow.Map as Map
+const MAP_PER_TURN: &str = r"import Flow.Map exposing (set, delete, merge, size)
 
-fn size_of(m) { Map.size(m) }
+fn size_of(m) { size(m) }
 
 fn wide(i, n, m) {
-    if i == 0 { m } else { wide(i - 1, n, Map.set(m, i, [n + i])) }
+    if i == 0 { m } else { wide(i - 1, n, set(m, i, [n + i])) }
 }
 
 fn turn(n) {
@@ -2027,29 +2027,27 @@ fn main() with IO {
 /// another release what they share once both are gone. A release freed
 /// nothing under the root, which was all that kept the uncounted sharing
 /// between maps safe; a map of 100 keys has branches inside branches
-/// (KI-124).
+/// (KI-124). The functions are imported by name: a call through a module
+/// alias is not seen as the map operation it is (KI-130).
 #[test]
 fn a_map_releases_its_nodes_keys_and_values() {
     let scratch = Scratch::new("debug-heap-map");
     let failures: Vec<String> = [
-        (
-            "built",
-            r#"size_of(Map.set(Map.set({}, "a", [n]), "b", [n + 1]))"#,
-        ),
+        ("built", r#"size_of(set(set({}, "a", [n]), "b", [n + 1]))"#),
         ("literal", r#"size_of({"a": [n], "b": [n + 1]})"#),
         (
             "shared",
-            r#"let m1 = Map.set({}, "a", [n])
-    let m2 = Map.set(m1, "c", [n])
+            r#"let m1 = set({}, "a", [n])
+    let m2 = set(m1, "c", [n])
     size_of(m1) + size_of(m2)"#,
         ),
         (
             "deleted",
-            r#"size_of(Map.delete(Map.set(Map.set({}, "a", [n]), "b", [n]), "a"))"#,
+            r#"size_of(delete(set(set({}, "a", [n]), "b", [n]), "a"))"#,
         ),
         (
             "merged",
-            r#"size_of(Map.merge(Map.set({}, "a", [n]), Map.set({}, "b", [n])))"#,
+            r#"size_of(merge(set({}, "a", [n]), set({}, "b", [n])))"#,
         ),
         ("wide", "size_of(wide(100, n, {}))"),
     ]

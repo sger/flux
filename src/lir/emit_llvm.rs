@@ -2769,12 +2769,29 @@ impl<'a> FnEmitter<'a> {
                     Some(next.clone()),
                     "flux_hamt_set",
                     vec![
-                        (LlvmType::i64(), LlvmOperand::Local(current)),
+                        (LlvmType::i64(), LlvmOperand::Local(current.clone())),
                         (LlvmType::i64(), self.var(chunk[0])),
                         (LlvmType::i64(), self.var(chunk[1])),
                     ],
                     LlvmType::i64(),
                 );
+                // The literal was given its keys and values, and each map
+                // counts its own references, so the previous map and the
+                // pair are let go.
+                if !self.worker_mode {
+                    for val in [
+                        LlvmOperand::Local(current),
+                        self.var(chunk[0]),
+                        self.var(chunk[1]),
+                    ] {
+                        self.call_c(
+                            None,
+                            "flux_drop",
+                            vec![(LlvmType::i64(), val)],
+                            LlvmType::Void,
+                        );
+                    }
+                }
                 current = next;
             }
         }

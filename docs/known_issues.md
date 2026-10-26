@@ -42,6 +42,30 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-130 — A call through a module alias is not seen as the runtime operation it is, and leaks natively
+
+**Severity:** Medium · **Area:** Core lowering, Aether · **Verified:** 2026-10-26 · **From:** KI-124
+
+```flux
+import Flow.Array as Array
+
+fn turn(n) {
+    len(Array.push([| [n] |], [n + 1]))
+}
+```
+
+Natively, each call to `turn` leaves 3 blocks live. With
+`import Flow.Array exposing (push)` and a bare `push`, it leaves none. The
+same holds for `Flow.Map` (`Map.set`, `Map.get`, …), where a whole map is
+left per call.
+
+Core gets `Array.push` as a variable that is then called
+(`let t = Array.push; t(…)`), not as the `ArrayPush` primop that the bare
+name becomes. Aether then knows nothing about the call, and the function
+that makes it is missing from `--dump-aether`. The backends still run the
+right operation: `src/lir/lower.rs` maps `Flow.Array.push` and
+`Flow.Map.set` to their primops later.
+
 ### KI-126 — Natively, a caught panic leaks what the frames it skipped held
 
 **Severity:** Low · **Area:** native runtime, panics · **Verified:** 2026-10-25 · **From:** the Perceus audit, R7 and C1
@@ -94,35 +118,6 @@ entry points), `tape.c`, and `flux_call_closure_c`, which codegen emits, and
 none of these are in `libflux_rt_nomain.a`. CI does not run it. The C
 runtime is tested through Flux programs instead: `tests/native_llvm`, the
 debug heap, and the parity ways.
-
-### KI-124 — Natively, a map's release frees its root and nothing under it
-
-**Severity:** Low · **Area:** native runtime, maps · **Verified:** 2026-10-21 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-1
-
-```flux
-fn build(n) {
-    map_set(map_set({}, "a", [n]), "b", [n + 1])
-}
-
-fn discard(m, keep) {
-    if keep { m } else { {} }
-}
-
-fn main() {
-    let d = discard(build(1), false)
-    0
-}
-```
-
-`flux --native --leak-check` reports 9 blocks live at exit, all allocated in
-`build`: the map nodes, both keys and both values. Map nodes are allocated
-with no child count (`alloc_node`, `runtime/c/hamt.c`), so a release frees
-the node it is given and never looks inside. Maps built from one another
-share nodes without counting them, which is safe only because of this: a
-map that released its contents would have to count what it shares first.
-Sharing a map across threads stops at the same place: `flux_rc_promote`
-promotes the root and none of its keys or values, so two workers reading one
-map update those values' counts without atomics.
 
 ### KI-122 — Natively, the async runtime releases one of its own closures twice
 
@@ -2178,6 +2173,56 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-124 — Natively, a map's release freed its root and nothing under it — FIXED 2026-10-26
+
+**Severity:** Low · **Area:** native runtime, maps, Aether · **Verified fixed:** 2026-10-26 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-1
+
+```flux
+fn turn(n) {
+    size(set(set({}, "a", [n]), "b", [n + 1]))
+}
+```
+
+Natively, every map a program built stayed live: its nodes, keys and
+values. Sharing a map across threads stopped at its root, so tasks reading
+a shared map's values updated their counts without atomics, which
+ThreadSanitizer reports as a data race.
+
+**The cause.** The C map (`runtime/c/hamt.c`) could not be counted:
+- A branch held its children by value, copied in with `memcpy`, so every
+  node built and then copied in was a block nothing pointed to.
+- Maps made from one another shared nodes without counting them.
+- A delete that collapsed a branch returned a pointer into the middle of
+  a block.
+- Nodes had no type tag, and `flux_is_hamt` guessed from their first
+  words.
+
+Aether kept all of this safe by never releasing a map. It took the result
+of `HamtSet`, `HamtDelete` and `HamtMerge` for a possible view of the map
+and values it was given. So it released neither, and it copied the result
+once more. A map literal also kept one count too many of each key and
+value it was given, and the C helpers that build a map step by step
+(merge, JSON objects, HTTP headers) never released the maps in between.
+
+**The fix.**
+- A map node is a counted block (`FLUX_OBJ_MAP`) whose fields are tagged
+  values: a branch's child nodes, or a leaf's or a collision's keys and
+  values.
+- `rc.c` counts a node's fields in the payload, as it does an array's, so
+  the drop and promotion walks handle maps like any other block.
+- An update copies the path it changes and takes its own reference to
+  everything it shares.
+- Aether counts the map operations' results as fresh.
+- A map literal releases each map it builds on the way, and its keys and
+  values once they are stored. The C helpers release theirs too.
+
+Tests: `a_map_releases_its_nodes_keys_and_values` in
+`tests/native_llvm/native_debug_heap_tests.rs` (built, literal, shared,
+deleted, merged, and a map of 100 keys, none leaving a block per turn),
+and `tests/parity/task_shared_map.flx`, which
+`cargo xtask sanitize --thread` checks for the race. The test imports the
+map functions by name because of KI-130.
 
 ### KI-123 — Natively, an array released and promoted at most its first 255 elements — FIXED 2026-10-26
 

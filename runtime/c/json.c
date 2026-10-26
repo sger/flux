@@ -275,10 +275,12 @@ static int64_t json_parse_object(JsonParser *p) {
         p->pos++;
         int64_t value = json_parse_value(p);
         if (p->error[0] != '\0') return FLUX_NONE;
-        map = flux_hamt_set(map, key_val, value);
-        /* The map counts its own references to both. */
+        int64_t next = flux_hamt_set(map, key_val, value);
+        /* The new map counts its own references to all three. */
+        flux_drop(map);
         flux_drop(key_val);
         flux_drop(value);
+        map = next;
         json_skip_ws(p);
         if (p->pos < p->len && p->input[p->pos] == ',') {
             p->pos++;
