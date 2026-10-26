@@ -673,6 +673,44 @@ mod native {
         assert_tape_error(&run, "E1023", "\"data/other.txt\"");
     }
 
+    /// A binary reads its tape at run time, so once a run has linked it, a
+    /// later run that records or replays reuses it rather than linking again.
+    #[test]
+    fn a_warm_native_replay_reuses_the_binary() {
+        const UP_TO_DATE: &str = "binary up-to-date, skipping link";
+        let case = Case::new("console");
+        let tape = case.tape("run.jsonl");
+        let recorded = case.record(Backend::Native, &tape, "", &[]);
+        assert_eq!(recorded.code, 0, "{}", recorded.stderr);
+
+        let replayed = case.run(
+            Backend::Native,
+            &["--verbose", "--replay", tape.to_str().unwrap()],
+            "",
+            &[],
+        );
+        assert_eq!(replayed.stdout, recorded.stdout, "{}", replayed.stderr);
+        assert!(
+            replayed.stderr.contains(UP_TO_DATE),
+            "the replay linked again:\n{}",
+            replayed.stderr
+        );
+
+        let again = case.tape("again.jsonl");
+        let rerecorded = case.run(
+            Backend::Native,
+            &["--verbose", "--record", again.to_str().unwrap()],
+            "",
+            &[],
+        );
+        assert_eq!(rerecorded.code, 0, "{}", rerecorded.stderr);
+        assert!(
+            rerecorded.stderr.contains(UP_TO_DATE),
+            "the second recording linked again:\n{}",
+            rerecorded.stderr
+        );
+    }
+
     /// Builds the case's program as a native binary, as an editor does.
     fn build_binary(case: &Case) -> PathBuf {
         let binary = case.scratch.join("app_bin");
