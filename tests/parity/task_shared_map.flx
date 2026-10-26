@@ -8,10 +8,10 @@
 // With `cargo xtask sanitize --thread`, a count it missed is a data race
 // ThreadSanitizer reports.
 import Flow.Task exposing (..)
-import Flow.Map as Map
+import Flow.Map exposing (set, get)
 
 fn build(i, m) {
-    if i == 0 { m } else { build(i - 1, Map.set(m, i, [i])) }
+    if i == 0 { m } else { build(i - 1, set(m, i, [i])) }
 }
 
 fn head(xs) {
@@ -23,7 +23,7 @@ fn head(xs) {
 
 fn read(m, i, acc) {
     if i == 0 { acc } else {
-        let got = match Map.get(m, i) {
+        let got = match get(m, i) {
             Some(xs) -> head(xs),
             None -> 0,
         }
