@@ -1747,14 +1747,11 @@ impl<'a> FnLower<'a> {
         }
     }
 
-    /// The closure for a top-level function used as a value in this block. The
-    /// block allocates it once; each call returns its own reference.
+    /// The closure for a top-level function used as a value in this block. It
+    /// captures nothing, so it is a static object that no use copies or
+    /// releases, and the block names it once.
     fn func_closure_in_block(&mut self, binder: CoreBinderId, func_id: LirFuncId) -> LirVar {
         if let Some(&var) = self.block_func_closures.get(&(self.current_block, binder)) {
-            // Aether plans no Dup for a global, and any use may give the closure
-            // away, so each later use takes its own reference. A borrowed use leaks
-            // it until top-level closures are static (0189 V5, audit M3).
-            self.emit(LirInstr::Dup { val: var });
             return var;
         }
         let var = self.fresh_var();
@@ -6886,9 +6883,9 @@ mod tests {
     }
 
     /// `main` puts `inc` in a tuple twice. Both uses share the block's one
-    /// closure, so the second takes its own reference (0189 V5, audit M3).
+    /// closure, a static object, so neither takes a reference (audit M3).
     #[test]
-    fn a_top_level_function_used_twice_as_a_value_takes_a_reference_per_use() {
+    fn a_top_level_function_used_twice_as_a_value_shares_one_static_closure() {
         let span = Span::default();
         let x = mk_binder(1, Identifier::new(1));
         let inc = mk_binder(2, Identifier::new(2));
@@ -6932,7 +6929,7 @@ mod tests {
                     .iter()
                     .filter(|i| matches!(i, crate::lir::LirInstr::Dup { val } if *val == closure))
                     .count();
-                assert_eq!(dups, 1, "{} in:\n{shown}", func.qualified_name);
+                assert_eq!(dups, 0, "{} in:\n{shown}", func.qualified_name);
                 checked += 1;
             }
         }

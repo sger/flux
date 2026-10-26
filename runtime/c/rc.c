@@ -94,6 +94,20 @@ static inline void rc_store_relaxed(FluxHeader *hdr, int32_t v) {
     atomic_store_explicit(&hdr->refcount, v, memory_order_relaxed);
 }
 
+/*
+ * A count at or past FLUX_RC_STICKY in either mode never changes again, and
+ * its block is never freed. Static objects the compiler emits (string
+ * literals, closures of top-level functions) start there: they are read-only
+ * and have no debug-heap prefix, so the test comes before anything else
+ * touches the header. A heap count that grows to the boundary sticks too,
+ * instead of overflowing into the other mode (audit L8).
+ */
+#define FLUX_RC_STICKY 0x40000000
+
+static inline int rc_sticky(int32_t rc) {
+    return rc >= FLUX_RC_STICKY || rc <= -FLUX_RC_STICKY;
+}
+
 /* _Static_assert is C11; MSVC uses static_assert in C mode. */
 #if defined(_MSC_VER)
 static_assert(sizeof(FluxHeader) == 8, "FluxHeader must be 8 bytes");
@@ -540,8 +554,9 @@ void flux_dup(int64_t val) {
     void *ptr = flux_untag_ptr(val);
     if (!ptr) return;
     FluxHeader *hdr = header_of(ptr);
-    DEBUG_CHECK(hdr, "copying");
     int32_t rc = rc_load_relaxed(hdr);
+    if (rc_sticky(rc)) return;
+    DEBUG_CHECK(hdr, "copying");
     if (rc > 0) {
         /* ST mode: only the owning thread is here, plain store is fine. */
         rc_store_relaxed(hdr, rc + 1);
@@ -563,8 +578,9 @@ static inline void *flux_field_should_free(void *ptr, int field_idx) {
     void *child = flux_untag_ptr(val);
     if (!child) return NULL;
     FluxHeader *hdr = header_of(child);
-    DEBUG_CHECK(hdr, "dropping");
     int32_t rc = rc_load_relaxed(hdr);
+    if (rc_sticky(rc)) return NULL;
+    DEBUG_CHECK(hdr, "dropping");
     if (rc > 0) {
         int32_t new_rc = rc - 1;
         rc_store_relaxed(hdr, new_rc);
@@ -666,8 +682,9 @@ void flux_drop(int64_t val) {
     void *ptr = flux_untag_ptr(val);
     if (!ptr) return;
     FluxHeader *hdr = header_of(ptr);
-    DEBUG_CHECK(hdr, "dropping");
     int32_t rc = rc_load_relaxed(hdr);
+    if (rc_sticky(rc)) return;
+    DEBUG_CHECK(hdr, "dropping");
     if (rc > 0) {
         int32_t new_rc = rc - 1;
         rc_store_relaxed(hdr, new_rc);
@@ -692,12 +709,14 @@ int flux_rc_is_unique(int64_t val) {
     void *ptr = flux_untag_ptr(val);
     if (!ptr) return 1;
     FluxHeader *hdr = header_of(ptr);
+    int32_t rc = rc_load_relaxed(hdr);
+    if (rc_sticky(rc)) return 0;
     DEBUG_CHECK(hdr, "reusing");
     /* Unique = the caller is the sole ST owner. A shared (rc < 0) object
      * is never reported as unique even if -rc happens to be 1, because
      * other threads may still hold the reference and the inline-reuse
      * fast path is not safe to take. */
-    return rc_load_relaxed(hdr) == 1;
+    return rc == 1;
 }
 
 /*
@@ -748,7 +767,7 @@ static void flux_rc_promote_recurse(void *ptr) {
         flux_rc_promote_evidence(ptr);
         return;
     }
-    for (uint8_t i = 0; i < hdr->scan_fsize; i++) {
+    for (uint32_t i = 0; i < hdr->scan_fsize; i++) {
         flux_rc_promote(fields[i]);
     }
 }
@@ -759,8 +778,9 @@ void flux_rc_promote(int64_t val) {
     if (!ptr) return;
     FluxHeader *hdr = header_of(ptr);
     int32_t rc = rc_load_relaxed(hdr);
-    if (rc <= 0) {
-        /* Already shared (or freed-in-progress) — nothing to do. */
+    if (rc <= 0 || rc_sticky(rc)) {
+        /* Already shared (or freed-in-progress), or never freed: a static
+         * object is read-only and any thread may read it. */
         return;
     }
     /* Negate with release ordering so subsequent acquire loads in
