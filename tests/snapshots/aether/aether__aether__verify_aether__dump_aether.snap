@@ -286,7 +286,7 @@ lam(x) ->
   drop <sym:2000014>#109 in
     x#108
 ── fn debug_labeled [yield×1] ──
-  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  Yields: 1  Handles: 0  HandlerArms: 0
+  Dups: 0  Drops: 3  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  Yields: 1  Handles: 0  HandlerArms: 0
   FreshAllocs: 0
   verifier: ok
 lam(label, x) ->
@@ -296,7 +296,11 @@ lam(label, x) ->
         Add(label#111, " = ")
       let <sym:4001405> =
         ToString(x#112)
-      Add(<sym:4001404>#1404, <sym:4001405>#1405)
+      let <sym:7000000> =
+        Add(<sym:4001404>#1404, <sym:4001405>#1405)
+        drop <sym:4001405>#1405 in
+      drop <sym:4001404>#1404 in
+          <sym:7000000>#4026531840
     perform /*yield_to*/ Debug.trace(<sym:4001406>#1406)
   drop <sym:2000015>#113 in
     x#112
@@ -3422,7 +3426,7 @@ lam(s) ->
   drop chars_go#1294 in
     <sym:7000000>#4026531840
 ── fn join ──
-  Dups: 1  Drops: 7  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 1  Drops: 11  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(arr, sep) ->
@@ -3455,13 +3459,19 @@ lam(arr, sep) ->
                     let <sym:4001882> =
                       let <sym:4001881> =
                         Add(result#1303, sep#1299)
-                      Add(<sym:4001881>#1881, v#1304)
-                    aether_call[owned, owned] join_go#1301(<sym:4001880>#1880, <sym:4001882>#1882)
+                      let <sym:7000001> =
+                        Add(<sym:4001881>#1881, v#1304)
+                      drop <sym:4001881>#1881 in
+                        <sym:7000001>#4026531841
+                      drop result#1303 in
+                    drop <sym:4001879>#1879 in
+                        aether_call[owned, owned] join_go#1301(<sym:4001880>#1880, <sym:4001882>#1882)
                 _ ->
-                  let <sym:4001883> =
-                    IAdd(i#1302, 1)
-                  drop i#1302 in
-                    aether_call[owned, owned] join_go#1301(<sym:4001883>#1883, result#1303)
+                  drop <sym:4001879>#1879 in
+                    let <sym:4001883> =
+                      IAdd(i#1302, 1)
+                    drop i#1302 in
+                      aether_call[owned, owned] join_go#1301(<sym:4001883>#1883, result#1303)
       let <sym:4001884> =
         Index(arr#1298, 0)
       case <sym:4001884>#1884 of
@@ -3676,7 +3686,7 @@ lam() ->
         aether_call[owned] __resume_default#1386(<sym:4001952>#1952)
 
 ── Total ──
-  Dups: 213  Drops: 517  Reuses: 17  DropSpecs: 13  BorrowedCallGuards: 38  FBIP: fbip(50)  Yields: 11  Handles: 5  HandlerArms: 11
+  Dups: 213  Drops: 523  Reuses: 17  DropSpecs: 13  BorrowedCallGuards: 38  FBIP: fbip(50)  Yields: 11  Handles: 5  HandlerArms: 11
   FreshAllocs: 50
 
 [ 1 of 18] Compiling  Add

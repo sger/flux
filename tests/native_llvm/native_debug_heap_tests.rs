@@ -914,16 +914,45 @@ fn main() with IO {
 }
 ";
 
+const BUILT_STRING: &str = r#"fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn sum(xs) {
+    match xs {
+        [h | t] -> h + sum(t),
+        _ -> 0,
+    }
+}
+
+fn go(n) {
+    let xs = numbers(n)
+    let name = "n" + to_string(len(xs))
+    let pair = (len(xs), name)
+    pair.0 + sum(xs) + len(name)
+}
+
+fn count(n, acc) {
+    if n == 0 { acc } else { count(n - 1, acc + go(n)) }
+}
+
+fn main() {
+    print(count(SIZE, 0))
+}
+"#;
+
 /// KI-129: `len(keep(xs))` is computed in a block that copies its result
 /// before releasing what `keep` returned. Given straight to an owned use, a
 /// list cell or a `print`, that result was taken for a view of `xs`, and
-/// `xs` was never released.
+/// `xs` was never released. A string built with `+` from `xs` was taken for
+/// one too, and was never released itself.
 #[test]
 fn a_value_copied_into_a_temporary_given_away_is_released() {
     let scratch = Scratch::new("debug-heap-owned-temporary");
     let failures: Vec<String> = [
         ("owned_temporary", OWNED_TEMPORARY),
         ("printed_temporary", PRINTED_TEMPORARY),
+        ("built_string", BUILT_STRING),
     ]
     .into_iter()
     .filter_map(|(name, program)| {
