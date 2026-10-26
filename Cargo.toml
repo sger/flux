@@ -758,6 +758,10 @@ name = "match_arm_outer_binding_tests"
 path = "tests/vm_runtime/match_arm_outer_binding_tests.rs"
 
 [[test]]
+name = "vm_local_slots_tests"
+path = "tests/vm_runtime/vm_local_slots_tests.rs"
+
+[[test]]
 name = "perf_type_infer"
 path = "tests/type_inference/perf_type_infer.rs"
 
