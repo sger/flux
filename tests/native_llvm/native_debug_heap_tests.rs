@@ -2060,3 +2060,51 @@ fn a_map_releases_its_nodes_keys_and_values() {
     .collect();
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+const ALIAS_PER_TURN: &str = r"import Flow.Array as Array
+import Flow.List as List
+import Flow.Map as Map
+
+fn turn(n) {
+    TURN
+}
+
+fn count(n, total) {
+    if n == 0 { total } else { count(n - 1, total + turn(n)) }
+}
+
+fn main() with IO {
+    print(to_string(count(SIZE, 0)))
+}
+";
+
+/// A call through a module alias releases what it was lent. The callee was
+/// hoisted into a temporary, so Aether gave the arguments away to an
+/// unknown function, and a module function that only borrows them, such as
+/// `Map.set`, never released them (KI-130). `List.reverse` takes its
+/// argument, so it was right before.
+#[test]
+fn a_call_through_a_module_alias_releases_its_arguments() {
+    let scratch = Scratch::new("debug-heap-alias");
+    let failures: Vec<String> = [
+        ("array_push", "len(Array.push([| [n] |], [n + 1]))"),
+        (
+            "map_set",
+            r#"Map.size(Map.set(Map.set({}, "a", [n]), "b", [n + 1]))"#,
+        ),
+        (
+            "map_get",
+            r#"let m = Map.set({}, "a", [n])
+    match Map.get(m, "a") { Some(xs) -> len(xs), _ -> 0 }"#,
+        ),
+        ("list_reverse", "len(List.reverse([n, n + 1]))"),
+    ]
+    .into_iter()
+    .filter_map(|(name, body)| {
+        let program = ALIAS_PER_TURN.replace("TURN", body);
+        let (_, _, live) = per_thousand_cells(&scratch, name, &program);
+        (live != 0).then(|| format!("{name}: {live} blocks left live per 1000 turns"))
+    })
+    .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
