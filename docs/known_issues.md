@@ -42,41 +42,6 @@ Severity is about consequence, not effort:
 
 ## Open
 
-### KI-129 — Natively, a value copied into a `print`'s argument and read after it is never released
-
-**Severity:** Medium · **Area:** Aether, drop insertion, effects · **Verified:** 2026-10-26 · **From:** KI-128, the stress fixture's leak
-
-```flux
-fn numbers(n) { [n, n + 1, n + 2] }
-fn sum(xs) { match xs { [h | t] -> h + sum(t), _ -> 0 } }
-fn keep(xs) { xs }
-
-fn go(n) with IO {
-    let xs = numbers(n)
-    print(len(keep(xs)))
-    print(sum(xs))
-}
-
-fn main() { go(len([1])) }
-```
-
-`xs` is never released: its 3 cells are live at exit under `--native
---debug-heap`. Aether gives `go` no Drop of `xs` at all, not even after
-`sum(xs)`, its last use. It takes all three parts:
-
-- a copy of `xs` (`keep(dup xs in xs)`) inside the argument of a
-  `perform`;
-- a later read of `xs`;
-- that read coming after the `perform`.
-
-`let a = len(keep(xs))` followed by `print(a)` releases it, and so does
-`print(1)` followed by `print(sum(xs))`.
-
-`tests/parity/task_shared_stress.flx` has this shape in `main`:
-`print(round(20, xs, …))` copies the list into `round`, and
-`print(sum(xs) + total(t) + len(name))` reads it after. That is the 53
-blocks it leaves at exit, which KI-128 first took for its own.
-
 ### KI-126 — Natively, a caught panic leaks what the frames it skipped held
 
 **Severity:** Low · **Area:** native runtime, panics · **Verified:** 2026-10-25 · **From:** the Perceus audit, R7 and C1
@@ -2232,6 +2197,49 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 ## Resolved
 
+### KI-129 — Natively, a value was never released when a result computed from it was given away — FIXED 2026-10-26
+
+**Severity:** Medium · **Area:** Aether, drop insertion · **Verified fixed:** 2026-10-26 · **From:** KI-128, the stress fixture's leak
+
+```flux
+fn go(n) with IO {
+    let xs = numbers(n)
+    print(len(keep(xs)))
+    print(sum(xs))
+}
+```
+
+`xs` was never released: Aether gave `go` no Drop of it at all. The same
+happened when the result of `len(keep(xs))` went into a list, a `Some` or
+a tuple. It didn't happen when the result was wrapped (`1 + …`, `show(…)`)
+or bound with `let` first. A string built from the value with `+` and
+`to_string` and then copied into a tuple did the same, and the string was
+never released either. `tests/parity/task_shared_stress.flx` has both
+shapes in `main`, which is why it left 53 blocks at exit.
+
+**The cause.** Before releasing what the value is computed from, the
+release walker in `src/aether/insert.rs` copies a value that might point
+into it: `len(keep(xs))` becomes a block ending in `dup l in drop k in l`.
+`alias_of` didn't see that copy, so it took the block's unnamed temporary
+for a possible view of `xs`. A `let`-bound `Int` has an unboxed rep and was
+skipped, which is why the `let` form was fine. Given away owned, the
+temporary went into `owned_unknown`, and `aliases_owned_unknown` then
+stopped every release of `xs`. A string built with `Add` or `ToString` was
+taken for a view in the same way, and as it wasn't counted as fresh it was
+never an owner, so nothing released it.
+
+**The fix.**
+- `alias_of` skips a result its block already copied (`counted_result`).
+- `Add`, `Concat`, `StringConcat` and `ToString` count as fresh:
+  `flux_string_concat` and `flux_to_string` always hand out a new string
+  or a counted argument, and `Add` on numbers returns a number.
+
+Tests: `a_value_copied_into_a_temporary_given_away_is_released` in
+`tests/native_llvm/native_debug_heap_tests.rs` (a list cell, a `print`,
+and a built string, none leaving a block per turn), and a unit test for
+`counted_result`. The stress fixture leaves 1 block at exit, the one every
+program that prints leaves (KI-119).
+
 ### KI-128 — Natively, a value only lent to a call in tail position was never released — FIXED 2026-10-26
 
 **Severity:** Medium · **Area:** Aether, drop insertion, borrow inference · **Verified fixed:** 2026-10-26 · **From:** the Perceus audit, R5 and step 10
@@ -2268,7 +2276,7 @@ released it afterwards. Each of these left its blocks on every call under
    recursion goes through shape 2 or through closure calls, which native
    never turns into jumps.
 
-The stress fixture's 53 blocks at exit were a different bug, now KI-129.
+The stress fixture's 53 blocks at exit were a different bug, KI-129.
 
 Tests: `a_value_lent_to_a_tail_call_is_released` in
 `tests/native_llvm/native_debug_heap_tests.rs` runs the four shapes above

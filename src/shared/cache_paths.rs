@@ -366,7 +366,11 @@ use sha2::{Digest, Sha256};
 /// the call when it takes only copies and after it otherwise, and a
 /// parameter a recursive tail call passes a fresh value to is owned; an
 /// epoch-116 unit kept the value and leaked it (KI-128).
-pub const CACHE_EPOCH: u16 = 117;
+/// Epoch 118: a block that copies its result before a release, and a string
+/// built with `+` or `to_string`, are not views of what they were computed
+/// from; an epoch-117 unit took them for views and never released the value
+/// (KI-129).
+pub const CACHE_EPOCH: u16 = 118;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

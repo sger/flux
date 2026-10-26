@@ -1700,6 +1700,12 @@ fn fresh_result(
                 | CorePrimOp::MakeTuple
                 | CorePrimOp::MakeHash
                 | CorePrimOp::Interpolate
+                // A new string or a counted argument (`flux_string_concat`),
+                // or a number (KI-129).
+                | CorePrimOp::Add
+                | CorePrimOp::Concat
+                | CorePrimOp::StringConcat
+                | CorePrimOp::ToString
                 // The runtime counts the value these hand out (0189 F3-1).
                 | CorePrimOp::ArrayGet
                 | CorePrimOp::Index
@@ -1771,8 +1777,8 @@ fn mentions(expr: &CoreExpr, binders: &BTreeSet<CoreBinderId>) -> bool {
 
 /// The binder a `let` adds to `aliases`: one whose value is computed from
 /// an alias without being made fresh may point into it. An unboxed value,
-/// or a runtime result that is always an Int or a Bool, points into
-/// nothing.
+/// a runtime result that is always an Int or a Bool, or a result its block
+/// already copied points into nothing.
 fn alias_of(
     var: &CoreBinder,
     rhs: &CoreExpr,
@@ -1782,8 +1788,38 @@ fn alias_of(
     (var.rep.needs_rc()
         && !returns_scalar(rhs)
         && mentions(rhs, aliases)
-        && !produces_fresh_value(rhs, registry))
+        && !produces_fresh_value(rhs, registry)
+        && !counted_result(rhs))
     .then_some(var.id)
+}
+
+/// Whether `expr` ends in a value it copied itself, `dup v in … v`: the
+/// release walker writes that when it releases what the value might point
+/// into, so the value holds a reference of its own (KI-129).
+fn counted_result(expr: &CoreExpr) -> bool {
+    match expr {
+        CoreExpr::Dup { var, body, .. } => ends_in(body, var),
+        CoreExpr::Let { body, .. }
+        | CoreExpr::LetRec { body, .. }
+        | CoreExpr::Drop { body, .. } => counted_result(body),
+        CoreExpr::Case { alts, .. } => {
+            !alts.is_empty() && alts.iter().all(|alt| counted_result(&alt.rhs))
+        }
+        _ => false,
+    }
+}
+
+/// Whether `expr`'s value is `var`, reached through releases and bindings
+/// of other names.
+fn ends_in(expr: &CoreExpr, var: &CoreVarRef) -> bool {
+    match expr {
+        CoreExpr::Var { var: inner, .. } => inner.binder.is_some() && inner.binder == var.binder,
+        CoreExpr::Drop { body, .. } => ends_in(body, var),
+        CoreExpr::Let {
+            var: bound, body, ..
+        } => Some(bound.id) != var.binder && ends_in(body, var),
+        _ => false,
+    }
 }
 
 /// Whether `expr` is a runtime operation whose result is an Int or a Bool,
@@ -4276,6 +4312,43 @@ mod tests {
             &|expr, binder| matches!(expr, CoreExpr::Reuse { token, .. } if token.binder == Some(binder)),
         );
         assert_eq!(reuses, 0, "{planned:?}");
+    }
+
+    /// `dup l in drop k in l` is what the release walker writes for a result
+    /// that might point into `k`: the result holds its own reference, so it
+    /// is no view of anything (KI-129). The same block without the copy is.
+    #[test]
+    fn a_result_its_block_copied_is_counted() {
+        let mut interner = Interner::new();
+        let [k, l] = [(1, "k"), (2, "l")].map(|(id, name)| binder(&mut interner, id, name));
+        let counted = let_in(
+            l,
+            CoreExpr::PrimOp {
+                op: CorePrimOp::Len,
+                args: vec![var(k)],
+                span: Span::default(),
+            },
+            CoreExpr::Dup {
+                var: CoreVarRef::resolved(&l),
+                body: Box::new(CoreExpr::Drop {
+                    var: CoreVarRef::resolved(&k),
+                    body: Box::new(var(l)),
+                    span: Span::default(),
+                }),
+                span: Span::default(),
+            },
+        );
+        assert!(super::counted_result(&counted));
+        let uncounted = let_in(
+            l,
+            CoreExpr::PrimOp {
+                op: CorePrimOp::Len,
+                args: vec![var(k)],
+                span: Span::default(),
+            },
+            var(l),
+        );
+        assert!(!super::counted_result(&uncounted));
     }
 
     /// `case xs of ys -> ys` ends in `xs` itself, so a binding of it is
