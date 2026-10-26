@@ -38,10 +38,18 @@
 //! cargo xtask sanitize [--ways <w,…>] [<dir>…]
 //!     the native ways (default llvm,llvm_opt) over tests/parity with the C
 //!     runtime built with ASan and UBSan; report in .verify/sanitize/
+//! cargo xtask affected [<base ref>] [--path <path>]... [--dry-run] [-- <nextest args>]
+//!     run the tests the changed files are likely to break: staged, unstaged
+//!     and untracked files, plus with a base ref everything committed since
+//!     it, or the --path ones instead; --dry-run prints the command
+//! cargo xtask phase <phase>... [--dry-run] [-- <nextest args>]
+//! cargo xtask phase --list
+//!     run the tests for compiler phases (`affected.rs`)
 //! ```
 //!
 //! Relative paths are taken from the repository root.
 
+mod affected;
 mod bisect;
 mod census;
 mod compare;
@@ -68,7 +76,9 @@ const USAGE: &str = "usage:
   cargo xtask census [--tag <tag>] [--base <tag>] [--jobs <n>] [--ways <w,...>] [--allow network] [<dir>...]
   cargo xtask rewrite [--kind reorder|rename|let-wrap|all] [--seed <n>] [--ways <w,...>] [--jobs <n>] [<dir|file>...]
   cargo xtask bisect-opt <fixture> [--way vm_opt|llvm_opt] [--timeout <seconds>] [--flux <path>]
-  cargo xtask sanitize [--ways <w,...>] [<dir>...]";
+  cargo xtask sanitize [--ways <w,...>] [<dir>...]
+  cargo xtask affected [<base ref>] [--path <path>]... [--dry-run] [-- <nextest args>]
+  cargo xtask phase <phase>... [--dry-run] [-- <nextest args>] | --list";
 
 fn main() -> ExitCode {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -89,6 +99,14 @@ fn main() -> ExitCode {
 /// Runs the command; `Ok(false)` means it ran and found a failure.
 fn dispatch(root: &Path, args: &[String]) -> Result<bool, String> {
     let (command, rest) = args.split_first().ok_or(USAGE)?;
+    // Everything after `--` goes to nextest, for the commands that run it.
+    let (rest, passthrough) = match rest.iter().position(|a| a == "--") {
+        Some(at) => (&rest[..at], &rest[at + 1..]),
+        None => (rest, &[][..]),
+    };
+    if !passthrough.is_empty() && !matches!(command.as_str(), "affected" | "phase") {
+        return Err(format!("{command} takes no arguments after --\n{USAGE}"));
+    }
     let mut args = Args::new(rest);
     match command.as_str() {
         "verify" => {
@@ -209,6 +227,43 @@ fn dispatch(root: &Path, args: &[String]) -> Result<bool, String> {
             let yes = args.flag("--yes");
             args.finish()?;
             Ok(store::prune(root, keep, &keep_tags, yes))
+        }
+        "affected" => {
+            let dry_run = args.flag("--dry-run");
+            let paths = args.values("--path")?;
+            let base = args.positional()?;
+            args.finish()?;
+            if base.is_some() && !paths.is_empty() {
+                return Err(format!("a base ref or --path, not both\n{USAGE}"));
+            }
+            let repo = affected::Repo::load(root)?;
+            let paths = if paths.is_empty() {
+                affected::changed_paths(root, base.as_deref())?
+            } else {
+                paths
+            };
+            let selection = affected::select_for_paths(&repo, &paths);
+            affected::run_selection(root, &selection, passthrough, dry_run)
+        }
+        "phase" => {
+            if args.flag("--list") {
+                args.finish()?;
+                println!("{}", affected::phase_names().join("\n"));
+                return Ok(true);
+            }
+            let dry_run = args.flag("--dry-run");
+            let phases: Vec<String> =
+                std::iter::from_fn(|| args.positional().transpose()).collect::<Result<_, _>>()?;
+            args.finish()?;
+            if phases.is_empty() {
+                return Err(format!(
+                    "name a phase: {}\n{USAGE}",
+                    affected::phase_names().join(" ")
+                ));
+            }
+            let repo = affected::Repo::load(root)?;
+            let selection = affected::select_for_phases(&repo, &phases)?;
+            affected::run_selection(root, &selection, passthrough, dry_run)
         }
         "help" | "--help" | "-h" => {
             println!("{USAGE}");

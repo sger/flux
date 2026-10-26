@@ -279,6 +279,49 @@ fn debugging_a_replay_shows_the_recorded_values() {
     });
 }
 
+/// The unit store under `FLUX_HOME` is keyed by content, not path, so a second
+/// copy of a program reuses the first copy's unit. The debugger must still
+/// show the second copy's source once the first is gone.
+#[test]
+fn a_unit_built_from_another_copy_shows_this_copys_source() {
+    let home = Scratch::new("debug-store-home");
+    let home_path = home.path().to_string_lossy().into_owned();
+    let replay_in_a_fresh_copy = || {
+        let scratch = prepare("replayed");
+        let env = [
+            ("FLUX_HOME", home_path.as_str()),
+            ("DEBUG_FIXTURE_NAME", "copied"),
+        ];
+        let recorded = flux(&scratch, &["replayed.flx", "--record", "run.jsonl"], &env);
+        assert!(
+            recorded.status.success(),
+            "{}",
+            String::from_utf8_lossy(&recorded.stderr)
+        );
+        let output = flux(
+            &scratch,
+            &[
+                "debug",
+                "replayed.flx",
+                "--script",
+                "replayed.flxdbg",
+                "--replay",
+                "run.jsonl",
+            ],
+            &env,
+        );
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        transcript(&output)
+    };
+    let first = replay_in_a_fresh_copy();
+    let second = replay_in_a_fresh_copy();
+    assert_eq!(first, second, "the second copy's session differs");
+}
+
 // ── Going back (0188 S3) ─────────────────────────────────────────────────
 
 #[test]

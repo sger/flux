@@ -1,0 +1,43 @@
+# Test tiers, described in TESTING.md.
+#
+# `default` is the inner loop. It runs with default features, so the LLVM tests
+# (`cfg(feature = "llvm")`) are compiled out, not filtered.
+# `ci` is the full gate and runs with `--all-features`.
+
+[profile.default]
+fail-fast = true
+test-threads = "num-cpus"
+slow-timeout = { period = "60s" }
+# Replay stress tests: a hundred runs of one program, 38s for the VM one.
+# `ci` still runs them.
+default-filter = "not test(/a_hundred_times/)"
+
+[profile.ci]
+default-filter = "all()"
+fail-fast = false
+retries = 0
+# The thread count the full suite has passed at on a laptop. The native
+# group below caps the tests that build native binaries.
+test-threads = 6
+slow-timeout = { period = "60s" }
+
+[profile.ci.junit]
+path = "junit.xml"
+
+# Each native test builds and links a binary; too many at once
+# oversubscribe the machine (tests/README.md#running).
+[test-groups]
+native = { max-threads = 4 }
+
+# Default-profile overrides also apply to `ci`.
+[[profile.default.overrides]]
+filter = '''
+binary(/native|^llvm_/)
+| binary(=safe_arithmetic_tests)
+| binary(=effect_runtime_parity_tests)
+| binary(=effect_multi_shot_tests)
+| binary(=parity_debug_tests)
+| binary(=debug_info_tests)
+| test(/native|llvm/)
+'''
+test-group = "native"

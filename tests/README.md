@@ -116,6 +116,9 @@ different conventions.
 
 ## Running
 
+For the fast and full test tiers (`cargo test-fast`, `cargo test-all`, `cargo test-changed`,
+`cargo test-phase`), see [`TESTING.md`](../TESTING.md).
+
 ```bash
 cargo test --all --all-features                 # full suite
 cargo test --test <binary_name>                 # single binary
