@@ -6,7 +6,7 @@ use crate::cfg::{
     IrTagTest, IrTerminator, IrVar,
 };
 use crate::{
-    bytecode::op_code::OpCode,
+    bytecode::op_code::{MAX_SHORT_LOCAL, OpCode},
     compiler::symbol_scope::SymbolScope,
     diagnostics::{Diagnostic, DiagnosticBuilder},
     runtime::{handler_descriptor::HandlerDescriptor, value::Value},
@@ -945,7 +945,9 @@ impl Compiler {
                     ))
                 })?;
 
-                if left_binding.symbol_scope == SymbolScope::Local {
+                if left_binding.symbol_scope == SymbolScope::Local
+                    && left_binding.index <= MAX_SHORT_LOCAL
+                {
                     self.load_symbol(index_binding);
                     self.emit(OpCode::OpGetLocalIndex, &[left_binding.index]);
                 } else {

@@ -2,7 +2,7 @@ use crate::{
     bytecode::{
         debug_info::{EffectSummary, InstructionLocation, Location},
         emitted_instruction::EmittedInstruction,
-        op_code::{Instructions, OpCode, make},
+        op_code::{Instructions, MAX_SHORT_LOCAL, OpCode, make},
     },
     compiler::{binding::Binding, symbol_scope::SymbolScope},
     core::CorePrimOp,
@@ -11,6 +11,26 @@ use crate::{
 };
 
 use super::Compiler;
+
+/// The long form of a local, capture or call instruction whose operand does
+/// not fit in one byte.
+/// The fusion rules match only the short forms, so a long one is never fused.
+fn widened(op_code: OpCode, operands: &[usize]) -> OpCode {
+    if operands.first().is_none_or(|slot| *slot <= MAX_SHORT_LOCAL) {
+        return op_code;
+    }
+    match op_code {
+        OpCode::OpGetLocal => OpCode::OpGetLocalLong,
+        OpCode::OpSetLocal => OpCode::OpSetLocalLong,
+        OpCode::OpConsumeLocal => OpCode::OpConsumeLocalLong,
+        OpCode::OpAetherDropLocal => OpCode::OpAetherDropLocalLong,
+        OpCode::OpGetFree => OpCode::OpGetFreeLong,
+        OpCode::OpCall => OpCode::OpCallLong,
+        OpCode::OpCallSelf => OpCode::OpCallSelfLong,
+        OpCode::OpTailCall => OpCode::OpTailCallLong,
+        other => other,
+    }
+}
 
 impl Compiler {
     pub(super) fn emit_jump_not_truthy_comparison(&mut self, comparison_op: OpCode) -> usize {
@@ -27,6 +47,7 @@ impl Compiler {
 
     pub(super) fn emit(&mut self, op_code: OpCode, operands: &[usize]) -> usize {
         self.drain_def_log();
+        let op_code = widened(op_code, operands);
         let instruction = make(op_code, operands);
         let pos = self.add_instruction(&instruction, self.current_span);
         self.record_effect_summary(op_code, operands);
@@ -50,7 +71,12 @@ impl Compiler {
                     None => EffectSummary::HasEffects,
                 }
             }
-            OpCode::OpCall | OpCode::OpCallSelf | OpCode::OpTailCall => EffectSummary::Unknown,
+            OpCode::OpCall
+            | OpCode::OpCallSelf
+            | OpCode::OpTailCall
+            | OpCode::OpCallLong
+            | OpCode::OpCallSelfLong
+            | OpCode::OpTailCallLong => EffectSummary::Unknown,
             _ => EffectSummary::Pure,
         };
 

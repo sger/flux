@@ -202,6 +202,15 @@ mod tests {
         assert_eq!(operand_widths(OpCode::OpConsumeLocal0), Vec::<usize>::new());
         assert_eq!(operand_widths(OpCode::OpConsumeLocal1), Vec::<usize>::new());
         assert_eq!(operand_widths(OpCode::OpIsAdtJumpLocal), vec![1, 2, 2]);
+        assert_eq!(operand_widths(OpCode::OpGetLocalLong), vec![2]);
+        assert_eq!(operand_widths(OpCode::OpSetLocalLong), vec![2]);
+        assert_eq!(operand_widths(OpCode::OpConsumeLocalLong), vec![2]);
+        assert_eq!(operand_widths(OpCode::OpAetherDropLocalLong), vec![2]);
+        assert_eq!(operand_widths(OpCode::OpGetFreeLong), vec![2]);
+        assert_eq!(operand_widths(OpCode::OpClosureWide), vec![4, 2]);
+        assert_eq!(operand_widths(OpCode::OpCallLong), vec![2]);
+        assert_eq!(operand_widths(OpCode::OpCallSelfLong), vec![2]);
+        assert_eq!(operand_widths(OpCode::OpTailCallLong), vec![2]);
         assert_eq!(operand_widths(OpCode::OpAdd), Vec::<usize>::new());
     }
 
@@ -210,7 +219,7 @@ mod tests {
         // Ensure MAX_OPCODE stays in sync when new opcodes are added.
         assert_eq!(
             flux::bytecode::op_code::MAX_OPCODE,
-            OpCode::OpReturnCheck as u8,
+            OpCode::OpTailCallLong as u8,
             "MAX_OPCODE must equal the last OpCode variant"
         );
     }

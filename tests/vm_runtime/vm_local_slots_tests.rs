@@ -36,7 +36,12 @@ fn mismatches(label: &str, source: &str, expected: i64) -> Vec<String> {
             let stderr = String::from_utf8_lossy(&output.stderr);
             wrong.push(format!(
                 "{label} {way:?}: expected {expected}, got {printed:?}\n{}",
-                stderr.lines().take(12).collect::<Vec<_>>().join("\n")
+                stderr
+                    .lines()
+                    .filter(|line| !line.trim_start().starts_with('['))
+                    .take(12)
+                    .collect::<Vec<_>>()
+                    .join("\n")
             ));
         }
     }
@@ -133,5 +138,36 @@ fn a_value_past_the_256th_slot_can_be_indexed_called_and_matched() {
     );
     // `picked`, `opt` and `unboxed` are each 2, and `g(n)` is 12.
     let wrong = mismatches("past_slot_255", &source, expected_sum(count) + 18);
+    assert!(wrong.is_empty(), "{}", wrong.join("\n\n"));
+}
+
+/// A call counted its arguments in one byte too. `count` calls itself in tail
+/// position and `plus` calls it outside one, so each kind of call is covered.
+#[test]
+fn a_call_with_hundreds_of_arguments_computes_the_right_result() {
+    let count = 300;
+    let params = (0..count)
+        .map(|i| format!("a{i}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let rest = (1..count)
+        .map(|i| format!("a{i}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let args = (0..count)
+        .map(|i| format!("n + {i}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let last = count - 1;
+    let source = format!(
+        "fn first({params}) {{ a0 + a{last} }}\n\n\
+         fn count({params}) {{ if a0 > 5 {{ a0 + a{last} }} else {{ count(a0 + 1, {rest}) }} }}\n\n\
+         fn plus({params}) {{ count({params}) + 1 }}\n\n\
+         fn main() {{\n    let n = len([1, 2])\n    \
+         print(first({args}) + count({args}) + plus({args}))\n}}\n"
+    );
+    // `first` is 2 + 301, `count` raises `a0` to 6 and adds 301, and `plus`
+    // is one more than that.
+    let wrong = mismatches("call_300", &source, 303 + 307 + 308);
     assert!(wrong.is_empty(), "{}", wrong.join("\n\n"));
 }

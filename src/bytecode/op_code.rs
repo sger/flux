@@ -213,10 +213,33 @@ pub enum OpCode {
     /// No operands. Emitted immediately before return opcodes so the VM can
     /// observe an in-flight yield while unwinding.
     OpReturnCheck = 105,
+    /// The long forms of the local instructions, for a slot above
+    /// `MAX_SHORT_LOCAL`. Operand: `[slot: u16]`.
+    OpGetLocalLong = 106,
+    OpSetLocalLong = 107,
+    OpConsumeLocalLong = 108,
+    OpAetherDropLocalLong = 109,
+    /// `OpGetFree` for a capture above `MAX_SHORT_LOCAL`. Operand: `[index: u16]`.
+    OpGetFreeLong = 110,
+    /// A closure with more than `MAX_SHORT_LOCAL` captures.
+    /// Operands: `[const_idx: u32, num_free: u16]`.
+    OpClosureWide = 111,
+    /// The long forms of the call instructions, for more than
+    /// `MAX_SHORT_LOCAL` arguments. Operand: `[num_args: u16]`.
+    OpCallLong = 112,
+    OpCallSelfLong = 113,
+    OpTailCallLong = 114,
 }
 
 /// Maximum valid opcode value (inclusive). Must be updated when adding new opcodes.
-pub const MAX_OPCODE: u8 = OpCode::OpReturnCheck as u8;
+pub const MAX_OPCODE: u8 = OpCode::OpTailCallLong as u8;
+
+/// The highest slot, capture or argument count a one-byte operand can hold.
+/// A function can need more slots than this, since each `let` and each
+/// intermediate result takes one, and a lambda compiled before the
+/// simplifier can capture more; the emitter then uses the long form of the
+/// instruction.
+pub const MAX_SHORT_LOCAL: usize = u8::MAX as usize;
 
 impl From<u8> for OpCode {
     fn from(byte: u8) -> Self {
@@ -327,6 +350,15 @@ impl From<u8> for OpCode {
             103 => OpCode::OpTailCall1,
             104 => OpCode::OpEnterCC,
             105 => OpCode::OpReturnCheck,
+            106 => OpCode::OpGetLocalLong,
+            107 => OpCode::OpSetLocalLong,
+            108 => OpCode::OpConsumeLocalLong,
+            109 => OpCode::OpAetherDropLocalLong,
+            110 => OpCode::OpGetFreeLong,
+            111 => OpCode::OpClosureWide,
+            112 => OpCode::OpCallLong,
+            113 => OpCode::OpCallSelfLong,
+            114 => OpCode::OpTailCallLong,
             _ => panic!("Unknown opcode {}", byte),
         }
     }
@@ -353,7 +385,15 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         | OpCode::OpSetGlobal
         | OpCode::OpArray
         | OpCode::OpHash
-        | OpCode::OpTuple => vec![2],
+        | OpCode::OpTuple
+        | OpCode::OpGetLocalLong
+        | OpCode::OpSetLocalLong
+        | OpCode::OpConsumeLocalLong
+        | OpCode::OpAetherDropLocalLong
+        | OpCode::OpGetFreeLong
+        | OpCode::OpCallLong
+        | OpCode::OpCallSelfLong
+        | OpCode::OpTailCallLong => vec![2],
         OpCode::OpConstantLong | OpCode::OpArrayLong | OpCode::OpHashLong | OpCode::OpTupleLong => {
             vec![4]
         }
@@ -377,6 +417,7 @@ pub fn operand_widths(op: OpCode) -> Vec<usize> {
         OpCode::OpPrimOp => vec![1, 1],
         OpCode::OpClosure => vec![2, 1],
         OpCode::OpClosureLong => vec![4, 1],
+        OpCode::OpClosureWide => vec![4, 2],
         // ADT opcodes
         OpCode::OpMakeAdt => vec![2, 1], // const_idx: u16, arity: u8
         OpCode::OpIsAdt => vec![2],      // const_idx: u16
@@ -412,6 +453,12 @@ pub fn make(op: OpCode, operands: &[usize]) -> Instructions {
 
     for (i, operand) in operands.iter().enumerate() {
         let width = widths.get(i).copied().unwrap_or(0);
+        // A truncated operand names another slot, constant or target, and the
+        // program then computes a wrong result with no error.
+        assert!(
+            width >= 8 || *operand < 1 << (8 * width),
+            "{op:?} operand {i} is {operand}, which does not fit in {width} byte(s)"
+        );
         match width {
             1 => instruction.push(*operand as u8),
             2 => {

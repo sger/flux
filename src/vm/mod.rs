@@ -368,7 +368,7 @@ impl VM {
             let closure_changed =
                 Rc::as_ptr(&self.frames[self.frame_index].closure) != closure_ptr_before;
             if self.frame_index != frame_before
-                || matches!(op, OpCode::OpTailCall)
+                || matches!(op, OpCode::OpTailCall | OpCode::OpTailCallLong)
                 || closure_changed
             {
                 closure = self.frames[self.frame_index].closure.clone();

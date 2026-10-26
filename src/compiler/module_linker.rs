@@ -192,6 +192,7 @@ fn patch_instructions(
             | OpCode::OpConstantLong
             | OpCode::OpClosure
             | OpCode::OpClosureLong
+            | OpCode::OpClosureWide
             | OpCode::OpMakeAdt
             | OpCode::OpIsAdt
             | OpCode::OpIsAdtJump
@@ -246,6 +247,12 @@ fn patch_constant_operand(
             let idx = read_u32(instructions, ip + 1) as usize + constant_base;
             let num_free = instructions[ip + 5] as usize;
             let replacement = make(OpCode::OpClosureLong, &[idx, num_free]);
+            replace_instruction(instructions, ip, op, &replacement);
+        }
+        OpCode::OpClosureWide => {
+            let idx = read_u32(instructions, ip + 1) as usize + constant_base;
+            let num_free = read_u16(instructions, ip + 5) as usize;
+            let replacement = make(OpCode::OpClosureWide, &[idx, num_free]);
             replace_instruction(instructions, ip, op, &replacement);
         }
         OpCode::OpMakeAdt => {
