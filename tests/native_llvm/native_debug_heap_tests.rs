@@ -847,6 +847,93 @@ fn a_value_lent_to_a_tail_call_is_released() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+const OWNED_TEMPORARY: &str = r"fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn sum(xs) {
+    match xs {
+        [h | t] -> h + sum(t),
+        _ -> 0,
+    }
+}
+
+fn keep(xs) {
+    xs
+}
+
+fn first(ys) {
+    match ys {
+        [h | _] -> h,
+        _ -> 0,
+    }
+}
+
+fn go(n) {
+    let xs = numbers(n)
+    let r = [len(keep(xs))]
+    first(r) + sum(xs)
+}
+
+fn count(n, acc) {
+    if n == 0 { acc } else { count(n - 1, acc + go(n)) }
+}
+
+fn main() {
+    print(count(SIZE, 0))
+}
+";
+
+const PRINTED_TEMPORARY: &str = r"fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn sum(xs) {
+    match xs {
+        [h | t] -> h + sum(t),
+        _ -> 0,
+    }
+}
+
+fn keep(xs) {
+    xs
+}
+
+fn go(n) with IO {
+    let xs = numbers(n)
+    print(len(keep(xs)))
+    sum(xs)
+}
+
+fn count(n, acc) with IO {
+    if n == 0 { acc } else { count(n - 1, acc + go(n)) }
+}
+
+fn main() with IO {
+    print(count(SIZE, 0))
+}
+";
+
+/// KI-129: `len(keep(xs))` is computed in a block that copies its result
+/// before releasing what `keep` returned. Given straight to an owned use, a
+/// list cell or a `print`, that result was taken for a view of `xs`, and
+/// `xs` was never released.
+#[test]
+fn a_value_copied_into_a_temporary_given_away_is_released() {
+    let scratch = Scratch::new("debug-heap-owned-temporary");
+    let failures: Vec<String> = [
+        ("owned_temporary", OWNED_TEMPORARY),
+        ("printed_temporary", PRINTED_TEMPORARY),
+    ]
+    .into_iter()
+    .filter_map(|(name, program)| {
+        let (_, _, live) = per_thousand_cells(&scratch, name, program);
+        (live != 0).then(|| format!("{name}: {live} blocks left live per 1000 turns"))
+    })
+    .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 const FORWARDED_CHILD: &str = r"type Pair2<T> = Pair2(T, T)
 
 fn numbers(n) {
