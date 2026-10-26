@@ -106,8 +106,18 @@ impl Phase {
             Phase::Core => &["core"],
             Phase::Aether => &["aether"],
             Phase::Bytecode => &["cfg", "bytecode"],
-            Phase::Vm => &["vm", "runtime"],
-            Phase::Llvm => &["lir", "llvm"],
+            Phase::Vm => &[
+                "vm",
+                "runtime",
+                "driver::run_program::backend::vm",
+                "driver::pipeline::vm",
+            ],
+            Phase::Llvm => &[
+                "lir",
+                "llvm",
+                "driver::run_program::backend::native",
+                "driver::pipeline::native",
+            ],
             Phase::Debug => &["debuginfo", "debug_protocol"],
             Phase::Diagnostics => &["diagnostics"],
             Phase::Effects
@@ -286,12 +296,23 @@ fn phases_for_src_path(path: &str) -> &'static [Phase] {
         &[Phase::Aether]
     } else if under(&["src/cfg/", "src/bytecode/"]) {
         &[Phase::Bytecode]
-    } else if under(&["src/vm/"]) {
+    } else if under(&[
+        "src/vm/",
+        "src/driver/run_program/backend/vm.rs",
+        "src/driver/pipeline/vm/",
+    ]) {
         &[Phase::Vm]
     } else if under(&["src/runtime/"]) {
         // Both backends use it.
         &[Phase::Vm, Phase::Llvm]
-    } else if under(&["src/lir/", "src/llvm/", "src/parity/", "runtime/"]) {
+    } else if under(&[
+        "src/lir/",
+        "src/llvm/",
+        "src/parity/",
+        "runtime/",
+        "src/driver/run_program/backend/native.rs",
+        "src/driver/pipeline/native/",
+    ]) {
         &[Phase::Llvm]
     } else if under(&["src/debuginfo/"]) || path == "src/debug_protocol.rs" {
         &[Phase::Debug]
@@ -659,6 +680,8 @@ mod tests {
         assert_eq!(
             filters(&selection),
             [
+                "(package(flux) & kind(lib) & test(/^driver::pipeline::native::/))",
+                "(package(flux) & kind(lib) & test(/^driver::run_program::backend::native::/))",
                 "(package(flux) & kind(lib) & test(/^lir::/))",
                 "(package(flux) & kind(lib) & test(/^llvm::/))",
                 "binary_id(=flux::effect_runtime_parity_tests)",
@@ -666,6 +689,17 @@ mod tests {
                 "binary_id(=flux::native_debug_tests)",
             ]
         );
+    }
+
+    #[test]
+    fn the_native_driver_selects_the_native_tests_not_the_fast_tier() {
+        let selection = select(&["src/driver/run_program/backend/native.rs"]);
+        assert_eq!(selection.fallback, None);
+        assert!(selection.all_features);
+        assert!(filters(&selection).contains(&"binary_id(=flux::llvm_codegen)"));
+        assert!(filters(&selection).contains(
+            &"(package(flux) & kind(lib) & test(/^driver::run_program::backend::native::/))"
+        ));
     }
 
     #[test]
