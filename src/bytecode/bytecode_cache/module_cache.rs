@@ -7,8 +7,9 @@ use std::{
 use crate::{
     bytecode::{
         bytecode_cache::cache_serialization::{
-            read_function_debug_info, read_object, read_string, read_u32,
-            write_function_debug_info, write_object, write_string, write_u16, write_u32,
+            read_function_debug_info_naming, read_object_naming, read_string, read_u32,
+            write_function_debug_info_naming, write_object_naming, write_string, write_u16,
+            write_u32,
         },
         bytecode_cache::cache_validation::{
             validate_cache_key, validate_format_version, validate_magic,
@@ -143,6 +144,7 @@ impl ModuleBytecodeCache {
     ) -> Result<CachedModuleBytecode, ModuleCacheLoadError> {
         let path = self.cache_path(source_path, cache_key);
         let mut file = File::open(path).map_err(|_| ModuleCacheLoadError::NotFound)?;
+        let own_file = source_path.to_string_lossy();
 
         validate_magic(&mut file, MAGIC).ok_or(ModuleCacheLoadError::BadMagic)?;
         validate_format_version(&mut file, FORMAT_VERSION)
@@ -170,7 +172,10 @@ impl ModuleBytecodeCache {
             read_u32(&mut file).ok_or(ModuleCacheLoadError::CorruptPayload)? as usize;
         let mut constants = Vec::with_capacity(constants_count);
         for _ in 0..constants_count {
-            constants.push(read_object(&mut file).ok_or(ModuleCacheLoadError::CorruptPayload)?);
+            constants.push(
+                read_object_naming(&mut file, Some(&own_file))
+                    .ok_or(ModuleCacheLoadError::CorruptPayload)?,
+            );
         }
 
         let instructions_len =
@@ -179,8 +184,8 @@ impl ModuleBytecodeCache {
         file.read_exact(&mut instructions)
             .map_err(|_| ModuleCacheLoadError::CorruptPayload)?;
 
-        let debug_info =
-            read_function_debug_info(&mut file).ok_or(ModuleCacheLoadError::CorruptPayload)?;
+        let debug_info = read_function_debug_info_naming(&mut file, Some(&own_file))
+            .ok_or(ModuleCacheLoadError::CorruptPayload)?;
 
         Ok(CachedModuleBytecode {
             globals,
@@ -224,14 +229,15 @@ impl ModuleBytecodeCache {
             write_binding(&mut file, binding)?;
         }
 
+        let own_file = source_path.to_string_lossy();
         write_u32(&mut file, bytecode.constants.len() as u32)?;
         for constant in &bytecode.constants {
-            write_object(&mut file, constant)?;
+            write_object_naming(&mut file, constant, Some(&own_file))?;
         }
 
         write_u32(&mut file, bytecode.instructions.len() as u32)?;
         file.write_all(&bytecode.instructions)?;
-        write_function_debug_info(&mut file, Some(&bytecode.debug_info))?;
+        write_function_debug_info_naming(&mut file, Some(&bytecode.debug_info), Some(&own_file))?;
         file.sync_all()?;
         drop(file);
         fs::rename(tmp_path, path)?;

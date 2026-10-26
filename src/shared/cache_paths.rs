@@ -352,7 +352,11 @@ use sha2::{Digest, Sha256};
 /// Epoch 113: string literals and the closures of functions that capture
 /// nothing are static objects with a sticky count; an epoch-112 unit
 /// allocated one per use, against a runtime that has no sticky range.
-pub const CACHE_EPOCH: u16 = 113;
+/// Epoch 114: a module unit names its own source file by a marker the loader
+/// replaces with the module's current path; an epoch-113 unit kept the path it
+/// was built at, which a unit shared through the store from another copy of
+/// the program left the debugger unable to read.
+pub const CACHE_EPOCH: u16 = 114;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

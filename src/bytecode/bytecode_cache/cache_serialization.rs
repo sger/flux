@@ -80,7 +80,22 @@ pub(super) fn read_string(reader: &mut File) -> Option<String> {
     String::from_utf8(buf).ok()
 }
 
+/// Stands in for a module unit's own source file. The store shares units
+/// between copies of a program, so the path a unit was built at may be gone
+/// where it's loaded; the loader substitutes the module's current path.
+/// Paths can't contain NUL.
+const OWN_FILE: &str = "\0own-file";
+
 pub(super) fn write_object(writer: &mut File, obj: &Value) -> std::io::Result<()> {
+    write_object_naming(writer, obj, None)
+}
+
+/// [`write_object`], writing `own_file` in debug tables as [`OWN_FILE`].
+pub(super) fn write_object_naming(
+    writer: &mut File,
+    obj: &Value,
+    own_file: Option<&str>,
+) -> std::io::Result<()> {
     match obj {
         Value::Integer(value) => {
             writer.write_all(&[0])?;
@@ -100,7 +115,7 @@ pub(super) fn write_object(writer: &mut File, obj: &Value) -> std::io::Result<()
             write_u16(writer, func.num_parameters as u16)?;
             write_u32(writer, func.instructions.len() as u32)?;
             writer.write_all(&func.instructions)?;
-            write_function_debug_info(writer, func.debug_info.as_ref())
+            write_function_debug_info_naming(writer, func.debug_info.as_ref(), own_file)
         }
         Value::Boolean(value) => {
             writer.write_all(&[4])?;
@@ -110,22 +125,22 @@ pub(super) fn write_object(writer: &mut File, obj: &Value) -> std::io::Result<()
         Value::EmptyList => writer.write_all(&[6]),
         Value::Some(value) => {
             writer.write_all(&[7])?;
-            write_object(writer, value)
+            write_object_naming(writer, value, own_file)
         }
         Value::Left(value) => {
             writer.write_all(&[8])?;
-            write_object(writer, value)
+            write_object_naming(writer, value, own_file)
         }
         Value::Right(value) => {
             writer.write_all(&[9])?;
-            write_object(writer, value)
+            write_object_naming(writer, value, own_file)
         }
         // Tag 10 was BaseFunction (removed). Keep tag reserved for backward compat.
         Value::Array(values) => {
             writer.write_all(&[11])?;
             write_u32(writer, values.len() as u32)?;
             for value in values.iter() {
-                write_object(writer, value)?;
+                write_object_naming(writer, value, own_file)?;
             }
             Ok(())
         }
@@ -133,7 +148,7 @@ pub(super) fn write_object(writer: &mut File, obj: &Value) -> std::io::Result<()
             writer.write_all(&[12])?;
             write_u32(writer, values.len() as u32)?;
             for value in values.iter() {
-                write_object(writer, value)?;
+                write_object_naming(writer, value, own_file)?;
             }
             Ok(())
         }
@@ -143,15 +158,15 @@ pub(super) fn write_object(writer: &mut File, obj: &Value) -> std::io::Result<()
         }
         Value::Cons(cell) => {
             writer.write_all(&[14])?;
-            write_object(writer, &cell.head)?;
-            write_object(writer, &cell.tail)
+            write_object_naming(writer, &cell.head, own_file)?;
+            write_object_naming(writer, &cell.tail, own_file)
         }
         Value::Adt(adt) => {
             writer.write_all(&[15])?;
             write_string(writer, &adt.constructor)?;
             write_u32(writer, adt.fields.len() as u32)?;
             for field in adt.fields.iter() {
-                write_object(writer, field)?;
+                write_object_naming(writer, field, own_file)?;
             }
             Ok(())
         }
@@ -182,6 +197,11 @@ pub(super) fn write_object(writer: &mut File, obj: &Value) -> std::io::Result<()
 }
 
 pub(super) fn read_object(reader: &mut File) -> Option<Value> {
+    read_object_naming(reader, None)
+}
+
+/// [`read_object`], reading [`OWN_FILE`] in debug tables as `own_file`.
+pub(super) fn read_object_naming(reader: &mut File, own_file: Option<&str>) -> Option<Value> {
     let mut tag = [0u8; 1];
     reader.read_exact(&mut tag).ok()?;
     match tag[0] {
@@ -194,7 +214,7 @@ pub(super) fn read_object(reader: &mut File) -> Option<Value> {
             let instructions_len = read_u32(reader)? as usize;
             let mut instructions = vec![0u8; instructions_len];
             reader.read_exact(&mut instructions).ok()?;
-            let debug_info = read_function_debug_info(reader);
+            let debug_info = read_function_debug_info_naming(reader, own_file);
             Some(Value::Function(std::sync::Arc::new(CompiledFunction::new(
                 instructions,
                 num_locals,
@@ -209,9 +229,15 @@ pub(super) fn read_object(reader: &mut File) -> Option<Value> {
         }
         5 => Some(Value::None),
         6 => Some(Value::EmptyList),
-        7 => Some(Value::Some(std::rc::Rc::new(read_object(reader)?))),
-        8 => Some(Value::Left(std::rc::Rc::new(read_object(reader)?))),
-        9 => Some(Value::Right(std::rc::Rc::new(read_object(reader)?))),
+        7 => Some(Value::Some(std::rc::Rc::new(read_object_naming(
+            reader, own_file,
+        )?))),
+        8 => Some(Value::Left(std::rc::Rc::new(read_object_naming(
+            reader, own_file,
+        )?))),
+        9 => Some(Value::Right(std::rc::Rc::new(read_object_naming(
+            reader, own_file,
+        )?))),
         10 => {
             // Tag 10 was BaseFunction (removed). Skip 1 byte for compat.
             let mut value = [0u8; 1];
@@ -222,7 +248,7 @@ pub(super) fn read_object(reader: &mut File) -> Option<Value> {
             let len = read_u32(reader)? as usize;
             let mut values = Vec::with_capacity(len);
             for _ in 0..len {
-                values.push(read_object(reader)?);
+                values.push(read_object_naming(reader, own_file)?);
             }
             Some(Value::Array(std::rc::Rc::new(values)))
         }
@@ -230,14 +256,14 @@ pub(super) fn read_object(reader: &mut File) -> Option<Value> {
             let len = read_u32(reader)? as usize;
             let mut values = Vec::with_capacity(len);
             for _ in 0..len {
-                values.push(read_object(reader)?);
+                values.push(read_object_naming(reader, own_file)?);
             }
             Some(Value::Tuple(std::rc::Rc::new(values)))
         }
         13 => Some(Value::AdtUnit(std::rc::Rc::new(read_string(reader)?))),
         14 => {
-            let head = read_object(reader)?;
-            let tail = read_object(reader)?;
+            let head = read_object_naming(reader, own_file)?;
+            let tail = read_object_naming(reader, own_file)?;
             Some(ConsCell::cons(head, tail))
         }
         15 => {
@@ -245,7 +271,7 @@ pub(super) fn read_object(reader: &mut File) -> Option<Value> {
             let len = read_u32(reader)? as usize;
             let mut fields = Vec::with_capacity(len);
             for _ in 0..len {
-                fields.push(read_object(reader)?);
+                fields.push(read_object_naming(reader, own_file)?);
             }
             Some(Value::Adt(std::rc::Rc::new(AdtValue {
                 constructor,
@@ -293,6 +319,14 @@ pub(super) fn write_function_debug_info(
     writer: &mut File,
     debug_info: Option<&FunctionDebugInfo>,
 ) -> std::io::Result<()> {
+    write_function_debug_info_naming(writer, debug_info, None)
+}
+
+pub(super) fn write_function_debug_info_naming(
+    writer: &mut File,
+    debug_info: Option<&FunctionDebugInfo>,
+    own_file: Option<&str>,
+) -> std::io::Result<()> {
     match debug_info {
         None => writer.write_all(&[0]),
         Some(info) => {
@@ -306,7 +340,12 @@ pub(super) fn write_function_debug_info(
             }
             write_u32(writer, info.files.len() as u32)?;
             for file in &info.files {
-                write_string(writer, file)?;
+                let named = if own_file == Some(file.as_str()) {
+                    OWN_FILE
+                } else {
+                    file
+                };
+                write_string(writer, named)?;
             }
             write_u32(writer, info.locations.len() as u32)?;
             for entry in &info.locations {
@@ -426,6 +465,13 @@ fn read_debug_tables(reader: &mut File) -> Option<(Vec<BreakSite>, Vec<LocalVar>
 }
 
 pub(super) fn read_function_debug_info(reader: &mut File) -> Option<FunctionDebugInfo> {
+    read_function_debug_info_naming(reader, None)
+}
+
+pub(super) fn read_function_debug_info_naming(
+    reader: &mut File,
+    own_file: Option<&str>,
+) -> Option<FunctionDebugInfo> {
     let mut flag = [0u8; 1];
     reader.read_exact(&mut flag).ok()?;
     if flag[0] == 0 {
@@ -443,7 +489,11 @@ pub(super) fn read_function_debug_info(reader: &mut File) -> Option<FunctionDebu
     let files_len = read_u32(reader)? as usize;
     let mut files = Vec::with_capacity(files_len);
     for _ in 0..files_len {
-        files.push(read_string(reader)?);
+        let file = read_string(reader)?;
+        files.push(match own_file {
+            Some(own) if file == OWN_FILE => own.to_string(),
+            _ => file,
+        });
     }
 
     let locations_len = read_u32(reader)? as usize;
