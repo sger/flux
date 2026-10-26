@@ -77,38 +77,6 @@ with `print(sum(xs) + total(t) + len(name))`, the last use of its 50-cell
 list, so 53 blocks are live at exit whether its tasks run 10, 20 or 40
 rounds, or none; without that line, 3.
 
-### KI-127 — On the VM, a function with about a hundred `let`s computes a wrong result
-
-**Severity:** High · **Area:** VM, bytecode · **Verified:** 2026-10-26 · **From:** the Perceus audit, step 10
-
-A function that binds many values with `let` gives a wrong answer on the
-VM, with no error. The native backend gives the right one:
-
-```flux
-fn total(n) {
-    let v0 = n + 0
-    let v1 = n + 1
-    // … one `let` per value, up to v99
-    v0 + v1 + … + v99
-}
-
-fn main() {
-    print(total(len([1, 2])))
-}
-```
-
-With 80 `let`s both backends print 3320. With 100 the VM prints 6340
-instead of 5150, and the error grows with the count (120 `let`s: 10270
-instead of 7380; 200: 668425 instead of 20300). Summing through a chain of
-`let`s (`let s1 = s0 + v1`, …) instead of one long expression is just as
-wrong, so it is not the size of one expression. The cause is not known yet.
-
-A closure that sums 254 values made from one argument (`let v = n + i`, …) is
-also wrong on the VM (32892 instead of 32640; 253 are right): the simplifier
-copies each cheap `n + i` into the closure's body, so the body holds all 254
-sums. A closure that captures 255 values it reads only once is right on both
-backends.
-
 ### KI-126 — Natively, a caught panic leaks what the frames it skipped held
 
 **Severity:** Low · **Area:** native runtime, panics · **Verified:** 2026-10-25 · **From:** the Perceus audit, R7 and C1
@@ -2263,6 +2231,60 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-127 — On the VM, a function with about a hundred `let`s computed a wrong result — FIXED 2026-10-26
+
+**Severity:** High · **Area:** VM, bytecode · **Verified fixed:** 2026-10-26 · **From:** the Perceus audit, step 10
+
+A function that binds many values with `let` gave a wrong answer on the
+VM, with no error, while native gave the right one:
+
+```flux
+fn total(n) {
+    let v0 = n + 0
+    let v1 = n + 1
+    // … one `let` per value, up to v99
+    v0 + v1 + … + v99
+}
+
+fn main() {
+    print(total(len([1, 2])))
+}
+```
+
+With 86 `let`s both backends printed the right sum. From 87 on the VM was
+off by 85 for each extra `let` (100 `let`s: 6340 instead of 5150).
+
+**The cause.** Every local instruction named its slot in one byte, and
+`make` (`src/bytecode/op_code.rs`) wrote the slot number with `as u8` and no
+check. The emitter gives each `let` a slot, and each intermediate result
+too, so 87 values need more than 256 slots. Slot 256 wrapped to slot 0,
+which holds the argument `n`, and every later `n + i` read the wrong
+value. A closure did the same: one whose body holds 254 sums gave 33142
+instead of 32640. A lambda that captures more than 255 values wrapped its
+capture numbers in the same way. The VM compiles a lambda before the
+simplifier runs, so it can capture values that E087, which counts captures
+after the simplifier, never sees. A call with more than 255 arguments
+wrapped its argument count too.
+
+**The fix.** There are long forms of the local and capture instructions
+(`OpGetLocalLong`, `OpSetLocalLong`, `OpConsumeLocalLong`,
+`OpAetherDropLocalLong`, `OpGetFreeLong`) and of the call instructions
+(`OpCallLong`, `OpCallSelfLong`, `OpTailCallLong`), and `OpClosureWide`
+carries a capture count in two bytes. `emit` picks the long form when the
+operand is above 255. The fused instructions that read a local (`OpGetLocalIndex`,
+`OpGetLocalCall1`, `OpIsAdtJumpLocal`) are emitted only for a slot that
+fits, and otherwise fall back to the unfused sequence. `make` now panics
+when an operand does not fit its width, so a truncation that remains is a
+compiler error and not a wrong answer. For that reason the AST emitter
+reports E087 itself for a constructor with more than 255 fields: when Core
+lowering fails it still compiles each function to find the unit's own
+errors, before the Core check's E087 is reported.
+
+Tests: `tests/vm_runtime/vm_local_slots_tests.rs` runs a function with 120
+and 300 `let`s, a closure with 254 and 300 sums, and values past slot 255
+that are indexed, called and matched, and calls with 300 arguments, each
+with and without `--optimize`.
 
 ### KI-120 — Natively, every owned argument of a direct call was copied once too often — FIXED 2026-10-20
 

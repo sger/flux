@@ -359,7 +359,10 @@ use sha2::{Digest, Sha256};
 /// Epoch 115: a constructor, tuple or closure with more than 255 fields or
 /// captures is an error (E087); an epoch-114 unit built one, and natively
 /// leaked every field past the 255th.
-pub const CACHE_EPOCH: u16 = 115;
+/// Epoch 116: a local slot, capture or argument count above 255 uses a
+/// two-byte operand; epoch-115 bytecode wrapped it and computed a wrong
+/// result (KI-127).
+pub const CACHE_EPOCH: u16 = 116;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

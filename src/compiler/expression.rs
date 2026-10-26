@@ -9,7 +9,7 @@ use crate::{
     ast::{free_vars::collect_free_vars_in_function_body, type_infer::display_infer_type},
     bytecode::{
         debug_info::FunctionDebugInfo,
-        op_code::{OpCode, make},
+        op_code::{MAX_SHORT_LOCAL, OpCode, make},
     },
     compiler::{
         Compiler,
@@ -30,7 +30,7 @@ use crate::{
         compiler_errors::{
             call_arg_type_mismatch, constructor_pattern_arity_mismatch,
             cross_module_constructor_access_error, cross_module_constructor_access_warning,
-            type_unification_error, wrong_argument_count,
+            too_many_fields, type_unification_error, wrong_argument_count,
         },
         diagnostic_for, dynamic_explained_diagnostic,
         position::{Position, Span},
@@ -875,6 +875,7 @@ impl Compiler {
                 if let Expression::Identifier { name, .. } = left.as_ref()
                     && let Some(binding) = self.resolve_visible_symbol(*name)
                     && binding.symbol_scope == SymbolScope::Local
+                    && binding.index <= MAX_SHORT_LOCAL
                 {
                     self.compile_non_tail_expression(index)?;
                     self.emit(OpCode::OpGetLocalIndex, &[binding.index]);
@@ -1033,6 +1034,7 @@ impl Compiler {
                     && let Expression::Identifier { name, .. } = function.as_ref()
                     && let Some(binding) = self.resolve_visible_symbol(*name)
                     && binding.symbol_scope == SymbolScope::Local
+                    && binding.index <= MAX_SHORT_LOCAL
                 {
                     self.compile_non_tail_expression(&arguments[0])?;
                     self.emit_pending_pipe_site();
@@ -2942,6 +2944,7 @@ impl Compiler {
         // succeeds in `OpAdtFields2`, moving fields without any clone/drop overhead.
         let consume_local_idx: Option<usize> = if self.all_arms_simple_adt(arms) {
             self.scrutinee_as_simple_consumable_local(scrutinee)
+                .filter(|idx| *idx <= MAX_SHORT_LOCAL)
         } else {
             None
         };
@@ -4768,6 +4771,7 @@ impl Compiler {
                     )
                     .with_file(self.file_path.clone()),
                 );
+                self.check_constructor_field_count(span, arguments.len())?;
                 for arg in arguments {
                     self.compile_non_tail_expression(arg)?;
                 }
@@ -4817,6 +4821,8 @@ impl Compiler {
             ));
         }
 
+        self.check_constructor_field_count(span, actual_arity)?;
+
         // Compile each argument
         for arg in arguments {
             self.compile_non_tail_expression(arg)?;
@@ -4828,6 +4834,20 @@ impl Compiler {
         self.emit(OpCode::OpMakeAdt, &[const_idx, actual_arity]);
 
         Ok(true)
+    }
+
+    /// The Core check reports E087 for a constructor with too many fields,
+    /// but when Core lowering fails this path still compiles every function
+    /// to find the unit's own errors, and `OpMakeAdt` counts fields in one
+    /// byte. Reporting E087 here keeps it from building that instruction.
+    fn check_constructor_field_count(&self, span: Span, count: usize) -> CompileResult<()> {
+        if count > u8::MAX as usize {
+            return Err(Self::boxed(
+                too_many_fields(span, "constructor", "fields", count)
+                    .with_file(self.file_path.clone()),
+            ));
+        }
+        Ok(())
     }
     /// Try to resolve a class method call at compile time.
     ///

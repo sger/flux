@@ -331,11 +331,55 @@ impl VM {
                 self.push(value)?;
                 Ok(1)
             }
+            OpCode::OpGetLocalLong => {
+                let idx = Self::read_u16_fast(instructions, ip + 1);
+                let bp = self.current_frame().base_pointer;
+                let value = self.stack_get(bp + idx);
+                self.push(value)?;
+                Ok(3)
+            }
+            OpCode::OpSetLocalLong => {
+                let idx = Self::read_u16_fast(instructions, ip + 1);
+                let bp = self.current_frame().base_pointer;
+                let val = self.pop()?;
+                let slot = bp + idx;
+                self.stack_set(slot, val);
+                if self.sp <= slot {
+                    self.reset_sp(slot + 1)?;
+                }
+                Ok(3)
+            }
+            OpCode::OpConsumeLocalLong => {
+                let idx = Self::read_u16_fast(instructions, ip + 1);
+                let bp = self.current_frame().base_pointer;
+                let value = self.stack_take(bp + idx);
+                self.push(value)?;
+                Ok(3)
+            }
+            OpCode::OpAetherDropLocalLong => {
+                let idx = Self::read_u16_fast(instructions, ip + 1);
+                let bp = self.current_frame().base_pointer;
+                let slot_idx = bp + idx;
+                let should_clear = !matches!(
+                    self.stack_get(slot_idx),
+                    Value::Integer(_) | Value::Float(_) | Value::Boolean(_)
+                );
+                if should_clear {
+                    self.stack_set(slot_idx, Value::None);
+                }
+                Ok(3)
+            }
             OpCode::OpGetFree => {
                 let idx = Self::read_u8_fast(instructions, ip + 1);
                 let value = self.frames[self.frame_index].closure.free[idx].clone();
                 self.push(value)?;
                 Ok(2)
+            }
+            OpCode::OpGetFreeLong => {
+                let idx = Self::read_u16_fast(instructions, ip + 1);
+                let value = self.frames[self.frame_index].closure.free[idx].clone();
+                self.push(value)?;
+                Ok(3)
             }
             OpCode::OpClosure => {
                 let idx = Self::read_u16_fast(instructions, ip + 1);
@@ -348,6 +392,12 @@ impl VM {
                 let num_free = Self::read_u8_fast(instructions, ip + 5);
                 self.push_closure(idx, num_free)?;
                 Ok(6)
+            }
+            OpCode::OpClosureWide => {
+                let idx = Self::read_u32_fast(instructions, ip + 1);
+                let num_free = Self::read_u16_fast(instructions, ip + 5);
+                self.push_closure(idx, num_free)?;
+                Ok(7)
             }
             OpCode::OpJump => {
                 let pos = Self::read_u16_fast(instructions, ip + 1);
@@ -576,18 +626,22 @@ impl VM {
                         .to_string(),
                 )
             }
-            OpCode::OpCall => {
-                let num_args = Self::read_u8_fast(instructions, ip + 1);
+            OpCode::OpCall | OpCode::OpCallLong => {
+                let (num_args, width) = if op == OpCode::OpCall {
+                    (Self::read_u8_fast(instructions, ip + 1), 2)
+                } else {
+                    (Self::read_u16_fast(instructions, ip + 1), 3)
+                };
                 let callee_idx = self.sp - 1 - num_args;
                 if matches!(self.stack_get(callee_idx), Value::Continuation(_)) {
                     // `resume(val)` call: restore the captured continuation.
                     // Returns ip_delta = 0 so apply_ip_delta leaves the
                     // newly-restored frame's IP untouched.
-                    self.execute_resume(num_args, Some(2))?;
+                    self.execute_resume(num_args, Some(width))?;
                     Ok(0)
                 } else {
                     self.execute_call(num_args)?;
-                    Ok(2)
+                    Ok(width)
                 }
             }
             OpCode::OpCall0 | OpCode::OpCall1 | OpCode::OpCall2 => {
@@ -635,6 +689,11 @@ impl VM {
                 self.execute_call_self(num_args)?;
                 Ok(2)
             }
+            OpCode::OpCallSelfLong => {
+                let num_args = Self::read_u16_fast(instructions, ip + 1);
+                self.execute_call_self(num_args)?;
+                Ok(3)
+            }
             OpCode::OpPrimOp => {
                 // Encoded as [OpPrimOp, primop_id, arity].
                 // Stack before: [..., arg0, ..., argN]. After: [..., result].
@@ -643,8 +702,12 @@ impl VM {
                 self.execute_primop_opcode(primop_id, arity)?;
                 Ok(3)
             }
-            OpCode::OpTailCall => {
-                let num_args = Self::read_u8_fast(instructions, ip + 1);
+            OpCode::OpTailCall | OpCode::OpTailCallLong => {
+                let num_args = if op == OpCode::OpTailCall {
+                    Self::read_u8_fast(instructions, ip + 1)
+                } else {
+                    Self::read_u16_fast(instructions, ip + 1)
+                };
                 let callee_idx = self.sp - 1 - num_args;
                 if matches!(self.stack_get(callee_idx), Value::Continuation(_)) {
                     // `resume(v)` in tail position — e.g. a handler arm of the

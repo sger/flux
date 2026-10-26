@@ -22,7 +22,7 @@ use crate::{
         bytecode_cache::module_cache::{CachedModuleBinding, CachedModuleBytecode},
         debug_info::{EffectSummary, FunctionDebugInfo, InstructionLocation},
         emitted_instruction::EmittedInstruction,
-        op_code::{Instructions, OpCode, make},
+        op_code::{Instructions, MAX_SHORT_LOCAL, OpCode, make},
     },
     compiler::{
         adt_registry::AdtRegistry,
@@ -7433,7 +7433,9 @@ impl Compiler {
     }
 
     pub(super) fn emit_closure_index(&mut self, idx: usize, num_free: usize) {
-        if u16::try_from(idx).is_ok() {
+        if num_free > MAX_SHORT_LOCAL {
+            self.emit(OpCode::OpClosureWide, &[idx, num_free]);
+        } else if u16::try_from(idx).is_ok() {
             self.emit(OpCode::OpClosure, &[idx, num_free]);
         } else {
             self.emit(OpCode::OpClosureLong, &[idx, num_free]);

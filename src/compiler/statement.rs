@@ -1649,7 +1649,9 @@ impl Compiler {
                         self.compile_expression(expr)?;
                         // Don't emit OpReturnValue if we just emitted OpTailCall
                         // because the tail call will loop back instead of returning
-                        if !self.is_last_instruction(OpCode::OpTailCall) {
+                        if !self.is_last_instruction(OpCode::OpTailCall)
+                            && !self.is_last_instruction(OpCode::OpTailCallLong)
+                        {
                             self.emit(OpCode::OpReturnCheck, &[]);
                             self.emit(OpCode::OpReturnValue, &[]);
                         }
