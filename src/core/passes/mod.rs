@@ -17,6 +17,7 @@ mod helpers;
 mod inline;
 mod inliner;
 mod keep;
+mod limits;
 pub mod lint;
 mod primop_promote;
 mod specialize;
@@ -263,6 +264,8 @@ fn run_semantic_core_passes_with_optional_interner(
 
     // Verify Core invariants after normalization.
     core_lint_stage(program, "normalization", interner)?;
+
+    limits::check_field_counts(program)?;
 
     Ok(warnings)
 }

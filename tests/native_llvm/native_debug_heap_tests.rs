@@ -1248,8 +1248,10 @@ fn wide_values(n: usize) -> [(&'static str, String, String); 3] {
         .collect::<Vec<_>>()
         .join(", ");
     let ints = vec!["Int"; n].join(", ");
+    // `keep` is recursive, so it is never inlined: the closure captures each
+    // value, where it would copy a cheap `n + i` into its own body.
     let lets = (0..n)
-        .map(|i| format!("    let v{i} = n + {i}\n"))
+        .map(|i| format!("    let v{i} = keep(n + {i})\n"))
         .collect::<String>();
     let sum = (0..n)
         .map(|i| format!("v{i}"))
@@ -1275,7 +1277,8 @@ fn wide_values(n: usize) -> [(&'static str, String, String); 3] {
         (
             "closure",
             format!(
-                "fn make(n) {{\n{lets}    \\x -> x + {sum}\n}}\n\n\
+                "fn keep(k) {{ if k < 0 {{ keep(k + 1) }} else {{ k }} }}\n\n\
+                 fn make(n) {{\n{lets}    \\x -> x + {sum}\n}}\n\n\
                  fn main() {{\n    let f = make(len([1, 2]))\n    print(f(1))\n}}\n"
             ),
             // 1 + the sum of 2 + i for i below n.
@@ -1309,9 +1312,8 @@ fn a_value_with_more_than_255_fields_is_rejected() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// The largest values that fit, 255 fields or captures, still build and run.
-/// The closure's function holds 256 locals, which the VM computes wrongly
-/// (KI-127), so that one runs natively only.
+/// The largest values that fit, 255 fields or captures, still build and run
+/// on both backends.
 #[test]
 fn a_value_with_255_fields_runs() {
     let scratch = Scratch::new("debug-heap-widest-values");
@@ -1319,12 +1321,7 @@ fn a_value_with_255_fields_runs() {
     for (name, program, printed) in wide_values(255) {
         let path = scratch.write(&format!("widest_{name}.flx"), &program);
         let file = path.to_string_lossy();
-        let backends: &[(&str, &[&str])] = if name == "closure" {
-            &[("native", &["--native"])]
-        } else {
-            &[("native", &["--native"]), ("vm", &[])]
-        };
-        for &(backend, args) in backends {
+        for (backend, args) in [("native", &["--native"][..]), ("vm", &[][..])] {
             let (stdout, stderr, code) = run(&scratch, &file, args, None);
             if code != 0 || stdout.lines().last() != Some(printed.as_str()) {
                 failures.push(format!(
