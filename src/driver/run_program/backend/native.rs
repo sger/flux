@@ -430,17 +430,20 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
             request.program.graph,
             std::path::Path::new(request.program.path),
         );
-        match compile_program_hash_object(
+        let hash_object_built = match compile_program_hash_object(
             request.cache.cache_layout,
             request.cache.no_cache,
             &program_hash,
         ) {
-            Ok(object) => link_paths.push(object),
+            Ok((object, built)) => {
+                link_paths.push(object);
+                built
+            }
             Err(err) => {
                 eprintln!("{err}");
                 std::process::exit(1);
             }
-        }
+        };
         let archive_ms = archive_start.elapsed().as_secs_f64() * 1000.0;
 
         emit_diagnostics_or_exit(
@@ -472,20 +475,22 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
         }
 
         let link_start = Instant::now();
-        // A binary linked before the effect tape existed would ignore it, so a
-        // run with a tape always relinks. A `-g` binary on Windows also needs
-        // its PDB (0188 S11). A debug-heap run always relinks, so it never
-        // runs with a debug runtime older than the sources (0188 S10c).
+        // A run with a tape reuses the binary: it reads the tape at run time,
+        // and every binary in the cache was linked by a compiler that writes
+        // tapes (an older one's objects are recompiled at the next epoch). A
+        // new program hash relinks, since the binary names its program by
+        // it. A `-g` binary on Windows also needs its PDB (0188 S11). A
+        // debug-heap run always relinks, so it never runs with a debug
+        // runtime older than the sources (0188 S10c).
         let debug = request.compile.debug_level.is_enabled();
         let pdb_ready = !(debug && cfg!(windows)) || flux::llvm::pipeline::pdb_path(&out).exists();
         let binary_exists = out.exists() && pdb_ready;
         let binary_up_to_date = should_skip_native_relink(
             request.cache.no_cache,
             request.output.emit_binary,
-            any_native_recompiled,
+            any_native_recompiled || hash_object_built,
             binary_exists,
-        ) && crate::driver::replay_session::native_child_env().is_none()
-            && runtime == flux::llvm::pipeline::RuntimeVariant::Plain;
+        ) && runtime == flux::llvm::pipeline::RuntimeVariant::Plain;
 
         if binary_up_to_date {
             if request.runtime.verbose {

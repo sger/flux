@@ -124,11 +124,13 @@ pub(crate) fn compile_native_support_object(
 /// Builds or reuses the object that defines `flux_program_hash`, the hash a
 /// tape names this program by (proposal 0188 S9b). Linked into every native
 /// program, so the program writes and checks tapes without the driver.
+/// Returns the object, and whether it was built by this call: a binary
+/// linked before then names another program.
 pub(crate) fn compile_program_hash_object(
     cache_layout: &CacheLayout,
     no_cache: bool,
     program_hash: &str,
-) -> Result<PathBuf, String> {
+) -> Result<(PathBuf, bool), String> {
     let digest = program_hash.trim_start_matches("sha256:");
     let name = format!(
         "flux_program_{}.{}",
@@ -145,7 +147,7 @@ pub(crate) fn compile_program_hash_object(
         dir.join(name)
     };
     if !no_cache && object_path.exists() {
-        return Ok(object_path);
+        return Ok((object_path, false));
     }
     let mut ll_text = String::new();
     if let Some(layout) = target::host_data_layout() {
@@ -159,7 +161,7 @@ pub(crate) fn compile_program_hash_object(
     ));
     compile_ir_to_object(&ll_text, &object_path, 0)
         .map_err(|err| format!("native program hash object compilation failed: {err}"))?;
-    Ok(object_path)
+    Ok((object_path, true))
 }
 
 #[cfg(feature = "llvm")]
