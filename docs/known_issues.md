@@ -124,24 +124,6 @@ Sharing a map across threads stops at the same place: `flux_rc_promote`
 promotes the root and none of its keys or values, so two workers reading one
 map update those values' counts without atomics.
 
-### KI-123 — Natively, an array releases at most its first 255 elements
-
-**Severity:** Low · **Area:** native runtime, arrays · **Verified:** 2026-10-21 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-1
-
-An array literal of 256 one-element lists, given to a function that drops
-it, leaves one block live at exit under `flux --native --leak-check`: the
-last list. With 255 elements nothing is left. The block header keeps the
-number of children to release in one byte, and `alloc_array`
-(`runtime/c/array.c`) caps it at 255, so elements past the 255th are never
-released. Sharing an array across threads stops at the same element: past
-the 255th, `flux_rc_promote` leaves the single-thread count in place.
-
-Verified as a race on 2026-10-26: three tasks that each read element 299 of
-a shared array of 300 lists, 20000 times, stop under
-`FLUX_RT_SANITIZE=thread` (what `cargo xtask sanitize --thread` sets) with
-"ThreadSanitizer: data race" in `flux_dup`, against an earlier `flux_drop`
-of the same count on another worker.
-
 ### KI-122 — Natively, the async runtime releases one of its own closures twice
 
 **Severity:** Medium · **Area:** native runtime, async scheduler · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `llvm_heap` run over `tests/parity` · **Issue:** [#22](https://forgejo.spirosgerokostas.com/sger/flux/issues/22)
@@ -2196,6 +2178,35 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-123 — Natively, an array released and promoted at most its first 255 elements — FIXED 2026-10-26
+
+**Severity:** Low · **Area:** native runtime, arrays · **Verified fixed:** 2026-10-26 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-1
+
+An array of 256 lists, released natively, left the last list live; an array
+of 70000 left 69745. Sharing an array across threads stopped at the same
+element: past the 255th, `flux_rc_promote` left the single-thread count in
+place, and three tasks reading element 299 of a shared array of 300 lists
+stopped under ThreadSanitizer with a data race in `flux_dup`.
+
+**The cause.** The block header counts the children to release and promote
+in one byte, `scan_fsize`, and `alloc_array` (`runtime/c/array.c`) capped it
+at 255. Behind that cap was a second limit: the stackless drop in
+`runtime/c/rc.c` kept its place in a block in the header's 16-bit
+`_reserved`, so an array past 65535 elements would have wrapped. Arrays are
+the only blocks this reaches: constructors, tuples and closures with more
+than 255 fields are rejected at compile time (E087).
+
+**The fix.** `rc.c` counts an array's children by its `len` (`scan_count`),
+and the drop keeps its place in an array's unused 32-bit `_pad2` word
+(`save_progress`, `load_progress`). `alloc_array` no longer sets
+`scan_fsize`.
+
+Tests: `an_array_releases_every_element` in
+`tests/native_llvm/native_debug_heap_tests.rs` (an array of 70000 lists
+leaves what an array of one leaves), and
+`tests/parity/task_shared_wide_array.flx`, which
+`cargo xtask sanitize --thread` checks for the race.
 
 ### KI-129 — Natively, a value was never released when a result computed from it was given away — FIXED 2026-10-26
 
