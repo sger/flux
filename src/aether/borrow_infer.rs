@@ -436,7 +436,134 @@ fn infer_group_constraints(
         }
     }
 
+    for binder in group {
+        let Some((params, body)) = defs_by_binder
+            .get(binder)
+            .and_then(|def| extract_lam(&def.expr))
+        else {
+            continue;
+        };
+        let caller = TailCaller {
+            binder: *binder,
+            params,
+            defs_by_binder,
+            registry,
+            group_set,
+        };
+        caller.collect(body, &mut HashSet::new(), &mut constraints);
+    }
+
     constraints
+}
+
+/// A function of the group whose tail calls to the group are being read.
+///
+/// A tail call that lends a value its caller owns leaves the caller holding
+/// it across a call it never comes back from, so the value is released only
+/// if the call stops being a tail call. As in Lean's borrow inference, a
+/// parameter a recursive tail call passes an owned value to is owned
+/// instead: the call gives the value away and stays a jump. A fresh value
+/// makes it owned, and a parameter of the caller makes it owned when that
+/// parameter is. A pattern variable is a view of its scrutinee, which may
+/// be borrowed, so it changes nothing.
+struct TailCaller<'a> {
+    binder: CoreBinderId,
+    params: &'a [CoreBinder],
+    defs_by_binder: &'a HashMap<CoreBinderId, &'a CoreDef>,
+    registry: &'a BorrowRegistry,
+    group_set: &'a HashSet<CoreBinderId>,
+}
+
+impl TailCaller<'_> {
+    /// Reads the tail calls of `expr`, an expression in tail position.
+    /// `fresh` holds the `let`s in scope whose value is fresh.
+    fn collect(
+        &self,
+        expr: &CoreExpr,
+        fresh: &mut HashSet<CoreBinderId>,
+        constraints: &mut HashMap<(CoreBinderId, usize), ParamConstraint>,
+    ) {
+        match expr {
+            CoreExpr::Let { var, rhs, body, .. } => {
+                let inserted = makes_fresh_value(rhs, self.registry) && fresh.insert(var.id);
+                self.collect(body, fresh, constraints);
+                if inserted {
+                    fresh.remove(&var.id);
+                }
+            }
+            CoreExpr::LetRec { body, .. } | CoreExpr::LetRecGroup { body, .. } => {
+                self.collect(body, fresh, constraints);
+            }
+            CoreExpr::Case { alts, .. } => {
+                for alt in alts {
+                    self.collect(&alt.rhs, fresh, constraints);
+                }
+            }
+            CoreExpr::Return { value, .. } => self.collect(value, fresh, constraints),
+            CoreExpr::App { func, args, .. } => {
+                let CoreExpr::Var { var, .. } = func.as_ref() else {
+                    return;
+                };
+                let Some(callee) = var.binder.filter(|id| self.group_set.contains(id)) else {
+                    return;
+                };
+                let Some((callee_params, _)) = self
+                    .defs_by_binder
+                    .get(&callee)
+                    .and_then(|def| extract_lam(&def.expr))
+                else {
+                    return;
+                };
+                for (index, (arg, param)) in args.iter().zip(callee_params).enumerate() {
+                    if !param.rep.needs_rc() {
+                        continue;
+                    }
+                    let Some(constraint) = constraints.get_mut(&(callee, index)) else {
+                        continue;
+                    };
+                    let named = match arg {
+                        CoreExpr::Var { var, .. } => var.binder,
+                        _ => None,
+                    };
+                    if let Some(position) =
+                        named.and_then(|id| self.params.iter().position(|p| p.id == id))
+                    {
+                        constraint.deps.push((self.binder, position));
+                    } else if named.is_some_and(|id| fresh.contains(&id))
+                        || makes_fresh_value(arg, self.registry)
+                    {
+                        constraint.force_owned = true;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Whether evaluating `expr` makes a value with a reference of its own: a
+/// constructor, a closure, a collection literal, or what a Flux function
+/// returns. A runtime function's result can be a view of an argument.
+fn makes_fresh_value(expr: &CoreExpr, registry: &BorrowRegistry) -> bool {
+    match expr {
+        CoreExpr::Con { .. } | CoreExpr::Lam { .. } => true,
+        CoreExpr::PrimOp { op, .. } => matches!(
+            op,
+            crate::core::CorePrimOp::MakeList
+                | crate::core::CorePrimOp::MakeArray
+                | crate::core::CorePrimOp::MakeTuple
+                | crate::core::CorePrimOp::MakeHash
+                | crate::core::CorePrimOp::Interpolate
+        ),
+        CoreExpr::App { func, .. } => match func.as_ref() {
+            CoreExpr::Var { var, .. } => !matches!(
+                registry.resolve_var_ref(var),
+                BorrowCallee::BaseRuntime(_) | BorrowCallee::Unknown
+            ),
+            _ => false,
+        },
+        _ => false,
+    }
 }
 
 fn solve_group_modes(
@@ -1279,6 +1406,112 @@ mod tests {
             .expect("f's signature")
             .params
             .clone()
+    }
+
+    /// `walk(n, prev) = if n == 0 { len(prev) } else { walk(n - 1, next) }`,
+    /// where `next` is built from `prev`, and `prev`'s mode.
+    fn lending_loop_mode(
+        next: impl Fn(CoreBinder, CoreBinder, CoreBinder) -> CoreExpr,
+    ) -> BorrowMode {
+        let mut interner = Interner::new();
+        let walk = binder(1, interner.intern("walk"));
+        let n = binder(2, interner.intern("n"));
+        let prev = binder(3, interner.intern("prev"));
+        let t = binder(4, interner.intern("t"));
+        let len = interner.intern("len");
+        let recurse = CoreExpr::App {
+            func: Box::new(var_ref(walk)),
+            args: vec![
+                CoreExpr::PrimOp {
+                    op: crate::core::CorePrimOp::Sub,
+                    args: vec![
+                        var_ref(n),
+                        CoreExpr::Lit(crate::core::CoreLit::Int(1), span()),
+                    ],
+                    span: span(),
+                },
+                next(n, prev, t),
+            ],
+            span: span(),
+        };
+        let body = CoreExpr::Case {
+            scrutinee: Box::new(CoreExpr::PrimOp {
+                op: crate::core::CorePrimOp::Eq,
+                args: vec![
+                    var_ref(n),
+                    CoreExpr::Lit(crate::core::CoreLit::Int(0), span()),
+                ],
+                span: span(),
+            }),
+            alts: vec![
+                crate::core::CoreAlt {
+                    pat: crate::core::CorePat::Lit(crate::core::CoreLit::Bool(true)),
+                    guard: None,
+                    rhs: CoreExpr::App {
+                        func: Box::new(ext_var(len)),
+                        args: vec![var_ref(prev)],
+                        span: span(),
+                    },
+                    span: span(),
+                },
+                crate::core::CoreAlt {
+                    pat: crate::core::CorePat::Wildcard,
+                    guard: None,
+                    rhs: CoreExpr::Case {
+                        scrutinee: Box::new(var_ref(prev)),
+                        alts: vec![crate::core::CoreAlt {
+                            pat: crate::core::CorePat::Con {
+                                tag: crate::core::CoreTag::Cons,
+                                fields: vec![
+                                    crate::core::CorePat::Wildcard,
+                                    crate::core::CorePat::Var(t),
+                                ],
+                            },
+                            guard: None,
+                            rhs: recurse,
+                            span: span(),
+                        }],
+                        join_ty: None,
+                        span: span(),
+                    },
+                    span: span(),
+                },
+            ],
+            join_ty: None,
+            span: span(),
+        };
+        let mut program = CoreProgram {
+            defs: vec![def(walk, vec![n, prev], body, true)],
+            top_level_items: Vec::new(),
+        };
+        let registry = infer_borrow_modes(&mut program, Some(&interner));
+        registry
+            .lookup_binder(walk.id)
+            .expect("walk's signature")
+            .params[1]
+    }
+
+    /// KI-128: a recursive tail call that lends a fresh value to a borrowed
+    /// parameter leaves the caller holding it across a call it never comes
+    /// back from. The parameter is owned instead, so the call gives the value
+    /// away. The parameter passed back, or a pattern variable taken from it,
+    /// is a value the caller does not own, and changes nothing.
+    #[test]
+    fn a_recursive_tail_call_lending_a_fresh_value_makes_the_parameter_owned() {
+        let fresh = lending_loop_mode(|n, _, _| CoreExpr::PrimOp {
+            op: crate::core::CorePrimOp::MakeList,
+            args: vec![var_ref(n)],
+            span: span(),
+        });
+        assert_eq!(fresh, BorrowMode::Owned);
+        assert_eq!(
+            lending_loop_mode(|_, prev, _| var_ref(prev)),
+            BorrowMode::Borrowed
+        );
+        assert_eq!(
+            lending_loop_mode(|_, _, t| var_ref(t)),
+            BorrowMode::Borrowed
+        );
     }
 
     #[test]

@@ -362,7 +362,11 @@ use sha2::{Digest, Sha256};
 /// Epoch 116: a local slot, capture or argument count above 255 uses a
 /// two-byte operand; epoch-115 bytecode wrapped it and computed a wrong
 /// result (KI-127).
-pub const CACHE_EPOCH: u16 = 116;
+/// Epoch 117: a value lent to a call in tail position is released, before
+/// the call when it takes only copies and after it otherwise, and a
+/// parameter a recursive tail call passes a fresh value to is owned; an
+/// epoch-116 unit kept the value and leaked it (KI-128).
+pub const CACHE_EPOCH: u16 = 117;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
