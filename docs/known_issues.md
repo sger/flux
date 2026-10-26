@@ -42,6 +42,41 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-128 — Natively, a value only lent to a call in tail position is never released
+
+**Severity:** Medium · **Area:** Aether, drop insertion · **Verified:** 2026-10-26 · **From:** the Perceus audit, R5 and step 10
+
+Aether keeps a value whose last use is a call in tail position, so that the
+call can stay a tail call. When the call only borrows the value, nothing
+releases it afterwards:
+
+```flux
+fn turn(xs) { sum(bump(xs)) }
+```
+
+`bump(xs)` builds a new list, `sum` only reads it, and the call to `sum` is
+the function's last act, so the new list is never freed: 3 blocks per call
+for a 3-cell list under `--native --debug-heap`. Written as
+`let r = sum(bump(xs))` followed by `r + 0`, nothing is left. A closure
+`\() -> sum(bump(xs))` leaks the same way.
+
+The same rule leaks in local functions:
+
+- A local function that walks a list it is given, ending each arm in a tail
+  call to itself, never releases the list (3 blocks per call for 3 cells).
+  The same function at top level releases it, because its parameter is
+  inferred to be borrowed; a local function's parameters are not inferred.
+  `List.count` is written this way, and leaks 4 blocks per call on a
+  3-element list.
+- A local function that captures a value, called in tail position
+  (`go(3, n)` as the enclosing function's last expression), leaves one block
+  behind per call; called as `let r = go(3, n)`, nothing.
+
+A program's own last line counts too. `task_shared_stress.flx` ends `main`
+with `print(sum(xs) + total(t) + len(name))`, the last use of its 50-cell
+list, so 53 blocks are live at exit whether its tasks run 10, 20 or 40
+rounds, or none; without that line, 3.
+
 ### KI-127 — On the VM, a function with about a hundred `let`s computes a wrong result
 
 **Severity:** High · **Area:** VM, bytecode · **Verified:** 2026-10-26 · **From:** the Perceus audit, step 10
