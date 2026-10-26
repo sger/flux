@@ -1184,6 +1184,58 @@ fn an_early_return_releases_what_the_function_holds() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+const LEND_A_FUNCTION: &str = r"fn double(x) { x * 2 }
+
+fn apply(f, x) { f(x) }
+
+fn count(n, total) {
+    if n == 0 { total } else { count(n - 1, total + apply(double, n)) }
+}
+
+fn main() { print(count(SIZE, 0)) }
+";
+
+const LEND_A_LITERAL: &str = r#"fn count(n, total) {
+    if n == 0 { total } else { count(n - 1, total + len("hello")) }
+}
+
+fn main() { print(count(SIZE, 0)) }
+"#;
+
+const RETURN_A_LITERAL: &str = r#"fn tag(n) {
+    if n % 2 == 0 { "even" } else { "odd" }
+}
+
+fn count(n, total) {
+    if n == 0 { total } else { count(n - 1, total + len(tag(n))) }
+}
+
+fn main() { print(count(SIZE, 0)) }
+"#;
+
+/// A top-level function used as a value and a string literal are the same
+/// value every time, so each is made once, outside the heap, and never
+/// released: no use allocates, and a use that only lends one leaves nothing
+/// behind.
+#[test]
+fn a_function_or_literal_used_as_a_value_is_never_allocated() {
+    let scratch = Scratch::new("debug-heap-static-values");
+    let failures: Vec<String> = [
+        ("lent_function", LEND_A_FUNCTION),
+        ("lent_literal", LEND_A_LITERAL),
+        ("returned_literal", RETURN_A_LITERAL),
+    ]
+    .into_iter()
+    .filter_map(|(name, program)| {
+        let (allocs, _, live) = per_thousand_cells(&scratch, name, program);
+        (allocs != 0 || live != 0).then(|| {
+            format!("{name}: {allocs} blocks allocated and {live} left live per 1000 turns")
+        })
+    })
+    .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 const PERFORM_PER_TURN: &str = r"effect Ask {
     ask : (ARG) -> Int
 }
