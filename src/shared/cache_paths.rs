@@ -372,7 +372,10 @@ use sha2::{Digest, Sha256};
 /// (KI-129).
 /// Epoch 119: the C runtime releases and promotes an array's elements by its
 /// length; a binary linked at epoch 118 stopped at the 255th (KI-123).
-pub const CACHE_EPOCH: u16 = 119;
+/// Epoch 120: a map node is a counted block, a map literal lets go of the
+/// maps it builds on the way, and Aether releases a map an update was lent;
+/// an epoch-119 unit never released a map (KI-124).
+pub const CACHE_EPOCH: u16 = 120;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

@@ -5,7 +5,7 @@
  * object has an 8-byte FluxHeader at ptr - 8 containing:
  *   - _Atomic(int32_t) refcount  (sign-bit-encoded, see below)
  *   - uint8_t scan_fsize  (number of child tagged fields to scan on drop;
- *                          an array is counted by its length instead)
+ *                          arrays and map nodes count theirs in the payload)
  *   - uint8_t obj_tag     (FLUX_OBJ_STRING, FLUX_OBJ_ARRAY, etc.)
  *   - uint16_t reserved
  *
@@ -289,7 +289,7 @@ static const char *debug_kind(uint8_t obj_tag) {
         case FLUX_OBJ_EVIDENCE: return "an effect handler";
         case FLUX_OBJ_FLOAT:    return "a Float";
         case FLUX_OBJ_THUNK:    return "a thunk";
-        case 0:                 return "a Map node";
+        case FLUX_OBJ_MAP:      return "a Map node";
         default:                return "a value";
     }
 }
@@ -528,17 +528,23 @@ static int flux_scan_offset(uint8_t obj_tag) {
         case FLUX_OBJ_TUPLE:  return 1;  /* skip tag+pad+arity (8 bytes) */
         case FLUX_OBJ_ADT:    return 1;  /* skip ctor_tag+field_count (8 bytes) */
         case FLUX_OBJ_CLOSURE: return 3; /* skip fn_ptr + arity/count metadata (24 bytes) */
+        case FLUX_OBJ_MAP:    return 2;  /* skip kind+nfields+hash (16 bytes) */
         default:              return 0;
     }
 }
 
 /*
- * How many fields the drop and promotion walks visit. An array's length is
- * known only at run time and can exceed the header's one byte, so it is
- * counted by `len` instead; every other object is bounded at compile time.
+ * Arrays and map nodes keep their field count in the payload's second word,
+ * since it is known only at run time and can exceed the header's one byte.
  */
+static inline int counted_in_payload(void *ptr) {
+    uint8_t tag = header_of(ptr)->obj_tag;
+    return tag == FLUX_OBJ_ARRAY || tag == FLUX_OBJ_MAP;
+}
+
+/* How many fields the drop and promotion walks visit. */
 static inline uint32_t scan_count(void *ptr) {
-    if (header_of(ptr)->obj_tag == FLUX_OBJ_ARRAY) {
+    if (counted_in_payload(ptr)) {
         return ((uint32_t *)ptr)[1];
     }
     return header_of(ptr)->scan_fsize;
@@ -546,11 +552,13 @@ static inline uint32_t scan_count(void *ptr) {
 
 /*
  * Where the stackless drop keeps a block's next field index while it walks a
- * child. `_reserved` holds 16 bits, too few for a long array, which keeps it
- * in its unused `_pad2` word instead.
+ * child. `_reserved` holds 16 bits, too few for a long array or collision
+ * node; those keep it in their fourth word instead, an array's unused
+ * `_pad2` and half a map node's hash, which a node being freed no longer
+ * needs.
  */
 static inline void save_progress(void *ptr, uint32_t i) {
-    if (header_of(ptr)->obj_tag == FLUX_OBJ_ARRAY) {
+    if (counted_in_payload(ptr)) {
         ((uint32_t *)ptr)[3] = i;
     } else {
         header_of(ptr)->_reserved = (uint16_t)i;
@@ -558,7 +566,7 @@ static inline void save_progress(void *ptr, uint32_t i) {
 }
 
 static inline uint32_t load_progress(void *ptr) {
-    if (header_of(ptr)->obj_tag == FLUX_OBJ_ARRAY) {
+    if (counted_in_payload(ptr)) {
         return ((uint32_t *)ptr)[3];
     }
     return header_of(ptr)->_reserved;
