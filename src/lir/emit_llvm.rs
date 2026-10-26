@@ -8,7 +8,7 @@
 //! nearly 1:1: each `LirInstr` → one or more `LlvmInstr`, each
 //! `LirTerminator` → an `LlvmTerminator`, each `LirBlock` → an `LlvmBlock`.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use crate::core::CorePrimOp;
 use crate::lir::*;
@@ -211,7 +211,7 @@ pub fn emit_llvm_module_with_debug(
     let mut needed_decls: HashSet<String> = HashSet::new();
     let mut needed_user_fastcc_decls: HashSet<(String, usize)> = HashSet::new();
     let mut needed_closure_entry_decls: HashSet<String> = HashSet::new();
-    let mut string_globals: Vec<(GlobalId, String)> = Vec::new();
+    let mut statics = StaticObjects::default();
 
     // Build set of worker-eligible functions (Phase 10: Worker/Wrapper unboxing).
     let worker_eligible: HashSet<LirFuncId> = program
@@ -239,7 +239,7 @@ pub fn emit_llvm_module_with_debug(
             needed_decls: &mut needed_decls,
             needed_user_fastcc_decls: &mut needed_user_fastcc_decls,
             needed_closure_entry_decls: &mut needed_closure_entry_decls,
-            string_globals: &mut string_globals,
+            statics: &mut statics,
             current_instrs: Vec::new(),
             extra_blocks: Vec::new(),
             closure_wrappers_needed: &mut closure_wrappers_needed,
@@ -273,7 +273,7 @@ pub fn emit_llvm_module_with_debug(
                 needed_decls: &mut needed_decls,
                 needed_user_fastcc_decls: &mut needed_user_fastcc_decls,
                 needed_closure_entry_decls: &mut needed_closure_entry_decls,
-                string_globals: &mut string_globals,
+                statics: &mut statics,
                 current_instrs: Vec::new(),
                 extra_blocks: Vec::new(),
                 closure_wrappers_needed: &mut closure_wrappers_needed,
@@ -307,7 +307,7 @@ pub fn emit_llvm_module_with_debug(
                 needed_decls: &mut needed_decls,
                 needed_user_fastcc_decls: &mut needed_user_fastcc_decls,
                 needed_closure_entry_decls: &mut needed_closure_entry_decls,
-                string_globals: &mut string_globals,
+                statics: &mut statics,
                 current_instrs: Vec::new(),
                 extra_blocks: Vec::new(),
                 closure_wrappers_needed: &mut closure_wrappers_needed,
@@ -356,29 +356,7 @@ pub fn emit_llvm_module_with_debug(
         }
     }
 
-    // Add string globals.
-    for (gid, s) in &string_globals {
-        module.globals.push(LlvmGlobal {
-            linkage: Linkage::Private,
-            name: gid.clone(),
-            ty: LlvmType::Array {
-                len: s.len() as u64,
-                element: Box::new(LlvmType::i8()),
-            },
-            is_constant: true,
-            value: Some(LlvmConst::Array {
-                element_ty: LlvmType::i8(),
-                elements: s
-                    .bytes()
-                    .map(|b| LlvmConst::Int {
-                        bits: 8,
-                        value: b as i128,
-                    })
-                    .collect(),
-            }),
-            attrs: Vec::new(),
-        });
-    }
+    statics.emit(&mut module);
 
     if export_user_ctor_name_helper {
         emit_user_ctor_name_helper(&mut module, program);
@@ -723,6 +701,103 @@ fn is_worker_eligible(func: &LirFunction) -> bool {
 
 // ── Per-function emitter ────────────────────────────────────────────────────
 
+/// The runtime's sticky count (`FLUX_RC_STICKY` in `runtime/c/rc.c`): a
+/// block whose count is there is never copied, released or freed.
+const STATIC_RC: i128 = 0x4000_0000;
+const STATIC_HEADER_SIZE: i64 = 8;
+const FLUX_OBJ_STRING_TAG: i128 = 0xF1;
+
+/// Values that are the same every time they are made: string literals, and
+/// the closures of functions that capture nothing. Each is one read-only
+/// object outside the heap, with a sticky count, so making one allocates
+/// nothing and copying or releasing it does nothing.
+#[derive(Default)]
+struct StaticObjects {
+    strings: BTreeMap<String, GlobalId>,
+    /// Keyed by the function pointer the closure calls, with its arity.
+    closures: BTreeMap<String, (GlobalId, usize)>,
+}
+
+impl StaticObjects {
+    fn string(&mut self, text: &str) -> GlobalId {
+        let next = self.strings.len();
+        self.strings
+            .entry(text.to_string())
+            .or_insert_with(|| GlobalId(format!("flux.str.{next}")))
+            .clone()
+    }
+
+    fn closure(&mut self, fn_ptr: String, arity: usize) -> GlobalId {
+        let next = self.closures.len();
+        self.closures
+            .entry(fn_ptr)
+            .or_insert_with(|| (GlobalId(format!("flux.closure.{next}")), arity))
+            .0
+            .clone()
+    }
+
+    fn emit(self, module: &mut LlvmModule) {
+        let int =
+            |bits: u32, value: i128| (LlvmType::Integer(bits), LlvmConst::Int { bits, value });
+        let bytes = |len: usize| LlvmType::Array {
+            len: len as u64,
+            element: Box::new(LlvmType::i8()),
+        };
+        let header = |tag: i128| vec![int(32, STATIC_RC), int(8, 0), int(8, tag), int(16, 0)];
+        let object = |name: GlobalId, fields: Vec<(LlvmType, LlvmConst)>| LlvmGlobal {
+            linkage: Linkage::Private,
+            name,
+            ty: LlvmType::Struct {
+                packed: false,
+                fields: fields.iter().map(|(ty, _)| ty.clone()).collect(),
+            },
+            is_constant: true,
+            value: Some(LlvmConst::Struct {
+                packed: false,
+                fields,
+            }),
+            attrs: vec![", align 8".to_string()],
+        };
+        for (text, name) in self.strings {
+            // FluxString: its own tag byte, three pad bytes, the length,
+            // then the bytes.
+            let mut fields = header(FLUX_OBJ_STRING_TAG);
+            fields.extend([
+                int(8, FLUX_OBJ_STRING_TAG),
+                (bytes(3), LlvmConst::ZeroInit),
+                int(32, text.len() as i128),
+                (
+                    bytes(text.len()),
+                    LlvmConst::Array {
+                        element_ty: LlvmType::i8(),
+                        elements: text
+                            .bytes()
+                            .map(|b| LlvmConst::Int {
+                                bits: 8,
+                                value: b as i128,
+                            })
+                            .collect(),
+                    },
+                ),
+            ]);
+            module.globals.push(object(name, fields));
+        }
+        for (fn_ptr, (name, arity)) in self.closures {
+            // FluxClosure: the function, its remaining arity, no captures,
+            // nothing applied, padding.
+            let mut fields = header(crate::llvm::codegen::FLUX_OBJ_CLOSURE_TAG as i128);
+            fields.extend([
+                (LlvmType::Ptr, LlvmConst::GlobalRef(GlobalId(fn_ptr))),
+                int(32, arity as i128),
+                int(32, 0),
+                int(32, 0),
+                int(32, 0),
+            ]);
+            module.globals.push(object(name, fields));
+        }
+    }
+}
+
 struct FnEmitter<'a> {
     program: &'a LirProgram,
     func: &'a LirFunction,
@@ -731,7 +806,7 @@ struct FnEmitter<'a> {
     needed_decls: &'a mut HashSet<String>,
     needed_user_fastcc_decls: &'a mut HashSet<(String, usize)>,
     needed_closure_entry_decls: &'a mut HashSet<String>,
-    string_globals: &'a mut Vec<(GlobalId, String)>,
+    statics: &'a mut StaticObjects,
     current_instrs: Vec<LlvmInstr>,
     /// Extra blocks emitted by MatchCtor for field extraction.
     extra_blocks: Vec<LlvmBlock>,
@@ -1999,19 +2074,8 @@ impl<'a> FnEmitter<'a> {
                 });
             }
             LirConst::String(s) => {
-                let idx = self.string_globals.len();
-                let gid = GlobalId(format!("flux.str.{}", idx));
-                self.string_globals.push((gid.clone(), s.clone()));
-                // Call flux_string_new(ptr, i32 len) → i64
-                self.call_c(
-                    Some(self.var_local(dst)),
-                    "flux_string_new",
-                    vec![
-                        (LlvmType::Ptr, LlvmOperand::Global(gid)),
-                        (LlvmType::i32(), self.i32_const(s.len() as i32)),
-                    ],
-                    LlvmType::i64(),
-                );
+                let gid = self.statics.string(s);
+                self.emit_static_ref(dst, gid);
             }
             LirConst::None => {
                 self.emit(LlvmInstr::Binary {
@@ -2485,19 +2549,8 @@ impl<'a> FnEmitter<'a> {
         //                   ptr applied, i32 applied_count) → i64
         // Called with fastcc (it's an LLVM IR helper from emit_closure_support).
         if captures.is_empty() {
-            self.call_fastcc(
-                Some(self.var_local(dst)),
-                "flux_make_closure",
-                vec![
-                    (LlvmType::Ptr, LlvmOperand::Global(GlobalId(fn_ptr_name))),
-                    (LlvmType::i32(), self.i32_const(arity as i32)),
-                    (LlvmType::Ptr, LlvmOperand::Const(LlvmConst::Null)),
-                    (LlvmType::i32(), self.i32_const(0)),
-                    (LlvmType::Ptr, LlvmOperand::Const(LlvmConst::Null)),
-                    (LlvmType::i32(), self.i32_const(0)),
-                ],
-                LlvmType::i64(),
-            );
+            let gid = self.statics.closure(fn_ptr_name, arity);
+            self.emit_static_ref(dst, gid);
         } else {
             let arr = self.tmp();
             self.emit(LlvmInstr::Alloca {
@@ -2547,19 +2600,27 @@ impl<'a> FnEmitter<'a> {
     fn emit_make_extern_closure(&mut self, dst: LirVar, symbol: &str, arity: usize) {
         let wrapper_name = format!("{symbol}.closure_entry");
         self.needed_closure_entry_decls.insert(wrapper_name.clone());
-        self.call_fastcc(
-            Some(self.var_local(dst)),
-            "flux_make_closure",
-            vec![
-                (LlvmType::Ptr, LlvmOperand::Global(GlobalId(wrapper_name))),
-                (LlvmType::i32(), self.i32_const(arity as i32)),
-                (LlvmType::Ptr, LlvmOperand::Const(LlvmConst::Null)),
-                (LlvmType::i32(), self.i32_const(0)),
-                (LlvmType::Ptr, LlvmOperand::Const(LlvmConst::Null)),
-                (LlvmType::i32(), self.i32_const(0)),
-            ],
-            LlvmType::i64(),
-        );
+        let gid = self.statics.closure(wrapper_name, arity);
+        self.emit_static_ref(dst, gid);
+    }
+
+    /// The value of a static object: the address just past its header.
+    fn emit_static_ref(&mut self, dst: LirVar, gid: GlobalId) {
+        let payload = self.tmp();
+        self.emit(LlvmInstr::GetElementPtr {
+            dst: payload.clone(),
+            inbounds: true,
+            element_ty: LlvmType::i8(),
+            base: LlvmOperand::Global(gid),
+            indices: vec![(LlvmType::i64(), self.i64_const(STATIC_HEADER_SIZE))],
+        });
+        self.emit(LlvmInstr::Cast {
+            dst: self.var_local(dst),
+            op: LlvmValueKind::PtrToInt,
+            from_ty: LlvmType::Ptr,
+            operand: LlvmOperand::Local(payload),
+            to_ty: LlvmType::i64(),
+        });
     }
 
     fn emit_make_collection_fastcc(&mut self, dst: LirVar, elements: &[LirVar], func: &str) {

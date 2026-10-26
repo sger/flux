@@ -349,7 +349,10 @@ use sha2::{Digest, Sha256};
 /// epoch-110 unit wrote over those fields and leaked them (PA R6).
 /// Epoch 112: an early return releases what the function holds; an epoch-111
 /// unit released it only on the paths that did not return (PA R7).
-pub const CACHE_EPOCH: u16 = 112;
+/// Epoch 113: string literals and the closures of functions that capture
+/// nothing are static objects with a sticky count; an epoch-112 unit
+/// allocated one per use, against a runtime that has no sticky range.
+pub const CACHE_EPOCH: u16 = 113;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
