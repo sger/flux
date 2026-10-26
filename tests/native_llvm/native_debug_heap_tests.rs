@@ -730,6 +730,122 @@ fn values_last_used_by_a_read_are_released() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+const LENT_TO_A_TAIL_CALL: &str = r"fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn bump(xs) {
+    match xs {
+        [h | t] -> [h + 1 | t],
+        _ -> xs,
+    }
+}
+
+fn total(xs) {
+    match xs {
+        [h | t] -> h + total(t),
+        _ -> 0,
+    }
+}
+
+fn turn(xs) {
+    total(bump(xs))
+}
+
+fn count(n, acc) {
+    if n == 0 { acc } else { count(n - 1, acc + turn(numbers(n))) }
+}
+
+fn main() {
+    print(count(SIZE, 0))
+}
+";
+
+const LOCAL_WALKER: &str = r"fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn walk(xs) {
+    fn go(ys, n) {
+        match ys {
+            [h | t] -> go(t, n + h),
+            _ -> n,
+        }
+    }
+    go(xs, 0)
+}
+
+fn count(n, acc) {
+    if n == 0 { acc } else { count(n - 1, acc + walk(numbers(n))) }
+}
+
+fn main() {
+    print(count(SIZE, 0))
+}
+";
+
+const LIST_COUNT: &str = r"import Flow.List as List
+
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn count(n, acc) {
+    if n == 0 { acc } else {
+        count(n - 1, acc + List.count(numbers(n), \x -> x > 0))
+    }
+}
+
+fn main() {
+    print(count(SIZE, 0))
+}
+";
+
+const CAPTURING_LOCAL_CALLED_LAST: &str = r"fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn run(xs) {
+    fn go(k, n) {
+        if k == 0 { n + len(xs) } else { go(k - 1, n + 1) }
+    }
+    go(3, 0)
+}
+
+fn count(n, acc) {
+    if n == 0 { acc } else { count(n - 1, acc + run(numbers(n))) }
+}
+
+fn main() {
+    print(count(SIZE, 0))
+}
+";
+
+/// KI-128: a value whose last use is a call in tail position, where the call
+/// only reads it. The value was kept so the call stayed a tail call, and
+/// nothing released it: the list `turn` rebuilds and lends to `total`, the
+/// list a local function walks (and `List.count`, written the same way), a
+/// local function called last with the list it captured, and the list the
+/// lending loop hands to its next turn.
+#[test]
+fn a_value_lent_to_a_tail_call_is_released() {
+    let scratch = Scratch::new("debug-heap-lent-to-tail-call");
+    let failures: Vec<String> = [
+        ("lent_to_a_tail_call", LENT_TO_A_TAIL_CALL),
+        ("local_walker", LOCAL_WALKER),
+        ("list_count", LIST_COUNT),
+        ("capturing_local_called_last", CAPTURING_LOCAL_CALLED_LAST),
+        ("lending_loop", LENDING_LOOP),
+    ]
+    .into_iter()
+    .filter_map(|(name, program)| {
+        let (_, _, live) = per_thousand_cells(&scratch, name, program);
+        (live != 0).then(|| format!("{name}: {live} blocks left live per 1000 turns"))
+    })
+    .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 const FORWARDED_CHILD: &str = r"type Pair2<T> = Pair2(T, T)
 
 fn numbers(n) {
