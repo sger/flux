@@ -168,6 +168,12 @@ number of children to release in one byte, and `alloc_array`
 released. Sharing an array across threads stops at the same element: past
 the 255th, `flux_rc_promote` leaves the single-thread count in place.
 
+Verified as a race on 2026-10-26: three tasks that each read element 299 of
+a shared array of 300 lists, 20000 times, stop under
+`FLUX_RT_SANITIZE=thread` (what `cargo xtask sanitize --thread` sets) with
+"ThreadSanitizer: data race" in `flux_dup`, against an earlier `flux_drop`
+of the same count on another worker.
+
 ### KI-122 — Natively, the async runtime releases one of its own closures twice
 
 **Severity:** Medium · **Area:** native runtime, async scheduler · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `llvm_heap` run over `tests/parity` · **Issue:** [#22](https://forgejo.spirosgerokostas.com/sger/flux/issues/22)

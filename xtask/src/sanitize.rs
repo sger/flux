@@ -9,6 +9,10 @@
 //! report gives what a sanitizer said there and where. Occasional, not part
 //! of verify: the runs are slower, and a report means memory the debug heap
 //! cannot see.
+//!
+//! With `--thread`, the runtime is built with ThreadSanitizer instead
+//! (`FLUX_RT_SANITIZE=thread`), and a thread-local count changed on a second
+//! thread is reported as a data race (audit L7).
 
 use std::fs;
 use std::path::Path;
@@ -26,6 +30,9 @@ pub struct Options {
     /// the C runtime.
     pub ways: String,
     pub dirs: Vec<String>,
+    /// ThreadSanitizer instead of AddressSanitizer and
+    /// UndefinedBehaviorSanitizer.
+    pub thread: bool,
 }
 
 /// What the sanitized runs inherit. Leak detection stays off: native
@@ -36,10 +43,25 @@ const ENV: [(&str, &str); 3] = [
     ("UBSAN_OPTIONS", "print_stacktrace=1"),
 ];
 
+/// What the thread-sanitized runs inherit: the first race stops the
+/// program, so its fixture fails.
+const THREAD_ENV: [(&str, &str); 2] = [
+    ("FLUX_RT_SANITIZE", "thread"),
+    ("TSAN_OPTIONS", "halt_on_error=1"),
+];
+
 /// Returns `Ok(true)` when every fixture passed.
 pub fn run_sanitize(root: &Path, options: &Options) -> Result<bool, String> {
     let started = Instant::now();
-    let out = store::run_dir(root, "sanitize")?;
+    let env: &[(&str, &str)] = if options.thread { &THREAD_ENV } else { &ENV };
+    let out = store::run_dir(
+        root,
+        if options.thread {
+            "sanitize-thread"
+        } else {
+            "sanitize"
+        },
+    )?;
     fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
     let build = run(cargo()
         .current_dir(root)
@@ -57,7 +79,7 @@ pub fn run_sanitize(root: &Path, options: &Options) -> Result<bool, String> {
     let mut failed_runs = 0;
     for dir in &options.dirs {
         println!("=== {dir}");
-        let run = parity_with_env(root, &flux, dir, &options.ways, false, &mut log, &ENV)
+        let run = parity_with_env(root, &flux, dir, &options.ways, false, &mut log, env)
             .map_err(|e| e.to_string())?;
         if run.exit != 0 {
             failed_runs += 1;
@@ -78,7 +100,7 @@ pub fn run_sanitize(root: &Path, options: &Options) -> Result<bool, String> {
             };
             let mut command = Command::new(&flux);
             command
-                .envs(ENV)
+                .envs(env.iter().copied())
                 .args(["--no-cache", "--quiet"])
                 .args(flags)
                 .arg(file);
@@ -117,13 +139,16 @@ fn native_flags(way: &str) -> Option<&'static [&'static str]> {
 }
 
 /// Each sanitizer report in `stderr`: its first line, and the first stack
-/// frame after it (`#0 … in <function> <file>:<line>`) where there is one.
+/// frame after it where there is one: `#0 <address> in <function>
+/// <file>:<line>` from AddressSanitizer, `#0 <function> <file>:<line>
+/// (<module>)` from ThreadSanitizer.
 fn sanitizer_lines(stderr: &str) -> Vec<String> {
     let lines: Vec<&str> = stderr.lines().map(str::trim).collect();
     let mut found = Vec::new();
     for (at, line) in lines.iter().enumerate() {
         let reported = line.contains("ERROR: AddressSanitizer")
             || line.contains("ERROR: UndefinedBehaviorSanitizer")
+            || line.contains("WARNING: ThreadSanitizer:")
             || line.contains("runtime error:");
         if !reported {
             continue;
@@ -131,9 +156,12 @@ fn sanitizer_lines(stderr: &str) -> Vec<String> {
         let frame = lines[at + 1..]
             .iter()
             .take(8)
-            .find(|next| next.starts_with("#0 "))
-            .and_then(|next| next.split_once(" in "))
-            .map(|(_, place)| format!(" (in {place})"))
+            .find_map(|next| next.strip_prefix("#0 "))
+            .map(|frame| {
+                let place = frame.split_once(" in ").map_or(frame, |(_, place)| place);
+                let place = place.split(" (").next().unwrap_or(place);
+                format!(" (in {place})")
+            })
             .unwrap_or_default();
         found.push(format!("{line}{frame}"));
     }
@@ -193,6 +221,18 @@ mod tests {
             ]
         );
         assert!(sanitizer_lines("42\n").is_empty());
+    }
+
+    #[test]
+    fn a_thread_sanitizer_race_is_named_with_its_first_frame() {
+        let stderr = "WARNING: ThreadSanitizer: data race (pid=1)\n\
+                      \x20 Atomic read of size 4 at 0x1 by thread T2:\n\
+                      \x20   #0 flux_dup rc.c:571 (program:arm64+0x10)\n\
+                      \x20   #1 flux_array_get array.c:117 (program:arm64+0x20)\n";
+        assert_eq!(
+            sanitizer_lines(stderr),
+            ["WARNING: ThreadSanitizer: data race (pid=1) (in flux_dup rc.c:571)"]
+        );
     }
 
     #[test]

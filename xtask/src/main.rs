@@ -35,9 +35,10 @@
 //!                        [--flux <path>]
 //!     find the optimizing rewrite that makes the opt way differ from the
 //!     plain way, with --opt-bisect-limit; report in .verify/bisect_<name>/
-//! cargo xtask sanitize [--ways <w,…>] [<dir>…]
+//! cargo xtask sanitize [--thread] [--ways <w,…>] [<dir>…]
 //!     the native ways (default llvm,llvm_opt) over tests/parity with the C
-//!     runtime built with ASan and UBSan; report in .verify/sanitize/
+//!     runtime built with ASan and UBSan, or with --thread TSan; report in
+//!     .verify/sanitize/ (.verify/sanitize-thread/)
 //! cargo xtask affected [<base ref>] [--path <path>]... [--dry-run] [-- <nextest args>]
 //!     run the tests the changed files are likely to break: staged, unstaged
 //!     and untracked files, plus with a base ref everything committed since
@@ -76,7 +77,7 @@ const USAGE: &str = "usage:
   cargo xtask census [--tag <tag>] [--base <tag>] [--jobs <n>] [--ways <w,...>] [--allow network] [<dir>...]
   cargo xtask rewrite [--kind reorder|rename|let-wrap|all] [--seed <n>] [--ways <w,...>] [--jobs <n>] [<dir|file>...]
   cargo xtask bisect-opt <fixture> [--way vm_opt|llvm_opt] [--timeout <seconds>] [--flux <path>]
-  cargo xtask sanitize [--ways <w,...>] [<dir>...]
+  cargo xtask sanitize [--thread] [--ways <w,...>] [<dir>...]
   cargo xtask affected [<base ref>] [--path <path>]... [--dry-run] [-- <nextest args>]
   cargo xtask phase <phase>... [--dry-run] [-- <nextest args>] | --list";
 
@@ -211,6 +212,7 @@ fn dispatch(root: &Path, args: &[String]) -> Result<bool, String> {
             let ways = args
                 .value("--ways")?
                 .unwrap_or_else(|| "llvm,llvm_opt".to_string());
+            let thread = args.flag("--thread");
             let mut dirs = Vec::new();
             while let Some(dir) = args.positional()? {
                 dirs.push(dir);
@@ -219,7 +221,7 @@ fn dispatch(root: &Path, args: &[String]) -> Result<bool, String> {
                 dirs.push("tests/parity".to_string());
             }
             args.finish()?;
-            sanitize::run_sanitize(root, &sanitize::Options { ways, dirs })
+            sanitize::run_sanitize(root, &sanitize::Options { ways, dirs, thread })
         }
         "prune" => {
             let keep = args.number("--keep")?.unwrap_or(5);

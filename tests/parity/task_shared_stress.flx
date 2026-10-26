@@ -1,0 +1,63 @@
+// parity: vm, llvm
+// parity-expected-stdout-begin
+// 90480
+// 1402
+// parity-expected-stdout-end
+// Values worker tasks share while `main` keeps them: a list, a tree of
+// constructors, a tuple, and a string built at run time and a literal. Each
+// worker reads them and rebuilds its own copy, so their counts change on
+// several threads at once. They must have been made atomic first: with
+// `cargo xtask sanitize --thread`, a count changed on two threads without
+// that is a data race ThreadSanitizer reports.
+import Flow.Task exposing (..)
+
+type Tree = Leaf | Node(Tree, Int, Tree)
+
+fn build(n) { if n == 0 { [] } else { [n | build(n - 1)] } }
+
+fn tree(n) { if n == 0 { Leaf } else { Node(tree(n - 1), n, tree(n - 1)) } }
+
+fn total(t) {
+    match t {
+        Node(l, v, r) -> total(l) + v + total(r),
+        _ -> 0,
+    }
+}
+
+fn sum(xs) {
+    match xs {
+        [h | t] -> h + sum(t),
+        _ -> 0,
+    }
+}
+
+fn bump(xs) {
+    match xs {
+        [h | t] -> [h + 1 | bump(t)],
+        _ -> [],
+    }
+}
+
+fn work(xs, t, pair, label) {
+    let ys = bump(xs)
+    len(label) + sum(ys) + total(t) + pair.0 + len(pair.1)
+}
+
+fn round(k, xs, t, pair, label, acc) {
+    if k == 0 { acc } else {
+        let a = spawn(\() -> work(xs, t, pair, label))
+        let b = spawn(\() -> work(xs, t, pair, label))
+        let c = spawn(\() -> work(xs, t, pair, label))
+        let got = blocking_join(a) + blocking_join(b) + blocking_join(c)
+        round(k - 1, xs, t, pair, label, acc + got)
+    }
+}
+
+fn main() with IO {
+    let xs = build(50)
+    let t = tree(6)
+    let name = "flux-" + to_string(len(xs))
+    let pair = (len(xs), name)
+    print(round(20, xs, t, pair, "static", 0))
+    print(sum(xs) + total(t) + len(name))
+}

@@ -286,6 +286,11 @@ pub enum RuntimeVariant {
     /// Chosen by `FLUX_RT_SANITIZE=1`, so parity's runs inherit it. Not on
     /// MSVC.
     Sanitize,
+    /// `libflux_rt_tsan.a`, built with ThreadSanitizer, for
+    /// `cargo xtask sanitize --thread`: a count two threads update without
+    /// atomics is a data race it reports. Chosen by `FLUX_RT_SANITIZE=thread`;
+    /// it cannot share a build with AddressSanitizer. Not on MSVC.
+    Tsan,
 }
 
 impl RuntimeVariant {
@@ -295,6 +300,7 @@ impl RuntimeVariant {
             RuntimeVariant::Plain => "flux_rt",
             RuntimeVariant::DebugHeap => "flux_rt_debug",
             RuntimeVariant::Sanitize => "flux_rt_sanitize",
+            RuntimeVariant::Tsan => "flux_rt_tsan",
         }
     }
 
@@ -310,7 +316,9 @@ impl RuntimeVariant {
     /// The compile flags this build adds: definitions, or sanitizers.
     fn defines(self, msvc: bool) -> &'static [&'static str] {
         match (self, msvc) {
-            (RuntimeVariant::Plain, _) | (RuntimeVariant::Sanitize, true) => &[],
+            (RuntimeVariant::Plain, _)
+            | (RuntimeVariant::Sanitize, true)
+            | (RuntimeVariant::Tsan, true) => &[],
             (RuntimeVariant::DebugHeap, false) => &["-DFLUX_DEBUG_HEAP"],
             (RuntimeVariant::DebugHeap, true) => &["/DFLUX_DEBUG_HEAP"],
             // A report stops the program, so a parity run sees it fail.
@@ -318,6 +326,11 @@ impl RuntimeVariant {
                 "-fsanitize=address,undefined",
                 "-fno-sanitize-recover=undefined",
                 "-fno-omit-frame-pointer",
+            ],
+            (RuntimeVariant::Tsan, false) => &[
+                "-fsanitize=thread",
+                "-fno-omit-frame-pointer",
+                "-DFLUX_TSAN_COUNTS",
             ],
         }
     }
@@ -327,18 +340,22 @@ impl RuntimeVariant {
     fn link_flags(self) -> &'static [&'static str] {
         match self {
             RuntimeVariant::Sanitize => &["-fsanitize=address,undefined"],
+            RuntimeVariant::Tsan => &["-fsanitize=thread"],
             RuntimeVariant::Plain | RuntimeVariant::DebugHeap => &[],
         }
     }
 
-    /// The variant `FLUX_RT_SANITIZE` asks for, when the debug heap is not.
+    /// The variant `FLUX_RT_SANITIZE` asks for, when the debug heap is not:
+    /// `thread` for ThreadSanitizer, any other value but `0` for
+    /// AddressSanitizer and UndefinedBehaviorSanitizer.
     pub fn from_env(debug_heap: bool) -> Self {
         if debug_heap {
-            RuntimeVariant::DebugHeap
-        } else if std::env::var_os("FLUX_RT_SANITIZE").is_some_and(|v| !v.is_empty() && v != "0") {
-            RuntimeVariant::Sanitize
-        } else {
-            RuntimeVariant::Plain
+            return RuntimeVariant::DebugHeap;
+        }
+        match std::env::var_os("FLUX_RT_SANITIZE") {
+            Some(v) if v == "thread" => RuntimeVariant::Tsan,
+            Some(v) if !v.is_empty() && v != "0" => RuntimeVariant::Sanitize,
+            _ => RuntimeVariant::Plain,
         }
     }
 
@@ -349,6 +366,7 @@ impl RuntimeVariant {
             RuntimeVariant::Plain => "",
             RuntimeVariant::DebugHeap => ".debug",
             RuntimeVariant::Sanitize => ".sanitize",
+            RuntimeVariant::Tsan => ".tsan",
         }
     }
 }
@@ -1244,6 +1262,19 @@ mod tests {
         assert_ne!(
             sanitize.object_suffix(),
             RuntimeVariant::DebugHeap.object_suffix()
+        );
+    }
+
+    #[test]
+    fn the_thread_sanitized_runtime_is_a_library_of_its_own() {
+        let tsan = RuntimeVariant::Tsan;
+        assert_eq!(tsan.stem(), "flux_rt_tsan");
+        assert!(tsan.defines(false).contains(&"-fsanitize=thread"));
+        assert!(tsan.defines(true).is_empty());
+        assert_eq!(tsan.link_flags(), ["-fsanitize=thread"]);
+        assert_ne!(
+            tsan.object_suffix(),
+            RuntimeVariant::Sanitize.object_suffix()
         );
     }
 }

@@ -199,6 +199,7 @@ fn native_output_path(request: &NativeRunRequest<'_>) -> PathBuf {
                     {
                         flux::llvm::pipeline::RuntimeVariant::DebugHeap => ".debug-heap",
                         flux::llvm::pipeline::RuntimeVariant::Sanitize => ".sanitize",
+                        flux::llvm::pipeline::RuntimeVariant::Tsan => ".tsan",
                         flux::llvm::pipeline::RuntimeVariant::Plain => "",
                     };
                 request

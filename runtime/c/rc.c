@@ -95,6 +95,20 @@ static inline void rc_store_relaxed(FluxHeader *hdr, int32_t v) {
 }
 
 /*
+ * A thread-local count (rc > 0) is changed only by the thread that owns its
+ * value. ThreadSanitizer treats every atomic access as race-free, so in its
+ * build the change is a plain write: a second thread that changes it without
+ * synchronising with the owner is then a data race it reports (audit L7).
+ */
+static inline void rc_store_local(FluxHeader *hdr, int32_t v) {
+#ifdef FLUX_TSAN_COUNTS
+    *(int32_t *)&hdr->refcount = v;
+#else
+    rc_store_relaxed(hdr, v);
+#endif
+}
+
+/*
  * A count at or past FLUX_RC_STICKY in either mode never changes again, and
  * its block is never freed. Static objects the compiler emits (string
  * literals, closures of top-level functions) start there: they are read-only
@@ -559,7 +573,7 @@ void flux_dup(int64_t val) {
     DEBUG_CHECK(hdr, "copying");
     if (rc > 0) {
         /* ST mode: only the owning thread is here, plain store is fine. */
-        rc_store_relaxed(hdr, rc + 1);
+        rc_store_local(hdr, rc + 1);
     } else {
         /* MT mode: |rc| owners; one more reference makes rc more negative. */
         atomic_fetch_sub_explicit(&hdr->refcount, 1, memory_order_relaxed);
@@ -583,7 +597,7 @@ static inline void *flux_field_should_free(void *ptr, int field_idx) {
     DEBUG_CHECK(hdr, "dropping");
     if (rc > 0) {
         int32_t new_rc = rc - 1;
-        rc_store_relaxed(hdr, new_rc);
+        rc_store_local(hdr, new_rc);
         if (new_rc > 0) return NULL;
     } else {
         /* Last MT drop pairs with all prior releases. */
@@ -687,7 +701,7 @@ void flux_drop(int64_t val) {
     DEBUG_CHECK(hdr, "dropping");
     if (rc > 0) {
         int32_t new_rc = rc - 1;
-        rc_store_relaxed(hdr, new_rc);
+        rc_store_local(hdr, new_rc);
         if (new_rc > 0) return;
     } else {
         int32_t old = atomic_fetch_add_explicit(&hdr->refcount, 1,
