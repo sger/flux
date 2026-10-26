@@ -1236,6 +1236,107 @@ fn a_function_or_literal_used_as_a_value_is_never_allocated() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+/// Programs that build a value with `n` fields: a constructor, a tuple, and
+/// a closure that captures `n` values; each with what it prints.
+fn wide_values(n: usize) -> [(&'static str, String, String); 3] {
+    let vals = (0..n)
+        .map(|i| format!("n + {i}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let pattern = std::iter::once("a")
+        .chain(std::iter::repeat_n("_", n - 1))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let ints = vec!["Int"; n].join(", ");
+    let lets = (0..n)
+        .map(|i| format!("    let v{i} = n + {i}\n"))
+        .collect::<String>();
+    let sum = (0..n)
+        .map(|i| format!("v{i}"))
+        .collect::<Vec<_>>()
+        .join(" + ");
+    [
+        (
+            "constructor",
+            format!(
+                "type Wide = Wide({ints})\n\nfn first(w) {{ match w {{ Wide({pattern}) -> a }} }}\n\n\
+                 fn main() {{\n    let n = len([1, 2])\n    print(first(Wide({vals})))\n}}\n"
+            ),
+            "2".to_string(),
+        ),
+        (
+            "tuple",
+            format!(
+                "fn first(t) {{ t.0 }}\n\n\
+                 fn main() {{\n    let n = len([1, 2])\n    print(first(({vals})))\n}}\n"
+            ),
+            "2".to_string(),
+        ),
+        (
+            "closure",
+            format!(
+                "fn make(n) {{\n{lets}    \\x -> x + {sum}\n}}\n\n\
+                 fn main() {{\n    let f = make(len([1, 2]))\n    print(f(1))\n}}\n"
+            ),
+            // 1 + the sum of 2 + i for i below n.
+            (1 + 2 * n + n * (n - 1) / 2).to_string(),
+        ),
+    ]
+}
+
+/// A heap object counts the fields its release walks in one byte, and the
+/// VM's instructions count fields and captures in one byte too, so a value
+/// with more than 255 is rejected before either backend sees it. Natively it
+/// used to build and leak every field past the 255th; the VM failed at run
+/// time.
+#[test]
+fn a_value_with_more_than_255_fields_is_rejected() {
+    let scratch = Scratch::new("debug-heap-wide-values");
+    let mut failures = Vec::new();
+    for (name, program, _) in wide_values(256) {
+        let path = scratch.write(&format!("wide_{name}.flx"), &program);
+        let file = path.to_string_lossy();
+        for (backend, args) in [("native", &["--native"][..]), ("vm", &[][..])] {
+            let (_, stderr, code) = run(&scratch, &file, args, None);
+            if code == 0 || !stderr.contains("E087") {
+                failures.push(format!(
+                    "{name} on {backend}: exit {code}\n{}",
+                    clip(&stderr)
+                ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// The largest values that fit, 255 fields or captures, still build and run.
+/// The closure's function holds 256 locals, which the VM computes wrongly
+/// (KI-127), so that one runs natively only.
+#[test]
+fn a_value_with_255_fields_runs() {
+    let scratch = Scratch::new("debug-heap-widest-values");
+    let mut failures = Vec::new();
+    for (name, program, printed) in wide_values(255) {
+        let path = scratch.write(&format!("widest_{name}.flx"), &program);
+        let file = path.to_string_lossy();
+        let backends: &[(&str, &[&str])] = if name == "closure" {
+            &[("native", &["--native"])]
+        } else {
+            &[("native", &["--native"]), ("vm", &[])]
+        };
+        for &(backend, args) in backends {
+            let (stdout, stderr, code) = run(&scratch, &file, args, None);
+            if code != 0 || stdout.lines().last() != Some(printed.as_str()) {
+                failures.push(format!(
+                    "{name} on {backend}: exit {code}, printed {stdout:?}, want {printed}\n{}",
+                    clip(&stderr)
+                ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 const PERFORM_PER_TURN: &str = r"effect Ask {
     ask : (ARG) -> Int
 }
