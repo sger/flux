@@ -1,0 +1,47 @@
+// parity: vm, llvm
+// parity-expected-stdout-begin
+// 3030000
+// parity-expected-stdout-end
+// A map of 100 lists that worker tasks share while `main` keeps it. Each
+// worker reads every value, so the counts of the map's nodes and values
+// change on several threads at once: promotion must reach below the root.
+// With `cargo xtask sanitize --thread`, a count it missed is a data race
+// ThreadSanitizer reports.
+import Flow.Task exposing (..)
+import Flow.Map as Map
+
+fn build(i, m) {
+    if i == 0 { m } else { build(i - 1, Map.set(m, i, [i])) }
+}
+
+fn head(xs) {
+    match xs {
+        [h | _] -> h,
+        _ -> 0,
+    }
+}
+
+fn read(m, i, acc) {
+    if i == 0 { acc } else {
+        let got = match Map.get(m, i) {
+            Some(xs) -> head(xs),
+            None -> 0,
+        }
+        read(m, i - 1, acc + got)
+    }
+}
+
+fn round(k, m, acc) {
+    if k == 0 { acc } else {
+        let a = spawn(\() -> read(m, 100, 0))
+        let b = spawn(\() -> read(m, 100, 0))
+        let c = spawn(\() -> read(m, 100, 0))
+        let got = blocking_join(a) + blocking_join(b) + blocking_join(c)
+        round(k - 1, m, acc + got)
+    }
+}
+
+fn main() with IO {
+    let m = build(100, {})
+    print(round(200, m, 0))
+}
