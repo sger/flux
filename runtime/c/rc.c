@@ -4,7 +4,8 @@
  * Inspired by Koka's kklib runtime (Perceus RC). Every heap-allocated
  * object has an 8-byte FluxHeader at ptr - 8 containing:
  *   - _Atomic(int32_t) refcount  (sign-bit-encoded, see below)
- *   - uint8_t scan_fsize  (number of child tagged fields to scan on drop)
+ *   - uint8_t scan_fsize  (number of child tagged fields to scan on drop;
+ *                          an array is counted by its length instead)
  *   - uint8_t obj_tag     (FLUX_OBJ_STRING, FLUX_OBJ_ARRAY, etc.)
  *   - uint16_t reserved
  *
@@ -531,6 +532,38 @@ static int flux_scan_offset(uint8_t obj_tag) {
     }
 }
 
+/*
+ * How many fields the drop and promotion walks visit. An array's length is
+ * known only at run time and can exceed the header's one byte, so it is
+ * counted by `len` instead; every other object is bounded at compile time.
+ */
+static inline uint32_t scan_count(void *ptr) {
+    if (header_of(ptr)->obj_tag == FLUX_OBJ_ARRAY) {
+        return ((uint32_t *)ptr)[1];
+    }
+    return header_of(ptr)->scan_fsize;
+}
+
+/*
+ * Where the stackless drop keeps a block's next field index while it walks a
+ * child. `_reserved` holds 16 bits, too few for a long array, which keeps it
+ * in its unused `_pad2` word instead.
+ */
+static inline void save_progress(void *ptr, uint32_t i) {
+    if (header_of(ptr)->obj_tag == FLUX_OBJ_ARRAY) {
+        ((uint32_t *)ptr)[3] = i;
+    } else {
+        header_of(ptr)->_reserved = (uint16_t)i;
+    }
+}
+
+static inline uint32_t load_progress(void *ptr) {
+    if (header_of(ptr)->obj_tag == FLUX_OBJ_ARRAY) {
+        return ((uint32_t *)ptr)[3];
+    }
+    return header_of(ptr)->_reserved;
+}
+
 static inline void flux_block_free(void *ptr);
 
 /*
@@ -622,8 +655,8 @@ static inline void flux_block_free(void *ptr) {
 /*
  * Stackless recursive drop.
  *
- * Uses the _reserved field in FluxHeader to store the current field
- * index during traversal, and overwrites field[0] with the parent
+ * Stores the current field index in the block during traversal (see
+ * save_progress), and overwrites field[0] with the parent
  * pointer to maintain an explicit parent chain — no call stack needed.
  *
  * This prevents stack overflow when freeing deep structures like long
@@ -631,14 +664,14 @@ static inline void flux_block_free(void *ptr) {
  */
 static void flux_drop_free_recx(void *ptr) {
     void *parent = NULL;
-    uint16_t scan_fsize;
-    uint16_t i;
+    uint32_t scan_fsize;
+    uint32_t i;
 
     int offset;
     int64_t *fields;
 
 move_down:
-    scan_fsize = header_of(ptr)->scan_fsize;
+    scan_fsize = scan_count(ptr);
     offset = flux_scan_offset(header_of(ptr)->obj_tag);
     fields = (int64_t *)((char *)ptr + offset * 8);
 
@@ -663,9 +696,9 @@ move_down:
             if (child) {
                 if (i < scan_fsize) {
                     /* Save progress: parent pointer in field[0],
-                     * current index in _reserved. */
+                     * current index in the block. */
                     fields[0] = (int64_t)parent;
-                    header_of(ptr)->_reserved = i;
+                    save_progress(ptr, i);
                     parent = ptr;
                 }
                 else {
@@ -685,8 +718,8 @@ move_down:
         offset = flux_scan_offset(header_of(ptr)->obj_tag);
         fields = (int64_t *)((char *)ptr + offset * 8);
         parent = (void *)fields[0];
-        scan_fsize = header_of(ptr)->scan_fsize;
-        i = (uint16_t)header_of(ptr)->_reserved;
+        scan_fsize = scan_count(ptr);
+        i = load_progress(ptr);
         goto scan_fields;
     }
 }
@@ -711,7 +744,7 @@ void flux_drop(int64_t val) {
 
     if (hdr->obj_tag == FLUX_OBJ_EVIDENCE) {
         flux_drop_evidence(ptr);
-    } else if (hdr->scan_fsize > 0) {
+    } else if (scan_count(ptr) > 0) {
         flux_drop_free_recx(ptr);
     } else {
         flux_block_free(ptr);
@@ -781,7 +814,8 @@ static void flux_rc_promote_recurse(void *ptr) {
         flux_rc_promote_evidence(ptr);
         return;
     }
-    for (uint32_t i = 0; i < hdr->scan_fsize; i++) {
+    uint32_t count = scan_count(ptr);
+    for (uint32_t i = 0; i < count; i++) {
         flux_rc_promote(fields[i]);
     }
 }

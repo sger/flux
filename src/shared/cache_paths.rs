@@ -370,7 +370,9 @@ use sha2::{Digest, Sha256};
 /// built with `+` or `to_string`, are not views of what they were computed
 /// from; an epoch-117 unit took them for views and never released the value
 /// (KI-129).
-pub const CACHE_EPOCH: u16 = 118;
+/// Epoch 119: the C runtime releases and promotes an array's elements by its
+/// length; a binary linked at epoch 118 stopped at the 255th (KI-123).
+pub const CACHE_EPOCH: u16 = 119;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
