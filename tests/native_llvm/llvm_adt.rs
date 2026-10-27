@@ -319,6 +319,10 @@ fn parse_and_lower_to_llvm_module(src: &str) -> (flux::llvm::LlvmModule, Interne
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "the snapshot records POSIX function attributes; Windows keeps Flux functions nounwind"
+)]
 fn snapshot_for_adt_list_and_tuple_lowering() {
     let src = r#"
 data Wrap {
