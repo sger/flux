@@ -1,0 +1,63 @@
+#!/bin/sh
+# Checks a commit message against docs/internals/commit_messages.md.
+# Enable once per clone with: git config core.hooksPath .githooks
+
+msg_file="$1"
+
+# Git strips comment lines after this hook runs, so ignore them here.
+lines=$(grep -v '^#' "$msg_file")
+subject=$(printf '%s\n' "$lines" | sed -n '1p')
+rest=$(printf '%s\n' "$lines" | sed '1d' | grep -v '^[[:space:]]*$')
+
+fail() {
+    echo "commit-msg: $1" >&2
+    echo "  $subject" >&2
+    echo "See docs/internals/commit_messages.md (skip once with --no-verify)." >&2
+    exit 1
+}
+
+# Messages git writes itself, and ones a rebase squashes away.
+case "$subject" in
+    'Merge '* | 'Revert "'* | 'fixup! '* | 'squash! '* | 'amend! '*) exit 0 ;;
+esac
+
+types='feat|fix|test|docs|refactor|perf|ci|chore|style|revert'
+
+if ! printf '%s\n' "$subject" | grep -Eq "^($types)(\([a-z0-9][a-z0-9.,_-]*\))?: "; then
+    fail "the line must start with type(scope): where type is one of ${types}, and the scope is lowercase with commas and no spaces"
+fi
+
+# Each scope must be one the doc's table lists, a proposal number or a
+# version. The table is the only list, so the two cannot disagree.
+doc="$(git rev-parse --show-toplevel)/docs/internals/commit_messages.md"
+scopes=$(printf '%s\n' "$subject" | sed -nE 's/^[a-z]+\(([^)]*)\):.*/\1/p')
+if [ -n "$scopes" ] && [ -f "$doc" ]; then
+    known=$(awk '/^## Scope/{on=1; next} /^## /{on=0} on' "$doc" |
+        sed -nE 's/^\| `([a-z0-9-]+)` \|.*/\1/p')
+    for scope in $(printf '%s\n' "$scopes" | tr ',' ' '); do
+        if printf '%s\n' "$scope" | grep -Eq '^([0-9]{4}|[0-9]+\.[0-9]+\.[0-9]+)$'; then
+            continue
+        fi
+        if ! printf '%s\n' "$known" | grep -qx "$scope"; then
+            fail "unknown scope '$scope'; use one from the table in docs/internals/commit_messages.md, or add it there"
+        fi
+    done
+fi
+
+summary=${subject#*: }
+if [ -z "$summary" ] || printf '%s\n' "$summary" | grep -q '^[[:space:]]'; then
+    fail "the summary after ': ' is missing"
+fi
+
+case "$subject" in
+    *.) fail "leave out the final full stop" ;;
+esac
+
+if [ -n "$rest" ]; then
+    case "$rest" in
+        *[Cc]o-[Aa]uthored-[Bb]y*) fail "no Co-Authored-By trailer naming an LLM or an agent; disclose LLM use in the PR" ;;
+    esac
+    fail "a commit message is one line, with no body; reasons go in the PR description"
+fi
+
+exit 0

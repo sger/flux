@@ -144,6 +144,7 @@ After that:
 - Compiler architecture: [`docs/internals/compiler_architecture.md`](docs/internals/compiler_architecture.md)
 - Diagnostics and error codes: [`docs/internals/diagnostics.md`](docs/internals/diagnostics.md),
   [`docs/internals/error_codes.md`](docs/internals/error_codes.md)
+- Commit messages: [`docs/internals/commit_messages.md`](docs/internals/commit_messages.md)
 - Where tests go and how to run them: [`tests/README.md`](tests/README.md)
 - VM/LLVM parity: [`docs/internals/parity.md`](docs/internals/parity.md)
 - Proposals: [`docs/proposals/0000_index.md`](docs/proposals/0000_index.md) and
