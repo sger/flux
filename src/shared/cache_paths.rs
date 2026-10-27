@@ -389,7 +389,11 @@ use sha2::{Digest, Sha256};
 /// Epoch 125: a call whose frame holds references is an `invoke` whose
 /// landing pad releases them when a caught panic unwinds through it; an
 /// epoch-124 unit skipped them (KI-126).
-pub const CACHE_EPOCH: u16 = 126;
+/// Epoch 126: a nested handle's prompt names the enclosing handles'
+/// evidence, which its landing pad releases (KI-133).
+/// Epoch 127: on Windows, a caught panic puts back the handlers its try
+/// started under (PA C1).
+pub const CACHE_EPOCH: u16 = 127;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
