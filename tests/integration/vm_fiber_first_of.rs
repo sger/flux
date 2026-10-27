@@ -28,21 +28,24 @@ fn body() -> (Int, Int) with Async {
     first_of([slow, fast, slow])
 }
 
-fn main() with IO {
+fn main() with IO, Time {
+    let t0 = now_ms()
     let pair = run_async(body)
+    print("elapsed_ms=" + to_string(now_ms() - t0))
     print(pair.0)
     print(pair.1)
 }
 "#;
-    let (stdout, stderr, success, elapsed) = run_source(source, "fastest");
+    let (stdout, stderr, success, _) = run_source(source, "fastest");
     assert!(
         success,
         "first_of program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
+    let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
     let lines: Vec<_> = stdout.lines().collect();
     assert_eq!(lines, ["1", "2"]);
     assert!(
-        elapsed < Duration::from_millis(1500),
+        elapsed < Duration::from_millis(700),
         "first_of waited for slow losers: {elapsed:?}"
     );
 }

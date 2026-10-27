@@ -38,31 +38,31 @@ fn body() -> (Int, Int) with Async {
     both(left, right)
 }
 
-fn main() with IO {
+fn main() with IO, Time {
+    let t0 = now_ms()
     let pair = run_async(body)
+    print("elapsed_ms=" + to_string(now_ms() - t0))
     print(pair.0)
     print(pair.1)
 }
 "#;
-    let (stdout, stderr, success, elapsed) = run_source(source, "both_overlap");
+    let (stdout, stderr, success, _) = run_source(source, "both_overlap");
     assert!(
         success,
         "both program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
+    let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
     // Lower bound: sleeps must actually wait — at least one 500ms sleep.
-    // (`--no-cache` adds ~1s of stdlib-recompile startup, so total is ~1.5s
-    // when fibers overlap, ~2s when they run sequentially.)
     assert!(
         elapsed >= Duration::from_millis(450),
         "elapsed {elapsed:?} too short — sleeps must wait at least ~500ms"
     );
-    // Upper bound: fibers must overlap. Sequential = ~1000ms of sleep (plus
-    // startup); concurrent = ~500ms of sleep (plus startup). Choosing a bound
-    // below the worst-case startup + sequential keeps the assertion robust.
+    // Upper bound: fibers must overlap. Sequential = ~1000ms of sleep;
+    // concurrent = ~500ms.
     assert!(
-        elapsed < Duration::from_millis(1800),
+        elapsed < Duration::from_millis(800),
         "elapsed {elapsed:?} — fibers didn't overlap (sequential would be \
-         ~1000ms of sleep + startup, concurrent should be ~500ms + startup)"
+         ~1000ms of sleep, concurrent should be ~500ms)"
     );
     assert!(
         stdout.contains('1') && stdout.contains('2'),
@@ -89,24 +89,25 @@ fn body() -> Int with Async {
     race(slow, fast)
 }
 
-fn main() with IO {
+fn main() with IO, Time {
+    let t0 = now_ms()
     let winner = run_async(body)
+    print("elapsed_ms=" + to_string(now_ms() - t0))
     print(winner)
 }
 "#;
-    let (stdout, stderr, success, elapsed) = run_source(source, "race_first_finisher");
+    let (stdout, stderr, success, _) = run_source(source, "race_first_finisher");
     assert!(
         success,
         "race program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
+    let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
     // Upper bound: parent must resume on fast's completion (~50ms),
-    // not wait for slow (~1000ms). Includes ~1s startup overhead from
-    // `--no-cache` stdlib recompile, so generous bound at 1500ms.
+    // not wait for slow (~1000ms).
     assert!(
-        elapsed < Duration::from_millis(1500),
-        "elapsed {elapsed:?} — race didn't return on fast (sequential or \
-         waiting-on-slow would be ~1000ms of sleep + startup, fast-wins \
-         should be ~50ms + startup)"
+        elapsed < Duration::from_millis(700),
+        "elapsed {elapsed:?} — race didn't return on fast (waiting on slow \
+         would be ~1000ms of sleep, fast-wins should be ~50ms)"
     );
     assert!(
         stdout.contains('2'),

@@ -30,31 +30,32 @@ fn body() -> Option<Int> with Async {
     timeout(50, slow)
 }
 
-fn main() with IO {
+fn main() with IO, Time {
+    let t0 = now_ms()
     let r = run_async(body)
+    print("elapsed_ms=" + to_string(now_ms() - t0))
     match r {
         Some(v) -> print(v),
         None    -> print(-1)
     }
 }
 "#;
-    let (stdout, stderr, success, elapsed) = run_source(source, "timeout_fires");
+    let (stdout, stderr, success, _) = run_source(source, "timeout_fires");
     assert!(
         success,
         "timeout program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
+    let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
     assert!(
         stdout.contains("-1"),
         "expected None (-1) in output:\nstdout:\n{stdout}"
     );
-    // Timer must fire well before slow's 1000ms. 3000ms budget: ~50ms timer +
-    // ~1s --no-cache stdlib recompile + 1.5s CI load headroom. The non-firing
-    // path (slow's full 1000ms + startup) would be >3000ms, so the bound is
-    // still a meaningful proof.
+    // Timer must fire well before slow's 1000ms: ~50ms timer, against
+    // ~1000ms on the non-firing path.
     assert!(
-        elapsed < Duration::from_millis(3000),
+        elapsed < Duration::from_millis(700),
         "elapsed {elapsed:?} — timeout didn't return on timer (slow's full \
-         1000ms + startup would be >3000ms; timer + startup should be ~1100ms)"
+         1000ms would be ~1000ms; the timer should be ~50ms)"
     );
 }
 
@@ -73,28 +74,29 @@ fn body() -> Option<Int> with Async {
     timeout(1000, fast)
 }
 
-fn main() with IO {
+fn main() with IO, Time {
+    let t0 = now_ms()
     let r = run_async(body)
+    print("elapsed_ms=" + to_string(now_ms() - t0))
     match r {
         Some(v) -> print(v),
         None    -> print(-1)
     }
 }
 "#;
-    let (stdout, stderr, success, elapsed) = run_source(source, "timeout_succeeds");
+    let (stdout, stderr, success, _) = run_source(source, "timeout_succeeds");
     assert!(
         success,
         "timeout program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
+    let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
     assert!(
         stdout.contains("42"),
         "expected Some(42) result in output:\nstdout:\n{stdout}"
     );
-    // Body must wake parent before timeout fires (~50ms vs 1000ms). 3000ms
-    // budget: ~50ms body + ~1s --no-cache compile + 1.5s CI load headroom.
-    // Waiting for the full timeout (1000ms + startup) would be >2000ms.
+    // Body must wake parent before timeout fires (~50ms vs 1000ms).
     assert!(
-        elapsed < Duration::from_millis(3000),
+        elapsed < Duration::from_millis(700),
         "elapsed {elapsed:?} — body should resume parent on completion (~50ms), \
          not wait for timeout (~1000ms)"
     );

@@ -36,23 +36,26 @@ fn body() -> Int with Async {
     scope(scoped_body)
 }
 
-fn main() with IO {
+fn main() with IO, Time {
+    let t0 = now_ms()
     let result = run_async(body)
+    print("elapsed_ms=" + to_string(now_ms() - t0))
     print(result)
 }
 "#;
-    let (stdout, stderr, success, elapsed) = run_source(source, "scope_cancel");
+    let (stdout, stderr, success, _) = run_source(source, "scope_cancel");
     assert!(
         success,
         "scope-cancel program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
+    let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
     assert!(
         stdout.contains("42"),
         "expected result 42:\nstdout:\n{stdout}"
     );
     // Must complete well before the forked fibers' 2s sleeps.
     assert!(
-        elapsed < Duration::from_millis(1800),
+        elapsed < Duration::from_millis(1500),
         "elapsed {elapsed:?} — scope cancel did not stop forked fibers"
     );
 }

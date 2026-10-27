@@ -24,23 +24,25 @@ fn fiber_sleep_routes_through_mio_timer_and_returns_in_range() {
     let source = r#"
 import Flow.Async as Async
 
-fn main() with Async {
+fn main() with Async, IO, Time {
+    let t0 = now_ms()
     Async.sleep(50)
+    print("elapsed_ms=" + to_string(now_ms() - t0))
 }
 "#;
-    let (stdout, stderr, success, elapsed) = run_source(source);
+    let (stdout, stderr, success, _) = run_source(source);
     assert!(
         success,
         "fiber_sleep program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
+    let (_, elapsed) = flux_runner::program_elapsed(&stdout);
     // Lower bound: proves the timer actually waited (≥45ms allows for
     // ±5ms scheduling jitter on slower CI hosts).
     assert!(
         elapsed >= Duration::from_millis(45),
         "elapsed {elapsed:?} too short — sleep should have parked for ~50ms",
     );
-    // Upper bound: guards against the pump getting stuck. The flux binary
-    // also incurs startup time, so the budget is generous.
+    // Upper bound: guards against the pump getting stuck.
     assert!(
         elapsed < Duration::from_secs(5),
         "elapsed {elapsed:?} too long — pump or backend lifecycle likely stuck",
