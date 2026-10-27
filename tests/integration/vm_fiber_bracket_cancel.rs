@@ -40,23 +40,26 @@ fn body() -> Int with Async {
     race(fast, slow)
 }
 
-fn main() with IO {
+fn main() with IO, Time {
+    let t0 = now_ms()
     let result = run_async(body)
+    print("elapsed_ms=" + to_string(now_ms() - t0))
     print(result)
 }
 "#;
-    let (stdout, stderr, success, elapsed) = run_source(source, "cancelled_clean");
+    let (stdout, stderr, success, _) = run_source(source, "cancelled_clean");
     assert!(
         success,
         "cancelled-fiber program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
+    let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
     assert!(
         stdout.contains("42"),
         "expected fast result 42:\nstdout:\n{stdout}"
     );
     // Must complete well before the slow fiber's 2s sleep.
     assert!(
-        elapsed < Duration::from_millis(1800),
+        elapsed < Duration::from_millis(1500),
         "elapsed {elapsed:?} — slow fiber not cancelled"
     );
 }
@@ -81,22 +84,25 @@ fn body() -> String with Async {
     }
 }
 
-fn main() with IO {
+fn main() with IO, Time {
+    let t0 = now_ms()
     let s = run_async(body)
+    print("elapsed_ms=" + to_string(now_ms() - t0))
     print(s)
 }
 "#;
-    let (stdout, stderr, success, elapsed) = run_source(source, "timeout_clean");
+    let (stdout, stderr, success, _) = run_source(source, "timeout_clean");
     assert!(
         success,
         "timeout-cancelled program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
+    let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
     assert!(
         stdout.contains("timed_out"),
         "expected 'timed_out':\nstdout:\n{stdout}"
     );
     assert!(
-        elapsed < Duration::from_millis(1800),
+        elapsed < Duration::from_millis(1500),
         "elapsed {elapsed:?} — body child not cancelled"
     );
 }

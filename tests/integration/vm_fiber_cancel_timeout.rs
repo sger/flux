@@ -36,27 +36,28 @@ fn body() -> String with Async {
     }
 }
 
-fn main() with IO {
+fn main() with IO, Time {
+    let t0 = now_ms()
     let s = run_async(body)
+    print("elapsed_ms=" + to_string(now_ms() - t0))
     print(s)
 }
 "#;
-    let (stdout, stderr, success, elapsed) = run_source(source, "timeout_cancel");
+    let (stdout, stderr, success, _) = run_source(source, "timeout_cancel");
     assert!(
         success,
         "timeout program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
+    let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
     assert!(
         stdout.contains("timed_out"),
         "expected 'timed_out' output:\nstdout:\n{stdout}"
     );
-    // Must complete well before the body's 2s sleep. 3000ms budget: ~50ms
-    // timer + ~1s --no-cache compile + 1.5s CI load headroom. Without
-    // cancellation the body's full 2s sleep + startup would exceed 3000ms,
-    // so the bound is still a meaningful proof of cancellation.
+    // Must complete well before the body's 2s sleep: ~50ms timer, against
+    // ~2000ms without cancellation.
     assert!(
-        elapsed < Duration::from_millis(3000),
+        elapsed < Duration::from_millis(1500),
         "elapsed {elapsed:?} — body child's 2s timer was not cancelled \
-         (should complete in ~50ms timer + startup)"
+         (should complete in ~50ms timer)"
     );
 }

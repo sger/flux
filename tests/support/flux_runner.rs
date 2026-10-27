@@ -73,6 +73,27 @@ pub fn run_flux_with_env(
     (stdout, stderr, output.status.success(), elapsed)
 }
 
+/// The time a fixture printed as `elapsed_ms=<n>` around its `run_async`,
+/// and its output without that line. A timed run's wall clock also counts
+/// the compile, which on a loaded machine can take longer than the sleeps
+/// a test compares.
+#[allow(dead_code)]
+pub fn program_elapsed(stdout: &str) -> (String, Duration) {
+    let mut elapsed = None;
+    let mut rest = String::new();
+    for line in stdout.lines() {
+        match line.trim_matches('"').strip_prefix("elapsed_ms=") {
+            Some(ms) => elapsed = ms.parse().ok().map(Duration::from_millis),
+            None => {
+                rest.push_str(line);
+                rest.push('\n');
+            }
+        }
+    }
+    let elapsed = elapsed.unwrap_or_else(|| panic!("no elapsed_ms= line in:\n{stdout}"));
+    (rest, elapsed)
+}
+
 /// Run `source` on the default **cached** path, with an isolated cache root.
 ///
 /// The other helpers pass `--no-cache`, which bypasses the parallel module

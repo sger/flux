@@ -86,17 +86,20 @@ fn body() -> (Int, Int) with Async {
     both(slow_left, slow_right)
 }
 
-fn main() with IO {
+fn main() with IO, Time {
+    let t0 = now_ms()
     let pair = run_async_with_workers(2, body)
+    print("elapsed_ms=" + to_string(now_ms() - t0))
     print(pair.0)
     print(pair.1)
 }
 "#;
-    let (stdout, stderr, success, elapsed) = run_source(source, "sleep_parallel");
+    let (stdout, stderr, success, _) = run_source(source, "sleep_parallel");
     assert!(
         success,
         "multiworker sleep both must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
+    let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
     let lines: Vec<_> = stdout.lines().collect();
     assert_eq!(
         lines,
@@ -108,14 +111,12 @@ fn main() with IO {
         elapsed >= Duration::from_millis(400),
         "elapsed {elapsed:?} too short — sleeps must actually wait"
     );
-    // With 2 OS workers the sleeps overlap: total should be ~500ms + startup.
-    // 2800ms budget: ~500ms sleep + ~1s --no-cache compile + 1.3s CI headroom.
-    // Sequential would be ~1000ms sleep + ~1s startup ≈ 2000ms, so if fibers
-    // don't overlap the assertion fails.
+    // With 2 OS workers the sleeps overlap: ~500ms, against ~1000ms when
+    // they run one after the other.
     assert!(
-        elapsed < Duration::from_millis(2800),
+        elapsed < Duration::from_millis(800),
         "elapsed {elapsed:?} — fibers didn't overlap across workers \
-         (sequential would be ~1000ms sleep + startup)"
+         (sequential would be ~1000ms of sleep)"
     );
 }
 
@@ -208,25 +209,26 @@ fn body() -> Int with Async {
     race(fast, slow)
 }
 
-fn main() with IO {
+fn main() with IO, Time {
+    let t0 = now_ms()
     let v = run_async_with_workers(4, body)
+    print("elapsed_ms=" + to_string(now_ms() - t0))
     print(v)
 }
 "#;
-    let (stdout, stderr, success, elapsed) = run_source(source, "four_workers_race");
+    let (stdout, stderr, success, _) = run_source(source, "four_workers_race");
     assert!(
         success,
         "four-worker race must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
+    let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
     assert!(
         stdout.contains("99"),
         "expected fast branch result (99):\nstdout:\n{stdout}"
     );
-    // Should complete in ~50ms + startup. 3200ms budget: ~50ms fast branch +
-    // ~1s --no-cache compile + 2.1s CI load headroom. The slow branch (2s
-    // sleep + startup) would exceed this, so the bound proves early exit.
+    // Should complete in ~50ms; the slow branch's 2s sleep would not.
     assert!(
-        elapsed < Duration::from_millis(3200),
+        elapsed < Duration::from_millis(1500),
         "elapsed {elapsed:?} — race didn't return on fast branch"
     );
 }

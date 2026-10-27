@@ -9,7 +9,7 @@
 //! cancels any remaining outstanding requests.
 //!
 //! The observable difference: the program should complete in well under 500ms
-//! total (fast sleep 50ms + startup), not approach 2000ms.
+//! of its own time (fast sleep 50ms), not approach 2000ms.
 
 #[path = "../support/flux_runner.rs"]
 mod flux_runner;
@@ -39,26 +39,28 @@ fn body() -> Int with Async {
     race(fast, slow)
 }
 
-fn main() with IO {
+fn main() with IO, Time {
+    let t0 = now_ms()
     let result = run_async(body)
+    print("elapsed_ms=" + to_string(now_ms() - t0))
     print(result)
 }
 "#;
-    let (stdout, stderr, success, elapsed) = run_source(source, "race_loser");
+    let (stdout, stderr, success, _) = run_source(source, "race_loser");
     assert!(
         success,
         "race program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
+    let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
     assert!(
         stdout.contains("42"),
         "expected fast branch result 42:\nstdout:\n{stdout}"
     );
-    // Must complete well before the loser's 2s timer. Allow 1800ms for
-    // `--no-cache` startup + fast sleep; if the loser is NOT cancelled the
-    // program takes ~2000ms of sleep + startup (~3s total).
+    // Must complete well before the loser's 2s timer; if the loser is NOT
+    // cancelled the program takes ~2000ms of sleep.
     assert!(
-        elapsed < Duration::from_millis(1800),
+        elapsed < Duration::from_millis(1500),
         "elapsed {elapsed:?} — loser's 2s timer was not cancelled \
-         (should complete in ~50ms sleep + startup)"
+         (should complete in ~50ms of sleep)"
     );
 }
