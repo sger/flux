@@ -742,6 +742,72 @@ mod tests {
         assert!(collect_call_sites(&f, &HashSet::new(), &HashSet::new()).is_empty());
     }
 
+    /// Each call's continuation copies the calls after it. A copy of a call
+    /// site shares the continuation made for the site it copies: making new
+    /// ones for every copy grew a chain of n calls to 2^n functions (KI-132).
+    #[test]
+    fn a_chain_of_suspending_calls_makes_one_continuation_per_call() {
+        let n = 10u32;
+        let mut program = LirProgram::new();
+        program.suspending_extern_symbols.insert("s".to_string());
+        let mut f = empty_function(0, "f");
+        let v_func = LirVar(0);
+        f.params = vec![v_func];
+        for i in 0..n {
+            f.blocks.push(LirBlock {
+                locs: Vec::new(),
+                term_loc: Default::default(),
+                id: BlockId(i),
+                params: Vec::new(),
+                instrs: Vec::new(),
+                terminator: LirTerminator::Call {
+                    dst: LirVar(i + 1),
+                    func: v_func,
+                    args: Vec::new(),
+                    cont: BlockId(i + 1),
+                    kind: CallKind::DirectExtern {
+                        symbol: "s".to_string(),
+                    },
+                    suppress_yield_check: false,
+                    yield_cont: None,
+                    held: None,
+                },
+            });
+        }
+        f.blocks.push(LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
+            id: BlockId(n),
+            params: Vec::new(),
+            instrs: Vec::new(),
+            terminator: LirTerminator::Return(LirVar(n)),
+        });
+        f.next_var = n + 1;
+        program.push_function(f);
+
+        let program = split_continuations_with_options(program, true);
+        assert_eq!(program.functions.len(), 1 + n as usize);
+
+        let cont_of = |func: &LirFunction, dst: LirVar| {
+            func.blocks
+                .iter()
+                .find_map(|block| match &block.terminator {
+                    LirTerminator::Call {
+                        dst: d, yield_cont, ..
+                    } if *d == dst => yield_cont.as_ref().map(|cont| cont.func),
+                    _ => None,
+                })
+        };
+        let parent = &program.functions[0];
+        let after_first = cont_of(parent, LirVar(1)).expect("first call is split");
+        let first_cont = program
+            .functions
+            .iter()
+            .find(|func| func.id == after_first)
+            .expect("first call's continuation");
+        assert_eq!(cont_of(first_cont, LirVar(2)), cont_of(parent, LirVar(2)));
+    }
+
     #[test]
     fn non_async_calls_are_not_split() {
         let mut f = empty_function(0, "f");
