@@ -402,11 +402,45 @@ const OWNED_MOVES: &str = "tests/native_llvm/debug_heap/owned_moves";
 /// fixture prints on the debug heap what it prints on the VM: a freed value
 /// read back shows up as poison there.
 ///
-/// The fixtures build on a few workers, each with a scratch directory and so
-/// a cache of its own: the native cache is not safe for two builds writing
-/// it at once, and one worker building them all takes minutes.
+/// The fixtures are split over four tests, which nextest runs side by side.
+/// Each builds on two workers, each with a scratch directory and so a cache
+/// of its own: the native cache is not safe for two builds writing it at
+/// once, and one worker building them all takes minutes.
+fn owned_moves_part(part: usize) {
+    let files: Vec<String> = owned_move_fixtures()
+        .into_iter()
+        .enumerate()
+        .filter(|(index, _)| index % 4 == part)
+        .map(|(_, name)| name)
+        .collect();
+    assert!(!files.is_empty(), "no fixtures in part {part}");
+    let scratch = format!("debug-heap-owned-moves-{part}");
+    let failures = failures_in_parallel(&scratch, &files, 2, owned_move_failure);
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 #[test]
-fn owned_moves_print_what_the_vm_prints() {
+fn owned_moves_print_what_the_vm_prints_part_1() {
+    owned_moves_part(0)
+}
+
+#[test]
+fn owned_moves_print_what_the_vm_prints_part_2() {
+    owned_moves_part(1)
+}
+
+#[test]
+fn owned_moves_print_what_the_vm_prints_part_3() {
+    owned_moves_part(2)
+}
+
+#[test]
+fn owned_moves_print_what_the_vm_prints_part_4() {
+    owned_moves_part(3)
+}
+
+/// The fixtures of `OWNED_MOVES`, sorted.
+fn owned_move_fixtures() -> Vec<String> {
     let mut files: Vec<String> = std::fs::read_dir(workspace_root().join(OWNED_MOVES))
         .expect("owned_moves fixtures")
         .filter_map(|entry| {
@@ -418,10 +452,7 @@ fn owned_moves_print_what_the_vm_prints() {
         .collect();
     files.sort();
     assert!(!files.is_empty(), "no fixtures in {OWNED_MOVES}");
-    // Most of each fixture is macOS checking the new binary before its first
-    // run, and those checks overlap, so more workers than the usual 4.
-    let failures = failures_in_parallel("debug-heap-owned-moves", &files, 8, owned_move_failure);
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    files
 }
 
 /// Runs `check` on each of `files` across up to `workers` threads, each
