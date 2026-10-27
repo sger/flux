@@ -3750,16 +3750,15 @@ impl<'a> FnLower<'a> {
                     self.resolve_external_symbol(&self.resolve_name(var.name))
                 }
                 CoreExpr::MemberAccess { object, member, .. } => {
-                    let qualified = if let CoreExpr::Var { var, .. } = object.as_ref() {
-                        self.resolve_qualified_external_symbol(var.name, *member)
-                    } else {
-                        None
-                    };
                     // Only a member of an imported module is called directly;
                     // anything else is lowered as a value below, as it was when
                     // the callee was a hoisted temporary. By its bare name it
                     // could be another module's function of that name.
-                    qualified
+                    if let CoreExpr::Var { var, .. } = object.as_ref() {
+                        self.resolve_qualified_external_symbol(var.name, *member)
+                    } else {
+                        None
+                    }
                 }
                 _ => None,
             }
@@ -3988,16 +3987,15 @@ impl<'a> FnLower<'a> {
                     self.resolve_external_symbol(&self.resolve_name(var.name))
                 }
                 AetherExpr::MemberAccess { object, member, .. } => {
-                    let qualified = if let AetherExpr::Var { var, .. } = object.as_ref() {
-                        self.resolve_qualified_external_symbol(var.name, *member)
-                    } else {
-                        None
-                    };
                     // Only a member of an imported module is called directly;
                     // anything else is lowered as a value below, as it was when
                     // the callee was a hoisted temporary. By its bare name it
                     // could be another module's function of that name.
-                    qualified
+                    if let AetherExpr::Var { var, .. } = object.as_ref() {
+                        self.resolve_qualified_external_symbol(var.name, *member)
+                    } else {
+                        None
+                    }
                 }
                 _ => None,
             }
