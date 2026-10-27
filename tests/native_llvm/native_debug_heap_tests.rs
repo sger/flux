@@ -2027,8 +2027,7 @@ fn main() with IO {
 /// another release what they share once both are gone. A release freed
 /// nothing under the root, which was all that kept the uncounted sharing
 /// between maps safe; a map of 100 keys has branches inside branches
-/// (KI-124). The functions are imported by name: a call through a module
-/// alias is not seen as the map operation it is (KI-130).
+/// (KI-124).
 #[test]
 fn a_map_releases_its_nodes_keys_and_values() {
     let scratch = Scratch::new("debug-heap-map");

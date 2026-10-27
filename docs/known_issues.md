@@ -42,30 +42,6 @@ Severity is about consequence, not effort:
 
 ## Open
 
-### KI-130 — A call through a module alias is not seen as the runtime operation it is, and leaks natively
-
-**Severity:** Medium · **Area:** Core lowering, Aether · **Verified:** 2026-10-26 · **From:** KI-124
-
-```flux
-import Flow.Array as Array
-
-fn turn(n) {
-    len(Array.push([| [n] |], [n + 1]))
-}
-```
-
-Natively, each call to `turn` leaves 3 blocks live. With
-`import Flow.Array exposing (push)` and a bare `push`, it leaves none. The
-same holds for `Flow.Map` (`Map.set`, `Map.get`, …), where a whole map is
-left per call.
-
-Core gets `Array.push` as a variable that is then called
-(`let t = Array.push; t(…)`), not as the `ArrayPush` primop that the bare
-name becomes. Aether then knows nothing about the call, and the function
-that makes it is missing from `--dump-aether`. The backends still run the
-right operation: `src/lir/lower.rs` maps `Flow.Array.push` and
-`Flow.Map.set` to their primops later.
-
 ### KI-126 — Natively, a caught panic leaks what the frames it skipped held
 
 **Severity:** Low · **Area:** native runtime, panics · **Verified:** 2026-10-25 · **From:** the Perceus audit, R7 and C1
@@ -2174,6 +2150,48 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 ## Resolved
 
+### KI-130 — A call through a module alias was not seen as the call it is, and leaked natively — FIXED 2026-10-26
+
+**Severity:** Medium · **Area:** Core ANF, Aether, LIR lowering · **Verified fixed:** 2026-10-26 · **From:** KI-124
+
+```flux
+import Flow.Map as Map
+
+fn turn(n) {
+    Map.size(Map.set(Map.set({}, "a", [n]), "b", [n + 1]))
+}
+```
+
+Natively, a call through a module alias leaked what it was given when the
+function only borrows it: 3 blocks per `Array.push`, 3 per `Map.get`, and
+6 for the two `Map.set`s above. The same calls through names imported with
+`exposing` leaked nothing.
+
+**The cause.** ANF made every callee that is not a variable into a
+temporary, so `Map.set(m, k, v)` became `let t = Map.set; t(m, k, v)`.
+Aether then saw a call to an unknown function and gave it every argument.
+The backend called the module's own `set`, which only borrows its
+arguments, so nothing released them. A function that takes its arguments,
+like `List.reverse`, was right by chance.
+
+**The fix.**
+- ANF leaves `Module.member` as the callee (`is_module_member`). Aether
+  then finds the member's signature in the registry built from the
+  imported module (`by_member_access`), and the backend calls the member
+  directly.
+- In `src/lir/lower.rs`, a member-access callee is no longer matched to a
+  primop by its bare name, and is no longer looked up as an external
+  symbol by its bare name. Either could pick another module's function of
+  that name. Anything that is not a member of an imported module is
+  lowered as a value, as when it was a temporary.
+- `src/lir/emit_llvm.rs` sanitizes a direct external callee's symbol, as
+  definitions are named. A class method's name holds a type (`List<a>`).
+
+Test: `a_call_through_a_module_alias_releases_its_arguments` in
+`tests/native_llvm/native_debug_heap_tests.rs` (`Array.push`, `Map.set`,
+`Map.get`, and `List.reverse` as a control, none leaving a block per
+turn).
+
 ### KI-124 — Natively, a map's release freed its root and nothing under it — FIXED 2026-10-26
 
 **Severity:** Low · **Area:** native runtime, maps, Aether · **Verified fixed:** 2026-10-26 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-1
@@ -2222,7 +2240,7 @@ Tests: `a_map_releases_its_nodes_keys_and_values` in
 deleted, merged, and a map of 100 keys, none leaving a block per turn),
 and `tests/parity/task_shared_map.flx`, which
 `cargo xtask sanitize --thread` checks for the race. The test imports the
-map functions by name because of KI-130.
+map functions by name, because of KI-130 (since fixed).
 
 ### KI-123 — Natively, an array released and promoted at most its first 255 elements — FIXED 2026-10-26
 

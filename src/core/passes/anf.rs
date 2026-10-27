@@ -36,6 +36,15 @@ fn is_trivial(expr: &CoreExpr) -> bool {
     matches!(expr, CoreExpr::Var { .. } | CoreExpr::Lit(_, _))
 }
 
+/// `Module.member`, where `Module` names an imported module, not a value.
+fn is_module_member(expr: &CoreExpr) -> bool {
+    matches!(
+        expr,
+        CoreExpr::MemberAccess { object, .. }
+            if matches!(object.as_ref(), CoreExpr::Var { var, .. } if var.binder.is_none())
+    )
+}
+
 /// Allocate a fresh binder for an ANF temporary with a known rep.
 fn fresh_anf_binder(next_id: &mut u32, rep: FluxRep) -> CoreBinder {
     let id = *next_id;
@@ -256,7 +265,14 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
         CoreExpr::App { func, args, span } => {
             let mut bindings = Vec::new();
             let func = anf_expr(*func, next_id);
-            let func = anf_atom(func, next_id, &mut bindings);
+            // A module member stays the callee, so Aether can look up the
+            // imported function's signature: hoisted, it is a call to an
+            // unknown function, given arguments the function may only borrow.
+            let func = if is_module_member(&func) {
+                func
+            } else {
+                anf_atom(func, next_id, &mut bindings)
+            };
             let args: Vec<CoreExpr> = args
                 .into_iter()
                 .map(|a| {

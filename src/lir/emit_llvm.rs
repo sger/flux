@@ -1013,14 +1013,18 @@ impl<'a> FnEmitter<'a> {
         args: Vec<(LlvmType, LlvmOperand)>,
         ret: LlvmType,
     ) {
+        // An imported symbol is built from the member's source name, which
+        // for a class method holds a type (`List<a>`); its definition was
+        // named from the sanitized form.
+        let name = sanitize_llvm_symbol_fragment(name);
         self.needed_user_fastcc_decls
-            .insert((name.to_string(), args.len()));
+            .insert((name.clone(), args.len()));
         self.emit(LlvmInstr::Call {
             dst,
             tail: false,
             call_conv: Some(CallConv::Fastcc),
             ret_ty: ret,
-            callee: LlvmOperand::Global(GlobalId(name.to_string())),
+            callee: LlvmOperand::Global(GlobalId(name)),
             args,
             attrs: Vec::new(),
         });
