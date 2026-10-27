@@ -56,5 +56,17 @@ fn main() {
         }
     }
 
+    // The compiler recurses once per nested `let` and per field, and Windows
+    // gives the main thread 1 MB, where macOS and Linux give 8: a program
+    // with a few hundred `let`s overflowed it. The programs flux builds get
+    // 64 MB the same way (`src/llvm/pipeline.rs`).
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+            println!("cargo:rustc-link-arg-bins=/STACK:67108864");
+        } else {
+            println!("cargo:rustc-link-arg-bins=-Wl,--stack,67108864");
+        }
+    }
+
     println!("cargo:rerun-if-changed=build.rs");
 }

@@ -2621,6 +2621,7 @@ static int64_t make_tuple(int64_t *fields, uint32_t arity) {
 /* flux_try(thunk): call thunk(), return ("ok", result) or ("error", message). */
 #if defined(_MSC_VER) || defined(_WIN32)
 int64_t flux_try(int64_t thunk) {
+    int64_t evv = flux_effect_catch_point();
     flux_try_depth++;
     int64_t saved_msg = flux_try_error_msg;
     flux_try_error_msg = 0;
@@ -2644,6 +2645,7 @@ int64_t flux_try(int64_t thunk) {
         flux_try_error_msg = saved_msg;
         return make_tuple(fields, 2);
     }
+    flux_effect_unwound(evv);
     int64_t err_str = flux_string_new("error", 5);
     int64_t msg = flux_try_error_msg;
     if (msg == 0) {
@@ -2659,6 +2661,7 @@ int64_t flux_try(int64_t thunk) {
 }
 
 int32_t flux_try_call0_raw(int64_t closure, int64_t *out) {
+    int64_t evv = flux_effect_catch_point();
     flux_try_depth++;
     int64_t saved_msg = flux_try_error_msg;
     flux_try_error_msg = 0;
@@ -2678,6 +2681,7 @@ int32_t flux_try_call0_raw(int64_t closure, int64_t *out) {
         flux_try_error_msg = saved_msg;
         return 1;
     }
+    flux_effect_unwound(evv);
     int64_t msg = flux_try_error_msg;
     if (msg == 0) {
         msg = flux_string_new("unknown error", 13);
@@ -2689,6 +2693,7 @@ int32_t flux_try_call0_raw(int64_t closure, int64_t *out) {
 
 int32_t flux_try_resume1_raw(int64_t continuation, int64_t value, int64_t *out) {
     int64_t args[1] = { value };
+    int64_t evv = flux_effect_catch_point();
     flux_try_depth++;
     int64_t saved_msg = flux_try_error_msg;
     flux_try_error_msg = 0;
@@ -2708,6 +2713,7 @@ int32_t flux_try_resume1_raw(int64_t continuation, int64_t value, int64_t *out) 
         flux_try_error_msg = saved_msg;
         return 1;
     }
+    flux_effect_unwound(evv);
     int64_t msg = flux_try_error_msg;
     if (msg == 0) {
         msg = flux_string_new("unknown error", 13);
