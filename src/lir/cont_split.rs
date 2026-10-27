@@ -226,6 +226,14 @@ fn collect_call_sites(
     sites
 }
 
+/// A synthesized continuation: `(function, live_capture_vars, moved, blocks)`.
+type Synthesized = (
+    LirFunction,
+    Vec<LirVar>,
+    Vec<LirVar>,
+    HashMap<BlockId, BlockId>,
+);
+
 /// Synthesize a continuation LirFunction for one call site. Returns
 /// `(function, live_capture_vars, moved, blocks)`, where `moved` are the
 /// frame's own references among the captures and `blocks` maps each copied
@@ -236,12 +244,7 @@ fn synthesize_continuation(
     func_idx: usize,
     site: &CallSite,
     live: &FunctionLiveness,
-) -> Option<(
-    LirFunction,
-    Vec<LirVar>,
-    Vec<LirVar>,
-    HashMap<BlockId, BlockId>,
-)> {
+) -> Option<Synthesized> {
     let parent = &program.functions[func_idx];
 
     // The closure's capture set: live_in(cont) ∪ {dst}. `dst` is the Call's
