@@ -41,3 +41,9 @@ binary(/native|^llvm_/)
 | test(/native|llvm/)
 '''
 test-group = "native"
+
+# A hundred replays of one program take about a minute on purpose; only
+# `ci` runs them.
+[[profile.ci.overrides]]
+filter = "test(/a_hundred_times/)"
+slow-timeout = { period = "120s" }
