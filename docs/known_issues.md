@@ -42,6 +42,32 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-136 — On newer Linux, lldb loses the frames a `resume` runs on top of
+
+**Severity:** Medium · **Area:** native debugging, CI · **Verified:** 2026-10-27 · **From:** the CI run of the verification-toolkit PR
+
+Three debugger tests fail on GitHub's `ubuntu-26.04` image (lldb-18
+18.1.8, with the image's own C toolchain). Main's nightly runs passed them on
+`ubuntu-latest` before the image changed:
+
+- `native_debug_tests::stepping_across_a_perform_follows_the_handler`
+- `parity_debug_tests::the_vm_and_native_debuggers_agree` (the `effect_steps`
+  and `effect_yield` fixtures)
+- `dap_tests::native_handler_arms_show_the_frames_they_suspended`
+
+In each, the program is stopped in a continuation that a handler's `resume`
+is running, and lldb finds no frame above it: `flux bt` shows `decide` alone,
+where the VM shows `decide`, `twice`, `<handler Flip.flip>` and `main`.
+
+What is known:
+- CI runs Linux on `ubuntu-24.04` until this is fixed (`ci.yml`).
+- On arm64 Linux (Ubuntu 24.04, lldb-18 18.1.3, in podman), the same three
+  tests fail on main too, so the problem is older than the image change.
+- Undoing KI-126's unwinding changes (Flux functions `nounwind` again, the
+  runtime without `-funwind-tables` and `-fexceptions`) did not help on
+  arm64. That says nothing yet about x86_64.
+- macOS passes all three.
+
 ### KI-135 — Natively, a panic in a handler clause is caught, then reported again at exit
 
 **Severity:** Medium · **Area:** native runtime, effects, panics · **Verified:** 2026-10-27 · **From:** KI-133
