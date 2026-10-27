@@ -386,7 +386,10 @@ use sha2::{Digest, Sha256};
 /// (KI-132).
 /// Epoch 124: a failed `read_file`'s error counts the path it holds too
 /// (KI-131).
-pub const CACHE_EPOCH: u16 = 124;
+/// Epoch 125: a call whose frame holds references is an `invoke` whose
+/// landing pad releases them when a caught panic unwinds through it; an
+/// epoch-124 unit skipped them (KI-126).
+pub const CACHE_EPOCH: u16 = 125;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

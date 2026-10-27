@@ -966,6 +966,11 @@ pub fn ensure_runtime_lib(
         CToolchain::Msvc { .. } => vec!["/nologo", "/c", "/O2", "/W3", "/Z7"],
         CToolchain::Gcc { .. } => vec!["-std=c11", "-Wall", "-O2", "-g", "-c"],
     };
+    // A caught panic unwinds through the runtime's own frames between a try
+    // and the Flux code it calls (KI-126), which needs their unwind tables.
+    if matches!(toolchain, CToolchain::Gcc { .. }) && !cfg!(windows) {
+        flags.push("-funwind-tables");
+    }
     // On Windows, the C runtime uses MS SEH (`__try` / `__except` /
     // `RaiseException`) to unwind across LLVM-emitted Flux frames
     // — Windows `longjmp` walks the SEH chain and trips on

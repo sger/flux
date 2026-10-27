@@ -2144,10 +2144,6 @@ fn a_failed_file_operation_counts_the_path_its_error_holds() {
 
 const PANIC_PER_TURN: &str = r#"import Flow.Assert exposing (try_catch)
 
-effect Ask {
-    ask : (Int) -> Int
-}
-
 fn numbers(n) {
     [n, n + 1, n + 2]
 }
@@ -2168,10 +2164,6 @@ fn outer(n) -> Int {
     r + len(ys)
 }
 
-fn asked(n) -> Int with Ask {
-    perform Ask.ask(n) + explode(n)
-}
-
 fn attempt(n) -> Int {
     let caught = try_catch(\() -> BODY)
     1
@@ -2188,25 +2180,18 @@ fn main() with IO {
 
 /// A panic caught further up releases what the frames between held. It
 /// jumped straight to the catch point, past every release still to come in
-/// those frames, so `boom`'s list and a skipped handle's evidence and
-/// clause stayed live (KI-126).
+/// those frames, so `boom`'s list stayed live (KI-126). What a skipped
+/// `handle` builds is the effect runtime's, not a frame's (KI-133).
 #[test]
 fn a_caught_panic_releases_what_the_frames_it_skipped_held() {
     let scratch = Scratch::new("debug-heap-caught-panic");
-    let failures: Vec<String> = [
-        ("held_list", "boom(n)"),
-        ("two_frames", "outer(n)"),
-        (
-            "handle",
-            "asked(n) handle Ask { ask(resume, x) -> resume(x + 1) }",
-        ),
-    ]
-    .into_iter()
-    .filter_map(|(name, body)| {
-        let program = PANIC_PER_TURN.replace("BODY", body);
-        let (_, _, live) = per_thousand_cells(&scratch, name, &program);
-        (live != 0).then(|| format!("{name}: {live} blocks left live per 1000 turns"))
-    })
-    .collect();
+    let failures: Vec<String> = [("held_list", "boom(n)"), ("two_frames", "outer(n)")]
+        .into_iter()
+        .filter_map(|(name, body)| {
+            let program = PANIC_PER_TURN.replace("BODY", body);
+            let (_, _, live) = per_thousand_cells(&scratch, name, &program);
+            (live != 0).then(|| format!("{name}: {live} blocks left live per 1000 turns"))
+        })
+        .collect();
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

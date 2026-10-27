@@ -21,6 +21,9 @@
 #include <math.h>
 #include <time.h>
 #include <setjmp.h>
+#if !defined(_MSC_VER) && !defined(_WIN32)
+#include <unwind.h>
+#endif
 #include <sys/stat.h>
 #if defined(_MSC_VER) || defined(_WIN32)
 #include <windows.h>
@@ -2562,10 +2565,40 @@ void flux_panic_unhooked(int64_t msg) {
 static __thread jmp_buf *flux_try_jmp = NULL;
 static __thread int64_t  flux_try_error_msg = 0; /* FLUX_NONE */
 
+/*
+ * A caught panic unwinds to its try rather than jumping there, so each Flux
+ * frame on the way runs its landing pad, which releases what the frame held
+ * across the call that panicked (KI-126). The try's `jmp_buf` lives in the
+ * try's own frame: the first frame whose CFA lies above it is the try's,
+ * and the unwind stops there and jumps.
+ */
+static __thread struct _Unwind_Exception flux_panic_exception;
+
+static _Unwind_Reason_Code flux_panic_stop(int version, _Unwind_Action actions,
+                                           _Unwind_Exception_Class exception_class,
+                                           struct _Unwind_Exception *exception,
+                                           struct _Unwind_Context *context,
+                                           void *param) {
+    (void)version;
+    (void)exception_class;
+    (void)exception;
+    (void)param;
+    if ((actions & _UA_END_OF_STACK) ||
+        (char *)_Unwind_GetCFA(context) > (char *)flux_try_jmp) {
+        longjmp(*flux_try_jmp, 1);
+    }
+    return _URC_NO_REASON;
+}
+
 void flux_panic_unhooked(int64_t msg) {
-    /* If a try handler is active, longjmp instead of aborting. */
+    /* If a try handler is active, unwind to it instead of aborting. */
     if (flux_try_jmp) {
         flux_try_error_msg = msg;
+        memset(&flux_panic_exception, 0, sizeof(flux_panic_exception));
+        memcpy(&flux_panic_exception.exception_class, "FLUXPANC",
+               sizeof(flux_panic_exception.exception_class));
+        _Unwind_ForcedUnwind(&flux_panic_exception, flux_panic_stop, NULL);
+        /* The unwinder could not start: jump, as before. */
         longjmp(*flux_try_jmp, 1);
     }
     flux_panic_exit(msg);

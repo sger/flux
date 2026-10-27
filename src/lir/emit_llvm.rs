@@ -80,6 +80,22 @@ fn program_has_direct_async_calls(program: &LirProgram) -> bool {
     !crate::lir::direct_async_func_ids(program).is_empty()
 }
 
+/// A caught panic unwinds to its catch point through landing pads that
+/// release what each frame held (KI-126). Windows catches a panic with SEH
+/// instead and keeps its frames `nounwind`.
+const UNWIND_CLEANUP: bool = !cfg!(windows);
+
+/// The attributes of a Flux function and of anything a Flux call reaches:
+/// not `nounwind` where a panic unwinds through them, or LLVM would turn
+/// the `invoke`s that call them back into calls and drop their landing pads.
+fn flux_fn_attrs() -> Vec<String> {
+    if UNWIND_CLEANUP {
+        Vec::new()
+    } else {
+        vec!["nounwind".to_string()]
+    }
+}
+
 fn sanitize_llvm_symbol_fragment(name: &str) -> String {
     name.chars()
         .map(|ch| {
@@ -250,6 +266,8 @@ pub fn emit_llvm_module_with_debug(
             track_locs: debug_builder.is_some(),
             lir_marks: Vec::new(),
             block_locs: Vec::new(),
+            invoke_at: None,
+            unwinds: false,
         };
         let llvm_func = emitter.emit_function();
         let block_locs = std::mem::take(&mut emitter.block_locs);
@@ -284,6 +302,8 @@ pub fn emit_llvm_module_with_debug(
                 track_locs: debug_builder.is_some(),
                 lir_marks: Vec::new(),
                 block_locs: Vec::new(),
+                invoke_at: None,
+                unwinds: false,
             };
             let worker_func = emitter.emit_function();
             let block_locs = std::mem::take(&mut emitter.block_locs);
@@ -318,6 +338,8 @@ pub fn emit_llvm_module_with_debug(
                 track_locs: debug_builder.is_some(),
                 lir_marks: Vec::new(),
                 block_locs: Vec::new(),
+                invoke_at: None,
+                unwinds: false,
             };
             let direct_capture_func = emitter.emit_function();
             let block_locs = std::mem::take(&mut emitter.block_locs);
@@ -392,7 +414,7 @@ pub fn emit_llvm_module_with_debug(
                 varargs: false,
                 call_conv: CallConv::Ccc,
             },
-            attrs: vec!["nounwind".to_string()],
+            attrs: flux_fn_attrs(),
         });
     }
 
@@ -411,7 +433,7 @@ pub fn emit_llvm_module_with_debug(
                 varargs: false,
                 call_conv: CallConv::Fastcc,
             },
-            attrs: vec!["nounwind".to_string()],
+            attrs: flux_fn_attrs(),
         });
     }
 
@@ -430,7 +452,7 @@ pub fn emit_llvm_module_with_debug(
                 varargs: false,
                 call_conv: CallConv::Ccc,
             },
-            attrs: vec!["nounwind".to_string()],
+            attrs: flux_fn_attrs(),
         });
     }
 
@@ -801,6 +823,14 @@ impl StaticObjects {
     }
 }
 
+/// A block split at an `invoke`: the call, what follows it, and the
+/// landing pad.
+struct InvokeSplit {
+    head: LlvmBlock,
+    after: LlvmBlock,
+    pad: LlvmBlock,
+}
+
 struct FnEmitter<'a> {
     program: &'a LirProgram,
     func: &'a LirFunction,
@@ -836,6 +866,12 @@ struct FnEmitter<'a> {
     /// For each LLVM block emitted, in order: its marks and the
     /// terminator's location.
     block_locs: Vec<super::emit_debug::BlockLocs>,
+    /// The call the terminator just emitted, when its frame holds
+    /// references across it: its index in `current_instrs` and what the
+    /// frame holds, for the landing pad that releases them (KI-126).
+    invoke_at: Option<(usize, Vec<LirVar>)>,
+    /// Whether the function has an `invoke`, and so needs a personality.
+    unwinds: bool,
 }
 
 /// Adds `function` to `module`, with its debug information in a debug build.
@@ -984,6 +1020,105 @@ impl<'a> FnEmitter<'a> {
     }
 
     /// Emit a call to a prelude helper (fastcc convention).
+    /// A Flux function's attributes after `extra`. One with an `invoke` has
+    /// a personality, which the unwinder asks about its landing pads; it
+    /// follows `uwtable`, as LLVM wants it after the attributes.
+    fn function_attrs(&mut self, extra: &[&str]) -> Vec<String> {
+        let mut attrs: Vec<String> = extra.iter().map(|attr| attr.to_string()).collect();
+        attrs.extend(flux_fn_attrs());
+        if self.unwinds {
+            self.needed_decls.insert("__gcc_personality_v0".to_string());
+            attrs.push("uwtable".to_string());
+            attrs.push("personality ptr @__gcc_personality_v0".to_string());
+        }
+        attrs
+    }
+
+    /// Splits the block being finished at its call `at`, which becomes an
+    /// `invoke`. The block after it takes the call's result and the rest of
+    /// the block; the landing pad releases what the frame held, once per
+    /// reference, and goes on unwinding.
+    fn split_at_invoke(
+        &mut self,
+        label: &LabelId,
+        at: usize,
+        owned: &[LirVar],
+        term: LlvmTerminator,
+    ) -> InvokeSplit {
+        let mut instrs = std::mem::take(&mut self.current_instrs);
+        let rest = instrs.split_off(at + 1);
+        let Some(LlvmInstr::Call {
+            dst,
+            call_conv,
+            ret_ty,
+            callee,
+            args,
+            ..
+        }) = instrs.pop()
+        else {
+            unreachable!("invoke_at names a call");
+        };
+        let after = LabelId(format!("{}.ret", label.0));
+        let pad = LabelId(format!("{}.unwind", label.0));
+        // The result is defined in the block after the call, where the
+        // debug information expects a variable's definition.
+        let result = dst.as_ref().map(|dst| LlvmLocal(format!("{}.inv", dst.0)));
+        let mut after_instrs = Vec::with_capacity(rest.len() + 1);
+        if let (Some(dst), Some(result)) = (dst, result.clone()) {
+            after_instrs.push(LlvmInstr::Binary {
+                dst,
+                op: LlvmValueKind::Add,
+                ty: ret_ty.clone(),
+                lhs: LlvmOperand::Local(result),
+                rhs: self.i64_const(0),
+            });
+        }
+        after_instrs.extend(rest);
+
+        let caught = LlvmLocal(format!("{}.lp", label.0));
+        self.needed_decls.insert("flux_drop".to_string());
+        let pad_instrs = std::iter::once(LlvmInstr::LandingPad {
+            dst: caught.clone(),
+        })
+        .chain(owned.iter().map(|var| LlvmInstr::Call {
+            dst: None,
+            tail: false,
+            call_conv: Some(CallConv::Ccc),
+            ret_ty: LlvmType::Void,
+            callee: LlvmOperand::Global(GlobalId("flux_drop".to_string())),
+            args: vec![(LlvmType::i64(), self.var(*var))],
+            attrs: Vec::new(),
+        }))
+        .collect();
+        self.unwinds = true;
+
+        InvokeSplit {
+            head: LlvmBlock {
+                label: label.clone(),
+                instrs,
+                term: LlvmTerminator::Invoke {
+                    dst: result,
+                    call_conv,
+                    ret_ty,
+                    callee,
+                    args,
+                    normal: after.clone(),
+                    unwind: pad.clone(),
+                },
+            },
+            after: LlvmBlock {
+                label: after,
+                instrs: after_instrs,
+                term,
+            },
+            pad: LlvmBlock {
+                label: pad,
+                instrs: pad_instrs,
+                term: LlvmTerminator::Resume { value: caught },
+            },
+        }
+    }
+
     fn call_fastcc(
         &mut self,
         dst: Option<LlvmLocal>,
@@ -1112,6 +1247,10 @@ impl<'a> FnEmitter<'a> {
         }
 
         let mut blocks = Vec::new();
+        // A block split at an `invoke`: its successors are now reached from
+        // the block after the call, so their phis must name that one.
+        let mut renamed: std::collections::HashMap<LabelId, LabelId> =
+            std::collections::HashMap::new();
 
         for block in &self.func.blocks {
             // Skip unreachable blocks entirely.
@@ -1152,6 +1291,43 @@ impl<'a> FnEmitter<'a> {
             self.mark_loc(block.term_loc);
             let term = self.emit_terminator(&block.terminator);
 
+            if let Some((at, owned)) = self.invoke_at.take() {
+                let label = self.label(block.id);
+                let split = self.split_at_invoke(&label, at, &owned, term);
+                renamed.insert(label, split.after.label.clone());
+                blocks.push(split.head);
+                blocks.push(split.after);
+                blocks.push(split.pad);
+                if self.track_locs {
+                    let marks = std::mem::take(&mut self.lir_marks);
+                    // The head keeps the marks before the call; the after
+                    // block starts with the result's copy, at the call's
+                    // location, then the instructions that followed it.
+                    let head: Vec<_> = marks
+                        .iter()
+                        .copied()
+                        .filter(|(from, _)| *from < at)
+                        .collect();
+                    let after: Vec<_> = std::iter::once((0, block.term_loc))
+                        .chain(
+                            marks
+                                .iter()
+                                .copied()
+                                .filter(|(from, _)| *from > at)
+                                .map(|(from, loc)| (from - at, loc)),
+                        )
+                        .collect();
+                    self.block_locs.push((head, block.term_loc));
+                    self.block_locs.push((after, block.term_loc));
+                    self.block_locs.push((Vec::new(), LirLoc::NONE));
+                    for _ in &self.extra_blocks {
+                        self.block_locs.push((Vec::new(), LirLoc::NONE));
+                    }
+                }
+                blocks.append(&mut self.extra_blocks);
+                continue;
+            }
+
             blocks.push(LlvmBlock {
                 label: self.label(block.id),
                 instrs: std::mem::take(&mut self.current_instrs),
@@ -1167,6 +1343,18 @@ impl<'a> FnEmitter<'a> {
             }
             // Append any extra blocks emitted by MatchCtor.
             blocks.append(&mut self.extra_blocks);
+        }
+
+        for block in &mut blocks {
+            for instr in &mut block.instrs {
+                if let LlvmInstr::Phi { incoming, .. } = instr {
+                    for (_, label) in incoming.iter_mut() {
+                        if let Some(after) = renamed.get(label) {
+                            *label = after.clone();
+                        }
+                    }
+                }
+            }
         }
 
         if self.is_main {
@@ -1185,7 +1373,7 @@ impl<'a> FnEmitter<'a> {
                     call_conv: CallConv::Ccc,
                 },
                 params: Vec::new(),
-                attrs: vec!["nounwind".to_string()],
+                attrs: self.function_attrs(&[]),
                 blocks,
             }
         } else if self.direct_capture_mode {
@@ -1208,7 +1396,7 @@ impl<'a> FnEmitter<'a> {
                     call_conv: CallConv::Fastcc,
                 },
                 params: param_locals,
-                attrs: vec!["nounwind".to_string()],
+                attrs: self.function_attrs(&[]),
                 blocks,
             }
         } else if self.func.capture_vars.is_empty() {
@@ -1241,9 +1429,9 @@ impl<'a> FnEmitter<'a> {
                 },
                 params: param_locals,
                 attrs: if is_outline_helper {
-                    vec!["noinline".to_string(), "nounwind".to_string()]
+                    self.function_attrs(&["noinline"])
                 } else {
-                    vec!["nounwind".to_string()]
+                    self.function_attrs(&[])
                 },
                 blocks,
             }
@@ -1369,7 +1557,7 @@ impl<'a> FnEmitter<'a> {
                     call_conv: CallConv::Ccc,
                 },
                 params: vec![closure_param, args_param, _nargs_param],
-                attrs: vec!["nounwind".to_string()],
+                attrs: self.function_attrs(&[]),
                 blocks,
             }
         }
@@ -3281,7 +3469,7 @@ impl<'a> FnEmitter<'a> {
                 kind,
                 suppress_yield_check,
                 yield_cont,
-                ..
+                held,
             } => {
                 match kind {
                     CallKind::Direct { func_id } => {
@@ -3363,6 +3551,19 @@ impl<'a> FnEmitter<'a> {
                         // instruction of this block; no call to emit here.
                         // The yield-check branch below handles propagation.
                     }
+                }
+                // A frame that holds references across the call releases
+                // them if the call unwinds: `emit_function` makes the call an
+                // `invoke` whose landing pad does (KI-126). Worker variants
+                // release nothing.
+                if let Some(held) = held
+                    && !held.owned.is_empty()
+                    && UNWIND_CLEANUP
+                    && !self.worker_mode
+                    && !matches!(kind, CallKind::YieldTo)
+                    && matches!(self.current_instrs.last(), Some(LlvmInstr::Call { .. }))
+                {
+                    self.invoke_at = Some((self.current_instrs.len() - 1, held.owned.clone()));
                 }
                 if matches!(kind, CallKind::YieldTo) {
                     // Slice 5-tr-fix: YieldTo always yields by construction —

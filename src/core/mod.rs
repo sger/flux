@@ -1961,10 +1961,13 @@ impl CorePrimOp {
     /// Whether the primop keeps argument `index`: the collection
     /// constructors store their elements, and the move primops hand the
     /// value they send to the channel, task or event (`transfer_value`,
-    /// `runtime/c/channel.c`). The caller gives that argument away.
+    /// `runtime/c/channel.c`). `panic` and `fiber_fail` hand theirs to the
+    /// catch point, while a caught panic's unwinding releases what the
+    /// frames it leaves held (KI-126). The caller gives that argument away.
     pub fn takes_arg(self, index: usize) -> bool {
         match self {
             Self::MakeTuple | Self::MakeList | Self::MakeArray | Self::MakeHash => true,
+            Self::Panic | Self::FiberFail => index == 0,
             Self::TaskSpawnMove => index == 0,
             Self::TaskSpawnScopedMove
             | Self::ChanSendMove
