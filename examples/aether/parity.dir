@@ -13,3 +13,13 @@ reuse_alias_spines.flx: expect-reuse: 2
 reuse_specialization.flx: expect-reuse: 3
 tree_updates.flx: expect-reuse: 5
 verify_aether.flx: expect-reuse: 4
+
+# Natively, a program that prints leaves the default handler's `()` tuple
+# live at exit (KI-119). A fixture with a leak of its own states one bound
+# for both on its own line.
+expect-leak: llvm_heap <= 1: KI-119 the default handler's unit tuple
+
+# Fixtures with leaks of their own; the count includes KI-119's block.
+bench_reuse.flx: expect-leak: llvm_heap <= 13: KI-140, KI-119
+bench_reuse_enabled.flx: expect-leak: llvm_heap <= 3: KI-140, KI-119
+queue_workload.flx: expect-leak: llvm_heap <= 5: KI-140, KI-119

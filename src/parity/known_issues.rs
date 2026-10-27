@@ -44,14 +44,16 @@ pub(crate) fn cited(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// One error for each KI that `meta`'s `skip:` or `skip-way:` reasons cite and
-/// `open` does not hold. A reason that cites no KI is not checked here.
+/// One error for each KI that `meta`'s `skip:`, `skip-way:` or `expect-leak:`
+/// reasons cite and `open` does not hold. A reason that cites no KI is not
+/// checked here.
 #[must_use]
 pub fn stale_kis(meta: &FixtureMeta, open: &BTreeSet<String>) -> Vec<String> {
     let reasons = meta
         .skip
         .iter()
-        .chain(meta.skip_ways.iter().map(|skip| &skip.reason));
+        .chain(meta.skip_ways.iter().map(|skip| &skip.reason))
+        .chain(meta.expected_leaks.iter().map(|leak| &leak.reason));
     let mut stale: Vec<String> = reasons
         .flat_map(|reason| cited(reason))
         .filter(|id| !open.contains(id))
@@ -67,7 +69,10 @@ pub fn stale_kis(meta: &FixtureMeta, open: &BTreeSet<String>) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parity::{Way, fixture::SkipWay};
+    use crate::parity::{
+        Way,
+        fixture::{ExpectLeak, SkipWay},
+    };
 
     const DOC: &str = "\
 # Known issues
@@ -113,5 +118,24 @@ See KI-011.
         assert_eq!(stale.len(), 3, "{stale:?}");
         assert!(stale[0].starts_with("`KI-011`"));
         assert!(stale[2].starts_with("`KI-999`"));
+    }
+
+    #[test]
+    fn an_expect_leak_must_cite_an_open_ki() {
+        let open = open_ids(DOC);
+        let leak = |reason: &str| ExpectLeak {
+            way: Way::LlvmHeap,
+            at_most: 1,
+            reason: reason.to_string(),
+            folder_wide: true,
+        };
+        let mut meta = FixtureMeta::default();
+        meta.expected_leaks.push(leak("KI-102 a tuple"));
+        assert!(stale_kis(&meta, &open).is_empty());
+
+        meta.expected_leaks.push(leak("KI-011 fixed since"));
+        let stale = stale_kis(&meta, &open);
+        assert_eq!(stale.len(), 1, "{stale:?}");
+        assert!(stale[0].starts_with("`KI-011`"));
     }
 }

@@ -11,7 +11,8 @@
 //! // parity-expected-stderr-end
 //! // skip: reason to skip this fixture
 //! // skip-way: llvm, llvm_strict: KI-091 a known divergence on these ways
-//! // requires: unix        (or `windows`) — skip elsewhere, with a reason
+//! // expect-leak: llvm_heap <= 3: KI-119 a known leak, up to 3 blocks
+//! // requires: unix       (or `windows`) — skip elsewhere, with a reason
 //! // requires: network     — skip unless the run allows it (`--allow network`)
 //! // census-skip: reason    — leave the file out of `--census` runs only
 //! // stdout: varies         — output depends on the clock or the host; compare exits only
@@ -68,6 +69,19 @@ pub struct SkipWay {
     pub reason: String,
 }
 
+/// A leak a fixture is known to have on a heap way, up to a number of blocks
+/// live at exit, and the open known issue that tracks it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpectLeak {
+    pub way: Way,
+    pub at_most: usize,
+    pub reason: String,
+    /// Declared for a whole folder by an unscoped `parity.dir` line. Some of
+    /// its fixtures never leak, so such a marker never reports that its
+    /// issue may be fixed.
+    pub folder_wide: bool,
+}
+
 /// Parsed metadata from a parity fixture file.
 #[derive(Debug)]
 pub struct FixtureMeta {
@@ -88,6 +102,9 @@ pub struct FixtureMeta {
     /// Ways removed from this fixture's run, from `// skip-way:`. Unlike
     /// `// parity:`, they hold when `--ways` is given.
     pub skip_ways: Vec<SkipWay>,
+    /// Leaks a heap way may report, from `// expect-leak:`. A leak with no
+    /// marker for its way, or more blocks than its marker allows, fails.
+    pub expected_leaks: Vec<ExpectLeak>,
     /// Why `--census` leaves this fixture out (`// census-skip:`): it is run
     /// by its own harness, such as a debugger or replay test.
     pub census_skip: Option<String>,
@@ -199,6 +216,7 @@ impl Default for FixtureMeta {
             bug: None,
             skip: None,
             skip_ways: Vec::new(),
+            expected_leaks: Vec::new(),
             census_skip: None,
             stdout_varies: false,
             meta_errors: Vec::new(),
@@ -295,6 +313,12 @@ pub fn parse_fixture_meta_allowing(path: &Path, allowed: &[String]) -> FixtureMe
 /// Applies one header directive (the text after `//`) to `meta`. Text that is
 /// not a directive is ignored: headers are also prose.
 fn apply_directive(meta: &mut FixtureMeta, comment: &str) {
+    apply_directive_from(meta, comment, false);
+}
+
+/// [`apply_directive`], with `folder_wide` set for an unscoped `parity.dir`
+/// line.
+fn apply_directive_from(meta: &mut FixtureMeta, comment: &str, folder_wide: bool) {
     if let Some(value) = comment.strip_prefix("parity:") {
         let value = value.trim();
         let ways: Vec<Way> = value
@@ -370,6 +394,21 @@ fn apply_directive(meta: &mut FixtureMeta, comment: &str) {
                 .meta_errors
                 .push(format!("`// skip-way:{value}`: {error}")),
         }
+    } else if let Some(value) = comment.strip_prefix("expect-leak:") {
+        match parse_expect_leak(value, folder_wide) {
+            Ok(leaks) => {
+                for leak in leaks {
+                    // A nearer line replaces a folder's, so a fixture with
+                    // KI-119's block and a leak of its own states one bound
+                    // for both.
+                    meta.expected_leaks.retain(|known| known.way != leak.way);
+                    meta.expected_leaks.push(leak);
+                }
+            }
+            Err(error) => meta
+                .meta_errors
+                .push(format!("`// expect-leak:{value}`: {error}")),
+        }
     } else if let Some(value) = comment.strip_prefix("stdout:") {
         match value.trim() {
             "varies" => meta.stdout_varies = true,
@@ -430,7 +469,7 @@ fn apply_directory_file(meta: &mut FixtureMeta, text: &str, relative: Option<&Pa
                     apply_directive(meta, directive);
                 }
             }
-            None => apply_directive(meta, line),
+            None => apply_directive_from(meta, line, true),
         }
     }
 }
@@ -454,6 +493,40 @@ fn parse_skip_way(value: &str) -> Result<Vec<SkipWay>, String> {
                 .map(|way| SkipWay {
                     way,
                     reason: reason.to_string(),
+                })
+                .ok_or_else(|| format!("unknown way `{name}`"))
+        })
+        .collect()
+}
+
+/// Parses the value of `// expect-leak: <way>[, <way>…] <= <n>: <reason>`.
+///
+/// Like a skip, the reason must name a known issue; the bound keeps a second
+/// leak in the same fixture from hiding behind the first.
+fn parse_expect_leak(value: &str, folder_wide: bool) -> Result<Vec<ExpectLeak>, String> {
+    let Some((head, reason)) = value.split_once(':') else {
+        return Err("expected `<way>[, <way>…] <= <n>: <reason>`".to_string());
+    };
+    let reason = reason.trim();
+    if !reason.contains("KI-") {
+        return Err("the reason must name a known issue, as `KI-nnn`".to_string());
+    }
+    let Some((ways, bound)) = head.split_once("<=") else {
+        return Err("expected a bound on the blocks live at exit, as `llvm_heap <= 1`".to_string());
+    };
+    let bound = bound.trim();
+    let at_most = bound
+        .parse()
+        .map_err(|_| format!("`{bound}` is not a number of blocks"))?;
+    ways.split(',')
+        .map(str::trim)
+        .map(|name| {
+            Way::parse(name)
+                .map(|way| ExpectLeak {
+                    way,
+                    at_most,
+                    reason: reason.to_string(),
+                    folder_wide,
                 })
                 .ok_or_else(|| format!("unknown way `{name}`"))
         })
@@ -610,6 +683,52 @@ mod tests {
         assert!(meta.expected_counts.is_empty());
         assert_eq!(meta.meta_errors.len(), 3, "{:?}", meta.meta_errors);
         assert!(meta.meta_errors[0].starts_with("`// expect-reuse: lots`"));
+    }
+
+    #[test]
+    fn expect_leak_parses_each_way_and_its_bound() {
+        let meta = counts_of(&["expect-leak: llvm_heap, llvm <= 3: KI-119 a tuple"]);
+        assert!(meta.meta_errors.is_empty(), "{:?}", meta.meta_errors);
+        let ways: Vec<Way> = meta.expected_leaks.iter().map(|leak| leak.way).collect();
+        assert_eq!(ways, [Way::LlvmHeap, Way::Llvm]);
+        assert!(meta.expected_leaks.iter().all(|leak| leak.at_most == 3
+            && leak.reason == "KI-119 a tuple"
+            && !leak.folder_wide));
+    }
+
+    #[test]
+    fn a_bad_expect_leak_is_a_meta_error() {
+        let meta = counts_of(&[
+            "expect-leak: llvm_heap <= 1: a reason with no issue",
+            "expect-leak: llvm_heap: KI-119 no bound",
+            "expect-leak: llvm_heap <= some: KI-119",
+            "expect-leak: llvm_hep <= 1: KI-119",
+            "expect-leak: llvm_heap <= 1",
+        ]);
+        assert!(meta.expected_leaks.is_empty(), "{:?}", meta.expected_leaks);
+        assert_eq!(meta.meta_errors.len(), 5, "{:?}", meta.meta_errors);
+        assert!(meta.meta_errors[3].contains("unknown way `llvm_hep`"));
+    }
+
+    #[test]
+    fn a_files_expect_leak_replaces_its_folders() {
+        let mut meta = FixtureMeta::default();
+        let text = "\
+expect-leak: llvm_heap <= 1: KI-119 the unit tuple
+a.flx: expect-leak: llvm_heap <= 4: KI-137, KI-119
+";
+        apply_directory_file(&mut meta, text, Some(Path::new("a.flx")));
+        let [leak] = &meta.expected_leaks[..] else {
+            panic!("one marker, got {:?}", meta.expected_leaks);
+        };
+        assert_eq!((leak.at_most, leak.folder_wide), (4, false));
+
+        let mut other = FixtureMeta::default();
+        apply_directory_file(&mut other, text, Some(Path::new("b.flx")));
+        let [leak] = &other.expected_leaks[..] else {
+            panic!("one marker, got {:?}", other.expected_leaks);
+        };
+        assert_eq!((leak.at_most, leak.folder_wide), (1, true));
     }
 
     #[test]
