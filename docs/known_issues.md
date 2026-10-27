@@ -42,6 +42,143 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-150 — Natively, a panic under `timeout_result` leaks its evidence and the timer's closure
+
+**Severity:** Low · **Area:** native runtime, async, panics · **Verified:** 2026-10-27 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the heap-leak gate
+
+```flux
+import Flow.Async exposing (..)
+fn body() -> Int with Async { panic("boom") }
+fn main() with IO { print(run_async(fn() { timeout_result(100, body) })) }
+```
+
+```
+$ flux --native --leak-check timeout_panic.flx
+leak: 10 blocks still live at exit
+  an effect handler (56 bytes) allocated at main (timeout_panic.flx:3:1)
+  an effect handler (104 bytes) allocated at main (timeout_panic.flx:3:1)
+  ...
+  a closure (24 bytes) allocated at fiber_timeout_prim (lib/Flow/Async.flx:121:15)
+```
+
+The same program with a body that returns leaks only KI-119's tuple. The
+evidence vectors grow by one entry each, as KI-133's did before its fix, so
+the panic most likely skips a handle that the fiber timeout path sets up and
+KI-133's landing pads do not reach. Seen in `tests/parity/async_try_panic.flx`.
+
+### KI-149 — Natively, a record literal is never released after a call through one of its members
+
+**Severity:** Low · **Area:** Aether, records · **Verified:** 2026-10-27 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the heap-leak gate
+
+```flux
+fn main() { let m = { "square": fn(x) { x * x } }; let r = m.square(5); if r > 0 { () } else { () } }
+```
+
+leaves the record (a 16-byte constructor value at the literal) live at exit,
+besides KI-119's tuple. Seen in `tests/parity/import_member_access.flx`.
+
+### KI-148 — Natively, a matched value is never released when a String field of it is printed
+
+**Severity:** Low · **Area:** Aether, effects · **Verified:** 2026-10-27 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the heap-leak gate
+
+```flux
+data Contact { Contact { name: String } }
+fn main() with IO {
+    let v: Option<Contact> = Some(Contact { name: "A" })
+    let r = match v { Some(c) -> c.name, None -> "m" }
+    print(r)
+}
+```
+
+leaves the `Some` and the `Contact` live at exit. With `print(len(r))`
+instead, both are released. The field is a view of `v`; given to the
+`print` perform it most likely stops every release of its owner, the shape
+KI-129 fixed for an ordinary call. Seen in
+`tests/parity/backend_repr_option_named_field_access.flx`.
+
+### KI-147 — Natively, the results of some primops are never released
+
+**Severity:** Medium · **Area:** Aether, primops · **Verified:** 2026-10-27 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the heap-leak gate
+
+Each line is a program of its own, and leaves the value its comment names
+live at exit:
+
+```flux
+fn main() { let s = "hello"; let ok = substring(s, 0, 2) == "he"; if ok { () } else { () } }   // the substring
+fn main() { let b = array_push([|1, 2, 3|], 4); if len(b) > 0 { () } else { () } }             // the pushed array
+fn main() { let x = 42; let s = "v #{x}"; if len(s) > 0 { () } else { () } }                    // both strings the interpolation builds
+```
+
+Aether most likely does not count these primops' results as fresh and
+treats them as borrowed, as it did for map operations before KI-124 and for
+some built strings before KI-129 (not traced yet). `safe_div` and `safe_mod`, whose results are an `Option`, look the
+same. Seen in `tests/parity/string_interpolation.flx`,
+`primop_string_ops.flx` (through `Flow.String`), `primop_collection_ops.flx`,
+`safe_arithmetic.flx`, and `examples/aether/bench_reuse.flx`,
+`bench_reuse_enabled.flx` and `queue_workload.flx` (their interpolated
+headings).
+
+### KI-146 — Natively, a Float is never released
+
+**Severity:** Medium · **Area:** Aether, LIR lowering · **Verified:** 2026-10-27 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the heap-leak gate
+
+```flux
+fn area(r: Float) -> Float { 3.0 * r * r }
+fn main() { let a = area(2.0); if a > 1.0 { () } else { () } }
+```
+
+```
+$ flux --native --leak-check float.flx
+leak: 6 blocks still live at exit
+  a Float (8 bytes) allocated at main (float.flx:2:21)
+  a Float (8 bytes) allocated at area (float.flx:1:30)
+  ...
+```
+
+A Float is a heap block natively, and the literals and each arithmetic
+result stay live. A loop over Floats leaks a block per operation. Seen in
+`tests/parity/imported_constructor_types.flx` (through `ImportedCtor.area`)
+and `primop_collection_ops.flx`.
+
+### KI-145 — Natively, the arguments of a call that takes a dictionary are never released
+
+**Severity:** Medium · **Area:** Aether, type classes · **Verified:** 2026-10-27 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the heap-leak gate
+
+```flux
+fn same<a: Eq>(x: a, y: a) -> Bool { eq(x, y) }
+fn main() { let r = same([1], [1]); if r { () } else { () } }
+```
+
+leaves both lists live at exit, and so does calling the class method
+directly, `eq([1], [1])`, or `eq(Red, Green)` on a derived `Eq`. The same
+lists given to a function with no constraint are released. Seen in the
+`tests/parity` fixtures for derived and contextual instances
+(`derived_eq_dictionary`, `derived_parameterized_eq`,
+`derived_show_dictionary`, `structural_container_dictionary`,
+`imported_contextual_instances_native`, `stuck_associated_type`,
+`imported_constructor_types`) and in the `*_instances` and
+`semigroup_monoid` fixtures, along with KI-144.
+
+### KI-144 — Natively, a dictionary built for a call is never released
+
+**Severity:** Medium · **Area:** Aether, type classes · **Verified:** 2026-10-27 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the heap-leak gate
+
+```flux
+fn both<a: Ord>(x: a, y: a) -> Bool { lt(x, y) }
+fn main() { let r = both(1, 2); if r { () } else { () } }
+```
+
+leaves a 24-byte tuple allocated at the call live at exit: the `Ord Int`
+dictionary, built for the call and never released. A dictionary with
+methods also keeps its closures (a `Monad` dictionary is a tuple and two
+closures per call). Return-directed calls such as `let p: List<Int> =
+pure(7)` leak theirs the same way. Seen in `tests/parity`:
+`eq_ord_superclass`, `contextual_dictionary_through_constrained_fn`,
+`result_directed_two_dictionaries`, `return_directed_pure`,
+`mempty_result_dispatch`, `primop_parse_convert`, `semigroup_monoid`,
+`functor_applicative_monad` (34 blocks) and the `array_`, `either_`,
+`list_` and `option_instances` fixtures.
+
 ### KI-143 — A duplicate instance also reported a duplicate internal name, with no location — FIXED 2026-10-28
 
 **Severity:** Low · **Area:** diagnostics, type classes · **Verified fixed:** 2026-10-28 · **From:** moving `examples/compiler_errors` to `//~` annotations (proposal 0191)
@@ -152,7 +289,6 @@ What is known:
   runtime without `-funwind-tables` and `-fexceptions`) did not help on
   arm64. That says nothing yet about x86_64.
 - macOS passes all three.
-
 ### KI-135 — Natively, a panic in a handler clause is caught, then reported again at exit
 
 **Severity:** Medium · **Area:** native runtime, effects, panics · **Verified:** 2026-10-27 · **From:** KI-133
@@ -293,6 +429,15 @@ body is done (Perceus audit R3).
 
 This is why `--leak-check` is a flag of its own and `--debug-heap` alone
 does not report leaks.
+
+2026-10-27: the closures are gone with static top-level closures (Perceus
+audit step 10); what is left is one 8-byte `()` tuple, and printing is not
+needed for it. `fn main() { let r = f(1); if r > 0 { () } else { () } }`
+leaves the tuple its `()` arm builds. A `()` given to `resume` in a user
+handler leaks one more (`tests/parity/effect_parameterized_console_capture.flx`
+leaves 2). Heap parity allows this one block in `tests/parity` and
+`examples/aether` (their `parity.dir`), so an `expect-leak` line naming
+KI-119 goes when this is fixed.
 
 ### KI-118 — On the VM, `main`'s own body is not run through the Core simplifier
 
