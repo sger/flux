@@ -704,6 +704,8 @@ static int64_t flux_try_read_file_sync(FLUX_IO_TAGS_DECL, int64_t path) {
             int64_t err_fields[3];                                                 \
             err_fields[0] = kind_val;                                              \
             err_fields[1] = flux_string_new(msg_buf, (uint32_t)mlen);              \
+            /* Lent, as to flux_io_fail: the error counts its own. */          \
+            flux_dup(path);                                                        \
             err_fields[2] = path;                                                  \
             int64_t io_err = flux_io_make_adt(io_error_tag, err_fields, 3);        \
             return flux_io_make_adt(err_tag, &io_err, 1);                          \
