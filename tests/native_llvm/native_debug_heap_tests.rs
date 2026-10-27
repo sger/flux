@@ -415,7 +415,14 @@ fn owned_moves_part(part: usize) {
         .collect();
     assert!(!files.is_empty(), "no fixtures in part {part}");
     let scratch = format!("debug-heap-owned-moves-{part}");
-    let failures = failures_in_parallel(&scratch, &files, 2, owned_move_failure);
+    // CI runners have three cores; more builds there slow the timed tests
+    // running beside these.
+    let workers = if std::env::var_os("CI").is_some() {
+        1
+    } else {
+        2
+    };
+    let failures = failures_in_parallel(&scratch, &files, workers, owned_move_failure);
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
