@@ -771,7 +771,17 @@ pub(crate) fn parity_with_env(
             // 0190 S5: a skip must cite an open KI, and a skipped way that
             // passes is reported.
             .args(["--known-issues", "docs/known_issues.md"])
-            .args(check_skips.then_some("--check-skips")),
+            .args(check_skips.then_some("--check-skips"))
+            // The debug heap records a stack at every allocation and free,
+            // so a program that allocates a lot runs several times slower
+            // on it than parity-check's default allows.
+            .args(
+                ways.split(',')
+                    .any(|way| way == "llvm_heap")
+                    .then_some(["--timeout", "60"])
+                    .into_iter()
+                    .flatten(),
+            ),
         None,
         |line| {
             if is_cargo_progress(line) {
