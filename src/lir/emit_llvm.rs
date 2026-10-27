@@ -866,9 +866,10 @@ struct FnEmitter<'a> {
     /// For each LLVM block emitted, in order: its marks and the
     /// terminator's location.
     block_locs: Vec<super::emit_debug::BlockLocs>,
-    /// The call the terminator just emitted, when its frame holds
-    /// references across it: its index in `current_instrs` and what the
-    /// frame holds, for the landing pad that releases them (KI-126).
+    /// The call the terminator just emitted, or a nested handle's prompt,
+    /// when its frame holds references across it: its index in
+    /// `current_instrs` and what the frame holds, for the landing pad that
+    /// releases them (KI-126, KI-133).
     invoke_at: Option<(usize, Vec<LirVar>)>,
     /// Whether the function has an `invoke`, and so needs a personality.
     unwinds: bool,
@@ -2304,6 +2305,22 @@ impl<'a> FnEmitter<'a> {
     }
 
     fn emit_primcall(&mut self, dst: &Option<LirVar>, op: &CorePrimOp, args: &[LirVar]) {
+        // A nested handle's prompt names the enclosing handles' evidence
+        // after its own arguments. The frame holds that across the clause the
+        // prompt runs, so the prompt is an `invoke` whose landing pad
+        // releases it; lowering ended the block after it (KI-133).
+        if let CorePrimOp::YieldPrompt = op
+            && args.len() > 4
+        {
+            self.emit_primcall(dst, op, &args[..4]);
+            if UNWIND_CLEANUP
+                && !self.worker_mode
+                && matches!(self.current_instrs.last(), Some(LlvmInstr::Call { .. }))
+            {
+                self.invoke_at = Some((self.current_instrs.len() - 1, args[4..].to_vec()));
+            }
+            return;
+        }
         // Some fiber shims need program-specific constructor tags. The LLVM
         // emitter supplies them because the C runtime cannot know those tags.
         if let CorePrimOp::FiberNewScope = op {
@@ -3554,16 +3571,18 @@ impl<'a> FnEmitter<'a> {
                 }
                 // A frame that holds references across the call releases
                 // them if the call unwinds: `emit_function` makes the call an
-                // `invoke` whose landing pad does (KI-126). Worker variants
-                // release nothing.
+                // `invoke` whose landing pad does (KI-126). So do the scopes
+                // around it, whose ends the unwind skips (KI-133). Worker
+                // variants release nothing.
                 if let Some(held) = held
-                    && !held.owned.is_empty()
+                    && !(held.owned.is_empty() && held.scoped.is_empty())
                     && UNWIND_CLEANUP
                     && !self.worker_mode
                     && !matches!(kind, CallKind::YieldTo)
                     && matches!(self.current_instrs.last(), Some(LlvmInstr::Call { .. }))
                 {
-                    self.invoke_at = Some((self.current_instrs.len() - 1, held.owned.clone()));
+                    let released = held.owned.iter().chain(&held.scoped).copied().collect();
+                    self.invoke_at = Some((self.current_instrs.len() - 1, released));
                 }
                 if matches!(kind, CallKind::YieldTo) {
                     // Slice 5-tr-fix: YieldTo always yields by construction —

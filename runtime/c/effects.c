@@ -834,6 +834,18 @@ void flux_async_clear_suspend(void) {
     flux_thread_ctx.yield_evv   = 0;
 }
 
+/* A prompt's references released when their scope ends, which a caught
+ * panic unwinding through the prompt reaches too (KI-133). The runtime is
+ * built with `-fexceptions` on POSIX so the unwind runs the cleanup. Windows
+ * unwinds with SEH, which does not, so there the prompt releases them by
+ * hand on the normal path only. */
+#ifdef _WIN32
+#define FLUX_RELEASED
+#else
+static void flux_release_local(int64_t *val) { flux_drop(*val); }
+#define FLUX_RELEASED __attribute__((cleanup(flux_release_local)))
+#endif
+
 /*
  * Prompt loop: check if a yield is targeted at this handler.
  *
@@ -850,6 +862,7 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
                           int64_t own_evv) {
     int32_t m = (int32_t)flux_untag_int(marker);
     int64_t result = body_result;
+    int64_t own FLUX_RELEASED = own_evv;
 
     /* Prompt loop: handle re-yields that occur while invoking the clause.
      * A clause that calls `resume(v)` may trigger a nested perform inside
@@ -869,6 +882,7 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
             int idx = evv_lookup_by_marker(arr, flux_thread_ctx.marker);
             if (idx < 0) {
                 flux_thread_ctx.current_evv = saved_evv;
+                own = 0;
                 return FLUX_YIELD_SENTINEL;
             }
             /* Service inline. The clause + evv come from the yield state
@@ -882,8 +896,8 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
          * finds the full installed handler chain (slice 5-tr-fix). */
 
         int64_t clause   = flux_thread_ctx.clause;
-        int64_t op_arg   = flux_thread_ctx.op_arg;
-        int64_t op_state = flux_thread_ctx.op_state;
+        int64_t op_arg FLUX_RELEASED   = flux_thread_ctx.op_arg;
+        int64_t op_state FLUX_RELEASED = flux_thread_ctx.op_state;
         int32_t op_arity = flux_thread_ctx.op_arity;
         int32_t tail_resumptive = flux_thread_ctx.clause_tail_resumptive;
         int64_t yield_evv = yield_evv_local;
@@ -892,7 +906,7 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
          * that only resumes as its last act has nothing to come back to, so
          * a perform inside its resume can go on to this loop instead of a
          * prompt of its own: a loop of such performs keeps a flat stack. */
-        int64_t resume_cont =
+        int64_t resume_cont FLUX_RELEASED =
             tail_resumptive ? flux_compose_conts() : flux_compose_resume();
 
         /* Clear yield state so the clause sees a clean slate (it may re-yield). */
@@ -935,9 +949,11 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
          * resume: the clause only borrowed it, and a later step of the
          * clause that still needs it holds a reference of its own. The same
          * for the clause's reference to the state. */
+#ifdef _WIN32
         flux_drop(op_arg);
         flux_drop(resume_cont);
         flux_drop(op_state);
+#endif
         /* Loop: if the clause re-yielded (resume inside triggered a nested
          * perform targeting this same handler), iterate. Otherwise exit. */
     }
@@ -947,6 +963,8 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
      * another handler it stays: a continuation may still run under it, and
      * yield_evv names it. */
     flux_thread_ctx.current_evv = saved_evv;
-    flux_drop(own_evv);
+#ifdef _WIN32
+    flux_drop(own);
+#endif
     return result;
 }

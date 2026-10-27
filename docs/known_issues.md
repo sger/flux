@@ -42,34 +42,6 @@ Severity is about consequence, not effort:
 
 ## Open
 
-### KI-133 — Natively, a caught panic leaks what a `handle` it skipped built
-
-**Severity:** Low · **Area:** native runtime, effects · **Verified:** 2026-10-27 · **From:** KI-126
-
-```flux
-effect Ask { ask : (Int) -> Int }
-
-fn asked(n) -> Int with Ask {
-    perform Ask.ask(n) + explode(n)
-}
-
-fn attempt(n) -> Int {
-    let caught = try_catch(\() -> asked(n) handle Ask { ask(resume, x) -> resume(x + 1) })
-    1
-}
-```
-
-Each caught panic leaves two blocks live under `--native --debug-heap`:
-- the evidence vector the `handle` inserted, which grows by one entry each
-  time (56, 104, 152, … bytes), because the catch point puts the old
-  evidence back and releases nothing built after it
-  (`flux_effect_unwound`, `runtime/c/effects.c`);
-- a 32-byte closure made in `asked` around the `perform`.
-
-Both belong to the effect runtime, not to a frame, so KI-126's landing pads
-do not reach them. The fix is for the catch point to release the evidence
-vectors, and what they hold, that were made since its own.
-
 ### KI-125 — `make -C runtime/c test` does not build
 
 **Severity:** Low · **Area:** native runtime, tests · **Verified:** 2026-10-21 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-0
@@ -2138,6 +2110,55 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 ## Resolved
 
+### KI-133 — Natively, a caught panic leaked what a `handle` it skipped built — FIXED 2026-10-27
+
+**Severity:** Low · **Area:** native runtime, effects, LLVM emission · **Verified fixed:** 2026-10-27 · **From:** KI-126
+
+```flux
+effect Ask { ask : (Int) -> Int }
+
+fn asked(n) -> Int with Ask {
+    perform Ask.ask(n) + explode(n)
+}
+
+fn attempt(n) -> Int {
+    let caught = try_catch(\() -> asked(n) handle Ask { ask(resume, x) -> resume(x + 1) })
+    1
+}
+```
+
+Each caught panic left blocks live under `--native --debug-heap`, one per
+`handle` it skipped plus the clause's `resume` closure. Two things held them,
+and a panic skipped the release of both:
+- The frame that runs a `handle` owns the evidence vector it inserted until
+  the handle's prompt takes it over. That vector is a temporary of the
+  lowering, not a binder Aether tracks, so no landing pad released it.
+- `flux_yield_prompt` holds the clause's `resume`, its argument and its state
+  while the clause runs, and the handle's evidence after that. It released
+  them only after the clause returned.
+
+**The fix.**
+- `HeldAcross` gets `scoped`: the evidence of each `handle` around a call.
+  The call's landing pad releases it along with `owned`. A yield ignores it,
+  since the continuation copies the rest of the handle along with it.
+- A `handle` inside another names the outer handles' evidence after its
+  prompt's own arguments, and lowering ends the block there. The emitter
+  makes that prompt an `invoke` with a landing pad that releases them.
+- `flux_yield_prompt` keeps those references in locals with a `cleanup`
+  attribute, which runs at the end of their scope, and when unwinding past
+  them. The runtime is built with `-fexceptions` on POSIX so that it does.
+  Windows keeps the explicit releases.
+
+**What it does not cover:**
+- Windows, as for KI-126.
+- A `panic` called directly in a handle's body, not through a call: that is
+  a primop with no landing pad, as in KI-126.
+
+Test: `a_caught_panic_releases_what_a_skipped_handle_built` in
+`tests/native_llvm/native_debug_heap_tests.rs` (a panic in the handle's
+body, inside `resume`, and under two handles, none leaving a block per
+turn).
+
 ### KI-126 — Natively, a caught panic leaked what the frames it skipped held — FIXED 2026-10-27
 
 **Severity:** Low · **Area:** native runtime, panics, LLVM emission · **Verified fixed:** 2026-10-27 · **From:** the Perceus audit, R7 and C1
@@ -2182,7 +2203,7 @@ past every release still to come in the frames between.
 - Windows, which catches a panic with SEH and keeps its frames `nounwind`.
 - What the frame that calls `panic` itself holds: that call is a primop,
   not a call with a landing pad.
-- What a skipped `handle` built (KI-133).
+- What a skipped `handle` built, which KI-133 covers now.
 
 Test: `a_caught_panic_releases_what_the_frames_it_skipped_held` in
 `tests/native_llvm/native_debug_heap_tests.rs` (one frame and two frames

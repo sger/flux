@@ -287,6 +287,10 @@ pub struct HeldAcross {
     pub owned: Vec<LirVar>,
     /// Source variables the frame only reads after the call.
     pub lent: Vec<LirVar>,
+    /// References a scope around the call releases when it ends, such as a
+    /// `handle`'s evidence. Only an unwinding call releases them here: on a
+    /// yield the continuation copies the scope's end along with the rest.
+    pub scoped: Vec<LirVar>,
 }
 
 /// The continuation a call that suspends leaves behind.

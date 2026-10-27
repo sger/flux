@@ -744,6 +744,7 @@ mod tests {
             held: Some(HeldAcross {
                 owned: vec![v_own],
                 lent: vec![v_lent],
+                scoped: Vec::new(),
             }),
         };
         let (synth, captures, moved, _) =
