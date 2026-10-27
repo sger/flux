@@ -22,8 +22,9 @@ use std::time::{Duration, SystemTime};
 
 use super::census;
 use super::fixture::{
-    Expect, ExpectedCount, FixtureMeta, ModuleError, SkipWay, annotations_inside_tokens,
-    converted_source, parse_fixture_meta, parse_fixture_meta_allowing, with_annotations,
+    Expect, ExpectLeak, ExpectedCount, FixtureMeta, ModuleError, SkipWay,
+    annotations_inside_tokens, converted_source, parse_fixture_meta, parse_fixture_meta_allowing,
+    with_annotations,
 };
 use super::known_issues;
 use super::normalize::normalize_stderr;
@@ -646,6 +647,7 @@ fn check_one(file: &Path, config: &Config) -> CheckedFile {
             stdout_varies: fixture_meta.stdout_varies,
             check_skips: config.check_skips,
             expected_counts: &fixture_meta.expected_counts,
+            expected_leaks: &fixture_meta.expected_leaks,
         },
     );
     let rows = if config.census.is_some() {
@@ -838,6 +840,8 @@ struct CheckOpts<'a> {
     check_skips: bool,
     /// `// expect-reuse:` and `// expect-allocs:`, checked once the ways pass.
     expected_counts: &'a [ExpectedCount],
+    /// `// expect-leak:`, checked once the ways pass.
+    expected_leaks: &'a [ExpectLeak],
 }
 
 impl CheckOpts<'_> {
@@ -987,6 +991,9 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
     }
 
     let mut verdict = judge(&run_results, details, opts);
+    if matches!(verdict, Verdict::Pass) && !opts.census {
+        verdict = judge_leaks(&run_results, opts.expected_leaks);
+    }
     if matches!(verdict, Verdict::Pass) && !opts.expected_counts.is_empty() && !opts.census {
         verdict = judge_counts(
             opts.expected_counts,
@@ -994,7 +1001,9 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
         );
     }
     let unexpected_passes = if opts.check_skips && matches!(verdict, Verdict::Pass) {
-        skipped_ways_that_pass(file, opts, &mut run_results, &skipped_ways)
+        let mut passing = leaks_that_went(&run_results, opts.expected_leaks);
+        passing.extend(skipped_ways_that_pass(file, opts, &mut run_results, &skipped_ways));
+        passing
     } else {
         Vec::new()
     };
@@ -1038,6 +1047,43 @@ fn judge_counts(
         }
     }
     Verdict::Pass
+}
+
+/// The heap ways' leaks against the fixture's `// expect-leak:` markers:
+/// `Pass`, or the first leak no marker allows.
+fn judge_leaks(run_results: &[super::RunResult], expected: &[ExpectLeak]) -> Verdict {
+    for run in run_results {
+        let Some(leak) = &run.leak else {
+            continue;
+        };
+        let marker = expected.iter().find(|marker| marker.way == run.way);
+        if marker.is_some_and(|marker| leak.blocks <= marker.at_most) {
+            continue;
+        }
+        let blocks = if leak.blocks == 1 { "block" } else { "blocks" };
+        return Verdict::ExpectedOutputMismatch {
+            expected: match marker {
+                Some(marker) => format!(
+                    "at most {} block(s) live at exit on {} ({})",
+                    marker.at_most, run.way, marker.reason
+                ),
+                None => format!("no blocks live at exit on {}", run.way),
+            },
+            actual: format!("{} {blocks} live at exit, first {}", leak.blocks, leak.first_site),
+        };
+    }
+    Verdict::Pass
+}
+
+/// The fixture's own `// expect-leak:` markers whose way ran and left
+/// nothing live, so their issue may be fixed. A folder's marker is left out.
+fn leaks_that_went(run_results: &[super::RunResult], expected: &[ExpectLeak]) -> Vec<SkipWay> {
+    expected
+        .iter()
+        .filter(|marker| !marker.folder_wide)
+        .filter(|marker| run_results.iter().any(|run| run.way == marker.way && run.leak.is_none()))
+        .map(|marker| SkipWay { way: marker.way, reason: marker.reason.clone() })
+        .collect()
 }
 
 /// `--check-skips`: runs each skipped way and judges it alongside the ways
@@ -2054,6 +2100,7 @@ mod tests {
             stdout_varies: false,
             check_skips: true,
             expected_counts: &[],
+            expected_leaks: &[],
         }
     }
 
@@ -2520,6 +2567,68 @@ mod tests {
             verdict,
             Verdict::ExpectedOutputMismatch { actual, .. } if actual == "error[E1]: x"
         ));
+    }
+
+    fn leaking(way: Way, blocks: usize) -> super::super::RunResult {
+        super::super::RunResult {
+            leak: Some(super::super::LeakReport {
+                blocks,
+                first_site: "a tuple (8 bytes) allocated at main (f.flx:1:1)".to_string(),
+            }),
+            ..result(way, ExitKind::Success, "1", "")
+        }
+    }
+
+    fn marker(way: Way, at_most: usize, folder_wide: bool) -> ExpectLeak {
+        ExpectLeak { way, at_most, reason: "KI-119 the unit tuple".to_string(), folder_wide }
+    }
+
+    #[test]
+    fn an_unmarked_leak_fails() {
+        let runs = [result(Way::Llvm, ExitKind::Success, "1", ""), leaking(Way::LlvmHeap, 2)];
+        let Verdict::ExpectedOutputMismatch { expected, actual } = judge_leaks(&runs, &[]) else {
+            panic!("expected a mismatch");
+        };
+        assert_eq!(expected, "no blocks live at exit on llvm_heap");
+        assert_eq!(
+            actual,
+            "2 blocks live at exit, first a tuple (8 bytes) allocated at main (f.flx:1:1)"
+        );
+    }
+
+    #[test]
+    fn a_marked_leak_passes_within_its_bound_only() {
+        let runs = [leaking(Way::LlvmHeap, 1)];
+        let within = [marker(Way::LlvmHeap, 1, true)];
+        assert!(matches!(judge_leaks(&runs, &within), Verdict::Pass));
+
+        let runs = [leaking(Way::LlvmHeap, 2)];
+        let Verdict::ExpectedOutputMismatch { expected, .. } = judge_leaks(&runs, &within) else {
+            panic!("a leak over its bound fails");
+        };
+        assert_eq!(
+            expected,
+            "at most 1 block(s) live at exit on llvm_heap (KI-119 the unit tuple)"
+        );
+    }
+
+    #[test]
+    fn a_marker_covers_its_own_way_only() {
+        let runs = [leaking(Way::LlvmHeap, 1)];
+        let other_way = [marker(Way::Llvm, 5, false)];
+        assert!(matches!(judge_leaks(&runs, &other_way), Verdict::ExpectedOutputMismatch { .. }));
+    }
+
+    #[test]
+    fn a_files_marker_with_no_leak_left_may_be_fixed() {
+        let clean = [result(Way::LlvmHeap, ExitKind::Success, "1", "")];
+        let own = [marker(Way::LlvmHeap, 1, false)];
+        let went = leaks_that_went(&clean, &own);
+        assert_eq!(went.len(), 1);
+        assert_eq!(went[0].way, Way::LlvmHeap);
+        // A folder's marker also covers fixtures that never leak.
+        assert!(leaks_that_went(&clean, &[marker(Way::LlvmHeap, 1, true)]).is_empty());
+        assert!(leaks_that_went(&[leaking(Way::LlvmHeap, 1)], &own).is_empty());
     }
 
     fn heap_labels(run_results: &[super::super::RunResult]) -> Vec<String> {

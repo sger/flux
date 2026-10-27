@@ -1,0 +1,34 @@
+# Natively, a program that prints leaves the default handler's `()` tuple
+# live at exit (KI-119). A fixture with a leak of its own states one bound
+# for both on its own line.
+expect-leak: llvm_heap <= 1: KI-119 the default handler's unit tuple
+
+# Fixtures with leaks of their own, attributed by allocation site; the
+# count includes KI-119's block where it is there too.
+array_instances.flx: expect-leak: llvm_heap <= 11: KI-144, KI-145, KI-119
+async_try_panic.flx: expect-leak: llvm_heap <= 5: KI-150, KI-119
+backend_repr_option_named_field_access.flx: expect-leak: llvm_heap <= 3: KI-148, KI-119
+contextual_dictionary_through_constrained_fn.flx: expect-leak: llvm_heap <= 3: KI-144, KI-119
+derived_eq_dictionary.flx: expect-leak: llvm_heap <= 7: KI-145, KI-119
+derived_parameterized_eq.flx: expect-leak: llvm_heap <= 2: KI-145, KI-119
+derived_show_dictionary.flx: expect-leak: llvm_heap <= 3: KI-145, KI-119
+effect_parameterized_console_capture.flx: expect-leak: llvm_heap <= 2: KI-119, its resume(()) as well
+either_instances.flx: expect-leak: llvm_heap <= 10: KI-144, KI-119
+eq_ord_superclass.flx: expect-leak: llvm_heap <= 4: KI-144, KI-119
+functor_applicative_monad.flx: expect-leak: llvm_heap <= 34: KI-144, KI-119
+import_member_access.flx: expect-leak: llvm_heap <= 1: KI-149
+imported_constructor_types.flx: expect-leak: llvm_heap <= 7: KI-146, KI-145, KI-119
+imported_contextual_instances_native.flx: expect-leak: llvm_heap <= 3: KI-145, KI-119
+list_instances.flx: expect-leak: llvm_heap <= 14: KI-144, KI-145, KI-119
+mempty_result_dispatch.flx: expect-leak: llvm_heap <= 10: KI-144, KI-119
+option_instances.flx: expect-leak: llvm_heap <= 10: KI-144, KI-145, KI-119
+primop_collection_ops.flx: expect-leak: llvm_heap <= 3: KI-147, KI-146, KI-119
+primop_parse_convert.flx: expect-leak: llvm_heap <= 3: KI-144, KI-119
+primop_string_ops.flx: expect-leak: llvm_heap <= 12: KI-147, KI-119
+result_directed_two_dictionaries.flx: expect-leak: llvm_heap <= 4: KI-144, KI-119
+return_directed_pure.flx: expect-leak: llvm_heap <= 7: KI-144, KI-119
+safe_arithmetic.flx: expect-leak: llvm_heap <= 2: KI-147, KI-119
+semigroup_monoid.flx: expect-leak: llvm_heap <= 13: KI-144, KI-145, KI-119
+string_interpolation.flx: expect-leak: llvm_heap <= 14: KI-147, KI-119
+structural_container_dictionary.flx: expect-leak: llvm_heap <= 10: KI-145, KI-119
+stuck_associated_type.flx: expect-leak: llvm_heap <= 4: KI-145, KI-119

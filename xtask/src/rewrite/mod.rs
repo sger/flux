@@ -34,7 +34,8 @@ use crate::verify::{self, ParityCounts, cargo, flux_binary};
 use items::Fixture;
 
 /// What `rewrite` covers unless paths are named: two folders whose fixtures
-/// keep everything they declare inside the file (neither has a `parity.dir`).
+/// keep everything they declare inside the file (a `parity.dir` there may only
+/// hold `expect-leak` lines, see [`declares_for_copy`]).
 pub const DEFAULT_PATHS: [&str; 2] = ["tests/parity", "examples/guide"];
 pub const DEFAULT_WAYS: &str = "vm,vm_opt,llvm,llvm_opt";
 const TIMEOUT: Duration = Duration::from_secs(60);
@@ -165,7 +166,7 @@ pub fn run_rewrite(root: &Path, options: &Options) -> Result<bool, String> {
 
     steps.start("read the fixtures and run the ones without expected output");
     let files = fixture_files(root, &options.paths)?;
-    let prepared = parallel(&files, options.jobs, |file| prepare(root, &flux, file));
+    let prepared = parallel(&files, options.jobs, |file| prepare(root, &flux, file, &options.ways));
     let mut originals = Vec::new();
     let mut skipped: Vec<(String, String)> = Vec::new();
     for (file, result) in files.iter().zip(prepared) {
@@ -256,14 +257,30 @@ fn parallel<T: Sync, R: Send>(items: &[T], jobs: usize, job: impl Fn(&T) -> R + 
     results.into_iter().map(|(_, result)| result).collect()
 }
 
+/// Whether `dir`'s `parity.dir` declares something a rewritten copy would
+/// lose. An `expect-leak` line only matters on a heap way, so a folder whose
+/// file holds nothing else can still be rewritten on the others.
+fn declares_for_copy(dir: &Path, ways: &str) -> bool {
+    let Ok(text) = fs::read_to_string(dir.join("parity.dir")) else {
+        return false;
+    };
+    let heap = ways.split(',').any(|way| way.trim().ends_with("_heap"));
+    text.lines().map(str::trim).filter(|line| !line.is_empty() && !line.starts_with('#')).any(
+        |line| {
+            let directive = line.split_once(".flx:").map_or(line, |(_, d)| d.trim());
+            heap || !directive.starts_with("expect-leak:")
+        },
+    )
+}
+
 /// Reads `file` and decides whether it can be rewritten; `Err` is why not.
-fn prepare(root: &Path, flux: &Path, file: &str) -> Result<Original, String> {
+fn prepare(root: &Path, flux: &Path, file: &str, ways: &str) -> Result<Original, String> {
     let path = root.join(file);
     if path
         .ancestors()
         .skip(1)
         .take_while(|dir| dir.starts_with(root) && *dir != root)
-        .any(|dir| dir.join("parity.dir").exists())
+        .any(|dir| declares_for_copy(dir, ways))
     {
         return Err("its folder's parity.dir would not travel with a copy".to_string());
     }
@@ -533,5 +550,21 @@ mod tests {
     fn runtime_error_codes_are_not_compile_errors() {
         assert!(!compile_errors("error[E1001]: boom"));
         assert!(compile_errors("error[E024]: unknown name"));
+    }
+
+    #[test]
+    fn a_leak_marker_alone_does_not_stop_a_rewrite_off_the_heap() {
+        let dir = std::env::temp_dir().join(format!("flux_rewrite_dir_{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let declares = |text: &str, ways: &str| {
+            fs::write(dir.join("parity.dir"), text).unwrap();
+            declares_for_copy(&dir, ways)
+        };
+        let leaks = "# KI-119\nexpect-leak: llvm_heap <= 1: KI-119\na.flx: expect-leak: llvm_heap <= 3: KI-144\n";
+        assert!(!declares(leaks, DEFAULT_WAYS));
+        assert!(declares(leaks, "llvm,llvm_heap"));
+        assert!(declares("expect: any\n", DEFAULT_WAYS));
+        fs::remove_dir_all(&dir).unwrap();
+        assert!(!declares_for_copy(&dir, DEFAULT_WAYS));
     }
 }
