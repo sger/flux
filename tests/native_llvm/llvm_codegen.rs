@@ -300,7 +300,9 @@ fn outlines_excess_run_async_with_calls_before_llvm_rendering() {
         .find(|line| line.contains(helper_name) && line.starts_with("define internal fastcc"))
         .unwrap_or_else(|| panic!("missing noinline helper definition:\n{ll}"));
     assert!(helper_line.contains("noinline"));
-    assert!(helper_line.contains("nounwind"));
+    // A caught panic unwinds through Flux functions, which are `nounwind`
+    // only where it does not: on Windows (KI-126).
+    assert_eq!(helper_line.contains("nounwind"), cfg!(windows));
 
     let helper_symbol = helper_line
         .split('@')

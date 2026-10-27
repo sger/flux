@@ -42,45 +42,33 @@ Severity is about consequence, not effort:
 
 ## Open
 
-### KI-126 — Natively, a caught panic leaks what the frames it skipped held
+### KI-133 — Natively, a caught panic leaks what a `handle` it skipped built
 
-**Severity:** Low · **Area:** native runtime, panics · **Verified:** 2026-10-25 · **From:** the Perceus audit, R7 and C1
-
-A panic leaves by `longjmp` to the nearest catch point (`try_catch`, `try`,
-`assert_throws`). Every release still pending in the frames between the panic
-and the catch is skipped, so what those frames held is never freed:
+**Severity:** Low · **Area:** native runtime, effects · **Verified:** 2026-10-27 · **From:** KI-126
 
 ```flux
-fn numbers(n) { [n, n + 1, n + 2] }
+effect Ask { ask : (Int) -> Int }
 
-fn explode(n) -> Int { if n >= 0 { panic("boom") } else { n } }
-
-fn boom(n) -> Int {
-    let xs = numbers(n)
-    let r = explode(n)
-    r + len(xs)
+fn asked(n) -> Int with Ask {
+    perform Ask.ask(n) + explode(n)
 }
 
 fn attempt(n) -> Int {
-    let caught = try_catch(\() -> boom(n))
+    let caught = try_catch(\() -> asked(n) handle Ask { ask(resume, x) -> resume(x + 1) })
     1
 }
 ```
 
-Each call of `attempt` leaves the three cells of `xs` live under
-`--native --debug-heap`. A `handle` the panic skips leaves its evidence and
-its clause, two more blocks; C1 put the handlers back in charge, but does not
-release what the skipped handles built. Nothing is freed twice, so the program
-stays correct and only grows.
+Each caught panic leaves two blocks live under `--native --debug-heap`:
+- the evidence vector the `handle` inserted, which grows by one entry each
+  time (56, 104, 152, … bytes), because the catch point puts the old
+  evidence back and releases nothing built after it
+  (`flux_effect_unwound`, `runtime/c/effects.c`);
+- a 32-byte closure made in `asked` around the `perform`.
 
-Two ways out, each larger than a fix:
-
-- cleanup on unwinding: calls become LLVM `invoke`s whose landing pads release
-  what the frame holds, and a panic unwinds instead of jumping;
-- a panic as a final yield through the effect runtime, the way C1's
-  longer-term fix reads: the continuations it drops release what they hold.
-
-The VM is unaffected: its values are reference-counted by Rust.
+Both belong to the effect runtime, not to a frame, so KI-126's landing pads
+do not reach them. The fix is for the catch point to release the evidence
+vectors, and what they hold, that were made since its own.
 
 ### KI-125 — `make -C runtime/c test` does not build
 
@@ -2149,6 +2137,56 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-126 — Natively, a caught panic leaked what the frames it skipped held — FIXED 2026-10-27
+
+**Severity:** Low · **Area:** native runtime, panics, LLVM emission · **Verified fixed:** 2026-10-27 · **From:** the Perceus audit, R7 and C1
+
+```flux
+fn numbers(n) { [n, n + 1, n + 2] }
+
+fn explode(n) -> Int { if n >= 0 { panic("boom") } else { n } }
+
+fn boom(n) -> Int {
+    let xs = numbers(n)
+    let r = explode(n)
+    r + len(xs)
+}
+
+fn attempt(n) -> Int {
+    let caught = try_catch(\() -> boom(n))
+    1
+}
+```
+
+Each call of `attempt` left the three cells of `xs` live under
+`--native --debug-heap`: a panic `longjmp`ed straight to its catch point,
+past every release still to come in the frames between.
+
+**The fix.** A caught panic unwinds instead.
+- A call across which a frame holds references is an LLVM `invoke`. Its
+  landing pad releases them, once per reference, and goes on unwinding.
+  Aether already records what a frame holds after each call
+  (`owned_after`, `src/aether/held.rs`), for yields.
+- Flux functions, and the declarations a Flux call reaches, are no longer
+  `nounwind`. A function with an `invoke` has `__gcc_personality_v0` as its
+  personality.
+- `flux_panic_unhooked` raises `_Unwind_ForcedUnwind` when a try is active.
+  It stops at the first frame above the try's `jmp_buf` and jumps there. The
+  runtime is built with `-funwind-tables`.
+- `panic` and `fiber_fail` take their argument (`CorePrimOp::takes_arg`).
+  The catch point holds the payload, and a frame that lent it, such as one
+  calling `Flow.Async.fail`, releases its own reference as it unwinds.
+
+**What it does not cover:**
+- Windows, which catches a panic with SEH and keeps its frames `nounwind`.
+- What the frame that calls `panic` itself holds: that call is a primop,
+  not a call with a landing pad.
+- What a skipped `handle` built (KI-133).
+
+Test: `a_caught_panic_releases_what_the_frames_it_skipped_held` in
+`tests/native_llvm/native_debug_heap_tests.rs` (one frame and two frames
+holding a list, none leaving a block per turn).
 
 ### KI-132 — Natively, a chain of calls that can suspend grew the program exponentially — FIXED 2026-10-27
 

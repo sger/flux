@@ -198,7 +198,12 @@ fn fmt_function(
         // `uwtable` is harmless on Linux/macOS (DWARF unwind info is
         // emitted regardless) so we add it unconditionally.
         let mut emitted_uwtable = false;
-        for attr in &function.attrs {
+        // A personality is not an attribute: LLVM wants it after them all.
+        let (personality, attrs): (Vec<&String>, Vec<&String>) = function
+            .attrs
+            .iter()
+            .partition(|attr| attr.starts_with("personality "));
+        for attr in attrs {
             if attr == "uwtable" {
                 emitted_uwtable = true;
             }
@@ -206,6 +211,9 @@ fn fmt_function(
         }
         if !emitted_uwtable {
             write!(f, " uwtable")?;
+        }
+        for attr in personality {
+            write!(f, " {attr}")?;
         }
         let Some(debug) = debug else {
             writeln!(f, " {{")?;
@@ -367,6 +375,7 @@ impl Display for LlvmInstr {
                 }
                 Ok(())
             }
+            LlvmInstr::LandingPad { dst } => write!(f, "{dst} = landingpad {{ ptr, i32 }} cleanup"),
             LlvmInstr::GetElementPtr {
                 dst,
                 inbounds,
@@ -450,6 +459,32 @@ impl Display for LlvmTerminator {
                     write!(f, " ]")
                 }
             }
+            LlvmTerminator::Invoke {
+                dst,
+                call_conv,
+                ret_ty,
+                callee,
+                args,
+                normal,
+                unwind,
+            } => {
+                if let Some(dst) = dst {
+                    write!(f, "{dst} = ")?;
+                }
+                write!(f, "invoke ")?;
+                if let Some(call_conv) = call_conv {
+                    write!(f, "{call_conv} ")?;
+                }
+                write!(f, "{ret_ty} {callee}(")?;
+                for (idx, (arg_ty, arg)) in args.iter().enumerate() {
+                    if idx > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{arg_ty} {arg}")?;
+                }
+                write!(f, ") to label %{normal} unwind label %{unwind}")
+            }
+            LlvmTerminator::Resume { value } => write!(f, "resume {{ ptr, i32 }} {value}"),
             LlvmTerminator::Unreachable => write!(f, "unreachable"),
         }
     }

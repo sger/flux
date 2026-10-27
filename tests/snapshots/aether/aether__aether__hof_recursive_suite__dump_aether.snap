@@ -6,84 +6,6 @@ Aether Ownership Report
 
 Note: Reuses and FBIP describe the Aether planner. BorrowedCallGuards are native call-site Dup/Drop safeguards; guarded calls may suppress a callee's reuse for those arguments.
 
-── fn eq ──
-  Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
-  FreshAllocs: 0
-  verifier: ok
-lam(__x0, __x1) ->
-  aether_call[borrowed] panic#1210("No instance of Eq.eq for the given type")
-── fn neq ──
-  Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
-  FreshAllocs: 0
-  verifier: ok
-lam(__x0, __x1) ->
-  aether_call[borrowed] panic#1210("No instance of Eq.neq for the given type")
-── fn compare ──
-  Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
-  FreshAllocs: 0
-  verifier: ok
-lam(__x0, __x1) ->
-  aether_call[borrowed] panic#1210("No instance of Ord.compare for the given type")
-── fn lt ──
-  Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
-  FreshAllocs: 0
-  verifier: ok
-lam(__x0, __x1) ->
-  aether_call[borrowed] panic#1210("No instance of Ord.lt for the given type")
-── fn lte ──
-  Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
-  FreshAllocs: 0
-  verifier: ok
-lam(__x0, __x1) ->
-  aether_call[borrowed] panic#1210("No instance of Ord.lte for the given type")
-── fn gt ──
-  Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
-  FreshAllocs: 0
-  verifier: ok
-lam(__x0, __x1) ->
-  aether_call[borrowed] panic#1210("No instance of Ord.gt for the given type")
-── fn gte ──
-  Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
-  FreshAllocs: 0
-  verifier: ok
-lam(__x0, __x1) ->
-  aether_call[borrowed] panic#1210("No instance of Ord.gte for the given type")
-── fn add ──
-  Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
-  FreshAllocs: 0
-  verifier: ok
-lam(__x0, __x1) ->
-  aether_call[borrowed] panic#1210("No instance of Add.add for the given type")
-── fn sub ──
-  Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
-  FreshAllocs: 0
-  verifier: ok
-lam(__x0, __x1) ->
-  aether_call[borrowed] panic#1210("No instance of Num.sub for the given type")
-── fn mul ──
-  Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
-  FreshAllocs: 0
-  verifier: ok
-lam(__x0, __x1) ->
-  aether_call[borrowed] panic#1210("No instance of Num.mul for the given type")
-── fn div ──
-  Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
-  FreshAllocs: 0
-  verifier: ok
-lam(__x0, __x1) ->
-  aether_call[borrowed] panic#1210("No instance of Num.div for the given type")
-── fn show ──
-  Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
-  FreshAllocs: 0
-  verifier: ok
-lam(__x0) ->
-  aether_call[borrowed] panic#1210("No instance of Show.show for the given type")
-── fn append ──
-  Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
-  FreshAllocs: 0
-  verifier: ok
-lam(__x0, __x1) ->
-  aether_call[borrowed] panic#1210("No instance of Semigroup.append for the given type")
 ── fn assert_failed [yield×1] ──
   Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  Yields: 1  Handles: 0  HandlerArms: 0
   FreshAllocs: 0
@@ -93,7 +15,7 @@ lam(name) ->
     Add("ASSERTION FAILED: ", name#57)
   perform /*yield_to*/ Console.println(<sym:4001364>#1364)
 ── fn assert_eq [yield×2] ──
-  Dups: 0  Drops: 6  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 2  Yields: 2  Handles: 0  HandlerArms: 0
+  Dups: 0  Drops: 6  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1  Yields: 2  Handles: 0  HandlerArms: 0
   FreshAllocs: 0
   verifier: ok
 lam(a, b) ->
@@ -115,11 +37,11 @@ lam(a, b) ->
             let <sym:2000001> =
               perform /*yield_to*/ Console.println(b#60)
             drop <sym:2000001>#62 in
-              aether_call[borrowed] panic#1210("assert_eq failed")
+              aether_call[owned] panic#1210("assert_eq failed")
   drop <sym:2000000>#61 in
     ()
 ── fn assert_neq ──
-  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 2
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
   verifier: ok
 lam(a, b) ->
@@ -133,11 +55,11 @@ lam(a, b) ->
         let <sym:2000005> =
           aether_call[borrowed] assert_failed#56("assert_neq")
         drop <sym:2000005>#69 in
-          aether_call[borrowed] panic#1210("assert_neq failed")
+          aether_call[owned] panic#1210("assert_neq failed")
   drop <sym:2000004>#68 in
     ()
 ── fn assert_true ──
-  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(x) ->
@@ -146,11 +68,11 @@ lam(x) ->
       true ->
         MakeTuple()
       _ ->
-        aether_call[borrowed] panic#1210("assert_true failed")
+        aether_call[owned] panic#1210("assert_true failed")
   drop <sym:2000006>#72 in
     ()
 ── fn assert_false ──
-  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(x) ->
@@ -161,11 +83,11 @@ lam(x) ->
       true ->
         MakeTuple()
       _ ->
-        aether_call[borrowed] panic#1210("assert_false failed")
+        aether_call[owned] panic#1210("assert_false failed")
   drop <sym:2000007>#75 in
     ()
 ── fn assert_gt ──
-  Dups: 0  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
+  Dups: 0  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m8_466C6F772E4F7264_Ord, a, b) ->
@@ -180,12 +102,12 @@ lam(__dict_m8_466C6F772E4F7264_Ord, a, b) ->
           MakeTuple()
       _ ->
         drop <sym:4001369>#1369 in
-          aether_call[borrowed] panic#1210("assert_gt failed")
+          aether_call[owned] panic#1210("assert_gt failed")
     drop __dict_m8_466C6F772E4F7264_Ord#79 in
   drop <sym:2000008>#80 in
       ()
 ── fn assert_lt ──
-  Dups: 0  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
+  Dups: 0  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m8_466C6F772E4F7264_Ord, a, b) ->
@@ -200,12 +122,12 @@ lam(__dict_m8_466C6F772E4F7264_Ord, a, b) ->
           MakeTuple()
       _ ->
         drop <sym:4001371>#1371 in
-          aether_call[borrowed] panic#1210("assert_lt failed")
+          aether_call[owned] panic#1210("assert_lt failed")
     drop __dict_m8_466C6F772E4F7264_Ord#84 in
   drop <sym:2000009>#85 in
       ()
 ── fn assert_gte ──
-  Dups: 0  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
+  Dups: 0  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m8_466C6F772E4F7264_Ord, a, b) ->
@@ -220,12 +142,12 @@ lam(__dict_m8_466C6F772E4F7264_Ord, a, b) ->
           MakeTuple()
       _ ->
         drop <sym:4001373>#1373 in
-          aether_call[borrowed] panic#1210("assert_gte failed")
+          aether_call[owned] panic#1210("assert_gte failed")
     drop __dict_m8_466C6F772E4F7264_Ord#89 in
   drop <sym:2000010>#90 in
       ()
 ── fn assert_lte ──
-  Dups: 0  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
+  Dups: 0  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m8_466C6F772E4F7264_Ord, a, b) ->
@@ -240,12 +162,12 @@ lam(__dict_m8_466C6F772E4F7264_Ord, a, b) ->
           MakeTuple()
       _ ->
         drop <sym:4001375>#1375 in
-          aether_call[borrowed] panic#1210("assert_lte failed")
+          aether_call[owned] panic#1210("assert_lte failed")
     drop __dict_m8_466C6F772E4F7264_Ord#94 in
   drop <sym:2000011>#95 in
       ()
 ── fn assert_len ──
-  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(collection, expected) ->
@@ -258,20 +180,21 @@ lam(collection, expected) ->
       true ->
         MakeTuple()
       _ ->
-        aether_call[borrowed] panic#1210("assert_len failed")
+        aether_call[owned] panic#1210("assert_len failed")
   drop <sym:2000012>#99 in
     ()
 ── fn assert_msg ──
-  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(condition, message) ->
   let <sym:2000013> =
     case condition#102 of
       true ->
-        MakeTuple()
+        drop message#103 in
+          MakeTuple()
       _ ->
-        aether_call[borrowed] panic#1210(message#103)
+        aether_call[owned] panic#1210(message#103)
   drop <sym:2000013>#104 in
     ()
 ── fn debug [yield×1] ──
@@ -1603,7 +1526,7 @@ lam(xs, acc, f) ->
     _ ->
       acc#371
 ── fn fold1 ──
-  Dups: 2  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
+  Dups: 2  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(xs, f) ->
@@ -1611,7 +1534,7 @@ lam(xs, f) ->
     Cons(h, t) ->
       aether_call[owned, owned, borrowed] fold#360(dup t#379 in t#379, dup h#378 in h#378, f#377)
     _ ->
-      aether_call[borrowed] panic#1210("fold1 called on empty list")
+      aether_call[owned] panic#1210("fold1 called on empty list")
 ── fn flat_map ──
   Dups: 2  Drops: 3  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
@@ -2041,7 +1964,7 @@ lam(xs) ->
   drop length_go#501 in
     <sym:7000000>#4026531840
 ── fn init ──
-  Dups: 2  Drops: 4  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 1  FBIP: fip
+  Dups: 2  Drops: 4  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
   FreshAllocs: 0
   verifier: ok
 lam(xs) ->
@@ -2061,7 +1984,7 @@ lam(xs) ->
                     Nil
     _ ->
       drop xs#507 in
-        aether_call[borrowed] panic#1210("init called on empty list")
+        aether_call[owned] panic#1210("init called on empty list")
 ── fn range ──
   Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
@@ -3267,7 +3190,7 @@ lam(a, b) ->
   drop gcd_go#1023 in
     <sym:7000000>#4026531840
 ── fn unwrap ──
-  Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
+  Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(opt) ->
@@ -3276,7 +3199,7 @@ lam(opt) ->
       dup v#1047 in
         v#1047
     _ ->
-      aether_call[borrowed] panic#1210("unwrap called on None")
+      aether_call[owned] panic#1210("unwrap called on None")
 ── fn unwrap_or ──
   Dups: 1  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
@@ -3624,7 +3547,7 @@ lam() ->
         aether_call[owned] __resume_default#1363(<sym:4001870>#1870)
 
 ── Total ──
-  Dups: 204  Drops: 520  Reuses: 15  DropSpecs: 12  BorrowedCallGuards: 38  FBIP: fbip(50)  Yields: 11  Handles: 5  HandlerArms: 11
+  Dups: 204  Drops: 521  Reuses: 15  DropSpecs: 12  BorrowedCallGuards: 13  FBIP: fbip(50)  Yields: 11  Handles: 5  HandlerArms: 11
   FreshAllocs: 50
 
 [ 1 of 18] Compiling  Add

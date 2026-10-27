@@ -560,7 +560,7 @@ entry:
   ret i64 %result
 }
 
-define fastcc i64 @flux_fold(i64 %v0) nounwind uwtable {
+define fastcc i64 @flux_fold(i64 %v0) uwtable {
 bb0:
   switch i64 %v0, label %match.ptrguard.10 [
     i64 6, label %bb2
@@ -610,7 +610,7 @@ bb5:
   br label %bb1
 }
 
-define ccc i64 @flux_main() nounwind uwtable {
+define ccc i64 @flux_main() uwtable {
 bb0:
   %v0 = add i64 3, 0
   %v1 = add i64 5, 0

@@ -309,6 +309,8 @@ pub enum LlvmInstr {
         then_value: LlvmOperand,
         else_value: LlvmOperand,
     },
+    /// The `{ ptr, i32 }` an unwind arrives with; a cleanup pad only.
+    LandingPad { dst: LlvmLocal },
     Call {
         dst: Option<LlvmLocal>,
         tail: bool,
@@ -362,6 +364,21 @@ pub enum LlvmTerminator {
         scrutinee: LlvmOperand,
         default: LabelId,
         cases: Vec<(LlvmConst, LabelId)>,
+    },
+    /// A call that continues at `normal`, or at `unwind` when the callee
+    /// unwinds.
+    Invoke {
+        dst: Option<LlvmLocal>,
+        call_conv: Option<CallConv>,
+        ret_ty: LlvmType,
+        callee: LlvmOperand,
+        args: Vec<(LlvmType, LlvmOperand)>,
+        normal: LabelId,
+        unwind: LabelId,
+    },
+    /// Continues the unwind a landing pad stopped, with its `{ ptr, i32 }`.
+    Resume {
+        value: LlvmLocal,
     },
     Unreachable,
 }
