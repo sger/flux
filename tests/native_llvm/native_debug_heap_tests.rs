@@ -114,8 +114,7 @@ fn the_fixture_runs_clean_without_the_fault() {
 /// a sound program.
 #[test]
 fn programs_run_the_same_on_the_debug_heap() {
-    let scratch = Scratch::new("debug-heap-programs");
-    for file in [
+    let files: Vec<String> = [
         "examples/guide/tuples.flx",
         "examples/guide/records.flx",
         "examples/guide/higher_order_builtins.flx",
@@ -125,15 +124,22 @@ fn programs_run_the_same_on_the_debug_heap() {
         "examples/guide/using_list_module.flx",
         "examples/async/15_concurrent_jobs.flx",
         "examples/async/18_task_closure_captures.flx",
-    ] {
-        let (plain, _, plain_code) = run(&scratch, file, &["--native"], None);
-        let (heap, stderr, heap_code) = run(&scratch, file, &["--native", "--debug-heap"], None);
-        assert_eq!(
-            (heap.as_str(), heap_code),
-            (plain.as_str(), plain_code),
-            "{file}:\n{stderr}"
-        );
-    }
+    ]
+    .map(String::from)
+    .into();
+    let failures = failures_in_parallel("debug-heap-programs", &files, 4, |scratch, file| {
+        let (plain, _, plain_code) = run(scratch, file, &["--native"], None);
+        let (heap, stderr, heap_code) = run(scratch, file, &["--native", "--debug-heap"], None);
+        ((heap.as_str(), heap_code) != (plain.as_str(), plain_code)).then(|| {
+            format!(
+                "{file}: plain {:?} (exit {plain_code}), debug heap {:?} (exit {heap_code})\n{}",
+                clip(&plain),
+                clip(&heap),
+                clip(&stderr)
+            )
+        })
+    });
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 /// A nested match rebuilding the inner list, over lists built at run time,
@@ -412,48 +418,54 @@ fn owned_moves_print_what_the_vm_prints() {
         .collect();
     files.sort();
     assert!(!files.is_empty(), "no fixtures in {OWNED_MOVES}");
+    // Most of each fixture is macOS checking the new binary before its first
+    // run, and those checks overlap, so more workers than the usual 4.
+    let failures = failures_in_parallel("debug-heap-owned-moves", &files, 8, owned_move_failure);
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Runs `check` on each of `files` across up to `workers` threads, each
+/// with its own scratch cache: what it reported, sorted.
+fn failures_in_parallel<F>(prefix: &str, files: &[String], workers: usize, check: F) -> Vec<String>
+where
+    F: Fn(&Scratch, &str) -> Option<String> + Sync,
+{
     let workers = std::thread::available_parallelism()
         .map_or(1, |n| n.get())
-        .min(4);
-    let mut failures: Vec<(String, String)> = std::thread::scope(|threads| {
+        .min(workers)
+        .min(files.len());
+    let check = &check;
+    let mut failures: Vec<String> = std::thread::scope(|threads| {
         let handles: Vec<_> = (0..workers)
             .map(|worker| {
-                let files = &files;
                 threads.spawn(move || {
-                    let scratch = Scratch::new(&format!("debug-heap-owned-moves-{worker}"));
+                    let scratch = Scratch::new(&format!("{prefix}-{worker}"));
                     files
                         .iter()
                         .skip(worker)
                         .step_by(workers)
-                        .filter_map(|name| owned_move_failure(&scratch, name))
+                        .filter_map(|file| check(&scratch, file))
                         .collect::<Vec<_>>()
                 })
             })
             .collect();
         handles
             .into_iter()
-            .flat_map(|handle| handle.join().expect("owned_moves worker"))
+            .flat_map(|handle| handle.join().expect("a worker"))
             .collect()
     });
     failures.sort();
-    let report: Vec<String> = failures.into_iter().map(|(_, failure)| failure).collect();
-    assert!(report.is_empty(), "{}", report.join("\n"));
+    failures
 }
 
-/// How fixture `name` fails to print on the debug heap what the VM prints,
-/// keyed by its name.
-fn owned_move_failure(scratch: &Scratch, name: &str) -> Option<(String, String)> {
+/// How fixture `name` fails to print on the debug heap what the VM prints.
+fn owned_move_failure(scratch: &Scratch, name: &str) -> Option<String> {
     let file = format!("{OWNED_MOVES}/{name}");
     let (vm, _, vm_code) = run(scratch, &file, &["--vm"], None);
     let (heap, stderr, code) = run(scratch, &file, &["--native", "--debug-heap"], None);
     (vm.is_empty() || vm_code != 0 || (heap.as_str(), code) != (vm.as_str(), 0)).then(|| {
         let (heap, stderr) = (clip(&heap), clip(&stderr));
-        (
-            name.to_string(),
-            format!(
-                "{name}: vm {vm:?} (exit {vm_code}), debug heap {heap:?} (exit {code})\n{stderr}"
-            ),
-        )
+        format!("{name}: vm {vm:?} (exit {vm_code}), debug heap {heap:?} (exit {code})\n{stderr}")
     })
 }
 
