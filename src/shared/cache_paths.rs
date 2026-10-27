@@ -381,7 +381,10 @@ use sha2::{Digest, Sha256};
 /// (KI-130).
 /// Epoch 122: a failed file operation's error counts the path it holds; a
 /// binary linked at epoch 121 freed it twice (KI-131).
-pub const CACHE_EPOCH: u16 = 122;
+/// Epoch 123: a call copied into a continuation shares the continuation
+/// of the call it copies; an epoch-122 unit made a new one for each copy
+/// (KI-132).
+pub const CACHE_EPOCH: u16 = 123;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

@@ -2150,6 +2150,43 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 ## Resolved
 
+### KI-132 — Natively, a chain of calls that can suspend grew the program exponentially — FIXED 2026-10-27
+
+**Severity:** Medium · **Area:** LIR, continuation splitting · **Verified fixed:** 2026-10-27 · **From:** KI-130
+
+```flux
+import Flow.Fs exposing (create_dir_all)
+import Flow.Result as Result
+
+fn main() with IO {
+    print(to_string(Result.is_ok(create_dir_all("target/x"))))
+    print(to_string(Result.is_ok(create_dir_all("target/x"))))
+    // ... 16 times in all
+}
+```
+
+A native build of 16 such lines took 155 seconds, and 12 took 10. The
+example `examples/guide/stdlib_os_pipelines.flx` stopped building at
+all: clang ran out of source locations in an IR file of about 2 GB.
+
+**The cause.** For each call that can suspend (here any `Flow.Fs`
+function), `src/lir/cont_split.rs` makes a continuation: a copy of the
+blocks after the call. It then split each copy again, so every later call
+in the copy got a continuation of its own. A chain of n calls made about
+2^n functions. Calls through a module alias reached this only from KI-130
+on, because before that they went through a closure, which is not split.
+
+**The fix.** A continuation's copy of a call has the same blocks after
+it, the same variables live and the same plan as the call it copies, so
+it shares that call's continuation. The pass keys each call site by the
+function it started with and the block there, and a copy's call site is
+pointed at the continuation already made for it. A chain of n calls now
+makes n continuations. The 16 lines build in 7 seconds.
+
+Test: `a_chain_of_suspending_calls_makes_one_continuation_per_call` in
+`src/lir/cont_split.rs` (10 calls make 10 continuations, not 1023, and
+the first continuation's copy of call 2 uses call 2's continuation).
+
 ### KI-131 — Natively, a failed file operation's error freed the path it held twice — FIXED 2026-10-27
 
 **Severity:** High · **Area:** native runtime, file system · **Verified fixed:** 2026-10-27 · **From:** KI-130

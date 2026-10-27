@@ -19,10 +19,10 @@
 //!   gate as slice 3a's emission).
 //! - Leaves `Call.yield_cont = None` when the cont block has no successors
 //!   reachable from entry — nothing to continue.
-//! - Synthesized functions are queued again, so yields inside them get their
-//!   own continuations.
+//! - Synthesized functions are queued again, so the calls copied into them
+//!   are pointed at a continuation too: the one made for the call they copy.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::core::FluxRep;
 use crate::lir::liveness::{self, FunctionLiveness};
@@ -69,6 +69,15 @@ pub fn split_continuations_with_options(mut program: LirProgram, force: bool) ->
     let suspending_externs = program.suspending_extern_symbols.clone();
     let mut queue: std::collections::VecDeque<usize> = (0..program.functions.len()).collect();
 
+    // A continuation is a copy of the blocks after its call, with the same
+    // variables and the same plan, so a call copied into another continuation
+    // continues exactly as the call it copies. Each call site of a function
+    // the pass started with gets one continuation, shared by all its copies:
+    // making new ones for every copy grew a chain of n calls to 2^n
+    // functions (KI-132). A copy's blocks map back to that site by `origins`.
+    let mut origins: HashMap<usize, Origin> = HashMap::new();
+    let mut made: HashMap<(usize, BlockId), Option<YieldCont>> = HashMap::new();
+
     while let Some(func_idx) = queue.pop_front() {
         let sites = collect_call_sites(
             &program.functions[func_idx],
@@ -83,27 +92,59 @@ pub fn split_continuations_with_options(mut program: LirProgram, force: bool) ->
         let live = liveness::compute(&program.functions[func_idx]);
 
         for mut site in sites {
-            // Attempt synthesis first so we only burn a synthetic id when the
-            // synthesis actually produces a function.
-            let (mut synthesized, live_captures, moved) =
-                match synthesize_continuation(&program, func_idx, &site, &live) {
-                    Some(x) => x,
-                    None => continue,
-                };
+            let key = match origins.get(&func_idx) {
+                Some(origin) => (origin.func, origin.blocks[&site.block_id]),
+                None => (func_idx, site.block_id),
+            };
+            let cont = match made.get(&key) {
+                Some(cont) => cont.clone(),
+                None => {
+                    // Attempt synthesis first so we only burn a synthetic id
+                    // when the synthesis actually produces a function.
+                    let cont = synthesize_continuation(&program, func_idx, &site, &live).map(
+                        |(mut synthesized, captures, moved, blocks)| {
+                            let synth_id = program.alloc_synthetic_func_id();
+                            site.synth_id = synth_id;
+                            synthesized.id = synth_id;
 
-            // Allocate a real synth id now and stamp it on the synthesized fn.
-            let synth_id = program.alloc_synthetic_func_id();
-            site.synth_id = synth_id;
-            synthesized.id = synth_id;
+                            // Its own call sites are copies: queue it, so
+                            // they are pointed at the continuations above.
+                            let new_idx = program.functions.len();
+                            program.push_function(synthesized);
+                            queue.push_back(new_idx);
+                            let blocks = blocks
+                                .into_iter()
+                                .map(|(new, old)| {
+                                    let old = match origins.get(&func_idx) {
+                                        Some(origin) => origin.blocks[&old],
+                                        None => old,
+                                    };
+                                    (new, old)
+                                })
+                                .collect();
+                            origins.insert(
+                                new_idx,
+                                Origin {
+                                    func: key.0,
+                                    blocks,
+                                },
+                            );
+                            YieldCont {
+                                func: synth_id,
+                                captures,
+                                moved,
+                            }
+                        },
+                    );
+                    made.insert(key, cont.clone());
+                    cont
+                }
+            };
+            let Some(cont) = cont else {
+                continue;
+            };
 
-            // Register the synthesized function and queue it for its own
-            // call-site scan (nested yields inside the synthesized cont need
-            // their own post-perform continuations).
-            let new_idx = program.functions.len();
-            program.push_function(synthesized);
-            queue.push_back(new_idx);
-
-            // Populate the original Call's yield_cont pointer.
+            // Populate the Call's yield_cont pointer.
             let func = &mut program.functions[func_idx];
             let block = func
                 .blocks
@@ -111,16 +152,19 @@ pub fn split_continuations_with_options(mut program: LirProgram, force: bool) ->
                 .find(|b| b.id == site.block_id)
                 .expect("call site block disappeared");
             if let LirTerminator::Call { yield_cont, .. } = &mut block.terminator {
-                *yield_cont = Some(YieldCont {
-                    func: site.synth_id,
-                    captures: live_captures,
-                    moved,
-                });
+                *yield_cont = Some(cont);
             }
         }
     }
 
     program
+}
+
+/// Where a synthesized continuation's blocks came from: the function the
+/// pass started with, and each copied block's id there.
+struct Origin {
+    func: usize,
+    blocks: HashMap<BlockId, BlockId>,
 }
 
 /// True when the yield-based runtime is active (default). Mirrors
@@ -183,15 +227,21 @@ fn collect_call_sites(
 }
 
 /// Synthesize a continuation LirFunction for one call site. Returns
-/// `(function, live_capture_vars, moved)`, where `moved` are the frame's own
-/// references among the captures, or `None` if the cont subgraph is trivial
-/// enough that no synthesis is required.
+/// `(function, live_capture_vars, moved, blocks)`, where `moved` are the
+/// frame's own references among the captures and `blocks` maps each copied
+/// block's new id to its id in the parent, or `None` if the cont subgraph is
+/// trivial enough that no synthesis is required.
 fn synthesize_continuation(
     program: &LirProgram,
     func_idx: usize,
     site: &CallSite,
     live: &FunctionLiveness,
-) -> Option<(LirFunction, Vec<LirVar>, Vec<LirVar>)> {
+) -> Option<(
+    LirFunction,
+    Vec<LirVar>,
+    Vec<LirVar>,
+    HashMap<BlockId, BlockId>,
+)> {
     let parent = &program.functions[func_idx];
 
     // The closure's capture set: live_in(cont) ∪ {dst}. `dst` is the Call's
@@ -333,7 +383,12 @@ fn synthesize_continuation(
     // storing it into the payload would also require it to be live at the
     // call site, which isn't guaranteed (dst is only bound on the non-yield
     // return path).
-    Some((synthesized, capture_vars, moved))
+    let blocks = id_remap
+        .into_iter()
+        .filter(|(old, _)| *old != BlockId(u32::MAX))
+        .map(|(old, new)| (new, old))
+        .collect();
+    Some((synthesized, capture_vars, moved, blocks))
 }
 
 /// The frame's own references among `captures`, once per reference, and
@@ -510,7 +565,7 @@ mod tests {
             synth_id: LirFuncId(100),
             held: None,
         };
-        let (synth, captures, _) = synthesize_continuation(&program, 0, &site, &live)
+        let (synth, captures, _, _) = synthesize_continuation(&program, 0, &site, &live)
             .expect("synthesize should produce a function");
 
         // Capture set excludes dst (dst reaches the synth fn via its resume
@@ -609,7 +664,8 @@ mod tests {
             synth_id: LirFuncId(100),
             held: None,
         };
-        let (synth, captures, moved) = synthesize_continuation(&program, 0, &site, &live).unwrap();
+        let (synth, captures, moved, _) =
+            synthesize_continuation(&program, 0, &site, &live).unwrap();
         // Lowering said nothing about what the frame holds: it keeps it all.
         assert!(moved.is_empty());
 
@@ -690,7 +746,8 @@ mod tests {
                 lent: vec![v_lent],
             }),
         };
-        let (synth, captures, moved) = synthesize_continuation(&program, 0, &site, &live).unwrap();
+        let (synth, captures, moved, _) =
+            synthesize_continuation(&program, 0, &site, &live).unwrap();
 
         assert_eq!(captures, vec![v_own, v_lent, v_tmp]);
         assert_eq!(moved, vec![v_own]);
