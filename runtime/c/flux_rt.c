@@ -831,6 +831,9 @@ int64_t flux_io_fail(FluxIoTags tags, int errnum, int64_t path) {
     int64_t fields[3];
     fields[0] = flux_io_make_adt(kind_tag, NULL, 0);
     fields[1] = flux_string_new(msg_buf, (uint32_t)mlen);
+    /* The operation was only lent `path`; the error keeps a reference of
+     * its own. */
+    flux_dup(path);
     fields[2] = path;
     int64_t io_err = flux_io_make_adt(tags.io_error_tag, fields, 3);
     return flux_io_make_adt(tags.err_tag, &io_err, 1);
@@ -4334,8 +4337,11 @@ static int64_t flux_env_cwd_untaped(FLUX_IO_TAGS_DECL) {
     if (!getcwd(buf, sizeof(buf))) {
         /* The path is "" because the failure is not about a path the caller
          * named — matches the VM. */
+        int saved = errno;
         int64_t empty = flux_string_new("", 0);
-        return flux_io_fail(tags, errno, empty);
+        int64_t err = flux_io_fail(tags, saved, empty);
+        flux_drop(empty);
+        return err;
     }
     int64_t dir = flux_string_new(buf, (uint32_t)strlen(buf));
     return flux_io_make_adt(tags.ok_tag, &dir, 1);

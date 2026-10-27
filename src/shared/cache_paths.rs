@@ -379,7 +379,9 @@ use sha2::{Digest, Sha256};
 /// member, so Aether passes arguments as the member takes them; an
 /// epoch-120 unit gave them away to a function that only borrowed them
 /// (KI-130).
-pub const CACHE_EPOCH: u16 = 121;
+/// Epoch 122: a failed file operation's error counts the path it holds; a
+/// binary linked at epoch 121 freed it twice (KI-131).
+pub const CACHE_EPOCH: u16 = 122;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

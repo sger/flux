@@ -2150,6 +2150,41 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 ## Resolved
 
+### KI-131 — Natively, a failed file operation's error freed the path it held twice — FIXED 2026-10-27
+
+**Severity:** High · **Area:** native runtime, file system · **Verified fixed:** 2026-10-27 · **From:** KI-130
+
+```flux
+import Flow.Fs exposing (remove_file)
+
+fn main() with IO {
+    match remove_file("target/absent.txt") {
+        Ok(_) -> println("ok"),
+        Err(_) -> println("err"),
+    }
+}
+```
+
+On the debug heap this stopped with "use after free: dropping a String
+that was already freed". Without it, the path was freed twice. Every
+failing `Flow.Fs` operation, `Flow.Process.run` and `Flow.Env.cwd` builds
+its `IoError` through `flux_io_fail` (`runtime/c/flux_rt.c`), which put
+the path it was lent into the error without counting it. The caller
+released the path after the call, and the error released it again.
+
+Calls through a module alias (`Fs.remove_file`) hid this until KI-130:
+they gave the path away instead of lending it, so the error held the
+caller's only reference.
+
+**The fix.** `flux_io_fail` counts the path it stores. `flux_env_cwd`,
+the one caller that builds its own path (`""`), releases it after the
+call.
+
+Test: `a_failed_file_operation_counts_the_path_its_error_holds` in
+`tests/native_llvm/native_debug_heap_tests.rs` (`remove_file`, `rename`,
+`write_file` and `remove_dir_all` on missing paths, run to the end with
+nothing left live).
+
 ### KI-130 — A call through a module alias was not seen as the call it is, and leaked natively — FIXED 2026-10-26
 
 **Severity:** Medium · **Area:** Core ANF, Aether, LIR lowering · **Verified fixed:** 2026-10-26 · **From:** KI-124
