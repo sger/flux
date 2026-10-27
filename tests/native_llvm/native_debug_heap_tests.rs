@@ -2124,12 +2124,14 @@ fn main() with IO {
     kind(Fs.rename(base + "/absent", base + "/t"))
     kind(Fs.write_file(base + "/no/parent/f.txt", "x"))
     kind(Fs.remove_dir_all(base + "/absent"))
+    kind(Fs.read_file(base + "/absent.txt"))
 }
 "#;
 
 /// A failed file operation's error holds the path it was lent: the error
 /// took it without counting it, so the caller's release and the error's
-/// freed it twice (KI-131).
+/// freed it twice (KI-131). `read_file` builds its error apart from the
+/// others.
 #[test]
 fn a_failed_file_operation_counts_the_path_its_error_holds() {
     let scratch = Scratch::new("debug-heap-failed-fs");
