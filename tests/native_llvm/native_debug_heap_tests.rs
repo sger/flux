@@ -2203,6 +2203,10 @@ fn main() with IO {
 /// those frames, so `boom`'s list stayed live (KI-126). What a skipped
 /// `handle` builds is the effect runtime's, not a frame's (KI-133).
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows catches a panic with SEH, which runs no landing pads"
+)]
 fn a_caught_panic_releases_what_the_frames_it_skipped_held() {
     let scratch = Scratch::new("debug-heap-caught-panic");
     let failures: Vec<String> = [("held_list", "boom(n)"), ("two_frames", "outer(n)")]
@@ -2221,6 +2225,10 @@ fn a_caught_panic_releases_what_the_frames_it_skipped_held() {
 /// the prompt's own references to the clause's `resume` and argument
 /// (KI-133).
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows catches a panic with SEH, which runs no landing pads"
+)]
 fn a_caught_panic_releases_what_a_skipped_handle_built() {
     let scratch = Scratch::new("debug-heap-skipped-handle");
     let failures: Vec<String> = [
