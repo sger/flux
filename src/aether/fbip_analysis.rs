@@ -700,6 +700,14 @@ fn analyze_call(func: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
                 ),
             }
         }
+        CoreExpr::MemberAccess { object, member, .. } => (
+            None,
+            Some(member_call_detail(
+                ctx.interner,
+                module_name_of(object),
+                *member,
+            )),
+        ),
         _ => (None, None),
     };
 
@@ -812,6 +820,14 @@ fn analyze_call_aether(func: &AetherExpr, ctx: &FbipContext<'_>) -> FbipFact {
                 ),
             }
         }
+        AetherExpr::MemberAccess { object, member, .. } => (
+            None,
+            Some(member_call_detail(
+                ctx.interner,
+                module_name_of_aether(object),
+                *member,
+            )),
+        ),
         _ => (None, None),
     };
 
@@ -859,6 +875,39 @@ fn analyze_call_aether(func: &AetherExpr, ctx: &FbipContext<'_>) -> FbipFact {
     }
     fact.call_details.push(call_detail);
     fact
+}
+
+/// A call of an imported module's member, named as it is written
+/// (`Module.member`). Its FBIP behavior is not known here.
+fn member_call_detail(
+    interner: &Interner,
+    module: Option<Identifier>,
+    member: Identifier,
+) -> FbipCallDetail {
+    let member = safe_symbol_name(interner, member);
+    FbipCallDetail {
+        callee: match module {
+            Some(module) => format!("{}.{member}", safe_symbol_name(interner, module)),
+            None => member,
+        },
+        kind: FbipCallKind::DirectImported,
+        outcome: FbipCallOutcome::UnknownIndirect,
+        self_recursive: false,
+    }
+}
+
+fn module_name_of(object: &CoreExpr) -> Option<Identifier> {
+    match object {
+        CoreExpr::Var { var, .. } => Some(var.name),
+        _ => None,
+    }
+}
+
+fn module_name_of_aether(object: &AetherExpr) -> Option<Identifier> {
+    match object {
+        AetherExpr::Var { var, .. } => Some(var.name),
+        _ => None,
+    }
 }
 
 fn safe_symbol_name(interner: &Interner, name: Identifier) -> String {
