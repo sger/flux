@@ -375,7 +375,11 @@ use sha2::{Digest, Sha256};
 /// Epoch 120: a map node is a counted block, a map literal lets go of the
 /// maps it builds on the way, and Aether releases a map an update was lent;
 /// an epoch-119 unit never released a map (KI-124).
-pub const CACHE_EPOCH: u16 = 120;
+/// Epoch 121: a call through a module alias stays a call of that module's
+/// member, so Aether passes arguments as the member takes them; an
+/// epoch-120 unit gave them away to a function that only borrowed them
+/// (KI-130).
+pub const CACHE_EPOCH: u16 = 121;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

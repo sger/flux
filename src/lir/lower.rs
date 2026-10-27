@@ -3681,7 +3681,6 @@ impl<'a> FnLower<'a> {
     fn lower_call_expr(&mut self, func: &CoreExpr, args: &[CoreExpr]) -> LirVar {
         let resolved_name = match func {
             CoreExpr::Var { var, .. } if var.binder.is_none() => Some(self.resolve_name(var.name)),
-            CoreExpr::MemberAccess { member, .. } => Some(self.resolve_name(*member)),
             _ => None,
         };
         if let Some(ref name) = resolved_name
@@ -3740,7 +3739,11 @@ impl<'a> FnLower<'a> {
                     } else {
                         None
                     };
-                    qualified.or_else(|| self.resolve_external_symbol(&self.resolve_name(*member)))
+                    // Only a member of an imported module is called directly;
+                    // anything else is lowered as a value below, as it was when
+                    // the callee was a hoisted temporary. By its bare name it
+                    // could be another module's function of that name.
+                    qualified
                 }
                 _ => None,
             }
@@ -3916,7 +3919,6 @@ impl<'a> FnLower<'a> {
             AetherExpr::Var { var, .. } if var.binder.is_none() => {
                 Some(self.resolve_name(var.name))
             }
-            AetherExpr::MemberAccess { member, .. } => Some(self.resolve_name(*member)),
             _ => None,
         };
         if let Some(ref name) = resolved_name
@@ -3975,7 +3977,11 @@ impl<'a> FnLower<'a> {
                     } else {
                         None
                     };
-                    qualified.or_else(|| self.resolve_external_symbol(&self.resolve_name(*member)))
+                    // Only a member of an imported module is called directly;
+                    // anything else is lowered as a value below, as it was when
+                    // the callee was a hoisted temporary. By its bare name it
+                    // could be another module's function of that name.
+                    qualified
                 }
                 _ => None,
             }
