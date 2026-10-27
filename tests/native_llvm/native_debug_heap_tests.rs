@@ -2107,3 +2107,35 @@ fn a_call_through_a_module_alias_releases_its_arguments() {
     .collect();
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+const FAILED_FS_CALLS: &str = r#"import Flow.Fs as Fs
+import Flow.IoError as Io
+
+fn kind(r) with IO {
+    match r {
+        Ok(_) -> println("ok"),
+        Err(e) -> println(Io.kind_name(Io.error_kind(e))),
+    }
+}
+
+fn main() with IO {
+    let base = "target/test-scratch/debug_heap_failed_fs"
+    kind(Fs.remove_file(base + "/absent.txt"))
+    kind(Fs.rename(base + "/absent", base + "/t"))
+    kind(Fs.write_file(base + "/no/parent/f.txt", "x"))
+    kind(Fs.remove_dir_all(base + "/absent"))
+}
+"#;
+
+/// A failed file operation's error holds the path it was lent: the error
+/// took it without counting it, so the caller's release and the error's
+/// freed it twice (KI-131).
+#[test]
+fn a_failed_file_operation_counts_the_path_its_error_holds() {
+    let scratch = Scratch::new("debug-heap-failed-fs");
+    let (allocs, frees, live) = stats_of(&scratch, "failed_fs.flx", FAILED_FS_CALLS);
+    assert_eq!(
+        live, 1,
+        "{allocs} allocated, {frees} freed: only the block every program that prints leaves should be live (KI-119)"
+    );
+}
