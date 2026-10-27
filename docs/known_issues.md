@@ -42,6 +42,62 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-135 — Natively, a panic in a handler clause is caught, then reported again at exit
+
+**Severity:** Medium · **Area:** native runtime, effects, panics · **Verified:** 2026-10-27 · **From:** KI-133
+
+```flux
+import Flow.Assert exposing (try_catch)
+
+effect Ask { ask : (Int) -> Int }
+
+fn explode(n) -> Int { if n >= 0 { panic("boom") } else { n } }
+
+fn main() with IO {
+    let caught = try_catch(\() -> perform Ask.ask(1) handle Ask { ask(resume, x) -> explode(x) })
+    print("caught")
+    print("after")
+}
+```
+
+The VM prints both lines and exits 0. Natively the `try_catch` catches the
+panic and `main` runs to its end, printing both lines too, but then the
+program reports `error[E1009]: boom` with the clause's stack trace and exits
+1. So some panic state survives the catch when the panic is raised while
+`flux_yield_prompt` runs the clause. A panic in the handle's body or inside
+`resume` does not do this (the KI-133 test covers both). Same on a2240eb7,
+before the KI-133 fix.
+
+### KI-134 — Natively, an effect context snapshot shares values between threads uncounted
+
+**Severity:** High · **Area:** native runtime, async scheduler, effects · **Verified:** 2026-10-27 · **From:** `cargo xtask sanitize --thread`
+
+```
+$ FLUX_RT_SANITIZE=thread flux --native tests/parity/async_observable_ordering.flx
+WARNING: ThreadSanitizer: data race
+  Atomic read of size 4 by thread T20:
+    #0 flux_drop rc.c:740
+    #1 flux_effect_context_release effects.c:168
+    #2 ...async::native_abi::execute_fiber
+  Previous write of size 4 by main thread:
+    #0 flux_drop rc.c:745
+    #1 flux_effect_context_release effects.c:168
+    #2 ...async::native_abi::execute_fiber
+    #3 flux_main async_observable_ordering.flx:50
+```
+
+`flux_effect_context_capture` (`runtime/c/effects.c`) copies the thread's
+effect context into a snapshot and takes a reference to each field with
+`flux_dup`, which counts thread-locally. Work stealing can release that
+snapshot on another thread, so two threads change the same plain count, and
+an update can be lost: a double free or a leak. The fields are never marked
+shared (`flux_rc_promote`) on the way.
+
+It is intermittent: 10 to 13 races in 30 cached runs, at HEAD and at every
+commit back to fc2f90fd, which added the ThreadSanitizer runtime. The capture
+code is older (a32c34ea). A first run with `--no-cache`, as parity-check
+does, rarely shows it.
+
 ### KI-125 — `make -C runtime/c test` does not build
 
 **Severity:** Low · **Area:** native runtime, tests · **Verified:** 2026-10-21 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-0
