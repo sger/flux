@@ -968,8 +968,11 @@ pub fn ensure_runtime_lib(
     };
     // A caught panic unwinds through the runtime's own frames between a try
     // and the Flux code it calls (KI-126), which needs their unwind tables.
+    // `-fexceptions` makes that unwind release what an effect prompt holds
+    // (KI-133).
     if matches!(toolchain, CToolchain::Gcc { .. }) && !cfg!(windows) {
         flags.push("-funwind-tables");
+        flags.push("-fexceptions");
     }
     // On Windows, the C runtime uses MS SEH (`__try` / `__except` /
     // `RaiseException`) to unwind across LLVM-emitted Flux frames

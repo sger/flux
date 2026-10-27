@@ -1298,6 +1298,9 @@ struct FnLower<'a> {
     /// must use the yield path for these even when FLUX_YIELD_CHECKS is off,
     /// because the direct identity-resume fallback has no state slot.
     active_parameterized_effects: HashSet<Identifier>,
+    /// The evidence of each `handle` whose body is being lowered, innermost
+    /// last: a call in the body that unwinds releases them.
+    handle_evidence: Vec<LirVar>,
     /// Effects that have any parameterized handler in the whole program.
     /// Helper functions called from those handlers are lowered outside the
     /// handler's lexical body, so they need this broader guard too.
@@ -1395,6 +1398,7 @@ impl<'a> FnLower<'a> {
             int_return_binders: ctx.int_return_binders,
             bool_raw_source: HashMap::new(),
             active_parameterized_effects: HashSet::new(),
+            handle_evidence: Vec::new(),
             parameterized_effects_in_program: ctx.parameterized_effects_in_program,
             async_indirect_calls: ctx.async_indirect_calls,
             current_loc: LirLoc::NONE,
@@ -3661,19 +3665,31 @@ impl<'a> FnLower<'a> {
 
         let inserted_parameterized =
             parameter.is_some() && self.active_parameterized_effects.insert(effect);
+        self.handle_evidence.push(new_evv);
         let body_result = self.lower_expr_aether(body);
+        self.handle_evidence.pop();
         if inserted_parameterized {
             self.active_parameterized_effects.remove(&effect);
         }
         self.suppress_yield_check_for_calls_into_block(BlockId(self.current_block as u32));
         // The prompt releases `new_evv` once the body is done; it holds the
-        // clause and the state, which the handle gave it.
+        // clause and the state, which the handle gave it. Inside other
+        // handles it also names their evidence, which the frame holds across
+        // the clause it runs, and ends the block so its landing pad has a
+        // block of its own (KI-133).
         let result = self.fresh_var();
+        let mut args = vec![marker, saved_evv, body_result, new_evv];
+        args.extend(self.handle_evidence.iter().copied());
         self.emit(LirInstr::PrimCall {
             dst: Some(result),
             op: CorePrimOp::YieldPrompt,
-            args: vec![marker, saved_evv, body_result, new_evv],
+            args,
         });
+        if !self.handle_evidence.is_empty() {
+            let next = self.new_block();
+            self.set_terminator(LirTerminator::Jump(BlockId(next as u32)));
+            self.switch_to_block(next);
+        }
 
         result
     }
@@ -4182,7 +4198,11 @@ impl<'a> FnLower<'a> {
             .collect();
         lent.sort_by_key(|var| var.0);
         lent.dedup();
-        Box::new(HeldAcross { owned, lent })
+        Box::new(HeldAcross {
+            owned,
+            lent,
+            scoped: self.handle_evidence.clone(),
+        })
     }
 
     fn drop_protected_borrowed_call_args(&mut self, arg_vars: &[LirVar]) {
