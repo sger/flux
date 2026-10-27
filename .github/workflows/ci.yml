@@ -34,7 +34,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-24.04, macos-latest, windows-latest]
 
     steps:
       - name: Checkout
@@ -69,7 +69,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Pinned like the toolchains below: on ubuntu-26.04 lldb loses the
+        # frames a `resume` runs on top of, and three debugger tests fail
+        # (KI-136).
+        os: [ubuntu-24.04, macos-latest, windows-latest]
 
     steps:
       - name: Checkout
