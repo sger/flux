@@ -474,6 +474,14 @@ fn run_linker(
             // Set large stack size for deeply recursive programs.
             #[cfg(target_os = "macos")]
             cmd.args(["-Wl,-stack_size,0x4000000"]); // 64 MB stack
+            // Drop the unused parts of the Rust staticlib, as `/OPT:REF` does
+            // on Windows: without this a program carries all of it, ten times
+            // the size, and `dsymutil` copies all its DWARF into the dSYM.
+            // Nothing in the program calls the `flux_debug_*` functions or
+            // reads the `flux_debug_types_*` globals: `flux_lldb.py` does.
+            // Exporting them keeps them.
+            #[cfg(target_os = "macos")]
+            cmd.args(["-Wl,-dead_strip", "-Wl,-exported_symbol,_flux_debug_*"]);
             // Link math library on Linux.
             #[cfg(target_os = "linux")]
             cmd.arg("-lm");
