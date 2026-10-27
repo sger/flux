@@ -2144,6 +2144,14 @@ fn a_failed_file_operation_counts_the_path_its_error_holds() {
 
 const PANIC_PER_TURN: &str = r#"import Flow.Assert exposing (try_catch)
 
+effect Ask {
+    ask : (Int) -> Int
+}
+
+effect Tell {
+    tell : (Int) -> Int
+}
+
 fn numbers(n) {
     [n, n + 1, n + 2]
 }
@@ -2162,6 +2170,18 @@ fn outer(n) -> Int {
     let ys = numbers(n)
     let r = boom(n)
     r + len(ys)
+}
+
+fn before_perform(n) -> Int with Ask {
+    explode(n) + perform Ask.ask(n)
+}
+
+fn after_resume(n) -> Int with Ask {
+    perform Ask.ask(n) + explode(n)
+}
+
+fn under_two(n) -> Int with Ask, Tell {
+    perform Tell.tell(n) + perform Ask.ask(n) + explode(n)
 }
 
 fn attempt(n) -> Int {
@@ -2193,5 +2213,36 @@ fn a_caught_panic_releases_what_the_frames_it_skipped_held() {
             (live != 0).then(|| format!("{name}: {live} blocks left live per 1000 turns"))
         })
         .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// A panic caught further up releases what a `handle` it skipped built:
+/// the evidence the handle installed, which only its prompt released, and
+/// the prompt's own references to the clause's `resume` and argument
+/// (KI-133).
+#[test]
+fn a_caught_panic_releases_what_a_skipped_handle_built() {
+    let scratch = Scratch::new("debug-heap-skipped-handle");
+    let failures: Vec<String> = [
+        (
+            "in_body",
+            "before_perform(n) handle Ask { ask(resume, x) -> resume(x + 1) }",
+        ),
+        (
+            "after_resume",
+            "after_resume(n) handle Ask { ask(resume, x) -> resume(x + 1) }",
+        ),
+        (
+            "nested",
+            "(under_two(n) handle Ask { ask(resume, x) -> resume(x + 1) }) handle Tell { tell(resume, x) -> resume(x) }",
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(name, body)| {
+        let program = PANIC_PER_TURN.replace("BODY", body);
+        let (_, _, live) = per_thousand_cells(&scratch, name, &program);
+        (live != 0).then(|| format!("{name}: {live} blocks left live per 1000 turns"))
+    })
+    .collect();
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
