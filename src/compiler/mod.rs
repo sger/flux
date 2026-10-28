@@ -2196,11 +2196,13 @@ impl Compiler {
         self.seed_builtin_effect_operations();
 
         self.validate_reserved_primop_names(program);
+        let imported_effects = self.imported_default_effects();
         let routing =
             crate::ast::route_effectful_primops::route_effectful_primops_and_synthesize_handlers(
                 program,
                 &mut self.interner,
                 &self.user_declared_effect_names,
+                &imported_effects,
             );
         self.routed_call_perform_ids = routing.routed_call_perform_ids;
         let routed_program = routing.program;
@@ -3576,6 +3578,18 @@ impl Compiler {
         );
         diagnostics.extend(kind_env.validate_program(program, &self.class_env, &self.interner));
         diagnostics
+    }
+
+    /// The default effects that functions of already-compiled modules
+    /// declare, so the entry-handler wrap sees through a call to one
+    /// (KI-139).
+    fn imported_default_effects(&self) -> HashMap<Identifier, HashSet<&'static str>> {
+        crate::ast::route_effectful_primops::default_effects_of_functions(
+            self.module_contracts
+                .iter()
+                .map(|(key, contract)| (key.function_name, contract.effects.as_slice())),
+            &self.interner,
+        )
     }
 
     fn collect_module_contracts(&mut self, program: &Program) {

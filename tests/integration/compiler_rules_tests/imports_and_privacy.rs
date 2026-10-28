@@ -292,6 +292,7 @@ fn effectful_prelude_call_routes_to_perform_before_inference() {
             &program,
             &mut interner,
             &no_user_effects,
+            &std::collections::HashMap::new(),
         );
     assert!(routing.changed, "expected 0165 routing to change the AST");
     let routed = routing.program;

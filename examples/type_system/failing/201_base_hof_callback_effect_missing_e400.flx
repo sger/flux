@@ -6,17 +6,17 @@
 //
 // Parameter 2 has the wrong type.
 //
-//   examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx:52:5
+//   examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx:54:5
 //    |
-// 52 |     each([1, 2, 3], noisy_log)
+// 54 |     each([1, 2, 3], noisy_log)
 //    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
-//    |     -------------------------- parameter 2 has type `() -> Unit with Console, FileSystem, Stdin, Env`
+//    |     -------------------------- parameter 2 has type `() -> Unit with Console, FileSystem, Stdin, Env, Process`
 //
 //    |     -------------------------- this type mismatch is reported here
 //
 // Note:
 //   expected parameter type: () -> Unit
-//   found parameter type: () -> Unit with Console, FileSystem, Stdin, Env
+//   found parameter type: () -> Unit with Console, FileSystem, Stdin, Env, Process
 //   the conflicting types meet at this expression
 //
 // Help:
@@ -27,9 +27,9 @@
 //
 // requires effect `Console` but the enclosing context does not provide it
 //
-//   examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx:52:5
+//   examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx:54:5
 //    |
-// 52 |     each([1, 2, 3], noisy_log)
+// 54 |     each([1, 2, 3], noisy_log)
 //    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
 //    |     -------------------------- requires `Console`
 //
@@ -48,6 +48,12 @@ fn noisy_log(n: Int) -> Unit with IO {
     print("tick")
 }
 
-fn main() with Time {
+// A helper, not `main`: an entry function gets default handlers for the
+// effects of what it calls, which would supply Console.
+fn tick_all() with Time {
     each([1, 2, 3], noisy_log)
+}
+
+fn main() with Time {
+    tick_all()
 }

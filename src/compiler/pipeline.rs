@@ -36,10 +36,12 @@ impl Compiler {
         // Phase 0b (Proposal 0165): route effectful prelude primop calls
         // through `perform` and wrap entrypoints with compiler-provided
         // default handlers before collection/inference see the program.
+        let imported_effects = self.imported_default_effects();
         let routing = route_effectful_primops_and_synthesize_handlers(
             program,
             &mut self.interner,
             &self.user_declared_effect_names,
+            &imported_effects,
         );
         self.routed_call_perform_ids = routing.routed_call_perform_ids;
         let routed_program = routing.program;
