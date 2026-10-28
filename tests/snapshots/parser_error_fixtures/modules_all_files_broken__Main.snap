@@ -9,11 +9,11 @@ error[E034]: Missing Function Body
 
 This function body needs to start with `{`.
 
-  examples/parser_errors/modules_all_files_broken/Main.flx:6:5
+  examples/parser_errors/modules_all_files_broken/Main.flx:9:5
   |
-5 | fn main() -> Unit
+8 | fn main() -> Unit
   | - `main` starts here
-6 |     print("parser torture entry")
+9 |     print("parser torture entry")
   |     ^^^^^
   |     ----- This looks like the function body
 

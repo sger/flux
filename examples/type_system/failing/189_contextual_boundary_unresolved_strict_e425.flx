@@ -3,11 +3,11 @@
 // root: examples/type_system
 // flags: --strict
 // expect: compile_error
-// expect-error: E425
-// expect-error: E425
 
 // E425: strict mode rejects unresolved generic runtime boundary checks on module-qualified calls.
 
+//~ examples/type_system/TypeSystem/HmGenericModule.flx:9 E425
+//~ examples/type_system/TypeSystem/HmGenericModule.flx:15 E425
 import TypeSystem.HmGenericModule
 
 fn main() -> Unit {

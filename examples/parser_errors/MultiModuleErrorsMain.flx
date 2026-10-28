@@ -426,35 +426,33 @@
 // Found 28 errors across 5 modules.
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E034
-// expect-error: E034
-// expect-error: E034
-// expect-error: E034
-// expect-error: E034
-// expect-error: E034
-// expect-error: E034
-// expect-error: E034
-// expect-error: E034
-// expect-error: E034
-// expect-error: E034
-// expect-error: E034
-// expect-error: E034
-// expect-error: E034
-// expect-error: E034
-// expect-error: E034
-// expect-error: E034
-// expect-error: E076
-// expect-error: E034
-// expect-error: E073
-// expect-error: E034
-// expect-error: E034
-// expect-error: E034
-// expect-error: E034
-// expect-error: E030
-// expect-error: E034
-// expect-error: E030
-// expect-error: E034
 
+//~ MultiAnnotationErrors.flx:74 E034
+//~ MultiAnnotationErrors.flx:75 E034
+//~ MultiAnnotationErrors.flx:78 E034
+//~ MultiAnnotationErrors.flx:79 E034 E034
+//~ MultiControlFlowErrors.flx:94 E034
+//~ MultiControlFlowErrors.flx:95 E034
+//~ MultiControlFlowErrors.flx:96 E034
+//~ MultiControlFlowErrors.flx:97 E034
+//~ MultiControlFlowErrors.flx:98 E034
+//~ MultiControlFlowErrors.flx:100 E034
+//~ MultiDeclarationErrors.flx:63 E034
+//~ MultiDeclarationErrors.flx:64 E034
+//~ MultiDeclarationErrors.flx:68 E034
+//~ MultiDeclarationErrors.flx:69 E034
+//~ MultiDeclarationErrors.flx:73 E034
+//~ MultiDelimiterErrors.flx:93 E034
+//~ MultiDelimiterErrors.flx:94 E076
+//~ MultiDelimiterErrors.flx:95 E034
+//~ MultiDelimiterErrors.flx:96 E073
+//~ MultiDelimiterErrors.flx:97 E034
+//~ MultiImportKeywordErrors.flx:118 E034
+//~ MultiImportKeywordErrors.flx:119 E034
+//~ MultiImportKeywordErrors.flx:120 E034
+//~ MultiImportKeywordErrors.flx:122 E030 E034
+//~ MultiImportKeywordErrors.flx:123 E030
+//~ MultiImportKeywordErrors.flx:125 E034
 import MultiImportKeywordErrors
 import MultiControlFlowErrors
 import MultiDeclarationErrors

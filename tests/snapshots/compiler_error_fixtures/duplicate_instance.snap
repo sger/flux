@@ -9,30 +9,13 @@ error[E443]: Duplicate Instance
 
 Duplicate instance for `Sizeable<Int>`.
 
-  examples/compiler_errors/duplicate_instance.flx:19:1
+  examples/compiler_errors/duplicate_instance.flx:17:1
    |
-19 | instance Sizeable<Int> {
+17 | instance Sizeable<Int> { //~ E443
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+18 |     fn size(x) { x + 1 }
    | ^^^^^^^^^^^^^^^^^^^^^^^^
-20 |     fn size(x) { x + 1 }
-   | ^^^^^^^^^^^^^^^^^^^^^^^^
-21 | }
+19 | }
    | ^
-
-
-error[E001]: Duplicate Name
-
-Duplicate binding: `__tc_Sizeable_Int_size` is already defined.
-
-  examples/compiler_errors/duplicate_instance.flx:0:1
-  |
-
-Hint:
-  Use a different name or remove the previous definition.
-
-   = note: first defined here
-  examples/compiler_errors/duplicate_instance.flx:0:1
-  |
-
-Found 2 errors.
 == stdout ==
 <not executed>
