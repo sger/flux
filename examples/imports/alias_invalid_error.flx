@@ -1,7 +1,6 @@
 // root: examples
 // expect: compile_error
-// expect-error: E026
 
-import Modules.Data.MyFile as myfile
+import Modules.Data.MyFile as myfile //~ E026
 
 print(Modules.Data.MyFile.value());

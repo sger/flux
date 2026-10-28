@@ -1,8 +1,6 @@
 // root: examples
 // expect: compile_error
-// expect-error: E011
-// expect-error: E430
 
 import Modules.Data.MyFile as MyAlias
 
-MyAlias.value();
+MyAlias.value(); //~ E011 E430
