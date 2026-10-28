@@ -571,3 +571,42 @@ fn test_mode_base_assertions_all_pass() {
         text
     );
 }
+
+/// The assertion's own output, not an unhandled Console effect: `assert_eq`
+/// prints before it panics, and the test declares no effects (KI-139).
+fn assert_reports_assert_eq_failure(output: &Output) {
+    let text = combined_output(output);
+    assert!(!output.status.success(), "expected failure, output:\n{text}");
+    assert!(!text.contains("unhandled effect"), "expected no unhandled effect, output:\n{text}");
+    assert!(
+        text.contains("ASSERTION FAILED: assert_eq"),
+        "expected the assertion, output:\n{text}"
+    );
+    assert!(text.contains("assert_eq failed"), "expected the panic, output:\n{text}");
+}
+
+#[test]
+fn test_mode_failing_assert_eq_reports_its_values_ki139() {
+    let file = fixture_path("assert_eq_failure_message.flx");
+    let output = run_flux(&["--test", file.to_str().unwrap()]);
+    assert_reports_assert_eq_failure(&output);
+    assert!(combined_output(&output).contains("PASS  test_assert_eq_passes"));
+}
+
+#[test]
+fn failing_assert_eq_in_main_reports_its_values_ki139() {
+    let file = fixture_path("assert_eq_failure_in_main.flx");
+    assert_reports_assert_eq_failure(&run_flux(&[file.to_str().unwrap()]));
+}
+
+#[cfg(feature = "llvm")]
+#[test]
+fn test_mode_failing_assert_eq_reports_its_values_on_native_llvm_ki139() {
+    if !cli_supports_flag("--native") {
+        eprintln!("skipping native CLI test: binary does not advertise --native");
+        return;
+    }
+    let file = fixture_path("assert_eq_failure_message.flx");
+    let output = run_flux(&["--test", "--native", file.to_str().unwrap()]);
+    assert_reports_assert_eq_failure(&output);
+}
