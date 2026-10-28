@@ -9,9 +9,9 @@ error[E011]: Private Member
 
 Cannot access private member `value`.
 
-  examples/imports/alias_import_script.flx:8:1
+  examples/imports/alias_import_script.flx:6:1
   |
-8 | MyAlias.value();
+6 | MyAlias.value();
   | ^^^^^^^^^^^^^
 
 Hint:
