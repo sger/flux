@@ -189,6 +189,27 @@ fn cached_equivalent_ways(ways: &[Way]) -> Vec<Way> {
         .collect()
 }
 
+/// The fixtures `flux parity-check <dir>` would check, in the same order.
+pub fn fixtures_in(dir: &Path) -> Vec<PathBuf> {
+    collect_fixtures(dir, false)
+}
+
+/// Checks one fixture as `flux parity-check <file>` would, with the ways its
+/// header names, running every way on `flux`. Unlike the command it never
+/// rebuilds a binary, so a test can pass the `flux` cargo just built.
+pub fn check_fixture(file: &Path, flux: &Path) -> ParityResult {
+    let flux = flux.display().to_string();
+    let args = [
+        file.display().to_string(),
+        "--vm-binary".to_string(),
+        flux.clone(),
+        "--llvm-binary".to_string(),
+        flux,
+    ];
+    let config = parse_args(&args).expect("parity-check arguments");
+    check_one(file, &config).result
+}
+
 /// One checked file: its parity result and, under `--census`, its rows.
 struct CheckedFile {
     result: ParityResult,
