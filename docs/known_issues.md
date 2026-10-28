@@ -114,32 +114,6 @@ What is known:
   arm64. That says nothing yet about x86_64.
 - macOS passes all three.
 
-### KI-135 — Natively, a panic in a handler clause is caught, then reported again at exit
-
-**Severity:** Medium · **Area:** native runtime, effects, panics · **Verified:** 2026-10-27 · **From:** KI-133
-
-```flux
-import Flow.Assert exposing (try_catch)
-
-effect Ask { ask : (Int) -> Int }
-
-fn explode(n) -> Int { if n >= 0 { panic("boom") } else { n } }
-
-fn main() with IO {
-    let caught = try_catch(\() -> perform Ask.ask(1) handle Ask { ask(resume, x) -> explode(x) })
-    print("caught")
-    print("after")
-}
-```
-
-The VM prints both lines and exits 0. Natively the `try_catch` catches the
-panic and `main` runs to its end, printing both lines too, but then the
-program reports `error[E1009]: boom` with the clause's stack trace and exits
-1. So some panic state survives the catch when the panic is raised while
-`flux_yield_prompt` runs the clause. A panic in the handle's body or inside
-`resume` does not do this (the KI-133 test covers both). Same on a2240eb7,
-before the KI-133 fix.
-
 ### KI-125 — `make -C runtime/c test` does not build
 
 **Severity:** Low · **Area:** native runtime, tests · **Verified:** 2026-10-21 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-0
@@ -2207,6 +2181,59 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-135 — A handle's value was wrong when its body did work of its own in the handle's frame — FIXED 2026-10-28
+
+**Severity:** High · **Area:** effects, native backend, VM · **Verified fixed:** 2026-10-28 · **From:** KI-133
+
+Filed as "natively, a panic in a handler clause is caught, then reported again
+at exit":
+
+```flux
+import Flow.Assert exposing (try_catch)
+
+effect Ask { ask : (Int) -> Int }
+
+fn explode(n) -> Int { if n >= 0 { panic("boom") } else { n } }
+
+fn main() with IO {
+    let caught = try_catch(\() -> perform Ask.ask(1) handle Ask { ask(resume, x) -> explode(x) })
+    print("caught")
+    print("after")
+}
+```
+
+The panic was not reported twice: natively the clause never ran inside the
+`try_catch` at all. The real fault was wider, and on both backends. A
+`handle` whose clauses are not tail-resumptive delimits the computation by
+the frame it runs in: a perform captures the frames above that frame, and the
+clause's value comes back to it. Work the body did in that frame itself was
+outside the delimited part:
+
+- Natively a perform there returned its yield past the handle's own prompt,
+  which sat after the perform in the same function. An outer prompt found the
+  yield and ran the clause: inside `try_catch`, after the try had returned,
+  so nothing caught the panic. A clause that does not resume gave its value
+  to the wrong frame (`<yield>` printed, or nothing).
+- On the VM the clause's value came back to where the handle's frame had
+  stopped. With the perform in that frame, `OpPerform` ran again with the
+  clause's value as its argument, forever; after a call, the rest of the body
+  ran again with it (`ask_one() + 1 handle Ask { ask(resume, x) -> x + 100 }`
+  gave 102, not 101).
+- Natively, `resume(x) * 2` in a clause of that last handle gave 2, not 4.
+
+**The fix.** As Koka defines `handle`, the body is an action the prompt
+calls, and the handle's frame does nothing else. Natively a Core pass after
+`evidence_pass` (`handle_body_frames`, `src/core/passes/handle_frame.rs`)
+rewrites such a body to `(λ. body)()`; the VM's compiler, which compiles
+functions with a `handle` from the AST, does the same
+(`compile_handle_action`). Tail-resumptive handles, a body that is one call,
+one that cannot perform, and one with a `return` keep their body. The action
+is compiler-made: debuggers fold its frame into the function it is in.
+
+Tests: `tests/parity/effect_clause_panic_caught.flx` (the KI's program) and
+`tests/parity/effect_abort_clause_direct_perform.flx` (five shapes; the VM
+hung on it and native printed wrong values).
 
 ### KI-134 — Natively, an effect context snapshot shared values between threads uncounted — FIXED 2026-10-28
 
