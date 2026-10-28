@@ -1169,6 +1169,10 @@ fn generate_from_statements(
         })
     }
 
+    // Collected instances already matched to a declaration. A duplicate
+    // declaration has the same class and head as the first, so without this it
+    // would match the first one's instance and define its methods again.
+    let mut claimed: HashSet<usize> = HashSet::new();
     for stmt in statements {
         match stmt {
             Statement::Instance { class_name, type_args, context, methods, .. } => {
@@ -1193,8 +1197,10 @@ fn generate_from_statements(
                 let Some(type_name) = class_env
                     .instances
                     .iter()
-                    .find(|instance| {
-                        instance.class_id == class_def.class_id()
+                    .enumerate()
+                    .find(|(index, instance)| {
+                        !claimed.contains(index)
+                            && instance.class_id == class_def.class_id()
                             && instance.instance_module == current_module
                             && instance.type_args.len() == type_args.len()
                             && instance
@@ -1203,7 +1209,10 @@ fn generate_from_statements(
                                 .zip(type_args)
                                 .all(|(collected, declared)| collected.structural_eq(declared))
                     })
-                    .map(|instance| instance.type_key.clone())
+                    .map(|(index, instance)| {
+                        claimed.insert(index);
+                        instance.type_key.clone()
+                    })
                 else {
                     let declared: HashSet<Identifier> = methods.iter().map(|m| m.name).collect();
                     for method_sig in &class_def.methods {

@@ -143,6 +143,33 @@ fn second() -> Int {
 }
 
 #[test]
+fn a_duplicate_instance_reports_no_duplicate_internal_name_ki143() {
+    let codes: Vec<_> = compile_err_diagnostics(
+        r#"
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sizeable<Int> {
+    fn size(x) { x }
+}
+
+instance Sizeable<Int> {
+    fn size(x) { x + 1 }
+}
+
+fn main() {
+    42
+}
+"#,
+    )
+    .iter()
+    .filter_map(|d| d.code().map(str::to_string))
+    .collect();
+    assert_eq!(codes, ["E443"]);
+}
+
+#[test]
 fn assignment_in_block_reassign_error() {
     let code = compile_err("fn f() { let x = 1; x = 2; }");
     assert_eq!(code, "E002");
