@@ -242,7 +242,7 @@ fn flux_fixtures(root: &Path) -> Result<Vec<(String, String)>, String> {
 }
 
 /// A fixture whose name ends in an error code, such as `…_e421.flx`, must list
-/// that code in an `// expect-error:` line. Readers trust the name, and KI-137
+/// that code in an `// expect-error:` line or a `//~` annotation. Readers trust the name, and KI-137
 /// found twenty fixtures where the reported code had moved on without it.
 fn misnamed_fixtures(fixtures: &[(String, String)]) -> Vec<String> {
     let mut problems = Vec::new();
@@ -254,13 +254,16 @@ fn misnamed_fixtures(fixtures: &[(String, String)]) -> Vec<String> {
         }
         let code = format!("E{digits}");
         let expected = text.lines().any(|line| {
-            line.strip_prefix("//")
-                .and_then(|rest| rest.trim_start().strip_prefix("expect-error:"))
-                .is_some_and(|codes| codes.split([',', ' ']).any(|c| c == code))
+            let header = line
+                .strip_prefix("//")
+                .and_then(|rest| rest.trim_start().strip_prefix("expect-error:"));
+            let annotation =
+                line.find("//~").map(|at| line[at + 3..].trim_start_matches(['^', 'v']));
+            header.or(annotation).is_some_and(|codes| codes.split([',', ' ']).any(|c| c == code))
         });
         if !expected {
             problems.push(format!(
-                "{path} is named for {code}, but no `// expect-error:` line lists it; rename the file or fix the header"
+                "{path} is named for {code}, but no `// expect-error:` line or `//~` annotation lists it; rename the file or fix the header"
             ));
         }
     }
@@ -366,6 +369,7 @@ mod tests {
     fn a_fixture_named_for_a_code_must_expect_it() {
         let files = sources(&[
             ("examples/a/ok_e300.flx", "// expect: compile_error\n// expect-error: E300\n"),
+            ("examples/a/annotated_e004.flx", "// expect: compile_error\nlet x = y //~ E004\n"),
             ("examples/a/drifted_e421.flx", "// expect-error: E300\n"),
             ("examples/a/no_header_e406.flx", "fn main() {}\n"),
             ("examples/a/not_a_code_else.flx", ""),
