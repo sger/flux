@@ -6,9 +6,9 @@
 //
 // Expected `]` to close list pattern.
 //
-//   examples/parser_errors/missing_list_pattern_bracket.flx:25:22
+//   examples/parser_errors/missing_list_pattern_bracket.flx:24:22
 //    |
-// 25 |         [head | tail -> head,
+// 24 |         [head | tail -> head,
 //    |                      ^^
 //
 // Hint:
@@ -18,11 +18,10 @@
 //   while parsing function `main` > `match` expression
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E034
 
 fn main() -> Int {
     match [1, 2] {
-        [head | tail -> head,
+        [head | tail -> head, //~ E034
         _ -> 0
     }
 }

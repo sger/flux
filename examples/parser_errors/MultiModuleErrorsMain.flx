@@ -6,9 +6,9 @@
 //
 // Missing `:` in function parameter type annotation. Write it as `name: Type`.
 //
-//   examples/parser_errors/MultiAnnotationErrors.flx:79:23
+//   examples/parser_errors/MultiAnnotationErrors.flx:74:23
 //    |
-// 79 |     fn bad_param(name String) -> String { name }
+// 74 |     fn bad_param(name String) -> String { name }
 //    |                       ^^^^^^
 //
 // Hint:
@@ -19,9 +19,9 @@
 //
 // Missing `->` before function return type. Write it as `fn name(...) -> Type`.
 //
-//   examples/parser_errors/MultiAnnotationErrors.flx:80:27
+//   examples/parser_errors/MultiAnnotationErrors.flx:75:27
 //    |
-// 80 |     fn bad_return(x: Int) String { x }
+// 75 |     fn bad_return(x: Int) String { x }
 //    |                           ^^^^^^
 //
 // Note:
@@ -32,9 +32,9 @@
 //
 // Missing `:` in let binding type annotation. Write it as `value: Type`.
 //
-//   examples/parser_errors/MultiAnnotationErrors.flx:83:19
+//   examples/parser_errors/MultiAnnotationErrors.flx:78:19
 //    |
-// 83 |         let value Int = 1
+// 78 |         let value Int = 1
 //    |                   ^^^
 //
 // Hint:
@@ -45,9 +45,9 @@
 //
 // Missing `:` in function parameter type annotation. Write it as `x: Type`.
 //
-//   examples/parser_errors/MultiAnnotationErrors.flx:84:21
+//   examples/parser_errors/MultiAnnotationErrors.flx:79:21
 //    |
-// 84 |         let f = \(x Int, y String) -> x
+// 79 |         let f = \(x Int, y String) -> x
 //    |                     ^^^
 //
 // Hint:
@@ -58,9 +58,9 @@
 //
 // Missing `:` in function parameter type annotation. Write it as `y: Type`.
 //
-//   examples/parser_errors/MultiAnnotationErrors.flx:84:28
+//   examples/parser_errors/MultiAnnotationErrors.flx:79:28
 //    |
-// 84 |         let f = \(x Int, y String) -> x
+// 79 |         let f = \(x Int, y String) -> x
 //    |                            ^^^^^^
 //
 // Hint:
@@ -72,9 +72,9 @@
 //
 // This `if` branch needs to start with `{`.
 //
-//   examples/parser_errors/MultiControlFlowErrors.flx:99:20
+//   examples/parser_errors/MultiControlFlowErrors.flx:94:20
 //    |
-// 99 |         let a = if true 1
+// 94 |         let a = if true 1
 //    |                    ^^^^
 //    |                    ---- this `if` branch starts here
 //
@@ -89,11 +89,11 @@
 //
 // This `else` branch needs to start with `{`.
 //
-//   examples/parser_errors/MultiControlFlowErrors.flx:100:32
-//     |
-// 100 |         let b = if false { 0 } else 1
-//     |                                ^^^^
-//     |                                ---- `else` starts here
+//   examples/parser_errors/MultiControlFlowErrors.flx:95:32
+//    |
+// 95 |         let b = if false { 0 } else 1
+//    |                                ^^^^
+//    |                                ---- `else` starts here
 //
 // Note:
 //   while parsing module `MultiControlFlowErrors` > function `flow` > `if` expression
@@ -106,10 +106,10 @@
 //
 // I was expecting `->` in this match arm, but I found a string literal.
 //
-//   examples/parser_errors/MultiControlFlowErrors.flx:101:29
-//     |
-// 101 |         let c = match 1 { 0 "zero", 1 -> "one" }
-//     |                             ^^^^^^
+//   examples/parser_errors/MultiControlFlowErrors.flx:96:29
+//    |
+// 96 |         let c = match 1 { 0 "zero", 1 -> "one" }
+//    |                             ^^^^^^
 //
 // Note:
 //   while parsing module `MultiControlFlowErrors` > function `flow` > `match` expression
@@ -122,10 +122,10 @@
 //
 // Expected `->` in handle arm.
 //
-//   examples/parser_errors/MultiControlFlowErrors.flx:102:50
-//     |
-// 102 |         let d = 1 handle IO { print(resume, msg) print(msg) }
-//     |                                                  ^^^^^
+//   examples/parser_errors/MultiControlFlowErrors.flx:97:50
+//    |
+// 97 |         let d = 1 handle IO { print(resume, msg) print(msg) }
+//    |                                                  ^^^^^
 //
 // Hint:
 //   Handle arms use `op(resume, arg1, ...) -> body`.
@@ -138,11 +138,11 @@
 //
 // I was expecting `->` after the lambda parameters, but I found an identifier.
 //
-//   examples/parser_errors/MultiControlFlowErrors.flx:103:18
-//     |
-// 103 |         let f = \x x + 1
-//     |                  ^
-//     |                  - this lambda parameter list ends here
+//   examples/parser_errors/MultiControlFlowErrors.flx:98:18
+//    |
+// 98 |         let f = \x x + 1
+//    |                  ^
+//    |                  - this lambda parameter list ends here
 //
 // Note:
 //   while parsing module `MultiControlFlowErrors` > lambda expression
@@ -155,9 +155,9 @@
 //
 // Unexpected `}` outside of a block.
 //
-//   examples/parser_errors/MultiControlFlowErrors.flx:105:1
+//   examples/parser_errors/MultiControlFlowErrors.flx:100:1
 //     |
-// 105 | }
+// 100 | }
 //     | ^
 //
 //
@@ -166,9 +166,9 @@
 //
 // I was expecting `,` or `)` between constructor fields, but I found an identifier.
 //
-//   examples/parser_errors/MultiDeclarationErrors.flx:67:18
+//   examples/parser_errors/MultiDeclarationErrors.flx:63:18
 //    |
-// 67 |         Pair(Int String),
+// 63 |         Pair(Int String),
 //    |                  ^^^^^^
 //
 // Note:
@@ -179,9 +179,9 @@
 //
 // I was expecting a constructor name in this `data` declaration, but I found an integer literal.
 //
-//   examples/parser_errors/MultiDeclarationErrors.flx:68:9
+//   examples/parser_errors/MultiDeclarationErrors.flx:64:9
 //    |
-// 68 |         123
+// 64 |         123
 //    |         ^^^
 //
 // Note:
@@ -192,9 +192,9 @@
 //
 // Missing `:` in effect operation signature. Write it as `op: Type -> Return`.
 //
-//   examples/parser_errors/MultiDeclarationErrors.flx:72:15
+//   examples/parser_errors/MultiDeclarationErrors.flx:68:15
 //    |
-// 72 |         print String -> Unit
+// 68 |         print String -> Unit
 //    |               ^^^^^^
 //
 // Note:
@@ -205,9 +205,9 @@
 //
 // Expected `:` after effect operation name.
 //
-//   examples/parser_errors/MultiDeclarationErrors.flx:73:28
+//   examples/parser_errors/MultiDeclarationErrors.flx:69:28
 //    |
-// 73 |         log: String String -> Unit
+// 69 |         log: String String -> Unit
 //    |                            ^^
 //
 // Hint:
@@ -221,9 +221,9 @@
 //
 // I was expecting `,` or `)` between constructor fields, but I found an identifier.
 //
-//   examples/parser_errors/MultiDeclarationErrors.flx:77:26
+//   examples/parser_errors/MultiDeclarationErrors.flx:73:26
 //    |
-// 77 |     type Result = Ok(Int String) | Err(String)
+// 73 |     type Result = Ok(Int String) | Err(String)
 //    |                          ^^^^^^
 //
 // Note:
@@ -235,9 +235,9 @@
 //
 // Expected `)` to close this tuple literal.
 //
-//   examples/parser_errors/MultiDelimiterErrors.flx:98:25
+//   examples/parser_errors/MultiDelimiterErrors.flx:93:25
 //    |
-// 98 |         let pair = (1, 2]
+// 93 |         let pair = (1, 2]
 //    |                         ^
 //
 // Hint:
@@ -251,29 +251,29 @@
 //
 // Expected a closing `]` to match this opening `[`.
 //
-//   examples/parser_errors/MultiDelimiterErrors.flx:99:18
+//   examples/parser_errors/MultiDelimiterErrors.flx:94:18
 //    |
-// 99 |         let xs = [1, 2, 3
+// 94 |         let xs = [1, 2, 3
 //    |                  ^
 //
 // Note:
 //   while parsing module `MultiDelimiterErrors` > function `delimiters`
 //
 // note: Expected `]` before this token.
-//   examples/parser_errors/MultiDelimiterErrors.flx:100:9
-//     |
-// 100 |         let h = { "a" 1 }
-//     |         ^^^
+//   examples/parser_errors/MultiDelimiterErrors.flx:95:9
+//    |
+// 95 |         let h = { "a" 1 }
+//    |         ^^^
 //
 //
 // error[E034]: Missing Hash Colon
 //
 // This hash entry needs `:` between the key and value.
 //
-//   examples/parser_errors/MultiDelimiterErrors.flx:100:23
-//     |
-// 100 |         let h = { "a" 1 }
-//     |                       ^
+//   examples/parser_errors/MultiDelimiterErrors.flx:95:23
+//    |
+// 95 |         let h = { "a" 1 }
+//    |                       ^
 //
 // Hint:
 //   Hash literals use `{key: value, ...}`.
@@ -286,10 +286,10 @@
 //
 // Missing comma between arguments.
 //
-//   examples/parser_errors/MultiDelimiterErrors.flx:101:23
-//     |
-// 101 |         let r = add(1 2)
-//     |                       ^
+//   examples/parser_errors/MultiDelimiterErrors.flx:96:23
+//    |
+// 96 |         let r = add(1 2)
+//    |                       ^
 //
 // Hint:
 //   Add a comma between items, e.g. `f(a, b)`.
@@ -302,10 +302,10 @@
 //
 // Expected `)` to close this grouped expression.
 //
-//   examples/parser_errors/MultiDelimiterErrors.flx:102:23
-//     |
-// 102 |         let g = (1 + 2]
-//     |                       ^
+//   examples/parser_errors/MultiDelimiterErrors.flx:97:23
+//    |
+// 97 |         let g = (1 + 2]
+//    |                       ^
 //
 // Hint:
 //   Add `)` after the expression.
@@ -319,9 +319,9 @@
 //
 // This import needs a module path after `import`.
 //
-//   examples/parser_errors/MultiImportKeywordErrors.flx:125:5
+//   examples/parser_errors/MultiImportKeywordErrors.flx:118:5
 //     |
-// 125 |     import
+// 118 |     import
 //     |     ^^^^^^
 //
 // Hint:
@@ -335,9 +335,9 @@
 //
 // This import alias needs a name after `as`.
 //
-//   examples/parser_errors/MultiImportKeywordErrors.flx:126:17
+//   examples/parser_errors/MultiImportKeywordErrors.flx:119:17
 //     |
-// 126 |     import Demo as
+// 119 |     import Demo as
 //     |                 ^^
 //
 // Hint:
@@ -351,9 +351,9 @@
 //
 // Expected `[` after `except` in import.
 //
-//   examples/parser_errors/MultiImportKeywordErrors.flx:127:27
+//   examples/parser_errors/MultiImportKeywordErrors.flx:120:27
 //     |
-// 127 |     import Foo.Bar except x, y ]
+// 120 |     import Foo.Bar except x, y ]
 //     |                           ^
 //
 // Hint:
@@ -367,9 +367,9 @@
 //
 // Unknown keyword `def`. Flux uses `fn` for function declarations.
 //
-//   examples/parser_errors/MultiImportKeywordErrors.flx:129:5
+//   examples/parser_errors/MultiImportKeywordErrors.flx:122:5
 //     |
-// 129 |     def greet(name) { name }
+// 122 |     def greet(name) { name }
 //     |     ^^^
 //
 // Hint:
@@ -383,9 +383,9 @@
 //
 // This hash entry needs `:` between the key and value.
 //
-//   examples/parser_errors/MultiImportKeywordErrors.flx:129:28
+//   examples/parser_errors/MultiImportKeywordErrors.flx:122:28
 //     |
-// 129 |     def greet(name) { name }
+// 122 |     def greet(name) { name }
 //     |                            ^
 //
 // Hint:
@@ -399,9 +399,9 @@
 //
 // Unknown keyword `var`. Flux uses `let` for bindings.
 //
-//   examples/parser_errors/MultiImportKeywordErrors.flx:130:5
+//   examples/parser_errors/MultiImportKeywordErrors.flx:123:5
 //     |
-// 130 |     var count = 1
+// 123 |     var count = 1
 //     |     ^^^
 //
 // Hint:
@@ -415,9 +415,9 @@
 //
 // `end` is not a keyword in Flux. Use `}` to close blocks.
 //
-//   examples/parser_errors/MultiImportKeywordErrors.flx:132:5
+//   examples/parser_errors/MultiImportKeywordErrors.flx:125:5
 //     |
-// 132 |     end
+// 125 |     end
 //     |     ^^^
 //
 // Hint:

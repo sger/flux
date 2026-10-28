@@ -6,9 +6,9 @@
 //
 // Expected `{` to begin class body.
 //
-//   examples/parser_errors/missing_class_body_brace.flx:50:5
+//   examples/parser_errors/missing_class_body_brace.flx:48:5
 //    |
-// 50 |     fn show(x: a) -> String
+// 48 |     fn show(x: a) -> String
 //    |     ^^
 //
 // Hint:
@@ -19,12 +19,12 @@
 //
 // This function body needs to start with `{`.
 //
-//   examples/parser_errors/missing_class_body_brace.flx:52:1
+//   examples/parser_errors/missing_class_body_brace.flx:50:1
 //    |
-// 50 |     fn show(x: a) -> String
+// 48 |     fn show(x: a) -> String
 //    |     - `show` starts here
-// 51 | 
-// 52 | fn main() {
+// 49 |
+// 50 | fn main() {
 //    | ^^
 //    | -- This looks like the function body
 //
@@ -37,8 +37,6 @@
 // Found 2 errors.
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E034
-// expect-error: E034
 
 // Missing `{` to begin class body.
 //
@@ -47,9 +45,9 @@
 //   Help: "Class declarations use `class Name<a> { fn method(x: a) -> ReturnType }`."
 
 class Show<a>
-    fn show(x: a) -> String
+    fn show(x: a) -> String //~ E034
 
-fn main() {
+fn main() { //~ E034
     42
 }
 
