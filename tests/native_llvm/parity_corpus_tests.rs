@@ -38,6 +38,7 @@ fn corpus_part(part: usize) {
     };
     let flux = Path::new(env!("CARGO_BIN_EXE_flux"));
     let next = AtomicUsize::new(0);
+    let passed = AtomicUsize::new(0);
     let mut failures: Vec<String> = std::thread::scope(|threads| {
         let handles: Vec<_> = (0..workers.min(files.len()))
             .map(|_| {
@@ -45,6 +46,9 @@ fn corpus_part(part: usize) {
                     let mut failed = Vec::new();
                     while let Some(file) = files.get(next.fetch_add(1, Ordering::Relaxed)) {
                         let result = check_fixture(file, flux);
+                        if matches!(result.verdict, Verdict::Pass) {
+                            passed.fetch_add(1, Ordering::Relaxed);
+                        }
                         if matches!(
                             result.verdict,
                             Verdict::Mismatch { .. } | Verdict::ExpectedOutputMismatch { .. }
@@ -64,6 +68,12 @@ fn corpus_part(part: usize) {
             .collect()
     });
     failures.sort();
+    // As `parity-check` does: a part where every fixture was skipped has
+    // checked nothing.
+    assert!(
+        passed.into_inner() > 0,
+        "no fixture in part {part} ran: all were skipped"
+    );
     assert!(
         failures.is_empty(),
         "these fixtures disagree (details above); rerun one with\n  \
