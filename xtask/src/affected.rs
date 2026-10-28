@@ -220,6 +220,16 @@ impl Repo {
         Ok(repo)
     }
 
+    /// The source file of every integration-test binary.
+    pub fn test_sources(&self) -> impl Iterator<Item = &str> {
+        self.tests.iter().map(|(_, path)| path.as_str())
+    }
+
+    /// Every `.rs` file under `tests/`, with its text.
+    pub fn sources(&self) -> &[(String, String)] {
+        &self.sources
+    }
+
     fn binaries_in_test_dir(&self, dir: &str) -> impl Iterator<Item = &str> {
         let prefix = format!("tests/{dir}/");
         self.tests
