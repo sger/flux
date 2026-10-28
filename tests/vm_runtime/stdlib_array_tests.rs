@@ -6,8 +6,6 @@
 //! natively, so every `assert_eq` over two arrays passed on one and failed on
 //! the other. Running it both ways keeps that from silently returning.
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::stdlib_fixture;
 use stdlib_fixture::assert_backends_agree;
 

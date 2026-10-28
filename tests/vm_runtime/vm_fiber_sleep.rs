@@ -11,8 +11,6 @@
 //! Multi-fiber suspend (where `both`/`race` actually overlap) lands in
 //! 1b-vi-b alongside continuation capture.
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::flux_runner;
 use std::time::Duration;
 

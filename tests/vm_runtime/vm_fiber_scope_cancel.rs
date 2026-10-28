@@ -4,8 +4,6 @@
 //! fibers under it; `cancel` stops them immediately by cancelling their backend
 //! requests and dropping them: a cancelled fiber never runs again (0188 S9d).
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::flux_runner;
 use std::time::Duration;
 

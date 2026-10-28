@@ -4,8 +4,6 @@
 //! through `flux --test` on the VM and, with the `llvm` feature, natively,
 //! and requires every case to pass on both.
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::stdlib_fixture;
 use stdlib_fixture::assert_backends_agree;
 

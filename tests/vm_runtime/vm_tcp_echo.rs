@@ -4,8 +4,6 @@
 //! echoes the payload back; client fiber connects, writes, reads reply.
 //! Both run concurrently via `Async.both` on the fiber scheduler.
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::flux_runner;
 use flux_runner::scratch::free_port;
 use std::time::Duration;

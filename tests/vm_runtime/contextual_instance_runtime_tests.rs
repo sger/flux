@@ -2,8 +2,6 @@
 // the LLVM feature even though the VM path is also exercised here.
 #![cfg(feature = "llvm")]
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::flux_runner;
 use flux_runner::{run_native, run_vm};
 

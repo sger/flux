@@ -1,7 +1,5 @@
 //! VM Flow.Stream pure pull-stream smoke tests.
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::flux_runner;
 
 fn run_source(source: &str) -> (String, String, bool) {
