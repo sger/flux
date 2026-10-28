@@ -292,27 +292,24 @@ fn hm_fixture_153_match_branch_conflict_prefers_e300() {
 
 #[test]
 fn hm_fixture_154_unresolved_projection_reports_undefined_name_first() {
-    let source = include_str!(
-        "../../../examples/type_system/failing/154_unresolved_projection_strict_e425.flx"
-    );
+    let source =
+        include_str!("../../../examples/type_system/failing/154_unresolved_projection_e004.flx");
     let rendered = compile_err_strict_rendered(source);
     assert!(rendered.contains("error[E004]"), "expected E004 for fixture 154, got:\n{}", rendered);
 }
 
 #[test]
 fn hm_fixture_155_unresolved_member_access_reports_undefined_name_first() {
-    let source = include_str!(
-        "../../../examples/type_system/failing/155_unresolved_member_access_strict_e425.flx"
-    );
+    let source =
+        include_str!("../../../examples/type_system/failing/155_unresolved_member_access_e004.flx");
     let rendered = compile_err_strict_rendered(source);
     assert!(rendered.contains("error[E004]"), "expected E004 for fixture 155, got:\n{}", rendered);
 }
 
 #[test]
 fn hm_fixture_156_unresolved_call_arg_reports_undefined_name_first() {
-    let source = include_str!(
-        "../../../examples/type_system/failing/156_unresolved_call_arg_strict_e425.flx"
-    );
+    let source =
+        include_str!("../../../examples/type_system/failing/156_unresolved_call_arg_e004.flx");
     let rendered = compile_err_strict_rendered(source);
     assert!(rendered.contains("error[E004]"), "expected E004 for fixture 156, got:\n{}", rendered);
     assert!(

@@ -1,7 +1,7 @@
 ---
 source: tests/examples/examples_fixtures_snapshots.rs
 ---
-Fixture: examples/type_system/failing/190_contextual_boundary_arg_runtime_e1004.flx
+Fixture: examples/type_system/failing/190_contextual_boundary_arg_runtime_e300.flx
 == compile ==
 failed (compile)
 == diagnostics ==
@@ -9,15 +9,15 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `typed_add`.
 
-  examples/type_system/failing/190_contextual_boundary_arg_runtime_e1004.flx:16:11
+  examples/type_system/failing/190_contextual_boundary_arg_runtime_e300.flx:17:11
    |
-11 | fn typed_add(a: Int, b: Int) -> Int {
+12 | fn typed_add(a: Int, b: Int) -> Int {
    | ----------------------------------- `typed_add` expects `Int` as the 1st parameter
-12 |     a + b
-13 | }
-14 | 
-15 | let dynamic = TypeSystem.BoundaryUnknown.dynamic_string()
-16 | typed_add(dynamic, 1)
+13 |     a + b
+14 | }
+15 | 
+16 | let dynamic = TypeSystem.BoundaryUnknown.dynamic_string()
+17 | typed_add(dynamic, 1)
    |           ^^^^^^^
    |           ------- this argument has type `String`
 

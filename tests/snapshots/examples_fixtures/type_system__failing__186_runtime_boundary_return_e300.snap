@@ -1,7 +1,7 @@
 ---
 source: tests/examples/examples_fixtures_snapshots.rs
 ---
-Fixture: examples/type_system/failing/186_runtime_boundary_return_e1004.flx
+Fixture: examples/type_system/failing/186_runtime_boundary_return_e300.flx
 == compile ==
 failed (compile)
 == diagnostics ==
@@ -9,7 +9,7 @@ error[E300]: Return Type Mismatch
 
 The body of `bad` does not match its declared return type.
 
-  examples/type_system/failing/186_runtime_boundary_return_e1004.flx:10:5
+  examples/type_system/failing/186_runtime_boundary_return_e300.flx:10:5
    |
  9 | fn bad() -> Int {
    |             --- `bad` was declared to return `Int`

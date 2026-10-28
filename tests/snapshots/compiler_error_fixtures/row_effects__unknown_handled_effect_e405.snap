@@ -5,21 +5,17 @@ Fixture: examples/compiler_errors/row_effects/unknown_handled_effect_e405.flx
 == compile ==
 failed (compile)
 == diagnostics ==
-error[E402]: Missing Effect Handler Arm
+error[E405]: Unknown Effect
 
-Handler for `Console` is missing operations: println.
+Effect `Logger` is not declared for this handle block.
 
-  examples/compiler_errors/row_effects/unknown_handled_effect_e405.flx:5:13
+  examples/compiler_errors/row_effects/unknown_handled_effect_e405.flx:6:13
   |
-5 |     let _ = 1 handle Console {
+6 |     let _ = 1 handle Logger {
   |             ^
-  |             - handled expression
+  |             - unknown effect in handle
 
 Hint:
-  Add 1 arm(s) to the handle block:
-
-    println(resume, _arg1) -> resume(())
-
-Tip: `resume(())` consumes the operation and discards its effect; use it when the handler only cares about observing the call.
+  Declare the effect before using `handle`, or fix the effect name.
 == stdout ==
 <not executed>

@@ -124,7 +124,7 @@ fn hm_fixture_161_tuple_destructure_concrete_mismatch_prefers_e300() {
 #[test]
 fn hm_fixture_162_tuple_destructure_unresolved_strict_e425() {
     let source = include_str!(
-        "../../../examples/type_system/failing/162_tuple_destructure_unresolved_strict_e425.flx"
+        "../../../examples/type_system/failing/162_tuple_destructure_unresolved_e004.flx"
     );
     let rendered = compile_err_strict_rendered(source);
     assert!(
@@ -200,7 +200,7 @@ fn hm_fixture_167_tuple_destructure_ordered_concrete_conflict_e300() {
 #[test]
 fn hm_fixture_168_tuple_destructure_unresolved_guard_strict_e425() {
     let source = include_str!(
-        "../../../examples/type_system/failing/168_tuple_destructure_unresolved_guard_strict_e425.flx"
+        "../../../examples/type_system/failing/168_tuple_destructure_unresolved_guard_e004.flx"
     );
     let rendered = compile_err_strict_rendered(source);
     assert!(
@@ -213,15 +213,9 @@ fn hm_fixture_168_tuple_destructure_unresolved_guard_strict_e425() {
 #[test]
 fn unresolved_name_fixtures_report_e004_even_in_strict_modes() {
     let unresolved_name_fixtures = [
-        include_str!(
-            "../../../examples/type_system/failing/154_unresolved_projection_strict_e425.flx"
-        ),
-        include_str!(
-            "../../../examples/type_system/failing/155_unresolved_member_access_strict_e425.flx"
-        ),
-        include_str!(
-            "../../../examples/type_system/failing/156_unresolved_call_arg_strict_e425.flx"
-        ),
+        include_str!("../../../examples/type_system/failing/154_unresolved_projection_e004.flx"),
+        include_str!("../../../examples/type_system/failing/155_unresolved_member_access_e004.flx"),
+        include_str!("../../../examples/type_system/failing/156_unresolved_call_arg_e004.flx"),
     ];
 
     for source in unresolved_name_fixtures {
@@ -245,10 +239,10 @@ fn unresolved_name_fixtures_report_e004_even_in_strict_modes() {
 fn strict_only_hm_boundary_fixtures_still_report_e425_in_strict_modes() {
     let strict_boundary_fixtures = [
         include_str!(
-            "../../../examples/type_system/failing/162_tuple_destructure_unresolved_strict_e425.flx"
+            "../../../examples/type_system/failing/162_tuple_destructure_unresolved_e004.flx"
         ),
         include_str!(
-            "../../../examples/type_system/failing/168_tuple_destructure_unresolved_guard_strict_e425.flx"
+            "../../../examples/type_system/failing/168_tuple_destructure_unresolved_guard_e004.flx"
         ),
     ];
 

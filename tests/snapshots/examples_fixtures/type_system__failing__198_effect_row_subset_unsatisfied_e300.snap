@@ -1,7 +1,7 @@
 ---
 source: tests/examples/examples_fixtures_snapshots.rs
 ---
-Fixture: examples/type_system/failing/198_effect_row_subset_unsatisfied_e422.flx
+Fixture: examples/type_system/failing/198_effect_row_subset_unsatisfied_e300.flx
 == compile ==
 failed (compile)
 == diagnostics ==
@@ -9,9 +9,9 @@ error[E300]: Parameter Type Mismatch
 
 Parameter 1 has the wrong type.
 
-  examples/type_system/failing/198_effect_row_subset_unsatisfied_e422.flx:45:5
+  examples/type_system/failing/198_effect_row_subset_unsatisfied_e300.flx:46:5
    |
-45 |     run_needs_console_clock(only_console)
+46 |     run_needs_console_clock(only_console)
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |     ------------------------------------- parameter 1 has type `() -> Unit with Console`
 

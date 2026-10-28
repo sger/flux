@@ -109,7 +109,7 @@ fn example_perform_arg_e425_192() {
 #[test]
 fn example_contextual_boundary_e300_190() {
     assert_example_error(
-        "examples/type_system/failing/190_contextual_boundary_arg_runtime_e1004.flx",
+        "examples/type_system/failing/190_contextual_boundary_arg_runtime_e300.flx",
         &["examples/type_system"],
         "E300",
     );
@@ -209,7 +209,7 @@ fn example_effect_row_multivar_ok_103() {
 #[test]
 fn example_effect_row_invalid_subtract_e300_195() {
     assert_example_error(
-        "examples/type_system/failing/195_effect_row_invalid_subtract_e421.flx",
+        "examples/type_system/failing/195_effect_row_invalid_subtract_e300.flx",
         &[],
         "E300",
     );
@@ -225,12 +225,12 @@ fn example_effect_row_unresolved_single_e419_196() {
 }
 
 #[test]
-fn example_effect_row_unresolved_multi_e420_197() {
+fn example_effect_row_unresolved_multi_e304_197() {
     // HM now reports E304 (Invalid Effect Row) directly at the annotation
     // site when a single `with` clause mixes distinct row variables, which
     // supersedes the downstream E420 this fixture historically produced.
     assert_example_error(
-        "examples/type_system/failing/197_effect_row_subtract_unresolved_multi_e420.flx",
+        "examples/type_system/failing/197_effect_row_subtract_unresolved_multi_e304.flx",
         &[],
         "E304",
     );
@@ -239,7 +239,7 @@ fn example_effect_row_unresolved_multi_e420_197() {
 #[test]
 fn example_effect_row_subset_unsatisfied_e300_198() {
     assert_example_error(
-        "examples/type_system/failing/198_effect_row_subset_unsatisfied_e422.flx",
+        "examples/type_system/failing/198_effect_row_subset_unsatisfied_e300.flx",
         &[],
         "E300",
     );
@@ -248,7 +248,7 @@ fn example_effect_row_subset_unsatisfied_e300_198() {
 #[test]
 fn example_effect_row_subset_sorted_e300_199() {
     assert_example_error(
-        "examples/type_system/failing/199_effect_row_subset_ordered_missing_e422.flx",
+        "examples/type_system/failing/199_effect_row_subset_ordered_missing_e300.flx",
         &[],
         "E300",
     );
@@ -285,7 +285,7 @@ fn example_base_hof_effect_missing_e400_201() {
 #[test]
 fn example_runtime_boundary_list_e300_187() {
     assert_example_error(
-        "examples/type_system/failing/187_runtime_list_boundary_e1004.flx",
+        "examples/type_system/failing/187_runtime_list_boundary_e300.flx",
         &["examples/type_system"],
         "E300",
     );

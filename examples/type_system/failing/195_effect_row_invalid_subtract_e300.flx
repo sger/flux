@@ -1,26 +1,26 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
 // parity-expected-stderr-begin
-// • 1 error, 1 note • examples/type_system/failing/195_effect_row_invalid_subtract_e421.flx
+// • 1 error, 1 note • examples/type_system/failing/195_effect_row_invalid_subtract_e300.flx
 // error[E300]: Parameter Type Mismatch
 //
 // Parameter 1 has the wrong type.
 //
-//   examples/type_system/failing/195_effect_row_invalid_subtract_e421.flx:50:5
+//   examples/type_system/failing/195_effect_row_invalid_subtract_e300.flx:51:5
 //    |
-// 50 |     run_filtered(io_console_work)
+// 51 |     run_filtered(io_console_work)
 //    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-//    |     ----------------------------- parameter 1 has type `() -> Unit with Console, FileSystem, Stdin, Env`
+//    |     ----------------------------- parameter 1 has type `() -> Unit with Console, FileSystem, Stdin, Env, Process`
 //
 //    |     ----------------------------- this type mismatch is reported here
 //
 // Note:
-//   expected parameter type: () -> Unit with FileSystem, Stdin, Env
-//   found parameter type: () -> Unit with Console, FileSystem, Stdin, Env
+//   expected parameter type: () -> Unit with FileSystem, Stdin, Env, Process
+//   found parameter type: () -> Unit with Console, FileSystem, Stdin, Env, Process
 //   the conflicting types meet at this expression
 //
 // Help:
-//   Change parameter 1 to use `() -> Unit with FileSystem, Stdin, Env` consistently.
+//   Change parameter 1 to use `() -> Unit with FileSystem, Stdin, Env, Process` consistently.
 //
 //
 // Note: Downstream Errors Suppressed
@@ -30,7 +30,8 @@
 // expect: compile_error
 // expect-error: E300
 
-// E421: concrete subtraction fails when the removed effect is present.
+// E300 from the CLI. The effect-row check's E421 is hidden behind it (KI-140).
+// Concrete subtraction fails when the removed effect is present.
 
 effect Console {
     print: String -> ()

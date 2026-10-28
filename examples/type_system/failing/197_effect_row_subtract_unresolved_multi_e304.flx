@@ -1,14 +1,14 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
 // parity-expected-stderr-begin
-// • 1 error, 1 note • examples/type_system/failing/197_effect_row_subtract_unresolved_multi_e420.flx
+// • 1 error, 1 note • examples/type_system/failing/197_effect_row_subtract_unresolved_multi_e304.flx
 // error[E304]: Invalid Effect Row
 //
 // Cannot interpret this effect row: `e` and `t` are distinct row variables in the same row.
 //
-//   examples/type_system/failing/197_effect_row_subtract_unresolved_multi_e420.flx:28:41
+//   examples/type_system/failing/197_effect_row_subtract_unresolved_multi_e304.flx:29:41
 //    |
-// 28 | fn unresolved_many(x: Int) -> Int with |e - IO, |t - Time {
+// 29 | fn unresolved_many(x: Int) -> Int with |e - IO, |t - Time {
 //    |                                         ^^^^^^
 //    |                                         ------ conflicting row variables in this effect row
 //
@@ -23,7 +23,8 @@
 // expect: compile_error
 // expect-error: E304
 
-// E420: unresolved multiple effect variables in subtraction paths.
+// E304: two row variables in one `with` clause are rejected at the annotation,
+// before the subtraction check (E420) runs.
 
 fn unresolved_many(x: Int) -> Int with |e - IO, |t - Time {
     x

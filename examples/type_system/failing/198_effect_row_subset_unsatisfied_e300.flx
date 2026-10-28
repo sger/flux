@@ -1,14 +1,14 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
 // parity-expected-stderr-begin
-// • 1 error, 1 note • examples/type_system/failing/198_effect_row_subset_unsatisfied_e422.flx
+// • 1 error, 1 note • examples/type_system/failing/198_effect_row_subset_unsatisfied_e300.flx
 // error[E300]: Parameter Type Mismatch
 //
 // Parameter 1 has the wrong type.
 //
-//   examples/type_system/failing/198_effect_row_subset_unsatisfied_e422.flx:45:5
+//   examples/type_system/failing/198_effect_row_subset_unsatisfied_e300.flx:46:5
 //    |
-// 45 |     run_needs_console_clock(only_console)
+// 46 |     run_needs_console_clock(only_console)
 //    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 //    |     ------------------------------------- parameter 1 has type `() -> Unit with Console`
 //
@@ -30,7 +30,8 @@
 // expect: compile_error
 // expect-error: E300
 
-// E422: callback effect row is missing required effects.
+// E300 from the CLI. The effect-row check's E422 is hidden behind it (KI-140).
+// The callback's effect row is missing required effects.
 
 fn run_needs_console_clock(f: (() -> Int with Console, Clock)) -> Int with Console, Clock {
     f()

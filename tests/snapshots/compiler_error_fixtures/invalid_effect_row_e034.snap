@@ -1,7 +1,7 @@
 ---
 source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
 ---
-Fixture: examples/compiler_errors/invalid_effect_row_e304.flx
+Fixture: examples/compiler_errors/invalid_effect_row_e034.flx
 == compile ==
 failed (parse)
 == diagnostics ==
@@ -9,7 +9,7 @@ error[E034]: Unexpected Token
 
 Effect expressions can contain only one row variable tail.
 
-  examples/compiler_errors/invalid_effect_row_e304.flx:10:30
+  examples/compiler_errors/invalid_effect_row_e034.flx:10:30
    |
 10 | fn confused<e, f>() with IO |e |f {
    |                              ^
