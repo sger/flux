@@ -22,8 +22,8 @@ use std::time::{Duration, SystemTime};
 
 use super::census;
 use super::fixture::{
-    Expect, ExpectedCount, FixtureMeta, SkipWay, converted_source, parse_fixture_meta,
-    parse_fixture_meta_allowing, with_annotations,
+    Expect, ExpectedCount, FixtureMeta, SkipWay, annotations_inside_tokens, converted_source,
+    parse_fixture_meta, parse_fixture_meta_allowing, with_annotations,
 };
 use super::known_issues;
 use super::normalize::normalize_stderr;
@@ -346,6 +346,13 @@ fn bless_annotations(result: &ParityResult, allow: &[String]) -> bool {
     for problem in &unplaced {
         eprintln!("[parity] {}: {problem}", file.display());
     }
+    if let Some(line) = annotations_inside_tokens(&blessed).first() {
+        eprintln!(
+            "[parity] cannot bless {}: the annotation on line {line} would be read as part of the program",
+            file.display()
+        );
+        return false;
+    }
     if blessed == source {
         return false;
     }
@@ -420,14 +427,26 @@ fn annotate(result: &mut ParityResult, config: &Config) {
         Ok(converted) => converted,
         Err(reason) => return keep(&reason),
     };
+    if let Some(line) = annotations_inside_tokens(&converted).first() {
+        return keep(&format!(
+            "the annotation on line {line} would be read as part of the program"
+        ));
+    }
     if let Err(err) = fs::write(&file, &converted) {
         return keep(&err.to_string());
     }
     let mut rerun = check_one(&file, config).result;
+    // A kept block still quotes the old line numbers. When it sits above the
+    // code and its length changes, blessing it moves the code again, so it may
+    // take a second pass to settle.
     if !drop_block && meta.expected_stderr.is_some() {
-        // A kept block still quotes the old line numbers.
-        bless(&mut rerun, &config.allow);
-        rerun = check_one(&file, config).result;
+        for _ in 0..3 {
+            if matches!(rerun.verdict, Verdict::Pass) {
+                break;
+            }
+            bless(&mut rerun, &config.allow);
+            rerun = check_one(&file, config).result;
+        }
     }
     if !matches!(rerun.verdict, Verdict::Pass) {
         let _ = fs::write(&file, &source);
