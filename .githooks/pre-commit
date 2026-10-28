@@ -1,29 +1,16 @@
 #!/bin/sh
-# Checks a commit before it is made: formatting, and the test layout when
-# tests/ or Cargo.toml changed. Clippy takes minutes, so it runs before a push
-# instead (pre-push).
+# Runs tidy before a commit that changes Rust code, tests/ or Cargo.toml:
+# formatting, then the test layout. Clippy takes minutes, so it runs before a
+# push instead (pre-push).
 # Enable once per clone with: git config core.hooksPath .githooks
 
 staged=$(git diff --cached --name-only --diff-filter=ACMRD)
 [ -z "$staged" ] && exit 0
 
-fail() {
-    echo "pre-commit: $1" >&2
-    echo "Skip once with --no-verify." >&2
-    exit 1
-}
-
-# rustfmt checks the working tree, not only what is staged, which is what CI
-# sees once everything is committed.
-if printf '%s\n' "$staged" | grep -q '\.rs$'; then
-    if ! cargo fmt --all -- --check --files-with-diff >&2; then
-        fail "these files are not formatted; run cargo fmt --all"
-    fi
-fi
-
-if printf '%s\n' "$staged" | grep -Eq '^(tests/|Cargo\.toml$)'; then
+if printf '%s\n' "$staged" | grep -Eq '(\.rs$|^tests/|^Cargo\.toml$|^rustfmt\.toml$)'; then
     if ! cargo xtask tidy >&2; then
-        fail "tests/ does not match tests/README.md (see above)"
+        echo "pre-commit: tidy found problems (above); fix them or skip once with --no-verify." >&2
+        exit 1
     fi
 fi
 

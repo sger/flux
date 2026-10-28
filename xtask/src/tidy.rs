@@ -1,11 +1,12 @@
-//! `cargo xtask tidy`: checks that `tests/` is laid out the way
-//! `tests/README.md` says, as rustc's tidy does for its test tree. Rules that
-//! live only in prose drift; these fail the build instead.
+//! `cargo xtask tidy`: checks formatting, then that `tests/` is laid out the
+//! way `tests/README.md` says, as rustc's `x test tidy` does. Rules that live
+//! only in prose drift; these fail the build instead.
 
 use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
 
 use crate::affected::Repo;
+use crate::verify::cargo;
 
 pub fn run(root: &Path) -> Result<bool, String> {
     let readme = std::fs::read_to_string(root.join("tests/README.md"))
@@ -24,16 +25,38 @@ pub fn run(root: &Path) -> Result<bool, String> {
     let repo = Repo::load(root)?;
     let targets: BTreeSet<String> = repo.test_sources().map(str::to_string).collect();
 
-    let mut problems = layout_problems(&readme, &dirs, &files);
+    let mut problems = unformatted(root)?;
+    problems.extend(layout_problems(&readme, &dirs, &files));
     problems.extend(uncompiled(&targets, repo.sources()));
     problems.extend(local_helpers(repo.sources()));
     for problem in &problems {
         println!("tidy: {problem}");
     }
     if problems.is_empty() {
-        println!("tidy: tests/ matches tests/README.md");
+        println!("tidy: formatted, and tests/ matches tests/README.md");
     }
     Ok(problems.is_empty())
+}
+
+/// One problem per file `cargo fmt` would change.
+fn unformatted(root: &Path) -> Result<Vec<String>, String> {
+    let output = cargo()
+        .current_dir(root)
+        .args(["fmt", "--all", "--", "--check", "--files-with-diff"])
+        .output()
+        .map_err(|e| format!("cargo fmt: {e}"))?;
+    let prefix = format!("{}/", root.display());
+    let files: Vec<String> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|file| file.strip_prefix(&prefix).unwrap_or(file).to_string())
+        .collect();
+    if !output.status.success() && files.is_empty() {
+        return Err(format!("cargo fmt failed:\n{}", String::from_utf8_lossy(&output.stderr)));
+    }
+    Ok(files
+        .into_iter()
+        .map(|file| format!("{file} is not formatted; run cargo fmt --all"))
+        .collect())
 }
 
 /// The folders the README's layout tree names: its `├── name/` lines.
