@@ -32,22 +32,12 @@ fn run_source_with_env(
     tag: &str,
     env: &[(&str, &str)],
 ) -> (String, String, bool, Duration) {
-    let dir = workspace_root()
-        .join("target")
-        .join("test-scratch")
-        .join(format!(
-            "flux-native-runtime-config-{}-{}",
-            std::process::id(),
-            tag,
-        ));
-    std::fs::create_dir_all(&dir).expect("create temp dir");
-    let path = dir.join("fixture.flx");
-    std::fs::write(&path, source).expect("write fixture");
-
-    let start = Instant::now();
     // Private cache root: `--no-cache` does not isolate native
     // builds, which write shared artifacts regardless (KI-010).
-    let scratch = Scratch::new("native-llvm");
+    let scratch = Scratch::new(&format!("flux-native-runtime-config-{tag}"));
+    let path = scratch.write("fixture.flx", source);
+
+    let start = Instant::now();
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_flux"));
     cmd.current_dir(workspace_root())
         .args([path.to_str().unwrap(), "--native", "--no-cache"])
@@ -82,22 +72,12 @@ fn run_source_with_timeout(
     tag: &str,
     timeout: Duration,
 ) -> (String, String, bool, Duration) {
-    let dir = workspace_root()
-        .join("target")
-        .join("test-scratch")
-        .join(format!(
-            "flux-native-runtime-config-timeout-{}-{}",
-            std::process::id(),
-            tag,
-        ));
-    std::fs::create_dir_all(&dir).expect("create temp dir");
-    let path = dir.join("fixture.flx");
-    std::fs::write(&path, source).expect("write fixture");
-
-    let start = Instant::now();
     // Private cache root: `--no-cache` does not isolate native
     // builds, which write shared artifacts regardless (KI-010).
-    let scratch = Scratch::new("native-llvm");
+    let scratch = Scratch::new(&format!("flux-native-runtime-config-timeout-{tag}"));
+    let path = scratch.write("fixture.flx", source);
+
+    let start = Instant::now();
     let mut child = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args([path.to_str().unwrap(), "--native", "--no-cache"])

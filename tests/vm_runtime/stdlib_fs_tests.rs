@@ -12,7 +12,6 @@
 //!     Rust's `io::ErrorKind`, the C runtime on `errno` — so agreement is a
 //!     real invariant and not a shared code path.
 
-use std::path::PathBuf;
 use std::process::Command;
 
 #[path = "../support/flux_runner.rs"]
@@ -21,16 +20,9 @@ use flux_runner::run_flux_test;
 use flux_runner::scratch::Scratch;
 use flux_runner::workspace_root;
 
-fn scratch_dir() -> PathBuf {
-    let dir = workspace_root().join("target").join("test-scratch");
-    std::fs::create_dir_all(&dir).expect("create scratch dir");
-    dir
-}
-
 fn run_source(name: &str, source: &str) -> (String, String, bool) {
-    let file = scratch_dir().join(name);
-    std::fs::write(&file, source).expect("write scratch fixture");
-    let scratch = Scratch::new("cache-isolated");
+    let scratch = Scratch::new("stdlib-run");
+    let file = scratch.write(name, source);
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args(["run", file.to_str().unwrap(), "--no-cache"])
@@ -118,8 +110,8 @@ fn main() -> Unit with IO {
 /// success path.
 #[test]
 fn reading_an_existing_file_returns_its_contents() {
-    let fixture = scratch_dir().join("fs_read_me.txt");
-    std::fs::write(&fixture, "hello fs").expect("write fixture");
+    let files = Scratch::new("fs-read-me");
+    let fixture = files.write("fs_read_me.txt", "hello fs");
 
     let (stdout, stderr, success) = run_source(
         "fs_read_ok.flx",
@@ -140,7 +132,6 @@ fn main() -> Unit with IO {{
             fixture.to_str().unwrap().replace('\\', "/")
         ),
     );
-    let _ = std::fs::remove_file(&fixture);
     assert!(success, "run failed:\n{stdout}\n{stderr}");
     assert!(
         stdout.contains("got:hello fs"),

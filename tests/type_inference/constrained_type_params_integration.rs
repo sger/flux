@@ -1,3 +1,7 @@
+#[path = "../support/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
 use std::{path::Path, process::Command};
 
 use flux::{
@@ -124,11 +128,9 @@ fn main() {
 /// resolving. See docs/known_issues.md#ki-084.
 #[test]
 fn generic_ord_operator_compiles_without_strict_types() {
-    let dir = std::env::temp_dir().join("flux-constrained-ord-operator");
-    std::fs::create_dir_all(&dir).expect("create scratch dir");
-    let source_path = dir.join("max_of.flx");
-    std::fs::write(
-        &source_path,
+    let scratch = Scratch::new("constrained-type-params");
+    let source_path = scratch.write(
+        "max_of.flx",
         r#"
 fn max_of<A: Ord>(x: A, y: A) -> A {
     if x > y { x } else { y }
@@ -138,15 +140,13 @@ fn main() {
     print(max_of(3, 7))
 }
 "#,
-    )
-    .expect("write source");
+    );
 
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")))
         .arg(&source_path)
         .arg("--no-cache")
-        .arg("--cache-dir")
-        .arg(dir.join("cache"))
+        .args(scratch.cache_args())
         .output()
         .expect("run flux");
 
@@ -168,11 +168,9 @@ fn main() {
 /// contextual instance since Proposal 0183.
 #[test]
 fn generic_eq_and_num_operators_compile_without_strict_types() {
-    let dir = std::env::temp_dir().join("flux-constrained-eq-num-operators");
-    std::fs::create_dir_all(&dir).expect("create scratch dir");
-    let source_path = dir.join("eq_num.flx");
-    std::fs::write(
-        &source_path,
+    let scratch = Scratch::new("constrained-type-params");
+    let source_path = scratch.write(
+        "eq_num.flx",
         r#"
 fn different<A: Eq>(x: A, y: A) -> Bool {
     x != y
@@ -186,15 +184,13 @@ fn main() {
     print(if different(10, 20) { half(8, 2) } else { 0 })
 }
 "#,
-    )
-    .expect("write source");
+    );
 
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")))
         .arg(&source_path)
         .arg("--no-cache")
-        .arg("--cache-dir")
-        .arg(dir.join("cache"))
+        .args(scratch.cache_args())
         .output()
         .expect("run flux");
 
@@ -217,11 +213,9 @@ fn main() {
 /// that needs `Flow.Num`'s methods to exist.
 #[test]
 fn explicit_num_bound_survives_defaulting_and_elaborates_dictionary() {
-    let dir = std::env::temp_dir().join("flux-constrained-explicit-num-bound");
-    std::fs::create_dir_all(&dir).expect("create scratch dir");
-    let source_path = dir.join("half.flx");
-    std::fs::write(
-        &source_path,
+    let scratch = Scratch::new("constrained-type-params");
+    let source_path = scratch.write(
+        "half.flx",
         r#"
 fn half<A: Num>(x: A, y: A) -> A {
     x / y
@@ -231,16 +225,14 @@ fn main() {
     print(half(8, 2))
 }
 "#,
-    )
-    .expect("write source");
+    );
 
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")))
         .arg("--dump-core")
         .arg(&source_path)
         .arg("--no-cache")
-        .arg("--cache-dir")
-        .arg(dir.join("cache"))
+        .args(scratch.cache_args())
         .output()
         .expect("run flux");
 

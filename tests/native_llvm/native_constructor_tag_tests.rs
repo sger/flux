@@ -9,7 +9,6 @@
 //!
 //! These tests run on the native backend only; the VM does not use tags.
 
-use std::path::PathBuf;
 use std::process::Command;
 
 #[path = "../support/scratch.rs"]
@@ -19,10 +18,8 @@ use scratch::workspace_root;
 
 /// Run one source file on both backends and return `(vm_stdout, native_stdout)`.
 fn run_both(name: &str, source: &str) -> (String, String) {
-    let dir: PathBuf = workspace_root().join("target").join("test-scratch");
-    std::fs::create_dir_all(&dir).expect("create scratch dir");
-    let file = dir.join(name);
-    std::fs::write(&file, source).expect("write fixture");
+    let files = Scratch::new("constructor-tags");
+    let file = files.write(name, source);
 
     let run = |native: bool| {
         let mut args = vec!["run", file.to_str().unwrap(), "--no-cache"];

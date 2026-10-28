@@ -7,6 +7,10 @@
 //! structure) AND verifies the final runtime output. This catches regressions
 //! that integration snapshot tests miss because snapshots only check final output.
 
+#[path = "../support/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
@@ -84,22 +88,18 @@ fn dump_core(input: &str) -> String {
 /// Dumps Core for `input` by running the real `flux` binary with `--dump-core`.
 ///
 /// Unlike [`dump_core`], this compiles the Flux prelude too, so the standard
-/// classes' instance bodies are available. `scratch` names a per-test directory
-/// under the system temp dir, keeping concurrently running tests off each
-/// other's cache.
+/// classes' instance bodies are available. `scratch` labels the test's own
+/// scratch directory and cache.
 fn dump_core_via_driver(scratch: &str, input: &str) -> String {
-    let dir = std::env::temp_dir().join(format!("flux-ir-pipeline-{scratch}"));
-    std::fs::create_dir_all(&dir).expect("create scratch dir");
-    let source_path = dir.join("main.flx");
-    std::fs::write(&source_path, input).expect("write source");
+    let scratch = Scratch::new(scratch);
+    let source_path = scratch.write("main.flx", input);
 
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")))
         .arg(&source_path)
         .arg("--dump-core")
         .arg("--no-cache")
-        .arg("--cache-dir")
-        .arg(dir.join("cache"))
+        .args(scratch.cache_args())
         .output()
         .expect("run flux");
 
