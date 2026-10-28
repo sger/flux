@@ -1,8 +1,6 @@
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::scratch;
 use scratch::Scratch;
 use scratch::workspace_root;

@@ -4,8 +4,6 @@
 //! on the VM backend for 2-way, 3-way, and captured-variable mutual
 //! recursion groups.
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::flux_runner;
 use flux_runner::run_flux_test;
 

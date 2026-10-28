@@ -294,12 +294,8 @@ name = "stdlib_stream_tests"
 path = "tests/vm_runtime/stdlib_stream_tests.rs"
 
 [[test]]
-name = "qualified_class_method_dispatch_tests"
-path = "tests/integration/qualified_class_method_dispatch_tests.rs"
-
-[[test]]
-name = "named_field_class_dispatch_tests"
-path = "tests/integration/named_field_class_dispatch_tests.rs"
+name = "integration"
+path = "tests/integration/main.rs"
 
 [[test]]
 name = "stdlib_env_tests"
@@ -308,10 +304,6 @@ path = "tests/vm_runtime/stdlib_env_tests.rs"
 [[test]]
 name = "stdlib_process_tests"
 path = "tests/vm_runtime/stdlib_process_tests.rs"
-
-[[test]]
-name = "stdlib_discovery_tests"
-path = "tests/integration/stdlib_discovery_tests.rs"
 
 [[test]]
 name = "flume"
@@ -325,14 +317,6 @@ path = "tests/type_inference/main.rs"
 name = "native_constructor_tag_tests"
 path = "tests/native_llvm/native_constructor_tag_tests.rs"
 required-features = ["llvm"]
-
-[[test]]
-name = "cross_module_named_fields_tests"
-path = "tests/integration/cross_module_named_fields_tests.rs"
-
-[[test]]
-name = "module_local_shadowing_tests"
-path = "tests/integration/module_local_shadowing_tests.rs"
 
 [[test]]
 name = "map_contract_tests"
@@ -435,14 +419,6 @@ name = "native_runtime_config_tests"
 path = "tests/native_llvm/native_runtime_config_tests.rs"
 
 [[test]]
-name = "flow_task_tests"
-path = "tests/integration/flow_task_tests.rs"
-
-[[test]]
-name = "flow_async_surface_tests"
-path = "tests/integration/flow_async_surface_tests.rs"
-
-[[test]]
 name = "vm_channel_tests"
 path = "tests/vm_runtime/vm_channel_tests.rs"
 
@@ -539,76 +515,8 @@ name = "error_fixtures"
 path = "tests/error_fixtures/main.rs"
 
 [[test]]
-name = "cache_invalidation_tests"
-path = "tests/integration/cache_invalidation_tests.rs"
-
-[[test]]
 name = "replay"
 path = "tests/replay/main.rs"
-
-[[test]]
-name = "tuple_projection_predicate_tests"
-path = "tests/integration/tuple_projection_predicate_tests.rs"
-
-[[test]]
-name = "type_alias_effect_row_tests"
-path = "tests/integration/type_alias_effect_row_tests.rs"
-
-[[test]]
-name = "compiler_optimization_tests"
-path = "tests/integration/compiler_optimization_tests.rs"
-
-[[test]]
-name = "compiler_rules_tests"
-path = "tests/integration/compiler_rules_tests.rs"
-
-[[test]]
-name = "cross_module_function_tests"
-path = "tests/integration/cross_module_function_tests.rs"
-
-[[test]]
-name = "flow_effects_spec_drift"
-path = "tests/integration/flow_effects_spec_drift.rs"
-
-[[test]]
-name = "flow_prelude_module_tests"
-path = "tests/integration/flow_prelude_module_tests.rs"
-
-[[test]]
-name = "module_graph_tests"
-path = "tests/integration/module_graph_tests.rs"
-
-[[test]]
-name = "module_linking_integration_tests"
-path = "tests/integration/module_linking_integration_tests.rs"
-
-[[test]]
-name = "module_scoped_classes_tests"
-path = "tests/integration/module_scoped_classes_tests.rs"
-
-[[test]]
-name = "mutual_recursion"
-path = "tests/integration/mutual_recursion.rs"
-
-[[test]]
-name = "operators"
-path = "tests/integration/operators.rs"
-
-[[test]]
-name = "symbol_table_tests"
-path = "tests/integration/symbol_table_tests.rs"
-
-[[test]]
-name = "test_runner_cli"
-path = "tests/integration/test_runner_cli.rs"
-
-[[test]]
-name = "regression_snapshots"
-path = "tests/integration/regression_snapshots.rs"
-
-[[test]]
-name = "layout_guard"
-path = "tests/integration/layout_guard.rs"
 
 # Legacy snapshot-wrapper binaries. Names are preserved so insta snapshot
 # filenames (which are prefixed with the test-binary name) do not drift.

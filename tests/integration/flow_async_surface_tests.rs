@@ -3,8 +3,6 @@
 //!   (`Result`, `AsyncError`, `Scope`, ...) and their constructors
 //!   (`Ok`, `Err`, `Canceled`, ...) into scope without qualification.
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::flux_runner;
 
 fn run_flux_source(source: &str, tag: &str) -> (String, String, bool) {
