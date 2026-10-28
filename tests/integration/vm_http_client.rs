@@ -2,62 +2,21 @@
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
-use std::path::PathBuf;
-use std::process::Command;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::{Mutex, OnceLock};
 
-#[path = "../support/scratch.rs"]
-mod scratch;
-use scratch::Scratch;
-use scratch::workspace_root;
+#[path = "../support/flux_runner.rs"]
+mod flux_runner;
+use flux_runner::flux_source;
+use flux_runner::scratch::free_port;
 
-static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(1);
 static VM_HTTP_CLIENT_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
-fn next_port() -> u16 {
-    // Ask the OS for a free loopback port rather than counting up from a fixed
-    // base. The counter this replaces lived in a `static`, so it was unique
-    // only within one process: under a process-per-test runner such as
-    // cargo-nextest every process handed out the same first port and the tests
-    // collided, failing a different subset each run.
-    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind ephemeral loopback port");
-    listener
-        .local_addr()
-        .expect("read ephemeral loopback port")
-        .port()
-}
-
-fn write_fixture(source: String) -> PathBuf {
-    let id = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
-    let dir = workspace_root()
-        .join("target")
-        .join("test-scratch")
-        .join(format!("flux-vm-http-client-{}-{id}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("create temp dir");
-    let path = dir.join("fixture.flx");
-    std::fs::write(&path, source).expect("write fixture");
-    path
-}
 
 fn run_source(source: String) -> (String, String, bool) {
     let mutex = VM_HTTP_CLIENT_TEST_LOCK.get_or_init(|| Mutex::new(()));
     let _guard = mutex.lock().unwrap_or_else(|e| e.into_inner());
-    let path = write_fixture(source);
-    let scratch = Scratch::new("cache-isolated");
-    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(workspace_root())
-        .args([path.to_str().unwrap(), "--no-cache"])
-        .args(scratch.cache_args())
-        .output()
-        .expect("run flux");
-    let _ = std::fs::remove_file(&path);
-    (
-        String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
-        String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n"),
-        output.status.success(),
-    )
+    let ran = flux_source(&source, "vm_http_client").run();
+    (ran.stdout, ran.stderr, ran.success)
 }
 
 fn raw_server_source(port: u16, server_body: &str, client_body: &str) -> String {
@@ -120,7 +79,7 @@ fn spawn_one_response_server(port: u16, response: &'static [u8]) -> std::thread:
 #[test]
 #[ignore = "network integration test — run locally with: cargo test --test vm_http_client -- --include-ignored"]
 fn get_returns_response_fields_from_local_server() {
-    let port = next_port();
+    let port = free_port();
     let source = raw_server_source(
         port,
         r#"
@@ -146,7 +105,7 @@ fn get_returns_response_fields_from_local_server() {
 #[test]
 #[ignore = "network integration test — run locally with: cargo test --test vm_http_client -- --include-ignored"]
 fn post_sends_body_and_returns_response() {
-    let port = next_port();
+    let port = free_port();
     let source = raw_server_source(
         port,
         r#"
@@ -177,7 +136,7 @@ fn post_sends_body_and_returns_response() {
 #[test]
 #[ignore = "network integration test — run locally with: cargo test --test vm_http_client -- --include-ignored"]
 fn request_writes_custom_headers() {
-    let port = next_port();
+    let port = free_port();
     let source = raw_server_source(
         port,
         r#"
@@ -200,7 +159,7 @@ fn request_writes_custom_headers() {
 #[test]
 #[ignore = "network integration test — run locally with: cargo test --test vm_http_client -- --include-ignored"]
 fn malformed_response_returns_protocol_failure() {
-    let port = next_port();
+    let port = free_port();
     let handle = spawn_one_response_server(port, b"NOPE\r\n\r\n");
     let source = format!(
         r#"
@@ -228,7 +187,7 @@ fn main() with IO {{
 #[test]
 #[ignore = "network integration test — run locally with: cargo test --test vm_http_client -- --include-ignored"]
 fn chunked_response_body_is_decoded() {
-    let port = next_port();
+    let port = free_port();
     let source = raw_server_source(
         port,
         r#"

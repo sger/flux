@@ -6,21 +6,13 @@
 
 #[path = "../support/flux_runner.rs"]
 mod flux_runner;
-use std::net::TcpListener;
+use flux_runner::scratch::free_port;
 use std::time::Duration;
 
 // Bind to port 0 to let the OS pick a free port, then release the listener
 // immediately.  There is a small TOCTOU window before the Flux subprocess
 // binds, but this is acceptable for integration tests and avoids hardcoded
 // port collisions when multiple CI jobs run in parallel.
-fn free_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0")
-        .expect("bind port 0")
-        .local_addr()
-        .expect("local_addr")
-        .port()
-}
-
 fn run_source(source: &str, tag: &str) -> (String, String, bool, Duration) {
     flux_runner::run_flux_timed(source, tag)
 }

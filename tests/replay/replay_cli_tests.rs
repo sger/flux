@@ -12,6 +12,7 @@ use std::process::{Command, Stdio};
 #[path = "../support/scratch.rs"]
 mod scratch;
 use scratch::Scratch;
+use scratch::free_port;
 
 #[derive(Clone, Copy, Debug)]
 enum Backend {
@@ -91,15 +92,6 @@ impl Case {
     fn replay(&self, backend: Backend, tape: &Path, env: &[(&str, &str)]) -> Run {
         self.run(backend, &["--replay", tape.to_str().unwrap()], "", env)
     }
-}
-
-/// A local port nothing listens on right now.
-fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
 }
 
 /// The fixtures whose inputs a test sets up before recording.

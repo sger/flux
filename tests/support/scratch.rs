@@ -117,6 +117,17 @@ pub fn cache_args_for(cache_dir: &Path) -> Vec<String> {
     ]
 }
 
+/// A loopback port nothing listens on right now, chosen by the OS. A counter
+/// from a fixed base is unique only within one process, and nextest runs each
+/// test in its own process, so every test got the same first port.
+#[allow(dead_code)]
+pub fn free_port() -> u16 {
+    std::net::TcpListener::bind(("127.0.0.1", 0))
+        .and_then(|listener| listener.local_addr())
+        .expect("bind a loopback port")
+        .port()
+}
+
 impl Drop for Scratch {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.dir);

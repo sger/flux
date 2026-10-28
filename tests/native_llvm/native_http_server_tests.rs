@@ -2,66 +2,24 @@
 
 #![cfg(feature = "llvm")]
 
-use std::net::TcpListener;
-use std::path::PathBuf;
-use std::process::Command;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
-#[path = "../support/scratch.rs"]
-mod scratch;
-use scratch::Scratch;
-use scratch::workspace_root;
+#[path = "../support/flux_runner.rs"]
+mod flux_runner;
+use flux_runner::flux_source;
+use flux_runner::scratch::free_port;
 
-static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(1);
 static NATIVE_HTTP_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
-fn next_port() -> u16 {
-    // Ask the OS for a free loopback port rather than counting up from a fixed
-    // base. The counter this replaces lived in a `static`, so it was unique
-    // only within one process: under a process-per-test runner such as
-    // cargo-nextest every process handed out the same first port and the tests
-    // collided, failing a different subset each run.
-    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind ephemeral loopback port");
-    listener
-        .local_addr()
-        .expect("read ephemeral loopback port")
-        .port()
-}
-
-fn write_fixture(source: String) -> PathBuf {
-    let id = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
-    let dir = workspace_root()
-        .join("target")
-        .join("test-scratch")
-        .join(format!("flux-native-http-{}-{id}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("create temp dir");
-    let path = dir.join("fixture.flx");
-    std::fs::write(&path, source).expect("write fixture");
-    path
-}
 
 fn run_source(source: String) -> (String, String, bool) {
     let _guard = NATIVE_HTTP_TEST_LOCK
         .get_or_init(|| Mutex::new(()))
         .lock()
         .expect("native HTTP test lock poisoned");
-    let path = write_fixture(source);
-    // Private cache root: `--no-cache` does not isolate native
-    // builds, which write shared artifacts regardless (KI-010).
-    let scratch = Scratch::new("native-llvm");
-    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(workspace_root())
-        .args([path.to_str().unwrap(), "--native", "--no-cache"])
-        .args(scratch.cache_args())
-        .output()
-        .expect("run native flux");
-    let _ = std::fs::remove_file(&path);
-    (
-        String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
-        String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n"),
-        output.status.success(),
-    )
+    let ran = flux_source(&source, "native_http_server_tests")
+        .native()
+        .run();
+    (ran.stdout, ran.stderr, ran.success)
 }
 
 fn lifecycle_source(body: &str) -> String {
@@ -130,7 +88,7 @@ fn body() -> String with Async, AsyncFail {{
 
 #[test]
 fn native_http_serves_one_request() {
-    let port = next_port();
+    let port = free_port();
     let source = basic_source(
         port,
         65_536,
@@ -154,7 +112,7 @@ fn handler(req) with Async {
 
 #[test]
 fn native_http_keep_alive_serves_two_pipelined_requests() {
-    let port = next_port();
+    let port = free_port();
     let source = basic_source(
         port,
         65_536,
@@ -179,7 +137,7 @@ fn handler(req) with Async {
 
 #[test]
 fn native_http_serves_repeated_browser_style_connections() {
-    let port = next_port();
+    let port = free_port();
     let source = format!(
         r#"
 import Flow.Async exposing (..)
@@ -240,7 +198,7 @@ fn main() with IO {{
 
 #[test]
 fn native_http_malformed_request_returns_400() {
-    let port = next_port();
+    let port = free_port();
     let source = basic_source(
         port,
         65_536,
@@ -264,7 +222,7 @@ fn handler(req) with Async {
 
 #[test]
 fn native_http_oversized_body_returns_413() {
-    let port = next_port();
+    let port = free_port();
     let source = basic_source(
         port,
         65_536,
@@ -291,7 +249,7 @@ fn handler(req) with Async {
 
 #[test]
 fn native_http_oversized_header_returns_413() {
-    let port = next_port();
+    let port = free_port();
     let source = basic_source(
         port,
         24,
@@ -318,7 +276,7 @@ fn handler(req) with Async {
 
 #[test]
 fn native_http_handler_timeout_returns_504() {
-    let port = next_port();
+    let port = free_port();
     let source = basic_source(
         port,
         65_536,
@@ -343,7 +301,7 @@ fn handler(req) with Async {
 
 #[test]
 fn native_http_shutdown_drains_active_handler() {
-    let port = next_port();
+    let port = free_port();
     let source = lifecycle_source(&format!(
         r#"
 fn handler(req) with Async {{
@@ -384,7 +342,7 @@ fn body() -> String with Async, AsyncFail {{
 
 #[test]
 fn native_http_shutdown_now_closes_active_connection() {
-    let port = next_port();
+    let port = free_port();
     let source = lifecycle_source(&format!(
         r#"
 fn handler(req) with Async {{
@@ -429,7 +387,7 @@ fn body() -> String with Async, AsyncFail {{
 
 #[test]
 fn native_http_streaming_response_writes_chunked_frames() {
-    let port = next_port();
+    let port = free_port();
     let source = lifecycle_source(&format!(
         r#"
 fn handler(req) with Async {{
@@ -471,7 +429,7 @@ fn body() -> String with Async, AsyncFail {{
 
 #[test]
 fn native_http_sse_response_emits_frames() {
-    let port = next_port();
+    let port = free_port();
     let source = lifecycle_source(&format!(
         r#"
 fn handler(req) with Async {{
@@ -515,7 +473,7 @@ fn body() -> String with Async, AsyncFail {{
 
 #[test]
 fn native_http_shutdown_now_cancels_streaming_response() {
-    let port = next_port();
+    let port = free_port();
     let source = lifecycle_source(&format!(
         r#"
 fn very_late_chunk() {{
