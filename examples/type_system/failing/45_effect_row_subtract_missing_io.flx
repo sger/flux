@@ -10,17 +10,17 @@
 //    |
 // 66 |     run_with_row(io_only)
 //    |     ^^^^^^^^^^^^^^^^^^^^^
-//    |     --------------------- parameter 1 has type `() -> Unit with Console, FileSystem, Stdin, Env`
+//    |     --------------------- parameter 1 has type `() -> Int with Console, FileSystem, Stdin, Env, Process`
 //
 //    |     --------------------- this type mismatch is reported here
 //
 // Note:
-//   expected parameter type: () -> Unit with FileSystem, Stdin, Env
-//   found parameter type: () -> Unit with Console, FileSystem, Stdin, Env
+//   expected parameter type: () -> Int with FileSystem, Stdin, Env, Process
+//   found parameter type: () -> Int with Console, FileSystem, Stdin, Env, Process
 //   the conflicting types meet at this expression
 //
 // Help:
-//   Change parameter 1 to use `() -> Unit with FileSystem, Stdin, Env` consistently.
+//   Change parameter 1 to use `() -> Int with FileSystem, Stdin, Env, Process` consistently.
 //
 //
 // error[E400]: Missing Effect

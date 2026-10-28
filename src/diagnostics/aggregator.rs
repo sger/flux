@@ -334,6 +334,10 @@ impl<'a> DiagnosticsAggregator<'a> {
                 Some(DiagnosticPhase::TypeInference | DiagnosticPhase::TypeCheck) => {
                     has_parse_errors
                 }
+                // Type inference's effect-row mismatches are tagged Effect so
+                // they don't hide the effect-row check, but they are as
+                // reliable as its other errors.
+                Some(DiagnosticPhase::Effect) if diag.code() == Some("E300") => has_parse_errors,
                 Some(DiagnosticPhase::Effect) => has_parse_errors || has_type_errors,
             };
 
@@ -501,6 +505,7 @@ impl<'a> DiagnosticsAggregator<'a> {
                 .collect::<Vec<_>>();
             let suppressed = suppress_nearby_duplicate_e300(indexed, default_file);
             let (filtered, group_stats) = self.apply_stage_filtering(suppressed);
+            let filtered = prefer_effect_row_errors(filtered);
             let collapsed = self.collapse_parser_cascades(filtered);
             let (compressed, suppressed_repeated_parse_count) =
                 self.compress_repeated_parser_errors(collapsed);
@@ -964,6 +969,39 @@ fn is_generic_parser_cascade(diag: &Diagnostic) -> bool {
                 | "Expected Expression"
                 | "EXPECTED EXPRESSION"
         )
+}
+
+/// Drops an E300 that unification reported for an effect-row mismatch when
+/// the effect-row check (E419–E422) reports the same call: that one names the
+/// effect at fault, where the E300 only shows two rows that differ.
+fn prefer_effect_row_errors(diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
+    let is_effect = |diag: &Diagnostic| diag.phase() == Some(DiagnosticPhase::Effect);
+    let row_errors: Vec<Diagnostic> = diagnostics
+        .iter()
+        .filter(|diag| {
+            is_effect(diag) && matches!(diag.code(), Some("E419" | "E420" | "E421" | "E422"))
+        })
+        .cloned()
+        .collect();
+    if row_errors.is_empty() {
+        return diagnostics;
+    }
+    diagnostics
+        .into_iter()
+        .filter(|diag| {
+            let superseded = is_effect(diag)
+                && diag.code() == Some("E300")
+                && diag.span().is_some_and(|span| {
+                    super::ranking::is_suppressed_by(
+                        &row_errors,
+                        diag.file().unwrap_or_default(),
+                        span,
+                        |_| true,
+                    )
+                });
+            !superseded
+        })
+        .collect()
 }
 
 fn suppress_nearby_duplicate_e300(
