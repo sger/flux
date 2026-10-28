@@ -417,6 +417,54 @@ pub fn with_annotations(source: &str, expected: &[(usize, String)]) -> (String, 
     (text, unplaced)
 }
 
+/// `source` moved from `// expect-error:` lines to `//~` annotations: the
+/// lines go, and with `drop_stderr_block` so does the expected-stderr block,
+/// then each of `reported` (line, code, numbered as in `source`) is annotated
+/// where it lands. An error on a removed line, or one that can't be placed,
+/// is an `Err` naming it.
+pub fn converted_source(
+    source: &str,
+    reported: &[(usize, String)],
+    drop_stderr_block: bool,
+) -> Result<String, String> {
+    let mut kept: Vec<&str> = Vec::new();
+    // `new_line[i]` is where line `i + 1` of `source` ends up, if it stays.
+    let mut new_line: Vec<Option<usize>> = Vec::new();
+    let mut in_stderr_block = false;
+    for line in source.lines() {
+        let comment = line.trim().strip_prefix("//").map(str::trim);
+        let starts_block = comment == Some("parity-expected-stderr-begin");
+        let ends_block = comment == Some("parity-expected-stderr-end");
+        let drop = comment.is_some_and(|c| c.starts_with("expect-error:"))
+            || (drop_stderr_block && (in_stderr_block || starts_block));
+        if starts_block {
+            in_stderr_block = true;
+        }
+        if ends_block {
+            in_stderr_block = false;
+        }
+        if drop {
+            new_line.push(None);
+        } else {
+            kept.push(line);
+            new_line.push(Some(kept.len()));
+        }
+    }
+    let moved = reported
+        .iter()
+        .map(|(line, code)| match new_line.get(line.wrapping_sub(1)).copied().flatten() {
+            Some(at) => Ok((at, code.clone())),
+            None => Err(format!("{code} is reported on line {line}, which the move removes")),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut text = kept.join("\n");
+    if source.ends_with('\n') {
+        text.push('\n');
+    }
+    let (text, unplaced) = with_annotations(&text, &moved);
+    if unplaced.is_empty() { Ok(text) } else { Err(unplaced.join("; ")) }
+}
+
 /// Appends an annotation to `lines[at]`, which then takes no other.
 fn place(lines: &mut [String], free: &mut [bool], at: usize, marker: &str, codes: &[&str]) {
     let line = &mut lines[at];
@@ -839,6 +887,43 @@ mod tests {
         let (text, unplaced) = with_annotations(source, &at(&[(4, "E300")]));
         assert_eq!(text, source);
         assert_eq!(unplaced, ["cannot place E300 for line 4; annotate it by hand"]);
+    }
+
+    #[test]
+    fn converting_drops_the_header_lines_and_annotates_the_shifted_lines() {
+        let source = concat!(
+            "// parity-expected-stderr-begin\n",
+            "// error[E300]: x\n",
+            "// parity-expected-stderr-end\n",
+            "// expect: compile_error\n",
+            "// expect-error: E300\n",
+            "// expect-error: E004\n",
+            "\n",
+            "let a = f(1)\n",
+            "let b = g // why\n",
+            "let c = 3\n",
+        );
+        let reported = at(&[(8, "E300"), (9, "E004")]);
+        let text = converted_source(source, &reported, true).unwrap();
+        assert_eq!(
+            text,
+            "// expect: compile_error\n\nlet a = f(1) //~ E300\nlet b = g // why\nlet c = 3 //~^ E004\n"
+        );
+        assert_eq!(parse_annotations(&text).0, at(&[(3, "E300"), (4, "E004")]));
+
+        // Keeping the block keeps its lines, and the shift is smaller.
+        let kept = converted_source(source, &reported, false).unwrap();
+        assert!(kept.starts_with("// parity-expected-stderr-begin\n"), "{kept}");
+        assert_eq!(parse_annotations(&kept).0, at(&[(6, "E300"), (7, "E004")]));
+    }
+
+    #[test]
+    fn converting_refuses_an_error_on_a_removed_or_crowded_line() {
+        let source = "// expect-error: E300\nx() // a\n";
+        let removed = converted_source(source, &at(&[(1, "E300")]), true).unwrap_err();
+        assert!(removed.contains("which the move removes"), "{removed}");
+        let crowded = converted_source(source, &at(&[(2, "E300")]), true).unwrap_err();
+        assert!(crowded.contains("cannot place E300"), "{crowded}");
     }
 
     #[test]
