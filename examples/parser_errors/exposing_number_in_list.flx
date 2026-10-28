@@ -6,18 +6,17 @@
 //
 // Expected identifier in `exposing` list.
 //
-//   examples/parser_errors/exposing_number_in_list.flx:20:22
+//   examples/parser_errors/exposing_number_in_list.flx:19:22
 //    |
-// 20 | import Foo exposing (42)
+// 19 | import Foo exposing (42)
 //    |                      ^^
 //
 // Hint:
 //   Use `exposing (name1, name2)` to expose specific members.
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E034
 
-import Foo exposing (42)
+import Foo exposing (42) //~ E034
 
 fn main() {}
 

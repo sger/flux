@@ -6,9 +6,9 @@
 //
 // I was expecting `,` or `)` between constructor fields, but I found an identifier.
 //
-//   examples/parser_errors/MultiDeclarationErrors.flx:67:18
+//   examples/parser_errors/MultiDeclarationErrors.flx:63:18
 //    |
-// 67 |         Pair(Int String),
+// 63 |         Pair(Int String),
 //    |                  ^^^^^^
 //
 // Note:
@@ -19,9 +19,9 @@
 //
 // I was expecting a constructor name in this `data` declaration, but I found an integer literal.
 //
-//   examples/parser_errors/MultiDeclarationErrors.flx:68:9
+//   examples/parser_errors/MultiDeclarationErrors.flx:64:9
 //    |
-// 68 |         123
+// 64 |         123
 //    |         ^^^
 //
 // Note:
@@ -32,9 +32,9 @@
 //
 // Missing `:` in effect operation signature. Write it as `op: Type -> Return`.
 //
-//   examples/parser_errors/MultiDeclarationErrors.flx:72:15
+//   examples/parser_errors/MultiDeclarationErrors.flx:68:15
 //    |
-// 72 |         print String -> Unit
+// 68 |         print String -> Unit
 //    |               ^^^^^^
 //
 // Note:
@@ -45,9 +45,9 @@
 //
 // I was expecting `,` or `)` between constructor fields, but I found an identifier.
 //
-//   examples/parser_errors/MultiDeclarationErrors.flx:77:26
+//   examples/parser_errors/MultiDeclarationErrors.flx:73:26
 //    |
-// 77 |     type Result = Ok(Int String) | Err(String)
+// 73 |     type Result = Ok(Int String) | Err(String)
 //    |                          ^^^^^^
 //
 // Note:
@@ -57,23 +57,19 @@
 // Found 4 errors.
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E034
-// expect-error: E034
-// expect-error: E034
-// expect-error: E034
 
 module MultiDeclarationErrors {
     data Pair {
-        Pair(Int String),
-        123
+        Pair(Int String), //~ E034
+        123 //~ E034
     }
 
     effect Console {
-        print String -> Unit
+        print String -> Unit //~ E034
         log: String String -> Unit
         123: Int -> Unit
     }
 
-    type Result = Ok(Int String) | Err(String)
+    type Result = Ok(Int String) | Err(String) //~ E034
 }
 

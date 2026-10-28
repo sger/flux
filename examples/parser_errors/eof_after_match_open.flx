@@ -6,9 +6,9 @@
 //
 // Expected at least one match arm before end of file.
 //
-//   examples/parser_errors/eof_after_match_open.flx:25:25
+//   examples/parser_errors/eof_after_match_open.flx:24:25
 //    |
-// 25 |     let value = match 1 {
+// 24 |     let value = match 1 {
 //    |                         ^
 //    |                         - this match expression starts here
 //
@@ -19,8 +19,7 @@
 //   Write match arms as `match value { pattern -> body, ... }`.
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E034
 
 fn main() -> Unit {
-    let value = match 1 {
+    let value = match 1 { //~ E034
 

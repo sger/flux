@@ -6,11 +6,11 @@
 //
 // This function body needs to start with `{`.
 //
-//   examples/parser_errors/many_independent_errors.flx:72:5
+//   examples/parser_errors/many_independent_errors.flx:69:5
 //    |
-// 71 | fn first(x: Int) -> Int
+// 68 | fn first(x: Int) -> Int
 //    | - `first` starts here
-// 72 |     x + 1
+// 69 |     x + 1
 //    |     ^
 //    |     - This looks like the function body
 //
@@ -25,9 +25,9 @@
 //
 // I was expecting `->` in this match arm, but I found a string literal.
 //
-//   examples/parser_errors/many_independent_errors.flx:76:11
+//   examples/parser_errors/many_independent_errors.flx:73:11
 //    |
-// 76 |         1 "one",
+// 73 |         1 "one",
 //    |           ^^^^^
 //
 // Note:
@@ -41,9 +41,9 @@
 //
 // This `else` branch needs to start with `{`.
 //
-//   examples/parser_errors/many_independent_errors.flx:80:35
+//   examples/parser_errors/many_independent_errors.flx:77:35
 //    |
-// 80 |     let _label = if true { "ok" } else "bad"
+// 77 |     let _label = if true { "ok" } else "bad"
 //    |                                   ^^^^
 //    |                                   ---- `else` starts here
 //
@@ -56,9 +56,6 @@
 // Found 3 errors.
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E034
-// expect-error: E034
-// expect-error: E034
 
 // Several independent parser errors in one file.
 //
@@ -69,15 +66,15 @@
 // The parser should report all recoverable independent errors.
 
 fn first(x: Int) -> Int
-    x + 1
+    x + 1 //~ E034
 
 fn main() -> Unit {
     let value = match 1 {
-        1 "one",
+        1 "one", //~ E034
         _ -> "other",
     }
 
-    let _label = if true { "ok" } else "bad"
+    let _label = if true { "ok" } else "bad" //~ E034
     print(value)
 }
 
