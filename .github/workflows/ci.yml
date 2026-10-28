@@ -25,7 +25,9 @@ jobs:
   # Lint and test are separate jobs because they cannot share build artifacts:
   # clippy's wrapper emits `.rmeta`, not the codegen `cargo test` links. Run in
   # one job they are two near-full builds under a single clock, which is what
-  # exhausted the old 20-minute budget mid-suite.
+  # exhausted the old 20-minute budget mid-suite. Tests still wait for lint:
+  # lint fails in about two minutes, and without the wait a lint failure left
+  # three runners on a 35-minute suite whose result no longer mattered.
   lint:
     name: lint (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -64,6 +66,7 @@ jobs:
 
   test:
     name: test (${{ matrix.os }})
+    needs: lint
     runs-on: ${{ matrix.os }}
     # 60 rather than 45 for the Windows runner, which is slower than the others
     # before any Flux-specific cost, and then pays one more: the archive
