@@ -42,39 +42,6 @@ Severity is about consequence, not effort:
 
 ## Open
 
-### KI-140 — The CLI hides a specific effect-row error behind a generic E300
-
-**Severity:** Low · **Area:** diagnostics, effect rows · **Verified:** 2026-10-28 · **From:** KI-137
-
-```flux
-fn run_filtered(f: (() -> Int with IO - Console)) -> Int with IO - Console { f() }
-
-fn io_console_work() -> Int with IO, Console { 1 }
-
-fn main() with IO { run_filtered(io_console_work) }
-```
-
-The effect-row check finds the real problem: E421, "I cannot subtract
-effect `Console`". The CLI shows only an E300 parameter mismatch instead, and
-that E300 gives the argument a type the program never wrote:
-`() -> Unit with …`, where the function returns `Int`.
-
-- **Why E421 is hidden.** HM inference reports the E300; the E419–E422 checks
-  run later, in the AST compiler (`src/compiler/expression.rs:1846`). The
-  CLI's stage filter drops an effect-phase error when a type error exists
-  (`apply_stage_filtering`, `src/diagnostics/aggregator.rs:305`). `--all-errors`
-  shows both, and so do the in-process tests in
-  `compiler_rules_tests::effects`, which render without the filter.
-- **Why the type is wrong.** A row mismatch inside a function parameter is
-  reported through `UnifyError::effect_row_mismatch`
-  (`src/types/unify_error.rs:42`), which wraps each row in a made-up
-  `() -> Unit with row` type to render it.
-
-The same holds for E422 (an unsatisfied subset). Fixtures:
-`type_system/failing/195_effect_row_invalid_subtract_e300`, `198`, `199`,
-and `compiler_errors/row_effects/invalid_row_subtract_e300`,
-`unsatisfied_row_subset_e300`.
-
 ### KI-138 — Natively, malformed JSON reports a different error from the VM
 
 **Severity:** Low · **Area:** native runtime, Flow.Json · **Verified:** 2026-10-28 · **From:** merging the VM and native JSON tests into one parity fixture
@@ -2247,6 +2214,39 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 ## Resolved
 
+### KI-140 — The CLI hid a specific effect-row error behind a generic E300 — FIXED 2026-10-28
+
+**Severity:** Low · **Area:** diagnostics, effect rows · **Verified fixed:** 2026-10-28 · **From:** KI-137
+
+```flux
+fn run_filtered(f: (() -> Int with IO - Console)) -> Int with IO - Console { f() }
+
+fn io_console_work() -> Int with IO, Console { 1 }
+
+fn main() with IO { run_filtered(io_console_work) }
+```
+
+The effect-row check found the real problem, E421 "I cannot subtract effect
+`Console`", but the CLI showed only an E300 parameter mismatch, with a type
+the program never wrote: `() -> Unit with …` for a function returning `Int`.
+
+- **The type.** Unification reports a row mismatch by wrapping each row in a
+  made-up `() -> Unit with row` (`UnifyError::effect_row_mismatch`), and the
+  function-parameter wrap kept those instead of the parameter types.
+- **The hidden error.** That E300 counted as a type error, and the CLI's
+  stage filter hides every effect-phase error when a type error exists.
+
+**The fix.** A row mismatch is flagged on `UnifyError`, and a parameter
+mismatch caused by one reports the real parameter types. Its E300 is tagged
+with the effect phase, so it no longer hides the effect-row check; the
+aggregator drops it when an E419–E422 covers the same call
+(`prefer_effect_row_errors`). Where no effect-row error applies, the E300
+stays, with the real types (`type_system/failing/45`, `201`).
+
+Tests: `test_runner_cli::examples_manifest::*_ki140`; the fixtures are now
+`195_…_e421`, `198_…_e422`, `199_…_e422` and
+`row_effects/invalid_row_subtract_e421`, `unsatisfied_row_subset_e422`.
+
 ### KI-137 — Twenty failing fixtures were named for an error code the CLI does not report — FIXED 2026-10-28
 
 **Severity:** Low · **Area:** diagnostics, test fixtures · **Verified fixed:** 2026-10-28, by `cargo xtask tidy` · **From:** the test-suite review
@@ -2260,7 +2260,7 @@ code it is named for:
 
 | Was named for | Now | Fixtures |
 |---|---|---|
-| E421, E422 | `_e300` | `type_system/failing/195`, `198`, `199`; `row_effects/invalid_row_subtract`, `unsatisfied_row_subset`. The hidden E42x is KI-140 |
+| E421, E422 | `_e300` | `type_system/failing/195`, `198`, `199`; `row_effects/invalid_row_subtract`, `unsatisfied_row_subset`. Since KI-140 they report E421/E422 and are named for them |
 | E420 | `_e304` | `type_system/failing/197`; `row_effects/unresolved_row_subtract_multi` |
 | E1004 | `_e300` | `type_system/failing/185`–`188`, `190`: the mismatch is caught at compile time |
 | E425 | `_e004` | `type_system/failing/154`, `155`, `156`, `162`, `168`, without `strict` in the name; `compiler_rules_tests` covers the strict E425 in process |
