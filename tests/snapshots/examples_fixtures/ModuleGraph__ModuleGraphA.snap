@@ -9,9 +9,9 @@ error[E024]: Module Path Mismatch
 
 Module name `ModuleGraph.ModuleGraphA` doesn't match file path `examples/ModuleGraph/ModuleGraphA.flx`.
 
-  examples/ModuleGraph/ModuleGraphA.flx:6:1
+  examples/ModuleGraph/ModuleGraphA.flx:5:1
   |
-6 | module ModuleGraph.ModuleGraphA {
+5 | module ModuleGraph.ModuleGraphA {
   | ^
 
 Hint:

@@ -1,7 +1,6 @@
 // expect: compile_error
-// expect-error: E018
 
 // Entry point for reproducing const-eval divide-by-zero crash.
-import ModuleGraph.ConstDivideByZero
+import ModuleGraph.ConstDivideByZero //~ E018
 
 print(ModuleGraph.ConstDivideByZero.value());
