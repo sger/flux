@@ -42,6 +42,49 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-143 — A duplicate instance also reports a duplicate internal name, with no location
+
+**Severity:** Low · **Area:** diagnostics, type classes · **Verified:** 2026-10-28 · **From:** moving `examples/compiler_errors` to `//~` annotations (proposal 0191)
+
+```flux
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sizeable<Int> {
+    fn size(x) { x }
+}
+
+instance Sizeable<Int> {
+    fn size(x) { x + 1 }
+}
+
+fn main() {
+    42
+}
+```
+
+The CLI reports the right error, E443 "Duplicate instance for
+`Sizeable<Int>`" at the second instance, and then a second one:
+
+```
+error[E001]: Duplicate Name
+
+Duplicate binding: `__tc_Sizeable_Int_size` is already defined.
+
+  examples/compiler_errors/duplicate_instance.flx:0:1
+```
+
+It names a function the compiler generates for the instance's method, which
+the user never wrote, and points at line 0. It is a follow-on of the E443:
+both instances still define their method, so the generated name is bound
+twice. The duplicate instance should stop the second definition, or its
+E001 should be dropped.
+
+`examples/compiler_errors/duplicate_instance.flx` pins both errors today
+(`expect-error: E443` and `E001`), so it stays on `expect-error:`; a `//~`
+annotation can't point at line 0.
+
 ### KI-141 — A test's port can be taken between `free_port()` and the bind
 
 **Severity:** Low · **Area:** tests, networking · **Verified:** 2026-10-28, by reading the code; the failure was not reproduced · **From:** a one-off failure of `vm_http_server::shutdown_now_cancels_active_connection` in a full `cargo test-all`
