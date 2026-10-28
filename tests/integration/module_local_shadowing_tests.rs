@@ -11,8 +11,6 @@
 
 use std::process::Command;
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::flux_runner;
 use flux_runner::scratch::Scratch;
 use flux_runner::workspace_root;
