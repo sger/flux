@@ -310,7 +310,7 @@ path = "tests/vm_runtime/contextual_instance_runtime_tests.rs"
 
 [[test]]
 name = "stackless_drop_native"
-path = "tests/vm_runtime/stackless_drop_native.rs"
+path = "tests/native_llvm/stackless_drop_native.rs"
 
 [[test]]
 name = "runtime_list_index_tests"
