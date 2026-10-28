@@ -24,18 +24,12 @@ pub struct JsonError {
 
 impl JsonError {
     fn new(path: impl Into<String>, message: impl Into<String>) -> Self {
-        Self {
-            path: path.into(),
-            message: message.into(),
-        }
+        Self { path: path.into(), message: message.into() }
     }
 }
 
 pub fn parse(input: &str) -> Result<JsonValue, JsonError> {
-    let mut parser = Parser {
-        input: input.as_bytes(),
-        pos: 0,
-    };
+    let mut parser = Parser { input: input.as_bytes(), pos: 0 };
     let value = parser.parse_value("$")?;
     parser.skip_ws();
     if parser.pos != parser.input.len() {
@@ -264,9 +258,7 @@ impl Parser<'_> {
         if integral && let Ok(n) = raw.parse::<i64>() {
             return Ok(JsonNumber::Int(n));
         }
-        let n = raw
-            .parse::<f64>()
-            .map_err(|_| JsonError::new(path, "invalid number"))?;
+        let n = raw.parse::<f64>().map_err(|_| JsonError::new(path, "invalid number"))?;
         if !n.is_finite() {
             return Err(JsonError::new(path, "number is out of range"));
         }
@@ -312,10 +304,7 @@ fn object_path(parent: &str, key: &str) -> String {
     if key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
         format!("{parent}.{key}")
     } else {
-        format!(
-            "{parent}[{}]",
-            stringify(&JsonValue::String(key.to_string()))
-        )
+        format!("{parent}[{}]", stringify(&JsonValue::String(key.to_string())))
     }
 }
 
@@ -371,11 +360,7 @@ fn write_string(s: &str, out: &mut String) {
 }
 
 fn format_number(n: f64) -> String {
-    if n.fract() == 0.0 && n.abs() < 1e21 {
-        format!("{n:.0}")
-    } else {
-        format!("{n}")
-    }
+    if n.fract() == 0.0 && n.abs() < 1e21 { format!("{n:.0}") } else { format!("{n}") }
 }
 
 #[cfg(test)]
@@ -385,10 +370,7 @@ mod tests {
     #[test]
     fn integer_numbers_parse_and_stringify_losslessly() {
         let value = parse("9007199254740993").expect("parse large integer");
-        assert_eq!(
-            value,
-            JsonValue::Number(JsonNumber::Int(9_007_199_254_740_993))
-        );
+        assert_eq!(value, JsonValue::Number(JsonNumber::Int(9_007_199_254_740_993)));
         assert_eq!(stringify(&value), "9007199254740993");
     }
 

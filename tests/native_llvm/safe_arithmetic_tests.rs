@@ -17,14 +17,8 @@ const FIXTURE: &str = "safe_arithmetic.flx";
 fn safe_div_returns_some_on_valid_input() {
     let (stdout, success) = run_native(FIXTURE);
     assert!(success, "native backend failed:\n{stdout}");
-    assert!(
-        stdout.contains("Some(3)"),
-        "safe_div(10, 3) should be Some(3)"
-    );
-    assert!(
-        stdout.contains("Some(-5)"),
-        "safe_div(-15, 3) should be Some(-5)"
-    );
+    assert!(stdout.contains("Some(3)"), "safe_div(10, 3) should be Some(3)");
+    assert!(stdout.contains("Some(-5)"), "safe_div(-15, 3) should be Some(-5)");
 }
 
 #[test]
@@ -40,10 +34,7 @@ fn safe_div_returns_none_on_zero() {
 fn safe_mod_returns_some_on_valid_input() {
     let (stdout, success) = run_native(FIXTURE);
     assert!(success, "native backend failed:\n{stdout}");
-    assert!(
-        stdout.contains("Some(1)"),
-        "safe_mod(10, 3) should be Some(1)"
-    );
+    assert!(stdout.contains("Some(1)"), "safe_mod(10, 3) should be Some(1)");
 }
 
 #[test]
@@ -59,14 +50,8 @@ fn safe_mod_returns_none_on_zero() {
 fn safe_div_pattern_matching_works() {
     let (stdout, success) = run_native(FIXTURE);
     assert!(success, "native backend failed:\n{stdout}");
-    assert!(
-        stdout.contains("100/4 = 25"),
-        "pattern matching on Some should work"
-    );
-    assert!(
-        stdout.contains("division by zero handled"),
-        "pattern matching on None should work"
-    );
+    assert!(stdout.contains("100/4 = 25"), "pattern matching on Some should work");
+    assert!(stdout.contains("division by zero handled"), "pattern matching on None should work");
 }
 
 #[test]

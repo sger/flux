@@ -14,14 +14,9 @@ fn build_mixed_syntax_corpus() -> String {
 
     for i in 0..2_000usize {
         let _ = writeln!(src, "let value_{i} = {} + {} * ({} - 1);", i, i + 1, i + 2);
-        let _ = writeln!(
-            src,
-            "if value_{i} >= 10 && value_{i} != 42 {{ value_{i}; }} else {{ 0; }}",
-        );
-        let _ = writeln!(
-            src,
-            "{{ let nested_{i} = [1, 2, 3, value_{i}]; nested_{i}[0]; }}"
-        );
+        let _ =
+            writeln!(src, "if value_{i} >= 10 && value_{i} != 42 {{ value_{i}; }} else {{ 0; }}",);
+        let _ = writeln!(src, "{{ let nested_{i} = [1, 2, 3, value_{i}]; nested_{i}[0]; }}");
     }
 
     src
@@ -77,22 +72,10 @@ fn build_string_heavy_corpus() -> String {
 
 fn build_corpora() -> Vec<Corpus> {
     vec![
-        Corpus {
-            name: "mixed_syntax",
-            source: build_mixed_syntax_corpus(),
-        },
-        Corpus {
-            name: "comment_heavy",
-            source: build_comment_heavy_corpus(),
-        },
-        Corpus {
-            name: "identifier_heavy",
-            source: build_identifier_heavy_corpus(),
-        },
-        Corpus {
-            name: "string_escape_interp_heavy",
-            source: build_string_heavy_corpus(),
-        },
+        Corpus { name: "mixed_syntax", source: build_mixed_syntax_corpus() },
+        Corpus { name: "comment_heavy", source: build_comment_heavy_corpus() },
+        Corpus { name: "identifier_heavy", source: build_identifier_heavy_corpus() },
+        Corpus { name: "string_escape_interp_heavy", source: build_string_heavy_corpus() },
     ]
 }
 
@@ -125,16 +108,12 @@ fn bench_lexer_tokenize(c: &mut Criterion) {
     for corpus in &corpora {
         let input = corpus.source.as_str();
         group.throughput(Throughput::Bytes(input.as_bytes().len() as u64));
-        group.bench_with_input(
-            BenchmarkId::from_parameter(corpus.name),
-            input,
-            |b, input| {
-                b.iter(|| {
-                    let token_count = lex_with_tokenize(black_box(input));
-                    black_box(token_count);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(corpus.name), input, |b, input| {
+            b.iter(|| {
+                let token_count = lex_with_tokenize(black_box(input));
+                black_box(token_count);
+            });
+        });
     }
 
     group.finish();
@@ -148,16 +127,12 @@ fn bench_lexer_next_token_loop(c: &mut Criterion) {
     for corpus in &corpora {
         let input = corpus.source.as_str();
         group.throughput(Throughput::Bytes(input.as_bytes().len() as u64));
-        group.bench_with_input(
-            BenchmarkId::from_parameter(corpus.name),
-            input,
-            |b, input| {
-                b.iter(|| {
-                    let token_count = lex_with_next_token_loop(black_box(input));
-                    black_box(token_count);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(corpus.name), input, |b, input| {
+            b.iter(|| {
+                let token_count = lex_with_next_token_loop(black_box(input));
+                black_box(token_count);
+            });
+        });
     }
 
     group.finish();

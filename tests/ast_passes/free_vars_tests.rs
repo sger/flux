@@ -5,11 +5,7 @@ fn parse(input: &str) -> (Program, flux::syntax::interner::Interner) {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "Parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "Parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     (program, interner)
 }
@@ -17,10 +13,7 @@ fn parse(input: &str) -> (Program, flux::syntax::interner::Interner) {
 fn free_var_names(input: &str) -> Vec<String> {
     let (program, interner) = parse(input);
     let free = collect_free_vars_in_program(&program);
-    let mut names: Vec<String> = free
-        .iter()
-        .map(|s| interner.resolve(*s).to_string())
-        .collect();
+    let mut names: Vec<String> = free.iter().map(|s| interner.resolve(*s).to_string()).collect();
     names.sort();
     names
 }
@@ -33,10 +26,7 @@ fn free_var_names_expr(input: &str) -> Vec<String> {
         _ => panic!("Expected expression statement"),
     };
     let free = collect_free_vars(expr);
-    let mut names: Vec<String> = free
-        .iter()
-        .map(|s| interner.resolve(*s).to_string())
-        .collect();
+    let mut names: Vec<String> = free.iter().map(|s| interner.resolve(*s).to_string()).collect();
     names.sort();
     names
 }

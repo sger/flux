@@ -86,9 +86,7 @@ impl Summary<'_> {
             .map(|(feature, share)| (feature.to_string(), share))
             .collect();
         weak.sort_by(|a, b| {
-            a.1.percent()
-                .partial_cmp(&b.1.percent())
-                .unwrap_or(std::cmp::Ordering::Equal)
+            a.1.percent().partial_cmp(&b.1.percent()).unwrap_or(std::cmp::Ordering::Equal)
         });
         weak
     }
@@ -122,11 +120,7 @@ impl Summary<'_> {
             let _ = write!(header, "{:>15}", class.name());
         }
         // Pad before painting: colour codes would count towards the width.
-        let _ = writeln!(
-            text,
-            "{}",
-            paint.bold(&format!("{header}{:>11}", "supported"))
-        );
+        let _ = writeln!(text, "{}", paint.bold(&format!("{header}{:>11}", "supported")));
         for way in &self.census.ways {
             let mut line = format!("{way:<10}");
             for class in classes {
@@ -144,9 +138,7 @@ impl Summary<'_> {
                 line.push_str(&cell);
             }
             let share = self.way_share(way);
-            let percent = share
-                .percent()
-                .map_or("-".to_string(), |p| format!("{p:.1}%"));
+            let percent = share.percent().map_or("-".to_string(), |p| format!("{p:.1}%"));
             let _ = writeln!(text, "{line}{}", paint.bold(&format!("{percent:>11}")));
         }
     }
@@ -157,11 +149,8 @@ impl Summary<'_> {
             if weak.is_empty() {
                 continue;
             }
-            let _ = writeln!(
-                text,
-                "\n{}",
-                paint.bold(&format!("{title} (ok share over every way):"))
-            );
+            let _ =
+                writeln!(text, "\n{}", paint.bold(&format!("{title} (ok share over every way):")));
             for (feature, share) in weak.iter().take(WEAKEST) {
                 let _ = writeln!(
                     text,
@@ -178,28 +167,16 @@ impl Summary<'_> {
     /// Failures, how many are filed, backend gaps, the change since the base,
     /// and where the files are.
     fn totals(&self, paint: Paint, text: &mut String) {
-        let failures = self
-            .census
-            .entries
-            .iter()
-            .filter(|e| e.row.class.is_failure())
-            .count();
+        let failures = self.census.entries.iter().filter(|e| e.row.class.is_failure()).count();
         let unfiled = self.census.unfiled().count();
-        let resolved = self
-            .census
-            .unfiled()
-            .filter(|e| matches!(e.filed, Filed::Resolved(_)))
-            .count();
+        let resolved =
+            self.census.unfiled().filter(|e| matches!(e.filed, Filed::Resolved(_))).count();
         let _ = writeln!(text);
         let _ = writeln!(
             text,
             "failures: {failures} · with an open KI: {} · unfiled: {} (cited only by a resolved KI: {resolved})",
             failures - unfiled,
-            if unfiled == 0 {
-                paint.green("0")
-            } else {
-                paint.red(&unfiled.to_string())
-            }
+            if unfiled == 0 { paint.green("0") } else { paint.red(&unfiled.to_string()) }
         );
         let _ = writeln!(
             text,
@@ -269,9 +246,7 @@ fn html_cards(page: &mut String, summary: &Summary<'_>) {
     page.push_str("<section class=cards>");
     for way in &census.ways {
         let share = summary.way_share(way);
-        let percent = share
-            .percent()
-            .map_or("–".to_string(), |p| format!("{p:.1}%"));
+        let percent = share.percent().map_or("–".to_string(), |p| format!("{p:.1}%"));
         let _ = write!(
             page,
             "<div class=card><div class=way>{}</div><div class=big>{percent}</div>\
@@ -321,15 +296,10 @@ fn html_matrix(
         let _ = write!(page, "<th>{}</th>", escape(way));
     }
     page.push_str("</tr></thead><tbody>");
-    for (feature, cells) in matrix
-        .iter()
-        .filter(|(feature, _)| feature.starts_with("dir:") == directories)
+    for (feature, cells) in
+        matrix.iter().filter(|(feature, _)| feature.starts_with("dir:") == directories)
     {
-        let _ = write!(
-            page,
-            "<tr><th>{}</th>",
-            escape(feature.trim_start_matches("dir:"))
-        );
+        let _ = write!(page, "<tr><th>{}</th>", escape(feature.trim_start_matches("dir:")));
         for way in &census.ways {
             let mut share = Share::default();
             let mut tip = Vec::new();
@@ -394,11 +364,7 @@ fn html_by_directory(page: &mut String, census: &Census) {
     page.push_str("<section><h2>Failures by directory</h2>");
     let mut by_dir: BTreeMap<&str, Vec<&Entry>> = BTreeMap::new();
     for e in census.entries.iter().filter(|e| e.row.class.is_failure()) {
-        let dir = e
-            .features
-            .iter()
-            .find_map(|f| f.strip_prefix("dir:"))
-            .unwrap_or("?");
+        let dir = e.features.iter().find_map(|f| f.strip_prefix("dir:")).unwrap_or("?");
         by_dir.entry(dir).or_default().push(e);
     }
     for (dir, entries) in by_dir {
@@ -418,11 +384,7 @@ fn list(page: &mut String, title: &str, items: &[String]) {
     if items.is_empty() {
         return;
     }
-    let _ = write!(
-        page,
-        "<details><summary>{title} ({})</summary><ul>",
-        items.len()
-    );
+    let _ = write!(page, "<details><summary>{title} ({})</summary><ul>", items.len());
     for item in items {
         let _ = write!(page, "<li>{}</li>", escape(item));
     }
@@ -504,12 +466,7 @@ mod tests {
     #[test]
     fn a_share_counts_ok_and_failed_runs_only() {
         let mut share = Share::default();
-        for class in [
-            Class::Works,
-            Class::ExpectedError,
-            Class::Crashed,
-            Class::NotRun,
-        ] {
+        for class in [Class::Works, Class::ExpectedError, Class::Crashed, Class::NotRun] {
             share.add(class);
         }
         assert_eq!(share, Share { ok: 2, failed: 1 });

@@ -39,10 +39,7 @@ fn the_transparent_alias_fixture_runs_and_prints_its_sum() {
     let fixture =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/parity/type_alias_transparent.flx");
     let out = run(&fixture);
-    assert!(
-        out.contains("67"),
-        "expected the fixture to print 67, got:\n{out}"
-    );
+    assert!(out.contains("67"), "expected the fixture to print 67, got:\n{out}");
 }
 
 /// An alias whose *body* carries a row: the row only exists in the AST once the

@@ -20,12 +20,7 @@ impl Frame {
         base_pointer: usize,
         return_slot: usize,
     ) -> Self {
-        Self {
-            closure,
-            ip: 0,
-            base_pointer,
-            return_slot,
-        }
+        Self { closure, ip: 0, base_pointer, return_slot }
     }
 
     pub fn instructions(&self) -> &Instructions {

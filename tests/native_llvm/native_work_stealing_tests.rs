@@ -103,11 +103,8 @@ fn main() with IO {
     print(run_async(body))
 }
 "#;
-    let (stdout, stderr, ok) = run_source_with_env(
-        source,
-        "race_fifo_round_robin",
-        &[("FLUX_WORK_STEALING", "0")],
-    );
+    let (stdout, stderr, ok) =
+        run_source_with_env(source, "race_fifo_round_robin", &[("FLUX_WORK_STEALING", "0")]);
     assert!(
         ok,
         "race must succeed under round-robin fallback:\nstdout:\n{stdout}\nstderr:\n{stderr}"
@@ -147,10 +144,7 @@ fn main() with IO {
 }
 "#;
     let (stdout, stderr, ok) = run_source_with_env(source, "many_fibers", &[]);
-    assert!(
-        ok,
-        "many concurrent fibers must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(ok, "many concurrent fibers must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert_eq!(stdout.trim(), "16");
 }
 

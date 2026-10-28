@@ -22,20 +22,14 @@ impl<'a> InferCtx<'a> {
             let ty = self.infer_expression(element);
             self.unify_reporting(&first, &ty, span);
         }
-        InferType::App(
-            TypeConstructor::List,
-            vec![first.apply_type_subst(&self.subst)],
-        )
+        InferType::App(TypeConstructor::List, vec![first.apply_type_subst(&self.subst)])
     }
 
     /// Infer array literals, recovering heterogeneous element sets with a fresh
     /// element variable.
     pub(super) fn infer_array_literal_expression(&mut self, elements: &[Expression]) -> InferType {
         if elements.is_empty() {
-            return InferType::App(
-                TypeConstructor::Array,
-                vec![self.env.alloc_infer_type_var()],
-            );
+            return InferType::App(TypeConstructor::Array, vec![self.env.alloc_infer_type_var()]);
         }
         let first = self.infer_expression(&elements[0]);
         let mut heterogeneous = false;
@@ -76,10 +70,7 @@ impl<'a> InferCtx<'a> {
         }
         InferType::App(
             TypeConstructor::Map,
-            vec![
-                key_ty.apply_type_subst(&self.subst),
-                value_ty.apply_type_subst(&self.subst),
-            ],
+            vec![key_ty.apply_type_subst(&self.subst), value_ty.apply_type_subst(&self.subst)],
         )
     }
 

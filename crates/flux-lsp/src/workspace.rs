@@ -390,12 +390,7 @@ impl Workspace {
             .topo_order()
             .iter()
             .filter(|node| node.kind == ModuleKind::User)
-            .map(|node| {
-                (
-                    node.path.clone(),
-                    module_name_of(&node.program, &build.interner),
-                )
-            })
+            .map(|node| (node.path.clone(), module_name_of(&node.program, &build.interner)))
             .collect();
 
         if user_nodes.len() <= 1 {
@@ -446,22 +441,14 @@ impl Workspace {
         let mut members: Vec<FileId> = Vec::new();
         for (fid, mut snapshot, _, _) in built {
             for (name, program) in &user_modules {
-                snapshot
-                    .module_programs
-                    .entry(name.clone())
-                    .or_insert_with(|| program.clone());
+                snapshot.module_programs.entry(name.clone()).or_insert_with(|| program.clone());
             }
             self.snapshots.insert(fid, Arc::new(snapshot));
             members.push(fid);
         }
 
-        self.components.insert(
-            entry_id,
-            GraphComponent {
-                entry: entry_id,
-                members: members.clone(),
-            },
-        );
+        self.components
+            .insert(entry_id, GraphComponent { entry: entry_id, members: members.clone() });
         members
     }
 
@@ -514,12 +501,9 @@ impl Workspace {
     pub fn member_doc(&self, module_key: &str, member: &str) -> Option<String> {
         if let Some(prelude) = self.prelude.as_ref()
             && let Some(doc) =
-                prelude
-                    .module_programs
-                    .get(module_key)
-                    .and_then(|(program, _, _)| {
-                        crate::doc_comments::member_doc(program, &prelude.compiler.interner, member)
-                    })
+                prelude.module_programs.get(module_key).and_then(|(program, _, _)| {
+                    crate::doc_comments::member_doc(program, &prelude.compiler.interner, member)
+                })
         {
             return Some(doc);
         }
@@ -541,11 +525,7 @@ impl Workspace {
         if self.prelude.is_some() {
             return;
         }
-        if let Some(start) = self
-            .project_root
-            .clone()
-            .or_else(|| self.roots.first().cloned())
-        {
+        if let Some(start) = self.project_root.clone().or_else(|| self.roots.first().cloned()) {
             self.prelude = Some(Prelude::try_load_from(&start));
         }
     }
@@ -673,9 +653,9 @@ impl Workspace {
 fn participates_in_graph(program: &Program, interner: &Interner) -> bool {
     program.statements.iter().any(|stmt| match stmt {
         Statement::Module { .. } => true,
-        Statement::Import { name, .. } => interner
-            .try_resolve(*name)
-            .is_some_and(|n| !n.starts_with("Flow")),
+        Statement::Import { name, .. } => {
+            interner.try_resolve(*name).is_some_and(|n| !n.starts_with("Flow"))
+        }
         _ => false,
     })
 }

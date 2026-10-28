@@ -15,16 +15,10 @@ impl Compiler {
         self.deferred_lowering_error = None;
         let mut program = program.clone();
         self.apply_named_field_desugar(&mut program);
-        let class_env_ref = if self.class_env.classes.is_empty() {
-            None
-        } else {
-            Some(&self.class_env)
-        };
+        let class_env_ref =
+            if self.class_env.classes.is_empty() { None } else { Some(&self.class_env) };
         let mut pre_pass_core = None;
-        let capture = self
-            .debug_level()
-            .is_enabled()
-            .then_some(&mut pre_pass_core);
+        let capture = self.debug_level().is_enabled().then_some(&mut pre_pass_core);
         let (mut ir_program, fbip_warnings) = match lower_program_to_ir_typed(
             &program,
             &self.hm_expr_types,

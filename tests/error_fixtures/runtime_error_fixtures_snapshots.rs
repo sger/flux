@@ -15,11 +15,7 @@ fn normalize_cli_text(text: &str, workspace_root: &Path) -> String {
     // Strip non-deterministic thread IDs from panic messages:
     // "thread 'main' (1234567)" → "thread 'main'"
     let normalized = strip_thread_ids(&normalized);
-    let lines = normalized
-        .lines()
-        .map(str::trim_end)
-        .collect::<Vec<_>>()
-        .join("\n");
+    let lines = normalized.lines().map(str::trim_end).collect::<Vec<_>>().join("\n");
     lines.trim().to_string()
 }
 
@@ -62,11 +58,7 @@ fn run_flux_file(
     file: &str,
     native: bool,
 ) -> (i32, String, String) {
-    let mut args = vec![
-        "--no-cache".to_string(),
-        "--no-strict".to_string(),
-        file.to_string(),
-    ];
+    let mut args = vec!["--no-cache".to_string(), "--no-strict".to_string(), file.to_string()];
     if native {
         args.push("--native".to_string());
     }
@@ -123,18 +115,12 @@ fn snapshot_runtime_dir(fixtures_rel: &str, snapshot_dir: &str) {
     let fixtures_root = workspace_root.join(fixtures_rel);
     let fixtures = examples_snapshot::discover_fixtures(&fixtures_root);
 
-    assert!(
-        !fixtures.is_empty(),
-        "no .flx fixtures found under `{}`",
-        fixtures_root.display()
-    );
+    assert!(!fixtures.is_empty(), "no .flx fixtures found under `{}`", fixtures_root.display());
 
-    for fixture in fixtures.into_iter().filter(|fixture| {
-        !fixture
-            .to_string_lossy()
-            .replace('\\', "/")
-            .contains("/RuntimeErrors/")
-    }) {
+    for fixture in fixtures
+        .into_iter()
+        .filter(|fixture| !fixture.to_string_lossy().replace('\\', "/").contains("/RuntimeErrors/"))
+    {
         let rel = fixture
             .strip_prefix(workspace_root)
             .unwrap_or(&fixture)
@@ -155,18 +141,12 @@ fn snapshot_runtime_dir(fixtures_rel: &str, snapshot_dir: &str) {
 
 #[test]
 fn runtime_error_fixtures_snapshot() {
-    snapshot_runtime_dir(
-        "examples/runtime_errors",
-        "../snapshots/runtime_error_fixtures",
-    );
+    snapshot_runtime_dir("examples/runtime_errors", "../snapshots/runtime_error_fixtures");
 }
 
 #[test]
 fn generics_runtime_fixtures_snapshot() {
-    snapshot_runtime_dir(
-        "examples/generics/failing/runtime",
-        "../snapshots/generics_runtime",
-    );
+    snapshot_runtime_dir("examples/generics/failing/runtime", "../snapshots/generics_runtime");
 }
 
 /// The type checker now catches boundary argument mismatches at compile time

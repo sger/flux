@@ -38,10 +38,7 @@ fn main() with IO {
         success,
         "check_cancelled() program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    assert!(
-        stdout.contains("ok"),
-        "expected 'ok' on stdout, got: {stdout:?}"
-    );
+    assert!(stdout.contains("ok"), "expected 'ok' on stdout, got: {stdout:?}");
     assert!(
         elapsed < Duration::from_secs(5),
         "elapsed {elapsed:?} too long — flag check should be ~instant"
@@ -85,8 +82,5 @@ fn main() with IO {
         elapsed < Duration::from_secs(5),
         "elapsed {elapsed:?} too long — dispatch loop likely stuck"
     );
-    assert!(
-        stdout.contains("done"),
-        "expected 'done' on stdout, got: {stdout:?}"
-    );
+    assert!(stdout.contains("done"), "expected 'done' on stdout, got: {stdout:?}");
 }

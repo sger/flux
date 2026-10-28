@@ -108,18 +108,12 @@ impl Phase {
             Phase::Core => &["core"],
             Phase::Aether => &["aether"],
             Phase::Bytecode => &["cfg", "bytecode"],
-            Phase::Vm => &[
-                "vm",
-                "runtime",
-                "driver::run_program::backend::vm",
-                "driver::pipeline::vm",
-            ],
-            Phase::Llvm => &[
-                "lir",
-                "llvm",
-                "driver::run_program::backend::native",
-                "driver::pipeline::native",
-            ],
+            Phase::Vm => {
+                &["vm", "runtime", "driver::run_program::backend::vm", "driver::pipeline::vm"]
+            }
+            Phase::Llvm => {
+                &["lir", "llvm", "driver::run_program::backend::native", "driver::pipeline::native"]
+            }
             Phase::Debug => &["debuginfo", "debug_protocol"],
             Phase::Diagnostics => &["diagnostics"],
             Phase::Effects
@@ -178,16 +172,11 @@ impl Repo {
         let prefix = format!("{workspace_root}/");
         let relative = |path: &str| path.strip_prefix(&prefix).unwrap_or(path).to_string();
         let mut repo = Repo::default();
-        for package in metadata
-            .get("packages")
-            .and_then(Value::as_array)
-            .map_or(&[][..], Vec::as_slice)
+        for package in
+            metadata.get("packages").and_then(Value::as_array).map_or(&[][..], Vec::as_slice)
         {
             let name = package.get("name").and_then(Value::as_str).unwrap_or("");
-            let manifest = package
-                .get("manifest_path")
-                .and_then(Value::as_str)
-                .unwrap_or("");
+            let manifest = package.get("manifest_path").and_then(Value::as_str).unwrap_or("");
             let dir = relative(manifest.strip_suffix("Cargo.toml").unwrap_or(manifest));
             if name != "flux" {
                 if !dir.is_empty() {
@@ -195,10 +184,8 @@ impl Repo {
                 }
                 continue;
             }
-            for target in package
-                .get("targets")
-                .and_then(Value::as_array)
-                .map_or(&[][..], Vec::as_slice)
+            for target in
+                package.get("targets").and_then(Value::as_array).map_or(&[][..], Vec::as_slice)
             {
                 let is_test = target
                     .get("kind")
@@ -239,10 +226,7 @@ impl Repo {
     }
 
     fn binary_for_source(&self, path: &str) -> Option<&str> {
-        self.tests
-            .iter()
-            .find(|(_, source)| source == path)
-            .map(|(name, _)| name.as_str())
+        self.tests.iter().find(|(_, source)| source == path).map(|(name, _)| name.as_str())
     }
 
     /// The deepest other workspace member whose directory holds `path`.
@@ -308,11 +292,8 @@ fn phases_for_src_path(path: &str) -> &'static [Phase] {
         &[Phase::Aether]
     } else if under(&["src/cfg/", "src/bytecode/"]) {
         &[Phase::Bytecode]
-    } else if under(&[
-        "src/vm/",
-        "src/driver/run_program/backend/vm.rs",
-        "src/driver/pipeline/vm/",
-    ]) {
+    } else if under(&["src/vm/", "src/driver/run_program/backend/vm.rs", "src/driver/pipeline/vm/"])
+    {
         &[Phase::Vm]
     } else if under(&["src/runtime/"]) {
         // Both backends use it.
@@ -337,9 +318,7 @@ fn phases_for_src_path(path: &str) -> &'static [Phase] {
 
 /// Test directories whose binaries are gated on `cfg(feature = "llvm")`.
 fn source_needs_llvm(path: &str) -> bool {
-    ["tests/native_llvm/", "tests/debug/"]
-        .iter()
-        .any(|dir| path.starts_with(dir))
+    ["tests/native_llvm/", "tests/debug/"].iter().any(|dir| path.starts_with(dir))
 }
 
 /// The tests to run as nextest filtersets, or why to run them all.
@@ -363,8 +342,7 @@ impl Selection {
                 );
             }
             Phase::Typeclasses => {
-                self.filters
-                    .insert("binary(/class/) | test(/class/)".to_string());
+                self.filters.insert("binary(/class/) | test(/class/)".to_string());
             }
             _ => {
                 for dir in phase.test_dirs() {
@@ -448,13 +426,7 @@ impl Selection {
                 args.push("--all-features".to_string());
             }
             args.push("-E".to_string());
-            args.push(
-                self.filters
-                    .iter()
-                    .map(String::as_str)
-                    .collect::<Vec<_>>()
-                    .join(" | "),
-            );
+            args.push(self.filters.iter().map(String::as_str).collect::<Vec<_>>().join(" | "));
             args
         };
         args.extend(extra.iter().cloned());
@@ -552,11 +524,8 @@ pub fn changed_paths(root: &Path, base: Option<&str>) -> Result<Vec<String>, Str
     if let Some(base) = base {
         text += &git(&["diff", "--name-only", &format!("{base}...HEAD")])?;
     }
-    let paths: BTreeSet<String> = text
-        .lines()
-        .filter(|l| !l.is_empty())
-        .map(String::from)
-        .collect();
+    let paths: BTreeSet<String> =
+        text.lines().filter(|l| !l.is_empty()).map(String::from).collect();
     Ok(paths.into_iter().collect())
 }
 
@@ -579,13 +548,7 @@ pub fn run_selection(
     }
     let args = selection.cargo_args(extra);
     if dry_run {
-        println!(
-            "cargo {}",
-            args.iter()
-                .map(|a| shell_quote(a))
-                .collect::<Vec<_>>()
-                .join(" ")
-        );
+        println!("cargo {}", args.iter().map(|a| shell_quote(a)).collect::<Vec<_>>().join(" "));
         return Ok(true);
     }
     let code = run(cargo().current_dir(root).args(&args)).map_err(|e| format!("cargo: {e}"))?;
@@ -593,10 +556,7 @@ pub fn run_selection(
 }
 
 fn shell_quote(arg: &str) -> String {
-    if arg
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || "-_=./:".contains(c))
-    {
+    if arg.chars().all(|c| c.is_ascii_alphanumeric() || "-_=./:".contains(c)) {
         arg.to_string()
     } else {
         format!("'{}'", arg.replace('\'', r"'\''"))
@@ -626,30 +586,15 @@ mod tests {
 
     fn repo() -> Repo {
         let owned = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
-            pairs
-                .iter()
-                .map(|(a, b)| (a.to_string(), b.to_string()))
-                .collect()
+            pairs.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect()
         };
         Repo {
             tests: owned(&[
                 ("llvm_codegen", "tests/native_llvm/llvm_codegen.rs"),
-                (
-                    "type_inference_tests",
-                    "tests/type_inference/type_inference_tests.rs",
-                ),
-                (
-                    "examples_fixtures_snapshots",
-                    "tests/examples/examples_fixtures_snapshots.rs",
-                ),
-                (
-                    "effect_multi_shot_tests",
-                    "tests/native_llvm/effect_multi_shot_tests.rs",
-                ),
-                (
-                    "parity_corpus_tests",
-                    "tests/native_llvm/parity_corpus_tests.rs",
-                ),
+                ("type_inference_tests", "tests/type_inference/type_inference_tests.rs"),
+                ("examples_fixtures_snapshots", "tests/examples/examples_fixtures_snapshots.rs"),
+                ("effect_multi_shot_tests", "tests/native_llvm/effect_multi_shot_tests.rs"),
+                ("parity_corpus_tests", "tests/native_llvm/parity_corpus_tests.rs"),
                 ("aether_cli_snapshots", "tests/aether/cli_snapshots.rs"),
                 (
                     "type_semantics_matrix_tests",
@@ -663,19 +608,13 @@ mod tests {
                     "tests/native_llvm/effect_multi_shot_tests.rs",
                     r#"const FIXTURE: &str = "effect_multi_shot.flx";"#,
                 ),
-                (
-                    "tests/aether/cli_snapshots.rs",
-                    r#"snapshot_path => "../snapshots/aether""#,
-                ),
+                ("tests/aether/cli_snapshots.rs", r#"snapshot_path => "../snapshots/aether""#),
                 ("tests/support/semantic_infer.rs", "pub fn infer() {}"),
                 (
                     "tests/type_inference/type_semantics_matrix_tests.rs",
                     r#"#[path = "../support/semantic_infer.rs"]"#,
                 ),
-                (
-                    "tests/debug/native_debug_tests.rs",
-                    "tools/lldb/flux_lldb.py",
-                ),
+                ("tests/debug/native_debug_tests.rs", "tools/lldb/flux_lldb.py"),
             ]),
         }
     }
@@ -745,59 +684,40 @@ mod tests {
     #[test]
     fn a_parity_fixture_selects_the_test_that_names_it() {
         let selection = select(&["tests/parity/effect_multi_shot.flx"]);
-        assert_eq!(
-            filters(&selection),
-            ["binary_id(=flux::effect_multi_shot_tests)"]
-        );
+        assert_eq!(filters(&selection), ["binary_id(=flux::effect_multi_shot_tests)"]);
         assert!(selection.all_features);
     }
 
     #[test]
     fn a_parity_fixture_no_test_names_selects_the_corpus() {
         let selection = select(&["tests/parity/adt_either_match.flx"]);
-        assert_eq!(
-            filters(&selection),
-            ["binary_id(=flux::parity_corpus_tests)"]
-        );
+        assert_eq!(filters(&selection), ["binary_id(=flux::parity_corpus_tests)"]);
         assert!(selection.all_features);
     }
 
     #[test]
     fn a_snapshot_selects_the_test_that_names_its_directory() {
         let selection = select(&["tests/snapshots/aether/aether__x.snap"]);
-        assert_eq!(
-            filters(&selection),
-            ["binary_id(=flux::aether_cli_snapshots)"]
-        );
+        assert_eq!(filters(&selection), ["binary_id(=flux::aether_cli_snapshots)"]);
     }
 
     #[test]
     fn a_support_file_selects_the_tests_that_include_it() {
         let selection = select(&["tests/support/semantic_infer.rs"]);
-        assert_eq!(
-            filters(&selection),
-            ["binary_id(=flux::type_semantics_matrix_tests)"]
-        );
+        assert_eq!(filters(&selection), ["binary_id(=flux::type_semantics_matrix_tests)"]);
     }
 
     #[test]
     fn another_member_selects_its_reverse_dependencies_across_the_workspace() {
         let selection = select(&["crates/flux-lsp/src/main.rs"]);
         assert_eq!(filters(&selection), ["rdeps(flux-lsp)"]);
-        assert!(
-            selection
-                .cargo_args(&[])
-                .contains(&"--workspace".to_string())
-        );
+        assert!(selection.cargo_args(&[]).contains(&"--workspace".to_string()));
     }
 
     #[test]
     fn a_tool_file_selects_the_tests_that_name_it() {
         let selection = select(&["tools/lldb/flux_lldb.py"]);
-        assert_eq!(
-            filters(&selection),
-            ["binary_id(=flux::native_debug_tests)"]
-        );
+        assert_eq!(filters(&selection), ["binary_id(=flux::native_debug_tests)"]);
     }
 
     #[test]

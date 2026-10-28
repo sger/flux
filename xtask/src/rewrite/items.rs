@@ -39,21 +39,15 @@ impl Item {
     }
 }
 
-const ITEM_KEYWORDS: [&str; 10] = [
-    "fn", "data", "type", "effect", "alias", "class", "instance", "import", "let", "module",
-];
+const ITEM_KEYWORDS: [&str; 10] =
+    ["fn", "data", "type", "effect", "alias", "class", "instance", "import", "let", "module"];
 
 impl<'a> Fixture<'a> {
     pub fn parse(source: &'a str) -> Result<Fixture<'a>, String> {
         let tokens = lex::tokenize(source)?;
         let header_end = header_end(source);
         let items = split(source, &tokens, header_end)?;
-        Ok(Fixture {
-            source,
-            tokens,
-            header_end,
-            items,
-        })
+        Ok(Fixture { source, tokens, header_end, items })
     }
 
     /// The code tokens of `item`.
@@ -67,9 +61,7 @@ impl<'a> Fixture<'a> {
 
     /// Whether the program has a `fn main`.
     pub fn has_main(&self) -> bool {
-        self.tokens
-            .windows(2)
-            .any(|w| w[0].is(self.source, "fn") && w[1].is(self.source, "main"))
+        self.tokens.windows(2).any(|w| w[0].is(self.source, "fn") && w[1].is(self.source, "main"))
     }
 }
 
@@ -98,9 +90,7 @@ fn split(source: &str, tokens: &[Token], header_end: usize) -> Result<Vec<Item>,
     let mut previous_end = 0;
     for (index, token) in tokens.iter().enumerate() {
         let gap = &source[previous_end..token.start];
-        let line_start = gap
-            .rfind('\n')
-            .map_or(previous_end, |n| previous_end + n + 1);
+        let line_start = gap.rfind('\n').map_or(previous_end, |n| previous_end + n + 1);
         let first_on_line = token.start >= header_end && (index == 0 || gap.contains('\n'));
         previous_end = token.end;
         if first_on_line && depth == 0 {
@@ -130,11 +120,7 @@ fn split(source: &str, tokens: &[Token], header_end: usize) -> Result<Vec<Item>,
             }
         }
         if depth < 0 {
-            return Err(format!(
-                "unbalanced `{}` at byte {}",
-                token.text(source),
-                token.start
-            ));
+            return Err(format!("unbalanced `{}` at byte {}", token.text(source), token.start));
         }
     }
     if depth != 0 {
@@ -145,10 +131,7 @@ fn split(source: &str, tokens: &[Token], header_end: usize) -> Result<Vec<Item>,
 
 /// The declaring keyword when `tokens` starts an item.
 fn item_keyword(source: &str, tokens: &[Token]) -> Option<String> {
-    let mut code = tokens
-        .iter()
-        .filter(|t| t.is_code())
-        .map(|t| t.text(source));
+    let mut code = tokens.iter().filter(|t| t.is_code()).map(|t| t.text(source));
     let mut word = code.next()?;
     loop {
         match word {
@@ -165,9 +148,8 @@ fn item_keyword(source: &str, tokens: &[Token]) -> Option<String> {
         return None;
     }
     // `fn (x) { … }` at the top would be an expression, not an item.
-    let named = code
-        .next()
-        .is_some_and(|name| name.starts_with(|c: char| c.is_alphabetic() || c == '_'));
+    let named =
+        code.next().is_some_and(|name| name.starts_with(|c: char| c.is_alphabetic() || c == '_'));
     if word == "fn" && !named {
         return None;
     }
@@ -190,10 +172,7 @@ mod tests {
     #[test]
     fn the_header_ends_at_the_first_line_of_code() {
         let source = "// parity: vm\n\n// expect: success\n/* prose */\nfn main() {}\n";
-        assert_eq!(
-            header_end(source),
-            "// parity: vm\n\n// expect: success\n".len()
-        );
+        assert_eq!(header_end(source), "// parity: vm\n\n// expect: success\n".len());
     }
 
     #[test]

@@ -172,11 +172,7 @@ pub fn describe_refs(
     match count {
         None => format!("{path}: not reference counted ({type_name})"),
         Some(count) => {
-            let noun = if count == 1 {
-                "reference"
-            } else {
-                "references"
-            };
+            let noun = if count == 1 { "reference" } else { "references" };
             let how = if across_threads {
                 "shared across threads"
             } else if count == 1 {
@@ -313,23 +309,13 @@ mod tests {
 
     #[test]
     fn a_refs_request_and_its_reply_cross_as_json() {
-        let request = Request::Refs {
-            frame: 0,
-            expression: "pair.0".to_string(),
-            thread: None,
-        };
+        let request = Request::Refs { frame: 0, expression: "pair.0".to_string(), thread: None };
         let line = serde_json::to_string(&request).unwrap();
         assert_eq!(line, r#"{"kind":"refs","frame":0,"expression":"pair.0"}"#);
         assert_eq!(serde_json::from_str::<Request>(&line).unwrap(), request);
         for reply in [
-            Reply::Refs {
-                count: Some(2),
-                type_name: "List".to_string(),
-            },
-            Reply::Refs {
-                count: None,
-                type_name: "Int".to_string(),
-            },
+            Reply::Refs { count: Some(2), type_name: "List".to_string() },
+            Reply::Refs { count: None, type_name: "Int".to_string() },
         ] {
             let line = serde_json::to_string(&reply).unwrap();
             assert_eq!(serde_json::from_str::<Reply>(&line).unwrap(), reply);
@@ -342,37 +328,21 @@ mod tests {
             describe_refs("xs", Some(1), false, "List"),
             "xs: 1 reference (unique: can be reused in place)"
         );
-        assert_eq!(
-            describe_refs("xs", Some(2), false, "List"),
-            "xs: 2 references (shared)"
-        );
+        assert_eq!(describe_refs("xs", Some(2), false, "List"), "xs: 2 references (shared)");
         assert_eq!(
             describe_refs("xs", Some(3), true, "List"),
             "xs: 3 references (shared across threads)"
         );
-        assert_eq!(
-            describe_refs("n", None, false, "Int"),
-            "n: not reference counted (Int)"
-        );
+        assert_eq!(describe_refs("n", None, false, "Int"), "n: not reference counted (Int)");
     }
 
     #[test]
     fn messages_are_one_json_object_each() {
-        let request = RequestMessage {
-            id: 3,
-            request: Request::Resume {
-                how: ResumeKind::Goto(12),
-            },
-        };
+        let request =
+            RequestMessage { id: 3, request: Request::Resume { how: ResumeKind::Goto(12) } };
         let line = serde_json::to_string(&request).unwrap();
-        assert_eq!(
-            line,
-            r#"{"id":3,"request":{"kind":"resume","how":{"goto":12}}}"#
-        );
-        assert_eq!(
-            serde_json::from_str::<RequestMessage>(&line).unwrap(),
-            request
-        );
+        assert_eq!(line, r#"{"id":3,"request":{"kind":"resume","how":{"goto":12}}}"#);
+        assert_eq!(serde_json::from_str::<RequestMessage>(&line).unwrap(), request);
 
         let stopped = EngineMessage::Event {
             event: Event::Stopped {
@@ -388,10 +358,7 @@ mod tests {
             line,
             r#"{"type":"event","event":{"kind":"stopped","reason":"breakpoint","position":7}}"#
         );
-        assert_eq!(
-            serde_json::from_str::<EngineMessage>(&line).unwrap(),
-            stopped
-        );
+        assert_eq!(serde_json::from_str::<EngineMessage>(&line).unwrap(), stopped);
 
         let exception = EngineMessage::Event {
             event: Event::Stopped {
@@ -410,10 +377,7 @@ mod tests {
             line,
             r#"{"type":"event","event":{"kind":"stopped","reason":"exception","position":9,"exception":{"kind":"panic","message":"boom"}}}"#
         );
-        assert_eq!(
-            serde_json::from_str::<EngineMessage>(&line).unwrap(),
-            exception
-        );
+        assert_eq!(serde_json::from_str::<EngineMessage>(&line).unwrap(), exception);
 
         let frames = Reply::Stack {
             frames: vec![
@@ -441,11 +405,7 @@ mod tests {
         };
         let line = serde_json::to_string(&frames).unwrap();
         assert!(line.contains(r#""kind":"label""#), "{line}");
-        assert_eq!(
-            line.matches(r#""kind":"#).count(),
-            2,
-            "live is the default: {line}"
-        );
+        assert_eq!(line.matches(r#""kind":"#).count(), 2, "live is the default: {line}");
         assert_eq!(serde_json::from_str::<Reply>(&line).unwrap(), frames);
 
         let fiber = EngineMessage::Event {
@@ -461,16 +421,10 @@ mod tests {
         assert!(line.ends_with(r#""thread":2}}"#), "{line}");
         assert_eq!(serde_json::from_str::<EngineMessage>(&line).unwrap(), fiber);
 
-        let stack = RequestMessage {
-            id: 4,
-            request: Request::Stack { thread: None },
-        };
+        let stack = RequestMessage { id: 4, request: Request::Stack { thread: None } };
         let line = serde_json::to_string(&stack).unwrap();
         assert_eq!(line, r#"{"id":4,"request":{"kind":"stack"}}"#);
-        assert_eq!(
-            serde_json::from_str::<RequestMessage>(&line).unwrap(),
-            stack
-        );
+        assert_eq!(serde_json::from_str::<RequestMessage>(&line).unwrap(), stack);
 
         let threads = Reply::Threads {
             threads: vec![Thread {
@@ -484,9 +438,7 @@ mod tests {
 
         let reply = EngineMessage::Reply {
             id: 1,
-            reply: Reply::Breakpoints {
-                lines: vec![Some(4), None],
-            },
+            reply: Reply::Breakpoints { lines: vec![Some(4), None] },
         };
         let line = serde_json::to_string(&reply).unwrap();
         assert_eq!(serde_json::from_str::<EngineMessage>(&line).unwrap(), reply);

@@ -28,11 +28,7 @@ pub(super) fn format_browse(session: &[(String, String)], prelude: &[(String, St
 /// Append `  name : type` lines, left-padding names to a common width so the
 /// `:` columns line up within the group.
 fn append_members(out: &mut String, members: &[(String, String)]) {
-    let width = members
-        .iter()
-        .map(|(name, _)| name.chars().count())
-        .max()
-        .unwrap_or(0);
+    let width = members.iter().map(|(name, _)| name.chars().count()).max().unwrap_or(0);
     for (name, ty) in members {
         out.push_str(&format!("\n  {name:<width$} : {ty}"));
     }
@@ -43,10 +39,7 @@ mod tests {
     use super::*;
 
     fn pairs(items: &[(&str, &str)]) -> Vec<(String, String)> {
-        items
-            .iter()
-            .map(|(a, b)| (a.to_string(), b.to_string()))
-            .collect()
+        items.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect()
     }
 
     #[test]

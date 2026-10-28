@@ -78,11 +78,8 @@ fn render_bytecode(source: &str, path: &str) -> String {
     // Nested function bodies live as `Function` constants; disassemble each.
     for (i, c) in bytecode.constants.iter().enumerate() {
         if let Value::Function(f) = c {
-            let name = f
-                .debug_info
-                .as_ref()
-                .and_then(|d| d.name.as_deref())
-                .unwrap_or("<anonymous>");
+            let name =
+                f.debug_info.as_ref().and_then(|d| d.name.as_deref()).unwrap_or("<anonymous>");
             out.push_str(&format!("\nFunction <{name}> (constant {i}):\n"));
             out.push_str(&disassemble(&f.instructions));
         }

@@ -23,10 +23,8 @@ const FIXTURE: &str = "tests/debug/heap/use_after_free.flx";
 /// What `flux <file> <args>` printed (stdout, stderr) and its exit code,
 /// with `fault` as `FLUX_AETHER_FAULT` when given.
 fn run(scratch: &Scratch, file: &str, args: &[&str], fault: Option<&str>) -> (String, String, i32) {
-    let env: Vec<(&str, &str)> = fault
-        .map(|fault| ("FLUX_AETHER_FAULT", fault))
-        .into_iter()
-        .collect();
+    let env: Vec<(&str, &str)> =
+        fault.map(|fault| ("FLUX_AETHER_FAULT", fault)).into_iter().collect();
     run_env(scratch, file, args, &env)
 }
 
@@ -49,15 +47,9 @@ fn run_env(
         .env_remove("FLUX_AETHER_FAULT")
         .env_remove("FLUX_HEAP_STATS")
         .envs(env.iter().copied());
-    let output = command
-        .output()
-        .unwrap_or_else(|e| panic!("failed to run flux on {file}: {e}"));
+    let output = command.output().unwrap_or_else(|e| panic!("failed to run flux on {file}: {e}"));
     let text = |bytes: &[u8]| String::from_utf8_lossy(bytes).replace("\r\n", "\n");
-    (
-        text(&output.stdout),
-        text(&output.stderr),
-        output.status.code().unwrap_or(-1),
-    )
+    (text(&output.stdout), text(&output.stderr), output.status.code().unwrap_or(-1))
 }
 
 #[test]
@@ -67,12 +59,8 @@ fn a_use_after_free_is_caught() {
     // faulted build below cannot be served this one's objects.
     let (stdout, _, _) = run(&scratch, FIXTURE, &["--native", "--debug-heap"], None);
     assert_eq!(stdout, "6\n");
-    let (_, stderr, code) = run(
-        &scratch,
-        FIXTURE,
-        &["--native", "--debug-heap"],
-        Some("skip-dup:victim"),
-    );
+    let (_, stderr, code) =
+        run(&scratch, FIXTURE, &["--native", "--debug-heap"], Some("skip-dup:victim"));
     assert_eq!(code, 1, "{stderr}");
     assert!(
         stderr.contains(
@@ -84,10 +72,7 @@ fn a_use_after_free_is_caught() {
     );
     // Where the freed list was used again: the call that lends it to `total`.
     assert!(stderr.contains("Stack trace:"), "{stderr}");
-    assert!(
-        stderr.contains("at main (tests/debug/heap/use_after_free.flx:17:23)"),
-        "{stderr}"
-    );
+    assert!(stderr.contains("at main (tests/debug/heap/use_after_free.flx:17:23)"), "{stderr}");
 }
 
 #[test]
@@ -159,10 +144,7 @@ fn a_nested_match_releases_each_list_once() {
 #[test]
 fn kept_lists_survive_the_functions_they_are_lent_to() {
     let scratch = Scratch::new("debug-heap-shared-lists");
-    for file in [
-        "tests/debug/heap/shared_lists.flx",
-        "tests/debug/heap/shared_lists_tasks.flx",
-    ] {
+    for file in ["tests/debug/heap/shared_lists.flx", "tests/debug/heap/shared_lists_tasks.flx"] {
         let (vm, _, _) = run(&scratch, file, &["--vm"], None);
         let (heap, stderr, code) = run(&scratch, file, &["--native", "--debug-heap"], None);
         assert!(!vm.is_empty(), "{file}");
@@ -186,26 +168,16 @@ const LEAK_FIXTURE: &str = "tests/debug/heap/leak.flx";
 
 /// The lines of a leak report that name an allocation site.
 fn site_lines(stderr: &str) -> Vec<&str> {
-    stderr
-        .lines()
-        .filter(|line| line.contains(" allocated at "))
-        .collect()
+    stderr.lines().filter(|line| line.contains(" allocated at ")).collect()
 }
 
 #[test]
 fn a_leak_is_reported_at_exit_with_its_allocation_site() {
     let scratch = Scratch::new("debug-heap-leak");
-    let (_, stderr, code) = run(
-        &scratch,
-        LEAK_FIXTURE,
-        &["--native", "--leak-check"],
-        Some("skip-drop:leaked"),
-    );
+    let (_, stderr, code) =
+        run(&scratch, LEAK_FIXTURE, &["--native", "--leak-check"], Some("skip-drop:leaked"));
     assert_eq!(code, 3, "{stderr}");
-    assert!(
-        stderr.contains("leak: 3 blocks still live at exit"),
-        "{stderr}"
-    );
+    assert!(stderr.contains("leak: 3 blocks still live at exit"), "{stderr}");
     let sites = site_lines(&stderr);
     assert_eq!(sites.len(), 3, "{stderr}");
     for line in sites {
@@ -221,17 +193,10 @@ fn a_leak_is_reported_at_exit_with_its_allocation_site() {
 #[test]
 fn a_leak_report_names_at_most_ten_sites() {
     let scratch = Scratch::new("debug-heap-leak-many");
-    let (_, stderr, code) = run(
-        &scratch,
-        LEAK_FIXTURE,
-        &["--native", "--leak-check"],
-        Some("skip-drop:many"),
-    );
+    let (_, stderr, code) =
+        run(&scratch, LEAK_FIXTURE, &["--native", "--leak-check"], Some("skip-drop:many"));
     assert_eq!(code, 3, "{stderr}");
-    assert!(
-        stderr.contains("leak: 12 blocks still live at exit"),
-        "{stderr}"
-    );
+    assert!(stderr.contains("leak: 12 blocks still live at exit"), "{stderr}");
     assert_eq!(site_lines(&stderr).len(), 10, "{stderr}");
     assert!(stderr.contains("\n  and 2 more\n"), "{stderr}");
 }
@@ -247,12 +212,8 @@ fn the_leak_fixture_frees_everything_without_the_fault() {
 #[test]
 fn a_value_passed_by_ownership_is_freed_by_its_callee() {
     let scratch = Scratch::new("debug-heap-owned-arg");
-    let (stdout, stderr, code) = run(
-        &scratch,
-        "tests/debug/heap/owned_arg.flx",
-        &["--native", "--leak-check"],
-        None,
-    );
+    let (stdout, stderr, code) =
+        run(&scratch, "tests/debug/heap/owned_arg.flx", &["--native", "--leak-check"], None);
     assert_eq!((stdout.as_str(), code), ("", 0), "{stderr}");
     assert!(!stderr.contains("leak:"), "{stderr}");
 }
@@ -262,12 +223,8 @@ fn a_value_passed_by_ownership_is_freed_by_its_callee() {
 #[test]
 fn the_debug_heap_alone_does_not_report_leaks() {
     let scratch = Scratch::new("debug-heap-leak-off");
-    let (_, stderr, code) = run(
-        &scratch,
-        LEAK_FIXTURE,
-        &["--native", "--debug-heap"],
-        Some("skip-drop:leaked"),
-    );
+    let (_, stderr, code) =
+        run(&scratch, LEAK_FIXTURE, &["--native", "--debug-heap"], Some("skip-drop:leaked"));
     assert_eq!(code, 0, "{stderr}");
     assert!(!stderr.contains("leak:"), "{stderr}");
 }
@@ -275,12 +232,7 @@ fn the_debug_heap_alone_does_not_report_leaks() {
 #[test]
 fn without_the_debug_heap_a_leak_goes_unnoticed() {
     let scratch = Scratch::new("debug-heap-leak-unnoticed");
-    let (_, stderr, code) = run(
-        &scratch,
-        LEAK_FIXTURE,
-        &["--native"],
-        Some("skip-drop:leaked"),
-    );
+    let (_, stderr, code) = run(&scratch, LEAK_FIXTURE, &["--native"], Some("skip-drop:leaked"));
     assert_eq!(code, 0, "{stderr}");
 }
 
@@ -320,14 +272,8 @@ fn debug_heap_binaries_are_cached_apart() {
             name.ends_with(".bin").then_some(name)
         })
         .collect();
-    assert!(
-        binaries.contains(&"use_after_free.bin".to_string()),
-        "{binaries:?}"
-    );
-    assert!(
-        binaries.contains(&"use_after_free.debug-heap.bin".to_string()),
-        "{binaries:?}"
-    );
+    assert!(binaries.contains(&"use_after_free.bin".to_string()), "{binaries:?}");
+    assert!(binaries.contains(&"use_after_free.debug-heap.bin".to_string()), "{binaries:?}");
 }
 
 fn walk(dir: &Path) -> Vec<std::path::PathBuf> {
@@ -346,9 +292,7 @@ fn walk(dir: &Path) -> Vec<std::path::PathBuf> {
 /// The debug heap's counts (`FLUX_HEAP_STATS`): blocks allocated, freed, and
 /// still live at exit.
 fn heap_stats(stderr: &str) -> Option<(u64, u64, u64)> {
-    let line = stderr
-        .lines()
-        .find_map(|line| line.strip_prefix("heap: "))?;
+    let line = stderr.lines().find_map(|line| line.strip_prefix("heap: "))?;
     let mut parts = line.split(' ');
     let mut count = |key: &str| parts.next()?.strip_prefix(key)?.parse().ok();
     Some((count("allocs=")?, count("frees=")?, count("live=")?))
@@ -369,25 +313,13 @@ fn heap_stats_are_reported_only_when_asked() {
     // printed, not what the driver kept on a normal exit.
     let leak_args = ["--native", "--leak-check"];
     let leaked = ("FLUX_AETHER_FAULT", "skip-drop:leaked");
-    let (_, stderr, code) = run_env(
-        &scratch,
-        LEAK_FIXTURE,
-        &leak_args,
-        &[leaked, ("FLUX_HEAP_STATS", "1")],
-    );
+    let (_, stderr, code) =
+        run_env(&scratch, LEAK_FIXTURE, &leak_args, &[leaked, ("FLUX_HEAP_STATS", "1")]);
     assert_eq!(code, 3, "{stderr}");
-    assert_eq!(
-        heap_stats(&stderr).map(|(_, _, live)| live),
-        Some(3),
-        "{stderr}"
-    );
+    assert_eq!(heap_stats(&stderr).map(|(_, _, live)| live), Some(3), "{stderr}");
     assert!(stderr.find("heap: ") < stderr.find("leak: "), "{stderr}");
-    let (_, stderr, code) = run_env(
-        &scratch,
-        LEAK_FIXTURE,
-        &leak_args,
-        &[leaked, ("FLUX_HEAP_STATS", "0")],
-    );
+    let (_, stderr, code) =
+        run_env(&scratch, LEAK_FIXTURE, &leak_args, &[leaked, ("FLUX_HEAP_STATS", "0")]);
     assert_eq!(code, 3, "{stderr}");
     assert!(!stderr.contains("heap:"), "{stderr}");
 }
@@ -414,11 +346,7 @@ fn owned_moves_part(part: usize) {
     let scratch = format!("debug-heap-owned-moves-{part}");
     // CI runners have three cores; more builds there slow the timed tests
     // running beside these.
-    let workers = if std::env::var_os("CI").is_some() {
-        1
-    } else {
-        2
-    };
+    let workers = if std::env::var_os("CI").is_some() { 1 } else { 2 };
     let failures = failures_in_parallel(&scratch, &files, workers, owned_move_failure);
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
@@ -448,9 +376,7 @@ fn owned_move_fixtures() -> Vec<String> {
     let mut files: Vec<String> = std::fs::read_dir(workspace_root().join(OWNED_MOVES))
         .expect("owned_moves fixtures")
         .filter_map(|entry| {
-            entry
-                .ok()
-                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            entry.ok().map(|entry| entry.file_name().to_string_lossy().into_owned())
         })
         .filter(|name| Path::new(name).extension().is_some_and(|ext| ext == "flx"))
         .collect();
@@ -465,10 +391,8 @@ fn failures_in_parallel<F>(prefix: &str, files: &[String], workers: usize, check
 where
     F: Fn(&Scratch, &str) -> Option<String> + Sync,
 {
-    let workers = std::thread::available_parallelism()
-        .map_or(1, |n| n.get())
-        .min(workers)
-        .min(files.len());
+    let workers =
+        std::thread::available_parallelism().map_or(1, |n| n.get()).min(workers).min(files.len());
     let check = &check;
     let mut failures: Vec<String> = std::thread::scope(|threads| {
         let handles: Vec<_> = (0..workers)
@@ -484,10 +408,7 @@ where
                 })
             })
             .collect();
-        handles
-            .into_iter()
-            .flat_map(|handle| handle.join().expect("a worker"))
-            .collect()
+        handles.into_iter().flat_map(|handle| handle.join().expect("a worker")).collect()
     });
     failures.sort();
     failures
@@ -525,12 +446,8 @@ fn allocs_of(scratch: &Scratch, name: &str, source: &str) -> u64 {
 fn stats_of(scratch: &Scratch, name: &str, source: &str) -> (u64, u64, u64) {
     let path = scratch.write(name, source);
     let file = path.to_string_lossy();
-    let (_, stderr, code) = run_env(
-        scratch,
-        &file,
-        &["--native", "--debug-heap"],
-        &[("FLUX_HEAP_STATS", "1")],
-    );
+    let (_, stderr, code) =
+        run_env(scratch, &file, &["--native", "--debug-heap"], &[("FLUX_HEAP_STATS", "1")]);
     assert_eq!(code, 0, "{name}:\n{stderr}");
     heap_stats(&stderr).unwrap_or_else(|| panic!("{name}:\n{stderr}"))
 }
@@ -575,22 +492,14 @@ fn released(source: &str) -> String {
 /// `stats_of(program)` at 2000 cells minus at 1000.
 fn per_thousand_cells(scratch: &Scratch, name: &str, program: &str) -> (u64, u64, u64) {
     let at = |n: u64| {
-        stats_of(
-            scratch,
-            &format!("{name}_{n}.flx"),
-            &program.replace("SIZE", &n.to_string()),
-        )
+        stats_of(scratch, &format!("{name}_{n}.flx"), &program.replace("SIZE", &n.to_string()))
     };
     let (small, large) = (at(1000), at(2000));
     let diff = |a: u64, b: u64| {
         b.checked_sub(a)
             .unwrap_or_else(|| panic!("{name}: 1000 cells {small:?}, 2000 cells {large:?}"))
     };
-    (
-        diff(small.0, large.0),
-        diff(small.1, large.1),
-        diff(small.2, large.2),
-    )
+    (diff(small.0, large.0), diff(small.1, large.1), diff(small.2, large.2))
 }
 
 /// A list built and then rebuilt cell by cell, with nothing else holding it.
@@ -600,10 +509,9 @@ fn per_thousand_cells(scratch: &Scratch, name: &str, program: &str) -> (u64, u64
 #[test]
 fn a_linear_rebuild_allocates_once_per_cell() {
     let scratch = Scratch::new("debug-heap-linear-bump");
-    for (name, program) in [
-        ("bump", LINEAR_BUMP.to_string()),
-        ("guarded_bump", guarded(LINEAR_BUMP)),
-    ] {
+    for (name, program) in
+        [("bump", LINEAR_BUMP.to_string()), ("guarded_bump", guarded(LINEAR_BUMP))]
+    {
         let (allocs, _, _) = per_thousand_cells(&scratch, name, &program);
         assert_eq!(allocs, 1000, "{name}: blocks per 1000 cells");
     }
@@ -614,10 +522,9 @@ fn a_linear_rebuild_allocates_once_per_cell() {
 #[test]
 fn a_rebuilt_list_released_leaves_nothing_behind() {
     let scratch = Scratch::new("debug-heap-linear-bump-released");
-    for (name, program) in [
-        ("bump", released(LINEAR_BUMP)),
-        ("guarded_bump", released(&guarded(LINEAR_BUMP))),
-    ] {
+    for (name, program) in
+        [("bump", released(LINEAR_BUMP)), ("guarded_bump", released(&guarded(LINEAR_BUMP)))]
+    {
         let (_, _, live) = per_thousand_cells(&scratch, name, &program);
         assert_eq!(live, 0, "{name}: blocks left live per 1000 cells");
     }
@@ -662,11 +569,7 @@ fn a_loop_that_makes_a_list_each_turn_stays_a_tail_call() {
         )
     };
     let (small, large) = (at(1000), at(2000));
-    assert_eq!(
-        large.saturating_sub(small),
-        3000,
-        "1000 turns: {small}, 2000 turns: {large}"
-    );
+    assert_eq!(large.saturating_sub(small), 3000, "1000 turns: {small}, 2000 turns: {large}");
 }
 
 const LENDING_LOOP: &str = r"fn numbers(n) {
@@ -1519,24 +1422,14 @@ fn a_function_or_literal_used_as_a_value_is_never_allocated() {
 /// Programs that build a value with `n` fields: a constructor, a tuple, and
 /// a closure that captures `n` values; each with what it prints.
 fn wide_values(n: usize) -> [(&'static str, String, String); 3] {
-    let vals = (0..n)
-        .map(|i| format!("n + {i}"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let pattern = std::iter::once("a")
-        .chain(std::iter::repeat_n("_", n - 1))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let vals = (0..n).map(|i| format!("n + {i}")).collect::<Vec<_>>().join(", ");
+    let pattern =
+        std::iter::once("a").chain(std::iter::repeat_n("_", n - 1)).collect::<Vec<_>>().join(", ");
     let ints = vec!["Int"; n].join(", ");
     // `keep` is recursive, so it is never inlined: the closure captures each
     // value, where it would copy a cheap `n + i` into its own body.
-    let lets = (0..n)
-        .map(|i| format!("    let v{i} = keep(n + {i})\n"))
-        .collect::<String>();
-    let sum = (0..n)
-        .map(|i| format!("v{i}"))
-        .collect::<Vec<_>>()
-        .join(" + ");
+    let lets = (0..n).map(|i| format!("    let v{i} = keep(n + {i})\n")).collect::<String>();
+    let sum = (0..n).map(|i| format!("v{i}")).collect::<Vec<_>>().join(" + ");
     [
         (
             "constructor",
@@ -1582,10 +1475,7 @@ fn a_value_with_more_than_255_fields_is_rejected() {
         for (backend, args) in [("native", &["--native"][..]), ("vm", &[][..])] {
             let (_, stderr, code) = run(&scratch, &file, args, None);
             if code == 0 || !stderr.contains("E087") {
-                failures.push(format!(
-                    "{name} on {backend}: exit {code}\n{}",
-                    clip(&stderr)
-                ));
+                failures.push(format!("{name} on {backend}: exit {code}\n{}", clip(&stderr)));
             }
         }
     }
@@ -1643,21 +1533,11 @@ fn main() with IO {
 fn a_perform_takes_the_argument_it_is_given() {
     let scratch = Scratch::new("debug-heap-perform-argument");
     let program = |arg: &str, sent: &str, read: &str| {
-        PERFORM_PER_TURN
-            .replace("ARG", arg)
-            .replace("SENT", sent)
-            .replace("READ", read)
+        PERFORM_PER_TURN.replace("ARG", arg).replace("SENT", sent).replace("READ", read)
     };
-    let (_, _, list) = stats_of(
-        &scratch,
-        "list.flx",
-        &program("List<Int>", "[n, n + 1, n + 2]", "len(x)"),
-    );
-    let (_, _, int) = stats_of(
-        &scratch,
-        "int.flx",
-        &program("Int", "len([n, n + 1, n + 2])", "x"),
-    );
+    let (_, _, list) =
+        stats_of(&scratch, "list.flx", &program("List<Int>", "[n, n + 1, n + 2]", "len(x)"));
+    let (_, _, int) = stats_of(&scratch, "int.flx", &program("Int", "len([n, n + 1, n + 2])", "x"));
     assert_eq!(list, int, "live blocks: list sent vs its length sent");
 }
 
@@ -1701,9 +1581,7 @@ fn a_resumed_continuation_is_released() {
     ]
     .into_iter()
     .filter_map(|(name, perform, clause)| {
-        let program = RESUME_PER_TURN
-            .replace("PERFORM", perform)
-            .replace("CLAUSE", clause);
+        let program = RESUME_PER_TURN.replace("PERFORM", perform).replace("CLAUSE", clause);
         let (_, _, live) = per_thousand_cells(&scratch, name, &program);
         (live != 0).then(|| format!("{name}: {live} blocks left live per 1000 turns"))
     })
@@ -1760,9 +1638,7 @@ fn live_at_three_and_four(scratch: &Scratch, name: &str, program: &str) -> (u64,
 fn a_value_read_after_a_perform_is_released() {
     let scratch = Scratch::new("debug-heap-read-after-perform");
     let program = |clause: &str| {
-        READ_AFTER_PERFORM
-            .replace("PERFORM", "perform Ask.ask(n)")
-            .replace("CLAUSE", clause)
+        READ_AFTER_PERFORM.replace("PERFORM", "perform Ask.ask(n)").replace("CLAUSE", clause)
     };
     let mut failures: Vec<String> = [("one_frame", "resume(x)"), ("later_work", "resume(x) + 0")]
         .into_iter()
@@ -1774,9 +1650,7 @@ fn a_value_read_after_a_perform_is_released() {
     let (three, four) =
         live_at_three_and_four(&scratch, "resumed_twice", &program("resume(x) + resume(x)"));
     if three != four {
-        failures.push(format!(
-            "resumed_twice: {three} blocks live at 3 turns, {four} at 4"
-        ));
+        failures.push(format!("resumed_twice: {three} blocks live at 3 turns, {four} at 4"));
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
@@ -1859,11 +1733,8 @@ fn main() with IO {
 #[test]
 fn a_value_live_across_a_yielding_call_is_released() {
     let scratch = Scratch::new("debug-heap-across-a-yield");
-    let program = |clause: &str| {
-        READ_AFTER_PERFORM
-            .replace("PERFORM", "get(n)")
-            .replace("CLAUSE", clause)
-    };
+    let program =
+        |clause: &str| READ_AFTER_PERFORM.replace("PERFORM", "get(n)").replace("CLAUSE", clause);
     let mut failures: Vec<String> = [("two_frames", "resume(x)"), ("later_work", "resume(x) + 0")]
         .into_iter()
         .filter_map(|(name, clause)| {
@@ -1877,22 +1748,14 @@ fn a_value_live_across_a_yielding_call_is_released() {
     ] {
         let (three, four) = live_at_three_and_four(&scratch, name, &program);
         if three != four {
-            failures.push(format!(
-                "{name}: {three} blocks live at 3 turns, {four} at 4"
-            ));
+            failures.push(format!("{name}: {three} blocks live at 3 turns, {four} at 4"));
         }
     }
     let abort = |body: &str| ABORT_PER_TURN.replace("BODY", body);
-    let (_, _, kept) = stats_of(
-        &scratch,
-        "abort_kept.flx",
-        &abort("let k = get(n)\n    k + len(xs)"),
-    );
-    let (_, _, released) = stats_of(
-        &scratch,
-        "abort_released.flx",
-        &abort("let m = len(xs)\n    get(n) + m"),
-    );
+    let (_, _, kept) =
+        stats_of(&scratch, "abort_kept.flx", &abort("let k = get(n)\n    k + len(xs)"));
+    let (_, _, released) =
+        stats_of(&scratch, "abort_released.flx", &abort("let m = len(xs)\n    get(n) + m"));
     if kept != released {
         failures.push(format!(
             "abort: {kept} blocks live with the list kept across the call, {released} without"
@@ -2043,10 +1906,7 @@ fn an_array_releases_every_element() {
         .2
     };
     let (one, wide) = (at(1), at(70000));
-    assert_eq!(
-        wide, one,
-        "an array of 70000 lists left {wide} blocks live, one of 1 left {one}"
-    );
+    assert_eq!(wide, one, "an array of 70000 lists left {wide} blocks live, one of 1 left {one}");
 }
 
 const MAP_PER_TURN: &str = r"import Flow.Map exposing (set, delete, merge, size)
@@ -2087,14 +1947,8 @@ fn a_map_releases_its_nodes_keys_and_values() {
     let m2 = set(m1, "c", [n])
     size_of(m1) + size_of(m2)"#,
         ),
-        (
-            "deleted",
-            r#"size_of(delete(set(set({}, "a", [n]), "b", [n]), "a"))"#,
-        ),
-        (
-            "merged",
-            r#"size_of(merge(set({}, "a", [n]), set({}, "b", [n])))"#,
-        ),
+        ("deleted", r#"size_of(delete(set(set({}, "a", [n]), "b", [n]), "a"))"#),
+        ("merged", r#"size_of(merge(set({}, "a", [n]), set({}, "b", [n])))"#),
         ("wide", "size_of(wide(100, n, {}))"),
     ]
     .into_iter()
@@ -2134,10 +1988,7 @@ fn a_call_through_a_module_alias_releases_its_arguments() {
     let scratch = Scratch::new("debug-heap-alias");
     let failures: Vec<String> = [
         ("array_push", "len(Array.push([| [n] |], [n + 1]))"),
-        (
-            "map_set",
-            r#"Map.size(Map.set(Map.set({}, "a", [n]), "b", [n + 1]))"#,
-        ),
+        ("map_set", r#"Map.size(Map.set(Map.set({}, "a", [n]), "b", [n + 1]))"#),
         (
             "map_get",
             r#"let m = Map.set({}, "a", [n])
@@ -2250,10 +2101,7 @@ fn main() with IO {
 /// those frames, so `boom`'s list stayed live (KI-126). What a skipped
 /// `handle` builds is the effect runtime's, not a frame's (KI-133).
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "Windows catches a panic with SEH, which runs no landing pads"
-)]
+#[cfg_attr(windows, ignore = "Windows catches a panic with SEH, which runs no landing pads")]
 fn a_caught_panic_releases_what_the_frames_it_skipped_held() {
     let scratch = Scratch::new("debug-heap-caught-panic");
     let failures: Vec<String> = [("held_list", "boom(n)"), ("two_frames", "outer(n)")]
@@ -2272,10 +2120,7 @@ fn a_caught_panic_releases_what_the_frames_it_skipped_held() {
 /// the prompt's own references to the clause's `resume` and argument
 /// (KI-133).
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "Windows catches a panic with SEH, which runs no landing pads"
-)]
+#[cfg_attr(windows, ignore = "Windows catches a panic with SEH, which runs no landing pads")]
 fn a_caught_panic_releases_what_a_skipped_handle_built() {
     let scratch = Scratch::new("debug-heap-skipped-handle");
     let failures: Vec<String> = [

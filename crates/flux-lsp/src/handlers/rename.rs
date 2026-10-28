@@ -38,11 +38,7 @@ pub fn compute_workspace_edit(bundle: &RefBundle, new_name: &str) -> Option<Work
         // `collect_all_uses` reports a declaration's whole-statement span; the
         // edit must touch only the name, or renaming `fn twice(n)` would
         // replace the entire signature.
-        let name = file
-            .snapshot
-            .interner
-            .try_resolve(bundle.target_id)
-            .unwrap_or("");
+        let name = file.snapshot.interner.try_resolve(bundle.target_id).unwrap_or("");
         let edits = spans
             .iter()
             .map(|span| {

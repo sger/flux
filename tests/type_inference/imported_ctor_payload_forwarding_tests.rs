@@ -114,13 +114,7 @@ fn run_under_test_mode() -> (String, bool) {
 
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
-        .args([
-            "--test",
-            entry.to_str().unwrap(),
-            "--root",
-            dir.as_str(),
-            "--no-cache",
-        ])
+        .args(["--test", entry.to_str().unwrap(), "--root", dir.as_str(), "--no-cache"])
         .args(scratch.cache_args())
         .output()
         .expect("failed to run flux --test");
@@ -148,10 +142,7 @@ fn an_imported_constructors_payload_can_be_forwarded_unchanged() {
         .filter(|line| !line.is_empty())
         .collect();
     for expected in EXPECTED {
-        assert!(
-            printed.contains(expected),
-            "expected `{expected}` in the output:\n{output}"
-        );
+        assert!(printed.contains(expected), "expected `{expected}` in the output:\n{output}");
     }
     assert!(
         output.contains("1 tests: 1 passed, 0 failed"),

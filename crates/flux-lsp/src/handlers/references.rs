@@ -54,11 +54,7 @@ pub fn gather(workspace: &mut Workspace, file: FileId, position: Position) -> Op
         let Some(uri) = workspace.uri_of(fid) else {
             continue;
         };
-        files.push(RefFile {
-            uri,
-            version: workspace.version(fid),
-            snapshot,
-        });
+        files.push(RefFile { uri, version: workspace.version(fid), snapshot });
     }
     Some(RefBundle { target_id, files })
 }
@@ -68,11 +64,7 @@ pub fn gather(workspace: &mut Workspace, file: FileId, position: Position) -> Op
 pub fn compute_locations(bundle: &RefBundle) -> Vec<Location> {
     let mut locations = Vec::new();
     for f in &bundle.files {
-        let name = f
-            .snapshot
-            .interner
-            .try_resolve(bundle.target_id)
-            .unwrap_or("");
+        let name = f.snapshot.interner.try_resolve(bundle.target_id).unwrap_or("");
         let mut spans: Vec<FluxSpan> = Vec::new();
         collect_all_uses(&f.snapshot.program, bundle.target_id, &mut spans);
         for span in spans {
@@ -176,11 +168,7 @@ pub(crate) fn reference_scope(
                 .is_some()
         })
     });
-    if component.len() > 1 && top_level {
-        component
-    } else {
-        vec![file]
-    }
+    if component.len() > 1 && top_level { component } else { vec![file] }
 }
 
 /// Extract the canonical `Identifier` from a `NodeRef`. Used by both
@@ -233,9 +221,7 @@ pub fn collect_kinded_uses(
 
 fn collect_in_stmt(stmt: &Statement, target: Identifier, out: &mut Vec<(FluxSpan, UseKind)>) {
     match stmt {
-        Statement::Let {
-            name, value, span, ..
-        } => {
+        Statement::Let { name, value, span, .. } => {
             if *name == target {
                 out.push((*span, UseKind::Write));
             }
@@ -245,13 +231,7 @@ fn collect_in_stmt(stmt: &Statement, target: Identifier, out: &mut Vec<(FluxSpan
             collect_in_pattern(pattern, target, out);
             collect_in_expr(value, target, out);
         }
-        Statement::Function {
-            name,
-            parameters,
-            body,
-            span,
-            ..
-        } => {
+        Statement::Function { name, parameters, body, span, .. } => {
             if *name == target {
                 out.push((*span, UseKind::Write));
             }
@@ -265,28 +245,19 @@ fn collect_in_stmt(stmt: &Statement, target: Identifier, out: &mut Vec<(FluxSpan
         Statement::Return { value: Some(v), .. } => collect_in_expr(v, target, out),
         Statement::Return { value: None, .. } => {}
         Statement::Expression { expression, .. } => collect_in_expr(expression, target, out),
-        Statement::Assign {
-            name, value, span, ..
-        } => {
+        Statement::Assign { name, value, span, .. } => {
             if *name == target {
                 out.push((*span, UseKind::Write));
             }
             collect_in_expr(value, target, out);
         }
-        Statement::Module {
-            name, body, span, ..
-        } => {
+        Statement::Module { name, body, span, .. } => {
             if *name == target {
                 out.push((*span, UseKind::Write));
             }
             collect_in_block(body, target, out);
         }
-        Statement::Data {
-            name,
-            variants,
-            span,
-            ..
-        } => {
+        Statement::Data { name, variants, span, .. } => {
             if *name == target {
                 out.push((*span, UseKind::Write));
             }
@@ -294,9 +265,7 @@ fn collect_in_stmt(stmt: &Statement, target: Identifier, out: &mut Vec<(FluxSpan
                 collect_in_variant(variant, target, out);
             }
         }
-        Statement::EffectDecl {
-            name, ops, span, ..
-        } => {
+        Statement::EffectDecl { name, ops, span, .. } => {
             if *name == target {
                 out.push((*span, UseKind::Write));
             }
@@ -306,9 +275,7 @@ fn collect_in_stmt(stmt: &Statement, target: Identifier, out: &mut Vec<(FluxSpan
                 }
             }
         }
-        Statement::Import {
-            name, alias, span, ..
-        } => {
+        Statement::Import { name, alias, span, .. } => {
             if *name == target {
                 out.push((*span, UseKind::Write));
             }
@@ -344,11 +311,7 @@ fn collect_in_expr(expr: &Expression, target: Identifier, out: &mut Vec<(FluxSpa
         Expression::Identifier { name, span, .. } if *name == target => {
             out.push((*span, UseKind::Read));
         }
-        Expression::Call {
-            function,
-            arguments,
-            ..
-        } => {
+        Expression::Call { function, arguments, .. } => {
             collect_in_expr(function, target, out);
             for a in arguments {
                 collect_in_expr(a, target, out);
@@ -361,41 +324,27 @@ fn collect_in_expr(expr: &Expression, target: Identifier, out: &mut Vec<(FluxSpa
         Expression::Prefix { right, .. } => {
             collect_in_expr(right, target, out);
         }
-        Expression::If {
-            condition,
-            consequence,
-            alternative,
-            ..
-        } => {
+        Expression::If { condition, consequence, alternative, .. } => {
             collect_in_expr(condition, target, out);
             collect_in_block(consequence, target, out);
             if let Some(b) = alternative {
                 collect_in_block(b, target, out);
             }
         }
-        Expression::Match {
-            scrutinee, arms, ..
-        } => {
+        Expression::Match { scrutinee, arms, .. } => {
             collect_in_expr(scrutinee, target, out);
             for arm in arms {
                 collect_in_pattern(&arm.pattern, target, out);
                 collect_in_expr(&arm.body, target, out);
             }
         }
-        Expression::MemberAccess {
-            object,
-            member,
-            span,
-            ..
-        } => {
+        Expression::MemberAccess { object, member, span, .. } => {
             collect_in_expr(object, target, out);
             if *member == target {
                 out.push((*span, UseKind::Read));
             }
         }
-        Expression::NamedConstructor {
-            name, fields, span, ..
-        } => {
+        Expression::NamedConstructor { name, fields, span, .. } => {
             if *name == target {
                 out.push((*span, UseKind::Read));
             }
@@ -430,12 +379,7 @@ fn collect_in_expr(expr: &Expression, target: Identifier, out: &mut Vec<(FluxSpa
                 collect_in_expr(&arm.body, target, out);
             }
         }
-        Expression::Perform {
-            operation,
-            args,
-            span,
-            ..
-        } => {
+        Expression::Perform { operation, args, span, .. } => {
             if *operation == target {
                 out.push((*span, UseKind::Read));
             }
@@ -443,9 +387,7 @@ fn collect_in_expr(expr: &Expression, target: Identifier, out: &mut Vec<(FluxSpa
                 collect_in_expr(a, target, out);
             }
         }
-        Expression::Spread {
-            base, overrides, ..
-        } => {
+        Expression::Spread { base, overrides, .. } => {
             collect_in_expr(base, target, out);
             for f in overrides {
                 if f.name == target {

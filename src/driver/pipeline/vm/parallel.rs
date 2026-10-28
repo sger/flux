@@ -79,11 +79,7 @@ fn compile_parallel_module(
 ) -> ParallelModuleResult {
     let module_source = std::fs::read_to_string(&node.path).unwrap_or_default();
     let source_hash = hash_bytes(module_source.as_bytes());
-    let entry_module_kind = request
-        .graph
-        .entry_node()
-        .map(|node| node.kind)
-        .unwrap_or_default();
+    let entry_module_kind = request.graph.entry_node().map(|node| node.kind).unwrap_or_default();
     let strict_mode =
         effective_module_strictness(node.kind, entry_module_kind, request.compile.strict_mode);
     let artifact_config_hash = compute_artifact_config_hash(
@@ -270,9 +266,8 @@ fn compile_parallel_module(
         );
     }
 
-    let new_interface_fingerprint = interface
-        .as_ref()
-        .map(|iface| iface.interface_fingerprint.clone());
+    let new_interface_fingerprint =
+        interface.as_ref().map(|iface| iface.interface_fingerprint.clone());
     let interface_changed = interfaces_changed(old_interface.as_ref(), interface.as_ref());
 
     ParallelModuleResult {
@@ -316,9 +311,7 @@ impl VmParallelBuildState {
 
     fn dependency_changed(&self, node: &ModuleNode) -> bool {
         node.imports.iter().any(|dep| {
-            self.module_states
-                .get(&dep.target_path)
-                .is_some_and(|state| state.interface_changed)
+            self.module_states.get(&dep.target_path).is_some_and(|state| state.interface_changed)
         })
     }
 
@@ -329,16 +322,9 @@ impl VmParallelBuildState {
     ) {
         self.failed.insert(node.path.clone());
         let display = render_display_path(&node.path.to_string_lossy()).into_owned();
-        if let Some(dep) = node
-            .imports
-            .iter()
-            .find(|edge| self.failed.contains(&edge.target_path))
+        if let Some(dep) = node.imports.iter().find(|edge| self.failed.contains(&edge.target_path))
         {
-            all_diagnostics.push(module_skipped_note(
-                display.clone(),
-                display,
-                dep.name.clone(),
-            ));
+            all_diagnostics.push(module_skipped_note(display.clone(), display, dep.name.clone()));
         }
     }
 
@@ -378,9 +364,7 @@ fn compile_batch(
         .par_iter()
         .filter(|node| !dependency_changed_paths.contains(&node.path))
         .map(|node| {
-            let is_entry = request
-                .entry_canonical
-                .is_some_and(|entry| entry == &node.path);
+            let is_entry = request.entry_canonical.is_some_and(|entry| entry == &node.path);
             compile_parallel_module(
                 node,
                 nodes_by_path,
@@ -394,15 +378,11 @@ fn compile_batch(
 
     sort_by_path(&mut parallel_results, |result| &result.path);
 
-    let skipped_paths: HashSet<_> = parallel_results
-        .iter()
-        .map(|result| result.path.clone())
-        .collect();
+    let skipped_paths: HashSet<_> =
+        parallel_results.iter().map(|result| result.path.clone()).collect();
     for node in &batch {
         if dependency_changed_paths.contains(&node.path) && !skipped_paths.contains(&node.path) {
-            let is_entry = request
-                .entry_canonical
-                .is_some_and(|entry| entry == &node.path);
+            let is_entry = request.entry_canonical.is_some_and(|entry| entry == &node.path);
             parallel_results.push(compile_parallel_module(
                 node,
                 nodes_by_path,
@@ -427,11 +407,8 @@ fn replay_warnings_if_needed(
     if result.needs_serial_warning_replay
         && let Some(node) = nodes_by_path.get(&result.path)
     {
-        let entry_module_kind = request
-            .graph
-            .entry_node()
-            .map(|node| node.kind)
-            .unwrap_or_default();
+        let entry_module_kind =
+            request.graph.entry_node().map(|node| node.kind).unwrap_or_default();
         let replayed = replay_module_diagnostics_for(ParallelReplayRequest {
             node,
             nodes_by_path,
@@ -455,11 +432,8 @@ fn replay_errors(
     all_diagnostics: &mut Vec<Diagnostic>,
 ) {
     if let Some(node) = nodes_by_path.get(&result.path) {
-        let entry_module_kind = request
-            .graph
-            .entry_node()
-            .map(|node| node.kind)
-            .unwrap_or_default();
+        let entry_module_kind =
+            request.graph.entry_node().map(|node| node.kind).unwrap_or_default();
         all_diagnostics.extend(replay_module_diagnostics_for(ParallelReplayRequest {
             node,
             nodes_by_path,
@@ -496,10 +470,7 @@ fn load_and_link_artifact(
                     request.cache.cache_layout.root(),
                 )
                 .unwrap_or_else(|| "unknown".to_string());
-            format!(
-                "could not load module artifact for {} ({reason})",
-                result.path.display()
-            )
+            format!("could not load module artifact for {} ({reason})", result.path.display())
         })?;
     linker.assemble_module(&artifact)?;
     Ok(())
@@ -516,13 +487,7 @@ fn handle_result(
     if result.compile_failed {
         build_state.failed.insert(result.path.clone());
         let before = all_diagnostics.len();
-        replay_errors(
-            &result,
-            nodes_by_path,
-            build_state,
-            request,
-            all_diagnostics,
-        );
+        replay_errors(&result, nodes_by_path, build_state, request, all_diagnostics);
         // The replay compiles the module again to recover its diagnostics.
         // If that compile finds no error, the run must still not go on
         // without the module.
@@ -538,13 +503,7 @@ fn handle_result(
         return Ok(());
     }
 
-    replay_warnings_if_needed(
-        &result,
-        nodes_by_path,
-        build_state,
-        request,
-        all_diagnostics,
-    );
+    replay_warnings_if_needed(&result, nodes_by_path, build_state, request, all_diagnostics);
 
     build_state.record_progress(
         &result.path,
@@ -555,9 +514,7 @@ fn handle_result(
     );
 
     if let Some(interface) = result.interface_hit.clone() {
-        build_state
-            .loaded_interfaces
-            .insert(result.path.clone(), interface);
+        build_state.loaded_interfaces.insert(result.path.clone(), interface);
     }
 
     let old_interface_fingerprint = result.old_interface_fingerprint.clone();
@@ -596,11 +553,7 @@ pub(crate) fn compile_vm_modules_parallel(
     for level in request.graph.topo_levels() {
         let mut ready = Vec::new();
         for node in level {
-            if node
-                .imports
-                .iter()
-                .any(|dep| build_state.failed.contains(&dep.target_path))
-            {
+            if node.imports.iter().any(|dep| build_state.failed.contains(&dep.target_path)) {
                 build_state.record_failed_dependency(node, all_diagnostics);
                 continue;
             }
@@ -639,10 +592,7 @@ pub(crate) fn compile_vm_modules_parallel(
     }
 
     let compiled_count = build_state.total_modules - build_state.cached_count;
-    let LinkedVmProgram {
-        bytecode,
-        symbol_table,
-    } = build_state.linker.finish();
+    let LinkedVmProgram { bytecode, symbol_table } = build_state.linker.finish();
     Ok(ParallelVmBuild {
         bytecode,
         symbol_table,
@@ -675,10 +625,7 @@ mod tests {
             vm_miss_reason(false, Some("iface".into()), Some("cache".into())),
             Some("iface".to_string())
         );
-        assert_eq!(
-            vm_miss_reason(false, None, Some("cache".into())),
-            Some("cache".to_string())
-        );
+        assert_eq!(vm_miss_reason(false, None, Some("cache".into())), Some("cache".to_string()));
         assert_eq!(vm_miss_reason(false, None, None), None);
     }
 }

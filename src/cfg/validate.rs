@@ -12,11 +12,8 @@ use super::{
 
 #[allow(clippy::result_large_err)]
 pub fn validate_ir(program: &IrProgram) -> Result<(), Diagnostic> {
-    let function_ids: HashSet<FunctionId> = program
-        .functions
-        .iter()
-        .map(|function| function.id)
-        .collect();
+    let function_ids: HashSet<FunctionId> =
+        program.functions.iter().map(|function| function.id).collect();
     for function in &program.functions {
         let block_ids: HashSet<_> = function.blocks.iter().map(|block| block.id).collect();
         if !block_ids.contains(&function.entry) {
@@ -43,13 +40,7 @@ pub fn validate_ir(program: &IrProgram) -> Result<(), Diagnostic> {
                         }
                         defined.insert(*dest);
                     }
-                    IrInstr::HandleScope {
-                        dest,
-                        body_entry,
-                        arms,
-                        initial_state,
-                        ..
-                    } => {
+                    IrInstr::HandleScope { dest, body_entry, arms, initial_state, .. } => {
                         if let Some(initial_state) = initial_state {
                             ensure_defined(*initial_state, &defined)?;
                         }
@@ -77,11 +68,7 @@ pub fn validate_ir(program: &IrProgram) -> Result<(), Diagnostic> {
                     check_block_params(function, *target, args.len())?;
                     incoming.insert(*target, Some(args.len()));
                 }
-                IrTerminator::Branch {
-                    then_block,
-                    else_block,
-                    ..
-                } => {
+                IrTerminator::Branch { then_block, else_block, .. } => {
                     incoming.entry(*then_block).or_insert(Some(0));
                     incoming.entry(*else_block).or_insert(Some(0));
                 }
@@ -125,11 +112,7 @@ fn validate_function_rep_metadata(function: &super::IrFunction) -> Result<(), Di
         ));
     }
 
-    for (param, inferred_ty) in function
-        .params
-        .iter()
-        .zip(function.inferred_param_types.iter())
-    {
+    for (param, inferred_ty) in function.params.iter().zip(function.inferred_param_types.iter()) {
         if let Some(inferred_ty) = inferred_ty {
             let expected = IrType::from_core_type(inferred_ty);
             if param.ty != expected {
@@ -183,11 +166,7 @@ fn compute_reachable_defs(
         for param in &function.params {
             entry.insert(param.var);
         }
-        if let Some(block) = function
-            .blocks
-            .iter()
-            .find(|block| block.id == function.entry)
-        {
+        if let Some(block) = function.blocks.iter().find(|block| block.id == function.entry) {
             for param in &block.params {
                 entry.insert(param.var);
             }
@@ -230,11 +209,7 @@ fn compute_reachable_defs(
                         changed = true;
                     }
                 }
-                IrTerminator::Branch {
-                    then_block,
-                    else_block,
-                    ..
-                } => {
+                IrTerminator::Branch { then_block, else_block, .. } => {
                     ensure_block_exists(*then_block, block_ids)?;
                     ensure_block_exists(*else_block, block_ids)?;
                     for target in [then_block, else_block] {
@@ -313,12 +288,7 @@ fn ensure_expr_vars_defined(expr: &IrExpr, defined: &HashSet<IrVar>) -> Result<(
             ensure_defined(*tail, defined)
         }
         IrExpr::DropReuse(var) => ensure_defined(*var, defined),
-        IrExpr::ReuseCons {
-            token,
-            head,
-            tail,
-            field_mask: _,
-        } => {
+        IrExpr::ReuseCons { token, head, tail, field_mask: _ } => {
             ensure_defined(*token, defined)?;
             ensure_defined(*head, defined)?;
             ensure_defined(*tail, defined)
@@ -381,12 +351,7 @@ fn validate_terminator(
                 ensure_defined(*arg, defined)?;
             }
         }
-        IrTerminator::Branch {
-            cond,
-            then_block,
-            else_block,
-            ..
-        } => {
+        IrTerminator::Branch { cond, then_block, else_block, .. } => {
             ensure_defined(*cond, defined)?;
             ensure_block_exists(*then_block, block_ids)?;
             ensure_block_exists(*else_block, block_ids)?;
@@ -426,10 +391,7 @@ fn check_block_params(
         return Err(invalid_ir(None, "jump target block does not exist"));
     };
     if block.params.len() != arg_count {
-        return Err(invalid_ir(
-            None,
-            "jump argument count does not match target block params",
-        ));
+        return Err(invalid_ir(None, "jump argument count does not match target block params"));
     }
     Ok(())
 }
@@ -448,10 +410,7 @@ fn ensure_block_exists(block_id: BlockId, block_ids: &HashSet<BlockId>) -> Resul
     if block_ids.contains(&block_id) {
         Ok(())
     } else {
-        Err(invalid_ir(
-            None,
-            "IR references a block that does not exist",
-        ))
+        Err(invalid_ir(None, "IR references a block that does not exist"))
     }
 }
 
@@ -463,10 +422,7 @@ fn ensure_function_exists(
     if function_ids.contains(&function_id) {
         Ok(())
     } else {
-        Err(invalid_ir(
-            None,
-            "IR references a function that does not exist",
-        ))
+        Err(invalid_ir(None, "IR references a function that does not exist"))
     }
 }
 
@@ -474,11 +430,7 @@ fn invalid_ir(span: Option<Span>, message: &str) -> Diagnostic {
     let diagnostic = Diagnostic::warning("Invalid Flux IR")
         .with_error_type(ErrorType::Compiler)
         .with_message(message);
-    if let Some(span) = span {
-        diagnostic.with_span(span)
-    } else {
-        diagnostic
-    }
+    if let Some(span) = span { diagnostic.with_span(span) } else { diagnostic }
 }
 
 #[cfg(test)]

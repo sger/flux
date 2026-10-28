@@ -28,10 +28,7 @@ fn ansi_len(text: &str) -> Option<usize> {
     if bytes.get(1) != Some(&b'[') {
         return None;
     }
-    let params = bytes[2..]
-        .iter()
-        .take_while(|b| b.is_ascii_digit() || **b == b';')
-        .count();
+    let params = bytes[2..].iter().take_while(|b| b.is_ascii_digit() || **b == b';').count();
     (bytes.get(2 + params) == Some(&b'm')).then_some(3 + params)
 }
 
@@ -45,9 +42,7 @@ pub struct Paint {
 impl Paint {
     pub fn detect() -> Self {
         use std::io::IsTerminal;
-        Self {
-            on: std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none(),
-        }
+        Self { on: std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none() }
     }
 
     /// No colour, for text written to a file.
@@ -61,11 +56,7 @@ impl Paint {
     }
 
     fn wrap(self, code: &str, text: &str) -> String {
-        if self.on {
-            format!("\x1b[{code}m{text}\x1b[0m")
-        } else {
-            text.to_string()
-        }
+        if self.on { format!("\x1b[{code}m{text}\x1b[0m") } else { text.to_string() }
     }
 
     pub fn green(self, text: &str) -> String {

@@ -69,9 +69,7 @@ pub fn collect_module_functions<V: Clone>(
 ) {
     for item in items {
         match item {
-            IrTopLevelItem::Function {
-                name, function_id, ..
-            } => {
+            IrTopLevelItem::Function { name, function_id, .. } => {
                 if let (Some(mod_name), Some(fn_id)) = (current_module, function_id)
                     && let Some(value) = resolve_fn(*fn_id)
                 {

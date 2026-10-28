@@ -17,14 +17,8 @@ use flux_runner::{run_native, run_vm};
 #[test]
 fn stackless_drop_deep_list_native() {
     let (stdout, success) = run_native("stackless_drop_deep_list.flx");
-    assert!(
-        success,
-        "native backend crashed (likely stack overflow in flux_drop)"
-    );
-    assert!(
-        stdout.contains("ok"),
-        "expected 'ok' in output, got: {stdout}"
-    );
+    assert!(success, "native backend crashed (likely stack overflow in flux_drop)");
+    assert!(stdout.contains("ok"), "expected 'ok' in output, got: {stdout}");
 }
 
 #[test]
@@ -35,23 +29,14 @@ fn stackless_drop_deep_list_parity() {
     // Compare just the program output lines (skip compilation messages).
     let vm_lines: Vec<&str> = vm_out.lines().collect();
     let native_lines: Vec<&str> = native_out.lines().filter(|l| !l.starts_with('[')).collect();
-    assert_eq!(
-        vm_lines, native_lines,
-        "VM and native output differ for deep list"
-    );
+    assert_eq!(vm_lines, native_lines, "VM and native output differ for deep list");
 }
 
 #[test]
 fn stackless_drop_nested_adt_native() {
     let (stdout, success) = run_native("stackless_drop_nested_adt.flx");
-    assert!(
-        success,
-        "native backend crashed (likely stack overflow in flux_drop)"
-    );
-    assert!(
-        stdout.contains("150000"),
-        "expected depth=150000 in output, got: {stdout}"
-    );
+    assert!(success, "native backend crashed (likely stack overflow in flux_drop)");
+    assert!(stdout.contains("150000"), "expected depth=150000 in output, got: {stdout}");
 }
 
 #[test]
@@ -61,8 +46,5 @@ fn stackless_drop_nested_adt_parity() {
     assert!(success, "native backend crashed");
     let vm_lines: Vec<&str> = vm_out.lines().collect();
     let native_lines: Vec<&str> = native_out.lines().filter(|l| !l.starts_with('[')).collect();
-    assert_eq!(
-        vm_lines, native_lines,
-        "VM and native output differ for nested ADT"
-    );
+    assert_eq!(vm_lines, native_lines, "VM and native output differ for nested ADT");
 }

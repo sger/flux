@@ -229,15 +229,9 @@ pub(super) fn read_object_naming(reader: &mut File, own_file: Option<&str>) -> O
         }
         5 => Some(Value::None),
         6 => Some(Value::EmptyList),
-        7 => Some(Value::Some(std::rc::Rc::new(read_object_naming(
-            reader, own_file,
-        )?))),
-        8 => Some(Value::Left(std::rc::Rc::new(read_object_naming(
-            reader, own_file,
-        )?))),
-        9 => Some(Value::Right(std::rc::Rc::new(read_object_naming(
-            reader, own_file,
-        )?))),
+        7 => Some(Value::Some(std::rc::Rc::new(read_object_naming(reader, own_file)?))),
+        8 => Some(Value::Left(std::rc::Rc::new(read_object_naming(reader, own_file)?))),
+        9 => Some(Value::Right(std::rc::Rc::new(read_object_naming(reader, own_file)?))),
         10 => {
             // Tag 10 was BaseFunction (removed). Skip 1 byte for compat.
             let mut value = [0u8; 1];
@@ -292,25 +286,21 @@ pub(super) fn read_object_naming(reader: &mut File, own_file: Option<&str>) -> O
             reader.read_exact(&mut has_state).ok()?;
             let mut is_discard = [0u8; 1];
             reader.read_exact(&mut is_discard).ok()?;
-            Some(Value::HandlerDescriptor(std::rc::Rc::new(
-                HandlerDescriptor {
-                    effect,
-                    effect_name,
-                    ops,
-                    op_names,
-                    has_state: has_state[0] != 0,
-                    is_discard: is_discard[0] != 0,
-                },
-            )))
+            Some(Value::HandlerDescriptor(std::rc::Rc::new(HandlerDescriptor {
+                effect,
+                effect_name,
+                ops,
+                op_names,
+                has_state: has_state[0] != 0,
+                is_discard: is_discard[0] != 0,
+            })))
         }
-        17 => Some(Value::PerformDescriptor(std::rc::Rc::new(
-            PerformDescriptor {
-                effect: read_symbol(reader)?,
-                op: read_symbol(reader)?,
-                effect_name: read_string(reader)?.into_boxed_str(),
-                op_name: read_string(reader)?.into_boxed_str(),
-            },
-        ))),
+        17 => Some(Value::PerformDescriptor(std::rc::Rc::new(PerformDescriptor {
+            effect: read_symbol(reader)?,
+            op: read_symbol(reader)?,
+            effect_name: read_string(reader)?.into_boxed_str(),
+            op_name: read_string(reader)?.into_boxed_str(),
+        }))),
         _ => None,
     }
 }
@@ -340,11 +330,7 @@ pub(super) fn write_function_debug_info_naming(
             }
             write_u32(writer, info.files.len() as u32)?;
             for file in &info.files {
-                let named = if own_file == Some(file.as_str()) {
-                    OWN_FILE
-                } else {
-                    file
-                };
+                let named = if own_file == Some(file.as_str()) { OWN_FILE } else { file };
                 write_string(writer, named)?;
             }
             write_u32(writer, info.locations.len() as u32)?;
@@ -448,13 +434,7 @@ fn read_debug_tables(reader: &mut File) -> Option<(Vec<BreakSite>, Vec<LocalVar>
         let end_ip = read_u32(reader)? as usize;
         let mut artificial = [0u8; 1];
         reader.read_exact(&mut artificial).ok()?;
-        locals.push(LocalVar {
-            slot,
-            name,
-            start_ip,
-            end_ip,
-            artificial: artificial[0] != 0,
-        });
+        locals.push(LocalVar { slot, name, start_ip, end_ip, artificial: artificial[0] != 0 });
     }
     let free_len = read_u32(reader)? as usize;
     let mut free_names = Vec::with_capacity(free_len);
@@ -480,11 +460,7 @@ pub(super) fn read_function_debug_info_naming(
 
     let mut name_flag = [0u8; 1];
     reader.read_exact(&mut name_flag).ok()?;
-    let name = if name_flag[0] == 0 {
-        None
-    } else {
-        Some(read_string(reader)?)
-    };
+    let name = if name_flag[0] == 0 { None } else { Some(read_string(reader)?) };
 
     let files_len = read_u32(reader)? as usize;
     let mut files = Vec::with_capacity(files_len);
@@ -548,10 +524,7 @@ fn write_position(writer: &mut File, position: &Position) -> std::io::Result<()>
 }
 
 fn read_position(reader: &mut File) -> Option<Position> {
-    Some(Position::new(
-        read_u32(reader)? as usize,
-        read_u32(reader)? as usize,
-    ))
+    Some(Position::new(read_u32(reader)? as usize, read_u32(reader)? as usize))
 }
 
 fn write_span(writer: &mut File, span: &Span) -> std::io::Result<()> {

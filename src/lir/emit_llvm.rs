@@ -89,22 +89,12 @@ const UNWIND_CLEANUP: bool = !cfg!(windows);
 /// not `nounwind` where a panic unwinds through them, or LLVM would turn
 /// the `invoke`s that call them back into calls and drop their landing pads.
 fn flux_fn_attrs() -> Vec<String> {
-    if UNWIND_CLEANUP {
-        Vec::new()
-    } else {
-        vec!["nounwind".to_string()]
-    }
+    if UNWIND_CLEANUP { Vec::new() } else { vec!["nounwind".to_string()] }
 }
 
 fn sanitize_llvm_symbol_fragment(name: &str) -> String {
     name.chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '$' {
-                ch
-            } else {
-                '_'
-            }
-        })
+        .map(|ch| if ch.is_ascii_alphanumeric() || ch == '_' || ch == '$' { ch } else { '_' })
         .collect()
 }
 
@@ -230,12 +220,8 @@ pub fn emit_llvm_module_with_debug(
     let mut statics = StaticObjects::default();
 
     // Build set of worker-eligible functions (Phase 10: Worker/Wrapper unboxing).
-    let worker_eligible: HashSet<LirFuncId> = program
-        .functions
-        .iter()
-        .filter(|f| is_worker_eligible(f))
-        .map(|f| f.id)
-        .collect();
+    let worker_eligible: HashSet<LirFuncId> =
+        program.functions.iter().filter(|f| is_worker_eligible(f)).map(|f| f.id).collect();
 
     // Proposal 0162 Phase 3 (slice 3a + slice 5-gate). Yield-check emission
     // activates only when the env flag is on AND the program has at least
@@ -271,13 +257,7 @@ pub fn emit_llvm_module_with_debug(
         };
         let llvm_func = emitter.emit_function();
         let block_locs = std::mem::take(&mut emitter.block_locs);
-        push_function(
-            &mut module,
-            debug_builder.as_mut(),
-            llvm_func,
-            func,
-            &block_locs,
-        );
+        push_function(&mut module, debug_builder.as_mut(), llvm_func, func, &block_locs);
     }
 
     // Phase 10: Emit worker functions for eligible all-int functions.
@@ -307,13 +287,7 @@ pub fn emit_llvm_module_with_debug(
             };
             let worker_func = emitter.emit_function();
             let block_locs = std::mem::take(&mut emitter.block_locs);
-            push_function(
-                &mut module,
-                debug_builder.as_mut(),
-                worker_func,
-                func,
-                &block_locs,
-            );
+            push_function(&mut module, debug_builder.as_mut(), worker_func, func, &block_locs);
         }
     }
 
@@ -360,11 +334,8 @@ pub fn emit_llvm_module_with_debug(
             && func.qualified_name != "main"
             && !crate::lir::run_async_outline::is_run_async_with_outline_helper(func)
         {
-            let linkage = if is_dict_lir_function(func) {
-                Linkage::Internal
-            } else {
-                Linkage::External
-            };
+            let linkage =
+                if is_dict_lir_function(func) { Linkage::Internal } else { Linkage::External };
             let wrapper = emit_closure_wrapper(func, linkage);
             module.functions.push(wrapper);
         }
@@ -506,19 +477,13 @@ fn emit_user_ctor_name_helper(module: &mut LlvmModule, program: &LirProgram) {
         module.globals.push(LlvmGlobal {
             linkage: Linkage::Private,
             name: global.clone(),
-            ty: LlvmType::Array {
-                len: bytes.len() as u64,
-                element: Box::new(LlvmType::i8()),
-            },
+            ty: LlvmType::Array { len: bytes.len() as u64, element: Box::new(LlvmType::i8()) },
             is_constant: true,
             value: Some(LlvmConst::Array {
                 element_ty: LlvmType::i8(),
                 elements: bytes
                     .into_iter()
-                    .map(|byte| LlvmConst::Int {
-                        bits: 8,
-                        value: byte as i128,
-                    })
+                    .map(|byte| LlvmConst::Int { bits: 8, value: byte as i128 })
                     .collect(),
             }),
             attrs: Vec::new(),
@@ -537,28 +502,13 @@ fn emit_user_ctor_name_helper(module: &mut LlvmModule, program: &LirProgram) {
                 },
                 base: LlvmOperand::Global(global),
                 indices: vec![
-                    (
-                        LlvmType::i32(),
-                        LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 }),
-                    ),
-                    (
-                        LlvmType::i32(),
-                        LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 }),
-                    ),
+                    (LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 })),
+                    (LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 })),
                 ],
             }],
-            term: LlvmTerminator::Ret {
-                ty: LlvmType::Ptr,
-                value: LlvmOperand::Local(ptr_local),
-            },
+            term: LlvmTerminator::Ret { ty: LlvmType::Ptr, value: LlvmOperand::Local(ptr_local) },
         });
-        cases.push((
-            LlvmConst::Int {
-                bits: 32,
-                value: *tag as i128,
-            },
-            case_label,
-        ));
+        cases.push((LlvmConst::Int { bits: 32, value: *tag as i128 }, case_label));
     }
 
     let entry_label = LabelId("ctor_name.entry".to_string());
@@ -578,10 +528,7 @@ fn emit_user_ctor_name_helper(module: &mut LlvmModule, program: &LirProgram) {
     blocks.push(LlvmBlock {
         label: default_label,
         instrs: Vec::new(),
-        term: LlvmTerminator::Ret {
-            ty: LlvmType::Ptr,
-            value: LlvmOperand::Const(LlvmConst::Null),
-        },
+        term: LlvmTerminator::Ret { ty: LlvmType::Ptr, value: LlvmOperand::Const(LlvmConst::Null) },
     });
 
     module.functions.push(LlvmFunction {
@@ -629,10 +576,7 @@ fn emit_closure_wrapper(func: &LirFunction, linkage: Linkage) -> LlvmFunction {
             base: LlvmOperand::Local(args_param.clone()),
             indices: vec![(
                 LlvmType::i32(),
-                LlvmOperand::Const(LlvmConst::Int {
-                    bits: 32,
-                    value: i as i128,
-                }),
+                LlvmOperand::Const(LlvmConst::Int { bits: 32, value: i as i128 }),
             )],
         });
         let val = LlvmLocal(format!("arg.{i}"));
@@ -671,10 +615,7 @@ fn emit_closure_wrapper(func: &LirFunction, linkage: Linkage) -> LlvmFunction {
         blocks: vec![LlvmBlock {
             label: LabelId("entry".into()),
             instrs,
-            term: LlvmTerminator::Ret {
-                ty: LlvmType::i64(),
-                value: LlvmOperand::Local(result),
-            },
+            term: LlvmTerminator::Ret { ty: LlvmType::i64(), value: LlvmOperand::Local(result) },
         }],
     }
 }
@@ -687,10 +628,7 @@ fn is_worker_eligible(func: &LirFunction) -> bool {
     if func.capture_vars.is_empty()
         && func.qualified_name != "main"
         && !func.param_reps.is_empty()
-        && func
-            .param_reps
-            .iter()
-            .all(|r| matches!(r, crate::core::FluxRep::IntRep))
+        && func.param_reps.iter().all(|r| matches!(r, crate::core::FluxRep::IntRep))
         && matches!(func.result_rep, crate::core::FluxRep::IntRep)
     {
         return true;
@@ -764,10 +702,8 @@ impl StaticObjects {
     fn emit(self, module: &mut LlvmModule) {
         let int =
             |bits: u32, value: i128| (LlvmType::Integer(bits), LlvmConst::Int { bits, value });
-        let bytes = |len: usize| LlvmType::Array {
-            len: len as u64,
-            element: Box::new(LlvmType::i8()),
-        };
+        let bytes =
+            |len: usize| LlvmType::Array { len: len as u64, element: Box::new(LlvmType::i8()) };
         let header = |tag: i128| vec![int(32, STATIC_RC), int(8, 0), int(8, tag), int(16, 0)];
         let object = |name: GlobalId, fields: Vec<(LlvmType, LlvmConst)>| LlvmGlobal {
             linkage: Linkage::Private,
@@ -777,10 +713,7 @@ impl StaticObjects {
                 fields: fields.iter().map(|(ty, _)| ty.clone()).collect(),
             },
             is_constant: true,
-            value: Some(LlvmConst::Struct {
-                packed: false,
-                fields,
-            }),
+            value: Some(LlvmConst::Struct { packed: false, fields }),
             attrs: vec![", align 8".to_string()],
         };
         for (text, name) in self.strings {
@@ -797,10 +730,7 @@ impl StaticObjects {
                         element_ty: LlvmType::i8(),
                         elements: text
                             .bytes()
-                            .map(|b| LlvmConst::Int {
-                                bits: 8,
-                                value: b as i128,
-                            })
+                            .map(|b| LlvmConst::Int { bits: 8, value: b as i128 })
                             .collect(),
                     },
                 ),
@@ -943,10 +873,7 @@ impl<'a> FnEmitter<'a> {
     }
 
     fn i64_const(&self, value: i64) -> LlvmOperand {
-        LlvmOperand::Const(LlvmConst::Int {
-            bits: 64,
-            value: value as i128,
-        })
+        LlvmOperand::Const(LlvmConst::Int { bits: 64, value: value as i128 })
     }
 
     /// Constructor tags for `Result` / `IoError`, in the order the C runtime's
@@ -958,11 +885,7 @@ impl<'a> FnEmitter<'a> {
     /// the value is unreachable anyway.
     fn io_result_tag_args(&self) -> Vec<(LlvmType, LlvmOperand)> {
         let tag = |name: &str, fallback: i32| {
-            self.program
-                .constructor_tags
-                .get(name)
-                .copied()
-                .unwrap_or(fallback)
+            self.program.constructor_tags.get(name).copied().unwrap_or(fallback)
         };
         // Every IoErrorKind variant declared in Flow.IoError must appear here.
         // A kind that is missing is one the native backend can never report,
@@ -977,20 +900,14 @@ impl<'a> FnEmitter<'a> {
             (LlvmType::i32(), self.i32_const(tag("AlreadyExists", 21))),
             (LlvmType::i32(), self.i32_const(tag("NotADirectory", 22))),
             (LlvmType::i32(), self.i32_const(tag("IsADirectory", 23))),
-            (
-                LlvmType::i32(),
-                self.i32_const(tag("DirectoryNotEmpty", 24)),
-            ),
+            (LlvmType::i32(), self.i32_const(tag("DirectoryNotEmpty", 24))),
             (LlvmType::i32(), self.i32_const(tag("Interrupted", 25))),
             (LlvmType::i32(), self.i32_const(tag("Other", 26))),
         ]
     }
 
     fn i32_const(&self, value: i32) -> LlvmOperand {
-        LlvmOperand::Const(LlvmConst::Int {
-            bits: 32,
-            value: value as i128,
-        })
+        LlvmOperand::Const(LlvmConst::Int { bits: 32, value: value as i128 })
     }
 
     /// Emit a call to a C runtime function.
@@ -1048,14 +965,7 @@ impl<'a> FnEmitter<'a> {
     ) -> InvokeSplit {
         let mut instrs = std::mem::take(&mut self.current_instrs);
         let rest = instrs.split_off(at + 1);
-        let Some(LlvmInstr::Call {
-            dst,
-            call_conv,
-            ret_ty,
-            callee,
-            args,
-            ..
-        }) = instrs.pop()
+        let Some(LlvmInstr::Call { dst, call_conv, ret_ty, callee, args, .. }) = instrs.pop()
         else {
             unreachable!("invoke_at names a call");
         };
@@ -1078,19 +988,17 @@ impl<'a> FnEmitter<'a> {
 
         let caught = LlvmLocal(format!("{}.lp", label.0));
         self.needed_decls.insert("flux_drop".to_string());
-        let pad_instrs = std::iter::once(LlvmInstr::LandingPad {
-            dst: caught.clone(),
-        })
-        .chain(owned.iter().map(|var| LlvmInstr::Call {
-            dst: None,
-            tail: false,
-            call_conv: Some(CallConv::Ccc),
-            ret_ty: LlvmType::Void,
-            callee: LlvmOperand::Global(GlobalId("flux_drop".to_string())),
-            args: vec![(LlvmType::i64(), self.var(*var))],
-            attrs: Vec::new(),
-        }))
-        .collect();
+        let pad_instrs = std::iter::once(LlvmInstr::LandingPad { dst: caught.clone() })
+            .chain(owned.iter().map(|var| LlvmInstr::Call {
+                dst: None,
+                tail: false,
+                call_conv: Some(CallConv::Ccc),
+                ret_ty: LlvmType::Void,
+                callee: LlvmOperand::Global(GlobalId("flux_drop".to_string())),
+                args: vec![(LlvmType::i64(), self.var(*var))],
+                attrs: Vec::new(),
+            }))
+            .collect();
         self.unwinds = true;
 
         InvokeSplit {
@@ -1107,11 +1015,7 @@ impl<'a> FnEmitter<'a> {
                     unwind: pad.clone(),
                 },
             },
-            after: LlvmBlock {
-                label: after,
-                instrs: after_instrs,
-                term,
-            },
+            after: LlvmBlock { label: after, instrs: after_instrs, term },
             pad: LlvmBlock {
                 label: pad,
                 instrs: pad_instrs,
@@ -1128,8 +1032,7 @@ impl<'a> FnEmitter<'a> {
         ret: LlvmType,
     ) {
         if !is_fastcc_prelude_helper(name) {
-            self.needed_user_fastcc_decls
-                .insert((name.to_string(), args.len()));
+            self.needed_user_fastcc_decls.insert((name.to_string(), args.len()));
         }
         self.emit(LlvmInstr::Call {
             dst,
@@ -1153,8 +1056,7 @@ impl<'a> FnEmitter<'a> {
         // for a class method holds a type (`List<a>`); its definition was
         // named from the sanitized form.
         let name = sanitize_llvm_symbol_fragment(name);
-        self.needed_user_fastcc_decls
-            .insert((name.clone(), args.len()));
+        self.needed_user_fastcc_decls.insert((name.clone(), args.len()));
         self.emit(LlvmInstr::Call {
             dst,
             tail: false,
@@ -1184,11 +1086,9 @@ impl<'a> FnEmitter<'a> {
                 };
                 let successors: Vec<u32> = match &block.terminator {
                     LirTerminator::Jump(t) => vec![t.0],
-                    LirTerminator::Branch {
-                        then_block,
-                        else_block,
-                        ..
-                    } => vec![then_block.0, else_block.0],
+                    LirTerminator::Branch { then_block, else_block, .. } => {
+                        vec![then_block.0, else_block.0]
+                    }
                     LirTerminator::Switch { cases, default, .. } => {
                         let mut v: Vec<_> = cases.iter().map(|(_, t)| t.0).collect();
                         v.push(default.0);
@@ -1200,11 +1100,7 @@ impl<'a> FnEmitter<'a> {
                         // block is dead in the parent — emitting it would
                         // reference `dst` which is only bound via the
                         // synthesized continuation fn, not in this function.
-                        if matches!(kind, CallKind::YieldTo) {
-                            vec![]
-                        } else {
-                            vec![cont.0]
-                        }
+                        if matches!(kind, CallKind::YieldTo) { vec![] } else { vec![cont.0] }
                     }
                     LirTerminator::MatchCtor { arms, default, .. } => {
                         let mut v: Vec<_> = arms.iter().map(|a| a.target.0).collect();
@@ -1225,12 +1121,8 @@ impl<'a> FnEmitter<'a> {
         let mut phi_info: std::collections::HashMap<u32, Vec<(LirVar, BlockId)>> =
             std::collections::HashMap::new();
         // Collect: for each block param variable, find (source_value, source_block).
-        let block_param_vars: HashSet<u32> = self
-            .func
-            .blocks
-            .iter()
-            .flat_map(|b| b.params.iter().map(|v| v.0))
-            .collect();
+        let block_param_vars: HashSet<u32> =
+            self.func.blocks.iter().flat_map(|b| b.params.iter().map(|v| v.0)).collect();
 
         for block in &self.func.blocks {
             // Skip unreachable blocks — their Copy instructions must not
@@ -1304,11 +1196,8 @@ impl<'a> FnEmitter<'a> {
                     // The head keeps the marks before the call; the after
                     // block starts with the result's copy, at the call's
                     // location, then the instructions that followed it.
-                    let head: Vec<_> = marks
-                        .iter()
-                        .copied()
-                        .filter(|(from, _)| *from < at)
-                        .collect();
+                    let head: Vec<_> =
+                        marks.iter().copied().filter(|(from, _)| *from < at).collect();
                     let after: Vec<_> = std::iter::once((0, block.term_loc))
                         .chain(
                             marks
@@ -1335,8 +1224,7 @@ impl<'a> FnEmitter<'a> {
                 term,
             });
             if self.track_locs {
-                self.block_locs
-                    .push((std::mem::take(&mut self.lir_marks), block.term_loc));
+                self.block_locs.push((std::mem::take(&mut self.lir_marks), block.term_loc));
                 // Blocks the emitter adds itself are its own glue: line 0.
                 for _ in &self.extra_blocks {
                     self.block_locs.push((Vec::new(), LirLoc::NONE));
@@ -1404,12 +1292,8 @@ impl<'a> FnEmitter<'a> {
             // ── Direct calling convention (GHC-style known calls) ──────
             // Top-level function with no captures: takes individual i64 params.
             // No closure preamble needed — params are used directly.
-            let param_locals: Vec<LlvmLocal> = self
-                .func
-                .params
-                .iter()
-                .map(|p| self.var_local(*p))
-                .collect();
+            let param_locals: Vec<LlvmLocal> =
+                self.func.params.iter().map(|p| self.var_local(*p)).collect();
             let param_types: Vec<LlvmType> =
                 self.func.params.iter().map(|_| LlvmType::i64()).collect();
 
@@ -1490,10 +1374,7 @@ impl<'a> FnEmitter<'a> {
                         base: LlvmOperand::Local(cap_base.clone()),
                         indices: vec![(
                             LlvmType::i32(),
-                            LlvmOperand::Const(LlvmConst::Int {
-                                bits: 32,
-                                value: i as i128,
-                            }),
+                            LlvmOperand::Const(LlvmConst::Int { bits: 32, value: i as i128 }),
                         )],
                     });
                     entry_instrs.push(LlvmInstr::Load {
@@ -1515,10 +1396,7 @@ impl<'a> FnEmitter<'a> {
                     base: LlvmOperand::Local(args_param.clone()),
                     indices: vec![(
                         LlvmType::i32(),
-                        LlvmOperand::Const(LlvmConst::Int {
-                            bits: 32,
-                            value: i as i128,
-                        }),
+                        LlvmOperand::Const(LlvmConst::Int { bits: 32, value: i as i128 }),
                     )],
                 });
                 entry_instrs.push(LlvmInstr::Load {
@@ -1907,11 +1785,8 @@ impl<'a> FnEmitter<'a> {
                 });
                 // ADT header fields (ctor_tag at offset 0, field_count at offset 4)
                 // are i32; payload fields (offset >= 8) are i64.
-                let (store_ty, align) = if *offset < 8 {
-                    (LlvmType::i32(), 4)
-                } else {
-                    (LlvmType::i64(), 8)
-                };
+                let (store_ty, align) =
+                    if *offset < 8 { (LlvmType::i32(), 4) } else { (LlvmType::i64(), 8) };
                 // For i32 stores, truncate the i64 value.
                 let store_val = if *offset < 8 {
                     let trunc = self.tmp();
@@ -1959,10 +1834,8 @@ impl<'a> FnEmitter<'a> {
                     operand: self.var(*ptr),
                     to_ty: LlvmType::Ptr,
                 });
-                let store_val = LlvmOperand::Const(LlvmConst::Int {
-                    bits: 32,
-                    value: (*value) as i128,
-                });
+                let store_val =
+                    LlvmOperand::Const(LlvmConst::Int { bits: 32, value: (*value) as i128 });
                 if *offset != 0 {
                     let gep = self.tmp();
                     self.emit(LlvmInstr::GetElementPtr {
@@ -1994,10 +1867,7 @@ impl<'a> FnEmitter<'a> {
                     "flux_bump_alloc_inline",
                     vec![
                         (LlvmType::i32(), self.i32_const(*size as i32)),
-                        (
-                            LlvmType::i32(),
-                            self.i32_const(instr.scan_fields_val() as i32),
-                        ),
+                        (LlvmType::i32(), self.i32_const(instr.scan_fields_val() as i32)),
                         (LlvmType::i32(), self.i32_const(instr.obj_tag_val() as i32)),
                     ],
                     LlvmType::Ptr,
@@ -2073,11 +1943,7 @@ impl<'a> FnEmitter<'a> {
             }
 
             // ── Closures ────────────────────────────────────────────
-            LirInstr::MakeClosure {
-                dst,
-                func_id,
-                captures,
-            } => {
+            LirInstr::MakeClosure { dst, func_id, captures } => {
                 self.emit_make_closure(*dst, *func_id, captures);
             }
             LirInstr::MakeExternClosure { dst, symbol, arity } => {
@@ -2104,12 +1970,7 @@ impl<'a> FnEmitter<'a> {
             }
 
             // ── Constructor creation ────────────────────────────────
-            LirInstr::MakeCtor {
-                dst,
-                ctor_tag,
-                fields,
-                ..
-            } => {
+            LirInstr::MakeCtor { dst, ctor_tag, fields, .. } => {
                 self.emit_make_ctor(*dst, *ctor_tag, fields);
             }
         }
@@ -2205,10 +2066,7 @@ impl<'a> FnEmitter<'a> {
                 (LlvmType::i64(), LlvmOperand::Local(a_tag2)),
                 (LlvmType::i64(), LlvmOperand::Local(b_tag2)),
                 (LlvmType::i64(), self.i64_const(span.start.line as i64)),
-                (
-                    LlvmType::i64(),
-                    self.i64_const((span.start.column + 1) as i64),
-                ),
+                (LlvmType::i64(), self.i64_const((span.start.column + 1) as i64)),
             ],
             LlvmType::i64(),
         );
@@ -2324,18 +2182,9 @@ impl<'a> FnEmitter<'a> {
         // Some fiber shims need program-specific constructor tags. The LLVM
         // emitter supplies them because the C runtime cannot know those tags.
         if let CorePrimOp::FiberNewScope = op {
-            let tag = self
-                .program
-                .constructor_tags
-                .get("Scope")
-                .copied()
-                .unwrap_or(5); // 5 = first user ADT tag (matches lir/lower.rs)
+            let tag = self.program.constructor_tags.get("Scope").copied().unwrap_or(5); // 5 = first user ADT tag (matches lir/lower.rs)
             let dst_local = dst.map(|d| self.var_local(d));
-            let ret_ty = if dst.is_some() {
-                LlvmType::i64()
-            } else {
-                LlvmType::Void
-            };
+            let ret_ty = if dst.is_some() { LlvmType::i64() } else { LlvmType::Void };
             self.call_c(
                 dst_local,
                 "flux_fiber_new_scope",
@@ -2346,30 +2195,11 @@ impl<'a> FnEmitter<'a> {
         }
 
         if let CorePrimOp::FiberTry = op {
-            let ok_tag = self
-                .program
-                .constructor_tags
-                .get("Ok")
-                .copied()
-                .unwrap_or(5);
-            let err_tag = self
-                .program
-                .constructor_tags
-                .get("Err")
-                .copied()
-                .unwrap_or(6);
-            let panicked_tag = self
-                .program
-                .constructor_tags
-                .get("Panicked")
-                .copied()
-                .unwrap_or(7);
+            let ok_tag = self.program.constructor_tags.get("Ok").copied().unwrap_or(5);
+            let err_tag = self.program.constructor_tags.get("Err").copied().unwrap_or(6);
+            let panicked_tag = self.program.constructor_tags.get("Panicked").copied().unwrap_or(7);
             let dst_local = dst.map(|d| self.var_local(d));
-            let ret_ty = if dst.is_some() {
-                LlvmType::i64()
-            } else {
-                LlvmType::Void
-            };
+            let ret_ty = if dst.is_some() { LlvmType::i64() } else { LlvmType::Void };
             self.call_c(
                 dst_local,
                 "flux_fiber_try",
@@ -2385,24 +2215,10 @@ impl<'a> FnEmitter<'a> {
         }
 
         if let CorePrimOp::EventPoll = op {
-            let ready_tag = self
-                .program
-                .constructor_tags
-                .get("Ready")
-                .copied()
-                .unwrap_or(5);
-            let pending_tag = self
-                .program
-                .constructor_tags
-                .get("Pending")
-                .copied()
-                .unwrap_or(6);
+            let ready_tag = self.program.constructor_tags.get("Ready").copied().unwrap_or(5);
+            let pending_tag = self.program.constructor_tags.get("Pending").copied().unwrap_or(6);
             let dst_local = dst.map(|d| self.var_local(d));
-            let ret_ty = if dst.is_some() {
-                LlvmType::i64()
-            } else {
-                LlvmType::Void
-            };
+            let ret_ty = if dst.is_some() { LlvmType::i64() } else { LlvmType::Void };
             self.call_c(
                 dst_local,
                 "flux_event_poll",
@@ -2418,18 +2234,10 @@ impl<'a> FnEmitter<'a> {
 
         if let CorePrimOp::HttpParseRequest = op {
             let tag = |name: &str, fallback: i32| {
-                self.program
-                    .constructor_tags
-                    .get(name)
-                    .copied()
-                    .unwrap_or(fallback)
+                self.program.constructor_tags.get(name).copied().unwrap_or(fallback)
             };
             let dst_local = dst.map(|d| self.var_local(d));
-            let ret_ty = if dst.is_some() {
-                LlvmType::i64()
-            } else {
-                LlvmType::Void
-            };
+            let ret_ty = if dst.is_some() { LlvmType::i64() } else { LlvmType::Void };
             self.call_c(
                 dst_local,
                 "flux_http_parse_request",
@@ -2455,18 +2263,10 @@ impl<'a> FnEmitter<'a> {
 
         if let CorePrimOp::HttpParseUrl = op {
             let tag = |name: &str, fallback: i32| {
-                self.program
-                    .constructor_tags
-                    .get(name)
-                    .copied()
-                    .unwrap_or(fallback)
+                self.program.constructor_tags.get(name).copied().unwrap_or(fallback)
             };
             let dst_local = dst.map(|d| self.var_local(d));
-            let ret_ty = if dst.is_some() {
-                LlvmType::i64()
-            } else {
-                LlvmType::Void
-            };
+            let ret_ty = if dst.is_some() { LlvmType::i64() } else { LlvmType::Void };
             self.call_c(
                 dst_local,
                 "flux_http_parse_url",
@@ -2482,18 +2282,10 @@ impl<'a> FnEmitter<'a> {
 
         if let CorePrimOp::HttpWriteRequest = op {
             let tag = |name: &str, fallback: i32| {
-                self.program
-                    .constructor_tags
-                    .get(name)
-                    .copied()
-                    .unwrap_or(fallback)
+                self.program.constructor_tags.get(name).copied().unwrap_or(fallback)
             };
             let dst_local = dst.map(|d| self.var_local(d));
-            let ret_ty = if dst.is_some() {
-                LlvmType::i64()
-            } else {
-                LlvmType::Void
-            };
+            let ret_ty = if dst.is_some() { LlvmType::i64() } else { LlvmType::Void };
             self.call_c(
                 dst_local,
                 "flux_http_write_request",
@@ -2518,34 +2310,17 @@ impl<'a> FnEmitter<'a> {
 
         if let CorePrimOp::HttpParseResponse = op {
             let tag = |name: &str, fallback: i32| {
-                self.program
-                    .constructor_tags
-                    .get(name)
-                    .copied()
-                    .unwrap_or(fallback)
+                self.program.constructor_tags.get(name).copied().unwrap_or(fallback)
             };
             let dst_local = dst.map(|d| self.var_local(d));
-            let ret_ty = if dst.is_some() {
-                LlvmType::i64()
-            } else {
-                LlvmType::Void
-            };
+            let ret_ty = if dst.is_some() { LlvmType::i64() } else { LlvmType::Void };
             self.call_c(
                 dst_local,
                 "flux_http_parse_response",
                 vec![
-                    (
-                        LlvmType::i32(),
-                        self.i32_const(tag("HttpResponseNeedMore", 5)),
-                    ),
-                    (
-                        LlvmType::i32(),
-                        self.i32_const(tag("HttpResponseParsed", 6)),
-                    ),
-                    (
-                        LlvmType::i32(),
-                        self.i32_const(tag("HttpResponseFailure", 7)),
-                    ),
+                    (LlvmType::i32(), self.i32_const(tag("HttpResponseNeedMore", 5))),
+                    (LlvmType::i32(), self.i32_const(tag("HttpResponseParsed", 6))),
+                    (LlvmType::i32(), self.i32_const(tag("HttpResponseFailure", 7))),
                     (LlvmType::i32(), self.i32_const(tag("Response", 8))),
                     (LlvmType::i64(), self.var(args[0])),
                 ],
@@ -2581,11 +2356,7 @@ impl<'a> FnEmitter<'a> {
                 _ => "flux_fs_rename",
             };
             let dst_local = dst.map(|d| self.var_local(d));
-            let ret_ty = if dst.is_some() {
-                LlvmType::i64()
-            } else {
-                LlvmType::Void
-            };
+            let ret_ty = if dst.is_some() { LlvmType::i64() } else { LlvmType::Void };
             let mut call_args = self.io_result_tag_args();
             for arg in args {
                 call_args.push((LlvmType::i64(), self.var(*arg)));
@@ -2597,18 +2368,10 @@ impl<'a> FnEmitter<'a> {
         // FsMetadata builds a FileMeta record, so it needs that constructor's
         // tag in addition to the shared Result/IoError ones.
         if let CorePrimOp::FsMetadata = op {
-            let file_meta_tag = self
-                .program
-                .constructor_tags
-                .get("FileMeta")
-                .copied()
-                .unwrap_or(27);
+            let file_meta_tag =
+                self.program.constructor_tags.get("FileMeta").copied().unwrap_or(27);
             let dst_local = dst.map(|d| self.var_local(d));
-            let ret_ty = if dst.is_some() {
-                LlvmType::i64()
-            } else {
-                LlvmType::Void
-            };
+            let ret_ty = if dst.is_some() { LlvmType::i64() } else { LlvmType::Void };
             let mut call_args = self.io_result_tag_args();
             call_args.push((LlvmType::i32(), self.i32_const(file_meta_tag)));
             call_args.push((LlvmType::i64(), self.var(args[0])));
@@ -2619,18 +2382,10 @@ impl<'a> FnEmitter<'a> {
         // ProcRun builds a ProcOutput record, so like FsMetadata it needs that
         // constructor's tag alongside the shared Result/IoError ones.
         if let CorePrimOp::ProcRun = op {
-            let proc_output_tag = self
-                .program
-                .constructor_tags
-                .get("ProcOutput")
-                .copied()
-                .unwrap_or(28);
+            let proc_output_tag =
+                self.program.constructor_tags.get("ProcOutput").copied().unwrap_or(28);
             let dst_local = dst.map(|d| self.var_local(d));
-            let ret_ty = if dst.is_some() {
-                LlvmType::i64()
-            } else {
-                LlvmType::Void
-            };
+            let ret_ty = if dst.is_some() { LlvmType::i64() } else { LlvmType::Void };
             let mut call_args = self.io_result_tag_args();
             call_args.push((LlvmType::i32(), self.i32_const(proc_output_tag)));
             call_args.push((LlvmType::i64(), self.var(args[0])));
@@ -2641,11 +2396,7 @@ impl<'a> FnEmitter<'a> {
 
         if let CorePrimOp::TryReadFile = op {
             let dst_local = dst.map(|d| self.var_local(d));
-            let ret_ty = if dst.is_some() {
-                LlvmType::i64()
-            } else {
-                LlvmType::Void
-            };
+            let ret_ty = if dst.is_some() { LlvmType::i64() } else { LlvmType::Void };
             let mut call_args = self.io_result_tag_args();
             call_args.push((LlvmType::i64(), self.var(args[0])));
             self.call_c(dst_local, "flux_try_read_file", call_args, ret_ty);
@@ -2654,18 +2405,10 @@ impl<'a> FnEmitter<'a> {
 
         if let CorePrimOp::JsonParse = op {
             let tag = |name: &str, fallback: i32| {
-                self.program
-                    .constructor_tags
-                    .get(name)
-                    .copied()
-                    .unwrap_or(fallback)
+                self.program.constructor_tags.get(name).copied().unwrap_or(fallback)
             };
             let dst_local = dst.map(|d| self.var_local(d));
-            let ret_ty = if dst.is_some() {
-                LlvmType::i64()
-            } else {
-                LlvmType::Void
-            };
+            let ret_ty = if dst.is_some() { LlvmType::i64() } else { LlvmType::Void };
             self.call_c(
                 dst_local,
                 "flux_json_parse",
@@ -2690,18 +2433,10 @@ impl<'a> FnEmitter<'a> {
 
         if let CorePrimOp::JsonStringify = op {
             let tag = |name: &str, fallback: i32| {
-                self.program
-                    .constructor_tags
-                    .get(name)
-                    .copied()
-                    .unwrap_or(fallback)
+                self.program.constructor_tags.get(name).copied().unwrap_or(fallback)
             };
             let dst_local = dst.map(|d| self.var_local(d));
-            let ret_ty = if dst.is_some() {
-                LlvmType::i64()
-            } else {
-                LlvmType::Void
-            };
+            let ret_ty = if dst.is_some() { LlvmType::i64() } else { LlvmType::Void };
             self.call_c(
                 dst_local,
                 "flux_json_stringify",
@@ -2721,32 +2456,21 @@ impl<'a> FnEmitter<'a> {
             return;
         }
 
-        let llvm_args: Vec<(LlvmType, LlvmOperand)> = args
-            .iter()
-            .map(|a| (LlvmType::i64(), self.var(*a)))
-            .collect();
+        let llvm_args: Vec<(LlvmType, LlvmOperand)> =
+            args.iter().map(|a| (LlvmType::i64(), self.var(*a))).collect();
         let dst_local = dst.map(|d| self.var_local(d));
 
         // Map CorePrimOp to C runtime function name.
         let c_name = primop_c_name(op);
-        let ret_ty = if dst.is_some() {
-            LlvmType::i64()
-        } else {
-            LlvmType::Void
-        };
+        let ret_ty = if dst.is_some() { LlvmType::i64() } else { LlvmType::Void };
 
         self.call_c(dst_local, &c_name, llvm_args, ret_ty);
     }
 
     fn emit_make_closure(&mut self, dst: LirVar, func_id: LirFuncId, captures: &[LirVar]) {
-        debug_assert!(
-            captures.len() <= MAX_SCANNED_FIELDS,
-            "E087 missed a closure"
-        );
-        let target = self
-            .program
-            .func_by_id(func_id)
-            .expect("MakeClosure references unknown LirFuncId");
+        debug_assert!(captures.len() <= MAX_SCANNED_FIELDS, "E087 missed a closure");
+        let target =
+            self.program.func_by_id(func_id).expect("MakeClosure references unknown LirFuncId");
         let arity = target.params.len();
         let sanitized_target = sanitize_llvm_symbol_fragment(&target.qualified_name);
 
@@ -2855,11 +2579,7 @@ impl<'a> FnEmitter<'a> {
         c_func: &str,
         use_fastcc: bool,
     ) {
-        let call = if use_fastcc {
-            FnEmitter::call_fastcc
-        } else {
-            FnEmitter::call_c
-        };
+        let call = if use_fastcc { FnEmitter::call_fastcc } else { FnEmitter::call_c };
         if elements.is_empty() {
             call(
                 self,
@@ -2965,12 +2685,7 @@ impl<'a> FnEmitter<'a> {
         // Build HAMT from interleaved key-value pairs.
         // Start with flux_hamt_empty(), then flux_hamt_set(map, key, val) for each pair.
         let mut current = self.tmp();
-        self.call_c(
-            Some(current.clone()),
-            "flux_hamt_empty",
-            Vec::new(),
-            LlvmType::i64(),
-        );
+        self.call_c(Some(current.clone()), "flux_hamt_empty", Vec::new(), LlvmType::i64());
         for chunk in pairs.chunks(2) {
             if chunk.len() == 2 {
                 let next = self.tmp();
@@ -2988,11 +2703,8 @@ impl<'a> FnEmitter<'a> {
                 // counts its own references, so the previous map and the
                 // pair are let go.
                 if !self.worker_mode {
-                    for val in [
-                        LlvmOperand::Local(current),
-                        self.var(chunk[0]),
-                        self.var(chunk[1]),
-                    ] {
+                    for val in [LlvmOperand::Local(current), self.var(chunk[0]), self.var(chunk[1])]
+                    {
                         self.call_c(
                             None,
                             "flux_drop",
@@ -3031,10 +2743,7 @@ impl<'a> FnEmitter<'a> {
             self.call_fastcc(
                 Some(result.clone()),
                 "flux_make_cons",
-                vec![
-                    (LlvmType::i64(), self.var(*elem)),
-                    (LlvmType::i64(), tail_op),
-                ],
+                vec![(LlvmType::i64(), self.var(*elem)), (LlvmType::i64(), tail_op)],
                 LlvmType::i64(),
             );
             current_local = Some(result);
@@ -3062,10 +2771,7 @@ impl<'a> FnEmitter<'a> {
     }
 
     fn emit_make_ctor(&mut self, dst: LirVar, ctor_tag: i32, fields: &[LirVar]) {
-        debug_assert!(
-            fields.len() <= MAX_SCANNED_FIELDS,
-            "E087 missed a constructor"
-        );
+        debug_assert!(fields.len() <= MAX_SCANNED_FIELDS, "E087 missed a constructor");
         // Built-in constructors with dedicated C runtime functions
         // that use flux_gc_alloc_header (correct RC metadata).
         match (ctor_tag, fields.len()) {
@@ -3250,9 +2956,7 @@ impl<'a> FnEmitter<'a> {
         self.extra_blocks.push(LlvmBlock {
             label: cont_label.clone(),
             instrs: Vec::new(),
-            term: LlvmTerminator::Br {
-                target: self.label(cont),
-            },
+            term: LlvmTerminator::Br { target: self.label(cont) },
         });
 
         LlvmTerminator::CondBr {
@@ -3275,12 +2979,7 @@ impl<'a> FnEmitter<'a> {
         &mut self,
         yield_cont: Option<&YieldCont>,
     ) -> (Vec<LlvmInstr>, LlvmTerminator) {
-        let Some(YieldCont {
-            func: func_id,
-            captures,
-            moved,
-        }) = yield_cont
-        else {
+        let Some(YieldCont { func: func_id, captures, moved }) = yield_cont else {
             return (
                 Vec::new(),
                 LlvmTerminator::Ret {
@@ -3413,33 +3112,20 @@ impl<'a> FnEmitter<'a> {
             attrs: Vec::new(),
         });
 
-        (
-            instrs,
-            LlvmTerminator::Ret {
-                ty: LlvmType::i64(),
-                value: LlvmOperand::Local(sentinel),
-            },
-        )
+        (instrs, LlvmTerminator::Ret { ty: LlvmType::i64(), value: LlvmOperand::Local(sentinel) })
     }
 
     // ── Terminator emission ─────────────────────────────────────────
 
     fn emit_terminator(&mut self, term: &LirTerminator) -> LlvmTerminator {
         match term {
-            LirTerminator::Return(val) => LlvmTerminator::Ret {
-                ty: LlvmType::i64(),
-                value: self.var(*val),
-            },
+            LirTerminator::Return(val) => {
+                LlvmTerminator::Ret { ty: LlvmType::i64(), value: self.var(*val) }
+            }
 
-            LirTerminator::Jump(target) => LlvmTerminator::Br {
-                target: self.label(*target),
-            },
+            LirTerminator::Jump(target) => LlvmTerminator::Br { target: self.label(*target) },
 
-            LirTerminator::Branch {
-                cond,
-                then_block,
-                else_block,
-            } => {
+            LirTerminator::Branch { cond, then_block, else_block } => {
                 let cond_i1 = self.tmp();
                 self.emit(LlvmInstr::Cast {
                     dst: cond_i1.clone(),
@@ -3456,24 +3142,14 @@ impl<'a> FnEmitter<'a> {
                 }
             }
 
-            LirTerminator::Switch {
-                scrutinee,
-                cases,
-                default,
-            } => LlvmTerminator::Switch {
+            LirTerminator::Switch { scrutinee, cases, default } => LlvmTerminator::Switch {
                 ty: LlvmType::i64(),
                 scrutinee: self.var(*scrutinee),
                 default: self.label(*default),
                 cases: cases
                     .iter()
                     .map(|(val, target)| {
-                        (
-                            LlvmConst::Int {
-                                bits: 64,
-                                value: *val as i128,
-                            },
-                            self.label(*target),
-                        )
+                        (LlvmConst::Int { bits: 64, value: *val as i128 }, self.label(*target))
                     })
                     .collect(),
             },
@@ -3505,10 +3181,8 @@ impl<'a> FnEmitter<'a> {
                         } else {
                             format!("flux_{sanitized_target}")
                         };
-                        let call_args: Vec<(LlvmType, LlvmOperand)> = args
-                            .iter()
-                            .map(|a| (LlvmType::i64(), self.var(*a)))
-                            .collect();
+                        let call_args: Vec<(LlvmType, LlvmOperand)> =
+                            args.iter().map(|a| (LlvmType::i64(), self.var(*a))).collect();
                         self.call_fastcc(
                             Some(self.var_local(*dst)),
                             &target_name,
@@ -3537,10 +3211,8 @@ impl<'a> FnEmitter<'a> {
                         );
                     }
                     CallKind::DirectExtern { symbol } => {
-                        let call_args: Vec<(LlvmType, LlvmOperand)> = args
-                            .iter()
-                            .map(|a| (LlvmType::i64(), self.var(*a)))
-                            .collect();
+                        let call_args: Vec<(LlvmType, LlvmOperand)> =
+                            args.iter().map(|a| (LlvmType::i64(), self.var(*a))).collect();
                         self.call_extern_fastcc_user(
                             Some(self.var_local(*dst)),
                             symbol,
@@ -3609,9 +3281,7 @@ impl<'a> FnEmitter<'a> {
                 } else {
                     // Default output (yield checks disabled): branch straight
                     // to `cont`. Byte-identical to pre-slice-3a IR.
-                    LlvmTerminator::Br {
-                        target: self.label(*cont),
-                    }
+                    LlvmTerminator::Br { target: self.label(*cont) }
                 }
             }
 
@@ -3631,10 +3301,8 @@ impl<'a> FnEmitter<'a> {
                         } else {
                             format!("flux_{sanitized_target}")
                         };
-                        let call_args: Vec<(LlvmType, LlvmOperand)> = args
-                            .iter()
-                            .map(|a| (LlvmType::i64(), self.var(*a)))
-                            .collect();
+                        let call_args: Vec<(LlvmType, LlvmOperand)> =
+                            args.iter().map(|a| (LlvmType::i64(), self.var(*a))).collect();
                         if !is_fastcc_prelude_helper(&target_name) {
                             self.needed_user_fastcc_decls
                                 .insert((target_name.clone(), call_args.len()));
@@ -3673,12 +3341,9 @@ impl<'a> FnEmitter<'a> {
                         });
                     }
                     CallKind::DirectExtern { symbol } => {
-                        let call_args: Vec<(LlvmType, LlvmOperand)> = args
-                            .iter()
-                            .map(|a| (LlvmType::i64(), self.var(*a)))
-                            .collect();
-                        self.needed_user_fastcc_decls
-                            .insert((symbol.clone(), call_args.len()));
+                        let call_args: Vec<(LlvmType, LlvmOperand)> =
+                            args.iter().map(|a| (LlvmType::i64(), self.var(*a))).collect();
+                        self.needed_user_fastcc_decls.insert((symbol.clone(), call_args.len()));
                         self.emit(LlvmInstr::Call {
                             dst: Some(result.clone()),
                             tail: true,
@@ -3707,17 +3372,12 @@ impl<'a> FnEmitter<'a> {
                         unreachable!("CallKind::YieldTo only appears on non-tail Call terminators")
                     }
                 }
-                LlvmTerminator::Ret {
-                    ty: LlvmType::i64(),
-                    value: LlvmOperand::Local(result),
-                }
+                LlvmTerminator::Ret { ty: LlvmType::i64(), value: LlvmOperand::Local(result) }
             }
 
-            LirTerminator::MatchCtor {
-                scrutinee,
-                arms,
-                default,
-            } => self.emit_match_ctor(*scrutinee, arms, *default),
+            LirTerminator::MatchCtor { scrutinee, arms, default } => {
+                self.emit_match_ctor(*scrutinee, arms, *default)
+            }
 
             LirTerminator::Unreachable => LlvmTerminator::Unreachable,
         }
@@ -3735,10 +3395,7 @@ impl<'a> FnEmitter<'a> {
         } else {
             self.emit(LlvmInstr::Alloca {
                 dst: arr.clone(),
-                ty: LlvmType::Array {
-                    len: args.len() as u64,
-                    element: Box::new(LlvmType::i64()),
-                },
+                ty: LlvmType::Array { len: args.len() as u64, element: Box::new(LlvmType::i64()) },
                 count: None,
                 align: Some(8),
             });
@@ -3791,19 +3448,13 @@ impl<'a> FnEmitter<'a> {
         // For None/EmptyList: compare against sentinel values directly.
         if let Some(arm) = none_arm {
             switch_cases.push((
-                LlvmConst::Int {
-                    bits: 64,
-                    value: FLUX_NONE as i128,
-                },
+                LlvmConst::Int { bits: 64, value: FLUX_NONE as i128 },
                 self.label(arm.target),
             ));
         }
         if let Some(arm) = empty_list_arm {
             switch_cases.push((
-                LlvmConst::Int {
-                    bits: 64,
-                    value: FLUX_EMPTY_LIST as i128,
-                },
+                LlvmConst::Int { bits: 64, value: FLUX_EMPTY_LIST as i128 },
                 self.label(arm.target),
             ));
         }
@@ -3872,21 +3523,12 @@ impl<'a> FnEmitter<'a> {
                 element_ty: struct_ty,
                 base: LlvmOperand::Local(base_ptr),
                 indices: vec![
+                    (LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 })),
                     (
                         LlvmType::i32(),
-                        LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 }),
+                        LlvmOperand::Const(LlvmConst::Int { bits: 32, value: payload_field }),
                     ),
-                    (
-                        LlvmType::i32(),
-                        LlvmOperand::Const(LlvmConst::Int {
-                            bits: 32,
-                            value: payload_field,
-                        }),
-                    ),
-                    (
-                        LlvmType::i32(),
-                        LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 }),
-                    ),
+                    (LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 })),
                 ],
             });
 
@@ -3900,10 +3542,7 @@ impl<'a> FnEmitter<'a> {
                     base: LlvmOperand::Local(payload_ptr.clone()),
                     indices: vec![(
                         LlvmType::i32(),
-                        LlvmOperand::Const(LlvmConst::Int {
-                            bits: 32,
-                            value: i as i128,
-                        }),
+                        LlvmOperand::Const(LlvmConst::Int { bits: 32, value: i as i128 }),
                     )],
                 });
                 // No copy: a field is a view of the cell, and Aether's plan
@@ -3920,9 +3559,7 @@ impl<'a> FnEmitter<'a> {
             this.extra_blocks.push(LlvmBlock {
                 label: extract_label.clone(),
                 instrs: extract_instrs,
-                term: LlvmTerminator::Br {
-                    target: this.label(arm.target),
-                },
+                term: LlvmTerminator::Br { target: this.label(arm.target) },
             });
             extract_label
         };
@@ -3935,22 +3572,13 @@ impl<'a> FnEmitter<'a> {
                 CtorTag::Left => LEFT_TAG,
                 CtorTag::Right => RIGHT_TAG,
                 CtorTag::Cons => CONS_TAG,
-                CtorTag::Named(name) => self
-                    .program
-                    .constructor_tags
-                    .get(name.as_str())
-                    .copied()
-                    .unwrap_or(5),
+                CtorTag::Named(name) => {
+                    self.program.constructor_tags.get(name.as_str()).copied().unwrap_or(5)
+                }
                 _ => continue,
             };
             let target = emit_extract_block(self, arm, false);
-            adt_cases.push((
-                LlvmConst::Int {
-                    bits: 32,
-                    value: tag_val as i128,
-                },
-                target,
-            ));
+            adt_cases.push((LlvmConst::Int { bits: 32, value: tag_val as i128 }, target));
         }
 
         // The ADT dispatch block: extract ctor_tag THEN switch.
@@ -3976,14 +3604,8 @@ impl<'a> FnEmitter<'a> {
                 element_ty: LlvmType::Named("FluxAdt".into()),
                 base: LlvmOperand::Local(adt_ptr),
                 indices: vec![
-                    (
-                        LlvmType::i32(),
-                        LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 }),
-                    ),
-                    (
-                        LlvmType::i32(),
-                        LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 }),
-                    ),
+                    (LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 })),
+                    (LlvmType::i32(), LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 })),
                 ],
             },
             LlvmInstr::Load {
@@ -4031,10 +3653,7 @@ impl<'a> FnEmitter<'a> {
                 base: LlvmOperand::Local(ptr_tmp),
                 indices: vec![(
                     LlvmType::i32(),
-                    LlvmOperand::Const(LlvmConst::Int {
-                        bits: 32,
-                        value: -3_i32 as i128,
-                    }),
+                    LlvmOperand::Const(LlvmConst::Int { bits: 32, value: -3_i32 as i128 }),
                 )],
             },
             // Load obj_tag byte.
@@ -4057,10 +3676,7 @@ impl<'a> FnEmitter<'a> {
                 op: LlvmCmpOp::Eq,
                 ty: LlvmType::i8(),
                 lhs: LlvmOperand::Local(obj_tag_tmp.clone()),
-                rhs: LlvmOperand::Const(LlvmConst::Int {
-                    bits: 8,
-                    value: 0xF3,
-                }),
+                rhs: LlvmOperand::Const(LlvmConst::Int { bits: 8, value: 0xF3 }),
             });
 
             if adt_arms.is_empty() {
@@ -4098,10 +3714,7 @@ impl<'a> FnEmitter<'a> {
                         op: LlvmCmpOp::Eq,
                         ty: LlvmType::i8(),
                         lhs: LlvmOperand::Local(obj_tag_tmp),
-                        rhs: LlvmOperand::Const(LlvmConst::Int {
-                            bits: 8,
-                            value: 0xF2,
-                        }),
+                        rhs: LlvmOperand::Const(LlvmConst::Int { bits: 8, value: 0xF2 }),
                     }],
                     term: LlvmTerminator::CondBr {
                         cond_ty: LlvmType::i1(),
@@ -4120,10 +3733,7 @@ impl<'a> FnEmitter<'a> {
                 op: LlvmCmpOp::Eq,
                 ty: LlvmType::i8(),
                 lhs: LlvmOperand::Local(obj_tag_tmp),
-                rhs: LlvmOperand::Const(LlvmConst::Int {
-                    bits: 8,
-                    value: 0xF2,
-                }),
+                rhs: LlvmOperand::Const(LlvmConst::Int { bits: 8, value: 0xF2 }),
             });
 
             self.extra_blocks.push(LlvmBlock {
@@ -4186,10 +3796,7 @@ impl<'a> FnEmitter<'a> {
                 dst: guard_ok.clone(),
                 op: LlvmCmpOp::Ule,
                 ty: LlvmType::i64(),
-                lhs: LlvmOperand::Const(LlvmConst::Int {
-                    bits: 64,
-                    value: FLUX_MIN_PTR as i128,
-                }),
+                lhs: LlvmOperand::Const(LlvmConst::Int { bits: 64, value: FLUX_MIN_PTR as i128 }),
                 rhs: self.var(scrutinee),
             });
 
@@ -4208,19 +3815,11 @@ impl<'a> FnEmitter<'a> {
 /// Helper to extract scan_fields from an Alloc instruction.
 impl LirInstr {
     fn scan_fields_val(&self) -> u8 {
-        if let LirInstr::Alloc { scan_fields, .. } = self {
-            *scan_fields
-        } else {
-            0
-        }
+        if let LirInstr::Alloc { scan_fields, .. } = self { *scan_fields } else { 0 }
     }
 
     fn obj_tag_val(&self) -> u8 {
-        if let LirInstr::Alloc { obj_tag, .. } = self {
-            *obj_tag
-        } else {
-            0
-        }
+        if let LirInstr::Alloc { obj_tag, .. } = self { *obj_tag } else { 0 }
     }
 }
 
@@ -4521,10 +4120,9 @@ fn primop_c_name(op: &CorePrimOp) -> String {
 fn known_c_decl(name: &str) -> Option<LlvmDecl> {
     let (ret, params) = match name {
         "flux_string_new" => (LlvmType::i64(), vec![LlvmType::Ptr, LlvmType::i32()]),
-        "flux_gc_alloc_header" => (
-            LlvmType::Ptr,
-            vec![LlvmType::i32(), LlvmType::i32(), LlvmType::i32()],
-        ),
+        "flux_gc_alloc_header" => {
+            (LlvmType::Ptr, vec![LlvmType::i32(), LlvmType::i32(), LlvmType::i32()])
+        }
         "flux_get_global" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_wrap_some" | "flux_make_left" | "flux_make_right" => {
             (LlvmType::i64(), vec![LlvmType::i64()])
@@ -4534,10 +4132,7 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_make_array" | "flux_make_tuple" | "flux_make_hash" | "flux_interpolate" => {
             (LlvmType::i64(), vec![LlvmType::Ptr, LlvmType::i32()])
         }
-        "flux_make_adt" => (
-            LlvmType::i64(),
-            vec![LlvmType::Ptr, LlvmType::i32(), LlvmType::i32()],
-        ),
+        "flux_make_adt" => (LlvmType::i64(), vec![LlvmType::Ptr, LlvmType::i32(), LlvmType::i32()]),
         "flux_rc_is_unique" => (LlvmType::i1(), vec![LlvmType::i64()]),
         "flux_drop_reuse" => (LlvmType::Ptr, vec![LlvmType::i64(), LlvmType::i32()]),
         // Collection helpers
@@ -4546,12 +4141,7 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         }
         "flux_rt_div_loc" | "flux_rt_mod_loc" => (
             LlvmType::i64(),
-            vec![
-                LlvmType::i64(),
-                LlvmType::i64(),
-                LlvmType::i64(),
-                LlvmType::i64(),
-            ],
+            vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64(), LlvmType::i64()],
         ),
         "flux_safe_div"
         | "flux_safe_mod"
@@ -4583,22 +4173,12 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         ),
         "flux_yield_to" => (
             LlvmType::i64(),
-            vec![
-                LlvmType::i64(),
-                LlvmType::i64(),
-                LlvmType::i64(),
-                LlvmType::i64(),
-            ],
+            vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64(), LlvmType::i64()],
         ),
         "flux_yield_extend" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_yield_prompt" => (
             LlvmType::i64(),
-            vec![
-                LlvmType::i64(),
-                LlvmType::i64(),
-                LlvmType::i64(),
-                LlvmType::i64(),
-            ],
+            vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64(), LlvmType::i64()],
         ),
         "flux_is_yielding" => (LlvmType::i32(), vec![]),
         "flux_perform_direct" => (
@@ -4611,10 +4191,9 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
                 LlvmType::i64(),
             ],
         ),
-        "flux_call_closure_exact" => (
-            LlvmType::i64(),
-            vec![LlvmType::i64(), LlvmType::ptr(), LlvmType::i32()],
-        ),
+        "flux_call_closure_exact" => {
+            (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::ptr(), LlvmType::i32()])
+        }
         // Float boxing/unboxing wrappers (Phase 9 pointer tagging)
         "flux_box_float_rt" => (LlvmType::i64(), vec![LlvmType::Double]),
         "flux_unbox_float_rt" => (LlvmType::Double, vec![LlvmType::i64()]),
@@ -4643,12 +4222,7 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_fiber_first_of" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_fiber_try" => (
             LlvmType::i64(),
-            vec![
-                LlvmType::i32(),
-                LlvmType::i32(),
-                LlvmType::i32(),
-                LlvmType::i64(),
-            ],
+            vec![LlvmType::i32(), LlvmType::i32(), LlvmType::i32(), LlvmType::i64()],
         ),
         "flux_fiber_timeout" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
         // flux_fiber_new_scope takes i32 (ctor_tag injected by emitter), not i64.
@@ -4662,12 +4236,7 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         // Phase 2 slice 2-vii: 4-arg run_async_with (workers, fs, dns, closure).
         "flux_fiber_run_async_with" => (
             LlvmType::i64(),
-            vec![
-                LlvmType::i64(),
-                LlvmType::i64(),
-                LlvmType::i64(),
-                LlvmType::i64(),
-            ],
+            vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64(), LlvmType::i64()],
         ),
         "flux_chan_make" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_chan_send" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
@@ -4689,10 +4258,9 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_event_choose" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_event_wrap" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
         "flux_event_sync" => (LlvmType::i64(), vec![LlvmType::i64()]),
-        "flux_event_poll" => (
-            LlvmType::i64(),
-            vec![LlvmType::i32(), LlvmType::i32(), LlvmType::i64()],
-        ),
+        "flux_event_poll" => {
+            (LlvmType::i64(), vec![LlvmType::i32(), LlvmType::i32(), LlvmType::i64()])
+        }
         "flux_event_wait" => (LlvmType::i64(), vec![LlvmType::i64()]),
         // TCP primops (proposal 0174 Phase 1b-vii).
         // Args are NaN-boxed i64 values matching the Flow.Tcp primop arity.
@@ -4702,10 +4270,9 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_tcp_close" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_tcp_listen" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
         "flux_tcp_accept" => (LlvmType::i64(), vec![LlvmType::i64()]),
-        "flux_http_serve_config" => (
-            LlvmType::i64(),
-            vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64()],
-        ),
+        "flux_http_serve_config" => {
+            (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64()])
+        }
         "flux_http_shutdown" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_http_shutdown_now" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_http_parse_request" => (
@@ -4732,10 +4299,9 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_http_write_chunked_head" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_http_write_chunk" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_http_write_chunked_end" => (LlvmType::i64(), vec![]),
-        "flux_http_parse_url" => (
-            LlvmType::i64(),
-            vec![LlvmType::i32(), LlvmType::i32(), LlvmType::i64()],
-        ),
+        "flux_http_parse_url" => {
+            (LlvmType::i64(), vec![LlvmType::i32(), LlvmType::i32(), LlvmType::i64()])
+        }
         "flux_http_write_request" => (
             LlvmType::i64(),
             vec![
@@ -4912,12 +4478,7 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
     Some(LlvmDecl {
         linkage: Linkage::External,
         name: GlobalId(name.to_string()),
-        sig: LlvmFunctionSig {
-            ret,
-            params,
-            varargs: false,
-            call_conv: CallConv::Ccc,
-        },
+        sig: LlvmFunctionSig { ret, params, varargs: false, call_conv: CallConv::Ccc },
         attrs: vec!["nounwind".to_string()],
     })
 }

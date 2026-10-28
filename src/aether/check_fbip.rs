@@ -94,11 +94,8 @@ where
             FipAnnotation::Fip => "fip",
             FipAnnotation::Fbip => "fbip",
         };
-        let details_text = details
-            .iter()
-            .map(|detail| format!("- {detail}"))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let details_text =
+            details.iter().map(|detail| format!("- {detail}")).collect::<Vec<_>>().join("\n");
         let message = format!(
             "@{annotation_name} on `{}` analysis result {:?}:\n{}",
             interner.resolve(def.name()),
@@ -316,10 +313,7 @@ mod tests {
     }
 
     fn var<B: Borrow<CoreBinder>>(binder: B) -> CoreExpr {
-        CoreExpr::Var {
-            var: CoreVarRef::resolved(binder.borrow()),
-            span: Span::default(),
-        }
+        CoreExpr::Var { var: CoreVarRef::resolved(binder.borrow()), span: Span::default() }
     }
 
     fn mk_def(
@@ -354,23 +348,14 @@ mod tests {
                 &mut interner,
                 1,
                 "allocates",
-                CoreExpr::Con {
-                    tag: CoreTag::Some,
-                    fields: vec![var(x)],
-                    span: Span::default(),
-                },
+                CoreExpr::Con { tag: CoreTag::Some, fields: vec![var(x)], span: Span::default() },
                 Some(FipAnnotation::Fip),
             )],
             top_level_items: Vec::new(),
         };
         let result = check_fbip(&program, &interner);
         assert_eq!(result.warnings.len(), 1);
-        assert!(
-            result.warnings[0]
-                .message()
-                .unwrap()
-                .contains("fresh heap allocation")
-        );
+        assert!(result.warnings[0].message().unwrap().contains("fresh heap allocation"));
     }
 
     #[test]
@@ -383,25 +368,14 @@ mod tests {
                 &mut interner,
                 1,
                 "bounded",
-                CoreExpr::App {
-                    func: Box::new(var(f)),
-                    args: vec![var(x)],
-                    span: Span::default(),
-                },
+                CoreExpr::App { func: Box::new(var(f)), args: vec![var(x)], span: Span::default() },
                 Some(FipAnnotation::Fbip),
             )],
             top_level_items: Vec::new(),
         };
         let result = check_fbip(&program, &interner);
         assert!(result.error.is_some());
-        assert!(
-            result
-                .error
-                .unwrap()
-                .message()
-                .unwrap()
-                .contains("indirect or opaque")
-        );
+        assert!(result.error.unwrap().message().unwrap().contains("indirect or opaque"));
     }
 
     #[test]
@@ -413,11 +387,7 @@ mod tests {
             &mut interner,
             4,
             "callee",
-            CoreExpr::App {
-                func: Box::new(var(x)),
-                args: vec![var(x)],
-                span: Span::default(),
-            },
+            CoreExpr::App { func: Box::new(var(x)), args: vec![var(x)], span: Span::default() },
             Some(FipAnnotation::Fip),
         );
         let program = CoreProgram {

@@ -167,11 +167,7 @@ impl Compiler {
             1 => {
                 // ADT is on stack; extract field 0 with the existing opcode.
                 self.emit(OpCode::OpAdtField, &[0]);
-                if let Pattern::Identifier {
-                    name: field_name,
-                    span,
-                } = &fields[0]
-                {
+                if let Pattern::Identifier { name: field_name, span } = &fields[0] {
                     let sym = self.symbol_table.define(*field_name, *span);
                     match sym.symbol_scope {
                         SymbolScope::Local => {
@@ -193,11 +189,7 @@ impl Compiler {
                 // Stack after: [..., field0, field1]  (field1 on top)
                 // Bind field1 first (top of stack), then field0.
                 for field_pat in fields.iter().rev() {
-                    if let Pattern::Identifier {
-                        name: field_name,
-                        span,
-                    } = field_pat
-                    {
+                    if let Pattern::Identifier { name: field_name, span } = field_pat {
                         let sym = self.symbol_table.define(*field_name, *span);
                         match sym.symbol_scope {
                             SymbolScope::Local => {
@@ -274,11 +266,7 @@ impl Compiler {
             }
             1 => {
                 self.emit(OpCode::OpAdtField, &[0]);
-                if let Pattern::Identifier {
-                    name: field_name,
-                    span,
-                } = &fields[0]
-                {
+                if let Pattern::Identifier { name: field_name, span } = &fields[0] {
                     let sym = self.symbol_table.define(*field_name, *span);
                     match sym.symbol_scope {
                         SymbolScope::Local => {
@@ -297,11 +285,7 @@ impl Compiler {
                 // Rc strong_count == 1 here → Rc::try_unwrap succeeds → zero field clones.
                 self.emit(OpCode::OpAdtFields2, &[]);
                 for field_pat in fields.iter().rev() {
-                    if let Pattern::Identifier {
-                        name: field_name,
-                        span,
-                    } = field_pat
-                    {
+                    if let Pattern::Identifier { name: field_name, span } = field_pat {
                         let sym = self.symbol_table.define(*field_name, *span);
                         match sym.symbol_scope {
                             SymbolScope::Local => {
@@ -390,13 +374,7 @@ impl Compiler {
         &mut self,
         condition: &Expression,
     ) -> CompileResult<ConditionalJump> {
-        if let Expression::Infix {
-            left,
-            operator,
-            right,
-            ..
-        } = condition
-        {
+        if let Expression::Infix { left, operator, right, .. } = condition {
             let comparison_op = match operator.as_str() {
                 "==" => Some(OpCode::OpEqual),
                 "!=" => Some(OpCode::OpNotEqual),
@@ -461,10 +439,7 @@ impl Compiler {
                     "E404",
                     "UNKNOWN EFFECT OPERATION",
                     ErrorType::Compiler,
-                    format!(
-                        "Effect `{}` has no declared operation `{}`.",
-                        effect_name, op_name
-                    ),
+                    format!("Effect `{}` has no declared operation `{}`.", effect_name, op_name),
                     Some("Add the operation to the effect declaration or rename it.".to_string()),
                     self.file_path.clone(),
                     span,
@@ -717,9 +692,7 @@ impl Compiler {
                     }
                 }
             }
-            Expression::Prefix {
-                operator, right, ..
-            } => {
+            Expression::Prefix { operator, right, .. } => {
                 self.validate_prefix_operator_types(operator, right)?;
                 self.compile_non_tail_expression(right)?;
                 match operator.as_str() {
@@ -735,12 +708,7 @@ impl Compiler {
                     }
                 };
             }
-            Expression::Infix {
-                left,
-                operator,
-                right,
-                ..
-            } => {
+            Expression::Infix { left, operator, right, .. } => {
                 self.validate_infix_operator_types(left, operator, right)?;
 
                 if operator == "<" {
@@ -802,12 +770,7 @@ impl Compiler {
                     }
                 };
             }
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-                ..
-            } => {
+            Expression::If { condition, consequence, alternative, .. } => {
                 self.compile_if_expression(condition, consequence, alternative)?;
             }
             Expression::DoBlock { block, .. } => {
@@ -888,12 +851,7 @@ impl Compiler {
             // Note: Pipe operator (|>) is handled at parse time by transforming
             // `a |> f(b, c)` into `f(a, b, c)` - a regular Call expression.
             // No special compilation needed here.
-            Expression::Call {
-                function,
-                arguments,
-                id,
-                ..
-            } => {
+            Expression::Call { function, arguments, id, .. } => {
                 self.check_known_call_arity(expression.span(), function, arguments)?;
                 self.check_static_contract_call(function, arguments)?;
 
@@ -1059,15 +1017,13 @@ impl Compiler {
                     self.contextual_function_contracts_for_call(function, arguments);
 
                 for (index, argument) in arguments.iter().enumerate() {
-                    let previous_context = if let Some(contract) = contextual_contracts
-                        .get(index)
-                        .and_then(|contract| contract.as_ref())
+                    let previous_context = if let Some(contract) =
+                        contextual_contracts.get(index).and_then(|contract| contract.as_ref())
                         && let Expression::Function { id, .. } = argument
                     {
                         Some((
                             *id,
-                            self.contextual_function_contracts
-                                .insert(*id, contract.clone()),
+                            self.contextual_function_contracts.insert(*id, contract.clone()),
                         ))
                     } else {
                         None
@@ -1190,9 +1146,7 @@ impl Compiler {
                     let module_name_str = self.sym(module_name).to_string();
                     let member_str = self.sym(member).to_string();
                     if self.current_module_prefix != Some(module_name)
-                        && self
-                            .module_member_adt_constructor_owner(module_name, member)
-                            .is_some()
+                        && self.module_member_adt_constructor_owner(module_name, member).is_some()
                     {
                         if self.strict_mode {
                             return Err(Self::boxed(
@@ -1274,12 +1228,7 @@ impl Compiler {
                 self.compile_non_tail_expression(value)?;
                 self.emit(OpCode::OpRight, &[]);
             }
-            Expression::Match {
-                scrutinee,
-                arms,
-                span,
-                ..
-            } => {
+            Expression::Match { scrutinee, arms, span, .. } => {
                 self.compile_match_expression(scrutinee, arms, *span)?;
             }
             Expression::Cons { head, tail, .. } => {
@@ -1295,30 +1244,13 @@ impl Compiler {
                 self.compile_non_tail_expression(tail)?;
                 self.emit(OpCode::OpCons, &[]);
             }
-            Expression::Perform {
-                effect,
-                operation,
-                args,
-                id,
-                ..
-            } => {
+            Expression::Perform { effect, operation, args, id, .. } => {
                 self.compile_perform(*effect, *operation, args, *id)?;
             }
-            Expression::Handle {
-                expr,
-                effect,
-                parameter,
-                arms,
-                ..
-            } => {
+            Expression::Handle { expr, effect, parameter, arms, .. } => {
                 self.compile_handle(expr, *effect, parameter.as_deref(), arms)?;
             }
-            Expression::Sealing {
-                expr,
-                allowed,
-                span,
-                ..
-            } => {
+            Expression::Sealing { expr, allowed, span, .. } => {
                 self.check_sealing_expression(expr, allowed, *span)?;
                 self.compile_non_tail_expression(expr)?;
             }
@@ -1340,10 +1272,7 @@ impl Compiler {
     ) -> CompileResult<()> {
         self.check_direct_builtin_effect_call(function)?;
 
-        if let Some(contract) = self
-            .resolve_call_contract(function, arguments.len())
-            .cloned()
-        {
+        if let Some(contract) = self.resolve_call_contract(function, arguments.len()).cloned() {
             return self.check_source_contract_call(function, arguments, &contract);
         }
 
@@ -1391,11 +1320,7 @@ impl Compiler {
 
     fn function_contract_from_runtime_type(runtime_ty: &RuntimeType) -> Option<FunctionContract> {
         match runtime_ty {
-            RuntimeType::Function {
-                params,
-                ret,
-                effects,
-            } => Some(FunctionContract {
+            RuntimeType::Function { params, ret, effects } => Some(FunctionContract {
                 params: params.iter().cloned().map(Some).collect(),
                 ret: Some((**ret).clone()),
                 effects: effects.clone(),
@@ -1506,9 +1431,7 @@ impl Compiler {
         let solution = solve_row_constraints(&constraints);
 
         if let Some(first_violation) = solution.violations.first() {
-            return Err(Self::boxed(
-                self.diagnostic_for_row_violation(function, first_violation),
-            ));
+            return Err(Self::boxed(self.diagnostic_for_row_violation(function, first_violation)));
         }
 
         let unresolved: Vec<Symbol> = required_row
@@ -1529,10 +1452,8 @@ impl Compiler {
             )));
         }
 
-        let mut required_effects: Vec<Symbol> = required_row
-            .concrete_effects(&solution)
-            .into_iter()
-            .collect();
+        let mut required_effects: Vec<Symbol> =
+            required_row.concrete_effects(&solution).into_iter().collect();
         required_effects.sort_by_key(|symbol| self.sym(*symbol).to_string());
 
         for required_name in required_effects {
@@ -1940,10 +1861,8 @@ impl Compiler {
             .with_category(DiagnosticCategory::Effects)
             .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
         } else {
-            let mut names: Vec<String> = vars
-                .iter()
-                .map(|symbol| self.sym(*symbol).to_string())
-                .collect();
+            let mut names: Vec<String> =
+                vars.iter().map(|symbol| self.sym(*symbol).to_string()).collect();
             names.sort();
             with_effect_constraint_origin(dynamic_explained_diagnostic(
                 "E420",
@@ -1994,10 +1913,8 @@ impl Compiler {
                 self.unresolved_effect_vars_diagnostic(vars, function.span(), &origin)
             }
             RowConstraintViolation::UnsatisfiedSubset { missing } => {
-                let mut names: Vec<String> = missing
-                    .iter()
-                    .map(|effect| self.sym(*effect).to_string())
-                    .collect();
+                let mut names: Vec<String> =
+                    missing.iter().map(|effect| self.sym(*effect).to_string()).collect();
                 names.sort();
                 with_effect_constraint_origin(dynamic_explained_diagnostic(
                     "E422",
@@ -2031,9 +1948,9 @@ impl Compiler {
         }
 
         let required_name = match function {
-            Expression::Identifier { name, .. } => self
-                .lookup_effect_alias(*name)
-                .map(|effect| self.sym(effect).to_string()),
+            Expression::Identifier { name, .. } => {
+                self.lookup_effect_alias(*name).map(|effect| self.sym(effect).to_string())
+            }
             _ => None,
         };
 
@@ -2058,10 +1975,7 @@ impl Compiler {
                     "Call to `{}` requires effect `{}` in this function signature.",
                     function_name, required_name
                 ),
-                Some(format!(
-                    "Add `with {}` to the enclosing function.",
-                    required_name
-                )),
+                Some(format!("Add `with {}` to the enclosing function.", required_name)),
                 self.file_path.clone(),
                 function.span(),
             )
@@ -2182,10 +2096,8 @@ impl Compiler {
     }
 
     fn format_effect_set(&self, effects: &HashSet<Symbol>) -> String {
-        let mut names: Vec<String> = effects
-            .iter()
-            .map(|effect| self.sym(*effect).to_string())
-            .collect();
+        let mut names: Vec<String> =
+            effects.iter().map(|effect| self.sym(*effect).to_string()).collect();
         names.sort();
         names.join(", ")
     }
@@ -2198,11 +2110,8 @@ impl Compiler {
         let mut constraints = Vec::new();
 
         for (idx, argument) in arguments.iter().enumerate() {
-            let Some(Some(TypeExpr::Function {
-                params,
-                effects: param_effects,
-                ..
-            })) = contract.params.get(idx)
+            let Some(Some(TypeExpr::Function { params, effects: param_effects, .. })) =
+                contract.params.get(idx)
             else {
                 continue;
             };
@@ -2291,11 +2200,8 @@ impl Compiler {
         let mut constraints = Vec::new();
 
         for (idx, argument) in arguments.iter().enumerate() {
-            let Some(Some(TypeExpr::Function {
-                params,
-                effects: param_effects,
-                ..
-            })) = contract.params.get(idx)
+            let Some(Some(TypeExpr::Function { params, effects: param_effects, .. })) =
+                contract.params.get(idx)
             else {
                 continue;
             };
@@ -2413,10 +2319,9 @@ impl Compiler {
     ) -> CompileResult<()> {
         let Ok(expected_infer) = TypeEnv::try_infer_type_from_runtime(expected) else {
             if self.strict_mode {
-                return Err(Self::boxed(self.unresolved_boundary_error(
-                    expression,
-                    "runtime-typed expectation",
-                )));
+                return Err(Self::boxed(
+                    self.unresolved_boundary_error(expression, "runtime-typed expectation"),
+                ));
             }
             return Ok(());
         };
@@ -2684,13 +2589,7 @@ impl Compiler {
                     files.push(self.file_path.clone());
                     (files.len() - 1) as u32
                 });
-            (
-                files,
-                crate::bytecode::debug_info::Location {
-                    file_id,
-                    span: body.span(),
-                },
-            )
+            (files, crate::bytecode::debug_info::Location { file_id, span: body.span() })
         };
         let (files, boundary_location) = boundary_location;
 
@@ -2793,13 +2692,7 @@ impl Compiler {
                     files.push(self.file_path.clone());
                     (files.len() - 1) as u32
                 });
-            (
-                files,
-                crate::bytecode::debug_info::Location {
-                    file_id,
-                    span: expr.span(),
-                },
-            )
+            (files, crate::bytecode::debug_info::Location { file_id, span: expr.span() })
         };
 
         for free in &free_symbols {
@@ -2982,21 +2875,14 @@ impl Compiler {
         for arm in arms {
             if !next_arm_jumps.is_empty() {
                 let pop_start = self.current_instructions().len();
-                let arm_start = if next_arm_jumps
-                    .iter()
-                    .any(|jump| jump.leaves_condition_on_jump)
-                {
+                let arm_start = if next_arm_jumps.iter().any(|jump| jump.leaves_condition_on_jump) {
                     self.emit(OpCode::OpPop, &[]);
                     self.current_instructions().len()
                 } else {
                     pop_start
                 };
                 for jump in next_arm_jumps.drain(..) {
-                    let target = if jump.leaves_condition_on_jump {
-                        pop_start
-                    } else {
-                        arm_start
-                    };
+                    let target = if jump.leaves_condition_on_jump { pop_start } else { arm_start };
                     self.patch_cond_jump(&jump, target);
                 }
             }
@@ -3006,11 +2892,7 @@ impl Compiler {
             // When `consume_local_idx` is set, uses OpIsAdtJumpLocal which avoids cloning
             // and keeps Rc strong_count == 1 so OpAdtFields2's Rc::try_unwrap succeeds.
             let mut arm_next_jumps = if arm.guard.is_none()
-                && let Pattern::Constructor {
-                    name,
-                    fields,
-                    span: pat_span,
-                } = &arm.pattern
+                && let Pattern::Constructor { name, fields, span: pat_span } = &arm.pattern
                 && Self::is_simple_adt_pattern(fields)
                 && self
                     .adt_registry
@@ -3025,17 +2907,13 @@ impl Compiler {
                         name,
                         fields,
                         *pat_span,
-                        temp_symbol
-                            .as_ref()
-                            .expect("temp_symbol must exist for standard path"),
+                        temp_symbol.as_ref().expect("temp_symbol must exist for standard path"),
                     )?
                 };
                 vec![jump]
             } else {
                 // General path: separate check + bind.
-                let ts = temp_symbol
-                    .as_ref()
-                    .expect("temp_symbol must exist for general path");
+                let ts = temp_symbol.as_ref().expect("temp_symbol must exist for general path");
                 let jumps = self.compile_pattern_check(ts, &arm.pattern)?;
                 self.enter_block_scope();
                 self.compile_pattern_bind(ts, &arm.pattern)?;
@@ -3080,10 +2958,7 @@ impl Compiler {
                     None
                 }
             };
-            self.emit_site(
-                crate::bytecode::debug_info::SiteKind::MatchArm,
-                arm.body.span(),
-            );
+            self.emit_site(crate::bytecode::debug_info::SiteKind::MatchArm, arm.body.span());
             let in_tail = self.in_tail_position;
             if let Some(counts) = merged_counts {
                 self.with_consumable_local_use_counts(counts, |compiler| -> CompileResult<()> {
@@ -3108,9 +2983,7 @@ impl Compiler {
         // If no arm matched (or all guards failed), leave a sentinel value on stack.
         if !next_arm_jumps.is_empty() {
             let pop_start = self.current_instructions().len();
-            let no_match_start = if next_arm_jumps
-                .iter()
-                .any(|jump| jump.leaves_condition_on_jump)
+            let no_match_start = if next_arm_jumps.iter().any(|jump| jump.leaves_condition_on_jump)
             {
                 self.emit(OpCode::OpPop, &[]);
                 self.current_instructions().len()
@@ -3118,11 +2991,7 @@ impl Compiler {
                 pop_start
             };
             for jump in next_arm_jumps {
-                let target = if jump.leaves_condition_on_jump {
-                    pop_start
-                } else {
-                    no_match_start
-                };
+                let target = if jump.leaves_condition_on_jump { pop_start } else { no_match_start };
                 self.patch_cond_jump(&jump, target);
             }
         }
@@ -3484,10 +3353,7 @@ impl Compiler {
 
                 // 3. For each non-wildcard/non-identifier field pattern, extract and sub-check
                 for (field_idx, field_pat) in fields.iter().enumerate() {
-                    if matches!(
-                        field_pat,
-                        Pattern::Wildcard { .. } | Pattern::Identifier { .. }
-                    ) {
+                    if matches!(field_pat, Pattern::Wildcard { .. } | Pattern::Identifier { .. }) {
                         continue;
                     }
 
@@ -3849,10 +3715,7 @@ impl Compiler {
                         self.sym(*name),
                         required_name
                     ),
-                    Some(format!(
-                        "Add `with {}` to the enclosing function.",
-                        required_name
-                    )),
+                    Some(format!("Add `with {}` to the enclosing function.", required_name)),
                     self.file_path.clone(),
                     function.span(),
                 )
@@ -3892,9 +3755,7 @@ impl Compiler {
 
         let lowered_from_call = self.routed_call_perform_ids.contains(&perform_id);
 
-        let Some(has_operation) = self
-            .effect_declared_ops(effect)
-            .map(|ops| ops.contains(&op))
+        let Some(has_operation) = self.effect_declared_ops(effect).map(|ops| ops.contains(&op))
         else {
             let effect_name = self.sym(effect).to_string();
             let op_name = self.sym(op).to_string();
@@ -3945,10 +3806,7 @@ impl Compiler {
                     "E404",
                     "UNKNOWN EFFECT OPERATION",
                     ErrorType::Compiler,
-                    format!(
-                        "Effect `{}` has no declared operation `{}`.",
-                        effect_name, op_name
-                    ),
+                    format!("Effect `{}` has no declared operation `{}`.", effect_name, op_name),
                     Some("Add the operation to the effect declaration or rename it.".to_string()),
                     self.file_path.clone(),
                     span,
@@ -4023,10 +3881,7 @@ impl Compiler {
                     "MISSING EFFECT",
                     ErrorType::Compiler,
                     message,
-                    Some(format!(
-                        "Add `with {}` to the enclosing function.",
-                        effect_name
-                    )),
+                    Some(format!("Add `with {}` to the enclosing function.", effect_name)),
                     self.file_path.clone(),
                     span,
                 )
@@ -4060,10 +3915,7 @@ impl Compiler {
             }
             self.emit_perform_sites(span);
             if let Some((depth, arm_idx)) = self.resolve_handler_statically(effect, op) {
-                self.emit(
-                    OpCode::OpPerformDirectIndexed,
-                    &[depth, arm_idx, args.len()],
-                );
+                self.emit(OpCode::OpPerformDirectIndexed, &[depth, arm_idx, args.len()]);
             } else {
                 let effect_name = self.interner.resolve(effect).to_string().into_boxed_str();
                 let op_name = self.interner.resolve(op).to_string().into_boxed_str();
@@ -4105,10 +3957,7 @@ impl Compiler {
                     "E405",
                     "UNKNOWN HANDLER EFFECT",
                     ErrorType::Compiler,
-                    format!(
-                        "Effect `{}` is not declared for this handle block.",
-                        effect_name
-                    ),
+                    format!("Effect `{}` is not declared for this handle block.", effect_name),
                     Some(hint),
                     self.file_path.clone(),
                     expr.span(),
@@ -4152,11 +4001,8 @@ impl Compiler {
         let mut missing: Vec<Symbol> = declared_ops.difference(&arm_ops).copied().collect();
         if !missing.is_empty() {
             missing.sort_by_key(|sym| self.sym(*sym).to_string());
-            let missing_names = missing
-                .iter()
-                .map(|sym| self.sym(*sym).to_string())
-                .collect::<Vec<_>>()
-                .join(", ");
+            let missing_names =
+                missing.iter().map(|sym| self.sym(*sym).to_string()).collect::<Vec<_>>().join(", ");
             let effect_name = self.sym(effect).to_string();
 
             // Build a copy-pasteable arm skeleton for each missing operation.
@@ -4205,12 +4051,7 @@ impl Compiler {
                     format!("resume({resume_arg})")
                 };
 
-                skeleton_lines.push(format!(
-                    "    {}({}) -> {}",
-                    op_name,
-                    params.join(", "),
-                    body
-                ));
+                skeleton_lines.push(format!("    {}({}) -> {}", op_name, params.join(", "), body));
             }
 
             let skeleton = skeleton_lines.join(",\n");
@@ -4401,11 +4242,7 @@ impl Compiler {
         }));
 
         let desc_idx = self.add_constant(desc);
-        let handle_op = if is_direct {
-            OpCode::OpHandleDirect
-        } else {
-            OpCode::OpHandle
-        };
+        let handle_op = if is_direct { OpCode::OpHandleDirect } else { OpCode::OpHandle };
         self.emit(handle_op, &[desc_idx]);
 
         // Push handler scope for static handler resolution.
@@ -4417,9 +4254,7 @@ impl Compiler {
         });
 
         // Compile the handled expression with the effect available in scope.
-        self.with_handled_effect(effect, |compiler| {
-            compiler.compile_non_tail_expression(expr)
-        })?;
+        self.with_handled_effect(effect, |compiler| compiler.compile_non_tail_expression(expr))?;
 
         // Pop handler scope and remove the handler frame.
         self.handler_scopes.pop();
@@ -4444,11 +4279,7 @@ impl Compiler {
                     self.compile_non_tail_expression(expression)
                 }
             }
-            Expression::Call {
-                function,
-                arguments,
-                ..
-            } => {
+            Expression::Call { function, arguments, .. } => {
                 // Check primop first — if the callee is a known primop, emit
                 // the primop instruction directly instead of compiling it as
                 // a function+call.
@@ -4518,9 +4349,7 @@ impl Compiler {
                     self.collect_consumable_param_uses(value, counts);
                 }
             }
-            Statement::Function {
-                parameters, body, ..
-            } => {
+            Statement::Function { parameters, body, .. } => {
                 let free_vars = collect_free_vars_in_function_body(parameters, body);
                 self.collect_consumable_captured_uses(free_vars, counts);
             }
@@ -4560,12 +4389,7 @@ impl Compiler {
                 self.collect_consumable_param_uses(left, counts);
                 self.collect_consumable_param_uses(right, counts);
             }
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-                ..
-            } => {
+            Expression::If { condition, consequence, alternative, .. } => {
                 self.collect_consumable_param_uses(condition, counts);
                 for statement in &consequence.statements {
                     self.collect_consumable_param_uses_statement(statement, counts);
@@ -4581,11 +4405,7 @@ impl Compiler {
                     self.collect_consumable_param_uses_statement(statement, counts);
                 }
             }
-            Expression::Call {
-                function,
-                arguments,
-                ..
-            } => {
+            Expression::Call { function, arguments, .. } => {
                 self.collect_consumable_param_uses(function, counts);
 
                 for argument in arguments {
@@ -4615,9 +4435,7 @@ impl Compiler {
             Expression::TupleFieldAccess { object, .. } => {
                 self.collect_consumable_param_uses(object, counts);
             }
-            Expression::Match {
-                scrutinee, arms, ..
-            } => {
+            Expression::Match { scrutinee, arms, .. } => {
                 self.collect_consumable_param_uses(scrutinee, counts);
 
                 for arm in arms {
@@ -4646,12 +4464,7 @@ impl Compiler {
                     self.collect_consumable_param_uses(arg, counts);
                 }
             }
-            Expression::Handle {
-                expr,
-                parameter,
-                arms,
-                ..
-            } => {
+            Expression::Handle { expr, parameter, arms, .. } => {
                 self.collect_consumable_param_uses(expr, counts);
                 if let Some(parameter) = parameter {
                     self.collect_consumable_param_uses(parameter, counts);
@@ -4664,9 +4477,7 @@ impl Compiler {
             Expression::Sealing { expr, .. } => {
                 self.collect_consumable_param_uses(expr, counts);
             }
-            Expression::Function {
-                parameters, body, ..
-            } => {
+            Expression::Function { parameters, body, .. } => {
                 let free_vars = collect_free_vars_in_function_body(parameters, body);
                 self.collect_consumable_captured_uses(free_vars, counts);
             }
@@ -4683,9 +4494,7 @@ impl Compiler {
                     }
                 }
             }
-            Expression::Spread {
-                base, overrides, ..
-            } => {
+            Expression::Spread { base, overrides, .. } => {
                 self.collect_consumable_param_uses(base, counts);
                 for field in overrides {
                     if let Some(value) = &field.value {
@@ -4746,9 +4555,7 @@ impl Compiler {
         };
 
         // Only intercept if the constructor is known.
-        let info_arity = self
-            .lookup_constructor_resolved(name)
-            .map(|info| info.arity);
+        let info_arity = self.lookup_constructor_resolved(name).map(|info| info.arity);
         let Some(expected_arity) = info_arity else {
             if let Some((member_name, qualifier)) =
                 self.module_constructor_boundary_from_qualified_identifier(name)
@@ -4812,12 +4619,10 @@ impl Compiler {
         if actual_arity != expected_arity {
             let name_str = self.interner.resolve(name).to_string();
             return Err(Self::boxed(
-                diagnostic_for(&CONSTRUCTOR_ARITY_MISMATCH)
-                    .with_span(span)
-                    .with_message(format!(
-                        "Constructor `{}` expects {} argument(s) but got {}.",
-                        name_str, expected_arity, actual_arity
-                    )),
+                diagnostic_for(&CONSTRUCTOR_ARITY_MISMATCH).with_span(span).with_message(format!(
+                    "Constructor `{}` expects {} argument(s) but got {}.",
+                    name_str, expected_arity, actual_arity
+                )),
             ));
         }
 
@@ -4996,10 +4801,7 @@ impl Compiler {
         let Some(positions) = self.class_env.dispatch_positions(class_id, method) else {
             return Vec::new();
         };
-        let results = self
-            .class_env
-            .result_positions(class_id, method)
-            .unwrap_or_default();
+        let results = self.class_env.result_positions(class_id, method).unwrap_or_default();
         let mut wanted = Vec::with_capacity(positions.len());
         for (slot, position) in positions.iter().enumerate() {
             let found = match position {
@@ -5056,19 +4858,13 @@ impl Compiler {
             .values()
             .filter_map(|holder| {
                 let holder_id = holder.class_id();
-                Some((
-                    holder_id,
-                    self.class_env.superclass_path(holder_id, class_id)?,
-                ))
+                Some((holder_id, self.class_env.superclass_path(holder_id, class_id)?))
             })
             .collect();
         // `classes` is a `HashMap`: order by nearest holder, then by name, so
         // which dictionary a call projects through does not vary run to run.
         holders.sort_by_key(|(holder_id, path)| {
-            (
-                path.len(),
-                self.interner.resolve(holder_id.name).to_string(),
-            )
+            (path.len(), self.interner.resolve(holder_id.name).to_string())
         });
 
         holders.into_iter().find_map(|(holder_id, mut path)| {
@@ -5092,11 +4888,7 @@ impl Compiler {
         self.interner
             .lookup(&dict_name)
             .filter(|symbol| self.symbol_table.resolve(*symbol).is_some())
-            .or_else(|| {
-                self.symbol_table
-                    .resolve(class_id.name)
-                    .map(|_| class_id.name)
-            })
+            .or_else(|| self.symbol_table.resolve(class_id.name).map(|_| class_id.name))
     }
 
     fn try_build_constrained_user_fn_call(
@@ -5197,10 +4989,7 @@ impl Compiler {
             return None;
         };
         let module_name = self.resolve_module_name_from_expr(object)?;
-        let scheme = self
-            .cached_member_schemes
-            .get(&(module_name, *member))?
-            .clone();
+        let scheme = self.cached_member_schemes.get(&(module_name, *member))?.clone();
         self.build_dictionary_elaborated_call(
             &scheme,
             function.clone(),
@@ -5266,10 +5055,8 @@ impl Compiler {
             let dictionary = match forwarded {
                 Some(dictionary) => dictionary,
                 None => {
-                    let type_args = type_args
-                        .iter()
-                        .map(Self::default_type_vars_to_int)
-                        .collect::<Vec<_>>();
+                    let type_args =
+                        type_args.iter().map(Self::default_type_vars_to_int).collect::<Vec<_>>();
                     let dict_ref = self.class_env.resolve_dictionary_ref_by_id(
                         constraint.class_id,
                         &type_args,
@@ -5424,11 +5211,7 @@ impl Compiler {
         call_id: crate::syntax::expression::ExprId,
     ) -> Option<Vec<Option<crate::types::infer_type::InferType>>> {
         let class_def = self.class_env.lookup_class_by_id(class_id)?.clone();
-        let method = class_def
-            .methods
-            .iter()
-            .find(|m| m.name == method_name)?
-            .clone();
+        let method = class_def.methods.iter().find(|m| m.name == method_name)?.clone();
 
         let actual_args: Vec<crate::types::infer_type::InferType> = arguments
             .iter()
@@ -5501,20 +5284,16 @@ impl Compiler {
         // Use the selected head so an undetermined slot still contributes the
         // type the instance fixes it to.
         let actual_type_args =
-            self.class_env
-                .instantiate_instance_head(instance, &known, &self.interner)?;
+            self.class_env.instantiate_instance_head(instance, &known, &self.interner)?;
 
         // See `AstLowerer::resolve_direct_class_call_dict_args`: an unmatched
         // head means a positionally matched multi-parameter instance, which
         // keeps its direct call with no dictionary arguments.
-        let Some(requests) = self
-            .class_env
-            .resolve_instance_context_dictionary_requests_by_id(
-                class_id,
-                &actual_type_args,
-                &self.interner,
-            )
-        else {
+        let Some(requests) = self.class_env.resolve_instance_context_dictionary_requests_by_id(
+            class_id,
+            &actual_type_args,
+            &self.interner,
+        ) else {
             return Some(Vec::new());
         };
         let mut dicts = Vec::with_capacity(requests.len());
@@ -5556,12 +5335,10 @@ impl Compiler {
     ) -> Option<crate::syntax::Identifier> {
         let current = self.current_function_name?;
         let fallback = |compiler: &mut Self| {
-            let name = compiler
-                .interner
-                .lookup(&crate::types::class_env::dictionary_prefix(
-                    class_id,
-                    &compiler.interner,
-                ))?;
+            let name = compiler.interner.lookup(&crate::types::class_env::dictionary_prefix(
+                class_id,
+                &compiler.interner,
+            ))?;
             compiler.symbol_table.resolve(name)?;
             Some(name)
         };
@@ -5591,18 +5368,10 @@ impl Compiler {
         // dictionary. Falling back to `same_shape` keeps the case where
         // instantiation has renamed the variables and only the shape survives.
         let exact = candidates.iter().find(|(_, constraint)| {
-            constraint
-                .type_args
-                .iter()
-                .zip(wanted)
-                .all(|(left, right)| left == right)
+            constraint.type_args.iter().zip(wanted).all(|(left, right)| left == right)
         });
         let structural = candidates.iter().find(|(_, constraint)| {
-            constraint
-                .type_args
-                .iter()
-                .zip(wanted)
-                .all(|(left, right)| left.same_shape(right))
+            constraint.type_args.iter().zip(wanted).all(|(left, right)| left.same_shape(right))
         });
 
         for (current_occurrence, _) in exact.into_iter().chain(structural) {
@@ -5626,11 +5395,7 @@ impl Compiler {
         // constraint was present: that would collapse repeated constraints
         // onto the first dictionary. With no same-class candidate, the
         // canonical leading parameter is the correct generated-method route.
-        if !scheme
-            .constraints
-            .iter()
-            .any(|constraint| constraint.class_id == class_id)
-        {
+        if !scheme.constraints.iter().any(|constraint| constraint.class_id == class_id) {
             fallback(self)
         } else {
             None
@@ -5663,9 +5428,8 @@ impl Compiler {
                     id: crate::syntax::expression::ExprId::UNSET,
                 };
             }
-            if let Some(methods) = self
-                .class_env
-                .dictionary_slot_symbols(dict_ref.dict_name, &self.interner)
+            if let Some(methods) =
+                self.class_env.dictionary_slot_symbols(dict_ref.dict_name, &self.interner)
             {
                 return Expression::TupleLiteral {
                     elements: methods
@@ -5719,8 +5483,7 @@ impl Compiler {
             {
                 return None;
             }
-            self.class_env
-                .dictionary_slot_names(instance, &self.interner)
+            self.class_env.dictionary_slot_names(instance, &self.interner)
         })
     }
 }
@@ -5739,15 +5502,10 @@ fn collect_class_method_calls(
 
     impl<'ast> crate::ast::visit::Visitor<'ast> for Collector<'_> {
         fn visit_expr(&mut self, expr: &'ast Expression) {
-            if let Expression::Call {
-                function,
-                arguments,
-                ..
-            } = expr
+            if let Expression::Call { function, arguments, .. } = expr
                 && let Expression::Identifier { name, .. } = function.as_ref()
             {
-                self.out
-                    .push((*name, (**function).clone(), arguments.clone()));
+                self.out.push((*name, (**function).clone(), arguments.clone()));
             }
             crate::ast::visit::walk_expr(self, expr);
         }

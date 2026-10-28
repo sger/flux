@@ -64,10 +64,7 @@ fn build_compiler_transcript(
                 continue;
             }
 
-            let failed_dep = node
-                .imports
-                .iter()
-                .find(|edge| failed.contains(&edge.target_path));
+            let failed_dep = node.imports.iter().find(|edge| failed.contains(&edge.target_path));
             if let Some(dep) = failed_dep {
                 failed.insert(node.path.clone());
                 diagnostics.push(module_skipped_note(

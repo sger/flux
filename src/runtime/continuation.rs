@@ -83,9 +83,7 @@ impl Continuation {
             state_marker,
             &mut scratch_pool,
         )?;
-        Ok(Value::Continuation(std::rc::Rc::new(
-            std::cell::RefCell::new(composed),
-        )))
+        Ok(Value::Continuation(std::rc::Rc::new(std::cell::RefCell::new(composed))))
     }
 
     /// Compose continuation pieces — innermost-first, as accumulated during
@@ -145,10 +143,8 @@ impl Continuation {
                     let offset = piece.entry_sp - outermost_entry_sp;
                     let end = offset + piece.stack.len();
                     if end > span || piece.sp > innermost_sp {
-                        return Err(
-                            "Continuation::compose_pieces found piece outside stack span"
-                                .to_string(),
-                        );
+                        return Err("Continuation::compose_pieces found piece outside stack span"
+                            .to_string());
                     }
                     result.frames.append(&mut piece.frames);
                     for (idx, value) in piece.stack.drain(..).enumerate() {
@@ -226,11 +222,7 @@ mod tests {
         assert_eq!(cont.frames.len(), 2);
         assert_eq!(cont.stack.len(), 12);
         assert_eq!(cont.stack[0], Value::Integer(3));
-        assert!(
-            cont.stack[1..10]
-                .iter()
-                .all(|value| matches!(value, Value::Uninit))
-        );
+        assert!(cont.stack[1..10].iter().all(|value| matches!(value, Value::Uninit)));
         assert_eq!(cont.stack[10], Value::Integer(1));
         assert_eq!(cont.stack[11], Value::Integer(2));
     }
@@ -257,14 +249,7 @@ mod tests {
 
     #[test]
     fn compose_pieces_single_piece_moves_through_with_handlers_and_marker() {
-        let mut pieces = vec![piece(
-            5,
-            9,
-            5,
-            7,
-            2,
-            vec![Value::Integer(10), Value::Integer(20)],
-        )];
+        let mut pieces = vec![piece(5, 9, 5, 7, 2, vec![Value::Integer(10), Value::Integer(20)])];
         let mut pool = Vec::new();
         let composed = Continuation::compose_pieces(&mut pieces, vec![], Some(7), &mut pool)
             .expect("single-piece compose succeeds");
@@ -282,14 +267,7 @@ mod tests {
     fn compose_pieces_multi_splices_stack_and_recycles_shells() {
         // innermost first, matching the order capture_to_boundary pushes.
         let mut pieces = vec![
-            piece(
-                20,
-                29,
-                20,
-                22,
-                1,
-                vec![Value::Integer(1), Value::Integer(2)],
-            ),
+            piece(20, 29, 20, 22, 1, vec![Value::Integer(1), Value::Integer(2)]),
             piece(10, 19, 10, 19, 0, vec![Value::Integer(3)]),
         ];
         let mut pool = Vec::new();
@@ -298,8 +276,7 @@ mod tests {
         assert!(pieces.is_empty());
         assert_eq!(pool.len(), 2, "both spent piece shells recycled");
         assert!(
-            pool.iter()
-                .all(|c| c.frames.is_empty() && c.stack.is_empty()),
+            pool.iter().all(|c| c.frames.is_empty() && c.stack.is_empty()),
             "recycled shells are emptied"
         );
         assert_eq!(composed.entry_sp, 10);
@@ -308,11 +285,7 @@ mod tests {
         assert_eq!(composed.frames.len(), 2);
         assert_eq!(composed.stack.len(), 12);
         assert_eq!(composed.stack[0], Value::Integer(3));
-        assert!(
-            composed.stack[1..10]
-                .iter()
-                .all(|v| matches!(v, Value::Uninit))
-        );
+        assert!(composed.stack[1..10].iter().all(|v| matches!(v, Value::Uninit)));
         assert_eq!(composed.stack[10], Value::Integer(1));
         assert_eq!(composed.stack[11], Value::Integer(2));
     }

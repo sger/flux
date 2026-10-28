@@ -71,10 +71,7 @@ fn main() with IO {
 "#,
     );
 
-    assert!(
-        success,
-        "named-field constructors must dispatch to their instance:\n{stdout}{stderr}"
-    );
+    assert!(success, "named-field constructors must dispatch to their instance:\n{stdout}{stderr}");
     assert!(
         stdout.contains("red") && stdout.contains("blue") && stdout.contains("tagged"),
         "every instance should have been selected, got:\n{stdout}{stderr}"
@@ -110,10 +107,7 @@ fn main() with IO {
 "#,
     );
 
-    assert!(
-        success,
-        "positional constructors must dispatch to their instance:\n{stdout}{stderr}"
-    );
+    assert!(success, "positional constructors must dispatch to their instance:\n{stdout}{stderr}");
     assert!(
         stdout.contains("circle") && stdout.contains("labelled"),
         "every instance should have been selected, got:\n{stdout}{stderr}"
@@ -148,12 +142,6 @@ fn main() with IO {
 "#,
     );
 
-    assert!(
-        success,
-        "a bound named-field value must still dispatch:\n{stdout}{stderr}"
-    );
-    assert!(
-        stdout.contains("1,2"),
-        "expected the instance's rendering, got:\n{stdout}{stderr}"
-    );
+    assert!(success, "a bound named-field value must still dispatch:\n{stdout}{stderr}");
+    assert!(stdout.contains("1,2"), "expected the instance's rendering, got:\n{stdout}{stderr}");
 }

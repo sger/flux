@@ -64,16 +64,9 @@ impl KindEnv {
             .collect::<HashMap<_, _>>();
         let mut observed = HashMap::new();
         for method in &class.methods {
-            let method_params = method
-                .type_params
-                .iter()
-                .copied()
-                .collect::<std::collections::HashSet<_>>();
-            for ty in method
-                .param_types
-                .iter()
-                .chain(std::iter::once(&method.return_type))
-            {
+            let method_params =
+                method.type_params.iter().copied().collect::<std::collections::HashSet<_>>();
+            for ty in method.param_types.iter().chain(std::iter::once(&method.return_type)) {
                 infer_class_parameter_uses(
                     ty,
                     class.name,
@@ -134,9 +127,7 @@ impl KindEnv {
     }
 
     fn has_conflict(&self, class_id: ClassId, parameter: Identifier) -> bool {
-        self.conflicts
-            .iter()
-            .any(|(_, id, _, _, name, _)| *id == class_id && *name == parameter)
+        self.conflicts.iter().any(|(_, id, _, _, name, _)| *id == class_id && *name == parameter)
     }
 }
 
@@ -151,9 +142,7 @@ fn builtin_kind(name: &str) -> Kind {
 fn collect_data_kinds(statements: &[Statement], constructors: &mut HashMap<Identifier, Kind>) {
     for statement in statements {
         match statement {
-            Statement::Data {
-                name, type_params, ..
-            } => {
+            Statement::Data { name, type_params, .. } => {
                 constructors.insert(*name, kind_from_arity(type_params.len()));
             }
             Statement::Module { body, .. } => collect_data_kinds(&body.statements, constructors),
@@ -163,9 +152,7 @@ fn collect_data_kinds(statements: &[Statement], constructors: &mut HashMap<Ident
 }
 
 fn kind_from_arity(arity: usize) -> Kind {
-    (0..arity).fold(Kind::Type, |result, _| {
-        Kind::Arrow(Box::new(Kind::Type), Box::new(result))
-    })
+    (0..arity).fold(Kind::Type, |result, _| Kind::Arrow(Box::new(Kind::Type), Box::new(result)))
 }
 
 // The arguments are deliberately explicit: this helper carries the mutable
@@ -267,33 +254,15 @@ fn validate_statements(
                 interner,
                 diagnostics,
             ),
-            Statement::Data {
-                type_params,
-                variants,
-                ..
-            } => {
+            Statement::Data { type_params, variants, .. } => {
                 let locals = unconstrained_binders(type_params);
                 for variant in variants {
                     for field in &variant.fields {
-                        check_type(
-                            field,
-                            Some(&Kind::Type),
-                            &locals,
-                            env,
-                            interner,
-                            diagnostics,
-                        );
+                        check_type(field, Some(&Kind::Type), &locals, env, interner, diagnostics);
                     }
                 }
             }
-            Statement::Class {
-                name,
-                type_params,
-                superclasses,
-                methods,
-                span,
-                ..
-            } => {
+            Statement::Class { name, type_params, superclasses, methods, span, .. } => {
                 let class = class_env
                     .resolve_class_id(current_module, *name)
                     .and_then(|id| class_env.lookup_class_by_id(id));
@@ -325,10 +294,8 @@ fn validate_statements(
                         for param in &method.type_params {
                             local.insert(*param, LocalBinder::Unconstrained);
                         }
-                        for ty in method
-                            .param_types
-                            .iter()
-                            .chain(std::iter::once(&method.return_type))
+                        for ty in
+                            method.param_types.iter().chain(std::iter::once(&method.return_type))
                         {
                             check_type(ty, Some(&Kind::Type), &local, env, interner, diagnostics);
                         }
@@ -337,12 +304,7 @@ fn validate_statements(
                     let _ = span;
                 }
             }
-            Statement::Instance {
-                class_name,
-                type_args,
-                context,
-                ..
-            } => {
+            Statement::Instance { class_name, type_args, context, .. } => {
                 let class = class_env
                     .resolve_class_id(current_module, *class_name)
                     .and_then(|id| class_env.lookup_class_by_id(id));
@@ -384,12 +346,7 @@ fn validate_statements(
                     }
                 }
             }
-            Statement::Function {
-                type_params,
-                parameter_types,
-                return_type,
-                ..
-            } => {
+            Statement::Function { type_params, parameter_types, return_type, .. } => {
                 let locals = function_binders(type_params, class_env, env);
                 for ty in parameter_types.iter().flatten().chain(return_type.iter()) {
                     check_type(ty, Some(&Kind::Type), &locals, env, interner, diagnostics);
@@ -433,10 +390,7 @@ fn validate_constraint(
         .type_params
         .iter()
         .map(|param| {
-            (
-                *param,
-                LocalBinder::Known(owner.class_id(), env.class_parameter_kind(owner, *param)),
-            )
+            (*param, LocalBinder::Known(owner.class_id(), env.class_parameter_kind(owner, *param)))
         })
         .collect();
     for (index, arg) in constraint.type_args.iter().enumerate() {
@@ -515,14 +469,7 @@ fn check_type(
         }
         TypeExpr::Tuple { elements, .. } => {
             for element in elements {
-                check_type(
-                    element,
-                    Some(&Kind::Type),
-                    locals,
-                    env,
-                    interner,
-                    diagnostics,
-                );
+                check_type(element, Some(&Kind::Type), locals, env, interner, diagnostics);
             }
             Kind::Type
         }
@@ -591,10 +538,7 @@ fn function_binders(
 
 /// Binds each of `params` as an unconstrained type variable.
 fn unconstrained_binders(params: &[Identifier]) -> HashMap<Identifier, LocalBinder> {
-    params
-        .iter()
-        .map(|param| (*param, LocalBinder::Unconstrained))
-        .collect()
+    params.iter().map(|param| (*param, LocalBinder::Unconstrained)).collect()
 }
 
 fn is_conflicted(
@@ -615,14 +559,12 @@ fn arity_diagnostic(
     actual: usize,
     interner: &Interner,
 ) -> Diagnostic {
-    diagnostic_for(&TYPE_CONSTRUCTOR_KIND_ARITY)
-        .with_span(span)
-        .with_message(format!(
-            "Type `{}` expects {} type argument(s), but {} were given.",
-            interner.resolve(name),
-            expected,
-            actual
-        ))
+    diagnostic_for(&TYPE_CONSTRUCTOR_KIND_ARITY).with_span(span).with_message(format!(
+        "Type `{}` expects {} type argument(s), but {} were given.",
+        interner.resolve(name),
+        expected,
+        actual
+    ))
 }
 
 fn instance_kind_diagnostic(
@@ -633,15 +575,13 @@ fn instance_kind_diagnostic(
     expected: &Kind,
     interner: &Interner,
 ) -> Diagnostic {
-    diagnostic_for(&INSTANCE_HEAD_KIND_MISMATCH)
-        .with_span(span)
-        .with_message(format!(
-            "Instance head `{}` has kind `{}`, but class `{}` expects a parameter of kind `{}`.",
-            arg.display_with(interner),
-            actual,
-            interner.resolve(class.name),
-            expected
-        ))
+    diagnostic_for(&INSTANCE_HEAD_KIND_MISMATCH).with_span(span).with_message(format!(
+        "Instance head `{}` has kind `{}`, but class `{}` expects a parameter of kind `{}`.",
+        arg.display_with(interner),
+        actual,
+        interner.resolve(class.name),
+        expected
+    ))
 }
 
 fn constraint_kind_diagnostic(
@@ -652,13 +592,11 @@ fn constraint_kind_diagnostic(
     expected: &Kind,
     interner: &Interner,
 ) -> Diagnostic {
-    diagnostic_for(&CONSTRAINT_KIND_MISMATCH)
-        .with_span(span)
-        .with_message(format!(
-            "Constraint `{}` applies class `{}` to a type of kind `{}`, but it expects `{}`.",
-            arg.display_with(interner),
-            interner.resolve(class.name),
-            actual,
-            expected
-        ))
+    diagnostic_for(&CONSTRAINT_KIND_MISMATCH).with_span(span).with_message(format!(
+        "Constraint `{}` applies class `{}` to a type of kind `{}`, but it expects `{}`.",
+        arg.display_with(interner),
+        interner.resolve(class.name),
+        actual,
+        expected
+    ))
 }

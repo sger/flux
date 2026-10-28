@@ -105,11 +105,7 @@ impl ToIrCtx {
     }
 
     fn lower_program(&mut self, core: &crate::core::CoreProgram) {
-        self.top_level_items = core
-            .top_level_items
-            .iter()
-            .map(lower_core_top_level_item)
-            .collect();
+        self.top_level_items = core.top_level_items.iter().map(lower_core_top_level_item).collect();
 
         // Create the module-level entry function.
         let entry_id = self.alloc_function();
@@ -141,14 +137,7 @@ impl ToIrCtx {
         }
 
         for def in &core.defs {
-            if let CoreExpr::Lam {
-                params,
-                param_types,
-                result_ty,
-                body,
-                ..
-            } = &def.expr
-            {
+            if let CoreExpr::Lam { params, param_types, result_ty, body, .. } = &def.expr {
                 // This def is a function — emit as a named IrFunction.
                 let fn_id = entry_fn.ctx.alloc_function();
                 let fn_block = entry_fn.ctx.alloc_block();
@@ -217,11 +206,7 @@ impl ToIrCtx {
                             .and_then(|t| t.as_ref())
                             .map(core_type_to_ir_type)
                             .unwrap_or(IrType::Tagged);
-                        fn_ctx.params.push(IrParam {
-                            name: p.name,
-                            var: v,
-                            ty: ir_ty,
-                        });
+                        fn_ctx.params.push(IrParam { name: p.name, var: v, ty: ir_ty });
                     }
                     let ret = fn_ctx.lower_expr(body);
                     fn_ctx.finish_return(ret, def.span);
@@ -257,10 +242,7 @@ impl ToIrCtx {
                 entry_fn
                     .ctx
                     .global_bindings
-                    .push(crate::cfg::IrGlobalBinding {
-                        name: def.name,
-                        var: g_var,
-                    });
+                    .push(crate::cfg::IrGlobalBinding { name: def.name, var: g_var });
                 entry_fn.env.insert(def.binder.id, g_var);
                 entry_fn.binder_names.insert(def.binder.id, def.binder.name);
                 if def.is_anonymous() {
@@ -287,11 +269,8 @@ impl ToIrCtx {
     }
 
     fn lower_aether_program(&mut self, aether: &AetherProgram) {
-        self.top_level_items = aether
-            .top_level_items()
-            .iter()
-            .map(lower_core_top_level_item)
-            .collect();
+        self.top_level_items =
+            aether.top_level_items().iter().map(lower_core_top_level_item).collect();
 
         let entry_id = self.alloc_function();
         let entry_block = self.alloc_block();
@@ -370,11 +349,7 @@ impl ToIrCtx {
                             .and_then(|t| t.as_ref())
                             .map(core_type_to_ir_type)
                             .unwrap_or(IrType::Tagged);
-                        fn_ctx.params.push(IrParam {
-                            name: p.name,
-                            var: v,
-                            ty: ir_ty,
-                        });
+                        fn_ctx.params.push(IrParam { name: p.name, var: v, ty: ir_ty });
                     }
                     let ret = fn_ctx.lower_expr_aether(body);
                     fn_ctx.finish_return(ret, def.span);
@@ -409,10 +384,7 @@ impl ToIrCtx {
                 entry_fn
                     .ctx
                     .global_bindings
-                    .push(crate::cfg::IrGlobalBinding {
-                        name: def.name,
-                        var: g_var,
-                    });
+                    .push(crate::cfg::IrGlobalBinding { name: def.name, var: g_var });
                 entry_fn.env.insert(def.binder.id, g_var);
                 entry_fn.binder_names.insert(def.binder.id, def.binder.name);
                 if def.is_anonymous {
@@ -448,11 +420,7 @@ impl ToIrCtx {
 
 fn lower_core_top_level_item(item: &CoreTopLevelItem) -> IrTopLevelItem {
     match item {
-        CoreTopLevelItem::Let {
-            is_public,
-            name,
-            span,
-        } => IrTopLevelItem::Let {
+        CoreTopLevelItem::Let { is_public, name, span } => IrTopLevelItem::Let {
             is_public: *is_public,
             name: *name,
             type_annotation: None,
@@ -480,10 +448,7 @@ fn lower_core_top_level_item(item: &CoreTopLevelItem) -> IrTopLevelItem {
             parameter_types: parameter_types.clone(),
             return_type: return_type.clone(),
             effects: effects.clone(),
-            body: crate::syntax::block::Block {
-                statements: Vec::new(),
-                span: *span,
-            },
+            body: crate::syntax::block::Block { statements: Vec::new(), span: *span },
             span: *span,
         },
         CoreTopLevelItem::Module { name, body, span } => IrTopLevelItem::Module {
@@ -491,61 +456,42 @@ fn lower_core_top_level_item(item: &CoreTopLevelItem) -> IrTopLevelItem {
             body: body.iter().map(lower_core_top_level_item).collect(),
             span: *span,
         },
-        CoreTopLevelItem::Import {
-            name,
-            alias,
-            except,
-            exposing,
-            span,
-        } => IrTopLevelItem::Import {
-            name: *name,
-            alias: *alias,
-            except: except.clone(),
-            exposing: exposing.clone(),
-            span: *span,
-        },
-        CoreTopLevelItem::Data {
-            name,
-            type_params,
-            variants,
-            span,
-        } => IrTopLevelItem::Data {
+        CoreTopLevelItem::Import { name, alias, except, exposing, span } => {
+            IrTopLevelItem::Import {
+                name: *name,
+                alias: *alias,
+                except: except.clone(),
+                exposing: exposing.clone(),
+                span: *span,
+            }
+        }
+        CoreTopLevelItem::Data { name, type_params, variants, span } => IrTopLevelItem::Data {
             name: *name,
             type_params: type_params.clone(),
             variants: variants.clone(),
             span: *span,
         },
-        CoreTopLevelItem::EffectDecl { name, ops, span } => IrTopLevelItem::EffectDecl {
-            name: *name,
-            ops: ops.clone(),
-            span: *span,
-        },
-        CoreTopLevelItem::Class {
-            name,
-            type_params,
-            superclasses,
-            methods,
-            span,
-        } => IrTopLevelItem::Class {
-            name: *name,
-            type_params: type_params.clone(),
-            superclasses: superclasses.clone(),
-            methods: methods.clone(),
-            span: *span,
-        },
-        CoreTopLevelItem::Instance {
-            class_name,
-            type_args,
-            context,
-            methods,
-            span,
-        } => IrTopLevelItem::Instance {
-            class_name: *class_name,
-            type_args: type_args.clone(),
-            context: context.clone(),
-            methods: methods.clone(),
-            span: *span,
-        },
+        CoreTopLevelItem::EffectDecl { name, ops, span } => {
+            IrTopLevelItem::EffectDecl { name: *name, ops: ops.clone(), span: *span }
+        }
+        CoreTopLevelItem::Class { name, type_params, superclasses, methods, span } => {
+            IrTopLevelItem::Class {
+                name: *name,
+                type_params: type_params.clone(),
+                superclasses: superclasses.clone(),
+                methods: methods.clone(),
+                span: *span,
+            }
+        }
+        CoreTopLevelItem::Instance { class_name, type_args, context, methods, span } => {
+            IrTopLevelItem::Instance {
+                class_name: *class_name,
+                type_args: type_args.clone(),
+                context: context.clone(),
+                methods: methods.clone(),
+                span: *span,
+            }
+        }
     }
 }
 
@@ -557,11 +503,9 @@ fn bind_function_id_in_items(
 ) -> bool {
     for item in items {
         match item {
-            IrTopLevelItem::Function {
-                name: item_name,
-                function_id: item_function_id,
-                ..
-            } if *item_name == name && item_function_id.is_none() => {
+            IrTopLevelItem::Function { name: item_name, function_id: item_function_id, .. }
+                if *item_name == name && item_function_id.is_none() =>
+            {
                 *item_function_id = Some(function_id);
                 return true;
             }
@@ -591,11 +535,7 @@ fn find_function_decl_metadata(
                 effects,
                 ..
             } if *item_name == name => {
-                return Some((
-                    parameter_types.clone(),
-                    return_type.clone(),
-                    effects.clone(),
-                ));
+                return Some((parameter_types.clone(), return_type.clone(), effects.clone()));
             }
             IrTopLevelItem::Module { body, .. } => {
                 if let Some(found) = find_function_decl_metadata(body, name) {
@@ -635,10 +575,7 @@ mod tests {
 
     #[test]
     fn lower_empty_program() {
-        let prog = CoreProgram {
-            defs: Vec::new(),
-            top_level_items: Vec::new(),
-        };
+        let prog = CoreProgram { defs: Vec::new(), top_level_items: Vec::new() };
         let ir = lower_core_to_ir(&prog);
         // Entry function is always emitted.
         assert!(!ir.functions.is_empty());
@@ -709,10 +646,7 @@ mod tests {
                 )
             })
             .collect();
-        let prog = CoreProgram {
-            defs,
-            top_level_items: Vec::new(),
-        };
+        let prog = CoreProgram { defs, top_level_items: Vec::new() };
         let first = lower_core_to_ir(&prog).dump_text();
         for _ in 0..8 {
             assert_eq!(lower_core_to_ir(&prog).dump_text(), first);
@@ -796,10 +730,7 @@ mod tests {
                 result_ty: None,
                 body: Box::new(CoreExpr::PrimOp {
                     op: CorePrimOp::Panic,
-                    args: vec![CoreExpr::Lit(
-                        CoreLit::String("boom".to_string()),
-                        Span::default(),
-                    )],
+                    args: vec![CoreExpr::Lit(CoreLit::String("boom".to_string()), Span::default())],
                     span: Span::default(),
                 }),
                 span: Span::default(),
@@ -929,18 +860,9 @@ mod tests {
         };
         let ir = lower_core_to_ir(&core);
 
-        assert!(matches!(
-            ir.top_level_items.first(),
-            Some(IrTopLevelItem::Module { .. })
-        ));
-        assert!(matches!(
-            ir.top_level_items.get(1),
-            Some(IrTopLevelItem::Data { .. })
-        ));
-        assert!(matches!(
-            ir.top_level_items.get(2),
-            Some(IrTopLevelItem::EffectDecl { .. })
-        ));
+        assert!(matches!(ir.top_level_items.first(), Some(IrTopLevelItem::Module { .. })));
+        assert!(matches!(ir.top_level_items.get(1), Some(IrTopLevelItem::Data { .. })));
+        assert!(matches!(ir.top_level_items.get(2), Some(IrTopLevelItem::EffectDecl { .. })));
     }
 
     #[test]
@@ -1003,28 +925,14 @@ mod tests {
 
         let has_is_unique = spec_fn.blocks.iter().any(|b| {
             b.instrs.iter().any(|instr| {
-                matches!(
-                    instr,
-                    crate::cfg::IrInstr::Assign {
-                        expr: IrExpr::IsUnique(_),
-                        ..
-                    }
-                )
+                matches!(instr, crate::cfg::IrInstr::Assign { expr: IrExpr::IsUnique(_), .. })
             })
         });
-        assert!(
-            has_is_unique,
-            "DropSpecialized should lower to IrExpr::IsUnique"
-        );
+        assert!(has_is_unique, "DropSpecialized should lower to IrExpr::IsUnique");
 
-        let has_branch = spec_fn
-            .blocks
-            .iter()
-            .any(|b| matches!(b.terminator, IrTerminator::Branch { .. }));
-        assert!(
-            has_branch,
-            "DropSpecialized should lower to a Branch terminator"
-        );
+        let has_branch =
+            spec_fn.blocks.iter().any(|b| matches!(b.terminator, IrTerminator::Branch { .. }));
+        assert!(has_branch, "DropSpecialized should lower to a Branch terminator");
     }
 
     #[test]
@@ -1091,10 +999,11 @@ mod tests {
             .flat_map(|func| func.blocks.iter())
             .flat_map(|block| block.instrs.iter())
             .find_map(|instr| match instr {
-                IrInstr::Assign {
-                    expr: IrExpr::MakeClosure(fid, captures),
-                    ..
-                } if *fid == closure_fn.id => Some(captures.len()),
+                IrInstr::Assign { expr: IrExpr::MakeClosure(fid, captures), .. }
+                    if *fid == closure_fn.id =>
+                {
+                    Some(captures.len())
+                }
                 _ => None,
             })
             .expect("expected MakeClosure for inner lambda");

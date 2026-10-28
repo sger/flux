@@ -34,10 +34,8 @@ impl BlockingPool {
                 .name(worker_name)
                 .spawn(move || {
                     loop {
-                        let Ok(message) = worker_rx
-                            .lock()
-                            .expect("blocking pool receiver poisoned")
-                            .recv()
+                        let Ok(message) =
+                            worker_rx.lock().expect("blocking pool receiver poisoned").recv()
                         else {
                             break;
                         };
@@ -51,10 +49,7 @@ impl BlockingPool {
             workers.push(handle);
         }
 
-        Ok(Self {
-            sender: Mutex::new(Some(tx)),
-            workers: Mutex::new(workers),
-        })
+        Ok(Self { sender: Mutex::new(Some(tx)), workers: Mutex::new(workers) })
     }
 
     pub fn submit(&self, job: impl FnOnce() + Send + 'static) -> Result<(), String> {
@@ -69,12 +64,7 @@ impl BlockingPool {
 
     pub fn shutdown(&self) -> Result<(), String> {
         let mut workers = self.workers.lock().expect("blocking pool workers poisoned");
-        let Some(sender) = self
-            .sender
-            .lock()
-            .expect("blocking pool sender poisoned")
-            .take()
-        else {
+        let Some(sender) = self.sender.lock().expect("blocking pool sender poisoned").take() else {
             return Ok(());
         };
         for _ in 0..workers.len() {
@@ -105,14 +95,8 @@ impl Drop for BlockingPool {
 
 impl fmt::Debug for BlockingPool {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let workers = self
-            .workers
-            .lock()
-            .map(|workers| workers.len())
-            .unwrap_or_default();
-        f.debug_struct("BlockingPool")
-            .field("workers", &workers)
-            .finish()
+        let workers = self.workers.lock().map(|workers| workers.len()).unwrap_or_default();
+        f.debug_struct("BlockingPool").field("workers", &workers).finish()
     }
 }
 

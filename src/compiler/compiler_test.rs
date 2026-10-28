@@ -23,11 +23,7 @@ fn parse_program(source: &str) -> (crate::syntax::program::Program, Interner) {
     let lexer = Lexer::new(source);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     (program, interner)
 }
@@ -39,11 +35,7 @@ fn parse_program_with_interner(
     let lexer = Lexer::new_with_interner(source, interner);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     (program, interner)
 }
@@ -62,10 +54,7 @@ fn find_compiled_function(
 ) -> Option<std::sync::Arc<crate::runtime::compiled_function::CompiledFunction>> {
     constants.iter().find_map(|value| match value {
         Value::Function(function)
-            if function
-                .debug_info
-                .as_ref()
-                .and_then(|debug| debug.name.as_deref())
+            if function.debug_info.as_ref().and_then(|debug| debug.name.as_deref())
                 == Some(name) =>
         {
             Some(function.clone())
@@ -106,11 +95,7 @@ fn compile_string_literal_emits_constant() {
 
     let bytecode = compiler.bytecode();
 
-    assert!(
-        bytecode
-            .constants
-            .contains(&Value::String("hello".to_string().into()))
-    );
+    assert!(bytecode.constants.contains(&Value::String("hello".to_string().into())));
 }
 
 #[test]
@@ -121,12 +106,7 @@ fn compile_function_decl_emits_function_constant() {
 
     let bytecode = compiler.bytecode();
 
-    assert!(
-        bytecode
-            .constants
-            .iter()
-            .any(|obj| matches!(obj, Value::Function(_)))
-    );
+    assert!(bytecode.constants.iter().any(|obj| matches!(obj, Value::Function(_))));
 }
 
 #[test]
@@ -167,20 +147,13 @@ fn compile_with_opts_collects_tail_calls_when_optimized() {
 fn final_compile_suppresses_expression_e430_when_specific_errors_exist() {
     let (program, interner) = parse_program("fn f(x) { mystery }");
     let mut compiler = Compiler::new_with_interner("<test>", interner);
-    let diags = compiler
-        .compile_with_opts(&program, false, false)
-        .expect_err("expected compile failure");
+    let diags =
+        compiler.compile_with_opts(&program, false, false).expect_err("expected compile failure");
 
     let e430_count = diags.iter().filter(|d| d.code() == Some("E430")).count();
     let e004_count = diags.iter().filter(|d| d.code() == Some("E004")).count();
-    assert_eq!(
-        e430_count, 1,
-        "expected only binding-level E430, got: {diags:?}"
-    );
-    assert_eq!(
-        e004_count, 1,
-        "expected unresolved-name E004, got: {diags:?}"
-    );
+    assert_eq!(e430_count, 1, "expected only binding-level E430, got: {diags:?}");
+    assert_eq!(e004_count, 1, "expected unresolved-name E004, got: {diags:?}");
     assert!(
         !diags.iter().any(|d| {
             d.code() == Some("E430")
@@ -196,9 +169,8 @@ fn final_compile_suppresses_expression_e430_when_specific_errors_exist() {
 fn final_compile_preserves_specific_effect_errors_over_expression_e430() {
     let (program, interner) = parse_program("perform Missing.print(\"hello\")");
     let mut compiler = Compiler::new_with_interner("<test>", interner);
-    let diags = compiler
-        .compile_with_opts(&program, false, false)
-        .expect_err("expected compile failure");
+    let diags =
+        compiler.compile_with_opts(&program, false, false).expect_err("expected compile failure");
 
     assert!(
         diags.iter().any(|d| d.code() == Some("E403")),
@@ -225,9 +197,8 @@ fn main() {
 "#,
     );
     let mut compiler = Compiler::new_with_interner("<test>", interner);
-    let diags = compiler
-        .compile_with_opts(&program, false, false)
-        .expect_err("expected compile failure");
+    let diags =
+        compiler.compile_with_opts(&program, false, false).expect_err("expected compile failure");
 
     assert!(
         diags.iter().any(|d| d.code() == Some("E300")),
@@ -391,10 +362,7 @@ fn different<A: Eq>(x: A, y: A) -> Bool {
 
     compiler.infer_expr_types_for_program(&program);
 
-    assert_eq!(
-        compiler.hm_infer_runs, 2,
-        "expected the final HM pass after operator desugaring"
-    );
+    assert_eq!(compiler.hm_infer_runs, 2, "expected the final HM pass after operator desugaring");
 }
 
 #[test]
@@ -405,10 +373,7 @@ fn infer_expr_types_for_program_skips_final_hm_pass_when_type_optimized_but_unch
 
     compiler.infer_expr_types_for_program(&program);
 
-    assert_eq!(
-        compiler.hm_infer_runs, 2,
-        "expected only original and post-fold HM passes"
-    );
+    assert_eq!(compiler.hm_infer_runs, 2, "expected only original and post-fold HM passes");
 }
 
 #[test]
@@ -442,28 +407,19 @@ fn different<A: Eq>(x: A, y: A) -> Bool {
 #[test]
 fn compile_function_fuses_add_locals() {
     let asm = compile_function_asm("fn f(a, b) { a + b }", "f");
-    assert!(
-        asm.contains("OpAddLocals 0 1"),
-        "expected fused add:\n{asm}"
-    );
+    assert!(asm.contains("OpAddLocals 0 1"), "expected fused add:\n{asm}");
 }
 
 #[test]
 fn compile_function_fuses_sub_locals() {
     let asm = compile_function_asm("fn f(a, b) { a - b }", "f");
-    assert!(
-        asm.contains("OpSubLocals 0 1"),
-        "expected fused sub:\n{asm}"
-    );
+    assert!(asm.contains("OpSubLocals 0 1"), "expected fused sub:\n{asm}");
 }
 
 #[test]
 fn compile_function_fuses_get_local_index() {
     let asm = compile_function_asm("fn f(arr, i) { arr[i] }", "f");
-    assert!(
-        asm.contains("OpGetLocalIndex"),
-        "expected fused local index:\n{asm}"
-    );
+    assert!(asm.contains("OpGetLocalIndex"), "expected fused local index:\n{asm}");
 }
 
 #[test]
@@ -471,19 +427,13 @@ fn compile_function_fuses_get_local_call1() {
     // Use a non-tail-position call so OpGetLocalCall1 fusion applies.
     // Tail-position calls emit OpTailCall instead (which is better).
     let asm = compile_function_asm("fn f(x) { let g = fn(n) { n }; g(x) + 1 }", "f");
-    assert!(
-        asm.contains("OpGetLocalCall1"),
-        "expected fused local call1:\n{asm}"
-    );
+    assert!(asm.contains("OpGetLocalCall1"), "expected fused local call1:\n{asm}");
 }
 
 #[test]
 fn compile_function_fuses_get_local_get_local() {
     let asm = compile_function_asm("fn f(a, b) { let c = 0; let d = 1; (c, d) }", "f");
-    assert!(
-        asm.contains("OpGetLocalGetLocal"),
-        "expected fused local pair:\n{asm}"
-    );
+    assert!(asm.contains("OpGetLocalGetLocal"), "expected fused local pair:\n{asm}");
 }
 
 #[test]
@@ -518,9 +468,7 @@ let x: Int = y
 "#,
     );
     let mut compiler = Compiler::new_with_interner("<test>", interner);
-    let err = compiler
-        .compile(&program)
-        .expect_err("expected compile-time type mismatch");
+    let err = compiler.compile(&program).expect_err("expected compile-time type mismatch");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
         rendered.contains("error[E300]: Annotation Type Mismatch")
@@ -545,9 +493,7 @@ fn main() {
 "#,
     );
     let mut compiler = Compiler::new_with_interner("<test>", interner);
-    compiler
-        .compile(&program)
-        .expect("nested function should shadow excluded Flow name");
+    compiler.compile(&program).expect("nested function should shadow excluded Flow name");
 }
 
 #[test]
@@ -719,10 +665,9 @@ fn preloading_an_interface_numbers_its_members_in_one_order() {
     let slots = || {
         let mut interface = ModuleInterface::new("Example.Math", "hash", "cfg");
         for n in 0..32 {
-            interface.schemes.insert(
-                format!("member{n}"),
-                Scheme::mono(InferType::Con(TypeConstructor::Int)),
-            );
+            interface
+                .schemes
+                .insert(format!("member{n}"), Scheme::mono(InferType::Con(TypeConstructor::Int)));
         }
         let mut compiler = Compiler::new();
         compiler.preload_module_interface(&interface);
@@ -759,10 +704,7 @@ fn main() with Console {
             forall: vec![],
             constraints: vec![],
             infer_type: InferType::Fun(
-                vec![
-                    InferType::Con(TypeConstructor::Int),
-                    InferType::Con(TypeConstructor::Int),
-                ],
+                vec![InferType::Con(TypeConstructor::Int), InferType::Con(TypeConstructor::Int)],
                 Box::new(InferType::Con(TypeConstructor::Int)),
                 InferEffectRow::closed_empty(),
             ),
@@ -799,16 +741,11 @@ fn builtin_effect_operation_registry_seeds_effectful_prelude_ops() {
         let effect = compiler.interner.intern(effect);
         let operation = compiler.interner.intern(operation);
         assert!(
-            compiler
-                .effect_ops_registry
-                .get(&effect)
-                .is_some_and(|ops| ops.contains(&operation)),
+            compiler.effect_ops_registry.get(&effect).is_some_and(|ops| ops.contains(&operation)),
             "expected seeded operation {effect:?}.{operation:?}"
         );
         assert!(
-            compiler
-                .effect_op_signatures
-                .contains_key(&(effect, operation)),
+            compiler.effect_op_signatures.contains_key(&(effect, operation)),
             "expected seeded signature for {effect:?}.{operation:?}"
         );
     }
@@ -1046,10 +983,7 @@ fn preload_module_interface_inserts_cached_borrow_signatures() {
     let registry = compiler.build_preloaded_borrow_registry(&program);
     let module_binding = compiler.interner.intern("Math");
     let member = compiler.interner.intern("double");
-    assert_eq!(
-        registry.lookup_member_access(module_binding, member),
-        Some(&signature)
-    );
+    assert_eq!(registry.lookup_member_access(module_binding, member), Some(&signature));
 }
 
 #[test]
@@ -1099,21 +1033,10 @@ module Local {
                 name: log_name,
                 type_params: vec![],
                 param_types: vec![
-                    TypeExpr::Named {
-                        name: logger_h,
-                        args: vec![],
-                        span: Default::default(),
-                    },
-                    TypeExpr::Named {
-                        name: string_name,
-                        args: vec![],
-                        span: Default::default(),
-                    },
+                    TypeExpr::Named { name: logger_h, args: vec![], span: Default::default() },
+                    TypeExpr::Named { name: string_name, args: vec![], span: Default::default() },
                 ],
-                return_type: TypeExpr::Tuple {
-                    elements: vec![],
-                    span: Default::default(),
-                },
+                return_type: TypeExpr::Tuple { elements: vec![], span: Default::default() },
                 effects: vec![],
             }],
             default_methods: vec![],
@@ -1132,11 +1055,7 @@ module Local {
         .expect("imported public class should be usable in downstream instance heads");
 
     assert!(
-        compiler
-            .class_env()
-            .instances
-            .iter()
-            .any(|inst| inst.class_name == logger_name),
+        compiler.class_env().instances.iter().any(|inst| inst.class_name == logger_name),
         "local instance should resolve against the imported class env"
     );
 }
@@ -1183,21 +1102,10 @@ import Example.StdLog as StdLog
                 name: log_name,
                 type_params: vec![],
                 param_types: vec![
-                    TypeExpr::Named {
-                        name: logger_h,
-                        args: vec![],
-                        span: Default::default(),
-                    },
-                    TypeExpr::Named {
-                        name: string_name,
-                        args: vec![],
-                        span: Default::default(),
-                    },
+                    TypeExpr::Named { name: logger_h, args: vec![], span: Default::default() },
+                    TypeExpr::Named { name: string_name, args: vec![], span: Default::default() },
                 ],
-                return_type: TypeExpr::Tuple {
-                    elements: vec![],
-                    span: Default::default(),
-                },
+                return_type: TypeExpr::Tuple { elements: vec![], span: Default::default() },
                 effects: vec![],
             }],
             default_methods: vec![],
@@ -1240,10 +1148,7 @@ import Example.StdLog as StdLog
             context_class_modules: vec![],
             methods: vec![PublicInstanceMethodEntry {
                 name: log_name,
-                effects: vec![EffectExpr::Named {
-                    name: console_name,
-                    span: Default::default(),
-                }],
+                effects: vec![EffectExpr::Named { name: console_name, span: Default::default() }],
             }],
             pinned_row_placeholder: None,
         }],
@@ -1330,21 +1235,10 @@ module Local {
                 name: log_name,
                 type_params: vec![],
                 param_types: vec![
-                    TypeExpr::Named {
-                        name: logger_h,
-                        args: vec![],
-                        span: Default::default(),
-                    },
-                    TypeExpr::Named {
-                        name: string_name,
-                        args: vec![],
-                        span: Default::default(),
-                    },
+                    TypeExpr::Named { name: logger_h, args: vec![], span: Default::default() },
+                    TypeExpr::Named { name: string_name, args: vec![], span: Default::default() },
                 ],
-                return_type: TypeExpr::Tuple {
-                    elements: vec![],
-                    span: Default::default(),
-                },
+                return_type: TypeExpr::Tuple { elements: vec![], span: Default::default() },
                 effects: vec![],
             }],
             default_methods: vec![],
@@ -1358,9 +1252,7 @@ module Local {
     };
 
     compiler.preload_module_interface(&interface);
-    compiler
-        .compile(&program)
-        .expect("program with imported public class instance should compile");
+    compiler.compile(&program).expect("program with imported public class instance should compile");
 
     let prepared = compiler.prepare_program_for_lowering_with_preloaded(&program);
     let expected_mangled = crate::types::class_env::mangled_method_name(
@@ -1400,23 +1292,17 @@ fn hydrate_cached_module_bytecode_restores_globals_and_bytecode() {
     let (module_program, interner) = parse_program("fn helper() { 41 }");
     let mut artifact_compiler = Compiler::new_with_interner("<module>", interner);
     let snapshot = artifact_compiler.module_cache_snapshot();
-    artifact_compiler
-        .compile(&module_program)
-        .expect("module compilation should succeed");
+    artifact_compiler.compile(&module_program).expect("module compilation should succeed");
     let cached_module = artifact_compiler.build_cached_module_bytecode(snapshot);
 
     let (baseline_module, baseline_interner) = parse_program("fn helper() { 41 }");
     let mut baseline = Compiler::new_with_interner("<baseline-module>", baseline_interner);
-    baseline
-        .compile(&baseline_module)
-        .expect("baseline module compilation should succeed");
+    baseline.compile(&baseline_module).expect("baseline module compilation should succeed");
     let (baseline_entry, baseline_interner) =
         parse_program_with_interner("fn main() { helper() }", baseline.interner);
     baseline.interner = baseline_interner;
     baseline.set_file_path("<baseline-entry>");
-    baseline
-        .compile(&baseline_entry)
-        .expect("baseline entry compilation should succeed");
+    baseline.compile(&baseline_entry).expect("baseline entry compilation should succeed");
     let baseline_bytecode = baseline.bytecode();
 
     let mut cached = Compiler::new();
@@ -1425,9 +1311,7 @@ fn hydrate_cached_module_bytecode_restores_globals_and_bytecode() {
         parse_program_with_interner("fn main() { helper() }", cached.interner);
     cached.interner = entry_interner;
     cached.set_file_path("<entry>");
-    cached
-        .compile(&entry_program)
-        .expect("entry compilation with cached module should succeed");
+    cached.compile(&entry_program).expect("entry compilation with cached module should succeed");
     let cached_bytecode = cached.bytecode();
 
     assert_eq!(cached_bytecode.instructions, baseline_bytecode.instructions);
@@ -1446,10 +1330,8 @@ fn hydrate_cached_module_bytecode_restores_globals_and_bytecode() {
     assert_eq!(cached_main.num_locals, baseline_main.num_locals);
 
     let helper = cached.interner.intern("helper");
-    let binding = cached
-        .symbol_table
-        .resolve(helper)
-        .expect("cached helper binding should resolve");
+    let binding =
+        cached.symbol_table.resolve(helper).expect("cached helper binding should resolve");
     assert_eq!(binding.index, 0);
 }
 
@@ -1466,9 +1348,7 @@ fn main() {
 "#,
     );
     let mut compiler = Compiler::new_with_interner("<test>", interner);
-    compiler
-        .compile(&program)
-        .expect("local let should shadow excluded Flow name");
+    compiler.compile(&program).expect("local let should shadow excluded Flow name");
 }
 
 #[test]
@@ -1486,9 +1366,7 @@ fn main() {
 "#,
     );
     let mut compiler = Compiler::new_with_interner("<test>", interner);
-    compiler
-        .compile(&program)
-        .expect("pattern binding should shadow excluded Flow name");
+    compiler.compile(&program).expect("pattern binding should shadow excluded Flow name");
 }
 
 #[test]
@@ -1501,9 +1379,7 @@ fn id(len) { len }
 "#,
     );
     let mut compiler = Compiler::new_with_interner("<test>", interner);
-    compiler
-        .compile(&program)
-        .expect("parameter binding should shadow excluded Flow name");
+    compiler.compile(&program).expect("parameter binding should shadow excluded Flow name");
 }
 
 #[test]
@@ -1515,9 +1391,7 @@ let x: Int = make()
 "#,
     );
     let mut compiler = Compiler::new_with_interner("<test>", interner);
-    let err = compiler
-        .compile(&program)
-        .expect_err("expected compile-time type mismatch");
+    let err = compiler.compile(&program).expect_err("expected compile-time type mismatch");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
         rendered.contains("error[E300]: Annotation Type Mismatch")
@@ -1572,9 +1446,7 @@ fn main() -> Unit {
     );
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler.strict_mode = true;
-    let err = compiler
-        .compile(&program)
-        .expect_err("expected private member access failure");
+    let err = compiler.compile(&program).expect_err("expected private member access failure");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
         rendered.contains("error[E011]: Private Member"),
@@ -1617,20 +1489,12 @@ fn sum(x) { x + 1 }
     let mut warmed = Compiler::new_with_interner("<test>", interner.clone());
     warmed.compile(&program).expect("program should compile");
     let warmed_dump = warmed
-        .dump_core_with_opts(
-            &program,
-            false,
-            crate::core::display::CoreDisplayMode::Readable,
-        )
+        .dump_core_with_opts(&program, false, crate::core::display::CoreDisplayMode::Readable)
         .expect("dump_core should succeed after compile");
 
     let mut fresh = Compiler::new_with_interner("<test>", interner);
     let fresh_dump = fresh
-        .dump_core_with_opts(
-            &program,
-            false,
-            crate::core::display::CoreDisplayMode::Readable,
-        )
+        .dump_core_with_opts(&program, false, crate::core::display::CoreDisplayMode::Readable)
         .expect("dump_core should succeed without prior compile");
 
     assert_eq!(fresh_dump, warmed_dump);
@@ -1660,9 +1524,7 @@ fn main() -> Unit {
     );
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler.strict_mode = true;
-    let err = compiler
-        .compile(&program)
-        .expect_err("expected tuple-field typed mismatch");
+    let err = compiler.compile(&program).expect_err("expected tuple-field typed mismatch");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
         rendered.contains("error[E300]: Annotation Type Mismatch")
@@ -1691,9 +1553,7 @@ fn main() -> Unit {
     );
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler.strict_mode = true;
-    let err = compiler
-        .compile(&program)
-        .expect_err("expected index projection typed mismatch");
+    let err = compiler.compile(&program).expect_err("expected index projection typed mismatch");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
         rendered.contains("error[E300]: Annotation Type Mismatch")
@@ -1723,9 +1583,7 @@ fn main() -> Unit {
     );
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler.strict_mode = true;
-    let err = compiler
-        .compile(&program)
-        .expect_err("expected missing strict effect annotation");
+    let err = compiler.compile(&program).expect_err("expected missing strict effect annotation");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
         rendered.contains("error[E418]: Strict Effect Annotation Required")
@@ -1751,9 +1609,7 @@ fn main() -> Unit {
     );
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler.strict_mode = true;
-    let err = compiler
-        .compile(&program)
-        .expect_err("expected missing strict time annotation");
+    let err = compiler.compile(&program).expect_err("expected missing strict time annotation");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
         rendered.contains("error[E418]: Strict Effect Annotation Required")
@@ -1779,9 +1635,7 @@ fn main() -> Unit with IO {
     );
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler.strict_mode = true;
-    let err = compiler
-        .compile(&program)
-        .expect_err("expected missing Time annotation");
+    let err = compiler.compile(&program).expect_err("expected missing Time annotation");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
         rendered.contains("error[E418]: Strict Effect Annotation Required")
@@ -1807,9 +1661,7 @@ fn main() -> Unit with Time {
     );
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler.strict_mode = true;
-    let err = compiler
-        .compile(&program)
-        .expect_err("expected missing IO annotation");
+    let err = compiler.compile(&program).expect_err("expected missing IO annotation");
     let rendered = render_diagnostics(&err, None, None);
     assert!(
         rendered.contains("error[E418]: Strict Effect Annotation Required")
@@ -1835,9 +1687,7 @@ fn bad() -> Int {
 "#,
     );
     let mut compiler = Compiler::new_with_interner("<test>", interner);
-    let _ = compiler
-        .compile(&program)
-        .expect_err("expected compile error");
+    let _ = compiler.compile(&program).expect_err("expected compile error");
     assert_eq!(
         compiler.scope_index, 0,
         "function compile error should not leak symbol table scope"
@@ -1926,11 +1776,7 @@ mod unqualified_runtime_contract_resolution {
         let mut compiler = make_compiler_with_sum_contracts();
         let sum_member = compiler.interner.intern("sum");
         // No imports at all.
-        assert!(
-            compiler
-                .lookup_unqualified_runtime_contract(sum_member)
-                .is_none()
-        );
+        assert!(compiler.lookup_unqualified_runtime_contract(sum_member).is_none());
     }
 }
 
@@ -1949,11 +1795,7 @@ fn builtin_primop_names_are_clean_and_cover_each_family() {
     deduped.sort_unstable();
     let len_before = deduped.len();
     deduped.dedup();
-    assert_eq!(
-        len_before,
-        deduped.len(),
-        "BUILTIN_PRIMOP_NAMES contains duplicates"
-    );
+    assert_eq!(len_before, deduped.len(), "BUILTIN_PRIMOP_NAMES contains duplicates");
     for sentinel in [
         "print",
         "to_string",
@@ -2033,18 +1875,12 @@ fn an_imported_instance_missing_an_associated_type_equation_is_a_stale_interface
 
     let complete = crate::compiler::validate_imported_associated_types(
         &classes,
-        &[instance(vec![
-            crate::syntax::type_class::AssociatedTypeEquation {
-                name: element,
-                head: Vec::new(),
-                body: TypeExpr::Named {
-                    name: interner.intern("Int"),
-                    args: Vec::new(),
-                    span,
-                },
-                span,
-            },
-        ])],
+        &[instance(vec![crate::syntax::type_class::AssociatedTypeEquation {
+            name: element,
+            head: Vec::new(),
+            body: TypeExpr::Named { name: interner.intern("Int"), args: Vec::new(), span },
+            span,
+        }])],
         &interner,
     );
     assert!(complete.is_empty(), "matching counts must not diagnose");
@@ -2094,26 +1930,20 @@ fn main() {
         .iter()
         .find_map(|stmt| match stmt {
             Statement::Function { body, .. } => match body.statements.first() {
-                Some(Statement::Let {
-                    value: call @ Expression::Call { .. },
-                    ..
-                }) => Some(call.expr_id()),
+                Some(Statement::Let { value: call @ Expression::Call { .. }, .. }) => {
+                    Some(call.expr_id())
+                }
                 _ => None,
             },
             _ => None,
         })
         .expect("`let s = convert(42)`");
     let mut compiler = Compiler::new_with_interner("<test>", interner);
-    compiler
-        .compile(&program)
-        .expect("`convert(42)` is determined by its only instance");
+    compiler.compile(&program).expect("`convert(42)` is determined by its only instance");
 
     let args = compiler.evidence_map().dict_args_at(call);
     assert!(
-        matches!(
-            args.as_deref(),
-            Some([crate::types::translate::DictArg::Global { .. }])
-        ),
+        matches!(args.as_deref(), Some([crate::types::translate::DictArg::Global { .. }])),
         "expected the `Convert<Int, String>` dictionary, got {args:?}"
     );
 }
@@ -2162,29 +1992,21 @@ fn main() {
         .iter()
         .find_map(|stmt| match stmt {
             Statement::Function { body, .. } => match body.statements.first() {
-                Some(Statement::Let {
-                    value: call @ Expression::Call { .. },
-                    ..
-                }) => Some(call.expr_id()),
+                Some(Statement::Let { value: call @ Expression::Call { .. }, .. }) => {
+                    Some(call.expr_id())
+                }
                 _ => None,
             },
             _ => None,
         })
         .expect("`let s: String = convert(42)`");
     compiler
-        .dump_core_with_opts(
-            &shifted,
-            optimize,
-            crate::core::display::CoreDisplayMode::Readable,
-        )
+        .dump_core_with_opts(&shifted, optimize, crate::core::display::CoreDisplayMode::Readable)
         .expect("the shifted program lowers");
 
     let args = compiler.evidence_map().dict_args_at(call);
     assert!(
-        matches!(
-            args.as_deref(),
-            Some([crate::types::translate::DictArg::Global { .. }])
-        ),
+        matches!(args.as_deref(), Some([crate::types::translate::DictArg::Global { .. }])),
         "expected the `Convert<Int, String>` dictionary at the shifted call, got {args:?}"
     );
 }
@@ -2217,9 +2039,8 @@ fn main() {
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler.compile(&program).expect("the program compiles");
 
-    let core = compiler
-        .lower_core_from_program(&program, false, false)
-        .expect("the program lowers");
+    let core =
+        compiler.lower_core_from_program(&program, false, false).expect("the program lowers");
     let measure = core
         .defs
         .iter()
@@ -2228,10 +2049,7 @@ fn main() {
     let crate::core::CoreExpr::Lam { params, .. } = &measure.expr else {
         panic!("`measure` lowers to a lambda, got {:?}", measure.expr);
     };
-    let names: Vec<_> = params
-        .iter()
-        .map(|param| compiler.interner.resolve(param.name))
-        .collect();
+    let names: Vec<_> = params.iter().map(|param| compiler.interner.resolve(param.name)).collect();
     assert_eq!(names, ["__dict_Sized", "x"]);
 }
 
@@ -2263,9 +2081,7 @@ fn main() {
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler.compile(&program).expect("the program compiles");
 
-    let core = compiler
-        .lower_core_from_program(&program, false, true)
-        .expect("the program lowers");
+    let core = compiler.lower_core_from_program(&program, false, true).expect("the program lowers");
     let measure = core
         .defs
         .iter()
@@ -2314,9 +2130,7 @@ fn main() {
 "#,
     );
     let mut compiler = Compiler::new_with_interner("<test>", interner);
-    compiler
-        .compile_with_opts(&program, true, false)
-        .expect("the optimizing compile succeeds");
+    compiler.compile_with_opts(&program, true, false).expect("the optimizing compile succeeds");
 }
 
 /// The optimizer inlines a single-argument function into its callers. An
@@ -2336,9 +2150,7 @@ fn main() {
 "#,
     );
     let mut compiler = Compiler::new_with_interner("<test>", interner);
-    compiler
-        .compile_with_opts(&program, true, false)
-        .expect("the optimizing compile succeeds");
+    compiler.compile_with_opts(&program, true, false).expect("the optimizing compile succeeds");
 }
 
 /// An inlined call keeps the function's annotations. `parse_int`'s `-> Int`
@@ -2372,9 +2184,7 @@ fn main() {
 "#,
     );
     let mut compiler = Compiler::new_with_interner("<test>", interner);
-    compiler
-        .compile_with_opts(&program, true, false)
-        .expect("the optimizing compile succeeds");
+    compiler.compile_with_opts(&program, true, false).expect("the optimizing compile succeeds");
 }
 
 /// The optimizer matches a call to a function by name alone. Where a local
@@ -2397,9 +2207,7 @@ fn main() {
 "#,
     );
     let mut compiler = Compiler::new_with_interner("<test>", interner);
-    compiler
-        .compile_with_opts(&program, true, false)
-        .expect("the optimizing compile succeeds");
+    compiler.compile_with_opts(&program, true, false).expect("the optimizing compile succeeds");
 }
 
 /// An inlined call keeps the function's effects. `run_task` is polymorphic
@@ -2436,9 +2244,7 @@ fn main() with IO {
 "#,
     );
     let mut compiler = Compiler::new_with_interner("<test>", interner);
-    compiler
-        .compile_with_opts(&program, true, false)
-        .expect("the optimizing compile succeeds");
+    compiler.compile_with_opts(&program, true, false).expect("the optimizing compile succeeds");
 }
 
 /// A class over a higher-kinded parameter, used at a partially applied
@@ -2470,10 +2276,7 @@ fn main() {
     );
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     if let Err(diagnostics) = compiler.compile_with_opts(&program, false, false) {
-        panic!(
-            "the program compiles: {}",
-            render_diagnostics(&diagnostics, None, None)
-        );
+        panic!("the program compiles: {}", render_diagnostics(&diagnostics, None, None));
     }
 }
 
@@ -2498,25 +2301,18 @@ fn main() {
         .iter()
         .find_map(|stmt| match stmt {
             Statement::Function { body, .. } => match body.statements.first() {
-                Some(Statement::Let {
-                    value: infix @ Expression::Infix { .. },
-                    ..
-                }) => Some(infix.expr_id()),
+                Some(Statement::Let { value: infix @ Expression::Infix { .. }, .. }) => {
+                    Some(infix.expr_id())
+                }
                 _ => None,
             },
             _ => None,
         })
         .expect("`let x = 0 - 1`");
     let mut compiler = Compiler::new_with_interner("<test>", interner);
+    compiler.compile_with_opts(&program, true, false).expect("the optimizing compile succeeds");
     compiler
-        .compile_with_opts(&program, true, false)
-        .expect("the optimizing compile succeeds");
-    compiler
-        .dump_core_with_opts(
-            &program,
-            true,
-            crate::core::display::CoreDisplayMode::Readable,
-        )
+        .dump_core_with_opts(&program, true, crate::core::display::CoreDisplayMode::Readable)
         .expect("the optimizing dump succeeds");
 
     assert_eq!(compiler.evidence_map().raised(folded), 0);
@@ -2552,10 +2348,7 @@ fn lower_emitting(
     compiler: &Compiler,
     program: &crate::syntax::program::Program,
     evidence: &crate::types::evidence::EvidenceMap,
-) -> (
-    crate::core::CoreProgram,
-    Vec<crate::diagnostics::Diagnostic>,
-) {
+) -> (crate::core::CoreProgram, Vec<crate::diagnostics::Diagnostic>) {
     crate::core::lower_ast::lower_program_ast_with_evidence(
         program,
         &compiler.hm_expr_types,
@@ -2574,10 +2367,7 @@ fn lambda_param_names<'a>(
     let crate::core::CoreExpr::Lam { params, .. } = expr else {
         panic!("expected a lambda, got {expr:?}");
     };
-    let names = params
-        .iter()
-        .map(|param| compiler.interner.resolve(param.name))
-        .collect();
+    let names = params.iter().map(|param| compiler.interner.resolve(param.name)).collect();
     (names, params)
 }
 
@@ -2650,9 +2440,7 @@ fn main() {{
         .expect("`outer` is lowered");
     let (outer_names, outer_params) = lambda_param_names(&compiler, &outer.expr);
     assert_eq!(outer_names, ["__dict_Sized", "x"]);
-    let crate::core::CoreExpr::Lam { body, .. } = &outer.expr else {
-        unreachable!()
-    };
+    let crate::core::CoreExpr::Lam { body, .. } = &outer.expr else { unreachable!() };
 
     let mut inner = None;
     let mut projected = Vec::new();
@@ -2712,12 +2500,9 @@ fn collect_projections(expr: &crate::core::CoreExpr, out: &mut Vec<crate::core::
             collect_projections(rhs, out);
             collect_projections(body, out);
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             collect_projections(scrutinee, out);
-            alts.iter()
-                .for_each(|alt| collect_projections(&alt.rhs, out));
+            alts.iter().for_each(|alt| collect_projections(&alt.rhs, out));
         }
         _ => {}
     }
@@ -2738,10 +2523,7 @@ fn collect_calls(
             CoreExpr::App { func, args, .. } => format!(
                 "{}({})",
                 shape(compiler, func),
-                args.iter()
-                    .map(|arg| shape(compiler, arg))
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                args.iter().map(|arg| shape(compiler, arg)).collect::<Vec<_>>().join(", ")
             ),
             _ => "_".to_string(),
         }
@@ -2754,23 +2536,19 @@ fn collect_calls(
                 out.push(args.iter().map(|arg| shape(compiler, arg)).collect());
             }
             collect_calls(compiler, func, name, out);
-            args.iter()
-                .for_each(|arg| collect_calls(compiler, arg, name, out));
+            args.iter().for_each(|arg| collect_calls(compiler, arg, name, out));
         }
         CoreExpr::Lam { body, .. } => collect_calls(compiler, body, name, out),
         CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
             collect_calls(compiler, rhs, name, out);
             collect_calls(compiler, body, name, out);
         }
-        CoreExpr::PrimOp { args, .. } => args
-            .iter()
-            .for_each(|arg| collect_calls(compiler, arg, name, out)),
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::PrimOp { args, .. } => {
+            args.iter().for_each(|arg| collect_calls(compiler, arg, name, out))
+        }
+        CoreExpr::Case { scrutinee, alts, .. } => {
             collect_calls(compiler, scrutinee, name, out);
-            alts.iter()
-                .for_each(|alt| collect_calls(compiler, &alt.rhs, name, out));
+            alts.iter().for_each(|alt| collect_calls(compiler, &alt.rhs, name, out));
         }
         _ => {}
     }
@@ -2834,10 +2612,7 @@ fn main() {{
     let core = lower_emitting_evidence(&mut compiler, &program);
     assert_eq!(
         calls_in(&compiler, &core, "main", "measure"),
-        [
-            vec!["__dict_Sized_Int", "_"],
-            vec!["__dict_Sized_List<a>(__dict_Sized_Int)", "_"],
-        ]
+        [vec!["__dict_Sized_Int", "_"], vec!["__dict_Sized_List<a>(__dict_Sized_Int)", "_"],]
     );
 }
 
@@ -2858,10 +2633,7 @@ fn main() {{
     compiler.compile(&program).expect("the program compiles");
 
     let core = lower_emitting_evidence(&mut compiler, &program);
-    assert_eq!(
-        calls_in(&compiler, &core, "main", "__tc_Sized_Int_size"),
-        [vec!["_"]]
-    );
+    assert_eq!(calls_in(&compiler, &core, "main", "__tc_Sized_Int_size"), [vec!["_"]]);
     assert_eq!(
         calls_in(&compiler, &core, "main", "__tc_Sized_List<a>_size"),
         [vec!["__dict_Sized_Int", "_"]]
@@ -2876,18 +2648,9 @@ fn main() {{
     assert_eq!(names[0], "__dict_Sized");
     let mut projected = Vec::new();
     collect_projections(&list_size.expr, &mut projected);
+    assert_eq!(projected, [params[0].id], "`size(h)` reads the context's dictionary");
     assert_eq!(
-        projected,
-        [params[0].id],
-        "`size(h)` reads the context's dictionary"
-    );
-    assert_eq!(
-        calls_in(
-            &compiler,
-            &core,
-            "__tc_Sized_List<a>_size",
-            "__tc_Sized_List<a>_size"
-        ),
+        calls_in(&compiler, &core, "__tc_Sized_List<a>_size", "__tc_Sized_List<a>_size"),
         [vec!["__dict_Sized", "t"]],
         "`size(t)` calls the list instance again with the same context"
     );
@@ -2941,10 +2704,8 @@ fn main() {{
     evidence.raise(callee, raised);
 
     let (_, errors) = lower_emitting(&compiler, &program, &evidence);
-    let messages: Vec<_> = errors
-        .iter()
-        .map(|error| error.message().unwrap_or_default().to_string())
-        .collect();
+    let messages: Vec<_> =
+        errors.iter().map(|error| error.message().unwrap_or_default().to_string()).collect();
     assert_eq!(messages.len(), 1, "one error, for the site: {messages:?}");
     assert!(
         messages[0].contains("Sized") && messages[0].contains("no answer"),
@@ -3021,41 +2782,25 @@ fn collect_callees_named(
         out: &mut Vec<crate::syntax::expression::ExprId>,
     ) {
         match expr {
-            Expression::Call {
-                function,
-                arguments,
-                ..
-            } => {
-                if let Expression::Identifier {
-                    name: callee, id, ..
-                } = function.as_ref()
+            Expression::Call { function, arguments, .. } => {
+                if let Expression::Identifier { name: callee, id, .. } = function.as_ref()
                     && compiler.interner.resolve(*callee) == name
                 {
                     out.push(*id);
                 }
                 walk(compiler, function, name, out);
-                arguments
-                    .iter()
-                    .for_each(|arg| walk(compiler, arg, name, out));
+                arguments.iter().for_each(|arg| walk(compiler, arg, name, out));
             }
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-                ..
-            } => {
+            Expression::If { condition, consequence, alternative, .. } => {
                 walk(compiler, condition, name, out);
                 collect_callees_named(compiler, consequence, name, out);
                 if let Some(alternative) = alternative {
                     collect_callees_named(compiler, alternative, name, out);
                 }
             }
-            Expression::Match {
-                scrutinee, arms, ..
-            } => {
+            Expression::Match { scrutinee, arms, .. } => {
                 walk(compiler, scrutinee, name, out);
-                arms.iter()
-                    .for_each(|arm| walk(compiler, &arm.body, name, out));
+                arms.iter().for_each(|arm| walk(compiler, &arm.body, name, out));
             }
             _ => {}
         }
@@ -3107,14 +2852,10 @@ fn main() {{
     let mut evidence = crate::types::evidence::EvidenceMap::new();
     evidence.record_method_calls(&std::collections::HashSet::from([size_call]));
     let (_, errors) = lower_emitting(&compiler, &program, &evidence);
-    let messages: Vec<_> = errors
-        .iter()
-        .map(|error| error.message().unwrap_or_default().to_string())
-        .collect();
+    let messages: Vec<_> =
+        errors.iter().map(|error| error.message().unwrap_or_default().to_string()).collect();
     assert!(
-        messages
-            .iter()
-            .any(|message| message.contains("class method `size` raised no predicate")),
+        messages.iter().any(|message| message.contains("class method `size` raised no predicate")),
         "the call to `size` is reported: {messages:?}"
     );
 }
@@ -3179,10 +2920,7 @@ fn main() {{
             _ => None,
         })
         .expect("`main` ends in a sum");
-    assert!(
-        compiler.evidence_map.is_method_call(size_4),
-        "`size(4)` calls the method"
-    );
+    assert!(compiler.evidence_map.is_method_call(size_4), "`size(4)` calls the method");
 }
 
 /// A call qualified by the module that declares the class, in the same
@@ -3220,11 +2958,7 @@ M.my_eq(1, 2);
         compiler.evidence_map.is_method_call(call),
         "inference classifies `M.my_eq(1, 2)` as a method call"
     );
-    assert_eq!(
-        compiler.evidence_map.raised(call),
-        1,
-        "the call raises its `MyEq` predicate"
-    );
+    assert_eq!(compiler.evidence_map.raised(call), 1, "the call raises its `MyEq` predicate");
 }
 
 /// 1e, C2: the Core path lowers from evidence. A bounded function nested in
@@ -3249,9 +2983,7 @@ fn main() {{
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler.compile(&program).expect("the program compiles");
 
-    let core = compiler
-        .prepare_core_program(&program, false, true)
-        .expect("the program lowers");
+    let core = compiler.prepare_core_program(&program, false, true).expect("the program lowers");
     let outer = core
         .defs
         .iter()
@@ -3321,17 +3053,11 @@ fn main() {
 "#,
     );
     let mut compiler = Compiler::new_with_interner("<test>", interner);
-    let errors = compiler
-        .compile(&program)
-        .expect_err("the recursive call has no evidence");
-    let messages: Vec<_> = errors
-        .iter()
-        .map(|error| error.message().unwrap_or_default().to_string())
-        .collect();
+    let errors = compiler.compile(&program).expect_err("the recursive call has no evidence");
+    let messages: Vec<_> =
+        errors.iter().map(|error| error.message().unwrap_or_default().to_string()).collect();
     assert!(
-        messages
-            .iter()
-            .any(|message| message.contains("`has`") && message.contains("KI-101")),
+        messages.iter().any(|message| message.contains("`has`") && message.contains("KI-101")),
         "the error names the callee: {messages:?}"
     );
 }
@@ -3352,9 +3078,7 @@ let n = largest([]);
 "#
     ));
     let mut compiler = Compiler::new_with_interner("<test>", interner);
-    let errors = compiler
-        .compile(&program)
-        .expect_err("the `Sized` instance is undetermined");
+    let errors = compiler.compile(&program).expect_err("the `Sized` instance is undetermined");
     let codes: Vec<_> = errors.iter().filter_map(|error| error.code()).collect();
     assert!(codes.contains(&"E459"), "E459 is reported: {codes:?}");
 }
@@ -3399,13 +3123,9 @@ fn main() {
     // One compiler for both units, the dependency compiled first: what the
     // driver and the fixture harness do.
     let mut compiler = Compiler::new_with_interner("<test>", interner);
-    compiler
-        .compile(&dependency)
-        .expect("the dependency compiles");
+    compiler.compile(&dependency).expect("the dependency compiles");
     compiler.preload_dependency_program(&dependency);
-    compiler
-        .compile(&program)
-        .expect("every method call raised its predicate");
+    compiler.compile(&program).expect("every method call raised its predicate");
 }
 
 /// A compile that returns early from inside a function's scope must not leave
@@ -3425,10 +3145,7 @@ fn a_new_compile_starts_at_file_scope() {
         .filter_map(|error| error.code())
         .map(str::to_string)
         .collect();
-    assert!(
-        !codes.iter().any(|code| code == "E017"),
-        "the import is at file scope: {codes:?}"
-    );
+    assert!(!codes.iter().any(|code| code == "E017"), "the import is at file scope: {codes:?}");
     assert_eq!(compiler.scope_index, 0);
 }
 
@@ -3454,17 +3171,10 @@ module M {{
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler.compile(&program).expect("the program compiles");
     let module = compiler.interner.lookup("M").expect("`M` is interned");
-    let member = compiler
-        .interner
-        .lookup("total")
-        .expect("`total` is interned");
+    let member = compiler.interner.lookup("total").expect("`total` is interned");
     let scheme = compiler
         .private_member_schemes
         .get(&(module, member))
         .expect("the private member's scheme is recorded");
-    assert_eq!(
-        scheme.constraints.len(),
-        1,
-        "`total` keeps its `Sized` bound"
-    );
+    assert_eq!(scheme.constraints.len(), 1, "`total` keeps its `Sized` bound");
 }

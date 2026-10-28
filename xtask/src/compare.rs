@@ -42,10 +42,7 @@ pub fn read_sweep(dir: &Path) -> Result<Sweep, String> {
 }
 
 pub fn parse_results(text: &str) -> Sweep {
-    text.trim_start_matches('\u{feff}')
-        .lines()
-        .filter_map(parse_line)
-        .collect()
+    text.trim_start_matches('\u{feff}').lines().filter_map(parse_line).collect()
 }
 
 fn parse_line(line: &str) -> Option<(String, Run)> {
@@ -55,13 +52,7 @@ fn parse_line(line: &str) -> Option<(String, Run)> {
     }
     let fields: Vec<&str> = line.split('\t').collect();
     let field = |i: usize| fields.get(i).copied().unwrap_or("").to_string();
-    Some((
-        field(0),
-        Run {
-            status: field(1),
-            codes: field(3),
-        },
-    ))
+    Some((field(0), Run { status: field(1), codes: field(3) }))
 }
 
 #[derive(Debug, Default)]
@@ -109,28 +100,16 @@ pub fn compare(base: &Sweep, head: &Sweep) -> Report {
             continue;
         };
         if is_internal(&h.status) && !is_internal(&b.status) {
-            report
-                .new_internal
-                .push(format!("{} -> {}  {file}", b.status, h.status));
+            report.new_internal.push(format!("{} -> {}  {file}", b.status, h.status));
         } else if b.status == "ok" && h.status != "ok" {
-            report
-                .newly_rejected
-                .push(format!("ok -> {} [{}]  {file}", h.status, h.codes));
+            report.newly_rejected.push(format!("ok -> {} [{}]  {file}", h.status, h.codes));
         } else if b.status != "ok" && h.status == "ok" {
-            report
-                .newly_accepted
-                .push(format!("{} [{}] -> ok  {file}", b.status, b.codes));
+            report.newly_accepted.push(format!("{} [{}] -> ok  {file}", b.status, b.codes));
         } else if b.status != "ok" && h.codes != b.codes {
-            report
-                .codes_changed
-                .push(format!("[{}] -> [{}]  {file}", b.codes, h.codes));
+            report.codes_changed.push(format!("[{}] -> [{}]  {file}", b.codes, h.codes));
         }
     }
-    report.only_base = base
-        .keys()
-        .filter(|file| !head.contains_key(*file))
-        .cloned()
-        .collect();
+    report.only_base = base.keys().filter(|file| !head.contains_key(*file)).cloned().collect();
     report
 }
 
@@ -196,10 +175,7 @@ pub fn run(root: &Path, base: &Path, head: &Path, content: bool) -> Result<Compa
     println!("base: {}", base.display());
     println!("head: {}", head.display());
     report.print();
-    let mut comparison = Comparison {
-        failed: report.failed(),
-        ..Comparison::default()
-    };
+    let mut comparison = Comparison { failed: report.failed(), ..Comparison::default() };
     if !content {
         return Ok(comparison);
     }
@@ -207,13 +183,7 @@ pub fn run(root: &Path, base: &Path, head: &Path, content: bool) -> Result<Compa
     let (_, head_hashes) = read_hashes(head)?;
     comparison.changed = changed_dumps(&base_sweep, &head_sweep, &base_hashes, &head_hashes);
     let change = |file: &String| Change::of(&base_hashes[file], &head_hashes[file]);
-    let count = |kind: Change| {
-        comparison
-            .changed
-            .iter()
-            .filter(|f| change(f) == kind)
-            .count()
-    };
+    let count = |kind: Change| comparison.changed.iter().filter(|f| change(f) == kind).count();
     comparison.numbering = count(Change::Numbering);
     comparison.unknown = count(Change::Unknown);
     println!(
@@ -233,13 +203,10 @@ pub fn run(root: &Path, base: &Path, head: &Path, content: bool) -> Result<Compa
     if comparison.changed.len() > SHOWN_DIFFS {
         println!("  … and {} more", comparison.changed.len() - SHOWN_DIFFS);
     }
-    let list = comparison
-        .changed
-        .iter()
-        .fold(String::new(), |mut list, file| {
-            let _ = writeln!(list, "{}\t{file}", change(file).name());
-            list
-        });
+    let list = comparison.changed.iter().fold(String::new(), |mut list, file| {
+        let _ = writeln!(list, "{}\t{file}", change(file).name());
+        list
+    });
     let diff_file = Comparison::diff_file(head);
     fs::write(&diff_file, list).map_err(|e| format!("{}: {e}", diff_file.display()))?;
     Ok(comparison)
@@ -291,15 +258,7 @@ pub fn parse_hashes(text: &str) -> (Option<String>, Hashes) {
             Some(Err(_)) => continue,
             None => None,
         };
-        hashes.insert(
-            file.to_string(),
-            DumpHash {
-                fnv,
-                bytes,
-                lines,
-                normalized,
-            },
-        );
+        hashes.insert(file.to_string(), DumpHash { fnv, bytes, lines, normalized });
     }
     (mode, hashes)
 }
@@ -318,9 +277,7 @@ pub fn changed_dumps(
             let ok = |sweep: &Sweep| sweep.get(*file).is_some_and(|run| run.status == "ok");
             ok(base)
                 && ok(head)
-                && base_hashes
-                    .get(*file)
-                    .is_some_and(|before| !before.same_dump(after))
+                && base_hashes.get(*file).is_some_and(|before| !before.same_dump(after))
         })
         .map(|(file, _)| file.clone())
         .collect()
@@ -370,18 +327,9 @@ pub fn first_difference(base: &str, head: &str) -> Option<Difference> {
     let (b, h): (Vec<&str>, Vec<&str>) = (base.lines().collect(), head.lines().collect());
     let at = (0..b.len().max(h.len())).find(|&i| b.get(i) != h.get(i))?;
     let from = |lines: &[&str]| -> Vec<String> {
-        lines
-            .iter()
-            .skip(at)
-            .take(CONTEXT)
-            .map(|l| (*l).to_string())
-            .collect()
+        lines.iter().skip(at).take(CONTEXT).map(|l| (*l).to_string()).collect()
     };
-    Some(Difference {
-        line: at + 1,
-        base: from(&b),
-        head: from(&h),
-    })
+    Some(Difference { line: at + 1, base: from(&b), head: from(&h) })
 }
 
 #[cfg(test)]
@@ -391,13 +339,7 @@ mod tests {
     fn sweep(rows: &[(&str, &str, &str)]) -> Sweep {
         rows.iter()
             .map(|(file, status, codes)| {
-                (
-                    file.to_string(),
-                    Run {
-                        status: status.to_string(),
-                        codes: codes.to_string(),
-                    },
-                )
+                (file.to_string(), Run { status: status.to_string(), codes: codes.to_string() })
             })
             .collect()
     }
@@ -406,10 +348,7 @@ mod tests {
     fn parses_results_with_empty_codes_bom_and_crlf() {
         let parsed =
             parse_results("\u{feff}a.flx\tok\t0\t\t12\r\nb.flx\terror\t1\tE300,E301\t9\r\n\r\n");
-        assert_eq!(
-            parsed,
-            sweep(&[("a.flx", "ok", ""), ("b.flx", "error", "E300,E301")])
-        );
+        assert_eq!(parsed, sweep(&[("a.flx", "ok", ""), ("b.flx", "error", "E300,E301")]));
     }
 
     #[test]
@@ -444,12 +383,7 @@ mod tests {
     }
 
     fn hash(n: u64) -> DumpHash {
-        DumpHash {
-            fnv: n,
-            bytes: 1,
-            lines: 1,
-            normalized: Some(n),
-        }
+        DumpHash { fnv: n, bytes: 1, lines: 1, normalized: Some(n) }
     }
 
     #[test]
@@ -466,11 +400,7 @@ mod tests {
         // A dump that stops early differs where the longer one goes on.
         assert_eq!(
             first_difference("a\nb", "a\nb\nc"),
-            Some(Difference {
-                line: 3,
-                base: vec![],
-                head: vec!["c".into()],
-            })
+            Some(Difference { line: 3, base: vec![], head: vec!["c".into()] })
         );
     }
 
@@ -482,15 +412,7 @@ mod tests {
         );
         assert_eq!(mode.as_deref(), Some("core-opt"));
         assert_eq!(hashes.len(), 2);
-        assert_eq!(
-            hashes["a.flx"],
-            DumpHash {
-                fnv: 0xff,
-                bytes: 10,
-                lines: 2,
-                normalized: None,
-            }
-        );
+        assert_eq!(hashes["a.flx"], DumpHash { fnv: 0xff, bytes: 10, lines: 2, normalized: None });
         assert_eq!(hashes["c.flx"].normalized, Some(0xaa));
     }
 
@@ -512,24 +434,10 @@ mod tests {
 
     #[test]
     fn a_changed_dump_is_structure_numbering_or_unknown() {
-        let with = |fnv, normalized| DumpHash {
-            fnv,
-            bytes: 1,
-            lines: 1,
-            normalized,
-        };
-        assert_eq!(
-            Change::of(&with(1, Some(7)), &with(2, Some(7))),
-            Change::Numbering
-        );
-        assert_eq!(
-            Change::of(&with(1, Some(7)), &with(2, Some(8))),
-            Change::Structure
-        );
-        assert_eq!(
-            Change::of(&with(1, None), &with(2, Some(8))),
-            Change::Unknown
-        );
+        let with = |fnv, normalized| DumpHash { fnv, bytes: 1, lines: 1, normalized };
+        assert_eq!(Change::of(&with(1, Some(7)), &with(2, Some(7))), Change::Numbering);
+        assert_eq!(Change::of(&with(1, Some(7)), &with(2, Some(8))), Change::Structure);
+        assert_eq!(Change::of(&with(1, None), &with(2, Some(8))), Change::Unknown);
         // Only the exact hash decides whether a dump changed.
         assert!(with(1, None).same_dump(&with(1, Some(7))));
     }
@@ -551,19 +459,12 @@ mod tests {
             .into_iter()
             .map(|(f, n)| (f.to_string(), hash(n)))
             .collect();
-        let after: Hashes = [
-            ("same.flx", 1),
-            ("changed.flx", 9),
-            ("rejected.flx", 9),
-            ("new.flx", 9),
-        ]
-        .into_iter()
-        .map(|(f, n)| (f.to_string(), hash(n)))
-        .collect();
-        assert_eq!(
-            changed_dumps(&base, &head, &before, &after),
-            ["changed.flx"]
-        );
+        let after: Hashes =
+            [("same.flx", 1), ("changed.flx", 9), ("rejected.flx", 9), ("new.flx", 9)]
+                .into_iter()
+                .map(|(f, n)| (f.to_string(), hash(n)))
+                .collect();
+        assert_eq!(changed_dumps(&base, &head, &before, &after), ["changed.flx"]);
     }
 
     #[test]

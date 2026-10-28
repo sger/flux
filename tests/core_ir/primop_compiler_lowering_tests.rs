@@ -8,11 +8,7 @@ fn compile_disassembly(input: &str) -> String {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "{}",
-        render_diagnostics(&parser.errors, Some(input), None)
-    );
+    assert!(parser.errors.is_empty(), "{}", render_diagnostics(&parser.errors, Some(input), None));
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler
@@ -56,11 +52,7 @@ fn assert_contains_primop(input: &str) {
 
 fn assert_not_contains_primop(input: &str) {
     let asm = compile_disassembly(input);
-    assert!(
-        !asm.contains("OpPrimOp"),
-        "did not expect OpPrimOp:\n{}",
-        asm
-    );
+    assert!(!asm.contains("OpPrimOp"), "did not expect OpPrimOp:\n{}", asm);
 }
 
 #[test]

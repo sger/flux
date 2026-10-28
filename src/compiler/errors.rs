@@ -48,11 +48,8 @@ impl Compiler {
             let suggestion_text = if suggestions.len() == 1 {
                 format!("Did you mean `{}`?", suggestions[0])
             } else {
-                let names = suggestions
-                    .iter()
-                    .map(|s| format!("`{}`", s))
-                    .collect::<Vec<_>>()
-                    .join(", ");
+                let names =
+                    suggestions.iter().map(|s| format!("`{}`", s)).collect::<Vec<_>>().join(", ");
                 format!("Did you mean one of: {}?", names)
             };
             diagnostic = diagnostic.with_help(suggestion_text);
@@ -62,12 +59,7 @@ impl Compiler {
     }
 
     pub(super) fn make_import_collision_error(&self, name: &str, span: Span) -> Diagnostic {
-        Diagnostic::make_error(
-            &IMPORT_NAME_COLLISION,
-            &[name],
-            self.file_path.clone(),
-            span,
-        )
+        Diagnostic::make_error(&IMPORT_NAME_COLLISION, &[name], self.file_path.clone(), span)
     }
 
     pub(super) fn make_outer_assignment_error(&self, name: &str, span: Span) -> Diagnostic {
@@ -85,9 +77,7 @@ impl Compiler {
         }
 
         let same_module = module_name.is_some_and(|name| {
-            self.current_module_prefix
-                .map(|prefix| self.sym(prefix) == name)
-                .unwrap_or(false)
+            self.current_module_prefix.map(|prefix| self.sym(prefix) == name).unwrap_or(false)
         });
         if same_module {
             return Ok(());

@@ -88,10 +88,7 @@ impl Prelude {
                 continue;
             }
             let short = qualified.rsplit('.').next().unwrap_or(qualified);
-            module_members
-                .entry(short.to_string())
-                .or_default()
-                .push(member.to_string());
+            module_members.entry(short.to_string()).or_default().push(member.to_string());
         }
         for v in module_members.values_mut() {
             v.sort();
@@ -148,10 +145,8 @@ impl Prelude {
                 let program =
                     lsp_support::parse_module_for_goto_def(&mut compiler, source_arc.as_ref());
                 let short = qualified.rsplit('.').next().unwrap_or(qualified.as_str());
-                module_programs.insert(
-                    short.to_string(),
-                    (Arc::new(program), source_arc, source_path),
-                );
+                module_programs
+                    .insert(short.to_string(), (Arc::new(program), source_arc, source_path));
             }
 
             // Index every *other* `lib/Flow/*.flx` module — parse-only, no
@@ -207,27 +202,17 @@ impl Prelude {
             &path_str,
             source_arc.to_string(),
         ) {
-            tracing::info!(
-                "flux-lsp: dynamically preloaded {} from {}",
-                module_name,
-                path_str
-            );
+            tracing::info!("flux-lsp: dynamically preloaded {} from {}", module_name, path_str);
             self.loaded_modules.insert(module_name.to_string());
             let short = module_name.rsplit('.').next().unwrap_or(module_name);
-            self.module_programs.insert(
-                short.to_string(),
-                (Arc::new(program), source_arc, source_path),
-            );
+            self.module_programs
+                .insert(short.to_string(), (Arc::new(program), source_arc, source_path));
             // A new module changes the shared member indexes — refresh them
             // now so the snapshot built from this buffer sees the new names.
             self.rebuild_member_index();
             true
         } else {
-            tracing::warn!(
-                "flux-lsp: failed to preload {} from {}",
-                module_name,
-                path_str
-            );
+            tracing::warn!("flux-lsp: failed to preload {} from {}", module_name, path_str);
             false
         }
     }

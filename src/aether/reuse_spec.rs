@@ -16,10 +16,7 @@ pub struct ReuseSpecCandidate {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReuseSpecDecision {
     PlainReuse,
-    SelectiveWrite {
-        field_mask: u64,
-        saved_writes: usize,
-    },
+    SelectiveWrite { field_mask: u64, saved_writes: usize },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,13 +39,7 @@ pub fn specialize_reuse_aether(expr: CoreExpr) -> CoreExpr {
 fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
     match expr {
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => expr,
-        CoreExpr::Lam {
-            params,
-            param_types,
-            result_ty,
-            body,
-            span,
-        } => CoreExpr::Lam {
+        CoreExpr::Lam { params, param_types, result_ty, body, span } => CoreExpr::Lam {
             params,
             param_types,
             result_ty,
@@ -57,10 +48,7 @@ fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
         },
         CoreExpr::App { func, args, span } => CoreExpr::App {
             func: Box::new(specialize_with_env(*func, env)),
-            args: args
-                .into_iter()
-                .map(|arg| specialize_with_env(arg, env))
-                .collect(),
+            args: args.into_iter().map(|arg| specialize_with_env(arg, env)).collect(),
             span,
         },
         CoreExpr::AetherCall {
@@ -72,21 +60,13 @@ fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
             span,
         } => CoreExpr::AetherCall {
             func: Box::new(specialize_with_env(*func, env)),
-            args: args
-                .into_iter()
-                .map(|arg| specialize_with_env(arg, env))
-                .collect(),
+            args: args.into_iter().map(|arg| specialize_with_env(arg, env)).collect(),
             arg_modes,
             guarded_borrowed_args,
             owned_after,
             span,
         },
-        CoreExpr::Let {
-            var,
-            rhs,
-            body,
-            span,
-        } => {
+        CoreExpr::Let { var, rhs, body, span } => {
             let rhs = specialize_with_env(*rhs, env);
             let body_env = env.with_alias(var.id, &rhs);
             CoreExpr::Let {
@@ -96,12 +76,7 @@ fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
                 span,
             }
         }
-        CoreExpr::LetRec {
-            var,
-            rhs,
-            body,
-            span,
-        } => {
+        CoreExpr::LetRec { var, rhs, body, span } => {
             let rhs = specialize_with_env(*rhs, env);
             let body_env = env.with_alias(var.id, &rhs);
             CoreExpr::LetRec {
@@ -111,11 +86,7 @@ fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
                 span,
             }
         }
-        CoreExpr::LetRecGroup {
-            bindings,
-            body,
-            span,
-        } => {
+        CoreExpr::LetRecGroup { bindings, body, span } => {
             let bindings: Vec<_> = bindings
                 .into_iter()
                 .map(|(var, rhs)| {
@@ -129,12 +100,7 @@ fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
                 span,
             }
         }
-        CoreExpr::Case {
-            scrutinee,
-            alts,
-            join_ty,
-            span,
-        } => {
+        CoreExpr::Case { scrutinee, alts, join_ty, span } => {
             let scrutinee = specialize_with_env(*scrutinee, env);
             let scrutinee_var = match &scrutinee {
                 CoreExpr::Var { var, .. } => Some(*var),
@@ -159,56 +125,29 @@ fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
                     alt
                 })
                 .collect();
-            CoreExpr::Case {
-                scrutinee: Box::new(scrutinee),
-                alts,
-                join_ty,
-                span,
-            }
+            CoreExpr::Case { scrutinee: Box::new(scrutinee), alts, join_ty, span }
         }
         CoreExpr::Con { tag, fields, span } => CoreExpr::Con {
             tag,
-            fields: fields
-                .into_iter()
-                .map(|field| specialize_with_env(field, env))
-                .collect(),
+            fields: fields.into_iter().map(|field| specialize_with_env(field, env)).collect(),
             span,
         },
         CoreExpr::PrimOp { op, args, span } => CoreExpr::PrimOp {
             op,
-            args: args
-                .into_iter()
-                .map(|arg| specialize_with_env(arg, env))
-                .collect(),
+            args: args.into_iter().map(|arg| specialize_with_env(arg, env)).collect(),
             span,
         },
-        CoreExpr::Return { value, span } => CoreExpr::Return {
-            value: Box::new(specialize_with_env(*value, env)),
-            span,
-        },
-        CoreExpr::Perform {
+        CoreExpr::Return { value, span } => {
+            CoreExpr::Return { value: Box::new(specialize_with_env(*value, env)), span }
+        }
+        CoreExpr::Perform { effect, operation, args, owned_after, span } => CoreExpr::Perform {
             effect,
             operation,
-            args,
-            owned_after,
-            span,
-        } => CoreExpr::Perform {
-            effect,
-            operation,
-            args: args
-                .into_iter()
-                .map(|arg| specialize_with_env(arg, env))
-                .collect(),
+            args: args.into_iter().map(|arg| specialize_with_env(arg, env)).collect(),
             owned_after,
             span,
         },
-        CoreExpr::Handle {
-            body,
-            effect,
-            parameter,
-            handlers,
-            span,
-        } => CoreExpr::Handle {
+        CoreExpr::Handle { body, effect, parameter, handlers, span } => CoreExpr::Handle {
             body: Box::new(specialize_with_env(*body, env)),
             effect,
             parameter: parameter.map(|p| Box::new(specialize_with_env(*p, env))),
@@ -221,27 +160,15 @@ fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
                 .collect(),
             span,
         },
-        CoreExpr::Dup { var, body, span } => CoreExpr::Dup {
-            var,
-            body: Box::new(specialize_with_env(*body, env)),
-            span,
-        },
-        CoreExpr::Drop { var, body, span } => CoreExpr::Drop {
-            var,
-            body: Box::new(specialize_with_env(*body, env)),
-            span,
-        },
-        CoreExpr::Reuse {
-            token,
-            tag,
-            fields,
-            field_mask: _,
-            span,
-        } => {
-            let fields: Vec<CoreExpr> = fields
-                .into_iter()
-                .map(|field| specialize_with_env(field, env))
-                .collect();
+        CoreExpr::Dup { var, body, span } => {
+            CoreExpr::Dup { var, body: Box::new(specialize_with_env(*body, env)), span }
+        }
+        CoreExpr::Drop { var, body, span } => {
+            CoreExpr::Drop { var, body: Box::new(specialize_with_env(*body, env)), span }
+        }
+        CoreExpr::Reuse { token, tag, fields, field_mask: _, span } => {
+            let fields: Vec<CoreExpr> =
+                fields.into_iter().map(|field| specialize_with_env(field, env)).collect();
             let decision = decide_specialization(&token, &tag, &fields, env);
             // A bisected run past its limit (0190 §13) writes every field.
             let field_mask = match decision {
@@ -254,56 +181,33 @@ fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
                 }
                 ReuseSpecDecision::SelectiveWrite { .. } | ReuseSpecDecision::PlainReuse => None,
             };
-            CoreExpr::Reuse {
-                token,
-                tag,
-                fields,
-                field_mask,
+            CoreExpr::Reuse { token, tag, fields, field_mask, span }
+        }
+        CoreExpr::MemberAccess { object, member, span } => CoreExpr::MemberAccess {
+            object: Box::new(specialize_with_env(*object, env)),
+            member,
+            span,
+        },
+        CoreExpr::TupleField { object, index, span } => CoreExpr::TupleField {
+            object: Box::new(specialize_with_env(*object, env)),
+            index,
+            span,
+        },
+        CoreExpr::DropSpecialized { scrutinee, unique_body, shared_body, span } => {
+            CoreExpr::DropSpecialized {
+                scrutinee,
+                unique_body: Box::new(specialize_with_env(*unique_body, env)),
+                shared_body: Box::new(specialize_with_env(*shared_body, env)),
                 span,
             }
         }
-        CoreExpr::MemberAccess {
-            object,
-            member,
-            span,
-        } => CoreExpr::MemberAccess {
-            object: Box::new(specialize_with_env(*object, env)),
-            member,
-            span,
-        },
-        CoreExpr::TupleField {
-            object,
-            index,
-            span,
-        } => CoreExpr::TupleField {
-            object: Box::new(specialize_with_env(*object, env)),
-            index,
-            span,
-        },
-        CoreExpr::DropSpecialized {
-            scrutinee,
-            unique_body,
-            shared_body,
-            span,
-        } => CoreExpr::DropSpecialized {
-            scrutinee,
-            unique_body: Box::new(specialize_with_env(*unique_body, env)),
-            shared_body: Box::new(specialize_with_env(*shared_body, env)),
-            span,
-        },
     }
 }
 
 fn specialize_with_env_aether(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
     match expr {
         AetherExpr::Var { .. } | AetherExpr::Lit(_, _) => expr,
-        AetherExpr::Lam {
-            params,
-            param_types,
-            result_ty,
-            body,
-            span,
-        } => AetherExpr::Lam {
+        AetherExpr::Lam { params, param_types, result_ty, body, span } => AetherExpr::Lam {
             params,
             param_types,
             result_ty,
@@ -312,10 +216,7 @@ fn specialize_with_env_aether(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
         },
         AetherExpr::App { func, args, span } => AetherExpr::App {
             func: Box::new(specialize_with_env_aether(*func, env)),
-            args: args
-                .into_iter()
-                .map(|arg| specialize_with_env_aether(arg, env))
-                .collect(),
+            args: args.into_iter().map(|arg| specialize_with_env_aether(arg, env)).collect(),
             span,
         },
         AetherExpr::AetherCall {
@@ -327,21 +228,13 @@ fn specialize_with_env_aether(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
             span,
         } => AetherExpr::AetherCall {
             func: Box::new(specialize_with_env_aether(*func, env)),
-            args: args
-                .into_iter()
-                .map(|arg| specialize_with_env_aether(arg, env))
-                .collect(),
+            args: args.into_iter().map(|arg| specialize_with_env_aether(arg, env)).collect(),
             arg_modes,
             guarded_borrowed_args,
             owned_after,
             span,
         },
-        AetherExpr::Let {
-            var,
-            rhs,
-            body,
-            span,
-        } => {
+        AetherExpr::Let { var, rhs, body, span } => {
             let rhs = specialize_with_env_aether(*rhs, env);
             let body_env = env.with_alias(var.id, &rhs);
             AetherExpr::Let {
@@ -351,12 +244,7 @@ fn specialize_with_env_aether(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
                 span,
             }
         }
-        AetherExpr::LetRec {
-            var,
-            rhs,
-            body,
-            span,
-        } => {
+        AetherExpr::LetRec { var, rhs, body, span } => {
             let rhs = specialize_with_env_aether(*rhs, env);
             let body_env = env.with_alias(var.id, &rhs);
             AetherExpr::LetRec {
@@ -366,11 +254,7 @@ fn specialize_with_env_aether(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
                 span,
             }
         }
-        AetherExpr::LetRecGroup {
-            bindings,
-            body,
-            span,
-        } => {
+        AetherExpr::LetRecGroup { bindings, body, span } => {
             let bindings: Vec<_> = bindings
                 .into_iter()
                 .map(|(var, rhs)| {
@@ -384,12 +268,7 @@ fn specialize_with_env_aether(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
                 span,
             }
         }
-        AetherExpr::Case {
-            scrutinee,
-            alts,
-            join_ty,
-            span,
-        } => {
+        AetherExpr::Case { scrutinee, alts, join_ty, span } => {
             let scrutinee = specialize_with_env_aether(*scrutinee, env);
             let scrutinee_var = match &scrutinee {
                 AetherExpr::Var { var, .. } => Some(*var),
@@ -410,18 +289,11 @@ fn specialize_with_env_aether(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
                         })
                         .unwrap_or_else(|| env.clone());
                     alt.rhs = specialize_with_env_aether(alt.rhs, &alt_env);
-                    alt.guard = alt
-                        .guard
-                        .map(|guard| specialize_with_env_aether(guard, env));
+                    alt.guard = alt.guard.map(|guard| specialize_with_env_aether(guard, env));
                     alt
                 })
                 .collect();
-            AetherExpr::Case {
-                scrutinee: Box::new(scrutinee),
-                alts,
-                join_ty,
-                span,
-            }
+            AetherExpr::Case { scrutinee: Box::new(scrutinee), alts, join_ty, span }
         }
         AetherExpr::Con { tag, fields, span } => AetherExpr::Con {
             tag,
@@ -433,39 +305,20 @@ fn specialize_with_env_aether(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
         },
         AetherExpr::PrimOp { op, args, span } => AetherExpr::PrimOp {
             op,
-            args: args
-                .into_iter()
-                .map(|arg| specialize_with_env_aether(arg, env))
-                .collect(),
+            args: args.into_iter().map(|arg| specialize_with_env_aether(arg, env)).collect(),
             span,
         },
-        AetherExpr::Return { value, span } => AetherExpr::Return {
-            value: Box::new(specialize_with_env_aether(*value, env)),
-            span,
-        },
-        AetherExpr::Perform {
+        AetherExpr::Return { value, span } => {
+            AetherExpr::Return { value: Box::new(specialize_with_env_aether(*value, env)), span }
+        }
+        AetherExpr::Perform { effect, operation, args, owned_after, span } => AetherExpr::Perform {
             effect,
             operation,
-            args,
-            owned_after,
-            span,
-        } => AetherExpr::Perform {
-            effect,
-            operation,
-            args: args
-                .into_iter()
-                .map(|arg| specialize_with_env_aether(arg, env))
-                .collect(),
+            args: args.into_iter().map(|arg| specialize_with_env_aether(arg, env)).collect(),
             owned_after,
             span,
         },
-        AetherExpr::Handle {
-            body,
-            effect,
-            parameter,
-            handlers,
-            span,
-        } => AetherExpr::Handle {
+        AetherExpr::Handle { body, effect, parameter, handlers, span } => AetherExpr::Handle {
             body: Box::new(specialize_with_env_aether(*body, env)),
             effect,
             parameter: parameter.map(|p| Box::new(specialize_with_env_aether(*p, env))),
@@ -478,27 +331,15 @@ fn specialize_with_env_aether(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
                 .collect(),
             span,
         },
-        AetherExpr::Dup { var, body, span } => AetherExpr::Dup {
-            var,
-            body: Box::new(specialize_with_env_aether(*body, env)),
-            span,
-        },
-        AetherExpr::Drop { var, body, span } => AetherExpr::Drop {
-            var,
-            body: Box::new(specialize_with_env_aether(*body, env)),
-            span,
-        },
-        AetherExpr::Reuse {
-            token,
-            tag,
-            fields,
-            field_mask: _,
-            span,
-        } => {
-            let fields: Vec<AetherExpr> = fields
-                .into_iter()
-                .map(|field| specialize_with_env_aether(field, env))
-                .collect();
+        AetherExpr::Dup { var, body, span } => {
+            AetherExpr::Dup { var, body: Box::new(specialize_with_env_aether(*body, env)), span }
+        }
+        AetherExpr::Drop { var, body, span } => {
+            AetherExpr::Drop { var, body: Box::new(specialize_with_env_aether(*body, env)), span }
+        }
+        AetherExpr::Reuse { token, tag, fields, field_mask: _, span } => {
+            let fields: Vec<AetherExpr> =
+                fields.into_iter().map(|field| specialize_with_env_aether(field, env)).collect();
             let decision = decide_specialization(&token, &tag, &fields, env);
             // A bisected run past its limit (0190 §13) writes every field.
             let field_mask = match decision {
@@ -511,43 +352,26 @@ fn specialize_with_env_aether(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
                 }
                 ReuseSpecDecision::SelectiveWrite { .. } | ReuseSpecDecision::PlainReuse => None,
             };
-            AetherExpr::Reuse {
-                token,
-                tag,
-                fields,
-                field_mask,
+            AetherExpr::Reuse { token, tag, fields, field_mask, span }
+        }
+        AetherExpr::MemberAccess { object, member, span } => AetherExpr::MemberAccess {
+            object: Box::new(specialize_with_env_aether(*object, env)),
+            member,
+            span,
+        },
+        AetherExpr::TupleField { object, index, span } => AetherExpr::TupleField {
+            object: Box::new(specialize_with_env_aether(*object, env)),
+            index,
+            span,
+        },
+        AetherExpr::DropSpecialized { scrutinee, unique_body, shared_body, span } => {
+            AetherExpr::DropSpecialized {
+                scrutinee,
+                unique_body: Box::new(specialize_with_env_aether(*unique_body, env)),
+                shared_body: Box::new(specialize_with_env_aether(*shared_body, env)),
                 span,
             }
         }
-        AetherExpr::MemberAccess {
-            object,
-            member,
-            span,
-        } => AetherExpr::MemberAccess {
-            object: Box::new(specialize_with_env_aether(*object, env)),
-            member,
-            span,
-        },
-        AetherExpr::TupleField {
-            object,
-            index,
-            span,
-        } => AetherExpr::TupleField {
-            object: Box::new(specialize_with_env_aether(*object, env)),
-            index,
-            span,
-        },
-        AetherExpr::DropSpecialized {
-            scrutinee,
-            unique_body,
-            shared_body,
-            span,
-        } => AetherExpr::DropSpecialized {
-            scrutinee,
-            unique_body: Box::new(specialize_with_env_aether(*unique_body, env)),
-            shared_body: Box::new(specialize_with_env_aether(*shared_body, env)),
-            span,
-        },
     }
 }
 
@@ -593,12 +417,7 @@ fn build_candidate(
         }
         return Err(ReuseSpecReason::NoSelectiveBenefit);
     }
-    Ok(ReuseSpecCandidate {
-        token_binder,
-        tag: tag.clone(),
-        arity,
-        unchanged_fields,
-    })
+    Ok(ReuseSpecCandidate { token_binder, tag: tag.clone(), arity, unchanged_fields })
 }
 
 fn profitability_reason(candidate: &ReuseSpecCandidate) -> Option<ReuseSpecReason> {
@@ -743,11 +562,7 @@ mod tests {
                     tag: CoreTag::Named(node),
                     fields: vec![
                         CoreExpr::Lit(crate::core::CoreLit::Int(1), s()),
-                        CoreExpr::Con {
-                            tag: CoreTag::Nil,
-                            fields: vec![],
-                            span: s(),
-                        },
+                        CoreExpr::Con { tag: CoreTag::Nil, fields: vec![], span: s() },
                         CoreExpr::Lit(crate::core::CoreLit::Int(0), s()),
                         v(right),
                     ],
@@ -798,11 +613,7 @@ mod tests {
                         CoreExpr::Lit(crate::core::CoreLit::Int(1), s()),
                         v(left),
                         v(key),
-                        CoreExpr::Con {
-                            tag: CoreTag::Nil,
-                            fields: vec![],
-                            span: s(),
-                        },
+                        CoreExpr::Con { tag: CoreTag::Nil, fields: vec![], span: s() },
                     ],
                     field_mask: None,
                     span: s(),
@@ -829,10 +640,7 @@ mod tests {
         let expr = CoreExpr::Case {
             scrutinee: Box::new(v(opt)),
             alts: vec![CoreAlt {
-                pat: CorePat::Con {
-                    tag: CoreTag::Some,
-                    fields: vec![CorePat::Var(x)],
-                },
+                pat: CorePat::Con { tag: CoreTag::Some, fields: vec![CorePat::Var(x)] },
                 guard: None,
                 rhs: CoreExpr::Reuse {
                     token: CoreVarRef::resolved(&opt),
@@ -932,12 +740,7 @@ mod tests {
                                 rhs: v(t),
                                 span: s(),
                             },
-                            CoreAlt {
-                                pat: CorePat::Wildcard,
-                                guard: None,
-                                rhs: v(t),
-                                span: s(),
-                            },
+                            CoreAlt { pat: CorePat::Wildcard, guard: None, rhs: v(t), span: s() },
                         ],
                         join_ty: None,
                         span: s(),
@@ -1039,12 +842,7 @@ mod tests {
                                 rhs: v(t),
                                 span: s(),
                             },
-                            CoreAlt {
-                                pat: CorePat::Wildcard,
-                                guard: None,
-                                rhs: v(h),
-                                span: s(),
-                            },
+                            CoreAlt { pat: CorePat::Wildcard, guard: None, rhs: v(h), span: s() },
                         ],
                         join_ty: None,
                         span: s(),

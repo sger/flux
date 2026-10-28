@@ -74,10 +74,7 @@ fn main() -> Unit with Console {
 "#,
     );
     let (stdout, stderr, success) = compile(&file, &guard);
-    assert!(
-        !success,
-        "an undeclared Process effect must be rejected:\n{stdout}"
-    );
+    assert!(!success, "an undeclared Process effect must be rejected:\n{stdout}");
     assert!(
         format!("{stdout}{stderr}").contains("Process"),
         "the diagnostic should name the Process effect:\n{stdout}{stderr}"
@@ -108,10 +105,7 @@ fn main() -> Unit with IO {
 "#,
     );
     let (stdout, stderr, success) = compile(&file, &guard);
-    assert!(
-        !success,
-        "FileSystem must not cover Process:\n{stdout}{stderr}"
-    );
+    assert!(!success, "FileSystem must not cover Process:\n{stdout}{stderr}");
     assert!(
         format!("{stdout}{stderr}").contains("Process"),
         "the diagnostic should name the Process effect:\n{stdout}{stderr}"

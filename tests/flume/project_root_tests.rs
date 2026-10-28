@@ -25,11 +25,8 @@ fn flux_bin() -> &'static Path {
 fn write_project(dir: &Path) -> PathBuf {
     std::fs::create_dir_all(dir.join("src").join("Demo")).expect("create src");
     std::fs::create_dir_all(dir.join("foo")).expect("create foo");
-    std::fs::write(
-        dir.join("flux.toml"),
-        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
-    )
-    .expect("write flux.toml");
+    std::fs::write(dir.join("flux.toml"), "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n")
+        .expect("write flux.toml");
     // The package is `demo`, so it owns the namespace `Demo` and its modules
     // live beneath it.
     std::fs::write(
@@ -76,20 +73,12 @@ fn module_roots_do_not_depend_on_the_working_directory() {
     // Named absolutely from an unrelated directory.
     let (from_away, away_ok) = run(&entry, scratch.path());
 
-    assert!(
-        root_ok,
-        "running from the project root failed:\n{from_root}"
-    );
+    assert!(root_ok, "running from the project root failed:\n{from_root}");
     assert!(sub_ok, "running from the subdirectory failed:\n{from_sub}");
-    assert!(
-        away_ok,
-        "running from outside the project failed:\n{from_away}"
-    );
-    for (label, out) in [
-        ("project root", &from_root),
-        ("subdirectory", &from_sub),
-        ("outside", &from_away),
-    ] {
+    assert!(away_ok, "running from outside the project failed:\n{from_away}");
+    for (label, out) in
+        [("project root", &from_root), ("subdirectory", &from_sub), ("outside", &from_away)]
+    {
         assert!(out.contains("hi"), "{label} did not resolve Helper:\n{out}");
     }
 }
@@ -120,10 +109,7 @@ fn flux_toml_marks_the_project_root_for_cache_placement() {
         project.join("target").join("flux").is_dir(),
         "expected artifacts under <project>/target/flux, found: {:?}",
         std::fs::read_dir(&project)
-            .map(|entries| entries
-                .filter_map(Result::ok)
-                .map(|e| e.path())
-                .collect::<Vec<_>>())
+            .map(|entries| entries.filter_map(Result::ok).map(|e| e.path()).collect::<Vec<_>>())
             .unwrap_or_default()
     );
 }

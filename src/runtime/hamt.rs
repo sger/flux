@@ -50,10 +50,7 @@ fn compressed_index(bitmap: u32, slot: u32) -> usize {
 
 /// Creates an empty HAMT root node.
 pub fn hamt_empty() -> Rc<HamtNode> {
-    Rc::new(HamtNode {
-        bitmap: 0,
-        children: Vec::new(),
-    })
+    Rc::new(HamtNode { bitmap: 0, children: Vec::new() })
 }
 
 /// Looks up a key in a HAMT.
@@ -117,10 +114,7 @@ fn hamt_insert_at(
         // Slot is empty -- insert a new leaf
         let mut new_children = node.children.clone();
         new_children.insert(idx, HamtEntry::Leaf(key, value));
-        Rc::new(HamtNode {
-            bitmap: node.bitmap | bit,
-            children: new_children,
-        })
+        Rc::new(HamtNode { bitmap: node.bitmap | bit, children: new_children })
     } else {
         // Slot is occupied
         let mut new_children = node.children.clone();
@@ -130,10 +124,7 @@ fn hamt_insert_at(
                 if *existing_key == key {
                     // Update existing key
                     new_children[idx] = HamtEntry::Leaf(key, value);
-                    Rc::new(HamtNode {
-                        bitmap: node.bitmap,
-                        children: new_children,
-                    })
+                    Rc::new(HamtNode { bitmap: node.bitmap, children: new_children })
                 } else {
                     // Hash collision at this level -- push down
                     let existing_hash = hash_key(existing_key);
@@ -142,38 +133,24 @@ fn hamt_insert_at(
 
                     if depth + 1 >= MAX_DEPTH {
                         // At max depth, create a collision node
-                        let col = Rc::new(HamtCollision {
-                            hash,
-                            entries: vec![(ek, ev), (key, value)],
-                        });
+                        let col =
+                            Rc::new(HamtCollision { hash, entries: vec![(ek, ev), (key, value)] });
                         new_children[idx] = HamtEntry::Collision(col);
-                        Rc::new(HamtNode {
-                            bitmap: node.bitmap,
-                            children: new_children,
-                        })
+                        Rc::new(HamtNode { bitmap: node.bitmap, children: new_children })
                     } else {
                         // Create a sub-node and insert both entries
-                        let empty = Rc::new(HamtNode {
-                            bitmap: 0,
-                            children: Vec::new(),
-                        });
+                        let empty = Rc::new(HamtNode { bitmap: 0, children: Vec::new() });
                         let sub = hamt_insert_at(&empty, ek, ev, existing_hash, depth + 1);
                         let sub = hamt_insert_at(&sub, key, value, hash, depth + 1);
                         new_children[idx] = HamtEntry::Node(sub);
-                        Rc::new(HamtNode {
-                            bitmap: node.bitmap,
-                            children: new_children,
-                        })
+                        Rc::new(HamtNode { bitmap: node.bitmap, children: new_children })
                     }
                 }
             }
             HamtEntry::Node(child) => {
                 let new_child = hamt_insert_at(child, key, value, hash, depth + 1);
                 new_children[idx] = HamtEntry::Node(new_child);
-                Rc::new(HamtNode {
-                    bitmap: node.bitmap,
-                    children: new_children,
-                })
+                Rc::new(HamtNode { bitmap: node.bitmap, children: new_children })
             }
             HamtEntry::Collision(col) => {
                 let mut entries = col.entries.clone();
@@ -182,15 +159,9 @@ fn hamt_insert_at(
                 } else {
                     entries.push((key, value));
                 }
-                let new_col = Rc::new(HamtCollision {
-                    hash: col.hash,
-                    entries,
-                });
+                let new_col = Rc::new(HamtCollision { hash: col.hash, entries });
                 new_children[idx] = HamtEntry::Collision(new_col);
-                Rc::new(HamtNode {
-                    bitmap: node.bitmap,
-                    children: new_children,
-                })
+                Rc::new(HamtNode { bitmap: node.bitmap, children: new_children })
             }
         }
     }
@@ -221,10 +192,7 @@ fn hamt_delete_at(node: &Rc<HamtNode>, key: &HashKey, hash: u64, depth: u32) -> 
             // Remove this leaf
             new_children.remove(idx);
             let new_bitmap = node.bitmap & !bit;
-            Rc::new(HamtNode {
-                bitmap: new_bitmap,
-                children: new_children,
-            })
+            Rc::new(HamtNode { bitmap: new_bitmap, children: new_children })
         }
         HamtEntry::Node(child) => {
             let new_child = hamt_delete_at(child, key, hash, depth + 1);
@@ -232,24 +200,15 @@ fn hamt_delete_at(node: &Rc<HamtNode>, key: &HashKey, hash: u64, depth: u32) -> 
                 // Child is empty, remove the slot
                 new_children.remove(idx);
                 let new_bitmap = node.bitmap & !bit;
-                Rc::new(HamtNode {
-                    bitmap: new_bitmap,
-                    children: new_children,
-                })
+                Rc::new(HamtNode { bitmap: new_bitmap, children: new_children })
             } else if new_child.children.len() == 1 {
                 // Child has single entry, pull it up
                 let entry = new_child.children[0].clone();
                 new_children[idx] = entry;
-                Rc::new(HamtNode {
-                    bitmap: node.bitmap,
-                    children: new_children,
-                })
+                Rc::new(HamtNode { bitmap: node.bitmap, children: new_children })
             } else {
                 new_children[idx] = HamtEntry::Node(new_child);
-                Rc::new(HamtNode {
-                    bitmap: node.bitmap,
-                    children: new_children,
-                })
+                Rc::new(HamtNode { bitmap: node.bitmap, children: new_children })
             }
         }
         HamtEntry::Collision(col) => {
@@ -260,20 +219,11 @@ fn hamt_delete_at(node: &Rc<HamtNode>, key: &HashKey, hash: u64, depth: u32) -> 
                     // Convert back to leaf
                     let (k, v) = entries.remove(0);
                     new_children[idx] = HamtEntry::Leaf(k, v);
-                    Rc::new(HamtNode {
-                        bitmap: node.bitmap,
-                        children: new_children,
-                    })
+                    Rc::new(HamtNode { bitmap: node.bitmap, children: new_children })
                 } else {
-                    let new_col = Rc::new(HamtCollision {
-                        hash: col.hash,
-                        entries,
-                    });
+                    let new_col = Rc::new(HamtCollision { hash: col.hash, entries });
                     new_children[idx] = HamtEntry::Collision(new_col);
-                    Rc::new(HamtNode {
-                        bitmap: node.bitmap,
-                        children: new_children,
-                    })
+                    Rc::new(HamtNode { bitmap: node.bitmap, children: new_children })
                 }
             } else {
                 Rc::clone(node) // Key not in collision

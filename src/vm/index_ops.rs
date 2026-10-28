@@ -17,10 +17,7 @@ impl VM {
             }
             (Value::Cons(_), Value::Integer(idx)) => self.execute_cons_list_index(&left, *idx),
             (Value::HashMap(node), _) => self.execute_rc_hamt_index(node, &index),
-            _ => Err(format!(
-                "index operator not supported: {}",
-                left.type_name()
-            )),
+            _ => Err(format!("index operator not supported: {}", left.type_name())),
         }
     }
 
@@ -28,9 +25,7 @@ impl VM {
         if index < 0 || index as usize >= elements.len() {
             self.push(Value::None)
         } else {
-            self.push(Value::Some(std::rc::Rc::new(
-                elements[index as usize].clone(),
-            )))
+            self.push(Value::Some(std::rc::Rc::new(elements[index as usize].clone())))
         }
     }
 

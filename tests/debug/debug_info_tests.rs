@@ -80,20 +80,12 @@ fn dump_named_field_data_and_record_patterns() {
 
 #[test]
 fn dump_effect_and_handler() {
-    assert_dump_snapshot(
-        "effect_handler",
-        "effects/07_custom_effect_handler.flx",
-        &[],
-    );
+    assert_dump_snapshot("effect_handler", "effects/07_custom_effect_handler.flx", &[]);
 }
 
 #[test]
 fn dump_marks_dictionaries_artificial() {
-    assert_dump_snapshot(
-        "contextual_dictionary",
-        "type_classes/contextual_dictionary.flx",
-        &[],
-    );
+    assert_dump_snapshot("contextual_dictionary", "type_classes/contextual_dictionary.flx", &[]);
 }
 
 #[test]
@@ -103,11 +95,7 @@ fn dump_pattern_binders() {
 
 #[test]
 fn dump_gives_each_module_its_own_file() {
-    assert_dump_snapshot(
-        "two_modules",
-        "imports/test_import_math.flx",
-        &["--root", "examples"],
-    );
+    assert_dump_snapshot("two_modules", "imports/test_import_math.flx", &["--root", "examples"]);
 }
 
 #[test]
@@ -147,9 +135,7 @@ fn compile_at(level: DebugLevel) -> Compiler {
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("shapes.flx", interner);
     compiler.set_debug_level(level);
-    compiler
-        .compile_with_opts(&program, false, false)
-        .expect("compile");
+    compiler.compile_with_opts(&program, false, false).expect("compile");
     compiler
 }
 

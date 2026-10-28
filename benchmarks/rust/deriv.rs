@@ -50,10 +50,9 @@ fn add(f: Expr, g: Expr) -> Expr {
             Expr::Val(n) => add(Expr::Val(n), other),
             Expr::Add(left, right) => match (*left, *right) {
                 (Expr::Val(n), tail) => add(Expr::Val(n), add(other, tail)),
-                (head, tail) => Expr::Add(
-                    Box::new(other),
-                    Box::new(Expr::Add(Box::new(head), Box::new(tail))),
-                ),
+                (head, tail) => {
+                    Expr::Add(Box::new(other), Box::new(Expr::Add(Box::new(head), Box::new(tail))))
+                }
             },
             rhs => Expr::Add(Box::new(other), Box::new(rhs)),
         },
@@ -91,10 +90,9 @@ fn mul(f: Expr, g: Expr) -> Expr {
             Expr::Val(n) => mul(Expr::Val(n), other),
             Expr::Mul(left, right) => match (*left, *right) {
                 (Expr::Val(n), tail) => mul(Expr::Val(n), mul(other, tail)),
-                (head, tail) => Expr::Mul(
-                    Box::new(other),
-                    Box::new(Expr::Mul(Box::new(head), Box::new(tail))),
-                ),
+                (head, tail) => {
+                    Expr::Mul(Box::new(other), Box::new(Expr::Mul(Box::new(head), Box::new(tail))))
+                }
             },
             rhs => Expr::Mul(Box::new(other), Box::new(rhs)),
         },
@@ -149,10 +147,7 @@ fn deriv(x: i64, expr: Expr) -> Expr {
         Expr::Mul(f, g) => {
             let f_expr = *f;
             let g_expr = *g;
-            add(
-                mul(f_expr.clone(), deriv(x, g_expr.clone())),
-                mul(g_expr, deriv(x, f_expr)),
-            )
+            add(mul(f_expr.clone(), deriv(x, g_expr.clone())), mul(g_expr, deriv(x, f_expr)))
         }
         Expr::Pow(f, g) => {
             let f_expr = *f;

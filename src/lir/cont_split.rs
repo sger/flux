@@ -79,11 +79,8 @@ pub fn split_continuations_with_options(mut program: LirProgram, force: bool) ->
     let mut made: HashMap<(usize, BlockId), Option<YieldCont>> = HashMap::new();
 
     while let Some(func_idx) = queue.pop_front() {
-        let sites = collect_call_sites(
-            &program.functions[func_idx],
-            &async_funcs,
-            &suspending_externs,
-        );
+        let sites =
+            collect_call_sites(&program.functions[func_idx], &async_funcs, &suspending_externs);
         if sites.is_empty() {
             continue;
         }
@@ -122,18 +119,8 @@ pub fn split_continuations_with_options(mut program: LirProgram, force: bool) ->
                                     (new, old)
                                 })
                                 .collect();
-                            origins.insert(
-                                new_idx,
-                                Origin {
-                                    func: key.0,
-                                    blocks,
-                                },
-                            );
-                            YieldCont {
-                                func: synth_id,
-                                captures,
-                                moved,
-                            }
+                            origins.insert(new_idx, Origin { func: key.0, blocks });
+                            YieldCont { func: synth_id, captures, moved }
                         },
                     );
                     made.insert(key, cont.clone());
@@ -196,13 +183,7 @@ fn collect_call_sites(
     let mut sites = Vec::new();
     for block in &func.blocks {
         if let LirTerminator::Call {
-            dst,
-            cont,
-            kind,
-            suppress_yield_check,
-            yield_cont,
-            held,
-            ..
+            dst, cont, kind, suppress_yield_check, yield_cont, held, ..
         } = &block.terminator
         {
             if *suppress_yield_check || yield_cont.is_some() {
@@ -227,12 +208,7 @@ fn collect_call_sites(
 }
 
 /// A synthesized continuation: `(function, live_capture_vars, moved, blocks)`.
-type Synthesized = (
-    LirFunction,
-    Vec<LirVar>,
-    Vec<LirVar>,
-    HashMap<BlockId, BlockId>,
-);
+type Synthesized = (LirFunction, Vec<LirVar>, Vec<LirVar>, HashMap<BlockId, BlockId>);
 
 /// Synthesize a continuation LirFunction for one call site. Returns
 /// `(function, live_capture_vars, moved, blocks)`, where `moved` are the
@@ -279,11 +255,8 @@ fn synthesize_continuation(
     // uses of `dst` refer to the param directly — no Copy needed. Captures
     // retain their original LirVar ids, and the closure-entry wrapper
     // auto-loads them from the payload into those names.
-    let capture_vars: Vec<LirVar> = live_capture_set
-        .iter()
-        .copied()
-        .filter(|v| *v != site.dst)
-        .collect();
+    let capture_vars: Vec<LirVar> =
+        live_capture_set.iter().copied().filter(|v| *v != site.dst).collect();
 
     // The native emitter relies on the invariant `blocks[i].id == BlockId(i)`
     // — its per-function reachability walk indexes `blocks` by `BlockId.0`.
@@ -310,10 +283,7 @@ fn synthesize_continuation(
     // run, which releases them, and a multi-shot handler runs them once per
     // resume (0189 V4, audit M4). The closure keeps its own references.
     let (moved, copies) = frame_references(site.held.as_ref(), &capture_vars);
-    let entry_instrs: Vec<LirInstr> = copies
-        .into_iter()
-        .map(|val| LirInstr::Dup { val })
-        .collect();
+    let entry_instrs: Vec<LirInstr> = copies.into_iter().map(|val| LirInstr::Dup { val }).collect();
     let entry_block = LirBlock {
         locs: Vec::new(),
         term_loc: Default::default(),
@@ -354,10 +324,7 @@ fn synthesize_continuation(
             .find(|block| block.id == site.block_id)
             .map_or(LirLoc::NONE, |block| block.term_loc);
         LirFnDebug {
-            kind: LirFnKind::Resumed {
-                parent: parent_name,
-                after,
-            },
+            kind: LirFnKind::Resumed { parent: parent_name, after },
             loc: debug.loc,
             artificial: debug.artificial,
             // Its blocks keep the parent's variable ids, and their
@@ -403,12 +370,8 @@ fn frame_references(held: Option<&HeldAcross>, captures: &[LirVar]) -> (Vec<LirV
     let Some(held) = held else {
         return (Vec::new(), captures.to_vec());
     };
-    let moved: Vec<LirVar> = held
-        .owned
-        .iter()
-        .copied()
-        .filter(|var| captures.contains(var))
-        .collect();
+    let moved: Vec<LirVar> =
+        held.owned.iter().copied().filter(|var| captures.contains(var)).collect();
     let unknown = captures
         .iter()
         .copied()
@@ -428,11 +391,7 @@ fn remap_terminator(
     match term {
         LirTerminator::Return(_) | LirTerminator::TailCall { .. } | LirTerminator::Unreachable => {}
         LirTerminator::Jump(b) => *b = remap(*b),
-        LirTerminator::Branch {
-            then_block,
-            else_block,
-            ..
-        } => {
+        LirTerminator::Branch { then_block, else_block, .. } => {
             *then_block = remap(*then_block);
             *else_block = remap(*else_block);
         }
@@ -477,11 +436,7 @@ fn terminator_successors(term: &LirTerminator) -> Vec<BlockId> {
             Vec::new()
         }
         LirTerminator::Jump(b) => vec![*b],
-        LirTerminator::Branch {
-            then_block,
-            else_block,
-            ..
-        } => vec![*then_block, *else_block],
+        LirTerminator::Branch { then_block, else_block, .. } => vec![*then_block, *else_block],
         LirTerminator::Switch { cases, default, .. } => {
             let mut v: Vec<BlockId> = cases.iter().map(|(_, b)| *b).collect();
             v.push(*default);
@@ -538,9 +493,7 @@ mod tests {
                 func: v_func,
                 args: Vec::new(),
                 cont: BlockId(1),
-                kind: CallKind::Indirect {
-                    async_capable: false,
-                },
+                kind: CallKind::Indirect { async_capable: false },
                 suppress_yield_check: false,
                 yield_cont: None,
                 held: None,
@@ -635,9 +588,7 @@ mod tests {
                 func: v_func,
                 args: Vec::new(),
                 cont: BlockId(1),
-                kind: CallKind::Indirect {
-                    async_capable: false,
-                },
+                kind: CallKind::Indirect { async_capable: false },
                 suppress_yield_check: false,
                 yield_cont: None,
                 held: None,
@@ -649,11 +600,7 @@ mod tests {
             term_loc: Default::default(),
             id: BlockId(1),
             params: Vec::new(),
-            instrs: vec![LirInstr::IAdd {
-                dst: LirVar(3),
-                a: v_arg,
-                b: v_dst,
-            }],
+            instrs: vec![LirInstr::IAdd { dst: LirVar(3), a: v_arg, b: v_dst }],
             terminator: LirTerminator::Return(LirVar(3)),
         });
         f.next_var = 4;
@@ -708,9 +655,7 @@ mod tests {
                 func: v_func,
                 args: Vec::new(),
                 cont: BlockId(1),
-                kind: CallKind::Indirect {
-                    async_capable: true,
-                },
+                kind: CallKind::Indirect { async_capable: true },
                 suppress_yield_check: false,
                 yield_cont: None,
                 held: None,
@@ -722,16 +667,8 @@ mod tests {
             id: BlockId(1),
             params: Vec::new(),
             instrs: vec![
-                LirInstr::IAdd {
-                    dst: LirVar(5),
-                    a: v_own,
-                    b: v_lent,
-                },
-                LirInstr::IAdd {
-                    dst: LirVar(6),
-                    a: v_tmp,
-                    b: v_dst,
-                },
+                LirInstr::IAdd { dst: LirVar(5), a: v_own, b: v_lent },
+                LirInstr::IAdd { dst: LirVar(6), a: v_tmp, b: v_dst },
             ],
             terminator: LirTerminator::Return(LirVar(6)),
         });
@@ -744,11 +681,7 @@ mod tests {
             dst: v_dst,
             cont: BlockId(1),
             synth_id: LirFuncId(100),
-            held: Some(HeldAcross {
-                owned: vec![v_own],
-                lent: vec![v_lent],
-                scoped: Vec::new(),
-            }),
+            held: Some(HeldAcross { owned: vec![v_own], lent: vec![v_lent], scoped: Vec::new() }),
         };
         let (synth, captures, moved, _) =
             synthesize_continuation(&program, 0, &site, &live).unwrap();
@@ -783,9 +716,7 @@ mod tests {
                 func: v_func,
                 args: Vec::new(),
                 cont: BlockId(1),
-                kind: CallKind::Indirect {
-                    async_capable: false,
-                },
+                kind: CallKind::Indirect { async_capable: false },
                 suppress_yield_check: true,
                 yield_cont: None,
                 held: None,
@@ -826,9 +757,7 @@ mod tests {
                     func: v_func,
                     args: Vec::new(),
                     cont: BlockId(i + 1),
-                    kind: CallKind::DirectExtern {
-                        symbol: "s".to_string(),
-                    },
+                    kind: CallKind::DirectExtern { symbol: "s".to_string() },
                     suppress_yield_check: false,
                     yield_cont: None,
                     held: None,
@@ -850,14 +779,12 @@ mod tests {
         assert_eq!(program.functions.len(), 1 + n as usize);
 
         let cont_of = |func: &LirFunction, dst: LirVar| {
-            func.blocks
-                .iter()
-                .find_map(|block| match &block.terminator {
-                    LirTerminator::Call {
-                        dst: d, yield_cont, ..
-                    } if *d == dst => yield_cont.as_ref().map(|cont| cont.func),
-                    _ => None,
-                })
+            func.blocks.iter().find_map(|block| match &block.terminator {
+                LirTerminator::Call { dst: d, yield_cont, .. } if *d == dst => {
+                    yield_cont.as_ref().map(|cont| cont.func)
+                }
+                _ => None,
+            })
         };
         let parent = &program.functions[0];
         let after_first = cont_of(parent, LirVar(1)).expect("first call is split");
@@ -886,9 +813,7 @@ mod tests {
                 func: v_func,
                 args: Vec::new(),
                 cont: BlockId(1),
-                kind: CallKind::Indirect {
-                    async_capable: false,
-                },
+                kind: CallKind::Indirect { async_capable: false },
                 suppress_yield_check: false,
                 yield_cont: None,
                 held: None,

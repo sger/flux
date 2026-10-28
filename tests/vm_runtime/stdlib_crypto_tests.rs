@@ -123,10 +123,7 @@ fn main() -> Unit with FileSystem, Console {{
         ),
     );
     assert!(success, "run failed:\n{stdout}\n{stderr}");
-    assert!(
-        stdout.contains(&expected),
-        "streamed digest should be {expected}, got:\n{stdout}"
-    );
+    assert!(stdout.contains(&expected), "streamed digest should be {expected}, got:\n{stdout}");
 }
 
 /// The headline property of `sha256`: it is pure. A function with no effect
@@ -148,10 +145,7 @@ fn main() -> Unit with Console {
 }
 "#,
     );
-    assert!(
-        success,
-        "sha256 must be callable from a pure function:\n{stdout}\n{stderr}"
-    );
+    assert!(success, "sha256 must be callable from a pure function:\n{stdout}\n{stderr}");
     assert!(
         stdout.contains("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"),
         "got:\n{stdout}"
@@ -176,10 +170,7 @@ fn main() -> Unit with Console {
 }
 "#,
     );
-    assert!(
-        !success,
-        "an undeclared FileSystem effect must be rejected:\n{stdout}"
-    );
+    assert!(!success, "an undeclared FileSystem effect must be rejected:\n{stdout}");
     assert!(
         format!("{stdout}{stderr}").contains("FileSystem"),
         "the diagnostic should name the FileSystem effect"
@@ -210,12 +201,6 @@ fn main() -> Unit with FileSystem, Console {
     );
     assert!(success, "run failed:\n{stdout}\n{stderr}");
     assert!(stdout.contains("kind=NotFound"), "got:\n{stdout}");
-    assert!(
-        stdout.contains("path=/nonexistent/nope.bin"),
-        "got:\n{stdout}"
-    );
-    assert!(
-        stdout.contains("still running"),
-        "a failed hash must not abort:\n{stdout}"
-    );
+    assert!(stdout.contains("path=/nonexistent/nope.bin"), "got:\n{stdout}");
+    assert!(stdout.contains("still running"), "a failed hash must not abort:\n{stdout}");
 }

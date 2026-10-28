@@ -103,19 +103,13 @@ mod tests {
     #[test]
     fn make_u32_operand() {
         let ins = make(OpCode::OpConstantLong, &[70_000]);
-        assert_eq!(
-            ins,
-            vec![OpCode::OpConstantLong as u8, 0x00, 0x01, 0x11, 0x70]
-        );
+        assert_eq!(ins, vec![OpCode::OpConstantLong as u8, 0x00, 0x01, 0x11, 0x70]);
     }
 
     #[test]
     fn make_multi_operands_with_u32_prefix() {
         let ins = make(OpCode::OpClosureLong, &[70_000, 2]);
-        assert_eq!(
-            ins,
-            vec![OpCode::OpClosureLong as u8, 0x00, 0x01, 0x11, 0x70, 0x02]
-        );
+        assert_eq!(ins, vec![OpCode::OpClosureLong as u8, 0x00, 0x01, 0x11, 0x70, 0x02]);
     }
 
     #[test]
@@ -145,11 +139,7 @@ mod tests {
         let out = disassemble(&program);
 
         // Note: current disassemble() prints a trailing space for no-operand ops.
-        let expected = concat!(
-            "0000 OpConstant 655\n",
-            "0003 OpAdd \n",
-            "0004 OpClosure 1 2\n",
-        );
+        let expected = concat!("0000 OpConstant 655\n", "0003 OpAdd \n", "0004 OpClosure 1 2\n",);
 
         assert_eq!(out, expected);
     }

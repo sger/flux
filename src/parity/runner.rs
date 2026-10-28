@@ -69,23 +69,17 @@ pub fn compile_fixture(
     }
 
     match spawn_with_timeout(bin, &args, compile_timeout) {
-        SpawnResult::Completed {
-            exit_code, stderr, ..
-        } => CompileOutcome {
-            success: exit_code == 0,
-            exit_code,
-            stderr,
-        },
+        SpawnResult::Completed { exit_code, stderr, .. } => {
+            CompileOutcome { success: exit_code == 0, exit_code, stderr }
+        }
         SpawnResult::Timeout => CompileOutcome {
             success: false,
             exit_code: -1,
             stderr: format!("timed out after {}s", compile_timeout.as_secs()),
         },
-        SpawnResult::SpawnError(err) => CompileOutcome {
-            success: false,
-            exit_code: -1,
-            stderr: err,
-        },
+        SpawnResult::SpawnError(err) => {
+            CompileOutcome { success: false, exit_code: -1, stderr: err }
+        }
     }
 }
 
@@ -283,21 +277,14 @@ fn split_leak_report(exit_code: i32, stderr: &str) -> Option<(LeakReport, String
         .parse()
         .ok()?;
     let first_site = lines.next().map(str::trim).unwrap_or_default().to_string();
-    Some((
-        LeakReport { blocks, first_site },
-        stderr[..start].to_string(),
-    ))
+    Some((LeakReport { blocks, first_site }, stderr[..start].to_string()))
 }
 
 fn execute_and_collect(binary: &Path, args: &[String], way: Way, timeout: Duration) -> RunResult {
     let result = spawn_with_timeout(binary, args, timeout);
 
     match result {
-        SpawnResult::Completed {
-            exit_code,
-            stdout,
-            stderr,
-        } => {
+        SpawnResult::Completed { exit_code, stdout, stderr } => {
             let (leak, exit_code, stderr) = match split_leak_report(exit_code, &stderr) {
                 Some((report, rest)) if way.is_heap() => (Some(report), 0, rest),
                 _ => (None, exit_code, stderr),
@@ -347,11 +334,7 @@ fn execute_and_collect(binary: &Path, args: &[String], way: Way, timeout: Durati
 /// Clear all known cache files for a fixture.
 fn clear_cache_files(file: &Path, extra_args: &[String], cache_dir: &Path) {
     let layout = cache_paths::resolve_cache_layout(file, Some(cache_dir));
-    for dir in [
-        layout.interfaces_dir(),
-        layout.vm_dir(),
-        layout.native_dir(),
-    ] {
+    for dir in [layout.interfaces_dir(), layout.vm_dir(), layout.native_dir()] {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
@@ -389,22 +372,14 @@ fn observe_cache_files(
         });
     }
 
-    for dir in [
-        layout.interfaces_dir(),
-        layout.vm_dir(),
-        layout.native_dir(),
-    ] {
+    for dir in [layout.interfaces_dir(), layout.vm_dir(), layout.native_dir()] {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 let Some(kind) = classify_cache_observation(&path) else {
                     continue;
                 };
-                obs.push(CacheObservation {
-                    path,
-                    kind,
-                    state: CacheFileState::Existed,
-                });
+                obs.push(CacheObservation { path, kind, state: CacheFileState::Existed });
             }
         }
     }
@@ -458,11 +433,7 @@ fn parity_cache_dir(file: &Path, way: Way) -> PathBuf {
     let project_root = cache_paths::find_project_root(file)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
     let backend = way.backend_id().to_string();
-    project_root
-        .join("target")
-        .join("parity-cache")
-        .join(&backend)
-        .join(cache_name(file))
+    project_root.join("target").join("parity-cache").join(&backend).join(cache_name(file))
 }
 
 /// A cache folder name unique to `file`'s whole path, so fixtures that share a
@@ -482,10 +453,8 @@ fn cache_keys_for_fixture(file: &Path, extra_args: &[String]) -> ([u8; 32], [u8;
     let source_hash = hash_bytes(&source);
     let roots_hash = hash_bytes(roots_marker(file, extra_args).as_bytes());
     let semantic_config_hash = compute_semantic_config_hash(false, false);
-    let bytecode_key = hash_cache_key(
-        &hash_cache_key(&source_hash, &roots_hash),
-        &semantic_config_hash,
-    );
+    let bytecode_key =
+        hash_cache_key(&hash_cache_key(&source_hash, &roots_hash), &semantic_config_hash);
     let module_key = hash_cache_key(&source_hash, &semantic_config_hash);
     let native_key = hash_cache_key(&source_hash, &semantic_config_hash);
     (bytecode_key, module_key, native_key)
@@ -519,11 +488,7 @@ fn roots_marker(file: &Path, extra_args: &[String]) -> String {
         i += 1;
     }
 
-    roots
-        .into_iter()
-        .map(|root| root.to_string_lossy().into_owned())
-        .collect::<Vec<_>>()
-        .join("\n")
+    roots.into_iter().map(|root| root.to_string_lossy().into_owned()).collect::<Vec<_>>().join("\n")
 }
 
 fn classify_cache_observation(path: &Path) -> Option<CacheFileKind> {
@@ -749,11 +714,7 @@ pub fn capture_dump_lir(
 // ── Subprocess management ──────────────────────────────────────────────────
 
 enum SpawnResult {
-    Completed {
-        exit_code: i32,
-        stdout: String,
-        stderr: String,
-    },
+    Completed { exit_code: i32, stdout: String, stderr: String },
     Timeout,
     SpawnError(String),
 }
@@ -848,10 +809,7 @@ fn is_crash(code: i32, stderr: &str) -> bool {
 /// The numbers of every `error[E…]` code in `stderr`.
 pub(crate) fn error_codes(stderr: &str) -> impl Iterator<Item = u32> + '_ {
     stderr.match_indices("error[E").filter_map(|(start, _)| {
-        let digits: String = stderr[start + 7..]
-            .chars()
-            .take_while(char::is_ascii_digit)
-            .collect();
+        let digits: String = stderr[start + 7..].chars().take_while(char::is_ascii_digit).collect();
         digits.parse().ok()
     })
 }
@@ -870,10 +828,7 @@ fn classify_exit(code: i32, stderr: &str) -> ExitKind {
         };
         let rest = &line[start + 7..];
         let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
-        digits
-            .parse::<u32>()
-            .map(|n| (1000..2000).contains(&n))
-            .unwrap_or(false)
+        digits.parse::<u32>().map(|n| (1000..2000).contains(&n)).unwrap_or(false)
     });
     if has_runtime_error_code {
         return ExitKind::RuntimeError;
@@ -925,13 +880,7 @@ mod tests {
     fn a_leak_report_is_split_off_stderr() {
         let stderr = format!("leak: 3 blocks still live at exit\n{SITE}\n{SITE}\n{SITE}\n");
         let (report, rest) = split_leak_report(3, &stderr).unwrap();
-        assert_eq!(
-            report,
-            LeakReport {
-                blocks: 3,
-                first_site: SITE.trim().to_string(),
-            }
-        );
+        assert_eq!(report, LeakReport { blocks: 3, first_site: SITE.trim().to_string() });
         assert_eq!(rest, "");
     }
 
@@ -962,36 +911,24 @@ mod tests {
     #[test]
     fn a_compiler_failure_is_a_crash_and_a_program_failure_is_not() {
         let crashes = [
-            (
-                101,
-                "thread 'main' panicked at src/lir/lower.rs:1685:9:\nunbound binder",
-            ),
+            (101, "thread 'main' panicked at src/lir/lower.rs:1685:9:\nunbound binder"),
             (1, "error[E063]: INTERNAL COMPILER ERROR\n"),
             (1, "error[E998]: Core lint failure after `simplification`"),
             (1, "error[E999]: Aether Verification Failed\n"),
             (1, "native lowering failed for main.flx: oops"),
             (1, "llvm module pipeline failed: verifier"),
-            (
-                1,
-                "native program terminated by signal 11 (SIGSEGV): invalid memory access",
-            ),
+            (1, "native program terminated by signal 11 (SIGSEGV): invalid memory access"),
             (-1, ""),
         ];
         for (code, stderr) in crashes {
             assert_eq!(classify_exit(code, stderr), ExitKind::Crash, "{stderr:?}");
         }
-        assert_eq!(
-            classify_exit(1, "error[E1009]: panic: boom"),
-            ExitKind::RuntimeError
-        );
+        assert_eq!(classify_exit(1, "error[E1009]: panic: boom"), ExitKind::RuntimeError);
         assert_eq!(
             classify_exit(1, "error[E999]: FBIP NOT PROVABLE\n`f` is not yet provable"),
             ExitKind::CompileError
         );
-        assert_eq!(
-            classify_exit(1, "error[E300]: type mismatch"),
-            ExitKind::CompileError
-        );
+        assert_eq!(classify_exit(1, "error[E300]: type mismatch"), ExitKind::CompileError);
         assert_eq!(classify_exit(0, "warning: unused"), ExitKind::Success);
     }
 

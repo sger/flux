@@ -55,11 +55,7 @@ pub(crate) fn parse_program_for_command(
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
     emit_parser_diagnostics(path, &source, &mut parser, config);
-    ParsedCommandProgram {
-        source,
-        parser,
-        program,
-    }
+    ParsedCommandProgram { source, parser, program }
 }
 
 /// Emits parser warnings and exits when syntax errors are present.
@@ -122,10 +118,7 @@ mod tests {
         };
 
         assert_eq!(config.max_errors, 42);
-        assert_eq!(
-            config.diagnostics_format,
-            DiagnosticOutputFormat::JsonCompact
-        );
+        assert_eq!(config.diagnostics_format, DiagnosticOutputFormat::JsonCompact);
         assert!(config.show_file_headers);
     }
 }

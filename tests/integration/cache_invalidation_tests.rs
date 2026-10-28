@@ -62,9 +62,7 @@ fn compile_and_build_interface(source: &str) -> ModuleInterface {
     let interner = parser.take_interner();
 
     let mut compiler = Compiler::new_with_interner("test.flx".to_string(), interner);
-    compiler
-        .compile_with_opts(&program, false, false)
-        .expect("compilation should succeed");
+    compiler.compile_with_opts(&program, false, false).expect("compilation should succeed");
 
     let source_hash = flux::bytecode::bytecode_cache::hash_bytes(source.as_bytes());
     let config_hash = module_interface::compute_semantic_config_hash(false, false);
@@ -112,9 +110,7 @@ fn private_body_change_preserves_interface_fingerprint() {
         iface1.interface_fingerprint, iface2.interface_fingerprint,
         "private body change should not change interface fingerprint"
     );
-    assert!(!module_interface::module_interface_changed(
-        &iface1, &iface2
-    ));
+    assert!(!module_interface::module_interface_changed(&iface1, &iface2));
 }
 
 #[test]

@@ -66,19 +66,11 @@ fn find_diag_by_code<'a>(diags: &'a [Diagnostic], code: &str) -> &'a Diagnostic 
     diags
         .iter()
         .find(|d| d.code() == Some(code))
-        .unwrap_or_else(|| {
-            panic!(
-                "expected diagnostic code {code}, got {:?}",
-                diag_codes(diags)
-            )
-        })
+        .unwrap_or_else(|| panic!("expected diagnostic code {code}, got {:?}", diag_codes(diags)))
 }
 
 fn diag_codes(diags: &[Diagnostic]) -> Vec<String> {
-    diags
-        .iter()
-        .map(|d| d.code().unwrap_or("<none>").to_string())
-        .collect()
+    diags.iter().map(|d| d.code().unwrap_or("<none>").to_string()).collect()
 }
 
 #[test]
@@ -343,8 +335,7 @@ match x { };
     let diag = find_diag_by_code(&compile_diags, "E014");
     assert_eq!(diag.title(), "EMPTY MATCH");
     assert!(
-        diag.message()
-            .is_some_and(|m| m.contains("must have at least one arm")),
+        diag.message().is_some_and(|m| m.contains("must have at least one arm")),
         "unexpected E014 message: {:?}",
         diag.message()
     );
@@ -419,11 +410,7 @@ match x { 1 -> 10 };
 
     let (_program, all_diags) = result.expect("already checked panic");
     let codes = diag_codes(&all_diags);
-    assert!(
-        codes.iter().any(|c| c == "E014"),
-        "expected E014 (empty match), got: {:?}",
-        codes
-    );
+    assert!(codes.iter().any(|c| c == "E014"), "expected E014 (empty match), got: {:?}", codes);
     assert!(
         codes.iter().any(|c| c == "E016"),
         "expected E016 (catch-all not last), got: {:?}",

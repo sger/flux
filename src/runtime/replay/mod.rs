@@ -176,9 +176,7 @@ pub fn is_active() -> bool {
 fn lock() -> std::sync::MutexGuard<'static, Option<TapeState>> {
     // A panic while the lock is held cannot leave the tape half-written in a
     // way that matters more than the panic itself, so recover the guard.
-    STATE
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+    STATE.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Starts recording into a new tape at `path`, writing `header` first.
@@ -195,10 +193,8 @@ pub fn create_tape(path: &Path, header: &TapeHeader) -> Result<(), TapeError> {
 
 /// Continues recording into a tape whose header has already been written.
 pub fn start_record_append(path: &Path) -> Result<(), TapeError> {
-    let file = OpenOptions::new()
-        .append(true)
-        .open(path)
-        .map_err(|err| cannot_write(path, &err))?;
+    let file =
+        OpenOptions::new().append(true).open(path).map_err(|err| cannot_write(path, &err))?;
     install_record(BufWriter::new(file), path)
 }
 
@@ -226,12 +222,7 @@ pub fn start_replay(tape: LoadedTape) {
     async_tape::reset_ids();
     live_tasks().clear();
     IMPLICIT.store(false, Ordering::Relaxed);
-    *lock() = Some(TapeState::Replay {
-        tape,
-        cursor: 0,
-        finished: false,
-        shown: 0,
-    });
+    *lock() = Some(TapeState::Replay { tape, cursor: 0, finished: false, shown: 0 });
     MODE.store(ReplayMode::Replay as u8, Ordering::Relaxed);
 }
 
@@ -285,17 +276,11 @@ pub fn stop_implicit() {
 /// recording that keeps its events.
 pub fn mark() -> Option<TapeMark> {
     let cursor = match lock().as_ref()? {
-        TapeState::Record(Recording {
-            kept: Some(kept), ..
-        }) => kept.len(),
+        TapeState::Record(Recording { kept: Some(kept), .. }) => kept.len(),
         TapeState::Record(_) => return None,
         TapeState::Replay { cursor, .. } | TapeState::Rerun { cursor, .. } => *cursor,
     };
-    Some(TapeMark {
-        cursor,
-        ids: async_tape::snapshot_ids(),
-        live_tasks: live_tasks().clone(),
-    })
+    Some(TapeMark { cursor, ids: async_tape::snapshot_ids(), live_tasks: live_tasks().clone() })
 }
 
 /// Puts the tape back at `mark`. A recording then answers effects from its
@@ -310,12 +295,7 @@ pub fn rewind_to(mark: TapeMark) {
     let state = match state {
         TapeState::Replay { tape, shown, .. } => {
             MODE.store(ReplayMode::Replay as u8, Ordering::Relaxed);
-            TapeState::Replay {
-                tape,
-                cursor: mark.cursor,
-                finished: false,
-                shown,
-            }
+            TapeState::Replay { tape, cursor: mark.cursor, finished: false, shown }
         }
         TapeState::Record(recording) | TapeState::Rerun { recording, .. } => {
             rerun_or_record(recording, mark.cursor)
@@ -424,9 +404,9 @@ pub fn effect(
             Ok(outcome)
         }
         ReplayMode::Replay => match take_matching(&request)? {
-            Some(event) => Ok(event
-                .result
-                .expect("a loaded tape gives every input and output a result")),
+            Some(event) => {
+                Ok(event.result.expect("a loaded tape gives every input and output a result"))
+            }
             // Another thread reached the end of a re-run: record from here.
             None => {
                 let outcome = perform();
@@ -503,11 +483,7 @@ pub fn console_begin(request: EffectRequest) -> Result<bool, TapeError> {
 
 /// Ends the turn [`console_begin`] took.
 pub fn console_end() {
-    if let Some(event) = CONSOLE_TURN
-        .try_with(|turn| turn.borrow_mut().take())
-        .ok()
-        .flatten()
-    {
+    if let Some(event) = CONSOLE_TURN.try_with(|turn| turn.borrow_mut().take()).ok().flatten() {
         advance(&event);
     }
 }
@@ -544,9 +520,7 @@ pub fn spawn_task(spawn: impl FnOnce(u32)) -> Result<u32, TapeError> {
         return Ok(0);
     }
     let request = ordered_begin(&EffectRequest::TaskSpawn { id: 0 }, || {
-        EffectRequest::TaskSpawn {
-            id: async_tape::next_task(),
-        }
+        EffectRequest::TaskSpawn { id: async_tape::next_task() }
     })?;
     let EffectRequest::TaskSpawn { id } = request else {
         unreachable!("a spawn's request is a spawn");
@@ -590,11 +564,8 @@ pub fn ordered_begin(
         let order = order_lock();
         let request = make();
         CROSSING.with(|crossing| {
-            *crossing.borrow_mut() = Some(Crossing {
-                request: request.clone(),
-                order: Some(order),
-                event: None,
-            })
+            *crossing.borrow_mut() =
+                Some(Crossing { request: request.clone(), order: Some(order), event: None })
         });
         request
     };
@@ -615,11 +586,8 @@ pub fn ordered_begin(
                 Turn::Live => unreachable!("a turn already taken stays taken"),
             };
             CROSSING.with(|crossing| {
-                *crossing.borrow_mut() = Some(Crossing {
-                    request: request.clone(),
-                    order: None,
-                    event: Some(event),
-                })
+                *crossing.borrow_mut() =
+                    Some(Crossing { request: request.clone(), order: None, event: Some(event) })
             });
             Ok(request)
         }
@@ -628,10 +596,7 @@ pub fn ordered_begin(
 
 /// Ends what [`ordered_begin`] began, with what it returned.
 pub fn ordered_end(outcome: Option<Outcome>) -> Result<(), TapeError> {
-    let Some(crossing) = CROSSING
-        .try_with(|crossing| crossing.borrow_mut().take())
-        .ok()
-        .flatten()
+    let Some(crossing) = CROSSING.try_with(|crossing| crossing.borrow_mut().take()).ok().flatten()
     else {
         return Ok(());
     };
@@ -692,15 +657,11 @@ pub fn ordered_after(request: EffectRequest, op: impl FnOnce()) -> Result<(), Ta
 }
 
 fn order_lock() -> MutexGuard<'static, ()> {
-    ORDER
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+    ORDER.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 fn live_tasks() -> MutexGuard<'static, BTreeSet<u32>> {
-    LIVE_TASKS
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+    LIVE_TASKS.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Ends the tape: records how the run ended, or checks it against the tape
@@ -710,10 +671,7 @@ pub fn finish(failed: bool, message: Option<String>) -> Result<(), TapeError> {
     if mode() == ReplayMode::Replay {
         // Tasks may still have events before the end: let them perform them
         // (0188 S8c). What is left after that is left over.
-        let _ = wait_turn(&EffectRequest::Exit {
-            failed,
-            message: None,
-        });
+        let _ = wait_turn(&EffectRequest::Exit { failed, message: None });
     }
     let mut guard = lock();
     // A run ends where its recording ends; should it end while re-running
@@ -745,21 +703,13 @@ pub fn finish(failed: bool, message: Option<String>) -> Result<(), TapeError> {
             recording.flush()
         }
         TapeState::Rerun { .. } => unreachable!("a re-run became a recording above"),
-        TapeState::Replay {
-            tape,
-            cursor,
-            finished,
-            ..
-        } => {
+        TapeState::Replay { tape, cursor, finished, .. } => {
             if *finished {
                 return Ok(());
             }
             *finished = true;
             TURN.notify_all();
-            let ending = EffectRequest::Exit {
-                failed,
-                message: None,
-            };
+            let ending = EffectRequest::Exit { failed, message: None };
             match tape.events.get(*cursor) {
                 None => {
                     return Err(TapeError::Exhausted {
@@ -768,10 +718,7 @@ pub fn finish(failed: bool, message: Option<String>) -> Result<(), TapeError> {
                     });
                 }
                 Some(TapeEvent {
-                    request:
-                        EffectRequest::Exit {
-                            failed: recorded, ..
-                        },
+                    request: EffectRequest::Exit { failed: recorded, .. },
                     seq,
                     ..
                 }) => {
@@ -801,11 +748,7 @@ pub fn finish(failed: bool, message: Option<String>) -> Result<(), TapeError> {
 }
 
 fn describe_ending(failed: bool) -> String {
-    if failed {
-        "a failed exit".to_string()
-    } else {
-        "a normal exit".to_string()
-    }
+    if failed { "a failed exit".to_string() } else { "a normal exit".to_string() }
 }
 
 /// Marks the tape finished without recording or checking anything: the run
@@ -823,9 +766,7 @@ pub fn abandon() {
 
 /// An effect this stage cannot record or replay.
 pub fn unsupported(what: &str) -> TapeError {
-    TapeError::Unsupported {
-        what: what.to_string(),
-    }
+    TapeError::Unsupported { what: what.to_string() }
 }
 
 /// The logical fiber an event belongs to. A completion is received by the
@@ -857,13 +798,7 @@ fn append(request: EffectRequest, result: Option<Outcome>) -> Result<(), TapeErr
     if recording.finished {
         return Ok(());
     }
-    let event = TapeEvent {
-        seq: recording.next_seq,
-        fiber,
-        task,
-        request,
-        result,
-    };
+    let event = TapeEvent { seq: recording.next_seq, fiber, task, request, result };
     recording.next_seq += 1;
     note_event_position(event.seq as usize);
     let seq = event.seq;
@@ -899,9 +834,7 @@ impl Recording {
 
     fn flush(&mut self) -> Result<(), TapeError> {
         match self.writer.as_mut() {
-            Some(writer) => writer
-                .flush()
-                .map_err(|err| cannot_write(Path::new(&self.path), &err)),
+            Some(writer) => writer.flush().map_err(|err| cannot_write(Path::new(&self.path), &err)),
             None => Ok(()),
         }
     }
@@ -1101,10 +1034,7 @@ fn advance(event: &TapeEvent) {
 fn peek_own(wanted: impl Fn(&EffectRequest) -> bool) -> Option<TapeEvent> {
     let task = async_tape::current_task();
     let guard = lock();
-    if !matches!(
-        guard.as_ref(),
-        Some(TapeState::Replay { .. } | TapeState::Rerun { .. })
-    ) {
+    if !matches!(guard.as_ref(), Some(TapeState::Replay { .. } | TapeState::Rerun { .. })) {
         return None;
     }
     let (events, cursor) = replay_events(&guard);
@@ -1113,11 +1043,7 @@ fn peek_own(wanted: impl Fn(&EffectRequest) -> bool) -> Option<TapeEvent> {
 }
 
 fn describe_task(task: u32) -> String {
-    if task == 0 {
-        "the main program".to_string()
-    } else {
-        format!("task {task}")
-    }
+    if task == 0 { "the main program".to_string() } else { format!("task {task}") }
 }
 
 // ── Where each event happened, for a debugger (0188 S3) ─────────────────
@@ -1128,9 +1054,7 @@ static POSITION: AtomicU64 = AtomicU64::new(0);
 static POSITIONS: Mutex<Vec<u64>> = Mutex::new(Vec::new());
 
 fn positions() -> std::sync::MutexGuard<'static, Vec<u64>> {
-    POSITIONS
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+    POSITIONS.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Tells the tape where the debugged program is now.
@@ -1160,33 +1084,16 @@ pub fn event_position(index: usize) -> Option<u64> {
 /// it: the kept events of a recording, or a replayed tape's.
 pub fn event_list() -> Vec<(u64, String, Option<u64>)> {
     let events: Vec<(u64, String)> = match lock().as_ref() {
-        Some(TapeState::Replay { tape, .. }) => tape
-            .events
-            .iter()
-            .map(|event| (event.seq, event.request.to_string()))
-            .collect(),
+        Some(TapeState::Replay { tape, .. }) => {
+            tape.events.iter().map(|event| (event.seq, event.request.to_string())).collect()
+        }
         Some(
-            TapeState::Record(Recording {
-                kept: Some(kept), ..
-            })
-            | TapeState::Rerun {
-                recording: Recording {
-                    kept: Some(kept), ..
-                },
-                ..
-            },
-        ) => kept
-            .iter()
-            .map(|event| (event.seq, event.request.to_string()))
-            .collect(),
-        Some(TapeState::Record(Recording {
-            titles: Some(titles),
-            ..
-        })) => titles
-            .iter()
-            .enumerate()
-            .map(|(seq, title)| (seq as u64, title.clone()))
-            .collect(),
+            TapeState::Record(Recording { kept: Some(kept), .. })
+            | TapeState::Rerun { recording: Recording { kept: Some(kept), .. }, .. },
+        ) => kept.iter().map(|event| (event.seq, event.request.to_string())).collect(),
+        Some(TapeState::Record(Recording { titles: Some(titles), .. })) => {
+            titles.iter().enumerate().map(|(seq, title)| (seq as u64, title.clone())).collect()
+        }
         _ => Vec::new(),
     };
     let positions = positions();
@@ -1255,20 +1162,11 @@ fn page_of(state: &Option<TapeState>, from: u64, max: usize) -> Option<EventPage
     let mut events = titles;
     let next = (events.len() > max).then(|| from + max as u64);
     events.truncate(max);
-    Some(EventPage {
-        events,
-        next,
-        cursor,
-        replaying,
-    })
+    Some(EventPage { events, next, cursor, replaying })
 }
 
 fn describe_fiber(fiber: u32) -> String {
-    if fiber == 0 {
-        "the main program".to_string()
-    } else {
-        format!("fiber {fiber}")
-    }
+    if fiber == 0 { "the main program".to_string() } else { format!("fiber {fiber}") }
 }
 
 /// Names what differs between two requests of the same kind.
@@ -1281,11 +1179,7 @@ fn difference(tape: &EffectRequest, program: &EffectRequest) -> (String, String,
             let (recorded_line, printed_line) = first_differing_line(recorded, printed);
             ("the printed text".to_string(), recorded_line, printed_line)
         }
-        _ => (
-            format!("the `{}` effect", tape.kind_name()),
-            tape.to_string(),
-            program.to_string(),
-        ),
+        _ => (format!("the `{}` effect", tape.kind_name()), tape.to_string(), program.to_string()),
     }
 }
 

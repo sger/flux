@@ -134,19 +134,13 @@ impl ExceptionKind {
             return (ExceptionKind::Panic, message.to_string());
         }
         if lower.contains("e1008") || lower.contains("division by zero") {
-            return (
-                ExceptionKind::DivisionByZero,
-                "division by zero".to_string(),
-            );
+            return (ExceptionKind::DivisionByZero, "division by zero".to_string());
         }
         if lower.starts_with("unhandled effect") || lower.starts_with("unhandled operation") {
             return (ExceptionKind::UnhandledEffect, plain.to_string());
         }
-        let first = plain
-            .lines()
-            .map(str::trim)
-            .find(|line| !line.is_empty())
-            .unwrap_or("runtime error");
+        let first =
+            plain.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or("runtime error");
         (ExceptionKind::RuntimeError, first.to_string())
     }
 }
@@ -419,9 +413,8 @@ pub(crate) fn rewinding() -> bool {
 /// `run_async` (the program, as the threads view numbers it).
 fn this_thread() -> Option<u64> {
     Some(
-        super::core_dispatch::debug_current_fiber().map_or(1, |(fiber, _)| {
-            super::fiber_debug::number(fiber).unwrap_or(1)
-        }),
+        super::core_dispatch::debug_current_fiber()
+            .map_or(1, |(fiber, _)| super::fiber_debug::number(fiber).unwrap_or(1)),
     )
 }
 
@@ -467,11 +460,7 @@ impl VM {
             state.observer.on_start(&mut inspector)
         };
         // Going back needs a stop to go back from.
-        let resume = if resume.goes_back() {
-            Resume::StepIn
-        } else {
-            resume
-        };
+        let resume = if resume.goes_back() { Resume::StepIn } else { resume };
         self.apply_forward(&mut state.control, resume);
         self.debugger = Some(state);
     }
@@ -580,10 +569,7 @@ impl VM {
         let result =
             if seen || state.control.rewind.is_some() || !state.control.catch.contains(&kind) {
                 Ok(())
-            } else if matches!(
-                state.control.mode,
-                StepMode::Scan(_) | StepMode::RunTo { .. }
-            ) {
+            } else if matches!(state.control.mode, StepMode::Scan(_) | StepMode::RunTo { .. }) {
                 // Going back passes the error's place without stopping: the
                 // stop before it is where the search ends.
                 Ok(())
@@ -607,10 +593,7 @@ impl VM {
         let Some(mut state) = self.debugger.take() else {
             return Ok(());
         };
-        let result = if matches!(
-            state.control.mode,
-            StepMode::Scan(_) | StepMode::RunTo { .. }
-        ) {
+        let result = if matches!(state.control.mode, StepMode::Scan(_) | StepMode::RunTo { .. }) {
             Ok(())
         } else {
             INTERRUPT.store(false, Ordering::Relaxed);
@@ -618,11 +601,7 @@ impl VM {
                 let mut inspector = Inspector::new(self, &mut state.control);
                 state.observer.on_interrupt(&mut inspector)
             };
-            if pause {
-                self.stop(&mut state, StopReason::Pause)
-            } else {
-                Ok(())
-            }
+            if pause { self.stop(&mut state, StopReason::Pause) } else { Ok(()) }
         };
         self.debugger = Some(state);
         result
@@ -670,10 +649,7 @@ impl VM {
                 (here.fresh && here.on_breakpoint).then_some(StopReason::Breakpoint)
             }
             StepMode::StepIn => forward_stop(&here, in_step_fiber),
-            StepMode::StepOver {
-                depth: from,
-                serial,
-            } => {
+            StepMode::StepOver { depth: from, serial } => {
                 let same_call = control.serials.get(here.depth) == Some(serial);
                 forward_stop(&here, in_step_fiber && (here.logical <= *from || same_call))
             }
@@ -697,11 +673,7 @@ impl VM {
                 }
                 None
             }
-            StepMode::RunTo {
-                target,
-                reason,
-                expect,
-            } => {
+            StepMode::RunTo { target, reason, expect } => {
                 if position < *target {
                     None
                 } else if expect.is_some_and(|expect| expect != here.identity) {
@@ -757,11 +729,8 @@ impl VM {
             Resume::GoTo(target) => {
                 let here = control.position;
                 if target > here {
-                    control.mode = StepMode::RunTo {
-                        target,
-                        reason: StopReason::Step,
-                        expect: None,
-                    };
+                    control.mode =
+                        StepMode::RunTo { target, reason: StopReason::Step, expect: None };
                     Ok(())
                 } else {
                     let target = target.max(1);
@@ -820,10 +789,7 @@ impl VM {
         let depth = self.frame_index;
         let serial = control.serials.get(depth).copied().unwrap_or(0);
         let callers = control.serials[..depth.min(control.serials.len())].to_vec();
-        let from = control
-            .checkpoints
-            .before(end)
-            .map_or(0, |checkpoint| checkpoint.position);
+        let from = control.checkpoints.before(end).map_or(0, |checkpoint| checkpoint.position);
         control.mode = StepMode::Scan(Search {
             goal,
             end,
@@ -874,10 +840,8 @@ impl VM {
         // Scan the stretch before this one, up to and including the site
         // this stretch's checkpoint stood at.
         let end = search.from + 1;
-        let from = control
-            .checkpoints
-            .before(search.from)
-            .map_or(0, |checkpoint| checkpoint.position);
+        let from =
+            control.checkpoints.before(search.from).map_or(0, |checkpoint| checkpoint.position);
         search.end = end;
         search.from = from;
         search.first_stop = None;
@@ -893,15 +857,8 @@ impl VM {
         reason: StopReason,
         expect: Option<(usize, usize)>,
     ) {
-        let from = control
-            .checkpoints
-            .before(target)
-            .map_or(0, |checkpoint| checkpoint.position);
-        control.mode = StepMode::RunTo {
-            target,
-            reason,
-            expect,
-        };
+        let from = control.checkpoints.before(target).map_or(0, |checkpoint| checkpoint.position);
+        control.mode = StepMode::RunTo { target, reason, expect };
         start_rewind(control, from);
     }
 
@@ -923,10 +880,8 @@ impl VM {
         }
         let here = (function_key, line);
         let fresh = control.last_line[depth].replace(here) != Some(here);
-        let on_breakpoint = control.breakpoints.contains(&LineBreakpoint {
-            file: file.to_string(),
-            line,
-        });
+        let on_breakpoint =
+            control.breakpoints.contains(&LineBreakpoint { file: file.to_string(), line });
         let artificial = inspect::is_artificial(info.name.as_deref());
         Some(SiteHere {
             depth,
@@ -1027,10 +982,7 @@ fn classify_error(error: &str) -> Option<(ExceptionKind, String)> {
             };
             Some(ExceptionKind::classify(&format!("panic: {message}")))
         }
-        _ => Some((
-            ExceptionKind::FiberFailure,
-            ValueView::new(failed.clone()).render(),
-        )),
+        _ => Some((ExceptionKind::FiberFailure, ValueView::new(failed.clone()).render())),
     }
 }
 
@@ -1045,9 +997,7 @@ fn in_step_fiber(control: &mut DebugControl) -> bool {
     if current == Some(fiber) {
         return true;
     }
-    let alive = super::core_dispatch::debug_fibers()
-        .iter()
-        .any(|other| other.id == fiber);
+    let alive = super::core_dispatch::debug_fibers().iter().any(|other| other.id == fiber);
     if !alive {
         control.step_fiber = None;
     }

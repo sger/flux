@@ -7,9 +7,7 @@ use super::*;
 static SERIAL: Mutex<()> = Mutex::new(());
 
 fn serial() -> std::sync::MutexGuard<'static, ()> {
-    let guard = SERIAL
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let guard = SERIAL.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     enlist_in_test_tape();
     guard
 }
@@ -25,9 +23,7 @@ fn header() -> TapeHeader {
 }
 
 fn read_file(path: &str) -> EffectRequest {
-    EffectRequest::ReadFile {
-        path: path.to_string(),
-    }
+    EffectRequest::ReadFile { path: path.to_string() }
 }
 
 fn stdout(text: &str) -> EffectRequest {
@@ -61,83 +57,40 @@ fn every_request_and_outcome_round_trips_through_json() {
         EffectRequest::FsListDir { path: "a".into() },
         EffectRequest::FsMetadata { path: "a".into() },
         EffectRequest::Sha256File { path: "a".into() },
-        EffectRequest::EnvVar {
-            name: "HOME".into(),
-        },
+        EffectRequest::EnvVar { name: "HOME".into() },
         EffectRequest::EnvArgs,
         EffectRequest::EnvCwd,
         EffectRequest::EnvHomeDir,
-        EffectRequest::ProcRun {
-            cmd: "echo".into(),
-            argv: vec!["hi".into()],
-        },
+        EffectRequest::ProcRun { cmd: "echo".into(), argv: vec!["hi".into()] },
         EffectRequest::ClockNow,
         EffectRequest::Time,
-        EffectRequest::WriteFile {
-            path: "a".into(),
-            contents: "x".into(),
-        },
-        EffectRequest::FsWriteFile {
-            path: "a".into(),
-            contents: TapeBytes(vec![0xff, 0x00]),
-        },
+        EffectRequest::WriteFile { path: "a".into(), contents: "x".into() },
+        EffectRequest::FsWriteFile { path: "a".into(), contents: TapeBytes(vec![0xff, 0x00]) },
         EffectRequest::FsCreateDirAll { path: "a".into() },
         EffectRequest::FsRemoveFile { path: "a".into() },
         EffectRequest::FsRemoveDirAll { path: "a".into() },
-        EffectRequest::FsRename {
-            from: "a".into(),
-            to: "b".into(),
-        },
+        EffectRequest::FsRename { from: "a".into(), to: "b".into() },
         stdout("hello\n"),
-        EffectRequest::Stderr {
-            text: "oops\n".into(),
-        },
-        EffectRequest::Exit {
-            failed: true,
-            message: Some("panic: boom".into()),
-        },
+        EffectRequest::Stderr { text: "oops\n".into() },
+        EffectRequest::Exit { failed: true, message: Some("panic: boom".into()) },
         EffectRequest::EventClock,
         EffectRequest::TimerStart { req: 1, ms: 30 },
-        EffectRequest::DnsResolve {
-            req: 2,
-            host: "example.com".into(),
-            port: 80,
-        },
-        EffectRequest::TcpConnect {
-            req: 3,
-            addr: "127.0.0.1:8080".into(),
-        },
-        EffectRequest::TcpListen {
-            req: 4,
-            addr: "127.0.0.1:0".into(),
-        },
+        EffectRequest::DnsResolve { req: 2, host: "example.com".into(), port: 80 },
+        EffectRequest::TcpConnect { req: 3, addr: "127.0.0.1:8080".into() },
+        EffectRequest::TcpListen { req: 4, addr: "127.0.0.1:0".into() },
         EffectRequest::TcpAccept { req: 5, handle: 1 },
-        EffectRequest::TcpRead {
-            req: 6,
-            handle: 2,
-            max: 64,
-        },
-        EffectRequest::TcpWrite {
-            req: 7,
-            handle: 2,
-            bytes: TapeBytes(vec![0xff]),
-        },
+        EffectRequest::TcpRead { req: 6, handle: 2, max: 64 },
+        EffectRequest::TcpWrite { req: 7, handle: 2, bytes: TapeBytes(vec![0xff]) },
         EffectRequest::TcpClose { handle: 2 },
         EffectRequest::AsyncComplete { req: 7 },
         EffectRequest::TaskSpawn { id: 1 },
         EffectRequest::TaskStart { id: 1 },
-        EffectRequest::TaskEnd {
-            id: 1,
-            failed: true,
-        },
+        EffectRequest::TaskEnd { id: 1, failed: true },
         EffectRequest::TaskCancel { id: 2 },
         EffectRequest::TaskJoin { id: 2 },
         EffectRequest::TaskAwait { id: 2 },
         EffectRequest::Wake { waiter: 3 },
-        EffectRequest::Channel {
-            chan: 1,
-            op: "try_recv".into(),
-        },
+        EffectRequest::Channel { chan: 1, op: "try_recv".into() },
     ];
     let outcomes = vec![
         Outcome::Unit,
@@ -159,37 +112,19 @@ fn every_request_and_outcome_round_trips_through_json() {
             is_dir: false,
             is_file: true,
         }),
-        Outcome::Proc(ProcOut {
-            status: 0,
-            stdout: "out".into(),
-            stderr: TapeBytes(vec![0xfe]),
-        }),
+        Outcome::Proc(ProcOut { status: 0, stdout: "out".into(), stderr: TapeBytes(vec![0xfe]) }),
         Outcome::Fail("read_file failed".into()),
         Outcome::Bytes(TapeBytes(vec![0x68, 0x69])),
         Outcome::Addrs(vec!["127.0.0.1:80".into(), "[::1]:80".into()]),
     ];
     for request in requests {
-        let event = TapeEvent {
-            seq: 3,
-            fiber: 0,
-            task: 0,
-            request,
-            result: None,
-        };
+        let event = TapeEvent { seq: 3, fiber: 0, task: 0, request, result: None };
         let json = serde_json::to_string(&event).unwrap();
-        assert_eq!(
-            serde_json::from_str::<TapeEvent>(&json).unwrap(),
-            event,
-            "{json}"
-        );
+        assert_eq!(serde_json::from_str::<TapeEvent>(&json).unwrap(), event, "{json}");
     }
     for outcome in outcomes {
         let json = serde_json::to_string(&outcome).unwrap();
-        assert_eq!(
-            serde_json::from_str::<Outcome>(&json).unwrap(),
-            outcome,
-            "{json}"
-        );
+        assert_eq!(serde_json::from_str::<Outcome>(&json).unwrap(), outcome, "{json}");
     }
 }
 
@@ -214,10 +149,7 @@ fn bytes_that_are_not_utf8_are_written_as_hex() {
     let json = serde_json::to_string(&bytes).unwrap();
     assert_eq!(json, r#"{"hex":"ff0041"}"#);
     assert_eq!(serde_json::from_str::<TapeBytes>(&json).unwrap(), bytes);
-    assert_eq!(
-        serde_json::to_string(&TapeBytes::from("ok")).unwrap(),
-        r#""ok""#
-    );
+    assert_eq!(serde_json::to_string(&TapeBytes::from("ok")).unwrap(), r#""ok""#);
 }
 
 #[test]
@@ -231,9 +163,7 @@ fn replay_returns_what_was_recorded_without_performing_it() {
     assert!(!tape.is_truncated());
 
     start_replay(tape);
-    let replayed = effect(read_file("in.txt"), || {
-        panic!("replay must not perform effects")
-    });
+    let replayed = effect(read_file("in.txt"), || panic!("replay must not perform effects"));
     assert_eq!(replayed.unwrap(), text("recorded"));
     console(stdout("recorded\n")).unwrap();
     assert_eq!(finish(false, None), Ok(()));
@@ -250,10 +180,7 @@ fn replay_reports_a_different_kind_of_effect() {
     start_replay(tape);
     let err = effect(EffectRequest::EnvArgs, || unreachable!()).unwrap_err();
     reset();
-    assert!(
-        matches!(err, TapeError::KindMismatch { index: 0, .. }),
-        "{err:?}"
-    );
+    assert!(matches!(err, TapeError::KindMismatch { index: 0, .. }), "{err:?}");
     assert_eq!(err.code().code, "E1022");
 }
 
@@ -297,17 +224,7 @@ fn replay_reports_a_tape_that_ran_out_and_events_left_over() {
     effect(EffectRequest::ClockNow, || unreachable!()).unwrap();
     let err = finish(false, None).unwrap_err();
     reset();
-    assert!(
-        matches!(
-            err,
-            TapeError::Leftover {
-                count: 2,
-                first_index: 1,
-                ..
-            }
-        ),
-        "{err:?}"
-    );
+    assert!(matches!(err, TapeError::Leftover { count: 2, first_index: 1, .. }), "{err:?}");
 
     // A truncated tape: no `exit`, then one effect too many.
     let mut truncated = tape;
@@ -318,10 +235,7 @@ fn replay_reports_a_tape_that_ran_out_and_events_left_over() {
     effect(EffectRequest::ClockNow, || unreachable!()).unwrap();
     let err = effect(EffectRequest::ClockNow, || unreachable!()).unwrap_err();
     reset();
-    assert!(
-        matches!(err, TapeError::Exhausted { count: 2, .. }),
-        "{err:?}"
-    );
+    assert!(matches!(err, TapeError::Exhausted { count: 2, .. }), "{err:?}");
 }
 
 #[test]
@@ -331,10 +245,7 @@ fn replay_compares_how_the_run_ended() {
         finish(true, Some("panic: boom".into())).unwrap();
     });
     start_replay(tape.clone());
-    assert_eq!(
-        finish(true, Some("a differently worded panic".into())),
-        Ok(())
-    );
+    assert_eq!(finish(true, Some("a differently worded panic".into())), Ok(()));
     reset();
 
     start_replay(tape);
@@ -376,10 +287,7 @@ fn loading_rejects_tapes_that_cannot_be_replayed() {
         let path = write(&format!("older{older}.jsonl"), &format!("{line}\n"));
         assert!(reason(&path).contains(&format!("version {older}")));
     }
-    let gap = format!(
-        "{header_line}\n{}\n",
-        r#"{"seq":1,"kind":"clock_now","result":{"int":1}}"#
-    );
+    let gap = format!("{header_line}\n{}\n", r#"{"seq":1,"kind":"clock_now","result":{"int":1}}"#);
     assert!(reason(&write("gap.jsonl", &gap)).contains("expected #0"));
     let missing = format!("{header_line}\n{}\n", r#"{"seq":0,"kind":"clock_now"}"#);
     assert!(reason(&write("missing.jsonl", &missing)).contains("missing a result"));
@@ -459,11 +367,7 @@ fn every_completion_payload_survives_the_tape() {
             "[::1]:443".parse().unwrap(),
         ]),
     ] {
-        assert_eq!(
-            async_tape::payload_round_trip(&payload),
-            Some(payload.clone()),
-            "{payload:?}"
-        );
+        assert_eq!(async_tape::payload_round_trip(&payload), Some(payload.clone()), "{payload:?}");
     }
 }
 
@@ -476,10 +380,7 @@ fn async_replay_answers_from_the_tape_without_the_backend() {
     let tape = record("async.jsonl", || {
         assert!(submit(Some(RequestId(100)), Submission::Timer { ms: 5 }));
         let completion = deliver(|| {
-            Some(Completion {
-                request_id: RequestId(100),
-                payload: CompletionPayload::Unit,
-            })
+            Some(Completion { request_id: RequestId(100), payload: CompletionPayload::Unit })
         });
         assert!(completion.is_some());
         // Nothing arrived: nothing is written.
@@ -487,10 +388,7 @@ fn async_replay_answers_from_the_tape_without_the_backend() {
         console(stdout("woke\n")).unwrap();
         finish(false, None).unwrap();
     });
-    assert_eq!(
-        tape.events[0].request,
-        EffectRequest::TimerStart { req: 1, ms: 5 }
-    );
+    assert_eq!(tape.events[0].request, EffectRequest::TimerStart { req: 1, ms: 5 });
 
     start_replay(tape);
     // A replay submits nothing to the backend...
@@ -499,10 +397,7 @@ fn async_replay_answers_from_the_tape_without_the_backend() {
     let completion = deliver(|| panic!("replay must not poll the backend"));
     assert_eq!(
         completion,
-        Some(Completion {
-            request_id: RequestId(200),
-            payload: CompletionPayload::Unit,
-        })
+        Some(Completion { request_id: RequestId(200), payload: CompletionPayload::Unit })
     );
     // The tape's next event is console text, not a completion: none yet.
     assert_eq!(deliver(|| panic!("replay must not poll the backend")), None);
@@ -551,10 +446,7 @@ fn async_names_do_not_depend_on_the_backend() {
     // The timer is request 1, the hidden request numbered nothing, and it
     // is fiber 1's; the hand-over is named by the fiber waiting for it.
     assert_eq!(tape.events[0].fiber, 1);
-    assert_eq!(
-        tape.events[0].request,
-        EffectRequest::TimerStart { req: 1, ms: 5 }
-    );
+    assert_eq!(tape.events[0].request, EffectRequest::TimerStart { req: 1, ms: 5 });
     assert_eq!(tape.events[1].request, EffectRequest::Wake { waiter: 2 });
 
     // Another backend: other ids, and no hidden request.
@@ -578,11 +470,7 @@ fn async_names_do_not_depend_on_the_backend() {
 fn a_tape_forces_one_worker() {
     let _guard = serial();
     assert_eq!(worker_count(4), 4);
-    start_replay(LoadedTape {
-        path: "t".into(),
-        header: header(),
-        events: Vec::new(),
-    });
+    start_replay(LoadedTape { path: "t".into(), header: header(), events: Vec::new() });
     assert_eq!(worker_count(4), 1);
     reset();
 }
@@ -602,18 +490,13 @@ fn a_kept_recording_answers_its_past_and_then_records_again() {
     // and its output is not printed again.
     rewind_to(start);
     assert_eq!(mode(), ReplayMode::Replay);
-    let again = effect(read_file("a"), || {
-        panic!("going back must not perform effects")
-    });
+    let again = effect(read_file("a"), || panic!("going back must not perform effects"));
     assert_eq!(again, Ok(text("first")));
     assert_eq!(console_shown(stdout("one\n")), Ok(false));
 
     // Past the end of what was kept, the run records again.
     assert_eq!(mode(), ReplayMode::Record);
-    assert_eq!(
-        effect(read_file("b"), || text("second")),
-        Ok(text("second"))
-    );
+    assert_eq!(effect(read_file("b"), || text("second")), Ok(text("second")));
     assert_eq!(console_shown(stdout("two\n")), Ok(true));
     assert_eq!(event_list().len(), 4);
     reset();
@@ -682,10 +565,7 @@ fn an_event_names_its_task_only_off_the_main_program() {
     assert!(!main.contains("task"), "{main}");
     let in_task = serde_json::to_string(&event(3)).unwrap();
     assert!(in_task.contains(r#""task":3"#), "{in_task}");
-    assert_eq!(
-        serde_json::from_str::<TapeEvent>(&in_task).unwrap(),
-        event(3)
-    );
+    assert_eq!(serde_json::from_str::<TapeEvent>(&in_task).unwrap(), event(3));
 }
 
 /// Records, on two threads, the main program spawning task 1 and each
@@ -697,19 +577,9 @@ fn record_two_threads(name: &str) -> LoadedTape {
         std::thread::spawn(|| {
             enlist_in_test_tape();
             async_tape::enter_task(1);
-            ordered(EffectRequest::TaskStart { id: 1 }, || {
-                Some(Outcome::Bool(true))
-            })
-            .unwrap();
+            ordered(EffectRequest::TaskStart { id: 1 }, || Some(Outcome::Bool(true))).unwrap();
             console(stdout("task\n")).unwrap();
-            ordered(
-                EffectRequest::TaskEnd {
-                    id: 1,
-                    failed: false,
-                },
-                || None,
-            )
-            .unwrap();
+            ordered(EffectRequest::TaskEnd { id: 1, failed: false }, || None).unwrap();
         })
         .join()
         .unwrap();
@@ -733,19 +603,9 @@ fn a_replay_runs_threads_in_the_recorded_order() {
     let task = std::thread::spawn(move || {
         enlist_in_test_tape();
         async_tape::enter_task(1);
-        ordered(EffectRequest::TaskStart { id: 1 }, || {
-            Some(Outcome::Bool(true))
-        })
-        .unwrap();
+        ordered(EffectRequest::TaskStart { id: 1 }, || Some(Outcome::Bool(true))).unwrap();
         console_in_turn(stdout("task\n"), || task_order.lock().unwrap().push("task")).unwrap();
-        ordered(
-            EffectRequest::TaskEnd {
-                id: 1,
-                failed: false,
-            },
-            || None,
-        )
-        .unwrap();
+        ordered(EffectRequest::TaskEnd { id: 1, failed: false }, || None).unwrap();
     });
     std::thread::sleep(Duration::from_millis(30));
     ordered(EffectRequest::TaskSpawn { id: 1 }, || None).unwrap();
@@ -761,17 +621,12 @@ fn a_replay_runs_threads_in_the_recorded_order() {
 fn ordered_work_must_do_what_it_did_when_recorded() {
     let _serial = serial();
     let tape = record("ordered.jsonl", || {
-        ordered(EffectRequest::TaskStart { id: 1 }, || {
-            Some(Outcome::Bool(false))
-        })
-        .unwrap();
+        ordered(EffectRequest::TaskStart { id: 1 }, || Some(Outcome::Bool(false))).unwrap();
         finish(false, None).unwrap();
     });
     start_replay(tape);
-    let err = ordered(EffectRequest::TaskStart { id: 1 }, || {
-        Some(Outcome::Bool(true))
-    })
-    .unwrap_err();
+    let err =
+        ordered(EffectRequest::TaskStart { id: 1 }, || Some(Outcome::Bool(true))).unwrap_err();
     assert!(
         matches!(&err, TapeError::PayloadMismatch { what, .. } if what.contains("task_start")),
         "{err:?}"
@@ -790,9 +645,7 @@ fn a_thread_whose_turn_never_comes_stops_the_replay() {
     let waited = std::thread::spawn(|| {
         enlist_in_test_tape();
         async_tape::enter_task(1);
-        ordered(EffectRequest::TaskStart { id: 1 }, || {
-            Some(Outcome::Bool(true))
-        })
+        ordered(EffectRequest::TaskStart { id: 1 }, || Some(Outcome::Bool(true)))
     })
     .join()
     .unwrap();
@@ -827,10 +680,7 @@ fn a_tape_is_checked_against_the_program_replaying_it() {
     unfinished.header.flux_version = "0.0.0".to_string();
     let warnings = unfinished.check_for("sha256:test").unwrap();
     assert_eq!(warnings.len(), 2, "{warnings:?}");
-    assert!(
-        warnings[0].contains("recorded by flux 0.0.0"),
-        "{warnings:?}"
-    );
+    assert!(warnings[0].contains("recorded by flux 0.0.0"), "{warnings:?}");
     assert!(warnings[1].contains("incomplete"), "{warnings:?}");
 }
 

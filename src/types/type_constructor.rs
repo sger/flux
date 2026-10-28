@@ -158,14 +158,8 @@ mod tests {
     #[test]
     fn remap_symbols_preserves_builtins() {
         let remap = std::collections::HashMap::from([(Symbol::new(1), Symbol::new(2))]);
-        assert_eq!(
-            TypeConstructor::Int.remap_symbols(&remap),
-            TypeConstructor::Int
-        );
-        assert_eq!(
-            TypeConstructor::List.remap_symbols(&remap),
-            TypeConstructor::List
-        );
+        assert_eq!(TypeConstructor::Int.remap_symbols(&remap), TypeConstructor::Int);
+        assert_eq!(TypeConstructor::List.remap_symbols(&remap), TypeConstructor::List);
     }
 
     #[test]

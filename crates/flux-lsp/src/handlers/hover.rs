@@ -103,16 +103,8 @@ fn operator_fixity_hover(
     target: FluxPosition,
 ) -> Option<Hover> {
     let body = match node {
-        NodeRef::Expr(Expression::Infix {
-            operator,
-            left,
-            right,
-            ..
-        }) => {
-            let gap = FluxSpan {
-                start: left.span().end,
-                end: right.span().start,
-            };
+        NodeRef::Expr(Expression::Infix { operator, left, right, .. }) => {
+            let gap = FluxSpan { start: left.span().end, end: right.span().start };
             if !position_in_span(target, gap) {
                 return None;
             }
@@ -127,16 +119,8 @@ fn operator_fixity_hover(
                 info.precedence as u8, info.precedence,
             )
         }
-        NodeRef::Expr(Expression::Prefix {
-            operator,
-            right,
-            span,
-            ..
-        }) => {
-            let gap = FluxSpan {
-                start: span.start,
-                end: right.span().start,
-            };
+        NodeRef::Expr(Expression::Prefix { operator, right, span, .. }) => {
+            let gap = FluxSpan { start: span.start, end: right.span().start };
             if !position_in_span(target, gap) {
                 return None;
             }
@@ -154,10 +138,7 @@ fn operator_fixity_hover(
         value.push_str(&format!("\n\n```flux\n{ty}\n```"));
     }
     Some(Hover {
-        contents: HoverContents::Markup(MarkupContent {
-            kind: MarkupKind::Markdown,
-            value,
-        }),
+        contents: HoverContents::Markup(MarkupContent { kind: MarkupKind::Markdown, value }),
         range: None,
     })
 }
@@ -296,11 +277,7 @@ pub(crate) fn module_key_for(snapshot: &Snapshot, object: &Expression) -> Option
         return Some(resolved.to_string());
     }
     for stmt in &snapshot.program.statements {
-        if let Statement::Import {
-            name: qualified,
-            alias: Some(alias),
-            ..
-        } = stmt
+        if let Statement::Import { name: qualified, alias: Some(alias), .. } = stmt
             && snapshot.interner.try_resolve(*alias) == Some(resolved)
         {
             let qualified = snapshot.interner.try_resolve(*qualified)?;
@@ -404,9 +381,7 @@ fn render(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
                 ));
             }
             // Module member: look up the scheme from inference results.
-            if let Expression::Identifier {
-                name: module_id, ..
-            } = object
+            if let Expression::Identifier { name: module_id, .. } = object
                 && let Some(infer) = snapshot.infer.as_ref()
                 && let Some(scheme) = infer.module_member_schemes.get(&(*module_id, *member))
             {
@@ -414,20 +389,13 @@ fn render(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
             }
             Some(format!("field: {member_name}"))
         }
-        NodeRef::NamedFieldInitName {
-            field_name,
-            parent_constructor,
-            ..
-        } => {
+        NodeRef::NamedFieldInitName { field_name, parent_constructor, .. } => {
             let resolved = snapshot.interner.try_resolve(*field_name)?;
             if let Some(parent) = parent_constructor
                 && let Some(fields) = snapshot.variant_fields.get(parent)
                 && let Some((_, ty)) = fields.iter().find(|(n, _)| *n == *field_name)
             {
-                return Some(format!(
-                    "{resolved}: {}",
-                    render_type_expr(ty, &snapshot.interner)
-                ));
+                return Some(format!("{resolved}: {}", render_type_expr(ty, &snapshot.interner)));
             }
             Some(format!("field: {resolved}"))
         }
@@ -440,16 +408,8 @@ fn render(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
             let resolved = snapshot.interner.try_resolve(*name)?;
             Some(format!("constructor: {resolved}"))
         }
-        NodeRef::PerformOpName {
-            name,
-            parent_effect,
-            ..
-        }
-        | NodeRef::HandleArmOpName {
-            name,
-            parent_effect,
-            ..
-        } => {
+        NodeRef::PerformOpName { name, parent_effect, .. }
+        | NodeRef::HandleArmOpName { name, parent_effect, .. } => {
             // Render the operation's declared signature, the same way the
             // `EffectOpName` declaration site does. Falls back to a bare label
             // when the effect isn't declared in this buffer (a built-in effect,
@@ -467,9 +427,7 @@ fn render(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
             let resolved = snapshot.interner.try_resolve(*qualified)?;
             Some(format!("module: {resolved}"))
         }
-        NodeRef::ImportAlias {
-            alias, qualified, ..
-        } => {
+        NodeRef::ImportAlias { alias, qualified, .. } => {
             let a = snapshot.interner.try_resolve(*alias)?;
             let q = snapshot.interner.try_resolve(*qualified)?;
             Some(format!("alias {a} = {q}"))
@@ -487,20 +445,12 @@ fn render(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
             let resolved = snapshot.interner.try_resolve(*name)?;
             Some(format!("variant: {resolved}"))
         }
-        NodeRef::DataFieldName {
-            name,
-            ty_index,
-            parent_variant,
-            ..
-        } => {
+        NodeRef::DataFieldName { name, ty_index, parent_variant, .. } => {
             let field_name = snapshot.interner.try_resolve(*name)?;
             if let Some(fields) = snapshot.variant_fields.get(parent_variant)
                 && let Some((_, ty)) = fields.get(*ty_index)
             {
-                return Some(format!(
-                    "{field_name}: {}",
-                    render_type_expr(ty, &snapshot.interner)
-                ));
+                return Some(format!("{field_name}: {}", render_type_expr(ty, &snapshot.interner)));
             }
             Some(format!("field: {field_name}"))
         }
@@ -508,11 +458,7 @@ fn render(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
             let resolved = snapshot.interner.try_resolve(*name)?;
             Some(format!("effect: {resolved}"))
         }
-        NodeRef::EffectOpName {
-            name,
-            parent_effect,
-            ..
-        } => {
+        NodeRef::EffectOpName { name, parent_effect, .. } => {
             let op_name = snapshot.interner.try_resolve(*name)?;
             if let Some(op_ty) = find_effect_op_type(snapshot, *parent_effect, *name) {
                 return Some(format!(
@@ -537,20 +483,11 @@ fn render(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
             let resolved = snapshot.interner.try_resolve(*name)?;
             Some(format!("decl: {resolved}"))
         }
-        NodeRef::FunctionParameter {
-            name,
-            function_span,
-            ..
-        } => {
+        NodeRef::FunctionParameter { name, function_span, .. } => {
             let resolved = snapshot.interner.try_resolve(*name)?;
 
             for stmt in &snapshot.program.statements {
-                if let Statement::Function {
-                    span,
-                    parameters,
-                    parameter_types,
-                    ..
-                } = stmt
+                if let Statement::Function { span, parameters, parameter_types, .. } = stmt
                     && *span == *function_span
                 {
                     if let Some(idx) = parameters.iter().position(|p| *p == *name) {
@@ -563,12 +500,8 @@ fn render(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
                         }
                         // Fall back to the inferred parameter type from the
                         // function's scheme (Fun(param_types, _, _)).
-                        let key = (
-                            span.start.line,
-                            span.start.column,
-                            span.end.line,
-                            span.end.column,
-                        );
+                        let key =
+                            (span.start.line, span.start.column, span.end.line, span.end.column);
                         if let Some(infer) = snapshot.infer.as_ref()
                             && let Some(scheme) = infer.resolved_binding_schemes_by_span.get(&key)
                             && let flux::types::infer_type::InferType::Fun(param_infer_types, _, _) =
@@ -587,12 +520,8 @@ fn render(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
 
             Some(format!("parameter: {resolved}"))
         }
-        NodeRef::ClassMethodName {
-            name, parent_class, ..
-        }
-        | NodeRef::InstanceMethodName {
-            name, parent_class, ..
-        } => {
+        NodeRef::ClassMethodName { name, parent_class, .. }
+        | NodeRef::InstanceMethodName { name, parent_class, .. } => {
             // Both render the class's declared signature for the method (an
             // instance method has no annotations of its own); fall back to a
             // bare label when the class isn't in this buffer.
@@ -698,12 +627,7 @@ fn render_type_decl(snapshot: &Snapshot, name: Identifier) -> Option<String> {
     let interner = &snapshot.interner;
     for stmt in &snapshot.program.statements {
         match stmt {
-            Statement::Data {
-                name: n,
-                type_params,
-                variants,
-                ..
-            } if *n == name => {
+            Statement::Data { name: n, type_params, variants, .. } if *n == name => {
                 let head = format!(
                     "data {}{}",
                     interner.try_resolve(*n)?,
@@ -726,11 +650,7 @@ fn render_type_decl(snapshot: &Snapshot, name: Identifier) -> Option<String> {
                     render_type_expr(&a.body, interner),
                 ));
             }
-            Statement::Class {
-                name: n,
-                type_params,
-                ..
-            } if *n == name => {
+            Statement::Class { name: n, type_params, .. } if *n == name => {
                 return Some(format!(
                     "class {}{}",
                     interner.try_resolve(*n)?,
@@ -761,11 +681,8 @@ fn render_variant(variant: &DataVariant, interner: &Interner) -> String {
             .collect();
         format!("{name} {{ {} }}", parts.join(", "))
     } else if !variant.fields.is_empty() {
-        let parts: Vec<String> = variant
-            .fields
-            .iter()
-            .map(|ty| render_type_expr(ty, interner))
-            .collect();
+        let parts: Vec<String> =
+            variant.fields.iter().map(|ty| render_type_expr(ty, interner)).collect();
         format!("{name}({})", parts.join(", "))
     } else {
         name.to_string()
@@ -778,10 +695,7 @@ fn render_type_params(params: &[Identifier], interner: &Interner) -> String {
     if params.is_empty() {
         return String::new();
     }
-    let names: Vec<&str> = params
-        .iter()
-        .map(|p| interner.try_resolve(*p).unwrap_or("_"))
-        .collect();
+    let names: Vec<&str> = params.iter().map(|p| interner.try_resolve(*p).unwrap_or("_")).collect();
     format!("<{}>", names.join(", "))
 }
 
@@ -801,22 +715,13 @@ fn render_type_expr(ty: &TypeExpr, interner: &flux::syntax::interner::Interner) 
             }
         }
         TypeExpr::Tuple { elements, .. } => {
-            let parts: Vec<String> = elements
-                .iter()
-                .map(|e| render_type_expr(e, interner))
-                .collect();
+            let parts: Vec<String> =
+                elements.iter().map(|e| render_type_expr(e, interner)).collect();
             format!("({})", parts.join(", "))
         }
-        TypeExpr::Function {
-            params,
-            ret,
-            effects,
-            ..
-        } => {
-            let params_str: Vec<String> = params
-                .iter()
-                .map(|p| render_type_expr(p, interner))
-                .collect();
+        TypeExpr::Function { params, ret, effects, .. } => {
+            let params_str: Vec<String> =
+                params.iter().map(|p| render_type_expr(p, interner)).collect();
             let ret_str = render_type_expr(ret, interner);
             let core = format!("({}) -> {}", params_str.join(", "), ret_str);
             if effects.is_empty() {
@@ -873,10 +778,8 @@ fn constructor_signature(snapshot: &Snapshot, name: Identifier) -> Option<String
     if let Some(types) = snapshot.variant_positional_fields.get(&name)
         && !types.is_empty()
     {
-        let rendered: Vec<String> = types
-            .iter()
-            .map(|ty| render_type_expr(ty, &snapshot.interner))
-            .collect();
+        let rendered: Vec<String> =
+            types.iter().map(|ty| render_type_expr(ty, &snapshot.interner)).collect();
         return Some(format!("{cons}({})", rendered.join(", ")));
     }
     // Nullary constructor (`Red`), or one whose variant info isn't indexed.

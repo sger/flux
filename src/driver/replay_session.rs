@@ -47,10 +47,7 @@ pub(crate) fn prepare(graph: &ModuleGraph, entry_path: &Path, flags: &DriverFlag
             // A native program writes this header itself, from the hash its
             // build carries (`flux_program_hash`).
             let header = TapeHeader::new(program_hash, argv, if native { "native" } else { "vm" });
-            Session::Record {
-                path: path.clone(),
-                header,
-            }
+            Session::Record { path: path.clone(), header }
         }
         TapeRequest::Replay(path) => {
             let tape = LoadedTape::load(path).unwrap_or_else(|err| fail(&err, path));
@@ -114,11 +111,7 @@ pub(crate) fn check_native_recording() {
     };
     let finished = std::fs::read_to_string(path)
         .ok()
-        .and_then(|text| {
-            text.lines()
-                .last()
-                .map(|line| line.contains("\"kind\":\"exit\""))
-        })
+        .and_then(|text| text.lines().last().map(|line| line.contains("\"kind\":\"exit\"")))
         .unwrap_or(false);
     if !finished {
         eprintln!(
@@ -147,10 +140,7 @@ pub(crate) fn finish_vm_run(error: Option<&str>, program_path: &str) {
 /// Prints a tape error that has no source position.
 pub(crate) fn report(err: &TapeError, program_path: &str) {
     let diagnostic = err.to_diagnostic(program_path, None);
-    eprintln!(
-        "{}",
-        render_runtime_diagnostic(&diagnostic, program_path, None, &[])
-    );
+    eprintln!("{}", render_runtime_diagnostic(&diagnostic, program_path, None, &[]));
 }
 
 fn fail(err: &TapeError, path: &Path) -> ! {
@@ -194,10 +184,7 @@ fn absolute(path: &Path) -> PathBuf {
 fn first_line(text: &str) -> String {
     let mut lines = text.lines().map(str::trim).filter(|line| !line.is_empty());
     let first = lines.clone().next().unwrap_or("");
-    lines
-        .find(|line| line.starts_with("error"))
-        .unwrap_or(first)
-        .to_string()
+    lines.find(|line| line.starts_with("error")).unwrap_or(first).to_string()
 }
 
 fn strip_ansi(text: &str) -> String {

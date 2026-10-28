@@ -134,9 +134,7 @@ fn should_dispatch_native_backend(flags: &DriverFlags) -> bool {
 }
 
 fn has_error_diagnostics(diagnostics: &[Diagnostic]) -> bool {
-    diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.severity() == Severity::Error)
+    diagnostics.iter().any(|diagnostic| diagnostic.severity() == Severity::Error)
 }
 
 /// Builds the initial run context after frontend parsing and compiler setup.
@@ -302,11 +300,7 @@ fn print_debug_info_dump(ctx: &RunContext) {
         .collect();
     let mut first = true;
     for info in ctx.compiler.debug_infos() {
-        if info
-            .files
-            .first()
-            .is_some_and(|file| stdlib_paths.contains(&file.path))
-        {
+        if info.files.first().is_some_and(|file| stdlib_paths.contains(&file.path)) {
             continue;
         }
         if !first {
@@ -592,11 +586,8 @@ pub(crate) fn render_repl_diagnostics(
     source: &str,
     config: &DriverDiagnosticConfig,
 ) {
-    let errors: Vec<Diagnostic> = diagnostics
-        .iter()
-        .filter(|diag| diag.severity() == Severity::Error)
-        .cloned()
-        .collect();
+    let errors: Vec<Diagnostic> =
+        diagnostics.iter().filter(|diag| diag.severity() == Severity::Error).cloned().collect();
     if errors.is_empty() {
         return;
     }
@@ -714,12 +705,8 @@ mod tests {
     #[test]
     fn has_error_diagnostics_ignores_non_errors() {
         assert!(!has_error_diagnostics(&[]));
-        assert!(!has_error_diagnostics(&[diagnostic_with_severity(
-            Severity::Warning
-        )]));
-        assert!(has_error_diagnostics(&[diagnostic_with_severity(
-            Severity::Error
-        )]));
+        assert!(!has_error_diagnostics(&[diagnostic_with_severity(Severity::Warning)]));
+        assert!(has_error_diagnostics(&[diagnostic_with_severity(Severity::Error)]));
     }
 
     #[test]

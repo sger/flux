@@ -56,10 +56,8 @@ pub fn run_census(root: &Path, options: &Options) -> Result<bool, String> {
     let io = |e: std::io::Error| e.to_string();
 
     steps.start("build");
-    let build = run(cargo()
-        .current_dir(root)
-        .args(["build", "--all-features", "--quiet"]))
-    .map_err(io)?;
+    let build =
+        run(cargo().current_dir(root).args(["build", "--all-features", "--quiet"])).map_err(io)?;
     if build != 0 {
         return Err("cargo build failed".to_string());
     }
@@ -73,16 +71,8 @@ pub fn run_census(root: &Path, options: &Options) -> Result<bool, String> {
     };
     let run_started = steps.start(&format!("run {} on {ways}", dirs.join(" ")));
     let rows_file = out.join("rows.tsv");
-    let exit = run_parity(
-        root,
-        &flux,
-        &dirs,
-        ways,
-        options,
-        &rows_file,
-        &out.join("census.txt"),
-    )
-    .map_err(io)?;
+    let exit = run_parity(root, &flux, &dirs, ways, options, &rows_file, &out.join("census.txt"))
+        .map_err(io)?;
     println!("took {}", format_duration(run_started.elapsed()));
     if exit != 0 {
         return Err(format!(
@@ -301,10 +291,7 @@ impl Class {
 
     /// The way failed the file: a bug, or a missing header.
     pub fn is_failure(self) -> bool {
-        matches!(
-            self,
-            Self::Wrong | Self::Disagree | Self::Rejected | Self::Crashed
-        )
+        matches!(self, Self::Wrong | Self::Disagree | Self::Rejected | Self::Crashed)
     }
 }
 
@@ -334,10 +321,7 @@ fn read_rows(text: &str) -> Vec<Row> {
 
 /// Each `(file, way)`'s class in an earlier census's `census.tsv`.
 fn base_classes(text: &str) -> BTreeMap<(String, String), Class> {
-    read_rows(text)
-        .into_iter()
-        .map(|row| ((row.file, row.way), row.class))
-        .collect()
+    read_rows(text).into_iter().map(|row| ((row.file, row.way), row.class)).collect()
 }
 
 /// A failure's link to a known issue.
@@ -390,16 +374,9 @@ impl Census {
             .map(|row| {
                 let mut tags = features.get(&row.file).cloned().unwrap_or_default();
                 tags.push(format!("dir:{}", directory(&row.file)));
-                let filed = if row.class.is_failure() {
-                    filed(&row, known)
-                } else {
-                    Filed::Unfiled
-                };
-                Entry {
-                    row,
-                    features: tags,
-                    filed,
-                }
+                let filed =
+                    if row.class.is_failure() { filed(&row, known) } else { Filed::Unfiled };
+                Entry { row, features: tags, filed }
             })
             .collect();
         Self { ways, entries }
@@ -407,10 +384,7 @@ impl Census {
 
     /// Rows of `way` with class `class`.
     pub fn count(&self, way: &str, class: Class) -> usize {
-        self.entries
-            .iter()
-            .filter(|e| e.row.way == way && e.row.class == class)
-            .count()
+        self.entries.iter().filter(|e| e.row.way == way && e.row.class == class).count()
     }
 
     /// Failures with no open KI.
@@ -600,10 +574,8 @@ tests/z.flx\tvm\tSuccess\twrong\t\tcd\t7\tstdout differs from llvm
         let census = census();
         let filed: Vec<&Filed> = census.entries.iter().map(|e| &e.filed).collect();
         assert_eq!(filed[2], &Filed::Open("KI-200".to_string()));
-        let unfiled: Vec<String> = census
-            .unfiled()
-            .map(|e| format!("{} {}", e.row.file, e.row.way))
-            .collect();
+        let unfiled: Vec<String> =
+            census.unfiled().map(|e| format!("{} {}", e.row.file, e.row.way)).collect();
         assert_eq!(unfiled, ["examples/a/x.flx llvm", "tests/z.flx vm"]);
     }
 
@@ -630,20 +602,11 @@ tests/z.flx\tvm\tSuccess\twrong\t\tcd\t7\tstdout differs from llvm
     fn a_diff_names_what_newly_fails_and_newly_works() {
         let census = census();
         let mut base = base_classes(&census.to_tsv());
-        base.insert(
-            ("examples/a/x.flx".to_string(), "llvm".to_string()),
-            Class::Works,
-        );
-        base.insert(
-            ("tests/z.flx".to_string(), "vm".to_string()),
-            Class::Crashed,
-        );
+        base.insert(("examples/a/x.flx".to_string(), "llvm".to_string()), Class::Works);
+        base.insert(("tests/z.flx".to_string(), "vm".to_string()), Class::Crashed);
         base.remove(&("examples/a/y.flx".to_string(), "llvm".to_string()));
         let diff = census.diff(&base);
-        assert_eq!(
-            diff.newly_failing,
-            ["examples/a/x.flx llvm: works → crashed"]
-        );
+        assert_eq!(diff.newly_failing, ["examples/a/x.flx llvm: works → crashed"]);
         assert_eq!(diff.changed, 1);
         assert_eq!(diff.added, 1);
         assert!(diff.newly_working.is_empty());

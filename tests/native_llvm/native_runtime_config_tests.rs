@@ -57,9 +57,8 @@ fn run_source_with_env(
 fn kill_process_tree(child: &mut Child) {
     #[cfg(windows)]
     {
-        let _ = Command::new("taskkill")
-            .args(["/PID", &child.id().to_string(), "/T", "/F"])
-            .output();
+        let _ =
+            Command::new("taskkill").args(["/PID", &child.id().to_string(), "/T", "/F"]).output();
     }
     #[cfg(not(windows))]
     {
@@ -103,27 +102,15 @@ fn run_source_with_timeout(
         let _ = child.wait();
         let elapsed = start.elapsed();
         let _ = std::fs::remove_file(&path);
-        return (
-            String::new(),
-            format!("timed out after {}s", timeout.as_secs()),
-            false,
-            elapsed,
-        );
+        return (String::new(), format!("timed out after {}s", timeout.as_secs()), false, elapsed);
     }
 
-    let output = child
-        .wait_with_output()
-        .expect("collect flux native output");
+    let output = child.wait_with_output().expect("collect flux native output");
     let elapsed = start.elapsed();
     let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
     let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
     let _ = std::fs::remove_file(&path);
-    (
-        stdout,
-        stderr,
-        output.status.success() && !timed_out,
-        elapsed,
-    )
+    (stdout, stderr, output.status.success() && !timed_out, elapsed)
 }
 
 #[test]
@@ -145,10 +132,7 @@ fn main() with IO {
         success,
         "native run_async_with_workers(4, ...) must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    assert!(
-        stdout.contains("42"),
-        "expected 42 on stdout, got: {stdout:?}"
-    );
+    assert!(stdout.contains("42"), "expected 42 on stdout, got: {stdout:?}");
     assert!(elapsed < Duration::from_secs(30));
 }
 
@@ -168,14 +152,8 @@ fn main() with IO {
 }
 "#;
     let (stdout, stderr, success, _elapsed) = run_source_with_env(source, "wc-explicit", &[]);
-    assert!(
-        success,
-        "current_worker_count must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
-    assert!(
-        stdout.contains("4"),
-        "expected 4 on stdout, got: {stdout:?}"
-    );
+    assert!(success, "current_worker_count must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
+    assert!(stdout.contains("4"), "expected 4 on stdout, got: {stdout:?}");
 }
 
 #[test]
@@ -199,10 +177,7 @@ fn main() with IO {
         success,
         "FLUX_WORKERS=3 native run must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    assert!(
-        stdout.contains("3"),
-        "expected 3 on stdout, got: {stdout:?}"
-    );
+    assert!(stdout.contains("3"), "expected 3 on stdout, got: {stdout:?}");
 }
 
 #[test]
@@ -227,10 +202,7 @@ fn main() with IO {
         success,
         "native default-config run must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    assert!(
-        stdout.contains("7"),
-        "expected 7 on stdout, got: {stdout:?}"
-    );
+    assert!(stdout.contains("7"), "expected 7 on stdout, got: {stdout:?}");
 }
 
 #[test]
@@ -280,14 +252,8 @@ fn main() with IO {
 }
 "#;
     let (stdout, stderr, success, _elapsed) = run_source_with_env(source, "plain", &[]);
-    assert!(
-        success,
-        "native plain run_async must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
-    assert!(
-        stdout.contains("13"),
-        "expected 13 on stdout, got: {stdout:?}"
-    );
+    assert!(success, "native plain run_async must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
+    assert!(stdout.contains("13"), "expected 13 on stdout, got: {stdout:?}");
 }
 
 #[test]
@@ -312,8 +278,5 @@ fn main() with IO {
         success,
         "FLUX_WORKERS=1 native run must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    assert!(
-        stdout.contains("99"),
-        "expected 99 on stdout, got: {stdout:?}"
-    );
+    assert!(stdout.contains("99"), "expected 99 on stdout, got: {stdout:?}");
 }

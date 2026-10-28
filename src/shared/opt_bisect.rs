@@ -42,9 +42,7 @@ pub fn configure(cli_limit: Option<i64>) {
     if limit.is_some() {
         // Fails only if the pool already exists, which nothing does before
         // the driver starts compiling.
-        let _ = rayon::ThreadPoolBuilder::new()
-            .num_threads(1)
-            .build_global();
+        let _ = rayon::ThreadPoolBuilder::new().num_threads(1).build_global();
     }
 }
 
@@ -84,12 +82,7 @@ pub fn allow(pass: &str, what: impl FnOnce() -> String) -> bool {
         if context.1.is_empty() {
             eprintln!("opt-bisect: {n} {pass}: {} ({})", what(), context.0);
         } else {
-            eprintln!(
-                "opt-bisect: {n} {pass}: {} in {} ({})",
-                what(),
-                context.1,
-                context.0
-            );
+            eprintln!("opt-bisect: {n} {pass}: {} in {} ({})", what(), context.1, context.0);
         }
         return true;
     }

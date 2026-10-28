@@ -72,10 +72,7 @@ mod tests {
         assert_eq!(session.roots, flags.input.roots);
         assert_eq!(session.cache_dir, Some(PathBuf::from(".flux-cache")));
         assert!(session.strict_mode);
-        assert_eq!(
-            session.diagnostics_format,
-            DiagnosticOutputFormat::JsonCompact
-        );
+        assert_eq!(session.diagnostics_format, DiagnosticOutputFormat::JsonCompact);
         assert!(session.all_errors);
         assert!(flags.runtime.trace);
         assert!(flags.cache.no_cache);
@@ -97,9 +94,6 @@ mod tests {
             all_errors: false,
         };
 
-        assert_eq!(
-            session.cache_dir_path(),
-            Some(PathBuf::from("target/flux-cache").as_path())
-        );
+        assert_eq!(session.cache_dir_path(), Some(PathBuf::from("target/flux-cache").as_path()));
     }
 }

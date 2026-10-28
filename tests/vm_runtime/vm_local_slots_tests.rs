@@ -50,16 +50,11 @@ fn mismatches(label: &str, source: &str, expected: i64) -> Vec<String> {
 
 /// `let v{i} = n + {i}` for each `i` below `count`, one per line.
 fn lets(count: usize) -> String {
-    (0..count)
-        .map(|i| format!("    let v{i} = n + {i}\n"))
-        .collect()
+    (0..count).map(|i| format!("    let v{i} = n + {i}\n")).collect()
 }
 
 fn sum(count: usize) -> String {
-    (0..count)
-        .map(|i| format!("v{i}"))
-        .collect::<Vec<_>>()
-        .join(" + ")
+    (0..count).map(|i| format!("v{i}")).collect::<Vec<_>>().join(" + ")
 }
 
 /// The sum of `n + i` for each `i` below `count`, with `n` = 2.
@@ -77,11 +72,7 @@ fn a_function_with_hundreds_of_lets_computes_the_right_result() {
             lets(count),
             sum(count)
         );
-        wrong.extend(mismatches(
-            &format!("lets_{count}"),
-            &source,
-            expected_sum(count),
-        ));
+        wrong.extend(mismatches(&format!("lets_{count}"), &source, expected_sum(count)));
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n\n"));
 }
@@ -101,11 +92,7 @@ fn a_closure_with_hundreds_of_lets_computes_the_right_result() {
             lets(count),
             sum(count)
         );
-        wrong.extend(mismatches(
-            &format!("closure_{count}"),
-            &source,
-            1 + expected_sum(count),
-        ));
+        wrong.extend(mismatches(&format!("closure_{count}"), &source, 1 + expected_sum(count)));
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n\n"));
 }
@@ -146,18 +133,9 @@ fn a_value_past_the_256th_slot_can_be_indexed_called_and_matched() {
 #[test]
 fn a_call_with_hundreds_of_arguments_computes_the_right_result() {
     let count = 300;
-    let params = (0..count)
-        .map(|i| format!("a{i}"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let rest = (1..count)
-        .map(|i| format!("a{i}"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let args = (0..count)
-        .map(|i| format!("n + {i}"))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let params = (0..count).map(|i| format!("a{i}")).collect::<Vec<_>>().join(", ");
+    let rest = (1..count).map(|i| format!("a{i}")).collect::<Vec<_>>().join(", ");
+    let args = (0..count).map(|i| format!("n + {i}")).collect::<Vec<_>>().join(", ");
     let last = count - 1;
     let source = format!(
         "fn first({params}) {{ a0 + a{last} }}\n\n\

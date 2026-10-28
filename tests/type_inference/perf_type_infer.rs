@@ -17,9 +17,8 @@ fn make_infer_stress_source(depth: usize) -> String {
     for index in 1..=depth {
         source.push_str(&format!("fn f{index}(x) {{ f{}(x) }}\n", index - 1));
     }
-    source.push_str(&format!(
-        "fn main() -> Unit {{ let _v = f{depth}(1); let _w = f{depth}(2); }}"
-    ));
+    source
+        .push_str(&format!("fn main() -> Unit {{ let _v = f{depth}(1); let _w = f{depth}(2); }}"));
     source
 }
 
@@ -64,10 +63,7 @@ fn infer_program_perf_guard() {
     }
 
     let elapsed = start.elapsed();
-    eprintln!(
-        "inferred call-chain depth {} x {} iterations in {:?}",
-        300, iterations, elapsed
-    );
+    eprintln!("inferred call-chain depth {} x {} iterations in {:?}", 300, iterations, elapsed);
 }
 
 /// Micro-benchmark: compose() cost with growing substitution size.

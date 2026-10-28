@@ -14,10 +14,7 @@ pub struct AdtRegistry {
 
 impl AdtRegistry {
     pub fn new() -> Self {
-        Self {
-            constructors: HashMap::new(),
-            adts: HashMap::new(),
-        }
+        Self { constructors: HashMap::new(), adts: HashMap::new() }
     }
 
     pub fn register_adt(&mut self, name: Symbol, variants: &[DataVariant], interner: &Interner) {
@@ -25,29 +22,16 @@ impl AdtRegistry {
 
         for (idx, variant) in variants.iter().enumerate() {
             let arity = variant.fields.len();
-            let field_reps: Vec<FluxRep> = variant
-                .fields
-                .iter()
-                .map(|f| FluxRep::from_type_expr(f, interner))
-                .collect();
+            let field_reps: Vec<FluxRep> =
+                variant.fields.iter().map(|f| FluxRep::from_type_expr(f, interner)).collect();
             constructor_list.push((variant.name, arity, field_reps.clone()));
             self.constructors.insert(
                 variant.name,
-                ConstructorInfo {
-                    adt_name: name,
-                    tag_idx: idx,
-                    arity,
-                    field_reps,
-                },
+                ConstructorInfo { adt_name: name, tag_idx: idx, arity, field_reps },
             );
         }
 
-        self.adts.insert(
-            name,
-            AdtDefinition {
-                constructors: constructor_list,
-            },
-        );
+        self.adts.insert(name, AdtDefinition { constructors: constructor_list });
     }
 
     pub fn lookup_constructor(&self, name: Symbol) -> Option<&ConstructorInfo> {

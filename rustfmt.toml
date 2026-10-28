@@ -1,0 +1,8 @@
+# rust-lang/rust's rustfmt settings, the ones stable rustfmt honours. It also
+# sets `group_imports`, `imports_granularity` and an `ignore` list, but those
+# need nightly rustfmt; CI formats with the pinned stable toolchain, which
+# ignores them. `vendor/` is outside the workspace, so `cargo fmt` skips it.
+style_edition = "2024"
+use_small_heuristics = "Max"
+merge_derives = false
+use_field_init_shorthand = true

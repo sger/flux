@@ -21,10 +21,7 @@ struct FreeVarCollector {
 
 impl FreeVarCollector {
     fn new() -> Self {
-        Self {
-            bound: HashMap::new(),
-            free: HashSet::new(),
-        }
+        Self { bound: HashMap::new(), free: HashSet::new() }
     }
 
     fn define(&mut self, name: Symbol) {
@@ -114,10 +111,7 @@ impl FreeVarCollector {
                 Self::collect_pattern_names_into(head, names);
                 Self::collect_pattern_names_into(tail, names);
             }
-            Pattern::Tuple { elements, .. }
-            | Pattern::Constructor {
-                fields: elements, ..
-            } => {
+            Pattern::Tuple { elements, .. } | Pattern::Constructor { fields: elements, .. } => {
                 for element in elements {
                     Self::collect_pattern_names_into(element, names);
                 }
@@ -150,12 +144,7 @@ impl<'ast> Visitor<'ast> for FreeVarCollector {
                 self.visit_expr(value);
                 self.define_pattern_bindings(pattern);
             }
-            Statement::Function {
-                name,
-                parameters,
-                body,
-                ..
-            } => {
+            Statement::Function { name, parameters, body, .. } => {
                 // Define function in outer scope first to support recursion.
                 self.define(*name);
                 let params: Vec<Symbol> = parameters.to_vec();
@@ -163,11 +152,7 @@ impl<'ast> Visitor<'ast> for FreeVarCollector {
                     this.visit_block(body);
                 });
             }
-            Statement::Assign {
-                name,
-                value,
-                span: _,
-            } => {
+            Statement::Assign { name, value, span: _ } => {
                 if !self.is_bound(*name) {
                     self.free.insert(*name);
                 }
@@ -184,17 +169,13 @@ impl<'ast> Visitor<'ast> for FreeVarCollector {
                     self.free.insert(*name);
                 }
             }
-            Expression::Function {
-                parameters, body, ..
-            } => {
+            Expression::Function { parameters, body, .. } => {
                 let params: Vec<Symbol> = parameters.to_vec();
                 self.with_scope(&params, |this| {
                     this.visit_block(body);
                 });
             }
-            Expression::Match {
-                scrutinee, arms, ..
-            } => {
+            Expression::Match { scrutinee, arms, .. } => {
                 self.visit_expr(scrutinee);
                 for arm in arms {
                     let names = self.collect_pattern_names(&arm.pattern);
@@ -267,11 +248,7 @@ mod tests {
         let lexer = Lexer::new(source);
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         collect_free_vars_in_program(&program)
@@ -282,24 +259,13 @@ mod tests {
 
     fn parse_function_body(
         source: &str,
-    ) -> (
-        Vec<crate::syntax::symbol::Symbol>,
-        Block,
-        crate::syntax::interner::Interner,
-    ) {
+    ) -> (Vec<crate::syntax::symbol::Symbol>, Block, crate::syntax::interner::Interner) {
         let lexer = Lexer::new(source);
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
-        let Statement::Function {
-            parameters, body, ..
-        } = &program.statements[0]
-        else {
+        let Statement::Function { parameters, body, .. } = &program.statements[0] else {
             panic!("expected function statement");
         };
         (parameters.clone(), body.clone(), interner)

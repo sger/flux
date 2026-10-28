@@ -146,9 +146,7 @@ pub fn enter_task(task: u32) {
 
 /// The tape generation this thread's task started in.
 pub(super) fn task_generation() -> u64 {
-    TASK_GENERATION
-        .try_with(|generation| generation.get())
-        .unwrap_or(0)
+    TASK_GENERATION.try_with(|generation| generation.get()).unwrap_or(0)
 }
 
 /// Requests made before this one belong to runs a debugger abandoned by
@@ -266,16 +264,12 @@ static FIBER_SOURCE: RwLock<Option<FiberSource>> = RwLock::new(None);
 /// Tells the tape how to find the running fiber. Each backend's async
 /// runtime registers itself before it runs a program under a tape.
 pub fn set_fiber_source(source: FiberSource) {
-    *FIBER_SOURCE
-        .write()
-        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(source);
+    *FIBER_SOURCE.write().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(source);
 }
 
 /// The real id of the fiber running now, if any.
 fn real_fiber() -> Option<u64> {
-    let source = *FIBER_SOURCE
-        .read()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let source = *FIBER_SOURCE.read().unwrap_or_else(|poisoned| poisoned.into_inner());
     source.and_then(|source| source())
 }
 
@@ -303,18 +297,14 @@ static FATAL: RwLock<Option<FatalHandler>> = RwLock::new(None);
 /// Sets how a tape error found inside the async runtime is reported before
 /// the process exits.
 pub fn set_fatal_handler(handler: FatalHandler) {
-    *FATAL
-        .write()
-        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(handler);
+    *FATAL.write().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(handler);
 }
 
 /// Stops the run on `err`. Async work is found to diverge deep inside the
 /// scheduler, where no error can be returned to the program.
 pub fn fail(err: TapeError) -> ! {
     {
-        let handler = FATAL
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let handler = FATAL.read().unwrap_or_else(|poisoned| poisoned.into_inner());
         match handler.as_ref() {
             Some(handler) => handler(&err),
             None => {
@@ -346,33 +336,20 @@ impl Submission {
     fn request(&self, req: u64) -> EffectRequest {
         match self {
             Submission::Timer { ms } => EffectRequest::TimerStart { req, ms: *ms },
-            Submission::Dns { host, port } => EffectRequest::DnsResolve {
-                req,
-                host: host.clone(),
-                port: *port,
-            },
-            Submission::Connect { addr } => EffectRequest::TcpConnect {
-                req,
-                addr: addr.to_string(),
-            },
-            Submission::Listen { addr } => EffectRequest::TcpListen {
-                req,
-                addr: addr.to_string(),
-            },
-            Submission::Accept { handle } => EffectRequest::TcpAccept {
-                req,
-                handle: handle.0,
-            },
-            Submission::Read { handle, max } => EffectRequest::TcpRead {
-                req,
-                handle: handle.0,
-                max: *max as u64,
-            },
-            Submission::Write { handle, bytes } => EffectRequest::TcpWrite {
-                req,
-                handle: handle.0,
-                bytes: TapeBytes(bytes.clone()),
-            },
+            Submission::Dns { host, port } => {
+                EffectRequest::DnsResolve { req, host: host.clone(), port: *port }
+            }
+            Submission::Connect { addr } => {
+                EffectRequest::TcpConnect { req, addr: addr.to_string() }
+            }
+            Submission::Listen { addr } => EffectRequest::TcpListen { req, addr: addr.to_string() },
+            Submission::Accept { handle } => EffectRequest::TcpAccept { req, handle: handle.0 },
+            Submission::Read { handle, max } => {
+                EffectRequest::TcpRead { req, handle: handle.0, max: *max as u64 }
+            }
+            Submission::Write { handle, bytes } => {
+                EffectRequest::TcpWrite { req, handle: handle.0, bytes: TapeBytes(bytes.clone()) }
+            }
             Submission::Close { handle } => EffectRequest::TcpClose { handle: handle.0 },
         }
     }
@@ -426,9 +403,7 @@ pub fn submit(req: Option<RequestId>, submission: Submission) -> bool {
 static UNPERFORMED: Mutex<Vec<(u64, Submission)>> = Mutex::new(Vec::new());
 
 fn unperformed() -> std::sync::MutexGuard<'static, Vec<(u64, Submission)>> {
-    UNPERFORMED
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+    UNPERFORMED.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Starts work for real, bypassing the tape: false when it cannot be.
@@ -439,9 +414,7 @@ static RESUBMIT: RwLock<Option<Resubmit>> = RwLock::new(None);
 /// Tells the tape how to start, for real, work a re-run only answered.
 /// Each backend's async runtime registers itself under a debugger.
 pub fn set_resubmit(resubmit: Resubmit) {
-    *RESUBMIT
-        .write()
-        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(resubmit);
+    *RESUBMIT.write().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(resubmit);
 }
 
 /// A re-run reached the end of what was recorded and records again: starts
@@ -449,9 +422,7 @@ pub fn set_resubmit(resubmit: Resubmit) {
 /// over; a socket request cannot, and stops the run.
 pub(super) fn go_live() {
     let pending = std::mem::take(&mut *unperformed());
-    let resubmit = *RESUBMIT
-        .read()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let resubmit = *RESUBMIT.read().unwrap_or_else(|poisoned| poisoned.into_inner());
     for (req, submission) in pending {
         let started = resubmit.is_some_and(|resubmit| resubmit(req, &submission));
         if !started {
@@ -492,10 +463,7 @@ pub fn deliver(mut real_next: impl FnMut() -> Option<Completion>) -> Option<Comp
 fn replay_next() -> Option<Completion> {
     let next = {
         let guard = lock();
-        if !matches!(
-            guard.as_ref(),
-            Some(TapeState::Replay { .. } | TapeState::Rerun { .. })
-        ) {
+        if !matches!(guard.as_ref(), Some(TapeState::Replay { .. } | TapeState::Rerun { .. })) {
             return None;
         }
         let (events, cursor) = super::replay_events(&guard);
@@ -551,10 +519,7 @@ fn replay_next() -> Option<Completion> {
             // Positions, the re-run's switch back to recording, and the
             // threads waiting for their turn (0188 S9a).
             super::advance(&event);
-            Some(Completion {
-                request_id: RequestId(real),
-                payload,
-            })
+            Some(Completion { request_id: RequestId(real), payload })
         }
         Err(err) => {
             // Nothing else can run while the scheduler waits, so the program

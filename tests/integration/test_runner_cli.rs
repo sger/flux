@@ -85,11 +85,7 @@ fn test_mode_no_tests_returns_success() {
     let output = run_flux(&["--test", file.to_str().unwrap()]);
     let text = combined_output(&output);
 
-    assert!(
-        output.status.success(),
-        "expected success status, output:\n{}",
-        text
-    );
+    assert!(output.status.success(), "expected success status, output:\n{}", text);
     assert!(
         text.contains("No test functions found"),
         "expected no-tests message, output:\n{}",
@@ -103,16 +99,8 @@ fn test_mode_non_zero_arity_fails_but_continues() {
     let output = run_flux(&["--test", file.to_str().unwrap()]);
     let text = combined_output(&output);
 
-    assert!(
-        !output.status.success(),
-        "expected failure, output:\n{}",
-        text
-    );
-    assert!(
-        text.contains("PASS  test_ok"),
-        "expected passing test to run, output:\n{}",
-        text
-    );
+    assert!(!output.status.success(), "expected failure, output:\n{}", text);
+    assert!(text.contains("PASS  test_ok"), "expected passing test to run, output:\n{}", text);
     assert!(
         text.contains("FAIL  test_needs_arg"),
         "expected arity test failure, output:\n{}",
@@ -131,31 +119,11 @@ fn test_mode_discovers_tests_module_and_top_level() {
     let output = run_flux(&["--test", file.to_str().unwrap()]);
     let text = combined_output(&output);
 
-    assert!(
-        output.status.success(),
-        "expected success, output:\n{}",
-        text
-    );
-    assert!(
-        text.contains("[Tests]"),
-        "expected Tests group header, output:\n{}",
-        text
-    );
-    assert!(
-        text.contains("[top-level]"),
-        "expected top-level group header, output:\n{}",
-        text
-    );
-    assert!(
-        text.contains("PASS  test_inside"),
-        "expected module test pass, output:\n{}",
-        text
-    );
-    assert!(
-        text.contains("PASS  test_top"),
-        "expected top-level test pass, output:\n{}",
-        text
-    );
+    assert!(output.status.success(), "expected success, output:\n{}", text);
+    assert!(text.contains("[Tests]"), "expected Tests group header, output:\n{}", text);
+    assert!(text.contains("[top-level]"), "expected top-level group header, output:\n{}", text);
+    assert!(text.contains("PASS  test_inside"), "expected module test pass, output:\n{}", text);
+    assert!(text.contains("PASS  test_top"), "expected top-level test pass, output:\n{}", text);
 }
 
 #[test]
@@ -169,11 +137,7 @@ fn test_mode_flow_test_wrappers_work() {
     ]);
     let text = combined_output(&output);
 
-    assert!(
-        output.status.success(),
-        "expected success, output:\n{}",
-        text
-    );
+    assert!(output.status.success(), "expected success, output:\n{}", text);
     assert!(
         text.contains("PASS  test_flow_wrappers"),
         "expected wrapper test pass, output:\n{}",
@@ -192,11 +156,7 @@ fn test_mode_flow_list_module_fixture_passes() {
     ]);
     let text = combined_output(&output);
 
-    assert!(
-        output.status.success(),
-        "expected success, output:\n{}",
-        text
-    );
+    assert!(output.status.success(), "expected success, output:\n{}", text);
     assert!(
         text.contains("PASS  test_core_hofs"),
         "expected core HOFs test pass, output:\n{}",
@@ -237,11 +197,7 @@ fn test_mode_flow_list_module_fixture_passes() {
         "expected set-like operations test pass, output:\n{}",
         text
     );
-    assert!(
-        text.contains("9 tests: 9 passed, 0 failed"),
-        "unexpected summary, output:\n{}",
-        text
-    );
+    assert!(text.contains("9 tests: 9 passed, 0 failed"), "unexpected summary, output:\n{}", text);
 }
 
 #[test]
@@ -261,11 +217,7 @@ fn test_mode_flow_list_module_fixture_passes_in_strict_mode() {
         "expected strict Flow/List fixture success, output:\n{}",
         text
     );
-    assert!(
-        text.contains("9 tests: 9 passed, 0 failed"),
-        "unexpected summary, output:\n{}",
-        text
-    );
+    assert!(text.contains("9 tests: 9 passed, 0 failed"), "unexpected summary, output:\n{}", text);
 }
 
 #[test]
@@ -279,11 +231,7 @@ fn test_mode_flow_array_module_fixture_passes() {
     ]);
     let text = combined_output(&output);
 
-    assert!(
-        output.status.success(),
-        "expected success, output:\n{}",
-        text
-    );
+    assert!(output.status.success(), "expected success, output:\n{}", text);
     assert!(
         text.contains("PASS  test_array_core_hofs"),
         "expected core HOFs test pass, output:\n{}",
@@ -309,11 +257,7 @@ fn test_mode_flow_array_module_fixture_passes() {
         "expected zip/update test pass, output:\n{}",
         text
     );
-    assert!(
-        text.contains("5 tests: 5 passed, 0 failed"),
-        "unexpected summary, output:\n{}",
-        text
-    );
+    assert!(text.contains("5 tests: 5 passed, 0 failed"), "unexpected summary, output:\n{}", text);
 }
 
 #[test]
@@ -333,11 +277,7 @@ fn test_mode_flow_array_module_fixture_passes_in_strict_mode() {
         "expected strict Flow/Array fixture success, output:\n{}",
         text
     );
-    assert!(
-        text.contains("5 tests: 5 passed, 0 failed"),
-        "unexpected summary, output:\n{}",
-        text
-    );
+    assert!(text.contains("5 tests: 5 passed, 0 failed"), "unexpected summary, output:\n{}", text);
 }
 
 #[cfg(feature = "llvm")]
@@ -357,11 +297,7 @@ fn test_mode_flow_list_module_fixture_passes_on_native_llvm() {
     ]);
     let text = combined_output(&output);
 
-    assert!(
-        output.status.success(),
-        "expected native success, output:\n{}",
-        text
-    );
+    assert!(output.status.success(), "expected native success, output:\n{}", text);
     assert!(
         text.contains("PASS  test_core_hofs"),
         "expected core HOFs test pass on native backend, output:\n{}",
@@ -427,11 +363,7 @@ fn test_mode_native_handles_files_that_already_define_main() {
         "expected native success for file with user main, output:\n{}",
         text
     );
-    assert!(
-        text.contains("PASS  test_ok"),
-        "expected native test pass, output:\n{}",
-        text
-    );
+    assert!(text.contains("PASS  test_ok"), "expected native test pass, output:\n{}", text);
     assert!(
         !text.contains("Duplicate Main Function"),
         "unexpected duplicate main error, output:\n{}",
@@ -447,10 +379,8 @@ fn test_mode_native_rejects_additional_main_references_in_harness_rewrite() {
         return;
     }
 
-    let (_files, file) = write_temp_flux_file(
-        "native_test_main_ref",
-        "fn main() { main() }\nfn test_ok() { 0 }\n",
-    );
+    let (_files, file) =
+        write_temp_flux_file("native_test_main_ref", "fn main() { main() }\nfn test_ok() { 0 }\n");
     let output = run_flux(&["--test", "--native", file.to_str().unwrap()]);
     let text = combined_output(&output);
 
@@ -546,11 +476,7 @@ fn test_dump_lir_llvm_reuse_path_writes_raw_cons_headers() {
     let output = run_flux(&["--dump-lir-llvm", file.to_str().unwrap()]);
     let text = combined_output(&output);
 
-    assert!(
-        output.status.success(),
-        "expected --dump-lir-llvm success, output:\n{}",
-        text
-    );
+    assert!(output.status.success(), "expected --dump-lir-llvm success, output:\n{}", text);
 
     let merge_by_key = extract_function_ir(&text, "flux_Flow_List_merge_by_key");
     assert!(
@@ -591,16 +517,8 @@ fn test_mode_test_filter_runs_subset() {
     let output = run_flux(&["--test", file.to_str().unwrap(), "--test-filter", "test_a"]);
     let text = combined_output(&output);
 
-    assert!(
-        output.status.success(),
-        "expected success status, output:\n{}",
-        text
-    );
-    assert!(
-        text.contains("PASS  test_a"),
-        "expected filtered test to run, output:\n{}",
-        text
-    );
+    assert!(output.status.success(), "expected success status, output:\n{}", text);
+    assert!(text.contains("PASS  test_a"), "expected filtered test to run, output:\n{}", text);
     assert!(
         !text.contains("PASS  test_b"),
         "expected non-matching test to be excluded, output:\n{}",
@@ -616,12 +534,7 @@ fn test_mode_test_filter_runs_subset() {
 #[test]
 fn test_mode_test_filter_no_match_reports_empty() {
     let file = fixture_path("all_pass.flx");
-    let output = run_flux(&[
-        "--test",
-        file.to_str().unwrap(),
-        "--test-filter",
-        "does_not_exist",
-    ]);
+    let output = run_flux(&["--test", file.to_str().unwrap(), "--test-filter", "does_not_exist"]);
     let text = combined_output(&output);
 
     assert!(
@@ -647,16 +560,8 @@ fn test_mode_primops_fixture_passes_on_vm() {
     ]);
     let text = combined_output(&output);
 
-    assert!(
-        output.status.success(),
-        "expected success, output:\n{}",
-        text
-    );
-    assert!(
-        text.contains("8 tests: 8 passed, 0 failed"),
-        "unexpected summary, output:\n{}",
-        text
-    );
+    assert!(output.status.success(), "expected success, output:\n{}", text);
+    assert!(text.contains("8 tests: 8 passed, 0 failed"), "unexpected summary, output:\n{}", text);
 }
 
 #[test]
@@ -755,24 +660,10 @@ fn run_syntax_fixture(name: &str, expected_count: u32) {
     let output = run_flux(&["--test", file.to_str().unwrap()]);
     let text = combined_output(&output);
 
-    assert!(
-        output.status.success(),
-        "expected all tests to pass in {}, output:\n{}",
-        name,
-        text
-    );
+    assert!(output.status.success(), "expected all tests to pass in {}, output:\n{}", name, text);
 
-    let summary = format!(
-        "{} tests: {} passed, 0 failed",
-        expected_count, expected_count
-    );
-    assert!(
-        text.contains(&summary),
-        "expected '{}' in {}, output:\n{}",
-        summary,
-        name,
-        text
-    );
+    let summary = format!("{} tests: {} passed, 0 failed", expected_count, expected_count);
+    assert!(text.contains(&summary), "expected '{}' in {}, output:\n{}", summary, name, text);
 }
 
 #[test]
@@ -826,16 +717,8 @@ fn dump_core_prints_core_ir_and_exits_before_execution() {
     let output = run_flux(&["--dump-core", file.to_str().unwrap()]);
     let text = combined_output(&output);
 
-    assert!(
-        output.status.success(),
-        "expected dump-core success, output:\n{}",
-        text
-    );
-    assert!(
-        text.contains("def main ="),
-        "expected readable Core dump header, output:\n{}",
-        text
-    );
+    assert!(output.status.success(), "expected dump-core success, output:\n{}", text);
+    assert!(text.contains("def main ="), "expected readable Core dump header, output:\n{}", text);
     assert!(
         text.contains("handle Console") && text.contains("__primop_print"),
         "expected readable Core dump to include the default Console handler, output:\n{}",
@@ -856,11 +739,7 @@ fn dump_core_prints_core_ir_and_exits_before_execution() {
         "readable dump should hide external markers, output:\n{}",
         text
     );
-    assert!(
-        !text.contains("\n3\n"),
-        "dump-core should not execute the program, output:\n{}",
-        text
-    );
+    assert!(!text.contains("\n3\n"), "dump-core should not execute the program, output:\n{}", text);
 }
 
 #[test]
@@ -869,11 +748,7 @@ fn dump_core_debug_preserves_raw_identity_details() {
     let output = run_flux(&["--dump-core=debug", file.to_str().unwrap()]);
     let text = combined_output(&output);
 
-    assert!(
-        output.status.success(),
-        "expected dump-core debug success, output:\n{}",
-        text
-    );
+    assert!(output.status.success(), "expected dump-core debug success, output:\n{}", text);
     assert!(
         text.contains("letrec main"),
         "expected raw main thunk shape in debug dump, output:\n{}",
@@ -907,26 +782,14 @@ fn dump_cfg_prints_cfg_ir_and_exits_before_execution() {
     let output = run_flux(&["--dump-cfg", file.to_str().unwrap()]);
     let text = combined_output(&output);
 
-    assert!(
-        output.status.success(),
-        "expected dump-cfg success, output:\n{}",
-        text
-    );
+    assert!(output.status.success(), "expected dump-cfg success, output:\n{}", text);
     assert!(
         text.contains("fn #") || text.contains("fn <anon>"),
         "expected CFG function header, output:\n{}",
         text
     );
-    assert!(
-        text.contains("Return"),
-        "expected CFG terminator, output:\n{}",
-        text
-    );
-    assert!(
-        !text.contains("\n3\n"),
-        "dump-cfg should not execute the program, output:\n{}",
-        text
-    );
+    assert!(text.contains("Return"), "expected CFG terminator, output:\n{}", text);
+    assert!(!text.contains("\n3\n"), "dump-cfg should not execute the program, output:\n{}", text);
 }
 
 #[test]
@@ -935,11 +798,7 @@ fn dump_core_debug_excludes_aether_stats() {
     let output = run_flux(&["--dump-core=debug", file.to_str().unwrap()]);
     let text = combined_output(&output);
 
-    assert!(
-        output.status.success(),
-        "expected dump-core debug success, output:\n{}",
-        text
-    );
+    assert!(output.status.success(), "expected dump-core debug success, output:\n{}", text);
     assert!(
         !text.contains("── Aether stats ──"),
         "dump-core debug should stay semantic-only, output:\n{}",
@@ -958,11 +817,7 @@ fn dump_core_debug_shows_explicit_polymorphism_without_dynamic() {
     let output = run_flux(&["--dump-core=debug", file.to_str().unwrap()]);
     let text = combined_output(&output);
 
-    assert!(
-        output.status.success(),
-        "expected dump-core debug success, output:\n{}",
-        text
-    );
+    assert!(output.status.success(), "expected dump-core debug success, output:\n{}", text);
     assert!(
         text.contains("forall "),
         "expected dump-core debug to render explicit polymorphism, output:\n{}",
@@ -1308,12 +1163,7 @@ fn all_errors_flag_reveals_effect_diagnostics_after_type_errors() {
         default_text
     );
 
-    let all_output = run_flux(&[
-        "--no-cache",
-        "--strict",
-        "--all-errors",
-        file.to_str().unwrap(),
-    ]);
+    let all_output = run_flux(&["--no-cache", "--strict", "--all-errors", file.to_str().unwrap()]);
     let all_text = combined_output(&all_output);
     assert!(
         !all_output.status.success(),
@@ -1340,10 +1190,8 @@ fn all_errors_flag_reveals_effect_diagnostics_after_type_errors() {
 fn assert_example_ok(path: &str, roots: &[&str]) {
     let file = workspace_root().join(path);
     let mut args: Vec<&str> = vec!["--no-cache"];
-    let root_paths: Vec<String> = roots
-        .iter()
-        .map(|r| workspace_root().join(r).to_string_lossy().into_owned())
-        .collect();
+    let root_paths: Vec<String> =
+        roots.iter().map(|r| workspace_root().join(r).to_string_lossy().into_owned()).collect();
     for r in &root_paths {
         args.push("--root");
         args.push(r);
@@ -1351,20 +1199,15 @@ fn assert_example_ok(path: &str, roots: &[&str]) {
     args.push(file.to_str().unwrap());
     let output = run_flux(&args);
     let text = combined_output(&output);
-    assert!(
-        output.status.success(),
-        "expected success for {path}, output:\n{text}"
-    );
+    assert!(output.status.success(), "expected success for {path}, output:\n{text}");
 }
 
 /// Helper: run an example file with optional roots in strict mode, expect success.
 fn assert_example_ok_strict(path: &str, roots: &[&str]) {
     let file = workspace_root().join(path);
     let mut args: Vec<&str> = vec!["--no-cache"];
-    let root_paths: Vec<String> = roots
-        .iter()
-        .map(|r| workspace_root().join(r).to_string_lossy().into_owned())
-        .collect();
+    let root_paths: Vec<String> =
+        roots.iter().map(|r| workspace_root().join(r).to_string_lossy().into_owned()).collect();
     for r in &root_paths {
         args.push("--root");
         args.push(r);
@@ -1372,20 +1215,15 @@ fn assert_example_ok_strict(path: &str, roots: &[&str]) {
     args.push(file.to_str().unwrap());
     let output = run_flux_strict(&args);
     let text = combined_output(&output);
-    assert!(
-        output.status.success(),
-        "expected success (strict) for {path}, output:\n{text}"
-    );
+    assert!(output.status.success(), "expected success (strict) for {path}, output:\n{text}");
 }
 
 /// Helper: run an example, expect failure with a specific error code.
 fn assert_example_error(path: &str, roots: &[&str], expected_code: &str) {
     let file = workspace_root().join(path);
     let mut args: Vec<&str> = vec!["--no-cache"];
-    let root_paths: Vec<String> = roots
-        .iter()
-        .map(|r| workspace_root().join(r).to_string_lossy().into_owned())
-        .collect();
+    let root_paths: Vec<String> =
+        roots.iter().map(|r| workspace_root().join(r).to_string_lossy().into_owned()).collect();
     for r in &root_paths {
         args.push("--root");
         args.push(r);
@@ -1393,24 +1231,16 @@ fn assert_example_error(path: &str, roots: &[&str], expected_code: &str) {
     args.push(file.to_str().unwrap());
     let output = run_flux(&args);
     let text = combined_output(&output);
-    assert!(
-        !output.status.success(),
-        "expected failure for {path}, output:\n{text}"
-    );
-    assert!(
-        text.contains(expected_code),
-        "expected {expected_code} for {path}, output:\n{text}"
-    );
+    assert!(!output.status.success(), "expected failure for {path}, output:\n{text}");
+    assert!(text.contains(expected_code), "expected {expected_code} for {path}, output:\n{text}");
 }
 
 /// Helper: run an example in strict mode, expect failure with a specific error code.
 fn assert_example_error_strict(path: &str, roots: &[&str], expected_code: &str) {
     let file = workspace_root().join(path);
     let mut args: Vec<&str> = vec!["--no-cache"];
-    let root_paths: Vec<String> = roots
-        .iter()
-        .map(|r| workspace_root().join(r).to_string_lossy().into_owned())
-        .collect();
+    let root_paths: Vec<String> =
+        roots.iter().map(|r| workspace_root().join(r).to_string_lossy().into_owned()).collect();
     for r in &root_paths {
         args.push("--root");
         args.push(r);
@@ -1418,10 +1248,7 @@ fn assert_example_error_strict(path: &str, roots: &[&str], expected_code: &str) 
     args.push(file.to_str().unwrap());
     let output = run_flux_strict(&args);
     let text = combined_output(&output);
-    assert!(
-        !output.status.success(),
-        "expected failure (strict) for {path}, output:\n{text}"
-    );
+    assert!(!output.status.success(), "expected failure (strict) for {path}, output:\n{text}");
     assert!(
         text.contains(expected_code),
         "expected {expected_code} (strict) for {path}, output:\n{text}"
@@ -1432,10 +1259,7 @@ fn assert_example_error_strict(path: &str, roots: &[&str], expected_code: &str) 
 
 #[test]
 fn example_aoc_day05_part1() {
-    assert_example_ok(
-        "examples/aoc/2024/day05_part1_test.flx",
-        &["lib", "examples/aoc/2024"],
-    );
+    assert_example_ok("examples/aoc/2024/day05_part1_test.flx", &["lib", "examples/aoc/2024"]);
 }
 
 #[test]
@@ -1491,20 +1315,12 @@ fn example_flow_wrapper() {
 
 #[test]
 fn example_parser_perform_missing_dot_173() {
-    assert_example_error(
-        "examples/type_system/failing/173_perform_missing_dot.flx",
-        &[],
-        "E034",
-    );
+    assert_example_error("examples/type_system/failing/173_perform_missing_dot.flx", &[], "E034");
 }
 
 #[test]
 fn example_parser_handle_missing_lbrace_174() {
-    assert_example_error(
-        "examples/type_system/failing/174_handle_missing_lbrace.flx",
-        &[],
-        "E034",
-    );
+    assert_example_error("examples/type_system/failing/174_handle_missing_lbrace.flx", &[], "E034");
 }
 
 #[test]
@@ -1545,10 +1361,7 @@ fn example_strict_private_allowed_61() {
 
 #[test]
 fn example_effect_row_order_ok_100() {
-    assert_example_ok(
-        "examples/type_system/100_effect_row_order_equivalence_ok.flx",
-        &[],
-    );
+    assert_example_ok("examples/type_system/100_effect_row_order_equivalence_ok.flx", &[]);
 }
 
 #[test]
@@ -1562,26 +1375,17 @@ fn example_effect_row_multi_missing_e400_194() {
 
 #[test]
 fn example_effect_row_subtract_ok_101() {
-    assert_example_ok(
-        "examples/type_system/101_effect_row_subtract_concrete_ok.flx",
-        &[],
-    );
+    assert_example_ok("examples/type_system/101_effect_row_subtract_concrete_ok.flx", &[]);
 }
 
 #[test]
 fn example_effect_row_subtract_var_ok_102() {
-    assert_example_ok(
-        "examples/type_system/102_effect_row_subtract_var_satisfied_ok.flx",
-        &[],
-    );
+    assert_example_ok("examples/type_system/102_effect_row_subtract_var_satisfied_ok.flx", &[]);
 }
 
 #[test]
 fn example_effect_row_multivar_ok_103() {
-    assert_example_ok(
-        "examples/type_system/103_effect_row_multivar_disambiguated_ok.flx",
-        &[],
-    );
+    assert_example_ok("examples/type_system/103_effect_row_multivar_disambiguated_ok.flx", &[]);
 }
 
 #[test]
@@ -1634,18 +1438,12 @@ fn example_effect_row_subset_sorted_e300_199() {
 
 #[test]
 fn example_effect_row_absent_ordering_ok_104() {
-    assert_example_ok(
-        "examples/type_system/104_effect_row_absent_ordering_linked_ok.flx",
-        &[],
-    );
+    assert_example_ok("examples/type_system/104_effect_row_absent_ordering_linked_ok.flx", &[]);
 }
 
 #[test]
 fn example_base_hof_effect_row_ok_105() {
-    assert_example_ok(
-        "examples/type_system/105_base_hof_callback_effect_row_ok.flx",
-        &[],
-    );
+    assert_example_ok("examples/type_system/105_base_hof_callback_effect_row_ok.flx", &[]);
 }
 
 #[test]
@@ -1758,10 +1556,7 @@ fn eval_prelude_call_prints_value() {
 fn eval_type_error_reports_diagnostic_without_panicking() {
     let output = run_flux(&["eval", "1 + \"x\""]);
     let text = combined_output(&output);
-    assert!(
-        !output.status.success(),
-        "expected a type error to fail, output:\n{text}"
-    );
+    assert!(!output.status.success(), "expected a type error to fail, output:\n{text}");
     assert!(
         String::from_utf8_lossy(&output.stdout).trim().is_empty(),
         "a failed eval must not print a value to stdout, output:\n{text}"
@@ -2284,9 +2079,7 @@ fn repl_shell_command_runs_and_inherits_stdout() {
     // command's output shows up in the value stream. `echo` works on cmd and sh.
     let output = run_flux_repl(":!echo flux_shell_marker_321\n:quit\n");
     assert!(
-        repl_results(&output)
-            .iter()
-            .any(|line| line.contains("flux_shell_marker_321")),
+        repl_results(&output).iter().any(|line| line.contains("flux_shell_marker_321")),
         "shell output should appear on stdout:\n{}",
         String::from_utf8_lossy(&output.stdout),
     );
@@ -2355,10 +2148,8 @@ fn repl_runs_effects_once_without_replaying() {
     // so an effectful expression's output appears exactly once. The Phase 1
     // engine re-ran the whole session every line and would have replayed it.
     let output = run_flux_repl("println(\"effect\")\n1 + 1\n:quit\n");
-    let effect_lines = repl_results(&output)
-        .into_iter()
-        .filter(|line| line.contains("effect"))
-        .count();
+    let effect_lines =
+        repl_results(&output).into_iter().filter(|line| line.contains("effect")).count();
     assert_eq!(
         effect_lines,
         1,
@@ -2379,10 +2170,8 @@ fn repl_runs_effectful_declaration_once() {
     // re-runs it inside a synthesized `main`, so the effect fires exactly once
     // and a later pure line still evaluates (proposal 0176).
     let output = run_flux_repl("let _ = println(\"effect\")\n1 + 1\n:quit\n");
-    let effect_lines = repl_results(&output)
-        .into_iter()
-        .filter(|line| line.contains("effect"))
-        .count();
+    let effect_lines =
+        repl_results(&output).into_iter().filter(|line| line.contains("effect")).count();
     assert_eq!(
         effect_lines,
         1,
@@ -2472,10 +2261,7 @@ fn repl_load_brings_file_definitions_into_scope() {
     // on later lines (here `triple` applied to the loaded `base`).
     let (_files, file) =
         repl_temp_flx("load", "fn triple(n: Int) -> Int { n * 3 }\nlet base = 7\n");
-    let output = run_flux_repl(&format!(
-        ":load \"{}\"\ntriple(base)\n:quit\n",
-        file.display()
-    ));
+    let output = run_flux_repl(&format!(":load \"{}\"\ntriple(base)\n:quit\n", file.display()));
     assert_eq!(
         repl_results(&output),
         ["21"],
@@ -2489,10 +2275,8 @@ fn repl_reload_reapplies_the_loaded_file() {
     // After `:load`, `:reload` re-bootstraps and re-applies the same file, so its
     // definitions remain callable.
     let (_files, file) = repl_temp_flx("reload", "fn answer() -> Int { 42 }\n");
-    let output = run_flux_repl(&format!(
-        ":load \"{}\"\n:reload\nanswer()\n:quit\n",
-        file.display()
-    ));
+    let output =
+        run_flux_repl(&format!(":load \"{}\"\n:reload\nanswer()\n:quit\n", file.display()));
     assert_eq!(
         repl_results(&output),
         ["42"],
@@ -2535,10 +2319,7 @@ fn repl_list_shows_session_declarations() {
     // `let` and a `fn` should both appear verbatim.
     let output = run_flux_repl("let a = 1\nfn f(n) { n + 1 }\n:list\n:quit\n");
     let combined = combined_output(&output);
-    assert!(
-        combined.contains("let a = 1"),
-        "`:list` should show the `let`, output:\n{combined}",
-    );
+    assert!(combined.contains("let a = 1"), "`:list` should show the `let`, output:\n{combined}",);
     assert!(
         combined.contains("fn f(n) { n + 1 }"),
         "`:list` should show the `fn`, output:\n{combined}",
@@ -2551,9 +2332,7 @@ fn repl_help_lists_commands() {
     for command in [":help", ":?"] {
         let output = run_flux_repl(&format!("{command}\n:quit\n"));
         let combined = combined_output(&output);
-        for expected in [
-            ":type", ":info", ":browse", ":set", ":load", ":reset", ":list", ":quit",
-        ] {
+        for expected in [":type", ":info", ":browse", ":set", ":load", ":reset", ":list", ":quit"] {
             assert!(
                 combined.contains(expected),
                 "`{command}` should mention `{expected}`, output:\n{combined}",
@@ -2572,10 +2351,7 @@ fn repl_reset_after_load_clears_loaded_definitions() {
         ":load \"{}\"\ntriple(7)\n:reset\ntriple(7)\n:quit\n",
         file.display()
     ));
-    let twenty_ones = repl_results(&output)
-        .into_iter()
-        .filter(|line| line == "21")
-        .count();
+    let twenty_ones = repl_results(&output).into_iter().filter(|line| line == "21").count();
     assert_eq!(
         twenty_ones,
         1,
@@ -2697,9 +2473,7 @@ fn repl_captures_compound_effectful_result_into_it() {
     ));
     assert_eq!(
         repl_results(&output),
-        [
-            "\"a\"", "[10, 20]", "2", "\"b\"", "(1, 2)", "3", "\"c\"", "Box(7)", "7"
-        ],
+        ["\"a\"", "[10, 20]", "2", "\"b\"", "(1, 2)", "3", "\"c\"", "Box(7)", "7"],
         "compound effectful results should be captured into `it`, stdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr),

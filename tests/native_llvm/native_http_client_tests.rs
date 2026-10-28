@@ -16,9 +16,7 @@ use flux_runner::scratch::free_port;
 static NATIVE_HTTP_CLIENT_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 fn run_source(source: String) -> (String, String, bool) {
-    let ran = flux_source(&source, "native_http_client_tests")
-        .native()
-        .run();
+    let ran = flux_source(&source, "native_http_client_tests").native().run();
     (ran.stdout, ran.stderr, ran.success)
 }
 
@@ -64,18 +62,13 @@ fn main() with IO {{
 
 fn run_ok(source: String) -> String {
     let (stdout, stderr, success) = run_source(source);
-    assert!(
-        success,
-        "native client fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "native client fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     stdout
 }
 
 fn spawn_malformed_response_server(listener: TcpListener) -> thread::JoinHandle<()> {
     thread::spawn(move || {
-        listener
-            .set_nonblocking(true)
-            .expect("set malformed server nonblocking");
+        listener.set_nonblocking(true).expect("set malformed server nonblocking");
         let deadline = Instant::now() + Duration::from_secs(15);
         loop {
             match listener.accept() {
@@ -149,10 +142,7 @@ fn native_http_client_post_loopback() {
         ),
     );
     let stdout = run_ok(source);
-    assert!(
-        stdout.contains("accepted:native-post:/echo:payload"),
-        "{stdout}"
-    );
+    assert!(stdout.contains("accepted:native-post:/echo:payload"), "{stdout}");
 }
 
 #[test]
@@ -180,10 +170,7 @@ fn native_http_client_decodes_chunked_response() {
 fn native_http_client_malformed_response_fails() {
     let _guard = native_http_client_test_lock();
     let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind malformed response server");
-    let port = listener
-        .local_addr()
-        .expect("read malformed response server port")
-        .port();
+    let port = listener.local_addr().expect("read malformed response server port").port();
     let server = spawn_malformed_response_server(listener);
     let source = format!(
         r#"

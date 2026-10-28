@@ -22,11 +22,7 @@ struct CycleDiagnostic {
 
 impl CycleDiagnostic {
     fn new(cycle: Vec<ModuleId>, anchor_file: String, anchor_position: Position) -> Self {
-        Self {
-            cycle,
-            anchor_file,
-            anchor_position,
-        }
+        Self { cycle, anchor_file, anchor_position }
     }
 
     fn contains(&self, id: &ModuleId) -> bool {

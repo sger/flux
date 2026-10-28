@@ -6,11 +6,7 @@ fn compile_ok_in(file_path: &str, input: &str) {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner(file_path, interner);
     compiler.compile(&program).expect("expected compile ok");
@@ -20,58 +16,34 @@ fn compile_err(input: &str) -> String {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<unknown>", interner);
-    let err = compiler
-        .compile(&program)
-        .expect_err("expected compile error");
-    err.first()
-        .map(|d| d.code().unwrap_or("").to_string())
-        .unwrap_or_default()
+    let err = compiler.compile(&program).expect_err("expected compile error");
+    err.first().map(|d| d.code().unwrap_or("").to_string()).unwrap_or_default()
 }
 
 fn compile_err_in(file_path: &str, input: &str) -> String {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner(file_path, interner);
-    let err = compiler
-        .compile(&program)
-        .expect_err("expected compile error");
-    err.first()
-        .map(|d| d.code().unwrap_or("").to_string())
-        .unwrap_or_default()
+    let err = compiler.compile(&program).expect_err("expected compile error");
+    err.first().map(|d| d.code().unwrap_or("").to_string()).unwrap_or_default()
 }
 
 fn compile_err_strict(input: &str) -> String {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<unknown>", interner);
     compiler.set_strict_mode(true);
-    let err = compiler
-        .compile(&program)
-        .expect_err("expected compile error");
-    err.first()
-        .map(|d| d.code().unwrap_or("").to_string())
-        .unwrap_or_default()
+    let err = compiler.compile(&program).expect_err("expected compile error");
+    err.first().map(|d| d.code().unwrap_or("").to_string()).unwrap_or_default()
 }
 
 fn compile_ok_strict(input: &str) {
@@ -79,11 +51,7 @@ fn compile_ok_strict(input: &str) {
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
 
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
 
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<unknown>", interner);
@@ -95,30 +63,18 @@ fn compile_err_static_typing(input: &str) -> String {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<unknown>", interner);
-    let err = compiler
-        .compile(&program)
-        .expect_err("expected compile error");
-    err.first()
-        .map(|d| d.code().unwrap_or("").to_string())
-        .unwrap_or_default()
+    let err = compiler.compile(&program).expect_err("expected compile error");
+    err.first().map(|d| d.code().unwrap_or("").to_string()).unwrap_or_default()
 }
 
 fn compile_ok_with_warnings_in(file_path: &str, input: &str, strict_mode: bool) -> Vec<Diagnostic> {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner(file_path, interner);
     compiler.set_strict_mode(strict_mode);
@@ -130,17 +86,11 @@ fn compile_err_strict_rendered(input: &str) -> String {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<unknown>", interner);
     compiler.set_strict_mode(true);
-    let err = compiler
-        .compile(&program)
-        .expect_err("expected compile error");
+    let err = compiler.compile(&program).expect_err("expected compile error");
     render_diagnostics(&err, None, None)
 }
 
@@ -148,54 +98,32 @@ fn compile_err_title(input: &str) -> String {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<unknown>", interner);
-    let err = compiler
-        .compile(&program)
-        .expect_err("expected compile error");
-    err.first()
-        .map(|d| d.title().to_string())
-        .unwrap_or_default()
+    let err = compiler.compile(&program).expect_err("expected compile error");
+    err.first().map(|d| d.title().to_string()).unwrap_or_default()
 }
 
 fn compile_err_message(input: &str) -> String {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<unknown>", interner);
-    let err = compiler
-        .compile(&program)
-        .expect_err("expected compile error");
-    err.first()
-        .and_then(|d| d.message().map(ToOwned::to_owned))
-        .unwrap_or_default()
+    let err = compiler.compile(&program).expect_err("expected compile error");
+    err.first().and_then(|d| d.message().map(ToOwned::to_owned)).unwrap_or_default()
 }
 
 fn compile_err_rendered(input: &str) -> String {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<unknown>", interner);
-    let err = compiler
-        .compile(&program)
-        .expect_err("expected compile error");
+    let err = compiler.compile(&program).expect_err("expected compile error");
     render_diagnostics(&err, None, None)
 }
 
@@ -203,16 +131,10 @@ fn compile_err_rendered_in(file_path: &str, input: &str) -> String {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner(file_path, interner);
-    let err = compiler
-        .compile(&program)
-        .expect_err("expected compile error");
+    let err = compiler.compile(&program).expect_err("expected compile error");
     render_diagnostics(&err, None, None)
 }
 
@@ -220,27 +142,17 @@ fn compile_err_diagnostics(input: &str) -> Vec<Diagnostic> {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<unknown>", interner);
-    compiler
-        .compile(&program)
-        .expect_err("expected compile error")
+    compiler.compile(&program).expect_err("expected compile error")
 }
 
 fn compile_rendered_or_empty(input: &str) -> String {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<unknown>", interner);
     match compiler.compile(&program) {
@@ -251,10 +163,7 @@ fn compile_rendered_or_empty(input: &str) -> String {
 
 #[test]
 fn import_top_level_ok() {
-    compile_ok_in(
-        "examples/test.flx",
-        "import Math module Main { fn main() { 1; } }",
-    );
+    compile_ok_in("examples/test.flx", "import Math module Main { fn main() { 1; } }");
 }
 
 #[test]
@@ -327,10 +236,7 @@ fn module_adt_constructor_access_non_strict_emits_w201_warning() {
     assert!(
         warnings.iter().any(|d| d.code() == Some("W201")),
         "expected W201 warning, got: {:?}",
-        warnings
-            .iter()
-            .map(|d| (d.code(), d.title().to_string()))
-            .collect::<Vec<_>>()
+        warnings.iter().map(|d| (d.code(), d.title().to_string())).collect::<Vec<_>>()
     );
 }
 
@@ -342,9 +248,7 @@ fn fip_annotation_emits_semantic_warning_for_fresh_allocation() {
         false,
     );
     assert!(
-        warnings.iter().any(|d| d
-            .message()
-            .is_some_and(|m| m.contains("fresh heap allocation"))),
+        warnings.iter().any(|d| d.message().is_some_and(|m| m.contains("fresh heap allocation"))),
         "expected semantic @fip warning, got: {:?}",
         warnings
             .iter()
@@ -359,9 +263,9 @@ fn fbip_annotation_is_hard_error_when_proof_fails() {
         "@fbip fn bounded(f, x) { f(x) } fn main() { bounded(\\y -> y, 1) }",
     );
     assert!(
-        diagnostics.iter().any(|d| d
-            .message()
-            .is_some_and(|m| m.contains("indirect or opaque callee `f`"))),
+        diagnostics
+            .iter()
+            .any(|d| d.message().is_some_and(|m| m.contains("indirect or opaque callee `f`"))),
         "expected semantic @fbip error, got: {:?}",
         diagnostics
             .iter()
@@ -380,8 +284,7 @@ fn fbip_annotation_without_constructors_emits_advisory_warning() {
     assert!(
         warnings.iter().any(|d| {
             d.title() == "FBIP Annotation Has No Effect"
-                && d.message()
-                    .is_some_and(|m| m.contains("no heap constructor sites"))
+                && d.message().is_some_and(|m| m.contains("no heap constructor sites"))
         }),
         "expected no-constructors advisory warning, got: {:?}",
         warnings
@@ -415,8 +318,7 @@ fn direct_string_len_emits_legacy_helper_warning() {
     assert!(
         warnings.iter().any(|d| {
             d.title() == "Legacy Builtin Helper"
-                && d.message()
-                    .is_some_and(|m| m.contains("Flow.String.string_len"))
+                && d.message().is_some_and(|m| m.contains("Flow.String.string_len"))
         }),
         "expected legacy builtin warning for string_len, got: {:?}",
         warnings
@@ -428,10 +330,8 @@ fn direct_string_len_emits_legacy_helper_warning() {
 
 #[test]
 fn direct_array_len_is_rejected_in_normal_example_files() {
-    let rendered = compile_err_rendered_in(
-        "examples/guide/test.flx",
-        "fn main() { array_len([|1, 2, 3|]) }",
-    );
+    let rendered =
+        compile_err_rendered_in("examples/guide/test.flx", "fn main() { array_len([|1, 2, 3|]) }");
     assert!(rendered.contains("error[E034]"));
     assert!(rendered.contains("Flow.Array.length"));
 }
@@ -444,9 +344,7 @@ fn primop_example_fixtures_still_allow_legacy_helper_spellings() {
         false,
     );
     assert!(
-        !warnings
-            .iter()
-            .any(|d| d.title() == "Legacy Builtin Helper"),
+        !warnings.iter().any(|d| d.title() == "Legacy Builtin Helper"),
         "did not expect legacy builtin warning inside primop fixtures, got: {:?}",
         warnings
             .iter()
@@ -463,9 +361,7 @@ fn flow_stdlib_modules_do_not_warn_on_legacy_helper_spellings() {
         false,
     );
     assert!(
-        !warnings
-            .iter()
-            .any(|d| d.title() == "Legacy Builtin Helper"),
+        !warnings.iter().any(|d| d.title() == "Legacy Builtin Helper"),
         "did not expect legacy builtin warning inside lib/Flow, got: {:?}",
         warnings
             .iter()
@@ -480,9 +376,7 @@ fn flow_array_surface_wrappers_compile_without_legacy_warning() {
         std::fs::read_to_string("lib/Flow/Array.flx").expect("expected to read lib/Flow/Array.flx");
     let warnings = compile_ok_with_warnings_in("lib/Flow/Array.flx", &source, false);
     assert!(
-        !warnings
-            .iter()
-            .any(|d| d.title() == "Legacy Builtin Helper"),
+        !warnings.iter().any(|d| d.title() == "Legacy Builtin Helper"),
         "Flow.Array surface wrappers should not emit legacy helper warnings: {:?}",
         warnings
             .iter()
@@ -497,9 +391,7 @@ fn flow_map_surface_wrappers_compile_without_legacy_warning() {
         std::fs::read_to_string("lib/Flow/Map.flx").expect("expected to read lib/Flow/Map.flx");
     let warnings = compile_ok_with_warnings_in("lib/Flow/Map.flx", &source, false);
     assert!(
-        !warnings
-            .iter()
-            .any(|d| d.title() == "Legacy Builtin Helper"),
+        !warnings.iter().any(|d| d.title() == "Legacy Builtin Helper"),
         "Flow.Map surface wrappers should not emit legacy helper warnings: {:?}",
         warnings
             .iter()
@@ -524,9 +416,7 @@ fn flow_string_surface_wrappers_compile_without_legacy_warning() {
         false,
     );
     assert!(
-        !warnings
-            .iter()
-            .any(|d| d.title() == "Legacy Builtin Helper"),
+        !warnings.iter().any(|d| d.title() == "Legacy Builtin Helper"),
         "Flow.String surface wrappers should not emit legacy helper warnings: {:?}",
         warnings
             .iter()
@@ -555,11 +445,7 @@ fn effectful_prelude_call_routes_to_perform_before_inference() {
     let lexer = Lexer::new("fn main() { println(1) }");
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let mut interner = parser.take_interner();
     let no_user_effects = std::collections::HashSet::new();
     let routing =
@@ -585,14 +471,8 @@ fn effectful_prelude_call_routes_to_perform_before_inference() {
 #[test]
 fn reserved_internal_primop_call_is_rejected_in_user_source() {
     let rendered = compile_err_rendered("fn main() { __primop_println(\"nope\") }");
-    assert!(
-        rendered.contains("Reserved Primop Name"),
-        "unexpected diagnostics:\n{rendered}"
-    );
-    assert!(
-        rendered.contains("__primop_println"),
-        "unexpected diagnostics:\n{rendered}"
-    );
+    assert!(rendered.contains("Reserved Primop Name"), "unexpected diagnostics:\n{rendered}");
+    assert!(rendered.contains("__primop_println"), "unexpected diagnostics:\n{rendered}");
 }
 
 #[test]
@@ -624,12 +504,7 @@ fn expression_contains_perform(
     interner: &flux::syntax::interner::Interner,
 ) -> bool {
     match expression {
-        Expression::Perform {
-            effect: e,
-            operation: op,
-            args,
-            ..
-        } => {
+        Expression::Perform { effect: e, operation: op, args, .. } => {
             (interner.resolve(*e) == effect && interner.resolve(*op) == operation)
                 || args
                     .iter()
@@ -643,15 +518,11 @@ fn expression_contains_perform(
         }
         Expression::DoBlock { block, .. } => block.statements.iter().any(|stmt| match stmt {
             Statement::Expression { expression, .. }
-            | Statement::Let {
-                value: expression, ..
+            | Statement::Let { value: expression, .. }
+            | Statement::LetDestructure { value: expression, .. }
+            | Statement::Assign { value: expression, .. } => {
+                expression_contains_perform(expression, effect, operation, interner)
             }
-            | Statement::LetDestructure {
-                value: expression, ..
-            }
-            | Statement::Assign {
-                value: expression, ..
-            } => expression_contains_perform(expression, effect, operation, interner),
             Statement::Return { value: Some(v), .. } => {
                 expression_contains_perform(v, effect, operation, interner)
             }
@@ -665,22 +536,13 @@ fn expression_contains_perform(
             }
             _ => false,
         }),
-        Expression::Call {
-            function,
-            arguments,
-            ..
-        } => {
+        Expression::Call { function, arguments, .. } => {
             expression_contains_perform(function, effect, operation, interner)
                 || arguments
                     .iter()
                     .any(|arg| expression_contains_perform(arg, effect, operation, interner))
         }
-        Expression::If {
-            condition,
-            consequence,
-            alternative,
-            ..
-        } => {
+        Expression::If { condition, consequence, alternative, .. } => {
             expression_contains_perform(condition, effect, operation, interner)
                 || consequence.statements.iter().any(|stmt| match stmt {
                     Statement::Expression { expression, .. } => {
@@ -895,10 +757,7 @@ fn match_non_exhaustive_error() {
 
 #[test]
 fn match_bool_exhaustive_without_catchall_ok() {
-    compile_ok_in(
-        "test.flx",
-        "let x = true; match x { true -> 1, false -> 0 };",
-    );
+    compile_ok_in("test.flx", "let x = true; match x { true -> 1, false -> 0 };");
 }
 
 #[test]
@@ -914,10 +773,7 @@ fn match_bool_with_wildcard_fallback_ok() {
 
 #[test]
 fn match_list_exhaustive_without_catchall_ok() {
-    compile_ok_in(
-        "test.flx",
-        "let xs = [1, 2]; match xs { [] -> 0, [h | t] -> h };",
-    );
+    compile_ok_in("test.flx", "let xs = [1, 2]; match xs { [] -> 0, [h | t] -> h };");
 }
 
 #[test]
@@ -937,19 +793,12 @@ fn guarded_wildcard_only_reports_targeted_e015_message() {
         "expected E015 for guarded-wildcard-only match, got:\n{}",
         rendered
     );
-    assert!(
-        rendered.contains("exhaustive"),
-        "expected non-exhaustive message, got:\n{}",
-        rendered
-    );
+    assert!(rendered.contains("exhaustive"), "expected non-exhaustive message, got:\n{}", rendered);
 }
 
 #[test]
 fn guarded_wildcard_with_bare_fallback_is_exhaustive() {
-    compile_ok_in(
-        "test.flx",
-        "let x = 2; match x { _ if x > 0 -> 1, _ -> 2 };",
-    );
+    compile_ok_in("test.flx", "let x = 2; match x { _ if x > 0 -> 1, _ -> 2 };");
 }
 
 #[test]
@@ -1254,11 +1103,7 @@ fn hm_fixture_136_tuple_projection_uses_precise_hm_type() {
         "../../examples/type_system/failing/136_tuple_projection_precise_mismatch.flx"
     );
     let rendered = compile_err_rendered(source);
-    assert!(
-        rendered.contains("error[E300]"),
-        "expected E300 for fixture 136, got:\n{}",
-        rendered
-    );
+    assert!(rendered.contains("error[E300]"), "expected E300 for fixture 136, got:\n{}", rendered);
     assert!(
         rendered.contains("does not match its type annotation")
             && rendered.contains("Int")
@@ -1297,11 +1142,7 @@ fn hm_fixture_138_match_scrutinee_constraint_propagates() {
         "../../examples/type_system/failing/138_match_scrutinee_constraint_propagates.flx"
     );
     let rendered = compile_err_rendered(source);
-    assert!(
-        rendered.contains("error[E300]"),
-        "expected E300 for fixture 138, got:\n{}",
-        rendered
-    );
+    assert!(rendered.contains("error[E300]"), "expected E300 for fixture 138, got:\n{}", rendered);
     assert!(
         rendered.contains("does not match its type annotation")
             && rendered.contains("String")
@@ -1333,11 +1174,7 @@ fn hm_fixture_139_match_scrutinee_constraint_mixed_family_no_propagation() {
 fn hm_fixture_142_bool_missing_true_emits_e015() {
     let source = include_str!("../../examples/type_system/failing/142_match_bool_missing_true.flx");
     let rendered = compile_err_rendered(source);
-    assert!(
-        rendered.contains("error[E015]"),
-        "expected E015 for fixture 142, got:\n{}",
-        rendered
-    );
+    assert!(rendered.contains("error[E015]"), "expected E015 for fixture 142, got:\n{}", rendered);
     assert!(
         rendered.contains("not exhaustive"),
         "expected non-exhaustive message for fixture 142, got:\n{}",
@@ -1350,11 +1187,7 @@ fn hm_fixture_143_bool_missing_false_emits_e015() {
     let source =
         include_str!("../../examples/type_system/failing/143_match_bool_missing_false.flx");
     let rendered = compile_err_rendered(source);
-    assert!(
-        rendered.contains("error[E015]"),
-        "expected E015 for fixture 143, got:\n{}",
-        rendered
-    );
+    assert!(rendered.contains("error[E015]"), "expected E015 for fixture 143, got:\n{}", rendered);
     assert!(
         rendered.contains("not exhaustive"),
         "expected non-exhaustive message for fixture 143, got:\n{}",
@@ -1368,11 +1201,7 @@ fn hm_fixture_144_guarded_wildcard_only_targeted_message() {
         "../../examples/type_system/failing/144_guarded_wildcard_only_non_exhaustive_targeted.flx"
     );
     let rendered = compile_err_rendered(source);
-    assert!(
-        rendered.contains("error[E015]"),
-        "expected E015 for fixture 144, got:\n{}",
-        rendered
-    );
+    assert!(rendered.contains("error[E015]"), "expected E015 for fixture 144, got:\n{}", rendered);
     assert!(
         rendered.contains("not exhaustive"),
         "expected non-exhaustive message for fixture 144, got:\n{}",
@@ -1386,11 +1215,7 @@ fn hm_fixture_151_array_literal_concrete_conflict_prefers_e300() {
         "../../examples/type_system/failing/151_array_literal_concrete_conflict_prefers_e300.flx"
     );
     let rendered = compile_err_strict_rendered(source);
-    assert!(
-        rendered.contains("error[E300]"),
-        "expected E300 for fixture 151, got:\n{}",
-        rendered
-    );
+    assert!(rendered.contains("error[E300]"), "expected E300 for fixture 151, got:\n{}", rendered);
     assert!(
         !rendered.contains("error[E425]"),
         "did not expect strict unresolved E425 when concrete array mismatch already exists in fixture 151, got:\n{}",
@@ -1404,11 +1229,7 @@ fn hm_fixture_152_array_literal_callarg_conflict_prefers_e300() {
         "../../examples/type_system/failing/152_array_literal_callarg_conflict_prefers_e300.flx"
     );
     let rendered = compile_err_strict_rendered(source);
-    assert!(
-        rendered.contains("error[E300]"),
-        "expected E300 for fixture 152, got:\n{}",
-        rendered
-    );
+    assert!(rendered.contains("error[E300]"), "expected E300 for fixture 152, got:\n{}", rendered);
     assert!(
         !rendered.contains("error[E425]"),
         "did not expect strict unresolved E425 when concrete array arg mismatch already exists in fixture 152, got:\n{}",
@@ -1422,11 +1243,7 @@ fn hm_fixture_153_match_branch_conflict_prefers_e300() {
         "../../examples/type_system/failing/153_match_branch_conflict_prefers_e300.flx"
     );
     let rendered = compile_err_strict_rendered(source);
-    assert!(
-        rendered.contains("error[E300]"),
-        "expected E300 for fixture 153, got:\n{}",
-        rendered
-    );
+    assert!(rendered.contains("error[E300]"), "expected E300 for fixture 153, got:\n{}", rendered);
 }
 
 #[test]
@@ -1435,11 +1252,7 @@ fn hm_fixture_154_unresolved_projection_reports_undefined_name_first() {
         "../../examples/type_system/failing/154_unresolved_projection_strict_e425.flx"
     );
     let rendered = compile_err_strict_rendered(source);
-    assert!(
-        rendered.contains("error[E004]"),
-        "expected E004 for fixture 154, got:\n{}",
-        rendered
-    );
+    assert!(rendered.contains("error[E004]"), "expected E004 for fixture 154, got:\n{}", rendered);
 }
 
 #[test]
@@ -1448,11 +1261,7 @@ fn hm_fixture_155_unresolved_member_access_reports_undefined_name_first() {
         "../../examples/type_system/failing/155_unresolved_member_access_strict_e425.flx"
     );
     let rendered = compile_err_strict_rendered(source);
-    assert!(
-        rendered.contains("error[E004]"),
-        "expected E004 for fixture 155, got:\n{}",
-        rendered
-    );
+    assert!(rendered.contains("error[E004]"), "expected E004 for fixture 155, got:\n{}", rendered);
 }
 
 #[test]
@@ -1460,11 +1269,7 @@ fn hm_fixture_156_unresolved_call_arg_reports_undefined_name_first() {
     let source =
         include_str!("../../examples/type_system/failing/156_unresolved_call_arg_strict_e425.flx");
     let rendered = compile_err_strict_rendered(source);
-    assert!(
-        rendered.contains("error[E004]"),
-        "expected E004 for fixture 156, got:\n{}",
-        rendered
-    );
+    assert!(rendered.contains("error[E004]"), "expected E004 for fixture 156, got:\n{}", rendered);
     assert!(
         !rendered.contains("error[E300]"),
         "did not expect concrete E300 for unresolved call-arg fixture 156, got:\n{}",
@@ -1478,11 +1283,7 @@ fn hm_fixture_146_constructor_pattern_arity_some_too_many() {
         "../../examples/type_system/failing/146_constructor_pattern_arity_some_too_many.flx"
     );
     let rendered = compile_err_rendered(source);
-    assert!(
-        rendered.contains("error[E085]"),
-        "expected E085 for fixture 146, got:\n{}",
-        rendered
-    );
+    assert!(rendered.contains("error[E085]"), "expected E085 for fixture 146, got:\n{}", rendered);
 }
 
 #[test]
@@ -1491,11 +1292,7 @@ fn hm_fixture_147_constructor_pattern_arity_none_too_many() {
         "../../examples/type_system/failing/147_constructor_pattern_arity_none_too_many.flx"
     );
     let rendered = compile_err_rendered(source);
-    assert!(
-        rendered.contains("error[E085]"),
-        "expected E085 for fixture 147, got:\n{}",
-        rendered
-    );
+    assert!(rendered.contains("error[E085]"), "expected E085 for fixture 147, got:\n{}", rendered);
 }
 
 #[test]
@@ -1504,11 +1301,7 @@ fn hm_fixture_148_constructor_pattern_arity_left_too_many() {
         "../../examples/type_system/failing/148_constructor_pattern_arity_left_too_many.flx"
     );
     let rendered = compile_err_rendered(source);
-    assert!(
-        rendered.contains("error[E085]"),
-        "expected E085 for fixture 148, got:\n{}",
-        rendered
-    );
+    assert!(rendered.contains("error[E085]"), "expected E085 for fixture 148, got:\n{}", rendered);
 }
 
 #[test]
@@ -1535,10 +1328,7 @@ fn main() { M.SomeInt(1); }
     assert!(
         warnings.iter().any(|d| d.code() == Some("W201")),
         "expected W201 warning for fixture 150, got: {:?}",
-        warnings
-            .iter()
-            .map(|d| (d.code(), d.title().to_string()))
-            .collect::<Vec<_>>()
+        warnings.iter().map(|d| (d.code(), d.title().to_string())).collect::<Vec<_>>()
     );
 }
 
@@ -1835,11 +1625,7 @@ fn hm_fixture_161_tuple_destructure_concrete_mismatch_prefers_e300() {
         "../../examples/type_system/failing/161_tuple_destructure_concrete_mismatch_prefers_e300.flx"
     );
     let rendered = compile_err_strict_rendered(source);
-    assert!(
-        rendered.contains("error[E300]"),
-        "expected E300 for fixture 161, got:\n{}",
-        rendered
-    );
+    assert!(rendered.contains("error[E300]"), "expected E300 for fixture 161, got:\n{}", rendered);
     assert!(
         !rendered.contains("error[E425]"),
         "did not expect E425 for concrete destructure mismatch fixture 161, got:\n{}",
@@ -1866,11 +1652,7 @@ fn hm_fixture_163_match_concrete_disagreement_prefers_e300() {
         "../../examples/type_system/failing/163_match_concrete_disagreement_prefers_e300.flx"
     );
     let rendered = compile_err_strict_rendered(source);
-    assert!(
-        rendered.contains("error[E300]"),
-        "expected E300 for fixture 163, got:\n{}",
-        rendered
-    );
+    assert!(rendered.contains("error[E300]"), "expected E300 for fixture 163, got:\n{}", rendered);
 }
 
 #[test]
@@ -1892,11 +1674,7 @@ fn hm_fixture_165_self_recursive_precision_prefers_e300() {
         "../../examples/type_system/failing/165_self_recursive_precision_prefers_e300.flx"
     );
     let rendered = compile_err_rendered(source);
-    assert!(
-        rendered.contains("error[E300]"),
-        "expected E300 for fixture 165, got:\n{}",
-        rendered
-    );
+    assert!(rendered.contains("error[E300]"), "expected E300 for fixture 165, got:\n{}", rendered);
 }
 
 #[test]
@@ -1923,11 +1701,7 @@ fn hm_fixture_167_tuple_destructure_ordered_concrete_conflict_e300() {
         "../../examples/type_system/failing/167_tuple_destructure_ordered_concrete_conflict_e300.flx"
     );
     let rendered = compile_err_strict_rendered(source);
-    assert!(
-        rendered.contains("error[E300]"),
-        "expected E300 for fixture 167, got:\n{}",
-        rendered
-    );
+    assert!(rendered.contains("error[E300]"), "expected E300 for fixture 167, got:\n{}", rendered);
     assert!(
         !rendered.contains("error[E425]"),
         "did not expect E425 for concrete tuple-destructure conflict fixture 167, got:\n{}",
@@ -2011,11 +1785,7 @@ fn hm_fixture_169_match_disagreement_first_arm_unresolved_still_e300() {
         "../../examples/type_system/failing/169_match_disagreement_first_arm_unresolved_still_e300.flx"
     );
     let rendered = compile_err_strict_rendered(source);
-    assert!(
-        rendered.contains("error[E300]"),
-        "expected E300 for fixture 169, got:\n{}",
-        rendered
-    );
+    assert!(rendered.contains("error[E300]"), "expected E300 for fixture 169, got:\n{}", rendered);
     assert!(
         !rendered.contains("error[E425]"),
         "did not expect E425 to mask concrete match disagreement in fixture 169, got:\n{}",
@@ -2029,11 +1799,7 @@ fn hm_fixture_170_match_disagreement_all_concrete_ordering_invariant_e300() {
         "../../examples/type_system/failing/170_match_disagreement_all_concrete_ordering_invariant_e300.flx"
     );
     let rendered = compile_err_strict_rendered(source);
-    assert!(
-        rendered.contains("error[E300]"),
-        "expected E300 for fixture 170, got:\n{}",
-        rendered
-    );
+    assert!(rendered.contains("error[E300]"), "expected E300 for fixture 170, got:\n{}", rendered);
 }
 
 #[test]
@@ -2042,11 +1808,7 @@ fn hm_fixture_171_self_recursive_refinement_concrete_chain_e300() {
         "../../examples/type_system/failing/171_self_recursive_refinement_concrete_chain_e300.flx"
     );
     let rendered = compile_err_rendered(source);
-    assert!(
-        rendered.contains("error[E300]"),
-        "expected E300 for fixture 171, got:\n{}",
-        rendered
-    );
+    assert!(rendered.contains("error[E300]"), "expected E300 for fixture 171, got:\n{}", rendered);
 }
 
 #[test]
@@ -2247,10 +2009,7 @@ fn main() -> Unit with Id {
 #[ignore = "fixture uses base functions (print/to_string) not in standalone compiler"]
 fn effect_row_order_equivalence_fixture_compiles() {
     let source = include_str!("../../examples/type_system/100_effect_row_order_equivalence_ok.flx");
-    compile_ok_in(
-        "examples/type_system/100_effect_row_order_equivalence_ok.flx",
-        source,
-    );
+    compile_ok_in("examples/type_system/100_effect_row_order_equivalence_ok.flx", source);
 }
 
 #[test]
@@ -2275,10 +2034,7 @@ fn effect_row_multi_missing_reports_deterministic_first_effect() {
 #[ignore = "fixture uses base functions (print/to_string) not in standalone compiler"]
 fn effect_row_subtract_concrete_fixture_compiles() {
     let source = include_str!("../../examples/type_system/101_effect_row_subtract_concrete_ok.flx");
-    compile_ok_in(
-        "examples/type_system/101_effect_row_subtract_concrete_ok.flx",
-        source,
-    );
+    compile_ok_in("examples/type_system/101_effect_row_subtract_concrete_ok.flx", source);
 }
 
 #[test]
@@ -2286,30 +2042,21 @@ fn effect_row_subtract_concrete_fixture_compiles() {
 fn effect_row_subtract_var_satisfied_fixture_compiles() {
     let source =
         include_str!("../../examples/type_system/102_effect_row_subtract_var_satisfied_ok.flx");
-    compile_ok_in(
-        "examples/type_system/102_effect_row_subtract_var_satisfied_ok.flx",
-        source,
-    );
+    compile_ok_in("examples/type_system/102_effect_row_subtract_var_satisfied_ok.flx", source);
 }
 
 #[test]
 fn effect_row_multivar_disambiguated_fixture_compiles() {
     let source =
         include_str!("../../examples/type_system/103_effect_row_multivar_disambiguated_ok.flx");
-    compile_ok_in(
-        "examples/type_system/103_effect_row_multivar_disambiguated_ok.flx",
-        source,
-    );
+    compile_ok_in("examples/type_system/103_effect_row_multivar_disambiguated_ok.flx", source);
 }
 
 #[test]
 fn effect_row_absent_ordering_linked_ok_fixture_compiles() {
     let source =
         include_str!("../../examples/type_system/104_effect_row_absent_ordering_linked_ok.flx");
-    compile_ok_in(
-        "examples/type_system/104_effect_row_absent_ordering_linked_ok.flx",
-        source,
-    );
+    compile_ok_in("examples/type_system/104_effect_row_absent_ordering_linked_ok.flx", source);
 }
 
 // The CLI hides this E421 behind an earlier E300 (KI-137). This checks that
@@ -2590,10 +2337,7 @@ fn mutual_recursion_three_functions() {
 #[test]
 fn self_recursion_still_works() {
     // Ensure basic recursion still works
-    compile_ok_in(
-        "test.flx",
-        "fn factorial(n) { if n < 2 { 1; } else { n * factorial(n - 1); } }",
-    );
+    compile_ok_in("test.flx", "fn factorial(n) { if n < 2 { 1; } else { n * factorial(n - 1); } }");
 }
 
 #[test]
@@ -2602,11 +2346,7 @@ fn hm_fixture_140_recursive_self_reference_refines_type() {
         "../../examples/type_system/failing/140_recursive_self_reference_return_precision.flx"
     );
     let rendered = compile_err_rendered(source);
-    assert!(
-        rendered.contains("error[E300]"),
-        "expected E300 for fixture 140, got:\n{}",
-        rendered
-    );
+    assert!(rendered.contains("error[E300]"), "expected E300 for fixture 140, got:\n{}", rendered);
     assert!(
         rendered.contains("does not match its type annotation")
             && rendered.contains("String")

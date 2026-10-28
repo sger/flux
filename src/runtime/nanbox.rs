@@ -294,10 +294,7 @@ mod inner {
             // Pointers are 8-byte aligned → bottom 3 bits are 0 → shift right 3
             debug_assert_eq!(addr & 0x7, 0, "Rc pointer is not 8-byte aligned");
             let shifted = addr >> 3;
-            debug_assert!(
-                shifted <= PAYLOAD_MASK,
-                "pointer exceeds 46-bit payload range"
-            );
+            debug_assert!(shifted <= PAYLOAD_MASK, "pointer exceeds 46-bit payload range");
             NanBox::from_tag_payload(NanTag::BoxedValue, shifted)
         }
 
@@ -513,14 +510,8 @@ mod inner {
             let small = MIN_INLINE_INT - 1;
             assert_eq!(roundtrip(Value::Integer(big)), Value::Integer(big));
             assert_eq!(roundtrip(Value::Integer(small)), Value::Integer(small));
-            assert_eq!(
-                roundtrip(Value::Integer(i64::MAX)),
-                Value::Integer(i64::MAX)
-            );
-            assert_eq!(
-                roundtrip(Value::Integer(i64::MIN)),
-                Value::Integer(i64::MIN)
-            );
+            assert_eq!(roundtrip(Value::Integer(i64::MAX)), Value::Integer(i64::MAX));
+            assert_eq!(roundtrip(Value::Integer(i64::MIN)), Value::Integer(i64::MIN));
         }
 
         #[test]
@@ -620,10 +611,7 @@ mod inner {
             // -1 should round-trip correctly (all-ones in 46 bits, sign-extended to i64)
             assert_eq!(roundtrip(Value::Integer(-1)), Value::Integer(-1));
             assert_eq!(roundtrip(Value::Integer(-100)), Value::Integer(-100));
-            assert_eq!(
-                roundtrip(Value::Integer(MIN_INLINE_INT)),
-                Value::Integer(MIN_INLINE_INT)
-            );
+            assert_eq!(roundtrip(Value::Integer(MIN_INLINE_INT)), Value::Integer(MIN_INLINE_INT));
         }
     }
 }

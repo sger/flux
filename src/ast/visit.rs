@@ -50,22 +50,14 @@ pub trait Visitor<'ast> {
 // ---------------------------------------------------------------------------
 
 pub fn walk_program<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, program: &'ast Program) {
-    let Program {
-        statements,
-        span: _,
-        doc_comments: _,
-        pipe_calls: _,
-    } = program;
+    let Program { statements, span: _, doc_comments: _, pipe_calls: _ } = program;
     for stmt in statements {
         visitor.visit_stmt(stmt);
     }
 }
 
 pub fn walk_block<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, block: &'ast Block) {
-    let Block {
-        statements,
-        span: _,
-    } = block;
+    let Block { statements, span: _ } = block;
     for stmt in statements {
         visitor.visit_stmt(stmt);
     }
@@ -73,12 +65,7 @@ pub fn walk_block<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, block: &'ast
 
 pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast Statement) {
     match stmt {
-        Statement::Let {
-            name,
-            type_annotation: _,
-            value,
-            ..
-        } => {
+        Statement::Let { name, type_annotation: _, value, .. } => {
             visitor.visit_identifier(name);
             visitor.visit_expr(value);
         }
@@ -91,11 +78,7 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
                 visitor.visit_expr(expr);
             }
         }
-        Statement::Expression {
-            expression,
-            has_semicolon: _,
-            span: _,
-        } => {
+        Statement::Expression { expression, has_semicolon: _, span: _ } => {
             visitor.visit_expr(expression);
         }
         Statement::Function {
@@ -118,29 +101,15 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
             }
             visitor.visit_block(body);
         }
-        Statement::Assign {
-            name,
-            value,
-            span: _,
-        } => {
+        Statement::Assign { name, value, span: _ } => {
             visitor.visit_identifier(name);
             visitor.visit_expr(value);
         }
-        Statement::Module {
-            name,
-            body,
-            span: _,
-        } => {
+        Statement::Module { name, body, span: _ } => {
             visitor.visit_identifier(name);
             visitor.visit_block(body);
         }
-        Statement::Import {
-            name,
-            alias,
-            except,
-            exposing,
-            span: _,
-        } => {
+        Statement::Import { name, alias, except, exposing, span: _ } => {
             visitor.visit_identifier(name);
             if let Some(alias_ident) = alias {
                 visitor.visit_identifier(alias_ident);
@@ -180,78 +149,33 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
 
 pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast Expression) {
     match expr {
-        Expression::Identifier {
-            name,
-            span: _,
-            id: _,
-        } => {
+        Expression::Identifier { name, span: _, id: _ } => {
             visitor.visit_identifier(name);
         }
-        Expression::Integer {
-            value: _,
-            span: _,
-            id: _,
-        } => {}
-        Expression::Float {
-            value: _,
-            span: _,
-            id: _,
-        } => {}
-        Expression::String {
-            value: _,
-            span: _,
-            id: _,
-        } => {}
-        Expression::InterpolatedString {
-            parts,
-            span: _,
-            id: _,
-        } => {
+        Expression::Integer { value: _, span: _, id: _ } => {}
+        Expression::Float { value: _, span: _, id: _ } => {}
+        Expression::String { value: _, span: _, id: _ } => {}
+        Expression::InterpolatedString { parts, span: _, id: _ } => {
             for part in parts {
                 visitor.visit_string_part(part);
             }
         }
-        Expression::Boolean {
-            value: _,
-            span: _,
-            id: _,
-        } => {}
-        Expression::Prefix {
-            operator: _,
-            right,
-            span: _,
-            id: _,
-        } => {
+        Expression::Boolean { value: _, span: _, id: _ } => {}
+        Expression::Prefix { operator: _, right, span: _, id: _ } => {
             visitor.visit_expr(right);
         }
-        Expression::Infix {
-            left,
-            operator: _,
-            right,
-            span: _,
-            id: _,
-        } => {
+        Expression::Infix { left, operator: _, right, span: _, id: _ } => {
             visitor.visit_expr(left);
             visitor.visit_expr(right);
         }
-        Expression::If {
-            condition,
-            consequence,
-            alternative,
-            span: _,
-            id: _,
-        } => {
+        Expression::If { condition, consequence, alternative, span: _, id: _ } => {
             visitor.visit_expr(condition);
             visitor.visit_block(consequence);
             if let Some(alt) = alternative {
                 visitor.visit_block(alt);
             }
         }
-        Expression::DoBlock {
-            block,
-            span: _,
-            id: _,
-        } => {
+        Expression::DoBlock { block, span: _, id: _ } => {
             visitor.visit_block(block);
         }
         Expression::Function {
@@ -268,104 +192,51 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
             }
             visitor.visit_block(body);
         }
-        Expression::Call {
-            function,
-            arguments,
-            span: _,
-            id: _,
-        } => {
+        Expression::Call { function, arguments, span: _, id: _ } => {
             visitor.visit_expr(function);
             for arg in arguments {
                 visitor.visit_expr(arg);
             }
         }
-        Expression::ListLiteral {
-            elements,
-            span: _,
-            id: _,
-        }
-        | Expression::ArrayLiteral {
-            elements,
-            span: _,
-            id: _,
-        }
-        | Expression::TupleLiteral {
-            elements,
-            span: _,
-            id: _,
-        } => {
+        Expression::ListLiteral { elements, span: _, id: _ }
+        | Expression::ArrayLiteral { elements, span: _, id: _ }
+        | Expression::TupleLiteral { elements, span: _, id: _ } => {
             for elem in elements {
                 visitor.visit_expr(elem);
             }
         }
         Expression::EmptyList { span: _, id: _ } => {}
-        Expression::Index {
-            left,
-            index,
-            span: _,
-            id: _,
-        } => {
+        Expression::Index { left, index, span: _, id: _ } => {
             visitor.visit_expr(left);
             visitor.visit_expr(index);
         }
-        Expression::Hash {
-            pairs,
-            span: _,
-            id: _,
-        } => {
+        Expression::Hash { pairs, span: _, id: _ } => {
             for (key, value) in pairs {
                 visitor.visit_expr(key);
                 visitor.visit_expr(value);
             }
         }
-        Expression::MemberAccess {
-            object,
-            member,
-            span: _,
-            id: _,
-        } => {
+        Expression::MemberAccess { object, member, span: _, id: _ } => {
             visitor.visit_expr(object);
             visitor.visit_identifier(member);
         }
-        Expression::TupleFieldAccess {
-            object,
-            index: _,
-            span: _,
-            id: _,
-        } => {
+        Expression::TupleFieldAccess { object, index: _, span: _, id: _ } => {
             visitor.visit_expr(object);
         }
-        Expression::Match {
-            scrutinee,
-            arms,
-            span: _,
-            id: _,
-        } => {
+        Expression::Match { scrutinee, arms, span: _, id: _ } => {
             visitor.visit_expr(scrutinee);
             for arm in arms {
                 visitor.visit_match_arm(arm);
             }
         }
         Expression::None { span: _, id: _ } => {}
-        Expression::Some {
-            value,
-            span: _,
-            id: _,
-        } => {
+        Expression::Some { value, span: _, id: _ } => {
             visitor.visit_expr(value);
         }
-        Expression::Left {
-            value,
-            span: _,
-            id: _,
-        } => {
+        Expression::Left { value, span: _, id: _ } => {
             visitor.visit_expr(value);
         }
-        Expression::Right {
-            value,
-            span: _,
-            id: _,
-        } => {
+        Expression::Right { value, span: _, id: _ } => {
             visitor.visit_expr(value);
         }
         Expression::Cons { head, tail, .. } => {
@@ -377,12 +248,7 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
                 visitor.visit_expr(arg);
             }
         }
-        Expression::Handle {
-            expr,
-            parameter,
-            arms,
-            ..
-        } => {
+        Expression::Handle { expr, parameter, arms, .. } => {
             visitor.visit_expr(expr);
             if let Some(parameter) = parameter {
                 visitor.visit_expr(parameter);
@@ -401,9 +267,7 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
                 }
             }
         }
-        Expression::Spread {
-            base, overrides, ..
-        } => {
+        Expression::Spread { base, overrides, .. } => {
             visitor.visit_expr(base);
             for field in overrides {
                 if let Some(value) = &field.value {
@@ -417,10 +281,7 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
 pub fn walk_pat<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, pat: &'ast Pattern) {
     match pat {
         Pattern::Wildcard { span: _ } => {}
-        Pattern::Literal {
-            expression,
-            span: _,
-        } => {
+        Pattern::Literal { expression, span: _ } => {
             visitor.visit_expr(expression);
         }
         Pattern::Identifier { name, span: _ } => {
@@ -462,12 +323,7 @@ pub fn walk_pat<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, pat: &'ast Pat
 }
 
 pub fn walk_match_arm<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, arm: &'ast MatchArm) {
-    let MatchArm {
-        pattern,
-        guard,
-        body,
-        span: _,
-    } = arm;
+    let MatchArm { pattern, guard, body, span: _ } = arm;
     visitor.visit_pat(pattern);
     if let Some(guard_expr) = guard {
         visitor.visit_expr(guard_expr);

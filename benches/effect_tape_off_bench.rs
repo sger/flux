@@ -62,9 +62,7 @@ fn bench_tape_off(c: &mut Criterion) {
     let mut group = c.benchmark_group("effect_tape_off");
     for (name, source) in [("clock_loop", CLOCK_LOOP), ("arith_loop", ARITH_LOOP)] {
         let bytecode = compile_program(source);
-        group.bench_function(name, |b| {
-            b.iter(|| run_program(black_box(bytecode.clone())))
-        });
+        group.bench_function(name, |b| b.iter(|| run_program(black_box(bytecode.clone()))));
     }
     group.finish();
 }

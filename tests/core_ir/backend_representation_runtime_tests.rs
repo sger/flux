@@ -10,10 +10,7 @@ mod flux_runner;
 use flux_runner::{flux_file, run_native, run_vm};
 
 fn normalized_lines(output: &str) -> Vec<&str> {
-    output
-        .lines()
-        .filter(|line| !line.starts_with('['))
-        .collect()
+    output.lines().filter(|line| !line.starts_with('[')).collect()
 }
 
 #[test]
@@ -41,10 +38,7 @@ fn representation_fixtures_hold_vm_native_parity() {
     ] {
         let vm_out = run_vm(fixture);
         let (native_out, success) = run_native(fixture);
-        assert!(
-            success,
-            "native backend failed for {fixture}:\n{native_out}"
-        );
+        assert!(success, "native backend failed for {fixture}:\n{native_out}");
         assert_eq!(
             vm_out.lines().collect::<Vec<_>>(),
             normalized_lines(&native_out),
@@ -63,10 +57,7 @@ fn invalid_index_target_fails_consistently_on_vm_and_native() {
     let (native_stderr, native_success) = (native.stderr.trim(), native.success);
 
     assert!(!vm_success, "VM unexpectedly succeeded:\n{vm_stderr}");
-    assert!(
-        !native_success,
-        "native backend unexpectedly succeeded:\n{native_stderr}"
-    );
+    assert!(!native_success, "native backend unexpectedly succeeded:\n{native_stderr}");
     assert!(
         vm_stderr.contains("index operator not supported: None"),
         "expected VM index error, got:\n{vm_stderr}"

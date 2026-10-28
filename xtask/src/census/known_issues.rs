@@ -39,11 +39,7 @@ impl KnownIssues {
 
     /// The issues whose entries cite `file`.
     pub fn citing(&self, file: &str) -> impl Iterator<Item = &Issue> {
-        self.by_file
-            .get(file)
-            .into_iter()
-            .flatten()
-            .map(|&index| &self.issues[index])
+        self.by_file.get(file).into_iter().flatten().map(|&index| &self.issues[index])
     }
 }
 
@@ -60,22 +56,13 @@ fn parse_issues(text: &str) -> Vec<Issue> {
         if let Some(heading) = line.strip_prefix("### ")
             && heading.starts_with("KI-")
         {
-            let id: String = heading
-                .chars()
-                .take_while(|c| c.is_ascii_alphanumeric() || *c == '-')
-                .collect();
-            let title = heading[id.len()..]
-                .trim_start_matches([' ', '—', '-'])
-                .to_string();
+            let id: String =
+                heading.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-').collect();
+            let title = heading[id.len()..].trim_start_matches([' ', '—', '-']).to_string();
             let upper = heading.to_uppercase();
             let resolved =
                 in_resolved || upper.contains("FIXED") || upper.contains("NOT REPRODUCIBLE");
-            issues.push(Issue {
-                id,
-                title,
-                open: !resolved,
-                files: Vec::new(),
-            });
+            issues.push(Issue { id, title, open: !resolved, files: Vec::new() });
             continue;
         }
         if let Some(issue) = issues.last_mut() {
@@ -104,10 +91,7 @@ fn cited_files(line: &str) -> Vec<String> {
             .map_or(end, |(at, _)| at);
         // Markdown links from docs/ reach the corpus as `../examples/…`.
         let path = line[start..end].trim_start_matches(['.', '/']);
-        if ["examples/", "tests/", "lib/"]
-            .iter()
-            .any(|root| path.starts_with(root))
-        {
+        if ["examples/", "tests/", "lib/"].iter().any(|root| path.starts_with(root)) {
             files.push(path.to_string());
         }
     }
@@ -117,10 +101,7 @@ fn cited_files(line: &str) -> Vec<String> {
 /// The first `KI-nnn` in `text`.
 pub fn ki_in(text: &str) -> Option<String> {
     let at = text.find("KI-")?;
-    let digits: String = text[at + 3..]
-        .chars()
-        .take_while(char::is_ascii_digit)
-        .collect();
+    let digits: String = text[at + 3..].chars().take_while(char::is_ascii_digit).collect();
     (!digits.is_empty()).then(|| format!("KI-{digits}"))
 }
 
@@ -145,15 +126,8 @@ Was in ./examples/b.flx
     #[test]
     fn open_and_resolved_entries_with_their_files() {
         let known = KnownIssues::parse(DOC);
-        let ids: Vec<(&str, bool)> = known
-            .issues
-            .iter()
-            .map(|i| (i.id.as_str(), i.open))
-            .collect();
-        assert_eq!(
-            ids,
-            [("KI-102", true), ("KI-011", false), ("KI-038", false)]
-        );
+        let ids: Vec<(&str, bool)> = known.issues.iter().map(|i| (i.id.as_str(), i.open)).collect();
+        assert_eq!(ids, [("KI-102", true), ("KI-011", false), ("KI-038", false)]);
         let ki102 = known.get("KI-102").expect("parsed");
         assert_eq!(ki102.title, "Effects leak under --no-cache");
         assert_eq!(
@@ -164,19 +138,13 @@ Was in ./examples/b.flx
                 "examples/c.flx"
             ]
         );
-        let citing: Vec<&str> = known
-            .citing("examples/b.flx")
-            .map(|i| i.id.as_str())
-            .collect();
+        let citing: Vec<&str> = known.citing("examples/b.flx").map(|i| i.id.as_str()).collect();
         assert_eq!(citing, ["KI-038"]);
     }
 
     #[test]
     fn a_ki_is_found_inside_a_reason() {
-        assert_eq!(
-            ki_in("skip-way: KI-104 dictionary"),
-            Some("KI-104".to_string())
-        );
+        assert_eq!(ki_in("skip-way: KI-104 dictionary"), Some("KI-104".to_string()));
         assert_eq!(ki_in("no issue here"), None);
         assert_eq!(ki_in("KI-"), None);
     }

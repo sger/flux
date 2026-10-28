@@ -38,10 +38,7 @@ fn main() with IO {
         success,
         "run_async_with(Some(1)) program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    assert!(
-        stdout.contains("42"),
-        "expected 42 on stdout, got: {stdout:?}"
-    );
+    assert!(stdout.contains("42"), "expected 42 on stdout, got: {stdout:?}");
     assert!(elapsed < Duration::from_secs(5));
 }
 
@@ -64,10 +61,7 @@ fn main() with IO {
         success,
         "run_async_with_workers program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    assert!(
-        stdout.contains("123"),
-        "expected 123 on stdout, got: {stdout:?}"
-    );
+    assert!(stdout.contains("123"), "expected 123 on stdout, got: {stdout:?}");
 }
 
 #[test]
@@ -92,10 +86,7 @@ fn main() with IO {
         success,
         "run_async_with(default) program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    assert!(
-        stdout.contains("7"),
-        "expected 7 on stdout, got: {stdout:?}"
-    );
+    assert!(stdout.contains("7"), "expected 7 on stdout, got: {stdout:?}");
 }
 
 #[test]
@@ -123,10 +114,7 @@ fn main() with IO {
         success,
         "run_async with FLUX_WORKERS=1 must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    assert!(
-        stdout.contains("99"),
-        "expected 99 on stdout, got: {stdout:?}"
-    );
+    assert!(stdout.contains("99"), "expected 99 on stdout, got: {stdout:?}");
 }
 
 #[test]
@@ -165,10 +153,7 @@ fn main() with IO {
         success,
         "run_async_with dns_pool_size=1 must resolve localhost:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    assert!(
-        stdout.contains("dns-config"),
-        "expected echoed dns-config, got: {stdout:?}"
-    );
+    assert!(stdout.contains("dns-config"), "expected echoed dns-config, got: {stdout:?}");
 }
 
 #[test]
@@ -208,8 +193,5 @@ fn main() with IO {
         success,
         "FLUX_DNS_THREADS=1 must configure hostname resolution:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    assert!(
-        stdout.contains("dns-env"),
-        "expected echoed dns-env, got: {stdout:?}"
-    );
+    assert!(stdout.contains("dns-env"), "expected echoed dns-env, got: {stdout:?}");
 }

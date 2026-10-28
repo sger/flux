@@ -27,20 +27,13 @@ struct FixtureOutput {
 }
 
 fn normalize_output(bytes: &[u8]) -> String {
-    String::from_utf8_lossy(bytes)
-        .replace("\r\n", "\n")
-        .trim()
-        .to_string()
+    String::from_utf8_lossy(bytes).replace("\r\n", "\n").trim().to_string()
 }
 
 fn parse_source(source: &str, file: &str) -> (flux::syntax::program::Program, Compiler) {
     let mut parser = Parser::new(Lexer::new(source));
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "{file} parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "{file} parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     (program, Compiler::new_with_interner(file, interner))
 }
@@ -49,10 +42,7 @@ fn run_fixture(name: &str) -> Result<FixtureOutput, String> {
     let scratch = parity::scratch::Scratch::new(&format!("typeclass-baseline-{name}"));
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
-        .args([
-            fixture_path(name).to_str().expect("fixture path is UTF-8"),
-            "--no-cache",
-        ])
+        .args([fixture_path(name).to_str().expect("fixture path is UTF-8"), "--no-cache"])
         .args(scratch.cache_args())
         .output()
         .expect("run Flux fixture");
@@ -72,9 +62,7 @@ fn build_interface_for(module: &str) -> ModuleInterface {
     let file = format!("{module}.flx");
     let source = std::fs::read_to_string(fixture_path(&file)).expect("read interface fixture");
     let (program, mut compiler) = parse_source(&source, &file);
-    compiler
-        .compile_with_opts(&program, false, false)
-        .expect("interface fixture should compile");
+    compiler.compile_with_opts(&program, false, false).expect("interface fixture should compile");
     let aether = compiler
         .lower_aether_report_program(&program, false)
         .expect("interface fixture should lower");
@@ -176,10 +164,7 @@ fn typeclass_fixtures_have_descriptive_contracts_and_parse() {
             },
             "{fixture} needs a baseline or a stage 1-8 contract"
         );
-        assert!(
-            source.contains("Expected"),
-            "{fixture} needs an expected result"
-        );
+        assert!(source.contains("Expected"), "{fixture} needs an expected result");
         let _ = parse_source(&source, fixture);
     }
 }
@@ -189,9 +174,7 @@ fn class_and_instance_collection_is_present_in_compiler_environment() {
     let source = std::fs::read_to_string(fixture_path("dictionary_call_arity.flx"))
         .expect("read dictionary fixture");
     let (program, mut compiler) = parse_source(&source, "dictionary_call_arity.flx");
-    compiler
-        .compile(&program)
-        .expect("dictionary fixture compiles");
+    compiler.compile(&program).expect("dictionary fixture compiles");
 
     assert!(
         compiler
@@ -213,20 +196,11 @@ fn concrete_and_polymorphic_dictionary_calls_have_exact_runtime_arity() {
         ("generalized_constraint_obligation.flx", "true"),
         ("multiple_class_obligations.flx", "\"7\""),
         ("superclass_instance_validation.flx", "5\n500"),
-        (
-            "eq_ord.flx",
-            "\"same\"\n\"less\"\n\"more\"\n\"same\"\n\"more\"",
-        ),
-        (
-            "semigroup_monoid.flx",
-            "\"abc\"\n[1, 2, 3]\n[|1, 2|]\nSome(\"ab\")",
-        ),
+        ("eq_ord.flx", "\"same\"\n\"less\"\n\"more\"\n\"same\"\n\"more\""),
+        ("semigroup_monoid.flx", "\"abc\"\n[1, 2, 3]\n[|1, 2|]\nSome(\"ab\")"),
         ("mempty_result_dispatch.flx", "\"\"\n[]\n[|0|]\nNone\n0"),
         ("let_annotation_rigid_param.flx", "5\n7\n\"s\""),
-        (
-            "result_directed_two_dictionaries.flx",
-            "7\n\"int\"\n\"str\"",
-        ),
+        ("result_directed_two_dictionaries.flx", "7\n\"int\"\n\"str\""),
     ] {
         let output = run_fixture(fixture).unwrap_or_else(|error| panic!("{}", error));
         assert_eq!(output.stdout, expected, "unexpected output for {fixture}");
@@ -291,16 +265,10 @@ fn structured_predicates_survive_scheme_construction() {
     let source = std::fs::read_to_string(fixture_path("structured_predicate.flx"))
         .expect("read structured predicate fixture");
     let (program, mut compiler) = parse_source(&source, "structured_predicate.flx");
-    compiler
-        .compile(&program)
-        .expect("structured predicate fixture compiles");
+    compiler.compile(&program).expect("structured predicate fixture compiles");
 
     let core = compiler
-        .dump_core_with_opts(
-            &program,
-            false,
-            flux::core::display::CoreDisplayMode::Readable,
-        )
+        .dump_core_with_opts(&program, false, flux::core::display::CoreDisplayMode::Readable)
         .expect("structured predicate should lower");
     assert!(
         core.contains("List") || core.contains("list_size"),
@@ -368,10 +336,7 @@ fn derived_instances_are_callable_and_carry_evidence() {
         ),
         ("derived_show.flx", "\"Red\"\n\"Blue\"\n\"Green\""),
         ("derived_decode.flx", "\"pair\"\n2"),
-        (
-            "structural_container_dictionary.flx",
-            "true\nfalse\ntrue\nfalse\ntrue\ntrue",
-        ),
+        ("structural_container_dictionary.flx", "true\nfalse\ntrue\nfalse\ntrue\ntrue"),
     ] {
         let output =
             run_fixture(fixture).unwrap_or_else(|error| panic!("{fixture} should run: {error}"));
@@ -388,10 +353,7 @@ fn unsupported_deriving_is_rejected_at_the_clause() {
     let Err(error) = run_fixture(fixture) else {
         panic!("{fixture} must not compile: deriving `Functor` has no derivation rule");
     };
-    assert!(
-        error.contains("E486"),
-        "{fixture} should report E486, got:\n{error}"
-    );
+    assert!(error.contains("E486"), "{fixture} should report E486, got:\n{error}");
 }
 
 /// The rejection is what keeps the evidence honest: no `Functor` dictionary is
@@ -401,9 +363,7 @@ fn unsupported_deriving_does_not_fabricate_a_dictionary() {
     let source = std::fs::read_to_string(fixture_path("unsupported_deriving_diagnostic.flx"))
         .expect("read deriving fixture");
     let (program, mut compiler) = parse_source(&source, "unsupported_deriving_diagnostic.flx");
-    let errors = compiler
-        .compile(&program)
-        .expect_err("underivable deriving must not compile");
+    let errors = compiler.compile(&program).expect_err("underivable deriving must not compile");
     assert!(
         errors.iter().any(|diag| diag.code() == Some("E486")),
         "unsupported deriving must be reported, got: {errors:?}"
@@ -592,9 +552,7 @@ instance Describable<Int> {
 fn main() { 42 }
 "#;
     let (program, mut compiler) = parse_source(source, "defaulted_instance_method.flx");
-    compiler
-        .compile(&program)
-        .expect("omitting a method that has a default must compile");
+    compiler.compile(&program).expect("omitting a method that has a default must compile");
 }
 
 #[test]
@@ -603,24 +561,15 @@ fn public_typeclass_metadata_survives_interface_serialization_roundtrip() {
     assert_eq!(interface.public_classes.len(), 1);
     assert_eq!(interface.public_instances.len(), 1);
     assert_eq!(interface.public_classes[0].name, "Sizeable");
-    assert_eq!(
-        interface.public_classes[0].parameter_kinds,
-        [flux::types::kind::Kind::Type]
-    );
+    assert_eq!(interface.public_classes[0].parameter_kinds, [flux::types::kind::Kind::Type]);
     assert_eq!(interface.public_instances[0].class_name, "Sizeable");
     assert_eq!(interface.public_instances[0].head_type_repr, "Int");
-    assert_eq!(
-        interface.public_instances[0].head_kinds,
-        [flux::types::kind::Kind::Type]
-    );
+    assert_eq!(interface.public_instances[0].head_kinds, [flux::types::kind::Kind::Type]);
 
     let encoded = serde_json::to_vec(&interface).expect("serialize interface");
     let decoded: ModuleInterface = serde_json::from_slice(&encoded).expect("reload interface");
     assert_eq!(decoded, interface);
-    assert_eq!(
-        decoded.interface_fingerprint,
-        interface.interface_fingerprint
-    );
+    assert_eq!(decoded.interface_fingerprint, interface.interface_fingerprint);
 }
 
 /// Proposal 0179 Stage 5: a public class's superclasses reach a consumer with
@@ -673,25 +622,18 @@ fn an_interface_missing_superclass_identities_is_reported_not_skipped() {
     let mut compiler = Compiler::new_with_file_path("consumer.flx");
     compiler.preload_module_interface(&interface);
 
-    let reported = compiler
-        .errors
-        .iter()
-        .find(|diagnostic| diagnostic.code() == Some("E478"))
-        .unwrap_or_else(|| {
-            panic!(
-                "expected E478, got: {:?}",
-                compiler.errors.iter().map(|d| d.code()).collect::<Vec<_>>()
-            )
-        });
+    let reported =
+        compiler.errors.iter().find(|diagnostic| diagnostic.code() == Some("E478")).unwrap_or_else(
+            || {
+                panic!(
+                    "expected E478, got: {:?}",
+                    compiler.errors.iter().map(|d| d.code()).collect::<Vec<_>>()
+                )
+            },
+        );
     let message = reported.message().unwrap_or_default();
-    assert!(
-        message.contains("Measurable"),
-        "diagnostic should name the class: {message}"
-    );
-    assert!(
-        message.contains("SuperclassMetadata"),
-        "diagnostic should name the module: {message}"
-    );
+    assert!(message.contains("Measurable"), "diagnostic should name the class: {message}");
+    assert!(message.contains("SuperclassMetadata"), "diagnostic should name the module: {message}");
 }
 
 #[test]
@@ -701,10 +643,7 @@ fn cold_and_warm_compilation_reuse_the_same_typeclass_cache_contract() {
     let run = || {
         Command::new(env!("CARGO_BIN_EXE_flux"))
             .current_dir(workspace_root())
-            .args([
-                fixture.to_str().expect("fixture path is UTF-8"),
-                "--verbose",
-            ])
+            .args([fixture.to_str().expect("fixture path is UTF-8"), "--verbose"])
             .args(scratch.cache_args())
             .output()
             .expect("run cached fixture")
@@ -731,15 +670,9 @@ fn multiple_obligations_are_present_in_lowered_dictionary_contract() {
     let source = std::fs::read_to_string(fixture_path("multiple_class_obligations.flx"))
         .expect("read obligations fixture");
     let (program, mut compiler) = parse_source(&source, "multiple_class_obligations.flx");
-    compiler
-        .compile(&program)
-        .expect("obligations fixture compiles");
+    compiler.compile(&program).expect("obligations fixture compiles");
     let core = compiler
-        .dump_core_with_opts(
-            &program,
-            false,
-            flux::core::display::CoreDisplayMode::Readable,
-        )
+        .dump_core_with_opts(&program, false, flux::core::display::CoreDisplayMode::Readable)
         .expect("obligations fixture should lower");
     assert!(core.contains("__dict_Equal_Int"));
     assert!(core.contains("__dict_Render_Int"));
@@ -799,10 +732,9 @@ fn structured_predicates_survive_generalization_distinctly() {
 /// through one projection for a direct superclass, two for a transitive one.
 #[test]
 fn superclass_methods_are_reachable_from_a_subclass_dictionary() {
-    for (fixture, expected) in [
-        ("superclass_method_call.flx", "505"),
-        ("transitive_superclass.flx", "111"),
-    ] {
+    for (fixture, expected) in
+        [("superclass_method_call.flx", "505"), ("transitive_superclass.flx", "111")]
+    {
         let output = run_fixture(fixture).unwrap_or_else(|error| panic!("{error}"));
         assert_eq!(output.stdout, expected, "unexpected output for {fixture}");
     }
@@ -847,10 +779,9 @@ fn superclass_dispatch_is_the_same_cold_and_warm() {
 /// name-keyed map collapses.
 #[test]
 fn two_dictionaries_for_one_class_are_told_apart() {
-    for (fixture, expected) in [
-        ("two_dictionaries_one_class.flx", "12"),
-        ("two_dictionaries_superclass.flx", "507"),
-    ] {
+    for (fixture, expected) in
+        [("two_dictionaries_one_class.flx", "12"), ("two_dictionaries_superclass.flx", "507")]
+    {
         let output = run_fixture(fixture).unwrap_or_else(|error| panic!("{error}"));
         assert_eq!(output.stdout, expected, "unexpected output for {fixture}");
     }
@@ -891,10 +822,9 @@ fn associated_type_reduction_is_the_same_cold_and_warm() {
 /// until a call site fixes it.
 #[test]
 fn associated_types_reduce_when_selected_and_stay_stuck_otherwise() {
-    for (fixture, expected) in [
-        ("associated_type_reduction.flx", "7"),
-        ("stuck_associated_type.flx", "7\n\"s\""),
-    ] {
+    for (fixture, expected) in
+        [("associated_type_reduction.flx", "7"), ("stuck_associated_type.flx", "7\n\"s\"")]
+    {
         let output = run_fixture(fixture).unwrap_or_else(|error| panic!("{error}"));
         assert_eq!(output.stdout, expected, "unexpected output for {fixture}");
     }
@@ -948,9 +878,7 @@ fn associated_type_declarations_and_equations_reach_the_class_environment() {
     let source = std::fs::read_to_string(fixture_path("associated_type_declaration.flx"))
         .expect("read associated type fixture");
     let (program, mut compiler) = parse_source(&source, "associated_type_declaration.flx");
-    compiler
-        .compile(&program)
-        .expect("associated type fixture compiles");
+    compiler.compile(&program).expect("associated type fixture compiles");
 
     let class = compiler
         .class_env()
@@ -959,10 +887,7 @@ fn associated_type_declarations_and_equations_reach_the_class_environment() {
         .find(|class| compiler.interner.resolve(class.name) == "Collection")
         .expect("Collection is collected");
     assert_eq!(class.associated_types.len(), 1);
-    assert_eq!(
-        compiler.interner.resolve(class.associated_types[0].name),
-        "Element"
-    );
+    assert_eq!(compiler.interner.resolve(class.associated_types[0].name), "Element");
     // Indexed by the class parameter it is declared over.
     assert_eq!(class.associated_types[0].params.len(), 1);
 
@@ -1006,9 +931,7 @@ fn a_scheme_drops_a_predicate_its_superclass_already_supplies() {
         .current_dir(workspace_root())
         .args([
             "--dump-core",
-            fixture_path("semigroup_monoid.flx")
-                .to_str()
-                .expect("fixture path is UTF-8"),
+            fixture_path("semigroup_monoid.flx").to_str().expect("fixture path is UTF-8"),
             "--no-cache",
         ])
         .output()
@@ -1021,10 +944,7 @@ fn a_scheme_drops_a_predicate_its_superclass_already_supplies() {
         .nth(1)
         .expect("mconcat is lowered with a parameter list");
 
-    assert!(
-        signature.contains("_Monoid"),
-        "mconcat keeps the context it declared: {signature}"
-    );
+    assert!(signature.contains("_Monoid"), "mconcat keeps the context it declared: {signature}");
     assert!(
         !signature.contains("_Semigroup"),
         "Semigroup is implied by Monoid and must not become a second \
@@ -1124,9 +1044,7 @@ fn main() with IO {
 }
 "#;
     let (program, mut compiler) = parse_source(source, "non_ground_subgoal.flx");
-    compiler
-        .compile(&program)
-        .expect("a subgoal the instance context grants must resolve");
+    compiler.compile(&program).expect("a subgoal the instance context grants must resolve");
 }
 
 /// `+` resolves at `String` even when the operand's type arrives later.
@@ -1165,10 +1083,7 @@ fn main() with IO {
 }
 "#;
     let (program, mut compiler) = parse_source(source, "deferred_string_sub.flx");
-    assert!(
-        compiler.compile(&program).is_err(),
-        "only `+` is overloaded over `String`"
-    );
+    assert!(compiler.compile(&program).is_err(), "only `+` is overloaded over `String`");
 }
 
 /// A pattern variable keeps the scrutinee's element type, so an obligation
@@ -1269,9 +1184,7 @@ instance MyEq<a> => MyEq<List<a>> {
 
     let satisfied = format!("{common}\nfn main() with IO {{\n    print(mneq([1], [1]))\n}}\n");
     let (program, mut compiler) = parse_source(&satisfied, "instance_context_met.flx");
-    compiler
-        .compile(&program)
-        .expect("`MyEq<Int>` satisfies the context of `MyEq<List<a>>`");
+    compiler.compile(&program).expect("`MyEq<Int>` satisfies the context of `MyEq<List<a>>`");
 
     let unsatisfied =
         format!("{common}\nfn main() with IO {{\n    print(mneq([\"s\"], [\"s\"]))\n}}\n");
@@ -1546,15 +1459,9 @@ fn main() { doubled(21) }
             _ => None,
         })
         .collect();
-    assert_eq!(
-        owners.len(),
-        2,
-        "both `rank(x)` calls are answered from a given"
-    );
+    assert_eq!(owners.len(), 2, "both `rank(x)` calls are answered from a given");
     assert!(
-        owners
-            .iter()
-            .all(|owner| owner.definition == doubled && owner.index == 0),
+        owners.iter().all(|owner| owner.definition == doubled && owner.index == 0),
         "each names `doubled`'s first given: {owners:?}"
     );
 
@@ -1630,9 +1537,7 @@ fn every_flow_list_call_predicate_has_evidence() {
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args([
-            fixture_path("contextual_dictionary.flx")
-                .to_str()
-                .expect("fixture path is UTF-8"),
+            fixture_path("contextual_dictionary.flx").to_str().expect("fixture path is UTF-8"),
             "--no-cache",
         ])
         .args(scratch.cache_args())
@@ -1650,18 +1555,12 @@ fn every_flow_list_call_predicate_has_evidence() {
         .skip(1)
         .take_while(|line| !line.starts_with("EVIDENCE for "))
         .collect();
-    assert!(
-        !list_section.is_empty(),
-        "expected an evidence dump for Flow.List:\n{stderr}"
-    );
+    assert!(!list_section.is_empty(), "expected an evidence dump for Flow.List:\n{stderr}");
     let unsolved: Vec<_> = list_section
         .iter()
         .filter(|line| line.contains("(unsolved)") && !line.contains("InferredOperator"))
         .collect();
-    assert!(
-        unsolved.is_empty(),
-        "Flow.List predicates without evidence:\n{unsolved:#?}"
-    );
+    assert!(unsolved.is_empty(), "Flow.List predicates without evidence:\n{unsolved:#?}");
 }
 
 /// Run a fixture and require that it succeeds with no internal error.
@@ -1675,18 +1574,12 @@ fn assert_lowers_from_evidence(name: &str) {
     let fixture = fixture_path(name);
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
-        .args([
-            fixture.to_str().expect("fixture path is UTF-8"),
-            "--no-cache",
-        ])
+        .args([fixture.to_str().expect("fixture path is UTF-8"), "--no-cache"])
         .args(scratch.cache_args())
         .output()
         .expect("run Flux fixture");
     let stderr = normalize_output(&output.stderr);
-    assert!(
-        !stderr.contains("Internal Compiler Error"),
-        "{name} lowers from evidence:\n{stderr}"
-    );
+    assert!(!stderr.contains("Internal Compiler Error"), "{name} lowers from evidence:\n{stderr}");
     assert!(output.status.success(), "{name} runs:\n{stderr}");
 }
 
@@ -1724,11 +1617,7 @@ fn test_twice() with IO {
     .expect("write the fixture");
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
-        .args([
-            "--test",
-            file.to_str().expect("path is UTF-8"),
-            "--no-cache",
-        ])
+        .args(["--test", file.to_str().expect("path is UTF-8"), "--no-cache"])
         .args(["--root", "lib"])
         .args(scratch.cache_args())
         .output()

@@ -13,10 +13,8 @@ use super::items::Fixture;
 pub fn reorder(fixture: &Fixture, rng: &mut Rng) -> Option<String> {
     let items = &fixture.items;
     let indices: Vec<usize> = (0..items.len()).collect();
-    let runs: Vec<&[usize]> = indices
-        .split(|&i| !items[i].is_movable())
-        .filter(|run| run.len() > 1)
-        .collect();
+    let runs: Vec<&[usize]> =
+        indices.split(|&i| !items[i].is_movable()).filter(|run| run.len() > 1).collect();
     if runs.is_empty() {
         return None;
     }

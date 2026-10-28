@@ -89,10 +89,7 @@ fn main() with IO {
 "#;
     let (stdout, stderr, success, _elapsed) =
         run_source_with_env(source, "race_fifo", MIGRATION_ON);
-    assert!(
-        success,
-        "race FIFO fixture must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "race FIFO fixture must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert_eq!(stdout.trim(), "10");
 }
 
@@ -117,10 +114,7 @@ fn main() with IO {
 "#;
     let (stdout, stderr, success, _elapsed) =
         run_source_with_env(source, "first_of_fifo", MIGRATION_ON);
-    assert!(
-        success,
-        "first_of FIFO fixture must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "first_of FIFO fixture must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     let lines: Vec<_> = stdout.lines().collect();
     assert_eq!(lines, ["0", "10"]);
 }

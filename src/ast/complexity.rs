@@ -32,12 +32,7 @@ struct FunctionAnalyzer {
 
 impl FunctionAnalyzer {
     fn new() -> Self {
-        Self {
-            branches: 0,
-            depth: 0,
-            max_depth: 0,
-            match_arms: 0,
-        }
+        Self { branches: 0, depth: 0, max_depth: 0, match_arms: 0 }
     }
 }
 
@@ -73,9 +68,7 @@ struct ComplexityCollector {
 
 impl ComplexityCollector {
     fn new() -> Self {
-        Self {
-            metrics: Vec::new(),
-        }
+        Self { metrics: Vec::new() }
     }
 
     fn analyze_function(
@@ -101,14 +94,7 @@ impl ComplexityCollector {
 
 impl<'ast> Visitor<'ast> for ComplexityCollector {
     fn visit_stmt(&mut self, stmt: &'ast Statement) {
-        if let Statement::Function {
-            name,
-            parameters,
-            body,
-            span,
-            ..
-        } = stmt
-        {
+        if let Statement::Function { name, parameters, body, span, .. } = stmt {
             self.analyze_function(Some(*name), parameters.len(), body, *span);
             // Continue walking to find nested functions inside the body
             visit::walk_stmt(self, stmt);
@@ -118,13 +104,7 @@ impl<'ast> Visitor<'ast> for ComplexityCollector {
     }
 
     fn visit_expr(&mut self, expr: &'ast Expression) {
-        if let Expression::Function {
-            parameters,
-            body,
-            span,
-            ..
-        } = expr
-        {
+        if let Expression::Function { parameters, body, span, .. } = expr {
             self.analyze_function(None, parameters.len(), body, *span);
             // Continue walking to find nested functions inside the body
             visit::walk_expr(self, expr);

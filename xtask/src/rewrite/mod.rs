@@ -62,10 +62,7 @@ impl Kind {
         if name == "all" {
             return Some(Kind::ALL.to_vec());
         }
-        Kind::ALL
-            .into_iter()
-            .find(|k| k.name() == name)
-            .map(|k| vec![k])
+        Kind::ALL.into_iter().find(|k| k.name() == name).map(|k| vec![k])
     }
 
     fn rewrite(self, fixture: &Fixture, rng: &mut Rng) -> Option<String> {
@@ -159,10 +156,8 @@ pub fn run_rewrite(root: &Path, options: &Options) -> Result<bool, String> {
     let mut steps = Steps::new(2 + options.kinds.len());
 
     steps.start("build");
-    let build = run(cargo()
-        .current_dir(root)
-        .args(["build", "--all-features", "--quiet"]))
-    .map_err(|e| e.to_string())?;
+    let build = run(cargo().current_dir(root).args(["build", "--all-features", "--quiet"]))
+        .map_err(|e| e.to_string())?;
     if build != 0 {
         return Err("cargo build failed".to_string());
     }
@@ -231,12 +226,7 @@ fn fixture_files(root: &Path, paths: &[String]) -> Result<Vec<String>, String> {
     }
     let mut files: Vec<String> = found
         .iter()
-        .map(|p| {
-            p.strip_prefix(root)
-                .unwrap_or(p)
-                .to_string_lossy()
-                .into_owned()
-        })
+        .map(|p| p.strip_prefix(root).unwrap_or(p).to_string_lossy().into_owned())
         .collect();
     files.sort();
     files.dedup();
@@ -285,10 +275,8 @@ fn prepare(root: &Path, flux: &Path, file: &str) -> Result<Original, String> {
     if fixture.items.iter().any(|item| item.keyword == "module") {
         return Err("declares a module".to_string());
     }
-    let imports_outside_flow = fixture
-        .tokens
-        .windows(2)
-        .any(|w| w[0].is(&source, "import") && !w[1].is(&source, "Flow"));
+    let imports_outside_flow =
+        fixture.tokens.windows(2).any(|w| w[0].is(&source, "import") && !w[1].is(&source, "Flow"));
     if imports_outside_flow {
         return Err("imports a module that would not travel with a copy".to_string());
     }
@@ -310,40 +298,25 @@ fn prepare(root: &Path, flux: &Path, file: &str) -> Result<Original, String> {
         }
         Some(ran.stdout)
     };
-    Ok(Original {
-        file: file.to_string(),
-        source,
-        expected,
-    })
+    Ok(Original { file: file.to_string(), source, expected })
 }
 
 /// The text of each `//` line in `header`, trimmed.
 fn header_directives(header: &str) -> Vec<&str> {
-    header
-        .lines()
-        .filter_map(|line| line.trim().strip_prefix("//"))
-        .map(str::trim)
-        .collect()
+    header.lines().filter_map(|line| line.trim().strip_prefix("//")).map(str::trim).collect()
 }
 
 fn has_expected_stdout(source: &str) -> bool {
     source
         .lines()
         .filter_map(|line| line.trim().strip_prefix("//"))
-        .any(|c| {
-            matches!(
-                c.trim(),
-                "parity-expected-stdout-begin" | "parity-oracle-stdout-begin"
-            )
-        })
+        .any(|c| matches!(c.trim(), "parity-expected-stdout-begin" | "parity-oracle-stdout-begin"))
 }
 
 /// Whether `stderr` reports a compile error: a diagnostic code outside the
 /// runtime's E1000–E1999 (`src/parity/runner.rs`).
 fn compile_errors(stderr: &str) -> bool {
-    diagnostic_codes(stderr)
-        .iter()
-        .any(|code| !(code.len() == 5 && code.starts_with("E1")))
+    diagnostic_codes(stderr).iter().any(|code| !(code.len() == 5 && code.starts_with("E1")))
 }
 
 /// `text` with an expected-stdout block for `stdout` inserted at `at`, the
@@ -393,9 +366,7 @@ fn run_kind(
             continue;
         };
         if kind == Kind::Reorder && !same_tokens(&original.source, &text) {
-            tally
-                .rewriter_errors
-                .push(format!("{}: the tokens changed", original.file));
+            tally.rewriter_errors.push(format!("{}: the tokens changed", original.file));
             continue;
         }
         if let Some(stdout) = &original.expected {
@@ -411,24 +382,13 @@ fn run_kind(
     }
 
     let compiled = parallel(&copies, options.jobs, |(_, copy)| {
-        run_flux(
-            root,
-            flux,
-            &["--dump-core"],
-            &copy.to_string_lossy(),
-            TIMEOUT,
-        )
+        run_flux(root, flux, &["--dump-core"], &copy.to_string_lossy(), TIMEOUT)
     });
     for ((file, copy), ran) in copies.iter().zip(compiled) {
         let failure = if !ran.finished {
             Some("timed out compiling".to_string())
         } else if compile_errors(&ran.stderr) {
-            let first = ran
-                .stderr
-                .lines()
-                .find(|l| l.contains("error[E"))
-                .unwrap_or("")
-                .trim();
+            let first = ran.stderr.lines().find(|l| l.contains("error[E")).unwrap_or("").trim();
             Some(first.to_string())
         } else {
             None
@@ -450,11 +410,7 @@ fn run_kind(
     );
 
     if tally.rewritten > tally.not_compiling.len() {
-        let shown = dir
-            .strip_prefix(root)
-            .unwrap_or(&dir)
-            .to_string_lossy()
-            .into_owned();
+        let shown = dir.strip_prefix(root).unwrap_or(&dir).to_string_lossy().into_owned();
         let mut log = fs::File::create(out.join(format!("{}.log", kind.name())))
             .map_err(|e| e.to_string())?;
         tally.parity = verify::parity(root, flux, &shown, &options.ways, false, &mut log)

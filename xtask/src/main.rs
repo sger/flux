@@ -211,9 +211,7 @@ fn dispatch(root: &Path, args: &[String]) -> Result<bool, String> {
             bisect::run_bisect(root, &options)
         }
         "sanitize" => {
-            let ways = args
-                .value("--ways")?
-                .unwrap_or_else(|| "llvm,llvm_opt".to_string());
+            let ways = args.value("--ways")?.unwrap_or_else(|| "llvm,llvm_opt".to_string());
             let thread = args.flag("--thread");
             let mut dirs = Vec::new();
             while let Some(dir) = args.positional()? {
@@ -286,9 +284,7 @@ fn rewrite_options(args: &mut Args) -> Result<rewrite::Options, String> {
     let mut options = rewrite::Options {
         kinds: rewrite::Kind::parse(&kind).ok_or(format!("unknown kind {kind}\n{USAGE}"))?,
         seed: args.number("--seed")?.unwrap_or(1) as u64,
-        ways: args
-            .value("--ways")?
-            .unwrap_or_else(|| rewrite::DEFAULT_WAYS.to_string()),
+        ways: args.value("--ways")?.unwrap_or_else(|| rewrite::DEFAULT_WAYS.to_string()),
         jobs: args.number("--jobs")?.unwrap_or_else(sweep::default_jobs),
         // After the options, so their values are not taken as paths.
         paths: std::iter::from_fn(|| args.positional().transpose()).collect::<Result<_, _>>()?,

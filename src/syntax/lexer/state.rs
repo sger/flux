@@ -38,10 +38,8 @@ impl Lexer {
     pub(super) fn enter_interpolated_string(&mut self) {
         match &mut self.state {
             LexerState::Normal => {
-                self.state = LexerState::InInterpolatedString {
-                    depth_stack: vec![1],
-                    is_multiline: false,
-                };
+                self.state =
+                    LexerState::InInterpolatedString { depth_stack: vec![1], is_multiline: false };
             }
             LexerState::InInterpolatedString { depth_stack, .. } => depth_stack.push(1),
         }
@@ -50,10 +48,8 @@ impl Lexer {
     pub(super) fn enter_multiline_interpolated_string(&mut self) {
         match &mut self.state {
             LexerState::Normal => {
-                self.state = LexerState::InInterpolatedString {
-                    depth_stack: vec![1],
-                    is_multiline: true,
-                };
+                self.state =
+                    LexerState::InInterpolatedString { depth_stack: vec![1], is_multiline: true };
             }
             LexerState::InInterpolatedString { depth_stack, .. } => depth_stack.push(1),
         }

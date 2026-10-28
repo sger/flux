@@ -59,11 +59,7 @@ impl AstLowerer<'_> {
             self.constrained_call_from_evidence(function, arguments)
         };
         args.extend(arguments.iter().map(|argument| self.lower_expr(argument)));
-        CoreExpr::App {
-            func: Box::new(func),
-            args,
-            span,
-        }
+        CoreExpr::App { func: Box::new(func), args, span }
     }
 
     /// The method a call inference classified as a class-method call names,
@@ -131,11 +127,7 @@ impl AstLowerer<'_> {
                     self.site_error(span, "the dictionary parameter it names has no binder");
                     return fallback(self);
                 };
-                let func = CoreExpr::TupleField {
-                    object: Box::new(object),
-                    index: slot,
-                    span,
-                };
+                let func = CoreExpr::TupleField { object: Box::new(object), index: slot, span };
                 (func, Vec::new())
             }
             [DictArg::Global { instance }] | [DictArg::Applied { instance, .. }] => {
@@ -146,10 +138,7 @@ impl AstLowerer<'_> {
                     interner,
                 );
                 let Some(mangled) = interner.lookup(&mangled) else {
-                    self.site_error(
-                        span,
-                        &format!("no instance method `{mangled}` was generated"),
-                    );
+                    self.site_error(span, &format!("no instance method `{mangled}` was generated"));
                     return fallback(self);
                 };
                 let context = match &dictionaries[0] {
@@ -194,9 +183,7 @@ impl AstLowerer<'_> {
         if raised == 0 {
             // A call to an enclosing definition that takes dictionaries: its
             // own recursive call, with no declared signature to raise them.
-            if let Expression::Identifier {
-                name: callee_name, ..
-            } = function
+            if let Expression::Identifier { name: callee_name, .. } = function
                 && self.constrained_bodies.contains(callee_name)
             {
                 let callee_name = *callee_name;
@@ -222,10 +209,7 @@ impl AstLowerer<'_> {
             .map(|arg| self.render_dict_arg(arg, callee_span))
             .collect::<Option<Vec<_>>>()
         else {
-            self.site_error(
-                callee_span,
-                "a dictionary its evidence names is unbuildable",
-            );
+            self.site_error(callee_span, "a dictionary its evidence names is unbuildable");
             return (func, Vec::new());
         };
 
@@ -290,8 +274,7 @@ impl AstLowerer<'_> {
             let classes = (0..evidence.raised(id))
                 .filter_map(|index| evidence.predicate(&EvidenceSite::new(id, index)))
                 .filter_map(|predicate| {
-                    self.interner
-                        .and_then(|interner| interner.try_resolve(predicate.class_name))
+                    self.interner.and_then(|interner| interner.try_resolve(predicate.class_name))
                 })
                 .collect::<Vec<_>>()
                 .join(", ");

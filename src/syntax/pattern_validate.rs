@@ -21,10 +21,7 @@ pub struct PatternValidationContext<'a> {
 
 impl<'a> PatternValidationContext<'a> {
     pub fn new(file_path: &'a str, interner: &'a Interner) -> Self {
-        Self {
-            file_path,
-            interner,
-        }
+        Self { file_path, interner }
     }
 }
 
@@ -54,10 +51,7 @@ pub fn validate_program_patterns(
     interner: &Interner,
 ) -> Vec<Diagnostic> {
     let ctx = PatternValidationContext::new(file_path, interner);
-    let mut validator = PatternValidator {
-        ctx,
-        diagnostics: Vec::new(),
-    };
+    let mut validator = PatternValidator { ctx, diagnostics: Vec::new() };
     validator.visit_program(program);
     validator.diagnostics
 }

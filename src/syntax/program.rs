@@ -46,11 +46,7 @@ impl Program {
 
     /// Formats this program using the interner to resolve identifier names.
     pub fn display_with(&self, interner: &Interner) -> String {
-        self.statements
-            .iter()
-            .map(|s| s.display_with(interner))
-            .collect::<Vec<_>>()
-            .join("")
+        self.statements.iter().map(|s| s.display_with(interner)).collect::<Vec<_>>().join("")
     }
 }
 

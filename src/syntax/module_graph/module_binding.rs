@@ -11,9 +11,7 @@ pub fn is_valid_module_name(name: &str) -> bool {
     if segments.is_empty() {
         return false;
     }
-    segments
-        .iter()
-        .all(|segment| is_valid_module_segment(segment))
+    segments.iter().all(|segment| is_valid_module_segment(segment))
 }
 
 pub fn is_valid_module_alias(name: &str) -> bool {

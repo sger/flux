@@ -30,18 +30,11 @@ impl Lexeme {
     pub fn len_chars(&self) -> usize {
         let s = self.as_str();
 
-        if s.is_ascii() {
-            s.len()
-        } else {
-            s.chars().count()
-        }
+        if s.is_ascii() { s.len() } else { s.chars().count() }
     }
 
     pub fn from_span(source: Rc<str>, start: usize, end: usize) -> Self {
-        Lexeme::Span {
-            source,
-            span: ByteSpan::new(start, end),
-        }
+        Lexeme::Span { source, span: ByteSpan::new(start, end) }
     }
 }
 
@@ -122,10 +115,7 @@ mod tests {
     #[test]
     fn span_lexeme_returns_exact_slice() {
         let source: Rc<str> = Rc::from("foobar");
-        let lexeme = Lexeme::Span {
-            source,
-            span: ByteSpan::new(3, 6),
-        };
+        let lexeme = Lexeme::Span { source, span: ByteSpan::new(3, 6) };
 
         assert_eq!(lexeme.as_str(), "bar");
     }
@@ -134,10 +124,7 @@ mod tests {
     #[should_panic(expected = "invalid lexeme span")]
     fn span_lexeme_panics_on_invalid_utf8_boundary() {
         let source: Rc<str> = Rc::from("é");
-        let lexeme = Lexeme::Span {
-            source,
-            span: ByteSpan::new(1, 2),
-        };
+        let lexeme = Lexeme::Span { source, span: ByteSpan::new(1, 2) };
 
         let _ = lexeme.as_str();
     }

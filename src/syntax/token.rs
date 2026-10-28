@@ -27,13 +27,7 @@ impl Token {
         let literal = literal.into();
         let start = Position::new(line, column);
         let end = Position::new(line, column.saturating_add(literal.len_chars()));
-        Self {
-            token_type,
-            literal,
-            symbol: None,
-            position: start,
-            end_position: end,
-        }
+        Self { token_type, literal, symbol: None, position: start, end_position: end }
     }
 
     pub fn new_static(
@@ -53,12 +47,7 @@ impl Token {
         line: usize,
         column: usize,
     ) -> Self {
-        Self::new(
-            token_type,
-            Lexeme::from_span(source, start, end),
-            line,
-            column,
-        )
+        Self::new(token_type, Lexeme::from_span(source, start, end), line, column)
     }
 
     pub fn new_span_with_end(
@@ -104,13 +93,7 @@ impl Token {
         column: usize,
         end_position: Position,
     ) -> Self {
-        Self::new_with_end(
-            token_type,
-            Lexeme::Static(literal),
-            line,
-            column,
-            end_position,
-        )
+        Self::new_with_end(token_type, Lexeme::Static(literal), line, column, end_position)
     }
 
     pub fn new_with_end(
@@ -158,12 +141,6 @@ impl Token {
 
 impl fmt::Display for Token {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Token({}, {:?}, {})",
-            self.token_type,
-            self.literal.as_str(),
-            self.position
-        )
+        write!(f, "Token({}, {:?}, {})", self.token_type, self.literal.as_str(), self.position)
     }
 }

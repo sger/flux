@@ -55,10 +55,7 @@ pub enum DictArg {
     },
     /// An instance with a context: its dictionary applied to the evidence for
     /// each predicate in that context, in declaration order.
-    Applied {
-        instance: InstanceKey,
-        context: Vec<DictArg>,
-    },
+    Applied { instance: InstanceKey, context: Vec<DictArg> },
     /// Nothing is passed — a marker class carries no dictionary.
     None,
 }
@@ -81,29 +78,18 @@ pub fn evidence_to_arg(
     match evidence {
         Evidence::Marker => Some(DictArg::None),
 
-        Evidence::FromInstance {
-            instance, context, ..
-        } => {
+        Evidence::FromInstance { instance, context, .. } => {
             if context.is_empty() {
-                return Some(DictArg::Global {
-                    instance: instance.clone(),
-                });
+                return Some(DictArg::Global { instance: instance.clone() });
             }
             let context = context
                 .iter()
                 .map(|inner| evidence_to_arg(inner, param_of))
                 .collect::<Option<Vec<_>>>()?;
-            Some(DictArg::Applied {
-                instance: instance.clone(),
-                context,
-            })
+            Some(DictArg::Applied { instance: instance.clone(), context })
         }
 
-        Evidence::FromGiven {
-            owner,
-            superclass_path,
-            ..
-        } => Some(DictArg::Param {
+        Evidence::FromGiven { owner, superclass_path, .. } => Some(DictArg::Param {
             owner: owner.definition,
             index: param_of(*owner)?,
             path: superclass_path.clone(),
@@ -157,12 +143,7 @@ mod tests {
     #[test]
     fn a_context_free_instance_becomes_its_global_dictionary() {
         let mut interner = Interner::new();
-        let instance = key(
-            &mut interner,
-            "Eq",
-            InferType::Con(TypeConstructor::Int),
-            "Int",
-        );
+        let instance = key(&mut interner, "Eq", InferType::Con(TypeConstructor::Int), "Int");
         let arg = evidence_to_arg(
             &Evidence::FromInstance {
                 instance: instance.clone(),
@@ -184,18 +165,10 @@ mod tests {
         let outer = key(
             &mut interner,
             "Eq",
-            InferType::App(
-                TypeConstructor::List,
-                vec![InferType::Con(TypeConstructor::Int)],
-            ),
+            InferType::App(TypeConstructor::List, vec![InferType::Con(TypeConstructor::Int)]),
             "List<Int>",
         );
-        let inner = key(
-            &mut interner,
-            "Eq",
-            InferType::Con(TypeConstructor::Int),
-            "Int",
-        );
+        let inner = key(&mut interner, "Eq", InferType::Con(TypeConstructor::Int), "Int");
 
         let arg = evidence_to_arg(
             &Evidence::FromInstance {
@@ -235,30 +208,16 @@ mod tests {
     /// two positions differ when an earlier given gets no parameter.
     #[test]
     fn a_given_names_the_parameter_that_carries_it() {
-        let owner = GivenRef {
-            definition: ExprId(7),
-            index: 2,
-        };
+        let owner = GivenRef { definition: ExprId(7), index: 2 };
         let param_of = |given: GivenRef| (given == owner).then_some(1);
 
         let arg = evidence_to_arg(
-            &Evidence::FromGiven {
-                given: ord_given(),
-                owner,
-                superclass_path: vec![0],
-            },
+            &Evidence::FromGiven { given: ord_given(), owner, superclass_path: vec![0] },
             &param_of,
         )
         .expect("the given is a parameter");
 
-        assert_eq!(
-            arg,
-            DictArg::Param {
-                owner: ExprId(7),
-                index: 1,
-                path: vec![0]
-            }
-        );
+        assert_eq!(arg, DictArg::Param { owner: ExprId(7), index: 1, path: vec![0] });
     }
 
     /// A given that is not one of its definition's parameters has nothing to
@@ -268,10 +227,7 @@ mod tests {
         let arg = evidence_to_arg(
             &Evidence::FromGiven {
                 given: ord_given(),
-                owner: GivenRef {
-                    definition: ExprId(7),
-                    index: 0,
-                },
+                owner: GivenRef { definition: ExprId(7), index: 0 },
                 superclass_path: vec![],
             },
             &|_| None,
@@ -287,36 +243,20 @@ mod tests {
     fn unrecorded_and_structural_evidence_yield_no_argument() {
         assert_eq!(evidence_to_arg(&Evidence::Unrecorded, &|_| None), None);
         assert_eq!(
-            evidence_to_arg(
-                &Evidence::Structural {
-                    components: Vec::new()
-                },
-                &|_| None
-            ),
+            evidence_to_arg(&Evidence::Structural { components: Vec::new() }, &|_| None),
             None
         );
     }
 
     #[test]
     fn a_marker_class_passes_nothing() {
-        assert_eq!(
-            evidence_to_arg(&Evidence::Marker, &|_| None),
-            Some(DictArg::None)
-        );
+        assert_eq!(evidence_to_arg(&Evidence::Marker, &|_| None), Some(DictArg::None));
     }
 
     #[test]
     fn head_args_are_reachable_for_naming_a_dictionary() {
         let mut interner = Interner::new();
-        let instance = key(
-            &mut interner,
-            "Eq",
-            InferType::Con(TypeConstructor::Int),
-            "Int",
-        );
-        assert_eq!(
-            instance_head_args(&instance),
-            &[InferType::Con(TypeConstructor::Int)]
-        );
+        let instance = key(&mut interner, "Eq", InferType::Con(TypeConstructor::Int), "Int");
+        assert_eq!(instance_head_args(&instance), &[InferType::Con(TypeConstructor::Int)]);
     }
 }

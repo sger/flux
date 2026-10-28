@@ -13,27 +13,18 @@ use super::{
 };
 
 fn temp_path(name: &str) -> PathBuf {
-    let mut path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("target")
-        .join("test-scratch");
+    let mut path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join("test-scratch");
     std::fs::create_dir_all(&path).ok();
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let pid = std::process::id();
     path.push(format!("flux_{}_{}_{}", name, pid, nanos));
     path
 }
 
 fn create_rw_file(path: &PathBuf) -> File {
-    OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .read(true)
-        .write(true)
-        .open(path)
-        .unwrap()
+    OpenOptions::new().create(true).truncate(true).read(true).write(true).open(path).unwrap()
 }
 
 #[test]

@@ -5,11 +5,7 @@ fn compile_ok(input: &str) {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<unknown>", interner);
     compiler.compile(&program).expect("expected compile ok");

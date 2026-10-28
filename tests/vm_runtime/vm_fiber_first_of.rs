@@ -37,15 +37,9 @@ fn main() with IO, Time {
 }
 "#;
     let (stdout, stderr, success, _) = run_source(source, "fastest");
-    assert!(
-        success,
-        "first_of program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "first_of program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
     let lines: Vec<_> = stdout.lines().collect();
     assert_eq!(lines, ["1", "2"]);
-    assert!(
-        elapsed < Duration::from_millis(700),
-        "first_of waited for slow losers: {elapsed:?}"
-    );
+    assert!(elapsed < Duration::from_millis(700), "first_of waited for slow losers: {elapsed:?}");
 }

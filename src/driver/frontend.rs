@@ -34,14 +34,9 @@ pub(crate) fn find_flow_dir(entry_path: &Path) -> Option<PathBuf> {
         }
     }
 
-    let start = entry_path
-        .canonicalize()
-        .unwrap_or_else(|_| entry_path.to_path_buf());
-    let mut current = if start.is_file() {
-        start.parent().map(Path::to_path_buf)
-    } else {
-        Some(start)
-    };
+    let start = entry_path.canonicalize().unwrap_or_else(|_| entry_path.to_path_buf());
+    let mut current =
+        if start.is_file() { start.parent().map(Path::to_path_buf) } else { Some(start) };
     // Bounded so a path with many components cannot spin.
     for _ in 0..32 {
         let Some(dir) = current else { break };
@@ -235,10 +230,7 @@ pub(crate) fn collect_roots(
         // from.
         let entry_dir = entry_path.parent().map(Path::to_path_buf);
         let project_dir = crate::shared::cache_paths::find_project_root(entry_path);
-        for base in [entry_dir.as_deref(), project_dir.as_deref()]
-            .into_iter()
-            .flatten()
-        {
+        for base in [entry_dir.as_deref(), project_dir.as_deref()].into_iter().flatten() {
             for name in ["src", "lib"] {
                 let candidate = base.join(name);
                 if candidate.is_dir() && !roots.contains(&candidate) {

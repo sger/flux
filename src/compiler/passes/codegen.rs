@@ -163,11 +163,7 @@ impl Compiler {
             .core
             .as_ref()
             .map(|core| {
-                core.defs
-                    .iter()
-                    .filter(|def| def.is_dict_def)
-                    .map(|def| def.name)
-                    .collect()
+                core.defs.iter().filter(|def| def.is_dict_def).map(|def| def.name).collect()
             })
             .unwrap_or_default();
 
@@ -195,10 +191,7 @@ impl Compiler {
         let instances = self.class_env.instances.clone();
         let mut plans = Vec::new();
         for instance in &instances {
-            let Some(class_def) = self
-                .class_env
-                .lookup_class_by_id(instance.class_id)
-                .cloned()
+            let Some(class_def) = self.class_env.lookup_class_by_id(instance.class_id).cloned()
             else {
                 continue;
             };
@@ -224,11 +217,8 @@ impl Compiler {
             // Context dictionaries become this constructor's parameters, in
             // declaration order — the same order `resolve_dictionary_ref_by_id`
             // produces its `context_args` in.
-            let context_arity = instance
-                .context_class_ids
-                .iter()
-                .take(instance.context.len())
-                .count();
+            let context_arity =
+                instance.context_class_ids.iter().take(instance.context.len()).count();
 
             let mut slots = Vec::new();
             let mut complete = true;
@@ -289,11 +279,8 @@ impl Compiler {
                     ContextualDictSlot::Method { mangled, .. } => *mangled,
                 };
                 let binding = self.symbol_table.resolve(symbol)?;
-                matches!(
-                    binding.symbol_scope,
-                    crate::compiler::symbol_scope::SymbolScope::Global
-                )
-                .then_some(binding)
+                matches!(binding.symbol_scope, crate::compiler::symbol_scope::SymbolScope::Global)
+                    .then_some(binding)
             })
             .collect()
         else {
@@ -346,10 +333,8 @@ impl Compiler {
                 DictGlobal::MethodTuple { methods } => {
                     // Resolve every method before emitting anything: a partial
                     // load would leave operands stranded on the stack.
-                    let bindings: Option<Vec<_>> = methods
-                        .iter()
-                        .map(|&method| self.symbol_table.resolve(method))
-                        .collect();
+                    let bindings: Option<Vec<_>> =
+                        methods.iter().map(|&method| self.symbol_table.resolve(method)).collect();
                     let Some(bindings) = bindings else {
                         continue;
                     };
@@ -365,10 +350,7 @@ impl Compiler {
                         self.emit(OpCode::OpTupleLong, &[count]);
                     }
                 }
-                DictGlobal::ContextualConstructor {
-                    context_arity,
-                    slots,
-                } => {
+                DictGlobal::ContextualConstructor { context_arity, slots } => {
                     if !self.emit_contextual_dict_constructor(*context_arity, slots) {
                         continue;
                     }
@@ -446,11 +428,8 @@ impl Compiler {
                     ContextualDictSlot::Method { mangled, .. } => *mangled,
                 };
                 let binding = self.symbol_table.resolve(symbol)?;
-                matches!(
-                    binding.symbol_scope,
-                    crate::compiler::symbol_scope::SymbolScope::Global
-                )
-                .then_some((binding.index, slot))
+                matches!(binding.symbol_scope, crate::compiler::symbol_scope::SymbolScope::Global)
+                    .then_some((binding.index, slot))
             })
             .collect()
         else {
@@ -556,9 +535,7 @@ enum ContextualDictSlot {
 enum DictGlobal {
     /// A plain instance: a tuple of method references, in class-declaration
     /// order.
-    MethodTuple {
-        methods: Vec<crate::syntax::Identifier>,
-    },
+    MethodTuple { methods: Vec<crate::syntax::Identifier> },
     /// A contextual instance: a function from context dictionaries to the
     /// method tuple.
     ContextualConstructor {
@@ -575,11 +552,7 @@ impl DictGlobal {
         use crate::core::{CoreExpr, CorePrimOp};
 
         match expr {
-            CoreExpr::PrimOp {
-                op: CorePrimOp::MakeTuple,
-                args,
-                ..
-            } => {
+            CoreExpr::PrimOp { op: CorePrimOp::MakeTuple, args, .. } => {
                 let methods: Option<Vec<_>> = args
                     .iter()
                     .map(|arg| match arg {
@@ -621,18 +594,11 @@ impl DictGlobal {
             cursor = body;
         }
 
-        let CoreExpr::PrimOp {
-            op: CorePrimOp::MakeTuple,
-            args,
-            ..
-        } = cursor
-        else {
+        let CoreExpr::PrimOp { op: CorePrimOp::MakeTuple, args, .. } = cursor else {
             return None;
         };
 
-        args.iter()
-            .map(|slot| Self::contextual_slot(slot, &bound, context))
-            .collect()
+        args.iter().map(|slot| Self::contextual_slot(slot, &bound, context)).collect()
     }
 
     /// Read one dictionary slot.
@@ -649,10 +615,9 @@ impl DictGlobal {
         use crate::core::CoreExpr;
 
         let slot = match slot {
-            CoreExpr::Var { var, .. } => var
-                .binder
-                .and_then(|binder| bound.get(&binder).copied())
-                .unwrap_or(slot),
+            CoreExpr::Var { var, .. } => {
+                var.binder.and_then(|binder| bound.get(&binder).copied()).unwrap_or(slot)
+            }
             other => other,
         };
 
@@ -675,10 +640,7 @@ impl DictGlobal {
                 let CoreExpr::Var { var, .. } = func.as_ref() else {
                     return None;
                 };
-                Some(ContextualDictSlot::Method {
-                    mangled: var.name,
-                    arity: params.len(),
-                })
+                Some(ContextualDictSlot::Method { mangled: var.name, arity: params.len() })
             }
             _ => None,
         }

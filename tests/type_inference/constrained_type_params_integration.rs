@@ -13,11 +13,7 @@ use flux::{
 fn compiler_for(src: &str) -> (flux::syntax::program::Program, Compiler) {
     let mut parser = Parser::new(Lexer::new(src));
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let compiler = Compiler::new_with_interner("<test>", interner);
     (program, compiler)
@@ -43,9 +39,7 @@ fn main() {
 "#,
     );
 
-    compiler
-        .compile_with_opts(&program, false, false)
-        .expect("compilation should succeed");
+    compiler.compile_with_opts(&program, false, false).expect("compilation should succeed");
     let dumped = compiler
         .dump_core_with_opts(&program, false, CoreDisplayMode::Readable)
         .expect("core dump should succeed");

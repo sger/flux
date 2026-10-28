@@ -160,11 +160,7 @@ fn run_semantic_core_passes_with_optional_interner(
         // practice every simplification pass today either shrinks the tree
         // or exposes a reduction that does. If that ever stops being true,
         // replace this heuristic with a per-pass `changed: bool` flag.
-        let size_before: usize = program
-            .defs
-            .iter()
-            .map(|d| helpers::expr_size(&d.expr))
-            .sum();
+        let size_before: usize = program.defs.iter().map(|d| helpers::expr_size(&d.expr)).sum();
 
         for def in &mut program.defs {
             opt_bisect::set_def(|| opt_bisect::def_name(def.name, interner));
@@ -200,11 +196,7 @@ fn run_semantic_core_passes_with_optional_interner(
         // After the first round, check whether anything changed.
         // If the total node count is the same, no pass fired — stop early.
         if round > 0 {
-            let size_after: usize = program
-                .defs
-                .iter()
-                .map(|d| helpers::expr_size(&d.expr))
-                .sum();
+            let size_after: usize = program.defs.iter().map(|d| helpers::expr_size(&d.expr)).sum();
             if size_after == size_before {
                 break;
             }
@@ -278,12 +270,7 @@ fn normalize_lam_param_type_lengths(program: &mut CoreProgram, _interner: Option
 
 fn normalize_lam_param_type_lengths_expr(expr: &mut CoreExpr) {
     match expr {
-        CoreExpr::Lam {
-            params,
-            param_types,
-            body,
-            ..
-        } => {
+        CoreExpr::Lam { params, param_types, body, .. } => {
             if !param_types.is_empty() && param_types.len() < params.len() {
                 let missing = params.len() - param_types.len();
                 let mut normalized = vec![None; missing];
@@ -308,9 +295,7 @@ fn normalize_lam_param_type_lengths_expr(expr: &mut CoreExpr) {
             }
             normalize_lam_param_type_lengths_expr(body);
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             normalize_lam_param_type_lengths_expr(scrutinee);
             for alt in alts {
                 if let Some(guard) = &mut alt.guard {
@@ -334,12 +319,7 @@ fn normalize_lam_param_type_lengths_expr(expr: &mut CoreExpr) {
                 normalize_lam_param_type_lengths_expr(arg);
             }
         }
-        CoreExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        CoreExpr::Handle { body, parameter, handlers, .. } => {
             normalize_lam_param_type_lengths_expr(body);
             if let Some(parameter) = parameter {
                 normalize_lam_param_type_lengths_expr(parameter);
@@ -441,9 +421,7 @@ fn collect_max_binder_id(expr: &CoreExpr, max: &mut u32) {
             }
             collect_max_binder_id(body, max);
         }
-        Case {
-            scrutinee, alts, ..
-        } => {
+        Case { scrutinee, alts, .. } => {
             collect_max_binder_id(scrutinee, max);
             for alt in alts {
                 collect_max_binder_id(&alt.rhs, max);
@@ -572,16 +550,10 @@ fn aether_contract_error_common(
     stage: &'static str,
     errors: &[crate::aether::verify::AetherError],
 ) -> Diagnostic {
-    let bullet_lines = errors
-        .iter()
-        .map(|error| format!("- {:?}", error.kind))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let details = errors
-        .iter()
-        .map(|error| format!("- {}", error.message))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let bullet_lines =
+        errors.iter().map(|error| format!("- {:?}", error.kind)).collect::<Vec<_>>().join("\n");
+    let details =
+        errors.iter().map(|error| format!("- {}", error.message)).collect::<Vec<_>>().join("\n");
     Diagnostic::make_error_dynamic(
         "E999",
         "AETHER VERIFICATION FAILED",

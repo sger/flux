@@ -34,16 +34,12 @@ fn compile_with_opts_applies_all_transformations() {
 
     // Compile WITHOUT optimization
     let mut compiler_no_opt = Compiler::new_with_interner("test.flx", interner.clone());
-    compiler_no_opt
-        .compile_with_opts(&program, false, false)
-        .unwrap();
+    compiler_no_opt.compile_with_opts(&program, false, false).unwrap();
     let bytecode_no_opt = compiler_no_opt.bytecode();
 
     // Compile WITH optimization AND analysis
     let mut compiler_opt = Compiler::new_with_interner("test.flx", interner);
-    compiler_opt
-        .compile_with_opts(&program, true, true)
-        .unwrap();
+    compiler_opt.compile_with_opts(&program, true, true).unwrap();
     let bytecode_opt = compiler_opt.bytecode();
 
     // 1. Constant folding should reduce constants
@@ -55,21 +51,11 @@ fn compile_with_opts_applies_all_transformations() {
     );
 
     // 2. Tail calls should be detected
-    assert!(
-        !compiler_opt.tail_calls.is_empty(),
-        "Expected tail calls to be detected"
-    );
-    assert_eq!(
-        compiler_opt.tail_calls.len(),
-        1,
-        "Expected exactly 1 tail call (factorial)"
-    );
+    assert!(!compiler_opt.tail_calls.is_empty(), "Expected tail calls to be detected");
+    assert_eq!(compiler_opt.tail_calls.len(), 1, "Expected exactly 1 tail call (factorial)");
 
     // 3. Free vars should be empty (all vars are defined)
-    assert!(
-        compiler_opt.free_vars.is_empty(),
-        "Expected no free variables in this program"
-    );
+    assert!(compiler_opt.free_vars.is_empty(), "Expected no free variables in this program");
 
     // 4. Without optimization, analysis should be cleared
     assert!(
@@ -94,10 +80,7 @@ fn compile_with_opts_detects_free_variables() {
     // This will fail at compile time, but analysis pass should detect free vars
     let _ = compiler.compile_with_opts(&program, false, true);
 
-    assert!(
-        !compiler.free_vars.is_empty(),
-        "Expected undefined_var to be detected as free"
-    );
+    assert!(!compiler.free_vars.is_empty(), "Expected undefined_var to be detected as free");
 }
 
 #[test]
@@ -110,10 +93,8 @@ fn optimization_pipeline_order_is_correct() {
     compiler.compile_with_opts(&program, true, false).unwrap();
     let bytecode = compiler.bytecode();
 
-    let has_integer_2 = bytecode
-        .constants
-        .iter()
-        .any(|c| matches!(c, flux::runtime::value::Value::Integer(2)));
+    let has_integer_2 =
+        bytecode.constants.iter().any(|c| matches!(c, flux::runtime::value::Value::Integer(2)));
 
     assert!(
         !has_integer_2,
@@ -156,9 +137,7 @@ fn constant_folding_reduces_constants() {
     let bytecode_no_opt = compiler_no_opt.bytecode();
 
     let mut compiler_opt = Compiler::new_with_interner("test.flx", interner);
-    compiler_opt
-        .compile_with_opts(&program, true, false)
-        .unwrap();
+    compiler_opt.compile_with_opts(&program, true, false).unwrap();
     let bytecode_opt = compiler_opt.bytecode();
 
     assert!(
@@ -168,11 +147,7 @@ fn constant_folding_reduces_constants() {
         bytecode_no_opt.constants.len()
     );
 
-    assert_eq!(
-        bytecode_opt.constants.len(),
-        2,
-        "Expected 2 constants after folding"
-    );
+    assert_eq!(bytecode_opt.constants.len(), 2, "Expected 2 constants after folding");
 }
 
 #[test]
@@ -233,8 +208,5 @@ fn main() with IO {
 "#;
     let plain = run_flux("shadowed_literal.flx", source, &[]);
     assert!(plain.ends_with("2\n10\n"), "plain run: {plain:?}");
-    assert_eq!(
-        run_flux("shadowed_literal_opt.flx", source, &["--optimize"]),
-        plain
-    );
+    assert_eq!(run_flux("shadowed_literal_opt.flx", source, &["--optimize"]), plain);
 }

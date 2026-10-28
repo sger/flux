@@ -37,8 +37,7 @@ impl Compiler {
         self.hm_expr_types = hm_final.expr_types;
         let module_member_schemes = hm_final.module_member_schemes;
         self.private_member_schemes = hm_final.private_member_schemes;
-        self.cached_member_schemes
-            .extend(module_member_schemes.clone());
+        self.cached_member_schemes.extend(module_member_schemes.clone());
         let class_constraints: WantedConstraints = hm_final.class_constraints;
         let class_method_calls = hm_final.class_method_calls;
         let instantiated_expr_vars = hm_final.instantiated_expr_vars;
@@ -49,11 +48,8 @@ impl Compiler {
         // session globals. A failed line is rolled back wholesale by the engine
         // (a pre-line clone of the compiler), which discards these too.
         if self.repl_mode {
-            self.repl_session_schemes.extend(
-                resolved_binding_schemes
-                    .iter()
-                    .map(|(k, v)| (*k, v.clone())),
-            );
+            self.repl_session_schemes
+                .extend(resolved_binding_schemes.iter().map(|(k, v)| (*k, v.clone())));
         }
 
         let mut hm_diagnostics = hm_final.diagnostics;
@@ -80,9 +76,8 @@ impl Compiler {
         hm_diagnostics
             .extend(self.solve_class_constraints(&class_constraints, &class_method_calls));
 
-        self.has_hm_diagnostics = hm_diagnostics
-            .iter()
-            .any(|d| d.severity() == crate::diagnostics::Severity::Error);
+        self.has_hm_diagnostics =
+            hm_diagnostics.iter().any(|d| d.severity() == crate::diagnostics::Severity::Error);
 
         // Proposal 0152, Phase 3: desugar named-field AST nodes into their
         // positional equivalents so every downstream phase (AST-fallback
@@ -106,9 +101,7 @@ impl Compiler {
             // constructor of the same name keeps its own field order, matching
             // the shadowing behaviour everywhere else.
             for (ctor, fields) in &self.preloaded_ctor_field_names {
-                ctor_field_names
-                    .entry(*ctor)
-                    .or_insert_with(|| fields.clone());
+                ctor_field_names.entry(*ctor).or_insert_with(|| fields.clone());
             }
             let mut ctx = NamedFieldDesugarCtx {
                 ctor_field_names: &ctor_field_names,
@@ -119,10 +112,7 @@ impl Compiler {
             desugar_named_fields_in_program(owned, &mut ctx);
         }
 
-        TypeInferenceResult {
-            final_program,
-            hm_diagnostics,
-        }
+        TypeInferenceResult { final_program, hm_diagnostics }
     }
 
     /// Solve a program's class constraints, and make `evidence_map` the
@@ -160,8 +150,7 @@ impl Compiler {
         }
         // Outside the solve: a definition whose body raised nothing leaves the
         // tree solved, and still has dictionary parameters.
-        self.evidence_map
-            .record_definitions(class_constraints, &self.class_env);
+        self.evidence_map.record_definitions(class_constraints, &self.class_env);
         self.evidence_map.record_method_calls(class_method_calls);
         if std::env::var("FLUX_DBG_EVIDENCE").is_ok() {
             self.dump_evidence_map();
@@ -232,11 +221,7 @@ impl crate::compiler::Compiler {
     /// hole is exactly what this dump exists to show.
     pub(in crate::compiler) fn dump_evidence_map(&self) {
         use crate::types::evidence::EvidenceSite;
-        eprintln!(
-            "EVIDENCE for {}: {} entries",
-            self.file_path,
-            self.evidence_map.len()
-        );
+        eprintln!("EVIDENCE for {}: {} entries", self.file_path, self.evidence_map.len());
         for (expr, raised) in self.evidence_map.raised_sites() {
             eprintln!("  site expr={expr:?} raised={raised}");
             for index in 0..raised {
@@ -265,30 +250,19 @@ impl crate::compiler::Compiler {
                 .map(|param| self.interner.resolve(param.class_name).to_string())
                 .collect::<Vec<_>>()
                 .join(", ");
-            eprintln!(
-                "  def {id:?}: [{params}] param_of_given={:?}",
-                definition.param_of_given
-            );
+            eprintln!("  def {id:?}: [{params}] param_of_given={:?}", definition.param_of_given);
         }
     }
 
     fn describe_evidence(&self, evidence: &crate::types::class_disposition::Evidence) -> String {
         use crate::types::class_disposition::Evidence;
         match evidence {
-            Evidence::FromInstance {
-                instance, context, ..
-            } => format!(
+            Evidence::FromInstance { instance, context, .. } => format!(
                 "FromInstance dict={:?} ctx={}",
-                instance
-                    .dict_name(&self.interner)
-                    .map(|n| self.interner.resolve(n).to_string()),
+                instance.dict_name(&self.interner).map(|n| self.interner.resolve(n).to_string()),
                 context.len()
             ),
-            Evidence::FromGiven {
-                given,
-                owner,
-                superclass_path,
-            } => format!(
+            Evidence::FromGiven { given, owner, superclass_path } => format!(
                 "FromGiven class={} owner={:?}#{} path={:?}",
                 self.interner.resolve(given.class_name),
                 owner.definition,
@@ -339,24 +313,17 @@ mod tests {
         SolveOutcome {
             dispositions: dispositions
                 .into_iter()
-                .map(|disposition| DispositionedConstraint {
-                    wanted: wanted(expr),
-                    disposition,
-                })
+                .map(|disposition| DispositionedConstraint { wanted: wanted(expr), disposition })
                 .collect(),
         }
     }
 
     fn solved() -> Disposition {
-        Disposition::Solved {
-            evidence: Evidence::Structural { components: vec![] },
-        }
+        Disposition::Solved { evidence: Evidence::Structural { components: vec![] } }
     }
 
     fn stuck() -> Disposition {
-        Disposition::Stuck {
-            reason: StuckReason::OuterScopeVariable,
-        }
+        Disposition::Stuck { reason: StuckReason::OuterScopeVariable }
     }
 
     /// `Channel.make(5)` on a channel nothing is ever sent on leaves
@@ -383,10 +350,7 @@ mod tests {
 
         let map = harvest_evidence(&class_env, &unsolved);
 
-        assert_eq!(
-            map.get(&EvidenceSite::new(expr, 0)),
-            Some(&Evidence::Marker)
-        );
+        assert_eq!(map.get(&EvidenceSite::new(expr, 0)), Some(&Evidence::Marker));
         assert_eq!(map.dict_args_at(expr), Some(Vec::new()));
     }
 
@@ -477,9 +441,7 @@ mod tests {
 
         assert_eq!(
             map.dict_args_at(expr),
-            Some(vec![DictArg::Global {
-                instance: int_instance()
-            }])
+            Some(vec![DictArg::Global { instance: int_instance() }])
         );
     }
 

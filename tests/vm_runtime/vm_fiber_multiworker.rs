@@ -52,16 +52,9 @@ fn main() with IO {
 }
 "#;
     let (stdout, stderr, success, _) = run_source(source, "both_correct");
-    assert!(
-        success,
-        "multiworker both must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "multiworker both must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     let lines: Vec<_> = stdout.lines().collect();
-    assert_eq!(
-        lines,
-        ["11", "22"],
-        "expected left=11 right=22 in order:\nstdout:\n{stdout}"
-    );
+    assert_eq!(lines, ["11", "22"], "expected left=11 right=22 in order:\nstdout:\n{stdout}");
 }
 
 // ── Test 2: parallelism ───────────────────────────────────────────────────
@@ -95,17 +88,10 @@ fn main() with IO, Time {
 }
 "#;
     let (stdout, stderr, success, _) = run_source(source, "sleep_parallel");
-    assert!(
-        success,
-        "multiworker sleep both must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "multiworker sleep both must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
     let lines: Vec<_> = stdout.lines().collect();
-    assert_eq!(
-        lines,
-        ["1", "2"],
-        "expected both fibers' results in order:\nstdout:\n{stdout}"
-    );
+    assert_eq!(lines, ["1", "2"], "expected both fibers' results in order:\nstdout:\n{stdout}");
     // Must wait at least one sleep duration.
     assert!(
         elapsed >= Duration::from_millis(400),
@@ -149,10 +135,7 @@ fn main() with IO {
         success,
         "multiworker channel exchange must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    assert!(
-        stdout.contains("42"),
-        "expected channel value (42) in output:\nstdout:\n{stdout}"
-    );
+    assert!(stdout.contains("42"), "expected channel value (42) in output:\nstdout:\n{stdout}");
 }
 
 // ── Test 4: single-worker parity ─────────────────────────────────────────
@@ -178,10 +161,7 @@ fn main() with IO {
 }
 "#;
     let (stdout, stderr, success, _) = run_source(source, "single_worker");
-    assert!(
-        success,
-        "single-worker path must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "single-worker path must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(
         stdout.contains('7') && stdout.contains('8'),
         "expected both results in output:\nstdout:\n{stdout}"
@@ -217,15 +197,9 @@ fn main() with IO, Time {
 }
 "#;
     let (stdout, stderr, success, _) = run_source(source, "four_workers_race");
-    assert!(
-        success,
-        "four-worker race must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "four-worker race must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
-    assert!(
-        stdout.contains("99"),
-        "expected fast branch result (99):\nstdout:\n{stdout}"
-    );
+    assert!(stdout.contains("99"), "expected fast branch result (99):\nstdout:\n{stdout}");
     // Should complete in ~50ms; the slow branch's 2s sleep would not.
     assert!(
         elapsed < Duration::from_millis(1500),
@@ -301,11 +275,8 @@ fn main() with IO {
     print(run_async_with_workers(1, body))
 }
 "#;
-    let (stdout, stderr, success, _) = run_source_with_env(
-        source,
-        "single_worker_round_robin",
-        &[("FLUX_WORK_STEALING", "0")],
-    );
+    let (stdout, stderr, success, _) =
+        run_source_with_env(source, "single_worker_round_robin", &[("FLUX_WORK_STEALING", "0")]);
     assert!(
         success,
         "single-worker race under round-robin fallback must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"

@@ -23,11 +23,7 @@ pub enum PipelineError {
     /// An external tool was not found on PATH.
     ToolNotFound { tool: &'static str, detail: String },
     /// An external tool exited with a non-zero status.
-    ToolFailed {
-        tool: &'static str,
-        exit_code: Option<i32>,
-        stderr: String,
-    },
+    ToolFailed { tool: &'static str, exit_code: Option<i32>, stderr: String },
     /// I/O error (e.g., writing the `.ll` file).
     Io(std::io::Error),
 }
@@ -38,17 +34,11 @@ impl fmt::Display for PipelineError {
             PipelineError::ToolNotFound { tool, detail } => {
                 write!(f, "{tool} not found: {detail}")
             }
-            PipelineError::ToolFailed {
-                tool,
-                exit_code,
-                stderr,
-            } => {
+            PipelineError::ToolFailed { tool, exit_code, stderr } => {
                 write!(
                     f,
                     "{tool} failed (exit {}): {}",
-                    exit_code
-                        .map(|c| c.to_string())
-                        .unwrap_or_else(|| "signal".into()),
+                    exit_code.map(|c| c.to_string()).unwrap_or_else(|| "signal".into()),
                     stderr.trim()
                 )
             }
@@ -184,10 +174,7 @@ pub fn compile_ir_to_object(
         fs::create_dir_all(parent)?;
     }
     let work_dir = unique_native_work_dir()?;
-    let stem = obj_path
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .unwrap_or("module");
+    let stem = obj_path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("module");
     let ll_path = work_dir.join(format!("{stem}.ll"));
     let bc_path = work_dir.join(format!("{stem}.bc"));
 
@@ -306,11 +293,7 @@ impl RuntimeVariant {
 
     /// The library's file name in `runtime/c`.
     pub fn file_name(self) -> String {
-        if cfg!(windows) {
-            format!("{}.lib", self.stem())
-        } else {
-            format!("lib{}.a", self.stem())
-        }
+        if cfg!(windows) { format!("{}.lib", self.stem()) } else { format!("lib{}.a", self.stem()) }
     }
 
     /// The compile flags this build adds: definitions, or sanitizers.
@@ -327,11 +310,9 @@ impl RuntimeVariant {
                 "-fno-sanitize-recover=undefined",
                 "-fno-omit-frame-pointer",
             ],
-            (RuntimeVariant::Tsan, false) => &[
-                "-fsanitize=thread",
-                "-fno-omit-frame-pointer",
-                "-DFLUX_TSAN_COUNTS",
-            ],
+            (RuntimeVariant::Tsan, false) => {
+                &["-fsanitize=thread", "-fno-omit-frame-pointer", "-DFLUX_TSAN_COUNTS"]
+            }
         }
     }
 
@@ -556,9 +537,7 @@ fn discover_rust_staticlib() -> Option<PathBuf> {
         })
         .collect();
     candidates.sort_by_key(|p| {
-        fs::metadata(p)
-            .and_then(|m| m.modified())
-            .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+        fs::metadata(p).and_then(|m| m.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH)
     });
     candidates.reverse(); // newest first
     let found = candidates.into_iter().find(|p| has_sentinel(p))?;
@@ -599,10 +578,7 @@ pub fn write_debug_symbols(binary: &Path) {
     // builds at once (a test suite's) exhausted a 24 GB machine. Take one
     // of a few machine-wide slots first.
     let slot = DsymutilSlot::acquire();
-    let status = Command::new("dsymutil")
-        .arg(binary)
-        .stdout(std::process::Stdio::null())
-        .status();
+    let status = Command::new("dsymutil").arg(binary).stdout(std::process::Stdio::null()).status();
     drop(slot);
     match status {
         Ok(status) if status.success() => write_dsym_script(binary),
@@ -672,19 +648,13 @@ fn write_dsym_script(binary: &Path) {
     let Some(name) = binary.file_name().map(|name| name.to_string_lossy()) else {
         return;
     };
-    let module: String = name
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-        .collect();
+    let module: String =
+        name.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
     let mut dsym = binary.as_os_str().to_owned();
     dsym.push(".dSYM");
     let dir = PathBuf::from(dsym).join("Contents/Resources/Python");
-    let written = fs::create_dir_all(&dir).and_then(|()| {
-        fs::write(
-            dir.join(format!("{module}.py")),
-            crate::debuginfo::LLDB_SCRIPT,
-        )
-    });
+    let written = fs::create_dir_all(&dir)
+        .and_then(|()| fs::write(dir.join(format!("{module}.py")), crate::debuginfo::LLDB_SCRIPT));
     if let Err(err) = written {
         eprintln!("warning: cannot add flux_lldb.py to the dSYM: {err}");
     }
@@ -723,8 +693,7 @@ pub fn create_archive(obj_paths: &[PathBuf], archive_path: &Path) -> Result<(), 
         }
         CToolchain::Msvc { lib_tool, .. } => {
             let mut cmd = Command::new(lib_tool);
-            cmd.args(["/nologo"])
-                .arg(format!("/OUT:{}", archive_path.display()));
+            cmd.args(["/nologo"]).arg(format!("/OUT:{}", archive_path.display()));
             for obj in obj_paths {
                 cmd.arg(obj);
             }
@@ -744,29 +713,19 @@ pub fn archive_is_up_to_date(obj_paths: &[PathBuf], archive_path: &Path) -> bool
     // (e.g. Flow.Channel added after the archive was built) would pass the mtime
     // check if its .o happens to share a timestamp with the archive, but would
     // silently be missing from the archive, causing undefined symbol errors.
-    let archive_members: std::collections::HashSet<String> = match std::process::Command::new("ar")
-        .arg("t")
-        .arg(archive_path)
-        .output()
-    {
-        Ok(out) => String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .map(|l| l.trim().to_owned())
-            .collect(),
-        Err(_) => return false,
-    };
+    let archive_members: std::collections::HashSet<String> =
+        match std::process::Command::new("ar").arg("t").arg(archive_path).output() {
+            Ok(out) => {
+                String::from_utf8_lossy(&out.stdout).lines().map(|l| l.trim().to_owned()).collect()
+            }
+            Err(_) => return false,
+        };
     obj_paths.iter().all(|obj| {
-        let name = obj
-            .file_name()
-            .and_then(|f| f.to_str())
-            .unwrap_or("")
-            .to_owned();
+        let name = obj.file_name().and_then(|f| f.to_str()).unwrap_or("").to_owned();
         if !archive_members.contains(&name) {
             return false;
         }
-        fs::metadata(obj)
-            .and_then(|m| m.modified())
-            .is_ok_and(|t| t <= archive_mtime)
+        fs::metadata(obj).and_then(|m| m.modified()).is_ok_and(|t| t <= archive_mtime)
     })
 }
 
@@ -784,11 +743,7 @@ pub fn compile_to_binary(config: &PipelineConfig) -> Result<PipelineResult, Pipe
 
     let ll_path = dir.join("program.ll");
     let bc_path = dir.join("program.bc");
-    let obj_path = dir.join(if cfg!(windows) {
-        "program.obj"
-    } else {
-        "program.o"
-    });
+    let obj_path = dir.join(if cfg!(windows) { "program.obj" } else { "program.o" });
 
     emit_llvm_ir(&config.ll_text, &ll_path)?;
 
@@ -800,10 +755,7 @@ pub fn compile_to_binary(config: &PipelineConfig) -> Result<PipelineResult, Pipe
         run_llc(&ll_path, &obj_path, 0)?;
     }
 
-    let exe_path = config
-        .output_path
-        .clone()
-        .unwrap_or_else(|| dir.join("program"));
+    let exe_path = config.output_path.clone().unwrap_or_else(|| dir.join("program"));
 
     run_linker(
         std::slice::from_ref(&obj_path),
@@ -824,9 +776,7 @@ pub fn compile_to_binary(config: &PipelineConfig) -> Result<PipelineResult, Pipe
 /// Compile LLVM IR and execute the resulting binary immediately.
 pub fn compile_and_run(config: &PipelineConfig) -> Result<PipelineResult, PipelineError> {
     let result = compile_to_binary(config)?;
-    let PipelineResult::EmittedBinary { ref path } = result else {
-        unreachable!()
-    };
+    let PipelineResult::EmittedBinary { ref path } = result else { unreachable!() };
 
     let output = Command::new(path).status()?;
     let exit_code = output.code().unwrap_or(1);
@@ -869,11 +819,7 @@ pub fn toolchain_info() -> &'static str {
             CToolchain::Msvc { cc, .. } => (format!("msvc ({cc})"), false),
         };
         let target = super::target::host_triple();
-        let pipeline = if is_clang {
-            "clang -x ir (single-pass)"
-        } else {
-            "opt + llc (two-pass)"
-        };
+        let pipeline = if is_clang { "clang -x ir (single-pass)" } else { "opt + llc (two-pass)" };
         format!("{version_line}, target: {target}, pipeline: {pipeline}")
     })
 }
@@ -908,22 +854,12 @@ fn detect_c_toolchain() -> Result<CToolchain, PipelineError> {
     if cfg!(windows) {
         // 2. Try clang + llvm-ar (winget LLVM, any terminal).
         if which("clang").is_some() {
-            let ar = if which("llvm-ar").is_some() {
-                "llvm-ar".into()
-            } else {
-                "ar".into()
-            };
-            return Ok(CToolchain::Gcc {
-                cc: "clang".into(),
-                ar,
-            });
+            let ar = if which("llvm-ar").is_some() { "llvm-ar".into() } else { "ar".into() };
+            return Ok(CToolchain::Gcc { cc: "clang".into(), ar });
         }
         // 3. Try MSVC cl.exe (Developer Command Prompt).
         if which("cl").is_some() {
-            return Ok(CToolchain::Msvc {
-                cc: "cl".into(),
-                lib_tool: "lib".into(),
-            });
+            return Ok(CToolchain::Msvc { cc: "cl".into(), lib_tool: "lib".into() });
         }
         return Err(PipelineError::ToolNotFound {
             tool: "cc",
@@ -934,10 +870,7 @@ fn detect_c_toolchain() -> Result<CToolchain, PipelineError> {
     }
 
     // 4. Unix: cc + ar.
-    Ok(CToolchain::Gcc {
-        cc: "cc".into(),
-        ar: "ar".into(),
-    })
+    Ok(CToolchain::Gcc { cc: "cc".into(), ar: "ar".into() })
 }
 
 /// Build the Flux C runtime as a static library if it doesn't exist.
@@ -1058,8 +991,7 @@ pub fn ensure_runtime_lib(
             }
 
             let mut cmd = Command::new(lib_tool);
-            cmd.args(["/nologo"])
-                .arg(format!("/OUT:{}", lib_path.display()));
+            cmd.args(["/nologo"]).arg(format!("/OUT:{}", lib_path.display()));
             for obj in &obj_files {
                 cmd.arg(obj);
             }
@@ -1118,11 +1050,7 @@ impl RuntimeBuildLock {
     fn acquire(runtime_c_dir: &Path) -> Result<Self, PipelineError> {
         let path = runtime_c_dir.join(".flux_rt.lock");
         loop {
-            match fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&path)
-            {
+            match fs::OpenOptions::new().write(true).create_new(true).open(&path) {
                 Ok(mut file) => {
                     writeln!(file, "pid={}", std::process::id())?;
                     return Ok(Self { path });
@@ -1230,16 +1158,9 @@ fn check_output(tool: &'static str, output: &std::process::Output) -> Result<(),
         // MSVC tools (cl, link, lib) write diagnostics to stdout, not stderr.
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let combined = if stderr.trim().is_empty() {
-            stdout.into_owned()
-        } else {
-            stderr.into_owned()
-        };
-        Err(PipelineError::ToolFailed {
-            tool,
-            exit_code: output.status.code(),
-            stderr: combined,
-        })
+        let combined =
+            if stderr.trim().is_empty() { stdout.into_owned() } else { stderr.into_owned() };
+        Err(PipelineError::ToolFailed { tool, exit_code: output.status.code(), stderr: combined })
     }
 }
 
@@ -1267,18 +1188,11 @@ mod tests {
     fn the_sanitized_runtime_is_its_own_library_and_links_its_sanitizers() {
         let sanitize = RuntimeVariant::Sanitize;
         assert_eq!(sanitize.stem(), "flux_rt_sanitize");
-        assert!(
-            sanitize
-                .defines(false)
-                .contains(&"-fsanitize=address,undefined")
-        );
+        assert!(sanitize.defines(false).contains(&"-fsanitize=address,undefined"));
         assert!(sanitize.defines(true).is_empty());
         assert_eq!(sanitize.link_flags(), ["-fsanitize=address,undefined"]);
         assert!(RuntimeVariant::Plain.link_flags().is_empty());
-        assert_ne!(
-            sanitize.object_suffix(),
-            RuntimeVariant::DebugHeap.object_suffix()
-        );
+        assert_ne!(sanitize.object_suffix(), RuntimeVariant::DebugHeap.object_suffix());
     }
 
     #[test]
@@ -1288,9 +1202,6 @@ mod tests {
         assert!(tsan.defines(false).contains(&"-fsanitize=thread"));
         assert!(tsan.defines(true).is_empty());
         assert_eq!(tsan.link_flags(), ["-fsanitize=thread"]);
-        assert_ne!(
-            tsan.object_suffix(),
-            RuntimeVariant::Sanitize.object_suffix()
-        );
+        assert_ne!(tsan.object_suffix(), RuntimeVariant::Sanitize.object_suffix());
     }
 }

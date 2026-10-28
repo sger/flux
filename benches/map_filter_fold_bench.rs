@@ -51,17 +51,11 @@ fn build_map_program(n: usize) -> String {
 }
 
 fn build_filter_program(n: usize) -> String {
-    format!(
-        "filter({}, fn(x) {{ x % 2 == 0; }});",
-        build_array_literal(n)
-    )
+    format!("filter({}, fn(x) {{ x % 2 == 0; }});", build_array_literal(n))
 }
 
 fn build_fold_program(n: usize) -> String {
-    format!(
-        "fold({}, 0, fn(acc, x) {{ acc + x; }});",
-        build_array_literal(n)
-    )
+    format!("fold({}, 0, fn(acc, x) {{ acc + x; }});", build_array_literal(n))
 }
 
 fn build_chain_program(n: usize) -> String {
@@ -78,51 +72,15 @@ fold(filtered, 0, fn(acc, x) {{ acc + x; }});
 
 fn build_scenarios() -> Vec<Scenario> {
     vec![
-        Scenario {
-            name: "map_100",
-            source: build_map_program(100),
-            key_ops: 100,
-        },
-        Scenario {
-            name: "map_1k",
-            source: build_map_program(1_000),
-            key_ops: 1_000,
-        },
-        Scenario {
-            name: "map_2k",
-            source: build_map_program(2_000),
-            key_ops: 2_000,
-        },
-        Scenario {
-            name: "filter_100",
-            source: build_filter_program(100),
-            key_ops: 100,
-        },
-        Scenario {
-            name: "filter_1k",
-            source: build_filter_program(1_000),
-            key_ops: 1_000,
-        },
-        Scenario {
-            name: "filter_2k",
-            source: build_filter_program(2_000),
-            key_ops: 2_000,
-        },
-        Scenario {
-            name: "fold_100",
-            source: build_fold_program(100),
-            key_ops: 100,
-        },
-        Scenario {
-            name: "fold_1k",
-            source: build_fold_program(1_000),
-            key_ops: 1_000,
-        },
-        Scenario {
-            name: "fold_2k",
-            source: build_fold_program(2_000),
-            key_ops: 2_000,
-        },
+        Scenario { name: "map_100", source: build_map_program(100), key_ops: 100 },
+        Scenario { name: "map_1k", source: build_map_program(1_000), key_ops: 1_000 },
+        Scenario { name: "map_2k", source: build_map_program(2_000), key_ops: 2_000 },
+        Scenario { name: "filter_100", source: build_filter_program(100), key_ops: 100 },
+        Scenario { name: "filter_1k", source: build_filter_program(1_000), key_ops: 1_000 },
+        Scenario { name: "filter_2k", source: build_filter_program(2_000), key_ops: 2_000 },
+        Scenario { name: "fold_100", source: build_fold_program(100), key_ops: 100 },
+        Scenario { name: "fold_1k", source: build_fold_program(1_000), key_ops: 1_000 },
+        Scenario { name: "fold_2k", source: build_fold_program(2_000), key_ops: 2_000 },
         Scenario {
             name: "map_filter_fold_chain_100",
             source: build_chain_program(100),

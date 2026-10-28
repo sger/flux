@@ -45,28 +45,17 @@ const ENV: [(&str, &str); 3] = [
 
 /// What the thread-sanitized runs inherit: the first race stops the
 /// program, so its fixture fails.
-const THREAD_ENV: [(&str, &str); 2] = [
-    ("FLUX_RT_SANITIZE", "thread"),
-    ("TSAN_OPTIONS", "halt_on_error=1"),
-];
+const THREAD_ENV: [(&str, &str); 2] =
+    [("FLUX_RT_SANITIZE", "thread"), ("TSAN_OPTIONS", "halt_on_error=1")];
 
 /// Returns `Ok(true)` when every fixture passed.
 pub fn run_sanitize(root: &Path, options: &Options) -> Result<bool, String> {
     let started = Instant::now();
     let env: &[(&str, &str)] = if options.thread { &THREAD_ENV } else { &ENV };
-    let out = store::run_dir(
-        root,
-        if options.thread {
-            "sanitize-thread"
-        } else {
-            "sanitize"
-        },
-    )?;
+    let out = store::run_dir(root, if options.thread { "sanitize-thread" } else { "sanitize" })?;
     fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
-    let build = run(cargo()
-        .current_dir(root)
-        .args(["build", "--all-features", "--quiet"]))
-    .map_err(|e| e.to_string())?;
+    let build = run(cargo().current_dir(root).args(["build", "--all-features", "--quiet"]))
+        .map_err(|e| e.to_string())?;
     if build != 0 {
         return Err("cargo build failed".to_string());
     }
@@ -89,21 +78,13 @@ pub fn run_sanitize(root: &Path, options: &Options) -> Result<bool, String> {
     drop(log);
 
     let mut findings = Vec::new();
-    for file in counts
-        .failures
-        .iter()
-        .filter_map(|line| line.split_whitespace().nth(1))
-    {
+    for file in counts.failures.iter().filter_map(|line| line.split_whitespace().nth(1)) {
         for way in options.ways.split(',').map(str::trim) {
             let Some(flags) = native_flags(way) else {
                 continue;
             };
             let mut command = Command::new(&flux);
-            command
-                .envs(env.iter().copied())
-                .args(["--no-cache", "--quiet"])
-                .args(flags)
-                .arg(file);
+            command.envs(env.iter().copied()).args(["--no-cache", "--quiet"]).args(flags).arg(file);
             let ran = run_with_timeout(command, root, Duration::from_secs(120));
             findings.extend(
                 sanitizer_lines(&ran.stderr)
@@ -113,14 +94,7 @@ pub fn run_sanitize(root: &Path, options: &Options) -> Result<bool, String> {
         }
     }
     let ok = counts.mismatches == 0 && counts.expected == 0 && failed_runs == 0;
-    let report = report(
-        options,
-        &counts,
-        failed_runs,
-        &findings,
-        &log_path,
-        started.elapsed(),
-    );
+    let report = report(options, &counts, failed_runs, &findings, &log_path, started.elapsed());
     let report_path = out.join("report.txt");
     fs::write(&report_path, &report).map_err(|e| format!("{}: {e}", report_path.display()))?;
     print!("{report}");
@@ -237,10 +211,7 @@ mod tests {
 
     #[test]
     fn only_native_ways_are_rerun() {
-        assert_eq!(
-            native_flags("llvm_opt"),
-            Some(&["--native", "--optimize"][..])
-        );
+        assert_eq!(native_flags("llvm_opt"), Some(&["--native", "--optimize"][..]));
         assert_eq!(native_flags("vm"), None);
     }
 }

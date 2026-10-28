@@ -89,11 +89,8 @@ pub fn run_parity_check(args: &[String]) {
 
     // Collect .flx files
     let census_mode = config.census.is_some();
-    let files: Vec<PathBuf> = config
-        .paths
-        .iter()
-        .flat_map(|path| collect_fixtures(path, census_mode))
-        .collect();
+    let files: Vec<PathBuf> =
+        config.paths.iter().flat_map(|path| collect_fixtures(path, census_mode)).collect();
     if files.is_empty() {
         let paths = config
             .paths
@@ -104,11 +101,7 @@ pub fn run_parity_check(args: &[String]) {
         eprintln!("Error: no .flx files found in {paths}");
         std::process::exit(1);
     }
-    let jobs = if config.debug_first_failure {
-        1
-    } else {
-        config.jobs
-    };
+    let jobs = if config.debug_first_failure { 1 } else { config.jobs };
     eprintln!("[parity] fixtures: {} (jobs: {jobs})", files.len());
 
     // `--compile` pre-pass: compile every fixture (populating caches) before
@@ -170,10 +163,7 @@ pub fn run_parity_check(args: &[String]) {
 
     // Exit with appropriate code
     let has_mismatch = results.iter().any(|r| {
-        matches!(
-            r.verdict,
-            Verdict::Mismatch { .. } | Verdict::ExpectedOutputMismatch { .. }
-        )
+        matches!(r.verdict, Verdict::Mismatch { .. } | Verdict::ExpectedOutputMismatch { .. })
     });
     let has_pass = results.iter().any(|r| matches!(r.verdict, Verdict::Pass));
 
@@ -259,12 +249,10 @@ fn bless(result: &mut ParityResult, allow: &[String]) {
     let Some(first) = runs.first() else {
         return;
     };
-    let stdout_agrees = runs
-        .iter()
-        .all(|run| run.normalized_stdout.trim() == first.normalized_stdout.trim());
-    let stderr_agrees = runs
-        .iter()
-        .all(|run| run.normalized_stderr.trim() == first.normalized_stderr.trim());
+    let stdout_agrees =
+        runs.iter().all(|run| run.normalized_stdout.trim() == first.normalized_stdout.trim());
+    let stderr_agrees =
+        runs.iter().all(|run| run.normalized_stderr.trim() == first.normalized_stderr.trim());
     let stdout_is_the_only_problem = match &result.verdict {
         Verdict::Pass => true,
         Verdict::ExpectedOutputMismatch { expected, .. } => {
@@ -273,9 +261,9 @@ fn bless(result: &mut ParityResult, allow: &[String]) {
         _ => false,
     };
     let stderr_is_the_only_problem = match &result.verdict {
-        Verdict::Mismatch { details } => details
-            .iter()
-            .all(|detail| matches!(detail, MismatchDetail::ExpectedStderr { .. })),
+        Verdict::Mismatch { details } => {
+            details.iter().all(|detail| matches!(detail, MismatchDetail::ExpectedStderr { .. }))
+        }
         _ => false,
     };
     let (block, body, add) = match meta.expect {
@@ -320,17 +308,12 @@ fn with_expected_block(source: &str, block: Block, body: &str, add: bool) -> Opt
         line.trim().strip_prefix("//").map(str::trim)
     }
     // The parser strips `//` and one space, so a blank line is a bare `//`.
-    let body = body.lines().map(|line| {
-        if line.is_empty() {
-            "//".to_string()
-        } else {
-            format!("// {line}")
-        }
-    });
+    let body = body
+        .lines()
+        .map(|line| if line.is_empty() { "//".to_string() } else { format!("// {line}") });
     let mut out: Vec<String> = Vec::new();
-    if let Some(begin) = lines
-        .iter()
-        .position(|line| comment(line).is_some_and(|c| block.begins_at(c)))
+    if let Some(begin) =
+        lines.iter().position(|line| comment(line).is_some_and(|c| block.begins_at(c)))
     {
         let end = begin
             + 1
@@ -341,10 +324,7 @@ fn with_expected_block(source: &str, block: Block, body: &str, add: bool) -> Opt
         out.extend(body);
         out.extend(lines[end..].iter().map(|line| line.to_string()));
     } else if add {
-        let header = lines
-            .iter()
-            .take_while(|line| line.trim_start().starts_with("//"))
-            .count();
+        let header = lines.iter().take_while(|line| line.trim_start().starts_with("//")).count();
         let (begin, end) = block.markers();
         out.extend(lines[..header].iter().map(|line| line.to_string()));
         out.push(format!("// {begin}"));
@@ -384,10 +364,7 @@ fn check_one(file: &Path, config: &Config) -> CheckedFile {
     } else if is_prelude_module(file) {
         Some("standard library: compiled into every program, not alone".to_string())
     } else {
-        fixture_meta
-            .census_skip
-            .as_ref()
-            .map(|reason| format!("census-skip: {reason}"))
+        fixture_meta.census_skip.as_ref().map(|reason| format!("census-skip: {reason}"))
     };
     if config.census.is_some()
         && let Some(reason) = unrun_reason
@@ -397,9 +374,7 @@ fn check_one(file: &Path, config: &Config) -> CheckedFile {
                 file: file.to_path_buf(),
                 results: Vec::new(),
                 artifacts: Vec::new(),
-                verdict: Verdict::Skip {
-                    reason: reason.clone(),
-                },
+                verdict: Verdict::Skip { reason: reason.clone() },
                 skipped_ways: Vec::new(),
                 elapsed: Vec::new(),
                 unexpected_passes: Vec::new(),
@@ -473,10 +448,8 @@ fn module_root(file: &Path) -> Option<PathBuf> {
         let line = line.strip_prefix("public ").unwrap_or(line);
         line.strip_prefix("module ")
     })?;
-    let name: String = name
-        .chars()
-        .take_while(|c| c.is_alphanumeric() || *c == '.' || *c == '_')
-        .collect();
+    let name: String =
+        name.chars().take_while(|c| c.is_alphanumeric() || *c == '.' || *c == '_').collect();
     let parts: Vec<&str> = name.split('.').collect();
     if parts.len() < 2 || file.file_stem()?.to_str()? != *parts.last()? {
         return None;
@@ -494,11 +467,7 @@ fn module_root(file: &Path) -> Option<PathBuf> {
 /// The ways to run on one file.
 fn ways_for(config: &Config, meta: &FixtureMeta, census_ways: &[Way]) -> Vec<Way> {
     if config.census.is_some() {
-        census_ways
-            .iter()
-            .copied()
-            .filter(|&way| census::way_allowed(meta, way))
-            .collect()
+        census_ways.iter().copied().filter(|&way| census::way_allowed(meta, way)).collect()
     } else if let Some(ways) = &config.ways {
         ways.clone()
     } else if config.compile_first && !matches!(meta.expect, Expect::CompileError) {
@@ -668,22 +637,12 @@ fn apply_skip_ways(ways: &[Way], skip_ways: &[SkipWay]) -> (Vec<Way>, Vec<SkipWa
     let carried = skip_ways.iter().flat_map(|skip| {
         ways.iter()
             .filter(move |way| way.is_heap() && way.non_heap() == skip.way)
-            .map(move |&way| SkipWay {
-                way,
-                reason: skip.reason.clone(),
-            })
+            .map(move |&way| SkipWay { way, reason: skip.reason.clone() })
     });
-    let skipped: Vec<SkipWay> = skip_ways
-        .iter()
-        .filter(|skip| ways.contains(&skip.way))
-        .cloned()
-        .chain(carried)
-        .collect();
-    let run = ways
-        .iter()
-        .copied()
-        .filter(|way| !skipped.iter().any(|skip| skip.way == *way))
-        .collect();
+    let skipped: Vec<SkipWay> =
+        skip_ways.iter().filter(|skip| ways.contains(&skip.way)).cloned().chain(carried).collect();
+    let run =
+        ways.iter().copied().filter(|way| !skipped.iter().any(|skip| skip.way == *way)).collect();
     (run, skipped)
 }
 
@@ -750,14 +709,8 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
 
     for &way in &ways {
         let started = std::time::Instant::now();
-        let result = run_way(
-            opts.vm_binary,
-            opts.llvm_binary,
-            file,
-            way,
-            opts.extra_args,
-            opts.timeout,
-        );
+        let result =
+            run_way(opts.vm_binary, opts.llvm_binary, file, way, opts.extra_args, opts.timeout);
         elapsed.push((way, started.elapsed()));
         run_results.push(result);
     }
@@ -783,12 +736,8 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
     }
 
     let mut artifacts = capture_artifacts(file, opts, &ways, false);
-    let mut details = collect_mismatch_details(
-        &run_results,
-        &artifacts,
-        opts.compare_surfaces_only,
-        opts.expect,
-    );
+    let mut details =
+        collect_mismatch_details(&run_results, &artifacts, opts.compare_surfaces_only, opts.expect);
 
     if !opts.capture_core
         && !opts.census
@@ -991,16 +940,12 @@ fn judge(
         if all_expected_kind {
             let mut expected_failure_details =
                 collect_diagnostic_code_details(run_results, opts.expected_errors);
-            expected_failure_details.extend(collect_expected_stderr_details(
-                run_results,
-                opts.expected_stderr,
-            ));
+            expected_failure_details
+                .extend(collect_expected_stderr_details(run_results, opts.expected_stderr));
             if expected_failure_details.is_empty() {
                 Verdict::Pass
             } else {
-                Verdict::Mismatch {
-                    details: expected_failure_details,
-                }
+                Verdict::Mismatch { details: expected_failure_details }
             }
         } else {
             let actual = run_results
@@ -1008,10 +953,7 @@ fn judge(
                 .map(|r| format!("{}: {}", r.way, r.exit_kind))
                 .collect::<Vec<_>>()
                 .join(", ");
-            Verdict::ExpectedOutputMismatch {
-                expected: expected_kind.to_string(),
-                actual,
-            }
+            Verdict::ExpectedOutputMismatch { expected: expected_kind.to_string(), actual }
         }
     } else if opts.expect != Expect::Any
         && let Some(failed) = first_unsuccessful_run(run_results)
@@ -1033,10 +975,7 @@ fn judge(
             .map(|run| run.normalized_stdout.trim().to_string())
             .unwrap_or_default();
         if actual != expected {
-            Verdict::ExpectedOutputMismatch {
-                expected: expected.to_string(),
-                actual,
-            }
+            Verdict::ExpectedOutputMismatch { expected: expected.to_string(), actual }
         } else {
             Verdict::Pass
         }
@@ -1048,46 +987,35 @@ fn judge(
 /// Optimizer parity: each opt way against its unoptimized counterpart. The
 /// optimizer must not change what a program does.
 fn collect_opt_mode_details(run_results: &[super::RunResult]) -> Vec<MismatchDetail> {
-    collect_paired_details(
-        run_results,
-        Way::is_opt,
-        Way::non_opt,
-        |field, unopt, opt| MismatchDetail::OptModeMismatch {
+    collect_paired_details(run_results, Way::is_opt, Way::non_opt, |field, unopt, opt| {
+        MismatchDetail::OptModeMismatch {
             unopt_way: unopt.0,
             opt_way: opt.0,
             field: field.to_string(),
             unopt: unopt.1,
             opt: opt.1,
-        },
-    )
+        }
+    })
 }
 
 /// Debug-heap parity (0190 S15): `llvm_heap` against `llvm`. The debug heap
 /// must not change what a program does, and a use after free it stops at is
 /// a fault even when the plain build fails too. Leaks are counted apart.
 fn collect_heap_mode_details(run_results: &[super::RunResult]) -> Vec<MismatchDetail> {
-    let mut details = collect_paired_details(
-        run_results,
-        Way::is_heap,
-        Way::non_heap,
-        |field, plain, heap| MismatchDetail::HeapModeMismatch {
-            plain_way: plain.0,
-            heap_way: heap.0,
-            field: field.to_string(),
-            plain: plain.1,
-            heap: heap.1,
-        },
-    );
+    let mut details =
+        collect_paired_details(run_results, Way::is_heap, Way::non_heap, |field, plain, heap| {
+            MismatchDetail::HeapModeMismatch {
+                plain_way: plain.0,
+                heap_way: heap.0,
+                field: field.to_string(),
+                plain: plain.1,
+                heap: heap.1,
+            }
+        });
     for run in run_results.iter().filter(|r| r.way.is_heap()) {
-        if let Some(line) = run
-            .stderr
-            .lines()
-            .find(|line| line.contains("use after free:"))
-        {
-            details.push(MismatchDetail::HeapFault {
-                way: run.way,
-                message: line.trim().to_string(),
-            });
+        if let Some(line) = run.stderr.lines().find(|line| line.contains("use after free:")) {
+            details
+                .push(MismatchDetail::HeapFault { way: run.way, message: line.trim().to_string() });
         }
         // A freed cell that is only read never reaches a dup or a drop, so the
         // debug heap cannot stop it: the program prints the poison and may
@@ -1111,11 +1039,8 @@ fn collect_heap_mode_details(run_results: &[super::RunResult]) -> Vec<MismatchDe
 /// payload: a constructor's tag is the word's low 32 bits, a field read from
 /// it is odd and prints as an Int, and a boxed Float prints the word as a
 /// double.
-const POISON_RENDERINGS: &[&str] = &[
-    "tag=-559030611",
-    "-1200509093985980586",
-    "-1.19355048209882e+148",
-];
+const POISON_RENDERINGS: &[&str] =
+    &["tag=-559030611", "-1200509093985980586", "-1.19355048209882e+148"];
 
 /// Each run whose way `is_variant` against the run of `base_of(way)`, which
 /// it must behave like: the exit kind always agrees, stdout when both
@@ -1135,34 +1060,18 @@ fn collect_paired_details(
             continue;
         };
         let mut differ = |field: &str, base_text: String, variant_text: String| {
-            details.push(mismatch(
-                field,
-                (base_way, base_text),
-                (variant.way, variant_text),
-            ));
+            details.push(mismatch(field, (base_way, base_text), (variant.way, variant_text)));
         };
         let both_succeeded =
             base.exit_kind == ExitKind::Success && variant.exit_kind == ExitKind::Success;
         if base.exit_kind != variant.exit_kind {
-            differ(
-                "exit_kind",
-                base.exit_kind.to_string(),
-                variant.exit_kind.to_string(),
-            );
+            differ("exit_kind", base.exit_kind.to_string(), variant.exit_kind.to_string());
         }
         if both_succeeded && base.normalized_stdout != variant.normalized_stdout {
-            differ(
-                "stdout",
-                base.normalized_stdout.clone(),
-                variant.normalized_stdout.clone(),
-            );
+            differ("stdout", base.normalized_stdout.clone(), variant.normalized_stdout.clone());
         }
         if !both_succeeded && base.normalized_stderr != variant.normalized_stderr {
-            differ(
-                "stderr",
-                base.normalized_stderr.clone(),
-                variant.normalized_stderr.clone(),
-            );
+            differ("stderr", base.normalized_stderr.clone(), variant.normalized_stderr.clone());
         }
     }
     details
@@ -1293,10 +1202,7 @@ fn collect_diagnostic_code_details(
     let baseline_expected = if has_expected {
         Vec::new()
     } else {
-        run_results
-            .first()
-            .map(|run| diagnostic_codes(&run.normalized_stderr))
-            .unwrap_or_default()
+        run_results.first().map(|run| diagnostic_codes(&run.normalized_stderr)).unwrap_or_default()
     };
 
     run_results
@@ -1343,10 +1249,7 @@ fn diagnostic_codes(stderr: &str) -> Vec<String> {
     let mut rest = stderr;
     while let Some(start) = rest.find("error[E") {
         let after_prefix = &rest[start + "error[".len()..];
-        let code: String = after_prefix
-            .chars()
-            .take_while(|c| c.is_ascii_alphanumeric())
-            .collect();
+        let code: String = after_prefix.chars().take_while(|c| c.is_ascii_alphanumeric()).collect();
         let code_len = code.len();
         if !code.is_empty() {
             codes.push(code);
@@ -1616,27 +1519,15 @@ mod tests {
     #[test]
     fn bless_runs_a_fixture_skip_way_left_with_one_way() {
         let opts = plain_opts(&[Way::Vm]);
-        assert!(
-            opts.too_few_to_compare(1),
-            "nothing to check one way against"
-        );
-        let blessing = CheckOpts {
-            bless: true,
-            ..plain_opts(&[Way::Vm])
-        };
-        assert!(
-            !blessing.too_few_to_compare(1),
-            "bless writes the expectation"
-        );
+        assert!(opts.too_few_to_compare(1), "nothing to check one way against");
+        let blessing = CheckOpts { bless: true, ..plain_opts(&[Way::Vm]) };
+        assert!(!blessing.too_few_to_compare(1), "bless writes the expectation");
     }
 
     #[test]
     fn bless_adds_no_stderr_block() {
         let source = "// expect: compile_error\nfn main() {}\n";
-        assert_eq!(
-            with_expected_block(source, Block::Stderr, "error", false),
-            None
-        );
+        assert_eq!(with_expected_block(source, Block::Stderr, "error", false), None);
     }
 
     #[test]
@@ -1645,12 +1536,8 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let file = dir.join("roundtrip.flx");
         let body = "first\n\n  indented\nlast";
-        let source = with_expected_block(
-            "// expect: success\nfn main() {}\n",
-            Block::Stdout,
-            body,
-            true,
-        );
+        let source =
+            with_expected_block("// expect: success\nfn main() {}\n", Block::Stdout, body, true);
         fs::write(&file, source.unwrap()).unwrap();
         let meta = parse_fixture_meta_allowing(&file, &[]);
         let _ = fs::remove_dir_all(&dir);
@@ -1705,10 +1592,7 @@ mod tests {
     fn a_dotted_module_is_rooted_above_its_folders() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         let file = root.join("examples/runtime_errors/RuntimeErrors/BoundaryUnknown.flx");
-        assert_eq!(
-            module_root(&file),
-            Some(root.join("examples/runtime_errors"))
-        );
+        assert_eq!(module_root(&file), Some(root.join("examples/runtime_errors")));
         // A one-part name is already relative to its own folder.
         let file = root.join("examples/runtime_errors/RuntimeErrors/ExposingRuntimeTarget.flx");
         assert_eq!(module_root(&file), None);
@@ -1716,25 +1600,13 @@ mod tests {
 
     #[test]
     fn a_census_keeps_the_ways_a_parity_line_allows() {
-        let config = parse_args(&[
-            "x.flx".to_string(),
-            "--census".to_string(),
-            "c.tsv".to_string(),
-        ])
-        .expect("valid arguments");
-        let vm_only = FixtureMeta {
-            ways: vec![Way::Vm],
-            declared_ways: true,
-            ..Default::default()
-        };
-        assert_eq!(
-            ways_for(&config, &vm_only, &CENSUS_WAYS),
-            [Way::Vm, Way::VmOpt]
-        );
-        assert_eq!(
-            ways_for(&config, &FixtureMeta::default(), &CENSUS_WAYS),
-            CENSUS_WAYS
-        );
+        let config =
+            parse_args(&["x.flx".to_string(), "--census".to_string(), "c.tsv".to_string()])
+                .expect("valid arguments");
+        let vm_only =
+            FixtureMeta { ways: vec![Way::Vm], declared_ways: true, ..Default::default() };
+        assert_eq!(ways_for(&config, &vm_only, &CENSUS_WAYS), [Way::Vm, Way::VmOpt]);
+        assert_eq!(ways_for(&config, &FixtureMeta::default(), &CENSUS_WAYS), CENSUS_WAYS);
     }
 
     /// A support module — no `main` — is not a fixture, and a real fixture is.
@@ -1759,10 +1631,7 @@ mod tests {
             .into_iter()
             .filter(|path| !declares_entry_point(path))
             .collect();
-        assert!(
-            orphans.is_empty(),
-            "swept fixtures without a `main`: {orphans:?}"
-        );
+        assert!(orphans.is_empty(), "swept fixtures without a `main`: {orphans:?}");
     }
 
     #[test]
@@ -1833,14 +1702,8 @@ mod tests {
             let details = collect_mismatch_details(&runs, &[], false, Expect::Success);
             judge(&runs, details, &opts)
         };
-        assert!(matches!(
-            judged(result(Way::LlvmOpt, ExitKind::Success, "42", "")),
-            Verdict::Pass
-        ));
-        assert!(!matches!(
-            judged(result(Way::LlvmOpt, ExitKind::Success, "0", "")),
-            Verdict::Pass
-        ));
+        assert!(matches!(judged(result(Way::LlvmOpt, ExitKind::Success, "42", "")), Verdict::Pass));
+        assert!(!matches!(judged(result(Way::LlvmOpt, ExitKind::Success, "0", "")), Verdict::Pass));
         assert!(!matches!(
             judged(result(Way::LlvmOpt, ExitKind::Crash, "", "signal")),
             Verdict::Pass
@@ -1912,11 +1775,7 @@ mod tests {
 
         assert!(details.iter().any(|detail| matches!(
             detail,
-            MismatchDetail::Stdout {
-                left_way: Way::Vm,
-                right_way: Way::VmStrict,
-                ..
-            }
+            MismatchDetail::Stdout { left_way: Way::Vm, right_way: Way::VmStrict, .. }
         )));
     }
 
@@ -1935,11 +1794,7 @@ mod tests {
         assert!(
             details.iter().any(|detail| matches!(
                 detail,
-                MismatchDetail::Stdout {
-                    left_way: Way::Vm,
-                    right_way: Way::Llvm,
-                    ..
-                }
+                MismatchDetail::Stdout { left_way: Way::Vm, right_way: Way::Llvm, .. }
             )),
             "vm/llvm stdout divergence went unreported: {details:?}"
         );
@@ -1952,12 +1807,7 @@ mod tests {
         let run_results = vec![
             result(Way::Vm, ExitKind::Success, "output", ""),
             result(Way::Llvm, ExitKind::Success, "output", ""),
-            result(
-                Way::VmStrict,
-                ExitKind::CompileError,
-                "",
-                "error[E425]: strict",
-            ),
+            result(Way::VmStrict, ExitKind::CompileError, "", "error[E425]: strict"),
             result(Way::LlvmStrict, ExitKind::Success, "output", ""),
         ];
 
@@ -1993,18 +1843,8 @@ mod tests {
         // An extra code is still a mismatch on a non-strict way, and a strict
         // way that lost the expected code is one too.
         let run_results = vec![
-            result(
-                Way::Vm,
-                ExitKind::CompileError,
-                "",
-                "error[E300]: a\nerror[E425]: b",
-            ),
-            result(
-                Way::VmStrict,
-                ExitKind::CompileError,
-                "",
-                "error[E425]: strict",
-            ),
+            result(Way::Vm, ExitKind::CompileError, "", "error[E300]: a\nerror[E425]: b"),
+            result(Way::VmStrict, ExitKind::CompileError, "", "error[E425]: strict"),
         ];
         let ways: Vec<Way> = collect_diagnostic_code_details(&run_results, &expected)
             .iter()
@@ -2019,23 +1859,14 @@ mod tests {
     #[test]
     fn includes_codes_counts_repeats() {
         let codes = |list: &[&str]| list.iter().map(|c| c.to_string()).collect::<Vec<_>>();
-        assert!(includes_codes(
-            &codes(&["E300", "E300", "E425"]),
-            &codes(&["E300", "E300"])
-        ));
-        assert!(!includes_codes(
-            &codes(&["E300", "E425"]),
-            &codes(&["E300", "E300"])
-        ));
+        assert!(includes_codes(&codes(&["E300", "E300", "E425"]), &codes(&["E300", "E300"])));
+        assert!(!includes_codes(&codes(&["E300", "E425"]), &codes(&["E300", "E300"])));
         assert!(includes_codes(&codes(&["E100"]), &[]));
     }
 
     #[test]
     fn skip_way_removes_only_requested_ways_and_reports_them() {
-        let skip = |way| SkipWay {
-            way,
-            reason: "KI-1".to_string(),
-        };
+        let skip = |way| SkipWay { way, reason: "KI-1".to_string() };
         let (run, skipped) = apply_skip_ways(
             &[Way::Vm, Way::VmStrict, Way::Llvm],
             &[skip(Way::Llvm), skip(Way::LlvmStrict)],
@@ -2047,10 +1878,7 @@ mod tests {
 
     #[test]
     fn a_skip_of_llvm_also_skips_the_heap_way() {
-        let skip = |way| SkipWay {
-            way,
-            reason: "KI-1".to_string(),
-        };
+        let skip = |way| SkipWay { way, reason: "KI-1".to_string() };
         let (run, skipped) = apply_skip_ways(&[Way::Llvm, Way::LlvmHeap], &[skip(Way::Llvm)]);
         assert!(run.is_empty());
         assert_eq!(skipped, [skip(Way::Llvm), skip(Way::LlvmHeap)]);
@@ -2068,10 +1896,8 @@ mod tests {
             result(Way::Llvm, ExitKind::Success, "1\n2", ""),
             result(Way::LlvmOpt, ExitKind::Success, "1\n2", ""),
         ];
-        let labels: Vec<String> = collect_opt_mode_details(&run_results)
-            .iter()
-            .map(mismatch_detail_label)
-            .collect();
+        let labels: Vec<String> =
+            collect_opt_mode_details(&run_results).iter().map(mismatch_detail_label).collect();
         assert_eq!(labels, ["opt stdout: vm vs vm_opt"]);
     }
 
@@ -2081,17 +1907,9 @@ mod tests {
             result(Way::Llvm, ExitKind::RuntimeError, "", "error[E1000]: x"),
             result(Way::LlvmOpt, ExitKind::Success, "42", ""),
         ];
-        let labels: Vec<String> = collect_opt_mode_details(&run_results)
-            .iter()
-            .map(mismatch_detail_label)
-            .collect();
-        assert_eq!(
-            labels,
-            [
-                "opt exit_kind: llvm vs llvm_opt",
-                "opt stderr: llvm vs llvm_opt"
-            ]
-        );
+        let labels: Vec<String> =
+            collect_opt_mode_details(&run_results).iter().map(mismatch_detail_label).collect();
+        assert_eq!(labels, ["opt exit_kind: llvm vs llvm_opt", "opt stderr: llvm vs llvm_opt"]);
     }
 
     #[test]
@@ -2151,10 +1969,7 @@ mod tests {
     }
 
     fn heap_labels(run_results: &[super::super::RunResult]) -> Vec<String> {
-        collect_heap_mode_details(run_results)
-            .iter()
-            .map(mismatch_detail_label)
-            .collect()
+        collect_heap_mode_details(run_results).iter().map(mismatch_detail_label).collect()
     }
 
     #[test]
@@ -2177,19 +1992,11 @@ mod tests {
                      (allocated at f (a.flx:1:1), freed at g (a.flx:2:1))";
         let run_results = vec![
             result(Way::Llvm, ExitKind::RuntimeError, "", "panic: boom"),
-            result(
-                Way::LlvmHeap,
-                ExitKind::RuntimeError,
-                "",
-                &format!("{fault}\nStack trace:"),
-            ),
+            result(Way::LlvmHeap, ExitKind::RuntimeError, "", &format!("{fault}\nStack trace:")),
         ];
         let details = collect_heap_mode_details(&run_results);
         assert_eq!(
-            details
-                .iter()
-                .map(mismatch_detail_label)
-                .collect::<Vec<_>>(),
+            details.iter().map(mismatch_detail_label).collect::<Vec<_>>(),
             ["heap stderr: llvm vs llvm_heap", "heap_fault: llvm_heap"]
         );
         assert!(
@@ -2210,18 +2017,11 @@ mod tests {
 
     #[test]
     fn a_freed_constructor_in_heap_stdout_is_a_heap_fault() {
-        let run_results = vec![result(
-            Way::LlvmHeap,
-            ExitKind::Success,
-            "Some(<adt tag=-559030611>())\n",
-            "",
-        )];
+        let run_results =
+            vec![result(Way::LlvmHeap, ExitKind::Success, "Some(<adt tag=-559030611>())\n", "")];
         let details = collect_heap_mode_details(&run_results);
         assert_eq!(
-            details
-                .iter()
-                .map(mismatch_detail_label)
-                .collect::<Vec<_>>(),
+            details.iter().map(mismatch_detail_label).collect::<Vec<_>>(),
             ["heap_fault: llvm_heap"]
         );
         assert!(matches!(
@@ -2234,12 +2034,7 @@ mod tests {
     fn a_freed_int_in_heap_stdout_is_a_heap_fault() {
         let run_results = vec![
             result(Way::Llvm, ExitKind::Success, "[1, 2, 3]\n", ""),
-            result(
-                Way::LlvmHeap,
-                ExitKind::Success,
-                "[-1200509093985980586, 2, 3]\n",
-                "",
-            ),
+            result(Way::LlvmHeap, ExitKind::Success, "[-1200509093985980586, 2, 3]\n", ""),
         ];
         assert_eq!(
             heap_labels(&run_results),
@@ -2252,18 +2047,8 @@ mod tests {
         let run_results = vec![
             result(Way::Vm, ExitKind::Success, "output", ""),
             result(Way::Llvm, ExitKind::Success, "output", ""),
-            result(
-                Way::VmStrict,
-                ExitKind::CompileError,
-                "",
-                "error[E425]: strict",
-            ),
-            result(
-                Way::LlvmStrict,
-                ExitKind::CompileError,
-                "",
-                "error[E999]: strict",
-            ),
+            result(Way::VmStrict, ExitKind::CompileError, "", "error[E425]: strict"),
+            result(Way::LlvmStrict, ExitKind::CompileError, "", "error[E999]: strict"),
         ];
 
         let details = collect_mismatch_details(&run_results, &[], false, Expect::Success);
@@ -2271,10 +2056,7 @@ mod tests {
         assert!(
             details.iter().any(|detail| matches!(
                 detail,
-                MismatchDetail::DiagnosticCodes {
-                    way: Way::LlvmStrict,
-                    ..
-                }
+                MismatchDetail::DiagnosticCodes { way: Way::LlvmStrict, .. }
             )),
             "divergent strict diagnostic codes went unreported: {details:?}"
         );
@@ -2296,11 +2078,7 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
     for file in files {
         let meta = parse_fixture_meta(file);
         if let Some(reason) = &meta.skip {
-            eprintln!(
-                "\x1b[0;33mCOMPILE SKIP\x1b[0m {} — {}",
-                file.display(),
-                reason
-            );
+            eprintln!("\x1b[0;33mCOMPILE SKIP\x1b[0m {} — {}", file.display(), reason);
             continue;
         }
         let extra_args = merged_fixture_args(&config.extra_args, &meta.extra_args);
@@ -2324,11 +2102,7 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
                 if result.exit_kind != ExitKind::CompileError {
                     eprintln!(
                         "\x1b[0;31mCOMPILE UNEXPECTED {}\x1b[0m {} ({}) — fixture declares `expect: compile_error`",
-                        if result.exit_kind == ExitKind::Success {
-                            "OK"
-                        } else {
-                            "ERR"
-                        },
+                        if result.exit_kind == ExitKind::Success { "OK" } else { "ERR" },
                         file.display(),
                         label.as_str(),
                     );
@@ -2402,11 +2176,7 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
                 continue;
             }
             if outcome.success {
-                eprintln!(
-                    "\x1b[0;32mCOMPILE OK\x1b[0m   {} ({})",
-                    file.display(),
-                    label.as_str()
-                );
+                eprintln!("\x1b[0;32mCOMPILE OK\x1b[0m   {} ({})", file.display(), label.as_str());
                 continue;
             }
             eprintln!(
@@ -2552,9 +2322,7 @@ fn should_skip_fixture(path: &Path) -> bool {
 /// A `lib/Flow/` module: the prelude imports it into every program, so
 /// compiled on its own it imports itself.
 fn is_prelude_module(path: &Path) -> bool {
-    let mut parts = path
-        .components()
-        .filter(|part| !matches!(part, std::path::Component::CurDir));
+    let mut parts = path.components().filter(|part| !matches!(part, std::path::Component::CurDir));
     matches!(
         (parts.next(), parts.next()),
         (Some(lib), Some(flow)) if lib.as_os_str() == "lib" && flow.as_os_str() == "Flow"
@@ -2702,9 +2470,8 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
                 if i >= args.len() {
                     return Err("--timeout requires a value".to_string());
                 }
-                timeout_secs = args[i]
-                    .parse()
-                    .map_err(|_| format!("invalid timeout: {}", args[i]))?;
+                timeout_secs =
+                    args[i].parse().map_err(|_| format!("invalid timeout: {}", args[i]))?;
             }
             "--jobs" => {
                 i += 1;
@@ -2723,9 +2490,7 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
                 i += 1;
                 let resource = args.get(i).ok_or("--allow requires a resource (network)")?;
                 if resource != "network" {
-                    return Err(format!(
-                        "unknown --allow resource: {resource} (use network)"
-                    ));
+                    return Err(format!("unknown --allow resource: {resource} (use network)"));
                 }
                 allow.push(resource.clone());
             }
@@ -2841,15 +2606,9 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
         ]);
     }
     if let Some(requested) = &surfaces {
-        capture_core |= requested
-            .iter()
-            .any(|surface| matches!(surface, SurfaceKind::Core));
-        capture_aether |= requested
-            .iter()
-            .any(|surface| matches!(surface, SurfaceKind::Aether));
-        capture_repr |= requested
-            .iter()
-            .any(|surface| matches!(surface, SurfaceKind::Repr));
+        capture_core |= requested.iter().any(|surface| matches!(surface, SurfaceKind::Core));
+        capture_aether |= requested.iter().any(|surface| matches!(surface, SurfaceKind::Aether));
+        capture_repr |= requested.iter().any(|surface| matches!(surface, SurfaceKind::Repr));
         capture_cfg |= requested
             .iter()
             .any(|surface| matches!(surface, SurfaceKind::BackendIr(BackendId::Vm)));
@@ -2945,11 +2704,7 @@ fn ensure_parity_binaries(config: &Config) -> Vec<BinaryStatus> {
     let mut statuses = Vec::new();
 
     if !need_vm && !need_llvm {
-        statuses.push(BinaryStatus {
-            kind: "vm",
-            path: config.vm_binary.clone(),
-            status: "fresh",
-        });
+        statuses.push(BinaryStatus { kind: "vm", path: config.vm_binary.clone(), status: "fresh" });
         statuses.push(BinaryStatus {
             kind: "llvm",
             path: config.llvm_binary.clone(),
@@ -2969,22 +2724,11 @@ fn ensure_parity_binaries(config: &Config) -> Vec<BinaryStatus> {
         } else {
             "missing -> rebuilt"
         };
-        eprintln!(
-            "[parity] rebuilding VM binary in {}",
-            vm_target_dir.display()
-        );
+        eprintln!("[parity] rebuilding VM binary in {}", vm_target_dir.display());
         run_cargo_build(&vm_target_dir, false);
-        statuses.push(BinaryStatus {
-            kind: "vm",
-            path: config.vm_binary.clone(),
-            status: reason,
-        });
+        statuses.push(BinaryStatus { kind: "vm", path: config.vm_binary.clone(), status: reason });
     } else {
-        statuses.push(BinaryStatus {
-            kind: "vm",
-            path: config.vm_binary.clone(),
-            status: "fresh",
-        });
+        statuses.push(BinaryStatus { kind: "vm", path: config.vm_binary.clone(), status: "fresh" });
     }
 
     if need_llvm {
@@ -2995,10 +2739,7 @@ fn ensure_parity_binaries(config: &Config) -> Vec<BinaryStatus> {
         } else {
             "missing -> rebuilt"
         };
-        eprintln!(
-            "[parity] rebuilding native binary in {}",
-            llvm_target_dir.display()
-        );
+        eprintln!("[parity] rebuilding native binary in {}", llvm_target_dir.display());
         run_cargo_build(&llvm_target_dir, true);
         statuses.push(BinaryStatus {
             kind: "llvm",
@@ -3092,20 +2833,12 @@ fn max_system_time(a: Option<SystemTime>, b: Option<SystemTime>) -> Option<Syste
 }
 
 fn print_run_context(config: &Config, statuses: &[BinaryStatus]) {
-    let targets = config
-        .paths
-        .iter()
-        .map(|path| path.display().to_string())
-        .collect::<Vec<_>>()
-        .join(" ");
+    let targets =
+        config.paths.iter().map(|path| path.display().to_string()).collect::<Vec<_>>().join(" ");
     eprintln!("[parity] target: {targets}");
     match &config.ways {
         Some(ways) => {
-            let way_list = ways
-                .iter()
-                .map(|w| w.to_string())
-                .collect::<Vec<_>>()
-                .join(",");
+            let way_list = ways.iter().map(|w| w.to_string()).collect::<Vec<_>>().join(",");
             eprintln!("[parity] ways: {way_list}");
         }
         None => eprintln!("[parity] ways: fixture metadata/default"),
@@ -3141,20 +2874,11 @@ fn print_run_context(config: &Config, statuses: &[BinaryStatus]) {
         eprintln!("[parity] compare-surfaces: enabled");
     }
     if let Some(surfaces) = &config.surfaces {
-        let text = surfaces
-            .iter()
-            .map(|surface| surface.label())
-            .collect::<Vec<_>>()
-            .join(",");
+        let text = surfaces.iter().map(|surface| surface.label()).collect::<Vec<_>>().join(",");
         eprintln!("[parity] surfaces: {text}");
     }
     for status in statuses {
-        eprintln!(
-            "[parity] binary {}: {} ({})",
-            status.kind,
-            status.path.display(),
-            status.status
-        );
+        eprintln!("[parity] binary {}: {} ({})", status.kind, status.path.display(), status.status);
     }
 }
 
@@ -3165,43 +2889,29 @@ fn save_debug_bundle(dir: &Path, result: &ParityResult) -> Result<(), String> {
     fs::create_dir_all(&fixture_dir)
         .map_err(|e| format!("create fixture dir {}: {e}", fixture_dir.display()))?;
 
-    fs::write(
-        fixture_dir.join("metadata.json"),
-        build_metadata_json(result),
-    )
-    .map_err(|e| format!("write metadata.json: {e}"))?;
+    fs::write(fixture_dir.join("metadata.json"), build_metadata_json(result))
+        .map_err(|e| format!("write metadata.json: {e}"))?;
     fs::write(fixture_dir.join("commands.txt"), build_commands_txt(result))
         .map_err(|e| format!("write commands.txt: {e}"))?;
-    fs::write(
-        fixture_dir.join("diagnosis.txt"),
-        build_diagnosis_txt(result),
-    )
-    .map_err(|e| format!("write diagnosis.txt: {e}"))?;
+    fs::write(fixture_dir.join("diagnosis.txt"), build_diagnosis_txt(result))
+        .map_err(|e| format!("write diagnosis.txt: {e}"))?;
 
     let mut summary = String::new();
     summary.push_str(&format!("file: {}\n", result.file.display()));
     summary.push_str(&format!("verdict: {:?}\n", result.verdict));
     for run in &result.results {
-        summary.push_str(&format!(
-            "way: {} exit={} code={}\n",
-            run.way, run.exit_kind, run.exit_code
-        ));
+        summary
+            .push_str(&format!("way: {} exit={} code={}\n", run.way, run.exit_kind, run.exit_code));
     }
     fs::write(fixture_dir.join("summary.txt"), summary)
         .map_err(|e| format!("write summary: {e}"))?;
 
     for run in &result.results {
         let prefix = run.way.to_string();
-        fs::write(
-            fixture_dir.join(format!("{prefix}.stdout.txt")),
-            &run.stdout,
-        )
-        .map_err(|e| format!("write stdout for {prefix}: {e}"))?;
-        fs::write(
-            fixture_dir.join(format!("{prefix}.stderr.txt")),
-            &run.stderr,
-        )
-        .map_err(|e| format!("write stderr for {prefix}: {e}"))?;
+        fs::write(fixture_dir.join(format!("{prefix}.stdout.txt")), &run.stdout)
+            .map_err(|e| format!("write stdout for {prefix}: {e}"))?;
+        fs::write(fixture_dir.join(format!("{prefix}.stderr.txt")), &run.stderr)
+            .map_err(|e| format!("write stderr for {prefix}: {e}"))?;
         fs::write(
             fixture_dir.join(format!("{prefix}.stdout.normalized.txt")),
             &run.normalized_stdout,
@@ -3239,42 +2949,30 @@ fn save_debug_bundle(dir: &Path, result: &ParityResult) -> Result<(), String> {
                 .map_err(|e| format!("write core dump for {prefix}: {e}"))?;
         }
         if let Some(core) = &arts.core.normalized {
-            fs::write(
-                fixture_dir.join(format!("{prefix}.core.normalized.txt")),
-                core,
-            )
-            .map_err(|e| format!("write normalized core dump for {prefix}: {e}"))?;
+            fs::write(fixture_dir.join(format!("{prefix}.core.normalized.txt")), core)
+                .map_err(|e| format!("write normalized core dump for {prefix}: {e}"))?;
         }
         if let Some(aether) = &arts.aether.raw {
             fs::write(fixture_dir.join(format!("{prefix}.aether.txt")), aether)
                 .map_err(|e| format!("write aether dump for {prefix}: {e}"))?;
         }
         if let Some(aether) = &arts.aether.normalized {
-            fs::write(
-                fixture_dir.join(format!("{prefix}.aether.normalized.txt")),
-                aether,
-            )
-            .map_err(|e| format!("write normalized aether dump for {prefix}: {e}"))?;
+            fs::write(fixture_dir.join(format!("{prefix}.aether.normalized.txt")), aether)
+                .map_err(|e| format!("write normalized aether dump for {prefix}: {e}"))?;
         }
         if let Some(repr) = &arts.repr.raw {
             fs::write(fixture_dir.join(format!("{prefix}.repr.txt")), repr)
                 .map_err(|e| format!("write repr dump for {prefix}: {e}"))?;
         }
         if let Some(repr) = &arts.repr.normalized {
-            fs::write(
-                fixture_dir.join(format!("{prefix}.repr.normalized.txt")),
-                repr,
-            )
-            .map_err(|e| format!("write normalized repr dump for {prefix}: {e}"))?;
+            fs::write(fixture_dir.join(format!("{prefix}.repr.normalized.txt")), repr)
+                .map_err(|e| format!("write normalized repr dump for {prefix}: {e}"))?;
         }
         for (backend, artifact) in &arts.backend_ir {
             let surface = backend_spec(*backend).ir_surface;
             if let Some(raw) = &artifact.raw {
-                fs::write(
-                    fixture_dir.join(format!("{prefix}.{backend}.{surface}.txt")),
-                    raw,
-                )
-                .map_err(|e| format!("write backend ir for {prefix}: {e}"))?;
+                fs::write(fixture_dir.join(format!("{prefix}.{backend}.{surface}.txt")), raw)
+                    .map_err(|e| format!("write backend ir for {prefix}: {e}"))?;
             }
             if let Some(normalized) = &artifact.normalized {
                 fs::write(
@@ -3303,11 +3001,7 @@ fn build_commands_txt(result: &ParityResult) -> String {
     let file = result.file.to_string_lossy();
     let mut out = String::new();
     for run in &result.results {
-        out.push_str(&format!(
-            "{}: {}\n",
-            run.way,
-            cargo_run_for_way(run.way, &file)
-        ));
+        out.push_str(&format!("{}: {}\n", run.way, cargo_run_for_way(run.way, &file)));
     }
     out
 }
@@ -3349,23 +3043,14 @@ fn build_metadata_json(result: &ParityResult) -> String {
         "  \"file\": \"{}\",\n",
         json_escape(&result.file.display().to_string())
     ));
-    out.push_str(&format!(
-        "  \"verdict\": \"{}\",\n",
-        verdict_label(&result.verdict)
-    ));
+    out.push_str(&format!("  \"verdict\": \"{}\",\n", verdict_label(&result.verdict)));
     match &result.verdict {
         Verdict::ExpectedOutputMismatch { expected, actual } => {
             out.push_str(
                 "  \"diagnosis\": \"backends agree, but the output disagrees with the fixture expected output\",\n",
             );
-            out.push_str(&format!(
-                "  \"expected_stdout\": \"{}\",\n",
-                json_escape(expected)
-            ));
-            out.push_str(&format!(
-                "  \"actual_stdout\": \"{}\",\n",
-                json_escape(actual)
-            ));
+            out.push_str(&format!("  \"expected_stdout\": \"{}\",\n", json_escape(expected)));
+            out.push_str(&format!("  \"actual_stdout\": \"{}\",\n", json_escape(actual)));
             out.push_str("  \"mismatch_details\": [],\n");
         }
         Verdict::Mismatch { details } => {
@@ -3377,10 +3062,7 @@ fn build_metadata_json(result: &ParityResult) -> String {
             }
             out.push_str("  \"mismatch_details\": [\n");
             for (idx, detail) in details.iter().enumerate() {
-                out.push_str(&format!(
-                    "    \"{}\"",
-                    json_escape(&mismatch_detail_label(detail))
-                ));
+                out.push_str(&format!("    \"{}\"", json_escape(&mismatch_detail_label(detail))));
                 if idx + 1 != details.len() {
                     out.push(',');
                 }
@@ -3392,11 +3074,8 @@ fn build_metadata_json(result: &ParityResult) -> String {
     }
     out.push_str("  \"results\": [\n");
     for (idx, run) in result.results.iter().enumerate() {
-        let artifact = result
-            .artifacts
-            .iter()
-            .find(|(way, _)| *way == run.way)
-            .map(|(_, arts)| arts);
+        let artifact =
+            result.artifacts.iter().find(|(way, _)| *way == run.way).map(|(_, arts)| arts);
         out.push_str("    {\n");
         out.push_str(&format!("      \"way\": \"{}\",\n", run.way));
         out.push_str(&format!("      \"exit_kind\": \"{}\",\n", run.exit_kind));
@@ -3415,16 +3094,11 @@ fn build_metadata_json(result: &ParityResult) -> String {
             "      \"normalized_stderr_bytes\": {},\n",
             run.normalized_stderr.len()
         ));
-        out.push_str(&format!(
-            "      \"cache_observations\": {},\n",
-            run.cache_observations.len()
-        ));
+        out.push_str(&format!("      \"cache_observations\": {},\n", run.cache_observations.len()));
         out.push_str("      \"artifacts\": {\n");
         out.push_str(&format!(
             "        \"core\": {},\n",
-            artifact
-                .and_then(|arts| arts.core.normalized.as_ref())
-                .is_some()
+            artifact.and_then(|arts| arts.core.normalized.as_ref()).is_some()
         ));
         out.push_str(&format!(
             "        \"core_fingerprint\": {},\n",
@@ -3435,9 +3109,7 @@ fn build_metadata_json(result: &ParityResult) -> String {
         ));
         out.push_str(&format!(
             "        \"aether\": {},\n",
-            artifact
-                .and_then(|arts| arts.aether.normalized.as_ref())
-                .is_some()
+            artifact.and_then(|arts| arts.aether.normalized.as_ref()).is_some()
         ));
         out.push_str(&format!(
             "        \"aether_fingerprint\": {},\n",
@@ -3448,9 +3120,7 @@ fn build_metadata_json(result: &ParityResult) -> String {
         ));
         out.push_str(&format!(
             "        \"repr\": {},\n",
-            artifact
-                .and_then(|arts| arts.repr.normalized.as_ref())
-                .is_some()
+            artifact.and_then(|arts| arts.repr.normalized.as_ref()).is_some()
         ));
         out.push_str(&format!(
             "        \"repr_fingerprint\": {},\n",
@@ -3461,9 +3131,7 @@ fn build_metadata_json(result: &ParityResult) -> String {
         ));
         out.push_str(&format!(
             "        \"backend_ir\": {}\n",
-            artifact
-                .map(|arts| arts.backend_ir.len())
-                .unwrap_or_default()
+            artifact.map(|arts| arts.backend_ir.len()).unwrap_or_default()
         ));
         out.push_str("      },\n");
         out.push_str("      \"cache_observations_detail\": [\n");
@@ -3505,68 +3173,44 @@ fn verdict_label(verdict: &Verdict) -> &'static str {
 
 fn mismatch_detail_label(detail: &MismatchDetail) -> String {
     match detail {
-        MismatchDetail::ExitKind {
-            left_way,
-            right_way,
-            ..
-        } => format!("exit_kind: {left_way} vs {right_way}"),
-        MismatchDetail::Stdout {
-            left_way,
-            right_way,
-            ..
-        } => format!("stdout: {left_way} vs {right_way}"),
-        MismatchDetail::Stderr {
-            left_way,
-            right_way,
-            ..
-        } => format!("stderr: {left_way} vs {right_way}"),
+        MismatchDetail::ExitKind { left_way, right_way, .. } => {
+            format!("exit_kind: {left_way} vs {right_way}")
+        }
+        MismatchDetail::Stdout { left_way, right_way, .. } => {
+            format!("stdout: {left_way} vs {right_way}")
+        }
+        MismatchDetail::Stderr { left_way, right_way, .. } => {
+            format!("stderr: {left_way} vs {right_way}")
+        }
         MismatchDetail::DiagnosticCodes { way, .. } => format!("diagnostic_codes: {way}"),
         MismatchDetail::ExpectedStderr { way, .. } => format!("expected_stderr: {way}"),
-        MismatchDetail::CoreMismatch {
-            left_way,
-            right_way,
-            ..
-        } => format!("core: {left_way} vs {right_way}"),
-        MismatchDetail::AetherMismatch {
-            left_way,
-            right_way,
-            ..
-        } => format!("aether: {left_way} vs {right_way}"),
-        MismatchDetail::RepresentationMismatch {
-            left_way,
-            right_way,
-            ..
-        } => format!("repr: {left_way} vs {right_way}"),
-        MismatchDetail::BackendIrMismatch {
-            backend, surface, ..
-        } => format!("backend_ir: {backend}:{surface}"),
+        MismatchDetail::CoreMismatch { left_way, right_way, .. } => {
+            format!("core: {left_way} vs {right_way}")
+        }
+        MismatchDetail::AetherMismatch { left_way, right_way, .. } => {
+            format!("aether: {left_way} vs {right_way}")
+        }
+        MismatchDetail::RepresentationMismatch { left_way, right_way, .. } => {
+            format!("repr: {left_way} vs {right_way}")
+        }
+        MismatchDetail::BackendIrMismatch { backend, surface, .. } => {
+            format!("backend_ir: {backend}:{surface}")
+        }
         MismatchDetail::BackendRuntimeMismatch { backend, .. } => {
             format!("backend_runtime: {backend}")
         }
-        MismatchDetail::CacheMismatch {
-            fresh_way,
-            cached_way,
-            field,
-            ..
-        } => format!("cache {field}: {fresh_way} vs {cached_way}"),
-        MismatchDetail::StrictModeMismatch {
-            normal_way,
-            strict_way,
-            field,
-            ..
-        } => format!("strict {field}: {normal_way} vs {strict_way}"),
-        MismatchDetail::OptModeMismatch {
-            unopt_way,
-            opt_way,
-            field,
-            ..
-        } => format!("opt {field}: {unopt_way} vs {opt_way}"),
-        MismatchDetail::HeapModeMismatch {
-            plain_way,
-            heap_way,
-            field,
-            ..
-        } => format!("heap {field}: {plain_way} vs {heap_way}"),
+        MismatchDetail::CacheMismatch { fresh_way, cached_way, field, .. } => {
+            format!("cache {field}: {fresh_way} vs {cached_way}")
+        }
+        MismatchDetail::StrictModeMismatch { normal_way, strict_way, field, .. } => {
+            format!("strict {field}: {normal_way} vs {strict_way}")
+        }
+        MismatchDetail::OptModeMismatch { unopt_way, opt_way, field, .. } => {
+            format!("opt {field}: {unopt_way} vs {opt_way}")
+        }
+        MismatchDetail::HeapModeMismatch { plain_way, heap_way, field, .. } => {
+            format!("heap {field}: {plain_way} vs {heap_way}")
+        }
         MismatchDetail::HeapFault { way, .. } => format!("heap_fault: {way}"),
     }
 }

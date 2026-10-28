@@ -43,11 +43,7 @@ fn expand_stmt(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     match stmt {
-        Statement::Let {
-            type_annotation,
-            value,
-            ..
-        } => {
+        Statement::Let { type_annotation, value, .. } => {
             if let Some(ty) = type_annotation {
                 expand_type(ty, aliases, file_path, diagnostics);
             }
@@ -63,12 +59,7 @@ fn expand_stmt(
         Statement::Expression { expression, .. } => {
             expand_expr(expression, aliases, file_path, diagnostics);
         }
-        Statement::Function {
-            parameter_types,
-            return_type,
-            body,
-            ..
-        } => {
+        Statement::Function { parameter_types, return_type, body, .. } => {
             for ty in parameter_types.iter_mut().flatten() {
                 expand_type(ty, aliases, file_path, diagnostics);
             }
@@ -85,11 +76,7 @@ fn expand_stmt(
                 }
             }
         }
-        Statement::Class {
-            superclasses,
-            methods,
-            ..
-        } => {
+        Statement::Class { superclasses, methods, .. } => {
             for constraint in superclasses {
                 expand_constraint(constraint, aliases, file_path, diagnostics);
             }
@@ -103,12 +90,7 @@ fn expand_stmt(
                 }
             }
         }
-        Statement::Instance {
-            type_args,
-            context,
-            methods,
-            ..
-        } => {
+        Statement::Instance { type_args, context, methods, .. } => {
             for ty in type_args {
                 expand_type(ty, aliases, file_path, diagnostics);
             }
@@ -145,12 +127,7 @@ fn expand_expr(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     match expr {
-        Expression::Function {
-            parameter_types,
-            return_type,
-            body,
-            ..
-        } => {
+        Expression::Function { parameter_types, return_type, body, .. } => {
             for ty in parameter_types.iter_mut().flatten() {
                 expand_type(ty, aliases, file_path, diagnostics);
             }
@@ -160,21 +137,14 @@ fn expand_expr(
             expand_block(body, aliases, file_path, diagnostics);
         }
         Expression::DoBlock { block, .. } => expand_block(block, aliases, file_path, diagnostics),
-        Expression::If {
-            condition,
-            consequence,
-            alternative,
-            ..
-        } => {
+        Expression::If { condition, consequence, alternative, .. } => {
             expand_expr(condition, aliases, file_path, diagnostics);
             expand_block(consequence, aliases, file_path, diagnostics);
             if let Some(alt) = alternative {
                 expand_block(alt, aliases, file_path, diagnostics);
             }
         }
-        Expression::Match {
-            scrutinee, arms, ..
-        } => {
+        Expression::Match { scrutinee, arms, .. } => {
             expand_expr(scrutinee, aliases, file_path, diagnostics);
             for arm in arms {
                 if let Some(guard) = arm.guard.as_mut() {
@@ -183,11 +153,7 @@ fn expand_expr(
                 expand_expr(&mut arm.body, aliases, file_path, diagnostics);
             }
         }
-        Expression::Call {
-            function,
-            arguments,
-            ..
-        } => {
+        Expression::Call { function, arguments, .. } => {
             expand_expr(function, aliases, file_path, diagnostics);
             for arg in arguments {
                 expand_expr(arg, aliases, file_path, diagnostics);
@@ -203,12 +169,7 @@ fn expand_expr(
                 expand_expr(arg, aliases, file_path, diagnostics);
             }
         }
-        Expression::Handle {
-            expr,
-            parameter,
-            arms,
-            ..
-        } => {
+        Expression::Handle { expr, parameter, arms, .. } => {
             expand_expr(expr, aliases, file_path, diagnostics);
             if let Some(parameter) = parameter {
                 expand_expr(parameter, aliases, file_path, diagnostics);
@@ -310,11 +271,7 @@ fn expand_type_rec(
                 .collect();
 
             let Some(alias) = aliases.get(name) else {
-                return TypeExpr::Named {
-                    name: *name,
-                    args: expanded_args,
-                    span: *span,
-                };
+                return TypeExpr::Named { name: *name, args: expanded_args, span: *span };
             };
 
             if stack.contains(name) {
@@ -325,11 +282,7 @@ fn expand_type_rec(
                     file_path,
                     *span,
                 ));
-                return TypeExpr::Named {
-                    name: *name,
-                    args: expanded_args,
-                    span: *span,
-                };
+                return TypeExpr::Named { name: *name, args: expanded_args, span: *span };
             }
 
             if expanded_args.len() != alias.params.len() {
@@ -344,25 +297,15 @@ fn expand_type_rec(
                     file_path,
                     *span,
                 ));
-                return TypeExpr::Named {
-                    name: *name,
-                    args: expanded_args,
-                    span: *span,
-                };
+                return TypeExpr::Named { name: *name, args: expanded_args, span: *span };
             }
 
             let subst: HashMap<Identifier, TypeExpr> =
                 alias.params.iter().copied().zip(expanded_args).collect();
             stack.push(*name);
             let substituted = substitute_alias_params(&alias.body, &subst);
-            let expanded = expand_type_rec(
-                &substituted,
-                aliases,
-                file_path,
-                diagnostics,
-                stack,
-                depth + 1,
-            );
+            let expanded =
+                expand_type_rec(&substituted, aliases, file_path, diagnostics, stack, depth + 1);
             stack.pop();
             expanded
         }
@@ -375,26 +318,14 @@ fn expand_type_rec(
                 .collect(),
             span: *span,
         },
-        TypeExpr::Function {
-            params,
-            ret,
-            effects,
-            span,
-        } => TypeExpr::Function {
+        TypeExpr::Function { params, ret, effects, span } => TypeExpr::Function {
             params: params
                 .iter()
                 .map(|param| {
                     expand_type_rec(param, aliases, file_path, diagnostics, stack, depth + 1)
                 })
                 .collect(),
-            ret: Box::new(expand_type_rec(
-                ret,
-                aliases,
-                file_path,
-                diagnostics,
-                stack,
-                depth + 1,
-            )),
+            ret: Box::new(expand_type_rec(ret, aliases, file_path, diagnostics, stack, depth + 1)),
             effects: effects.clone(),
             span: *span,
         },
@@ -409,30 +340,16 @@ fn substitute_alias_params(ty: &TypeExpr, subst: &HashMap<Identifier, TypeExpr>)
             }
             TypeExpr::Named {
                 name: *name,
-                args: args
-                    .iter()
-                    .map(|arg| substitute_alias_params(arg, subst))
-                    .collect(),
+                args: args.iter().map(|arg| substitute_alias_params(arg, subst)).collect(),
                 span: *span,
             }
         }
         TypeExpr::Tuple { elements, span } => TypeExpr::Tuple {
-            elements: elements
-                .iter()
-                .map(|elem| substitute_alias_params(elem, subst))
-                .collect(),
+            elements: elements.iter().map(|elem| substitute_alias_params(elem, subst)).collect(),
             span: *span,
         },
-        TypeExpr::Function {
-            params,
-            ret,
-            effects,
-            span,
-        } => TypeExpr::Function {
-            params: params
-                .iter()
-                .map(|param| substitute_alias_params(param, subst))
-                .collect(),
+        TypeExpr::Function { params, ret, effects, span } => TypeExpr::Function {
+            params: params.iter().map(|param| substitute_alias_params(param, subst)).collect(),
             ret: Box::new(substitute_alias_params(ret, subst)),
             effects: effects.clone(),
             span: *span,

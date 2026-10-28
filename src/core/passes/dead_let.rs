@@ -13,12 +13,7 @@ use super::keep;
 
 pub fn elim_dead_let(expr: CoreExpr) -> CoreExpr {
     match expr {
-        CoreExpr::Let {
-            var,
-            rhs,
-            body,
-            span,
-        } => {
+        CoreExpr::Let { var, rhs, body, span } => {
             let rhs = elim_dead_let(*rhs);
             let body = elim_dead_let(*body);
             // A debug build keeps the program's own `let`s (0188 S9c).
@@ -29,12 +24,7 @@ pub fn elim_dead_let(expr: CoreExpr) -> CoreExpr {
             {
                 body
             } else {
-                CoreExpr::Let {
-                    var,
-                    rhs: Box::new(rhs),
-                    body: Box::new(body),
-                    span,
-                }
+                CoreExpr::Let { var, rhs: Box::new(rhs), body: Box::new(body), span }
             }
         }
         CoreExpr::Lam { .. }

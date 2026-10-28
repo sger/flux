@@ -111,10 +111,7 @@ impl Scratch {
 /// from independently inventing legacy `.flux-cache` locations.
 #[allow(dead_code)]
 pub fn cache_args_for(cache_dir: &Path) -> Vec<String> {
-    vec![
-        "--cache-dir".to_string(),
-        cache_dir.to_string_lossy().into_owned(),
-    ]
+    vec!["--cache-dir".to_string(), cache_dir.to_string_lossy().into_owned()]
 }
 
 /// A loopback port nothing listens on right now, chosen by the OS. A counter

@@ -28,9 +28,9 @@ pub fn normalize(raw: &str) -> String {
     }
 
     let joined = lines.join("\n");
-    normalize_stack_entry_names(&normalize_type_variable_ids(
-        &normalize_relative_path_prefixes(&normalize_temp_paths(&joined)),
-    ))
+    normalize_stack_entry_names(&normalize_type_variable_ids(&normalize_relative_path_prefixes(
+        &normalize_temp_paths(&joined),
+    )))
     .trim()
     .to_string()
 }
@@ -97,9 +97,7 @@ fn normalize_type_variable_ids(s: &str) -> String {
     while let Some(idx) = rest.find("var #") {
         result.push_str(&rest[..idx]);
         let after = &rest[idx + "var #".len()..];
-        let digit_end = after
-            .find(|c: char| !c.is_ascii_digit())
-            .unwrap_or(after.len());
+        let digit_end = after.find(|c: char| !c.is_ascii_digit()).unwrap_or(after.len());
         if digit_end == 0 {
             result.push_str("var #");
             rest = after;
@@ -401,9 +399,7 @@ fn normalize_line_numbers(s: &str) -> String {
         result.push_str("line ");
         let after = &rest[idx + 5..];
         // Skip digits
-        let digit_end = after
-            .find(|c: char| !c.is_ascii_digit())
-            .unwrap_or(after.len());
+        let digit_end = after.find(|c: char| !c.is_ascii_digit()).unwrap_or(after.len());
         if digit_end > 0 {
             result.push('N');
             rest = &after[digit_end..];
@@ -475,10 +471,7 @@ fn main [7]
 b12(v3):
   %4 = Call @12(v9)
 ";
-        assert_eq!(
-            normalize_cfg_dump(raw),
-            "fn main [7]\nbN(vN):\n  %N = Call @N(vN)"
-        );
+        assert_eq!(normalize_cfg_dump(raw), "fn main [7]\nbN(vN):\n  %N = Call @N(vN)");
     }
 
     #[test]
@@ -563,10 +556,7 @@ b12(v3):
     #[test]
     fn core_dump_preserves_core_ir() {
         let input = "let main = \\() ->\n  PrimOp(Print, [42])\n";
-        assert_eq!(
-            normalize_core_dump(input),
-            "let main = \\() ->\n  PrimOp(Print, [42])"
-        );
+        assert_eq!(normalize_core_dump(input), "let main = \\() ->\n  PrimOp(Print, [42])");
     }
 
     #[test]

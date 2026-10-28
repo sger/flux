@@ -295,11 +295,7 @@ impl VM {
     }
 
     pub fn run(&mut self) -> Result<(), String> {
-        let result = if self.debugger.is_some() {
-            self.run_debugged()
-        } else {
-            self.run_inner()
-        };
+        let result = if self.debugger.is_some() { self.run_debugged() } else { self.run_inner() };
         match result {
             Ok(()) => Ok(()),
             Err(err) => {
@@ -499,9 +495,7 @@ impl VM {
             return Err("stack overflow".to_string());
         }
 
-        let target_top = needed_top
-            .saturating_add(extra_headroom)
-            .min(MAX_STACK_SIZE);
+        let target_top = needed_top.saturating_add(extra_headroom).min(MAX_STACK_SIZE);
         let mut new_len = self.stack.len().max(1);
         while new_len < target_top {
             let grow_15 = new_len + (new_len / 2);
@@ -794,10 +788,7 @@ impl VM {
         debug_assert_eq!(vm_len, ext_len);
 
         // Swap element-by-element.
-        for (g, e) in self.globals[..vm_len.min(ext_len)]
-            .iter_mut()
-            .zip(external.iter_mut())
-        {
+        for (g, e) in self.globals[..vm_len.min(ext_len)].iter_mut().zip(external.iter_mut()) {
             let vm_val = slot::from_slot(std::mem::replace(g, slot::uninit()));
             let ext_val = std::mem::replace(e, Value::None);
             *g = slot::to_slot(ext_val);

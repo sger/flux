@@ -59,19 +59,12 @@ pub fn eval_const_expr(
             ConstEvalError::new("E041", format!("'{}' is not a module constant.", name_str))
         }),
 
-        Expression::Prefix {
-            operator, right, ..
-        } => {
+        Expression::Prefix { operator, right, .. } => {
             let r = eval_const_expr(right, defined, interner)?;
             eval_const_unary_op(operator, &r)
         }
 
-        Expression::Infix {
-            left,
-            operator,
-            right,
-            ..
-        } => {
+        Expression::Infix { left, operator, right, .. } => {
             let l = eval_const_expr(left, defined, interner)?;
             let r = eval_const_expr(right, defined, interner)?;
             eval_const_binary_op(&l, operator, &r)
@@ -103,25 +96,22 @@ fn eval_const_binary_op(left: &Value, op: &str, right: &Value) -> Result<Value, 
         (Value::Integer(a), "+", Value::Integer(b)) => Ok(Value::Integer(a + b)),
         (Value::Integer(a), "-", Value::Integer(b)) => Ok(Value::Integer(a - b)),
         (Value::Integer(a), "*", Value::Integer(b)) => Ok(Value::Integer(a * b)),
-        (Value::Integer(_), "/", Value::Integer(0)) => Err(ConstEvalError::new(
-            "E059",
-            "Division by zero in module constant.",
-        )),
+        (Value::Integer(_), "/", Value::Integer(0)) => {
+            Err(ConstEvalError::new("E059", "Division by zero in module constant."))
+        }
         (Value::Integer(a), "/", Value::Integer(b)) => Ok(Value::Integer(a / b)),
-        (Value::Integer(_), "%", Value::Integer(0)) => Err(ConstEvalError::new(
-            "E059",
-            "Modulo by zero in module constant.",
-        )),
+        (Value::Integer(_), "%", Value::Integer(0)) => {
+            Err(ConstEvalError::new("E059", "Modulo by zero in module constant."))
+        }
         (Value::Integer(a), "%", Value::Integer(b)) => Ok(Value::Integer(a % b)),
 
         // Float arithmetic
         (Value::Float(a), "+", Value::Float(b)) => Ok(Value::Float(a + b)),
         (Value::Float(a), "-", Value::Float(b)) => Ok(Value::Float(a - b)),
         (Value::Float(a), "*", Value::Float(b)) => Ok(Value::Float(a * b)),
-        (Value::Float(_), "/", Value::Float(b)) if *b == 0.0 => Err(ConstEvalError::new(
-            "E059",
-            "Division by zero in module constant.",
-        )),
+        (Value::Float(_), "/", Value::Float(b)) if *b == 0.0 => {
+            Err(ConstEvalError::new("E059", "Division by zero in module constant."))
+        }
         (Value::Float(a), "/", Value::Float(b)) => Ok(Value::Float(a / b)),
 
         // Mixed numeric - promote to float
@@ -171,10 +161,7 @@ fn eval_const_binary_op(left: &Value, op: &str, right: &Value) -> Result<Value, 
 
         _ => Err(ConstEvalError::new(
             "E048",
-            format!(
-                "Cannot apply '{}' to {:?} and {:?} at compile time.",
-                op, left, right
-            ),
+            format!("Cannot apply '{}' to {:?} and {:?} at compile time.", op, left, right),
         )),
     }
 }

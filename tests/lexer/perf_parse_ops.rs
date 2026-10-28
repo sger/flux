@@ -2,9 +2,7 @@ use flux::syntax::{lexer::Lexer, parser::Parser};
 use std::{hint::black_box, time::Instant};
 
 fn make_operator_heavy_source(ops: usize) -> String {
-    let tokens = [
-        "+", "*", "-", "/", "%", "==", "!=", "<", ">", "<=", ">=", "&&", "||",
-    ];
+    let tokens = ["+", "*", "-", "/", "%", "==", "!=", "<", ">", "<=", ">=", "&&", "||"];
 
     let mut src = String::with_capacity(ops * 6);
     src.push('a');
@@ -41,8 +39,5 @@ fn parse_operator_heavy_expression_perf_guard() {
     }
 
     let elapsed = start.elapsed();
-    eprintln!(
-        "parsed {} ops x {} iterations in {:?}",
-        20_000, iterations, elapsed
-    );
+    eprintln!("parsed {} ops x {} iterations in {:?}", 20_000, iterations, elapsed);
 }

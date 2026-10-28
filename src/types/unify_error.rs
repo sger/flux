@@ -47,16 +47,8 @@ impl UnifyError {
         span: Span,
     ) -> Self {
         Self::mismatch(
-            InferType::Fun(
-                vec![],
-                Box::new(InferType::Con(TypeConstructor::Unit)),
-                left,
-            ),
-            InferType::Fun(
-                vec![],
-                Box::new(InferType::Con(TypeConstructor::Unit)),
-                right,
-            ),
+            InferType::Fun(vec![], Box::new(InferType::Con(TypeConstructor::Unit)), left),
+            InferType::Fun(vec![], Box::new(InferType::Con(TypeConstructor::Unit)), right),
             span,
             UnifyErrorDetail::None,
         )
@@ -68,13 +60,7 @@ impl UnifyError {
         span: Span,
         detail: UnifyErrorDetail,
     ) -> Self {
-        UnifyError {
-            expected,
-            actual,
-            kind: UnifyErrorKind::Mismatch,
-            detail,
-            span,
-        }
+        UnifyError { expected, actual, kind: UnifyErrorKind::Mismatch, detail, span }
     }
 
     pub(crate) fn occurs(v: TypeVarId, ty: InferType, span: Span) -> Self {

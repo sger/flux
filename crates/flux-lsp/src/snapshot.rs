@@ -170,12 +170,7 @@ fn build_variant_indexes(program: &Program) -> (NamedFieldsIndex, PositionalFiel
     let mut named: HashMap<Identifier, Vec<(Identifier, TypeExpr)>> = HashMap::new();
     let mut positional: HashMap<Identifier, Vec<TypeExpr>> = HashMap::new();
     for stmt in &program.statements {
-        if let Statement::Data {
-            name: data_name,
-            variants,
-            ..
-        } = stmt
-        {
+        if let Statement::Data { name: data_name, variants, .. } = stmt {
             for variant in variants {
                 if let Some(field_names) = &variant.field_names {
                     let pairs: Vec<(Identifier, TypeExpr)> = field_names
@@ -216,11 +211,7 @@ const SINGLE_BUFFER_CLASS_CODES: &[&str] = &[
 fn run_inference(
     program: &Program,
     compiler: &mut flux::compiler::Compiler,
-) -> (
-    Option<InferProgramResult>,
-    HashSet<Identifier>,
-    Vec<FluxDiagnostic>,
-) {
+) -> (Option<InferProgramResult>, HashSet<Identifier>, Vec<FluxDiagnostic>) {
     // Clear per-file scratch from the previous buffer (errors, scope state,
     // function effects) without dropping the prelude's `cached_member_schemes`.
     lsp_support::reset_per_file_state(compiler);
@@ -236,10 +227,7 @@ fn run_inference(
         let class_diags = lsp_support::collect_classes_for_program(compiler, program);
         let class_diags: Vec<FluxDiagnostic> = class_diags
             .into_iter()
-            .filter(|d| {
-                d.code()
-                    .is_some_and(|c| SINGLE_BUFFER_CLASS_CODES.contains(&c))
-            })
+            .filter(|d| d.code().is_some_and(|c| SINGLE_BUFFER_CLASS_CODES.contains(&c)))
             .collect();
         let config = lsp_support::build_infer_config_for_program(compiler, program);
         // Capture the unqualified names the buffer inherits (prelude/builtin
@@ -257,10 +245,7 @@ fn run_inference(
             // A compiler-frontend panic must not crash the server, but it must
             // not vanish either: log it so a real bug is diagnosable instead of
             // silently presenting as missing hover/diagnostics for this buffer.
-            tracing::error!(
-                "inference panicked: {}",
-                crate::util::panic_message(payload.as_ref())
-            );
+            tracing::error!("inference panicked: {}", crate::util::panic_message(payload.as_ref()));
             // The panic may have fired partway through mutating the shared
             // compiler (`class_env`, infer config). Reset its per-file state now
             // so the next buffer starts clean rather than inheriting half-built

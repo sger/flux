@@ -49,10 +49,7 @@ pub(super) fn request(op: CorePrimOp, args: &[Value]) -> Result<EffectRequest, S
                     other => Err(format!("{name} expects String, got {}", other.type_name())),
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            EffectRequest::ProcRun {
-                cmd: path(0)?,
-                argv,
-            }
+            EffectRequest::ProcRun { cmd: path(0)?, argv }
         }
         ClockNow => EffectRequest::ClockNow,
         Time => EffectRequest::Time,
@@ -67,10 +64,7 @@ pub(super) fn request(op: CorePrimOp, args: &[Value]) -> Result<EffectRequest, S
         FsCreateDirAll => EffectRequest::FsCreateDirAll { path: path(0)? },
         FsRemoveFile => EffectRequest::FsRemoveFile { path: path(0)? },
         FsRemoveDirAll => EffectRequest::FsRemoveDirAll { path: path(0)? },
-        FsRename => EffectRequest::FsRename {
-            from: path(0)?,
-            to: path(1)?,
-        },
+        FsRename => EffectRequest::FsRename { from: path(0)?, to: path(1)? },
         other => unreachable!("{other:?} is not an effect the tape records"),
     })
 }
@@ -231,9 +225,7 @@ pub(super) fn to_value(outcome: Outcome) -> Result<Value, String> {
         Outcome::Fail(message) => return Err(message),
         // Async completions go straight to the scheduler, never through here.
         outcome @ (Outcome::Bytes(_) | Outcome::Addrs(_)) => {
-            return Err(format!(
-                "the tape has {outcome} where a synchronous effect returns"
-            ));
+            return Err(format!("the tape has {outcome} where a synchronous effect returns"));
         }
         Outcome::Unit | Outcome::None => Value::None,
         Outcome::Bool(b) => Value::Boolean(b),
@@ -260,11 +252,7 @@ pub(super) fn to_value(outcome: Outcome) -> Result<Value, String> {
         ),
         Outcome::Proc(proc) => adt(
             "ProcOutput",
-            vec![
-                Value::Integer(proc.status),
-                string(proc.stdout),
-                string(proc.stderr),
-            ],
+            vec![Value::Integer(proc.status), string(proc.stdout), string(proc.stderr)],
         ),
     })
 }
@@ -304,34 +292,18 @@ mod tests {
         let json = serde_json::to_string(&recorded).unwrap();
         let loaded: Outcome = serde_json::from_str(&json).unwrap();
         let replayed = to_value(loaded).unwrap();
-        assert_eq!(
-            format!("{replayed:?}"),
-            format!("{value:?}"),
-            "{op:?} via {json}"
-        );
+        assert_eq!(format!("{replayed:?}"), format!("{value:?}"), "{op:?} via {json}");
     }
 
     #[test]
     fn effect_results_round_trip_through_the_tape() {
         round_trip(ClockNow, Value::Integer(1_700_000_000_123));
         round_trip(FsExists, Value::Boolean(true));
-        round_trip(
-            ReadStdin,
-            Value::String("line one\nline two\n".to_string().into()),
-        );
-        round_trip(
-            EnvVar,
-            Value::Some(Rc::new(Value::String("v".to_string().into()))),
-        );
+        round_trip(ReadStdin, Value::String("line one\nline two\n".to_string().into()));
+        round_trip(EnvVar, Value::Some(Rc::new(Value::String("v".to_string().into()))));
         round_trip(EnvVar, Value::None);
-        round_trip(
-            EnvArgs,
-            Value::Array(vec![Value::String("app.flx".to_string().into())].into()),
-        );
-        round_trip(
-            TryReadFile,
-            vm_io_ok(Value::String("contents".to_string().into())),
-        );
+        round_trip(EnvArgs, Value::Array(vec![Value::String("app.flx".to_string().into())].into()));
+        round_trip(TryReadFile, vm_io_ok(Value::String("contents".to_string().into())));
         round_trip(FsWriteFile, vm_io_ok(Value::None));
         round_trip(
             FsMetadata,
@@ -371,10 +343,7 @@ mod tests {
     #[test]
     fn a_runtime_error_replays_as_the_same_error() {
         let recorded = outcome(ReadFile, Err("read_file failed for 'x'".to_string()));
-        assert_eq!(
-            to_value(recorded),
-            Err("read_file failed for 'x'".to_string())
-        );
+        assert_eq!(to_value(recorded), Err("read_file failed for 'x'".to_string()));
     }
 
     #[test]

@@ -327,10 +327,7 @@ pub struct FiberExecState {
 
 impl FiberExecState {
     pub fn new(home_worker: WorkerId) -> Self {
-        FiberExecState {
-            home_worker,
-            suspended_on: None,
-        }
+        FiberExecState { home_worker, suspended_on: None }
     }
 }
 
@@ -348,9 +345,7 @@ pub struct FiberQueue {
 
 impl FiberQueue {
     pub fn new() -> Self {
-        FiberQueue {
-            inner: VecDeque::new(),
-        }
+        FiberQueue { inner: VecDeque::new() }
     }
 
     /// Push a ready fiber onto the back of the queue.

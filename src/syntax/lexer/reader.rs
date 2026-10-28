@@ -23,14 +23,8 @@ impl CharReader {
     pub(super) fn new(input: String) -> Self {
         let source: Rc<str> = Rc::from(input);
 
-        let mut reader = Self {
-            source,
-            position: 0,
-            read_position: 0,
-            current_char: None,
-            line: 1,
-            column: 0,
-        };
+        let mut reader =
+            Self { source, position: 0, read_position: 0, current_char: None, line: 1, column: 0 };
         reader.advance();
         reader
     }
@@ -79,9 +73,7 @@ impl CharReader {
         }
 
         debug_assert!(
-            self.bytes()[self.position..target]
-                .iter()
-                .all(|b| b.is_ascii() && *b != b'\n')
+            self.bytes()[self.position..target].iter().all(|b| b.is_ascii() && *b != b'\n')
         );
 
         self.column += target - self.position;
@@ -213,12 +205,7 @@ impl CharReader {
 
     pub(super) fn slice_str(&self, start: usize, end: usize) -> &str {
         self.source.get(start..end).unwrap_or_else(|| {
-            panic!(
-                "invalid source slice {}..{} for source len {}",
-                start,
-                end,
-                self.source.len()
-            )
+            panic!("invalid source slice {}..{} for source len {}", start, end, self.source.len())
         })
     }
 
@@ -317,10 +304,7 @@ impl CharReader {
             return Some((first as char, 1));
         }
 
-        self.source[idx..]
-            .chars()
-            .next()
-            .map(|ch| (ch, ch.len_utf8()))
+        self.source[idx..].chars().next().map(|ch| (ch, ch.len_utf8()))
     }
 
     #[inline]

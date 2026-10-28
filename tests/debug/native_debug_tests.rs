@@ -141,9 +141,7 @@ impl Drop for Lease {
     fn drop(&mut self) {
         static LEFT: Mutex<BTreeMap<&'static str, usize>> = Mutex::new(BTreeMap::new());
         let mut left = LEFT.lock().unwrap_or_else(|e| e.into_inner());
-        let left = left
-            .entry(self.program)
-            .or_insert_with(|| uses(self.program));
+        let left = left.entry(self.program).or_insert_with(|| uses(self.program));
         *left -= 1;
         if *left == 0 {
             let _ = std::fs::remove_dir_all(self.scratch.path());
@@ -219,11 +217,7 @@ fn remove_dead_runs() {
             continue;
         };
         // `<label>-<pid>-<n>`.
-        let Some(pid) = rest
-            .rsplit('-')
-            .nth(1)
-            .and_then(|pid| pid.parse::<u32>().ok())
-        else {
+        let Some(pid) = rest.rsplit('-').nth(1).and_then(|pid| pid.parse::<u32>().ok()) else {
             continue;
         };
         if pid != std::process::id() && !alive(pid) {
@@ -247,20 +241,14 @@ fn find_tool(env: &str, names: &[&str]) -> Option<Vec<String>> {
         return Some(vec![path.to_string_lossy().into_owned()]);
     }
     for name in names {
-        if Command::new(name)
-            .arg("--version")
-            .output()
-            .is_ok_and(|o| o.status.success())
-        {
+        if Command::new(name).arg("--version").output().is_ok_and(|o| o.status.success()) {
             return Some(vec![name.to_string()]);
         }
     }
     if cfg!(target_os = "macos") {
         let name = names[0];
-        let found = Command::new("xcrun")
-            .args(["--find", name])
-            .output()
-            .is_ok_and(|o| o.status.success());
+        let found =
+            Command::new("xcrun").args(["--find", name]).output().is_ok_and(|o| o.status.success());
         if found {
             return Some(vec!["xcrun".to_string(), name.to_string()]);
         }
@@ -269,10 +257,7 @@ fn find_tool(env: &str, names: &[&str]) -> Option<Vec<String>> {
 }
 
 fn dwarfdump() -> Option<Vec<String>> {
-    find_tool(
-        "FLUX_DWARFDUMP",
-        &["llvm-dwarfdump", "llvm-dwarfdump-18", "llvm-dwarfdump-19"],
-    )
+    find_tool("FLUX_DWARFDUMP", &["llvm-dwarfdump", "llvm-dwarfdump-18", "llvm-dwarfdump-19"])
 }
 
 fn lldb() -> Option<Vec<String>> {
@@ -298,11 +283,8 @@ fn debug_file(scratch: &Scratch, binary: &str) -> PathBuf {
     let binary = scratch.path().join(binary);
     if cfg!(target_os = "macos") {
         let dsym = binary.with_extension("dSYM");
-        let dsym = if dsym.exists() {
-            dsym
-        } else {
-            PathBuf::from(format!("{}.dSYM", binary.display()))
-        };
+        let dsym =
+            if dsym.exists() { dsym } else { PathBuf::from(format!("{}.dSYM", binary.display())) };
         assert!(dsym.exists(), "no .dSYM next to {}", binary.display());
         dsym
     } else {
@@ -396,11 +378,7 @@ fn flux_objects(scratch: &Scratch) -> Vec<PathBuf> {
     let mut objects = Vec::new();
     collect(&scratch.cache_dir().join("native"), &mut objects);
     objects.sort();
-    assert!(
-        !objects.is_empty(),
-        "no cached objects under {}",
-        scratch.cache_dir().display()
-    );
+    assert!(!objects.is_empty(), "no cached objects under {}", scratch.cache_dir().display());
     objects
 }
 
@@ -415,17 +393,10 @@ fn check_dwarf(dwarfdump: &[String], fixture: &'static str) {
     let verified = flux_objects(&scratch);
     let mut errors = Vec::new();
     for path in &verified {
-        let verify = run_tool(
-            dwarfdump,
-            &["--verify", &path.to_string_lossy()],
-            scratch.path(),
-        );
+        let verify = run_tool(dwarfdump, &["--verify", &path.to_string_lossy()], scratch.path());
         let name = path.file_name().unwrap().to_string_lossy();
-        errors.extend(
-            flux_unit_errors(&verify)
-                .into_iter()
-                .map(|error| format!("{name}: {error}")),
-        );
+        errors
+            .extend(flux_unit_errors(&verify).into_iter().map(|error| format!("{name}: {error}")));
     }
     assert!(
         errors.is_empty(),
@@ -449,26 +420,10 @@ fn every_module_gets_its_own_compile_unit() {
     };
     let scratch = built("twomods/main.flx");
     let debug = debug_file(&scratch, "app");
-    let info = run_tool(
-        &dwarfdump,
-        &["--debug-info", &debug.to_string_lossy()],
-        scratch.path(),
-    );
-    assert!(
-        info.contains("\"main.flx\""),
-        "{}",
-        &info[..info.len().min(4000)]
-    );
-    assert!(
-        info.contains("\"Shapes.flx\""),
-        "{}",
-        &info[..info.len().min(4000)]
-    );
-    assert!(
-        info.contains("\"double\""),
-        "{}",
-        &info[..info.len().min(4000)]
-    );
+    let info = run_tool(&dwarfdump, &["--debug-info", &debug.to_string_lossy()], scratch.path());
+    assert!(info.contains("\"main.flx\""), "{}", &info[..info.len().min(4000)]);
+    assert!(info.contains("\"Shapes.flx\""), "{}", &info[..info.len().min(4000)]);
+    assert!(info.contains("\"double\""), "{}", &info[..info.len().min(4000)]);
 }
 
 /// Runs lldb in batch mode on `binary` with `commands`.
@@ -520,9 +475,7 @@ fn lldb_breaks_at_a_flux_line_and_shows_flux_frames() {
     );
     let frames = frames(&session);
     let shown = |function: &str, line: &str| {
-        frames
-            .iter()
-            .any(|frame| frame.contains(function) && frame.contains(line))
+        frames.iter().any(|frame| frame.contains(function) && frame.contains(line))
     };
     assert!(shown("square", "calls.flx:3"), "{session}");
     assert!(shown("sum_squares", "calls.flx:8"), "{session}");
@@ -549,10 +502,7 @@ fn lldb_steps_over_and_into_flux_lines() {
             "frame info",
         ],
     );
-    let infos: Vec<&str> = session
-        .lines()
-        .filter(|line| line.starts_with("frame #0"))
-        .collect();
+    let infos: Vec<&str> = session.lines().filter(|line| line.starts_with("frame #0")).collect();
     assert_eq!(infos.len(), 2, "{session}");
     assert!(
         infos[0].contains("sum_squares") && infos[0].contains("calls.flx:9"),
@@ -578,9 +528,7 @@ fn lldb_names_a_lambda_by_where_it_is() {
         &["breakpoint set --file lambdas.flx --line 5", "run", "bt"],
     );
     assert!(
-        frames(&session)
-            .iter()
-            .any(|frame| frame.contains("<lambda lambdas.flx:4:")),
+        frames(&session).iter().any(|frame| frame.contains("<lambda lambdas.flx:4:")),
         "{session}"
     );
 }
@@ -588,9 +536,7 @@ fn lldb_names_a_lambda_by_where_it_is() {
 #[test]
 fn deep_tail_recursion_runs_in_a_debug_build() {
     let scratch = built("deep.flx");
-    let output = Command::new(scratch.path().join("app"))
-        .output()
-        .expect("run the debug build");
+    let output = Command::new(scratch.path().join("app")).output().expect("run the debug build");
     assert!(output.status.success(), "{output:?}");
     assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "1000000");
 }
@@ -648,10 +594,7 @@ fn without_a_debug_level_the_ir_has_lines_only() {
 
 /// `flux_lldb.py`, as the repository has it.
 fn lldb_script() -> String {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tools/lldb/flux_lldb.py")
-        .display()
-        .to_string()
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tools/lldb/flux_lldb.py").display().to_string()
 }
 
 /// Runs lldb with `flux_lldb.py` loaded, stopped at `file:line`, then runs
@@ -687,10 +630,7 @@ fn flux_lines(session: &str) -> Vec<String> {
 fn assert_lines(session: &str, expected: &[&str]) {
     let lines = flux_lines(session);
     for line in expected {
-        assert!(
-            lines.iter().any(|shown| shown == line),
-            "missing `{line}`:\n{session}"
-        );
+        assert!(lines.iter().any(|shown| shown == line), "missing `{line}`:\n{session}");
     }
 }
 
@@ -709,12 +649,7 @@ fn lldb_counts_references() {
         &scratch,
         "app",
         ("refs.flx", 13),
-        &[
-            "flux refs xs",
-            "flux refs s",
-            "flux refs n",
-            "flux refs nope",
-        ],
+        &["flux refs xs", "flux refs s", "flux refs n", "flux refs nope"],
     ) else {
         return;
     };
@@ -732,13 +667,7 @@ fn lldb_counts_references() {
         &scratch,
         "app",
         ("refs.flx", 6),
-        &[
-            "flux refs xs",
-            "flux refs ys",
-            "flux refs pair",
-            "flux refs pair.0",
-            "flux refs pair.5",
-        ],
+        &["flux refs xs", "flux refs ys", "flux refs pair", "flux refs pair.0", "flux refs pair.5"],
     ) else {
         return;
     };
@@ -766,12 +695,7 @@ fn lldb_shows_flux_values() {
         &scratch,
         "app",
         ("values.flx", 14),
-        &[
-            "flux locals",
-            "flux print p",
-            "flux print xs.2",
-            "frame variable shape",
-        ],
+        &["flux locals", "flux print p", "flux print xs.2", "frame variable shape"],
     ) else {
         return;
     };
@@ -795,10 +719,7 @@ fn lldb_shows_flux_values() {
         ],
     );
     // lldb's own view of a variable uses the script's summary.
-    assert!(
-        session.contains("(FluxValue) shape = Square(3)"),
-        "{session}"
-    );
+    assert!(session.contains("(FluxValue) shape = Square(3)"), "{session}");
 }
 
 #[test]
@@ -818,19 +739,13 @@ fn lldb_shows_variables_once_they_are_bound() {
         return;
     };
     // At line 8, `sa` is not bound yet; one line on, it is.
-    let (before, after) = session
-        .split_once("(lldb) thread step-over")
-        .expect("the session stepped");
+    let (before, after) =
+        session.split_once("(lldb) thread step-over").expect("the session stepped");
     let shown = |part: &str, line: &str| flux_lines(part).iter().any(|shown| shown == line);
     let named = |part: &str, name: &str| {
-        flux_lines(part)
-            .iter()
-            .any(|shown| shown.starts_with(&format!("{name} = ")))
+        flux_lines(part).iter().any(|shown| shown.starts_with(&format!("{name} = ")))
     };
-    assert!(
-        shown(before, "a = 3") && shown(before, "b = 4"),
-        "{session}"
-    );
+    assert!(shown(before, "a = 3") && shown(before, "b = 4"), "{session}");
     assert!(!named(before, "sa"), "{session}");
     assert!(shown(after, "sa = 9"), "{session}");
 }
@@ -842,44 +757,23 @@ fn lldb_shows_captured_variables_and_local_function_names() {
         return;
     };
     let scratch = built("lambdas.flx");
-    let Some(session) = flux_session(
-        &lldb,
-        &scratch,
-        "app",
-        ("lambdas.flx", 5),
-        &["flux locals", "flux bt"],
-    ) else {
+    let Some(session) =
+        flux_session(&lldb, &scratch, "app", ("lambdas.flx", 5), &["flux locals", "flux bt"])
+    else {
         return;
     };
     assert_lines(&session, &["x = 1", "offset = 10 (captured)"]);
     let lines = flux_lines(&session);
     assert!(
-        lines
-            .iter()
-            .any(|line| line.starts_with("#0 <lambda lambdas.flx:4:34> at lambdas.flx:5:")),
+        lines.iter().any(|line| line.starts_with("#0 <lambda lambdas.flx:4:34> at lambdas.flx:5:")),
         "{session}"
     );
     // A local recursive function has its own name, as on the VM.
-    assert!(
-        lines
-            .iter()
-            .any(|line| line.starts_with("#1 map_acc at List.flx:")),
-        "{session}"
-    );
+    assert!(lines.iter().any(|line| line.starts_with("#1 map_acc at List.flx:")), "{session}");
     // `map` releases its local function after calling it, so the call is not
     // a tail call and `map` keeps its frame (KI-128).
-    assert!(
-        lines
-            .iter()
-            .any(|line| line.starts_with("#2 map at List.flx:")),
-        "{session}"
-    );
-    assert!(
-        lines
-            .iter()
-            .any(|line| line.starts_with("#3 main at lambdas.flx:4:")),
-        "{session}"
-    );
+    assert!(lines.iter().any(|line| line.starts_with("#2 map at List.flx:")), "{session}");
+    assert!(lines.iter().any(|line| line.starts_with("#3 main at lambdas.flx:4:")), "{session}");
 }
 
 #[test]
@@ -889,13 +783,8 @@ fn lldb_shows_the_binders_of_the_arm_that_matched() {
         return;
     };
     let scratch = built("matches.flx");
-    let Some(session) = flux_session(
-        &lldb,
-        &scratch,
-        "app",
-        ("matches.flx", 10),
-        &["flux locals"],
-    ) else {
+    let Some(session) = flux_session(&lldb, &scratch, "app", ("matches.flx", 10), &["flux locals"])
+    else {
         return;
     };
     // Only the `Rect` arm stops here, not the `Circle` arm before it.
@@ -910,23 +799,14 @@ fn lldb_names_constructors_another_module_declares() {
         return;
     };
     let scratch = built("adtmods/main.flx");
-    let Some(session) = flux_session(
-        &lldb,
-        &scratch,
-        "app",
-        ("main.flx", 6),
-        &["flux locals", "flux bt"],
-    ) else {
+    let Some(session) =
+        flux_session(&lldb, &scratch, "app", ("main.flx", 6), &["flux locals", "flux bt"])
+    else {
         return;
     };
     assert_lines(
         &session,
-        &[
-            "shape = Rect(3, 4)",
-            "w = 3",
-            "#0 size at main.flx:6:23",
-            "#1 main at main.flx:13:11",
-        ],
+        &["shape = Rect(3, 4)", "w = 3", "#0 size at main.flx:6:23", "#1 main at main.flx:13:11"],
     );
 }
 
@@ -938,9 +818,7 @@ fn the_dsym_carries_the_lldb_script() {
         return;
     };
     let scratch = built("values.flx");
-    let script = scratch
-        .path()
-        .join("app.dSYM/Contents/Resources/Python/app.py");
+    let script = scratch.path().join("app.dSYM/Contents/Resources/Python/app.py");
     assert_eq!(
         std::fs::read_to_string(&script).expect("the dSYM has the script"),
         flux::debuginfo::LLDB_SCRIPT
@@ -973,10 +851,7 @@ fn flux_debug_prints_the_lldb_script() {
         .output()
         .expect("run flux");
     assert!(output.status.success(), "{output:?}");
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout),
-        flux::debuginfo::LLDB_SCRIPT
-    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), flux::debuginfo::LLDB_SCRIPT);
 }
 
 #[test]
@@ -997,17 +872,11 @@ fn a_debug_build_describes_variables_and_constructors() {
     let ir = module_ir(&source, flux::debuginfo::DebugLevel::Full);
     assert!(ir.contains("emissionKind: FullDebug"), "{ir}");
     assert!(ir.contains("call void @llvm.dbg.declare("), "{ir}");
-    assert!(
-        ir.contains("!DILocalVariable(name: \"ratio\", arg: 4,"),
-        "{ir}"
-    );
+    assert!(ir.contains("!DILocalVariable(name: \"ratio\", arg: 4,"), "{ir}");
     assert!(ir.contains("!DILocalVariable(name: \"label\","), "{ir}");
     assert!(ir.contains("!DIEnumerator(name: \"Square\""), "{ir}");
     assert!(ir.contains("name: \"FluxCtor.Point\""), "{ir}");
-    assert!(
-        ir.contains("!DIDerivedType(tag: DW_TAG_member, name: \"x\""),
-        "{ir}"
-    );
+    assert!(ir.contains("!DIDerivedType(tag: DW_TAG_member, name: \"x\""), "{ir}");
     // No store goes between a tail call and its return: the call would
     // stop being a tail call.
     let lines: Vec<&str> = ir.lines().collect();
@@ -1068,14 +937,9 @@ fn more_frames_than_the_runtime_keeps_in_one_continuation() {
     };
     // `resume` holds a composed closure: an array of continuations, the
     // first eight composed into one.
-    let suspended: Vec<String> = flux_lines(&session)
-        .into_iter()
-        .filter(|line| line.ends_with("(suspended)"))
-        .collect();
-    let names: Vec<&str> = suspended
-        .iter()
-        .filter_map(|line| line.split(' ').nth(1))
-        .collect();
+    let suspended: Vec<String> =
+        flux_lines(&session).into_iter().filter(|line| line.ends_with("(suspended)")).collect();
+    let names: Vec<&str> = suspended.iter().filter_map(|line| line.split(' ').nth(1)).collect();
     assert_eq!(
         names,
         [
@@ -1095,13 +959,9 @@ fn stepping_across_a_perform_follows_the_handler() {
     let scratch = built("handlers.flx");
     // Over a perform: the next line of the same call, after the handler
     // resumed it.
-    let Some(over) = flux_session(
-        &lldb,
-        &scratch,
-        "app",
-        ("handlers.flx", 17),
-        &["flux next", "flux where"],
-    ) else {
+    let Some(over) =
+        flux_session(&lldb, &scratch, "app", ("handlers.flx", 17), &["flux next", "flux where"])
+    else {
         return;
     };
     assert_lines(&over, &["stopped: step at handlers.flx:18:13 in decide"]);
@@ -1135,10 +995,7 @@ fn fiber_session(
     commands: &[&str],
 ) -> Option<String> {
     let import = format!("command script import {}", lldb_script());
-    let mut all = vec![
-        import.as_str(),
-        "settings set target.env-vars FLUX_WORKERS=1",
-    ];
+    let mut all = vec![import.as_str(), "settings set target.env-vars FLUX_WORKERS=1"];
     all.extend_from_slice(commands);
     let session = lldb_session(lldb, scratch, binary, &all);
     if session.contains("script interpreter") || session.contains("scripting not supported") {
@@ -1189,17 +1046,10 @@ fn flux_threads_lists_the_fibers_and_what_each_waits_for() {
     // A child fiber's stack ends at its function; the root fiber's goes on
     // down to `main`.
     let lines = flux_lines(&session);
-    let fast = lines
-        .iter()
-        .position(|line| line == "#0 fast at fibers.flx:13:5");
+    let fast = lines.iter().position(|line| line == "#0 fast at fibers.flx:13:5");
+    assert!(fast.is_some_and(|at| !lines[at + 1].starts_with("#1")), "{session}");
     assert!(
-        fast.is_some_and(|at| !lines[at + 1].starts_with("#1")),
-        "{session}"
-    );
-    assert!(
-        lines
-            .iter()
-            .any(|line| line.starts_with("#") && line.contains(" main at fibers.flx:37:")),
+        lines.iter().any(|line| line.starts_with("#") && line.contains(" main at fibers.flx:37:")),
         "{session}"
     );
 }
@@ -1215,13 +1065,7 @@ fn flux_catch_fibers_stops_where_a_fiber_fails() {
         &lldb,
         &scratch,
         "app",
-        &[
-            "flux catch fibers",
-            "run",
-            "flux where",
-            "flux threads",
-            "continue",
-        ],
+        &["flux catch fibers", "run", "flux where", "flux threads", "continue"],
     ) else {
         return;
     };
@@ -1236,10 +1080,7 @@ fn flux_catch_fibers_stops_where_a_fiber_fails() {
         ) && stop.ends_with("(thread 4)"),
         "{session}"
     );
-    assert_lines(
-        &session,
-        &["  1 main [waiting try (thread 4)] at fibers.flx:32:30"],
-    );
+    assert_lines(&session, &["  1 main [waiting try (thread 4)] at fibers.flx:32:30"]);
     // `try` turns the failure into a value: the program goes on and ends.
     assert_exited(&session, 0, "56");
 }
@@ -1255,13 +1096,7 @@ fn a_panicking_root_fiber_stops_once() {
         &lldb,
         &scratch,
         "app",
-        &[
-            "flux catch panic",
-            "run",
-            "flux where",
-            "continue",
-            "flux where",
-        ],
+        &["flux catch panic", "run", "flux where", "continue", "flux where"],
     ) else {
         return;
     };
@@ -1269,11 +1104,7 @@ fn a_panicking_root_fiber_stops_once() {
         &session,
         &["stopped: exception (panic: root gave up) at root_panic.flx:8:9 in body"],
     );
-    assert_eq!(
-        session.matches("stopped: exception").count(),
-        1,
-        "{session}"
-    );
+    assert_eq!(session.matches("stopped: exception").count(), 1, "{session}");
     assert_exited(&session, 1, "panic: root gave up");
 }
 
@@ -1304,14 +1135,7 @@ fn flux_catch_stops_at_runtime_errors_in_flux_frames() {
         &lldb,
         &scratch,
         "app",
-        &[
-            &import,
-            "flux catch division",
-            "run",
-            "flux where",
-            "flux bt",
-            "flux catch",
-        ],
+        &[&import, "flux catch division", "run", "flux where", "flux bt", "flux catch"],
     );
     assert_lines(
         &session,
@@ -1364,11 +1188,7 @@ fn record_tape(scratch: &Scratch, binary: &str, tape: &Path) {
         .env("FLUX_TAPE_RECORD", tape)
         .output()
         .expect("run the program");
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
 }
 
 /// Runs `commands` in lldb with the script loaded and the program set to
@@ -1435,10 +1255,7 @@ fn lldb_runs_a_replay_to_an_event_and_back() {
         ],
     );
     let locals = flux_lines(&session);
-    assert!(
-        locals.iter().any(|line| line.starts_with("first = ")),
-        "{session}"
-    );
+    assert!(locals.iter().any(|line| line.starts_with("first = ")), "{session}");
 }
 
 #[test]
@@ -1462,10 +1279,8 @@ fn lldb_goes_forward_only_in_a_recording() {
     // Event 2 prints the clock's reading, whatever it was.
     let lines = flux_lines(&session);
     assert!(
-        lines
-            .iter()
-            .any(|line| line.starts_with("stopped: event 2 (stdout(")
-                && line.ends_with(") at tape.flx:6:5 in main")),
+        lines.iter().any(|line| line.starts_with("stopped: event 2 (stdout(")
+            && line.ends_with(") at tape.flx:6:5 in main")),
         "{session}"
     );
     assert_lines(
@@ -1486,11 +1301,7 @@ fn lldb_says_when_a_run_has_no_tape() {
         &scratch,
         "app",
         "",
-        &[
-            "breakpoint set --file tape.flx --line 6",
-            "run",
-            "flux events",
-        ],
+        &["breakpoint set --file tape.flx --line 6", "run", "flux events"],
     ) else {
         return;
     };
@@ -1506,10 +1317,7 @@ fn an_inlined_lambda_is_described_as_inlined() {
     // keeps the lambda's places, inlined at the call.
     let source = std::fs::read_to_string(fixture_dir().join("inlined.flx")).unwrap();
     let ir = module_ir(&source, flux::debuginfo::DebugLevel::Full);
-    assert!(
-        ir.contains("distinct !DISubprogram(name: \"<lambda app.flx:4:14>\""),
-        "{ir}"
-    );
+    assert!(ir.contains("distinct !DISubprogram(name: \"<lambda app.flx:4:14>\""), "{ir}");
     assert!(ir.contains(", inlinedAt: !"), "{ir}");
 }
 
@@ -1525,13 +1333,7 @@ fn lldb_shows_an_inlined_lambda_as_a_frame() {
         &scratch,
         "app",
         ("inlined.flx", 6),
-        &[
-            "flux bt",
-            "flux locals",
-            "flux next",
-            "flux bt",
-            "flux locals",
-        ],
+        &["flux bt", "flux locals", "flux next", "flux bt", "flux locals"],
     ) else {
         return;
     };

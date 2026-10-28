@@ -54,19 +54,13 @@ fn check_declarations(items: &[CoreTopLevelItem]) -> Result<(), Diagnostic> {
 #[allow(clippy::result_large_err)]
 fn check(expr: &CoreExpr, local: &HashSet<CoreBinderId>) -> Result<(), Diagnostic> {
     let at_most = |count: usize, what: &str, items: &str, span| {
-        if count > MAX_FIELDS {
-            Err(too_many_fields(span, what, items, count))
-        } else {
-            Ok(())
-        }
+        if count > MAX_FIELDS { Err(too_many_fields(span, what, items, count)) } else { Ok(()) }
     };
     match expr {
         CoreExpr::Var { .. } | CoreExpr::Lit(..) => Ok(()),
         CoreExpr::Lam { body, span, .. } => {
-            let captures = collect_free_vars_core(expr)
-                .into_iter()
-                .filter(|id| local.contains(id))
-                .count();
+            let captures =
+                collect_free_vars_core(expr).into_iter().filter(|id| local.contains(id)).count();
             at_most(captures, "closure", "captured values", *span)?;
             check(body, local)
         }
@@ -93,9 +87,7 @@ fn check(expr: &CoreExpr, local: &HashSet<CoreBinderId>) -> Result<(), Diagnosti
             bindings.iter().try_for_each(|(_, rhs)| check(rhs, local))?;
             check(body, local)
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             check(scrutinee, local)?;
             alts.iter().try_for_each(|alt| {
                 if let Some(guard) = &alt.guard {
@@ -108,19 +100,12 @@ fn check(expr: &CoreExpr, local: &HashSet<CoreBinderId>) -> Result<(), Diagnosti
             check(object, local)
         }
         CoreExpr::Return { value, .. } => check(value, local),
-        CoreExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        CoreExpr::Handle { body, parameter, handlers, .. } => {
             check(body, local)?;
             if let Some(parameter) = parameter {
                 check(parameter, local)?;
             }
-            handlers
-                .iter()
-                .try_for_each(|handler| check(&handler.body, local))
+            handlers.iter().try_for_each(|handler| check(&handler.body, local))
         }
     }
 }
@@ -157,9 +142,7 @@ fn bound_in(expr: &CoreExpr, out: &mut HashSet<CoreBinderId>) {
             }
             bound_in(body, out);
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             bound_in(scrutinee, out);
             for alt in alts {
                 pattern_binders(&alt.pat, out);
@@ -173,12 +156,7 @@ fn bound_in(expr: &CoreExpr, out: &mut HashSet<CoreBinderId>) {
             bound_in(object, out)
         }
         CoreExpr::Return { value, .. } => bound_in(value, out),
-        CoreExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        CoreExpr::Handle { body, parameter, handlers, .. } => {
             bound_in(body, out);
             if let Some(parameter) = parameter {
                 bound_in(parameter, out);

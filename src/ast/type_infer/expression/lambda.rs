@@ -35,10 +35,8 @@ impl<'a> InferCtx<'a> {
         );
         let ret_ty = self.unify_early_returns(&ret_ty, &returns);
 
-        let final_param_tys: Vec<InferType> = param_tys
-            .iter()
-            .map(|ty| ty.apply_type_subst(&self.subst))
-            .collect();
+        let final_param_tys: Vec<InferType> =
+            param_tys.iter().map(|ty| ty.apply_type_subst(&self.subst)).collect();
         self.env.leave_scope();
 
         InferType::Fun(

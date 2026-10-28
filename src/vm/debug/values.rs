@@ -60,10 +60,7 @@ impl ValueView {
     /// The child `label` of this value (see [`ValueView::children`]).
     pub fn child(&self, label: &str) -> Option<ValueView> {
         let index: usize = label.parse().ok()?;
-        self.children(index + 1)
-            .into_iter()
-            .nth(index)
-            .map(|(_, view)| view)
+        self.children(index + 1).into_iter().nth(index).map(|(_, view)| view)
     }
 
     /// Whether the value has parts to look into.
@@ -216,10 +213,7 @@ mod tests {
 
         let list = Value::Cons(Rc::new(ConsCell {
             head: Value::Integer(1),
-            tail: Value::Cons(Rc::new(ConsCell {
-                head: shared.clone(),
-                tail: Value::EmptyList,
-            })),
+            tail: Value::Cons(Rc::new(ConsCell { head: shared.clone(), tail: Value::EmptyList })),
         }));
         assert_eq!(child_ref(&list, "1"), Some(&shared));
         assert_eq!(child_ref(&list, "2"), None);

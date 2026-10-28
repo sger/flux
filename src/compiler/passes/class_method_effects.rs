@@ -68,12 +68,7 @@ impl Compiler {
 
         // Walk instances and check the floor.
         for stmt in statements {
-            if let Statement::Instance {
-                class_name,
-                methods,
-                ..
-            } = stmt
-            {
+            if let Statement::Instance { class_name, methods, .. } = stmt {
                 let class_id = self.class_env.resolve_class_id(current_module, *class_name);
                 let local = class_id.and_then(|id| class_methods.get(&id));
                 for instance_method in methods {
@@ -119,15 +114,10 @@ impl Compiler {
         if class_effects.is_empty() {
             return;
         }
-        let class_concrete: HashSet<Identifier> = class_effects
-            .iter()
-            .flat_map(|e| e.normalized_names())
-            .collect();
-        let instance_concrete: HashSet<Identifier> = instance_method
-            .effects
-            .iter()
-            .flat_map(|e| e.normalized_names())
-            .collect();
+        let class_concrete: HashSet<Identifier> =
+            class_effects.iter().flat_map(|e| e.normalized_names()).collect();
+        let instance_concrete: HashSet<Identifier> =
+            instance_method.effects.iter().flat_map(|e| e.normalized_names()).collect();
 
         for missing in class_concrete.difference(&instance_concrete) {
             let method_name = self.interner.resolve(instance_method.name).to_string();

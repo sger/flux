@@ -59,10 +59,7 @@ fn a_program_outside_the_checkout_finds_the_stdlib() {
     // repo — the discovery must come from the executable's location.
     let (stdout, stderr, ok) = run(&flux_bin(), &entry, scratch.path(), &[]);
     assert!(ok, "run failed:\n{stdout}{stderr}");
-    assert!(
-        stdout.contains('3'),
-        "expected the mapped list length:\n{stdout}{stderr}"
-    );
+    assert!(stdout.contains('3'), "expected the mapped list length:\n{stdout}{stderr}");
 }
 
 #[test]
@@ -71,12 +68,8 @@ fn flux_lib_dir_overrides_discovery() {
     let entry = scratch.write("uses_stdlib.flx", SOURCE);
     let lib = workspace_root().join("lib");
 
-    let (stdout, stderr, ok) = run(
-        &flux_bin(),
-        &entry,
-        scratch.path(),
-        &[("FLUX_LIB_DIR", lib.to_str().unwrap())],
-    );
+    let (stdout, stderr, ok) =
+        run(&flux_bin(), &entry, scratch.path(), &[("FLUX_LIB_DIR", lib.to_str().unwrap())]);
     assert!(ok, "run failed:\n{stdout}{stderr}");
     assert!(stdout.contains('3'), "unexpected output:\n{stdout}{stderr}");
 }
@@ -87,12 +80,8 @@ fn an_unusable_flux_lib_dir_falls_through_to_the_other_candidates() {
     let entry = scratch.write("uses_stdlib.flx", SOURCE);
 
     // A bad override must not be fatal: the remaining candidates still apply.
-    let (stdout, stderr, ok) = run(
-        &flux_bin(),
-        &entry,
-        scratch.path(),
-        &[("FLUX_LIB_DIR", "/nonexistent/flux/lib")],
-    );
+    let (stdout, stderr, ok) =
+        run(&flux_bin(), &entry, scratch.path(), &[("FLUX_LIB_DIR", "/nonexistent/flux/lib")]);
     assert!(ok, "run failed:\n{stdout}{stderr}");
     assert!(stdout.contains('3'), "unexpected output:\n{stdout}{stderr}");
 }
@@ -110,10 +99,7 @@ fn an_installed_binary_finds_its_stdlib() {
     let installed = bin_dir.join("flux");
     std::fs::copy(flux_bin(), &installed).expect("copy flux binary");
 
-    copy_dir(
-        &workspace_root().join("lib").join("Flow"),
-        &prefix.join("lib").join("Flow"),
-    );
+    copy_dir(&workspace_root().join("lib").join("Flow"), &prefix.join("lib").join("Flow"));
 
     let (stdout, stderr, ok) = run(&installed, &entry, scratch.path(), &[]);
     assert!(ok, "installed binary failed:\n{stdout}{stderr}");

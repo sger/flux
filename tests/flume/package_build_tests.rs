@@ -60,12 +60,7 @@ fn a_path_dependency_resolves_through_its_namespace() {
     let shared = scratch.path().join("shared");
 
     write_package(&shared, "shared", "Shared", "");
-    write_package(
-        &app,
-        "app",
-        "App",
-        "\n[dependencies]\nshared = { path = \"../shared\" }\n",
-    );
+    write_package(&app, "app", "App", "\n[dependencies]\nshared = { path = \"../shared\" }\n");
     write(
         &app.join("src").join("main.flx"),
         "import Shared.Util as Util\n\nfn main() with IO { print(Util.tag()) }\n",
@@ -80,14 +75,8 @@ fn a_path_dependency_resolves_through_its_namespace() {
 fn dev_profile_is_the_vm_default_and_release_requires_llvm() {
     let scratch = Scratch::new("pkg-profiles");
     let app = scratch.path().join("app");
-    write(
-        &app.join("flux.toml"),
-        "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
-    );
-    write(
-        &app.join("src/main.flx"),
-        "fn main() with IO { print(\"profile\") }\n",
-    );
+    write(&app.join("flux.toml"), "[package]\nname = \"app\"\nversion = \"0.1.0\"\n");
+    write(&app.join("src/main.flx"), "fn main() with IO { print(\"profile\") }\n");
 
     let (dev, ok) = run("src/main.flx", &app);
     assert!(ok, "default dev profile failed:\n{dev}");
@@ -104,10 +93,7 @@ fn dev_profile_is_the_vm_default_and_release_requires_llvm() {
     #[cfg(not(feature = "llvm"))]
     {
         assert!(!output.status.success(), "release should require LLVM");
-        assert!(
-            release.contains("profile `release` selects the native backend"),
-            "{release}"
-        );
+        assert!(release.contains("profile `release` selects the native backend"), "{release}");
     }
 }
 
@@ -164,18 +150,12 @@ fn a_registry_dependency_with_no_index_entry_is_reported() {
         &app.join("flux.toml"),
         "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\njson = \"1.2\"\n",
     );
-    write(
-        &app.join("src").join("main.flx"),
-        "fn main() with IO { print(1) }\n",
-    );
+    write(&app.join("src").join("main.flx"), "fn main() with IO { print(1) }\n");
 
     let (out, ok) = run("src/main.flx", &app);
     assert!(!ok, "expected an unresolvable dependency to fail:\n{out}");
     assert!(out.contains("E470"), "expected E470:\n{out}");
-    assert!(
-        out.contains("json"),
-        "the failure must name the package:\n{out}"
-    );
+    assert!(out.contains("json"), "the failure must name the package:\n{out}");
 }
 
 /// A manifest error must not bury itself under missing-stdlib cascades: the
@@ -191,10 +171,7 @@ fn a_manifest_error_does_not_hide_behind_missing_stdlib_imports() {
         "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n\
          [dependencies]\nmissing = { path = \"../missing\" }\n",
     );
-    write(
-        &app.join("src").join("main.flx"),
-        "fn main() with IO { print(1) }\n",
-    );
+    write(&app.join("src").join("main.flx"), "fn main() with IO { print(1) }\n");
 
     let (out, _) = run("src/main.flx", &app);
     assert!(out.contains("E470"), "expected E470:\n{out}");
@@ -208,10 +185,7 @@ fn a_manifest_error_does_not_hide_behind_missing_stdlib_imports() {
 #[test]
 fn script_mode_is_unaffected_by_manifest_resolution() {
     let scratch = Scratch::new("pkg-script-mode");
-    write(
-        &scratch.path().join("script.flx"),
-        "fn main() with IO { print(6 * 7) }\n",
-    );
+    write(&scratch.path().join("script.flx"), "fn main() with IO { print(6 * 7) }\n");
 
     let (out, ok) = run("script.flx", scratch.path());
     assert!(ok, "script mode failed:\n{out}");
@@ -224,10 +198,7 @@ fn script_mode_is_unaffected_by_manifest_resolution() {
 fn a_module_outside_its_package_namespace_is_rejected() {
     let scratch = Scratch::new("pkg-namespace-escape");
     let pkg = scratch.path().join("json");
-    write(
-        &pkg.join("flux.toml"),
-        "[package]\nname = \"json\"\nversion = \"0.1.0\"\n",
-    );
+    write(&pkg.join("flux.toml"), "[package]\nname = \"json\"\nversion = \"0.1.0\"\n");
     // Package `json` owns `Json`, so a bare `module Utils` escapes it.
     write(
         &pkg.join("src").join("Utils.flx"),
@@ -245,10 +216,7 @@ fn a_module_outside_its_package_namespace_is_rejected() {
         out.contains("`json`") && out.contains("`Json`"),
         "the error must name the package and its namespace:\n{out}"
     );
-    assert!(
-        out.contains("src/Json/Utils.flx"),
-        "the hint must give the corrected path:\n{out}"
-    );
+    assert!(out.contains("src/Json/Utils.flx"), "the hint must give the corrected path:\n{out}");
 }
 
 /// The namespace root module is the package's public face, and a module
@@ -257,10 +225,7 @@ fn a_module_outside_its_package_namespace_is_rejected() {
 fn modules_within_the_package_namespace_are_accepted() {
     let scratch = Scratch::new("pkg-namespace-ok");
     let pkg = scratch.path().join("json");
-    write(
-        &pkg.join("flux.toml"),
-        "[package]\nname = \"json\"\nversion = \"0.1.0\"\n",
-    );
+    write(&pkg.join("flux.toml"), "[package]\nname = \"json\"\nversion = \"0.1.0\"\n");
     // `src/Json.flx` is the namespace root; `src/Json/Utils.flx` sits beneath it.
     write(
         &pkg.join("src").join("Json.flx"),

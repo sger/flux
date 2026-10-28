@@ -54,12 +54,7 @@ struct Formatter<'a> {
 
 impl<'a> Formatter<'a> {
     fn new(interner: &'a Interner, mode: CoreDisplayMode) -> Self {
-        Self {
-            interner,
-            mode,
-            temp_names: HashMap::new(),
-            next_temp: 0,
-        }
+        Self { interner, mode, temp_names: HashMap::new(), next_temp: 0 }
     }
 
     fn display_program(mut self, program: &CoreProgram) -> String {
@@ -161,9 +156,7 @@ impl<'a> Formatter<'a> {
                 push_indent(out, indent);
                 self.write_expr(out, body, indent);
             }
-            CoreExpr::Case {
-                scrutinee, alts, ..
-            } => {
+            CoreExpr::Case { scrutinee, alts, .. } => {
                 out.push_str("case ");
                 self.write_expr_inline(out, scrutinee, indent);
                 out.push_str(" of");
@@ -200,12 +193,7 @@ impl<'a> Formatter<'a> {
                 out.push_str("return ");
                 self.write_expr_inline(out, value, indent);
             }
-            CoreExpr::Perform {
-                effect,
-                operation,
-                args,
-                ..
-            } => {
+            CoreExpr::Perform { effect, operation, args, .. } => {
                 write!(
                     out,
                     "perform {}.{}(",
@@ -221,13 +209,7 @@ impl<'a> Formatter<'a> {
                 }
                 out.push(')');
             }
-            CoreExpr::Handle {
-                body,
-                effect,
-                parameter,
-                handlers,
-                ..
-            } => {
+            CoreExpr::Handle { body, effect, parameter, handlers, .. } => {
                 write!(out, "handle {}", self.resolve_name(*effect)).unwrap();
                 if let Some(parameter) = parameter {
                     out.push('(');
@@ -690,11 +672,7 @@ fn format_rep(rep: super::FluxRep) -> &'static str {
 fn alpha_name(index: usize) -> String {
     let letter = ((index % 26) as u8 + b'a') as char;
     let suffix = index / 26;
-    if suffix == 0 {
-        letter.to_string()
-    } else {
-        format!("{letter}{suffix}")
-    }
+    if suffix == 0 { letter.to_string() } else { format!("{letter}{suffix}") }
 }
 
 fn collect_core_bound_var_order(
@@ -789,15 +767,10 @@ fn format_core_type(ty: &super::CoreType, interner: &Interner) -> String {
                         inserted.push(*var);
                     }
                 }
-                let vars = ordered
-                    .iter()
-                    .map(|var| names.get(var).cloned().unwrap())
-                    .collect::<Vec<_>>();
-                let rendered = format!(
-                    "forall {}. {}",
-                    vars.join(", "),
-                    go(body, interner, names, next)
-                );
+                let vars =
+                    ordered.iter().map(|var| names.get(var).cloned().unwrap()).collect::<Vec<_>>();
+                let rendered =
+                    format!("forall {}. {}", vars.join(", "), go(body, interner, names, next));
                 for var in inserted {
                     names.remove(&var);
                 }
@@ -816,10 +789,8 @@ fn format_core_type(ty: &super::CoreType, interner: &Interner) -> String {
                 if args.is_empty() {
                     name
                 } else {
-                    let rendered = args
-                        .iter()
-                        .map(|arg| go(arg, interner, names, next))
-                        .collect::<Vec<_>>();
+                    let rendered =
+                        args.iter().map(|arg| go(arg, interner, names, next)).collect::<Vec<_>>();
                     format!("{name}<{}>", rendered.join(", "))
                 }
             }
@@ -831,25 +802,16 @@ fn format_core_type(ty: &super::CoreType, interner: &Interner) -> String {
                 go(l, interner, names, next),
                 go(r, interner, names, next)
             ),
-            CoreType::Map(k, v) => format!(
-                "Map<{}, {}>",
-                go(k, interner, names, next),
-                go(v, interner, names, next)
-            ),
+            CoreType::Map(k, v) => {
+                format!("Map<{}, {}>", go(k, interner, names, next), go(v, interner, names, next))
+            }
             CoreType::Tuple(elems) => {
                 let parts: Vec<_> = elems.iter().map(|e| go(e, interner, names, next)).collect();
                 format!("({})", parts.join(", "))
             }
             CoreType::Function(params, ret) => {
-                let parts: Vec<_> = params
-                    .iter()
-                    .map(|p| go(p, interner, names, next))
-                    .collect();
-                format!(
-                    "({}) -> {}",
-                    parts.join(", "),
-                    go(ret, interner, names, next)
-                )
+                let parts: Vec<_> = params.iter().map(|p| go(p, interner, names, next)).collect();
+                format!("({}) -> {}", parts.join(", "), go(ret, interner, names, next))
             }
             CoreType::Adt(name, args) => {
                 let name = interner
@@ -859,10 +821,8 @@ fn format_core_type(ty: &super::CoreType, interner: &Interner) -> String {
                 if args.is_empty() {
                     name
                 } else {
-                    let rendered = args
-                        .iter()
-                        .map(|arg| go(arg, interner, names, next))
-                        .collect::<Vec<_>>();
+                    let rendered =
+                        args.iter().map(|arg| go(arg, interner, names, next)).collect::<Vec<_>>();
                     format!("{name}<{}>", rendered.join(", "))
                 }
             }
@@ -900,9 +860,6 @@ mod tests {
             )),
         );
 
-        assert_eq!(
-            format_core_type(&ty, &interner),
-            "forall a. (Result<a, Int>, a) -> a"
-        );
+        assert_eq!(format_core_type(&ty, &interner), "forall a. (Result<a, Int>, a) -> a");
     }
 }

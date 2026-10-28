@@ -90,9 +90,7 @@ impl GlobalState {
     ) -> Vec<PublishDiagnosticsParams> {
         let uri = params.text_document.uri;
         let version = params.text_document.version;
-        let rebuilt = self
-            .workspace
-            .open(&uri, version, params.text_document.text);
+        let rebuilt = self.workspace.open(&uri, version, params.text_document.text);
         self.diagnostics_for_files(&rebuilt)
     }
 
@@ -165,19 +163,12 @@ impl GlobalState {
         params: DidCloseTextDocumentParams,
     ) -> Vec<PublishDiagnosticsParams> {
         let uri = params.text_document.uri;
-        self.semantic_token_cache
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .forget(uri.as_str());
+        self.semantic_token_cache.lock().unwrap_or_else(|e| e.into_inner()).forget(uri.as_str());
         let rebuilt = self.workspace.close(&uri);
         let mut diagnostics = self.diagnostics_for_files(&rebuilt);
         // Clear the closed file's own squiggles — its snapshot was dropped
         // and a later query will rebuild it lazily from disk.
-        diagnostics.push(PublishDiagnosticsParams {
-            uri,
-            diagnostics: vec![],
-            version: None,
-        });
+        diagnostics.push(PublishDiagnosticsParams { uri, diagnostics: vec![], version: None });
         diagnostics
     }
 
@@ -221,10 +212,8 @@ impl GlobalState {
     // ── requests ──────────────────────────────────────────────────────────
 
     pub fn handle_hover(&mut self, params: HoverParams) -> Option<Hover> {
-        let TextDocumentPositionParams {
-            text_document,
-            position,
-        } = params.text_document_position_params;
+        let TextDocumentPositionParams { text_document, position } =
+            params.text_document_position_params;
         let snapshot = self.workspace.ensure_snapshot_for_uri(&text_document.uri)?;
         handlers::hover::hover_at(snapshot, position)
     }
@@ -233,9 +222,7 @@ impl GlobalState {
         &mut self,
         params: DocumentSymbolParams,
     ) -> Option<DocumentSymbolResponse> {
-        let snapshot = self
-            .workspace
-            .ensure_snapshot_for_uri(&params.text_document.uri)?;
+        let snapshot = self.workspace.ensure_snapshot_for_uri(&params.text_document.uri)?;
         let symbols = handlers::symbols::document_symbols(
             &snapshot.program,
             &snapshot.interner,
@@ -248,10 +235,8 @@ impl GlobalState {
         &mut self,
         params: GotoDefinitionParams,
     ) -> Option<GotoDefinitionResponse> {
-        let TextDocumentPositionParams {
-            text_document,
-            position,
-        } = params.text_document_position_params;
+        let TextDocumentPositionParams { text_document, position } =
+            params.text_document_position_params;
         let snapshot = self.workspace.ensure_snapshot_for_uri(&text_document.uri)?;
         let nav = handlers::definition::goto_definition(snapshot, &text_document.uri, position)?;
         // Compute the source-side "from" span (the cursor word's range)
@@ -260,19 +245,15 @@ impl GlobalState {
         // cursor is on whitespace/punctuation; that's fine — clients
         // fall back to highlighting the cursor's full line.
         let origin = cursor_word_range(snapshot, position);
-        Some(GotoDefinitionResponse::Link(vec![
-            nav.into_location_link(origin),
-        ]))
+        Some(GotoDefinitionResponse::Link(vec![nav.into_location_link(origin)]))
     }
 
     pub fn handle_implementation(
         &mut self,
         params: GotoDefinitionParams,
     ) -> Option<GotoDefinitionResponse> {
-        let TextDocumentPositionParams {
-            text_document,
-            position,
-        } = params.text_document_position_params;
+        let TextDocumentPositionParams { text_document, position } =
+            params.text_document_position_params;
         let file = self.workspace.file_id(&text_document.uri)?;
         let bundle = handlers::implementation::gather(&mut self.workspace, file, position)?;
         handlers::implementation::goto_implementation(&bundle)
@@ -282,27 +263,21 @@ impl GlobalState {
         &mut self,
         params: GotoDefinitionParams,
     ) -> Option<GotoDefinitionResponse> {
-        let TextDocumentPositionParams {
-            text_document,
-            position,
-        } = params.text_document_position_params;
+        let TextDocumentPositionParams { text_document, position } =
+            params.text_document_position_params;
         let snapshot = self.workspace.ensure_snapshot_for_uri(&text_document.uri)?;
         let nav =
             handlers::definition::goto_type_definition(snapshot, &text_document.uri, position)?;
         let origin = cursor_word_range(snapshot, position);
-        Some(GotoDefinitionResponse::Link(vec![
-            nav.into_location_link(origin),
-        ]))
+        Some(GotoDefinitionResponse::Link(vec![nav.into_location_link(origin)]))
     }
 
     pub fn handle_prepare_call_hierarchy(
         &mut self,
         params: CallHierarchyPrepareParams,
     ) -> Option<Vec<CallHierarchyItem>> {
-        let TextDocumentPositionParams {
-            text_document,
-            position,
-        } = params.text_document_position_params;
+        let TextDocumentPositionParams { text_document, position } =
+            params.text_document_position_params;
         let file = self.workspace.file_id(&text_document.uri)?;
         let bundle = handlers::call_hierarchy::prepare_gather(&mut self.workspace, file, position)?;
         let items = handlers::call_hierarchy::prepare_items(&bundle);
@@ -322,20 +297,15 @@ impl GlobalState {
         params: CallHierarchyOutgoingCallsParams,
     ) -> Option<Vec<CallHierarchyOutgoingCall>> {
         let bundle = handlers::call_hierarchy::item_gather(&mut self.workspace, &params.item)?;
-        Some(handlers::call_hierarchy::outgoing_calls(
-            &bundle,
-            &params.item,
-        ))
+        Some(handlers::call_hierarchy::outgoing_calls(&bundle, &params.item))
     }
 
     pub fn handle_prepare_type_hierarchy(
         &mut self,
         params: TypeHierarchyPrepareParams,
     ) -> Option<Vec<TypeHierarchyItem>> {
-        let TextDocumentPositionParams {
-            text_document,
-            position,
-        } = params.text_document_position_params;
+        let TextDocumentPositionParams { text_document, position } =
+            params.text_document_position_params;
         let file = self.workspace.file_id(&text_document.uri)?;
         let bundle = handlers::type_hierarchy::prepare_gather(&mut self.workspace, file, position)?;
         let items = handlers::type_hierarchy::prepare_items(&bundle);
@@ -362,10 +332,7 @@ impl GlobalState {
         let snapshot = self
             .workspace
             .ensure_snapshot_for_uri(&params.text_document_position.text_document.uri)?;
-        Some(handlers::completion::complete(
-            snapshot,
-            params.text_document_position.position,
-        ))
+        Some(handlers::completion::complete(snapshot, params.text_document_position.position))
     }
 
     /// `completionItem/resolve` — fill in an item's documentation. Keyword /
@@ -381,10 +348,8 @@ impl GlobalState {
         &mut self,
         params: DocumentHighlightParams,
     ) -> Vec<DocumentHighlight> {
-        let TextDocumentPositionParams {
-            text_document,
-            position,
-        } = params.text_document_position_params;
+        let TextDocumentPositionParams { text_document, position } =
+            params.text_document_position_params;
         let Some(snapshot) = self.workspace.ensure_snapshot_for_uri(&text_document.uri) else {
             return vec![];
         };
@@ -395,10 +360,8 @@ impl GlobalState {
         &mut self,
         params: LinkedEditingRangeParams,
     ) -> Option<LinkedEditingRanges> {
-        let TextDocumentPositionParams {
-            text_document,
-            position,
-        } = params.text_document_position_params;
+        let TextDocumentPositionParams { text_document, position } =
+            params.text_document_position_params;
         let snapshot = self.workspace.ensure_snapshot_for_uri(&text_document.uri)?;
         handlers::linked_editing::linked_editing_ranges(snapshot, position)
     }
@@ -436,16 +399,12 @@ impl GlobalState {
         &mut self,
         params: DocumentLinkParams,
     ) -> Option<Vec<DocumentLink>> {
-        let snapshot = self
-            .workspace
-            .ensure_snapshot_for_uri(&params.text_document.uri)?;
+        let snapshot = self.workspace.ensure_snapshot_for_uri(&params.text_document.uri)?;
         Some(handlers::document_link::document_links(snapshot))
     }
 
     pub fn handle_formatting(&mut self, params: DocumentFormattingParams) -> Option<Vec<TextEdit>> {
-        let snapshot = self
-            .workspace
-            .ensure_snapshot_for_uri(&params.text_document.uri)?;
+        let snapshot = self.workspace.ensure_snapshot_for_uri(&params.text_document.uri)?;
         Some(handlers::formatting::format(snapshot))
     }
 
@@ -453,9 +412,7 @@ impl GlobalState {
         &mut self,
         params: DocumentRangeFormattingParams,
     ) -> Option<Vec<TextEdit>> {
-        let snapshot = self
-            .workspace
-            .ensure_snapshot_for_uri(&params.text_document.uri)?;
+        let snapshot = self.workspace.ensure_snapshot_for_uri(&params.text_document.uri)?;
         Some(handlers::formatting::format_range(snapshot, params.range))
     }
 
@@ -477,9 +434,7 @@ impl GlobalState {
     }
 
     pub fn handle_inlay_hints(&mut self, params: InlayHintParams) -> Vec<InlayHint> {
-        let Some(snapshot) = self
-            .workspace
-            .ensure_snapshot_for_uri(&params.text_document.uri)
+        let Some(snapshot) = self.workspace.ensure_snapshot_for_uri(&params.text_document.uri)
         else {
             return vec![];
         };
@@ -503,9 +458,7 @@ impl GlobalState {
     }
 
     pub fn handle_references(&mut self, params: ReferenceParams) -> Vec<Location> {
-        let Some(id) = self
-            .workspace
-            .file_id(&params.text_document_position.text_document.uri)
+        let Some(id) = self.workspace.file_id(&params.text_document_position.text_document.uri)
         else {
             return vec![];
         };
@@ -517,9 +470,7 @@ impl GlobalState {
     }
 
     pub fn handle_rename(&mut self, params: RenameParams) -> Option<WorkspaceEdit> {
-        let id = self
-            .workspace
-            .file_id(&params.text_document_position.text_document.uri)?;
+        let id = self.workspace.file_id(&params.text_document_position.text_document.uri)?;
         handlers::rename::rename(
             &mut self.workspace,
             id,
@@ -532,27 +483,19 @@ impl GlobalState {
         &mut self,
         params: TextDocumentPositionParams,
     ) -> Option<PrepareRenameResponse> {
-        let snapshot = self
-            .workspace
-            .ensure_snapshot_for_uri(&params.text_document.uri)?;
+        let snapshot = self.workspace.ensure_snapshot_for_uri(&params.text_document.uri)?;
         handlers::rename::prepare_rename(snapshot, params.position)
     }
 
     pub fn handle_folding_range(&mut self, params: FoldingRangeParams) -> Vec<FoldingRange> {
-        match self
-            .workspace
-            .ensure_snapshot_for_uri(&params.text_document.uri)
-        {
+        match self.workspace.ensure_snapshot_for_uri(&params.text_document.uri) {
             Some(snapshot) => handlers::folding::folding_ranges(snapshot),
             None => vec![],
         }
     }
 
     pub fn handle_selection_range(&mut self, params: SelectionRangeParams) -> Vec<SelectionRange> {
-        match self
-            .workspace
-            .ensure_snapshot_for_uri(&params.text_document.uri)
-        {
+        match self.workspace.ensure_snapshot_for_uri(&params.text_document.uri) {
             Some(snapshot) => {
                 handlers::selection_range::selection_ranges(snapshot, &params.positions)
             }
@@ -563,10 +506,7 @@ impl GlobalState {
     pub fn handle_semantic_tokens_full(&mut self, params: SemanticTokensParams) -> SemanticTokens {
         let uri = params.text_document.uri;
         let Some(snapshot) = self.workspace.ensure_snapshot_for_uri(&uri).cloned() else {
-            return SemanticTokens {
-                result_id: None,
-                data: vec![],
-            };
+            return SemanticTokens { result_id: None, data: vec![] };
         };
         handlers::semantic_tokens::full(&snapshot, uri.as_str(), &self.semantic_token_cache)
     }
@@ -598,15 +538,10 @@ impl GlobalState {
         &mut self,
         params: SemanticTokensRangeParams,
     ) -> SemanticTokens {
-        let Some(snapshot) = self
-            .workspace
-            .ensure_snapshot_for_uri(&params.text_document.uri)
-            .cloned()
+        let Some(snapshot) =
+            self.workspace.ensure_snapshot_for_uri(&params.text_document.uri).cloned()
         else {
-            return SemanticTokens {
-                result_id: None,
-                data: vec![],
-            };
+            return SemanticTokens { result_id: None, data: vec![] };
         };
         handlers::semantic_tokens::range(&snapshot, params.range)
     }
@@ -618,10 +553,7 @@ impl GlobalState {
         &mut self,
         params: DocumentDiagnosticParams,
     ) -> DocumentDiagnosticReportResult {
-        match self
-            .workspace
-            .ensure_snapshot_for_uri(&params.text_document.uri)
-        {
+        match self.workspace.ensure_snapshot_for_uri(&params.text_document.uri) {
             Some(snapshot) => {
                 handlers::diagnostics::report(snapshot, params.previous_result_id.as_deref())
             }
@@ -658,24 +590,15 @@ impl GlobalState {
     // The `handle_*` methods above stay for synchronous/test use.
 
     pub fn dispatch_hover(&mut self, params: HoverParams) -> Option<Job> {
-        let TextDocumentPositionParams {
-            text_document,
-            position,
-        } = params.text_document_position_params;
-        let snapshot = self
-            .workspace
-            .ensure_snapshot_for_uri(&text_document.uri)
-            .cloned()?;
-        Some(Box::new(move || {
-            to_value(handlers::hover::hover_at(&snapshot, position))
-        }))
+        let TextDocumentPositionParams { text_document, position } =
+            params.text_document_position_params;
+        let snapshot = self.workspace.ensure_snapshot_for_uri(&text_document.uri).cloned()?;
+        Some(Box::new(move || to_value(handlers::hover::hover_at(&snapshot, position))))
     }
 
     pub fn dispatch_document_symbol(&mut self, params: DocumentSymbolParams) -> Option<Job> {
-        let snapshot = self
-            .workspace
-            .ensure_snapshot_for_uri(&params.text_document.uri)
-            .cloned()?;
+        let snapshot =
+            self.workspace.ensure_snapshot_for_uri(&params.text_document.uri).cloned()?;
         Some(Box::new(move || {
             let symbols = handlers::symbols::document_symbols(
                 &snapshot.program,
@@ -687,58 +610,46 @@ impl GlobalState {
     }
 
     pub fn dispatch_definition(&mut self, params: GotoDefinitionParams) -> Option<Job> {
-        let TextDocumentPositionParams {
-            text_document,
-            position,
-        } = params.text_document_position_params;
+        let TextDocumentPositionParams { text_document, position } =
+            params.text_document_position_params;
         let uri = text_document.uri;
         let snapshot = self.workspace.ensure_snapshot_for_uri(&uri).cloned()?;
-        Some(Box::new(
-            move || match handlers::definition::goto_definition(&snapshot, &uri, position) {
+        Some(Box::new(move || {
+            match handlers::definition::goto_definition(&snapshot, &uri, position) {
                 Some(nav) => {
                     let origin = cursor_word_range(&snapshot, position);
-                    to_value(GotoDefinitionResponse::Link(vec![
-                        nav.into_location_link(origin),
-                    ]))
+                    to_value(GotoDefinitionResponse::Link(vec![nav.into_location_link(origin)]))
                 }
                 None => serde_json::Value::Null,
-            },
-        ))
+            }
+        }))
     }
 
     pub fn dispatch_implementation(&mut self, params: GotoDefinitionParams) -> Option<Job> {
-        let TextDocumentPositionParams {
-            text_document,
-            position,
-        } = params.text_document_position_params;
+        let TextDocumentPositionParams { text_document, position } =
+            params.text_document_position_params;
         let file = self.workspace.file_id(&text_document.uri)?;
         let bundle = handlers::implementation::gather(&mut self.workspace, file, position)?;
-        Some(Box::new(
-            move || match handlers::implementation::goto_implementation(&bundle) {
-                Some(resp) => to_value(resp),
-                None => serde_json::Value::Null,
-            },
-        ))
+        Some(Box::new(move || match handlers::implementation::goto_implementation(&bundle) {
+            Some(resp) => to_value(resp),
+            None => serde_json::Value::Null,
+        }))
     }
 
     pub fn dispatch_type_definition(&mut self, params: GotoDefinitionParams) -> Option<Job> {
-        let TextDocumentPositionParams {
-            text_document,
-            position,
-        } = params.text_document_position_params;
+        let TextDocumentPositionParams { text_document, position } =
+            params.text_document_position_params;
         let uri = text_document.uri;
         let snapshot = self.workspace.ensure_snapshot_for_uri(&uri).cloned()?;
-        Some(Box::new(
-            move || match handlers::definition::goto_type_definition(&snapshot, &uri, position) {
+        Some(Box::new(move || {
+            match handlers::definition::goto_type_definition(&snapshot, &uri, position) {
                 Some(nav) => {
                     let origin = cursor_word_range(&snapshot, position);
-                    to_value(GotoDefinitionResponse::Link(vec![
-                        nav.into_location_link(origin),
-                    ]))
+                    to_value(GotoDefinitionResponse::Link(vec![nav.into_location_link(origin)]))
                 }
                 None => serde_json::Value::Null,
-            },
-        ))
+            }
+        }))
     }
 
     /// Custom `flux/view*` request: render a compiler-stage dump (tokens / Core
@@ -760,19 +671,13 @@ impl GlobalState {
         &mut self,
         params: CallHierarchyPrepareParams,
     ) -> Option<Job> {
-        let TextDocumentPositionParams {
-            text_document,
-            position,
-        } = params.text_document_position_params;
+        let TextDocumentPositionParams { text_document, position } =
+            params.text_document_position_params;
         let file = self.workspace.file_id(&text_document.uri)?;
         let bundle = handlers::call_hierarchy::prepare_gather(&mut self.workspace, file, position)?;
         Some(Box::new(move || {
             let items = handlers::call_hierarchy::prepare_items(&bundle);
-            if items.is_empty() {
-                serde_json::Value::Null
-            } else {
-                to_value(items)
-            }
+            if items.is_empty() { serde_json::Value::Null } else { to_value(items) }
         }))
     }
 
@@ -781,9 +686,7 @@ impl GlobalState {
         params: CallHierarchyIncomingCallsParams,
     ) -> Option<Job> {
         let bundle = handlers::call_hierarchy::item_gather(&mut self.workspace, &params.item)?;
-        Some(Box::new(move || {
-            to_value(handlers::call_hierarchy::incoming_calls(&bundle))
-        }))
+        Some(Box::new(move || to_value(handlers::call_hierarchy::incoming_calls(&bundle))))
     }
 
     pub fn dispatch_outgoing_calls(
@@ -792,52 +695,38 @@ impl GlobalState {
     ) -> Option<Job> {
         let item = params.item.clone();
         let bundle = handlers::call_hierarchy::item_gather(&mut self.workspace, &params.item)?;
-        Some(Box::new(move || {
-            to_value(handlers::call_hierarchy::outgoing_calls(&bundle, &item))
-        }))
+        Some(Box::new(move || to_value(handlers::call_hierarchy::outgoing_calls(&bundle, &item))))
     }
 
     pub fn dispatch_prepare_type_hierarchy(
         &mut self,
         params: TypeHierarchyPrepareParams,
     ) -> Option<Job> {
-        let TextDocumentPositionParams {
-            text_document,
-            position,
-        } = params.text_document_position_params;
+        let TextDocumentPositionParams { text_document, position } =
+            params.text_document_position_params;
         let file = self.workspace.file_id(&text_document.uri)?;
         let bundle = handlers::type_hierarchy::prepare_gather(&mut self.workspace, file, position)?;
         Some(Box::new(move || {
             let items = handlers::type_hierarchy::prepare_items(&bundle);
-            if items.is_empty() {
-                serde_json::Value::Null
-            } else {
-                to_value(items)
-            }
+            if items.is_empty() { serde_json::Value::Null } else { to_value(items) }
         }))
     }
 
     pub fn dispatch_supertypes(&mut self, params: TypeHierarchySupertypesParams) -> Option<Job> {
         let bundle = handlers::type_hierarchy::item_gather(&mut self.workspace, &params.item)?;
-        Some(Box::new(move || {
-            to_value(handlers::type_hierarchy::supertypes(&bundle))
-        }))
+        Some(Box::new(move || to_value(handlers::type_hierarchy::supertypes(&bundle))))
     }
 
     pub fn dispatch_subtypes(&mut self, params: TypeHierarchySubtypesParams) -> Option<Job> {
         let bundle = handlers::type_hierarchy::item_gather(&mut self.workspace, &params.item)?;
-        Some(Box::new(move || {
-            to_value(handlers::type_hierarchy::subtypes(&bundle))
-        }))
+        Some(Box::new(move || to_value(handlers::type_hierarchy::subtypes(&bundle))))
     }
 
     pub fn dispatch_completion(&mut self, params: CompletionParams) -> Option<Job> {
         let uri = params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
         let snapshot = self.workspace.ensure_snapshot_for_uri(&uri).cloned()?;
-        Some(Box::new(move || {
-            to_value(handlers::completion::complete(&snapshot, position))
-        }))
+        Some(Box::new(move || to_value(handlers::completion::complete(&snapshot, position))))
     }
 
     /// `completionItem/resolve` worker job. The module-member doc lookup needs
@@ -846,24 +735,15 @@ impl GlobalState {
     pub fn dispatch_completion_resolve(&mut self, item: CompletionItem) -> Option<Job> {
         let member_doc = handlers::completion::member_ref(&item)
             .and_then(|(module, member)| self.workspace.member_doc(&module, &member));
-        Some(Box::new(move || {
-            to_value(handlers::completion::resolve(item, member_doc))
-        }))
+        Some(Box::new(move || to_value(handlers::completion::resolve(item, member_doc))))
     }
 
     pub fn dispatch_document_highlight(&mut self, params: DocumentHighlightParams) -> Option<Job> {
-        let TextDocumentPositionParams {
-            text_document,
-            position,
-        } = params.text_document_position_params;
-        let snapshot = self
-            .workspace
-            .ensure_snapshot_for_uri(&text_document.uri)
-            .cloned()?;
+        let TextDocumentPositionParams { text_document, position } =
+            params.text_document_position_params;
+        let snapshot = self.workspace.ensure_snapshot_for_uri(&text_document.uri).cloned()?;
         Some(Box::new(move || {
-            to_value(handlers::document_highlight::document_highlights(
-                &snapshot, position,
-            ))
+            to_value(handlers::document_highlight::document_highlights(&snapshot, position))
         }))
     }
 
@@ -871,18 +751,11 @@ impl GlobalState {
         &mut self,
         params: LinkedEditingRangeParams,
     ) -> Option<Job> {
-        let TextDocumentPositionParams {
-            text_document,
-            position,
-        } = params.text_document_position_params;
-        let snapshot = self
-            .workspace
-            .ensure_snapshot_for_uri(&text_document.uri)
-            .cloned()?;
+        let TextDocumentPositionParams { text_document, position } =
+            params.text_document_position_params;
+        let snapshot = self.workspace.ensure_snapshot_for_uri(&text_document.uri).cloned()?;
         Some(Box::new(move || {
-            to_value(handlers::linked_editing::linked_editing_ranges(
-                &snapshot, position,
-            ))
+            to_value(handlers::linked_editing::linked_editing_ranges(&snapshot, position))
         }))
     }
 
@@ -917,29 +790,19 @@ impl GlobalState {
     pub fn dispatch_code_lens(&mut self, params: CodeLensParams) -> Option<Job> {
         let uri = params.text_document.uri;
         let snapshot = self.workspace.ensure_snapshot_for_uri(&uri).cloned()?;
-        Some(Box::new(move || {
-            to_value(handlers::code_lens::code_lenses(&snapshot, &uri))
-        }))
+        Some(Box::new(move || to_value(handlers::code_lens::code_lenses(&snapshot, &uri))))
     }
 
     pub fn dispatch_document_link(&mut self, params: DocumentLinkParams) -> Option<Job> {
-        let snapshot = self
-            .workspace
-            .ensure_snapshot_for_uri(&params.text_document.uri)
-            .cloned()?;
-        Some(Box::new(move || {
-            to_value(handlers::document_link::document_links(&snapshot))
-        }))
+        let snapshot =
+            self.workspace.ensure_snapshot_for_uri(&params.text_document.uri).cloned()?;
+        Some(Box::new(move || to_value(handlers::document_link::document_links(&snapshot))))
     }
 
     pub fn dispatch_formatting(&mut self, params: DocumentFormattingParams) -> Option<Job> {
-        let snapshot = self
-            .workspace
-            .ensure_snapshot_for_uri(&params.text_document.uri)
-            .cloned()?;
-        Some(Box::new(move || {
-            to_value(handlers::formatting::format(&snapshot))
-        }))
+        let snapshot =
+            self.workspace.ensure_snapshot_for_uri(&params.text_document.uri).cloned()?;
+        Some(Box::new(move || to_value(handlers::formatting::format(&snapshot))))
     }
 
     pub fn dispatch_formatting_range(
@@ -947,13 +810,9 @@ impl GlobalState {
         params: DocumentRangeFormattingParams,
     ) -> Option<Job> {
         let range = params.range;
-        let snapshot = self
-            .workspace
-            .ensure_snapshot_for_uri(&params.text_document.uri)
-            .cloned()?;
-        Some(Box::new(move || {
-            to_value(handlers::formatting::format_range(&snapshot, range))
-        }))
+        let snapshot =
+            self.workspace.ensure_snapshot_for_uri(&params.text_document.uri).cloned()?;
+        Some(Box::new(move || to_value(handlers::formatting::format_range(&snapshot, range))))
     }
 
     pub fn dispatch_on_type_formatting(
@@ -980,21 +839,15 @@ impl GlobalState {
     }
 
     pub fn dispatch_inlay_hints(&mut self, params: InlayHintParams) -> Option<Job> {
-        let snapshot = self
-            .workspace
-            .ensure_snapshot_for_uri(&params.text_document.uri)
-            .cloned()?;
-        Some(Box::new(move || {
-            to_value(handlers::inlay_hints::inlay_hints(&snapshot))
-        }))
+        let snapshot =
+            self.workspace.ensure_snapshot_for_uri(&params.text_document.uri).cloned()?;
+        Some(Box::new(move || to_value(handlers::inlay_hints::inlay_hints(&snapshot))))
     }
 
     /// `inlayHint/resolve` worker job. Stateless — the resolved fields are
     /// derived from the hint itself — so it always produces a response.
     pub fn dispatch_inlay_hint_resolve(&mut self, hint: InlayHint) -> Option<Job> {
-        Some(Box::new(move || {
-            to_value(handlers::inlay_hints::resolve(hint))
-        }))
+        Some(Box::new(move || to_value(handlers::inlay_hints::resolve(hint))))
     }
 
     pub fn dispatch_signature_help(&mut self, params: SignatureHelpParams) -> Option<Job> {
@@ -1002,46 +855,32 @@ impl GlobalState {
         let position = params.text_document_position_params.position;
         let snapshot = self.workspace.ensure_snapshot_for_uri(&uri).cloned()?;
         Some(Box::new(move || {
-            to_value(handlers::signature_help::signature_help(
-                &snapshot, position,
-            ))
+            to_value(handlers::signature_help::signature_help(&snapshot, position))
         }))
     }
 
     pub fn dispatch_prepare_rename(&mut self, params: TextDocumentPositionParams) -> Option<Job> {
         let position = params.position;
-        let snapshot = self
-            .workspace
-            .ensure_snapshot_for_uri(&params.text_document.uri)
-            .cloned()?;
-        Some(Box::new(move || {
-            match handlers::rename::prepare_rename(&snapshot, position) {
-                Some(resp) => to_value(resp),
-                None => serde_json::Value::Null,
-            }
+        let snapshot =
+            self.workspace.ensure_snapshot_for_uri(&params.text_document.uri).cloned()?;
+        Some(Box::new(move || match handlers::rename::prepare_rename(&snapshot, position) {
+            Some(resp) => to_value(resp),
+            None => serde_json::Value::Null,
         }))
     }
 
     pub fn dispatch_folding_range(&mut self, params: FoldingRangeParams) -> Option<Job> {
-        let snapshot = self
-            .workspace
-            .ensure_snapshot_for_uri(&params.text_document.uri)
-            .cloned()?;
-        Some(Box::new(move || {
-            to_value(handlers::folding::folding_ranges(&snapshot))
-        }))
+        let snapshot =
+            self.workspace.ensure_snapshot_for_uri(&params.text_document.uri).cloned()?;
+        Some(Box::new(move || to_value(handlers::folding::folding_ranges(&snapshot))))
     }
 
     pub fn dispatch_selection_range(&mut self, params: SelectionRangeParams) -> Option<Job> {
-        let snapshot = self
-            .workspace
-            .ensure_snapshot_for_uri(&params.text_document.uri)
-            .cloned()?;
+        let snapshot =
+            self.workspace.ensure_snapshot_for_uri(&params.text_document.uri).cloned()?;
         let positions = params.positions;
         Some(Box::new(move || {
-            to_value(handlers::selection_range::selection_ranges(
-                &snapshot, &positions,
-            ))
+            to_value(handlers::selection_range::selection_ranges(&snapshot, &positions))
         }))
     }
 
@@ -1050,11 +889,7 @@ impl GlobalState {
         let snapshot = self.workspace.ensure_snapshot_for_uri(&uri).cloned()?;
         let cache = self.semantic_token_cache.clone();
         Some(Box::new(move || {
-            to_value(handlers::semantic_tokens::full(
-                &snapshot,
-                uri.as_str(),
-                &cache,
-            ))
+            to_value(handlers::semantic_tokens::full(&snapshot, uri.as_str(), &cache))
         }))
     }
 
@@ -1081,13 +916,9 @@ impl GlobalState {
         params: SemanticTokensRangeParams,
     ) -> Option<Job> {
         let range = params.range;
-        let snapshot = self
-            .workspace
-            .ensure_snapshot_for_uri(&params.text_document.uri)
-            .cloned()?;
-        Some(Box::new(move || {
-            to_value(handlers::semantic_tokens::range(&snapshot, range))
-        }))
+        let snapshot =
+            self.workspace.ensure_snapshot_for_uri(&params.text_document.uri).cloned()?;
+        Some(Box::new(move || to_value(handlers::semantic_tokens::range(&snapshot, range))))
     }
 
     /// Worker-thread `textDocument/diagnostic`. Always returns a job (never
@@ -1098,15 +929,11 @@ impl GlobalState {
         params: DocumentDiagnosticParams,
     ) -> Option<Job> {
         let previous = params.previous_result_id;
-        let snapshot = self
-            .workspace
-            .ensure_snapshot_for_uri(&params.text_document.uri)
-            .cloned();
+        let snapshot = self.workspace.ensure_snapshot_for_uri(&params.text_document.uri).cloned();
         Some(Box::new(move || match snapshot {
-            Some(snapshot) => to_value(handlers::diagnostics::report(
-                &snapshot,
-                previous.as_deref(),
-            )),
+            Some(snapshot) => {
+                to_value(handlers::diagnostics::report(&snapshot, previous.as_deref()))
+            }
             None => to_value(handlers::diagnostics::empty_report()),
         }))
     }
@@ -1125,9 +952,7 @@ impl GlobalState {
             &params.previous_result_ids,
             scan_all,
         );
-        Some(Box::new(move || {
-            to_value(handlers::diagnostics::workspace_report(&files))
-        }))
+        Some(Box::new(move || to_value(handlers::diagnostics::workspace_report(&files))))
     }
 
     /// Worker-thread `workspace/willRenameFiles`. The edit needs `&mut Workspace`
@@ -1139,23 +964,17 @@ impl GlobalState {
     }
 
     pub fn dispatch_references(&mut self, params: ReferenceParams) -> Option<Job> {
-        let id = self
-            .workspace
-            .file_id(&params.text_document_position.text_document.uri)?;
+        let id = self.workspace.file_id(&params.text_document_position.text_document.uri)?;
         let bundle = handlers::references::gather(
             &mut self.workspace,
             id,
             params.text_document_position.position,
         )?;
-        Some(Box::new(move || {
-            to_value(handlers::references::compute_locations(&bundle))
-        }))
+        Some(Box::new(move || to_value(handlers::references::compute_locations(&bundle))))
     }
 
     pub fn dispatch_rename(&mut self, params: RenameParams) -> Option<Job> {
-        let id = self
-            .workspace
-            .file_id(&params.text_document_position.text_document.uri)?;
+        let id = self.workspace.file_id(&params.text_document_position.text_document.uri)?;
         let bundle = handlers::references::gather(
             &mut self.workspace,
             id,
@@ -1170,9 +989,7 @@ impl GlobalState {
     // ── helpers ───────────────────────────────────────────────────────────
 
     fn diagnostics_for_files(&self, ids: &[FileId]) -> Vec<PublishDiagnosticsParams> {
-        ids.iter()
-            .filter_map(|&id| self.diagnostics_for(id))
-            .collect()
+        ids.iter().filter_map(|&id| self.diagnostics_for(id)).collect()
     }
 
     fn diagnostics_for(&self, id: FileId) -> Option<PublishDiagnosticsParams> {
@@ -1213,16 +1030,9 @@ pub(crate) fn cursor_word_range(
         start -= 1;
     }
     let end = start + word.len();
-    let start_pos = snapshot
-        .position_map
-        .offset_to_lsp(u32::try_from(start).ok()?.into());
-    let end_pos = snapshot
-        .position_map
-        .offset_to_lsp(u32::try_from(end).ok()?.into());
-    Some(lsp_types::Range {
-        start: start_pos,
-        end: end_pos,
-    })
+    let start_pos = snapshot.position_map.offset_to_lsp(u32::try_from(start).ok()?.into());
+    let end_pos = snapshot.position_map.offset_to_lsp(u32::try_from(end).ok()?.into());
+    Some(lsp_types::Range { start: start_pos, end: end_pos })
 }
 
 fn is_ident_byte(b: u8) -> bool {

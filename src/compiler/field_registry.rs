@@ -80,11 +80,7 @@ impl FieldRegistry {
                 .iter()
                 .zip(variant.fields.iter())
                 .enumerate()
-                .map(|(index, (name, ty))| FieldInfo {
-                    name: *name,
-                    index,
-                    ty: ty.clone(),
-                })
+                .map(|(index, (name, ty))| FieldInfo { name: *name, index, ty: ty.clone() })
                 .collect();
             variant_map.insert(variant.name, fields);
         }
@@ -101,10 +97,7 @@ impl FieldRegistry {
     /// Returns the positional field list for a given variant of a named-field
     /// ADT, or `None` if the ADT/variant is not registered as named-field.
     pub fn variant_fields(&self, adt: Symbol, variant: Symbol) -> Option<&[FieldInfo]> {
-        self.per_variant
-            .get(&adt)
-            .and_then(|m| m.get(&variant))
-            .map(Vec::as_slice)
+        self.per_variant.get(&adt).and_then(|m| m.get(&variant)).map(Vec::as_slice)
     }
 
     /// Returns the fields common to every variant of `adt` (same name, same
@@ -122,10 +115,8 @@ impl FieldRegistry {
         // Only consider intersection across variants that are actually
         // named-field. A mix of positional and named variants is rejected
         // earlier (E465) so in practice either all or none are named.
-        let named_variants: Vec<&DataVariant> = variants
-            .iter()
-            .filter(|v| variant_map.contains_key(&v.name))
-            .collect();
+        let named_variants: Vec<&DataVariant> =
+            variants.iter().filter(|v| variant_map.contains_key(&v.name)).collect();
 
         if named_variants.is_empty() {
             return Vec::new();
@@ -143,9 +134,8 @@ impl FieldRegistry {
             let mut conflict: Option<FieldConflict> = None;
 
             for other in named_variants.iter().skip(1) {
-                let other_fields = variant_map
-                    .get(&other.name)
-                    .expect("named variant is in variant_map");
+                let other_fields =
+                    variant_map.get(&other.name).expect("named variant is in variant_map");
                 let Some(matched) = other_fields.iter().find(|f| f.name == candidate.name) else {
                     include = false;
                     break;

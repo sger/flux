@@ -45,11 +45,8 @@ fn collect_used_candidate_binders(
         }
         CoreExpr::Lit(_, _) => {}
         CoreExpr::Lam { params, body, .. } => {
-            let new_params: Vec<_> = params
-                .iter()
-                .filter(|p| bound.insert(p.id))
-                .cloned()
-                .collect();
+            let new_params: Vec<_> =
+                params.iter().filter(|p| bound.insert(p.id)).cloned().collect();
             collect_used_candidate_binders(body, bound, candidates, used);
             for p in new_params {
                 bound.remove(&p.id);
@@ -91,18 +88,13 @@ fn collect_used_candidate_binders(
                 bound.remove(&id);
             }
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             collect_used_candidate_binders(scrutinee, bound, candidates, used);
             for alt in alts {
                 let mut alt_bound = HashSet::new();
                 super::free_vars::collect_pat_binders(&alt.pat, &mut alt_bound);
-                let new_binders: Vec<_> = alt_bound
-                    .iter()
-                    .filter(|binder| bound.insert(**binder))
-                    .cloned()
-                    .collect();
+                let new_binders: Vec<_> =
+                    alt_bound.iter().filter(|binder| bound.insert(**binder)).cloned().collect();
                 if let Some(guard) = &alt.guard {
                     collect_used_candidate_binders(guard, bound, candidates, used);
                 }
@@ -125,12 +117,7 @@ fn collect_used_candidate_binders(
                 collect_used_candidate_binders(arg, bound, candidates, used);
             }
         }
-        CoreExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        CoreExpr::Handle { body, parameter, handlers, .. } => {
             if let Some(parameter) = parameter {
                 collect_used_candidate_binders(parameter, bound, candidates, used);
             }
@@ -190,19 +177,15 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             .into_iter()
             .filter(|binder| used.contains(binder))
             .filter_map(|binder| {
-                self.env
-                    .get(&binder)
-                    .map(|_| CoreBinder::new(binder, self.binder_names[&binder]))
+                self.env.get(&binder).map(|_| CoreBinder::new(binder, self.binder_names[&binder]))
             })
             .collect();
         captures.sort_by_key(|b| b.name.as_u32());
 
         let fn_id = self.ctx.alloc_function();
         let fn_block = self.ctx.alloc_block();
-        let capture_env: Vec<(CoreBinder, IrVar)> = captures
-            .iter()
-            .filter_map(|b| self.env.get(&b.id).map(|&v| (*b, v)))
-            .collect();
+        let capture_env: Vec<(CoreBinder, IrVar)> =
+            captures.iter().filter_map(|b| self.env.get(&b.id).map(|&v| (*b, v))).collect();
 
         {
             let mut sub = super::fn_ctx::FnCtx {
@@ -232,18 +215,13 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                 let v = sub.ctx.alloc_var();
                 sub.env.insert(binder.id, v);
                 sub.binder_names.insert(binder.id, binder.name);
-                sub.params.push(IrParam {
-                    name: binder.name,
-                    var: v,
-                    ty: IrType::Tagged,
-                });
+                sub.params.push(IrParam { name: binder.name, var: v, ty: IrType::Tagged });
                 sub.inferred_param_types.push(None);
             }
 
             let resume_var = sub.ctx.alloc_var();
             sub.env.insert(handler.resume.id, resume_var);
-            sub.binder_names
-                .insert(handler.resume.id, handler.resume.name);
+            sub.binder_names.insert(handler.resume.id, handler.resume.name);
             sub.params.push(IrParam {
                 name: handler.resume.name,
                 var: resume_var,
@@ -268,8 +246,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                         .map(super::core_type_to_ir_type)
                         .unwrap_or(IrType::Tagged),
                 });
-                sub.inferred_param_types
-                    .push(handler.param_types.get(i).cloned().unwrap_or(None));
+                sub.inferred_param_types.push(handler.param_types.get(i).cloned().unwrap_or(None));
             }
             if let Some(state) = &handler.state {
                 let v = sub.ctx.alloc_var();
@@ -316,9 +293,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             .into_iter()
             .filter(|binder| used.contains(binder))
             .filter_map(|binder| {
-                self.env
-                    .get(&binder)
-                    .map(|_| CoreBinder::new(binder, self.binder_names[&binder]))
+                self.env.get(&binder).map(|_| CoreBinder::new(binder, self.binder_names[&binder]))
             })
             .collect();
         captures.sort_by_key(|b| b.name.as_u32());
@@ -326,10 +301,8 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
         let fn_id = self.ctx.alloc_function();
         let fn_block = self.ctx.alloc_block();
 
-        let capture_env: Vec<(CoreBinder, IrVar)> = captures
-            .iter()
-            .filter_map(|b| self.env.get(&b.id).map(|&v| (*b, v)))
-            .collect();
+        let capture_env: Vec<(CoreBinder, IrVar)> =
+            captures.iter().filter_map(|b| self.env.get(&b.id).map(|&v| (*b, v))).collect();
 
         {
             let mut sub = super::fn_ctx::FnCtx {
@@ -360,18 +333,13 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                 let v = sub.ctx.alloc_var();
                 sub.env.insert(binder.id, v);
                 sub.binder_names.insert(binder.id, binder.name);
-                sub.params.push(IrParam {
-                    name: binder.name,
-                    var: v,
-                    ty: IrType::Tagged,
-                });
+                sub.params.push(IrParam { name: binder.name, var: v, ty: IrType::Tagged });
                 sub.inferred_param_types.push(None);
             }
             // Resume param first, then operation params.
             let resume_var = sub.ctx.alloc_var();
             sub.env.insert(handler.resume.id, resume_var);
-            sub.binder_names
-                .insert(handler.resume.id, handler.resume.name);
+            sub.binder_names.insert(handler.resume.id, handler.resume.name);
             sub.params.push(IrParam {
                 name: handler.resume.name,
                 var: resume_var,
@@ -396,8 +364,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                         .map(super::core_type_to_ir_type)
                         .unwrap_or(IrType::Tagged),
                 });
-                sub.inferred_param_types
-                    .push(handler.param_types.get(i).cloned().unwrap_or(None));
+                sub.inferred_param_types.push(handler.param_types.get(i).cloned().unwrap_or(None));
             }
             if let Some(state) = &handler.state {
                 let v = sub.ctx.alloc_var();
@@ -435,14 +402,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
         recursive_binder: Option<CoreBinderId>,
         expr: &CoreExpr,
     ) -> IrVar {
-        let CoreExpr::Lam {
-            params,
-            param_types,
-            result_ty,
-            body,
-            span,
-        } = expr
-        else {
+        let CoreExpr::Lam { params, param_types, result_ty, body, span } = expr else {
             panic!("lower_lam_as_closure: not a Lam");
         };
 
@@ -458,9 +418,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             .filter(|binder| Some(*binder) != recursive_binder)
             .filter(|binder| used.contains(binder))
             .filter_map(|binder| {
-                self.env
-                    .get(&binder)
-                    .map(|_| CoreBinder::new(binder, self.binder_names[&binder]))
+                self.env.get(&binder).map(|_| CoreBinder::new(binder, self.binder_names[&binder]))
             })
             .collect();
         captures.sort_by_key(|b| b.name.as_u32());
@@ -468,10 +426,8 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
         let fn_id = self.ctx.alloc_function();
         let fn_block = self.ctx.alloc_block();
 
-        let capture_env: Vec<(CoreBinder, IrVar)> = captures
-            .iter()
-            .filter_map(|b| self.env.get(&b.id).map(|&v| (*b, v)))
-            .collect();
+        let capture_env: Vec<(CoreBinder, IrVar)> =
+            captures.iter().filter_map(|b| self.env.get(&b.id).map(|&v| (*b, v))).collect();
 
         {
             let mut sub = super::fn_ctx::FnCtx {
@@ -502,18 +458,12 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                 let v = sub.ctx.alloc_var();
                 sub.env.insert(binder.id, v);
                 sub.binder_names.insert(binder.id, binder.name);
-                sub.params.push(IrParam {
-                    name: binder.name,
-                    var: v,
-                    ty: IrType::Tagged,
-                });
+                sub.params.push(IrParam { name: binder.name, var: v, ty: IrType::Tagged });
                 sub.inferred_param_types.push(None);
             }
             if let (Some(name), Some(binder_id)) = (forced_name, recursive_binder) {
-                let self_capture_vars: Vec<IrVar> = captures
-                    .iter()
-                    .filter_map(|binder| sub.env.get(&binder.id).cloned())
-                    .collect();
+                let self_capture_vars: Vec<IrVar> =
+                    captures.iter().filter_map(|binder| sub.env.get(&binder.id).cloned()).collect();
                 let self_var = sub.ctx.alloc_var();
                 sub.emit(IrInstr::Assign {
                     dest: self_var,
@@ -527,10 +477,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                 let v = sub.ctx.alloc_var();
                 sub.env.insert(p.id, v);
                 sub.binder_names.insert(p.id, p.name);
-                let semantic_idx = sub
-                    .inferred_param_types
-                    .len()
-                    .saturating_sub(capture_env.len());
+                let semantic_idx = sub.inferred_param_types.len().saturating_sub(capture_env.len());
                 let inferred_ty = param_types.get(semantic_idx).cloned().unwrap_or(None);
                 sub.params.push(IrParam {
                     name: p.name,
@@ -552,10 +499,8 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             func.captures = captures.iter().map(|b| b.name).collect();
         }
 
-        let capture_vars: Vec<IrVar> = capture_env
-            .iter()
-            .filter_map(|(b, _)| self.env.get(&b.id).cloned())
-            .collect();
+        let capture_vars: Vec<IrVar> =
+            capture_env.iter().filter_map(|(b, _)| self.env.get(&b.id).cloned()).collect();
 
         let dest = self.ctx.alloc_var();
         self.emit(IrInstr::Assign {
@@ -589,19 +534,15 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             .filter(|binder| Some(*binder) != recursive_binder)
             .filter(|binder| used.contains(binder))
             .filter_map(|binder| {
-                self.env
-                    .get(&binder)
-                    .map(|_| CoreBinder::new(binder, self.binder_names[&binder]))
+                self.env.get(&binder).map(|_| CoreBinder::new(binder, self.binder_names[&binder]))
             })
             .collect();
         captures.sort_by_key(|b| b.name.as_u32());
 
         let fn_id = self.ctx.alloc_function();
         let fn_block = self.ctx.alloc_block();
-        let capture_env: Vec<(CoreBinder, IrVar)> = captures
-            .iter()
-            .filter_map(|b| self.env.get(&b.id).map(|&v| (*b, v)))
-            .collect();
+        let capture_env: Vec<(CoreBinder, IrVar)> =
+            captures.iter().filter_map(|b| self.env.get(&b.id).map(|&v| (*b, v))).collect();
 
         {
             let mut sub = super::fn_ctx::FnCtx {
@@ -631,18 +572,12 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                 let v = sub.ctx.alloc_var();
                 sub.env.insert(binder.id, v);
                 sub.binder_names.insert(binder.id, binder.name);
-                sub.params.push(IrParam {
-                    name: binder.name,
-                    var: v,
-                    ty: IrType::Tagged,
-                });
+                sub.params.push(IrParam { name: binder.name, var: v, ty: IrType::Tagged });
                 sub.inferred_param_types.push(None);
             }
             if let (Some(name), Some(binder_id)) = (forced_name, recursive_binder) {
-                let self_capture_vars: Vec<IrVar> = captures
-                    .iter()
-                    .filter_map(|binder| sub.env.get(&binder.id).cloned())
-                    .collect();
+                let self_capture_vars: Vec<IrVar> =
+                    captures.iter().filter_map(|binder| sub.env.get(&binder.id).cloned()).collect();
                 let self_var = sub.ctx.alloc_var();
                 sub.emit(IrInstr::Assign {
                     dest: self_var,
@@ -656,10 +591,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                 let v = sub.ctx.alloc_var();
                 sub.env.insert(p.id, v);
                 sub.binder_names.insert(p.id, p.name);
-                let semantic_idx = sub
-                    .inferred_param_types
-                    .len()
-                    .saturating_sub(capture_env.len());
+                let semantic_idx = sub.inferred_param_types.len().saturating_sub(capture_env.len());
                 let inferred_ty = param_types.get(semantic_idx).cloned().unwrap_or(None);
                 sub.params.push(IrParam {
                     name: p.name,
@@ -681,10 +613,8 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             func.captures = captures.iter().map(|b| b.name).collect();
         }
 
-        let capture_vars: Vec<IrVar> = capture_env
-            .iter()
-            .filter_map(|(b, _)| self.env.get(&b.id).cloned())
-            .collect();
+        let capture_vars: Vec<IrVar> =
+            capture_env.iter().filter_map(|(b, _)| self.env.get(&b.id).cloned()).collect();
 
         let dest = self.ctx.alloc_var();
         self.emit(IrInstr::Assign {
@@ -713,11 +643,8 @@ fn collect_used_candidate_binders_aether(
         }
         AetherExpr::Lit(_, _) => {}
         AetherExpr::Lam { params, body, .. } => {
-            let new_params: Vec<_> = params
-                .iter()
-                .filter(|p| bound.insert(p.id))
-                .cloned()
-                .collect();
+            let new_params: Vec<_> =
+                params.iter().filter(|p| bound.insert(p.id)).cloned().collect();
             collect_used_candidate_binders_aether(body, bound, candidates, used);
             for p in new_params {
                 bound.remove(&p.id);
@@ -759,18 +686,13 @@ fn collect_used_candidate_binders_aether(
                 bound.remove(&id);
             }
         }
-        AetherExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        AetherExpr::Case { scrutinee, alts, .. } => {
             collect_used_candidate_binders_aether(scrutinee, bound, candidates, used);
             for alt in alts {
                 let mut alt_bound = HashSet::new();
                 crate::aether::free_vars::collect_pat_binders(&alt.pat, &mut alt_bound);
-                let new_binders: Vec<_> = alt_bound
-                    .iter()
-                    .filter(|binder| bound.insert(**binder))
-                    .cloned()
-                    .collect();
+                let new_binders: Vec<_> =
+                    alt_bound.iter().filter(|binder| bound.insert(**binder)).cloned().collect();
                 if let Some(guard) = &alt.guard {
                     collect_used_candidate_binders_aether(guard, bound, candidates, used);
                 }
@@ -790,12 +712,7 @@ fn collect_used_candidate_binders_aether(
         AetherExpr::Return { value, .. } => {
             collect_used_candidate_binders_aether(value, bound, candidates, used);
         }
-        AetherExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        AetherExpr::Handle { body, parameter, handlers, .. } => {
             if let Some(parameter) = parameter {
                 collect_used_candidate_binders_aether(parameter, bound, candidates, used);
             }
@@ -844,12 +761,7 @@ fn collect_used_candidate_binders_aether(
                 collect_used_candidate_binders_aether(field, bound, candidates, used);
             }
         }
-        AetherExpr::DropSpecialized {
-            scrutinee,
-            unique_body,
-            shared_body,
-            ..
-        } => {
+        AetherExpr::DropSpecialized { scrutinee, unique_body, shared_body, .. } => {
             if let Some(binder) = scrutinee.binder
                 && candidates.contains(&binder)
                 && !bound.contains(&binder)

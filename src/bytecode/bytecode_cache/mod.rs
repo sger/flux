@@ -74,11 +74,7 @@ impl BytecodeCache {
         file.read_exact(&mut instructions).ok()?;
         let debug_info = cache_serialization::read_function_debug_info(&mut file);
 
-        Some(Bytecode {
-            instructions,
-            constants,
-            debug_info,
-        })
+        Some(Bytecode { instructions, constants, debug_info })
     }
 
     pub fn load_failure_reason(
@@ -201,11 +197,7 @@ impl BytecodeCache {
 
         let debug_info = cache_serialization::read_function_debug_info(&mut file);
 
-        Some(Bytecode {
-            instructions,
-            constants,
-            debug_info,
-        })
+        Some(Bytecode { instructions, constants, debug_info })
     }
 
     pub fn store(

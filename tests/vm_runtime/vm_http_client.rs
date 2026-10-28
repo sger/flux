@@ -55,10 +55,7 @@ fn main() with IO {{
 
 fn run_ok(source: String) -> String {
     let (stdout, stderr, success) = run_source(source);
-    assert!(
-        success,
-        "fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     stdout
 }
 
@@ -125,10 +122,7 @@ fn post_sends_body_and_returns_response() {
         ),
     );
     let stdout = run_ok(source);
-    assert!(
-        stdout.contains("accepted:vm-post:/echo:payload"),
-        "{stdout}"
-    );
+    assert!(stdout.contains("accepted:vm-post:/echo:payload"), "{stdout}");
 }
 
 #[test]

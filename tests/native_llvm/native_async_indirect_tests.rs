@@ -175,10 +175,7 @@ fn main() with IO {
 }
 "#;
     let (stdout, stderr, success, _elapsed) = run_source(source, "try_body");
-    assert!(
-        success,
-        "native async try body must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "native async try body must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert_eq!(stdout.trim(), "Ok(42)");
 }
 
@@ -315,10 +312,7 @@ fn main() with IO {
 }
 "#;
     let (stdout, stderr, success, _elapsed) = run_source(source, "scope_body");
-    assert!(
-        success,
-        "native async scope body must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "native async scope body must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert_eq!(stdout.trim(), "77");
 }
 

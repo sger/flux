@@ -70,17 +70,9 @@ fn main() with IO {{
 
 fn run_http_fixture(max_connections: i64, max_header: i64, max_body: i64, request: &str) -> String {
     let port = free_port();
-    let (stdout, stderr, success) = run_source(fixture_source(
-        port,
-        max_connections,
-        max_header,
-        max_body,
-        request,
-    ));
-    assert!(
-        success,
-        "server fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    let (stdout, stderr, success) =
+        run_source(fixture_source(port, max_connections, max_header, max_body, request));
+    assert!(success, "server fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     stdout
 }
 
@@ -141,10 +133,7 @@ fn body() -> String with Async, AsyncFail {{
 "#
     ));
     let (stdout, stderr, success) = run_source(source);
-    assert!(
-        success,
-        "fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(stdout.contains("returned"), "{stdout}");
 }
 
@@ -202,10 +191,7 @@ fn body() -> String with Async, AsyncFail {{
 "#
     ));
     let (stdout, stderr, success) = run_source(source);
-    assert!(
-        success,
-        "fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(stdout.contains("stopped"), "{stdout}");
 }
 
@@ -290,28 +276,21 @@ fn body() -> String with Async, AsyncFail {{
         .set_read_timeout(Some(std::time::Duration::from_millis(2000)))
         .expect("set first timeout");
     let mut first_response = String::new();
-    first
-        .read_to_string(&mut first_response)
-        .expect("read first response");
+    first.read_to_string(&mut first_response).expect("read first response");
     assert!(first_response.contains("hold"), "{first_response}");
 
     second
         .set_read_timeout(Some(std::time::Duration::from_millis(1000)))
         .expect("set second timeout");
     let mut second_response = String::new();
-    second
-        .read_to_string(&mut second_response)
-        .expect("read second response");
+    second.read_to_string(&mut second_response).expect("read second response");
     assert!(second_response.contains("second"), "{second_response}");
 
     let output = child.wait_with_output().expect("wait for flux");
     let _ = std::fs::remove_file(&path);
     let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
     let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
-    assert!(
-        output.status.success(),
-        "fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(output.status.success(), "fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(stdout.contains("server-done"), "{stdout}");
 }
 
@@ -348,10 +327,7 @@ fn body() -> String with Async, AsyncFail {{
 "#
     ));
     let (stdout, stderr, success) = run_source(source);
-    assert!(
-        success,
-        "fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(stdout.contains("HTTP/1.1 200 OK"), "{stdout}");
     assert!(stdout.contains("drained"), "{stdout}");
 }
@@ -389,10 +365,7 @@ fn body() -> String with Async, AsyncFail {{
 "#
     ));
     let (stdout, stderr, success) = run_source(source);
-    assert!(
-        success,
-        "fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(stdout.contains("HTTP/1.1 504 Gateway Timeout"), "{stdout}");
     assert!(stdout.contains("Gateway Timeout"), "{stdout}");
     assert!(!stdout.contains("too-late"), "{stdout}");
@@ -431,10 +404,7 @@ fn body() -> String with Async, AsyncFail {{
 "#
     ));
     let (stdout, stderr, success) = run_source(source);
-    assert!(
-        success,
-        "fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(stdout.contains("HTTP/1.1 200 OK"), "{stdout}");
     assert!(stdout.contains("fast"), "{stdout}");
 }
@@ -476,15 +446,8 @@ fn body() -> String with Async, AsyncFail {{
 "#
     ));
     let (stdout, stderr, success) = run_source(source);
-    assert!(
-        success,
-        "fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
-    assert_eq!(
-        stdout.matches("HTTP/1.1 504 Gateway Timeout").count(),
-        1,
-        "{stdout}"
-    );
+    assert!(success, "fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
+    assert_eq!(stdout.matches("HTTP/1.1 504 Gateway Timeout").count(), 1, "{stdout}");
     assert_eq!(stdout.matches("HTTP/1.1 200 OK").count(), 0, "{stdout}");
     assert!(!stdout.contains("second"), "{stdout}");
 }
@@ -523,10 +486,7 @@ fn body() -> String with Async, AsyncFail {{
 "#
     ));
     let (stdout, stderr, success) = run_source(source);
-    assert!(
-        success,
-        "fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(stdout.contains("HTTP/1.1 200 OK"), "{stdout}");
     assert!(stdout.contains("drained"), "{stdout}");
     assert!(!stdout.contains("Gateway Timeout"), "{stdout}");
@@ -569,10 +529,7 @@ fn body() -> String with Async, AsyncFail {{
 "#
     ));
     let (stdout, stderr, success) = run_source(source);
-    assert!(
-        success,
-        "fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(stdout.contains("closed"), "{stdout}");
     assert!(!stdout.contains("too-late"), "{stdout}");
 }
@@ -601,10 +558,7 @@ fn body() -> String with Async, AsyncFail {{
 "#
     ));
     let (stdout, stderr, success) = run_source(source);
-    assert!(
-        success,
-        "fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(stdout.contains("ok"), "{stdout}");
 }
 
@@ -641,10 +595,7 @@ fn oversized_body_returns_413_without_invoking_handler() {
         4,
         "POST /big HTTP/1.1\r\nHost: local\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello",
     );
-    assert!(
-        response.contains("HTTP/1.1 413 Payload Too Large"),
-        "{response}"
-    );
+    assert!(response.contains("HTTP/1.1 413 Payload Too Large"), "{response}");
     assert!(!response.contains("/big:"), "{response}");
 }
 
@@ -656,10 +607,7 @@ fn oversized_header_returns_413_without_invoking_handler() {
         8_388_608,
         "GET /wide HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n",
     );
-    assert!(
-        response.contains("HTTP/1.1 413 Payload Too Large"),
-        "{response}"
-    );
+    assert!(response.contains("HTTP/1.1 413 Payload Too Large"), "{response}");
     assert!(!response.contains("/wide:"), "{response}");
 }
 
@@ -694,10 +642,7 @@ fn body() -> String with Async, AsyncFail {{
 "#
     ));
     let (stdout, stderr, success) = run_source(source);
-    assert!(
-        success,
-        "streaming fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "streaming fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(stdout.contains("HTTP/1.1 200 OK"), "{stdout}");
     assert!(stdout.contains("Transfer-Encoding: chunked"), "{stdout}");
     assert!(stdout.contains("Connection: close"), "{stdout}");
@@ -738,10 +683,7 @@ fn body() -> String with Async, AsyncFail {{
 "#
     ));
     let (stdout, stderr, success) = run_source(source);
-    assert!(
-        success,
-        "empty streaming fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "empty streaming fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(stdout.contains("HTTP/1.1 204 No Content"), "{stdout}");
     assert!(stdout.contains("Transfer-Encoding: chunked"), "{stdout}");
     assert!(stdout.contains("0\n\n"), "{stdout}");
@@ -785,10 +727,7 @@ fn body() -> String with Async, AsyncFail {{
 "#
     ));
     let (stdout, stderr, success) = run_source(source);
-    assert!(
-        success,
-        "pipeline streaming fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "pipeline streaming fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(stdout.contains("HTTP/1.1 202 Accepted"), "{stdout}");
     assert!(stdout.contains("X-Flux: /first"), "{stdout}");
     assert!(!stdout.contains("Content-Length: 999"), "{stdout}");
@@ -827,14 +766,8 @@ fn body() -> String with Async, AsyncFail {{
 "#
     ));
     let (stdout, stderr, success) = run_source(source);
-    assert!(
-        success,
-        "sse fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
-    assert!(
-        stdout.contains("Content-Type: text/event-stream"),
-        "{stdout}"
-    );
+    assert!(success, "sse fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
+    assert!(stdout.contains("Content-Type: text/event-stream"), "{stdout}");
     assert!(stdout.contains("Cache-Control: no-cache"), "{stdout}");
     assert!(stdout.contains("data: one\n\n"), "{stdout}");
     assert!(stdout.contains("event: tick\ndata: two\n\n"), "{stdout}");
@@ -880,10 +813,7 @@ fn body() -> String with Async, AsyncFail {{
 "#
     ));
     let (stdout, stderr, success) = run_source(source);
-    assert!(
-        success,
-        "streaming drain fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "streaming drain fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(stdout.contains("HTTP/1.1 200 OK"), "{stdout}");
     assert!(stdout.contains("late"), "{stdout}");
 }

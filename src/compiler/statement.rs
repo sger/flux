@@ -53,9 +53,7 @@ impl Compiler {
         symbol: Symbol,
     ) -> Option<&'a IrFunction> {
         ir_program.functions().iter().find(|function| {
-            self.ir_function_symbols
-                .get(&function.id)
-                .is_some_and(|mapped| *mapped == symbol)
+            self.ir_function_symbols.get(&function.id).is_some_and(|mapped| *mapped == symbol)
         })
     }
 
@@ -81,9 +79,11 @@ impl Compiler {
                 crate::cfg::IrTopLevelItem::Module { name, body, .. } => {
                     find(body, module, member, *name == module)
                 }
-                crate::cfg::IrTopLevelItem::Function {
-                    name, function_id, ..
-                } if inside && *name == member => *function_id,
+                crate::cfg::IrTopLevelItem::Function { name, function_id, .. }
+                    if inside && *name == member =>
+                {
+                    *function_id
+                }
                 _ => None,
             })
         }
@@ -143,8 +143,7 @@ impl Compiler {
             .iter()
             .skip(explicit_start)
             .map(|ty| {
-                ty.as_ref()
-                    .and_then(|ty| self.core_type_to_runtime_type(ty, &HashMap::new()))
+                ty.as_ref().and_then(|ty| self.core_type_to_runtime_type(ty, &HashMap::new()))
             })
             .collect::<Option<Vec<_>>>()?
             .into_iter()
@@ -154,16 +153,9 @@ impl Compiler {
             .inferred_return_type
             .as_ref()
             .and_then(|ty| self.core_type_to_runtime_type(ty, &HashMap::new()))?;
-        let effects = ir_function
-            .effects
-            .iter()
-            .flat_map(EffectExpr::normalized_names)
-            .collect::<Vec<_>>();
-        Some(FunctionContract {
-            params,
-            ret: Some(ret),
-            effects,
-        })
+        let effects =
+            ir_function.effects.iter().flat_map(EffectExpr::normalized_names).collect::<Vec<_>>();
+        Some(FunctionContract { params, ret: Some(ret), effects })
     }
 
     fn runtime_contract_from_source_annotations(
@@ -201,20 +193,13 @@ impl Compiler {
             )
             .ok()
         });
-        let effects = contract
-            .effects
-            .iter()
-            .flat_map(EffectExpr::normalized_names)
-            .collect::<Vec<_>>();
+        let effects =
+            contract.effects.iter().flat_map(EffectExpr::normalized_names).collect::<Vec<_>>();
 
         if params.iter().all(Option::is_none) && ret.is_none() && effects.is_empty() {
             None
         } else {
-            Some(FunctionContract {
-                params,
-                ret,
-                effects,
-            })
+            Some(FunctionContract { params, ret, effects })
         }
     }
 
@@ -229,12 +214,12 @@ impl Compiler {
             CoreType::Bool => Some(RuntimeType::Bool),
             CoreType::String => Some(RuntimeType::String),
             CoreType::Unit | CoreType::Never => Some(RuntimeType::Unit),
-            CoreType::List(inner) => Some(RuntimeType::List(Box::new(
-                self.core_type_to_runtime_type(inner, bindings)?,
-            ))),
-            CoreType::Array(inner) => Some(RuntimeType::Array(Box::new(
-                self.core_type_to_runtime_type(inner, bindings)?,
-            ))),
+            CoreType::List(inner) => {
+                Some(RuntimeType::List(Box::new(self.core_type_to_runtime_type(inner, bindings)?)))
+            }
+            CoreType::Array(inner) => {
+                Some(RuntimeType::Array(Box::new(self.core_type_to_runtime_type(inner, bindings)?)))
+            }
             CoreType::Option(inner) => Some(RuntimeType::Option(Box::new(
                 self.core_type_to_runtime_type(inner, bindings)?,
             ))),
@@ -421,19 +406,12 @@ impl Compiler {
                     })
                     .collect::<Option<Vec<_>>>()?,
             )),
-            TypeExpr::Function {
-                params,
-                ret,
-                effects,
-                ..
-            } => {
+            TypeExpr::Function { params, ret, effects, .. } => {
                 if effects.iter().any(|effect| effect.row_var().is_some()) {
                     return None;
                 }
-                let mut effect_set = effects
-                    .iter()
-                    .flat_map(EffectExpr::normalized_names)
-                    .collect::<Vec<_>>();
+                let mut effect_set =
+                    effects.iter().flat_map(EffectExpr::normalized_names).collect::<Vec<_>>();
                 effect_set.sort_by_key(|sym| sym.as_u32());
                 effect_set.dedup();
                 Some(RuntimeType::Function {
@@ -512,10 +490,9 @@ impl Compiler {
     /// Check if any index expression uses a non-Int index (E300).
     fn block_has_index_type_error(&self, body: &Block) -> bool {
         body.statements.iter().any(|s| match s {
-            Statement::Expression { expression, .. }
-            | Statement::Let {
-                value: expression, ..
-            } => self.expr_has_index_type_error(expression),
+            Statement::Expression { expression, .. } | Statement::Let { value: expression, .. } => {
+                self.expr_has_index_type_error(expression)
+            }
             _ => false,
         })
     }
@@ -547,30 +524,19 @@ impl Compiler {
                     false
                 }
             }
-            Expression::Call {
-                function,
-                arguments,
-                ..
-            } => {
+            Expression::Call { function, arguments, .. } => {
                 self.expr_has_index_type_error(function)
                     || arguments.iter().any(|a| self.expr_has_index_type_error(a))
             }
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-                ..
-            } => {
+            Expression::If { condition, consequence, alternative, .. } => {
                 self.expr_has_index_type_error(condition)
                     || self.block_has_index_type_error(consequence)
-                    || alternative
-                        .as_ref()
-                        .is_some_and(|b| self.block_has_index_type_error(b))
+                    || alternative.as_ref().is_some_and(|b| self.block_has_index_type_error(b))
             }
             Expression::DoBlock { block, .. } => self.block_has_index_type_error(block),
-            Expression::Match { arms, .. } => arms
-                .iter()
-                .any(|arm| self.expr_has_index_type_error(&arm.body)),
+            Expression::Match { arms, .. } => {
+                arms.iter().any(|arm| self.expr_has_index_type_error(&arm.body))
+            }
             _ => false,
         }
     }
@@ -584,10 +550,9 @@ impl Compiler {
         declared_effects: &[EffectExpr],
     ) -> bool {
         body.statements.iter().any(|s| match s {
-            Statement::Let { value, .. }
-            | Statement::Expression {
-                expression: value, ..
-            } => self.expr_has_effectful_base_ref(value, declared_effects),
+            Statement::Let { value, .. } | Statement::Expression { expression: value, .. } => {
+                self.expr_has_effectful_base_ref(value, declared_effects)
+            }
             _ => false,
         })
     }
@@ -607,22 +572,13 @@ impl Compiler {
                     false
                 }
             }
-            Expression::Call {
-                function,
-                arguments,
-                ..
-            } => {
+            Expression::Call { function, arguments, .. } => {
                 self.expr_has_effectful_base_ref(function, declared_effects)
                     || arguments
                         .iter()
                         .any(|a| self.expr_has_effectful_base_ref(a, declared_effects))
             }
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-                ..
-            } => {
+            Expression::If { condition, consequence, alternative, .. } => {
                 self.expr_has_effectful_base_ref(condition, declared_effects)
                     || self.block_has_effectful_base_ref(consequence, declared_effects)
                     || alternative
@@ -632,9 +588,7 @@ impl Compiler {
             Expression::DoBlock { block, .. } => {
                 self.block_has_effectful_base_ref(block, declared_effects)
             }
-            Expression::Match {
-                scrutinee, arms, ..
-            } => {
+            Expression::Match { scrutinee, arms, .. } => {
                 self.expr_has_effectful_base_ref(scrutinee, declared_effects)
                     || arms
                         .iter()
@@ -647,19 +601,16 @@ impl Compiler {
     /// Check if any prefix `-` expression has a non-numeric operand (E300).
     fn block_has_prefix_type_error(&self, body: &Block) -> bool {
         body.statements.iter().any(|s| match s {
-            Statement::Expression { expression, .. }
-            | Statement::Let {
-                value: expression, ..
-            } => self.expr_has_prefix_type_error(expression),
+            Statement::Expression { expression, .. } | Statement::Let { value: expression, .. } => {
+                self.expr_has_prefix_type_error(expression)
+            }
             _ => false,
         })
     }
 
     fn expr_has_prefix_type_error(&self, expr: &Expression) -> bool {
         match expr {
-            Expression::Prefix {
-                operator, right, ..
-            } if operator == "-" => {
+            Expression::Prefix { operator, right, .. } if operator == "-" => {
                 if let super::hm_expr_typer::HmExprTypeResult::Known(ty) =
                     self.hm_expr_type_strict_path(right)
                 {
@@ -674,27 +625,16 @@ impl Compiler {
                     false
                 }
             }
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-                ..
-            } => {
+            Expression::If { condition, consequence, alternative, .. } => {
                 self.expr_has_prefix_type_error(condition)
                     || self.block_has_prefix_type_error(consequence)
-                    || alternative
-                        .as_ref()
-                        .is_some_and(|b| self.block_has_prefix_type_error(b))
+                    || alternative.as_ref().is_some_and(|b| self.block_has_prefix_type_error(b))
             }
             Expression::DoBlock { block, .. } => self.block_has_prefix_type_error(block),
-            Expression::Match { arms, .. } => arms
-                .iter()
-                .any(|arm| self.expr_has_prefix_type_error(&arm.body)),
-            Expression::Call {
-                function,
-                arguments,
-                ..
-            } => {
+            Expression::Match { arms, .. } => {
+                arms.iter().any(|arm| self.expr_has_prefix_type_error(&arm.body))
+            }
+            Expression::Call { function, arguments, .. } => {
                 self.expr_has_prefix_type_error(function)
                     || arguments.iter().any(|a| self.expr_has_prefix_type_error(a))
             }
@@ -716,12 +656,7 @@ impl Compiler {
     /// lets return `false` and proceed through CFG (Proposal 0167 Part 4).
     fn block_has_typed_let_error(&self, body: &Block) -> bool {
         body.statements.iter().any(|s| {
-            let Statement::Let {
-                type_annotation: Some(annotation),
-                value,
-                ..
-            } = s
-            else {
+            let Statement::Let { type_annotation: Some(annotation), value, .. } = s else {
                 return false;
             };
             match crate::types::type_env::TypeEnv::infer_type_from_type_expr(
@@ -730,10 +665,7 @@ impl Compiler {
                 &self.interner,
             ) {
                 Some(expected) => {
-                    if self
-                        .known_concrete_expr_type_mismatch(&expected, value)
-                        .is_some()
-                    {
+                    if self.known_concrete_expr_type_mismatch(&expected, value).is_some() {
                         return true;
                     }
                     if self.strict_mode
@@ -756,21 +688,16 @@ impl Compiler {
     /// Check if any call expression has wrong argument count vs HM type (E056).
     fn block_has_call_arity_error(&self, body: &Block) -> bool {
         body.statements.iter().any(|s| match s {
-            Statement::Expression { expression, .. }
-            | Statement::Let {
-                value: expression, ..
-            } => self.expr_has_call_arity_error(expression),
+            Statement::Expression { expression, .. } | Statement::Let { value: expression, .. } => {
+                self.expr_has_call_arity_error(expression)
+            }
             _ => false,
         })
     }
 
     fn expr_has_call_arity_error(&self, expr: &Expression) -> bool {
         match expr {
-            Expression::Call {
-                function,
-                arguments,
-                ..
-            } => {
+            Expression::Call { function, arguments, .. } => {
                 // Use HM type to check expected arity
                 if let super::hm_expr_typer::HmExprTypeResult::Known(InferType::Fun(params, _, _)) =
                     self.hm_expr_type_strict_path(function)
@@ -784,22 +711,15 @@ impl Compiler {
                 self.expr_has_call_arity_error(function)
                     || arguments.iter().any(|a| self.expr_has_call_arity_error(a))
             }
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-                ..
-            } => {
+            Expression::If { condition, consequence, alternative, .. } => {
                 self.expr_has_call_arity_error(condition)
                     || self.block_has_call_arity_error(consequence)
-                    || alternative
-                        .as_ref()
-                        .is_some_and(|b| self.block_has_call_arity_error(b))
+                    || alternative.as_ref().is_some_and(|b| self.block_has_call_arity_error(b))
             }
             Expression::DoBlock { block, .. } => self.block_has_call_arity_error(block),
-            Expression::Match { arms, .. } => arms
-                .iter()
-                .any(|arm| self.expr_has_call_arity_error(&arm.body)),
+            Expression::Match { arms, .. } => {
+                arms.iter().any(|arm| self.expr_has_call_arity_error(&arm.body))
+            }
             _ => false,
         }
     }
@@ -813,21 +733,16 @@ impl Compiler {
 
     fn block_contains_constrained_calls(&self, body: &Block) -> bool {
         body.statements.iter().any(|statement| match statement {
-            Statement::Expression { expression, .. }
-            | Statement::Let {
-                value: expression, ..
-            } => self.expr_contains_constrained_calls(expression),
+            Statement::Expression { expression, .. } | Statement::Let { value: expression, .. } => {
+                self.expr_contains_constrained_calls(expression)
+            }
             _ => false,
         })
     }
 
     fn expr_contains_constrained_calls(&self, expr: &Expression) -> bool {
         match expr {
-            Expression::Call {
-                function,
-                arguments,
-                ..
-            } => {
+            Expression::Call { function, arguments, .. } => {
                 let callee_is_constrained = match function.as_ref() {
                     Expression::Identifier { name, .. } => self
                         .type_env
@@ -847,12 +762,7 @@ impl Compiler {
                         .iter()
                         .any(|argument| self.expr_contains_constrained_calls(argument))
             }
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-                ..
-            } => {
+            Expression::If { condition, consequence, alternative, .. } => {
                 self.expr_contains_constrained_calls(condition)
                     || self.block_contains_constrained_calls(consequence)
                     || alternative
@@ -860,13 +770,9 @@ impl Compiler {
                         .is_some_and(|block| self.block_contains_constrained_calls(block))
             }
             Expression::DoBlock { block, .. } => self.block_contains_constrained_calls(block),
-            Expression::Match {
-                scrutinee, arms, ..
-            } => {
+            Expression::Match { scrutinee, arms, .. } => {
                 self.expr_contains_constrained_calls(scrutinee)
-                    || arms
-                        .iter()
-                        .any(|arm| self.expr_contains_constrained_calls(&arm.body))
+                    || arms.iter().any(|arm| self.expr_contains_constrained_calls(&arm.body))
             }
             Expression::Function { body, .. } => self.block_contains_constrained_calls(body),
             _ => false,
@@ -878,10 +784,7 @@ impl Compiler {
     /// let bindings in the same scope (E001).
     fn block_has_semantic_errors(body: &Block, parameters: &[Symbol]) -> bool {
         // Check for assignments (Flux is purely immutable)
-        let has_assign = body
-            .statements
-            .iter()
-            .any(|s| matches!(s, Statement::Assign { .. }));
+        let has_assign = body.statements.iter().any(|s| matches!(s, Statement::Assign { .. }));
         if has_assign {
             return true;
         }
@@ -896,38 +799,27 @@ impl Compiler {
         }
         // Recurse into nested blocks and let values
         body.statements.iter().any(|s| match s {
-            Statement::Expression { expression, .. }
-            | Statement::Let {
-                value: expression, ..
-            } => Self::expr_has_semantic_errors(expression),
+            Statement::Expression { expression, .. } | Statement::Let { value: expression, .. } => {
+                Self::expr_has_semantic_errors(expression)
+            }
             _ => false,
         })
     }
 
     fn expr_has_semantic_errors(expr: &Expression) -> bool {
         match expr {
-            Expression::If {
-                consequence,
-                alternative,
-                ..
-            } => {
+            Expression::If { consequence, alternative, .. } => {
                 Self::block_has_semantic_errors(consequence, &[])
-                    || alternative
-                        .as_ref()
-                        .is_some_and(|b| Self::block_has_semantic_errors(b, &[]))
+                    || alternative.as_ref().is_some_and(|b| Self::block_has_semantic_errors(b, &[]))
             }
             Expression::DoBlock { block, .. } => Self::block_has_semantic_errors(block, &[]),
-            Expression::Match { arms, .. } => arms
-                .iter()
-                .any(|arm| Self::expr_has_semantic_errors(&arm.body)),
-            Expression::Function {
-                body, parameters, ..
-            } => Self::block_has_semantic_errors(body, parameters),
-            Expression::Call {
-                function,
-                arguments,
-                ..
-            } => {
+            Expression::Match { arms, .. } => {
+                arms.iter().any(|arm| Self::expr_has_semantic_errors(&arm.body))
+            }
+            Expression::Function { body, parameters, .. } => {
+                Self::block_has_semantic_errors(body, parameters)
+            }
+            Expression::Call { function, arguments, .. } => {
                 Self::expr_has_semantic_errors(function)
                     || arguments.iter().any(Self::expr_has_semantic_errors)
             }
@@ -945,10 +837,9 @@ impl Compiler {
         param_effect_rows: &HashMap<Symbol, super::effect_rows::EffectRow>,
     ) -> bool {
         body.statements.iter().any(|s| match s {
-            Statement::Expression { expression, .. }
-            | Statement::Let {
-                value: expression, ..
-            } => self.expr_has_effect_row_error(expression, declared_effects, param_effect_rows),
+            Statement::Expression { expression, .. } | Statement::Let { value: expression, .. } => {
+                self.expr_has_effect_row_error(expression, declared_effects, param_effect_rows)
+            }
             _ => false,
         })
     }
@@ -960,11 +851,7 @@ impl Compiler {
         param_effect_rows: &HashMap<Symbol, super::effect_rows::EffectRow>,
     ) -> bool {
         match expr {
-            Expression::Call {
-                function,
-                arguments,
-                ..
-            } => {
+            Expression::Call { function, arguments, .. } => {
                 if self.call_has_effect_row_error(
                     function,
                     arguments,
@@ -979,12 +866,7 @@ impl Compiler {
                         self.expr_has_effect_row_error(a, declared_effects, param_effect_rows)
                     })
             }
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-                ..
-            } => {
+            Expression::If { condition, consequence, alternative, .. } => {
                 self.expr_has_effect_row_error(condition, declared_effects, param_effect_rows)
                     || self.block_has_effect_row_error(
                         consequence,
@@ -1009,13 +891,10 @@ impl Compiler {
             // effects. Routed 0165 primops reach this path as `perform`, so the
             // CFG pre-validator must preserve the same E400 boundary that direct
             // builtin calls had before routing.
-            Expression::Perform {
-                effect, operation, ..
-            } => {
+            Expression::Perform { effect, operation, .. } => {
                 // Check if the effect resolves
                 let resolved_effect = self.lookup_effect_alias(*effect).unwrap_or(*effect);
-                self.effect_op_signature(resolved_effect, *operation)
-                    .is_none()
+                self.effect_op_signature(resolved_effect, *operation).is_none()
                     || !self.is_effect_in_declared(resolved_effect, declared_effects)
             }
             // Don't recurse into nested function bodies — they have their own effect context
@@ -1045,10 +924,7 @@ impl Compiler {
             }
         }
 
-        let Some(contract) = self
-            .resolve_call_contract(function, arguments.len())
-            .cloned()
-        else {
+        let Some(contract) = self.resolve_call_contract(function, arguments.len()).cloned() else {
             return false;
         };
 
@@ -1112,10 +988,8 @@ impl Compiler {
         allowed: &[EffectExpr],
         declared_effects: &[EffectExpr],
     ) -> HashSet<Symbol> {
-        let ambient: HashSet<Symbol> = declared_effects
-            .iter()
-            .flat_map(EffectExpr::normalized_names)
-            .collect();
+        let ambient: HashSet<Symbol> =
+            declared_effects.iter().flat_map(EffectExpr::normalized_names).collect();
         let mut out = HashSet::new();
         for effect in allowed {
             out.extend(self.evaluate_sealing_effect_expr_for_declared(effect, &ambient));
@@ -1186,23 +1060,16 @@ impl Compiler {
         let declared: HashSet<String> = declared_effects
             .iter()
             .flat_map(|effect_expr| {
-                effect_expr
-                    .expand_aliases(&self.effect_row_aliases)
-                    .normalized_names()
+                effect_expr.expand_aliases(&self.effect_row_aliases).normalized_names()
             })
             .map(|name| self.sym(name).to_owned())
             .collect();
-        required
-            .iter()
-            .all(|required_name| declared.contains(required_name))
+        required.iter().all(|required_name| declared.contains(required_name))
     }
 
     fn block_contains_cfg_incompatible_statements_ast(body: &Block) -> bool {
         body.statements.iter().any(|statement| {
-            matches!(
-                statement,
-                Statement::Module { .. } | Statement::Import { .. }
-            )
+            matches!(statement, Statement::Module { .. } | Statement::Import { .. })
         })
     }
 
@@ -1257,45 +1124,27 @@ impl Compiler {
                     && crate::core::CorePrimOp::from_name(&name_str, 2).is_none()
                     && crate::core::CorePrimOp::from_name(&name_str, 3).is_none()
             }
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-                ..
-            } => {
+            Expression::If { condition, consequence, alternative, .. } => {
                 self.expr_has_undefined_ident(condition, locals)
                     || consequence
                         .statements
                         .iter()
                         .any(|s| self.stmt_has_undefined_ident(s, locals))
                     || alternative.as_ref().is_some_and(|b| {
-                        b.statements
-                            .iter()
-                            .any(|s| self.stmt_has_undefined_ident(s, locals))
+                        b.statements.iter().any(|s| self.stmt_has_undefined_ident(s, locals))
                     })
             }
-            Expression::Match {
-                scrutinee, arms, ..
-            } => {
+            Expression::Match { scrutinee, arms, .. } => {
                 self.expr_has_undefined_ident(scrutinee, locals)
-                    || arms
-                        .iter()
-                        .any(|arm| self.expr_has_undefined_ident(&arm.body, locals))
+                    || arms.iter().any(|arm| self.expr_has_undefined_ident(&arm.body, locals))
             }
-            Expression::Call {
-                function,
-                arguments,
-                ..
-            } => {
+            Expression::Call { function, arguments, .. } => {
                 self.expr_has_undefined_ident(function, locals)
-                    || arguments
-                        .iter()
-                        .any(|a| self.expr_has_undefined_ident(a, locals))
+                    || arguments.iter().any(|a| self.expr_has_undefined_ident(a, locals))
             }
-            Expression::DoBlock { block, .. } => block
-                .statements
-                .iter()
-                .any(|s| self.stmt_has_undefined_ident(s, locals)),
+            Expression::DoBlock { block, .. } => {
+                block.statements.iter().any(|s| self.stmt_has_undefined_ident(s, locals))
+            }
             _ => false,
         }
     }
@@ -1429,10 +1278,7 @@ impl Compiler {
             "E407",
             "UNKNOWN FUNCTION EFFECT",
             ErrorType::Compiler,
-            format!(
-                "Function effect annotation references unknown effect `{}`.",
-                effect_name
-            ),
+            format!("Function effect annotation references unknown effect `{}`.", effect_name),
             Some(hint),
             self.file_path.clone(),
             span,
@@ -1456,23 +1302,13 @@ impl Compiler {
         self.current_span = Some(statement.span());
         let result = (|| {
             match statement {
-                Statement::Expression {
-                    expression,
-                    has_semicolon,
-                    ..
-                } => {
+                Statement::Expression { expression, has_semicolon, .. } => {
                     self.compile_top_level_value(expression)?;
                     if !self.in_tail_position || *has_semicolon {
                         self.emit(OpCode::OpPop, &[]);
                     }
                 }
-                Statement::Let {
-                    name,
-                    type_annotation,
-                    value,
-                    span,
-                    ..
-                } => {
+                Statement::Let { name, type_annotation, value, span, .. } => {
                     let name = *name;
                     // Check for duplicate in current scope FIRST (takes precedence).
                     //
@@ -1515,9 +1351,7 @@ impl Compiler {
                     // Then check for import collision (only if not a duplicate in same scope)
                     if self.scope_index == 0 && self.file_scope_symbols.contains(&name) {
                         let name_str = self.sym(name);
-                        return Err(Self::boxed(
-                            self.make_import_collision_error(name_str, *span),
-                        ));
+                        return Err(Self::boxed(self.make_import_collision_error(name_str, *span)));
                     }
 
                     let symbol = self.symbol_table.define(name, *span);
@@ -1634,9 +1468,7 @@ impl Compiler {
 
                     if symbol.symbol_scope == SymbolScope::Free {
                         let name_str = self.sym(name);
-                        return Err(Self::boxed(
-                            self.make_outer_assignment_error(name_str, *span),
-                        ));
+                        return Err(Self::boxed(self.make_outer_assignment_error(name_str, *span)));
                     }
 
                     // Flux bindings are immutable today: assignment syntax is parsed so we can
@@ -1756,13 +1588,7 @@ impl Compiler {
                         self.file_scope_symbols.insert(binding_name);
                     }
                 }
-                Statement::Import {
-                    name,
-                    alias,
-                    except,
-                    exposing,
-                    span,
-                } => {
+                Statement::Import { name, alias, except, exposing, span } => {
                     let name = *name;
                     if self.scope_index > 0 {
                         let name_str = self.sym(name);
@@ -1855,10 +1681,7 @@ impl Compiler {
         let mut per_class: HashMap<crate::types::class_id::ClassId, Vec<Vec<InferType>>> =
             HashMap::new();
         for constraint in scheme_constraints {
-            per_class
-                .entry(constraint.class_id)
-                .or_default()
-                .push(constraint.type_args.clone());
+            per_class.entry(constraint.class_id).or_default().push(constraint.type_args.clone());
         }
         per_class.retain(|_, occurrences| occurrences.len() > 1);
         if per_class.is_empty() {
@@ -1907,10 +1730,8 @@ impl Compiler {
             // Reached only for a class this function is constrained on more
             // than once, so a singly-constrained result-dispatched call —
             // `Flow.Json`'s `decode`, `mempty`, `pure` — is unaffected.
-            let results = self
-                .class_env
-                .result_positions(*declaring_class, name)
-                .unwrap_or_default();
+            let results =
+                self.class_env.result_positions(*declaring_class, name).unwrap_or_default();
             let observed: Vec<Option<InferType>> = positions
                 .iter()
                 .enumerate()
@@ -1961,10 +1782,7 @@ impl Compiler {
             *occurrence += 1;
             let prefix =
                 crate::types::class_env::dictionary_prefix(constraint.class_id, &self.interner);
-            names.push(
-                self.interner
-                    .intern(&format!("{}{}", prefix, suffix.unwrap_or_default())),
-            );
+            names.push(self.interner.intern(&format!("{}{}", prefix, suffix.unwrap_or_default())));
         }
         names
     }
@@ -2029,13 +1847,9 @@ impl Compiler {
         self.enter_scope();
         self.emit_entry_site(definition_span);
         let previous_function_name = self.current_function_name.replace(name);
-        self.symbol_table
-            .define_function_name(name, definition_span);
-        let mut scheme_constraints = self
-            .type_env
-            .lookup(name)
-            .map(|scheme| scheme.constraints.clone())
-            .unwrap_or_default();
+        self.symbol_table.define_function_name(name, definition_span);
+        let mut scheme_constraints =
+            self.type_env.lookup(name).map(|scheme| scheme.constraints.clone()).unwrap_or_default();
         if scheme_constraints.is_empty()
             && let Some(module_name) = self.current_module_prefix
             && let Some(qualified_name) = self.interner.try_resolve(name)
@@ -2081,12 +1895,7 @@ impl Compiler {
         let ir_dict_names: Vec<Symbol> = ir_function
             .map(|ir_fn| {
                 let extra = ir_fn.params.len().saturating_sub(parameters.len());
-                ir_fn
-                    .params
-                    .iter()
-                    .take(extra)
-                    .map(|param| param.name)
-                    .collect()
+                ir_fn.params.iter().take(extra).map(|param| param.name).collect()
             })
             .unwrap_or_default();
         // 0.0.8 plan step 1e: the IR takes its dictionary parameters from
@@ -2119,11 +1928,8 @@ impl Compiler {
         } else {
             runtime_dict_names.clone()
         };
-        let missing_dict_names = dict_names
-            .iter()
-            .skip(existing_dict_count)
-            .copied()
-            .collect::<Vec<_>>();
+        let missing_dict_names =
+            dict_names.iter().skip(existing_dict_count).copied().collect::<Vec<_>>();
 
         // Define the already-declared dictionary prefix first, then any
         // synthesized/IR-only dictionaries, then the visible source params.
@@ -2169,10 +1975,9 @@ impl Compiler {
         let cfg_param_count: std::cell::Cell<Option<usize>> = std::cell::Cell::new(None);
         if let Some(ir_function) = ir_function {
             let explicit_param_count = match ir_function.origin {
-                crate::cfg::IrFunctionOrigin::FunctionLiteral => ir_function
-                    .params
-                    .len()
-                    .saturating_sub(ir_function.captures.len()),
+                crate::cfg::IrFunctionOrigin::FunctionLiteral => {
+                    ir_function.params.len().saturating_sub(ir_function.captures.len())
+                }
                 _ => ir_function.params.len(),
             };
             cfg_param_count.set(Some(explicit_param_count));
@@ -2288,10 +2093,9 @@ impl Compiler {
                 match self.try_compile_ir_cfg_function_body(ir_function, name) {
                     Some(Ok(())) => {
                         let explicit_param_count = match ir_function.origin {
-                            crate::cfg::IrFunctionOrigin::FunctionLiteral => ir_function
-                                .params
-                                .len()
-                                .saturating_sub(ir_function.captures.len()),
+                            crate::cfg::IrFunctionOrigin::FunctionLiteral => {
+                                ir_function.params.len().saturating_sub(ir_function.captures.len())
+                            }
                             _ => ir_function.params.len(),
                         };
                         cfg_param_count.set(Some(explicit_param_count));
@@ -2389,13 +2193,7 @@ impl Compiler {
                     files.push(self.file_path.clone());
                     (files.len() - 1) as u32
                 });
-            (
-                files,
-                crate::bytecode::debug_info::Location {
-                    file_id,
-                    span: function_span,
-                },
-            )
+            (files, crate::bytecode::debug_info::Location { file_id, span: function_span })
         };
         let (files, boundary_location) = boundary_location;
 
@@ -2464,20 +2262,8 @@ impl Compiler {
         let entries: Vec<FnEntry<'_>> = fn_stmts
             .iter()
             .map(|stmt| {
-                if let Statement::Function {
-                    name,
-                    parameters,
-                    body,
-                    span,
-                    ..
-                } = stmt
-                {
-                    FnEntry {
-                        name: *name,
-                        parameters: parameters.as_slice(),
-                        body,
-                        span: *span,
-                    }
+                if let Statement::Function { name, parameters, body, span, .. } = stmt {
+                    FnEntry { name: *name, parameters: parameters.as_slice(), body, span: *span }
                 } else {
                     unreachable!("compile_mutual_rec_group called with non-function");
                 }
@@ -2487,10 +2273,8 @@ impl Compiler {
         let group_names: HashSet<Symbol> = entries.iter().map(|e| e.name).collect();
 
         // Reserve constant pool slots for all functions.
-        let const_slots: Vec<usize> = entries
-            .iter()
-            .map(|_| self.add_constant(Value::None))
-            .collect();
+        let const_slots: Vec<usize> =
+            entries.iter().map(|_| self.add_constant(Value::None)).collect();
 
         // Compute shared outer captures: union of all free vars minus group members.
         let mut shared_captures: Vec<Symbol> = Vec::new();
@@ -2516,8 +2300,7 @@ impl Compiler {
             self.emit_entry_site(definition_span);
 
             // Self-reference (OpCurrentClosure).
-            self.symbol_table
-                .define_function_name(entry.name, definition_span);
+            self.symbol_table.define_function_name(entry.name, definition_span);
 
             // Parameters.
             for param in entry.parameters {
@@ -2755,12 +2538,7 @@ impl Compiler {
         // PASS 1: Predeclare all module function names with qualified names
         // This enables forward references within the module
         for statement in &body.statements {
-            if let Statement::Function {
-                name: fn_name,
-                span,
-                ..
-            } = statement
-            {
+            if let Statement::Function { name: fn_name, span, .. } = statement {
                 let qualified_name = self.interner.intern_join(binding_name, *fn_name);
                 // Check for duplicate declaration
                 if let Some(existing) = self.symbol_table.resolve(qualified_name)
@@ -2783,13 +2561,7 @@ impl Compiler {
         // PASS 1b: Predeclare non-constant module values so functions can
         // reference them regardless of source order.
         for statement in &body.statements {
-            if let Statement::Let {
-                is_public,
-                name,
-                span,
-                ..
-            } = statement
-            {
+            if let Statement::Let { is_public, name, span, .. } = statement {
                 if const_names.contains(name) && !*is_public {
                     continue;
                 }
@@ -2848,14 +2620,7 @@ impl Compiler {
 
         // PASS 3: Evaluate non-constant module values eagerly once in source order.
         for statement in &body.statements {
-            if let Statement::Let {
-                is_public,
-                name,
-                type_annotation,
-                value,
-                span,
-                ..
-            } = statement
+            if let Statement::Let { is_public, name, type_annotation, value, span, .. } = statement
             {
                 if const_names.contains(name) && !*is_public {
                     continue;
@@ -2965,8 +2730,7 @@ impl Compiler {
         if !except.is_empty() {
             let binding_name = alias.unwrap_or(name);
             let excluded: std::collections::HashSet<Symbol> = except.iter().copied().collect();
-            self.imported_module_exclusions
-                .insert(binding_name, excluded);
+            self.imported_module_exclusions.insert(binding_name, excluded);
         }
 
         if let Some(alias) = alias {
@@ -3031,11 +2795,7 @@ impl Compiler {
                     })
                     .filter_map(|((_, ctor), _)| {
                         let ctor_name = self.sym(*ctor);
-                        if ctor_name.contains('.') {
-                            None
-                        } else {
-                            Some(*ctor)
-                        }
+                        if ctor_name.contains('.') { None } else { Some(*ctor) }
                     })
                     .collect();
                 for ctor in public_ctor_short_names {
@@ -3052,19 +2812,11 @@ impl Compiler {
                         .module_function_visibility
                         .get(&(module_name, member))
                         .copied()
+                        .or_else(|| self.module_adt_visibility.get(&(module_name, member)).copied())
                         .or_else(|| {
-                            self.module_adt_visibility
-                                .get(&(module_name, member))
-                                .copied()
-                        })
-                        .or_else(|| {
-                            self.module_adt_constructors
-                                .get(&(module_name, member))
-                                .and_then(|adt| {
-                                    self.module_adt_visibility
-                                        .get(&(module_name, *adt))
-                                        .copied()
-                                })
+                            self.module_adt_constructors.get(&(module_name, member)).and_then(
+                                |adt| self.module_adt_visibility.get(&(module_name, *adt)).copied(),
+                            )
                         });
                     match is_public {
                         Some(true) => {
@@ -3212,10 +2964,7 @@ impl Compiler {
                 let is_last = i == len - 1;
                 let tail_eligible = matches!(
                     statement,
-                    Statement::Expression {
-                        has_semicolon: false,
-                        ..
-                    } | Statement::Return { .. }
+                    Statement::Expression { has_semicolon: false, .. } | Statement::Return { .. }
                 );
 
                 let result = if allow_tail && is_last && tail_eligible {
@@ -3223,14 +2972,11 @@ impl Compiler {
                         .with_tail_position(true, |compiler| compiler.compile_statement(statement))
                 } else if is_last && tail_eligible {
                     match statement {
-                        Statement::Expression {
-                            expression,
-                            has_semicolon: false,
-                            ..
-                        } => compiler.with_tail_position(false, |compiler| {
-                            compiler.emit_statement_site(statement);
-                            compiler.compile_expression(expression)
-                        }),
+                        Statement::Expression { expression, has_semicolon: false, .. } => compiler
+                            .with_tail_position(false, |compiler| {
+                                compiler.emit_statement_site(statement);
+                                compiler.compile_expression(expression)
+                            }),
                         _ => compiler.with_tail_position(false, |compiler| {
                             compiler.compile_statement(statement)
                         }),
@@ -3261,9 +3007,8 @@ impl Compiler {
         block: &Block,
         allow_tail: bool,
     ) -> CompileResult<()> {
-        let mut errors = self
-            .compile_block_with_tail_mode_collect_errors(block, allow_tail)
-            .into_iter();
+        let mut errors =
+            self.compile_block_with_tail_mode_collect_errors(block, allow_tail).into_iter();
         if let Some(first) = errors.next() {
             for err in errors {
                 let mut diag = *err;
@@ -3279,13 +3024,7 @@ impl Compiler {
     }
 
     pub(super) fn block_has_value_tail(&self, block: &Block) -> bool {
-        matches!(
-            block.statements.last(),
-            Some(Statement::Expression {
-                has_semicolon: false,
-                ..
-            })
-        )
+        matches!(block.statements.last(), Some(Statement::Expression { has_semicolon: false, .. }))
     }
 
     /// Compile a top-level statement's value expression, wrapping it in a
@@ -3324,23 +3063,12 @@ pub(super) fn expression_needs_top_level_frame(expr: &Expression) -> bool {
         Expression::Infix { left, right, .. } => {
             expression_needs_top_level_frame(left) || expression_needs_top_level_frame(right)
         }
-        Expression::If {
-            condition,
-            consequence,
-            alternative,
-            ..
-        } => {
+        Expression::If { condition, consequence, alternative, .. } => {
             expression_needs_top_level_frame(condition)
                 || block_needs_top_level_frame(consequence)
-                || alternative
-                    .as_ref()
-                    .is_some_and(block_needs_top_level_frame)
+                || alternative.as_ref().is_some_and(block_needs_top_level_frame)
         }
-        Expression::Call {
-            function,
-            arguments,
-            ..
-        } => {
+        Expression::Call { function, arguments, .. } => {
             expression_needs_top_level_frame(function)
                 || arguments.iter().any(expression_needs_top_level_frame)
         }
@@ -3365,19 +3093,10 @@ pub(super) fn expression_needs_top_level_frame(expr: &Expression) -> bool {
             expression_needs_top_level_frame(head) || expression_needs_top_level_frame(tail)
         }
         Expression::Perform { args, .. } => args.iter().any(expression_needs_top_level_frame),
-        Expression::Handle {
-            expr,
-            parameter,
-            arms,
-            ..
-        } => {
+        Expression::Handle { expr, parameter, arms, .. } => {
             expression_needs_top_level_frame(expr)
-                || parameter
-                    .as_ref()
-                    .is_some_and(|p| expression_needs_top_level_frame(p))
-                || arms
-                    .iter()
-                    .any(|arm| expression_needs_top_level_frame(&arm.body))
+                || parameter.as_ref().is_some_and(|p| expression_needs_top_level_frame(p))
+                || arms.iter().any(|arm| expression_needs_top_level_frame(&arm.body))
         }
         Expression::Sealing { expr, .. } => expression_needs_top_level_frame(expr),
         Expression::InterpolatedString { parts, .. } => parts.iter().any(|part| match part {
@@ -3385,13 +3104,10 @@ pub(super) fn expression_needs_top_level_frame(expr: &Expression) -> bool {
             StringPart::Literal(_) => false,
         }),
         // Desugared away before codegen (proposal 0152), but handled defensively.
-        Expression::NamedConstructor { fields, .. } => fields
-            .iter()
-            .filter_map(|f| f.value.as_deref())
-            .any(expression_needs_top_level_frame),
-        Expression::Spread {
-            base, overrides, ..
-        } => {
+        Expression::NamedConstructor { fields, .. } => {
+            fields.iter().filter_map(|f| f.value.as_deref()).any(expression_needs_top_level_frame)
+        }
+        Expression::Spread { base, overrides, .. } => {
             expression_needs_top_level_frame(base)
                 || overrides
                     .iter()
@@ -3418,10 +3134,9 @@ fn block_needs_top_level_frame(block: &Block) -> bool {
     block.statements.iter().any(|stmt| match stmt {
         Statement::Let { .. } | Statement::LetDestructure { .. } => true,
         Statement::Expression { expression, .. } => expression_needs_top_level_frame(expression),
-        Statement::Return {
-            value: Some(value), ..
+        Statement::Return { value: Some(value), .. } | Statement::Assign { value, .. } => {
+            expression_needs_top_level_frame(value)
         }
-        | Statement::Assign { value, .. } => expression_needs_top_level_frame(value),
         _ => false,
     })
 }
@@ -3442,12 +3157,7 @@ struct CallCollector<'a, 'ast> {
 
 impl<'ast> crate::ast::visit::Visitor<'ast> for CallCollector<'_, 'ast> {
     fn visit_expr(&mut self, expr: &'ast Expression) {
-        if let Expression::Call {
-            function,
-            arguments,
-            id,
-            span,
-        } = expr
+        if let Expression::Call { function, arguments, id, span } = expr
             && let Expression::Identifier { name, .. } = function.as_ref()
         {
             self.calls.push((*name, arguments.as_slice(), *id, *span));

@@ -1570,9 +1570,7 @@ pub fn unknown_keyword_alias(
 
 /// Create an "unexpected token" error
 pub fn unexpected_token(span: Span, message: impl Into<String>) -> Diagnostic {
-    diagnostic_for(&UNEXPECTED_TOKEN)
-        .with_span(span)
-        .with_message(message.into())
+    diagnostic_for(&UNEXPECTED_TOKEN).with_span(span).with_message(message.into())
 }
 
 /// Create an "unexpected token" error with explicit parser-facing metadata.
@@ -1582,9 +1580,7 @@ pub fn unexpected_token_with_details(
     category: DiagnosticCategory,
     message: impl Into<String>,
 ) -> Diagnostic {
-    unexpected_token(span, message)
-        .with_display_title(display_title.into())
-        .with_category(category)
+    unexpected_token(span, message).with_display_title(display_title.into()).with_category(category)
 }
 
 /// Create a missing-if-body-brace diagnostic (E034).
@@ -1699,9 +1695,7 @@ pub fn orphan_constructor_pattern(span: Span, name: &str) -> Diagnostic {
         format!("`{name}(...)` looks like a pattern but appears outside `match`."),
     )
     .with_category(DiagnosticCategory::ParserPattern)
-    .with_hint_text(format!(
-        "Did you mean `match value {{ {name}(x) -> ... }}`?"
-    ))
+    .with_hint_text(format!("Did you mean `match value {{ {name}(x) -> ... }}`?"))
 }
 
 /// Create a missing-qualified-path-segment diagnostic (E034).
@@ -1729,12 +1723,9 @@ pub fn empty_string_interpolation(span: Span) -> Diagnostic {
 
 /// Create an unexpected `end` keyword diagnostic (E034).
 pub fn unexpected_end_keyword(span: Span) -> Diagnostic {
-    unexpected_token(
-        span,
-        "`end` is not a keyword in Flux. Use `}` to close blocks.",
-    )
-    .with_category(DiagnosticCategory::ParserKeyword)
-    .with_hint_text("Replace `end` with `}`.")
+    unexpected_token(span, "`end` is not a keyword in Flux. Use `}` to close blocks.")
+        .with_category(DiagnosticCategory::ParserKeyword)
+        .with_hint_text("Replace `end` with `}`.")
 }
 
 /// Create a missing-hash-close-brace diagnostic (E034).
@@ -1794,24 +1785,14 @@ pub fn constructor_pattern_arity_mismatch(
 
 /// Create a strict cross-module constructor access diagnostic (E086).
 pub fn cross_module_constructor_access_error(span: Span, ctor: &str, module: &str) -> Diagnostic {
-    Diagnostic::make_error(
-        &CROSS_MODULE_CONSTRUCTOR_ACCESS,
-        &[ctor, module],
-        "<unknown>",
-        span,
-    )
+    Diagnostic::make_error(&CROSS_MODULE_CONSTRUCTOR_ACCESS, &[ctor, module], "<unknown>", span)
 }
 
 /// Create a "too many fields" error (E087): a constructor, tuple or closure
 /// with more than the 255 fields or captures a value can hold. A Core pass
 /// raises it, which knows no file: the driver supplies the program's.
 pub fn too_many_fields(span: Span, what: &str, items: &str, count: usize) -> Diagnostic {
-    Diagnostic::make_error(
-        &TOO_MANY_FIELDS,
-        &[what, items, &count.to_string()],
-        "",
-        span,
-    )
+    Diagnostic::make_error(&TOO_MANY_FIELDS, &[what, items, &count.to_string()], "", span)
 }
 
 /// Create a non-strict cross-module constructor access warning (W201).
@@ -1906,10 +1887,7 @@ pub fn unclosed_delimiter(
         .with_display_title("Missing Closing Delimiter")
         .with_category(DiagnosticCategory::ParserDelimiter)
         .with_span(open_span)
-        .with_message(format!(
-            "Expected a closing `{}` to match this opening `{}`.",
-            close, open
-        ));
+        .with_message(format!("Expected a closing `{}` to match this opening `{}`.", close, open));
     if let Some(span) = found_span {
         diag = diag.with_related(
             RelatedDiagnostic::note(format!("Expected `{}` before this token.", close))
@@ -1938,10 +1916,7 @@ pub fn missing_function_body_brace(
         "This looks like the function body",
         "Try adding `{` after the function signature.",
     )
-    .with_label(Label::secondary(
-        fn_span,
-        format!("`{}` starts here", fn_name),
-    ))
+    .with_label(Label::secondary(fn_span, format!("`{}` starts here", fn_name)))
 }
 
 // Type Inference Errors (E300–E399)
@@ -2104,10 +2079,7 @@ pub fn let_annotation_type_mismatch(
     )
     .with_display_title("Annotation Type Mismatch")
     .with_category(DiagnosticCategory::TypeInference)
-    .with_secondary_label(
-        ann_span,
-        format!("but `{name}` was annotated as `{ann_ty}`"),
-    )
+    .with_secondary_label(ann_span, format!("but `{name}` was annotated as `{ann_ty}`"))
 }
 
 /// Create a function return-annotation mismatch diagnostic (E300).
@@ -2257,9 +2229,7 @@ pub fn fun_arity_mismatch(
         .with_phase(super::types::DiagnosticPhase::TypeInference)
         .with_file(file)
         .with_span(span)
-        .with_message(format!(
-            "I am applying a function to {direction} arguments."
-        ))
+        .with_message(format!("I am applying a function to {direction} arguments."))
         .with_primary_label(span, format!("this call passes {actual} argument(s)"))
         .with_note(format!("this function takes: {expected} argument(s)"))
         .with_note(format!("but this call passes: {actual} argument(s)"))

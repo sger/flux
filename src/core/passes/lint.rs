@@ -59,11 +59,7 @@ pub fn lint_core_program(program: &CoreProgram) -> Result<(), Vec<CoreLintError>
             e.def_name = Some(def.name);
         }
     }
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors)
-    }
+    if errors.is_empty() { Ok(()) } else { Err(errors) }
 }
 
 /// Verify Core IR invariants for a single definition.
@@ -72,11 +68,7 @@ pub fn lint_core_def(def: &CoreDef) -> Result<(), Vec<CoreLintError>> {
     let mut in_scope = HashSet::new();
     in_scope.insert(def.binder.id);
     lint_expr(&def.expr, &mut in_scope, &mut errors);
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors)
-    }
+    if errors.is_empty() { Ok(()) } else { Err(errors) }
 }
 
 /// Recursively lint a Core expression, maintaining the in-scope binder set.
@@ -104,12 +96,7 @@ fn lint_expr(
 
         CoreExpr::Lit(..) => {}
 
-        CoreExpr::Lam {
-            params,
-            param_types,
-            body,
-            ..
-        } => {
+        CoreExpr::Lam { params, param_types, body, .. } => {
             if !param_types.is_empty() && param_types.len() != params.len() {
                 errors.push(CoreLintError {
                     kind: CoreLintErrorKind::LamParamTypeMismatch,
@@ -173,9 +160,7 @@ fn lint_expr(
             restore_scope(in_scope, saved);
         }
 
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             lint_expr(scrutinee, in_scope, errors);
             for alt in alts {
                 let saved = save_scope(in_scope);
@@ -214,12 +199,7 @@ fn lint_expr(
             }
         }
 
-        CoreExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        CoreExpr::Handle { body, parameter, handlers, .. } => {
             if let Some(parameter) = parameter {
                 lint_expr(parameter, in_scope, errors);
             }
@@ -319,24 +299,15 @@ mod tests {
     }
 
     fn var_ref(id: u32) -> CoreVarRef {
-        CoreVarRef {
-            name: Symbol::new(id),
-            binder: Some(CoreBinderId(id)),
-        }
+        CoreVarRef { name: Symbol::new(id), binder: Some(CoreBinderId(id)) }
     }
 
     fn external_var_ref(name: u32) -> CoreVarRef {
-        CoreVarRef {
-            name: Symbol::new(name),
-            binder: None,
-        }
+        CoreVarRef { name: Symbol::new(name), binder: None }
     }
 
     fn make_program(defs: Vec<CoreDef>) -> CoreProgram {
-        CoreProgram {
-            defs,
-            top_level_items: Vec::new(),
-        }
+        CoreProgram { defs, top_level_items: Vec::new() }
     }
 
     fn make_def(id: u32, expr: CoreExpr) -> CoreDef {
@@ -371,10 +342,7 @@ mod tests {
                 params: vec![binder(1)],
                 param_types: vec![],
                 result_ty: None,
-                body: Box::new(CoreExpr::Var {
-                    var: var_ref(1),
-                    span: s(),
-                }),
+                body: Box::new(CoreExpr::Var { var: var_ref(1), span: s() }),
                 span: s(),
             },
         )]);
@@ -383,13 +351,8 @@ mod tests {
 
     #[test]
     fn lint_passes_for_external_var() {
-        let program = make_program(vec![make_def(
-            0,
-            CoreExpr::Var {
-                var: external_var_ref(99),
-                span: s(),
-            },
-        )]);
+        let program =
+            make_program(vec![make_def(0, CoreExpr::Var { var: external_var_ref(99), span: s() })]);
         assert!(lint_core_program(&program).is_ok());
     }
 
@@ -400,10 +363,7 @@ mod tests {
             CoreExpr::Let {
                 var: binder(1),
                 rhs: Box::new(CoreExpr::Lit(CoreLit::Int(1), s())),
-                body: Box::new(CoreExpr::Var {
-                    var: var_ref(1),
-                    span: s(),
-                }),
+                body: Box::new(CoreExpr::Var { var: var_ref(1), span: s() }),
                 span: s(),
             },
         )]);
@@ -417,14 +377,8 @@ mod tests {
             0,
             CoreExpr::LetRec {
                 var: binder(1),
-                rhs: Box::new(CoreExpr::Var {
-                    var: var_ref(1),
-                    span: s(),
-                }),
-                body: Box::new(CoreExpr::Var {
-                    var: var_ref(1),
-                    span: s(),
-                }),
+                rhs: Box::new(CoreExpr::Var { var: var_ref(1), span: s() }),
+                body: Box::new(CoreExpr::Var { var: var_ref(1), span: s() }),
                 span: s(),
             },
         )]);
@@ -460,11 +414,7 @@ mod tests {
             },
         )]);
         let errors = lint_core_program(&program).unwrap_err();
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.kind == CoreLintErrorKind::DuplicateBinder)
-        );
+        assert!(errors.iter().any(|e| e.kind == CoreLintErrorKind::DuplicateBinder));
     }
 
     #[test]
@@ -480,11 +430,7 @@ mod tests {
             },
         )]);
         let errors = lint_core_program(&program).unwrap_err();
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.kind == CoreLintErrorKind::LamParamTypeMismatch)
-        );
+        assert!(errors.iter().any(|e| e.kind == CoreLintErrorKind::LamParamTypeMismatch));
     }
 
     #[test]
@@ -498,11 +444,7 @@ mod tests {
             },
         )]);
         let errors = lint_core_program(&program).unwrap_err();
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.kind == CoreLintErrorKind::LetRecGroupEmpty)
-        );
+        assert!(errors.iter().any(|e| e.kind == CoreLintErrorKind::LetRecGroupEmpty));
     }
 
     #[test]
@@ -534,10 +476,7 @@ mod tests {
                 alts: vec![CoreAlt {
                     pat: CorePat::Var(binder(1)),
                     guard: None,
-                    rhs: CoreExpr::Var {
-                        var: var_ref(1),
-                        span: s(),
-                    },
+                    rhs: CoreExpr::Var { var: var_ref(1), span: s() },
                     span: s(),
                 }],
                 join_ty: None,

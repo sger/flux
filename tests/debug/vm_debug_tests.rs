@@ -22,21 +22,14 @@ fn prepare(name: &str) -> Scratch {
     let scratch = Scratch::new(&format!("debug-{name}"));
     for ext in ["flx", "flxdbg"] {
         let source = fixture_dir().join(format!("{name}.{ext}"));
-        scratch.write(
-            &format!("{name}.{ext}"),
-            &std::fs::read_to_string(source).unwrap(),
-        );
+        scratch.write(&format!("{name}.{ext}"), &std::fs::read_to_string(source).unwrap());
     }
     scratch
 }
 
 fn flux(scratch: &Scratch, args: &[&str], env: &[(&str, &str)]) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_flux"));
-    command
-        .current_dir(scratch.path())
-        .args(args)
-        .args(scratch.cache_args())
-        .env("NO_COLOR", "1");
+    command.current_dir(scratch.path()).args(args).args(scratch.cache_args()).env("NO_COLOR", "1");
     for (key, value) in env {
         command.env(key, value);
     }
@@ -88,11 +81,7 @@ fn assert_failing_session(name: &str) {
     let scratch = prepare(name);
     let program = format!("{name}.flx");
     let script = format!("{name}.flxdbg");
-    let output = flux(
-        &scratch,
-        &["debug", program.as_str(), "--script", script.as_str()],
-        &[],
-    );
+    let output = flux(&scratch, &["debug", program.as_str(), "--script", script.as_str()], &[]);
     assert!(
         !output.status.success(),
         "{name} was to end with an error:\n{}",
@@ -247,28 +236,13 @@ fn debugging_a_replay_shows_the_recorded_values() {
         &["replayed.flx", "--record", "run.jsonl"],
         &[("DEBUG_FIXTURE_NAME", "recorded")],
     );
-    assert!(
-        recorded.status.success(),
-        "{}",
-        String::from_utf8_lossy(&recorded.stderr)
-    );
+    assert!(recorded.status.success(), "{}", String::from_utf8_lossy(&recorded.stderr));
     let output = flux(
         &scratch,
-        &[
-            "debug",
-            "replayed.flx",
-            "--script",
-            "replayed.flxdbg",
-            "--replay",
-            "run.jsonl",
-        ],
+        &["debug", "replayed.flx", "--script", "replayed.flxdbg", "--replay", "run.jsonl"],
         &[("DEBUG_FIXTURE_NAME", "changed since")],
     );
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     let transcript = transcript(&output);
     insta::with_settings!({
         snapshot_path => "../snapshots/debug_vm",
@@ -288,33 +262,15 @@ fn a_unit_built_from_another_copy_shows_this_copys_source() {
     let home_path = home.path().to_string_lossy().into_owned();
     let replay_in_a_fresh_copy = || {
         let scratch = prepare("replayed");
-        let env = [
-            ("FLUX_HOME", home_path.as_str()),
-            ("DEBUG_FIXTURE_NAME", "copied"),
-        ];
+        let env = [("FLUX_HOME", home_path.as_str()), ("DEBUG_FIXTURE_NAME", "copied")];
         let recorded = flux(&scratch, &["replayed.flx", "--record", "run.jsonl"], &env);
-        assert!(
-            recorded.status.success(),
-            "{}",
-            String::from_utf8_lossy(&recorded.stderr)
-        );
+        assert!(recorded.status.success(), "{}", String::from_utf8_lossy(&recorded.stderr));
         let output = flux(
             &scratch,
-            &[
-                "debug",
-                "replayed.flx",
-                "--script",
-                "replayed.flxdbg",
-                "--replay",
-                "run.jsonl",
-            ],
+            &["debug", "replayed.flx", "--script", "replayed.flxdbg", "--replay", "run.jsonl"],
             &env,
         );
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
         transcript(&output)
     };
     let first = replay_in_a_fresh_copy();
@@ -349,10 +305,8 @@ fn going_back_performs_no_effect_twice() {
     let transcript = debug_session("reverse_clock", &[], &[]);
     // The clock is read once: the value after going back and forward again
     // is the one first read.
-    let readings: Vec<&str> = transcript
-        .lines()
-        .filter(|line| line.starts_with("first = "))
-        .collect();
+    let readings: Vec<&str> =
+        transcript.lines().filter(|line| line.starts_with("first = ")).collect();
     assert_eq!(readings.len(), 2, "{transcript}");
     assert_eq!(readings[0], readings[1], "{transcript}");
     let transcript: Vec<String> = transcript
@@ -396,16 +350,8 @@ fn going_back_through_a_channel() {
 #[test]
 fn going_back_in_a_replay_of_async_code() {
     let scratch = prepare("reverse_async_replayed");
-    let recorded = flux(
-        &scratch,
-        &["reverse_async_replayed.flx", "--record", "run.jsonl"],
-        &[],
-    );
-    assert!(
-        recorded.status.success(),
-        "{}",
-        String::from_utf8_lossy(&recorded.stderr)
-    );
+    let recorded = flux(&scratch, &["reverse_async_replayed.flx", "--record", "run.jsonl"], &[]);
+    assert!(recorded.status.success(), "{}", String::from_utf8_lossy(&recorded.stderr));
     let output = flux(
         &scratch,
         &[
@@ -418,11 +364,7 @@ fn going_back_in_a_replay_of_async_code() {
         ],
         &[],
     );
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     snapshot("reverse_async_replayed", &transcript(&output));
 }
 
@@ -434,11 +376,7 @@ fn going_back_in_a_replay() {
         &["reverse_replayed.flx", "--record", "run.jsonl"],
         &[("DEBUG_FIXTURE_NAME", "recorded")],
     );
-    assert!(
-        recorded.status.success(),
-        "{}",
-        String::from_utf8_lossy(&recorded.stderr)
-    );
+    assert!(recorded.status.success(), "{}", String::from_utf8_lossy(&recorded.stderr));
     let output = flux(
         &scratch,
         &[
@@ -451,11 +389,7 @@ fn going_back_in_a_replay() {
         ],
         &[("DEBUG_FIXTURE_NAME", "changed since")],
     );
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     snapshot("reverse_replayed", &transcript(&output));
 }
 

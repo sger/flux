@@ -22,12 +22,7 @@ const INLINE_THRESHOLD: usize = 10;
 /// (literals, variables) and additionally inlines small or single-use bindings.
 pub fn inline_lets(expr: CoreExpr) -> CoreExpr {
     match expr {
-        CoreExpr::Let {
-            var,
-            rhs,
-            body,
-            span,
-        } => {
+        CoreExpr::Let { var, rhs, body, span } => {
             let rhs = inline_lets(*rhs);
             let body = inline_lets(*body);
 
@@ -38,12 +33,7 @@ pub fn inline_lets(expr: CoreExpr) -> CoreExpr {
 
             if keep::keeps(var.id) {
                 // A debug build keeps the program's own `let`s (0188 S9c).
-                CoreExpr::Let {
-                    var,
-                    rhs: Box::new(rhs),
-                    body: Box::new(body),
-                    span,
-                }
+                CoreExpr::Let { var, rhs: Box::new(rhs), body: Box::new(body), span }
             } else if count == 0
                 && can_discard(&rhs)
                 && opt_bisect::allow("inline_lets", || "drop a let nothing uses".to_string())
@@ -54,12 +44,7 @@ pub fn inline_lets(expr: CoreExpr) -> CoreExpr {
                 body
             } else if count == 0 {
                 // Dead but has observable effect — keep to preserve side effects.
-                CoreExpr::Let {
-                    var,
-                    rhs: Box::new(rhs),
-                    body: Box::new(body),
-                    span,
-                }
+                CoreExpr::Let { var, rhs: Box::new(rhs), body: Box::new(body), span }
             } else if count == 1
                 && !occurs_under_lambda(var.id, &body)
                 && is_pure(&rhs)
@@ -80,12 +65,7 @@ pub fn inline_lets(expr: CoreExpr) -> CoreExpr {
                 // Small pure RHS — inline even if used multiple times.
                 inline_lets(subst(body, var.id, &rhs))
             } else {
-                CoreExpr::Let {
-                    var,
-                    rhs: Box::new(rhs),
-                    body: Box::new(body),
-                    span,
-                }
+                CoreExpr::Let { var, rhs: Box::new(rhs), body: Box::new(body), span }
             }
         }
         // Never inline recursive bindings.
@@ -127,17 +107,9 @@ pub(super) fn count_occurrences(var: CoreBinderId, expr: &CoreExpr) -> usize {
         }
         CoreExpr::App { func, args, .. } => {
             count_occurrences(var, func)
-                + args
-                    .iter()
-                    .map(|a| count_occurrences(var, a))
-                    .sum::<usize>()
+                + args.iter().map(|a| count_occurrences(var, a)).sum::<usize>()
         }
-        CoreExpr::Let {
-            var: binding,
-            rhs,
-            body,
-            ..
-        } => {
+        CoreExpr::Let { var: binding, rhs, body, .. } => {
             let rhs_count = count_occurrences(var, rhs);
             if binding.id == var {
                 rhs_count // shadowed in body
@@ -145,12 +117,7 @@ pub(super) fn count_occurrences(var: CoreBinderId, expr: &CoreExpr) -> usize {
                 rhs_count + count_occurrences(var, body)
             }
         }
-        CoreExpr::LetRec {
-            var: binding,
-            rhs,
-            body,
-            ..
-        } => {
+        CoreExpr::LetRec { var: binding, rhs, body, .. } => {
             if binding.id == var {
                 0 // shadowed in both rhs and body
             } else {
@@ -161,16 +128,11 @@ pub(super) fn count_occurrences(var: CoreBinderId, expr: &CoreExpr) -> usize {
             if bindings.iter().any(|(b, _)| b.id == var) {
                 0 // shadowed by one of the group binders
             } else {
-                bindings
-                    .iter()
-                    .map(|(_, rhs)| count_occurrences(var, rhs))
-                    .sum::<usize>()
+                bindings.iter().map(|(_, rhs)| count_occurrences(var, rhs)).sum::<usize>()
                     + count_occurrences(var, body)
             }
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             count_occurrences(var, scrutinee)
                 + alts
                     .iter()
@@ -188,15 +150,8 @@ pub(super) fn count_occurrences(var: CoreBinderId, expr: &CoreExpr) -> usize {
         CoreExpr::PrimOp { args, .. } => args.iter().map(|a| count_occurrences(var, a)).sum(),
         CoreExpr::Return { value, .. } => count_occurrences(var, value),
         CoreExpr::Perform { args, .. } => args.iter().map(|a| count_occurrences(var, a)).sum(),
-        CoreExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
-            parameter
-                .as_ref()
-                .map_or(0, |parameter| count_occurrences(var, parameter))
+        CoreExpr::Handle { body, parameter, handlers, .. } => {
+            parameter.as_ref().map_or(0, |parameter| count_occurrences(var, parameter))
                 + count_occurrences(var, body)
                 + handlers
                     .iter()
@@ -236,35 +191,22 @@ pub(super) fn occurs_under_lambda(var: CoreBinderId, expr: &CoreExpr) -> bool {
         CoreExpr::App { func, args, .. } => {
             occurs_under_lambda(var, func) || args.iter().any(|a| occurs_under_lambda(var, a))
         }
-        CoreExpr::Let {
-            var: binding,
-            rhs,
-            body,
-            ..
-        } => occurs_under_lambda(var, rhs) || (binding.id != var && occurs_under_lambda(var, body)),
-        CoreExpr::LetRec {
-            var: binding,
-            rhs,
-            body,
-            ..
-        } => binding.id != var && (occurs_under_lambda(var, rhs) || occurs_under_lambda(var, body)),
+        CoreExpr::Let { var: binding, rhs, body, .. } => {
+            occurs_under_lambda(var, rhs) || (binding.id != var && occurs_under_lambda(var, body))
+        }
+        CoreExpr::LetRec { var: binding, rhs, body, .. } => {
+            binding.id != var && (occurs_under_lambda(var, rhs) || occurs_under_lambda(var, body))
+        }
         CoreExpr::LetRecGroup { bindings, body, .. } => {
             !bindings.iter().any(|(b, _)| b.id == var)
-                && (bindings
-                    .iter()
-                    .any(|(_, rhs)| occurs_under_lambda(var, rhs))
+                && (bindings.iter().any(|(_, rhs)| occurs_under_lambda(var, rhs))
                     || occurs_under_lambda(var, body))
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             occurs_under_lambda(var, scrutinee)
                 || alts.iter().any(|alt| {
                     !pat_binds_var(&alt.pat, var)
-                        && (alt
-                            .guard
-                            .as_ref()
-                            .is_some_and(|g| occurs_under_lambda(var, g))
+                        && (alt.guard.as_ref().is_some_and(|g| occurs_under_lambda(var, g))
                             || occurs_under_lambda(var, &alt.rhs))
                 })
         }
@@ -272,15 +214,8 @@ pub(super) fn occurs_under_lambda(var: CoreBinderId, expr: &CoreExpr) -> bool {
         CoreExpr::PrimOp { args, .. } => args.iter().any(|a| occurs_under_lambda(var, a)),
         CoreExpr::Return { value, .. } => occurs_under_lambda(var, value),
         CoreExpr::Perform { args, .. } => args.iter().any(|a| occurs_under_lambda(var, a)),
-        CoreExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
-            parameter
-                .as_ref()
-                .is_some_and(|parameter| occurs_under_lambda(var, parameter))
+        CoreExpr::Handle { body, parameter, handlers, .. } => {
+            parameter.as_ref().is_some_and(|parameter| occurs_under_lambda(var, parameter))
                 || occurs_under_lambda(var, body)
                 || handlers.iter().any(|h| {
                     h.resume.id != var
@@ -310,25 +245,11 @@ pub(super) fn occurs_as_callee(var: CoreBinderId, expr: &CoreExpr) -> bool {
                 || occurs_as_callee(var, func)
                 || args.iter().any(|arg| occurs_as_callee(var, arg))
         }
-        CoreExpr::Let {
-            var: binding,
-            rhs,
-            body,
-            ..
-        } => {
+        CoreExpr::Let { var: binding, rhs, body, .. } => {
             occurs_as_callee(var, rhs)
-                || if binding.id == var {
-                    false
-                } else {
-                    occurs_as_callee(var, body)
-                }
+                || if binding.id == var { false } else { occurs_as_callee(var, body) }
         }
-        CoreExpr::LetRec {
-            var: binding,
-            rhs,
-            body,
-            ..
-        } => {
+        CoreExpr::LetRec { var: binding, rhs, body, .. } => {
             if binding.id == var {
                 false
             } else {
@@ -343,9 +264,7 @@ pub(super) fn occurs_as_callee(var: CoreBinderId, expr: &CoreExpr) -> bool {
                     || occurs_as_callee(var, body)
             }
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             occurs_as_callee(var, scrutinee)
                 || alts.iter().any(|alt| {
                     !pat_binds_var(&alt.pat, var)
@@ -357,15 +276,8 @@ pub(super) fn occurs_as_callee(var: CoreBinderId, expr: &CoreExpr) -> bool {
         CoreExpr::PrimOp { args, .. } => args.iter().any(|a| occurs_as_callee(var, a)),
         CoreExpr::Return { value, .. } => occurs_as_callee(var, value),
         CoreExpr::Perform { args, .. } => args.iter().any(|a| occurs_as_callee(var, a)),
-        CoreExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
-            parameter
-                .as_ref()
-                .is_some_and(|parameter| occurs_as_callee(var, parameter))
+        CoreExpr::Handle { body, parameter, handlers, .. } => {
+            parameter.as_ref().is_some_and(|parameter| occurs_as_callee(var, parameter))
                 || occurs_as_callee(var, body)
                 || handlers.iter().any(|h| {
                     h.resume.id != var

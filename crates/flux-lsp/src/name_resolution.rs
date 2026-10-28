@@ -150,12 +150,7 @@ impl Resolver<'_> {
 
     fn check_stmt(&mut self, stmt: &Statement) {
         match stmt {
-            Statement::Function {
-                parameters,
-                body,
-                intrinsic,
-                ..
-            } => {
+            Statement::Function { parameters, body, intrinsic, .. } => {
                 // An `intrinsic fn … = primop P` has a compiler-generated body
                 // (a call to P's helper, e.g. `string_concat_builtin`) — nothing
                 // the user wrote, so there is nothing to resolve.
@@ -220,25 +215,16 @@ impl Resolver<'_> {
                     self.check_value_name(&text, *span);
                 }
             }
-            Expression::MemberAccess {
-                object,
-                member,
-                span,
-                ..
-            } => self.check_member_access(object, *member, *span),
-            Expression::Call {
-                function,
-                arguments,
-                ..
-            } => {
+            Expression::MemberAccess { object, member, span, .. } => {
+                self.check_member_access(object, *member, *span)
+            }
+            Expression::Call { function, arguments, .. } => {
                 self.check_expr(function);
                 for arg in arguments {
                     self.check_expr(arg);
                 }
             }
-            Expression::Function {
-                parameters, body, ..
-            } => {
+            Expression::Function { parameters, body, .. } => {
                 let mut scope = self.idents_to_strings(parameters);
                 self.hoist_block(body, &mut scope);
                 self.push_scope(scope);
@@ -252,21 +238,14 @@ impl Resolver<'_> {
                 self.check_block(block);
                 self.pop_scope();
             }
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-                ..
-            } => {
+            Expression::If { condition, consequence, alternative, .. } => {
                 self.check_expr(condition);
                 self.check_branch(consequence);
                 if let Some(alt) = alternative {
                     self.check_branch(alt);
                 }
             }
-            Expression::Match {
-                scrutinee, arms, ..
-            } => {
+            Expression::Match { scrutinee, arms, .. } => {
                 self.check_expr(scrutinee);
                 for arm in arms {
                     let mut scope = HashSet::new();
@@ -279,12 +258,7 @@ impl Resolver<'_> {
                     self.pop_scope();
                 }
             }
-            Expression::Handle {
-                expr,
-                parameter,
-                arms,
-                ..
-            } => {
+            Expression::Handle { expr, parameter, arms, .. } => {
                 self.check_expr(expr);
                 if let Some(p) = parameter {
                     self.check_expr(p);
@@ -345,9 +319,7 @@ impl Resolver<'_> {
                     self.check_field_init(field);
                 }
             }
-            Expression::Spread {
-                base, overrides, ..
-            } => {
+            Expression::Spread { base, overrides, .. } => {
                 self.check_expr(base);
                 for field in overrides {
                     self.check_field_init(field);
@@ -418,10 +390,7 @@ impl Resolver<'_> {
     }
 
     fn idents_to_strings(&self, ids: &[flux::syntax::Identifier]) -> HashSet<String> {
-        ids.iter()
-            .filter_map(|id| self.resolve(*id))
-            .map(str::to_string)
-            .collect()
+        ids.iter().filter_map(|id| self.resolve(*id)).map(str::to_string).collect()
     }
 
     /// Pre-seed a block's scope with every `fn`/`let` name it declares, so
@@ -489,12 +458,7 @@ fn collect_global_decls(stmts: &[Statement], interner: &Interner, out: &mut Hash
                     out.insert(last_segment(text).to_string());
                 }
             }
-            Statement::Import {
-                name,
-                alias,
-                exposing,
-                ..
-            } => {
+            Statement::Import { name, alias, exposing, .. } => {
                 // The binding name (alias, or the full path) so the module is in
                 // scope; plus any `exposing (...)` members made unqualified.
                 if let Some(alias) = alias {
@@ -533,10 +497,8 @@ fn module_member_sets(snapshot: &Snapshot) -> std::collections::HashMap<String, 
                     // the membership check (but still treat it as a binding).
                     continue;
                 };
-                let binding = alias
-                    .and_then(|a| interner.try_resolve(a))
-                    .unwrap_or(full)
-                    .to_string();
+                let binding =
+                    alias.and_then(|a| interner.try_resolve(a)).unwrap_or(full).to_string();
                 map.insert(binding, members.iter().cloned().collect());
             }
             Statement::Module { name, body, .. } => {

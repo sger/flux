@@ -17,14 +17,7 @@ pub fn beta_reduce(expr: CoreExpr) -> CoreExpr {
         CoreExpr::App { func, args, span } => {
             let func = beta_reduce(*func);
             let args: Vec<_> = args.into_iter().map(beta_reduce).collect();
-            if let CoreExpr::Lam {
-                params,
-                param_types,
-                result_ty,
-                body,
-                span: lambda,
-            } = func
-            {
+            if let CoreExpr::Lam { params, param_types, result_ty, body, span: lambda } = func {
                 if params.iter().any(|param| keep::keeps(param.id))
                     || !opt_bisect::allow("beta", || {
                         format!(
@@ -86,18 +79,10 @@ pub fn beta_reduce(expr: CoreExpr) -> CoreExpr {
                         body = subst(body, p.id, &a);
                     }
                     let body = beta_reduce(body);
-                    beta_reduce(CoreExpr::App {
-                        func: Box::new(body),
-                        args: extra_args,
-                        span,
-                    })
+                    beta_reduce(CoreExpr::App { func: Box::new(body), args: extra_args, span })
                 }
             } else {
-                CoreExpr::App {
-                    func: Box::new(func),
-                    args,
-                    span,
-                }
+                CoreExpr::App { func: Box::new(func), args, span }
             }
         }
         CoreExpr::Lam { .. }

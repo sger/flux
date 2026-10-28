@@ -94,10 +94,7 @@ fn convert_action(uri: &Uri, label: &str, new_text: &str, range: Range) -> CodeA
                     uri: uri.clone(),
                     version: None,
                 },
-                edits: vec![OneOf::Left(TextEdit {
-                    range,
-                    new_text: new_text.to_string(),
-                })],
+                edits: vec![OneOf::Left(TextEdit { range, new_text: new_text.to_string() })],
             }])),
             ..Default::default()
         }),

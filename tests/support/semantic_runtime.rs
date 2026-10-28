@@ -29,10 +29,8 @@ pub fn combined_output(output: &Output) -> String {
 pub fn run_fixture(rel: &str, native: bool) -> Output {
     let fixture = semantic_fixture_path(rel);
     let fixture_root = semantic_fixture_root();
-    let entry_parent = fixture
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| fixture_root.clone());
+    let entry_parent =
+        fixture.parent().map(Path::to_path_buf).unwrap_or_else(|| fixture_root.clone());
     let lib_root = workspace_root().join("lib");
     let mut args: Vec<String> = Vec::new();
     if native {

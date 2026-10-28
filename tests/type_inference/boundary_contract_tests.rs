@@ -11,11 +11,7 @@ use flux::syntax::{interner::Interner, lexer::Lexer, parser::Parser, program::Pr
 fn parse(input: &str) -> (Program, Interner) {
     let mut parser = Parser::new(Lexer::new(input));
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     (program, interner)
 }
@@ -76,10 +72,7 @@ fn typed_let_with_mismatched_annotation_still_errors_in_strict_mode() {
         }
     "#;
     let errs = compile_strict_errors(src);
-    assert!(
-        !errs.is_empty(),
-        "annotation mismatch must surface a diagnostic"
-    );
+    assert!(!errs.is_empty(), "annotation mismatch must surface a diagnostic");
     // The AST path renders E300 for this kind of mismatch.
     assert!(
         errs.iter().any(|d| d.code() == Some("E300")),
@@ -110,10 +103,7 @@ fn ranking_spans_related_catches_overlap() {
     use flux::diagnostics::ranking::spans_related;
     let a = Span::new(Position::new(1, 0), Position::new(3, 100));
     let b = Span::new(Position::new(2, 10), Position::new(2, 20));
-    assert!(
-        spans_related(a, b),
-        "containing spans must still suppress the contained follow-on"
-    );
+    assert!(spans_related(a, b), "containing spans must still suppress the contained follow-on");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -196,10 +186,7 @@ fn core_contract_accepts_concrete_result() {
     use flux::core::{CoreProgram, CoreType};
 
     // An empty program with no defs trivially satisfies the contract.
-    let prog = CoreProgram {
-        defs: Vec::new(),
-        top_level_items: Vec::new(),
-    };
+    let prog = CoreProgram { defs: Vec::new(), top_level_items: Vec::new() };
     let interner = Interner::new();
     let report = validate_core_static_contract(&prog, &interner);
     assert!(report.is_clean(), "empty program must pass Core contract");
@@ -241,10 +228,7 @@ fn core_contract_violation_includes_boundary_label() {
         fip: None,
         span: Span::default(),
     };
-    let prog = CoreProgram {
-        defs: vec![def],
-        top_level_items: Vec::new(),
-    };
+    let prog = CoreProgram { defs: vec![def], top_level_items: Vec::new() };
     let report = validate_core_static_contract(&prog, &interner);
     assert_eq!(report.violations.len(), 1, "expected one violation");
     let expected = BoundaryKind::BackendConcreteBoundary.label();

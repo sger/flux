@@ -32,10 +32,7 @@ impl CacheDisplaySelection {
         let show_vm = flags.backend.selected == Backend::Vm;
         let show_native = backend_policy::should_show_native_cache(flags)
             && backend_policy::native_cache_available();
-        Self {
-            show_vm,
-            show_native,
-        }
+        Self { show_vm, show_native }
     }
 }
 

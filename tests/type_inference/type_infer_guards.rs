@@ -42,11 +42,7 @@ fn is_fn_start_line(trimmed: &str) -> bool {
 }
 
 fn function_name_from_line(line: &str) -> String {
-    let after_fn = line
-        .split_once("fn ")
-        .map(|(_, right)| right)
-        .unwrap_or(line)
-        .trim_start();
+    let after_fn = line.split_once("fn ").map(|(_, right)| right).unwrap_or(line).trim_start();
     let end = after_fn
         .find(|c: char| c == '<' || c == '(' || c.is_whitespace())
         .unwrap_or(after_fn.len());
@@ -113,11 +109,7 @@ fn type_infer_functions_require_rustdoc() {
                 continue;
             }
             if !has_preceding_doc_block(&lines, line_idx) {
-                violations.push(format!(
-                    "{}:{} missing rustdoc",
-                    file.display(),
-                    line_idx + 1
-                ));
+                violations.push(format!("{}:{} missing rustdoc", file.display(), line_idx + 1));
             }
         }
     }
@@ -152,11 +144,7 @@ struct FnSpan {
 }
 
 fn strip_line_comment(s: &str) -> &str {
-    if let Some((before, _)) = s.split_once("//") {
-        before
-    } else {
-        s
-    }
+    if let Some((before, _)) = s.split_once("//") { before } else { s }
 }
 
 fn find_fn_end_idx(lines: &[String], start_idx: usize) -> usize {
@@ -274,11 +262,7 @@ fn type_infer_function_complexity_budget() {
         }
     }
 
-    assert!(
-        violations.is_empty(),
-        "type_infer complexity violations:\n{}",
-        violations.join("\n")
-    );
+    assert!(violations.is_empty(), "type_infer complexity violations:\n{}", violations.join("\n"));
 }
 
 // ---------------------------------------------------------------------------
@@ -347,9 +331,5 @@ fn type_infer_naming_conventions() {
         }
     }
 
-    assert!(
-        violations.is_empty(),
-        "type_infer naming violations:\n{}",
-        violations.join("\n")
-    );
+    assert!(violations.is_empty(), "type_infer naming violations:\n{}", violations.join("\n"));
 }

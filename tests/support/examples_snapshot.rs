@@ -94,17 +94,11 @@ pub fn run_fixture_subdir_snapshots(
         let snapshot = snapshot_name(&fixtures_root, &fixture);
         let transcript = build_transcript_with_options(&fixture, &rel, workspace_root, false)
             .unwrap_or_else(|e| format!("Fixture: {rel}\n== error ==\n{e}\n"));
-        cases.push(FixtureSnapshotCase {
-            snapshot_name: snapshot,
-            transcript,
-        });
+        cases.push(FixtureSnapshotCase { snapshot_name: snapshot, transcript });
     }
 
     if cases.is_empty() {
-        return Err(format!(
-            "no .flx fixtures found under `{}`",
-            subdir_path.display()
-        ));
+        return Err(format!("no .flx fixtures found under `{}`", subdir_path.display()));
     }
 
     Ok(cases)
@@ -118,10 +112,7 @@ fn run_fixture_dir_snapshots_with_options(
     let fixtures_root = workspace_root.join(fixtures_dir_rel);
     let fixtures = discover_fixtures(&fixtures_root);
     if fixtures.is_empty() {
-        return Err(format!(
-            "no .flx fixtures found under `{}`",
-            fixtures_root.display()
-        ));
+        return Err(format!("no .flx fixtures found under `{}`", fixtures_root.display()));
     }
 
     let mut cases = Vec::with_capacity(fixtures.len());
@@ -135,10 +126,7 @@ fn run_fixture_dir_snapshots_with_options(
         let transcript =
             build_transcript_with_options(&fixture, &rel, workspace_root, strip_parity_metadata)
                 .unwrap_or_else(|e| format!("Fixture: {rel}\n== error ==\n{e}\n"));
-        cases.push(FixtureSnapshotCase {
-            snapshot_name: snapshot,
-            transcript,
-        });
+        cases.push(FixtureSnapshotCase { snapshot_name: snapshot, transcript });
     }
 
     Ok(cases)
@@ -304,11 +292,7 @@ fn header_directives<'a>(source: &'a str, name: &'a str) -> impl Iterator<Item =
         .map(str::trim)
         .take_while(|line| line.is_empty() || line.starts_with("//"))
         .filter_map(move |line| {
-            line.strip_prefix("//")?
-                .trim()
-                .strip_prefix(name)?
-                .strip_prefix(':')
-                .map(str::trim)
+            line.strip_prefix("//")?.trim().strip_prefix(name)?.strip_prefix(':').map(str::trim)
         })
 }
 
@@ -318,10 +302,8 @@ fn collect_roots(
     fixture_rel: &str,
     header_roots: &[&str],
 ) -> Vec<PathBuf> {
-    let mut roots: Vec<PathBuf> = header_roots
-        .iter()
-        .map(|root| workspace_root.join(root))
-        .collect();
+    let mut roots: Vec<PathBuf> =
+        header_roots.iter().map(|root| workspace_root.join(root)).collect();
     if fixture_rel.starts_with("examples/runtime_boundaries/RuntimeBoundaries/") {
         roots.push(workspace_root.join("examples/runtime_boundaries"));
     }
@@ -360,11 +342,8 @@ pub fn build_transcript_with_options(
     let strict = header_directives(&source, "flags")
         .flat_map(str::split_whitespace)
         .any(|flag| flag == "--strict");
-    let source = if strip_parity_metadata {
-        strip_parity_metadata_header(&source)
-    } else {
-        source.as_str()
-    };
+    let source =
+        if strip_parity_metadata { strip_parity_metadata_header(&source) } else { source.as_str() };
 
     let lexer = Lexer::new(source);
     let mut parser = Parser::new(lexer);
@@ -390,16 +369,10 @@ pub fn build_transcript_with_options(
             let entry_path = fs::canonicalize(fixture).unwrap_or_else(|_| fixture.to_path_buf());
             let mut ordered_nodes = graph_result.graph.topo_order();
             ordered_nodes.sort_by_key(|node| {
-                if node.kind == flux::syntax::module_graph::ModuleKind::FlowStdlib {
-                    0
-                } else {
-                    1
-                }
+                if node.kind == flux::syntax::module_graph::ModuleKind::FlowStdlib { 0 } else { 1 }
             });
-            let nodes_by_path: std::collections::HashMap<_, _> = ordered_nodes
-                .iter()
-                .map(|node| (node.path.clone(), node))
-                .collect();
+            let nodes_by_path: std::collections::HashMap<_, _> =
+                ordered_nodes.iter().map(|node| (node.path.clone(), node)).collect();
             for node in &ordered_nodes {
                 // Mirror the driver (`src/driver/run_program/modules.rs`): one
                 // shared compiler, but each module's dependencies preloaded

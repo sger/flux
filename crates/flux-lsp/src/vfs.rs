@@ -94,8 +94,7 @@ impl Vfs {
 
     /// Record an editor-owned open buffer (from `didOpen`/`didChange`).
     pub fn set_open(&mut self, id: FileId, text: Arc<str>, version: i32) {
-        self.contents
-            .insert(id, FileContent::Open { text, version });
+        self.contents.insert(id, FileContent::Open { text, version });
     }
 
     /// Record an on-disk file the editor has not opened.
@@ -107,14 +106,10 @@ impl Vfs {
     /// disk its content is re-read into an `OnDisk` entry; otherwise the
     /// entry is removed entirely.
     pub fn close(&mut self, id: FileId) {
-        let on_disk = self
-            .interner
-            .path(id)
-            .and_then(|p| std::fs::read_to_string(p).ok());
+        let on_disk = self.interner.path(id).and_then(|p| std::fs::read_to_string(p).ok());
         match on_disk {
             Some(text) => {
-                self.contents
-                    .insert(id, FileContent::OnDisk { text: text.into() });
+                self.contents.insert(id, FileContent::OnDisk { text: text.into() });
             }
             None => {
                 self.contents.remove(&id);
@@ -164,16 +159,9 @@ pub fn uri_to_path(uri: &Uri) -> Option<PathBuf> {
     let stripped = s.strip_prefix("file://").unwrap_or(s);
     let decoded = percent_decode(stripped);
     let path_str = if decoded.starts_with('/')
-        && decoded
-            .chars()
-            .nth(2)
-            .is_some_and(|c| c == ':' || cfg!(not(windows)))
+        && decoded.chars().nth(2).is_some_and(|c| c == ':' || cfg!(not(windows)))
     {
-        if cfg!(windows) {
-            decoded.trim_start_matches('/').to_string()
-        } else {
-            decoded
-        }
+        if cfg!(windows) { decoded.trim_start_matches('/').to_string() } else { decoded }
     } else {
         decoded
     };
@@ -193,11 +181,7 @@ pub fn parent_dir_of_uri(uri: &Uri) -> Option<PathBuf> {
 /// expect it.
 pub fn path_to_uri(path: &Path) -> Option<Uri> {
     let s = strip_verbatim_prefix(&path.to_string_lossy()).replace('\\', "/");
-    let with_slash = if s.starts_with('/') {
-        s
-    } else {
-        format!("/{s}")
-    };
+    let with_slash = if s.starts_with('/') { s } else { format!("/{s}") };
     Uri::from_str(&format!("file://{}", percent_encode_path(&with_slash))).ok()
 }
 
