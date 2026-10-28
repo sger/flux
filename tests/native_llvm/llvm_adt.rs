@@ -1,11 +1,10 @@
 #![cfg(feature = "llvm")]
 
-use std::{
-    collections::HashMap,
-    fs,
-    process::Command,
-    time::{SystemTime, UNIX_EPOCH},
-};
+#[path = "../support/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
+use std::{collections::HashMap, fs, process::Command};
 
 use flux::{
     compiler::Compiler,
@@ -281,17 +280,8 @@ fn main() {
 }
 "#,
     );
-    let scratch = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("target")
-        .join("test-scratch");
-    fs::create_dir_all(&scratch).ok();
-    let path = scratch.join(format!(
-        "llvm_phase5_{}.ll",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock after unix epoch")
-            .as_nanos()
-    ));
+    let scratch = Scratch::new("llvm_phase5");
+    let path = scratch.join("module.ll");
     fs::write(&path, &ll).expect("write ll");
     let output = Command::new("opt")
         .arg("--disable-output")

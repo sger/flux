@@ -56,21 +56,10 @@ fn combined_output(output: &Output) -> String {
 }
 
 #[cfg(feature = "llvm")]
-fn write_temp_flux_file(prefix: &str, source: &str) -> PathBuf {
-    let unique = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or(0);
-    let dir = workspace_root().join("target").join("test-scratch");
-    std::fs::create_dir_all(&dir).ok();
-    let path = dir.join(format!(
-        "flux_{prefix}_{}_{}.flx",
-        std::process::id(),
-        unique
-    ));
-    std::fs::write(&path, source)
-        .unwrap_or_else(|err| panic!("failed to write temp fixture {}: {err}", path.display()));
-    path
+fn write_temp_flux_file(prefix: &str, source: &str) -> (Scratch, PathBuf) {
+    let scratch = Scratch::new(prefix);
+    let path = scratch.write(&format!("flux_{prefix}.flx"), source);
+    (scratch, path)
 }
 
 #[allow(dead_code)]
@@ -428,10 +417,10 @@ fn test_mode_native_handles_files_that_already_define_main() {
         return;
     }
 
-    let file = write_temp_flux_file("native_test_main", "fn main() { 0 }\nfn test_ok() { 0 }\n");
+    let (_files, file) =
+        write_temp_flux_file("native_test_main", "fn main() { 0 }\nfn test_ok() { 0 }\n");
     let output = run_flux(&["--test", "--native", file.to_str().unwrap()]);
     let text = combined_output(&output);
-    let _ = std::fs::remove_file(&file);
 
     assert!(
         output.status.success(),
@@ -458,13 +447,12 @@ fn test_mode_native_rejects_additional_main_references_in_harness_rewrite() {
         return;
     }
 
-    let file = write_temp_flux_file(
+    let (_files, file) = write_temp_flux_file(
         "native_test_main_ref",
         "fn main() { main() }\nfn test_ok() { 0 }\n",
     );
     let output = run_flux(&["--test", "--native", file.to_str().unwrap()]);
     let text = combined_output(&output);
-    let _ = std::fs::remove_file(&file);
 
     assert!(
         !output.status.success(),
@@ -1069,7 +1057,7 @@ fn test_native_large_list_fold_is_stack_safe() {
         return;
     }
 
-    let file = write_temp_flux_file(
+    let (_files, file) = write_temp_flux_file(
         "native_large_list_fold",
         r#"
 fn main() with IO {
@@ -2279,7 +2267,7 @@ fn repl_set_unknown_option_reports_without_panicking() {
 fn repl_script_runs_a_file_of_repl_inputs() {
     // `:script <file>` feeds each line of the file through the same dispatch as
     // typed input — declarations and expressions alike.
-    let script = repl_temp_flx("script", "let s = 3\ns * s\n1 + 1\n");
+    let (_files, script) = repl_temp_flx("script", "let s = 3\ns * s\n1 + 1\n");
     let output = run_flux_repl(&format!(":script \"{}\"\n:quit\n", script.display()));
     assert_eq!(
         repl_results(&output),
@@ -2470,30 +2458,24 @@ fn repl_continues_multiline_forms() {
     );
 }
 
-/// Write `source` to a uniquely named temp `.flx` file and return its path.
-fn repl_temp_flx(tag: &str, source: &str) -> std::path::PathBuf {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let dir = workspace_root().join("target").join("test-scratch");
-    std::fs::create_dir_all(&dir).ok();
-    let path = dir.join(format!("flux_repl_{tag}_{nanos}.flx"));
-    std::fs::write(&path, source).expect("write temp flx");
-    path
+/// Write `source` to a `.flx` file in its own scratch directory. The file
+/// lives as long as the returned `Scratch`.
+fn repl_temp_flx(tag: &str, source: &str) -> (Scratch, std::path::PathBuf) {
+    let scratch = Scratch::new(&format!("repl-{tag}"));
+    let path = scratch.write(&format!("flux_repl_{tag}.flx"), source);
+    (scratch, path)
 }
 
 #[test]
 fn repl_load_brings_file_definitions_into_scope() {
     // `:load` compiles the whole file in one delta, so its definitions are usable
     // on later lines (here `triple` applied to the loaded `base`).
-    let file = repl_temp_flx("load", "fn triple(n: Int) -> Int { n * 3 }\nlet base = 7\n");
+    let (_files, file) =
+        repl_temp_flx("load", "fn triple(n: Int) -> Int { n * 3 }\nlet base = 7\n");
     let output = run_flux_repl(&format!(
         ":load \"{}\"\ntriple(base)\n:quit\n",
         file.display()
     ));
-    let _ = std::fs::remove_file(&file);
     assert_eq!(
         repl_results(&output),
         ["21"],
@@ -2506,12 +2488,11 @@ fn repl_load_brings_file_definitions_into_scope() {
 fn repl_reload_reapplies_the_loaded_file() {
     // After `:load`, `:reload` re-bootstraps and re-applies the same file, so its
     // definitions remain callable.
-    let file = repl_temp_flx("reload", "fn answer() -> Int { 42 }\n");
+    let (_files, file) = repl_temp_flx("reload", "fn answer() -> Int { 42 }\n");
     let output = run_flux_repl(&format!(
         ":load \"{}\"\n:reload\nanswer()\n:quit\n",
         file.display()
     ));
-    let _ = std::fs::remove_file(&file);
     assert_eq!(
         repl_results(&output),
         ["42"],
@@ -2586,12 +2567,11 @@ fn repl_reset_after_load_clears_loaded_definitions() {
     // `:reset` forgets everything brought in by `:load`: `triple` resolves before
     // the reset (one `21`) and is gone after it (the second call errors, so no
     // second `21`).
-    let file = repl_temp_flx("reset_after_load", "fn triple(n: Int) -> Int { n * 3 }\n");
+    let (_files, file) = repl_temp_flx("reset_after_load", "fn triple(n: Int) -> Int { n * 3 }\n");
     let output = run_flux_repl(&format!(
         ":load \"{}\"\ntriple(7)\n:reset\ntriple(7)\n:quit\n",
         file.display()
     ));
-    let _ = std::fs::remove_file(&file);
     let twenty_ones = repl_results(&output)
         .into_iter()
         .filter(|line| line == "21")
@@ -2834,30 +2814,18 @@ fn run_compiles_top_level_match_and_destructure() {
     // "missing global mapping" when a top-level `match` or tuple `let (a, b)`
     // allocated a transient slot in the global namespace. Run a file end to end
     // through `flux <file>` (which exercises that path) and check it executes.
-    // Run with an isolated per-fixture cache dir (`--cache-dir`) so this test
-    // exercises the cached/relocatable module-linker path WITHOUT sharing the
-    // project's `target/flux` cache with concurrent test threads (which would
-    // race the prelude artifacts: "interface fingerprint changed").
-    let dir = workspace_root()
-        .join("target")
-        .join("test-scratch")
-        .join(format!("toplevel_frame_{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("create scratch dir");
-    let file = dir.join("toplevel_frame.flx");
-    std::fs::write(
-        &file,
+    // `run_flux` gives the run its own cache dir, so this test exercises the
+    // cached module-linker path without sharing a cache with concurrent
+    // tests (which would race the prelude artifacts: "interface fingerprint
+    // changed").
+    let scratch = Scratch::new("toplevel-frame");
+    let file = scratch.write(
+        "toplevel_frame.flx",
         "let x = match Some(7) { Some(n) -> n, _ -> 0 }\n\
          let (a, b) = (10, 20)\n\
          fn main() with IO { println(x + a + b) }\n",
-    )
-    .expect("write fixture");
-    let cache = dir.join(".flux");
-    let output = run_flux(&[
-        file.to_str().unwrap(),
-        "--cache-dir",
-        cache.to_str().unwrap(),
-    ]);
-    let _ = std::fs::remove_dir_all(&dir);
+    );
+    let output = run_flux(&[file.to_str().unwrap()]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.lines().any(|line| line.trim() == "37"),

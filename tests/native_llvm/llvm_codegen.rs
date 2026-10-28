@@ -1,11 +1,10 @@
 #![cfg(feature = "llvm")]
 
-use std::{
-    collections::HashMap,
-    fs,
-    process::Command,
-    time::{SystemTime, UNIX_EPOCH},
-};
+#[path = "../support/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
+use std::{collections::HashMap, fs, process::Command};
 
 use flux::{
     compiler::Compiler,
@@ -56,10 +55,9 @@ fn llvm_function_text<'a>(ll: &'a str, name: &str) -> &'a str {
 
 #[test]
 fn optimization_level_changes_native_object_output() {
-    let root = std::env::temp_dir().join(format!("flux-profile-opt-{}", std::process::id()));
-    let _ = fs::create_dir_all(&root);
-    let o0 = root.join("o0.o");
-    let o2 = root.join("o2.o");
+    let scratch = Scratch::new("profile-opt");
+    let o0 = scratch.join("o0.o");
+    let o2 = scratch.join("o2.o");
     let source = r#"
         define i32 @main() {
           %value = add i32 20, 22
@@ -69,7 +67,6 @@ fn optimization_level_changes_native_object_output() {
     compile_ir_to_object(source, &o0, 0).expect("-O0 native compilation should succeed");
     compile_ir_to_object(source, &o2, 2).expect("-O2 native compilation should succeed");
     assert_ne!(fs::read(&o0).unwrap(), fs::read(&o2).unwrap());
-    let _ = fs::remove_dir_all(root);
 }
 
 #[test]
@@ -210,17 +207,8 @@ fn factorial(n, acc) {
 }
 "#,
     );
-    let scratch = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("target")
-        .join("test-scratch");
-    fs::create_dir_all(&scratch).ok();
-    let path = scratch.join(format!(
-        "llvm_codegen_{}.ll",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock after unix epoch")
-            .as_nanos()
-    ));
+    let scratch = Scratch::new("llvm_codegen");
+    let path = scratch.join("module.ll");
     fs::write(&path, &ll).expect("write ll");
     let output = Command::new("opt")
         .arg("--disable-output")
@@ -352,17 +340,8 @@ fn emitted_prelude_and_arith_opt_verify_if_available() {
     let mut module = LlvmModule::new();
     emit_prelude_and_arith(&mut module);
     let ll = render_module(&module);
-    let scratch = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("target")
-        .join("test-scratch");
-    fs::create_dir_all(&scratch).ok();
-    let temp = scratch.join(format!(
-        "llvm_phase2_{}.ll",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock should be after unix epoch")
-            .as_nanos()
-    ));
+    let scratch = Scratch::new("llvm_phase2");
+    let temp = scratch.join("module.ll");
 
     fs::write(&temp, ll).expect("write ll file");
     let output = Command::new("opt")

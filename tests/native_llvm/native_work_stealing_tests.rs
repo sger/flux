@@ -23,17 +23,11 @@ use scratch::Scratch;
 use scratch::workspace_root;
 
 fn run_source_with_env(source: &str, tag: &str, env: &[(&str, &str)]) -> (String, String, bool) {
-    let dir = workspace_root()
-        .join("target")
-        .join("test-scratch")
-        .join(format!("flux-load-balance-{}-{}", std::process::id(), tag,));
-    std::fs::create_dir_all(&dir).expect("create temp dir");
-    let path = dir.join("fixture.flx");
-    std::fs::write(&path, source).expect("write fixture");
-
     // Private cache root: `--no-cache` does not isolate native
     // builds, which write shared artifacts regardless (KI-010).
-    let scratch = Scratch::new("native-llvm");
+    let scratch = Scratch::new(&format!("flux-load-balance-{tag}"));
+    let path = scratch.write("fixture.flx", source);
+
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_flux"));
     cmd.current_dir(workspace_root())
         .args([path.to_str().unwrap(), "--native", "--no-cache"])

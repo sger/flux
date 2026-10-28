@@ -2,11 +2,11 @@
 mod scratch;
 
 use flux::parity::normalize;
+use scratch::Scratch;
 use scratch::workspace_root;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 // Native backend CLI runs share cache and output paths for the same fixture, so serialize command
 // execution ONLY when the invocation uses `--native` (which writes .o / .ll / binary artifacts
@@ -14,7 +14,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 // read-only from the runtime's perspective and can run in parallel under cargo's default
 // thread pool.
 static CLI_LOCK: Mutex<()> = Mutex::new(());
-static CACHE_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn example_path(rel: &str) -> PathBuf {
     workspace_root().join("examples").join(rel)
@@ -23,14 +22,6 @@ fn example_path(rel: &str) -> PathBuf {
 fn needs_cli_lock(args: &[&str]) -> bool {
     args.iter()
         .any(|a| *a == "--native" || *a == "--emit-binary")
-}
-
-fn isolated_cache_dir() -> PathBuf {
-    let id = CACHE_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
-    workspace_root()
-        .join("target")
-        .join("test-caches")
-        .join(format!("aether-cli-snapshots-{}-{id}", std::process::id()))
 }
 
 fn run_flux_output(args: &[&str]) -> std::process::Output {
@@ -44,11 +35,10 @@ fn run_flux_output(args: &[&str]) -> std::process::Output {
     } else {
         None
     };
-    let cache_dir = isolated_cache_dir();
+    let scratch = Scratch::new("aether-cli");
     Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
-        .arg("--cache-dir")
-        .arg(&cache_dir)
+        .args(scratch.cache_args())
         .args(args)
         .env("NO_COLOR", "1")
         .output()
@@ -90,11 +80,10 @@ fn run_flux_trace_snapshot(args: &[&str]) -> String {
     } else {
         None
     };
-    let cache_dir = isolated_cache_dir();
+    let scratch = Scratch::new("aether-cli");
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
-        .arg("--cache-dir")
-        .arg(&cache_dir)
+        .args(scratch.cache_args())
         .args(args)
         .env("NO_COLOR", "1")
         .output()

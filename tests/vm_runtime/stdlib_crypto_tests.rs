@@ -13,7 +13,6 @@
 //! effect annotation, while `sha256_file` must be rejected without
 //! `FileSystem`.
 
-use std::path::PathBuf;
 use std::process::Command;
 
 #[path = "../support/flux_runner.rs"]
@@ -22,16 +21,9 @@ use flux_runner::run_flux_test;
 use flux_runner::scratch::Scratch;
 use flux_runner::workspace_root;
 
-fn scratch_dir() -> PathBuf {
-    let dir = workspace_root().join("target").join("test-scratch");
-    std::fs::create_dir_all(&dir).expect("create scratch dir");
-    dir
-}
-
 fn run_source(name: &str, source: &str) -> (String, String, bool) {
-    let file = scratch_dir().join(name);
-    std::fs::write(&file, source).expect("write scratch fixture");
-    let scratch = Scratch::new("cache-isolated");
+    let scratch = Scratch::new("stdlib-run");
+    let file = scratch.write(name, source);
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args(["run", file.to_str().unwrap(), "--no-cache"])
@@ -102,7 +94,8 @@ fn main() -> Unit with Console {{
 fn hashing_a_large_file_streams_to_the_same_digest() {
     use sha2::{Digest, Sha256};
 
-    let path = scratch_dir().join("crypto_large.bin");
+    let files = Scratch::new("crypto-large");
+    let path = files.join("crypto_large.bin");
     // Deliberately not a multiple of the 64 KiB chunk size, so the final
     // partial read and the padding path are both exercised.
     let payload = vec![b'a'; 200_003];
@@ -114,18 +107,21 @@ fn hashing_a_large_file_streams_to_the_same_digest() {
 
     let (stdout, stderr, success) = run_source(
         "crypto_large.flx",
-        r#"
+        &format!(
+            r#"
 import Flow.Crypto as Crypto
 
-fn main() -> Unit with FileSystem, Console {
-    match Crypto.sha256_file("target/test-scratch/crypto_large.bin") {
+fn main() -> Unit with FileSystem, Console {{
+    match Crypto.sha256_file("{}") {{
         Ok(h) -> println(h),
         Err(_) -> println("ERR"),
-    }
-}
+    }}
+}}
 "#,
+            // A Windows separator would read as an escape in a Flux string.
+            path.to_str().unwrap().replace('\\', "/")
+        ),
     );
-    let _ = std::fs::remove_file(&path);
     assert!(success, "run failed:\n{stdout}\n{stderr}");
     assert!(
         stdout.contains(&expected),
