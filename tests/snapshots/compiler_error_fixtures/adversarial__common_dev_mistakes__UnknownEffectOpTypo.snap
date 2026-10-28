@@ -9,9 +9,9 @@ error[E404]: Unknown Effect Operation
 
 Effect `Console` has no declared operation `prnit`.
 
-  examples/compiler_errors/adversarial/common_dev_mistakes/UnknownEffectOpTypo.flx:9:5
+  examples/compiler_errors/adversarial/common_dev_mistakes/UnknownEffectOpTypo.flx:8:5
   |
-9 |     perform Console.prnit("x")
+8 |     perform Console.prnit("x")
   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
   |     -------------------------- unknown operation in perform
 

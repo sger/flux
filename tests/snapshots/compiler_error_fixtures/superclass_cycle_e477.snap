@@ -9,13 +9,13 @@ error[E477]: Superclass Cycle
 
 Class `Alpha` is reachable from its own superclasses: Alpha -> Beta -> Alpha.
 
-  examples/compiler_errors/superclass_cycle_e477.flx:16:1
+  examples/compiler_errors/superclass_cycle_e477.flx:15:1
    |
-16 | class Beta<a> => Alpha<a> {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-17 |     fn alpha(x: a) -> Int
+15 | class Beta<a> => Alpha<a> { //~ E477
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+16 |     fn alpha(x: a) -> Int
    | ^^^^^^^^^^^^^^^^^^^^^^^^^
-18 | }
+17 | }
    | ^
 == stdout ==
 <not executed>

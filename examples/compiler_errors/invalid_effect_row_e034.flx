@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E034
 
 // E304: Invalid effect row.
 //
@@ -7,7 +6,7 @@
 // and `|f` are two distinct row tails inside the same effect row, so the
 // annotation cannot be interpreted.
 
-fn confused<e, f>() with IO |e |f {
+fn confused<e, f>() with IO |e |f { //~ E034
     None
 }
 

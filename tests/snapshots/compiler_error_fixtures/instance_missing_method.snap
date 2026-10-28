@@ -9,13 +9,13 @@ error[E442]: Missing Instance Method
 
 Missing method `value` in instance `Describable`.
 
-  examples/compiler_errors/instance_missing_method.flx:14:1
+  examples/compiler_errors/instance_missing_method.flx:13:1
    |
-14 | instance Describable<Int> {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-15 |     fn name(x) { x }
+13 | instance Describable<Int> { //~ E442
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+14 |     fn name(x) { x }
    | ^^^^^^^^^^^^^^^^^^^^
-16 | }
+15 | }
    | ^
 
 Hint:

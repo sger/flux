@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E454
 // Expected: E454 Overlapping Instances
 //   "Multiple instances match `Sizeable<List<Int>>`; instance selection would
 //    depend on declaration order."
@@ -24,5 +23,5 @@ instance Sizeable<List<Int>> {
 }
 
 fn main() with IO {
-    print(size([1, 2, 3]))
+    print(size([1, 2, 3])) //~ E454
 }

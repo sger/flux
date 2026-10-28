@@ -9,9 +9,9 @@ error[E464]: Spread Requires Named-Field Type
 
 Cannot spread a value of type `Int`; spread requires a named-field data type.
 
-  examples/compiler_errors/spread_non_named_adt_e464.flx:11:13
+  examples/compiler_errors/spread_non_named_adt_e464.flx:10:13
    |
-11 |     let x = { ...n, foo: 1 }
+10 |     let x = { ...n, foo: 1 }
    |             ^^^^^^^^^^^^^^^^
 == stdout ==
 <not executed>

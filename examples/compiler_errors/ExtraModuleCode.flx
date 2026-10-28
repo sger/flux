@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E028
 
 module ExtraModuleCode {
     fn value() -> Int {
@@ -7,6 +6,6 @@ module ExtraModuleCode {
     }
 }
 
-fn stray() -> Int {
+fn stray() -> Int { //~ E028
     2
 }

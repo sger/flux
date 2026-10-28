@@ -9,9 +9,9 @@ error[E444]: No Type Class Instance
 
 No instance for `Sizeable<String>`.
 
-  examples/compiler_errors/missing_instance_e444.flx:22:11
+  examples/compiler_errors/missing_instance_e444.flx:21:11
    |
-22 |     print(size("hello"))
+21 |     print(size("hello"))
    |           ^^^^^^^^^^^^^
 
 Hint:

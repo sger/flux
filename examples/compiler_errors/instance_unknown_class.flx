@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E441
 
 // Instance declaration for a class that doesn't exist.
 //
@@ -7,7 +6,7 @@
 //   "No type class `Foo` is defined."
 //   Hint: "Declare the class first: `class Foo<a> { ... }`"
 
-instance Foo<Int> {
+instance Foo<Int> { //~ E441
     fn bar(x) { x }
 }
 

@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E056
 
 module WrongArity {
     fn add(a: Int, b: Int) -> Int {
@@ -7,6 +6,6 @@ module WrongArity {
     }
 
     fn bad() -> Int {
-        add(1)
+        add(1) //~ E056
     }
 }

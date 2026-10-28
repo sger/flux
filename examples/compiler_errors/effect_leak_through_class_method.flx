@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E400
 
 // A class method's declared effect row must reach its caller.
 //
@@ -33,11 +32,11 @@ fn helper(x: Int) -> Int with IO {
 }
 
 fn leaky(x: Int) -> Int {
-    flash(x)
+    flash(x) //~ E400
 }
 
 fn leaky_plain(x: Int) -> Int {
-    helper(x)
+    helper(x) //~ E400
 }
 
 fn main() with IO {

@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E462
 
 // Listing the same field name twice in one constructor.
 //
@@ -9,6 +8,6 @@
 data Point { Point { x: Int, y: Int } }
 
 fn main() {
-    let p = Point { x: 1, x: 2, y: 3 }
+    let p = Point { x: 1, x: 2, y: 3 } //~ E462
     p
 }

@@ -9,9 +9,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `prnit`.
 
-  examples/compiler_errors/adversarial/common_dev_mistakes/UnknownIdentifierTypo.flx:6:9
+  examples/compiler_errors/adversarial/common_dev_mistakes/UnknownIdentifierTypo.flx:5:9
   |
-6 |         prnit("x")
+5 |         prnit("x")
   |         ^^^^^
 
 Hint:

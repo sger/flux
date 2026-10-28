@@ -1,12 +1,11 @@
 // expect: compile_error
-// expect-error: E402
 
 effect Console {
     print: String -> ()
     read: () -> String
 }
 
-fn main() with Console {
+fn main() with Console { //~ E402
     perform Console.print("hello") handle Console {
         print(resume, _msg) -> resume(())
     }

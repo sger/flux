@@ -1,7 +1,6 @@
 // expect: compile_error
-// expect-error: E407
 
 module UnknownEffectTypo {
-    fn bad() -> Unit with I {
+    fn bad() -> Unit with I { //~ E407
     }
 }

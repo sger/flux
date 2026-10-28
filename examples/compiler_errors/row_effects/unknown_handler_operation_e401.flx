@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E401
 
 effect Console {
     print: String -> ()
@@ -7,6 +6,6 @@ effect Console {
 
 fn main() with Console {
     perform Console.print("hello") handle Console {
-        read(resume) -> resume("x")
+        read(resume) -> resume("x") //~ E401
     }
 }

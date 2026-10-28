@@ -9,9 +9,9 @@ error[E465]: Mixed Positional And Named Variants
 
 Data type `Shape` mixes positional and named-field variants.
 
-  examples/compiler_errors/data_mixed_field_forms_e465.flx:11:5
+  examples/compiler_errors/data_mixed_field_forms_e465.flx:10:5
    |
-11 |     Rect { width: Float, height: Float }
+10 |     Rect { width: Float, height: Float }
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Note:

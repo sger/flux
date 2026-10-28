@@ -9,9 +9,9 @@ error[E011]: Private Member
 
 Cannot access private member `_private_secret`.
 
-  examples/compiler_errors/adversarial/common_dev_mistakes/PrivateMemberAccess.flx:8:9
+  examples/compiler_errors/adversarial/common_dev_mistakes/PrivateMemberAccess.flx:7:9
   |
-8 |         HiddenApi._private_secret()
+7 |         HiddenApi._private_secret()
   |         ^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Hint:

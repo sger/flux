@@ -9,9 +9,9 @@ error[E486]: Underivable Class
 
 `Eq` cannot be derived for `Pair`, which has more than one type parameter. Write the instance by hand.
 
-  examples/compiler_errors/deriving_multi_param_eq_e486.flx:18:1
+  examples/compiler_errors/deriving_multi_param_eq_e486.flx:17:1
    |
-18 | data Pair<a, b> { Pair(a, b) } deriving (Eq)
+17 | data Pair<a, b> { Pair(a, b) } deriving (Eq)
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 == stdout ==
 <not executed>

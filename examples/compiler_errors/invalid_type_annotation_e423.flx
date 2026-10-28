@@ -1,6 +1,4 @@
 // expect: compile_error
-// expect-error: E423
-// expect-error: E300
 
 // E303: Invalid type annotation.
 //
@@ -8,10 +6,10 @@
 // resolved (`NotAType` is neither a primitive, an ADT, nor an imported
 // type), so the annotation cannot be lowered into an HM type.
 
-fn use_unknown(x: NotAType) -> Int {
+fn use_unknown(x: NotAType) -> Int { //~ E423
     0
 }
 
 fn main() -> Unit {
-    let _ = use_unknown(1)
+    let _ = use_unknown(1) //~ E300
 }

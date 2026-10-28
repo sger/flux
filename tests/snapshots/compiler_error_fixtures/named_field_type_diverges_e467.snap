@@ -9,9 +9,9 @@ error[E467]: Divergent Field Types Across Variants
 
 Field `id` has inconsistent types across variants of `Item` (`String` in `Product`, `Int` in `User`).
 
-  examples/compiler_errors/named_field_type_diverges_e467.flx:16:5
+  examples/compiler_errors/named_field_type_diverges_e467.flx:15:5
    |
-16 |     u.id
+15 |     u.id
    |     ^^^^
 == stdout ==
 <not executed>

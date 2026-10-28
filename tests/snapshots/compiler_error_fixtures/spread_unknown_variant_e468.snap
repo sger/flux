@@ -9,9 +9,9 @@ error[E468]: Spread With Unknown Variant
 
 Cannot spread `Item` because its variant is not statically known.
 
-  examples/compiler_errors/spread_unknown_variant_e468.flx:16:5
+  examples/compiler_errors/spread_unknown_variant_e468.flx:15:5
    |
-16 |     { ...it, id: 99 }
+15 |     { ...it, id: 99 }
    |     ^^^^^^^^^^^^^^^^^
 == stdout ==
 <not executed>
