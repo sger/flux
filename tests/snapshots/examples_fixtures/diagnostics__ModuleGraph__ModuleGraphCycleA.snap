@@ -9,9 +9,9 @@ error[E021]: Import Cycle
 
 Circular import detected: examples/diagnostics/ModuleGraph/ModuleGraphCycleA.flx -> examples/diagnostics/ModuleGraph/ModuleGraphCycleB.flx -> examples/diagnostics/ModuleGraph/ModuleGraphCycleA.flx.
 
-  examples/diagnostics/ModuleGraph/ModuleGraphCycleA.flx:5:1
+  examples/diagnostics/ModuleGraph/ModuleGraphCycleA.flx:4:1
   |
-5 | import ModuleGraph.ModuleGraphCycleB
+4 | import ModuleGraph.ModuleGraphCycleB
   | ^
   | - this import participates in the cycle
 
