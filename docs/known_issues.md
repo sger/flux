@@ -2238,6 +2238,45 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 ## Resolved
 
+### KI-142 — An error inside a lambda reported a false duplicate name in a later function — FIXED 2026-10-28
+
+**Severity:** Medium · **Area:** compiler, diagnostics · **Verified fixed:** 2026-10-28 · **From:** rewriting the HTTP server tests (KI-141)
+
+```flux
+fn apply(f: () -> Int) -> Int { f() }
+
+fn first(x) {
+    apply(fn() { print(x); 1 })
+}
+
+fn second() -> Int {
+    let x = 2
+    fn inner() -> Int { x }
+    inner()
+}
+```
+
+The lambda in `first` is an error (E400: it prints where a pure function is
+expected). The CLI reported instead `error[E001]: Duplicate binding: 'x' is
+already defined` at `second`'s `let x`, "first defined here" at 0:1, and hid
+the E400 behind it. So it named a problem that wasn't there and hid the one
+that was.
+
+`compile_function_literal` opened the lambda's scope, then returned on the
+body's error without closing it. The enclosing function's own cleanup then
+closed the lambda's scope instead of its own, so `first`'s parameters
+(defined without a span, hence 0:1) stayed visible to later functions.
+`compile_expression_in_synthetic_frame` had the same early return.
+
+**The fix.** Both close their scope before returning the error.
+
+**Not covered:** match arms open block scopes and can also return before
+closing them (`compile_match_expression` in `src/compiler/expression.rs`). No program
+was found that reaches that path with an error; type inference catches the
+arm errors tried first.
+
+Test: `compiler_rules_tests::modules_and_matches::an_error_inside_a_lambda_does_not_leak_its_parameters_ki142`.
+
 ### KI-140 — The CLI hid a specific effect-row error behind a generic E300 — FIXED 2026-10-28
 
 **Severity:** Low · **Area:** diagnostics, effect rows · **Verified fixed:** 2026-10-28 · **From:** KI-137
