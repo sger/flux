@@ -1,26 +1,26 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
 // parity-expected-stderr-begin
-// • 1 error, 1 note • examples/type_system/failing/199_effect_row_subset_ordered_missing_e422.flx
+// • 1 error, 1 note • examples/type_system/failing/199_effect_row_subset_ordered_missing_e300.flx
 // error[E300]: Parameter Type Mismatch
 //
 // Parameter 1 has the wrong type.
 //
-//   examples/type_system/failing/199_effect_row_subset_ordered_missing_e422.flx:44:5
+//   examples/type_system/failing/199_effect_row_subset_ordered_missing_e300.flx:45:5
 //    |
-// 44 |     run_needs_io_time(pure_worker)
+// 45 |     run_needs_io_time(pure_worker)
 //    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 //    |     ------------------------------ parameter 1 has type `() -> Unit`
 //
 //    |     ------------------------------ this type mismatch is reported here
 //
 // Note:
-//   expected parameter type: () -> Unit with Console, FileSystem, Stdin, Clock, Env
+//   expected parameter type: () -> Unit with Console, FileSystem, Stdin, Clock, Env, Process
 //   found parameter type: () -> Unit
 //   the conflicting types meet at this expression
 //
 // Help:
-//   Change parameter 1 to use `() -> Unit with Console, FileSystem, Stdin, Clock, Env` consistently.
+//   Change parameter 1 to use `() -> Unit with Console, FileSystem, Stdin, Clock, Env, Process` consistently.
 //
 //
 // Note: Downstream Errors Suppressed
@@ -30,7 +30,8 @@
 // expect: compile_error
 // expect-error: E300
 
-// E422: missing-effect list is deterministic and sorted.
+// E300 from the CLI. The effect-row check's E422 is hidden behind it (KI-140).
+// The missing-effect list is deterministic and sorted.
 
 fn run_needs_io_time(f: (() -> Int with IO, Time)) -> Int with IO, Time {
     f()

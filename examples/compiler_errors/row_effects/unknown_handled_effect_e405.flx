@@ -1,9 +1,10 @@
 // expect: compile_error
-// expect-error: E402
+// expect-error: E405
 
+// `Logger` is never declared, so the handle block names an unknown effect.
 fn main() -> Unit with IO {
-    let _ = 1 handle Console {
-        print(resume, _msg) -> resume(())
+    let _ = 1 handle Logger {
+        log(resume, _msg) -> resume(())
     };
     print("done")
 }

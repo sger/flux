@@ -1,12 +1,12 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
 // parity-expected-stderr-begin
-// • 1 error • examples/type_system/failing/156_unresolved_call_arg_strict_e425.flx
+// • 1 error • examples/type_system/failing/156_unresolved_call_arg_e004.flx
 // error[E004]: Undefined Variable
 //
 // I can't find a value named `mystery_value`.
 //
-//   examples/type_system/failing/156_unresolved_call_arg_strict_e425.flx:23:32
+//   examples/type_system/failing/156_unresolved_call_arg_e004.flx:23:32
 //    |
 // 23 |     let value: Int = takes_int(mystery_value)
 //    |                                ^^^^^^^^^^^^^

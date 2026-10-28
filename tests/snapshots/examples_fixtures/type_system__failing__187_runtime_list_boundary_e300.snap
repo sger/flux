@@ -1,7 +1,7 @@
 ---
 source: tests/examples/examples_fixtures_snapshots.rs
 ---
-Fixture: examples/type_system/failing/187_runtime_list_boundary_e1004.flx
+Fixture: examples/type_system/failing/187_runtime_list_boundary_e300.flx
 == compile ==
 failed (compile)
 == diagnostics ==
@@ -9,7 +9,7 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `sum_list`.
 
-  examples/type_system/failing/187_runtime_list_boundary_e1004.flx:14:10
+  examples/type_system/failing/187_runtime_list_boundary_e300.flx:14:10
    |
  9 | fn sum_list(xs: List<Int>) -> Int {
    | --------------------------------- `sum_list` expects `List<Int>` as the 1st parameter

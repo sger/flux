@@ -4,7 +4,8 @@
 // expect: compile_error
 // expect-error: E300
 
-// E1004: runtime boundary should reject non-list value for List<Int>.
+// E300: a non-list value for List<Int> is caught at compile time, before the
+// runtime boundary check (E1004).
 import TypeSystem.BoundaryUnknown
 
 fn sum_list(xs: List<Int>) -> Int {

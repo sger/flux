@@ -1,12 +1,12 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
 // parity-expected-stderr-begin
-// • 1 error • examples/type_system/failing/162_tuple_destructure_unresolved_strict_e425.flx
+// • 1 error • examples/type_system/failing/168_tuple_destructure_unresolved_guard_e004.flx
 // error[E004]: Undefined Variable
 //
 // I can't find a value named `mystery_value`.
 //
-//   examples/type_system/failing/162_tuple_destructure_unresolved_strict_e425.flx:21:18
+//   examples/type_system/failing/168_tuple_destructure_unresolved_guard_e004.flx:21:18
 //    |
 // 21 |     let (a, b) = mystery_value
 //    |                  ^^^^^^^^^^^^^
@@ -19,4 +19,5 @@
 
 fn main() -> Unit {
     let (a, b) = mystery_value
+    let _after = 1
 }
