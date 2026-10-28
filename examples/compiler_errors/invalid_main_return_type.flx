@@ -1,6 +1,5 @@
 // expect: compile_error
-// expect-error: E412
 
-fn main() -> Int {
+fn main() -> Int { //~ E412
     42
 }

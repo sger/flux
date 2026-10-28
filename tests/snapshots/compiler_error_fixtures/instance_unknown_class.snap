@@ -9,13 +9,13 @@ error[E441]: Unknown Type Class
 
 No type class `Foo` is defined.
 
-  examples/compiler_errors/instance_unknown_class.flx:10:1
+  examples/compiler_errors/instance_unknown_class.flx:9:1
    |
-10 | instance Foo<Int> {
+ 9 | instance Foo<Int> { //~ E441
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+10 |     fn bar(x) { x }
    | ^^^^^^^^^^^^^^^^^^^
-11 |     fn bar(x) { x }
-   | ^^^^^^^^^^^^^^^^^^^
-12 | }
+11 | }
    | ^
 
 Hint:

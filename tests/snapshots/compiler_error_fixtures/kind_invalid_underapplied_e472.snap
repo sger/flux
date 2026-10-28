@@ -9,9 +9,9 @@ error[E472]: Type Constructor Arity Mismatch
 
 Type `Box` expects 1 type argument(s), but 0 were given.
 
-  examples/compiler_errors/kind_invalid_underapplied_e472.flx:6:16
+  examples/compiler_errors/kind_invalid_underapplied_e472.flx:5:16
   |
-6 | fn take(value: Box) -> Int { 1 }
+5 | fn take(value: Box) -> Int { 1 }
   |                ^^^
 == stdout ==
 <not executed>

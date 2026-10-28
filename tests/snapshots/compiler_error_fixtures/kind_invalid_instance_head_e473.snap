@@ -9,9 +9,9 @@ error[E473]: Instance Head Kind Mismatch
 
 Instance head `Int` has kind `Type`, but class `Functor` expects a parameter of kind `Type -> Type`.
 
-  examples/compiler_errors/kind_invalid_instance_head_e473.flx:13:18
+  examples/compiler_errors/kind_invalid_instance_head_e473.flx:12:18
    |
-13 | instance Functor<Int> {
+12 | instance Functor<Int> {
    |                  ^^^
 == stdout ==
 <not executed>

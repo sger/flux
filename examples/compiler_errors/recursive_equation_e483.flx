@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E483
 // Expected: E483 Recursive Associated Type
 //   "Associated type `Element` reduces to a type mentioning `Element`."
 //   Hint: "Break the recursion; an associated type's body must not reach the
@@ -16,7 +15,7 @@ class Collection<c> {
 }
 
 instance Collection<List<a>> {
-    type Element<List<a>> = Element<List<a>>
+    type Element<List<a>> = Element<List<a>> //~ E483
     fn size_of(xs) { 1 }
 }
 

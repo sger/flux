@@ -9,9 +9,9 @@ error[E485]: Ambiguous Dictionary Selection
 
 This call to `mk` does not say which `Mk` instance it needs.
 
-  examples/compiler_errors/ambiguous_dictionary_e485.flx:30:5
+  examples/compiler_errors/ambiguous_dictionary_e485.flx:29:5
    |
-30 |     mk(1)
+29 |     mk(1)
    |     ^^^^^
 
 Hint:

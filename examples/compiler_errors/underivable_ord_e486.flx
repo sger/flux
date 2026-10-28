@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E486
 // Expected: E486 Underivable Class
 //   "`Ord` cannot be derived for `Color`: no usable `compare` can be generated
 //    for it."
@@ -12,7 +11,7 @@
 // outcome Stage 7 removes, one phase later, so the clause is rejected until
 // the generated body compares constructors structurally.
 
-data Color { Red, Green, Blue } deriving (Ord)
+data Color { Red, Green, Blue } deriving (Ord) //~ E486
 
 fn main() with IO {
     print(1)

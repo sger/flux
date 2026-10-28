@@ -9,9 +9,9 @@ error[E486]: Underivable Class
 
 `Countable` cannot be derived for `Tally`: no usable `count` can be generated for it.
 
-  examples/compiler_errors/underivable_class_e486.flx:18:1
+  examples/compiler_errors/underivable_class_e486.flx:17:1
    |
-18 | data Tally { One, Two } deriving (Countable)
+17 | data Tally { One, Two } deriving (Countable)
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 == stdout ==
 <not executed>

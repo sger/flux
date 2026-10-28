@@ -9,13 +9,13 @@ error[E445]: Missing Superclass Instance
 
 No instance for `Sizeable<Int>` (required by `Measurable<Int>`).
 
-  examples/compiler_errors/missing_superclass_e445.flx:25:1
+  examples/compiler_errors/missing_superclass_e445.flx:24:1
    |
-25 | instance Measurable<Int> {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
-26 |     fn weight(x) { x * 100 }
+24 | instance Measurable<Int> { //~ E445
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+25 |     fn weight(x) { x * 100 }
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-27 | }
+26 | }
    | ^
 
 Hint:

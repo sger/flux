@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E464
 
 // Spread on a value whose type is not a named-field data type.
 //
@@ -8,6 +7,6 @@
 
 fn main() {
     let n = 42
-    let x = { ...n, foo: 1 }
+    let x = { ...n, foo: 1 } //~ E464
     x
 }

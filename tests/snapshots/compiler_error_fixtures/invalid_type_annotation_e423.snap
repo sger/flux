@@ -9,11 +9,11 @@ error[E423]: Unknown Type
 
 I can't find a type named `NotAType`.
 
-  examples/compiler_errors/invalid_type_annotation_e423.flx:11:19
-   |
-11 | fn use_unknown(x: NotAType) -> Int {
-   |                   ^^^^^^^^
-   |                   -------- unknown type used here
+  examples/compiler_errors/invalid_type_annotation_e423.flx:9:19
+  |
+9 | fn use_unknown(x: NotAType) -> Int {
+  |                   ^^^^^^^^
+  |                   -------- unknown type used here
 
 Hint:
   Use a built-in type, an in-scope type parameter, or a declared ADT.
@@ -23,15 +23,15 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `use_unknown`.
 
-  examples/compiler_errors/invalid_type_annotation_e423.flx:16:25
+  examples/compiler_errors/invalid_type_annotation_e423.flx:14:25
    |
-11 | fn use_unknown(x: NotAType) -> Int {
+ 9 | fn use_unknown(x: NotAType) -> Int {
    | ---------------------------------- `use_unknown` expects `NotAType` as the 1st parameter
-12 |     0
-13 | }
-14 | 
-15 | fn main() -> Unit {
-16 |     let _ = use_unknown(1)
+10 |     0
+11 | }
+12 | 
+13 | fn main() -> Unit {
+14 |     let _ = use_unknown(1)
    |                         ^
    |                         - this argument has type `Int`
 

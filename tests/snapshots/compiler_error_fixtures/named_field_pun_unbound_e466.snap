@@ -9,9 +9,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `x`.
 
-  examples/compiler_errors/named_field_pun_unbound_e466.flx:14:21
+  examples/compiler_errors/named_field_pun_unbound_e466.flx:12:21
    |
-14 |     let p = Point { x, y }
+12 |     let p = Point { x, y }
    |                     ^
 
 Hint:
@@ -25,9 +25,9 @@ error[E466]: Punned Field Not In Scope
 
 No variable named `x` is in scope for punning.
 
-  examples/compiler_errors/named_field_pun_unbound_e466.flx:14:21
+  examples/compiler_errors/named_field_pun_unbound_e466.flx:12:21
    |
-14 |     let p = Point { x, y }
+12 |     let p = Point { x, y }
    |                     ^
 
 Found 2 errors.

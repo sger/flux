@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E486
 // Expected: E486 Underivable Class
 //   "`Eq` cannot be derived for `Pair`, which has more than one type
 //    parameter. Write the instance by hand."
@@ -15,7 +14,7 @@
 // Rejecting the clause makes that a diagnostic rather than a wrong answer; a
 // hand-written instance is unaffected.
 
-data Pair<a, b> { Pair(a, b) } deriving (Eq)
+data Pair<a, b> { Pair(a, b) } deriving (Eq) //~ E486
 
 fn main() with IO {
     print(1)

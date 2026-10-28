@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E445
 // Expected: E445 Missing Superclass Instance
 //   "No instance for `Sizeable<Int>` (required by `Measurable<Int>`)."
 //   Hint: "`Measurable` requires `Sizeable` as a superclass.
@@ -22,7 +21,7 @@ class Sizeable<a> => Measurable<a> {
     fn weight(x: a) -> Int
 }
 
-instance Measurable<Int> {
+instance Measurable<Int> { //~ E445
     fn weight(x) { x * 100 }
 }
 

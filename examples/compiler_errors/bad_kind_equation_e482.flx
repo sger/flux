@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E482
 // Expected: E482 Associated Type Kind Mismatch
 //   "Associated type `Element` takes 1 argument(s), but this equation gives 2."
 //   Hint: "Match the arity the class declaration gives the associated type."
@@ -14,7 +13,7 @@ class Collection<c> {
 }
 
 instance Collection<List<a>> {
-    type Element<List<a>, Int> = a
+    type Element<List<a>, Int> = a //~ E482
     fn size_of(xs) { 1 }
 }
 

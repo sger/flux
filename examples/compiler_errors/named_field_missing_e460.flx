@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E460
 
 // Omitting a required named field in a constructor call.
 //
@@ -10,6 +9,6 @@
 data Point { Point { x: Int, y: Int } }
 
 fn main() {
-    let p = Point { x: 1 }
+    let p = Point { x: 1 } //~ E460
     p
 }

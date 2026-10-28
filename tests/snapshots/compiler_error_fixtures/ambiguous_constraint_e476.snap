@@ -9,9 +9,9 @@ error[E476]: Ambiguous Type Variable
 
 Type argument 2 of `Convert` is not determined by this signature, so no call can select an instance for it.
 
-  examples/compiler_errors/ambiguous_constraint_e476.flx:31:38
+  examples/compiler_errors/ambiguous_constraint_e476.flx:30:38
    |
-31 | fn describe<a, b>(x: a) -> Int where Convert<a, b> {
+30 | fn describe<a, b>(x: a) -> Int where Convert<a, b> {
    |                                      ^^^^^^^^^^^^^
 == stdout ==
 <not executed>

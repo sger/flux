@@ -9,9 +9,9 @@ error[E461]: Unknown Named Field
 
 `Point` has no field named `z`.
 
-  examples/compiler_errors/named_field_unknown_e461.flx:12:33
+  examples/compiler_errors/named_field_unknown_e461.flx:11:33
    |
-12 |     let p = Point { x: 1, y: 2, z: 3 }
+11 |     let p = Point { x: 1, y: 2, z: 3 }
    |                                 ^^^^
 == stdout ==
 <not executed>

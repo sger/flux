@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E479
 // Expected: E479 Duplicate Associated Type
 //   "Associated type `Element` is defined more than once in this instance."
 //   Hint: "Keep one equation per associated type and remove the rest."
@@ -15,7 +14,7 @@ class Collection<c> {
 
 instance Collection<List<a>> {
     type Element<List<a>> = a
-    type Element<List<a>> = Int
+    type Element<List<a>> = Int //~ E479
     fn size_of(xs) { 1 }
 }
 

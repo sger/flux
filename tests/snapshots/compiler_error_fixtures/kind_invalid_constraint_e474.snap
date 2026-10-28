@@ -9,9 +9,9 @@ error[E474]: Constraint Kind Mismatch
 
 Constraint `Int` applies class `Functor` to a type of kind `Type`, but it expects `Type -> Type`.
 
-  examples/compiler_errors/kind_invalid_constraint_e474.flx:8:18
+  examples/compiler_errors/kind_invalid_constraint_e474.flx:7:18
   |
-8 | instance Functor<Int> => Functor<Box> {
+7 | instance Functor<Int> => Functor<Box> {
   |                  ^^^
 == stdout ==
 <not executed>

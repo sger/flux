@@ -9,9 +9,9 @@ error[E430]: Could Not Infer Concrete Type
 
 Could not determine a concrete type for `main` at the public function signature. Inferred type: `() -> _`.
 
-  examples/compiler_errors/named_field_not_on_type_e463.flx:12:1
+  examples/compiler_errors/named_field_not_on_type_e463.flx:10:1
    |
-12 | fn main() {
+10 | fn main() {
    | ^^^^^^^^^
 
 Hint:
@@ -22,9 +22,9 @@ error[E463]: Field Not On Type
 
 Type `Point` has no field `z`.
 
-  examples/compiler_errors/named_field_not_on_type_e463.flx:14:5
+  examples/compiler_errors/named_field_not_on_type_e463.flx:12:5
    |
-14 |     p.z
+12 |     p.z
    |     ^^^
 
 Found 2 errors.

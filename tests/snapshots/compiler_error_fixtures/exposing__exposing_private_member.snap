@@ -9,9 +9,9 @@ error[E420]: Private Member in Exposing
 
 Cannot expose `secret` because it is not a public member of `ExposingTarget`.
 
-  examples/compiler_errors/exposing/exposing_private_member.flx:5:1
+  examples/compiler_errors/exposing/exposing_private_member.flx:3:1
   |
-5 | import ExposingTarget exposing (secret)
+3 | import ExposingTarget exposing (secret)
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Hint:
@@ -22,9 +22,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `secret`.
 
-  examples/compiler_errors/exposing/exposing_private_member.flx:8:11
+  examples/compiler_errors/exposing/exposing_private_member.flx:6:11
   |
-8 |     print(secret())
+6 |     print(secret())
   |           ^^^^^^
 
 Hint:
