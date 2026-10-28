@@ -133,11 +133,10 @@ error[E1000]: wrong number of arguments: want=3, got=2
   examples/generics/failing/runtime/Ki076Ord.flx:32:12
 ```
 
-The annotation goes in the file the error names:
-
-```flux
-        if x <= y { y } else { x } //~ E1000
-```
+Only the fixture's own lines can be annotated, so a fixture like this one
+keeps `expect-error:`. A module can be imported by several fixtures, and an
+annotation written in it would become an expectation of every one of them.
+An error reported in another file shows up as unexpected, with its path.
 
 Runtime errors are matched the same way as compile errors: by the code and
 the line in the rendered location.
@@ -146,9 +145,14 @@ the line in the rendered location.
 
 `flux parity-check <fixture> --bless` already writes the expected stdout and
 stderr blocks. With annotations it also writes or corrects the `//~`
-comments from the first way's report, and leaves the rest of each line
-untouched. Review the diff as you would a snapshot diff: a moved annotation
-means an error moved.
+comments from what the ways report, when the non-strict ways agree, and
+leaves the rest of each line untouched. Review the diff as you would a
+snapshot diff: a moved annotation means an error moved.
+
+Bless never adds or removes a line, since that would move every error below
+it. A line that already has a comment is annotated from the next line that
+has none, with one `^` per line up; failing that, from the line above with
+`//~v`. An annotation that stood on its own line leaves the line empty.
 
 ## Reference-level explanation
 [reference-level-explanation]: #reference-level-explanation
@@ -169,16 +173,17 @@ the header:
 - A malformed annotation goes into `meta_errors`, as a malformed header does
   today, and fails the fixture.
 
-Each annotation becomes an `ExpectedError { file, line, code }`. The file is
-the fixture itself, or the module file the annotation is written in. Module
-files are found the way `parity-check` already finds them, through the
-fixture's module roots.
+Each annotation becomes a (line, code) pair of the fixture
+(`FixtureMeta::expected_locations`). Lines inside the
+`parity-expected-*` blocks are skipped: they quote the source.
 
 ### Matching
 
 For each way, the reported pairs come from the rendered stderr: every
-`error[E…]` header and the `file:line:col` location under it. The location is
-already printed, so no new compiler output is needed.
+`error[E…]` header and the first `  file:line:col` location under it. Hints
+and related notes print further locations in the same shape, so only the
+first one belongs to the error. The location is already printed, so no new
+compiler output is needed.
 
 - A normal way must report exactly the annotated pairs.
 - A strict way must report at least the annotated pairs.
@@ -194,9 +199,11 @@ annotation does not.
 
 ### Snapshots and stderr blocks
 
-The annotation is part of the source, so it appears in the source excerpts
-of every rendered error, and therefore in snapshots and stderr blocks. rustc's
-UI tests show their `//~` comments in their `.stderr` files the same way.
+Rendered errors show source lines without their trailing comments
+(`find_comment_start` in `src/diagnostics/rendering/source.rs`), so an
+annotation never appears in a snapshot or a stderr block. Unlike rustc's
+`.stderr` files, which show their `//~` comments, adding an annotation
+changes no expected output.
 
 ### Other readers of the metadata
 
@@ -207,9 +214,10 @@ UI tests show their `//~` comments in their `.stderr` files the same way.
 ## Drawbacks
 [drawbacks]: #drawbacks
 
-- **Migration churn.** Adding a comment to a line changes the source excerpt
-  of every error rendered from it. Moving the 443 `examples/` fixtures
-  re-blesses up to 443 snapshots, once.
+- **Migration churn.** Annotations don't show in rendered excerpts, but
+  removing a fixture's `expect-error:` lines moves every line below them, so
+  each migrated fixture's snapshot and stderr block change their line
+  numbers once.
 - **Longer lines.** A trailing annotation can push a line past the width
   `flux fmt` keeps. If fixtures are ever formatted, annotated lines need to
   be left alone.
@@ -266,6 +274,11 @@ checking message text, because Flux's snapshots already do that.
 
 ## Unresolved questions
 [unresolved-questions]: #unresolved-questions
+
+- How should a fixture expect an error located in a module it imports? It
+  can't annotate the module, which other fixtures may share. Perhaps a form
+  that names the file, `//~ Ki076Ord.flx:32 E1000`; until then those
+  fixtures keep `expect-error:`.
 
 - Should stderr blocks go for every migrated fixture, or only where a
   snapshot covers the same output? This proposal suggests the second.
