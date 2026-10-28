@@ -230,24 +230,8 @@ name = "lexer"
 path = "tests/lexer/main.rs"
 
 [[test]]
-name = "parser_tests"
-path = "tests/parser/parser_tests.rs"
-
-[[test]]
-name = "parser_recovery"
-path = "tests/parser/parser_recovery.rs"
-
-[[test]]
-name = "list_literal_syntax_tests"
-path = "tests/parser/list_literal_syntax_tests.rs"
-
-[[test]]
-name = "span_tests"
-path = "tests/parser/span_tests.rs"
-
-[[test]]
-name = "linter_tests"
-path = "tests/parser/linter_tests.rs"
+name = "parser"
+path = "tests/parser/main.rs"
 
 [[test]]
 name = "core_ir"
@@ -828,14 +812,6 @@ path = "tests/integration/layout_guard.rs"
 
 # Legacy snapshot-wrapper binaries. Names are preserved so insta snapshot
 # filenames (which are prefixed with the test-binary name) do not drift.
-[[test]]
-name = "snapshot_parser"
-path = "tests/parser/snapshot_parser.rs"
-
-[[test]]
-name = "snapshot_formatter"
-path = "tests/parser/snapshot_formatter.rs"
-
 [[test]]
 name = "snapshot_diagnostics"
 path = "tests/diagnostics/snapshot_diagnostics.rs"
