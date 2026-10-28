@@ -190,40 +190,8 @@ name = "aether"
 path = "tests/aether/main.rs"
 
 [[test]]
-name = "ast_complexity_tests"
-path = "tests/ast_passes/complexity_tests.rs"
-
-[[test]]
-name = "ast_constant_fold_tests"
-path = "tests/ast_passes/constant_fold_tests.rs"
-
-[[test]]
-name = "ast_desugar_tests"
-path = "tests/ast_passes/desugar_tests.rs"
-
-[[test]]
-name = "ast_fold_smoke"
-path = "tests/ast_passes/fold_smoke.rs"
-
-[[test]]
-name = "ast_free_vars_tests"
-path = "tests/ast_passes/free_vars_tests.rs"
-
-[[test]]
-name = "ast_rename_tests"
-path = "tests/ast_passes/rename_tests.rs"
-
-[[test]]
-name = "ast_tail_position_tests"
-path = "tests/ast_passes/tail_position_tests.rs"
-
-[[test]]
-name = "ast_visit_smoke"
-path = "tests/ast_passes/visit_smoke.rs"
-
-[[test]]
-name = "tail_call_tests"
-path = "tests/ast_passes/tail_call_tests.rs"
+name = "ast_passes"
+path = "tests/ast_passes/main.rs"
 
 [[test]]
 name = "lexer"
