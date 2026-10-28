@@ -386,17 +386,18 @@ pub struct Selection {
 impl Selection {
     fn add_phase(&mut self, repo: &Repo, phase: Phase) {
         match phase {
-            // These cut across every directory. The effect handler fixtures
-            // run in the parity corpus.
+            // These cut across every directory. A test's name starts with its
+            // file's module, so `test(...)` also matches by file name. The
+            // effect handler fixtures run in the parity corpus.
             Phase::Effects => {
-                let mut filter = "binary(/effect/) | test(/effect/)".to_string();
+                let mut filter = "test(/effect/)".to_string();
                 if let Some(corpus) = repo.filter_for_source(PARITY_CORPUS) {
                     filter = format!("{filter} | {corpus}");
                 }
                 self.filters.insert(filter);
             }
             Phase::Typeclasses => {
-                self.filters.insert("binary(/class/) | test(/class/)".to_string());
+                self.filters.insert("test(/class/)".to_string());
             }
             _ => {
                 for dir in phase.test_dirs() {
@@ -849,10 +850,7 @@ mod tests {
     fn an_unknown_phase_is_an_error() {
         assert!(select_for_phases(&repo(), &["typo".to_string()]).is_err());
         let selection = select_for_phases(&repo(), &["effects".to_string()]).unwrap();
-        assert_eq!(
-            filters(&selection),
-            ["binary(/effect/) | test(/effect/) | binary_id(=flux::parity_corpus_tests)"]
-        );
+        assert_eq!(filters(&selection), ["test(/effect/) | binary_id(=flux::parity_corpus_tests)"]);
     }
 
     #[test]
