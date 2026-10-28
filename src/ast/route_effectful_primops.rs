@@ -144,14 +144,21 @@ pub struct RoutingResult {
 /// the builtin fine-grained effects (`Console`, `FileSystem`, ...), the
 /// synthesized default-handler wrap skips that effect — otherwise it would
 /// emit arms for builtin operations the user never declared (E401).
+///
+/// `imported_function_effects`: the default effects that functions from
+/// other modules declare, from [`default_effects_of_functions`]. An entry
+/// function that calls one, such as the prelude's `assert_eq`, needs its
+/// handler too; this file's own functions take precedence.
 pub fn route_effectful_primops_and_synthesize_handlers(
     program: &Program,
     interner: &mut Interner,
     user_redefined_builtin_effects: &HashSet<Identifier>,
+    imported_function_effects: &HashMap<Identifier, HashSet<&'static str>>,
 ) -> RoutingResult {
     let mut owned = program.clone();
     let user_effect_ops = collect_user_effect_ops(&owned, interner);
-    let function_effects = collect_function_effects(&owned, interner);
+    let mut function_effects = imported_function_effects.clone();
+    function_effects.extend(collect_function_effects(&owned, interner));
     let mut ids = ExprIdGen::resuming_past_program(&owned);
     let mut changed = false;
     let mut routed_call_perform_ids: HashSet<ExprId> = HashSet::new();
@@ -181,6 +188,26 @@ fn collect_user_effect_ops(
     let mut out = HashMap::new();
     for stmt in &program.statements {
         collect_user_effect_ops_stmt(stmt, interner, &mut out);
+    }
+    out
+}
+
+/// The default effects each function declares, keyed by name. A name that
+/// several modules define gets the union: at worst an entry function is
+/// wrapped in a handler it never uses.
+pub fn default_effects_of_functions<'a>(
+    functions: impl IntoIterator<Item = (Identifier, &'a [crate::syntax::effect_expr::EffectExpr])>,
+    interner: &Interner,
+) -> HashMap<Identifier, HashSet<&'static str>> {
+    let mut out: HashMap<Identifier, HashSet<&'static str>> = HashMap::new();
+    for (name, effects) in functions {
+        let mut default_effects = HashSet::new();
+        for effect in effects {
+            collect_default_effects_from_annotation(effect, interner, &mut default_effects);
+        }
+        if !default_effects.is_empty() {
+            out.entry(name).or_default().extend(default_effects);
+        }
     }
     out
 }
@@ -783,21 +810,10 @@ fn collect_default_effects_expr(
     match expr {
         Expression::Call { function, arguments, .. } => {
             collect_default_effects_expr(function, interner, function_effects, out);
-            if let Expression::Identifier { name, .. } = function.as_ref() {
-                if let Some(effects) = function_effects.get(name) {
-                    out.extend(effects.iter().copied());
-                }
-                // Flow.Debug wrappers (debug / debug_labeled / debug_with)
-                // are ordinary user functions declared `with Debug`, so
-                // they don't appear in `function_effects` when the
-                // calling module hasn't locally imported their body.
-                // Detect their names directly so entrypoints that call
-                // them get the default Debug handler wrapped in.
-                if let Some(name_str) = interner.try_resolve(*name)
-                    && matches!(name_str, "debug" | "debug_labeled" | "debug_with")
-                {
-                    out.insert(be::DEBUG);
-                }
+            if let Expression::Identifier { name, .. } = function.as_ref()
+                && let Some(effects) = function_effects.get(name)
+            {
+                out.extend(effects.iter().copied());
             }
             for arg in arguments {
                 collect_default_effects_expr(arg, interner, function_effects, out);
@@ -1029,6 +1045,7 @@ mod tests {
             &program,
             &mut interner,
             &HashSet::new(),
+            &HashMap::new(),
         );
         (result.program, interner)
     }
