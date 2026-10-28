@@ -12,6 +12,7 @@
 //!   --jobs <n>             Files checked at once (default: 1)
 //!   --census <file.tsv>    Write one classified row per file and way
 //!   --allow <resource>     Run fixtures that `// requires:` it (network)
+//!   --bless                Write what agreeing ways printed into the expected blocks
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -130,9 +131,12 @@ pub fn run_parity_check(args: &[String]) {
         jobs,
         |file| check_one(file, &config),
         |checked| {
-            let parity_result = checked.result;
+            let mut parity_result = checked.result;
             if let Some(out) = census_out.as_mut() {
                 out.write(&checked.rows);
+            }
+            if config.bless {
+                bless(&mut parity_result, &config.allow);
             }
             print_result(&parity_result, config.display_filter, config.explain);
             let is_non_pass = !matches!(parity_result.verdict, Verdict::Pass);
@@ -208,6 +212,153 @@ pub fn check_fixture(file: &Path, flux: &Path) -> ParityResult {
     ];
     let config = parse_args(&args).expect("parity-check arguments");
     check_one(file, &config).result
+}
+
+/// An expected-output block in a fixture, between its begin and end comments.
+#[derive(Clone, Copy)]
+enum Block {
+    Stdout,
+    Stderr,
+}
+
+impl Block {
+    fn begins_at(self, comment: &str) -> bool {
+        match self {
+            Self::Stdout => {
+                comment == "parity-expected-stdout-begin" || comment == "parity-oracle-stdout-begin"
+            }
+            Self::Stderr => comment == "parity-expected-stderr-begin",
+        }
+    }
+
+    fn ends_at(self, comment: &str) -> bool {
+        match self {
+            Self::Stdout => {
+                comment == "parity-expected-stdout-end" || comment == "parity-oracle-stdout-end"
+            }
+            Self::Stderr => comment == "parity-expected-stderr-end",
+        }
+    }
+
+    fn markers(self) -> (&'static str, &'static str) {
+        match self {
+            Self::Stdout => ("parity-expected-stdout-begin", "parity-expected-stdout-end"),
+            Self::Stderr => ("parity-expected-stderr-begin", "parity-expected-stderr-end"),
+        }
+    }
+}
+
+/// `--bless`: when every way ran and they agree, writes what they printed into
+/// the fixture, so later runs check it. A fixture that expects success gets its
+/// stdout block written, or added after its header comments; one that expects
+/// an error only has an existing stderr block replaced, since most pin codes
+/// alone. Anything else that failed stays failed. A blessed result passes.
+fn bless(result: &mut ParityResult, allow: &[String]) {
+    let meta = parse_fixture_meta_allowing(&result.file, allow);
+    let runs = &result.results;
+    let Some(first) = runs.first() else {
+        return;
+    };
+    let stdout_agrees = runs
+        .iter()
+        .all(|run| run.normalized_stdout.trim() == first.normalized_stdout.trim());
+    let stderr_agrees = runs
+        .iter()
+        .all(|run| run.normalized_stderr.trim() == first.normalized_stderr.trim());
+    let stdout_is_the_only_problem = match &result.verdict {
+        Verdict::Pass => true,
+        Verdict::ExpectedOutputMismatch { expected, .. } => {
+            meta.expected_stdout.as_deref().map(str::trim) == Some(expected.as_str())
+        }
+        _ => false,
+    };
+    let stderr_is_the_only_problem = match &result.verdict {
+        Verdict::Mismatch { details } => details
+            .iter()
+            .all(|detail| matches!(detail, MismatchDetail::ExpectedStderr { .. })),
+        _ => false,
+    };
+    let (block, body, add) = match meta.expect {
+        Expect::Success
+            if !meta.stdout_varies
+                && stdout_is_the_only_problem
+                && runs.iter().all(|run| run.exit_kind == ExitKind::Success)
+                && stdout_agrees =>
+        {
+            (Block::Stdout, first.normalized_stdout.trim(), true)
+        }
+        Expect::CompileError | Expect::RuntimeError
+            if meta.expected_stderr.is_some() && stderr_is_the_only_problem && stderr_agrees =>
+        {
+            (Block::Stderr, first.normalized_stderr.trim(), false)
+        }
+        _ => return,
+    };
+    let file = result.file.clone();
+    let Ok(source) = fs::read_to_string(&file) else {
+        return;
+    };
+    let Some(blessed) = with_expected_block(&source, block, body, add) else {
+        return;
+    };
+    if blessed != source {
+        if let Err(err) = fs::write(&file, &blessed) {
+            eprintln!("[parity] cannot bless {}: {err}", file.display());
+            return;
+        }
+        eprintln!("[parity] blessed {}", file.display());
+    }
+    result.verdict = Verdict::Pass;
+}
+
+/// `source` with `block` holding `body`. An existing block is replaced; with
+/// `add`, a missing one goes after the header comments. `None` when there is
+/// no block and `add` is false, or a block never ends.
+fn with_expected_block(source: &str, block: Block, body: &str, add: bool) -> Option<String> {
+    let lines: Vec<&str> = source.lines().collect();
+    fn comment(line: &str) -> Option<&str> {
+        line.trim().strip_prefix("//").map(str::trim)
+    }
+    // The parser strips `//` and one space, so a blank line is a bare `//`.
+    let body = body.lines().map(|line| {
+        if line.is_empty() {
+            "//".to_string()
+        } else {
+            format!("// {line}")
+        }
+    });
+    let mut out: Vec<String> = Vec::new();
+    if let Some(begin) = lines
+        .iter()
+        .position(|line| comment(line).is_some_and(|c| block.begins_at(c)))
+    {
+        let end = begin
+            + 1
+            + lines[begin + 1..]
+                .iter()
+                .position(|line| comment(line).is_some_and(|c| block.ends_at(c)))?;
+        out.extend(lines[..=begin].iter().map(|line| line.to_string()));
+        out.extend(body);
+        out.extend(lines[end..].iter().map(|line| line.to_string()));
+    } else if add {
+        let header = lines
+            .iter()
+            .take_while(|line| line.trim_start().starts_with("//"))
+            .count();
+        let (begin, end) = block.markers();
+        out.extend(lines[..header].iter().map(|line| line.to_string()));
+        out.push(format!("// {begin}"));
+        out.extend(body);
+        out.push(format!("// {end}"));
+        out.extend(lines[header..].iter().map(|line| line.to_string()));
+    } else {
+        return None;
+    }
+    let mut text = out.join("\n");
+    if source.ends_with('\n') {
+        text.push('\n');
+    }
+    Some(text)
 }
 
 /// One checked file: its parity result and, under `--census`, its rows.
@@ -1433,6 +1584,53 @@ mod tests {
     use super::*;
 
     #[test]
+    fn bless_replaces_an_existing_block() {
+        let source = "// parity: vm, llvm\n// parity-expected-stdout-begin\n// old\n// parity-expected-stdout-end\n\nfn main() {}\n";
+        let blessed = with_expected_block(source, Block::Stdout, "1\n\n  2", true).unwrap();
+        assert_eq!(
+            blessed,
+            "// parity: vm, llvm\n// parity-expected-stdout-begin\n// 1\n//\n//   2\n// parity-expected-stdout-end\n\nfn main() {}\n"
+        );
+    }
+
+    #[test]
+    fn bless_adds_a_missing_stdout_block_after_the_header() {
+        let source = "// parity: vm, llvm\n// expect: success\n\nfn main() {}\n";
+        let blessed = with_expected_block(source, Block::Stdout, "42", true).unwrap();
+        assert_eq!(
+            blessed,
+            "// parity: vm, llvm\n// expect: success\n// parity-expected-stdout-begin\n// 42\n// parity-expected-stdout-end\n\nfn main() {}\n"
+        );
+    }
+
+    #[test]
+    fn bless_adds_no_stderr_block() {
+        let source = "// expect: compile_error\nfn main() {}\n";
+        assert_eq!(
+            with_expected_block(source, Block::Stderr, "error", false),
+            None
+        );
+    }
+
+    #[test]
+    fn a_blessed_block_reads_back_as_written() {
+        let dir = std::env::temp_dir().join(format!("flux-bless-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("roundtrip.flx");
+        let body = "first\n\n  indented\nlast";
+        let source = with_expected_block(
+            "// expect: success\nfn main() {}\n",
+            Block::Stdout,
+            body,
+            true,
+        );
+        fs::write(&file, source.unwrap()).unwrap();
+        let meta = parse_fixture_meta_allowing(&file, &[]);
+        let _ = fs::remove_dir_all(&dir);
+        assert_eq!(meta.expected_stdout.as_deref(), Some(body));
+    }
+
+    #[test]
     fn parallel_checks_report_in_file_order() {
         let items: Vec<u64> = (0..40).collect();
         let mut seen = Vec::new();
@@ -2373,6 +2571,8 @@ struct Config {
     open_kis: Option<BTreeSet<String>>,
     /// `--check-skips`: run the skipped ways too and report those that pass.
     check_skips: bool,
+    /// `--bless`: write what agreeing ways printed into the expected blocks.
+    bless: bool,
     /// `None` means "use per-fixture metadata, falling back to [Vm, Llvm]".
     ways: Option<Vec<Way>>,
     vm_binary: PathBuf,
@@ -2421,6 +2621,7 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
     let mut allow = Vec::new();
     let mut open_kis: Option<BTreeSet<String>> = None;
     let mut check_skips = false;
+    let mut bless = false;
     let mut ways: Option<Vec<Way>> = None;
     let mut vm_binary = default_vm_binary();
     let mut llvm_binary = default_llvm_binary();
@@ -2509,6 +2710,9 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
             }
             "--check-skips" => {
                 check_skips = true;
+            }
+            "--bless" => {
+                bless = true;
             }
             "--capture-core" => {
                 capture_core = true;
@@ -2633,6 +2837,7 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
         allow,
         open_kis,
         check_skips,
+        bless,
         ways,
         vm_binary,
         llvm_binary,
@@ -2692,6 +2897,10 @@ Options:
                          print UNEXPECTED_PASS for each that would pass (its KI may be fixed)
   --known-issues <file>  docs/known_issues.md: a skip reason citing a KI that is not open
                          there is a metadata error
+  --bless                When every way ran and agrees, write what they printed into the
+                         fixture: its stdout block (added if missing) for a fixture that
+                         expects success, or its existing stderr block for one that expects
+                         an error
 
 Binaries are rebuilt automatically when missing or stale.
 Use --rebuild to force a refresh:
