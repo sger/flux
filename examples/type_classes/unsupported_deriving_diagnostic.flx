@@ -8,13 +8,12 @@
 // removes: a clause either produces callable methods, or it is an error.
 // Expected: error[E486] Underivable Class.
 // expect: compile_error
-// expect-error: E486
 
 class Functor<f> {
     fn fmap<a, b>(x: f<a>, func: (a) -> b) -> f<b>
 }
 
-data Box<a> { Box(a) } deriving (Functor)
+data Box<a> { Box(a) } deriving (Functor) //~ E486
 
 fn main() with IO {
     print(1)
