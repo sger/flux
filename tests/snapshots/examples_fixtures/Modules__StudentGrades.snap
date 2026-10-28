@@ -9,9 +9,9 @@ error[E024]: Module Path Mismatch
 
 Module name `Modules.StudentGrades` doesn't match file path `examples/Modules/StudentGrades.flx`.
 
-  examples/Modules/StudentGrades.flx:9:1
+  examples/Modules/StudentGrades.flx:8:1
   |
-9 | module Modules.StudentGrades {
+8 | module Modules.StudentGrades {
   | ^
 
 Hint:

@@ -1,9 +1,8 @@
 // expect: compile_error
-// expect-error: E024
 
 import Flow.IO as IO
 
-module Modules.Day12Parser {
+module Modules.Day12Parser { //~ E024
     fn line_at(lines, idx) {
         match lines[idx] {
             Some(v) -> v,

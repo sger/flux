@@ -1,7 +1,6 @@
 // expect: compile_error
-// expect-error: E024
 
-module Modules.UserUtils {
+module Modules.UserUtils { //~ E024
     fn make_user(name, age) {
         return {"name": name, "age": age};
     }

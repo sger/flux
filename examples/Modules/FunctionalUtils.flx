@@ -1,10 +1,9 @@
 // expect: compile_error
-// expect-error: E024
 
 // Module: FunctionalUtils
 // Provides higher-order function utilities for functional programming
 
-module Modules.FunctionalUtils {
+module Modules.FunctionalUtils { //~ E024
     // Map: apply function to each element
     fn map(arr, f) {
         if len(arr) == 0 {

@@ -9,9 +9,9 @@ error[E024]: Module Path Mismatch
 
 Module name `Modules.Day12Solver` doesn't match file path `examples/Modules/Day12Solver.flx`.
 
-  examples/Modules/Day12Solver.flx:6:1
+  examples/Modules/Day12Solver.flx:5:1
   |
-6 | module Modules.Day12Solver {
+5 | module Modules.Day12Solver {
   | ^
 
 Hint:

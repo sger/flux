@@ -9,9 +9,9 @@ error[E018]: Import Not Found
 
 Cannot find module `Modules.UserUtils` to import.
 
-  examples/Modules/module_option_hash_array.flx:5:1
+  examples/Modules/module_option_hash_array.flx:3:1
   |
-5 | import Modules.UserUtils as UserUtils
+3 | import Modules.UserUtils as UserUtils
   | ^
 
 Hint:
@@ -23,9 +23,9 @@ error[E018]: Import Not Found
 
 Cannot find module `Modules.Main` to import.
 
-  examples/Modules/module_option_hash_array.flx:6:1
+  examples/Modules/module_option_hash_array.flx:4:1
   |
-6 | import Modules.Main as Main
+4 | import Modules.Main as Main
   | ^
 
 Hint:
