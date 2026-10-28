@@ -1,7 +1,5 @@
 #![cfg(feature = "llvm")]
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::flux_runner;
 
 /// What the native run of `examples/runtime_errors/<fixture>` printed,

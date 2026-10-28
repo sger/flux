@@ -5,8 +5,6 @@
 use std::process::Command;
 use std::time::Duration;
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::scratch;
 use scratch::Scratch;
 use scratch::workspace_root;

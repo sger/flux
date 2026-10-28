@@ -11,8 +11,6 @@
 
 use std::process::Command;
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::scratch;
 use scratch::Scratch;
 use scratch::workspace_root;

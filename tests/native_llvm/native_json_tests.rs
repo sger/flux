@@ -4,8 +4,6 @@
 
 use std::sync::{Mutex, OnceLock};
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::flux_runner;
 use flux_runner::flux_source;
 
