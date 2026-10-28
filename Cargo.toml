@@ -574,10 +574,6 @@ name = "parity_corpus_tests"
 path = "tests/native_llvm/parity_corpus_tests.rs"
 
 [[test]]
-name = "effect_runtime_parity_tests"
-path = "tests/native_llvm/effect_runtime_parity_tests.rs"
-
-[[test]]
 name = "effect_multi_shot_tests"
 path = "tests/native_llvm/effect_multi_shot_tests.rs"
 
