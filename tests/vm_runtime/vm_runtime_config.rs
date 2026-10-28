@@ -8,8 +8,9 @@
 //! reachable from a CLI-driven integration test; that assertion lives in
 //! the in-process unit test module that drives `vm_fibers` directly.
 
-#[path = "../support/flux_runner.rs"]
-mod flux_runner;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::flux_runner;
 use std::time::Duration;
 
 fn run_source_with_env(source: &str, env: &[(&str, &str)]) -> (String, String, bool, Duration) {

@@ -5,8 +5,9 @@
 // "native backend features require `llvm`".
 #![cfg(feature = "llvm")]
 
-#[path = "../support/flux_runner.rs"]
-mod flux_runner;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::flux_runner;
 use flux_runner::{run_native, run_vm};
 
 const FIXTURE: &str = "non_zero_arithmetic.flx";

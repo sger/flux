@@ -1,13 +1,12 @@
-#[path = "../support/diagnostics_env.rs"]
-mod diagnostics_env;
-#[path = "../support/examples_snapshot.rs"]
-mod examples_snapshot;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::diagnostics_env;
+use crate::support::examples_snapshot;
 
 use std::path::Path;
 use std::process::Command;
 
-#[path = "../support/scratch.rs"]
-mod scratch;
+use crate::support::scratch;
 use scratch::Scratch;
 
 fn normalize_cli_text(text: &str, workspace_root: &Path) -> String {

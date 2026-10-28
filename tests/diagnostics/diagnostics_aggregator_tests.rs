@@ -1,5 +1,6 @@
-#[path = "../support/diagnostics_env.rs"]
-mod diagnostics_env;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::diagnostics_env;
 
 use flux::diagnostics::{
     Diagnostic, DiagnosticBuilder, DiagnosticCategory, DiagnosticPhase, DiagnosticsAggregator,

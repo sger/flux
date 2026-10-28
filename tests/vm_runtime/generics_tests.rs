@@ -6,8 +6,9 @@
 //! definition used at two types produces the right value at each, and that the
 //! VM and the native backend agree about it.
 
-#[path = "../support/stdlib_fixture.rs"]
-mod stdlib_fixture;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::stdlib_fixture;
 use stdlib_fixture::assert_backends_agree;
 
 #[test]

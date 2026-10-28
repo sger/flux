@@ -12,8 +12,9 @@
 use std::path::Path;
 use std::process::Command;
 
-#[path = "../support/scratch.rs"]
-mod scratch;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::scratch;
 use scratch::Scratch;
 
 fn compile_output(label: &str, source: &str) -> String {

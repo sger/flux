@@ -2,8 +2,9 @@
 
 use std::{path::Path, process::Command};
 
-#[path = "../support/scratch.rs"]
-mod scratch;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::scratch;
 use scratch::Scratch;
 
 fn flux_bin() -> &'static Path {

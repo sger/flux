@@ -14,8 +14,9 @@ use flux::{
     types::module_interface::ModuleInterface,
 };
 
-#[path = "../support/primop_parity.rs"]
-mod parity;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::primop_parity as parity;
 use parity::workspace_root;
 
 fn fixture_path(name: &str) -> std::path::PathBuf {

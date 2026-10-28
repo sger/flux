@@ -4,8 +4,9 @@
 
 use std::sync::{Mutex, OnceLock};
 
-#[path = "../support/flux_runner.rs"]
-mod flux_runner;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::flux_runner;
 use flux_runner::flux_source;
 
 static NATIVE_JSON_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();

@@ -1,5 +1,6 @@
-#[path = "../support/semantic_infer.rs"]
-mod semantic_infer;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::semantic_infer;
 
 use flux::diagnostics::render_diagnostics;
 use semantic_infer::{

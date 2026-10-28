@@ -20,9 +20,7 @@ use flux::{
     },
 };
 
-#[path = "scratch.rs"]
-mod scratch;
-#[allow(unused_imports)]
+use super::scratch;
 pub use scratch::workspace_root;
 
 pub fn semantic_fixture_root() -> PathBuf {

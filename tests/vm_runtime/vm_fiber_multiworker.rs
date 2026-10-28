@@ -15,8 +15,9 @@
 //!   6. Load-aware spawn placement (least-loaded queue) and the
 //!      `FLUX_WORK_STEALING=0` round-robin fallback both produce correct output.
 
-#[path = "../support/flux_runner.rs"]
-mod flux_runner;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::flux_runner;
 use std::time::Duration;
 
 fn run_source(source: &str, tag: &str) -> (String, String, bool, Duration) {

@@ -1,7 +1,8 @@
 #![cfg(feature = "llvm")]
 
-#[path = "../support/scratch.rs"]
-mod scratch;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::scratch;
 use scratch::Scratch;
 
 use std::{collections::HashMap, fs, process::Command};

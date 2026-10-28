@@ -3,28 +3,21 @@
 //! file, on the VM or natively. Include from a test file with:
 //!
 //! ```rust
-//! #[path = "../support/flux_runner.rs"]
-//! mod flux_runner;
+//! use crate::support::flux_runner;
 //! use flux_runner::{run_flux, run_native, run_vm};
 //! ```
 //!
 //! The `run_*` functions cover the common cases. `flux_source` and
 //! `flux_file` build a run with any mix of options.
-#![allow(dead_code)]
 
 use std::io::Read;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-// Re-exported so a test including this file gets `Scratch` from here rather
-// than declaring its own `mod scratch;` — two `#[path]` declarations of one
-// file in the same crate is a `clippy::duplicate_mod` warning.
-#[path = "scratch.rs"]
-pub mod scratch;
+pub use super::scratch;
 use scratch::Scratch;
 
-#[allow(unused_imports)]
 pub use scratch::workspace_root;
 
 enum Program<'a> {

@@ -9,8 +9,9 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-#[path = "../support/scratch.rs"]
-mod scratch;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::scratch;
 use scratch::{Scratch, cache_args_for};
 
 fn flux(args: &[&str], cwd: &Path) -> Output {
