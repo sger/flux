@@ -445,6 +445,7 @@ fn check_one(file: &Path, config: &Config) -> CheckedFile {
             skip_ways: &fixture_meta.skip_ways,
             meta_errors: &fixture_meta.meta_errors,
             census: config.census.is_some(),
+            bless: config.bless,
             stdout_varies: fixture_meta.stdout_varies,
             check_skips: config.check_skips,
             expected_counts: &fixture_meta.expected_counts,
@@ -630,6 +631,9 @@ struct CheckOpts<'a> {
     /// A census run: classify every way, so a single remaining way is still
     /// run, and skip the dump captures a mismatch otherwise triggers.
     census: bool,
+    /// `--bless`: run a fixture even when one way is left and it pins no
+    /// output yet, so the run can write its first block.
+    bless: bool,
     /// `// stdout: varies`: compare the ways' exits, not what they print.
     stdout_varies: bool,
     /// `--check-skips`: also run the skipped ways, outside the verdict.
@@ -646,6 +650,13 @@ impl CheckOpts<'_> {
             || self.expected_stderr.is_some()
             || !self.expected_errors.is_empty()
             || !matches!(self.expect, Expect::Success)
+    }
+
+    /// Whether `ways` ways leave nothing to check: one way alone needs a
+    /// declared expectation to be checked against, unless a census records
+    /// it or `--bless` is about to write that expectation.
+    fn too_few_to_compare(&self, ways: usize) -> bool {
+        ways < 2 && !self.declares_expectation() && !self.census && !self.bless
     }
 }
 
@@ -703,8 +714,7 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
     }
 
     let (ways, skipped_ways) = apply_skip_ways(opts.ways, opts.skip_ways);
-    let too_few_to_compare = ways.len() < 2 && !opts.declares_expectation() && !opts.census;
-    if !skipped_ways.is_empty() && (ways.is_empty() || too_few_to_compare) {
+    if !skipped_ways.is_empty() && (ways.is_empty() || opts.too_few_to_compare(ways.len())) {
         let reason = format!("{} way(s) left after skip-way", ways.len());
         let mut result = unrun(Verdict::Skip { reason }, Vec::new());
         // The fixture stays skipped, but a skipped way that would now pass
@@ -1604,6 +1614,23 @@ mod tests {
     }
 
     #[test]
+    fn bless_runs_a_fixture_skip_way_left_with_one_way() {
+        let opts = plain_opts(&[Way::Vm]);
+        assert!(
+            opts.too_few_to_compare(1),
+            "nothing to check one way against"
+        );
+        let blessing = CheckOpts {
+            bless: true,
+            ..plain_opts(&[Way::Vm])
+        };
+        assert!(
+            !blessing.too_few_to_compare(1),
+            "bless writes the expectation"
+        );
+    }
+
+    #[test]
     fn bless_adds_no_stderr_block() {
         let source = "// expect: compile_error\nfn main() {}\n";
         assert_eq!(
@@ -1784,6 +1811,7 @@ mod tests {
             skip_ways: &[],
             meta_errors: &[],
             census: false,
+            bless: false,
             stdout_varies: false,
             check_skips: true,
             expected_counts: &[],
