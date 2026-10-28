@@ -61,6 +61,7 @@ mod sanitize;
 mod store;
 mod sweep;
 mod text;
+mod tidy;
 mod verify;
 
 use std::path::{Path, PathBuf};
@@ -79,7 +80,8 @@ const USAGE: &str = "usage:
   cargo xtask bisect-opt <fixture> [--way vm_opt|llvm_opt] [--timeout <seconds>] [--flux <path>]
   cargo xtask sanitize [--thread] [--ways <w,...>] [<dir>...]
   cargo xtask affected [<base ref>] [--path <path>]... [--dry-run] [-- <nextest args>]
-  cargo xtask phase <phase>... [--dry-run] [-- <nextest args>] | --list";
+  cargo xtask phase <phase>... [--dry-run] [-- <nextest args>] | --list
+  cargo xtask tidy";
 
 fn main() -> ExitCode {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -266,6 +268,10 @@ fn dispatch(root: &Path, args: &[String]) -> Result<bool, String> {
             let repo = affected::Repo::load(root)?;
             let selection = affected::select_for_phases(&repo, &phases)?;
             affected::run_selection(root, &selection, passthrough, dry_run)
+        }
+        "tidy" => {
+            args.finish()?;
+            tidy::run(root)
         }
         "help" | "--help" | "-h" => {
             println!("{USAGE}");
