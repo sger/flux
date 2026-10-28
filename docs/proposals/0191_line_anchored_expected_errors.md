@@ -103,7 +103,8 @@ at a neighbouring line:
 - `//~^ E034` points at the line above. Each extra `^` goes one line further
   up: `//~^^ E034` is two lines above.
 - `//~v E034` points at the line below, for an error reported at the end of
-  the file, where there is no line to put the comment on.
+  the file, where there is no line to put the comment on. Each extra `v`
+  goes one line further down.
 
 These are rustc's forms; anyone who has written a rustc UI test reads them
 the same way.
@@ -133,10 +134,19 @@ error[E1000]: wrong number of arguments: want=3, got=2
   examples/generics/failing/runtime/Ki076Ord.flx:32:12
 ```
 
-Only the fixture's own lines can be annotated, so a fixture like this one
-keeps `expect-error:`. A module can be imported by several fixtures, and an
-annotation written in it would become an expectation of every one of them.
-An error reported in another file shows up as unexpected, with its path.
+The fixture names the file and line instead, on a line of its own:
+
+```flux
+//~ Ki076Ord.flx:32 E1000
+import Ki076Ord
+```
+
+The annotation stays in the fixture. A module can be imported by several
+fixtures, and an annotation written in it would become an expectation of
+every one of them. The path is relative to the fixture's folder when the
+module is inside it, and otherwise as the error renders it; it matches when
+the rendered path ends with it. An error in another file that no annotation
+names shows up as unexpected, with its path.
 
 Runtime errors are matched the same way as compile errors: by the code and
 the line in the rendered location.
@@ -149,10 +159,16 @@ comments from what the ways report, when the non-strict ways agree, and
 leaves the rest of each line untouched. Review the diff as you would a
 snapshot diff: a moved annotation means an error moved.
 
-Bless never adds or removes a line, since that would move every error below
-it. A line that already has a comment is annotated from the next line that
-has none, with one `^` per line up; failing that, from the line above with
-`//~v`. An annotation that stood on its own line leaves the line empty.
+Bless never adds or removes a line for an error in the fixture, since that
+would move every error below it. A line that can't take the comment, because
+it already has one or because the lexer would read the comment into a token
+such as an open string, is annotated from the next line that can, with one
+`^` per line up; failing that, from the nearest line above, with one `v` per
+line down. An annotation that stood on its own line leaves the line empty.
+
+An error in another file reuses a line that held such an annotation. When
+more are needed, the new lines go above the first line of code, and the
+annotations below them move down with the code.
 
 ## Reference-level explanation
 [reference-level-explanation]: #reference-level-explanation
@@ -163,18 +179,22 @@ has none, with one `^` per line up; failing that, from the line above with
 `FixtureMeta`. Annotations are read from every line of the file, not just
 the header:
 
-- `//~` followed by optional `^`s or one `v`, then one or more codes
+- `//~` followed by optional `^`s or `v`s, then one or more codes
   `E` + digits, separated by spaces.
+- Or `//~`, a path ending in `.flx`, `:`, a line number, then the codes:
+  an error in another file.
 - The annotation is the last comment on the line. Text after the codes is an
   error, so a typo cannot silently turn into a comment.
 - A `//~` inside a string literal is not an annotation. The parser only needs
-  to skip string literals, not lex Flux fully; fixtures that need anything
-  more unusual can use `//~^` from the next line.
+  to skip string literals, not lex Flux fully. As a check, an annotation
+  the lexer reads as part of a token, as after a string left open, is a
+  metadata error; `--bless` and `--annotate` place it elsewhere.
 - A malformed annotation goes into `meta_errors`, as a malformed header does
   today, and fails the fixture.
 
 Each annotation becomes a (line, code) pair of the fixture
-(`FixtureMeta::expected_locations`). Lines inside the
+(`FixtureMeta::expected_locations`), or a (file, line, code) triple
+(`FixtureMeta::expected_in_modules`). Lines inside the
 `parity-expected-*` blocks are skipped: they quote the source.
 
 ### Matching
@@ -277,40 +297,27 @@ checking message text, because Flux's snapshots already do that.
 
 ### Where the migration stands
 
-All of step 3 is done: 430 fixtures carry annotations. 14 keep
-`expect-error:`, each for a reason `--annotate` reports:
+All of step 3 is done: 443 fixtures under `examples/` carry annotations,
+and none lists codes with `expect-error:`. Finishing it took three changes
+beyond the plan:
 
-- **The error is located in an imported module** (8): the three
-  `compiler_errors/adversarial/*/Main.flx`, `ki_076_operator_in_module`,
-  `MultiModuleErrorsMain`, `modules_all_files_broken/Main`,
-  `modules_many_errors/Main`, and
-  `189_contextual_boundary_unresolved_strict_e425`. See the first
-  unresolved question.
-- **The annotation would be read as code** (2):
-  `missing_string_interpolation_close` and
-  `125_string_interpolation_missing_close_brace` leave a string open at the
-  end of the line, so a trailing comment would become part of it.
-- **An error has no location** (1): `duplicate_instance` (KI-143).
-- **The fixture fails today** (2): `missing_module_closing_brace` reports
-  E024 where its block says E076, and
-  `uppercase_row_tail_after_named_effect`'s hint changed wording.
-- **Not a parity fixture** (1): `tests/flux/parse_error.flx`, run by
-  `flux --test`.
+- the `//~ File.flx:5 E400` form, for the 8 fixtures whose errors are in a
+  module they import;
+- repeated `v`s and placement that asks the lexer, for the 2 fixtures that
+  leave a string open;
+- a fix for KI-143, whose duplicate-instance fixture also reported an error
+  with no location.
+
+`tests/flux/parse_error.flx` keeps `expect-error:`. It is run by
+`flux --test`, not `parity-check`; see the last unresolved question.
 
 ## Unresolved questions
 [unresolved-questions]: #unresolved-questions
 
-- How should a fixture expect an error located in a module it imports? It
-  can't annotate the module, which other fixtures may share. Perhaps a form
-  that names the file, `//~ Ki076Ord.flx:32 E1000`; until then those
-  fixtures keep `expect-error:`.
-
-- Should stderr blocks go for every migrated fixture, or only where a
-  snapshot covers the same output? This proposal suggests the second.
 - An error rendered without a `file:line:col` location could not be
-  annotated. All 817 errors in today's snapshots have one (even an import
-  cycle points at the import), but if one turns up it needs a form not tied
-  to a line, perhaps `//~? E…` anywhere in the file.
+  annotated. Every error in today's fixtures has one; the one that didn't
+  was a bug (KI-143). If one turns up that should have none, it needs a
+  form not tied to a line, perhaps `//~? E…` anywhere in the file.
 - Should `flux --test` fixtures in `tests/flux/` (one uses `expect-error:`
   today, `tests/flux/parse_error.flx`) take the same syntax?
 

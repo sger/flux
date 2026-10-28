@@ -53,23 +53,26 @@ too, not just the code (proposal 0191):
 ```
 print(add("x", 2)) //~ E300
 //~^ E034         the line above; `^^` is two lines above
-//~v E034         the line below
+//~v E034         the line below; `vv` is two lines below
 f(1, 2, 3)         //~ E056 E300
+//~ Broken.flx:5 E400   an error in a module the fixture imports
 ```
 
 - Non-strict ways must report exactly these (line, code) pairs; strict ways
   must report them all and may add more. A mismatch lists each missing and
   unexpected pair.
-- Only the fixture's own lines can be annotated. A fixture whose error is
-  located in a module it imports keeps `expect-error:`, and so does one whose
-  error is on a line that leaves a string open, where a trailing comment
-  would become part of the program.
+- An error in an imported module is named by file and line, from the
+  fixture's folder, on a line of its own. The module itself carries no
+  annotations: other fixtures may import it too.
+- A comment after a string left open becomes part of the string. The parity
+  check rejects such an annotation; point at the line from a neighbour.
 - `flux parity-check <files> --annotate` moves a passing fixture from
   `expect-error:` lines to annotations, or says why it can't.
 - A fixture uses one form or the other, never both.
 - `--bless` rewrites the annotations from what the ways report, when they all
-  agree. It never adds or removes a line: a line that already has a comment is
-  annotated from the next free line with `//~^`.
+  agree. It never adds or removes a line for an error in the fixture: a line
+  that can't take the comment is annotated from the next free line with
+  `//~^`, or the nearest one above with `//~v`.
 - Rendered errors show a source line without its trailing comment, unless
   the error's span runs into the comment. So an annotation stays out of
   snapshots and stderr blocks, except where the error covers a whole block
