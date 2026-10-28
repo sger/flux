@@ -1,0 +1,15 @@
+// parity: vm, llvm
+// expect: success
+// An integer past 2^53 survives parse and stringify: going through a float
+// would print 9007199254740992.
+// parity-expected-stdout-begin
+// "9007199254740993"
+// "9007199254740993"
+// parity-expected-stdout-end
+
+import Flow.Json as Json
+
+fn main() with IO {
+    print(Json.stringify(Json.parse("9007199254740993")))
+    print(Json.stringify(Json.int(9007199254740993)))
+}
