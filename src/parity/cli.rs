@@ -22,8 +22,8 @@ use std::time::{Duration, SystemTime};
 
 use super::census;
 use super::fixture::{
-    Expect, ExpectedCount, FixtureMeta, SkipWay, parse_fixture_meta, parse_fixture_meta_allowing,
-    with_annotations,
+    Expect, ExpectedCount, FixtureMeta, SkipWay, converted_source, parse_fixture_meta,
+    parse_fixture_meta_allowing, with_annotations,
 };
 use super::known_issues;
 use super::normalize::normalize_stderr;
@@ -128,6 +128,9 @@ pub fn run_parity_check(args: &[String]) {
             let mut parity_result = checked.result;
             if let Some(out) = census_out.as_mut() {
                 out.write(&checked.rows);
+            }
+            if config.annotate {
+                annotate(&mut parity_result, &config);
             }
             if config.bless {
                 // The verdict was judged against the old annotations; judge
@@ -329,37 +332,17 @@ fn bless_annotations(result: &ParityResult, allow: &[String]) -> bool {
         return false;
     }
     let file = &result.file;
-    let reported: Vec<Option<Vec<(usize, String)>>> = result
-        .results
-        .iter()
-        .filter(|run| !run.way.is_strict())
-        .map(|run| {
-            let mut pairs = diagnostic_locations(&run.normalized_stderr)
-                .into_iter()
-                .map(|error| match (error.path, error.line) {
-                    (Some(path), Some(line)) if same_file(&path, file) => Some((line, error.code)),
-                    _ => None,
-                })
-                .collect::<Option<Vec<_>>>()?;
-            pairs.sort();
-            Some(pairs)
-        })
-        .collect();
-    let Some(Some(pairs)) = reported.first() else {
-        eprintln!(
-            "[parity] cannot bless {}: an error has no location in the fixture",
-            file.display()
-        );
-        return false;
+    let pairs = match reported_pairs(result) {
+        Ok(pairs) => pairs,
+        Err(reason) => {
+            eprintln!("[parity] cannot bless {}: {reason}", file.display());
+            return false;
+        }
     };
-    if reported.iter().any(|other| other.as_ref() != Some(pairs)) {
-        eprintln!("[parity] cannot bless {}: the ways report different errors", file.display());
-        return false;
-    }
     let Ok(source) = fs::read_to_string(file) else {
         return false;
     };
-    let (blessed, unplaced) = with_annotations(&source, pairs);
+    let (blessed, unplaced) = with_annotations(&source, &pairs);
     for problem in &unplaced {
         eprintln!("[parity] {}: {problem}", file.display());
     }
@@ -372,6 +355,127 @@ fn bless_annotations(result: &ParityResult, allow: &[String]) -> bool {
     }
     eprintln!("[parity] blessed the annotations of {}", file.display());
     true
+}
+
+/// The (line, code) pairs the non-strict ways report, sorted, when they agree
+/// and every error is located in the fixture.
+fn reported_pairs(result: &ParityResult) -> Result<Vec<(usize, String)>, String> {
+    let mut agreed: Option<Vec<(usize, String)>> = None;
+    for run in result.results.iter().filter(|run| !run.way.is_strict()) {
+        let mut pairs = Vec::new();
+        for error in diagnostic_locations(&run.normalized_stderr) {
+            match (&error.path, error.line) {
+                (Some(path), Some(line)) if same_file(path, &result.file) => {
+                    pairs.push((line, error.code))
+                }
+                _ => {
+                    return Err(format!("{} is not located in the fixture", error.describe(false)));
+                }
+            }
+        }
+        pairs.sort();
+        match &agreed {
+            Some(first) if *first != pairs => {
+                return Err("the ways report different errors".to_string());
+            }
+            Some(_) => {}
+            None => agreed = Some(pairs),
+        }
+    }
+    agreed.ok_or_else(|| "no way ran".to_string())
+}
+
+/// `--annotate`: moves a passing fixture from `// expect-error:` lines to `//~`
+/// annotations, and drops its expected-stderr block when a snapshot pins
+/// exactly the same text. The file is left as it was, with the reason printed, unless every
+/// error is located in the fixture, the codes are exactly the listed ones, and
+/// the converted fixture passes too.
+fn annotate(result: &mut ParityResult, config: &Config) {
+    let file = result.file.clone();
+    let meta = parse_fixture_meta_allowing(&file, &config.allow);
+    if meta.expected_errors.is_empty()
+        || !matches!(meta.expect, Expect::CompileError | Expect::RuntimeError)
+    {
+        return;
+    }
+    let keep = |reason: &str| eprintln!("[annotate] kept {}: {reason}", file.display());
+    if !matches!(result.verdict, Verdict::Pass) {
+        return keep("it does not pass today");
+    }
+    let pairs = match reported_pairs(result) {
+        Ok(pairs) => pairs,
+        Err(reason) => return keep(&reason),
+    };
+    let reported = sorted_codes(pairs.iter().map(|(_, code)| code.clone()));
+    let listed = sorted_codes(meta.expected_errors.iter().cloned());
+    if reported != listed {
+        return keep(&format!("it reports {reported:?}, its header lists {listed:?}"));
+    }
+    let Ok(source) = fs::read_to_string(&file) else {
+        return keep("it cannot be read");
+    };
+    let drop_block =
+        meta.expected_stderr.as_deref().is_some_and(|block| snapshot_pins(&file, block));
+    let converted = match converted_source(&source, &pairs, drop_block) {
+        Ok(converted) => converted,
+        Err(reason) => return keep(&reason),
+    };
+    if let Err(err) = fs::write(&file, &converted) {
+        return keep(&err.to_string());
+    }
+    let mut rerun = check_one(&file, config).result;
+    if !drop_block && meta.expected_stderr.is_some() {
+        // A kept block still quotes the old line numbers.
+        bless(&mut rerun, &config.allow);
+        rerun = check_one(&file, config).result;
+    }
+    if !matches!(rerun.verdict, Verdict::Pass) {
+        let _ = fs::write(&file, &source);
+        return keep("the converted fixture does not pass; restored");
+    }
+    eprintln!("[annotate] converted {}", file.display());
+    *result = rerun;
+}
+
+/// Whether an examples snapshot of this fixture (found by the `Fixture:` line
+/// each one starts with) shows exactly the diagnostics in `block`. The CLI's
+/// `• N errors • path` summary line is not part of a snapshot. A snapshot
+/// harness can miss checks the CLI runs, so existing is not enough.
+fn snapshot_pins(file: &Path, block: &str) -> bool {
+    static SNAPSHOTS: std::sync::OnceLock<Vec<(String, String)>> = std::sync::OnceLock::new();
+    let snapshots = SNAPSHOTS.get_or_init(|| {
+        let mut found = Vec::new();
+        let mut dirs = vec![PathBuf::from("tests/snapshots")];
+        while let Some(dir) = dirs.pop() {
+            let Ok(entries) = fs::read_dir(&dir) else { continue };
+            for path in entries.flatten().map(|entry| entry.path()) {
+                if path.is_dir() {
+                    dirs.push(path);
+                } else if path.extension().is_some_and(|ext| ext == "snap")
+                    && let Ok(text) = fs::read_to_string(&path)
+                    && let Some(fixture) = text.lines().find_map(|l| l.strip_prefix("Fixture: "))
+                {
+                    let diagnostics = text
+                        .split_once("== diagnostics ==\n")
+                        .and_then(|(_, rest)| rest.split_once("\n== stdout =="))
+                        .map(|(diagnostics, _)| diagnostics.to_string())
+                        .unwrap_or_default();
+                    found.push((fixture.to_string(), diagnostics));
+                }
+            }
+        }
+        found
+    });
+    let lines = |text: &str| -> Vec<String> {
+        text.lines()
+            .filter(|line| !line.starts_with("• "))
+            .map(|line| line.trim_end().to_string())
+            .collect::<Vec<_>>()
+    };
+    let block = lines(block.trim());
+    snapshots.iter().any(|(fixture, diagnostics)| {
+        same_file(fixture, file) && lines(diagnostics.trim()) == block
+    })
 }
 
 /// `source` with `block` holding `body`. An existing block is replaced; with
@@ -2162,6 +2266,54 @@ mod tests {
         );
     }
 
+    fn parity_result(runs: Vec<super::super::RunResult>) -> ParityResult {
+        ParityResult {
+            file: PathBuf::from("/repo/examples/a.flx"),
+            results: runs,
+            artifacts: vec![],
+            verdict: Verdict::Pass,
+            skipped_ways: vec![],
+            elapsed: vec![],
+            unexpected_passes: vec![],
+        }
+    }
+
+    #[test]
+    fn errors_convert_only_when_the_ways_agree_and_each_is_in_the_fixture() {
+        let here = rendered("E300", "examples/a.flx", 7);
+        let agreeing = parity_result(vec![
+            result(Way::Vm, ExitKind::CompileError, "", &here),
+            result(Way::Llvm, ExitKind::CompileError, "", &here),
+            result(
+                Way::VmStrict,
+                ExitKind::CompileError,
+                "",
+                &rendered("E425", "examples/a.flx", 2),
+            ),
+        ]);
+        assert_eq!(reported_pairs(&agreeing), Ok(vec![(7, "E300".to_string())]));
+
+        let disagreeing = parity_result(vec![
+            result(Way::Vm, ExitKind::CompileError, "", &here),
+            result(Way::Llvm, ExitKind::CompileError, "", &rendered("E300", "examples/a.flx", 8)),
+        ]);
+        assert_eq!(
+            reported_pairs(&disagreeing),
+            Err("the ways report different errors".to_string())
+        );
+
+        let elsewhere = parity_result(vec![result(
+            Way::Vm,
+            ExitKind::RuntimeError,
+            "",
+            &rendered("E1000", "examples/Mod.flx", 3),
+        )]);
+        assert_eq!(
+            reported_pairs(&elsewhere),
+            Err("examples/Mod.flx:3: E1000 is not located in the fixture".to_string())
+        );
+    }
+
     #[test]
     fn includes_codes_counts_repeats() {
         let codes = |list: &[&str]| list.iter().map(|c| c.to_string()).collect::<Vec<_>>();
@@ -2675,6 +2827,8 @@ struct Config {
     check_skips: bool,
     /// `--bless`: write what agreeing ways printed into the expected blocks.
     bless: bool,
+    /// `--annotate`: move fixtures from `// expect-error:` lines to `//~`.
+    annotate: bool,
     /// `None` means "use per-fixture metadata, falling back to [Vm, Llvm]".
     ways: Option<Vec<Way>>,
     vm_binary: PathBuf,
@@ -2724,6 +2878,7 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
     let mut open_kis: Option<BTreeSet<String>> = None;
     let mut check_skips = false;
     let mut bless = false;
+    let mut annotate = false;
     let mut ways: Option<Vec<Way>> = None;
     let mut vm_binary = default_vm_binary();
     let mut llvm_binary = default_llvm_binary();
@@ -2812,6 +2967,9 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
             }
             "--bless" => {
                 bless = true;
+            }
+            "--annotate" => {
+                annotate = true;
             }
             "--capture-core" => {
                 capture_core = true;
@@ -2931,6 +3089,7 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
         open_kis,
         check_skips,
         bless,
+        annotate,
         ways,
         vm_binary,
         llvm_binary,
@@ -2994,6 +3153,9 @@ Options:
                          fixture: its stdout block (added if missing) for a fixture that
                          expects success, or its existing stderr block for one that expects
                          an error
+  --annotate             Move each passing fixture from `// expect-error:` lines to `//~`
+                         annotations on the lines its errors are reported on, dropping its
+                         stderr block when a snapshot pins the same text (proposal 0191)
 
 Binaries are rebuilt automatically when missing or stale.
 Use --rebuild to force a refresh:
