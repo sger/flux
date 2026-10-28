@@ -29,6 +29,7 @@ fn fixture_source(
     format!(
         r#"
 import Flow.Async exposing (..)
+import Flow.Channel as Channel
 import Flow.Http exposing (..)
 import Flow.Map as Map
 import Flow.Stream as Stream
@@ -38,24 +39,29 @@ fn handler(req) with Async {{
     ok(req.path + ":" + req.body)
 }}
 
-fn server() -> Unit with Async, AsyncFail {{
-    let config = server_config({max_connections}, {max_header}, {max_body}, 30000)
-    let h = serve_config("127.0.0.1", {port}, config, handler)
-    let _sleep = sleep(200)
-    shutdown(h)
-}}
-
-fn client() -> String with Async {{
-    let _wait = sleep(50)
-    let conn = Tcp.connect("127.0.0.1", {port})
-    let _write = Tcp.write_all(conn, {request:?})
-    let response = Tcp.read(conn, 4096)
-    let tail = Tcp.read(conn, 4096)
-    Tcp.close(conn)
-    response + tail
-}}
-
 fn body() -> String with Async {{
+    let ready = Channel.make(1)
+    let done = Channel.make(1)
+
+    fn server() -> Unit with Async, AsyncFail {{
+        let config = server_config({max_connections}, {max_header}, {max_body}, 30000)
+        let h = serve_config("127.0.0.1", {port}, config, handler)
+        Channel.send(ready, 1)
+        let _done = Channel.recv(done)
+        shutdown(h)
+    }}
+
+    fn client() -> String with Async {{
+        let _ready = Channel.recv(ready)
+        let conn = Tcp.connect("127.0.0.1", {port})
+        let _write = Tcp.write_all(conn, {request:?})
+        let response = Tcp.read(conn, 4096)
+        let tail = Tcp.read(conn, 4096)
+        Tcp.close(conn)
+        Channel.send(done, 1)
+        response + tail
+    }}
+
     let pair = both(server, client)
     pair.1
 }}
@@ -75,6 +81,8 @@ fn run_http_fixture(max_connections: i64, max_header: i64, max_body: i64, reques
     stdout
 }
 
+/// Server and client order their steps with channels, never fixed sleeps:
+/// a loaded machine overruns any delay.
 fn lifecycle_source(body: &str) -> String {
     format!(
         r#"
@@ -251,7 +259,7 @@ fn body() -> String with Async, AsyncFail {{
         .write_all(b"GET /hold HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
         .expect("write first request");
 
-    // Wait long enough that the first request is definitely inside its 300ms
+    // Wait long enough that the first request is definitely inside its 600ms
     // sleep, but short enough that it hasn't completed yet.
     std::thread::sleep(std::time::Duration::from_millis(150));
     let mut second =
@@ -260,7 +268,7 @@ fn body() -> String with Async, AsyncFail {{
     second
         .write_all(b"GET /second HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
         .expect("write second request");
-    // 120ms window to detect a response — first hold has ~150ms remaining so
+    // 120ms window to detect a response — first hold has ~450ms remaining so
     // a response here means backpressure didn't fire.
     second
         .set_read_timeout(Some(std::time::Duration::from_millis(120)))
@@ -299,28 +307,33 @@ fn shutdown_drains_active_connection() {
     let port = free_port();
     let source = lifecycle_source(&format!(
         r#"
-fn handler(req) with Async {{
-    let _slow = sleep(150)
-    ok("drained")
-}}
-
-fn server() -> String with Async, AsyncFail {{
-    let h = serve_config("127.0.0.1", {port}, default_config(), handler)
-    let _sleep = sleep(80)
-    shutdown(h)
-    "stopped"
-}}
-
-fn client() -> String with Async {{
-    let _wait = sleep(50)
-    let conn = Tcp.connect("127.0.0.1", {port})
-    let _write = Tcp.write_all(conn, "GET /drain HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
-    let response = Tcp.read(conn, 4096)
-    Tcp.close(conn)
-    response
-}}
-
 fn body() -> String with Async, AsyncFail {{
+    let ready = Channel.make(1)
+    let started = Channel.make(1)
+
+    fn handler(req) with Async {{
+        Channel.send(started, 1)
+        let _slow = sleep(150)
+        ok("drained")
+    }}
+
+    fn server() -> String with Async, AsyncFail {{
+        let h = serve_config("127.0.0.1", {port}, default_config(), handler)
+        Channel.send(ready, 1)
+        let _started = Channel.recv(started)
+        shutdown(h)
+        "stopped"
+    }}
+
+    fn client() -> String with Async {{
+        let _ready = Channel.recv(ready)
+        let conn = Tcp.connect("127.0.0.1", {port})
+        let _write = Tcp.write_all(conn, "GET /drain HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+        let response = Tcp.read(conn, 4096)
+        Tcp.close(conn)
+        response
+    }}
+
     let pair = both(server, client)
     pair.1
 }}
@@ -342,23 +355,28 @@ fn handler(req) with Async {{
     ok("too-late")
 }}
 
-fn server() -> Unit with Async, AsyncFail {{
-    let config = server_config(1, 65536, 8388608, 50)
-    let h = serve_config("127.0.0.1", {port}, config, handler)
-    let _sleep = sleep(300)
-    shutdown(h)
-}}
-
-fn client() -> String with Async {{
-    let _wait = sleep(50)
-    let conn = Tcp.connect("127.0.0.1", {port})
-    let _write = Tcp.write_all(conn, "GET /slow HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
-    let response = Tcp.read(conn, 4096)
-    Tcp.close(conn)
-    response
-}}
-
 fn body() -> String with Async, AsyncFail {{
+    let ready = Channel.make(1)
+    let done = Channel.make(1)
+
+    fn server() -> Unit with Async, AsyncFail {{
+        let config = server_config(1, 65536, 8388608, 50)
+        let h = serve_config("127.0.0.1", {port}, config, handler)
+        Channel.send(ready, 1)
+        let _done = Channel.recv(done)
+        shutdown(h)
+    }}
+
+    fn client() -> String with Async {{
+        let _ready = Channel.recv(ready)
+        let conn = Tcp.connect("127.0.0.1", {port})
+        let _write = Tcp.write_all(conn, "GET /slow HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+        let response = Tcp.read(conn, 4096)
+        Tcp.close(conn)
+        Channel.send(done, 1)
+        response
+    }}
+
     let pair = both(server, client)
     pair.1
 }}
@@ -381,23 +399,28 @@ fn handler(req) with Async {{
     ok("fast")
 }}
 
-fn server() -> Unit with Async, AsyncFail {{
-    let config = server_config(1, 65536, 8388608, 200)
-    let h = serve_config("127.0.0.1", {port}, config, handler)
-    let _sleep = sleep(200)
-    shutdown(h)
-}}
-
-fn client() -> String with Async {{
-    let _wait = sleep(50)
-    let conn = Tcp.connect("127.0.0.1", {port})
-    let _write = Tcp.write_all(conn, "GET /fast HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
-    let response = Tcp.read(conn, 4096)
-    Tcp.close(conn)
-    response
-}}
-
 fn body() -> String with Async, AsyncFail {{
+    let ready = Channel.make(1)
+    let done = Channel.make(1)
+
+    fn server() -> Unit with Async, AsyncFail {{
+        let config = server_config(1, 65536, 8388608, 200)
+        let h = serve_config("127.0.0.1", {port}, config, handler)
+        Channel.send(ready, 1)
+        let _done = Channel.recv(done)
+        shutdown(h)
+    }}
+
+    fn client() -> String with Async {{
+        let _ready = Channel.recv(ready)
+        let conn = Tcp.connect("127.0.0.1", {port})
+        let _write = Tcp.write_all(conn, "GET /fast HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+        let response = Tcp.read(conn, 4096)
+        Tcp.close(conn)
+        Channel.send(done, 1)
+        response
+    }}
+
     let pair = both(server, client)
     pair.1
 }}
@@ -423,23 +446,28 @@ fn handler(req) with Async {{
     }}
 }}
 
-fn server() -> Unit with Async, AsyncFail {{
-    let config = server_config(1, 65536, 8388608, 50)
-    let h = serve_config("127.0.0.1", {port}, config, handler)
-    let _sleep = sleep(300)
-    shutdown(h)
-}}
-
-fn client() -> String with Async {{
-    let _wait = sleep(50)
-    let conn = Tcp.connect("127.0.0.1", {port})
-    let _write = Tcp.write_all(conn, "GET /slow HTTP/1.1\r\nHost: local\r\n\r\nGET /second HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
-    let response = read_all_http(conn, "")
-    Tcp.close(conn)
-    response
-}}
-
 fn body() -> String with Async, AsyncFail {{
+    let ready = Channel.make(1)
+    let done = Channel.make(1)
+
+    fn server() -> Unit with Async, AsyncFail {{
+        let config = server_config(1, 65536, 8388608, 50)
+        let h = serve_config("127.0.0.1", {port}, config, handler)
+        Channel.send(ready, 1)
+        let _done = Channel.recv(done)
+        shutdown(h)
+    }}
+
+    fn client() -> String with Async {{
+        let _ready = Channel.recv(ready)
+        let conn = Tcp.connect("127.0.0.1", {port})
+        let _write = Tcp.write_all(conn, "GET /slow HTTP/1.1\r\nHost: local\r\n\r\nGET /second HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+        let response = read_all_http(conn, "")
+        Tcp.close(conn)
+        Channel.send(done, 1)
+        response
+    }}
+
     let pair = both(server, client)
     pair.1
 }}
@@ -457,29 +485,34 @@ fn handler_timeout_does_not_break_graceful_shutdown_drain() {
     let port = free_port();
     let source = lifecycle_source(&format!(
         r#"
-fn handler(req) with Async {{
-    let _slow = sleep(100)
-    ok("drained")
-}}
-
-fn server() -> String with Async, AsyncFail {{
-    let config = server_config(1, 65536, 8388608, 300)
-    let h = serve_config("127.0.0.1", {port}, config, handler)
-    let _sleep = sleep(80)
-    shutdown(h)
-    "stopped"
-}}
-
-fn client() -> String with Async {{
-    let _wait = sleep(50)
-    let conn = Tcp.connect("127.0.0.1", {port})
-    let _write = Tcp.write_all(conn, "GET /drain HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
-    let response = Tcp.read(conn, 4096)
-    Tcp.close(conn)
-    response
-}}
-
 fn body() -> String with Async, AsyncFail {{
+    let ready = Channel.make(1)
+    let started = Channel.make(1)
+
+    fn handler(req) with Async {{
+        Channel.send(started, 1)
+        let _slow = sleep(100)
+        ok("drained")
+    }}
+
+    fn server() -> String with Async, AsyncFail {{
+        let config = server_config(1, 65536, 8388608, 300)
+        let h = serve_config("127.0.0.1", {port}, config, handler)
+        Channel.send(ready, 1)
+        let _started = Channel.recv(started)
+        shutdown(h)
+        "stopped"
+    }}
+
+    fn client() -> String with Async {{
+        let _ready = Channel.recv(ready)
+        let conn = Tcp.connect("127.0.0.1", {port})
+        let _write = Tcp.write_all(conn, "GET /drain HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+        let response = Tcp.read(conn, 4096)
+        Tcp.close(conn)
+        response
+    }}
+
     let pair = both(server, client)
     pair.1
 }}
@@ -628,22 +661,27 @@ fn handler(req) with Async {{
     stream_response(200, {{}}, Stream.from_array([|"hello", " world"|]))
 }}
 
-fn server() -> Unit with Async, AsyncFail {{
-    let h = serve_stream("127.0.0.1", {port}, handler)
-    let _sleep = sleep(250)
-    shutdown(h)
-}}
-
-fn client() -> String with Async {{
-    let _wait = sleep(50)
-    let conn = Tcp.connect("127.0.0.1", {port})
-    let _write = Tcp.write_all(conn, "GET /stream HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
-    let response = read_all_http(conn, "")
-    Tcp.close(conn)
-    response
-}}
-
 fn body() -> String with Async, AsyncFail {{
+    let ready = Channel.make(1)
+    let done = Channel.make(1)
+
+    fn server() -> Unit with Async, AsyncFail {{
+        let h = serve_stream("127.0.0.1", {port}, handler)
+        Channel.send(ready, 1)
+        let _done = Channel.recv(done)
+        shutdown(h)
+    }}
+
+    fn client() -> String with Async {{
+        let _ready = Channel.recv(ready)
+        let conn = Tcp.connect("127.0.0.1", {port})
+        let _write = Tcp.write_all(conn, "GET /stream HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+        let response = read_all_http(conn, "")
+        Tcp.close(conn)
+        Channel.send(done, 1)
+        response
+    }}
+
     let pair = both(server, client)
     pair.1
 }}
@@ -669,22 +707,27 @@ fn handler(req) with Async {{
     stream_response(204, {{}}, Stream.empty())
 }}
 
-fn server() -> Unit with Async, AsyncFail {{
-    let h = serve_stream("127.0.0.1", {port}, handler)
-    let _sleep = sleep(250)
-    shutdown(h)
-}}
-
-fn client() -> String with Async {{
-    let _wait = sleep(50)
-    let conn = Tcp.connect("127.0.0.1", {port})
-    let _write = Tcp.write_all(conn, "GET /empty HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
-    let response = read_all_http(conn, "")
-    Tcp.close(conn)
-    response
-}}
-
 fn body() -> String with Async, AsyncFail {{
+    let ready = Channel.make(1)
+    let done = Channel.make(1)
+
+    fn server() -> Unit with Async, AsyncFail {{
+        let h = serve_stream("127.0.0.1", {port}, handler)
+        Channel.send(ready, 1)
+        let _done = Channel.recv(done)
+        shutdown(h)
+    }}
+
+    fn client() -> String with Async {{
+        let _ready = Channel.recv(ready)
+        let conn = Tcp.connect("127.0.0.1", {port})
+        let _write = Tcp.write_all(conn, "GET /empty HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+        let response = read_all_http(conn, "")
+        Tcp.close(conn)
+        Channel.send(done, 1)
+        response
+    }}
+
     let pair = both(server, client)
     pair.1
 }}
@@ -713,22 +756,27 @@ fn handler(req) with Async {{
     }}
 }}
 
-fn server() -> Unit with Async, AsyncFail {{
-    let h = serve_stream("127.0.0.1", {port}, handler)
-    let _sleep = sleep(300)
-    shutdown(h)
-}}
-
-fn client() -> String with Async {{
-    let _wait = sleep(50)
-    let conn = Tcp.connect("127.0.0.1", {port})
-    let _write = Tcp.write_all(conn, "GET /first HTTP/1.1\r\nHost: local\r\n\r\nGET /second HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
-    let response = read_all_http(conn, "")
-    Tcp.close(conn)
-    response
-}}
-
 fn body() -> String with Async, AsyncFail {{
+    let ready = Channel.make(1)
+    let done = Channel.make(1)
+
+    fn server() -> Unit with Async, AsyncFail {{
+        let h = serve_stream("127.0.0.1", {port}, handler)
+        Channel.send(ready, 1)
+        let _done = Channel.recv(done)
+        shutdown(h)
+    }}
+
+    fn client() -> String with Async {{
+        let _ready = Channel.recv(ready)
+        let conn = Tcp.connect("127.0.0.1", {port})
+        let _write = Tcp.write_all(conn, "GET /first HTTP/1.1\r\nHost: local\r\n\r\nGET /second HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+        let response = read_all_http(conn, "")
+        Tcp.close(conn)
+        Channel.send(done, 1)
+        response
+    }}
+
     let pair = both(server, client)
     pair.1
 }}
@@ -752,22 +800,27 @@ fn handler(req) with Async {{
     sse_response(Stream.from_array([|sse_event("one"), sse_named_event("tick", "two")|]))
 }}
 
-fn server() -> Unit with Async, AsyncFail {{
-    let h = serve_stream("127.0.0.1", {port}, handler)
-    let _sleep = sleep(250)
-    shutdown(h)
-}}
-
-fn client() -> String with Async {{
-    let _wait = sleep(50)
-    let conn = Tcp.connect("127.0.0.1", {port})
-    let _write = Tcp.write_all(conn, "GET /events HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
-    let response = read_all_http(conn, "")
-    Tcp.close(conn)
-    response
-}}
-
 fn body() -> String with Async, AsyncFail {{
+    let ready = Channel.make(1)
+    let done = Channel.make(1)
+
+    fn server() -> Unit with Async, AsyncFail {{
+        let h = serve_stream("127.0.0.1", {port}, handler)
+        Channel.send(ready, 1)
+        let _done = Channel.recv(done)
+        shutdown(h)
+    }}
+
+    fn client() -> String with Async {{
+        let _ready = Channel.recv(ready)
+        let conn = Tcp.connect("127.0.0.1", {port})
+        let _write = Tcp.write_all(conn, "GET /events HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+        let response = read_all_http(conn, "")
+        Tcp.close(conn)
+        Channel.send(done, 1)
+        response
+    }}
+
     let pair = both(server, client)
     pair.1
 }}
@@ -793,28 +846,33 @@ fn delayed_chunk() {{
     }})
 }}
 
-fn handler(req) with Async {{
-    stream_response(200, {{}}, delayed_chunk())
-}}
-
-fn server() -> String with Async, AsyncFail {{
-    let h = serve_stream("127.0.0.1", {port}, handler)
-    let _sleep = sleep(80)
-    shutdown(h)
-    "stopped"
-}}
-
-fn client() -> String with Async {{
-    let _wait = sleep(50)
-    let conn = Tcp.connect("127.0.0.1", {port})
-    let _write = Tcp.write_all(conn, "GET /drain HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
-    let response = Tcp.read(conn, 4096)
-    let tail = Tcp.read(conn, 4096)
-    Tcp.close(conn)
-    response + tail
-}}
-
 fn body() -> String with Async, AsyncFail {{
+    let ready = Channel.make(1)
+    let started = Channel.make(1)
+
+    fn handler(req) with Async {{
+        Channel.send(started, 1)
+        stream_response(200, {{}}, delayed_chunk())
+    }}
+
+    fn server() -> String with Async, AsyncFail {{
+        let h = serve_stream("127.0.0.1", {port}, handler)
+        Channel.send(ready, 1)
+        let _started = Channel.recv(started)
+        shutdown(h)
+        "stopped"
+    }}
+
+    fn client() -> String with Async {{
+        let _ready = Channel.recv(ready)
+        let conn = Tcp.connect("127.0.0.1", {port})
+        let _write = Tcp.write_all(conn, "GET /drain HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+        let response = Tcp.read(conn, 4096)
+        let tail = Tcp.read(conn, 4096)
+        Tcp.close(conn)
+        response + tail
+    }}
+
     let pair = both(server, client)
     pair.1
 }}
@@ -838,31 +896,36 @@ fn very_late_chunk() {{
     }})
 }}
 
-fn handler(req) with Async {{
-    stream_response(200, {{}}, very_late_chunk())
-}}
-
-fn server() -> String with Async, AsyncFail {{
-    let h = serve_stream("127.0.0.1", {port}, handler)
-    let _sleep = sleep(100)
-    shutdown_now(h)
-    "forced"
-}}
-
-fn client() -> String with Async {{
-    let _wait = sleep(50)
-    let conn = Tcp.connect("127.0.0.1", {port})
-    let _write = Tcp.write_all(conn, "GET /force HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
-    fn read_once() with Async {{
-        Tcp.read(conn, 4096)
-    }}
-    let first = result_or(timeout_result(500, read_once), "")
-    let second = result_or(timeout_result(500, read_once), "")
-    Tcp.close(conn)
-    first + second
-}}
-
 fn body() -> String with Async, AsyncFail {{
+    let ready = Channel.make(1)
+    let started = Channel.make(1)
+
+    fn handler(req) with Async {{
+        Channel.send(started, 1)
+        stream_response(200, {{}}, very_late_chunk())
+    }}
+
+    fn server() -> String with Async, AsyncFail {{
+        let h = serve_stream("127.0.0.1", {port}, handler)
+        Channel.send(ready, 1)
+        let _started = Channel.recv(started)
+        shutdown_now(h)
+        "forced"
+    }}
+
+    fn client() -> String with Async {{
+        let _ready = Channel.recv(ready)
+        let conn = Tcp.connect("127.0.0.1", {port})
+        let _write = Tcp.write_all(conn, "GET /force HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+        fn read_once() with Async {{
+            Tcp.read(conn, 4096)
+        }}
+        let first = result_or(timeout_result(500, read_once), "")
+        let second = result_or(timeout_result(500, read_once), "")
+        Tcp.close(conn)
+        first + second
+    }}
+
     let pair = both(server, client)
     pair.1
 }}
