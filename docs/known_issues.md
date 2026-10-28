@@ -83,7 +83,7 @@ header, is a different one:
 
 The effect-row rows lose information. In
 `195_effect_row_invalid_subtract_e421.flx` the type checker does find the
-specific error: `compiler_rules_tests::effect_row_invalid_subtract_reports_e421`
+specific error: `compiler_rules_tests::effects::effect_row_invalid_subtract_reports_e421`
 compiles it in process and sees E421, "I cannot subtract effect `Console`".
 The CLI reports a generic E300 parameter mismatch first and hides the E421
 as a later-stage error. That E300 also shows the argument as
