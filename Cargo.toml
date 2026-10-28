@@ -523,11 +523,11 @@ path = "tests/native_llvm/safe_arithmetic_tests.rs"
 
 [[test]]
 name = "native_debug_tests"
-path = "tests/native_llvm/native_debug_tests.rs"
+path = "tests/debug/native_debug_tests.rs"
 
 [[test]]
 name = "native_codeview_tests"
-path = "tests/native_llvm/native_codeview_tests.rs"
+path = "tests/debug/native_codeview_tests.rs"
 
 [[test]]
 name = "parity_debug_tests"
@@ -543,7 +543,7 @@ path = "tests/native_llvm/native_panic_trace_tests.rs"
 
 [[test]]
 name = "native_debug_heap_tests"
-path = "tests/native_llvm/native_debug_heap_tests.rs"
+path = "tests/debug/native_debug_heap_tests.rs"
 
 [[test]]
 name = "parity_corpus_tests"
@@ -799,7 +799,7 @@ path = "tests/integration/cache_invalidation_tests.rs"
 
 [[test]]
 name = "debug_info_tests"
-path = "tests/debuginfo/debug_info_tests.rs"
+path = "tests/debug/debug_info_tests.rs"
 
 [[test]]
 name = "vm_debug_tests"
