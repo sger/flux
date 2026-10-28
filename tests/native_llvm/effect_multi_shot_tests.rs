@@ -19,16 +19,12 @@
 
 #[path = "../support/primop_parity.rs"]
 mod primop_parity;
+use primop_parity::workspace_root;
 
 use primop_parity::{run_native, run_native_with_env, scratch::Scratch};
-use std::path::Path;
 use std::process::Command;
 
 const FIXTURE: &str = "effect_multi_shot.flx";
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
 
 /// Run the VM and return `(combined stdout+stderr, exit-success flag)`.
 fn run_vm_with_status() -> (String, bool) {

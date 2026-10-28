@@ -17,10 +17,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 #[path = "../support/scratch.rs"]
 mod scratch;
 use scratch::Scratch;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+use scratch::workspace_root;
 
 fn unique_run_dir(fixture: &str) -> std::path::PathBuf {
     static COUNTER: AtomicU64 = AtomicU64::new(0);

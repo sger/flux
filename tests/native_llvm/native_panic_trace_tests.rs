@@ -4,16 +4,13 @@
 
 #![cfg(feature = "llvm")]
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 #[path = "../support/scratch.rs"]
 mod scratch;
 use scratch::Scratch;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+use scratch::workspace_root;
 
 fn fixture(name: &str) -> String {
     format!("tests/native_llvm/panic_trace/{name}")

@@ -16,7 +16,6 @@
 //! parity is the main risk called out by proposal 0178, and the `Flow.Fs` work
 //! surfaced a real divergence this way that no VM-only test could have caught.
 
-use std::path::Path;
 use std::process::Command;
 
 // Re-exported so a test including this file gets `Scratch` from here rather
@@ -26,10 +25,8 @@ use std::process::Command;
 pub mod scratch;
 use scratch::Scratch;
 
-#[allow(dead_code)]
-pub fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+#[allow(unused_imports)]
+pub use scratch::workspace_root;
 
 /// Run one fixture through `flux --test`, optionally on the native backend.
 /// Returns `(stdout, success)`. Stderr is folded into the returned text when

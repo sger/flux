@@ -9,16 +9,13 @@
 //!
 //! These tests run on the native backend only; the VM does not use tags.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 #[path = "../support/scratch.rs"]
 mod scratch;
 use scratch::Scratch;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+use scratch::workspace_root;
 
 /// Run one source file on both backends and return `(vm_stdout, native_stdout)`.
 fn run_both(name: &str, source: &str) -> (String, String) {

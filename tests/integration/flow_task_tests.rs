@@ -16,7 +16,6 @@
 //! only the calling fiber while task workers publish completions back into
 //! the async scheduler.
 
-use std::path::Path;
 use std::process::Command;
 #[cfg(feature = "llvm")]
 use std::time::Duration;
@@ -24,10 +23,7 @@ use std::time::Duration;
 #[path = "../support/scratch.rs"]
 mod scratch;
 use scratch::Scratch;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+use scratch::workspace_root;
 
 fn run_flux_test(fixture: &str) -> (String, bool) {
     let path = workspace_root().join("tests").join("flux").join(fixture);

@@ -20,9 +20,10 @@ use flux::{
     },
 };
 
-pub fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+#[path = "scratch.rs"]
+mod scratch;
+#[allow(unused_imports)]
+pub use scratch::workspace_root;
 
 pub fn semantic_fixture_root() -> PathBuf {
     workspace_root().join("tests/fixtures/semantic_types")

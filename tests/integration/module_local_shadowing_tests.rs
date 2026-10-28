@@ -9,16 +9,12 @@
 //! `route_effectful_primops` (bare call → `perform`) and identifier
 //! compilation falling through to `exposed_bindings`.
 
-use std::path::Path;
 use std::process::Command;
 
 #[path = "../support/scratch.rs"]
 mod scratch;
 use scratch::Scratch;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+use scratch::workspace_root;
 
 fn run_flux_test(fixture: &str) -> (String, bool) {
     let dir = workspace_root().join("tests").join("flux");

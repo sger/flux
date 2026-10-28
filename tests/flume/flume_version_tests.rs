@@ -4,18 +4,14 @@
 //! backends. Asserted here is the property the fixture cannot check about
 //! itself: that every public function in the module is **pure**.
 
-use std::path::Path;
 use std::process::Command;
 
 #[path = "../support/stdlib_fixture.rs"]
 mod stdlib_fixture;
+use stdlib_fixture::workspace_root;
 
 use stdlib_fixture::assert_backends_agree;
 use stdlib_fixture::scratch::Scratch;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
 
 #[test]
 fn flume_version_fixture_passes_on_both_backends() {

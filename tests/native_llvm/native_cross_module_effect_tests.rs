@@ -20,13 +20,13 @@
 
 #![cfg(feature = "llvm")]
 
-use std::path::Path;
 use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 
 #[path = "../support/scratch.rs"]
 mod scratch;
 use scratch::Scratch;
+use scratch::workspace_root;
 
 static CROSS_MODULE_EFFECT_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -70,10 +70,6 @@ fn main() with IO {
     }
 }
 "#;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
 
 fn run(native: bool) -> (String, bool) {
     let _guard = CROSS_MODULE_EFFECT_LOCK

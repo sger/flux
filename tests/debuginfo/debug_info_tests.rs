@@ -5,22 +5,18 @@
 //! code marked artificial, and one entry per module with its own file. The
 //! library tests check that building it leaves the generated code alone.
 
-use std::path::Path;
 use std::process::Command;
 
 #[path = "../support/scratch.rs"]
 mod scratch;
 use scratch::Scratch;
+use scratch::workspace_root;
 
 use flux::{
     compiler::Compiler,
     debuginfo::DebugLevel,
     syntax::{lexer::Lexer, parser::Parser},
 };
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
 
 /// Runs `flux --dump-debug-info` on an example and returns its stdout with
 /// the workspace path replaced, so snapshots hold on every checkout.

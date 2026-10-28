@@ -12,16 +12,13 @@
 //!     Rust's `io::ErrorKind`, the C runtime on `errno` — so agreement is a
 //!     real invariant and not a shared code path.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 #[path = "../support/scratch.rs"]
 mod scratch;
 use scratch::Scratch;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+use scratch::workspace_root;
 
 fn scratch_dir() -> PathBuf {
     let dir = workspace_root().join("target").join("test-scratch");

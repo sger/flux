@@ -8,7 +8,6 @@
 //! level.
 #![allow(dead_code)]
 
-use std::path::Path;
 use std::process::Command;
 
 // Re-exported so a test including this file gets `Scratch` from here rather
@@ -18,9 +17,8 @@ use std::process::Command;
 pub mod scratch;
 use scratch::Scratch;
 
-pub fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+#[allow(unused_imports)]
+pub use scratch::workspace_root;
 
 /// Run a parity fixture through the native/LLVM backend.
 /// Returns `(trimmed stdout, process success flag)`.

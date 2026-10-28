@@ -14,16 +14,12 @@
 //! into importing modules — including across the `.flxi` cache, which is why
 //! the warm-cache path is covered explicitly.
 
-use std::path::Path;
 use std::process::Command;
 
 #[path = "../support/scratch.rs"]
 mod scratch;
 use scratch::Scratch;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+use scratch::workspace_root;
 
 /// Write a two-file project (`<ModuleName>.flx` + `main.flx`) into a private
 /// scratch directory and run it. A module must live in a file named after it,

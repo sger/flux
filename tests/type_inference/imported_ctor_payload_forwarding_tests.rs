@@ -25,12 +25,12 @@
 //! The three constructor shapes take different inference paths and are covered
 //! separately: positional, generic (`Box<a>`), and named-field.
 
-use std::path::Path;
 use std::process::Command;
 
 #[path = "../support/scratch.rs"]
 mod scratch;
 use scratch::Scratch;
+use scratch::workspace_root;
 
 /// The ADT whose constructors are imported. Deliberately in a module of its
 /// own: the bug does not reproduce when the matched type is declared in the
@@ -99,10 +99,6 @@ fn test_forwarded_payloads() with IO {
 
 /// What the fixture prints, in order: one line per constructor shape.
 const EXPECTED: &[&str] = &["hi", "7", "boxed", "L"];
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
 
 /// Run the three-module program under `flux --test`.
 ///

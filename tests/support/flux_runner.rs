@@ -7,7 +7,6 @@
 //! use flux_runner::{run_flux, run_flux_timed, run_flux_with_env};
 //! ```
 
-use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
@@ -18,10 +17,8 @@ use std::time::{Duration, Instant};
 pub mod scratch;
 use scratch::Scratch;
 
-#[allow(dead_code)]
-pub fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+#[allow(unused_imports)]
+pub use scratch::workspace_root;
 
 /// Write `source` to a uniquely-named temp file, run `flux --no-cache` on
 /// it, delete the file, and return `(stdout, stderr, success)`.
