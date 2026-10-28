@@ -2,9 +2,9 @@
 - Start Date: 2026-10-28
 - Proposal PR:
 - Flux Issue:
-- Status: Draft
-- Depends on: [0138](implemented/0138_flux_parity_ways.md) (parity ways and `flux parity-check`)
-- Relates to: [0190](0190_verification_toolkit.md) (the verification toolkit, which runs `parity-check` in `cargo xtask verify`)
+- Status: Implemented
+- Depends on: [0138](0138_flux_parity_ways.md) (parity ways and `flux parity-check`)
+- Relates to: [0190](../0190_verification_toolkit.md) (the verification toolkit, which runs `parity-check` in `cargo xtask verify`)
 
 # Proposal 0191: Expected errors tied to a source line
 
@@ -56,7 +56,7 @@ What the current form costs is elsewhere:
 3. **A wrong line can pass.** For a fixture without a snapshot or a stderr
    block, such as new fixtures under `tests/parity/`, an error reported on
    the wrong line passes the code-only check.
-4. **Names drift from what is reported.** [KI-137](../known_issues.md)
+4. **Names drift from what is reported.** [KI-137](../../known_issues.md)
    records 20 fixtures whose file name names one error code while the CLI
    reports another. An annotation next to the offending line shows the real
    code where a reader looks, which makes that drift harder to miss.
@@ -84,7 +84,7 @@ add("x", 2) //~ E300
 ```
 
 Today the same fixture,
-[`examples/type_system/failing/01_compile_type_mismatch.flx`](../../examples/type_system/failing/01_compile_type_mismatch.flx),
+[`examples/type_system/failing/01_compile_type_mismatch.flx`](../../../examples/type_system/failing/01_compile_type_mismatch.flx),
 spends 31 lines on a header and a copy of the rendered error before its
 first line of code. With the annotation, the header keeps only
 `// expect: compile_error`.
