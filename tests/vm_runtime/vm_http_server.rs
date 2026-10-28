@@ -79,6 +79,7 @@ fn lifecycle_source(body: &str) -> String {
     format!(
         r#"
 import Flow.Async exposing (..)
+import Flow.Channel as Channel
 import Flow.Http exposing (..)
 import Flow.Map as Map
 import Flow.Stream as Stream
@@ -494,34 +495,42 @@ fn body() -> String with Async, AsyncFail {{
 #[test]
 fn shutdown_now_cancels_active_connection() {
     let port = free_port();
+    // Channels order the steps: the client connects once the server is
+    // listening, and the server shuts down once the handler has the request.
+    // Fixed sleeps let a loaded machine connect after the shutdown.
     let source = lifecycle_source(&format!(
         r#"
-fn handler(req) with Async {{
-    let _slow = sleep(1000)
-    ok("too-late")
-}}
-
-fn server() -> String with Async, AsyncFail {{
-    let h = serve_config("127.0.0.1", {port}, default_config(), handler)
-    let _sleep = sleep(100)
-    shutdown_now(h)
-    "forced"
-}}
-
-fn client() -> String with Async {{
-    let _wait = sleep(50)
-    let conn = Tcp.connect("127.0.0.1", {port})
-    let _write = Tcp.write_all(conn, "GET /force HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
-    fn read_once() with Async {{
-        Tcp.read(conn, 4096)
-    }}
-    let read_result = timeout_result(500, read_once)
-    Tcp.close(conn)
-    let bytes = result_or(read_result, "closed")
-    if bytes == "" {{ "closed" }} else {{ bytes }}
-}}
-
 fn body() -> String with Async, AsyncFail {{
+    let ready = Channel.make(1)
+    let started = Channel.make(1)
+
+    fn handler(req) with Async {{
+        Channel.send(started, 1)
+        let _slow = sleep(1000)
+        ok("too-late")
+    }}
+
+    fn server() -> String with Async, AsyncFail {{
+        let h = serve_config("127.0.0.1", {port}, default_config(), handler)
+        Channel.send(ready, 1)
+        let _started = Channel.recv(started)
+        shutdown_now(h)
+        "forced"
+    }}
+
+    fn client() -> String with Async {{
+        let _ready = Channel.recv(ready)
+        let conn = Tcp.connect("127.0.0.1", {port})
+        let _write = Tcp.write_all(conn, "GET /force HTTP/1.1\r\nHost: local\r\nConnection: close\r\n\r\n")
+        fn read_once() with Async {{
+            Tcp.read(conn, 4096)
+        }}
+        let read_result = timeout_result(500, read_once)
+        Tcp.close(conn)
+        let bytes = result_or(read_result, "closed")
+        if bytes == "" {{ "closed" }} else {{ bytes }}
+    }}
+
     let pair = both(server, client)
     pair.1
 }}
