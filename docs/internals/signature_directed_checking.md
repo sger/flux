@@ -187,5 +187,5 @@ Production code:
 Fixtures:
 
 - [examples/compiler_errors/rigid_var_escape_e305.flx](../../examples/compiler_errors/rigid_var_escape_e305.flx)
-- [examples/compiler_errors/invalid_type_annotation_e303.flx](../../examples/compiler_errors/invalid_type_annotation_e303.flx)
-- [examples/compiler_errors/invalid_effect_row_e304.flx](../../examples/compiler_errors/invalid_effect_row_e304.flx)
+- [examples/compiler_errors/invalid_type_annotation_e423.flx](../../examples/compiler_errors/invalid_type_annotation_e423.flx)
+- [examples/compiler_errors/invalid_effect_row_e034.flx](../../examples/compiler_errors/invalid_effect_row_e034.flx)
