@@ -786,6 +786,15 @@ int flux_rc_is_shared(int64_t val) {
     return rc_load_relaxed(header_of(ptr)) < 0;
 }
 
+/* True if `val` is counted by one thread only (rc > 0, not sticky). */
+int flux_rc_is_thread_local(int64_t val) {
+    if (!flux_is_ptr(val)) return 0;
+    void *ptr = flux_untag_ptr(val);
+    if (!ptr) return 0;
+    int32_t rc = rc_load_relaxed(header_of(ptr));
+    return rc > 0 && !rc_sticky(rc);
+}
+
 /*
  * Recursively promote `val` from ST to MT mode (proposal 0174 Phase 1a-iv).
  *

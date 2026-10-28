@@ -185,6 +185,7 @@ void flux_drop(int64_t val);
 void flux_dup_range(const int64_t *vals, uint32_t n);
 int  flux_rc_is_unique(int64_t val);
 int  flux_rc_is_shared(int64_t val);
+int  flux_rc_is_thread_local(int64_t val);
 void flux_rc_promote(int64_t val);
 
 /* Concurrency / Task<a> (proposal 0174 D5-b/c). Implemented in tasks.c

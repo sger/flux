@@ -413,3 +413,33 @@ fn a_handle_releases_its_clause_and_state() {
     .collect();
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+const CHILD_FIBERS: &str = r"import Flow.Async exposing (..)
+
+fn left() -> Int with Async { 1 }
+fn right() -> Int with Async { 2 }
+
+fn body() -> Unit with Async, Console {
+    let pair = both(right, left)
+    print(pair.0 + pair.1)
+    print(race(left, right))
+}
+
+fn main() with IO {
+    run_async(body)
+}
+";
+
+/// A fiber's effect context is captured where it is spawned and restored
+/// and released on the worker that runs it, so what it holds must be counted
+/// as shared (KI-134). With two workers, a child runs on the second.
+#[test]
+fn an_effect_context_crossing_threads_is_shared_ki134() {
+    let scratch = Scratch::new("debug-heap-effect-context-threads");
+    let file = scratch.write("child_fibers.flx", CHILD_FIBERS);
+    let file = file.to_str().expect("utf-8 path");
+    let (stdout, stderr, code) =
+        run_env(&scratch, file, &["--native", "--debug-heap"], &[("FLUX_WORKERS", "2")]);
+    assert!(!stderr.contains("captured on one thread"), "{stderr}");
+    assert_eq!((stdout.as_str(), code), ("3\n1\n", 0), "{stderr}");
+}
