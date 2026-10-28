@@ -225,8 +225,21 @@ impl Repo {
             .map(|(name, _)| name.as_str())
     }
 
-    fn binary_for_source(&self, path: &str) -> Option<&str> {
-        self.tests.iter().find(|(_, source)| source == path).map(|(name, _)| name.as_str())
+    /// The nextest filter that runs the tests in `path`: its whole binary when
+    /// the file is a `[[test]]` target, or its module of the folder's binary
+    /// when the folder's `main.rs` declares it.
+    fn filter_for_source(&self, path: &str) -> Option<String> {
+        if let Some((name, _)) = self.tests.iter().find(|(_, source)| source == path) {
+            return Some(format!("binary_id(=flux::{name})"));
+        }
+        let (dir, file) = path.rsplit_once('/')?;
+        let stem = file.strip_suffix(".rs")?;
+        let main = format!("{dir}/main.rs");
+        let (name, _) = self.tests.iter().find(|(_, source)| *source == main)?;
+        let (_, text) = self.sources.iter().find(|(source, _)| *source == main)?;
+        declared_modules(text)
+            .any(|module| module == stem)
+            .then(|| format!("(binary_id(=flux::{name}) & test(/^{stem}::/))"))
     }
 
     /// The deepest other workspace member whose directory holds `path`.
@@ -239,21 +252,60 @@ impl Repo {
     }
 
     /// Test sources that mention `needle`. A helper under `tests/support/` is
-    /// replaced by the test files that include it.
+    /// replaced by the test files that use it.
     fn sources_mentioning(&self, needle: &str) -> BTreeSet<String> {
         let mut found = BTreeSet::new();
+        self.collect_mentions(needle, &mut found, &mut BTreeSet::new());
+        found
+    }
+
+    /// The test files that use `helper`, a file under `tests/support/`.
+    fn users_of_helper(&self, helper: &str) -> BTreeSet<String> {
+        let mut found = BTreeSet::new();
+        self.follow_helper(helper, &mut found, &mut BTreeSet::new());
+        found
+    }
+
+    fn collect_mentions(
+        &self,
+        needle: &str,
+        found: &mut BTreeSet<String>,
+        helpers: &mut BTreeSet<String>,
+    ) {
         for (path, text) in &self.sources {
-            if !text.contains(needle) {
+            // `support/mod.rs` declares every helper without using them.
+            if !text.contains(needle) || path == "tests/support/mod.rs" {
                 continue;
             }
             match path.strip_prefix("tests/support/") {
-                Some(helper) => found.extend(self.sources_mentioning(&format!("support/{helper}"))),
+                Some(helper) => self.follow_helper(helper, found, helpers),
                 None => {
                     found.insert(path.clone());
                 }
             }
         }
-        found
+    }
+
+    /// Test files reach a helper as `support::<name>` and other helpers reach
+    /// it as `super::<name>`; every test file declares `support/mod.rs`.
+    /// `helpers` stops a helper that names itself in its docs from being
+    /// followed again.
+    fn follow_helper(
+        &self,
+        helper: &str,
+        found: &mut BTreeSet<String>,
+        helpers: &mut BTreeSet<String>,
+    ) {
+        if !helpers.insert(helper.to_string()) {
+            return;
+        }
+        match helper.strip_suffix(".rs").unwrap_or(helper) {
+            "mod" => self.collect_mentions("support/mod.rs", found, helpers),
+            name => {
+                self.collect_mentions(&format!("support::{name}"), found, helpers);
+                self.collect_mentions(&format!("super::{name}"), found, helpers);
+            }
+        }
     }
 }
 
@@ -337,9 +389,11 @@ impl Selection {
             // These cut across every directory. The effect handler fixtures
             // run in the parity corpus.
             Phase::Effects => {
-                self.filters.insert(
-                    "binary(/effect/) | test(/effect/) | binary(=parity_corpus_tests)".to_string(),
-                );
+                let mut filter = "binary(/effect/) | test(/effect/)".to_string();
+                if let Some(corpus) = repo.filter_for_source(PARITY_CORPUS) {
+                    filter = format!("{filter} | {corpus}");
+                }
+                self.filters.insert(filter);
             }
             Phase::Typeclasses => {
                 self.filters.insert("binary(/class/) | test(/class/)".to_string());
@@ -361,8 +415,8 @@ impl Selection {
 
     fn add_sources(&mut self, repo: &Repo, sources: &BTreeSet<String>) {
         for source in sources {
-            if let Some(binary) = repo.binary_for_source(source) {
-                self.filters.insert(format!("binary_id(=flux::{binary})"));
+            if let Some(filter) = repo.filter_for_source(source) {
+                self.filters.insert(filter);
                 self.all_features |= source_needs_llvm(source);
             }
         }
@@ -377,10 +431,12 @@ impl Selection {
         let sources = if let Some(rel) = path.strip_prefix("examples/") {
             if let Some((dir, _)) = rel.split_once('/') {
                 // One test function per top-level examples/ directory.
-                self.filters.insert(format!(
-                    "(binary_id(=flux::examples_fixtures_snapshots) & test(=examples_{}))",
-                    snake_case(dir)
-                ));
+                if let Some(filter) = repo.filter_for_source(EXAMPLES_SNAPSHOTS) {
+                    self.filters.insert(format!(
+                        "({filter} & test(/(^|::)examples_{}$/))",
+                        snake_case(dir)
+                    ));
+                }
                 repo.sources_mentioning(&format!("examples/{dir}"))
             } else {
                 repo.sources_mentioning(path)
@@ -470,9 +526,8 @@ pub fn select_for_paths(repo: &Repo, paths: &[String]) -> Selection {
                 selection.add_phase(repo, phase);
             }
         } else if let Some(helper) = path.strip_prefix("tests/support/") {
-            let includers = repo.sources_mentioning(&format!("support/{helper}"));
-            selection.add_sources(repo, &includers);
-        } else if path.starts_with("tests/") && repo.binary_for_source(path).is_some() {
+            selection.add_sources(repo, &repo.users_of_helper(helper));
+        } else if path.starts_with("tests/") && repo.filter_for_source(path).is_some() {
             selection.add_sources(repo, &BTreeSet::from([path.to_string()]));
         } else if under(&["tests/", "examples/"]) {
             selection.add_fixture(repo, path);
@@ -580,6 +635,19 @@ fn snake_case(name: &str) -> String {
 /// The test that runs every `tests/parity` fixture.
 const PARITY_CORPUS: &str = "tests/native_llvm/parity_corpus_tests.rs";
 
+/// The tests that snapshot `examples/`, one function per directory.
+const EXAMPLES_SNAPSHOTS: &str = "tests/examples/examples_fixtures_snapshots.rs";
+
+/// The modules a file declares with `mod <name>;`, as a folder's `main.rs`
+/// declares one per test file. Inline `mod <name> { … }` blocks are not files.
+pub fn declared_modules(text: &str) -> impl Iterator<Item = &str> {
+    text.lines().filter_map(|line| {
+        let line = line.trim();
+        let line = line.strip_prefix("pub(crate) ").or(line.strip_prefix("pub ")).unwrap_or(line);
+        line.strip_prefix("mod ")?.strip_suffix(';')
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -601,6 +669,7 @@ mod tests {
                     "tests/type_inference/type_semantics_matrix_tests.rs",
                 ),
                 ("native_debug_tests", "tests/debug/native_debug_tests.rs"),
+                ("vm_runtime", "tests/vm_runtime/main.rs"),
             ]),
             members: owned(&[("flux-lsp", "crates/flux-lsp/"), ("xtask", "xtask/")]),
             sources: owned(&[
@@ -609,11 +678,19 @@ mod tests {
                     r#"const FIXTURE: &str = "effect_multi_shot.flx";"#,
                 ),
                 ("tests/aether/cli_snapshots.rs", r#"snapshot_path => "../snapshots/aether""#),
+                ("tests/support/mod.rs", "//! use crate::support::flux_runner;\npub mod scratch;"),
+                ("tests/support/scratch.rs", "//! use crate::support::scratch;"),
+                ("tests/support/flux_runner.rs", "pub use super::scratch;"),
                 ("tests/support/semantic_infer.rs", "pub fn infer() {}"),
                 (
                     "tests/type_inference/type_semantics_matrix_tests.rs",
-                    r#"#[path = "../support/semantic_infer.rs"]"#,
+                    "#[path = \"../support/mod.rs\"]\nmod support;\nuse crate::support::semantic_infer;",
                 ),
+                (
+                    "tests/vm_runtime/main.rs",
+                    "#[path = \"../support/mod.rs\"]\nmod support;\n\nmod vm_json;\n#[cfg(feature = \"llvm\")]\npub mod vm_tcp;",
+                ),
+                ("tests/vm_runtime/vm_json.rs", "use crate::support::flux_runner;"),
                 ("tests/debug/native_debug_tests.rs", "tools/lldb/flux_lldb.py"),
             ]),
         }
@@ -677,7 +754,9 @@ mod tests {
         let selection = select(&["examples/ModuleGraph/main.flx"]);
         assert_eq!(
             filters(&selection),
-            ["(binary_id(=flux::examples_fixtures_snapshots) & test(=examples_module_graph))"]
+            [
+                "(binary_id(=flux::examples_fixtures_snapshots) & test(/(^|::)examples_module_graph$/))"
+            ]
         );
     }
 
@@ -705,6 +784,34 @@ mod tests {
     fn a_support_file_selects_the_tests_that_include_it() {
         let selection = select(&["tests/support/semantic_infer.rs"]);
         assert_eq!(filters(&selection), ["binary_id(=flux::type_semantics_matrix_tests)"]);
+    }
+
+    #[test]
+    fn a_helper_selects_the_tests_that_use_it_through_another_helper() {
+        let selection = select(&["tests/support/scratch.rs"]);
+        assert_eq!(filters(&selection), ["(binary_id(=flux::vm_runtime) & test(/^vm_json::/))"]);
+    }
+
+    #[test]
+    fn the_support_module_selects_every_binary_that_declares_it() {
+        let selection = select(&["tests/support/mod.rs"]);
+        assert_eq!(
+            filters(&selection),
+            ["binary_id(=flux::type_semantics_matrix_tests)", "binary_id(=flux::vm_runtime)"]
+        );
+    }
+
+    #[test]
+    fn a_module_of_a_folder_binary_selects_only_its_tests() {
+        let selection = select(&["tests/vm_runtime/vm_json.rs"]);
+        assert_eq!(filters(&selection), ["(binary_id(=flux::vm_runtime) & test(/^vm_json::/))"]);
+    }
+
+    #[test]
+    fn declared_modules_skip_inline_blocks_and_attributes() {
+        let text =
+            "#[path = \"x\"]\nmod a;\n#[cfg(unix)]\npub mod b;\nmod c {\n}\npub(crate) mod d;";
+        assert_eq!(declared_modules(text).collect::<Vec<_>>(), ["a", "b", "d"]);
     }
 
     #[test]
@@ -744,7 +851,7 @@ mod tests {
         let selection = select_for_phases(&repo(), &["effects".to_string()]).unwrap();
         assert_eq!(
             filters(&selection),
-            ["binary(/effect/) | test(/effect/) | binary(=parity_corpus_tests)"]
+            ["binary(/effect/) | test(/effect/) | binary_id(=flux::parity_corpus_tests)"]
         );
     }
 
