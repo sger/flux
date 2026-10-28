@@ -17,6 +17,10 @@ Bug classes:
 - `arith_` — arithmetic, comparisons, numeric edge cases
 - `string_` — string operations, interpolation
 - `tuple_` — tuple construction, field access
+- `async_`, `json_`, `stream_` — the matching `Flow` modules
+
+A fixture written for a known issue ends with its number, so searching for
+the KI finds it: `json_malformed_input_messages_ki138.flx`.
 
 ## Inline metadata
 
