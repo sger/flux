@@ -42,45 +42,6 @@ Severity is about consequence, not effort:
 
 ## Open
 
-### KI-143 — A duplicate instance also reported a duplicate internal name, with no location — FIXED 2026-10-28
-
-**Severity:** Low · **Area:** diagnostics, type classes · **Verified fixed:** 2026-10-28 · **From:** moving `examples/compiler_errors` to `//~` annotations (proposal 0191)
-
-```flux
-class Sizeable<a> {
-    fn size(x: a) -> Int
-}
-
-instance Sizeable<Int> {
-    fn size(x) { x }
-}
-
-instance Sizeable<Int> {
-    fn size(x) { x + 1 }
-}
-
-fn main() {
-    42
-}
-```
-
-The CLI reported the right error, E443 "Duplicate instance for
-`Sizeable<Int>`" at the second instance, and then
-`error[E001]: Duplicate binding: '__tc_Sizeable_Int_size' is already
-defined` at 0:1. That names a function the compiler generates for the
-instance's method, which the user never wrote, and points at line 0.
-
-Collection rejects the second instance, so only the first is collected. But
-method generation (`src/types/class_dispatch.rs`) found each declaration's
-collected instance by class and head type, so the second declaration matched
-the first one's and defined its methods again.
-
-**The fix.** Each collected instance is matched to one declaration only. The
-duplicate then finds none, and is treated like any declaration collection
-rejected: its methods are not generated.
-
-Test: `compiler_rules_tests::modules_and_matches::a_duplicate_instance_reports_no_duplicate_internal_name_ki143`.
-
 ### KI-141 — A test's port can be taken between `free_port()` and the bind
 
 **Severity:** Low · **Area:** tests, networking · **Verified:** 2026-10-28, by reading the code; the failure was not reproduced · **From:** a one-off failure of `vm_http_server::shutdown_now_cancels_active_connection` in a full `cargo test-all`
@@ -178,36 +139,6 @@ program reports `error[E1009]: boom` with the clause's stack trace and exits
 `flux_yield_prompt` runs the clause. A panic in the handle's body or inside
 `resume` does not do this (the KI-133 test covers both). Same on a2240eb7,
 before the KI-133 fix.
-
-### KI-134 — Natively, an effect context snapshot shares values between threads uncounted
-
-**Severity:** High · **Area:** native runtime, async scheduler, effects · **Verified:** 2026-10-27 · **From:** `cargo xtask sanitize --thread`
-
-```
-$ FLUX_RT_SANITIZE=thread flux --native tests/parity/async_observable_ordering.flx
-WARNING: ThreadSanitizer: data race
-  Atomic read of size 4 by thread T20:
-    #0 flux_drop rc.c:740
-    #1 flux_effect_context_release effects.c:168
-    #2 ...async::native_abi::execute_fiber
-  Previous write of size 4 by main thread:
-    #0 flux_drop rc.c:745
-    #1 flux_effect_context_release effects.c:168
-    #2 ...async::native_abi::execute_fiber
-    #3 flux_main async_observable_ordering.flx:50
-```
-
-`flux_effect_context_capture` (`runtime/c/effects.c`) copies the thread's
-effect context into a snapshot and takes a reference to each field with
-`flux_dup`, which counts thread-locally. Work stealing can release that
-snapshot on another thread, so two threads change the same plain count, and
-an update can be lost: a double free or a leak. The fields are never marked
-shared (`flux_rc_promote`) on the way.
-
-It is intermittent: 10 to 13 races in 30 cached runs, at HEAD and at every
-commit back to fc2f90fd, which added the ThreadSanitizer runtime. The capture
-code is older (a32c34ea). A first run with `--no-cache`, as parity-check
-does, rarely shows it.
 
 ### KI-125 — `make -C runtime/c test` does not build
 
@@ -2276,6 +2207,84 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-134 — Natively, an effect context snapshot shared values between threads uncounted — FIXED 2026-10-28
+
+**Severity:** High · **Area:** native runtime, async scheduler, effects · **Verified fixed:** 2026-10-28 · **From:** `cargo xtask sanitize --thread`
+
+```
+$ FLUX_RT_SANITIZE=thread flux --native tests/parity/async_observable_ordering.flx
+WARNING: ThreadSanitizer: data race
+  Atomic read of size 4 by thread T20:
+    #0 flux_drop rc.c:740
+    #1 flux_effect_context_release effects.c:168
+    #2 ...async::native_abi::execute_fiber
+  Previous write of size 4 by main thread:
+    #0 flux_drop rc.c:745
+    #1 flux_effect_context_release effects.c:168
+    #2 ...async::native_abi::execute_fiber
+    #3 flux_main async_observable_ordering.flx:50
+```
+
+`flux_effect_context_capture` (`runtime/c/effects.c`) copied the thread's
+effect context into a snapshot and took a reference to each field with
+`flux_dup`, which counts thread-locally. The scheduler captures a snapshot
+when it spawns a fiber and when one suspends, then restores and releases it
+on whichever worker runs the fiber: a child goes to another worker, and idle
+workers steal. So two threads changed the same plain count, and an update
+could be lost: a double free or a leak. Everything else the scheduler hands
+across threads (closures, continuations, results) is promoted to shared
+counting first; the snapshot's fields never were. TSan saw it in about 1 run
+in 3 (9 of 30 on 2026-10-28).
+
+**The fix.** Capture promotes each field (`flux_rc_promote`) before taking
+its reference. 30 TSan runs of the fixture: 0 races.
+
+**The check.** Under `--debug-heap`, a snapshot remembers the thread that
+captured it, and restoring or releasing it on another thread while a field
+is still counted by one thread stops the program (E1009). It found this on
+every run with `FLUX_WORKERS=2`.
+
+Test: `native_debug_heap_tests::effects::an_effect_context_crossing_threads_is_shared_ki134`.
+
+### KI-143 — A duplicate instance also reported a duplicate internal name, with no location — FIXED 2026-10-28
+
+**Severity:** Low · **Area:** diagnostics, type classes · **Verified fixed:** 2026-10-28 · **From:** moving `examples/compiler_errors` to `//~` annotations (proposal 0191)
+
+```flux
+class Sizeable<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sizeable<Int> {
+    fn size(x) { x }
+}
+
+instance Sizeable<Int> {
+    fn size(x) { x + 1 }
+}
+
+fn main() {
+    42
+}
+```
+
+The CLI reported the right error, E443 "Duplicate instance for
+`Sizeable<Int>`" at the second instance, and then
+`error[E001]: Duplicate binding: '__tc_Sizeable_Int_size' is already
+defined` at 0:1. That names a function the compiler generates for the
+instance's method, which the user never wrote, and points at line 0.
+
+Collection rejects the second instance, so only the first is collected. But
+method generation (`src/types/class_dispatch.rs`) found each declaration's
+collected instance by class and head type, so the second declaration matched
+the first one's and defined its methods again.
+
+**The fix.** Each collected instance is matched to one declaration only. The
+duplicate then finds none, and is treated like any declaration collection
+rejected: its methods are not generated.
+
+Test: `compiler_rules_tests::modules_and_matches::a_duplicate_instance_reports_no_duplicate_internal_name_ki143`.
 
 ### KI-142 — An error inside a lambda reported a false duplicate name in a later function — FIXED 2026-10-28
 
