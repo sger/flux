@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E018
 
-import Modules.Data.MyFile as MyFile
+import Modules.Data.MyFile as MyFile //~ E018
 Modules.Data.MyFile.value();
