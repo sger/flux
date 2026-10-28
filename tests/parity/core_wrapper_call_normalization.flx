@@ -1,5 +1,8 @@
 // parity: vm, llvm
 // expect: success
+// parity-expected-stdout-begin
+// 42
+// parity-expected-stdout-end
 
 fn inc(x) {
     x + 1

@@ -2,6 +2,17 @@
 // skip-way: llvm_heap: KI-122 the async runtime releases one of its own closures twice
 // expect: success
 // Flow.Fs operations use the blocking filesystem pool inside run_async.
+// parity-expected-stdout-begin
+// "made=true"
+// "missing=true"
+// "wrote=true"
+// "predicates=true"
+// "read=async payload:true"
+// "listed=true"
+// "metadata=true"
+// "renamed=true"
+// "removed=true"
+// parity-expected-stdout-end
 
 import Flow.Async exposing (run_async_with, with_fs_pool_size)
 import Flow.Fs as Fs

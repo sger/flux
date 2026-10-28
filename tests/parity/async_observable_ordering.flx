@@ -4,6 +4,15 @@
 //      `both` returns source-ordered pairs, immediate `race`/`first_of` ties
 //      choose the leftmost child, and timeout reports both body-win and
 //      timer-win cases consistently.
+// parity-expected-stdout-begin
+// 2
+// 1
+// 10
+// 0
+// 10
+// 40
+// -2
+// parity-expected-stdout-end
 
 import Flow.Async exposing (..)
 

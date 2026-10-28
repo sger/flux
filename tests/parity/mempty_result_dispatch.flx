@@ -16,6 +16,13 @@
 // first-argument dispatch could pick the instance by accident.
 //
 // Expected: "" [] [|0|] None 0
+// parity-expected-stdout-begin
+// ""
+// []
+// [|0|]
+// None
+// 0
+// parity-expected-stdout-end
 
 import Flow.Monoid
 

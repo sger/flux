@@ -2,6 +2,12 @@
 // expect: success
 // bug: Array.sort returns unsorted input on the native backend when
 //       higher-order map/insert_tagged lowering diverges.
+// parity-expected-stdout-begin
+// [|1, 2, 3, 4, 5|]
+// [|20, 30, 100|]
+// [|42|]
+// [||]
+// parity-expected-stdout-end
 
 import Flow.Array as Array
 

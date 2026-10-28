@@ -2,6 +2,11 @@
 // expect: success
 // bug: closure capturing an outer variable may see stale or missing values
 //       when the native backend closure environment is built incorrectly.
+// parity-expected-stdout-begin
+// 15
+// 30
+// "hello flux"
+// parity-expected-stdout-end
 
 fn main() with IO {
     let x = 10;

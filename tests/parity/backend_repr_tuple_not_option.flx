@@ -1,6 +1,9 @@
 // parity: vm, llvm
 // expect: success
 // bug: tuples must not match ADT constructor patterns
+// parity-expected-stdout-begin
+// "tuple"
+// parity-expected-stdout-end
 
 fn main() with IO {
     let value = (1, 2)

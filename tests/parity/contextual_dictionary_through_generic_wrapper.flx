@@ -5,6 +5,10 @@
 // the second shadowed the first, and the reference the AST lowerer emitted by
 // name escaped to global scope where no such definition exists — the call
 // received None and field extraction failed with E1004 (KI-052).
+// parity-expected-stdout-begin
+// "5"
+// "5"
+// parity-expected-stdout-end
 
 class Enc<a> {
     fn enc(x: a) -> String

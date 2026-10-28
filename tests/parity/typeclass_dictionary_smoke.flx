@@ -1,6 +1,10 @@
 // parity: vm, llvm
 // expect: success
 // bug: supported concrete and polymorphic typeclass calls must agree on VM and LLVM
+// parity-expected-stdout-begin
+// 21
+// 42
+// parity-expected-stdout-end
 
 class Sizeable<a> {
     fn size(x: a) -> Int

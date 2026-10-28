@@ -3,6 +3,13 @@
 // bug: tuple field access (.0, .1) may produce wrong values when the
 //       native backend indexes into the NaN-boxed tuple representation
 //       incorrectly.
+// parity-expected-stdout-begin
+// 10
+// "hello"
+// true
+// 42
+// "world"
+// parity-expected-stdout-end
 
 fn main() with IO {
     let pair = (10, "hello");

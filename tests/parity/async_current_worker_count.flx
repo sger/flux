@@ -3,6 +3,11 @@
 //
 // `Async.current_worker_count()` must report the same scheduler-configured
 // worker count on both backends when the user pins it explicitly.
+// parity-expected-stdout-begin
+// 4
+// 1
+// 7
+// parity-expected-stdout-end
 
 import Flow.Async exposing (..)
 

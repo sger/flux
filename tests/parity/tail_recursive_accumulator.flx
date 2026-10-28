@@ -2,6 +2,11 @@
 // expect: success
 // Tests tail-recursive accumulator pattern (sibling tail call to helper).
 // The inner go() function is in tail position and should be optimized.
+// parity-expected-stdout-begin
+// 15
+// 60
+// 100000
+// parity-expected-stdout-end
 
 fn sum_list(xs) {
     fn go(ys, acc) {

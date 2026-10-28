@@ -2,6 +2,17 @@
 // expect: success
 // bug: `==` on a cons list trapped on the VM with "unsupported comparison: List
 // and List" while the native runtime compared it structurally as an ADT
+// parity-expected-stdout-begin
+// true
+// false
+// false
+// true
+// true
+// false
+// true
+// true
+// true
+// parity-expected-stdout-end
 
 fn main() with IO {
     print([1, 2] == [1, 2])

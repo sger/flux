@@ -1,6 +1,15 @@
 // parity: vm, llvm
 // expect: success
 // Tests parsing and conversion primops.
+// parity-expected-stdout-begin
+// 42
+// 3
+// 5
+// 3
+// [3, 2, 1]
+// true
+// false
+// parity-expected-stdout-end
 
 fn main() with IO {
     print(parse_int("42"))

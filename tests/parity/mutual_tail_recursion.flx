@@ -2,6 +2,14 @@
 // expect: success
 // Tests mutual tail call optimization: is_even calls is_odd and vice versa.
 // Without TCO this would stack overflow at 100K+ depth.
+// parity-expected-stdout-begin
+// true
+// false
+// false
+// true
+// true
+// true
+// parity-expected-stdout-end
 
 fn is_even(n) {
     if n <= 0 { true }

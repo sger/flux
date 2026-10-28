@@ -3,6 +3,9 @@
 // bug: Async.check_cancelled (proposal 0174 Phase 2 slice 2-iv) must
 //      return false in a non-cancelled fiber. VM and LLVM/native must
 //      agree.
+// parity-expected-stdout-begin
+// false
+// parity-expected-stdout-end
 
 import Flow.Async exposing (..)
 

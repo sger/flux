@@ -2,6 +2,14 @@
 // expect: success
 // bug: Some(x) == Some(x) may fail on the native backend when ADT equality
 //       compares pointer identity instead of structural equality.
+// parity-expected-stdout-begin
+// true
+// true
+// true
+// true
+// false
+// false
+// parity-expected-stdout-end
 
 fn main() with IO {
     print(Some(42) == Some(42));

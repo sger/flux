@@ -4,6 +4,10 @@
 // A class default method that recurses through itself and another class
 // method is cloned into every instance. Each clone must get its own ExprIds,
 // otherwise typed dispatch keys every clone on the last instance inferred.
+// parity-expected-stdout-begin
+// 3
+// 300
+// parity-expected-stdout-end
 
 class Describe<a> {
     fn code(x: a) -> Int
