@@ -1,5 +1,5 @@
 ---
-source: tests/integration/package_tree_tests.rs
+source: tests/flume/package_tree_tests.rs
 assertion_line: 55
 expression: text(&out)
 ---
