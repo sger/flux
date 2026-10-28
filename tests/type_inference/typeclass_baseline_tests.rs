@@ -14,8 +14,6 @@ use flux::{
     types::module_interface::ModuleInterface,
 };
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::primop_parity as parity;
 use parity::workspace_root;
 

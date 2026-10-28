@@ -1,5 +1,3 @@
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::semantic_runtime;
 
 use semantic_runtime::{combined_output, run_fixture};

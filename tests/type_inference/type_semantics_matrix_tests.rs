@@ -1,5 +1,3 @@
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::semantic_infer;
 
 use flux::diagnostics::render_diagnostics;
