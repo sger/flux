@@ -1425,7 +1425,7 @@ requirement that a mismatched ADT constructor still be reported.
 
 Pinned by `match_arm_bound_receiver_is_determined_by_its_call_site` and
 `mixed_pattern_families_still_do_not_constrain_one_another` in
-`tests/type_inference/type_inference_tests.rs`. `CACHE_EPOCH` 47 → 48: a binding
+`tests/type_inference/type_inference_tests/`. `CACHE_EPOCH` 47 → 48: a binding
 of this shape now infers a type where an epoch-47 compiler reported `E490`.
 
 **This unblocks E1** (0185 stage 5), whose work is on
@@ -1507,7 +1507,7 @@ first. Measured: 431 tests across ten suites, no change.
 
 Pinned by `a_recursive_group_member_resolves_its_siblings_result` and
 `a_recursive_group_member_resolves_an_inline_sibling_projection` in
-`tests/type_inference/type_inference_tests.rs` — the second isolates part (1),
+`tests/type_inference/type_inference_tests/` — the second isolates part (1),
 since it has no `let` to generalize.
 
 **It blocked E1 a second time, and no longer does.** 0185 stage 5 converts tuple projection onto
@@ -2290,7 +2290,7 @@ and a panic skipped the release of both:
   a primop with no landing pad, as in KI-126.
 
 Test: `a_caught_panic_releases_what_a_skipped_handle_built` in
-`tests/debug/native_debug_heap_tests.rs` (a panic in the handle's
+`tests/debug/native_debug_heap_tests/` (a panic in the handle's
 body, inside `resume`, and under two handles, none leaving a block per
 turn).
 
@@ -2341,7 +2341,7 @@ past every release still to come in the frames between.
 - What a skipped `handle` built, which KI-133 covers now.
 
 Test: `a_caught_panic_releases_what_the_frames_it_skipped_held` in
-`tests/debug/native_debug_heap_tests.rs` (one frame and two frames
+`tests/debug/native_debug_heap_tests/` (one frame and two frames
 holding a list, none leaving a block per turn).
 
 ### KI-132 — Natively, a chain of calls that can suspend grew the program exponentially — FIXED 2026-10-27
@@ -2414,7 +2414,7 @@ store. `flux_env_cwd`, the one caller that builds its own path (`""`),
 releases it after the call.
 
 Test: `a_failed_file_operation_counts_the_path_its_error_holds` in
-`tests/debug/native_debug_heap_tests.rs` (`remove_file`, `rename`,
+`tests/debug/native_debug_heap_tests/` (`remove_file`, `rename`,
 `write_file`, `remove_dir_all` and `read_file` on missing paths, run to
 the end with nothing left live).
 
@@ -2456,7 +2456,7 @@ like `List.reverse`, was right by chance.
   definitions are named. A class method's name holds a type (`List<a>`).
 
 Test: `a_call_through_a_module_alias_releases_its_arguments` in
-`tests/debug/native_debug_heap_tests.rs` (`Array.push`, `Map.set`,
+`tests/debug/native_debug_heap_tests/` (`Array.push`, `Map.set`,
 `Map.get`, and `List.reverse` as a control, none leaving a block per
 turn).
 
@@ -2504,7 +2504,7 @@ value it was given, and the C helpers that build a map step by step
   values once they are stored. The C helpers release theirs too.
 
 Tests: `a_map_releases_its_nodes_keys_and_values` in
-`tests/debug/native_debug_heap_tests.rs` (built, literal, shared,
+`tests/debug/native_debug_heap_tests/` (built, literal, shared,
 deleted, merged, and a map of 100 keys, none leaving a block per turn),
 and `tests/parity/task_shared_map.flx`, which
 `cargo xtask sanitize --thread` checks for the race. The test imports the
@@ -2534,7 +2534,7 @@ and the drop keeps its place in an array's unused 32-bit `_pad2` word
 `scan_fsize`.
 
 Tests: `an_array_releases_every_element` in
-`tests/debug/native_debug_heap_tests.rs` (an array of 70000 lists
+`tests/debug/native_debug_heap_tests/` (an array of 70000 lists
 leaves what an array of one leaves), and
 `tests/parity/task_shared_wide_array.flx`, which
 `cargo xtask sanitize --thread` checks for the race.
@@ -2577,7 +2577,7 @@ never an owner, so nothing released it.
   or a counted argument, and `Add` on numbers returns a number.
 
 Tests: `a_value_copied_into_a_temporary_given_away_is_released` in
-`tests/debug/native_debug_heap_tests.rs` (a list cell, a `print`,
+`tests/debug/native_debug_heap_tests/` (a list cell, a `print`,
 and a built string, none leaving a block per turn), and a unit test for
 `counted_result`. The stress fixture leaves 1 block at exit, the one every
 program that prints leaves (KI-119).
@@ -2621,7 +2621,7 @@ released it afterwards. Each of these left its blocks on every call under
 The stress fixture's 53 blocks at exit were a different bug, KI-129.
 
 Tests: `a_value_lent_to_a_tail_call_is_released` in
-`tests/debug/native_debug_heap_tests.rs` runs the four shapes above
+`tests/debug/native_debug_heap_tests/` runs the four shapes above
 and `List.count`: none leaves a block per turn. The lending loop still runs
 ten million turns natively
 (`a_loop_that_lends_a_fresh_list_to_its_tail_call_stays_a_tail_call`).

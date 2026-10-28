@@ -46,7 +46,7 @@ The parser reports E073 and continues to parse the following `let` statements.
 
 ## Locked by tests
 
-Behavior is covered by parser tests in `tests/parser_tests.rs`:
+Behavior is covered by parser tests in `tests/parser/parser_tests/semicolons_and_messages.rs`:
 
 - `test_top_level_call_with_and_without_semicolon_both_parse`
 - `test_top_level_let_with_and_without_semicolon_both_parse`
