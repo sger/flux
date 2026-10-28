@@ -1,5 +1,6 @@
-#[path = "../support/semantic_core_dump.rs"]
-mod semantic_core_dump;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::semantic_core_dump;
 
 use semantic_core_dump::dump_core_debug_fixture;
 

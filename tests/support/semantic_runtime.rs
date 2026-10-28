@@ -1,14 +1,9 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-// Re-exported so a test including this file gets `Scratch` from here rather
-// than declaring its own `mod scratch;` — two `#[path]` declarations of one
-// file in the same crate is a `clippy::duplicate_mod` warning.
-#[path = "scratch.rs"]
-pub mod scratch;
+pub use super::scratch;
 use scratch::Scratch;
 
-#[allow(unused_imports)]
 pub use scratch::workspace_root;
 
 pub fn semantic_fixture_root() -> PathBuf {

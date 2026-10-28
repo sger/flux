@@ -2,8 +2,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-#[path = "../support/scratch.rs"]
-mod scratch;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::scratch;
 use scratch::Scratch;
 
 fn discover_fixtures(root: &Path) -> Vec<PathBuf> {

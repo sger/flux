@@ -7,8 +7,7 @@ use flux::{
     syntax::{interner::Interner, lexer::Lexer, parser::Parser},
 };
 
-#[path = "scratch.rs"]
-mod scratch;
+use super::scratch;
 use scratch::workspace_root;
 
 fn semantic_fixture_root() -> PathBuf {

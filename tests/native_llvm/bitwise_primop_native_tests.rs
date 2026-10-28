@@ -1,7 +1,8 @@
 #![cfg(feature = "llvm")]
 
-#[path = "../support/primop_parity.rs"]
-mod primop_parity;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::primop_parity;
 
 use primop_parity::{assert_vm_native_parity, run_native};
 

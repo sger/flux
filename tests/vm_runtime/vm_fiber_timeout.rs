@@ -5,8 +5,9 @@
 //! scheduler — the body fiber and a backend timer race for the same
 //! request id; whichever fires first wins.
 
-#[path = "../support/flux_runner.rs"]
-mod flux_runner;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::flux_runner;
 use std::time::Duration;
 
 fn run_source(source: &str, fixture_tag: &str) -> (String, String, bool, Duration) {

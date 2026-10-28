@@ -1,5 +1,6 @@
-#[path = "../support/scratch.rs"]
-mod scratch;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::scratch;
 use scratch::Scratch;
 
 use std::{path::Path, process::Command};

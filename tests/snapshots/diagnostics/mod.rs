@@ -1,5 +1,4 @@
-#[path = "../../support/diagnostics_env.rs"]
-mod diagnostics_env;
+use crate::support::diagnostics_env;
 
 use flux::compiler::Compiler;
 use flux::diagnostics::{

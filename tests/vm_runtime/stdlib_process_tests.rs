@@ -9,8 +9,9 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-#[path = "../support/stdlib_fixture.rs"]
-mod stdlib_fixture;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::stdlib_fixture;
 use stdlib_fixture::workspace_root;
 
 use stdlib_fixture::scratch::Scratch;

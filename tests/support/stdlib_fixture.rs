@@ -5,8 +5,7 @@
 //! test file with:
 //!
 //! ```rust
-//! #[path = "../support/stdlib_fixture.rs"]
-//! mod stdlib_fixture;
+//! use crate::support::stdlib_fixture;
 //! use stdlib_fixture::assert_backends_agree;
 //! ```
 //!
@@ -19,14 +18,9 @@
 
 use std::process::Command;
 
-// Re-exported so a test including this file gets `Scratch` from here rather
-// than declaring its own `mod scratch;` — two `#[path]` declarations of one
-// file in the same crate is a `clippy::duplicate_mod` warning.
-#[path = "scratch.rs"]
-pub mod scratch;
+pub use super::scratch;
 use scratch::Scratch;
 
-#[allow(unused_imports)]
 pub use scratch::workspace_root;
 
 /// Run one fixture through `flux --test`, optionally on the native backend.

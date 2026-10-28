@@ -170,8 +170,9 @@ fn constant_folding_preserves_semantics() {
 // --optimize end to end: the optimized program computes what the plain one does
 // ---------------------------------------------------------------------------
 
-#[path = "../support/scratch.rs"]
-mod scratch;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::scratch;
 
 fn run_flux(name: &str, source: &str, extra: &[&str]) -> String {
     let scratch = scratch::Scratch::new(name.trim_end_matches(".flx"));

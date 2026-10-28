@@ -15,8 +15,9 @@
 
 use std::process::Command;
 
-#[path = "../support/flux_runner.rs"]
-mod flux_runner;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::flux_runner;
 use flux_runner::run_flux_test;
 use flux_runner::scratch::Scratch;
 use flux_runner::workspace_root;

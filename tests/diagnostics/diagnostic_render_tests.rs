@@ -4,8 +4,9 @@ use flux::diagnostics::{
     render_diagnostics_json, render_runtime_diagnostic,
 };
 
-#[path = "../support/diagnostics_env.rs"]
-mod diagnostics_env;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::diagnostics_env;
 
 #[test]
 fn render_uses_span_for_caret() {

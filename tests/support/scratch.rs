@@ -1,8 +1,7 @@
 //! Per-test filesystem and cache isolation for tests that drive the `flux` CLI.
 //!
 //! ```rust
-//! #[path = "../support/scratch.rs"]
-//! mod scratch;
+//! use crate::support::scratch;
 //! use scratch::Scratch;
 //!
 //! let s = Scratch::new("my_case");

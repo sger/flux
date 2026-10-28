@@ -1,8 +1,7 @@
-#[path = "../support/diagnostics_env.rs"]
-mod diagnostics_env;
-#[allow(dead_code)]
-#[path = "../support/examples_snapshot.rs"]
-mod examples_snapshot;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::diagnostics_env;
+use crate::support::examples_snapshot;
 
 use std::{collections::HashSet, fs, path::Path};
 

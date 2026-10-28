@@ -2,8 +2,9 @@
 // the LLVM feature even though the VM path is also exercised here.
 #![cfg(feature = "llvm")]
 
-#[path = "../support/flux_runner.rs"]
-mod flux_runner;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::flux_runner;
 use flux_runner::{run_native, run_vm};
 
 const FIXTURE: &str = "contextual_instance_eq_list.flx";

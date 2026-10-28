@@ -1,8 +1,9 @@
 //! Aether collection ownership and recursive rebuilds, on the VM and, with
 //! the `llvm` feature, natively.
 
-#[path = "../support/stdlib_fixture.rs"]
-mod stdlib_fixture;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::stdlib_fixture;
 use stdlib_fixture::assert_backends_agree;
 
 #[test]

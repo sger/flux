@@ -5,8 +5,9 @@
 //! `runtime::async::scheduler` pin the exact steal-from-back behavior; these
 //! tests keep the user-visible VM behavior stable while migration is active.
 
-#[path = "../support/flux_runner.rs"]
-mod flux_runner;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::flux_runner;
 use std::time::Duration;
 
 fn run_source_with_env(

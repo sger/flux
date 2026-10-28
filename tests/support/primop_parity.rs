@@ -1,18 +1,9 @@
 //! Shared helpers for VM-vs-native parity tests that run a `.flx` fixture
 //! from `tests/parity/` on both backends and compare their output.
-//!
-//! This module is included by multiple test binaries via `#[path = ...]`,
-//! each of which uses a different subset of the helpers. Rust's dead-code
-//! analysis runs per binary, so every helper looks unused from at least
-//! one call site. Silence the structural false positive at the module
-//! level.
-#![allow(dead_code)]
 
 // The runners live in `flux_runner`; they are re-exported so tests that
 // include this file keep their imports.
-#[path = "flux_runner.rs"]
-mod flux_runner;
-#[allow(unused_imports)]
+use super::flux_runner;
 pub use flux_runner::{run_native, run_native_with_env, run_vm, scratch, workspace_root};
 
 /// Compare VM and native stdout line-by-line, filtering runtime `[...]`

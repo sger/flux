@@ -11,8 +11,9 @@
 //! sleep completes — that's a small CPU waste but no observable
 //! correctness issue (cancellation is 1b-vi-c work).
 
-#[path = "../support/flux_runner.rs"]
-mod flux_runner;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::flux_runner;
 use std::time::Duration;
 
 fn run_source(source: &str, fixture_tag: &str) -> (String, String, bool, Duration) {

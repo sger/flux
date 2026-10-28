@@ -7,8 +7,9 @@
 //! structure) AND verifies the final runtime output. This catches regressions
 //! that integration snapshot tests miss because snapshots only check final output.
 
-#[path = "../support/scratch.rs"]
-mod scratch;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::scratch;
 use scratch::Scratch;
 
 use std::collections::HashMap;

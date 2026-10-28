@@ -1,9 +1,9 @@
-#[path = "../support/scratch.rs"]
-mod scratch;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::scratch;
 use scratch::Scratch;
 
-#[path = "../support/diagnostics_env.rs"]
-mod diagnostics_env;
+use crate::support::diagnostics_env;
 
 use std::{
     collections::HashSet,

@@ -86,12 +86,16 @@ known issue as a suffix, so searching for the KI finds it:
 
 ## Shared helpers
 
-Do not copy a helper into a test file. Include it from `support/`:
+Do not copy a helper into a test file. Declare `support/mod.rs` once per
+binary and use the helper from there:
 
 ```rust
-#[path = "../support/flux_runner.rs"]
-mod flux_runner;
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::flux_runner;
 ```
+
+A new helper file also gets a `pub mod` line in `support/mod.rs`.
 
 - [`support/scratch.rs`](support/scratch.rs): `Scratch`, a private directory
   and cache for one test, removed on drop; `free_port`; `workspace_root`.
