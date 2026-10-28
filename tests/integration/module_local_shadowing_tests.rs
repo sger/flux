@@ -11,33 +11,14 @@
 
 use std::process::Command;
 
-#[path = "../support/scratch.rs"]
-mod scratch;
-use scratch::Scratch;
-use scratch::workspace_root;
+#[path = "../support/flux_runner.rs"]
+mod flux_runner;
+use flux_runner::scratch::Scratch;
+use flux_runner::workspace_root;
 
 fn run_flux_test(fixture: &str) -> (String, bool) {
     let dir = workspace_root().join("tests").join("flux");
-    let path = dir.join(fixture);
-    let scratch = Scratch::new("module-local-shadowing-suite");
-    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(workspace_root())
-        .args([
-            "--test",
-            path.to_str().unwrap(),
-            "--root",
-            dir.to_str().unwrap(),
-            "--no-cache",
-        ])
-        .args(scratch.cache_args())
-        .output()
-        .unwrap_or_else(|e| panic!("failed to run flux --test on {fixture}: {e}"));
-
-    let stdout = String::from_utf8_lossy(&output.stdout)
-        .replace("\r\n", "\n")
-        .trim()
-        .to_string();
-    (stdout, output.status.success())
+    flux_runner::run_flux_test_with(fixture, &["--root", dir.to_str().unwrap()], &[])
 }
 
 /// Compile and run a two-file program in an isolated scratch directory.

@@ -10,75 +10,9 @@
 
 #![cfg(feature = "native")]
 
-use std::path::Path;
-use std::process::Command;
-use std::sync::atomic::{AtomicU64, Ordering};
-
-#[path = "../support/scratch.rs"]
-mod scratch;
-use scratch::Scratch;
-use scratch::workspace_root;
-
-fn unique_run_dir(fixture: &str) -> std::path::PathBuf {
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let stem = Path::new(fixture)
-        .file_stem()
-        .and_then(|value| value.to_str())
-        .unwrap_or("fixture");
-    let pid = std::process::id();
-    let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
-    workspace_root()
-        .join("target")
-        .join("test-scratch")
-        .join(format!("flux_native_{stem}_{pid}_{counter}"))
-}
-
-/// Run a Flux program with the native backend and return (stdout, exit_success).
-fn run_native(fixture: &str) -> (String, bool) {
-    let path = workspace_root().join("tests").join("parity").join(fixture);
-    let run_dir = unique_run_dir(fixture);
-    let _ = std::fs::create_dir_all(&run_dir);
-    let output_path = run_dir.join("program");
-    let cache_dir = run_dir.join("cache");
-    let scratch = Scratch::new("cache-isolated");
-    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(workspace_root())
-        .args([
-            path.to_str().unwrap(),
-            "--native",
-            "--no-cache",
-            "-o",
-            output_path.to_string_lossy().as_ref(),
-            "--cache-dir",
-            cache_dir.to_string_lossy().as_ref(),
-        ])
-        .args(scratch.cache_args())
-        .output()
-        .unwrap_or_else(|e| panic!("failed to run flux --native on {fixture}: {e}"));
-
-    let stdout = String::from_utf8_lossy(&output.stdout)
-        .replace("\r\n", "\n")
-        .trim()
-        .to_string();
-    (stdout, output.status.success())
-}
-
-/// Run a Flux program with the VM backend and return stdout.
-fn run_vm(fixture: &str) -> String {
-    let path = workspace_root().join("tests").join("parity").join(fixture);
-    let scratch = Scratch::new("cache-isolated");
-    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(workspace_root())
-        .args([path.to_str().unwrap(), "--no-cache"])
-        .args(scratch.cache_args())
-        .output()
-        .unwrap_or_else(|e| panic!("failed to run flux on {fixture}: {e}"));
-
-    String::from_utf8_lossy(&output.stdout)
-        .replace("\r\n", "\n")
-        .trim()
-        .to_string()
-}
+#[path = "../support/flux_runner.rs"]
+mod flux_runner;
+use flux_runner::{run_native, run_vm};
 
 #[test]
 fn stackless_drop_deep_list_native() {
