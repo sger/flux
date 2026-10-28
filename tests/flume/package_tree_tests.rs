@@ -9,8 +9,6 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::assert_snapshot;
 use crate::support::scratch;
 use scratch::{Scratch, cache_args_for};
