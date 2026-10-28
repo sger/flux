@@ -229,6 +229,6 @@ The resulting `Scheme` is installed in `TypeEnv` under the function's interned n
 1. Add/modify the arm in `signature_for_id` in `src/runtime/base/helpers.rs`.
 2. Use `sig_with_row_params` for polymorphic signatures; `sig` for monomorphic.
 3. Add helper constructors (`t_*`) if a new type form is needed.
-4. Run `cargo test --test type_inference_tests --test base_functions_tests` to verify.
+4. Run `cargo test --test type_inference type_inference_tests::` to verify.
 5. Update this document's signature table.
 6. If the change is a tightening (replacing `Any` with a concrete type), check that existing fixtures in `examples/type_system/` still pass, and add a failing fixture if a new error class is reachable.

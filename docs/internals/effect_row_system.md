@@ -251,8 +251,8 @@ When changing effect row semantics:
 3. If `EffectExpr` or `InferEffectRow` changes, update the constraint solver and `from_effect_expr`.
 4. Run:
    ```bash
-   cargo test --test type_inference_tests
-   cargo test --test compiler_rules_tests
+   cargo test --test type_inference type_inference_tests::
+   cargo test --test integration compiler_rules_tests::
    cargo test --all --all-features purity_vm_jit_parity_snapshots
    ```
 5. Verify VM/JIT parity for any new diagnostic codes.

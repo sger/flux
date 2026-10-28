@@ -59,24 +59,24 @@ Which folder a phase's tests go in:
    `parity/`, not Rust. Give it a header (`// parity: vm, llvm`,
    `// expect: success`) and let
    `cargo run --features llvm -- parity-check tests/parity/<file>.flx --bless`
-   write its expected output. `parity_corpus_tests` runs every file there.
+   write its expected output. `native_llvm/parity_corpus_tests.rs` runs every file there.
    [`parity/CONVENTION.md`](parity/CONVENTION.md) lists the header lines.
 2. **A test of one phase** goes in that phase's folder above. If it spans
    several phases, put it with the phase it is most likely to break.
 3. **A Flux test file for `flux --test`** goes in `flux/`, with a Rust test
    that runs it through `support/stdlib_fixture.rs` or `run_flux_test`.
 
-A Rust test file needs a `[[test]]` entry in `Cargo.toml`, or it is never
-compiled:
+Each folder is one test binary, named after the folder, and each Rust file in
+it is a module of that binary. A new file needs a line in its folder's
+`main.rs`, or it is never compiled:
 
-```toml
-[[test]]
-name = "aether_cli_snapshots"
-path = "tests/aether/cli_snapshots.rs"
+```rust
+mod cli_snapshots;
 ```
 
-Keep an existing `name` when you move a file: insta prefixes snapshot names
-with it unless the test sets `prepend_module_to_snapshot => false`.
+A file that only runs with a feature gets the gate there too:
+`#[cfg(feature = "llvm")]`. A new folder needs a `[[test]]` entry in
+`Cargo.toml` that points at its `main.rs`.
 
 ### Naming
 
@@ -136,6 +136,10 @@ insta::with_settings!({
 });
 ```
 
+A test that leaves the name to insta uses `crate::support::assert_snapshot!`,
+which names the snapshot after the test function alone. insta's own default
+starts the name with the module path, so it would change when a file moves.
+
 Review snapshot diffs with `cargo insta review` before committing. CI fails
 on a snapshot no test produces.
 
@@ -154,8 +158,9 @@ The test tiers (`cargo test-fast`, `cargo test-all`, `cargo test-changed`,
 `cargo test-phase`) are described in [`TESTING.md`](../TESTING.md).
 
 ```bash
-cargo test-all --test <binary_name>             # one binary
-cargo test-all -E 'test(<partial_name>)'        # filter by test name
+cargo test-all -E 'binary(=vm_runtime)'                       # one folder
+cargo test-all -E 'binary(=vm_runtime) & test(/^vm_json::/)'  # one file
+cargo test-all -E 'test(<partial_name>)'                      # filter by test name
 cargo insta review                              # review snapshot diffs
 cargo xtask tidy                                # check this layout
 ```

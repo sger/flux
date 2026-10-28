@@ -180,9 +180,8 @@ name = "flux_proc_helper"
 path = "tests/support/proc_helper.rs"
 
 # -----------------------------------------------------------------------------
-# Tests moved into phase subdirectories. Test binary names are
-# kept identical to the old flat filenames so insta snapshot prefixes do not
-# drift.
+# One test binary per phase folder; each file in the folder is a module of
+# its `main.rs` (tests/README.md).
 # -----------------------------------------------------------------------------
 
 [[test]]

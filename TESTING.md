@@ -67,8 +67,8 @@ changes stay slow because each native test compiles and links a real program.
 
 If `real` is minutes longer than the build plus the run, macOS is checking the
 test binaries. Nextest starts every test binary twice to list its tests, and
-Gatekeeper checks each launch. On this repository that adds about 200s to
-every run.
+Gatekeeper checks each launch. With one binary per file that added about 200s
+to every run; with one per folder there are 16.
 
 Add the app you run cargo from (Terminal, iTerm or VS Code) under System
 Settings > Privacy & Security > Developer Tools, then restart it. To check,
@@ -94,7 +94,8 @@ that branch. It then runs the tests for the matching phases.
 - A file under `src/` selects its phase. For example, `src/types/` selects the
   type-inference tests and `src/llvm/` selects the native tests (with
   `--all-features`).
-- A test file selects its own test binary.
+- A test file selects its own tests: its module of the folder's test binary.
+- A helper in `tests/support/` selects the tests that use it.
 - A fixture or snapshot selects the tests that name it.
 - A change in `crates/flux-lsp`, `crates/flux-dap` or `xtask` selects that
   package and everything that depends on it.
