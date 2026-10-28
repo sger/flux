@@ -1,0 +1,14 @@
+// parity: vm, llvm
+// expect: compile_error
+
+// Each expected error is marked on its line (proposal 0191), so the line is
+// checked as well as the code.
+
+fn add(a: Int, b: Int) -> Int {
+    a + b
+}
+
+fn main() with IO {
+    print(add("x", 2)) //~ E300
+    print(add(1, "y")) //~ E300
+}

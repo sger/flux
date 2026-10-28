@@ -520,6 +520,13 @@ pub enum MismatchDetail {
         expected: Vec<String>,
         actual: Vec<String>,
     },
+    /// An annotated fixture's errors, compared by line and code: each entry
+    /// reads `line 38: E300`, or names the file when it is not the fixture.
+    DiagnosticLocations {
+        way: Way,
+        missing: Vec<String>,
+        unexpected: Vec<String>,
+    },
     ExpectedStderr {
         way: Way,
         expected: String,

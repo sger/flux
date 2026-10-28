@@ -23,6 +23,7 @@ use std::time::{Duration, SystemTime};
 use super::census;
 use super::fixture::{
     Expect, ExpectedCount, FixtureMeta, SkipWay, parse_fixture_meta, parse_fixture_meta_allowing,
+    with_annotations,
 };
 use super::known_issues;
 use super::normalize::normalize_stderr;
@@ -129,6 +130,11 @@ pub fn run_parity_check(args: &[String]) {
                 out.write(&checked.rows);
             }
             if config.bless {
+                // The verdict was judged against the old annotations; judge
+                // again so a stale stderr block can be blessed in the same run.
+                if bless_annotations(&parity_result, &config.allow) {
+                    parity_result = check_one(&parity_result.file, &config).result;
+                }
                 bless(&mut parity_result, &config.allow);
             }
             print_result(&parity_result, config.display_filter, config.explain);
@@ -299,6 +305,75 @@ fn bless(result: &mut ParityResult, allow: &[String]) {
     result.verdict = Verdict::Pass;
 }
 
+/// Rewrites an annotated fixture's `//~` annotations to match what its ways
+/// report. Only when the annotations are the problem, every non-strict way
+/// reports the same errors, and each is located in the fixture. Returns
+/// whether the file changed.
+fn bless_annotations(result: &ParityResult, allow: &[String]) -> bool {
+    let meta = parse_fixture_meta_allowing(&result.file, allow);
+    if meta.expected_locations.is_empty() {
+        return false;
+    }
+    let Verdict::Mismatch { details } = &result.verdict else {
+        return false;
+    };
+    let annotations_differ =
+        details.iter().any(|d| matches!(d, MismatchDetail::DiagnosticLocations { .. }));
+    let only_errors_differ = details.iter().all(|d| {
+        matches!(
+            d,
+            MismatchDetail::DiagnosticLocations { .. } | MismatchDetail::ExpectedStderr { .. }
+        )
+    });
+    if !annotations_differ || !only_errors_differ {
+        return false;
+    }
+    let file = &result.file;
+    let reported: Vec<Option<Vec<(usize, String)>>> = result
+        .results
+        .iter()
+        .filter(|run| !run.way.is_strict())
+        .map(|run| {
+            let mut pairs = diagnostic_locations(&run.normalized_stderr)
+                .into_iter()
+                .map(|error| match (error.path, error.line) {
+                    (Some(path), Some(line)) if same_file(&path, file) => Some((line, error.code)),
+                    _ => None,
+                })
+                .collect::<Option<Vec<_>>>()?;
+            pairs.sort();
+            Some(pairs)
+        })
+        .collect();
+    let Some(Some(pairs)) = reported.first() else {
+        eprintln!(
+            "[parity] cannot bless {}: an error has no location in the fixture",
+            file.display()
+        );
+        return false;
+    };
+    if reported.iter().any(|other| other.as_ref() != Some(pairs)) {
+        eprintln!("[parity] cannot bless {}: the ways report different errors", file.display());
+        return false;
+    }
+    let Ok(source) = fs::read_to_string(file) else {
+        return false;
+    };
+    let (blessed, unplaced) = with_annotations(&source, pairs);
+    for problem in &unplaced {
+        eprintln!("[parity] {}: {problem}", file.display());
+    }
+    if blessed == source {
+        return false;
+    }
+    if let Err(err) = fs::write(file, &blessed) {
+        eprintln!("[parity] cannot bless {}: {err}", file.display());
+        return false;
+    }
+    eprintln!("[parity] blessed the annotations of {}", file.display());
+    true
+}
+
 /// `source` with `block` holding `body`. An existing block is replaced; with
 /// `add`, a missing one goes after the header comments. `None` when there is
 /// no block and `add` is false, or a block never ends.
@@ -415,6 +490,8 @@ fn check_one(file: &Path, config: &Config) -> CheckedFile {
             expected_stdout: fixture_meta.expected_stdout.as_deref(),
             expected_stderr: fixture_meta.expected_stderr.as_deref(),
             expected_errors: &fixture_meta.expected_errors,
+            expected_locations: &fixture_meta.expected_locations,
+            fixture: file,
             expect: fixture_meta.expect,
             skip: fixture_meta.skip.as_deref(),
             skip_ways: &fixture_meta.skip_ways,
@@ -588,6 +665,11 @@ struct CheckOpts<'a> {
     expected_stdout: Option<&'a str>,
     expected_stderr: Option<&'a str>,
     expected_errors: &'a [String],
+    /// `//~` annotations as (line, code); when present they replace
+    /// `expected_errors`.
+    expected_locations: &'a [(usize, String)],
+    /// The fixture file, to tell its own error locations from a module's.
+    fixture: &'a Path,
     /// Declared fixture expectation: `success`, `compile_error`, or
     /// `runtime_error`. Controls stdout-comparison semantics.
     expect: Expect,
@@ -618,6 +700,7 @@ impl CheckOpts<'_> {
         self.expected_stdout.is_some()
             || self.expected_stderr.is_some()
             || !self.expected_errors.is_empty()
+            || !self.expected_locations.is_empty()
             || !matches!(self.expect, Expect::Success)
     }
 
@@ -938,8 +1021,15 @@ fn judge(
         let all_expected_kind =
             !run_results.is_empty() && run_results.iter().all(|r| r.exit_kind == expected_kind);
         if all_expected_kind {
-            let mut expected_failure_details =
-                collect_diagnostic_code_details(run_results, opts.expected_errors);
+            let mut expected_failure_details = if opts.expected_locations.is_empty() {
+                collect_diagnostic_code_details(run_results, opts.expected_errors)
+            } else {
+                collect_diagnostic_location_details(
+                    run_results,
+                    opts.expected_locations,
+                    opts.fixture,
+                )
+            };
             expected_failure_details
                 .extend(collect_expected_stderr_details(run_results, opts.expected_stderr));
             if expected_failure_details.is_empty() {
@@ -1232,6 +1322,115 @@ fn collect_diagnostic_code_details(
             }
         })
         .collect()
+}
+
+/// For an annotated fixture: each way must report exactly the annotated
+/// (line, code) pairs, or, on a strict way, at least them.
+fn collect_diagnostic_location_details(
+    run_results: &[super::RunResult],
+    expected: &[(usize, String)],
+    fixture: &Path,
+) -> Vec<MismatchDetail> {
+    run_results
+        .iter()
+        .filter_map(|run| {
+            let mut missing: Vec<(usize, String)> = expected.to_vec();
+            let mut unexpected = Vec::new();
+            for error in diagnostic_locations(&run.normalized_stderr) {
+                let in_fixture = error.path.as_deref().is_some_and(|path| same_file(path, fixture));
+                let found = in_fixture
+                    .then(|| {
+                        missing.iter().position(|(l, c)| Some(*l) == error.line && *c == error.code)
+                    })
+                    .flatten();
+                match found {
+                    Some(index) => {
+                        missing.remove(index);
+                    }
+                    None => unexpected.push(error.describe(in_fixture)),
+                }
+            }
+            if run.way.is_strict() {
+                unexpected.clear();
+            }
+            if missing.is_empty() && unexpected.is_empty() {
+                return None;
+            }
+            missing.sort();
+            Some(MismatchDetail::DiagnosticLocations {
+                way: run.way,
+                missing: missing
+                    .iter()
+                    .map(|(line, code)| format!("line {line}: {code}"))
+                    .collect(),
+                unexpected,
+            })
+        })
+        .collect()
+}
+
+/// An error as rendered: its code and, when it has one, where it points.
+#[derive(Debug, PartialEq, Eq)]
+struct RenderedError {
+    code: String,
+    path: Option<String>,
+    line: Option<usize>,
+}
+
+impl RenderedError {
+    fn describe(&self, in_fixture: bool) -> String {
+        match (&self.path, self.line) {
+            (Some(_), Some(line)) if in_fixture => format!("line {line}: {}", self.code),
+            (Some(path), Some(line)) => format!("{path}:{line}: {}", self.code),
+            _ => format!("no location: {}", self.code),
+        }
+    }
+}
+
+/// Each `error[E…]` in rendered stderr with the location under it. Only the
+/// first `  path:line:col` after a header is the error's own: hints and
+/// related notes print further locations in the same shape.
+fn diagnostic_locations(stderr: &str) -> Vec<RenderedError> {
+    let mut errors: Vec<RenderedError> = Vec::new();
+    let mut awaiting_location = false;
+    for line in stderr.lines() {
+        if let Some(rest) = line.strip_prefix("error[") {
+            if let Some(code) = rest.split(']').next().filter(|c| c.starts_with('E')) {
+                errors.push(RenderedError { code: code.to_string(), path: None, line: None });
+                awaiting_location = true;
+            }
+            continue;
+        }
+        if !awaiting_location {
+            continue;
+        }
+        if let Some((path, line)) = rendered_location(line) {
+            let error = errors.last_mut().expect("a header came first");
+            error.path = Some(path.to_string());
+            error.line = Some(line);
+            awaiting_location = false;
+        }
+    }
+    errors
+}
+
+/// `  path:line:col`, as the renderer prints an error's location.
+fn rendered_location(line: &str) -> Option<(&str, usize)> {
+    let rest = line.strip_prefix("  ")?;
+    if rest.starts_with(' ') {
+        return None;
+    }
+    let (rest, col) = rest.rsplit_once(':')?;
+    let (path, line) = rest.rsplit_once(':')?;
+    col.parse::<usize>().ok()?;
+    Some((path, line.parse().ok()?)).filter(|(path, _)| !path.is_empty())
+}
+
+/// Whether a rendered path names `fixture`. Rendering makes paths relative to
+/// the working directory, so one need only be a suffix of the other.
+fn same_file(rendered: &str, fixture: &Path) -> bool {
+    let rendered = Path::new(rendered);
+    fixture.ends_with(rendered) || rendered.ends_with(fixture)
 }
 
 /// Whether `actual` holds every code in `expected`, each as many times as
@@ -1675,6 +1874,8 @@ mod tests {
             expected_stdout: None,
             expected_stderr: None,
             expected_errors: &[],
+            expected_locations: &[],
+            fixture: Path::new("fixture.flx"),
             expect: Expect::Success,
             skip: None,
             skip_ways: &[],
@@ -1854,6 +2055,111 @@ mod tests {
             })
             .collect();
         assert_eq!(ways, [Way::Vm, Way::VmStrict]);
+    }
+
+    /// Rendered stderr for an error at `line` of `path`, with a hint that
+    /// points elsewhere, as the renderer prints one.
+    fn rendered(code: &str, path: &str, line: usize) -> String {
+        format!(
+            "error[{code}]: Title\n\nMessage.\n\n  {path}:{line}:5\n   |\n{line} | x\n\nHint:\n  see here\n  lib/Other.flx:3:1\n"
+        )
+    }
+
+    #[test]
+    fn an_errors_location_is_the_first_one_under_its_header() {
+        let stderr = format!(
+            "• 2 errors • examples/a.flx\n{}\n{}error[E999]: no location\n\nMessage.\n",
+            rendered("E300", "examples/a.flx", 38),
+            rendered("E1000", "examples/Mod.flx", 32),
+        );
+        let found = diagnostic_locations(&stderr);
+        let summary: Vec<(String, Option<String>, Option<usize>)> =
+            found.into_iter().map(|e| (e.code, e.path, e.line)).collect();
+        assert_eq!(
+            summary,
+            [
+                ("E300".to_string(), Some("examples/a.flx".to_string()), Some(38)),
+                ("E1000".to_string(), Some("examples/Mod.flx".to_string()), Some(32)),
+                ("E999".to_string(), None, None),
+            ]
+        );
+    }
+
+    fn location_details(
+        runs: &[super::super::RunResult],
+        expected: &[(usize, &str)],
+    ) -> Vec<(Way, Vec<String>, Vec<String>)> {
+        let expected: Vec<(usize, String)> =
+            expected.iter().map(|(line, code)| (*line, code.to_string())).collect();
+        collect_diagnostic_location_details(runs, &expected, Path::new("/repo/examples/a.flx"))
+            .into_iter()
+            .map(|detail| match detail {
+                MismatchDetail::DiagnosticLocations { way, missing, unexpected } => {
+                    (way, missing, unexpected)
+                }
+                other => panic!("unexpected detail {other:?}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn annotated_errors_match_by_line_and_code() {
+        let both = format!(
+            "{}{}",
+            rendered("E300", "examples/a.flx", 38),
+            rendered("E300", "examples/a.flx", 40)
+        );
+        let runs = vec![result(Way::Vm, ExitKind::CompileError, "", &both)];
+        assert!(location_details(&runs, &[(38, "E300"), (40, "E300")]).is_empty());
+
+        // The right code on the wrong line is one missing and one unexpected.
+        let details = location_details(&runs, &[(38, "E300"), (41, "E300")]);
+        assert_eq!(
+            details,
+            [(Way::Vm, vec!["line 41: E300".to_string()], vec!["line 40: E300".to_string()])]
+        );
+    }
+
+    #[test]
+    fn an_error_in_another_file_is_unexpected_and_named() {
+        let stderr = rendered("E1000", "examples/Mod.flx", 32);
+        let runs = vec![result(Way::Vm, ExitKind::RuntimeError, "", &stderr)];
+        let details = location_details(&runs, &[(5, "E1000")]);
+        assert_eq!(
+            details,
+            [(
+                Way::Vm,
+                vec!["line 5: E1000".to_string()],
+                vec!["examples/Mod.flx:32: E1000".to_string()]
+            )]
+        );
+    }
+
+    #[test]
+    fn a_strict_way_may_add_located_errors_but_not_drop_one() {
+        let extra = format!(
+            "{}{}",
+            rendered("E300", "examples/a.flx", 38),
+            rendered("E425", "examples/a.flx", 12)
+        );
+        let runs = vec![
+            result(Way::VmStrict, ExitKind::CompileError, "", &extra),
+            result(Way::Vm, ExitKind::CompileError, "", &extra),
+            result(
+                Way::LlvmStrict,
+                ExitKind::CompileError,
+                "",
+                &rendered("E425", "examples/a.flx", 12),
+            ),
+        ];
+        let details = location_details(&runs, &[(38, "E300")]);
+        assert_eq!(
+            details,
+            [
+                (Way::Vm, vec![], vec!["line 12: E425".to_string()]),
+                (Way::LlvmStrict, vec!["line 38: E300".to_string()], vec![]),
+            ]
+        );
     }
 
     #[test]
@@ -2113,8 +2419,8 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
                         file.display(),
                         label.as_str(),
                     );
-                    if !meta.expected_errors.is_empty() {
-                        let expected = sorted_codes(meta.expected_errors.iter().cloned());
+                    if !meta.expected_codes().is_empty() {
+                        let expected = sorted_codes(meta.expected_codes());
                         let actual = diagnostic_codes(&result.normalized_stderr);
                         if actual != expected {
                             eprintln!(
@@ -2157,8 +2463,8 @@ fn run_compile_phase(files: &[PathBuf], config: &Config) -> bool {
                         meta.expect.name()
                     );
                     let normalized_stderr = normalize_stderr(&outcome.stderr);
-                    if !meta.expected_errors.is_empty() {
-                        let expected = sorted_codes(meta.expected_errors.iter().cloned());
+                    if !meta.expected_codes().is_empty() {
+                        let expected = sorted_codes(meta.expected_codes());
                         let actual = diagnostic_codes(&normalized_stderr);
                         if actual != expected {
                             eprintln!(
@@ -3183,6 +3489,7 @@ fn mismatch_detail_label(detail: &MismatchDetail) -> String {
             format!("stderr: {left_way} vs {right_way}")
         }
         MismatchDetail::DiagnosticCodes { way, .. } => format!("diagnostic_codes: {way}"),
+        MismatchDetail::DiagnosticLocations { way, .. } => format!("diagnostic_locations: {way}"),
         MismatchDetail::ExpectedStderr { way, .. } => format!("expected_stderr: {way}"),
         MismatchDetail::CoreMismatch { left_way, right_way, .. } => {
             format!("core: {left_way} vs {right_way}")
