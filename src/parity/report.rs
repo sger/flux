@@ -338,6 +338,15 @@ fn print_mismatch_detail(detail: &MismatchDetail) {
                 actual
             );
         }
+        MismatchDetail::DiagnosticLocations { way, missing, unexpected } => {
+            println!("  {} {way}", cyan("diagnostic_locations:"));
+            for entry in missing {
+                println!("    missing:    {entry}");
+            }
+            for entry in unexpected {
+                println!("    unexpected: {entry}");
+            }
+        }
         MismatchDetail::ExpectedStderr { way, expected, actual } => {
             println!("  {} {way}", cyan("expected_stderr differs:"));
             print_inline_diff("expected".to_string(), expected, way.to_string(), actual);

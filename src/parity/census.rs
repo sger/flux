@@ -204,8 +204,9 @@ fn classify_run(checked: &Checked<'_>, run: &RunResult) -> (Class, String) {
     };
     if let Some(expected) = expected_failure {
         let codes = codes_of(&run.stderr);
+        let expected_codes = meta.expected_codes();
         let missing: Vec<&String> =
-            meta.expected_errors.iter().filter(|code| !codes.contains(code)).collect();
+            expected_codes.iter().filter(|code| !codes.contains(code)).collect();
         return if run.exit_kind == expected && missing.is_empty() {
             (Class::ExpectedError, String::new())
         } else if run.exit_kind == expected {
@@ -435,6 +436,14 @@ mod tests {
         };
         use Class::*;
         assert_eq!(classes(&r, &meta, true), [ExpectedError, Wrong, Wrong, Wrong]);
+
+        // The same codes given as `//~` annotations classify the same way.
+        let annotated = FixtureMeta {
+            expect: Expect::CompileError,
+            expected_locations: vec![(4, "E300".to_string())],
+            ..Default::default()
+        };
+        assert_eq!(classes(&r, &annotated, true), [ExpectedError, Wrong, Wrong, Wrong]);
     }
 
     #[test]
