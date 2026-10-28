@@ -1,5 +1,3 @@
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::scratch;
 
 use flux::parity::normalize;

@@ -186,16 +186,8 @@ path = "tests/support/proc_helper.rs"
 # -----------------------------------------------------------------------------
 
 [[test]]
-name = "aether_cli_snapshots"
-path = "tests/aether/cli_snapshots.rs"
-
-[[test]]
-name = "aether_core_regressions"
-path = "tests/aether/core_regressions.rs"
-
-[[test]]
-name = "aether_fbip_diagnostics"
-path = "tests/aether/fbip_diagnostics.rs"
+name = "aether"
+path = "tests/aether/main.rs"
 
 [[test]]
 name = "ast_complexity_tests"
