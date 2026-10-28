@@ -42,6 +42,30 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-141 — A test's port can be taken between `free_port()` and the bind
+
+**Severity:** Low · **Area:** tests, networking · **Verified:** 2026-10-28, by reading the code; the failure was not reproduced · **From:** a one-off failure of `vm_http_server::shutdown_now_cancels_active_connection` in a full `cargo test-all`
+
+`free_port()` (`tests/support/scratch.rs`) binds port 0, reads the port the
+OS chose, and closes the listener. The test's Flux program binds that port
+later. In between, any other process can take it, including the local end of
+another test's outgoing connection, since those also come from the OS's
+ephemeral range. The program then fails at once (address in use), or the
+client connects to someone else's server.
+
+41 calls in `tests/` use it: the HTTP and TCP tests on the VM and natively,
+and replay.
+
+The failure that led here took 0.46 s and passed on every rerun, which fits
+this race; its output was not kept. The same test's timing race (fixed sleeps
+instead of ordering) was fixed in 8e4e3b09, and the other tests in
+`vm_http_server.rs` in the commit after it.
+
+**The fix** needs the program to pick the port itself: a way for
+`serve_config`/`Tcp.listen` to bind port 0 and report the port it got, on
+both backends. Tests would then print the port and connect to it, or keep
+the client in the same program.
+
 ### KI-138 — Natively, malformed JSON reports a different error from the VM
 
 **Severity:** Low · **Area:** native runtime, Flow.Json · **Verified:** 2026-10-28 · **From:** merging the VM and native JSON tests into one parity fixture
