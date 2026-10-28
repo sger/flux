@@ -839,8 +839,12 @@ fn streaming_shutdown_drains_delayed_stream() {
     let port = free_port();
     let source = lifecycle_source(&format!(
         r#"
-fn delayed_chunk() {{
+// `started` is sent from the stream's first pull: by then the headers are out
+// and the stream is in flight. A stream can't fail, so `try_send`, which on
+// this empty one-slot channel always succeeds.
+fn delayed_chunk(started) {{
     Stream.make(fn() {{
+        let _sent = Channel.try_send(started, 1)
         sleep(150)
         Some(("late", Stream.empty()))
     }})
@@ -851,8 +855,7 @@ fn body() -> String with Async, AsyncFail {{
     let started = Channel.make(1)
 
     fn handler(req) with Async {{
-        Channel.send(started, 1)
-        stream_response(200, {{}}, delayed_chunk())
+        stream_response(200, {{}}, delayed_chunk(started))
     }}
 
     fn server() -> String with Async, AsyncFail {{
@@ -889,8 +892,12 @@ fn streaming_shutdown_now_cancels_in_flight_stream() {
     let port = free_port();
     let source = lifecycle_source(&format!(
         r#"
-fn very_late_chunk() {{
+// `started` is sent from the stream's first pull: by then the headers are out
+// and the stream is in flight. A stream can't fail, so `try_send`, which on
+// this empty one-slot channel always succeeds.
+fn very_late_chunk(started) {{
     Stream.make(fn() {{
+        let _sent = Channel.try_send(started, 1)
         sleep(1000)
         Some(("too-late", Stream.empty()))
     }})
@@ -901,8 +908,7 @@ fn body() -> String with Async, AsyncFail {{
     let started = Channel.make(1)
 
     fn handler(req) with Async {{
-        Channel.send(started, 1)
-        stream_response(200, {{}}, very_late_chunk())
+        stream_response(200, {{}}, very_late_chunk(started))
     }}
 
     fn server() -> String with Async, AsyncFail {{
