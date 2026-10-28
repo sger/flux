@@ -32,11 +32,8 @@ native = { max-threads = 4 }
 # Default-profile overrides also apply to `ci`.
 [[profile.default.overrides]]
 filter = '''
-binary(/native|^llvm_/)
-| binary(=safe_arithmetic_tests)
-| binary(=effect_multi_shot_tests)
-| binary(=parity_debug_tests)
-| binary(=debug_info_tests)
+binary(=native_llvm)
+| (binary(=debug) & not test(/^vm_debug_tests::/))
 | test(/native|llvm/)
 '''
 test-group = "native"
