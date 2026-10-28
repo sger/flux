@@ -1,4 +1,5 @@
-#[path = "../snapshots"]
-mod snapshots {
-    pub mod bytecode;
-}
+#[path = "../support/mod.rs"]
+mod support;
+
+#[path = "../snapshots/bytecode/mod.rs"]
+mod snapshot_bytecode;

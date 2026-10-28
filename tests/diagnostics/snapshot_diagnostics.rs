@@ -1,7 +1,5 @@
 #[path = "../support/mod.rs"]
 mod support;
 
-#[path = "../snapshots"]
-mod snapshots {
-    pub mod diagnostics;
-}
+#[path = "../snapshots/diagnostics/mod.rs"]
+mod snapshot_diagnostics;
