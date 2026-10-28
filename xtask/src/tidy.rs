@@ -27,6 +27,7 @@ pub fn run(root: &Path) -> Result<bool, String> {
 
     let mut problems = unformatted(root)?;
     problems.extend(layout_problems(&readme, &dirs, &files));
+    problems.extend(per_file_targets(&targets));
     problems.extend(uncompiled(&targets, repo.sources()));
     problems.extend(local_helpers(repo.sources()));
     for problem in &problems {
@@ -98,6 +99,24 @@ fn layout_problems(readme: &str, dirs: &[String], files: &[String]) -> Vec<Strin
         ));
     }
     problems
+}
+
+/// `[[test]]` targets under `tests/` other than a folder's `main.rs`: each
+/// folder is one binary, so a file joins it as a module instead.
+fn per_file_targets(targets: &BTreeSet<String>) -> Vec<String> {
+    targets
+        .iter()
+        .filter(|path| path.starts_with("tests/"))
+        .filter(|path| {
+            let rest = path.strip_prefix("tests/").unwrap_or(path);
+            !matches!(rest.split_once('/'), Some((_, "main.rs")))
+        })
+        .map(|path| {
+            format!(
+                "{path} is its own [[test]] target; declare it with `mod` in its folder's main.rs"
+            )
+        })
+        .collect()
 }
 
 /// Test files nothing compiles: not a `[[test]]` target, not a module its
@@ -229,6 +248,23 @@ mod tests {
             [
                 "tests/vm_runtime/forgotten.rs is never compiled; declare it with `mod` in its folder's main.rs",
                 "tests/lexer/undeclared.rs is never compiled; declare it with `mod` in its folder's main.rs",
+            ]
+        );
+    }
+
+    #[test]
+    fn only_a_folders_main_rs_is_a_test_target() {
+        let targets: BTreeSet<String> = [
+            "tests/lexer/main.rs".to_string(),
+            "tests/lexer/token_tests.rs".to_string(),
+            "tests/support/main.rs".to_string(),
+            "crates/x/tests/a.rs".to_string(),
+        ]
+        .into();
+        assert_eq!(
+            per_file_targets(&targets),
+            [
+                "tests/lexer/token_tests.rs is its own [[test]] target; declare it with `mod` in its folder's main.rs"
             ]
         );
     }
