@@ -9,9 +9,9 @@ error[E018]: Import Not Found
 
 Cannot find module `ModuleGraph.ConstStringOrdering` to import.
 
-  examples/ModuleGraph/const_string_ordering_main.flx:5:1
+  examples/ModuleGraph/const_string_ordering_main.flx:4:1
   |
-5 | import ModuleGraph.ConstStringOrdering
+4 | import ModuleGraph.ConstStringOrdering
   | ^
 
 Hint:

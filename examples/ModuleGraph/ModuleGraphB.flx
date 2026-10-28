@@ -1,9 +1,8 @@
 // expect: compile_error
-// expect-error: E024
 
 import ModuleGraph.ModuleGraphC
 
-module ModuleGraph.ModuleGraphB {
+module ModuleGraph.ModuleGraphB { //~ E024
   fn value() {
     ModuleGraph.ModuleGraphC.value();
   }

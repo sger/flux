@@ -9,9 +9,9 @@ error[E024]: Module Path Mismatch
 
 Module name `ModuleGraph.ConstFloatDivideByZero` doesn't match file path `examples/ModuleGraph/ConstFloatDivideByZero_Module.flx`.
 
-  examples/ModuleGraph/ConstFloatDivideByZero_Module.flx:7:1
+  examples/ModuleGraph/ConstFloatDivideByZero_Module.flx:6:1
   |
-7 | module ModuleGraph.ConstFloatDivideByZero {
+6 | module ModuleGraph.ConstFloatDivideByZero {
   | ^
 
 Hint:
