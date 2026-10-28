@@ -2544,12 +2544,18 @@ impl Compiler {
         }
 
         let param_effect_rows = self.build_param_effect_rows(parameters, parameters_types);
-        self.with_function_context_with_param_effect_rows(
+        let compiled = self.with_function_context_with_param_effect_rows(
             parameters.len(),
             effects,
             param_effect_rows,
             |compiler| compiler.compile_block_with_tail(body),
-        )?;
+        );
+        if let Err(error) = compiled {
+            // Close the lambda's scope before reporting, or its parameters stay
+            // visible to every function compiled after it (KI-142).
+            let _ = self.leave_scope();
+            return Err(error);
+        }
 
         if self.block_has_value_tail(body) {
             if self.is_last_instruction(OpCode::OpPop) {
@@ -2654,12 +2660,16 @@ impl Compiler {
     ) -> CompileResult<()> {
         self.enter_scope();
 
-        self.with_function_context_with_param_effect_rows(
+        let compiled = self.with_function_context_with_param_effect_rows(
             0,
             &[],
             std::collections::HashMap::new(),
             |compiler| compiler.compile_non_tail_expression(expr),
-        )?;
+        );
+        if let Err(error) = compiled {
+            let _ = self.leave_scope();
+            return Err(error);
+        }
 
         if !self.is_last_instruction(OpCode::OpReturnValue)
             && !self.is_last_instruction(OpCode::OpReturnLocal)
