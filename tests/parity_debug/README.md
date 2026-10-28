@@ -20,7 +20,7 @@ Run them with:
 
 ```sh
 flux parity-check tests/parity_debug --ways vm_debug,llvm_debug
-cargo test --features llvm --test parity_debug_tests
+cargo test --features llvm --test debug parity_debug_tests::
 ```
 
 - `vm_debug` runs the commands with `flux debug <file> --script`.

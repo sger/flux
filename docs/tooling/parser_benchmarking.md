@@ -50,7 +50,7 @@ cp -r target/criterion perf_logs/parser-criterion-${ts}
 - Run parser regression suites after optimizations:
 
 ```bash
-cargo test --test parser_tests
-cargo test --test parser_recovery
-cargo test --test snapshot_parser
+cargo test --test parser parser_tests::
+cargo test --test parser parser_recovery::
+cargo test --test parser snapshot_parser::
 ```

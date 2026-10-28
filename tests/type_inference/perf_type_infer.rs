@@ -23,7 +23,7 @@ fn make_infer_stress_source(depth: usize) -> String {
 }
 
 #[test]
-#[ignore = "perf guard; run with `cargo test --test perf_type_infer -- --ignored --nocapture`"]
+#[ignore = "perf guard; run with `cargo test --test type_inference perf_type_infer:: -- --ignored --nocapture`"]
 fn infer_program_perf_guard() {
     let source = make_infer_stress_source(300);
     let iterations = 30usize;
@@ -72,7 +72,7 @@ fn infer_program_perf_guard() {
 /// substitution that is composed into the accumulator. With lazy normalization,
 /// compose() should be O(|other|) instead of O(|self| * |other|).
 #[test]
-#[ignore = "perf guard; run with `cargo test --test perf_type_infer -- --ignored --nocapture`"]
+#[ignore = "perf guard; run with `cargo test --test type_inference perf_type_infer:: -- --ignored --nocapture`"]
 fn compose_scaling_perf_guard() {
     let var_count = 2000usize;
     let iterations = 10usize;

@@ -243,7 +243,7 @@ Parity and fixture coverage:
 2. Change the smallest HM source-of-truth module (`type_infer.rs` or `src/types/*`).
 3. If boundary behavior changes, update strict-path expectations in compiler tests.
 4. Run targeted checks first:
-   - `cargo test --test type_inference_tests`
+   - `cargo test --test type_inference type_inference_tests::`
    - affected compiler test target(s)
 5. If diagnostics text changes, refresh relevant snapshots.
 
@@ -344,8 +344,8 @@ When adding a new expression form or statement that needs type-checked behavior:
 
 4. **Run targeted tests**:
    ```bash
-   cargo test --test type_inference_tests
-   cargo test --test compiler_rules_tests
+   cargo test --test type_inference type_inference_tests::
+   cargo test --test integration compiler_rules_tests::
    ```
 
 ---

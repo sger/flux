@@ -3314,7 +3314,7 @@ before execution with `native backend features require llvm`. Always run native
 tests through the same command that builds their binary, for example:
 
 ```text
-cargo test --features llvm --test native_json_tests
+cargo test --features llvm --test native_llvm native_json_tests::
 ```
 
 This is a stale-binary problem, not a JSON backend failure.
