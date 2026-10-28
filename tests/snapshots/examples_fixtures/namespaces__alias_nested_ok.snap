@@ -9,9 +9,9 @@ error[E018]: Import Not Found
 
 Cannot find module `Modules.Data.Math.Test` to import.
 
-  examples/namespaces/alias_nested_ok.flx:4:1
+  examples/namespaces/alias_nested_ok.flx:3:1
   |
-4 | import Modules.Data.Math.Test as MathTest
+3 | import Modules.Data.Math.Test as MathTest
   | ^
 
 Hint:
