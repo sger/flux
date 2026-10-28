@@ -42,6 +42,37 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-139 — A failing `assert_eq` in a test reports an unhandled Console effect instead of its message
+
+**Severity:** Medium · **Area:** effects, test runner · **Verified:** 2026-10-28, VM only (native not checked) · **From:** checking `docs/guide/08_testing.md` against the runner
+
+A `test_*` function may use Console without declaring it: the compiler
+lets `main` and `test_*` leave Console, FileSystem, Stdin, Env, Process
+and Clock undeclared (`src/compiler/mod.rs`, the check that skips them).
+At run time in `--test` mode nothing handles Console for such a test. A
+passing `assert_eq` prints nothing, so this goes unseen; a failing one
+prints `ASSERTION FAILED` and both values before it panics, and that
+print fails instead:
+
+```
+$ flux --test failing.flx
+  FAIL  test_fails
+          unhandled effect: Console (no matching handle block)
+```
+
+`failing.flx` holds `fn test_fails() { assert_eq(1 + 1, 3) }`. The test
+still fails, but the message that says why is lost. `assert_neq` fails
+the same way, since it also prints first. `assert_true`, `assert_msg`
+and `panic` only panic, so their messages come through. Declaring the
+effect avoids it: with `fn test_fails() with Console`, the run prints the
+assertion message and `panic: assert_eq failed`. A plain `println` in a
+test does print, so the gap seems to be for Console performed inside
+another module's function (here `Flow.Assert`).
+
+Nothing in `tests/` checks the failure output of `assert_eq`, which is
+why it went unseen. The guide tells users to add `with Console` to tests
+that use `assert_eq` or `assert_neq` until this is fixed.
+
 ### KI-138 — Natively, malformed JSON reports a different error from the VM
 
 **Severity:** Low · **Area:** native runtime, Flow.Json · **Verified:** 2026-10-28 · **From:** merging the VM and native JSON tests into one parity fixture
