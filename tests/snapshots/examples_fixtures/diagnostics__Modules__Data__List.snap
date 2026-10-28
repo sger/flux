@@ -9,9 +9,9 @@ error[E024]: Module Path Mismatch
 
 Module name `Modules.Data.Other` doesn't match file path `examples/diagnostics/Modules/Data/List.flx`.
 
-  examples/diagnostics/Modules/Data/List.flx:4:1
+  examples/diagnostics/Modules/Data/List.flx:3:1
   |
-4 | module Modules.Data.Other {
+3 | module Modules.Data.Other {
   | ^
 
 Hint:
