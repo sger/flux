@@ -1,0 +1,47 @@
+// parity: vm, llvm
+// expect: success
+// bug: a handle's value is its clause's value, also when the body performs
+//      in the handle's own frame or does more work after a call that
+//      performs. Natively the clause's value came out of the wrong frame and
+//      the VM hung or ran the rest of the body again with it (KI-135).
+// parity-expected-stdout-begin
+// 101
+// 102
+// 101
+// 101
+// 4
+// "end"
+// parity-expected-stdout-end
+
+effect Ask { ask : (Int) -> Int }
+
+fn in_function() -> Int {
+    perform Ask.ask(1) handle Ask { ask(resume, x) -> x + 100 }
+}
+
+fn call(f) { f() }
+
+fn two_performs() -> Int {
+    perform Ask.ask(2) + perform Ask.ask(3) handle Ask { ask(resume, x) -> x + 100 }
+}
+
+fn ask_one() -> Int with Ask { perform Ask.ask(1) }
+
+fn after_call() -> Int {
+    ask_one() + 1 handle Ask { ask(resume, x) -> x + 100 }
+}
+
+// Deep handler: resume runs `ask_one() + 1` to its end, 2, and the clause
+// doubles it.
+fn resume_then_more() -> Int {
+    ask_one() + 1 handle Ask { ask(resume, x) -> resume(x) * 2 }
+}
+
+fn main() with IO {
+    print(in_function())
+    print(two_performs())
+    print(call(\() -> perform Ask.ask(1) handle Ask { ask(resume, x) -> x + 100 }))
+    print(after_call())
+    print(resume_then_more())
+    print("end")
+}
