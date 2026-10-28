@@ -42,6 +42,28 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-138 — Natively, malformed JSON reports a different error from the VM
+
+**Severity:** Low · **Area:** native runtime, Flow.Json · **Verified:** 2026-10-28 · **From:** merging the VM and native JSON tests into one parity fixture
+
+The VM parses JSON in `src/runtime/json.rs` and native code in
+`runtime/c/json.c`. On malformed input they report different messages,
+and the C parser does not report where in the input it stopped:
+
+| Input | VM | Native |
+|---|---|---|
+| `{` | `$: expected string object key` | `$: unterminated object` |
+| `[1,` | `$[1]: unexpected end of input` | `$: unterminated array` |
+
+Both reject the input; only `Json.error_message` differs, so a program
+that prints or matches on the message behaves differently natively. The
+two tests this fixture replaced each checked one backend's message, which
+is how the difference went unseen.
+
+Repro: `tests/parity/json_escapes_and_malformed_input.flx` skips its
+`llvm` way for this issue. Deleting that `skip-way:` line is the failing
+test for a fix.
+
 ### KI-137 — Twenty failing fixtures are named for an error code the CLI does not report
 
 **Severity:** Low · **Area:** diagnostics, test fixtures · **Verified:** 2026-10-28, by comparing each file name with its `expect-error:` header · **From:** the test-suite review
