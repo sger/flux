@@ -30,8 +30,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::{Mutex, OnceLock};
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::scratch;
 use scratch::Scratch;
 
