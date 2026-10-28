@@ -35,6 +35,10 @@ Messages git writes itself (`Merge …`, `Revert "…"`) and `fixup!`,
 `squash!` and `amend!` commits pass. To skip the check for one commit, use
 `git commit --no-verify`.
 
+A commit that only reformats goes in `.git-blame-ignore-revs`, so `git blame`
+shows the change that last meant something. GitHub reads the file on its own;
+locally, run `git config blame.ignorerevsfile .git-blame-ignore-revs` once.
+
 ## Type
 
 | Type | Use it for |
