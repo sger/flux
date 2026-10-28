@@ -16,178 +16,49 @@
 //! only the calling fiber while task workers publish completions back into
 //! the async scheduler.
 
-use std::process::Command;
 #[cfg(feature = "llvm")]
 use std::time::Duration;
 
-#[path = "../support/scratch.rs"]
-mod scratch;
-use scratch::Scratch;
-use scratch::workspace_root;
+#[path = "../support/flux_runner.rs"]
+mod flux_runner;
+use flux_runner::flux_source;
+use flux_runner::scratch::Scratch;
+use flux_runner::workspace_root;
+use std::process::Command;
+
+// Every run uses four workers, so the task tests see real parallelism even
+// on a small machine.
+const WORKERS: (&str, &str) = ("FLUX_WORKERS", "4");
 
 fn run_flux_test(fixture: &str) -> (String, bool) {
-    let path = workspace_root().join("tests").join("flux").join(fixture);
-    let scratch = Scratch::new("cache-isolated");
-    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(workspace_root())
-        .env("FLUX_WORKERS", "4")
-        .args(["--test", path.to_str().unwrap(), "--no-cache"])
-        .args(scratch.cache_args())
-        .output()
-        .unwrap_or_else(|e| panic!("failed to run flux --test on {fixture}: {e}"));
-
-    let stdout = String::from_utf8_lossy(&output.stdout)
-        .replace("\r\n", "\n")
-        .trim()
-        .to_string();
-    (stdout, output.status.success())
+    flux_runner::run_flux_test_with(fixture, &[], &[WORKERS])
 }
 
 fn run_flux_source(source: &str) -> (String, String, bool) {
-    let dir = workspace_root()
-        .join("target")
-        .join("test-scratch")
-        .join(format!(
-            "flux-flow-task-d1-{}-{}",
-            std::process::id(),
-            std::thread::current().name().unwrap_or("test")
-        ));
-    std::fs::create_dir_all(&dir).expect("create temp dir for Flow.Task D1 fixture");
-    let path = dir.join("flow_task_d1.flx");
-    std::fs::write(&path, source).expect("write Flow.Task D1 fixture");
-
-    let scratch = Scratch::new("cache-isolated");
-    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(workspace_root())
-        .env("FLUX_WORKERS", "4")
-        .args([path.to_str().unwrap(), "--no-cache"])
-        .args(scratch.cache_args())
-        .output()
-        .expect("run flux on Flow.Task D1 fixture");
-
-    let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
-    let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
-    let _ = std::fs::remove_file(&path);
-    (stdout, stderr, output.status.success())
+    let ran = flux_source(source, "flow-task").envs(&[WORKERS]).run();
+    (ran.stdout, ran.stderr, ran.success)
 }
 
 #[cfg(feature = "llvm")]
 fn run_flux_source_native(source: &str, tag: &str) -> (String, String, bool) {
-    let dir = workspace_root()
-        .join("target")
-        .join("test-scratch")
-        .join(format!(
-            "flux-flow-task-native-{}-{}-{}",
-            std::process::id(),
-            std::thread::current().name().unwrap_or("test"),
-            tag
-        ));
-    std::fs::create_dir_all(&dir).expect("create temp dir for native Flow.Task fixture");
-    let path = dir.join("flow_task_native_source.flx");
-    std::fs::write(&path, source).expect("write native Flow.Task fixture");
-
-    let scratch = Scratch::new("cache-isolated");
-    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(workspace_root())
-        .env("FLUX_WORKERS", "4")
-        .args([path.to_str().unwrap(), "--native", "--no-cache"])
-        .args(scratch.cache_args())
-        .output()
-        .expect("run native flux on Flow.Task fixture");
-
-    let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
-    let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
-    let _ = std::fs::remove_file(&path);
-    (stdout, stderr, output.status.success())
+    let ran = flux_source(source, tag).native().envs(&[WORKERS]).run();
+    (ran.stdout, ran.stderr, ran.success)
 }
 
-// Like run_flux_source_native but kills the child after `timeout` to detect
-// deadlocks (e.g. a rendezvous channel that never unblocks).
+// Kills the run after `timeout`, to catch deadlocks such as a rendezvous
+// channel that never unblocks.
 #[cfg(feature = "llvm")]
 fn run_flux_source_native_with_timeout(
     source: &str,
     tag: &str,
     timeout: Duration,
 ) -> (String, String, bool) {
-    use std::sync::{Arc, Mutex};
-
-    let dir = workspace_root()
-        .join("target")
-        .join("test-scratch")
-        .join(format!(
-            "flux-flow-task-native-{}-{}-{}",
-            std::process::id(),
-            std::thread::current().name().unwrap_or("test"),
-            tag
-        ));
-    std::fs::create_dir_all(&dir).expect("create temp dir for native Flow.Task fixture");
-    let path = dir.join("flow_task_native_source.flx");
-    std::fs::write(&path, source).expect("write native Flow.Task fixture");
-
-    let scratch = Scratch::new("cache-isolated");
-    let child = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(workspace_root())
-        .env("FLUX_WORKERS", "4")
-        .args([path.to_str().unwrap(), "--native", "--no-cache"])
-        .args(scratch.cache_args())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("spawn native flux on Flow.Task fixture");
-
-    // Drive wait_with_output on a background thread; the main thread enforces
-    // the deadline and kills the child process if it exceeds it.
-    type Output = std::process::Output;
-    let result: Arc<Mutex<Option<Output>>> = Arc::new(Mutex::new(None));
-    let result_bg = Arc::clone(&result);
-    let child_id = child.id();
-
-    // The background thread takes ownership of child and awaits it.
-    // We signal the main thread via a channel.
-    let (tx, rx) = std::sync::mpsc::channel::<()>();
-    let join = std::thread::spawn(move || {
-        let out = child.wait_with_output().ok();
-        *result_bg.lock().unwrap() = out;
-        let _ = tx.send(());
-    });
-
-    let timed_out = rx.recv_timeout(timeout).is_err();
-    if timed_out {
-        // Kill the child by platform-specific means.
-        #[cfg(unix)]
-        {
-            nix_kill(child_id);
-        }
-        #[cfg(not(unix))]
-        {
-            // Best-effort on Windows: send a Ctrl+C equivalent.
-            let _ = child_id;
-        }
-    }
-
-    let _ = join.join();
-    let _ = std::fs::remove_file(&path);
-
-    let guard = result.lock().unwrap();
-    match guard.as_ref() {
-        Some(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
-            let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
-            (stdout, stderr, !timed_out && output.status.success())
-        }
-        None => (
-            String::new(),
-            "[process did not produce output]".to_string(),
-            false,
-        ),
-    }
-}
-
-#[cfg(all(feature = "llvm", unix))]
-fn nix_kill(pid: u32) {
-    // Send SIGKILL to the child. `kill(2)` with signal 9 is the only
-    // portable way to guarantee termination without the `libc` crate.
-    let _ = Command::new("kill").args(["-9", &pid.to_string()]).status();
+    let ran = flux_source(source, tag)
+        .native()
+        .envs(&[WORKERS])
+        .timeout(timeout)
+        .run();
+    (ran.stdout, ran.stderr, ran.success)
 }
 
 #[cfg(feature = "llvm")]
@@ -628,19 +499,9 @@ fn main() {
 
 #[test]
 fn non_task_spawn_member_does_not_get_task_capture_constraints() {
-    let dir = workspace_root()
-        .join("target")
-        .join("test-scratch")
-        .join(format!(
-            "flux-flow-task-non-task-spawn-{}-{}",
-            std::process::id(),
-            std::thread::current().name().unwrap_or("test")
-        ));
-    std::fs::create_dir_all(&dir).expect("create temp dir for non-task spawn fixture");
-    let other_path = dir.join("Other.flx");
-    let main_path = dir.join("main.flx");
-    std::fs::write(
-        &other_path,
+    let scratch = Scratch::new("non-task-spawn");
+    scratch.write(
+        "Other.flx",
         r#"
 module Other {
     public fn spawn(action: () -> Int) -> Int {
@@ -648,10 +509,9 @@ module Other {
     }
 }
 "#,
-    )
-    .expect("write Other.flx fixture");
-    std::fs::write(
-        &main_path,
+    );
+    let main_path = scratch.write(
+        "main.flx",
         r#"
 import Other
 
@@ -660,10 +520,8 @@ fn main() with IO {
     print(Other.spawn(fn() { f(41) }))
 }
 "#,
-    )
-    .expect("write main.flx fixture");
+    );
 
-    let scratch = Scratch::new("cache-isolated");
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args([main_path.to_str().unwrap(), "--no-cache", "--dump-cfg"])
@@ -672,8 +530,6 @@ fn main() with IO {
         .expect("run non-task spawn fixture");
     let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
     let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
-    let _ = std::fs::remove_file(&other_path);
-    let _ = std::fs::remove_file(&main_path);
 
     assert!(
         output.status.success(),
@@ -686,26 +542,9 @@ fn main() with IO {
 fn flow_task_native_compiles_and_passes() {
     // Uses a native-specific fixture (Int/String payloads only) because
     // List<T> and tuple assert_eq is not yet supported on the native backend.
-    let path = workspace_root()
-        .join("tests")
-        .join("flux")
-        .join("flow_task_native.flx");
-    let scratch = Scratch::new("cache-isolated");
-    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(workspace_root())
-        .args(["--test", path.to_str().unwrap(), "--native", "--no-cache"])
-        .args(scratch.cache_args())
-        .output()
-        .unwrap_or_else(|e| panic!("failed to run flux --test --native: {e}"));
-
-    let stdout = String::from_utf8_lossy(&output.stdout)
-        .replace("\r\n", "\n")
-        .trim()
-        .to_string();
-    assert!(
-        output.status.success(),
-        "native Task tests must pass:\n{stdout}"
-    );
+    let (stdout, success) =
+        flux_runner::run_flux_test_with("flow_task_native.flx", &["--native"], &[]);
+    assert!(success, "native Task tests must pass:\n{stdout}");
     assert!(
         stdout.contains("8 passed"),
         "expected 8 passing native tests, got:\n{stdout}"

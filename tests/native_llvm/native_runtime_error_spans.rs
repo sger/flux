@@ -1,31 +1,17 @@
 #![cfg(feature = "llvm")]
 
-use std::process::Command;
+#[path = "../support/flux_runner.rs"]
+mod flux_runner;
 
-#[path = "../support/scratch.rs"]
-mod scratch;
-use scratch::Scratch;
-use scratch::workspace_root;
-
+/// What the native run of `examples/runtime_errors/<fixture>` printed,
+/// stdout then stderr.
 fn run_native(fixture: &str) -> String {
-    let path = workspace_root()
-        .join("examples")
-        .join("runtime_errors")
-        .join(fixture);
-    // Private cache root: `--no-cache` does not isolate native
-    // builds, which write shared artifacts regardless (KI-010).
-    let scratch = Scratch::new("native-llvm");
-    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(workspace_root())
-        .args([path.to_str().unwrap(), "--native", "--no-cache"])
-        .args(scratch.cache_args())
+    let rel = format!("examples/runtime_errors/{fixture}");
+    let ran = flux_runner::flux_file(&rel)
+        .native()
         .env("NO_COLOR", "1")
-        .output()
-        .unwrap_or_else(|e| panic!("failed to run flux --native on {fixture}: {e}"));
-
-    let mut text = String::from_utf8_lossy(&output.stdout).to_string();
-    text.push_str(&String::from_utf8_lossy(&output.stderr));
-    text.replace("\r\n", "\n")
+        .run();
+    ran.stdout + &ran.stderr
 }
 
 #[test]
