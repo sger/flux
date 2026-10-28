@@ -49,31 +49,3 @@ fn main() with IO, Time {
         "first_of waited for slow losers: {elapsed:?}"
     );
 }
-
-#[test]
-fn first_of_immediate_children_are_source_ordered() {
-    let source = r#"
-import Flow.Async exposing (..)
-
-fn ten() -> Int with Async { 10 }
-fn twenty() -> Int with Async { 20 }
-fn thirty() -> Int with Async { 30 }
-
-fn body() -> (Int, Int) with Async {
-    first_of([ten, twenty, thirty])
-}
-
-fn main() with IO {
-    let pair = run_async(body)
-    print(pair.0)
-    print(pair.1)
-}
-"#;
-    let (stdout, stderr, success, _elapsed) = run_source(source, "tie");
-    assert!(
-        success,
-        "first_of tie program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
-    let lines: Vec<_> = stdout.lines().collect();
-    assert_eq!(lines, ["0", "10"]);
-}

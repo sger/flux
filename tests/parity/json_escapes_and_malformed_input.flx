@@ -1,0 +1,22 @@
+// parity: vm, llvm
+// expect: success
+// skip-way: llvm: KI-138 the C JSON parser words malformed-input errors differently
+// String escapes and \u sequences round-trip, and malformed input is an
+// error value with a message, not a crash.
+// parity-expected-stdout-begin
+// ""line\nΩ""
+// false
+// "$: expected string object key"
+// false
+// "$[1]: unexpected end of input"
+// parity-expected-stdout-end
+
+import Flow.Json as Json
+
+fn main() with IO {
+    print(Json.encode_json(Json.parse("\"line\\n\\u03a9\"")))
+    print(Json.result_is_ok(Json.parse_result("{")))
+    print(Json.error_message(Json.parse_result("{")))
+    print(Json.result_is_ok(Json.parse_result("[1,")))
+    print(Json.error_message(Json.parse_result("[1,")))
+}

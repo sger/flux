@@ -1,0 +1,23 @@
+// parity: vm, llvm
+// expect: success
+// Decoding an Int accepts integral numbers only, and rejects floats too
+// large to hold an exact integer.
+// parity-expected-stdout-begin
+// 42
+// 42
+// false
+// "$: expected safe integral JSON number"
+// -1
+// parity-expected-stdout-end
+
+import Flow.Json as Json
+import Flow.Json exposing (..)
+
+fn main() with IO {
+    print(Json.result_or(Json.as_int(Json.parse("42"), "$"), -1))
+    print(Json.result_or(Json.as_int(Json.number(42.0), "$"), -1))
+    let fractional = Json.as_int(Json.number(42.5), "$")
+    print(Json.result_is_ok(fractional))
+    print(Json.error_message(fractional))
+    print(Json.result_or(Json.as_int(Json.number(9007199254740994.0), "$"), -1))
+}

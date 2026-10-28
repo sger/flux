@@ -1,0 +1,26 @@
+// parity: vm, llvm
+// expect: success
+// A derived decoder says what was wrong: an unknown constructor, a missing
+// field, or a field of the wrong type.
+// parity-expected-stdout-begin
+// "$.tag: unknown constructor tag"
+// "$.fields.age: missing JSON field"
+// "$.fields.age: expected JSON number"
+// parity-expected-stdout-end
+
+import Flow.Json as Json
+import Flow.Json exposing (..)
+
+data Person { Person { name: String, age: Int } } deriving (Json.Encode, Json.Decode)
+
+fn error_or(result, fallback) -> String {
+    let _fallback = Json.result_or(result, fallback)
+    Json.error_message(result)
+}
+
+fn main() with IO {
+    let fallback = Person { name: "fallback", age: -1 }
+    print(error_or(decode(Json.parse("{\"tag\":\"Nope\",\"fields\":[]}")), fallback))
+    print(error_or(decode(Json.parse("{\"tag\":\"Person\",\"fields\":{\"name\":\"Ada\"}}")), fallback))
+    print(error_or(decode(Json.parse("{\"tag\":\"Person\",\"fields\":{\"name\":\"Ada\",\"age\":\"old\"}}")), fallback))
+}
