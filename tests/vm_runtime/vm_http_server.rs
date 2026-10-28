@@ -112,7 +112,6 @@ fn main() with IO {{
 }
 
 #[test]
-#[ignore = "network integration test — run locally with: cargo test --test vm_http_server -- --include-ignored"]
 fn serve_config_returns_and_serves_one_connection() {
     let response = run_http_fixture(
         1,
@@ -126,7 +125,6 @@ fn serve_config_returns_and_serves_one_connection() {
 }
 
 #[test]
-#[ignore = "network integration test — run locally with: cargo test --test vm_http_server -- --include-ignored"]
 fn serve_config_returns_before_accepting() {
     let port = free_port();
     let source = lifecycle_source(&format!(
@@ -151,7 +149,6 @@ fn body() -> String with Async, AsyncFail {{
 }
 
 #[test]
-#[ignore = "network integration test — run locally with: cargo test --test vm_http_server -- --include-ignored"]
 fn serve_config_rejects_negative_config_fields() {
     let port = free_port();
     let source = lifecycle_source(&format!(
@@ -179,57 +176,40 @@ fn body() -> String with Async, AsyncFail {{
 }
 
 #[test]
-#[ignore = "network integration test — run locally with: cargo test --test vm_http_server -- --include-ignored"]
 fn shutdown_stops_accepting_new_connections() {
-    let mutex = VM_HTTP_TEST_LOCK.get_or_init(|| Mutex::new(()));
-    let _guard = mutex.lock().unwrap_or_else(|e| e.into_inner());
     let port = free_port();
+    // The program connects to itself after `shutdown`, while it is still
+    // running: a connect from the test after a fixed sleep raced the compile,
+    // and once the process had exited a refused connect proved nothing.
     let source = lifecycle_source(&format!(
         r#"
 fn handler(req) with Async {{
     ok("unexpected")
 }}
 
+fn late_connect() -> String with Async {{
+    let conn = Tcp.connect("127.0.0.1", {port})
+    Tcp.close(conn)
+    "late connection accepted"
+}}
+
 fn body() -> String with Async, AsyncFail {{
     let h = serve_config("127.0.0.1", {port}, default_config(), handler)
     let _sleep = sleep(50)
     shutdown(h)
-    "stopped"
+    result_or(try(late_connect), "stopped")
 }}
 "#
     ));
-    let scratch = Scratch::new("vm-http-late-connect");
-    let path = scratch.write("fixture.flx", &source);
-    let child = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(workspace_root())
-        .args([path.to_str().unwrap(), "--no-cache"])
-        .args(scratch.cache_args())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("spawn flux");
-    std::thread::sleep(std::time::Duration::from_millis(250));
-    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-    let late_connect =
-        std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(200));
-    let output = child.wait_with_output().expect("wait for flux");
-    let _ = std::fs::remove_file(&path);
-    let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
-    let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
-    let success = output.status.success();
+    let (stdout, stderr, success) = run_source(source);
     assert!(
         success,
         "fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
     assert!(stdout.contains("stopped"), "{stdout}");
-    assert!(
-        late_connect.is_err(),
-        "late connection unexpectedly succeeded"
-    );
 }
 
 #[test]
-#[ignore = "network integration test — run locally with: cargo test --test vm_http_server -- --include-ignored"]
 fn max_connections_backpressures_live_connections() {
     let mutex = VM_HTTP_TEST_LOCK.get_or_init(|| Mutex::new(()));
     let _guard = mutex.lock().unwrap_or_else(|e| e.into_inner());
@@ -336,7 +316,6 @@ fn body() -> String with Async, AsyncFail {{
 }
 
 #[test]
-#[ignore = "network integration test — run locally with: cargo test --test vm_http_server -- --include-ignored"]
 fn shutdown_drains_active_connection() {
     let port = free_port();
     let source = lifecycle_source(&format!(
@@ -378,7 +357,6 @@ fn body() -> String with Async, AsyncFail {{
 }
 
 #[test]
-#[ignore = "network integration test — run locally with: cargo test --test vm_http_server -- --include-ignored"]
 fn handler_timeout_returns_504() {
     let port = free_port();
     let source = lifecycle_source(&format!(
@@ -421,7 +399,6 @@ fn body() -> String with Async, AsyncFail {{
 }
 
 #[test]
-#[ignore = "network integration test — run locally with: cargo test --test vm_http_server -- --include-ignored"]
 fn fast_handler_succeeds_with_request_timeout_configured() {
     let port = free_port();
     let source = lifecycle_source(&format!(
@@ -463,7 +440,6 @@ fn body() -> String with Async, AsyncFail {{
 }
 
 #[test]
-#[ignore = "network integration test — run locally with: cargo test --test vm_http_server -- --include-ignored"]
 fn timed_out_handler_closes_pipelined_connection() {
     let port = free_port();
     let source = lifecycle_source(&format!(
@@ -514,7 +490,6 @@ fn body() -> String with Async, AsyncFail {{
 }
 
 #[test]
-#[ignore = "network integration test — run locally with: cargo test --test vm_http_server -- --include-ignored"]
 fn handler_timeout_does_not_break_graceful_shutdown_drain() {
     let port = free_port();
     let source = lifecycle_source(&format!(
@@ -558,7 +533,6 @@ fn body() -> String with Async, AsyncFail {{
 }
 
 #[test]
-#[ignore = "network integration test — run locally with: cargo test --test vm_http_server -- --include-ignored"]
 fn shutdown_now_cancels_active_connection() {
     let port = free_port();
     let source = lifecycle_source(&format!(
@@ -604,7 +578,6 @@ fn body() -> String with Async, AsyncFail {{
 }
 
 #[test]
-#[ignore = "network integration test — run locally with: cargo test --test vm_http_server -- --include-ignored"]
 fn shutdown_is_idempotent() {
     let graceful_port = free_port();
     let forced_port = free_port();
@@ -636,7 +609,6 @@ fn body() -> String with Async, AsyncFail {{
 }
 
 #[test]
-#[ignore = "network integration test — run locally with: cargo test --test vm_http_server -- --include-ignored"]
 fn keep_alive_serves_two_requests_on_one_connection() {
     let response = run_http_fixture(
         1,
@@ -650,7 +622,6 @@ fn keep_alive_serves_two_requests_on_one_connection() {
 }
 
 #[test]
-#[ignore = "network integration test — run locally with: cargo test --test vm_http_server -- --include-ignored"]
 fn malformed_request_returns_400_without_invoking_handler() {
     let response = run_http_fixture(
         1,
@@ -663,7 +634,6 @@ fn malformed_request_returns_400_without_invoking_handler() {
 }
 
 #[test]
-#[ignore = "network integration test — run locally with: cargo test --test vm_http_server -- --include-ignored"]
 fn oversized_body_returns_413_without_invoking_handler() {
     let response = run_http_fixture(
         1,
@@ -679,7 +649,6 @@ fn oversized_body_returns_413_without_invoking_handler() {
 }
 
 #[test]
-#[ignore = "network integration test — run locally with: cargo test --test vm_http_server -- --include-ignored"]
 fn oversized_header_returns_413_without_invoking_handler() {
     let response = run_http_fixture(
         1,
@@ -695,7 +664,6 @@ fn oversized_header_returns_413_without_invoking_handler() {
 }
 
 #[test]
-#[ignore = "network integration test — run locally with: cargo test --test vm_http_server -- --include-ignored"]
 fn streaming_response_writes_chunked_frames() {
     let port = free_port();
     let source = lifecycle_source(&format!(
@@ -740,7 +708,6 @@ fn body() -> String with Async, AsyncFail {{
 }
 
 #[test]
-#[ignore = "network integration test — run locally with: cargo test --test vm_http_server -- --include-ignored"]
 fn empty_streaming_response_writes_only_terminator() {
     let port = free_port();
     let source = lifecycle_source(&format!(
@@ -782,7 +749,6 @@ fn body() -> String with Async, AsyncFail {{
 }
 
 #[test]
-#[ignore = "network integration test — run locally with: cargo test --test vm_http_server -- --include-ignored"]
 fn streaming_response_preserves_safe_headers_and_closes_pipeline() {
     let port = free_port();
     let source = lifecycle_source(&format!(
@@ -831,7 +797,6 @@ fn body() -> String with Async, AsyncFail {{
 }
 
 #[test]
-#[ignore = "network integration test — run locally with: cargo test --test vm_http_server -- --include-ignored"]
 fn sse_response_emits_event_stream_frames() {
     let port = free_port();
     let source = lifecycle_source(&format!(
@@ -876,7 +841,6 @@ fn body() -> String with Async, AsyncFail {{
 }
 
 #[test]
-#[ignore = "network integration test — run locally with: cargo test --test vm_http_server -- --include-ignored"]
 fn streaming_shutdown_drains_delayed_stream() {
     let port = free_port();
     let source = lifecycle_source(&format!(
@@ -925,7 +889,6 @@ fn body() -> String with Async, AsyncFail {{
 }
 
 #[test]
-#[ignore = "network integration test — run locally with: cargo test --test vm_http_server -- --include-ignored"]
 fn streaming_shutdown_now_cancels_in_flight_stream() {
     let port = free_port();
     let source = lifecycle_source(&format!(
