@@ -266,24 +266,8 @@ name = "linter_tests"
 path = "tests/parser/linter_tests.rs"
 
 [[test]]
-name = "core_type_contract_matrix_tests"
-path = "tests/core_ir/core_type_contract_matrix_tests.rs"
-
-[[test]]
-name = "primop_compiler_lowering_tests"
-path = "tests/core_ir/primop_compiler_lowering_tests.rs"
-
-[[test]]
-name = "primop_effect_summary_tests"
-path = "tests/core_ir/primop_effect_summary_tests.rs"
-
-[[test]]
-name = "backend_representation_runtime_tests"
-path = "tests/core_ir/backend_representation_runtime_tests.rs"
-
-[[test]]
-name = "ir_pipeline_tests"
-path = "tests/core_ir/ir_pipeline_tests.rs"
+name = "core_ir"
+path = "tests/core_ir/main.rs"
 
 [[test]]
 name = "bytecode"
