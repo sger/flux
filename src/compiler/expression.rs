@@ -4268,11 +4268,42 @@ impl Compiler {
         });
 
         // Compile the handled expression with the effect available in scope.
-        self.with_handled_effect(effect, |compiler| compiler.compile_non_tail_expression(expr))?;
+        // A handle that is not tail-resumptive runs its body in a frame of its
+        // own, as `handle_body_frames` does in Core for the other backends: a
+        // perform delimits by the handle's frame, so the clause's value comes
+        // back to where that frame stopped, which must be the end of the body.
+        let in_own_frame = !is_direct && handle_body_needs_frame(expr);
+        self.with_handled_effect(effect, |compiler| {
+            if in_own_frame {
+                compiler.compile_handle_action(expr)
+            } else {
+                compiler.compile_non_tail_expression(expr)
+            }
+        })?;
 
         // Pop handler scope and remove the handler frame.
         self.handler_scopes.pop();
         self.emit(OpCode::OpEndHandle, &[]);
+        Ok(())
+    }
+
+    /// `expr` as a closure with no parameters, called at once.
+    fn compile_handle_action(&mut self, expr: &Expression) -> CompileResult<()> {
+        let span = expr.span();
+        let block = Block {
+            statements: vec![Statement::Expression {
+                expression: expr.clone(),
+                has_semicolon: false,
+                span,
+            }],
+            span,
+        };
+        // Compiler-made, so the debugger hides it.
+        if self.debug_tables_enabled() {
+            self.pipe_sites.next_function_name = Some(crate::vm::debug::HANDLE_BODY.to_string());
+        }
+        self.compile_function_literal(ExprId::UNSET, &[], &[], &None, &[], &block)?;
+        self.emit(OpCode::OpCall, &[0]);
         Ok(())
     }
 
@@ -5527,4 +5558,46 @@ fn collect_class_method_calls(
 
     let mut collector = Collector { out };
     crate::ast::visit::walk_block(&mut collector, block);
+}
+
+/// Whether a handle's body needs a frame of its own: when it can perform
+/// (a call, perform or handle outside a lambda), unless it is already one
+/// call with nothing to compute in its arguments. A body with a `return`
+/// keeps its frame, since the `return` would leave the closure instead of the
+/// function.
+fn handle_body_needs_frame(expr: &Expression) -> bool {
+    #[derive(Default)]
+    struct Finds {
+        returns: bool,
+        performs: bool,
+    }
+    impl<'ast> crate::ast::visit::Visitor<'ast> for Finds {
+        fn visit_stmt(&mut self, stmt: &'ast Statement) {
+            if matches!(stmt, Statement::Return { .. }) {
+                self.returns = true;
+            }
+            crate::ast::visit::walk_stmt(self, stmt);
+        }
+        fn visit_expr(&mut self, expr: &'ast Expression) {
+            if matches!(
+                expr,
+                Expression::Call { .. } | Expression::Perform { .. } | Expression::Handle { .. }
+            ) {
+                self.performs = true;
+            }
+            // A lambda's body runs in a frame of its own.
+            if !matches!(expr, Expression::Function { .. }) {
+                crate::ast::visit::walk_expr(self, expr);
+            }
+        }
+    }
+    let one_call = matches!(expr, Expression::Call { function, arguments, .. }
+        if matches!(function.as_ref(), Expression::Identifier { .. } | Expression::MemberAccess { .. })
+            && arguments.iter().all(|arg| matches!(arg, Expression::Identifier { .. })));
+    if one_call {
+        return false;
+    }
+    let mut finds = Finds::default();
+    crate::ast::visit::Visitor::visit_expr(&mut finds, expr);
+    finds.performs && !finds.returns
 }

@@ -13,6 +13,7 @@ mod dead_let;
 pub mod dict_elaborate;
 mod disciplined_inline;
 mod evidence;
+mod handle_frame;
 mod helpers;
 mod inline;
 mod inliner;
@@ -36,6 +37,7 @@ pub use dict_elaborate::build_referenced_dictionaries;
 pub(crate) use dict_elaborate::reachable_methods;
 pub use disciplined_inline::disciplined_inline;
 pub use evidence::evidence_pass;
+pub use handle_frame::handle_body_frames;
 pub use inline::inline_trivial_lets;
 pub use inliner::inline_lets;
 pub use primop_promote::promote_builtins;
@@ -63,7 +65,8 @@ use crate::syntax::interner::Interner;
 ///
 /// Normalization passes (run once after simplification):
 /// 6. `evidence_pass`            — rewrite TR Handle/Perform into evidence passing
-/// 7. `anf_normalize`            — flatten nested subexpressions into let-chains
+/// 7. `handle_body_frames`       — run a handle's body in a frame of its own
+/// 8. `anf_normalize`            — flatten nested subexpressions into let-chains
 ///
 /// When `optimize` is true, simplification passes run up to 3 rounds (fixed-
 /// point iteration inspired by GHC's Core simplifier).  Each additional round
@@ -249,6 +252,8 @@ fn run_semantic_core_passes_with_optional_interner(
         let e = std::mem::replace(&mut def.expr, sentinel.clone());
         let e = evidence_pass(e, &mut next_id);
         verify_aether_contract_stage(def, &e, "evidence_pass")?;
+        let e = handle_body_frames(e);
+        verify_aether_contract_stage(def, &e, "handle_body_frames")?;
         let e = anf_normalize(e, &mut next_id);
         verify_aether_contract_stage(def, &e, "anf_normalize")?;
         def.expr = e;
