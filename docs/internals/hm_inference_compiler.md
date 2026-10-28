@@ -228,11 +228,11 @@ Current split of responsibilities:
 ## Test Anchors
 
 Main HM tests:
-- `tests/type_inference_tests.rs`
+- `tests/type_inference/type_inference_tests/`
 
 Compiler/HM integration tests:
 - `src/compiler/compiler_test.rs`
-- `tests/compiler_rules_tests.rs`
+- `tests/integration/compiler_rules_tests/`
 
 Parity and fixture coverage:
 - `examples/type_system/failing/`
