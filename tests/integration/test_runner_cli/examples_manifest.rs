@@ -53,6 +53,16 @@ fn assert_example_error(path: &str, roots: &[&str], expected_code: &str) {
     assert!(text.contains(expected_code), "expected {expected_code} for {path}, output:\n{text}");
 }
 
+/// Helper: like `assert_example_error`, but the code must be the one reported,
+/// not shown alongside a generic E300.
+fn assert_example_error_instead_of_e300(path: &str, expected_code: &str) {
+    let output = run_flux(&["--no-cache", workspace_root().join(path).to_str().unwrap()]);
+    let text = combined_output(&output);
+    assert!(!output.status.success(), "expected failure for {path}, output:\n{text}");
+    assert!(text.contains(expected_code), "expected {expected_code} for {path}, output:\n{text}");
+    assert!(!text.contains("error[E300]"), "expected no E300 for {path}, output:\n{text}");
+}
+
 /// Helper: run an example in strict mode, expect failure with a specific error code.
 fn assert_example_error_strict(path: &str, roots: &[&str], expected_code: &str) {
     let file = workspace_root().join(path);
@@ -207,11 +217,10 @@ fn example_effect_row_multivar_ok_103() {
 }
 
 #[test]
-fn example_effect_row_invalid_subtract_e300_195() {
-    assert_example_error(
+fn example_effect_row_invalid_subtract_reports_e421_195_ki140() {
+    assert_example_error_instead_of_e300(
         "examples/type_system/failing/195_effect_row_invalid_subtract_e300.flx",
-        &[],
-        "E300",
+        "E421",
     );
 }
 
@@ -237,21 +246,31 @@ fn example_effect_row_unresolved_multi_e304_197() {
 }
 
 #[test]
-fn example_effect_row_subset_unsatisfied_e300_198() {
-    assert_example_error(
+fn example_effect_row_subset_unsatisfied_reports_e422_198_ki140() {
+    assert_example_error_instead_of_e300(
         "examples/type_system/failing/198_effect_row_subset_unsatisfied_e300.flx",
-        &[],
-        "E300",
+        "E422",
     );
 }
 
 #[test]
-fn example_effect_row_subset_sorted_e300_199() {
-    assert_example_error(
+fn example_effect_row_subset_sorted_reports_e422_199_ki140() {
+    assert_example_error_instead_of_e300(
         "examples/type_system/failing/199_effect_row_subset_ordered_missing_e300.flx",
-        &[],
-        "E300",
+        "E422",
     );
+}
+
+#[test]
+fn example_callback_effect_mismatch_shows_the_callbacks_type_201_ki140() {
+    // The callback's effects don't fit, and no effect-row check names a more
+    // specific error, so the E300 stays. It must show the real parameter
+    // types, not the bare effect rows dressed up as `() -> Unit with …`.
+    let path = "examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx";
+    let output = run_flux(&["--no-cache", workspace_root().join(path).to_str().unwrap()]);
+    let text = combined_output(&output);
+    assert!(text.contains("parameter 2 has type `(Int) -> Unit with"), "output:\n{text}");
+    assert!(!text.contains("() -> Unit with"), "output:\n{text}");
 }
 
 #[test]
