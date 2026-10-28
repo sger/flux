@@ -286,16 +286,8 @@ name = "ir_pipeline_tests"
 path = "tests/core_ir/ir_pipeline_tests.rs"
 
 [[test]]
-name = "op_code_tests"
-path = "tests/bytecode/op_code_tests.rs"
-
-[[test]]
-name = "superinstruction_tests"
-path = "tests/bytecode/superinstruction_tests.rs"
-
-[[test]]
-name = "cmp_jump_fusion_tests"
-path = "tests/bytecode/cmp_jump_fusion_tests.rs"
+name = "bytecode"
+path = "tests/bytecode/main.rs"
 
 [[test]]
 name = "vm_tests"
@@ -879,10 +871,6 @@ path = "tests/parser/snapshot_parser.rs"
 [[test]]
 name = "snapshot_formatter"
 path = "tests/parser/snapshot_formatter.rs"
-
-[[test]]
-name = "snapshot_bytecode"
-path = "tests/bytecode/snapshot_bytecode.rs"
 
 [[test]]
 name = "snapshot_diagnostics"
