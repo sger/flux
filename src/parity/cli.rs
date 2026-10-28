@@ -22,8 +22,8 @@ use std::time::{Duration, SystemTime};
 
 use super::census;
 use super::fixture::{
-    Expect, ExpectedCount, FixtureMeta, SkipWay, annotations_inside_tokens, converted_source,
-    parse_fixture_meta, parse_fixture_meta_allowing, with_annotations,
+    Expect, ExpectedCount, FixtureMeta, ModuleError, SkipWay, annotations_inside_tokens,
+    converted_source, parse_fixture_meta, parse_fixture_meta_allowing, with_annotations,
 };
 use super::known_issues;
 use super::normalize::normalize_stderr;
@@ -314,7 +314,7 @@ fn bless(result: &mut ParityResult, allow: &[String]) {
 /// whether the file changed.
 fn bless_annotations(result: &ParityResult, allow: &[String]) -> bool {
     let meta = parse_fixture_meta_allowing(&result.file, allow);
-    if meta.expected_locations.is_empty() {
+    if !meta.is_annotated() {
         return false;
     }
     let Verdict::Mismatch { details } = &result.verdict else {
@@ -332,8 +332,8 @@ fn bless_annotations(result: &ParityResult, allow: &[String]) -> bool {
         return false;
     }
     let file = &result.file;
-    let pairs = match reported_pairs(result) {
-        Ok(pairs) => pairs,
+    let (pairs, in_modules) = match reported_pairs(result) {
+        Ok(reported) => reported,
         Err(reason) => {
             eprintln!("[parity] cannot bless {}: {reason}", file.display());
             return false;
@@ -342,7 +342,7 @@ fn bless_annotations(result: &ParityResult, allow: &[String]) -> bool {
     let Ok(source) = fs::read_to_string(file) else {
         return false;
     };
-    let (blessed, unplaced) = with_annotations(&source, &pairs);
+    let (blessed, unplaced) = with_annotations(&source, &pairs, &in_modules);
     for problem in &unplaced {
         eprintln!("[parity] {}: {problem}", file.display());
     }
@@ -364,25 +364,31 @@ fn bless_annotations(result: &ParityResult, allow: &[String]) -> bool {
     true
 }
 
-/// The (line, code) pairs the non-strict ways report, sorted, when they agree
-/// and every error is located in the fixture. A fixture that runs only strict
-/// ways (`// flags: --strict`) is read from those.
-fn reported_pairs(result: &ParityResult) -> Result<Vec<(usize, String)>, String> {
+/// Reported errors: those in the fixture as (line, code), the others as
+/// (file, line, code).
+type Reported = (Vec<(usize, String)>, Vec<ModuleError>);
+
+/// The errors the non-strict ways report, sorted, when they agree and every
+/// error has a location. A fixture that runs only strict ways
+/// (`// flags: --strict`) is read from those.
+fn reported_pairs(result: &ParityResult) -> Result<Reported, String> {
     let all_strict = result.results.iter().all(|run| run.way.is_strict());
-    let mut agreed: Option<Vec<(usize, String)>> = None;
+    let mut agreed: Option<Reported> = None;
     for run in result.results.iter().filter(|run| all_strict || !run.way.is_strict()) {
-        let mut pairs = Vec::new();
+        let mut pairs = (Vec::new(), Vec::new());
         for error in diagnostic_locations(&run.normalized_stderr) {
             match (&error.path, error.line) {
                 (Some(path), Some(line)) if same_file(path, &result.file) => {
-                    pairs.push((line, error.code))
+                    pairs.0.push((line, error.code))
                 }
-                _ => {
-                    return Err(format!("{} is not located in the fixture", error.describe(false)));
+                (Some(path), Some(line)) => {
+                    pairs.1.push((annotation_path(path, &result.file), line, error.code))
                 }
+                _ => return Err(format!("{} has no location", error.code)),
             }
         }
-        pairs.sort();
+        pairs.0.sort();
+        pairs.1.sort();
         match &agreed {
             Some(first) if *first != pairs => {
                 return Err("the ways report different errors".to_string());
@@ -392,6 +398,18 @@ fn reported_pairs(result: &ParityResult) -> Result<Vec<(usize, String)>, String>
         }
     }
     agreed.ok_or_else(|| "no way ran".to_string())
+}
+
+/// How an annotation names `rendered`, a file other than the fixture: from
+/// the fixture's folder when it is inside it, else as rendered.
+fn annotation_path(rendered: &str, fixture: &Path) -> String {
+    let dir = fixture.parent().unwrap_or(Path::new(""));
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let dir = dir.strip_prefix(&cwd).unwrap_or(dir);
+    match Path::new(rendered).strip_prefix(dir) {
+        Ok(relative) => relative.display().to_string(),
+        Err(_) => rendered.to_string(),
+    }
 }
 
 /// `--annotate`: moves a passing fixture from `// expect-error:` lines to `//~`
@@ -411,11 +429,12 @@ fn annotate(result: &mut ParityResult, config: &Config) {
     if !matches!(result.verdict, Verdict::Pass) {
         return keep("it does not pass today");
     }
-    let pairs = match reported_pairs(result) {
-        Ok(pairs) => pairs,
+    let (pairs, in_modules) = match reported_pairs(result) {
+        Ok(reported) => reported,
         Err(reason) => return keep(&reason),
     };
-    let reported = sorted_codes(pairs.iter().map(|(_, code)| code.clone()));
+    let codes = pairs.iter().map(|(_, code)| code).chain(in_modules.iter().map(|(_, _, c)| c));
+    let reported = sorted_codes(codes.cloned());
     let listed = sorted_codes(meta.expected_errors.iter().cloned());
     if reported != listed {
         return keep(&format!("it reports {reported:?}, its header lists {listed:?}"));
@@ -425,7 +444,7 @@ fn annotate(result: &mut ParityResult, config: &Config) {
     };
     let drop_block =
         meta.expected_stderr.as_deref().is_some_and(|block| snapshot_pins(&file, block));
-    let converted = match converted_source(&source, &pairs, drop_block) {
+    let converted = match converted_source(&source, &pairs, &in_modules, drop_block) {
         Ok(converted) => converted,
         Err(reason) => return keep(&reason),
     };
@@ -616,6 +635,7 @@ fn check_one(file: &Path, config: &Config) -> CheckedFile {
             expected_stderr: fixture_meta.expected_stderr.as_deref(),
             expected_errors: &fixture_meta.expected_errors,
             expected_locations: &fixture_meta.expected_locations,
+            expected_in_modules: &fixture_meta.expected_in_modules,
             fixture: file,
             expect: fixture_meta.expect,
             skip: fixture_meta.skip.as_deref(),
@@ -793,6 +813,8 @@ struct CheckOpts<'a> {
     /// `//~` annotations as (line, code); when present they replace
     /// `expected_errors`.
     expected_locations: &'a [(usize, String)],
+    /// `//~ File.flx:5 E400` annotations, as (file, line, code).
+    expected_in_modules: &'a [ModuleError],
     /// The fixture file, to tell its own error locations from a module's.
     fixture: &'a Path,
     /// Declared fixture expectation: `success`, `compile_error`, or
@@ -826,6 +848,7 @@ impl CheckOpts<'_> {
             || self.expected_stderr.is_some()
             || !self.expected_errors.is_empty()
             || !self.expected_locations.is_empty()
+            || !self.expected_in_modules.is_empty()
             || !matches!(self.expect, Expect::Success)
     }
 
@@ -1146,14 +1169,17 @@ fn judge(
         let all_expected_kind =
             !run_results.is_empty() && run_results.iter().all(|r| r.exit_kind == expected_kind);
         if all_expected_kind {
-            let mut expected_failure_details = if opts.expected_locations.is_empty() {
-                collect_diagnostic_code_details(run_results, opts.expected_errors)
-            } else {
+            let annotated =
+                !opts.expected_locations.is_empty() || !opts.expected_in_modules.is_empty();
+            let mut expected_failure_details = if annotated {
                 collect_diagnostic_location_details(
                     run_results,
                     opts.expected_locations,
+                    opts.expected_in_modules,
                     opts.fixture,
                 )
+            } else {
+                collect_diagnostic_code_details(run_results, opts.expected_errors)
             };
             expected_failure_details
                 .extend(collect_expected_stderr_details(run_results, opts.expected_stderr));
@@ -1450,48 +1476,65 @@ fn collect_diagnostic_code_details(
 }
 
 /// For an annotated fixture: each way must report exactly the annotated
-/// (line, code) pairs, or, on a strict way, at least them.
+/// errors, or, on a strict way, at least them.
 fn collect_diagnostic_location_details(
     run_results: &[super::RunResult],
     expected: &[(usize, String)],
+    in_modules: &[ModuleError],
     fixture: &Path,
 ) -> Vec<MismatchDetail> {
     run_results
         .iter()
         .filter_map(|run| {
             let mut missing: Vec<(usize, String)> = expected.to_vec();
+            let mut missing_elsewhere: Vec<ModuleError> = in_modules.to_vec();
             let mut unexpected = Vec::new();
             for error in diagnostic_locations(&run.normalized_stderr) {
                 let in_fixture = error.path.as_deref().is_some_and(|path| same_file(path, fixture));
-                let found = in_fixture
-                    .then(|| {
-                        missing.iter().position(|(l, c)| Some(*l) == error.line && *c == error.code)
-                    })
-                    .flatten();
-                match found {
-                    Some(index) => {
-                        missing.remove(index);
+                let found = match (error.path.as_deref(), error.line) {
+                    (Some(_), Some(line)) if in_fixture => {
+                        take_first(&mut missing, |(l, c)| *l == line && *c == error.code)
                     }
-                    None => unexpected.push(error.describe(in_fixture)),
+                    (Some(path), Some(line)) => take_first(&mut missing_elsewhere, |(f, l, c)| {
+                        Path::new(path).ends_with(f) && *l == line && *c == error.code
+                    }),
+                    _ => false,
+                };
+                if !found {
+                    unexpected.push(error.describe(in_fixture));
                 }
             }
             if run.way.is_strict() {
                 unexpected.clear();
             }
-            if missing.is_empty() && unexpected.is_empty() {
+            if missing.is_empty() && missing_elsewhere.is_empty() && unexpected.is_empty() {
                 return None;
             }
             missing.sort();
-            Some(MismatchDetail::DiagnosticLocations {
-                way: run.way,
-                missing: missing
-                    .iter()
-                    .map(|(line, code)| format!("line {line}: {code}"))
-                    .collect(),
-                unexpected,
-            })
+            missing_elsewhere.sort();
+            let missing = missing
+                .iter()
+                .map(|(line, code)| format!("line {line}: {code}"))
+                .chain(
+                    missing_elsewhere
+                        .iter()
+                        .map(|(file, line, code)| format!("{file}:{line}: {code}")),
+                )
+                .collect();
+            Some(MismatchDetail::DiagnosticLocations { way: run.way, missing, unexpected })
         })
         .collect()
+}
+
+/// Removes the first item `wanted` accepts, and says whether there was one.
+fn take_first<T>(items: &mut Vec<T>, wanted: impl Fn(&T) -> bool) -> bool {
+    match items.iter().position(wanted) {
+        Some(index) => {
+            items.remove(index);
+            true
+        }
+        None => false,
+    }
 }
 
 /// An error as rendered: its code and, when it has one, where it points.
@@ -2000,6 +2043,7 @@ mod tests {
             expected_stderr: None,
             expected_errors: &[],
             expected_locations: &[],
+            expected_in_modules: &[],
             fixture: Path::new("fixture.flx"),
             expect: Expect::Success,
             skip: None,
@@ -2216,7 +2260,7 @@ mod tests {
     ) -> Vec<(Way, Vec<String>, Vec<String>)> {
         let expected: Vec<(usize, String)> =
             expected.iter().map(|(line, code)| (*line, code.to_string())).collect();
-        collect_diagnostic_location_details(runs, &expected, Path::new("/repo/examples/a.flx"))
+        collect_diagnostic_location_details(runs, &expected, &[], Path::new("/repo/examples/a.flx"))
             .into_iter()
             .map(|detail| match detail {
                 MismatchDetail::DiagnosticLocations { way, missing, unexpected } => {
@@ -2261,6 +2305,22 @@ mod tests {
     }
 
     #[test]
+    fn an_error_in_another_file_matches_an_annotation_naming_that_file() {
+        let stderr = rendered("E1000", "examples/generics/Mod.flx", 32);
+        let runs = vec![result(Way::Vm, ExitKind::RuntimeError, "", &stderr)];
+        let fixture = Path::new("/repo/examples/generics/a.flx");
+        let expect = |line| vec![("Mod.flx".to_string(), line, "E1000".to_string())];
+        assert!(collect_diagnostic_location_details(&runs, &[], &expect(32), fixture).is_empty());
+
+        let details = collect_diagnostic_location_details(&runs, &[], &expect(31), fixture);
+        let [MismatchDetail::DiagnosticLocations { missing, unexpected, .. }] = &details[..] else {
+            panic!("expected one location detail, got {details:?}");
+        };
+        assert_eq!(missing, &["Mod.flx:31: E1000"]);
+        assert_eq!(unexpected, &["examples/generics/Mod.flx:32: E1000"]);
+    }
+
+    #[test]
     fn a_strict_way_may_add_located_errors_but_not_drop_one() {
         let extra = format!(
             "{}{}",
@@ -2300,7 +2360,7 @@ mod tests {
     }
 
     #[test]
-    fn errors_convert_only_when_the_ways_agree_and_each_is_in_the_fixture() {
+    fn errors_convert_only_when_the_ways_agree_and_each_has_a_location() {
         let here = rendered("E300", "examples/a.flx", 7);
         let agreeing = parity_result(vec![
             result(Way::Vm, ExitKind::CompileError, "", &here),
@@ -2312,7 +2372,7 @@ mod tests {
                 &rendered("E425", "examples/a.flx", 2),
             ),
         ]);
-        assert_eq!(reported_pairs(&agreeing), Ok(vec![(7, "E300".to_string())]));
+        assert_eq!(reported_pairs(&agreeing), Ok((vec![(7, "E300".to_string())], vec![])));
 
         let disagreeing = parity_result(vec![
             result(Way::Vm, ExitKind::CompileError, "", &here),
@@ -2331,8 +2391,23 @@ mod tests {
         )]);
         assert_eq!(
             reported_pairs(&elsewhere),
-            Err("examples/Mod.flx:3: E1000 is not located in the fixture".to_string())
+            Ok((vec![], vec![("examples/Mod.flx".to_string(), 3, "E1000".to_string())]))
         );
+
+        let nowhere =
+            parity_result(vec![result(Way::Vm, ExitKind::CompileError, "", "error[E001]: x\n")]);
+        assert_eq!(reported_pairs(&nowhere), Err("E001 has no location".to_string()));
+    }
+
+    #[test]
+    fn a_module_is_named_from_the_fixtures_folder_when_inside_it() {
+        let fixture = Path::new("examples/adversarial/Main.flx");
+        assert_eq!(annotation_path("examples/adversarial/Broken.flx", fixture), "Broken.flx");
+        assert_eq!(
+            annotation_path("examples/adversarial/Nested/Deep.flx", fixture),
+            "Nested/Deep.flx"
+        );
+        assert_eq!(annotation_path("examples/Shared.flx", fixture), "examples/Shared.flx");
     }
 
     #[test]

@@ -91,6 +91,9 @@ pub struct FixtureMeta {
     /// Expected errors as (line, code), from `//~` annotations. A fixture uses
     /// these or `expected_errors`, never both.
     pub expected_locations: Vec<(usize, String)>,
+    /// Expected errors located in a module the fixture imports, as (file,
+    /// line, code), from `//~ File.flx:5 E400` annotations.
+    pub expected_in_modules: Vec<ModuleError>,
     /// Extra CLI args forwarded only for this fixture.
     pub extra_args: Vec<String>,
     /// One-line description of the bug shape.
@@ -193,14 +196,22 @@ fn parse_count(
     Ok(ExpectedCount { directive, key, op, value })
 }
 
+/// An expected error in another file: (file, line, code).
+pub type ModuleError = (String, usize, String);
+
 impl FixtureMeta {
+    /// Whether the fixture lists its errors with `//~` annotations.
+    pub fn is_annotated(&self) -> bool {
+        !self.expected_locations.is_empty() || !self.expected_in_modules.is_empty()
+    }
+
     /// The expected error codes, whichever form the fixture states them in.
     pub fn expected_codes(&self) -> Vec<String> {
-        if self.expected_locations.is_empty() {
-            self.expected_errors.clone()
-        } else {
-            self.expected_locations.iter().map(|(_, code)| code.clone()).collect()
+        if !self.is_annotated() {
+            return self.expected_errors.clone();
         }
+        let in_fixture = self.expected_locations.iter().map(|(_, code)| code.clone());
+        in_fixture.chain(self.expected_in_modules.iter().map(|(_, _, code)| code.clone())).collect()
     }
 }
 
@@ -212,6 +223,7 @@ impl Default for FixtureMeta {
             expect: Expect::Success,
             expected_errors: Vec::new(),
             expected_locations: Vec::new(),
+            expected_in_modules: Vec::new(),
             extra_args: Vec::new(),
             bug: None,
             skip: None,
@@ -305,17 +317,18 @@ pub fn parse_fixture_meta_allowing(path: &Path, allowed: &[String]) -> FixtureMe
         }
     }
 
-    let (locations, errors) = parse_annotations(&content);
+    let (locations, in_modules, errors) = parse_annotations(&content);
     meta.expected_locations = locations;
+    meta.expected_in_modules = in_modules;
     meta.meta_errors.extend(errors);
-    if !meta.expected_locations.is_empty() {
+    if meta.is_annotated() {
         for line in annotations_inside_tokens(&content) {
             meta.meta_errors.push(format!(
                 "the `//~` on line {line} is read as part of the program, not as a comment"
             ));
         }
     }
-    if !meta.expected_locations.is_empty() && !meta.expected_errors.is_empty() {
+    if meta.is_annotated() && !meta.expected_errors.is_empty() {
         meta.meta_errors.push(
             "`// expect-error:` and `//~` annotations both list expected errors; keep one"
                 .to_string(),
@@ -326,15 +339,17 @@ pub fn parse_fixture_meta_allowing(path: &Path, allowed: &[String]) -> FixtureMe
     meta
 }
 
-/// Reads the `//~` annotations of a fixture: each expected error as
-/// (line, code), lines counted from 1, plus one message per malformed one.
+/// Reads the `//~` annotations of a fixture: each expected error in it as
+/// (line, code), lines counted from 1, each one in another file as (file,
+/// line, code), and one message per malformed annotation.
 ///
 /// A line's comment starts at its first `//` outside a string literal, and is
 /// an annotation only when it starts `//~`. Lines inside the expected-output
 /// blocks are skipped: they quote the source, annotations included.
-pub fn parse_annotations(content: &str) -> (Vec<(usize, String)>, Vec<String>) {
+pub fn parse_annotations(content: &str) -> (Vec<(usize, String)>, Vec<ModuleError>, Vec<String>) {
     let lines: Vec<&str> = content.lines().collect();
     let mut locations = Vec::new();
+    let mut in_modules = Vec::new();
     let mut errors = Vec::new();
     let mut in_block = false;
     for (index, line) in lines.iter().enumerate() {
@@ -352,27 +367,59 @@ pub fn parse_annotations(content: &str) -> (Vec<(usize, String)>, Vec<String>) {
         let Some(annotation) = comment_of(line).and_then(|c| c.strip_prefix("//~")) else {
             continue;
         };
-        match parse_annotation(annotation, number, lines.len()) {
-            Ok(found) => locations.extend(found),
-            Err(reason) => errors.push(format!("`//~{annotation}` on line {number}: {reason}")),
+        let parsed = match module_location(annotation) {
+            Some((file, line, codes)) => parse_codes(codes).map(|codes| {
+                in_modules.extend(codes.into_iter().map(|code| (file.to_string(), line, code)))
+            }),
+            None => parse_annotation(annotation, number, lines.len())
+                .map(|found| locations.extend(found)),
+        };
+        if let Err(reason) = parsed {
+            errors.push(format!("`//~{annotation}` on line {number}: {reason}"));
         }
     }
-    (locations, errors)
+    (locations, in_modules, errors)
+}
+
+/// The `File.flx:5` an annotation starts with, when it expects an error in
+/// another file, and the codes after it.
+fn module_location(annotation: &str) -> Option<(&str, usize, &str)> {
+    let text = annotation.trim_start();
+    let (location, codes) = text.split_once(char::is_whitespace).unwrap_or((text, ""));
+    let (file, line) = location.rsplit_once(':')?;
+    if !file.ends_with(".flx") {
+        return None;
+    }
+    Some((file, line.parse().ok()?, codes))
 }
 
 /// `source` with its `//~` annotations rewritten to list `expected`, as
-/// (line, code), plus a message for each error it could not place.
+/// (line, code), and `in_modules`, as (file, line, code), plus a message for
+/// each error it could not place.
 ///
-/// No line is added or removed, since that would move every error below it:
-/// an annotation that stood on its own line leaves the line empty. Each line's
-/// codes go at its end; if it already has a comment, on the next line that has
-/// none, with one `^` per line up; failing that, `//~v` on the line above.
-pub fn with_annotations(source: &str, expected: &[(usize, String)]) -> (String, Vec<String>) {
+/// No line is added or removed for an error in the fixture, since that would
+/// move every error below it: an annotation that stood on its own line leaves
+/// the line empty. Each line's codes go at its end; if it already has a
+/// comment or ends inside a token, on the next line that can take one, with
+/// one `^` per line up; failing that, on the nearest line above, with one `v`
+/// per line down.
+///
+/// An error in another file takes a line of its own. Lines that held one are
+/// reused, and any more go above the first line of code, moving the
+/// fixture's own errors below them down.
+pub fn with_annotations(
+    source: &str,
+    expected: &[(usize, String)],
+    in_modules: &[ModuleError],
+) -> (String, Vec<String>) {
     let mut lines: Vec<String> = source.lines().map(str::to_string).collect();
     let mut in_block = false;
     let mut free = vec![false; lines.len()];
+    let mut slots = Vec::new();
+    let mut first_code = None;
     for (index, line) in lines.iter_mut().enumerate() {
-        if let Some(comment) = line.trim().strip_prefix("//").map(str::trim)
+        let trimmed = line.trim();
+        if let Some(comment) = trimmed.strip_prefix("//").map(str::trim)
             && (comment.starts_with("parity-expected-") || comment.starts_with("parity-oracle-"))
         {
             in_block = comment.ends_with("-begin");
@@ -381,34 +428,92 @@ pub fn with_annotations(source: &str, expected: &[(usize, String)]) -> (String, 
         if in_block {
             continue;
         }
+        if first_code.is_none() && !trimmed.is_empty() && !trimmed.starts_with("//") {
+            first_code = Some(index);
+        }
         if let Some(comment) = comment_of(line).filter(|c| c.starts_with("//~")) {
+            let elsewhere = module_location(&comment[3..]).is_some();
             let keep = line.len() - comment.len();
             line.truncate(keep);
             let trimmed = line.trim_end().len();
             line.truncate(trimmed);
+            if elsewhere && line.is_empty() {
+                slots.push(index);
+            }
         }
-        free[index] = comment_of(line).is_none() && !ends_in_string(line);
+        free[index] = comment_of(line).is_none();
+    }
+
+    let mut by_location: std::collections::BTreeMap<(&str, usize), Vec<&str>> = Default::default();
+    for (file, line, code) in in_modules {
+        by_location.entry((file, *line)).or_default().push(code);
+    }
+    let mut expected = expected.to_vec();
+    if by_location.len() > slots.len() {
+        let extra = by_location.len() - slots.len();
+        let at = slots.last().map(|&i| i + 1).or(first_code).unwrap_or(lines.len());
+        lines.splice(at..at, std::iter::repeat_n(String::new(), extra));
+        free.splice(at..at, std::iter::repeat_n(false, extra));
+        slots.extend(at..at + extra);
+        for (line, _) in &mut expected {
+            if *line > at {
+                *line += extra;
+            }
+        }
+    }
+    for (slot, ((file, line), codes)) in slots.iter().zip(&by_location) {
+        lines[*slot] = format!("//~ {file}:{line} {}", codes.join(" "));
+        free[*slot] = false;
     }
 
     let mut by_line: std::collections::BTreeMap<usize, Vec<&str>> = Default::default();
-    for (line, code) in expected {
+    for (line, code) in &expected {
         by_line.entry(*line).or_default().push(code);
     }
-    let mut unplaced = Vec::new();
     let targets: Vec<(usize, Vec<&str>)> = by_line.into_iter().collect();
+    // Whether a comment stays a comment depends on the comment itself: one
+    // after a string left open becomes part of the string. So place, ask the
+    // lexer, and place again without the lines it read into a token.
+    loop {
+        let mut placed = lines.clone();
+        let unplaced = place_all(&mut placed, &mut free.clone(), &targets);
+        let mut text = placed.join("\n");
+        if source.ends_with('\n') {
+            text.push('\n');
+        }
+        let mut retry = false;
+        for line in annotations_inside_tokens(&text) {
+            retry |= std::mem::replace(&mut free[line - 1], false);
+        }
+        if !retry {
+            return (text, unplaced);
+        }
+    }
+}
+
+/// Places each of `targets` (line, codes) on its own line if free, else the
+/// nearest free line below, with one `^` per line up, else above, with one
+/// `v` per line down. Returns a message for each it could not place.
+fn place_all(
+    lines: &mut [String],
+    free: &mut [bool],
+    targets: &[(usize, Vec<&str>)],
+) -> Vec<String> {
+    let mut unplaced = Vec::new();
     let mut pending = Vec::new();
-    for (line, codes) in &targets {
+    for (line, codes) in targets {
         match line.checked_sub(1).filter(|&i| i < lines.len() && free[i]) {
-            Some(index) => place(&mut lines, &mut free, index, "", codes),
+            Some(index) => place(lines, free, index, "", codes),
             None => pending.push((*line, codes)),
         }
     }
     for (line, codes) in pending {
         let below = (line..lines.len()).find(|&i| free[i]);
+        let above = (0..(line - 1).min(lines.len())).rev().find(|&i| free[i]);
         if let Some(index) = below {
-            place(&mut lines, &mut free, index, &"^".repeat(index + 1 - line), codes);
-        } else if line >= 2 && free[line - 2] {
-            place(&mut lines, &mut free, line - 2, "v", codes);
+            place(lines, free, index, &"^".repeat(index + 1 - line), codes);
+        } else if let Some(index) = above {
+            place(lines, free, index, &"v".repeat(line - 1 - index), codes);
         } else {
             unplaced.push(format!(
                 "cannot place {} for line {line}; annotate it by hand",
@@ -416,22 +521,18 @@ pub fn with_annotations(source: &str, expected: &[(usize, String)]) -> (String, 
             ));
         }
     }
-
-    let mut text = lines.join("\n");
-    if source.ends_with('\n') {
-        text.push('\n');
-    }
-    (text, unplaced)
+    unplaced
 }
 
 /// `source` moved from `// expect-error:` lines to `//~` annotations: the
 /// lines go, and with `drop_stderr_block` so does the expected-stderr block,
 /// then each of `reported` (line, code, numbered as in `source`) is annotated
-/// where it lands. An error on a removed line, or one that can't be placed,
-/// is an `Err` naming it.
+/// where it lands, and each of `in_modules` above the code. An error on a
+/// removed line, or one that can't be placed, is an `Err` naming it.
 pub fn converted_source(
     source: &str,
     reported: &[(usize, String)],
+    in_modules: &[ModuleError],
     drop_stderr_block: bool,
 ) -> Result<String, String> {
     let mut kept: Vec<&str> = Vec::new();
@@ -471,7 +572,7 @@ pub fn converted_source(
     if source.ends_with('\n') {
         text.push('\n');
     }
-    let (text, unplaced) = with_annotations(&text, &moved);
+    let (text, unplaced) = with_annotations(&text, &moved, in_modules);
     if unplaced.is_empty() { Ok(text) } else { Err(unplaced.join("; ")) }
 }
 
@@ -485,18 +586,22 @@ pub fn annotations_inside_tokens(source: &str) -> Vec<usize> {
         let Some(comment) = comment_of(line).filter(|c| c.starts_with("//~")) else {
             continue;
         };
-        // Lines count from 1 and columns from 0, in characters.
-        let at = (index + 1, line[..line.len() - comment.len()].chars().count());
-        let inside = tokens.iter().any(|token| {
-            let start = (token.position.line, token.position.column);
-            let end = (token.end_position.line, token.end_position.column);
-            start <= at && at < end
-        });
-        if inside {
+        let column = line[..line.len() - comment.len()].chars().count();
+        if inside_token(&tokens, index + 1, column) {
             lines.push(index + 1);
         }
     }
     lines
+}
+
+/// Whether `line`:`column` falls inside one of `tokens`. Lines count from 1
+/// and columns from 0, in characters.
+fn inside_token(tokens: &[crate::syntax::token::Token], line: usize, column: usize) -> bool {
+    tokens.iter().any(|token| {
+        let start = (token.position.line, token.position.column);
+        let end = (token.end_position.line, token.end_position.column);
+        start <= (line, column) && (line, column) < end
+    })
 }
 
 /// Appends an annotation to `lines[at]`, which then takes no other.
@@ -505,21 +610,6 @@ fn place(lines: &mut [String], free: &mut [bool], at: usize, marker: &str, codes
     let gap = if line.trim().is_empty() { "" } else { " " };
     line.push_str(&format!("{gap}//~{marker} {}", codes.join(" ")));
     free[at] = false;
-}
-
-/// Whether a string literal is still open at the end of `line`.
-fn ends_in_string(line: &str) -> bool {
-    let mut in_string = false;
-    let mut escaped = false;
-    for c in line.chars() {
-        match c {
-            _ if escaped => escaped = false,
-            '\\' if in_string => escaped = true,
-            '"' => in_string = !in_string,
-            _ => {}
-        }
-    }
-    in_string
 }
 
 /// The line's comment, from its first `//` outside a string literal.
@@ -539,26 +629,30 @@ fn comment_of(line: &str) -> Option<&str> {
     None
 }
 
-/// The text after `//~`: `^`s or one `v`, then one or more codes.
+/// The text after `//~`: `^`s or `v`s, then one or more codes.
 fn parse_annotation(
     text: &str,
     line: usize,
     line_count: usize,
 ) -> Result<Vec<(usize, String)>, String> {
     let ups = text.chars().take_while(|&c| c == '^').count();
+    let downs = text.chars().take_while(|&c| c == 'v').count();
     let (target, codes) = if ups > 0 {
         (line.checked_sub(ups), &text[ups..])
-    } else if let Some(rest) = text.strip_prefix('v') {
-        (Some(line + 1), rest)
     } else {
-        (Some(line), text)
+        (Some(line + downs), &text[downs..])
     };
     // One past the last line is where an error at the end of the file is
     // reported; `//~v` on the last line points there.
     let target = target
         .filter(|&t| t >= 1 && t <= line_count + 1)
         .ok_or_else(|| "points outside the file".to_string())?;
-    let codes: Vec<&str> = codes.split_whitespace().collect();
+    Ok(parse_codes(codes)?.into_iter().map(|code| (target, code)).collect())
+}
+
+/// One or more error codes, separated by spaces.
+fn parse_codes(text: &str) -> Result<Vec<String>, String> {
+    let codes: Vec<&str> = text.split_whitespace().collect();
     if codes.is_empty() {
         return Err("expected an error code such as `E300`".to_string());
     }
@@ -569,7 +663,7 @@ fn parse_annotation(
             if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
                 Err(format!("`{code}` is not an error code such as `E300`"))
             } else {
-                Ok((target, code.to_string()))
+                Ok(code.to_string())
             }
         })
         .collect()
@@ -817,7 +911,9 @@ mod tests {
     }
 
     fn annotations(source: &str) -> (Vec<(usize, String)>, Vec<String>) {
-        parse_annotations(source)
+        let (found, in_modules, errors) = parse_annotations(source);
+        assert!(in_modules.is_empty(), "{in_modules:?}");
+        (found, errors)
     }
 
     fn at(pairs: &[(usize, &str)]) -> Vec<(usize, String)> {
@@ -890,7 +986,7 @@ mod tests {
     fn blessing_rewrites_annotations_and_leaves_the_rest_of_each_line() {
         let source = "let a = f(1) //~ E004\nlet b = g(\"//\", 2)\n";
         let (text, unplaced) =
-            with_annotations(source, &at(&[(1, "E300"), (2, "E300"), (2, "E056")]));
+            with_annotations(source, &at(&[(1, "E300"), (2, "E300"), (2, "E056")]), &[]);
         assert!(unplaced.is_empty(), "{unplaced:?}");
         assert_eq!(text, "let a = f(1) //~ E300\nlet b = g(\"//\", 2) //~ E300 E056\n");
         assert_eq!(parse_annotations(&text).0, at(&[(1, "E300"), (2, "E300"), (2, "E056")]));
@@ -899,20 +995,20 @@ mod tests {
     #[test]
     fn a_line_with_a_comment_is_annotated_from_a_neighbour() {
         let source = "a() // why\nb() // why\nc()\nd()\n";
-        let (text, unplaced) = with_annotations(source, &at(&[(1, "E300"), (4, "E004")]));
+        let (text, unplaced) = with_annotations(source, &at(&[(1, "E300"), (4, "E004")]), &[]);
         assert!(unplaced.is_empty(), "{unplaced:?}");
         assert_eq!(text, "a() // why\nb() // why\nc() //~^^ E300\nd() //~ E004\n");
         assert_eq!(parse_annotations(&text).0, at(&[(1, "E300"), (4, "E004")]));
 
         // Nothing free below: the line above takes a `//~v`.
-        let (text, _) = with_annotations("a()\nb() // why\n", &at(&[(2, "E1")]));
+        let (text, _) = with_annotations("a()\nb() // why\n", &at(&[(2, "E1")]), &[]);
         assert_eq!(text, "a() //~v E1\nb() // why\n");
     }
 
     #[test]
     fn a_standalone_annotation_line_is_emptied_not_removed() {
         let source = "a()\n//~^ E004\nb()\n";
-        let (text, unplaced) = with_annotations(source, &at(&[(3, "E001")]));
+        let (text, unplaced) = with_annotations(source, &at(&[(3, "E001")]), &[]);
         assert!(unplaced.is_empty(), "{unplaced:?}");
         assert_eq!(text, "a()\n\nb() //~ E001\n");
     }
@@ -920,7 +1016,7 @@ mod tests {
     #[test]
     fn expected_output_blocks_are_left_alone_and_unplaceable_errors_reported() {
         let source = "// parity-expected-stderr-begin\n// 3 | x //~ E300\n// parity-expected-stderr-end\nx() // a\ny() // b\n";
-        let (text, unplaced) = with_annotations(source, &at(&[(4, "E300")]));
+        let (text, unplaced) = with_annotations(source, &at(&[(4, "E300")]), &[]);
         assert_eq!(text, source);
         assert_eq!(unplaced, ["cannot place E300 for line 4; annotate it by hand"]);
     }
@@ -940,7 +1036,7 @@ mod tests {
             "let c = 3\n",
         );
         let reported = at(&[(8, "E300"), (9, "E004")]);
-        let text = converted_source(source, &reported, true).unwrap();
+        let text = converted_source(source, &reported, &[], true).unwrap();
         assert_eq!(
             text,
             "// expect: compile_error\n\nlet a = f(1) //~ E300\nlet b = g // why\nlet c = 3 //~^ E004\n"
@@ -948,7 +1044,7 @@ mod tests {
         assert_eq!(parse_annotations(&text).0, at(&[(3, "E300"), (4, "E004")]));
 
         // Keeping the block keeps its lines, and the shift is smaller.
-        let kept = converted_source(source, &reported, false).unwrap();
+        let kept = converted_source(source, &reported, &[], false).unwrap();
         assert!(kept.starts_with("// parity-expected-stderr-begin\n"), "{kept}");
         assert_eq!(parse_annotations(&kept).0, at(&[(6, "E300"), (7, "E004")]));
     }
@@ -956,18 +1052,152 @@ mod tests {
     #[test]
     fn an_error_at_the_end_of_the_file_is_annotated_from_the_last_line() {
         let source = "// expect-error: E034\n\nmodule Demo\n";
-        let text = converted_source(source, &at(&[(4, "E034")]), true).unwrap();
+        let text = converted_source(source, &at(&[(4, "E034")]), &[], true).unwrap();
         assert_eq!(text, "\nmodule Demo //~v E034\n");
-        assert_eq!(parse_annotations(&text), (at(&[(3, "E034")]), vec![]));
+        assert_eq!(annotations(&text), (at(&[(3, "E034")]), vec![]));
     }
 
     #[test]
     fn converting_refuses_an_error_on_a_removed_or_crowded_line() {
         let source = "// expect-error: E300\nx() // a\n";
-        let removed = converted_source(source, &at(&[(1, "E300")]), true).unwrap_err();
+        let removed = converted_source(source, &at(&[(1, "E300")]), &[], true).unwrap_err();
         assert!(removed.contains("which the move removes"), "{removed}");
-        let crowded = converted_source(source, &at(&[(2, "E300")]), true).unwrap_err();
+        let crowded = converted_source(source, &at(&[(2, "E300")]), &[], true).unwrap_err();
         assert!(crowded.contains("cannot place E300"), "{crowded}");
+    }
+
+    fn elsewhere(errors: &[(&str, usize, &str)]) -> Vec<ModuleError> {
+        errors
+            .iter()
+            .map(|(file, line, code)| (file.to_string(), *line, code.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn an_annotation_can_name_another_file() {
+        let source = "//~ Broken.flx:5 E400 E300
+//~ Lib/Mod.flx:12 E1000
+import Broken
+f() //~ E004
+//~ Mod.flx:x E1
+";
+        let (found, in_modules, errors) = parse_annotations(source);
+        assert_eq!(found, at(&[(4, "E004")]));
+        assert_eq!(
+            in_modules,
+            elsewhere(&[
+                ("Broken.flx", 5, "E400"),
+                ("Broken.flx", 5, "E300"),
+                ("Lib/Mod.flx", 12, "E1000")
+            ])
+        );
+        // Without a line number it is not a location, so `Mod.flx:x` reads as a bad code.
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert!(errors[0].contains("line 5"), "{}", errors[0]);
+    }
+
+    #[test]
+    fn errors_in_other_files_reuse_their_lines_then_go_above_the_code() {
+        let source = "// header
+//~ Old.flx:1 E1
+import A
+f()
+";
+        // One location reuses the old line; nothing moves.
+        let (text, unplaced) =
+            with_annotations(source, &at(&[(4, "E004")]), &elsewhere(&[("A.flx", 3, "E400")]));
+        assert!(unplaced.is_empty(), "{unplaced:?}");
+        assert_eq!(
+            text,
+            "// header
+//~ A.flx:3 E400
+import A
+f() //~ E004
+"
+        );
+
+        // A second one is inserted after it, and the fixture's own error moves down.
+        let two = elsewhere(&[("A.flx", 3, "E400"), ("B.flx", 9, "E300")]);
+        let (text, unplaced) = with_annotations(source, &at(&[(4, "E004")]), &two);
+        assert!(unplaced.is_empty(), "{unplaced:?}");
+        assert_eq!(
+            text,
+            "// header
+//~ A.flx:3 E400
+//~ B.flx:9 E300
+import A
+f() //~ E004
+"
+        );
+        let (found, in_modules, _) = parse_annotations(&text);
+        assert_eq!((found, in_modules), (at(&[(5, "E004")]), two.clone()));
+
+        // With none to reuse, they go above the first line of code.
+        let (text, _) = with_annotations(
+            "// header
+import A
+f()
+",
+            &at(&[(3, "E004")]),
+            &two,
+        );
+        assert_eq!(
+            text,
+            "// header
+//~ A.flx:3 E400
+//~ B.flx:9 E300
+import A
+f() //~ E004
+"
+        );
+    }
+
+    #[test]
+    fn converting_moves_errors_in_other_files_above_the_code() {
+        let source = "// expect: compile_error
+// expect-error: E400
+// expect-error: E004
+import A
+f()
+";
+        let text = converted_source(
+            source,
+            &at(&[(5, "E004")]),
+            &elsewhere(&[("A.flx", 3, "E400")]),
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            text,
+            "// expect: compile_error
+//~ A.flx:3 E400
+import A
+f() //~ E004
+"
+        );
+    }
+
+    #[test]
+    fn several_vs_point_that_many_lines_down() {
+        let (found, errors) = annotations("a() //~vv E071\nb()\nc()\n");
+        assert!(errors.is_empty(), "{errors:?}");
+        assert_eq!(found, at(&[(3, "E071")]));
+    }
+
+    #[test]
+    fn no_annotation_goes_where_an_open_string_would_take_it() {
+        // From the `"` inside `#{` on, the lexer reads the rest of the file as
+        // one unterminated string, so only the lines above can be used.
+        let source = "fn main() {\n    let name = 1\n    print(\"Hi #{name\")\n}\n";
+        let (text, unplaced) =
+            with_annotations(source, &at(&[(3, "E034"), (3, "E071"), (4, "E071")]), &[]);
+        assert!(unplaced.is_empty(), "{unplaced:?}");
+        assert_eq!(
+            text,
+            "fn main() { //~vvv E071\n    let name = 1 //~v E034 E071\n    print(\"Hi #{name\")\n}\n"
+        );
+        assert!(annotations_inside_tokens(&text).is_empty());
+        assert_eq!(annotations(&text).0, at(&[(4, "E071"), (3, "E034"), (3, "E071")]));
     }
 
     #[test]
@@ -983,9 +1213,12 @@ mod tests {
     fn expected_codes_come_from_either_form() {
         let listed = FixtureMeta { expected_errors: vec!["E300".into()], ..Default::default() };
         assert_eq!(listed.expected_codes(), ["E300"]);
-        let annotated =
-            FixtureMeta { expected_locations: at(&[(3, "E004")]), ..Default::default() };
-        assert_eq!(annotated.expected_codes(), ["E004"]);
+        let annotated = FixtureMeta {
+            expected_locations: at(&[(3, "E004")]),
+            expected_in_modules: elsewhere(&[("A.flx", 1, "E400")]),
+            ..Default::default()
+        };
+        assert_eq!(annotated.expected_codes(), ["E004", "E400"]);
     }
 
     fn counts_of(lines: &[&str]) -> FixtureMeta {
