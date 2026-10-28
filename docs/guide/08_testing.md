@@ -59,10 +59,7 @@ fn test_divide_by_zero() {
 ```
 
 A test, like `main`, can print or read files without declaring `with
-Console` or `with IO`. One exception for now: a test that uses `assert_eq`
-or `assert_neq` should declare `with Console`. Without it, a failing
-assertion reports `unhandled effect: Console` instead of the values that
-differed ([KI-139](../known_issues.md#ki-139)).
+Console` or `with IO`.
 
 ## Assert Base Functions
 
@@ -85,7 +82,7 @@ These come with the prelude, so no import is needed.
 for checking an error by hand.
 
 ```flux
-fn test_string_ops() with Console {
+fn test_string_ops() {
     assert_eq(upper("hello"), "HELLO")
     assert_eq(len([|1, 2, 3|]), 3)
     assert_true(contains([1, 2, 3], 2))
@@ -98,7 +95,7 @@ fn test_ordering() {
     assert_len([1, 2, 3], 3)
 }
 
-fn test_error_message() with Console {
+fn test_error_message() {
     let (status, _) = try_catch(\() -> 10 / 0)
     assert_eq(status, "error")
     assert_throws(\() -> 10 / 0, "division by zero")
