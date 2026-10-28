@@ -69,7 +69,7 @@ cd flux
 # Run a program on the bytecode VM (default backend)
 cargo run -- examples/guide/01_getting_started.flx
 
-# Run the test blocks in a file
+# Run the test_* functions in a file
 cargo run -- --test examples/tests/array_test.flx
 ```
 
@@ -156,7 +156,7 @@ More to explore in [`examples/`](examples/): [`effects/`](examples/effects/),
 | --- | --- |
 | `flux run <file>` | Compile and run on the VM (the default if you omit `run`) |
 | `flux run --native <file>` | Compile and run via the LLVM backend (needs `--features llvm`) |
-| `flux --test <file>` | Run the `test` blocks in a file |
+| `flux --test <file>` | Run the `test_*` functions in a file |
 | `flux tokens <file>` | Dump the lexer token stream |
 | `flux bytecode <file>` | Dump compiled VM bytecode |
 | `flux fmt <file>` | Format source |
