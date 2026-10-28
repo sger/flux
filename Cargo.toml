@@ -815,8 +815,8 @@ name = "vm_debug_tests"
 path = "tests/debug/vm_debug_tests.rs"
 
 [[test]]
-name = "replay_cli_tests"
-path = "tests/replay/replay_cli_tests.rs"
+name = "replay"
+path = "tests/replay/main.rs"
 
 [[test]]
 name = "tuple_projection_predicate_tests"
