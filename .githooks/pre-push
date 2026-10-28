@@ -1,0 +1,27 @@
+#!/bin/sh
+# Lints the workspace as CI does before a push that changes Rust code, so a
+# warning fails here instead of on every CI runner.
+# Enable once per clone with: git config core.hooksPath .githooks
+
+zero=0000000000000000000000000000000000000000
+lint=no
+
+# Git passes one line per ref: <local ref> <local sha> <remote ref> <remote sha>.
+while read -r _ local_sha _ remote_sha; do
+    [ "$local_sha" = "$zero" ] && continue
+    if [ "$remote_sha" = "$zero" ]; then
+        # A new branch: lint, since there is nothing to compare with.
+        lint=yes
+    elif git diff --name-only "$remote_sha" "$local_sha" | grep -Eq '(\.rs|Cargo\.toml|Cargo\.lock)$'; then
+        lint=yes
+    fi
+done
+
+[ "$lint" = no ] && exit 0
+
+if ! cargo clippy --workspace --all-targets --all-features -- -D warnings; then
+    echo "pre-push: clippy found problems (above); fix them or skip once with --no-verify." >&2
+    exit 1
+fi
+
+exit 0

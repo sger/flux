@@ -212,8 +212,9 @@ cargo test --all --all-features
   description is its changelog entry.
 - Architecture notes live in [`docs/internals/`](docs/internals/); test layout in
   [`tests/README.md`](tests/README.md).
-- Commit messages follow [`docs/internals/commit_messages.md`](docs/internals/commit_messages.md);
-  `git config core.hooksPath .githooks` turns on a hook that checks them.
+- Commit messages follow [`docs/internals/commit_messages.md`](docs/internals/commit_messages.md).
+  `git config core.hooksPath .githooks` turns on hooks that check the message,
+  formatting and the test layout before each commit, and run clippy before a push.
 - Using an LLM or coding agent? Read the [LLM usage policy](docs/llm_policy.md).
   Agents follow [`AGENTS.md`](AGENTS.md).
 
