@@ -1,6 +1,7 @@
 #!/bin/sh
-# Lints the workspace as CI does before a push that changes Rust code, so a
-# warning fails here instead of on every CI runner.
+# Checks formatting and lints the workspace as CI does before a push that
+# changes Rust code, so a problem stops the push instead of failing every CI
+# runner.
 # Enable once per clone with: git config core.hooksPath .githooks
 
 zero=0000000000000000000000000000000000000000
@@ -18,6 +19,12 @@ while read -r _ local_sha _ remote_sha; do
 done
 
 [ "$lint" = no ] && exit 0
+
+# Formatting first: it needs no build, so a push it would fail stops at once.
+if ! cargo fmt --all -- --check --files-with-diff >&2; then
+    echo "pre-push: these files are not formatted; run cargo fmt --all, or skip once with --no-verify." >&2
+    exit 1
+fi
 
 if ! cargo clippy --workspace --all-targets --all-features -- -D warnings; then
     echo "pre-push: clippy found problems (above); fix them or skip once with --no-verify." >&2
