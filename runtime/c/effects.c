@@ -135,6 +135,17 @@ static void flux_effect_context_dup_fields(const FluxEffectContext *ctx) {
     flux_dup(ctx->current_evv);
 }
 
+static void flux_effect_context_promote_fields(const FluxEffectContext *ctx) {
+    flux_rc_promote(ctx->clause);
+    flux_rc_promote(ctx->op_arg);
+    flux_rc_promote(ctx->op_state);
+    for (int32_t i = 0; i < ctx->conts_count && i < FLUX_EFFECT_CONTS_MAX; i++) {
+        flux_rc_promote(ctx->conts[i]);
+    }
+    flux_rc_promote(ctx->yield_evv);
+    flux_rc_promote(ctx->current_evv);
+}
+
 static void flux_effect_context_drop_fields(const FluxEffectContext *ctx) {
     flux_drop(ctx->clause);
     flux_drop(ctx->op_arg);
@@ -164,6 +175,9 @@ void *flux_effect_context_capture(void) {
         (FluxEffectContextSnapshot *)malloc(sizeof(FluxEffectContextSnapshot));
     if (!snapshot) return NULL;
     snapshot->ctx = flux_thread_ctx;
+    /* The scheduler restores and releases a snapshot on whichever worker
+     * runs its fiber, while this thread keeps using the same values. */
+    flux_effect_context_promote_fields(&snapshot->ctx);
     flux_effect_context_dup_fields(&snapshot->ctx);
 #ifdef FLUX_DEBUG_HEAP
     snapshot->thread = &flux_snapshot_thread;
