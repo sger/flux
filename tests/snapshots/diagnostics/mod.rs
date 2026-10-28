@@ -1,12 +1,12 @@
 use crate::support::diagnostics_env;
 
+use crate::support::assert_snapshot;
 use flux::compiler::Compiler;
 use flux::diagnostics::{
     Diagnostic, DiagnosticBuilder, DiagnosticsAggregator, ErrorType,
     position::{Position, Span},
 };
 use flux::syntax::{lexer::Lexer, parser::Parser};
-use insta::assert_snapshot;
 
 fn span(line: usize, column: usize, end_line: usize, end_column: usize) -> Span {
     Span::new(Position::new(line, column), Position::new(end_line, end_column))

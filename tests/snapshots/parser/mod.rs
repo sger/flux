@@ -1,5 +1,5 @@
+use crate::support::assert_snapshot;
 use flux::syntax::{lexer::Lexer, parser::Parser};
-use insta::assert_snapshot;
 
 fn parse_to_string(input: &str) -> String {
     let lexer = Lexer::new(input);

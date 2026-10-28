@@ -11,6 +11,7 @@ use std::process::{Command, Output};
 
 #[path = "../support/mod.rs"]
 mod support;
+use crate::support::assert_snapshot;
 use crate::support::scratch;
 use scratch::{Scratch, cache_args_for};
 
@@ -50,7 +51,7 @@ fn tree_of_a_package_without_dependencies() {
 
     let out = flux(&["tree"], &app);
     assert!(out.status.success(), "tree failed:\n{}", text(&out));
-    insta::assert_snapshot!(text(&out));
+    assert_snapshot!(text(&out));
 }
 
 /// Two path dependencies, one of which has a dependency of its own: covers the
@@ -71,5 +72,5 @@ fn tree_of_a_nested_dependency_graph() {
 
     let out = flux(&["tree"], &app);
     assert!(out.status.success(), "tree failed:\n{}", text(&out));
-    insta::assert_snapshot!(text(&out));
+    assert_snapshot!(text(&out));
 }
