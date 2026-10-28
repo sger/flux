@@ -1,6 +1,7 @@
 //! `cargo xtask tidy`: checks formatting, then that `tests/` is laid out the
-//! way `tests/README.md` says, as rustc's `x test tidy` does. Rules that live
-//! only in prose drift; these fail the build instead.
+//! way `tests/README.md` says, as rustc's `x test tidy` does, and that a
+//! fixture named for an error code expects that code. Rules that live only in
+//! prose drift; these fail the build instead.
 
 use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
@@ -30,6 +31,7 @@ pub fn run(root: &Path) -> Result<bool, String> {
     problems.extend(per_file_targets(&targets));
     problems.extend(uncompiled(&targets, repo.sources()));
     problems.extend(local_helpers(repo.sources()));
+    problems.extend(misnamed_fixtures(&flux_fixtures(root)?));
     for problem in &problems {
         println!("tidy: {problem}");
     }
@@ -214,6 +216,57 @@ fn local_helpers(sources: &[(String, String)]) -> Vec<String> {
     problems
 }
 
+/// Every `.flx` file under `examples/` and `tests/`, with its text.
+fn flux_fixtures(root: &Path) -> Result<Vec<(String, String)>, String> {
+    fn walk(root: &Path, dir: &Path, out: &mut Vec<(String, String)>) -> Result<(), String> {
+        let entries = std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        for entry in entries {
+            let path = entry.map_err(|e| format!("{}: {e}", dir.display()))?.path();
+            if path.is_dir() {
+                walk(root, &path, out)?;
+            } else if path.extension().is_some_and(|ext| ext == "flx") {
+                let text = std::fs::read_to_string(&path)
+                    .map_err(|e| format!("{}: {e}", path.display()))?;
+                let relative = path.strip_prefix(root).unwrap_or(&path);
+                out.push((normalize(relative), text));
+            }
+        }
+        Ok(())
+    }
+    let mut out = Vec::new();
+    for dir in ["examples", "tests"] {
+        walk(root, &root.join(dir), &mut out)?;
+    }
+    out.sort();
+    Ok(out)
+}
+
+/// A fixture whose name ends in an error code, such as `…_e421.flx`, must list
+/// that code in an `// expect-error:` line. Readers trust the name, and KI-137
+/// found twenty fixtures where the reported code had moved on without it.
+fn misnamed_fixtures(fixtures: &[(String, String)]) -> Vec<String> {
+    let mut problems = Vec::new();
+    for (path, text) in fixtures {
+        let Some(stem) = path.strip_suffix(".flx") else { continue };
+        let Some((_, digits)) = stem.rsplit_once("_e") else { continue };
+        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+            continue;
+        }
+        let code = format!("E{digits}");
+        let expected = text.lines().any(|line| {
+            line.strip_prefix("//")
+                .and_then(|rest| rest.trim_start().strip_prefix("expect-error:"))
+                .is_some_and(|codes| codes.split([',', ' ']).any(|c| c == code))
+        });
+        if !expected {
+            problems.push(format!(
+                "{path} is named for {code}, but no `// expect-error:` line lists it; rename the file or fix the header"
+            ));
+        }
+    }
+    problems
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -307,5 +360,20 @@ mod tests {
         assert_eq!(problems.len(), 2, "{problems:?}");
         assert!(problems[0].starts_with("tests/vm_runtime/a_tests.rs:2:"));
         assert!(problems[1].starts_with("tests/vm_runtime/a_tests.rs:3:"));
+    }
+
+    #[test]
+    fn a_fixture_named_for_a_code_must_expect_it() {
+        let files = sources(&[
+            ("examples/a/ok_e300.flx", "// expect: compile_error\n// expect-error: E300\n"),
+            ("examples/a/drifted_e421.flx", "// expect-error: E300\n"),
+            ("examples/a/no_header_e406.flx", "fn main() {}\n"),
+            ("examples/a/not_a_code_else.flx", ""),
+            ("examples/a/plain.flx", ""),
+        ]);
+        let problems = misnamed_fixtures(&files);
+        assert_eq!(problems.len(), 2, "{problems:?}");
+        assert!(problems[0].starts_with("examples/a/drifted_e421.flx is named for E421"));
+        assert!(problems[1].starts_with("examples/a/no_header_e406.flx is named for E406"));
     }
 }
