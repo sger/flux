@@ -308,6 +308,13 @@ pub fn parse_fixture_meta_allowing(path: &Path, allowed: &[String]) -> FixtureMe
     let (locations, errors) = parse_annotations(&content);
     meta.expected_locations = locations;
     meta.meta_errors.extend(errors);
+    if !meta.expected_locations.is_empty() {
+        for line in annotations_inside_tokens(&content) {
+            meta.meta_errors.push(format!(
+                "the `//~` on line {line} is read as part of the program, not as a comment"
+            ));
+        }
+    }
     if !meta.expected_locations.is_empty() && !meta.expected_errors.is_empty() {
         meta.meta_errors.push(
             "`// expect-error:` and `//~` annotations both list expected errors; keep one"
@@ -450,6 +457,9 @@ pub fn converted_source(
             new_line.push(Some(kept.len()));
         }
     }
+    // The line past the end, where an error at the end of the file is
+    // reported, stays past the end.
+    new_line.push(Some(kept.len() + 1));
     let moved = reported
         .iter()
         .map(|(line, code)| match new_line.get(line.wrapping_sub(1)).copied().flatten() {
@@ -463,6 +473,30 @@ pub fn converted_source(
     }
     let (text, unplaced) = with_annotations(&text, &moved);
     if unplaced.is_empty() { Ok(text) } else { Err(unplaced.join("; ")) }
+}
+
+/// Lines whose `//~` annotation the lexer does not read as a comment, because
+/// it falls inside a token such as a string left open on that line. Placing
+/// one there changes the program the fixture tests.
+pub fn annotations_inside_tokens(source: &str) -> Vec<usize> {
+    let tokens = crate::syntax::lexer::Lexer::new(source).tokenize();
+    let mut lines = Vec::new();
+    for (index, line) in source.lines().enumerate() {
+        let Some(comment) = comment_of(line).filter(|c| c.starts_with("//~")) else {
+            continue;
+        };
+        // Lines count from 1 and columns from 0, in characters.
+        let at = (index + 1, line[..line.len() - comment.len()].chars().count());
+        let inside = tokens.iter().any(|token| {
+            let start = (token.position.line, token.position.column);
+            let end = (token.end_position.line, token.end_position.column);
+            start <= at && at < end
+        });
+        if inside {
+            lines.push(index + 1);
+        }
+    }
+    lines
 }
 
 /// Appends an annotation to `lines[at]`, which then takes no other.
@@ -519,8 +553,10 @@ fn parse_annotation(
     } else {
         (Some(line), text)
     };
+    // One past the last line is where an error at the end of the file is
+    // reported; `//~v` on the last line points there.
     let target = target
-        .filter(|&t| t >= 1 && t <= line_count)
+        .filter(|&t| t >= 1 && t <= line_count + 1)
         .ok_or_else(|| "points outside the file".to_string())?;
     let codes: Vec<&str> = codes.split_whitespace().collect();
     if codes.is_empty() {
@@ -918,12 +954,29 @@ mod tests {
     }
 
     #[test]
+    fn an_error_at_the_end_of_the_file_is_annotated_from_the_last_line() {
+        let source = "// expect-error: E034\n\nmodule Demo\n";
+        let text = converted_source(source, &at(&[(4, "E034")]), true).unwrap();
+        assert_eq!(text, "\nmodule Demo //~v E034\n");
+        assert_eq!(parse_annotations(&text), (at(&[(3, "E034")]), vec![]));
+    }
+
+    #[test]
     fn converting_refuses_an_error_on_a_removed_or_crowded_line() {
         let source = "// expect-error: E300\nx() // a\n";
         let removed = converted_source(source, &at(&[(1, "E300")]), true).unwrap_err();
         assert!(removed.contains("which the move removes"), "{removed}");
         let crowded = converted_source(source, &at(&[(2, "E300")]), true).unwrap_err();
         assert!(crowded.contains("cannot place E300"), "{crowded}");
+    }
+
+    #[test]
+    fn an_annotation_the_lexer_reads_into_a_token_is_found() {
+        assert!(annotations_inside_tokens("let a = f(1) //~ E300\nlet b = \"//~\"\n").is_empty());
+        // The `"` inside the open interpolation does not close the string, so
+        // the comment becomes part of it.
+        let open = "print(\"Hello #{name\") //~ E034\n}\n";
+        assert_eq!(annotations_inside_tokens(open), [1]);
     }
 
     #[test]
