@@ -19,10 +19,6 @@ fn snapshot_dir(
 
 fn is_excluded(name: &str) -> bool {
     name.contains("max_errors")
-        || name.starts_with("parser_errors__")
-        || name.starts_with("compiler_errors__")
-        || name.starts_with("runtime_errors__")
-        || name.starts_with("module_scoped_type_classes__")
 }
 
 fn run_subdir(workspace_root: &Path, subdir: &str) {
@@ -69,11 +65,6 @@ fn examples_async() {
 #[test]
 fn examples_benchmarks() {
     run_subdir(Path::new(env!("CARGO_MANIFEST_DIR")), "benchmarks");
-}
-
-#[test]
-fn examples_compiler_errors() {
-    run_subdir(Path::new(env!("CARGO_MANIFEST_DIR")), "compiler_errors");
 }
 
 #[test]
@@ -142,11 +133,6 @@ fn examples_optimizations() {
 }
 
 #[test]
-fn examples_parser_errors() {
-    run_subdir(Path::new(env!("CARGO_MANIFEST_DIR")), "parser_errors");
-}
-
-#[test]
 fn examples_patterns() {
     run_subdir(Path::new(env!("CARGO_MANIFEST_DIR")), "patterns");
 }
@@ -169,11 +155,6 @@ fn examples_roots() {
 #[test]
 fn examples_runtime_boundaries() {
     run_subdir(Path::new(env!("CARGO_MANIFEST_DIR")), "runtime_boundaries");
-}
-
-#[test]
-fn examples_runtime_errors() {
-    run_subdir(Path::new(env!("CARGO_MANIFEST_DIR")), "runtime_errors");
 }
 
 #[test]

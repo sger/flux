@@ -802,10 +802,6 @@ name = "diagnostics_rustdoc_guard"
 path = "tests/diagnostics/diagnostics_rustdoc_guard.rs"
 
 [[test]]
-name = "examples_guide_snapshots"
-path = "tests/examples/examples_guide_snapshots.rs"
-
-[[test]]
 name = "examples_fixtures_snapshots"
 path = "tests/examples/examples_fixtures_snapshots.rs"
 

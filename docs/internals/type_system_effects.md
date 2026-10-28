@@ -403,7 +403,6 @@ Canonical fixture references:
 
 - passing: `examples/type_system/README.md`
 - failing: `examples/type_system/failing/README.md`
-- parity harness: `tests/purity_vm_jit_parity_snapshots.rs`, `tests/common/purity_parity.rs`.
 
 | Rule area | Passing fixtures | Failing fixtures |
 |---|---|---|
