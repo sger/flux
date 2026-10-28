@@ -5,7 +5,7 @@
 use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
 
-use crate::affected::Repo;
+use crate::affected::{Repo, declared_modules};
 use crate::verify::cargo;
 
 pub fn run(root: &Path) -> Result<bool, String> {
@@ -100,9 +100,10 @@ fn layout_problems(readme: &str, dirs: &[String], files: &[String]) -> Vec<Strin
     problems
 }
 
-/// Test files nothing compiles: not a `[[test]]` target and not named by a
-/// `#[path]` in another test file. `support/` and `snapshots/` hold modules
-/// that are included in other ways.
+/// Test files nothing compiles: not a `[[test]]` target, not a module its
+/// folder's target `main.rs` declares, and not named by a `#[path]` in
+/// another test file. `support/` and `snapshots/` hold modules that are
+/// included in other ways.
 fn uncompiled(targets: &BTreeSet<String>, sources: &[(String, String)]) -> Vec<String> {
     let mut included = BTreeSet::new();
     for (path, text) in sources {
@@ -110,13 +111,20 @@ fn uncompiled(targets: &BTreeSet<String>, sources: &[(String, String)]) -> Vec<S
         for target in path_attributes(text) {
             included.insert(normalize(&dir.join(target)));
         }
+        if path.ends_with("/main.rs") && targets.contains(path) {
+            for module in declared_modules(text) {
+                included.insert(normalize(&dir.join(format!("{module}.rs"))));
+            }
+        }
     }
     sources
         .iter()
         .map(|(path, _)| path)
         .filter(|path| !path.starts_with("tests/support/") && !path.starts_with("tests/snapshots/"))
         .filter(|path| !targets.contains(*path) && !included.contains(*path))
-        .map(|path| format!("{path} is never compiled; give it a [[test]] entry in Cargo.toml"))
+        .map(|path| {
+            format!("{path} is never compiled; declare it with `mod` in its folder's main.rs")
+        })
         .collect()
 }
 
@@ -204,18 +212,23 @@ mod tests {
     }
 
     #[test]
-    fn a_file_is_compiled_as_a_target_or_through_a_path_attribute() {
-        let targets: BTreeSet<String> = ["tests/vm_runtime/a_tests.rs".to_string()].into();
+    fn a_file_is_compiled_as_a_target_a_declared_module_or_through_a_path_attribute() {
+        let targets: BTreeSet<String> =
+            ["tests/vm_runtime/a_tests.rs".to_string(), "tests/lexer/main.rs".to_string()].into();
         let files = sources(&[
             ("tests/vm_runtime/a_tests.rs", "#[path = \"../shared/b.rs\"]\nmod b;"),
             ("tests/shared/b.rs", ""),
             ("tests/support/scratch.rs", ""),
             ("tests/vm_runtime/forgotten.rs", "#[test] fn t() {}"),
+            ("tests/lexer/main.rs", "mod token_tests;"),
+            ("tests/lexer/token_tests.rs", ""),
+            ("tests/lexer/undeclared.rs", ""),
         ]);
         assert_eq!(
             uncompiled(&targets, &files),
             [
-                "tests/vm_runtime/forgotten.rs is never compiled; give it a [[test]] entry in Cargo.toml"
+                "tests/vm_runtime/forgotten.rs is never compiled; declare it with `mod` in its folder's main.rs",
+                "tests/lexer/undeclared.rs is never compiled; declare it with `mod` in its folder's main.rs",
             ]
         );
     }
