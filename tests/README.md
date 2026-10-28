@@ -70,7 +70,6 @@ Current helpers:
 - [`support/semantic_infer.rs`](support/semantic_infer.rs) — type-inference matrix driver
 - [`support/semantic_runtime.rs`](support/semantic_runtime.rs) — runtime matrix driver
 - [`support/semantic_core_dump.rs`](support/semantic_core_dump.rs) — core-IR contract matrix driver
-- [`support/purity_parity.rs`](support/purity_parity.rs) — purity analysis parity driver
 
 ### Cargo registration
 

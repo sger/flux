@@ -235,8 +235,6 @@ Compiler/HM integration tests:
 - `tests/compiler_rules_tests.rs`
 
 Parity and fixture coverage:
-- `tests/common/purity_parity.rs`
-- `tests/purity_vm_jit_parity_snapshots.rs`
 - `examples/type_system/failing/`
 
 ## Practical Workflow for HM Changes
