@@ -130,10 +130,28 @@ fn uncompiled(targets: &BTreeSet<String>, sources: &[(String, String)]) -> Vec<S
         for target in path_attributes(text) {
             included.insert(normalize(&dir.join(target)));
         }
-        if path.ends_with("/main.rs") && targets.contains(path) {
-            for module in declared_modules(text) {
-                included.insert(normalize(&dir.join(format!("{module}.rs"))));
+    }
+    // `mod x;` in a target `main.rs`, or in a `mod.rs` that is itself
+    // compiled, compiles `x.rs` or `x/mod.rs` beside it. Repeat until a pass
+    // adds nothing, since a nested `mod.rs` is only compiled once found.
+    loop {
+        let mut found = Vec::new();
+        for (path, text) in sources {
+            let declares = (path.ends_with("/main.rs") && targets.contains(path))
+                || (path.ends_with("/mod.rs") && included.contains(path));
+            if !declares {
+                continue;
             }
+            let dir = Path::new(path).parent().unwrap_or(Path::new(""));
+            for module in declared_modules(text) {
+                found.push(normalize(&dir.join(format!("{module}.rs"))));
+                found.push(normalize(&dir.join(module).join("mod.rs")));
+            }
+        }
+        let before = included.len();
+        included.extend(found);
+        if included.len() == before {
+            break;
         }
     }
     sources
@@ -142,7 +160,9 @@ fn uncompiled(targets: &BTreeSet<String>, sources: &[(String, String)]) -> Vec<S
         .filter(|path| !path.starts_with("tests/support/") && !path.starts_with("tests/snapshots/"))
         .filter(|path| !targets.contains(*path) && !included.contains(*path))
         .map(|path| {
-            format!("{path} is never compiled; declare it with `mod` in its folder's main.rs")
+            format!(
+                "{path} is never compiled; declare it with `mod` in the main.rs or mod.rs above it"
+            )
         })
         .collect()
 }
@@ -239,15 +259,19 @@ mod tests {
             ("tests/shared/b.rs", ""),
             ("tests/support/scratch.rs", ""),
             ("tests/vm_runtime/forgotten.rs", "#[test] fn t() {}"),
-            ("tests/lexer/main.rs", "mod token_tests;"),
+            ("tests/lexer/main.rs", "mod token_tests;\nmod big;"),
             ("tests/lexer/token_tests.rs", ""),
             ("tests/lexer/undeclared.rs", ""),
+            ("tests/lexer/big/mod.rs", "mod part;"),
+            ("tests/lexer/big/part.rs", ""),
+            ("tests/lexer/big/stray.rs", ""),
         ]);
         assert_eq!(
             uncompiled(&targets, &files),
             [
-                "tests/vm_runtime/forgotten.rs is never compiled; declare it with `mod` in its folder's main.rs",
-                "tests/lexer/undeclared.rs is never compiled; declare it with `mod` in its folder's main.rs",
+                "tests/vm_runtime/forgotten.rs is never compiled; declare it with `mod` in the main.rs or mod.rs above it",
+                "tests/lexer/undeclared.rs is never compiled; declare it with `mod` in the main.rs or mod.rs above it",
+                "tests/lexer/big/stray.rs is never compiled; declare it with `mod` in the main.rs or mod.rs above it",
             ]
         );
     }
