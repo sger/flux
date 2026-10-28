@@ -199,11 +199,13 @@ annotation does not.
 
 ### Snapshots and stderr blocks
 
-Rendered errors show source lines without their trailing comments
-(`find_comment_start` in `src/diagnostics/rendering/source.rs`), so an
-annotation never appears in a snapshot or a stderr block. Unlike rustc's
-`.stderr` files, which show their `//~` comments, adding an annotation
-changes no expected output.
+Rendered errors show a source line without its trailing comment unless the
+error's span runs into it (`render_diagnostic_line` in
+`src/diagnostics/rendering/source.rs`). So most annotations change no
+expected output. The exception is an error whose span covers a whole block,
+such as a `class`, an `instance` or a `match`: its first line is underlined to
+the end, and the annotation shows in the excerpt, as rustc's `.stderr` files
+show their `//~` comments.
 
 ### Other readers of the metadata
 
@@ -214,10 +216,10 @@ changes no expected output.
 ## Drawbacks
 [drawbacks]: #drawbacks
 
-- **Migration churn.** Annotations don't show in rendered excerpts, but
-  removing a fixture's `expect-error:` lines moves every line below them, so
-  each migrated fixture's snapshot and stderr block change their line
-  numbers once.
+- **Migration churn.** Removing a fixture's `expect-error:` lines moves
+  every line below them, so each migrated fixture's snapshot and stderr block
+  change their line numbers once. Where an error spans a whole block, the
+  annotation also shows in its excerpt.
 - **Longer lines.** A trailing annotation can push a line past the width
   `flux fmt` keeps. If fixtures are ever formatted, annotated lines need to
   be left alone.

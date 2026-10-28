@@ -66,8 +66,11 @@ f(1, 2, 3)         //~ E056 E300
 - `--bless` rewrites the annotations from what the ways report, when they all
   agree. It never adds or removes a line: a line that already has a comment is
   annotated from the next free line with `//~^`.
-- Rendered errors show source lines without their trailing comments, so an
-  annotation never appears in a snapshot or a stderr block.
+- Rendered errors show a source line without its trailing comment, unless
+  the error's span runs into the comment. So an annotation stays out of
+  snapshots and stderr blocks, except where the error covers a whole block
+  (a `class`, an `instance`, a `match`): its first line is shown to the end,
+  annotation included.
 - `bug:` — what regression this fixture guards against
 - `root:` — a module root passed to every way as `--root <path>`. The examples
   snapshot harness reads it too.
