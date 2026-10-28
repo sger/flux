@@ -213,8 +213,17 @@ cargo test --all --all-features
 - Architecture notes live in [`docs/internals/`](docs/internals/); test layout in
   [`tests/README.md`](tests/README.md).
 - Commit messages follow [`docs/internals/commit_messages.md`](docs/internals/commit_messages.md).
-  `git config core.hooksPath .githooks` turns on hooks that check the message,
-  formatting and the test layout before each commit, and run clippy before a push.
+  Run these once in each clone:
+
+  ```sh
+  git config core.hooksPath .githooks
+  git config blame.ignorerevsfile .git-blame-ignore-revs
+  ```
+
+  The first turns on hooks: before a commit they check the message and run
+  `cargo xtask tidy` (formatting and the test layout); before a push they
+  refuse uncommitted changes and run tidy and clippy. The second makes
+  `git blame` skip commits that only reformat.
 - Using an LLM or coding agent? Read the [LLM usage policy](docs/llm_policy.md).
   Agents follow [`AGENTS.md`](AGENTS.md).
 
