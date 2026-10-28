@@ -222,8 +222,8 @@ name = "contextual_instance_runtime_tests"
 path = "tests/vm_runtime/contextual_instance_runtime_tests.rs"
 
 [[test]]
-name = "stackless_drop_native"
-path = "tests/native_llvm/stackless_drop_native.rs"
+name = "native_llvm"
+path = "tests/native_llvm/main.rs"
 
 [[test]]
 name = "runtime_list_index_tests"
@@ -314,109 +314,12 @@ name = "type_inference"
 path = "tests/type_inference/main.rs"
 
 [[test]]
-name = "native_constructor_tag_tests"
-path = "tests/native_llvm/native_constructor_tag_tests.rs"
-required-features = ["llvm"]
-
-[[test]]
 name = "map_contract_tests"
 path = "tests/vm_runtime/map_contract_tests.rs"
 
 [[test]]
-name = "llvm_adt"
-path = "tests/native_llvm/llvm_adt.rs"
-
-[[test]]
-name = "llvm_closures"
-path = "tests/native_llvm/llvm_closures.rs"
-
-[[test]]
-name = "llvm_codegen"
-path = "tests/native_llvm/llvm_codegen.rs"
-
-[[test]]
-name = "llvm_snapshots"
-path = "tests/native_llvm/llvm_snapshots.rs"
-
-[[test]]
-name = "llvm_type_class"
-path = "tests/native_llvm/llvm_type_class.rs"
-
-[[test]]
-name = "bitwise_primop_native_tests"
-path = "tests/native_llvm/bitwise_primop_native_tests.rs"
-
-[[test]]
-name = "math_primop_native_tests"
-path = "tests/native_llvm/math_primop_native_tests.rs"
-
-[[test]]
-name = "safe_arithmetic_tests"
-path = "tests/native_llvm/safe_arithmetic_tests.rs"
-
-[[test]]
 name = "debug"
 path = "tests/debug/main.rs"
-
-[[test]]
-name = "native_runtime_error_spans"
-path = "tests/native_llvm/native_runtime_error_spans.rs"
-
-[[test]]
-name = "native_panic_trace_tests"
-path = "tests/native_llvm/native_panic_trace_tests.rs"
-
-[[test]]
-name = "parity_corpus_tests"
-path = "tests/native_llvm/parity_corpus_tests.rs"
-
-[[test]]
-name = "effect_multi_shot_tests"
-path = "tests/native_llvm/effect_multi_shot_tests.rs"
-
-[[test]]
-name = "native_async_sleep_tests"
-path = "tests/native_llvm/native_async_sleep_tests.rs"
-
-[[test]]
-name = "native_http_server_tests"
-path = "tests/native_llvm/native_http_server_tests.rs"
-
-[[test]]
-name = "native_http_client_tests"
-path = "tests/native_llvm/native_http_client_tests.rs"
-
-[[test]]
-name = "native_json_tests"
-path = "tests/native_llvm/native_json_tests.rs"
-
-[[test]]
-name = "native_resolution_tests"
-path = "tests/native_llvm/native_resolution_tests.rs"
-
-[[test]]
-name = "native_typeclass_tests"
-path = "tests/native_llvm/native_typeclass_tests.rs"
-
-[[test]]
-name = "native_cross_module_effect_tests"
-path = "tests/native_llvm/native_cross_module_effect_tests.rs"
-
-[[test]]
-name = "native_stream_tests"
-path = "tests/native_llvm/native_stream_tests.rs"
-
-[[test]]
-name = "native_async_indirect_tests"
-path = "tests/native_llvm/native_async_indirect_tests.rs"
-
-[[test]]
-name = "native_work_stealing_tests"
-path = "tests/native_llvm/native_work_stealing_tests.rs"
-
-[[test]]
-name = "native_runtime_config_tests"
-path = "tests/native_llvm/native_runtime_config_tests.rs"
 
 [[test]]
 name = "vm_channel_tests"

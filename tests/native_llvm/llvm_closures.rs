@@ -1,7 +1,5 @@
 #![cfg(feature = "llvm")]
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::scratch;
 use scratch::Scratch;
 

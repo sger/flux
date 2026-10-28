@@ -17,8 +17,6 @@
 //!
 #![cfg(feature = "llvm")]
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::primop_parity;
 use primop_parity::workspace_root;
 
