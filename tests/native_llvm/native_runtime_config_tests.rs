@@ -1,6 +1,6 @@
 //! Native `RuntimeConfig` end-to-end (proposal 0174 Phase 2 slice 2-vii cleanup).
 //!
-//! Mirrors [`tests/integration/vm_runtime_config.rs`] but drives the LLVM
+//! Mirrors [`tests/vm_runtime/vm_runtime_config.rs`] but drives the LLVM
 //! native backend via `--native`. Verifies that:
 //!
 //!   - explicit `worker_count` flows from `run_async_with_workers` down

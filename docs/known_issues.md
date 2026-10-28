@@ -3537,7 +3537,7 @@ mangled instance method and forward that dictionary; element calls extract the
 method from it. Covered by
 [`tests/parity/contextual_instance_eq_list.flx`](../tests/parity/contextual_instance_eq_list.flx)
 on both backends and the `Flow.Json` `Encode<Option<Int>>` / `Encode<List<Int>>`
-/ `Encode<Array<Int>>` VM regression in `tests/integration/vm_json.rs`.
+/ `Encode<Array<Int>>` VM regression in `tests/vm_runtime/vm_json.rs`.
 
 Three regressions surfaced while landing the type-directed path and are fixed
 alongside it, each guarded by a parity fixture:
@@ -3585,7 +3585,7 @@ Covered by
 [`tests/parity/imported_contextual_instance_cached.flx`](../tests/parity/imported_contextual_instance_cached.flx),
 which runs the cached ways the `--no-cache` path could not catch, and by
 `imported_contextual_instances_link_on_the_cached_path` in
-[`tests/integration/vm_json.rs`](../tests/integration/vm_json.rs). The parity
+[`tests/vm_runtime/vm_json.rs`](../tests/vm_runtime/vm_json.rs). The parity
 fixture deliberately uses imported *concrete* instances so it runs unskipped on
 all five ways.
 
