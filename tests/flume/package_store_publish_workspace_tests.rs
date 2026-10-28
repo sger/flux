@@ -2,8 +2,6 @@
 
 use std::{path::Path, process::Command};
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::scratch;
 use scratch::Scratch;
 

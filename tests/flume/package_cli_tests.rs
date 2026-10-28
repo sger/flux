@@ -8,8 +8,6 @@
 use std::path::Path;
 use std::process::{Command, Output};
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::scratch;
 use scratch::{Scratch, cache_args_for, workspace_root};
 
