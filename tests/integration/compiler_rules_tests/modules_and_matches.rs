@@ -120,6 +120,29 @@ t(9);
 }
 
 #[test]
+fn an_error_inside_a_lambda_does_not_leak_its_parameters_ki142() {
+    // `first`'s lambda fails to compile. Its `x` must not stay in scope and
+    // collide with `second`'s own `x`.
+    let rendered = compile_err_rendered(
+        r#"
+fn apply(f: () -> Int) -> Int { f() }
+
+fn first(x) {
+    apply(fn() { print(x); 1 })
+}
+
+fn second() -> Int {
+    let x = 2
+    fn inner() -> Int { x }
+    inner()
+}
+"#,
+    );
+    assert!(rendered.contains("E400"), "expected the lambda's E400:\n{rendered}");
+    assert!(!rendered.contains("E001"), "expected no duplicate-name error:\n{rendered}");
+}
+
+#[test]
 fn assignment_in_block_reassign_error() {
     let code = compile_err("fn f() { let x = 1; x = 2; }");
     assert_eq!(code, "E002");
