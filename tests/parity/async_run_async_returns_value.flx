@@ -2,6 +2,9 @@
 // expect: success
 // bug: run_async must return the value produced by the async body.
 //      Sequential-equivalent VM semantics: action is called synchronously.
+// parity-expected-stdout-begin
+// 42
+// parity-expected-stdout-end
 
 import Flow.Async exposing (..)
 

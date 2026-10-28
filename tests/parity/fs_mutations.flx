@@ -2,6 +2,20 @@
 // expect: success
 // The VM classifies io::ErrorKind, the C runtime classifies errno. Nothing is
 // shared, so both backends must be checked to agree.
+// parity-expected-stdout-begin
+// "mkdir ok"
+// "write ok"
+// "is_file=true"
+// "is_dir=true"
+// "rename ok"
+// "content=payload"
+// "mkdir_again ok"
+// "rm_missing NotFound"
+// "write_no_parent NotFound"
+// "rename_missing NotFound"
+// "rmtree ok"
+// "gone=true"
+// parity-expected-stdout-end
 
 import Flow.Fs as Fs
 import Flow.IoError as Io

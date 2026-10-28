@@ -25,6 +25,15 @@
 // structural evidence rather than a dictionary.
 //
 // Expected: Right(3) Left("bad") Right(7) Right(20) Left("bad") true false
+// parity-expected-stdout-begin
+// Right(3)
+// Left("bad")
+// Right(7)
+// Right(20)
+// Left("bad")
+// true
+// false
+// parity-expected-stdout-end
 
 import Flow.Monad
 

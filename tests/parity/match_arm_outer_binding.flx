@@ -17,6 +17,20 @@
 // The failure was silent for `Int` (`<uninit>` where a number belonged) and
 // loud for `String` (`E1009: Cannot add String and Uninit`), so both appear
 // here. The LLVM backend was always correct, so this doubles as a parity check.
+// parity-expected-stdout-begin
+// "42"
+// "42"
+// "hello"
+// "hello again"
+// "7"
+// "7"
+// "9"
+// "9"
+// "found work"
+// "cleaning work"
+// "5"
+// "ab"
+// parity-expected-stdout-end
 
 data Pair { Pair(String, String) }
 

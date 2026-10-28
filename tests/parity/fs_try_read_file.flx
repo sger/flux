@@ -3,6 +3,12 @@
 // value. The two backends classify failures independently — the VM matches on
 // Rust's io::ErrorKind, the C runtime on errno — so identical output here is a
 // real invariant, not a shared code path.
+// parity-expected-stdout-begin
+// "existing ok nonempty=true"
+// "missing err NotFound"
+// "directory err IsADirectory"
+// "defaulted"
+// parity-expected-stdout-end
 
 import Flow.Fs as Fs
 import Flow.IoError as Io

@@ -6,6 +6,12 @@
 // (proposal 0174 slice 2-vii cleanup). Each call exercises a different
 // arm of the worker-count resolver: the convenience wrapper, an explicit
 // builder, and the default-config path.
+// parity-expected-stdout-begin
+// 42
+// 42
+// 42
+// 42
+// parity-expected-stdout-end
 
 import Flow.Async exposing (..)
 

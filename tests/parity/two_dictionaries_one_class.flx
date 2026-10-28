@@ -13,6 +13,9 @@
 //
 // Expected output:
 // 12
+// parity-expected-stdout-begin
+// 12
+// parity-expected-stdout-end
 
 class Root<a> {
     fn root(x: a) -> Int

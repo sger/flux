@@ -12,6 +12,13 @@
 // types exercise it so a single instance cannot pass by accident, and both
 // calls go through the constrained function rather than dispatching directly
 // on a concrete type, where the operator would lower to a primop instead.
+// parity-expected-stdout-begin
+// "same"
+// "less"
+// "more"
+// "same"
+// "more"
+// parity-expected-stdout-end
 
 fn both<a: Ord>(x: a, y: a) -> String {
     if eq(x, y) { "same" } else { if lt(x, y) { "less" } else { "more" } }

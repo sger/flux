@@ -1,5 +1,12 @@
 // parity: vm, llvm
 // expect: success
+// parity-expected-stdout-begin
+// 2
+// 7
+// 5
+// 12
+// -4
+// parity-expected-stdout-end
 
 fn main() with IO {
     print(bit_and(6, 3))

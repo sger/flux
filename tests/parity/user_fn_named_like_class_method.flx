@@ -22,6 +22,14 @@
 //      `lt` and `compare` returned the class method's result and this fixture
 //      passed anyway — it only asserted that the program ran. The asserts are
 //      here so a wrong value fails on both backends rather than agreeing.
+// parity-expected-stdout-begin
+// 7
+// true
+// 42
+// false
+// 5
+// 4
+// parity-expected-stdout-end
 
 fn add(x: Int, y: Int) -> Int { x + y }
 fn eq(x: Int, y: Int) -> Bool { x == y }

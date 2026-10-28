@@ -2,6 +2,9 @@
 // expect: success
 // bug: member access on a locally constructed record/module object may
 //       crash the native backend when MemberAccess lowering is missing.
+// parity-expected-stdout-begin
+// 25
+// parity-expected-stdout-end
 
 fn main() with IO {
     let Math = { "square": fn(x) { x * x } };

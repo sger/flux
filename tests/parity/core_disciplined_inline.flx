@@ -1,5 +1,8 @@
 // parity: vm, llvm
 // expect: success
+// parity-expected-stdout-begin
+// 42
+// parity-expected-stdout-end
 
 fn main() with IO {
     let add_one = \x -> x + 1

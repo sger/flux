@@ -18,6 +18,13 @@
 // through superclass evidence, and `bind` from its own class.
 //
 // Expected: [3, 5] Some(5) [|7|] [1, 1, 2, 2] Some(20)
+// parity-expected-stdout-begin
+// [3, 5]
+// Some(5)
+// [|7|]
+// [1, 1, 2, 2]
+// Some(20)
+// parity-expected-stdout-end
 
 import Flow.Monad
 

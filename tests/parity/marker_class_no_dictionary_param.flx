@@ -3,6 +3,10 @@
 // bug: a method-less marker class gave the callee a phantom dictionary
 // parameter that call sites never passed, so the VM raised E1000 while the
 // native backend accepted the mismatched call unchecked.
+// parity-expected-stdout-begin
+// 7
+// 1
+// parity-expected-stdout-end
 
 class Marker<a> { }
 

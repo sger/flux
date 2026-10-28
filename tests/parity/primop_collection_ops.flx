@@ -2,6 +2,25 @@
 // expect: success
 // Tests collection primops: array/list/map operations, len, get, put, etc.
 // Note: keys()/values() order is non-deterministic for HAMT maps — avoided here.
+// parity-expected-stdout-begin
+// 3
+// Some(1)
+// [|1, 2, 3, 4|]
+// [1, 2, 3]
+// [|1, 2, 3|]
+// Some(1)
+// None
+// Some(3)
+// true
+// false
+// true
+// true
+// true
+// true
+// true
+// true
+// true
+// parity-expected-stdout-end
 
 import Flow.Array as Array
 import Flow.List as List

@@ -1,6 +1,9 @@
 // parity: vm, llvm
 // expect: success
 // bug: arrays must not match list constructor patterns
+// parity-expected-stdout-begin
+// "array"
+// parity-expected-stdout-end
 
 fn main() with IO {
     let xs = [|1, 2, 3|]

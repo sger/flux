@@ -19,6 +19,9 @@
 //
 // Expected output:
 // 111
+// parity-expected-stdout-begin
+// 111
+// parity-expected-stdout-end
 
 class Base<a> {
     fn base(x: a) -> Int
