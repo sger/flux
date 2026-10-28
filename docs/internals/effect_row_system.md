@@ -233,11 +233,11 @@ See `docs/internals/base_hm_signatures.md` for the full signature reference.
 
 **Failing (diagnostic correctness):**
 - `194_effect_row_multi_missing_deterministic_e400.flx` — E400 deterministic first-missing
-- `195_effect_row_invalid_subtract_e421.flx` — E421 concrete invalid subtraction
+- `195_effect_row_invalid_subtract_e300.flx` — concrete invalid subtraction (E421, shown by the CLI as E300; KI-140)
 - `196_effect_row_subtract_unresolved_single_e419.flx` — E419 single unresolved var
-- `197_effect_row_subtract_unresolved_multi_e420.flx` — E420 multi ambiguous vars
-- `198_effect_row_subset_unsatisfied_e422.flx` — E422 unsatisfied subset
-- `199_effect_row_subset_ordered_missing_e422.flx` — E422 ordered missing
+- `197_effect_row_subtract_unresolved_multi_e304.flx` — multi ambiguous vars (E304 at the annotation, before E420)
+- `198_effect_row_subset_unsatisfied_e300.flx` — unsatisfied subset (E422, shown by the CLI as E300; KI-140)
+- `199_effect_row_subset_ordered_missing_e300.flx` — ordered missing (E422, shown by the CLI as E300; KI-140)
 - `200_effect_row_absent_ordering_linked_violation_e421.flx` — E421 deferred absent violation
 
 ---

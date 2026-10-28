@@ -42,6 +42,39 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-140 — The CLI hides a specific effect-row error behind a generic E300
+
+**Severity:** Low · **Area:** diagnostics, effect rows · **Verified:** 2026-10-28 · **From:** KI-137
+
+```flux
+fn run_filtered(f: (() -> Int with IO - Console)) -> Int with IO - Console { f() }
+
+fn io_console_work() -> Int with IO, Console { 1 }
+
+fn main() with IO { run_filtered(io_console_work) }
+```
+
+The effect-row check finds the real problem: E421, "I cannot subtract
+effect `Console`". The CLI shows only an E300 parameter mismatch instead, and
+that E300 gives the argument a type the program never wrote:
+`() -> Unit with …`, where the function returns `Int`.
+
+- **Why E421 is hidden.** HM inference reports the E300; the E419–E422 checks
+  run later, in the AST compiler (`src/compiler/expression.rs:1846`). The
+  CLI's stage filter drops an effect-phase error when a type error exists
+  (`apply_stage_filtering`, `src/diagnostics/aggregator.rs:305`). `--all-errors`
+  shows both, and so do the in-process tests in
+  `compiler_rules_tests::effects`, which render without the filter.
+- **Why the type is wrong.** A row mismatch inside a function parameter is
+  reported through `UnifyError::effect_row_mismatch`
+  (`src/types/unify_error.rs:42`), which wraps each row in a made-up
+  `() -> Unit with row` type to render it.
+
+The same holds for E422 (an unsatisfied subset). Fixtures:
+`type_system/failing/195_effect_row_invalid_subtract_e300`, `198`, `199`,
+and `compiler_errors/row_effects/invalid_row_subtract_e300`,
+`unsatisfied_row_subset_e300`.
+
 ### KI-138 — Natively, malformed JSON reports a different error from the VM
 
 **Severity:** Low · **Area:** native runtime, Flow.Json · **Verified:** 2026-10-28 · **From:** merging the VM and native JSON tests into one parity fixture
@@ -63,37 +96,6 @@ is how the difference went unseen.
 Repro: `tests/parity/json_escapes_and_malformed_input.flx` skips its
 `llvm` way for this issue. Deleting that `skip-way:` line is the failing
 test for a fix.
-
-### KI-137 — Twenty failing fixtures are named for an error code the CLI does not report
-
-**Severity:** Low · **Area:** diagnostics, test fixtures · **Verified:** 2026-10-28, by comparing each file name with its `expect-error:` header · **From:** the test-suite review
-
-77 fixtures under `examples/` carry an error code in their file name. In 20
-of them the code the CLI reports, pinned by the file's `expect-error:`
-header, is a different one:
-
-| Named for | CLI reports | Fixtures |
-|---|---|---|
-| E420, E421, E422 (effect rows) | E300 or E304 | `type_system/failing/195`, `197`, `198`, `199`; `compiler_errors/row_effects/invalid_row_subtract_e421`, `unresolved_row_subtract_multi_e420`, `unsatisfied_row_subset_e422` |
-| E1004 (runtime boundary) | E300 | `type_system/failing/185`, `186`, `187`, `188`, `190` |
-| E425 (strict mode) | E004 | `type_system/failing/154`, `155`, `156`, `162`, `168` |
-| E303 | E300, E423 | `compiler_errors/invalid_type_annotation_e303` |
-| E304 | E034 | `compiler_errors/invalid_effect_row_e304` |
-| E405 | E402 | `compiler_errors/row_effects/unknown_handled_effect_e405` |
-
-The effect-row rows lose information. In
-`195_effect_row_invalid_subtract_e421.flx` the type checker does find the
-specific error: `compiler_rules_tests::effects::effect_row_invalid_subtract_reports_e421`
-compiles it in process and sees E421, "I cannot subtract effect `Console`".
-The CLI reports a generic E300 parameter mismatch first and hides the E421
-as a later-stage error. That E300 also shows the argument as
-`() -> Unit with …` where the function returns `Int`. The headers have
-said E300 since 063f6a57 (2026-04-26), when the stderr blocks were added.
-
-The other rows may be deliberate: a boundary error caught at compile time
-(E300) instead of at run time (E1004) is an improvement. Each needs a
-decision: change the diagnostic, or rename the fixture and the docs that
-cite it (`docs/internals/effect_row_system.md`, proposal 0049).
 
 ### KI-136 — On newer Linux, lldb loses the frames a `resume` runs on top of
 
@@ -2244,6 +2246,31 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-137 — Twenty failing fixtures were named for an error code the CLI does not report — FIXED 2026-10-28
+
+**Severity:** Low · **Area:** diagnostics, test fixtures · **Verified fixed:** 2026-10-28, by `cargo xtask tidy` · **From:** the test-suite review
+
+In 20 fixtures under `examples/`, the error code in the file name differed
+from the one the `expect-error:` header pinned and the CLI printed. A 21st,
+`row_effects/unhandled_root_effect_e406.flx`, reported no error at all.
+
+**The fix.** Each fixture now carries the code it reports, or reports the
+code it is named for:
+
+| Was named for | Now | Fixtures |
+|---|---|---|
+| E421, E422 | `_e300` | `type_system/failing/195`, `198`, `199`; `row_effects/invalid_row_subtract`, `unsatisfied_row_subset`. The hidden E42x is KI-140 |
+| E420 | `_e304` | `type_system/failing/197`; `row_effects/unresolved_row_subtract_multi` |
+| E1004 | `_e300` | `type_system/failing/185`–`188`, `190`: the mismatch is caught at compile time |
+| E425 | `_e004` | `type_system/failing/154`, `155`, `156`, `162`, `168`, without `strict` in the name; `compiler_rules_tests` covers the strict E425 in process |
+| E303 | `_e423` | `compiler_errors/invalid_type_annotation` |
+| E304 | `_e034` | `compiler_errors/invalid_effect_row` |
+| E405 | still `_e405` | `row_effects/unknown_handled_effect` now handles an undeclared effect, so it reports E405; before, it handled `Console` and got E402 |
+| E406 | `root_effect_declared_ok` | `row_effects/`: a passing companion fixture |
+
+`cargo xtask tidy` now fails when a fixture's name ends in an error code that
+no `// expect-error:` line lists.
 
 ### KI-139 — A failing `assert_eq` reported an unhandled Console effect instead of its message — FIXED 2026-10-28
 
