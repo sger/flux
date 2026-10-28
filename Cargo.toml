@@ -318,12 +318,8 @@ name = "flume"
 path = "tests/flume/main.rs"
 
 [[test]]
-name = "imported_constructor_types_tests"
-path = "tests/type_inference/imported_constructor_types_tests.rs"
-
-[[test]]
-name = "imported_ctor_payload_forwarding_tests"
-path = "tests/type_inference/imported_ctor_payload_forwarding_tests.rs"
+name = "type_inference"
+path = "tests/type_inference/main.rs"
 
 [[test]]
 name = "native_constructor_tag_tests"
@@ -439,42 +435,6 @@ name = "native_runtime_config_tests"
 path = "tests/native_llvm/native_runtime_config_tests.rs"
 
 [[test]]
-name = "type_inference_tests"
-path = "tests/type_inference/type_inference_tests.rs"
-
-[[test]]
-name = "type_semantics_matrix_tests"
-path = "tests/type_inference/type_semantics_matrix_tests.rs"
-
-[[test]]
-name = "type_semantics_runtime_matrix_tests"
-path = "tests/type_inference/type_semantics_runtime_matrix_tests.rs"
-
-[[test]]
-name = "static_typing_closure"
-path = "tests/type_inference/static_typing_closure.rs"
-
-[[test]]
-name = "static_typing_contract_tests"
-path = "tests/type_inference/static_typing_contract_tests.rs"
-
-[[test]]
-name = "static_type_validation_tests"
-path = "tests/type_inference/static_type_validation_tests.rs"
-
-[[test]]
-name = "constrained_type_params_integration"
-path = "tests/type_inference/constrained_type_params_integration.rs"
-
-[[test]]
-name = "typeclass_baseline_tests"
-path = "tests/type_inference/typeclass_baseline_tests.rs"
-
-[[test]]
-name = "sendable_tests"
-path = "tests/type_inference/sendable_tests.rs"
-
-[[test]]
 name = "flow_task_tests"
 path = "tests/integration/flow_task_tests.rs"
 
@@ -559,36 +519,12 @@ name = "vm_stream"
 path = "tests/vm_runtime/vm_stream.rs"
 
 [[test]]
-name = "non_zero_type_tests"
-path = "tests/type_inference/non_zero_type_tests.rs"
-
-[[test]]
-name = "pattern_validation"
-path = "tests/type_inference/pattern_validation.rs"
-
-[[test]]
-name = "match_some_pattern_tests"
-path = "tests/type_inference/match_some_pattern_tests.rs"
-
-[[test]]
 name = "match_arm_outer_binding_tests"
 path = "tests/vm_runtime/match_arm_outer_binding_tests.rs"
 
 [[test]]
 name = "vm_local_slots_tests"
 path = "tests/vm_runtime/vm_local_slots_tests.rs"
-
-[[test]]
-name = "perf_type_infer"
-path = "tests/type_inference/perf_type_infer.rs"
-
-[[test]]
-name = "type_infer_guards"
-path = "tests/type_inference/type_infer_guards.rs"
-
-[[test]]
-name = "boundary_contract_tests"
-path = "tests/type_inference/boundary_contract_tests.rs"
 
 [[test]]
 name = "diagnostics"
