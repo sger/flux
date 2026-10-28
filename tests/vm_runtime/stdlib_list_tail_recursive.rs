@@ -3,8 +3,6 @@
 //! Verifies that map, filter, take, take_while handle large lists
 //! without stack overflow on the VM backend.
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::flux_runner;
 use flux_runner::run_flux_test;
 

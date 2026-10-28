@@ -11,8 +11,6 @@
 
 #![cfg(feature = "native")]
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::flux_runner;
 use flux_runner::{run_native, run_vm};
 

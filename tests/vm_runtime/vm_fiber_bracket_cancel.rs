@@ -11,8 +11,6 @@
 //! 3. Elapsed time is well below the slow fiber's 2s sleep (cancelled, not
 //!    waited for), proving `exit_run_async` doesn't hang on cancelled fibers.
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::flux_runner;
 use std::time::Duration;
 

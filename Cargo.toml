@@ -210,100 +210,16 @@ name = "bytecode"
 path = "tests/bytecode/main.rs"
 
 [[test]]
-name = "vm_tests"
-path = "tests/vm_runtime/vm_tests.rs"
-
-[[test]]
-name = "program_tests"
-path = "tests/vm_runtime/program_tests.rs"
-
-[[test]]
-name = "contextual_instance_runtime_tests"
-path = "tests/vm_runtime/contextual_instance_runtime_tests.rs"
+name = "vm_runtime"
+path = "tests/vm_runtime/main.rs"
 
 [[test]]
 name = "native_llvm"
 path = "tests/native_llvm/main.rs"
 
 [[test]]
-name = "runtime_list_index_tests"
-path = "tests/vm_runtime/runtime_list_index_tests.rs"
-
-[[test]]
-name = "stdlib_list_tail_recursive"
-path = "tests/vm_runtime/stdlib_list_tail_recursive.rs"
-
-[[test]]
-name = "stdlib_path_tests"
-path = "tests/vm_runtime/stdlib_path_tests.rs"
-
-[[test]]
-name = "stdlib_result_tests"
-path = "tests/vm_runtime/stdlib_result_tests.rs"
-
-[[test]]
-name = "stdlib_io_tests"
-path = "tests/vm_runtime/stdlib_io_tests.rs"
-
-[[test]]
-name = "stdlib_fs_tests"
-path = "tests/vm_runtime/stdlib_fs_tests.rs"
-
-[[test]]
-name = "stdlib_crypto_tests"
-path = "tests/vm_runtime/stdlib_crypto_tests.rs"
-
-[[test]]
-name = "stdlib_list_tests"
-path = "tests/vm_runtime/stdlib_list_tests.rs"
-
-[[test]]
-name = "aether_collection_ownership_tests"
-path = "tests/vm_runtime/aether_collection_ownership_tests.rs"
-
-[[test]]
-name = "stdlib_option_tests"
-path = "tests/vm_runtime/stdlib_option_tests.rs"
-
-[[test]]
-name = "stdlib_either_tests"
-path = "tests/vm_runtime/stdlib_either_tests.rs"
-
-[[test]]
-name = "stdlib_map_tests"
-path = "tests/vm_runtime/stdlib_map_tests.rs"
-
-[[test]]
-name = "fn_shadowing_tests"
-path = "tests/vm_runtime/fn_shadowing_tests.rs"
-
-[[test]]
-name = "generics_tests"
-path = "tests/vm_runtime/generics_tests.rs"
-
-[[test]]
-name = "stdlib_array_tests"
-path = "tests/vm_runtime/stdlib_array_tests.rs"
-
-[[test]]
-name = "stdlib_string_numeric_math_tests"
-path = "tests/vm_runtime/stdlib_string_numeric_math_tests.rs"
-
-[[test]]
-name = "stdlib_stream_tests"
-path = "tests/vm_runtime/stdlib_stream_tests.rs"
-
-[[test]]
 name = "integration"
 path = "tests/integration/main.rs"
-
-[[test]]
-name = "stdlib_env_tests"
-path = "tests/vm_runtime/stdlib_env_tests.rs"
-
-[[test]]
-name = "stdlib_process_tests"
-path = "tests/vm_runtime/stdlib_process_tests.rs"
 
 [[test]]
 name = "flume"
@@ -314,96 +230,8 @@ name = "type_inference"
 path = "tests/type_inference/main.rs"
 
 [[test]]
-name = "map_contract_tests"
-path = "tests/vm_runtime/map_contract_tests.rs"
-
-[[test]]
 name = "debug"
 path = "tests/debug/main.rs"
-
-[[test]]
-name = "vm_channel_tests"
-path = "tests/vm_runtime/vm_channel_tests.rs"
-
-[[test]]
-name = "vm_fiber_sleep"
-path = "tests/vm_runtime/vm_fiber_sleep.rs"
-
-[[test]]
-name = "vm_fiber_check_cancelled"
-path = "tests/vm_runtime/vm_fiber_check_cancelled.rs"
-
-[[test]]
-name = "vm_runtime_config"
-path = "tests/vm_runtime/vm_runtime_config.rs"
-
-[[test]]
-name = "vm_fiber_registry"
-path = "tests/vm_runtime/vm_fiber_registry.rs"
-
-[[test]]
-name = "vm_fiber_overlap"
-path = "tests/vm_runtime/vm_fiber_overlap.rs"
-
-[[test]]
-name = "vm_fiber_first_of"
-path = "tests/vm_runtime/vm_fiber_first_of.rs"
-
-[[test]]
-name = "vm_fiber_timeout"
-path = "tests/vm_runtime/vm_fiber_timeout.rs"
-
-[[test]]
-name = "vm_fiber_cancel_loser"
-path = "tests/vm_runtime/vm_fiber_cancel_loser.rs"
-
-[[test]]
-name = "vm_fiber_cancel_timeout"
-path = "tests/vm_runtime/vm_fiber_cancel_timeout.rs"
-
-[[test]]
-name = "vm_fiber_multiworker"
-path = "tests/vm_runtime/vm_fiber_multiworker.rs"
-
-[[test]]
-name = "vm_fiber_migration"
-path = "tests/vm_runtime/vm_fiber_migration.rs"
-
-[[test]]
-name = "vm_fiber_bracket_cancel"
-path = "tests/vm_runtime/vm_fiber_bracket_cancel.rs"
-
-[[test]]
-name = "vm_fiber_scope_cancel"
-path = "tests/vm_runtime/vm_fiber_scope_cancel.rs"
-
-[[test]]
-name = "vm_tcp_echo"
-path = "tests/vm_runtime/vm_tcp_echo.rs"
-
-[[test]]
-name = "vm_http_server"
-path = "tests/vm_runtime/vm_http_server.rs"
-
-[[test]]
-name = "vm_http_client"
-path = "tests/vm_runtime/vm_http_client.rs"
-
-[[test]]
-name = "vm_json"
-path = "tests/vm_runtime/vm_json.rs"
-
-[[test]]
-name = "vm_stream"
-path = "tests/vm_runtime/vm_stream.rs"
-
-[[test]]
-name = "match_arm_outer_binding_tests"
-path = "tests/vm_runtime/match_arm_outer_binding_tests.rs"
-
-[[test]]
-name = "vm_local_slots_tests"
-path = "tests/vm_runtime/vm_local_slots_tests.rs"
 
 [[test]]
 name = "diagnostics"

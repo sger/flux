@@ -9,8 +9,6 @@
 //! The actual park/resume cycle and overlap of `both` / `race` are b₂ work;
 //! tests for that live in `vm_fiber_overlap.rs` (added then).
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::flux_runner;
 use std::time::Duration;
 

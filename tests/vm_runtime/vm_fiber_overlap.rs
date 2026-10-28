@@ -11,8 +11,6 @@
 //! sleep completes — that's a small CPU waste but no observable
 //! correctness issue (cancellation is 1b-vi-c work).
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::flux_runner;
 use std::time::Duration;
 

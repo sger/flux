@@ -11,8 +11,6 @@
 //! These tests are timing-light: only an upper bound is asserted on the
 //! wall clock since `check_cancelled` itself is a flag read, not a sleep.
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::flux_runner;
 use std::time::Duration;
 

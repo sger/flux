@@ -1,7 +1,5 @@
 //! VM Flow.Channel integration tests.
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::flux_runner;
 
 fn run_flux_source(source: &str, tag: &str) -> (String, String, bool) {

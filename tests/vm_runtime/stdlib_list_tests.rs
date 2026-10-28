@@ -10,8 +10,6 @@
 //! divergence in something as ordinary as `fold` would be a silent wrong
 //! answer rather than a crash, so the fixture runs natively as well.
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::stdlib_fixture;
 use stdlib_fixture::assert_backends_agree;
 

@@ -6,8 +6,6 @@
 //! matters too: the nested-`fn` defect was in bytecode emission, which is the
 //! VM's path, and only running both says the two agree.
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::stdlib_fixture;
 use stdlib_fixture::assert_backends_agree;
 

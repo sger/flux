@@ -1,8 +1,6 @@
 //! VM `Async.first` / `Async.first_of` integration tests (proposal 0174
 //! Phase 2 slice 2-ii).
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::flux_runner;
 use std::time::Duration;
 

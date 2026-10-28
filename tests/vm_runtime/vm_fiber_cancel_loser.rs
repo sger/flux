@@ -11,8 +11,6 @@
 //! The observable difference: the program should complete in well under 500ms
 //! of its own time (fast sleep 50ms), not approach 2000ms.
 
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::flux_runner;
 use std::time::Duration;
 
