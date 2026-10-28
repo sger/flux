@@ -1,5 +1,3 @@
-#[path = "../support/mod.rs"]
-mod support;
 use crate::support::diagnostics_env;
 
 use flux::diagnostics::{

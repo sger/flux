@@ -695,32 +695,8 @@ name = "boundary_contract_tests"
 path = "tests/type_inference/boundary_contract_tests.rs"
 
 [[test]]
-name = "diagnostic_render_tests"
-path = "tests/diagnostics/diagnostic_render_tests.rs"
-
-[[test]]
-name = "diagnostic_span_render_tests"
-path = "tests/diagnostics/diagnostic_span_render_tests.rs"
-
-[[test]]
-name = "diagnostics_aggregator_tests"
-path = "tests/diagnostics/diagnostics_aggregator_tests.rs"
-
-[[test]]
-name = "diagnostics_rendering_extended_tests"
-path = "tests/diagnostics/diagnostics_rendering_extended_tests.rs"
-
-[[test]]
-name = "unified_diagnostics_tests"
-path = "tests/diagnostics/unified_diagnostics_tests.rs"
-
-[[test]]
-name = "error_codes_registry_tests"
-path = "tests/diagnostics/error_codes_registry_tests.rs"
-
-[[test]]
-name = "diagnostics_rustdoc_guard"
-path = "tests/diagnostics/diagnostics_rustdoc_guard.rs"
+name = "diagnostics"
+path = "tests/diagnostics/main.rs"
 
 [[test]]
 name = "examples"
@@ -812,6 +788,3 @@ path = "tests/integration/layout_guard.rs"
 
 # Legacy snapshot-wrapper binaries. Names are preserved so insta snapshot
 # filenames (which are prefixed with the test-binary name) do not drift.
-[[test]]
-name = "snapshot_diagnostics"
-path = "tests/diagnostics/snapshot_diagnostics.rs"
