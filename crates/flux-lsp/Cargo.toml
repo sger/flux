@@ -10,6 +10,9 @@ description = "Language Server Protocol implementation for the Flux language."
 name = "flux-lsp"
 path = "src/main.rs"
 
+[lints]
+workspace = true
+
 [dependencies]
 flux = { path = "../..", default-features = false }
 lsp-server = "0.7"

@@ -65,7 +65,7 @@ impl Kind {
         Kind::ALL.into_iter().find(|k| k.name() == name).map(|k| vec![k])
     }
 
-    fn rewrite(self, fixture: &Fixture, rng: &mut Rng) -> Option<String> {
+    fn rewrite(self, fixture: &Fixture<'_>, rng: &mut Rng) -> Option<String> {
         match self {
             Kind::Reorder => reorder::reorder(fixture, rng),
             Kind::Rename => rename::rename(fixture),

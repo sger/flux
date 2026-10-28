@@ -173,7 +173,7 @@ pub(crate) fn reference_scope(
 
 /// Extract the canonical `Identifier` from a `NodeRef`. Used by both
 /// find-references and rename to resolve the cursor's target symbol.
-pub(crate) fn node_identifier(node: &NodeRef) -> Option<Identifier> {
+pub(crate) fn node_identifier(node: &NodeRef<'_>) -> Option<Identifier> {
     match node {
         NodeRef::DeclName { name, .. }
         | NodeRef::DataName { name, .. }

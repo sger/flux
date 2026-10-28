@@ -10,7 +10,7 @@ use super::items::Fixture;
 /// stay where they are. An item never crosses a `let`: whether a function
 /// may read a `let` written after it is the language's rule to make, not a
 /// rewrite's. `None` when no run has two items.
-pub fn reorder(fixture: &Fixture, rng: &mut Rng) -> Option<String> {
+pub fn reorder(fixture: &Fixture<'_>, rng: &mut Rng) -> Option<String> {
     let items = &fixture.items;
     let indices: Vec<usize> = (0..items.len()).collect();
     let runs: Vec<&[usize]> =

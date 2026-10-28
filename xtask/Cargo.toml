@@ -6,5 +6,8 @@ publish = false
 
 # Otherwise std only, so `cargo xtask` builds in seconds. serde_json reads
 # `cargo metadata` for `cargo xtask affected`.
+[lints]
+workspace = true
+
 [dependencies]
 serde_json = "1.0"
