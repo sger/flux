@@ -1,16 +1,13 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[path = "../support/scratch.rs"]
 mod scratch;
 use scratch::Scratch;
+use scratch::workspace_root;
 
 static MAP_CONTRACT_TEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
 
 fn write_test_program(source: &str) -> PathBuf {
     let temp_root = workspace_root().join("target/tmp/map_contract_tests");

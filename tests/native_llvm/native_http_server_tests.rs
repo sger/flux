@@ -3,7 +3,7 @@
 #![cfg(feature = "llvm")]
 
 use std::net::TcpListener;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -11,13 +11,10 @@ use std::sync::{Mutex, OnceLock};
 #[path = "../support/scratch.rs"]
 mod scratch;
 use scratch::Scratch;
+use scratch::workspace_root;
 
 static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(1);
 static NATIVE_HTTP_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
 
 fn next_port() -> u16 {
     // Ask the OS for a free loopback port rather than counting up from a fixed

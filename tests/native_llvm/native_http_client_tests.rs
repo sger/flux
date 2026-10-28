@@ -4,7 +4,7 @@
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -14,13 +14,10 @@ use std::time::{Duration, Instant};
 #[path = "../support/scratch.rs"]
 mod scratch;
 use scratch::Scratch;
+use scratch::workspace_root;
 
 static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(1);
 static NATIVE_HTTP_CLIENT_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
 
 fn next_port() -> u16 {
     let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind ephemeral loopback port");

@@ -2,7 +2,7 @@
 
 #![cfg(feature = "llvm")]
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -10,13 +10,10 @@ use std::sync::{Mutex, OnceLock};
 #[path = "../support/scratch.rs"]
 mod scratch;
 use scratch::Scratch;
+use scratch::workspace_root;
 
 static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(1);
 static NATIVE_STREAM_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
 
 fn write_fixture(source: &str) -> PathBuf {
     let id = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);

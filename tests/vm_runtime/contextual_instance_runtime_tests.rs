@@ -2,16 +2,12 @@
 // the LLVM feature even though the VM path is also exercised here.
 #![cfg(feature = "llvm")]
 
-use std::path::Path;
 use std::process::Command;
 
 #[path = "../support/scratch.rs"]
 mod scratch;
 use scratch::Scratch;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+use scratch::workspace_root;
 
 fn run_vm(fixture: &str) -> String {
     let path = workspace_root().join("tests").join("parity").join(fixture);

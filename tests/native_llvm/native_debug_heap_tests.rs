@@ -16,12 +16,9 @@ use std::process::Command;
 #[path = "../support/scratch.rs"]
 mod scratch;
 use scratch::Scratch;
+use scratch::workspace_root;
 
 const FIXTURE: &str = "tests/native_llvm/debug_heap/use_after_free.flx";
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
 
 /// What `flux <file> <args>` printed (stdout, stderr) and its exit code,
 /// with `fault` as `FLUX_AETHER_FAULT` when given.

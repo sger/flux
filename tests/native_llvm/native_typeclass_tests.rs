@@ -2,19 +2,15 @@
 
 #![cfg(feature = "llvm")]
 
-use std::path::Path;
 use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 
 #[path = "../support/scratch.rs"]
 mod scratch;
 use scratch::Scratch;
+use scratch::workspace_root;
 
 static TYPECLASS_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
 
 fn run_fixture(native: bool) -> (String, String, bool) {
     let _guard = TYPECLASS_TEST_LOCK

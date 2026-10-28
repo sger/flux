@@ -10,14 +10,11 @@ use std::process::Command;
 
 #[path = "../support/stdlib_fixture.rs"]
 mod stdlib_fixture;
+use stdlib_fixture::workspace_root;
 
 use stdlib_fixture::scratch::Scratch;
 
 use stdlib_fixture::assert_fixture_passes;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
 
 /// Write a fixture into a scratch dir unique to this process, and return both
 /// the path and the guard that removes the dir on drop. The name alone is not

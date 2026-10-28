@@ -1,5 +1,9 @@
+#[path = "../support/scratch.rs"]
+mod scratch;
+
 use flux::parity::normalize;
-use std::path::{Path, PathBuf};
+use scratch::workspace_root;
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -11,10 +15,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 // thread pool.
 static CLI_LOCK: Mutex<()> = Mutex::new(());
 static CACHE_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
 
 fn example_path(rel: &str) -> PathBuf {
     workspace_root().join("examples").join(rel)

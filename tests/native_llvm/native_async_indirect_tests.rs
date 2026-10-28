@@ -2,17 +2,13 @@
 
 #![cfg(feature = "llvm")]
 
-use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
 #[path = "../support/scratch.rs"]
 mod scratch;
 use scratch::Scratch;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+use scratch::workspace_root;
 
 fn run_source(source: &str, tag: &str) -> (String, String, bool, Duration) {
     let dir = workspace_root()

@@ -15,6 +15,7 @@ use std::process::Command;
 #[path = "../support/scratch.rs"]
 mod scratch;
 use scratch::Scratch;
+use scratch::workspace_root;
 
 const SOURCE: &str = r#"
 import Flow.List as List
@@ -23,10 +24,6 @@ fn main() with IO {
     print(to_string(len(List.map([1, 2, 3], \x -> x + 1))))
 }
 "#;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
 
 /// Run the entry file with `cwd` as the working directory. `flux_bin` lets a
 /// test point at a copy of the binary in an installed-style tree.

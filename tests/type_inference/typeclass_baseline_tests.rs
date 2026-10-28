@@ -5,7 +5,7 @@
 //! the Rust assertions validate compiler metadata and the fixtures validate
 //! Flux runtime behavior and diagnostics.
 
-use std::{path::Path, process::Command};
+use std::process::Command;
 
 use flux::{
     bytecode::bytecode_cache::hash_bytes,
@@ -16,10 +16,7 @@ use flux::{
 
 #[path = "../support/primop_parity.rs"]
 mod parity;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+use parity::workspace_root;
 
 fn fixture_path(name: &str) -> std::path::PathBuf {
     workspace_root().join("examples/type_classes").join(name)

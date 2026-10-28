@@ -13,16 +13,12 @@
 //! method was routed to the class — so `Stream.append` was unreachable,
 //! failing with `E444: No instance for Semigroup<Stream<Int>>`.
 
-use std::path::Path;
 use std::process::Command;
 
 #[path = "../support/scratch.rs"]
 mod scratch;
 use scratch::Scratch;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+use scratch::workspace_root;
 
 fn run_source(name: &str, source: &str) -> (String, String, bool) {
     // Own scratch dir per run: a literal filename in one shared directory let

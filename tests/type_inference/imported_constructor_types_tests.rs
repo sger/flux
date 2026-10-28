@@ -15,12 +15,12 @@
 //! schemes are built after expansion — so an unexpanded export made an importer
 //! see `Bytes` where inference produced `String`, breaking `Flow.Http`.
 
-use std::path::Path;
 use std::process::Command;
 
 #[path = "../support/scratch.rs"]
 mod scratch;
 use scratch::Scratch;
+use scratch::workspace_root;
 
 const FIXTURE: &str = "imported_constructor_types.flx";
 
@@ -29,10 +29,6 @@ const FIXTURE: &str = "imported_constructor_types.flx";
 const EXPECTED: &[&str] = &[
     "int 7", "shape 12", "shape 0", "rect 12", "5", "tag!", "shape 3",
 ];
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
 
 fn run(native: bool) -> (String, bool) {
     let path = workspace_root().join("tests").join("parity").join(FIXTURE);

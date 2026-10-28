@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use flux::{
     compiler::Compiler,
@@ -7,9 +7,9 @@ use flux::{
     syntax::{interner::Interner, lexer::Lexer, parser::Parser},
 };
 
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+#[path = "scratch.rs"]
+mod scratch;
+use scratch::workspace_root;
 
 fn semantic_fixture_root() -> PathBuf {
     workspace_root().join("tests/fixtures/semantic_types")

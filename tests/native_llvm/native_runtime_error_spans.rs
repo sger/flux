@@ -1,15 +1,11 @@
 #![cfg(feature = "llvm")]
 
-use std::path::Path;
 use std::process::Command;
 
 #[path = "../support/scratch.rs"]
 mod scratch;
 use scratch::Scratch;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+use scratch::workspace_root;
 
 fn run_native(fixture: &str) -> String {
     let path = workspace_root()

@@ -18,12 +18,12 @@
 //! backend was always correct, so this was also a parity divergence — hence the
 //! parity assertion below rather than a VM-only check.
 
-use std::path::Path;
 use std::process::Command;
 
 #[path = "../support/scratch.rs"]
 mod scratch;
 use scratch::Scratch;
+use scratch::workspace_root;
 
 const FIXTURE: &str = "match_arm_outer_binding.flx";
 
@@ -44,10 +44,6 @@ const EXPECTED: &[&str] = &[
     "5",
     "ab",
 ];
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
 
 fn run(native: bool) -> (String, bool) {
     let path = workspace_root().join("tests").join("parity").join(FIXTURE);
