@@ -9,11 +9,11 @@ error[E411]: Invalid Main Signature
 
 `fn main` cannot take parameters.
 
-  examples/type_system/failing/47_main_with_parameters.flx:23:1
-   |
-23 | fn main(x: Int) {
-   | ^^^^^^^^^^^^^^^
-   | --------------- `main` declared with parameters
+  examples/type_system/failing/47_main_with_parameters.flx:7:1
+  |
+7 | fn main(x: Int) {
+  | ^^^^^^^^^^^^^^^
+  | --------------- `main` declared with parameters
 
 Hint:
   Define `fn main()` with zero parameters.

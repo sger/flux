@@ -6,9 +6,9 @@
 //
 // Strict mode cannot enforce runtime boundary check for unresolved expression type in function return expression.
 //
-//   examples/type_system/failing/61_strict_generic_unresolved_boundary.flx:24:5
+//   examples/type_system/failing/61_strict_generic_unresolved_boundary.flx:23:5
 //    |
-// 24 |     x
+// 23 |     x
 //    |     ^
 //    |     - expression type is unresolved in strict mode
 //
@@ -17,11 +17,10 @@
 // parity-expected-stderr-end
 // parity: vm_strict, llvm_strict
 // expect: compile_error
-// expect-error: E425
 
 // E425: strict mode rejects unresolved generic runtime boundary checks.
 public fn id<T>(x: T) -> T {
-    x
+    x //~ E425
 }
 
 fn main() -> Unit {

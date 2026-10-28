@@ -9,17 +9,17 @@ error[E300]: Return Type Mismatch
 
 The body of `bad_bool` does not match its declared return type.
 
-  examples/type_system/failing/109_fun_return_bool_vs_unit.flx:51:5
+  examples/type_system/failing/109_fun_return_bool_vs_unit.flx:59:5
    |
-50 | fn bad_bool() -> Bool {
+58 | fn bad_bool() -> Bool {
    |                  ---- `bad_bool` was declared to return `Bool`
-51 |     0
+59 |     0
    |     ^
    |     - this expression has type `Int`
    |
 help: Change return type to `Int`
    |
-50 | fn bad_bool() -> Int {
+58 | fn bad_bool() -> Int {
    |                  ~~~
 
 Note:
@@ -34,17 +34,17 @@ error[E300]: Return Type Mismatch
 
 The body of `main` does not match its declared return type.
 
-  examples/type_system/failing/109_fun_return_bool_vs_unit.flx:55:5
+  examples/type_system/failing/109_fun_return_bool_vs_unit.flx:63:5
    |
-54 | fn main() -> Unit {
+62 | fn main() -> Unit {
    |              ---- `main` was declared to return `Unit`
-55 |     bad_bool()
+63 |     bad_bool()
    |     ^^^^^^^^^^
    |     ---------- this expression has type `Bool`
    |
 help: Change return type to `Bool`
    |
-54 | fn main() -> Bool {
+62 | fn main() -> Bool {
    |              ~~~~
 
 Note:

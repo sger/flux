@@ -9,15 +9,15 @@ error[E086]: Cross-Module Constructor Access
 
 Direct constructor access `Node` from module `TypeSystem.GenericResultTree` is not allowed in strict mode.
 
-  examples/type_system/failing/66_module_constructor_not_public_api.flx:14:14
+  examples/type_system/failing/66_module_constructor_not_public_api.flx:13:14
    |
-14 |     let _t = TypeSystem.GenericResultTree.Node(
-   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-15 |         TypeSystem.GenericResultTree.Leaf(TypeSystem.GenericResultTree.Ok(1)),
+13 |     let _t = TypeSystem.GenericResultTree.Node( //~ E086
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+14 |         TypeSystem.GenericResultTree.Leaf(TypeSystem.GenericResultTree.Ok(1)),
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-16 |         TypeSystem.GenericResultTree.Leaf(TypeSystem.GenericResultTree.Err("x")),
+15 |         TypeSystem.GenericResultTree.Leaf(TypeSystem.GenericResultTree.Err("x")),
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-17 |     )
+16 |     )
    | ^^^^^
 
 Hint:

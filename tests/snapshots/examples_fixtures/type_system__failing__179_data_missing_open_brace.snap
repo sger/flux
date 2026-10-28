@@ -9,9 +9,9 @@ error[E034]: Missing Data Body
 
 Expected `{` to begin data constructors.
 
-  examples/type_system/failing/179_data_missing_open_brace.flx:24:15
+  examples/type_system/failing/179_data_missing_open_brace.flx:23:15
    |
-24 | data Maybe<T> Some(T), None }
+23 | data Maybe<T> Some(T), None }
    |               ^^^^
 
 Hint:
@@ -25,9 +25,9 @@ error[E031]: Expected Expression
 
 Expected expression, found `,`.
 
-  examples/type_system/failing/179_data_missing_open_brace.flx:24:22
+  examples/type_system/failing/179_data_missing_open_brace.flx:23:22
    |
-24 | data Maybe<T> Some(T), None }
+23 | data Maybe<T> Some(T), None }
    |                      ^
 
 Found 2 errors.

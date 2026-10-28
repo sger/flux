@@ -2,12 +2,11 @@
 // parity-expected-stdout-end
 // root: examples/type_system
 // expect: compile_error
-// expect-error: E300
 
 import TypeSystem.BoundaryUnknown
 
 fn bad() -> Int {
-    TypeSystem.BoundaryUnknown.dynamic_string()
+    TypeSystem.BoundaryUnknown.dynamic_string() //~ E300
 }
 
 bad()

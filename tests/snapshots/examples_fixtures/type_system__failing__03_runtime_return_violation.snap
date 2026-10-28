@@ -9,17 +9,17 @@ error[E300]: Return Type Mismatch
 
 The body of `bad` does not match its declared return type.
 
-  examples/type_system/failing/03_runtime_return_violation.flx:28:5
+  examples/type_system/failing/03_runtime_return_violation.flx:32:5
    |
-27 | fn bad() -> Int {
+31 | fn bad() -> Int {
    |             --- `bad` was declared to return `Int`
-28 |     "not-an-int"
+32 |     "not-an-int"
    |     ^^^^^^^^^^^^
    |     ------------ this expression has type `String`
    |
 help: Change return type to `String`
    |
-27 | fn bad() -> String {
+31 | fn bad() -> String {
    |             ~~~~~~
 
 Note:

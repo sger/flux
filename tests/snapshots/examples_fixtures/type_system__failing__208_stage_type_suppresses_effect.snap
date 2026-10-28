@@ -9,9 +9,9 @@ error[E406]: Unhandled Root Effect
 
 `fn main` has undischarged effects: Mystery.
 
-  examples/type_system/failing/208_stage_type_suppresses_effect.flx:68:1
+  examples/type_system/failing/208_stage_type_suppresses_effect.flx:17:1
    |
-68 | fn main() with IO {
+17 | fn main() with IO {
    | ^^^^^^^^^^^^^^^^^
    | ----------------- undischarged effects at root boundary
 
@@ -23,16 +23,16 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `greet`.
 
-  examples/type_system/failing/208_stage_type_suppresses_effect.flx:69:17
+  examples/type_system/failing/208_stage_type_suppresses_effect.flx:18:17
    |
-60 | fn greet(name: String) -> String {
+ 9 | fn greet(name: String) -> String {
    | -------------------------------- `greet` expects `String` as the 1st parameter
-61 |     "Hello, #{name}!"
-62 | }
+10 |     "Hello, #{name}!"
+11 | }
 ... |
-67 | 
-68 | fn main() with IO {
-69 |     print(greet(42))
+16 | 
+17 | fn main() with IO {
+18 |     print(greet(42))
    |                 ^^
    |                 -- this argument has type `Int`
 

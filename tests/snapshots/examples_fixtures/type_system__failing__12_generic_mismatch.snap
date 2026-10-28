@@ -9,12 +9,12 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 2nd argument to `both`.
 
-  examples/type_system/failing/12_generic_mismatch.flx:36:10
+  examples/type_system/failing/12_generic_mismatch.flx:11:10
    |
-34 | fn both<T>(a: T, b: T) -> T { a }
+ 9 | fn both<T>(a: T, b: T) -> T { a }
    | --------------------------- `both` expects `Int` as the 2nd parameter
-35 | 
-36 | both(42, "hello")
+10 | 
+11 | both(42, "hello")
    |          ^^^^^^^
    |          ------- this argument has type `String`
 

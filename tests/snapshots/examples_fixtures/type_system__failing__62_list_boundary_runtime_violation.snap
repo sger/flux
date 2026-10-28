@@ -9,15 +9,15 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `sum_list`.
 
-  examples/type_system/failing/62_list_boundary_runtime_violation.flx:16:10
+  examples/type_system/failing/62_list_boundary_runtime_violation.flx:15:10
    |
-11 | fn sum_list(xs: List<Int>) -> Int {
+10 | fn sum_list(xs: List<Int>) -> Int {
    | --------------------------------- `sum_list` expects `List<Int>` as the 1st parameter
-12 |     fold(xs, 0, /(acc: Int, x: Int) -> acc + x)
-13 | }
-14 | 
-15 | let dynamic = TypeSystem.BoundaryUnknown.dynamic_string()
-16 | sum_list(dynamic)
+11 |     fold(xs, 0, /(acc: Int, x: Int) -> acc + x)
+12 | }
+13 | 
+14 | let dynamic = TypeSystem.BoundaryUnknown.dynamic_string()
+15 | sum_list(dynamic)
    |          ^^^^^^^
    |          ------- this argument has type `String`
 

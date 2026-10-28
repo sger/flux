@@ -9,9 +9,9 @@ error[E404]: Unknown Effect Operation
 
 Effect `Console` has no declared operation `read`.
 
-  examples/type_system/failing/21_perform_unknown_operation.flx:28:5
+  examples/type_system/failing/21_perform_unknown_operation.flx:12:5
    |
-28 |     perform Console.read("x")
+12 |     perform Console.read("x")
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^
    |     ------------------------- unknown operation in perform
 

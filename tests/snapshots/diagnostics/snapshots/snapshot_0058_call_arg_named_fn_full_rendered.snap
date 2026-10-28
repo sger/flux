@@ -6,15 +6,15 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `greet`.
 
-  examples/type_system/failing/110_call_arg_named_fn.flx:38:20
+  examples/type_system/failing/110_call_arg_named_fn.flx:10:20
    |
-33 | fn greet(name: String) -> String {
+ 5 | fn greet(name: String) -> String {
    | -------------------------------- `greet` expects `String` as the 1st parameter
-34 |     name
-35 | }
-36 | 
-37 | fn main() -> Unit {
-38 |     let _x = greet(42)
+ 6 |     name
+ 7 | }
+ 8 | 
+ 9 | fn main() -> Unit {
+10 |     let _x = greet(42)
    |                    ^^
    |                    -- this argument has type `Int`
 

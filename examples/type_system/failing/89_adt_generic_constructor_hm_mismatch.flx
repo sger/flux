@@ -2,26 +2,26 @@
 // parity-expected-stdout-end
 // parity-expected-stderr-begin
 // • 2 errors • examples/type_system/failing/89_adt_generic_constructor_hm_mismatch.flx
-// error[E430]: Any Type Inferred
+// error[E430]: Could Not Infer Concrete Type
 //
-// Core definition `5` has an unresolved type variable (var #N) in its HM-inferred result type at the backend representation. The static typing contract requires every Core-visible boundary to be concrete before backend lowering.
+// Flux could not determine a concrete result type for this definition before code generation. Internal detail: definition `5` still has unresolved type variable #10579 at the backend representation.
 //
-//   examples/type_system/failing/89_adt_generic_constructor_hm_mismatch.flx:46:1
+//   examples/type_system/failing/89_adt_generic_constructor_hm_mismatch.flx:44:1
 //    |
-// 46 | let bad: Result<Int, String> = Ok("oops")
+// 44 | let bad: Result<Int, String> = Ok("oops")
 //    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 //
 // Hint:
-//   Add a type annotation or adjust the definition so inference fully resolves its result type.
+//   Add a type annotation or make the expression's result type unambiguous.
 //
 //
 // error[E300]: Annotation Type Mismatch
 //
 // The value of `bad` does not match its type annotation.
 //
-//   examples/type_system/failing/89_adt_generic_constructor_hm_mismatch.flx:46:32
+//   examples/type_system/failing/89_adt_generic_constructor_hm_mismatch.flx:44:32
 //    |
-// 46 | let bad: Result<Int, String> = Ok("oops")
+// 44 | let bad: Result<Int, String> = Ok("oops")
 //    |                                ^^^^^^^^^^
 //    |                                ---------- this value has type `Result<String, _>`
 //
@@ -37,10 +37,8 @@
 // Found 2 errors.
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E300
-// expect-error: E430
 
 // E300: generic ADT constructor field type mismatch under instantiated annotation.
 type Result<T, E> = Ok(T) | Err(E)
 
-let bad: Result<Int, String> = Ok("oops")
+let bad: Result<Int, String> = Ok("oops") //~ E300 E430

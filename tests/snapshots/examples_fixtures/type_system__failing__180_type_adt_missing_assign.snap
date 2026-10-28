@@ -9,9 +9,9 @@ error[E034]: Missing Type Definition
 
 Expected `=` after type declaration name.
 
-  examples/type_system/failing/180_type_adt_missing_assign.flx:23:15
+  examples/type_system/failing/180_type_adt_missing_assign.flx:22:15
    |
-23 | type Maybe<T> Some(T) | None
+22 | type Maybe<T> Some(T) | None
    |               ^^^^
 
 Hint:
@@ -22,9 +22,9 @@ error[E031]: Expected Expression
 
 Expected expression, found `|`.
 
-  examples/type_system/failing/180_type_adt_missing_assign.flx:23:23
+  examples/type_system/failing/180_type_adt_missing_assign.flx:22:23
    |
-23 | type Maybe<T> Some(T) | None
+22 | type Maybe<T> Some(T) | None
    |                       ^
 
 Found 2 errors.

@@ -6,13 +6,13 @@
 //
 // Strict mode requires `fn main()` for all programs.
 //
-//   examples/type_system/failing/29_strict_missing_main.flx:25:1
+//   examples/type_system/failing/29_strict_missing_main.flx:24:1
 //    |
-// 25 | fn inc(x: Int) -> Int {
-//    | ^^^^^^^^^^^^^^^^^^^^^^^
-// 26 |     x + 1
+// 24 | fn inc(x: Int) -> Int { //~ E415
+//    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+// 25 |     x + 1
 //    | ^^^^^^^^^
-// 27 | }
+// 26 | }
 //    | ^
 //
 // Hint:
@@ -20,8 +20,7 @@
 // parity-expected-stderr-end
 // parity: vm_strict, llvm_strict
 // expect: compile_error
-// expect-error: E415
 
-fn inc(x: Int) -> Int {
+fn inc(x: Int) -> Int { //~ E415
     x + 1
 }

@@ -9,13 +9,13 @@ error[E300]: Type Mismatch
 
 I found a type mismatch.
 
-  examples/type_system/failing/77_hm_logical_non_bool_compile_mismatch.flx:29:5
-   |
-29 |     a && b
-   |     ^^^^^^
-   |     ------ this expression has type `Int and Bool`
+  examples/type_system/failing/77_hm_logical_non_bool_compile_mismatch.flx:6:5
+  |
+6 |     a && b
+  |     ^^^^^^
+  |     ------ this expression has type `Int and Bool`
 
-   |     ------ operator operands are known at compile time
+  |     ------ operator operands are known at compile time
 
 Note:
   expected type: Bool operands

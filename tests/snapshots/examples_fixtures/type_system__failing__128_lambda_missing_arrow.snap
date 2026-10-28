@@ -9,9 +9,9 @@ error[E034]: Missing Lambda Arrow
 
 I was expecting `->` after the lambda parameters, but I found an identifier.
 
-  examples/type_system/failing/128_lambda_missing_arrow.flx:24:10
+  examples/type_system/failing/128_lambda_missing_arrow.flx:23:10
    |
-24 | let f = /x x + 1
+23 | let f = /x x + 1
    |          ^
    |          - this lambda parameter list ends here
 

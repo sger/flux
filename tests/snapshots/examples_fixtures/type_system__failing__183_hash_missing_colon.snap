@@ -9,10 +9,10 @@ error[E034]: Missing Hash Colon
 
 This hash entry needs `:` between the key and value.
 
-  examples/type_system/failing/183_hash_missing_colon.flx:20:15
-   |
-20 | let h = { "a" 1 }
-   |               ^
+  examples/type_system/failing/183_hash_missing_colon.flx:5:15
+  |
+5 | let h = { "a" 1 }
+  |               ^
 
 Hint:
   Hash literals use `{key: value, ...}`.

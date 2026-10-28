@@ -2,7 +2,6 @@
 // parity-expected-stdout-end
 // root: examples/type_system
 // expect: compile_error
-// expect-error: E300
 
 import TypeSystem.BoundaryUnknown
 
@@ -15,4 +14,4 @@ fn unwrap_or_zero(input: Either<String, Int>) -> Int {
 }
 
 let dynamic = TypeSystem.BoundaryUnknown.dynamic_string()
-unwrap_or_zero(dynamic)
+unwrap_or_zero(dynamic) //~ E300

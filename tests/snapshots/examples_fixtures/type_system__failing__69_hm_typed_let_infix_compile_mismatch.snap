@@ -9,9 +9,9 @@ error[E300]: Annotation Type Mismatch
 
 The value of `y` does not match its type annotation.
 
-  examples/type_system/failing/69_hm_typed_let_infix_compile_mismatch.flx:35:18
+  examples/type_system/failing/69_hm_typed_let_infix_compile_mismatch.flx:13:18
    |
-35 |     let y: Int = x + 1
+13 |     let y: Int = x + 1
    |                  ^^^^^
    |                  ----- this value has type `String`
 

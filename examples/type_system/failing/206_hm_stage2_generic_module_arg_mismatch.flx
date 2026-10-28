@@ -2,8 +2,6 @@
 // parity-expected-stdout-end
 // root: examples/type_system
 // expect: compile_error
-// expect-error: E300
-// expect-error: E300
 
 // 0051 Stage 2: HM fallback catches argument type mismatch for module generic params.
 // M.prepend<T>(elem: T, xs: Array<T>) -- T and Array<T> are generic, convert_type_expr
@@ -15,6 +13,6 @@
 import TypeSystem.HmGenericModule as M
 
 fn main() -> Unit {
-    let _xs = M.prepend("hello", [|1, 2, 3|])
+    let _xs = M.prepend("hello", [|1, 2, 3|]) //~ E300 E300
     None
 }

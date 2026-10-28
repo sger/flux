@@ -9,9 +9,9 @@ Warning: Redundant Match Arm
 
 this arm is unreachable — earlier arms already cover it
 
-  examples/type_system/failing/63_either_boundary_runtime_violation.flx:15:9
+  examples/type_system/failing/63_either_boundary_runtime_violation.flx:14:9
    |
-15 |         _ -> 0
+14 |         _ -> 0
    |         ^^^^^^
 
 
@@ -19,16 +19,16 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `unwrap_or_zero`.
 
-  examples/type_system/failing/63_either_boundary_runtime_violation.flx:20:16
+  examples/type_system/failing/63_either_boundary_runtime_violation.flx:19:16
    |
-11 | fn unwrap_or_zero(input: Either<String, Int>) -> Int {
+10 | fn unwrap_or_zero(input: Either<String, Int>) -> Int {
    | ---------------------------------------------------- `unwrap_or_zero` expects `Either<String, Int>` as the 1st parameter
-12 |     match input {
-13 |         Left(_msg) -> 0,
+11 |     match input {
+12 |         Left(_msg) -> 0,
 ... |
-18 | 
-19 | let dynamic = TypeSystem.BoundaryUnknown.dynamic_string()
-20 | unwrap_or_zero(dynamic)
+17 | 
+18 | let dynamic = TypeSystem.BoundaryUnknown.dynamic_string()
+19 | unwrap_or_zero(dynamic)
    |                ^^^^^^^
    |                ------- this argument has type `String`
 

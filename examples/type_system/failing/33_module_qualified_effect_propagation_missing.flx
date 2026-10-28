@@ -2,12 +2,11 @@
 // parity-expected-stdout-end
 // root: examples/type_system
 // expect: compile_error
-// expect-error: E400
 
 // E400: module-qualified call chain should propagate IO requirement.
 
 import TypeSystem.EffectsChain
 
 fn run() -> Int with Time {
-    TypeSystem.EffectsChain.call_io_step(1)
+    TypeSystem.EffectsChain.call_io_step(1) //~ E400
 }

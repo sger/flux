@@ -9,15 +9,15 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `add`.
 
-  examples/type_system/failing/01_compile_type_mismatch.flx:38:5
+  examples/type_system/failing/01_compile_type_mismatch.flx:10:5
    |
-33 | fn add(a: Int, b: Int) -> Int {
+ 5 | fn add(a: Int, b: Int) -> Int {
    | ----------------------------- `add` expects `Int` as the 1st parameter
-34 |     a + b
-35 | }
-36 | 
-37 | 
-38 | add("x", 2)
+ 6 |     a + b
+ 7 | }
+ 8 | 
+ 9 | 
+10 | add("x", 2)
    |     ^^^
    |     --- this argument has type `String`
 

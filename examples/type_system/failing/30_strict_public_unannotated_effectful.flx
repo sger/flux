@@ -7,9 +7,9 @@
 //
 // Effectful function `log` must declare `with Console` in strict mode.
 //
-//   examples/type_system/failing/30_strict_public_unannotated_effectful.flx:55:8
+//   examples/type_system/failing/30_strict_public_unannotated_effectful.flx:52:8
 //    |
-// 55 | public fn log(msg) {
+// 52 | public fn log(msg) {
 //    |        ^^^^^^^^^^^
 //    |        ----------- missing explicit effect annotation
 //
@@ -21,9 +21,9 @@
 //
 // Public function `log` must annotate all parameters in strict mode.
 //
-//   examples/type_system/failing/30_strict_public_unannotated_effectful.flx:55:8
+//   examples/type_system/failing/30_strict_public_unannotated_effectful.flx:52:8
 //    |
-// 55 | public fn log(msg) {
+// 52 | public fn log(msg) {
 //    |        ^^^^^^^^^^^
 //    |        ----------- missing parameter type annotations
 //
@@ -35,9 +35,9 @@
 //
 // Public function `log` must declare a return type in strict mode.
 //
-//   examples/type_system/failing/30_strict_public_unannotated_effectful.flx:55:8
+//   examples/type_system/failing/30_strict_public_unannotated_effectful.flx:52:8
 //    |
-// 55 | public fn log(msg) {
+// 52 | public fn log(msg) {
 //    |        ^^^^^^^^^^^
 //    |        ----------- missing return type annotation
 //
@@ -48,11 +48,8 @@
 // parity-expected-stderr-end
 // parity: vm_strict, llvm_strict
 // expect: compile_error
-// expect-error: E416
-// expect-error: E417
-// expect-error: E418
 
-public fn log(msg) {
+public fn log(msg) { //~ E416 E417 E418
     print(msg)
 }
 

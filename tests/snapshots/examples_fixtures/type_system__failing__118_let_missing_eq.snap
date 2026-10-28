@@ -9,10 +9,10 @@ error[E034]: Unexpected Token
 
 Expected `=` after `let x`. Did you mean `let x = ...`?
 
-  examples/type_system/failing/118_let_missing_eq.flx:21:11
-   |
-21 |     let x 1
-   |           ^
+  examples/type_system/failing/118_let_missing_eq.flx:6:11
+  |
+6 |     let x 1
+  |           ^
 
 Hint:
   Let bindings require `=`: `let name = value`

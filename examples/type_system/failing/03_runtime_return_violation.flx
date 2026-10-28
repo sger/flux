@@ -6,13 +6,18 @@
 //
 // The body of `bad` does not match its declared return type.
 //
-//   examples/type_system/failing/03_runtime_return_violation.flx:28:5
+//   examples/type_system/failing/03_runtime_return_violation.flx:32:5
 //    |
-// 27 | fn bad() -> Int {
+// 31 | fn bad() -> Int {
 //    |             --- `bad` was declared to return `Int`
-// 28 |     "not-an-int"
+// 32 |     "not-an-int"
 //    |     ^^^^^^^^^^^^
 //    |     ------------ this expression has type `String`
+//    |
+// help: Change return type to `String`
+//    |
+// 31 | fn bad() -> String {
+//    |             ~~~~~~
 //
 // Note:
 //   declared return type: Int
@@ -22,10 +27,9 @@
 //   Return a `Int` value from `bad` or change its annotation.
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E300
 
 fn bad() -> Int {
-    "not-an-int"
+    "not-an-int" //~ E300
 }
 
 // Runtime contract violation on function return boundary.

@@ -9,16 +9,16 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `typed_add`.
 
-  examples/type_system/failing/02_runtime_boundary_arg_violation.flx:45:11
+  examples/type_system/failing/02_runtime_boundary_arg_violation.flx:16:11
    |
-38 | fn typed_add(a: Int, b: Int) -> Int {
+ 9 | fn typed_add(a: Int, b: Int) -> Int {
    | ----------------------------------- `typed_add` expects `Int` as the 1st parameter
-39 |     a + b
-40 | }
+10 |     a + b
+11 | }
 ... |
-43 | 
-44 | 
-45 | typed_add(dynamic, 1)
+14 | 
+15 | 
+16 | typed_add(dynamic, 1)
    |           ^^^^^^^
    |           ------- this argument has type `String`
 

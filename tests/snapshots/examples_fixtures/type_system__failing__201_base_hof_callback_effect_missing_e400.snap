@@ -9,9 +9,9 @@ error[E300]: Parameter Type Mismatch
 
 Parameter 2 has the wrong type.
 
-  examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx:54:5
+  examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx:14:5
    |
-54 |     each([1, 2, 3], noisy_log)
+14 |     each([1, 2, 3], noisy_log)
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
    |     -------------------------- parameter 2 has type `(Int) -> Unit with Console, FileSystem, Stdin, Env, Process`
 
@@ -30,9 +30,9 @@ error[E400]: Missing Effect
 
 requires effect `Console` but the enclosing context does not provide it
 
-  examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx:54:5
+  examples/type_system/failing/201_base_hof_callback_effect_missing_e400.flx:14:5
    |
-54 |     each([1, 2, 3], noisy_log)
+14 |     each([1, 2, 3], noisy_log)
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
    |     -------------------------- requires `Console`
 

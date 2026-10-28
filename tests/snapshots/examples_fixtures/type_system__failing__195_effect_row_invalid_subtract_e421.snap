@@ -9,9 +9,9 @@ error[E421]: Effect Requirement Mismatch
 
 I cannot subtract effect `Console` from this effect row.
 
-  examples/type_system/failing/195_effect_row_invalid_subtract_e421.flx:44:5
+  examples/type_system/failing/195_effect_row_invalid_subtract_e421.flx:22:5
    |
-44 |     run_filtered(io_console_work)
+22 |     run_filtered(io_console_work)
    |     ^^^^^^^^^^^^
    |     ------------ this call violates an effect-row subtraction constraint
 

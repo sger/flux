@@ -6,9 +6,9 @@
 //
 // Expected `)` to close lambda parameter list.
 //
-//   examples/type_system/failing/124_lambda_missing_close_paren.flx:37:18
+//   examples/type_system/failing/124_lambda_missing_close_paren.flx:35:18
 //    |
-// 37 | let add = \(x, y -> x + y
+// 35 | let add = \(x, y -> x + y
 //    |                  ^^
 //
 // Hint:
@@ -19,7 +19,7 @@
 //
 // I was expecting `->` after the lambda parameters, but I found the end of the file.
 //
-//   examples/type_system/failing/124_lambda_missing_close_paren.flx:39:1
+//   examples/type_system/failing/124_lambda_missing_close_paren.flx:37:1
 //    |
 //
 // Note:
@@ -31,8 +31,6 @@
 // Found 2 errors.
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E034
-// expect-error: E034
 
-let add = \(x, y -> x + y
-let after = 3
+let add = \(x, y -> x + y //~ E034
+let after = 3 //~v E034
