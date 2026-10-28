@@ -14,7 +14,7 @@ const MAX_WRAPS: usize = 8;
 
 /// The fixture with up to [`MAX_WRAPS`] call arguments wrapped, chosen by
 /// `rng`; `None` when no call qualifies.
-pub fn let_wrap(fixture: &Fixture, rng: &mut Rng) -> Option<String> {
+pub fn let_wrap(fixture: &Fixture<'_>, rng: &mut Rng) -> Option<String> {
     let source = fixture.source;
     let mut candidates: Vec<(usize, usize)> = Vec::new();
     for item in fixture.items.iter().filter(|item| item.has_code()) {

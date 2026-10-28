@@ -254,7 +254,7 @@ pub fn goto_type_definition(
 /// type, or a `let`/pattern binding's scheme. `None` when the node has no
 /// resolvable type or its type isn't a user ADT (a function, a built-in like
 /// `Int`, or a bare type variable).
-fn node_type_adt_symbol(snapshot: &Snapshot, node: &NodeRef) -> Option<Identifier> {
+fn node_type_adt_symbol(snapshot: &Snapshot, node: &NodeRef<'_>) -> Option<Identifier> {
     let infer = snapshot.infer.as_ref()?;
     let ty = match node {
         NodeRef::Expr(expr) => infer.expr_types.get(&expr.expr_id())?,
@@ -821,7 +821,7 @@ fn find_in_block(
 
 /// Map a `NodeRef` to the identifier whose definition F12 should jump to.
 /// Returns `None` for nodes that don't represent a navigable reference.
-fn definition_name(node: &NodeRef) -> Option<Identifier> {
+fn definition_name(node: &NodeRef<'_>) -> Option<Identifier> {
     match node {
         NodeRef::Expr(Expression::Identifier { name, .. }) => Some(*name),
         NodeRef::Pattern(Pattern::Identifier { name, .. }) => Some(*name),

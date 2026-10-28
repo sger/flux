@@ -99,7 +99,7 @@ pub fn hover_at(snapshot: &Snapshot, position: Position) -> Option<Hover> {
 /// source symbol.
 fn operator_fixity_hover(
     snapshot: &Snapshot,
-    node: &NodeRef,
+    node: &NodeRef<'_>,
     target: FluxPosition,
 ) -> Option<Hover> {
     let body = match node {
@@ -153,7 +153,7 @@ fn operator_fixity_hover(
 /// *use* site (`foo(x)`) the name is resolved to its declaration — same-file
 /// first, then any cached module — so a documented function's doc shows on
 /// every reference, not only where it is defined.
-fn node_doc_comment(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
+fn node_doc_comment(snapshot: &Snapshot, node: &NodeRef<'_>) -> Option<String> {
     match node {
         NodeRef::DeclName {
             binding_span: span, ..
@@ -315,7 +315,7 @@ fn type_decl_span(program: &Program, interner: &Interner, type_name: &str) -> Op
 /// Markdown doc card for a built-in effect, if `node` is an effect-name use
 /// or declaration whose label is one of the built-ins (`IO`, `Console`, …).
 /// Returns `None` for a user-declared `effect`, which has no static doc.
-fn builtin_effect_doc(snapshot: &Snapshot, node: &NodeRef) -> Option<&'static str> {
+fn builtin_effect_doc(snapshot: &Snapshot, node: &NodeRef<'_>) -> Option<&'static str> {
     let name = match node {
         NodeRef::EffectName { name, .. } | NodeRef::EffectDeclName { name, .. } => *name,
         _ => return None,
@@ -327,7 +327,7 @@ fn builtin_effect_doc(snapshot: &Snapshot, node: &NodeRef) -> Option<&'static st
 /// program's entry point. Matches on both the `main` symbol and the
 /// declaration span, so a nested or module-scoped `fn main` (which is not an
 /// entry point) is not annotated.
-fn is_entry_point_decl(snapshot: &Snapshot, node: &NodeRef) -> bool {
+fn is_entry_point_decl(snapshot: &Snapshot, node: &NodeRef<'_>) -> bool {
     let NodeRef::DeclName { name, binding_span } = node else {
         return false;
     };
@@ -342,7 +342,7 @@ fn is_entry_point_decl(snapshot: &Snapshot, node: &NodeRef) -> bool {
     })
 }
 
-fn render(snapshot: &Snapshot, node: &NodeRef) -> Option<String> {
+fn render(snapshot: &Snapshot, node: &NodeRef<'_>) -> Option<String> {
     match node {
         NodeRef::Expr(expr) => render_expr(snapshot, expr),
         NodeRef::Pattern(pattern) => render_pattern(snapshot, pattern),

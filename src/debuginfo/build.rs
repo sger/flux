@@ -153,7 +153,7 @@ impl<'a> Builder<'a> {
 
     fn add_params(
         &mut self,
-        ctx: &DefCtx,
+        ctx: &DefCtx<'_>,
         params: &[CoreBinder],
         param_types: &[Option<CoreType>],
         span: Span,
@@ -166,7 +166,7 @@ impl<'a> Builder<'a> {
 
     fn add_var(
         &mut self,
-        ctx: &DefCtx,
+        ctx: &DefCtx<'_>,
         binder: &CoreBinder,
         ty: Option<&CoreType>,
         decl_span: Span,
@@ -193,7 +193,7 @@ impl<'a> Builder<'a> {
         });
     }
 
-    fn walk(&mut self, ctx: &DefCtx, expr: &CoreExpr) {
+    fn walk(&mut self, ctx: &DefCtx<'_>, expr: &CoreExpr) {
         match expr {
             CoreExpr::Var { .. } | CoreExpr::Lit(..) => {}
             CoreExpr::Lam { params, param_types, body, span, .. } => {
@@ -299,7 +299,7 @@ impl<'a> Builder<'a> {
         }
     }
 
-    fn walk_alt(&mut self, ctx: &DefCtx, alt: &CoreAlt) {
+    fn walk_alt(&mut self, ctx: &DefCtx<'_>, alt: &CoreAlt) {
         self.add_pattern_vars(ctx, &alt.pat, alt.span);
         if let Some(guard) = &alt.guard {
             self.walk(ctx, guard);
@@ -307,7 +307,7 @@ impl<'a> Builder<'a> {
         self.walk(ctx, &alt.rhs);
     }
 
-    fn add_pattern_vars(&mut self, ctx: &DefCtx, pat: &CorePat, span: Span) {
+    fn add_pattern_vars(&mut self, ctx: &DefCtx<'_>, pat: &CorePat, span: Span) {
         match pat {
             CorePat::Var(binder) => self.add_var(ctx, binder, None, span, VarKind::PatternBound),
             CorePat::Con { fields, .. } | CorePat::Tuple(fields) => {

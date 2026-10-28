@@ -202,7 +202,7 @@ fn collect_returns_in_expr(
 /// When `node` is an effect operation (a `perform` site, a `handle` arm, or the
 /// `effect` declaration), highlight every `perform` of that `(effect, op)` pair
 /// and every matching `handle` arm in the file.
-fn effect_op_highlights(snapshot: &Snapshot, node: &NodeRef) -> Option<Vec<DocumentHighlight>> {
+fn effect_op_highlights(snapshot: &Snapshot, node: &NodeRef<'_>) -> Option<Vec<DocumentHighlight>> {
     let (op, effect) = match node {
         NodeRef::PerformOpName { name, parent_effect, .. }
         | NodeRef::HandleArmOpName { name, parent_effect, .. }

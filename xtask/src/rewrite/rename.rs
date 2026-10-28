@@ -14,7 +14,7 @@ use super::lex::{Kind, Token, is_keyword};
 
 /// The fixture with the local binders of its functions, classes and
 /// instances renamed; `None` when none can be.
-pub fn rename(fixture: &Fixture) -> Option<String> {
+pub fn rename(fixture: &Fixture<'_>) -> Option<String> {
     let source = fixture.source;
     let excluded = excluded_names(fixture);
     let taken: HashSet<&str> =
