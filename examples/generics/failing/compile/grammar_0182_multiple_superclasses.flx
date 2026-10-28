@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E034
 
 // GAP — owner: proposal 0182 (grammar). Not scheduled in 0.0.7 or 0.0.8.
 // Measured 2026-09-11: error[E034] Missing Class Name.
@@ -24,7 +23,7 @@ class Tagged<a> {
     fn tag(x: a) -> String
 }
 
-class (Named<a>, Tagged<a>) => Both<a> {
+class (Named<a>, Tagged<a>) => Both<a> { //~ E034
     fn both(x: a) -> String
 }
 

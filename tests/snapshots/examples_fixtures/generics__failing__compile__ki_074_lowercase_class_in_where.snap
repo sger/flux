@@ -9,9 +9,9 @@ error[E034]: Missing Function Body
 
 This function body needs to start with `{`.
 
-  examples/generics/failing/compile/ki_074_lowercase_class_in_where.flx:25:26
+  examples/generics/failing/compile/ki_074_lowercase_class_in_where.flx:24:26
    |
-25 | fn twice<a>(x: a) -> Int where sz<a> {
+24 | fn twice<a>(x: a) -> Int where sz<a> {
    |                          ^^^^^
    |                          ----- This looks like the function body
 

@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E419
 
 // GAP — owner: KI-032, Medium, not tracked in the 0.0.7 or 0.0.8 lists.
 // Measured 2026-09-11: error[E419] Unresolved Effect Row.
@@ -22,7 +21,7 @@
 
 import Flow.List as L
 
-fn map_wrap(xs, f) { L.map(xs, f) }
+fn map_wrap(xs, f) { L.map(xs, f) } //~ E419
 
 fn main() with IO {
     print(map_wrap([1, 2], \n -> n * 2))

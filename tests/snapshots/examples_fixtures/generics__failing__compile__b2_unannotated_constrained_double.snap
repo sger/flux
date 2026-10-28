@@ -9,14 +9,14 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `double`.
 
-  examples/generics/failing/compile/b2_unannotated_constrained_double.flx:30:18
+  examples/generics/failing/compile/b2_unannotated_constrained_double.flx:29:18
    |
-26 | fn double(x) { x + x }
+25 | fn double(x) { x + x }
    | ------------ `double` expects `Int` as the 1st parameter
-27 | 
-28 | fn main() with IO {
-29 |     print(double(2))
-30 |     print(double(2.5))
+26 | 
+27 | fn main() with IO {
+28 |     print(double(2))
+29 |     print(double(2.5))
    |                  ^^^
    |                  --- this argument has type `Float`
 

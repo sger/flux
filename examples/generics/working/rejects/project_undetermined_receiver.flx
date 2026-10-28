@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E491
 
 // A projection whose receiver nothing ever determines — proposal 0185 stage 5.
 //
@@ -12,7 +11,7 @@
 // somewhere with a concrete tuple, as ../accepts/project_tuple_known_shape.flx
 // does.
 
-fn fst(p) { p.0 }
+fn fst(p) { p.0 } //~ E491
 
 fn main() with IO {
     print("fst is never called")

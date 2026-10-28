@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E492
 
 // Projecting past the end of a tuple — proposal 0185 stage 5.
 //
@@ -11,7 +10,7 @@
 //
 // This file is in working/ deliberately: the rejection is the feature.
 
-fn third(p) { p.2 }
+fn third(p) { p.2 } //~ E492
 
 fn main() with IO {
     print(third((1, 2)))

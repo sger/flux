@@ -9,15 +9,15 @@ error[E056]: Wrong Number Of Arguments
 
 The `describe` function takes 1 arguments, but 2 were provided.
 
-  examples/generics/working/rejects/constrained_call_wrong_arity.flx:21:11
+  examples/generics/working/rejects/constrained_call_wrong_arity.flx:20:11
    |
-16 | fn describe<a: Show>(x: a) -> String {
+15 | fn describe<a: Show>(x: a) -> String {
    | ------------------------------------ `describe` is defined with 1 parameters
-17 |     show(x)
-18 | }
-19 | 
-20 | fn main() with IO {
-21 |     print(describe(1, 2))
+16 |     show(x)
+17 | }
+18 | 
+19 | fn main() with IO {
+20 |     print(describe(1, 2))
    |           ^^^^^^^^^^^^^^
    |           -------------- 2 arguments provided here, expected 1
 
