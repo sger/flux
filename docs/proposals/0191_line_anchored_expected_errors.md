@@ -269,10 +269,33 @@ checking message text, because Flux's snapshots already do that.
    form and each mismatch.
 2. **New fixtures.** Fixtures added under `tests/parity/` and `examples/` use
    annotations. `tests/parity/CONVENTION.md` says so.
-3. **Existing fixtures, one folder per commit.** `--bless` writes the
-   annotations, the `expect-error:` line goes, and the snapshots are
-   re-blessed. Where a snapshot pins the rendered text, the
-   `parity-expected-stderr` block goes too.
+3. **Existing fixtures, one folder per commit.** `flux parity-check
+   <files> --annotate` writes the annotations, the `expect-error:` lines go,
+   and the snapshots are re-blessed. Where a snapshot shows exactly the same
+   diagnostics, the `parity-expected-stderr` block goes too; otherwise it
+   stays, with its line numbers refreshed.
+
+### Where the migration stands
+
+All of step 3 is done: 430 fixtures carry annotations. 14 keep
+`expect-error:`, each for a reason `--annotate` reports:
+
+- **The error is located in an imported module** (8): the three
+  `compiler_errors/adversarial/*/Main.flx`, `ki_076_operator_in_module`,
+  `MultiModuleErrorsMain`, `modules_all_files_broken/Main`,
+  `modules_many_errors/Main`, and
+  `189_contextual_boundary_unresolved_strict_e425`. See the first
+  unresolved question.
+- **The annotation would be read as code** (2):
+  `missing_string_interpolation_close` and
+  `125_string_interpolation_missing_close_brace` leave a string open at the
+  end of the line, so a trailing comment would become part of it.
+- **An error has no location** (1): `duplicate_instance` (KI-143).
+- **The fixture fails today** (2): `missing_module_closing_brace` reports
+  E024 where its block says E076, and
+  `uppercase_row_tail_after_named_effect`'s hint changed wording.
+- **Not a parity fixture** (1): `tests/flux/parse_error.flx`, run by
+  `flux --test`.
 
 ## Unresolved questions
 [unresolved-questions]: #unresolved-questions

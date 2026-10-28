@@ -61,7 +61,11 @@ f(1, 2, 3)         //~ E056 E300
   must report them all and may add more. A mismatch lists each missing and
   unexpected pair.
 - Only the fixture's own lines can be annotated. A fixture whose error is
-  located in a module it imports keeps `expect-error:`.
+  located in a module it imports keeps `expect-error:`, and so does one whose
+  error is on a line that leaves a string open, where a trailing comment
+  would become part of the program.
+- `flux parity-check <files> --annotate` moves a passing fixture from
+  `expect-error:` lines to annotations, or says why it can't.
 - A fixture uses one form or the other, never both.
 - `--bless` rewrites the annotations from what the ways report, when they all
   agree. It never adds or removes a line: a line that already has a comment is
