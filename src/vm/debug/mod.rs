@@ -28,7 +28,7 @@ use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub(crate) use inspect::display_name;
-pub use inspect::{FrameKind, HandlerView, Inspector, StackFrame, Variable};
+pub use inspect::{FrameKind, HANDLE_BODY, HandlerView, Inspector, StackFrame, Variable};
 pub use threads::{ThreadState, ThreadView};
 
 pub use values::ValueView;

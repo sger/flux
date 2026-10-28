@@ -1526,6 +1526,16 @@ impl<'a> FnLower<'a> {
     }
 
     /// Says what a debugger calls this function and where it is.
+    /// A lambda with no source position was made by the compiler, such as a
+    /// handle body's own frame, so the debugger hides it.
+    fn mark_compiler_made_lambda(&mut self) {
+        if self.scope.is_some_and(|span| span.start.line == 0)
+            && let Some(debug) = &mut self.func.debug
+        {
+            debug.artificial = true;
+        }
+    }
+
     fn place(&mut self, kind: LirFnKind, loc: LirLoc) {
         self.current_loc = loc;
         let (vars, inline_sites) = self
@@ -1954,6 +1964,7 @@ impl<'a> FnLower<'a> {
                         );
                         inner.place(LirFnKind::Lambda, self.current_loc);
                         inner.scope = self.lambda_span;
+                        inner.mark_compiler_made_lambda();
 
                         // Capture shared outer variables.
                         for &(binder_id, _) in &entry.outer_captures {
@@ -2130,6 +2141,7 @@ impl<'a> FnLower<'a> {
                     );
                     inner.place(LirFnKind::Lambda, self.current_loc);
                     inner.scope = self.lambda_span;
+                    inner.mark_compiler_made_lambda();
 
                     // Capture outer variables.
                     for &(binder_id, _outer_var) in &outer_captures {
@@ -2259,6 +2271,7 @@ impl<'a> FnLower<'a> {
                     );
                     inner.place(LirFnKind::Lambda, self.current_loc);
                     inner.scope = self.lambda_span;
+                    inner.mark_compiler_made_lambda();
 
                     // Map captured variables: create fresh LirVars inside the inner
                     // function, mark them as capture_vars (→ OpGetFree in emitter).
@@ -2528,6 +2541,7 @@ impl<'a> FnLower<'a> {
                     );
                     inner.place(LirFnKind::Lambda, self.current_loc);
                     inner.scope = self.lambda_span;
+                    inner.mark_compiler_made_lambda();
                     for &(binder_id, _) in &outer_captures {
                         let inner_var = inner.fresh_var();
                         inner.func.capture_vars.push(inner_var);
