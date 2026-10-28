@@ -90,19 +90,28 @@ fn normalize_relative_path_prefixes(s: &str) -> String {
         .replace(".\\src\\", "src\\")
 }
 
+/// Replaces the number after `var #` and `type variable #`: inference
+/// numbers its variables in order, so any change to the program or prelude
+/// shifts them.
 fn normalize_type_variable_ids(s: &str) -> String {
+    ["var #", "type variable #"]
+        .iter()
+        .fold(s.to_string(), |text, prefix| replace_number_after(&text, prefix))
+}
+
+fn replace_number_after(s: &str, prefix: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let mut rest = s;
 
-    while let Some(idx) = rest.find("var #") {
+    while let Some(idx) = rest.find(prefix) {
         result.push_str(&rest[..idx]);
-        let after = &rest[idx + "var #".len()..];
+        let after = &rest[idx + prefix.len()..];
         let digit_end = after.find(|c: char| !c.is_ascii_digit()).unwrap_or(after.len());
+        result.push_str(prefix);
         if digit_end == 0 {
-            result.push_str("var #");
             rest = after;
         } else {
-            result.push_str("var #N");
+            result.push('N');
             rest = &after[digit_end..];
         }
     }
@@ -521,6 +530,10 @@ b12(v3):
         assert_eq!(
             normalize("unresolved type variable (var #N)"),
             "unresolved type variable (var #N)"
+        );
+        assert_eq!(
+            normalize("still has unresolved type variable #10579 at"),
+            "still has unresolved type variable #N at"
         );
     }
 

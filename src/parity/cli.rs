@@ -365,10 +365,12 @@ fn bless_annotations(result: &ParityResult, allow: &[String]) -> bool {
 }
 
 /// The (line, code) pairs the non-strict ways report, sorted, when they agree
-/// and every error is located in the fixture.
+/// and every error is located in the fixture. A fixture that runs only strict
+/// ways (`// flags: --strict`) is read from those.
 fn reported_pairs(result: &ParityResult) -> Result<Vec<(usize, String)>, String> {
+    let all_strict = result.results.iter().all(|run| run.way.is_strict());
     let mut agreed: Option<Vec<(usize, String)>> = None;
-    for run in result.results.iter().filter(|run| !run.way.is_strict()) {
+    for run in result.results.iter().filter(|run| all_strict || !run.way.is_strict()) {
         let mut pairs = Vec::new();
         for error in diagnostic_locations(&run.normalized_stderr) {
             match (&error.path, error.line) {
