@@ -282,12 +282,22 @@ fn unify_fun_types(
         let p2_sub = p2.apply_type_subst(&subst);
         let s =
             unify_core(&p1_sub, &p2_sub, ctx_subst, span, fresh_row_var, skolems).map_err(|e| {
-                UnifyError::mismatch(
-                    e.expected,
-                    e.actual,
-                    e.span,
-                    UnifyErrorDetail::FunParamMismatch { index },
-                )
+                let detail = UnifyErrorDetail::FunParamMismatch { index };
+                if e.effect_row {
+                    // The rows alone, dressed as `() -> Unit with …`, would
+                    // misstate the parameter; report the whole parameter types.
+                    UnifyError {
+                        effect_row: true,
+                        ..UnifyError::mismatch(
+                            p1_sub.apply_type_subst(ctx_subst),
+                            p2_sub.apply_type_subst(ctx_subst),
+                            e.span,
+                            detail,
+                        )
+                    }
+                } else {
+                    UnifyError::mismatch(e.expected, e.actual, e.span, detail)
+                }
             })?;
         subst = subst.compose(&s);
     }

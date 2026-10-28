@@ -1,0 +1,27 @@
+---
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/row_effects/unsatisfied_row_subset_e422.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E422]: Effect Requirement Mismatch
+
+This call requires effects that are missing from the surrounding effect row: Clock.
+
+  examples/compiler_errors/row_effects/unsatisfied_row_subset_e422.flx:14:5
+   |
+14 |     run_needs_io_time(only_io)
+   |     ^^^^^^^^^^^^^^^^^
+   |     ----------------- this call needs effects that are not currently available
+
+   |     ----------------- this call to `run_needs_io_time` creates the effect obligation
+
+Note:
+  missing required effects: Clock
+  constraint source: effect-row checking for `run_needs_io_time`
+
+Help:
+  Add the missing effects to the enclosing function or handle them before this call.
+== stdout ==
+<not executed>

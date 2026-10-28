@@ -1,0 +1,41 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/198_effect_row_subset_unsatisfied_e422.flx
+// error[E422]: Effect Requirement Mismatch
+//
+// This call requires effects that are missing from the surrounding effect row: Clock.
+//
+//   examples/type_system/failing/198_effect_row_subset_unsatisfied_e422.flx:45:5
+//    |
+// 45 |     run_needs_console_clock(only_console)
+//    |     ^^^^^^^^^^^^^^^^^^^^^^^
+//    |     ----------------------- this call needs effects that are not currently available
+//
+//    |     ----------------------- this call to `run_needs_console_clock` creates the effect obligation
+//
+// Note:
+//   missing required effects: Clock
+//   constraint source: effect-row checking for `run_needs_console_clock`
+//
+// Help:
+//   Add the missing effects to the enclosing function or handle them before this call.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E422
+
+// E422: The callback's effect row is missing required effects.
+
+fn run_needs_console_clock(f: (() -> Int with Console, Clock)) -> Int with Console, Clock {
+    f()
+}
+
+fn only_console() -> Int with Console {
+    print("console")
+    1
+}
+
+fn main() with Console, Clock {
+    run_needs_console_clock(only_console)
+    None
+}

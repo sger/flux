@@ -219,7 +219,7 @@ fn example_effect_row_multivar_ok_103() {
 #[test]
 fn example_effect_row_invalid_subtract_reports_e421_195_ki140() {
     assert_example_error_instead_of_e300(
-        "examples/type_system/failing/195_effect_row_invalid_subtract_e300.flx",
+        "examples/type_system/failing/195_effect_row_invalid_subtract_e421.flx",
         "E421",
     );
 }
@@ -248,7 +248,7 @@ fn example_effect_row_unresolved_multi_e304_197() {
 #[test]
 fn example_effect_row_subset_unsatisfied_reports_e422_198_ki140() {
     assert_example_error_instead_of_e300(
-        "examples/type_system/failing/198_effect_row_subset_unsatisfied_e300.flx",
+        "examples/type_system/failing/198_effect_row_subset_unsatisfied_e422.flx",
         "E422",
     );
 }
@@ -256,7 +256,7 @@ fn example_effect_row_subset_unsatisfied_reports_e422_198_ki140() {
 #[test]
 fn example_effect_row_subset_sorted_reports_e422_199_ki140() {
     assert_example_error_instead_of_e300(
-        "examples/type_system/failing/199_effect_row_subset_ordered_missing_e300.flx",
+        "examples/type_system/failing/199_effect_row_subset_ordered_missing_e422.flx",
         "E422",
     );
 }

@@ -1,0 +1,46 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// parity-expected-stderr-begin
+// • 1 error • examples/type_system/failing/195_effect_row_invalid_subtract_e421.flx
+// error[E421]: Effect Requirement Mismatch
+//
+// I cannot subtract effect `Console` from this effect row.
+//
+//   examples/type_system/failing/195_effect_row_invalid_subtract_e421.flx:50:5
+//    |
+// 50 |     run_filtered(io_console_work)
+//    |     ^^^^^^^^^^^^
+//    |     ------------ this call violates an effect-row subtraction constraint
+//
+//    |     ------------ this call to `run_filtered` creates the effect obligation
+//
+// Note:
+//   requested subtraction: Console
+//   constraint source: effect-row checking for `run_filtered`
+//
+// Help:
+//   Handle or include this effect before subtracting it from an effect row.
+// parity-expected-stderr-end
+// expect: compile_error
+// expect-error: E421
+
+// E421: Concrete subtraction fails when the removed effect is present.
+
+effect Console {
+    print: String -> ()
+}
+
+fn run_filtered(f: (() -> Int with IO - Console)) -> Int with IO - Console {
+    f()
+}
+
+fn io_console_work() -> Int with IO, Console {
+    perform Console.print("console")
+    print("io")
+    1
+}
+
+fn main() with IO, Console {
+    run_filtered(io_console_work)
+    None
+}

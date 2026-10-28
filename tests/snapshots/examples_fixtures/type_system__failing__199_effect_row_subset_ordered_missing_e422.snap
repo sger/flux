@@ -1,0 +1,27 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/199_effect_row_subset_ordered_missing_e422.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E422]: Effect Requirement Mismatch
+
+This call requires effects that are missing from the surrounding effect row: Clock, Console, Env, FileSystem, Process, Stdin.
+
+  examples/type_system/failing/199_effect_row_subset_ordered_missing_e422.flx:38:5
+   |
+38 |     run_needs_io_time(pure_worker)
+   |     ^^^^^^^^^^^^^^^^^
+   |     ----------------- this call needs effects that are not currently available
+
+   |     ----------------- this call to `run_needs_io_time` creates the effect obligation
+
+Note:
+  missing required effects: Clock, Console, Env, FileSystem, Process, Stdin
+  constraint source: effect-row checking for `run_needs_io_time`
+
+Help:
+  Add the missing effects to the enclosing function or handle them before this call.
+== stdout ==
+<not executed>

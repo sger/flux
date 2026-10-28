@@ -3,7 +3,7 @@ use std::hash::{Hash, Hasher};
 use crate::{
     ast::type_infer::constraint::Constraint,
     diagnostics::{
-        Hint, match_arm_type_mismatch,
+        DiagnosticPhase, Hint, match_arm_type_mismatch,
         quality::{TypeOriginNote, with_type_origin_notes},
     },
     types::unify_error::UnifyError,
@@ -405,6 +405,11 @@ impl<'a> InferCtx<'a> {
                     let mut diagnostic =
                         self.build_diagnostic_for_report_context(&context, &error, span);
                     self.append_type_name_suggestions(&mut diagnostic, &error);
+                    // An effect error found by unification: it must not hide
+                    // the effect-row check, which can name the exact problem.
+                    if error.effect_row {
+                        diagnostic.set_phase(DiagnosticPhase::Effect);
+                    }
                     self.errors.push(diagnostic);
                 }
                 // R13: recover with the expected type (t1) when it is already

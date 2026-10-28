@@ -166,12 +166,11 @@ fn effect_row_absent_ordering_linked_ok_fixture_compiles() {
     compile_ok_in("examples/type_system/104_effect_row_absent_ordering_linked_ok.flx", source);
 }
 
-// The CLI hides this E421 behind an earlier E300 (KI-140). This checks that
-// the type checker still finds it.
+// The effect-row check names the subtraction at fault (KI-140).
 #[test]
 fn effect_row_invalid_subtract_reports_e421() {
     let source = include_str!(
-        "../../../examples/type_system/failing/195_effect_row_invalid_subtract_e300.flx"
+        "../../../examples/type_system/failing/195_effect_row_invalid_subtract_e421.flx"
     );
     let rendered = compile_err_rendered(source);
     assert!(
@@ -250,7 +249,7 @@ fn effect_row_unresolved_multi_subtract_reports_e420() {
 #[test]
 fn effect_row_subset_unsatisfied_reports_e422() {
     let source = include_str!(
-        "../../../examples/type_system/failing/198_effect_row_subset_unsatisfied_e300.flx"
+        "../../../examples/type_system/failing/198_effect_row_subset_unsatisfied_e422.flx"
     );
     let rendered = compile_err_rendered(source);
     assert!(
@@ -278,7 +277,7 @@ fn effect_row_subset_unsatisfied_reports_e422() {
 #[test]
 fn effect_row_subset_missing_list_is_sorted() {
     let source = include_str!(
-        "../../../examples/type_system/failing/199_effect_row_subset_ordered_missing_e300.flx"
+        "../../../examples/type_system/failing/199_effect_row_subset_ordered_missing_e422.flx"
     );
     let rendered = compile_err_rendered(source);
     assert!(

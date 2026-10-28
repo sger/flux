@@ -10,17 +10,17 @@
 //    |
 // 54 |     each([1, 2, 3], noisy_log)
 //    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
-//    |     -------------------------- parameter 2 has type `() -> Unit with Console, FileSystem, Stdin, Env, Process`
+//    |     -------------------------- parameter 2 has type `(Int) -> Unit with Console, FileSystem, Stdin, Env, Process`
 //
 //    |     -------------------------- this type mismatch is reported here
 //
 // Note:
-//   expected parameter type: () -> Unit
-//   found parameter type: () -> Unit with Console, FileSystem, Stdin, Env, Process
+//   expected parameter type: (Int) -> Unit
+//   found parameter type: (Int) -> Unit with Console, FileSystem, Stdin, Env, Process
 //   the conflicting types meet at this expression
 //
 // Help:
-//   Change parameter 2 to use `() -> Unit` consistently.
+//   Change parameter 2 to use `(Int) -> Unit` consistently.
 //
 //
 // error[E400]: Missing Effect
