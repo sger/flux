@@ -34,7 +34,6 @@ native = { max-threads = 4 }
 filter = '''
 binary(/native|^llvm_/)
 | binary(=safe_arithmetic_tests)
-| binary(=effect_runtime_parity_tests)
 | binary(=effect_multi_shot_tests)
 | binary(=parity_debug_tests)
 | binary(=debug_info_tests)

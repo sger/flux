@@ -343,10 +343,12 @@ pub struct Selection {
 impl Selection {
     fn add_phase(&mut self, repo: &Repo, phase: Phase) {
         match phase {
-            // These cut across every directory.
+            // These cut across every directory. The effect handler fixtures
+            // run in the parity corpus.
             Phase::Effects => {
-                self.filters
-                    .insert("binary(/effect/) | test(/effect/)".to_string());
+                self.filters.insert(
+                    "binary(/effect/) | test(/effect/) | binary(=parity_corpus_tests)".to_string(),
+                );
             }
             Phase::Typeclasses => {
                 self.filters
@@ -398,12 +400,10 @@ impl Selection {
             let top = rel.split('/').next().unwrap_or(rel);
             let mut sources = repo.sources_mentioning(&format!("\"{stem}"));
             sources.extend(repo.sources_mentioning(&format!("/{stem}")));
-            // parity-check isn't part of the nextest tiers.
+            // The corpus test runs every fixture in tests/parity without
+            // naming any of them.
             if sources.is_empty() && top == "parity" {
-                self.notes.push(format!(
-                    "{path} runs only under parity-check: cargo run -- parity-check {path}"
-                ));
-                return;
+                sources.insert(PARITY_CORPUS.to_string());
             }
             let mut dir = Path::new(rel).parent();
             while sources.is_empty()
@@ -605,6 +605,9 @@ fn snake_case(name: &str) -> String {
     out
 }
 
+/// The test that runs every `tests/parity` fixture.
+const PARITY_CORPUS: &str = "tests/native_llvm/parity_corpus_tests.rs";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -628,8 +631,12 @@ mod tests {
                     "tests/examples/examples_fixtures_snapshots.rs",
                 ),
                 (
-                    "effect_runtime_parity_tests",
-                    "tests/native_llvm/effect_runtime_parity_tests.rs",
+                    "effect_multi_shot_tests",
+                    "tests/native_llvm/effect_multi_shot_tests.rs",
+                ),
+                (
+                    "parity_corpus_tests",
+                    "tests/native_llvm/parity_corpus_tests.rs",
                 ),
                 ("aether_cli_snapshots", "tests/aether/cli_snapshots.rs"),
                 (
@@ -644,8 +651,8 @@ mod tests {
             members: owned(&[("flux-lsp", "crates/flux-lsp/"), ("xtask", "xtask/")]),
             sources: owned(&[
                 (
-                    "tests/native_llvm/effect_runtime_parity_tests.rs",
-                    r#"run("tests/parity/fs_async.flx")"#,
+                    "tests/native_llvm/effect_multi_shot_tests.rs",
+                    r#"const FIXTURE: &str = "effect_multi_shot.flx";"#,
                 ),
                 (
                     "tests/aether/cli_snapshots.rs",
@@ -684,9 +691,10 @@ mod tests {
                 "(package(flux) & kind(lib) & test(/^driver::run_program::backend::native::/))",
                 "(package(flux) & kind(lib) & test(/^lir::/))",
                 "(package(flux) & kind(lib) & test(/^llvm::/))",
-                "binary_id(=flux::effect_runtime_parity_tests)",
+                "binary_id(=flux::effect_multi_shot_tests)",
                 "binary_id(=flux::llvm_codegen)",
                 "binary_id(=flux::native_debug_tests)",
+                "binary_id(=flux::parity_corpus_tests)",
             ]
         );
     }
@@ -727,20 +735,22 @@ mod tests {
 
     #[test]
     fn a_parity_fixture_selects_the_test_that_names_it() {
-        let selection = select(&["tests/parity/fs_async.flx"]);
+        let selection = select(&["tests/parity/effect_multi_shot.flx"]);
         assert_eq!(
             filters(&selection),
-            ["binary_id(=flux::effect_runtime_parity_tests)"]
+            ["binary_id(=flux::effect_multi_shot_tests)"]
         );
         assert!(selection.all_features);
     }
 
     #[test]
-    fn a_parity_fixture_no_test_names_points_at_parity_check() {
+    fn a_parity_fixture_no_test_names_selects_the_corpus() {
         let selection = select(&["tests/parity/adt_either_match.flx"]);
-        assert!(selection.is_empty());
-        assert_eq!(selection.notes.len(), 1);
-        assert!(selection.notes[0].contains("parity-check tests/parity/adt_either_match.flx"));
+        assert_eq!(
+            filters(&selection),
+            ["binary_id(=flux::parity_corpus_tests)"]
+        );
+        assert!(selection.all_features);
     }
 
     #[test]
@@ -803,7 +813,10 @@ mod tests {
     fn an_unknown_phase_is_an_error() {
         assert!(select_for_phases(&repo(), &["typo".to_string()]).is_err());
         let selection = select_for_phases(&repo(), &["effects".to_string()]).unwrap();
-        assert_eq!(filters(&selection), ["binary(/effect/) | test(/effect/)"]);
+        assert_eq!(
+            filters(&selection),
+            ["binary(/effect/) | test(/effect/) | binary(=parity_corpus_tests)"]
+        );
     }
 
     #[test]

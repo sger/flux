@@ -4,7 +4,8 @@
 //! `flux parity-check tests/parity` checks them.
 //!
 //! Most of these fixtures have no Rust test of their own, so before this file
-//! only the release gate ran them.
+//! only the release gate ran them. The guide's type-system examples run the
+//! same way.
 
 #![cfg(feature = "llvm")]
 
@@ -20,14 +21,23 @@ use flux::parity::report::{DisplayFilter, print_result};
 const PARTS: usize = 8;
 
 fn corpus_part(part: usize) {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let files: Vec<PathBuf> = fixtures_in(&root.join("tests/parity"))
+    let files: Vec<PathBuf> = fixtures_in(&root().join("tests/parity"))
         .into_iter()
         .enumerate()
         .filter(|(index, _)| index % PARTS == part)
         .map(|(_, file)| file)
         .collect();
     assert!(!files.is_empty(), "no parity fixtures in part {part}");
+    check_all(&files, &format!("part {part}"));
+}
+
+fn root() -> &'static Path {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+}
+
+/// Checks `files`, failing with every fixture whose ways disagree.
+fn check_all(files: &[PathBuf], label: &str) {
+    let root = root();
 
     // CI runners have three cores; more builds there slow the timed tests
     // running beside these.
@@ -72,7 +82,7 @@ fn corpus_part(part: usize) {
     // checked nothing.
     assert!(
         passed.into_inner() > 0,
-        "no fixture in part {part} ran: all were skipped"
+        "no fixture in {label} ran: all were skipped"
     );
     assert!(
         failures.is_empty(),
@@ -80,6 +90,17 @@ fn corpus_part(part: usize) {
          cargo run --features llvm -- parity-check <file>\n{}",
         failures.join("\n")
     );
+}
+
+/// The guide's type-system chapter: its programs print the same natively.
+#[test]
+fn guide_type_system_examples_run_the_same_natively() {
+    let files = fixtures_in(&root().join("examples/guide_type_system"));
+    assert!(
+        !files.is_empty(),
+        "no examples in examples/guide_type_system"
+    );
+    check_all(&files, "examples/guide_type_system");
 }
 
 #[test]
