@@ -44,11 +44,7 @@ impl SymbolIndex {
                 && let Some(name) = interner.try_resolve(sym)
                 && !name.is_empty()
             {
-                let entry = Entry {
-                    name: name.to_string(),
-                    full_span,
-                    focus_span,
-                };
+                let entry = Entry { name: name.to_string(), full_span, focus_span };
                 by_id.insert(sym, entry.clone());
                 by_name.insert(name.to_string(), entry);
             }
@@ -80,60 +76,37 @@ fn top_level_definition(
     interner: &Interner,
 ) -> Option<(Identifier, FluxSpan, FluxSpan)> {
     let (sym, full_span, focus_start) = match stmt {
-        Statement::Let {
-            is_public,
-            name,
-            span,
-            ..
-        } => (*name, *span, decl_name_start(span.start, *is_public, "let")),
-        Statement::Function {
-            is_public,
-            name,
-            span,
-            ..
-        } => (*name, *span, decl_name_start(span.start, *is_public, "fn")),
+        Statement::Let { is_public, name, span, .. } => {
+            (*name, *span, decl_name_start(span.start, *is_public, "let"))
+        }
+        Statement::Function { is_public, name, span, .. } => {
+            (*name, *span, decl_name_start(span.start, *is_public, "fn"))
+        }
         Statement::Module { name, span, .. } => {
             // `module` has no `public` prefix in current grammar.
             (*name, *span, decl_name_start(span.start, false, "module"))
         }
-        Statement::Data {
-            is_public,
-            name,
-            span,
-            ..
-        } => (
-            *name,
-            *span,
-            decl_name_start(span.start, *is_public, "data"),
-        ),
+        Statement::Data { is_public, name, span, .. } => {
+            (*name, *span, decl_name_start(span.start, *is_public, "data"))
+        }
         Statement::EffectDecl { name, span, .. } => {
             (*name, *span, decl_name_start(span.start, false, "effect"))
         }
         Statement::EffectAlias { name, span, .. } => {
             (*name, *span, decl_name_start(span.start, false, "alias"))
         }
-        Statement::Class {
-            name,
-            span,
-            name_span,
-            ..
-        } => (*name, *span, name_span.start),
+        Statement::Class { name, span, name_span, .. } => (*name, *span, name_span.start),
         // `Statement::TypeAlias` comes from the `alias` keyword
         // (`alias Foo = Int`), not `type` — so skip 5 chars, not 4.
-        Statement::TypeAlias(alias) => (
-            alias.name,
-            alias.span,
-            decl_name_start(alias.span.start, false, "alias"),
-        ),
+        Statement::TypeAlias(alias) => {
+            (alias.name, alias.span, decl_name_start(alias.span.start, false, "alias"))
+        }
         _ => return None,
     };
     let name_len = interner.try_resolve(sym).map(str::len).unwrap_or(0);
     let focus_span = FluxSpan {
         start: focus_start,
-        end: FluxPosition {
-            line: focus_start.line,
-            column: focus_start.column + name_len,
-        },
+        end: FluxPosition { line: focus_start.line, column: focus_start.column + name_len },
     };
     Some((sym, full_span, focus_span))
 }
@@ -198,11 +171,7 @@ impl SymbolIndex {
                         && let Some(name) = interner.try_resolve(sym)
                         && !name.is_empty()
                     {
-                        let entry = Entry {
-                            name: name.to_string(),
-                            full_span,
-                            focus_span,
-                        };
+                        let entry = Entry { name: name.to_string(), full_span, focus_span };
                         idx.by_id.insert(sym, entry.clone());
                         idx.by_name.insert(name.to_string(), entry);
                     }

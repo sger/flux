@@ -23,18 +23,9 @@ fn list_index_in_bounds_native() {
     let (stdout, success) = run_native(FIXTURE);
     assert!(success, "native backend failed:\n{stdout}");
     // xs[0..4] on [1,2,3,4,5]
-    assert!(
-        stdout.contains("Some(1)"),
-        "expected Some(1), got:\n{stdout}"
-    );
-    assert!(
-        stdout.contains("Some(3)"),
-        "expected Some(3), got:\n{stdout}"
-    );
-    assert!(
-        stdout.contains("Some(5)"),
-        "expected Some(5), got:\n{stdout}"
-    );
+    assert!(stdout.contains("Some(1)"), "expected Some(1), got:\n{stdout}");
+    assert!(stdout.contains("Some(3)"), "expected Some(3), got:\n{stdout}");
+    assert!(stdout.contains("Some(5)"), "expected Some(5), got:\n{stdout}");
 }
 
 /// Out-of-bounds and negative indices return None on native.
@@ -44,10 +35,7 @@ fn list_index_out_of_bounds_native() {
     assert!(success, "native backend failed:\n{stdout}");
     // xs[5], xs[10], xs[-1] → None; ls[3] → None; one[1] → None
     let none_count = stdout.lines().filter(|l| l.trim() == "None").count();
-    assert_eq!(
-        none_count, 5,
-        "expected 5 None lines (out-of-bounds + negative), got:\n{stdout}"
-    );
+    assert_eq!(none_count, 5, "expected 5 None lines (out-of-bounds + negative), got:\n{stdout}");
 }
 
 /// `to_list` followed by indexed access works on native (the primary regression case).
@@ -55,18 +43,9 @@ fn list_index_out_of_bounds_native() {
 fn list_index_after_to_list_native() {
     let (stdout, success) = run_native(FIXTURE);
     assert!(success, "native backend failed:\n{stdout}");
-    assert!(
-        stdout.contains("Some(10)"),
-        "expected Some(10) from to_list result, got:\n{stdout}"
-    );
-    assert!(
-        stdout.contains("Some(20)"),
-        "expected Some(20) from to_list result, got:\n{stdout}"
-    );
-    assert!(
-        stdout.contains("Some(30)"),
-        "expected Some(30) from to_list result, got:\n{stdout}"
-    );
+    assert!(stdout.contains("Some(10)"), "expected Some(10) from to_list result, got:\n{stdout}");
+    assert!(stdout.contains("Some(20)"), "expected Some(20) from to_list result, got:\n{stdout}");
+    assert!(stdout.contains("Some(30)"), "expected Some(30) from to_list result, got:\n{stdout}");
 }
 
 /// VM and native backend produce identical output for all list index patterns.
@@ -80,8 +59,5 @@ fn list_index_vm_native_parity() {
     // Strip compilation progress lines ([N of M] ...) from native output.
     let native_lines: Vec<&str> = native_out.lines().filter(|l| !l.starts_with('[')).collect();
 
-    assert_eq!(
-        vm_lines, native_lines,
-        "VM and native output differ for list index fixture"
-    );
+    assert_eq!(vm_lines, native_lines, "VM and native output differ for list index fixture");
 }

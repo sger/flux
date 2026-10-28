@@ -34,10 +34,7 @@ fn main() with IO {
 }
 "#,
     );
-    assert!(
-        ok,
-        "stream fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(ok, "stream fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(stdout.contains("1"), "{stdout}");
     assert!(stdout.contains("2"), "{stdout}");
     assert!(stdout.contains("[|4, 5, 6|]"), "{stdout}");
@@ -63,10 +60,7 @@ fn main() with IO {
 }
 "#,
     );
-    assert!(
-        ok,
-        "stream fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(ok, "stream fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(stdout.contains("[|8, 10|]"), "{stdout}");
     assert!(stdout.contains("[|1, 2|]"), "{stdout}");
     assert!(stdout.contains("4"), "{stdout}");

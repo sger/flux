@@ -43,13 +43,11 @@ type EvidenceMap = HashMap<(Identifier, Identifier), CoreBinder>;
 fn shadow_effect_evidence(evidence: &EvidenceMap, effect: Identifier) -> EvidenceMap {
     evidence
         .iter()
-        .filter_map(|(key @ (entry_effect, _operation), binder)| {
-            if *entry_effect == effect {
-                None
-            } else {
-                Some((*key, *binder))
-            }
-        })
+        .filter_map(
+            |(key @ (entry_effect, _operation), binder)| {
+                if *entry_effect == effect { None } else { Some((*key, *binder)) }
+            },
+        )
         .collect()
 }
 
@@ -86,13 +84,7 @@ fn make_identity_lam(next_id: &mut u32, span: Span) -> CoreExpr {
 fn evidence_transform(expr: CoreExpr, next_id: &mut u32, evidence: &EvidenceMap) -> CoreExpr {
     match expr {
         // Handle: check if all handlers are tail-resumptive.
-        CoreExpr::Handle {
-            body,
-            effect,
-            parameter,
-            handlers,
-            span,
-        } => {
+        CoreExpr::Handle { body, effect, parameter, handlers, span } => {
             if is_core_handler_tail_resumptive(&handlers) {
                 // Build evidence bindings for each handler arm.
                 let mut new_evidence = evidence.clone();
@@ -137,15 +129,9 @@ fn evidence_transform(expr: CoreExpr, next_id: &mut u32, evidence: &EvidenceMap)
                     span,
                 };
 
-                ev_bindings
-                    .into_iter()
-                    .rev()
-                    .fold(handle_with_evidence, |acc, (binder, rhs)| CoreExpr::Let {
-                        var: binder,
-                        rhs: Box::new(rhs),
-                        body: Box::new(acc),
-                        span,
-                    })
+                ev_bindings.into_iter().rev().fold(handle_with_evidence, |acc, (binder, rhs)| {
+                    CoreExpr::Let { var: binder, rhs: Box::new(rhs), body: Box::new(acc), span }
+                })
             } else {
                 let body_evidence = shadow_effect_evidence(evidence, effect);
                 // Non-TR: recurse into body and handler bodies, but don't transform.
@@ -167,20 +153,13 @@ fn evidence_transform(expr: CoreExpr, next_id: &mut u32, evidence: &EvidenceMap)
         }
 
         // Perform: check if evidence is available for this effect+operation.
-        CoreExpr::Perform {
-            effect,
-            operation,
-            args,
-            span,
-        } => {
+        CoreExpr::Perform { effect, operation, args, span } => {
             if let Some(ev_binder) = evidence.get(&(effect, operation)) {
                 // Rewrite: Perform(effect, op, args) → App(ev_binder, [identity, args...])
                 let identity = make_identity_lam(next_id, span);
                 let mut call_args = vec![identity];
-                call_args.extend(
-                    args.into_iter()
-                        .map(|a| evidence_transform(a, next_id, evidence)),
-                );
+                call_args
+                    .extend(args.into_iter().map(|a| evidence_transform(a, next_id, evidence)));
                 CoreExpr::App {
                     func: Box::new(CoreExpr::bound_var(ev_binder, span)),
                     args: call_args,
@@ -203,13 +182,7 @@ fn evidence_transform(expr: CoreExpr, next_id: &mut u32, evidence: &EvidenceMap)
         // All other expressions: recurse into children.
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => expr,
 
-        CoreExpr::Lam {
-            params,
-            param_types,
-            result_ty,
-            body,
-            span,
-        } => CoreExpr::Lam {
+        CoreExpr::Lam { params, param_types, result_ty, body, span } => CoreExpr::Lam {
             params,
             param_types,
             result_ty,
@@ -219,41 +192,24 @@ fn evidence_transform(expr: CoreExpr, next_id: &mut u32, evidence: &EvidenceMap)
 
         CoreExpr::App { func, args, span } => CoreExpr::App {
             func: Box::new(evidence_transform(*func, next_id, evidence)),
-            args: args
-                .into_iter()
-                .map(|a| evidence_transform(a, next_id, evidence))
-                .collect(),
+            args: args.into_iter().map(|a| evidence_transform(a, next_id, evidence)).collect(),
             span,
         },
-        CoreExpr::Let {
-            var,
-            rhs,
-            body,
-            span,
-        } => CoreExpr::Let {
+        CoreExpr::Let { var, rhs, body, span } => CoreExpr::Let {
             var,
             rhs: Box::new(evidence_transform(*rhs, next_id, evidence)),
             body: Box::new(evidence_transform(*body, next_id, evidence)),
             span,
         },
 
-        CoreExpr::LetRec {
-            var,
-            rhs,
-            body,
-            span,
-        } => CoreExpr::LetRec {
+        CoreExpr::LetRec { var, rhs, body, span } => CoreExpr::LetRec {
             var,
             rhs: Box::new(evidence_transform(*rhs, next_id, evidence)),
             body: Box::new(evidence_transform(*body, next_id, evidence)),
             span,
         },
 
-        CoreExpr::LetRecGroup {
-            bindings,
-            body,
-            span,
-        } => CoreExpr::LetRecGroup {
+        CoreExpr::LetRecGroup { bindings, body, span } => CoreExpr::LetRecGroup {
             bindings: bindings
                 .into_iter()
                 .map(|(b, rhs)| (b, Box::new(evidence_transform(*rhs, next_id, evidence))))
@@ -262,12 +218,7 @@ fn evidence_transform(expr: CoreExpr, next_id: &mut u32, evidence: &EvidenceMap)
             span,
         },
 
-        CoreExpr::Case {
-            scrutinee,
-            alts,
-            join_ty,
-            span,
-        } => CoreExpr::Case {
+        CoreExpr::Case { scrutinee, alts, join_ty, span } => CoreExpr::Case {
             scrutinee: Box::new(evidence_transform(*scrutinee, next_id, evidence)),
             alts: alts
                 .into_iter()
@@ -283,19 +234,13 @@ fn evidence_transform(expr: CoreExpr, next_id: &mut u32, evidence: &EvidenceMap)
 
         CoreExpr::Con { tag, fields, span } => CoreExpr::Con {
             tag,
-            fields: fields
-                .into_iter()
-                .map(|f| evidence_transform(f, next_id, evidence))
-                .collect(),
+            fields: fields.into_iter().map(|f| evidence_transform(f, next_id, evidence)).collect(),
             span,
         },
 
         CoreExpr::PrimOp { op, args, span } => CoreExpr::PrimOp {
             op,
-            args: args
-                .into_iter()
-                .map(|a| evidence_transform(a, next_id, evidence))
-                .collect(),
+            args: args.into_iter().map(|a| evidence_transform(a, next_id, evidence)).collect(),
             span,
         },
 
@@ -304,21 +249,13 @@ fn evidence_transform(expr: CoreExpr, next_id: &mut u32, evidence: &EvidenceMap)
             span,
         },
 
-        CoreExpr::MemberAccess {
-            object,
-            member,
-            span,
-        } => CoreExpr::MemberAccess {
+        CoreExpr::MemberAccess { object, member, span } => CoreExpr::MemberAccess {
             object: Box::new(evidence_transform(*object, next_id, evidence)),
             member,
             span,
         },
 
-        CoreExpr::TupleField {
-            object,
-            index,
-            span,
-        } => CoreExpr::TupleField {
+        CoreExpr::TupleField { object, index, span } => CoreExpr::TupleField {
             object: Box::new(evidence_transform(*object, next_id, evidence)),
             index,
             span,

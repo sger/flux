@@ -70,10 +70,7 @@ fn native_legacy_opt_out_exits_nonzero_on_multi_shot() {
 #[test]
 fn native_default_prints_3_on_multi_shot() {
     let (out, ok) = run_native(FIXTURE);
-    assert!(
-        ok,
-        "native backend (default yield path) must handle multi-shot cleanly, got:\n{out}"
-    );
+    assert!(ok, "native backend (default yield path) must handle multi-shot cleanly, got:\n{out}");
     assert_eq!(
         final_output_line(&out),
         "\"3\"",

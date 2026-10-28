@@ -41,15 +41,9 @@ fn main() with IO, Time {
 }
 "#;
     let (stdout, stderr, success, _) = run_source(source, "timeout_fires");
-    assert!(
-        success,
-        "timeout program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "timeout program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
-    assert!(
-        stdout.contains("-1"),
-        "expected None (-1) in output:\nstdout:\n{stdout}"
-    );
+    assert!(stdout.contains("-1"), "expected None (-1) in output:\nstdout:\n{stdout}");
     // Timer must fire well before slow's 1000ms: ~50ms timer, against
     // ~1000ms on the non-firing path.
     assert!(
@@ -85,15 +79,9 @@ fn main() with IO, Time {
 }
 "#;
     let (stdout, stderr, success, _) = run_source(source, "timeout_succeeds");
-    assert!(
-        success,
-        "timeout program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "timeout program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
-    assert!(
-        stdout.contains("42"),
-        "expected Some(42) result in output:\nstdout:\n{stdout}"
-    );
+    assert!(stdout.contains("42"), "expected Some(42) result in output:\nstdout:\n{stdout}");
     // Body must wake parent before timeout fires (~50ms vs 1000ms).
     assert!(
         elapsed < Duration::from_millis(700),

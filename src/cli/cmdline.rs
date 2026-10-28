@@ -174,12 +174,7 @@ fn attach_program_args(command: CliCommand, program_args: Vec<String>) -> CliCom
         }
         // `flux run -- args` forwards to the package's entry point just as
         // `flux run file.flx -- args` does.
-        CliCommand::Package {
-            action,
-            flags,
-            bin,
-            program_args: claimed,
-        } => CliCommand::Package {
+        CliCommand::Package { action, flags, bin, program_args: claimed } => CliCommand::Package {
             action,
             flags,
             bin,
@@ -187,11 +182,7 @@ fn attach_program_args(command: CliCommand, program_args: Vec<String>) -> CliCom
             // command line; anything after `--` belongs to a program being
             // run, and these run none. Overwriting here would discard the
             // dependency they were asked to record.
-            program_args: if claimed.is_empty() {
-                program_args
-            } else {
-                claimed
-            },
+            program_args: if claimed.is_empty() { program_args } else { claimed },
         },
         other => other,
     }
@@ -199,9 +190,7 @@ fn attach_program_args(command: CliCommand, program_args: Vec<String>) -> CliCom
 
 /// Converts raw process arguments into an owned CLI buffer.
 fn collect_cli_args(args: impl IntoIterator<Item = OsString>) -> Vec<String> {
-    args.into_iter()
-        .map(|arg| arg.to_string_lossy().into_owned())
-        .collect()
+    args.into_iter().map(|arg| arg.to_string_lossy().into_owned()).collect()
 }
 
 /// Extracts grouped CLI flags, builds `DriverFlags`, and validates backend policy.
@@ -250,10 +239,7 @@ fn reject_unknown_flag_tokens(args: &[String]) -> Result<(), String> {
         "add",
         "remove",
     ];
-    if args
-        .get(1)
-        .is_some_and(|arg| OWN_FLAGS.contains(&arg.as_str()))
-    {
+    if args.get(1).is_some_and(|arg| OWN_FLAGS.contains(&arg.as_str())) {
         return Ok(());
     }
 
@@ -274,11 +260,7 @@ fn reject_unknown_flag_tokens(args: &[String]) -> Result<(), String> {
 
 /// Chooses the run mode from the parsed CLI execution flags.
 fn run_mode_from_flags(test_mode: bool) -> RunMode {
-    if test_mode {
-        RunMode::Tests
-    } else {
-        RunMode::Program
-    }
+    if test_mode { RunMode::Tests } else { RunMode::Program }
 }
 
 /// Parses the implicit `flux file.flx` form when the second argument is a source path.
@@ -320,11 +302,7 @@ fn parse_package_subcommand(
     args: &[String],
     flags: &DriverFlags,
 ) -> CliCommand {
-    let bin = args
-        .iter()
-        .position(|a| a == "--bin")
-        .and_then(|idx| args.get(idx + 1))
-        .cloned();
+    let bin = args.iter().position(|a| a == "--bin").and_then(|idx| args.get(idx + 1)).cloned();
     // `add`, `remove`, and `update` take their own arguments — the dependency
     // name and where it comes from, or the `-p` selection — which the package
     // manager parses. Every other package command's arguments are consumed
@@ -342,12 +320,7 @@ fn parse_package_subcommand(
     } else {
         Vec::new()
     };
-    CliCommand::Package {
-        action,
-        flags: flags.clone(),
-        bin,
-        program_args,
-    }
+    CliCommand::Package { action, flags: flags.clone(), bin, program_args }
 }
 
 /// Whether the arguments name a file, distinguishing `flux test` (the package
@@ -391,27 +364,15 @@ fn parse_subcommand(
         "add" => Ok(parse_package_subcommand(PackageAction::Add, args, flags)),
         "remove" => Ok(parse_package_subcommand(PackageAction::Remove, args, flags)),
         "update" => Ok(parse_package_subcommand(PackageAction::Update, args, flags)),
-        "publish" => Ok(parse_package_subcommand(
-            PackageAction::Publish,
-            args,
-            flags,
-        )),
-        "metadata" => Ok(parse_package_subcommand(
-            PackageAction::Metadata,
-            args,
-            flags,
-        )),
+        "publish" => Ok(parse_package_subcommand(PackageAction::Publish, args, flags)),
+        "metadata" => Ok(parse_package_subcommand(PackageAction::Metadata, args, flags)),
         "eval" => parse_eval_subcommand(args, flags),
-        "repl" => Ok(CliCommand::Repl {
-            flags: flags.clone(),
-        }),
-        "cache-info" => parse_flx_subcommand(
-            args,
-            flags,
-            2,
-            "Usage: flux cache-info <file.flx>",
-            |flags| CliCommand::CacheInfo { flags },
-        ),
+        "repl" => Ok(CliCommand::Repl { flags: flags.clone() }),
+        "cache-info" => {
+            parse_flx_subcommand(args, flags, 2, "Usage: flux cache-info <file.flx>", |flags| {
+                CliCommand::CacheInfo { flags }
+            })
+        }
         "module-cache-info" => parse_flx_subcommand(
             args,
             flags,
@@ -449,9 +410,7 @@ fn parse_subcommand(
             |flags| CliCommand::AnalyzeTailCalls { flags },
         ),
         "parity-check" => Ok(parity_check_command(args)),
-        "features" => Ok(CliCommand::Features {
-            raw_args: args[2..].to_vec(),
-        }),
+        "features" => Ok(CliCommand::Features { raw_args: args[2..].to_vec() }),
         other => Err(unknown_command(other)),
     }
 }
@@ -460,14 +419,7 @@ fn parse_subcommand(
 ///
 /// Keeping this small constructor separate makes the subcommand match easier to scan.
 fn run_command(flags: DriverFlags, path: String, mode: RunMode) -> CliCommand {
-    CliCommand::Run {
-        flags,
-        target: RunTarget {
-            path,
-            mode,
-            program_args: Vec::new(),
-        },
-    }
+    CliCommand::Run { flags, target: RunTarget { path, mode, program_args: Vec::new() } }
 }
 
 /// `flux debug <file.flx> [--script <commands>]`: runs the program on the
@@ -483,11 +435,7 @@ fn parse_debug_subcommand(
     if args.get(2).map(String::as_str) == Some("--lldb-script") {
         return Ok(CliCommand::LldbScript);
     }
-    let path = require_flx_arg(
-        args,
-        2,
-        "Usage: flux debug <file.flx> [--script <commands>]",
-    )?;
+    let path = require_flx_arg(args, 2, "Usage: flux debug <file.flx> [--script <commands>]")?;
     if flags.is_native_backend() {
         return Err("Error: flux debug runs the program on the VM; drop --native.".to_string());
     }
@@ -526,9 +474,7 @@ fn clean_command(mut flags: DriverFlags, args: &[String]) -> CliCommand {
 
 /// Builds the parity-check command from the remaining positional arguments.
 fn parity_check_command(args: &[String]) -> CliCommand {
-    CliCommand::ParityCheck {
-        raw_args: args[2..].to_vec(),
-    }
+    CliCommand::ParityCheck { raw_args: args[2..].to_vec() }
 }
 
 /// Returns an optional `.flx` positional argument at `index`.
@@ -583,10 +529,7 @@ fn parse_eval_subcommand(args: &[String], flags: &DriverFlags) -> Result<CliComm
     if expr.is_empty() {
         return Err("Usage: flux eval \"<expr>\"".to_string());
     }
-    Ok(CliCommand::Eval {
-        expr: expr.to_string(),
-        flags: flags.clone(),
-    })
+    Ok(CliCommand::Eval { expr: expr.to_string(), flags: flags.clone() })
 }
 
 /// Parses the `fmt` subcommand and returns the path/check-mode command variant.
@@ -619,21 +562,13 @@ fn require_fmt_path(args: &[String], check: bool) -> Result<String, String> {
 /// Returns the required `.flx` argument at `index` or a CLI-formatted error.
 fn require_flx_arg(args: &[String], index: usize, usage: &str) -> Result<String, String> {
     let path = args.get(index).ok_or_else(|| usage.to_string())?;
-    if is_flx_file(path) {
-        Ok(path.clone())
-    } else {
-        Err(expected_flx(path))
-    }
+    if is_flx_file(path) { Ok(path.clone()) } else { Err(expected_flx(path)) }
 }
 
 /// Returns the required `.flxi` argument at `index` or a CLI-formatted error.
 fn require_flxi_arg(args: &[String], index: usize, usage: &str) -> Result<String, String> {
     let path = args.get(index).ok_or_else(|| usage.to_string())?;
-    if path.ends_with(".flxi") {
-        Ok(path.clone())
-    } else {
-        Err(expected_flxi(path))
-    }
+    if path.ends_with(".flxi") { Ok(path.clone()) } else { Err(expected_flxi(path)) }
 }
 
 /// Returns whether the provided path uses the `.flx` source-file extension.
@@ -699,12 +634,8 @@ mod tests {
 
     #[test]
     fn rejects_dump_lir_without_native() {
-        let err = parse_args(cli(&[
-            "flux",
-            "examples/guide/arithmetic.flx",
-            "--dump-lir",
-        ]))
-        .unwrap_err();
+        let err =
+            parse_args(cli(&["flux", "examples/guide/arithmetic.flx", "--dump-lir"])).unwrap_err();
         #[cfg(feature = "llvm")]
         {
             assert!(err.contains("dump-lir"));
@@ -717,11 +648,7 @@ mod tests {
 
     #[test]
     fn emit_llvm_implies_native_backend() {
-        let command = parse_args(cli(&[
-            "flux",
-            "examples/guide/arithmetic.flx",
-            "--emit-llvm",
-        ]));
+        let command = parse_args(cli(&["flux", "examples/guide/arithmetic.flx", "--emit-llvm"]));
         #[cfg(feature = "llvm")]
         {
             let command = command.unwrap();
@@ -853,24 +780,16 @@ mod tests {
 
     #[test]
     fn rejects_removed_core_to_llvm_flag() {
-        let err = parse_args(cli(&[
-            "flux",
-            "examples/guide/arithmetic.flx",
-            "--core-to-llvm",
-        ]))
-        .unwrap_err();
+        let err = parse_args(cli(&["flux", "examples/guide/arithmetic.flx", "--core-to-llvm"]))
+            .unwrap_err();
 
         assert!(err.contains("--core-to-llvm"));
     }
 
     #[test]
     fn parses_native_test_run_path() {
-        let command = parse_args(cli(&[
-            "flux",
-            "examples/guide/arithmetic.flx",
-            "--native",
-            "--test",
-        ]));
+        let command =
+            parse_args(cli(&["flux", "examples/guide/arithmetic.flx", "--native", "--test"]));
 
         #[cfg(feature = "llvm")]
         {
@@ -894,11 +813,8 @@ mod tests {
 
     #[test]
     fn dump_lir_llvm_is_recognized_but_needs_backend_support() {
-        let command = parse_args(cli(&[
-            "flux",
-            "examples/guide/arithmetic.flx",
-            "--dump-lir-llvm",
-        ]));
+        let command =
+            parse_args(cli(&["flux", "examples/guide/arithmetic.flx", "--dump-lir-llvm"]));
 
         #[cfg(feature = "llvm")]
         {
@@ -915,11 +831,7 @@ mod tests {
 
     #[test]
     fn parses_emit_binary_as_native_path() {
-        let command = parse_args(cli(&[
-            "flux",
-            "examples/guide/arithmetic.flx",
-            "--emit-binary",
-        ]));
+        let command = parse_args(cli(&["flux", "examples/guide/arithmetic.flx", "--emit-binary"]));
 
         #[cfg(feature = "llvm")]
         {
@@ -1055,10 +967,8 @@ mod tests {
 
     #[test]
     fn clean_command_preserves_only_flux_input_paths() {
-        let command = clean_command(
-            base_flags(),
-            &["flux".into(), "clean".into(), "file.txt".into()],
-        );
+        let command =
+            clean_command(base_flags(), &["flux".into(), "clean".into(), "file.txt".into()]);
 
         match command {
             CliCommand::Clean { flags } => assert_eq!(flags.input.input_path, None),
@@ -1097,11 +1007,7 @@ mod tests {
     fn parses_package_commands_and_their_private_flags() {
         let publish = parse_args(cli(&["flux", "publish", "--dry-run"])).unwrap();
         match publish {
-            CliCommand::Package {
-                action,
-                program_args,
-                ..
-            } => {
+            CliCommand::Package { action, program_args, .. } => {
                 assert_eq!(action, PackageAction::Publish);
                 assert!(program_args.contains(&"--dry-run".to_string()));
             }
@@ -1148,14 +1054,8 @@ mod tests {
 
     #[test]
     fn parses_no_optimize_as_an_explicit_override() {
-        let command = parse_args(cli(&[
-            "flux",
-            "build",
-            "--profile",
-            "release",
-            "--no-optimize",
-        ]))
-        .unwrap();
+        let command =
+            parse_args(cli(&["flux", "build", "--profile", "release", "--no-optimize"])).unwrap();
         match command {
             CliCommand::Package { flags, .. } => {
                 assert_eq!(flags.profile.cli_optimize, Some(false));

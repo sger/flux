@@ -84,19 +84,9 @@ struct AdtConstructorTypeInfo {
 #[derive(Debug, Clone)]
 pub enum ReportContext {
     Plain,
-    IfBranch {
-        then_span: Span,
-        else_span: Span,
-    },
-    MatchArm {
-        first_span: Span,
-        arm_span: Span,
-        arm_index: usize,
-    },
-    CallArg {
-        fn_name: Option<String>,
-        fn_def_span: Option<Span>,
-    },
+    IfBranch { then_span: Span, else_span: Span },
+    MatchArm { first_span: Span, arm_span: Span, arm_index: usize },
+    CallArg { fn_name: Option<String>, fn_def_span: Option<Span> },
 }
 
 // ── Inference input specs ─────────────────────────────────────────────────────
@@ -472,16 +462,14 @@ impl<'a> InferCtx<'a> {
         origin: constraint::WantedClassConstraintOrigin,
     ) {
         let expr = self.current_expr;
-        self.class_constraints
-            .simple
-            .push(constraint::WantedClassConstraint {
-                class_name,
-                class_id,
-                type_args: type_args.clone(),
-                span,
-                expr,
-                origin,
-            });
+        self.class_constraints.simple.push(constraint::WantedClassConstraint {
+            class_name,
+            class_id,
+            type_args: type_args.clone(),
+            span,
+            expr,
+            origin,
+        });
         self.record_constraint(constraint::Constraint::Class {
             class_name,
             class_id,
@@ -504,16 +492,14 @@ impl<'a> InferCtx<'a> {
         let expr = self.current_expr;
         for constraint in constraints {
             let type_args = constraint.type_args.clone();
-            self.class_constraints
-                .simple
-                .push(constraint::WantedClassConstraint {
-                    class_name: constraint.class_name,
-                    class_id: constraint.class_id,
-                    type_args: type_args.clone(),
-                    span,
-                    expr,
-                    origin: constraint::WantedClassConstraintOrigin::SchemeUse,
-                });
+            self.class_constraints.simple.push(constraint::WantedClassConstraint {
+                class_name: constraint.class_name,
+                class_id: constraint.class_id,
+                type_args: type_args.clone(),
+                span,
+                expr,
+                origin: constraint::WantedClassConstraintOrigin::SchemeUse,
+            });
             self.record_constraint(constraint::Constraint::Class {
                 class_name: constraint.class_name,
                 class_id: constraint.class_id,
@@ -551,8 +537,7 @@ impl<'a> InferCtx<'a> {
         if !finalized.default_subst.is_empty() {
             self.subst = std::mem::take(&mut self.subst).compose(&finalized.default_subst);
         }
-        self.errors
-            .extend(std::mem::take(&mut finalized.diagnostics));
+        self.errors.extend(std::mem::take(&mut finalized.diagnostics));
 
         finalized.into_scheme()
     }
@@ -587,11 +572,8 @@ impl<'a> InferCtx<'a> {
             if constraint.type_args.len() < 2 {
                 continue;
             }
-            let args: Vec<InferType> = constraint
-                .type_args
-                .iter()
-                .map(|arg| arg.apply_type_subst(&self.subst))
-                .collect();
+            let args: Vec<InferType> =
+                constraint.type_args.iter().map(|arg| arg.apply_type_subst(&self.subst)).collect();
             let known: Vec<Option<InferType>> = args
                 .iter()
                 .map(|arg| match arg {
@@ -616,10 +598,8 @@ impl<'a> InferCtx<'a> {
             for head in &instance.type_args {
                 collect_head_type_variables(head, self.interner, &mut head_vars);
             }
-            let head_vars: HashMap<Identifier, TypeVarId> = head_vars
-                .into_keys()
-                .map(|name| (name, self.env.alloc_type_var_id()))
-                .collect();
+            let head_vars: HashMap<Identifier, TypeVarId> =
+                head_vars.into_keys().map(|name| (name, self.env.alloc_type_var_id())).collect();
             for ((arg, known), head) in args.iter().zip(&known).zip(&instance.type_args) {
                 if known.is_some() {
                     continue;
@@ -684,18 +664,14 @@ impl<'a> InferCtx<'a> {
         // exists to remove, not because a program was observed to miscompile.
         let quantified: Vec<TypeVarId> = finalized.forall.clone();
 
-        self.class_constraints
-            .implications
-            .push(constraint::Implication {
-                givens: finalized.scheme_constraints.clone(),
-                quantified,
-                wanted: scope,
-                span: spec.span,
-                binder: spec.binder,
-                definition: spec
-                    .definition
-                    .expect("only a function definition closes an implication"),
-            });
+        self.class_constraints.implications.push(constraint::Implication {
+            givens: finalized.scheme_constraints.clone(),
+            quantified,
+            wanted: scope,
+            span: spec.span,
+            binder: spec.binder,
+            definition: spec.definition.expect("only a function definition closes an implication"),
+        });
     }
 
     /// Mark a type variable as rigid (skolem) for the duration of a checked
@@ -926,11 +902,8 @@ fn resolve_binding_schemes(
         .visible_bindings()
         .map(|(name, scheme)| {
             let resolved_type = scheme.infer_type.apply_type_subst(subst);
-            let mut forall: Vec<TypeVarId> = resolved_type
-                .free_vars()
-                .into_iter()
-                .filter(|v| !expanded.contains(v))
-                .collect();
+            let mut forall: Vec<TypeVarId> =
+                resolved_type.free_vars().into_iter().filter(|v| !expanded.contains(v)).collect();
             forall.sort_unstable();
             forall.dedup();
             (
@@ -1175,14 +1148,7 @@ fn resolve_module_member_schemes(
             let mut forall = resolved_type.free_vars().into_iter().collect::<Vec<_>>();
             forall.sort_unstable();
             forall.dedup();
-            (
-                key,
-                Scheme {
-                    forall,
-                    constraints: scheme.constraints,
-                    infer_type: resolved_type,
-                },
-            )
+            (key, Scheme { forall, constraints: scheme.constraints, infer_type: resolved_type })
         })
         .collect()
 }
@@ -1205,14 +1171,7 @@ fn resolve_binding_schemes_by_span(
                 .collect::<Vec<_>>();
             forall.sort_unstable();
             forall.dedup();
-            (
-                span,
-                Scheme {
-                    forall,
-                    constraints: scheme.constraints,
-                    infer_type: resolved_type,
-                },
-            )
+            (span, Scheme { forall, constraints: scheme.constraints, infer_type: resolved_type })
         })
         .collect()
 }
@@ -1222,10 +1181,7 @@ fn resolve_expr_types(
     expr_types: HashMap<ExprId, InferType>,
     subst: &TypeSubst,
 ) -> HashMap<ExprId, InferType> {
-    expr_types
-        .into_iter()
-        .map(|(id, ty)| (id, ty.apply_type_subst(subst)))
-        .collect()
+    expr_types.into_iter().map(|(id, ty)| (id, ty.apply_type_subst(subst))).collect()
 }
 
 /// Apply the final substitution to accumulated class constraints, dropping
@@ -1245,19 +1201,12 @@ fn resolve_class_constraints(
 /// discharging the obligation it exists to discharge.
 fn apply_subst_to_wanted(wanted: &mut constraint::WantedConstraints, subst: &TypeSubst) {
     for constraint in &mut wanted.simple {
-        constraint.type_args = constraint
-            .type_args
-            .iter()
-            .map(|t| t.apply_type_subst(subst))
-            .collect();
+        constraint.type_args =
+            constraint.type_args.iter().map(|t| t.apply_type_subst(subst)).collect();
     }
     for implication in &mut wanted.implications {
         for given in &mut implication.givens {
-            given.type_args = given
-                .type_args
-                .iter()
-                .map(|t| t.apply_type_subst(subst))
-                .collect();
+            given.type_args = given.type_args.iter().map(|t| t.apply_type_subst(subst)).collect();
         }
         apply_subst_to_wanted(&mut implication.wanted, subst);
     }
@@ -1265,12 +1214,7 @@ fn apply_subst_to_wanted(wanted: &mut constraint::WantedConstraints, subst: &Typ
 
 /// Convert a statement span into a stable hashable key for binding-scheme lookup.
 pub(crate) fn binding_span_key(span: Span) -> BindingSpanKey {
-    (
-        span.start.line,
-        span.start.column,
-        span.end.line,
-        span.end.column,
-    )
+    (span.start.line, span.start.column, span.end.line, span.end.column)
 }
 
 /// Initialize the class environment and pre-resolve well-known class name
@@ -1387,11 +1331,7 @@ fn collect_head_type_variables(
     match head {
         TypeExpr::Named { name, args, .. } => {
             if args.is_empty()
-                && interner
-                    .resolve(*name)
-                    .chars()
-                    .next()
-                    .is_some_and(char::is_lowercase)
+                && interner.resolve(*name).chars().next().is_some_and(char::is_lowercase)
             {
                 out.insert(*name, ());
             }

@@ -16,9 +16,7 @@ fn run_source(source: String) -> (String, String, bool) {
         .get_or_init(|| Mutex::new(()))
         .lock()
         .expect("native HTTP test lock poisoned");
-    let ran = flux_source(&source, "native_http_server_tests")
-        .native()
-        .run();
+    let ran = flux_source(&source, "native_http_server_tests").native().run();
     (ran.stdout, ran.stderr, ran.success)
 }
 
@@ -102,10 +100,7 @@ fn handler(req) with Async {
 "#,
     );
     let (stdout, stderr, success) = run_source(source);
-    assert!(
-        success,
-        "native HTTP fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "native HTTP fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(stdout.contains("HTTP/1.1 200 OK"), "{stdout}");
     assert!(stdout.contains("/hello:"), "{stdout}");
 }
@@ -126,10 +121,7 @@ fn handler(req) with Async {
 "#,
     );
     let (stdout, stderr, success) = run_source(source);
-    assert!(
-        success,
-        "native HTTP fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "native HTTP fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert_eq!(stdout.matches("HTTP/1.1 200 OK").count(), 2, "{stdout}");
     assert!(stdout.contains("/one"), "{stdout}");
     assert!(stdout.contains("/two"), "{stdout}");
@@ -189,10 +181,7 @@ fn main() with IO {{
 "#
     );
     let (stdout, stderr, success) = run_source(source);
-    assert!(
-        success,
-        "native repeated HTTP fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "native repeated HTTP fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(stdout.contains("ok"), "{stdout}");
 }
 
@@ -212,10 +201,7 @@ fn handler(req) with Async {
 "#,
     );
     let (stdout, stderr, success) = run_source(source);
-    assert!(
-        success,
-        "native HTTP fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "native HTTP fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(stdout.contains("HTTP/1.1 400 Bad Request"), "{stdout}");
     assert!(!stdout.contains("unexpected"), "{stdout}");
 }
@@ -236,14 +222,8 @@ fn handler(req) with Async {
 "#,
     );
     let (stdout, stderr, success) = run_source(source);
-    assert!(
-        success,
-        "native HTTP fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
-    assert!(
-        stdout.contains("HTTP/1.1 413 Payload Too Large"),
-        "{stdout}"
-    );
+    assert!(success, "native HTTP fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
+    assert!(stdout.contains("HTTP/1.1 413 Payload Too Large"), "{stdout}");
     assert!(!stdout.contains("unexpected"), "{stdout}");
 }
 
@@ -263,14 +243,8 @@ fn handler(req) with Async {
 "#,
     );
     let (stdout, stderr, success) = run_source(source);
-    assert!(
-        success,
-        "native HTTP fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
-    assert!(
-        stdout.contains("HTTP/1.1 413 Payload Too Large"),
-        "{stdout}"
-    );
+    assert!(success, "native HTTP fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
+    assert!(stdout.contains("HTTP/1.1 413 Payload Too Large"), "{stdout}");
     assert!(!stdout.contains("unexpected"), "{stdout}");
 }
 
@@ -291,10 +265,7 @@ fn handler(req) with Async {
 "#,
     );
     let (stdout, stderr, success) = run_source(source);
-    assert!(
-        success,
-        "native HTTP fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "native HTTP fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(stdout.contains("HTTP/1.1 504 Gateway Timeout"), "{stdout}");
     assert!(!stdout.contains("too-late"), "{stdout}");
 }
@@ -332,10 +303,7 @@ fn body() -> String with Async, AsyncFail {{
 "#
     ));
     let (stdout, stderr, success) = run_source(source);
-    assert!(
-        success,
-        "native HTTP fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "native HTTP fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(stdout.contains("HTTP/1.1 200 OK"), "{stdout}");
     assert!(stdout.contains("drained"), "{stdout}");
 }
@@ -377,10 +345,7 @@ fn body() -> String with Async, AsyncFail {{
 "#
     ));
     let (stdout, stderr, success) = run_source(source);
-    assert!(
-        success,
-        "native HTTP fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "native HTTP fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(stdout.contains("closed"), "{stdout}");
     assert!(!stdout.contains("too-late"), "{stdout}");
 }
@@ -416,10 +381,7 @@ fn body() -> String with Async, AsyncFail {{
 "#
     ));
     let (stdout, stderr, success) = run_source(source);
-    assert!(
-        success,
-        "native streaming fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "native streaming fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(stdout.contains("HTTP/1.1 200 OK"), "{stdout}");
     assert!(stdout.contains("Transfer-Encoding: chunked"), "{stdout}");
     assert!(stdout.contains("5\nhello\n"), "{stdout}");
@@ -458,14 +420,8 @@ fn body() -> String with Async, AsyncFail {{
 "#
     ));
     let (stdout, stderr, success) = run_source(source);
-    assert!(
-        success,
-        "native SSE fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
-    assert!(
-        stdout.contains("Content-Type: text/event-stream"),
-        "{stdout}"
-    );
+    assert!(success, "native SSE fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
+    assert!(stdout.contains("Content-Type: text/event-stream"), "{stdout}");
     assert!(stdout.contains("Cache-Control: no-cache"), "{stdout}");
     assert!(stdout.contains("data: one\n\n"), "{stdout}");
     assert!(stdout.contains("event: tick\ndata: two\n\n"), "{stdout}");

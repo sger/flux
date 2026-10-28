@@ -53,11 +53,7 @@ fn run_flux_source_native_with_timeout(
     tag: &str,
     timeout: Duration,
 ) -> (String, String, bool) {
-    let ran = flux_source(source, tag)
-        .native()
-        .envs(&[WORKERS])
-        .timeout(timeout)
-        .run();
+    let ran = flux_source(source, tag).native().envs(&[WORKERS]).timeout(timeout).run();
     (ran.stdout, ran.stderr, ran.success)
 }
 
@@ -162,10 +158,7 @@ fn main() {
 fn flow_task_surface_compiles_and_passes() {
     let (stdout, success) = run_flux_test("flow_task_surface.flx");
     assert!(success, "Flow.Task surface tests must pass:\n{stdout}");
-    assert!(
-        stdout.contains("12 passed"),
-        "expected 12 passing tests, got:\n{stdout}"
-    );
+    assert!(stdout.contains("12 passed"), "expected 12 passing tests, got:\n{stdout}");
 }
 
 #[test]
@@ -284,10 +277,7 @@ fn main() { () }
 "#,
     );
 
-    assert!(
-        !success,
-        "Task.spawn must reject opaque TCP connection handles as non-Sendable"
-    );
+    assert!(!success, "Task.spawn must reject opaque TCP connection handles as non-Sendable");
     assert!(
         stderr.contains("E444") && stderr.contains("Sendable"),
         "expected E444 Sendable diagnostic, got:\n{stderr}"
@@ -462,10 +452,7 @@ fn main() {
 "#,
     );
 
-    assert!(
-        !success,
-        "manual Sendable instances must not allow unsafe Task.spawn captures"
-    );
+    assert!(!success, "manual Sendable instances must not allow unsafe Task.spawn captures");
     assert!(
         stderr.contains("E453") && stderr.contains("Sendable"),
         "expected sealed Sendable diagnostic, got:\n{stderr}"
@@ -485,10 +472,7 @@ fn main() {
 "#,
     );
 
-    assert!(
-        !success,
-        "Task.spawn must reject captured local function values"
-    );
+    assert!(!success, "Task.spawn must reject captured local function values");
     assert!(
         stderr.contains("E444")
             && stderr.contains("Task.spawn closure captures non-Sendable value")
@@ -545,10 +529,7 @@ fn flow_task_native_compiles_and_passes() {
     let (stdout, success) =
         flux_runner::run_flux_test_with("flow_task_native.flx", &["--native"], &[]);
     assert!(success, "native Task tests must pass:\n{stdout}");
-    assert!(
-        stdout.contains("8 passed"),
-        "expected 8 passing native tests, got:\n{stdout}"
-    );
+    assert!(stdout.contains("8 passed"), "expected 8 passing native tests, got:\n{stdout}");
 }
 
 #[test]

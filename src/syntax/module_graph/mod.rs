@@ -47,13 +47,10 @@ pub enum ModuleKind {
 }
 
 fn classify_module_kind(program: &Program, interner: &Interner) -> ModuleKind {
-    let module_name = program
-        .statements
-        .iter()
-        .find_map(|statement| match statement {
-            crate::syntax::statement::Statement::Module { name, .. } => Some(*name),
-            _ => None,
-        });
+    let module_name = program.statements.iter().find_map(|statement| match statement {
+        crate::syntax::statement::Statement::Module { name, .. } => Some(*name),
+        _ => None,
+    });
 
     match module_name.and_then(|name| interner.try_resolve(name)) {
         Some(name) if name.starts_with("Flow.") => ModuleKind::FlowStdlib,
@@ -198,11 +195,7 @@ impl ModuleGraph {
         };
 
         GraphBuildResult {
-            graph: Self {
-                entry: entry_id,
-                nodes,
-                order,
-            },
+            graph: Self { entry: entry_id, nodes, order },
             interner,
             diagnostics,
             failed_modules,
@@ -210,10 +203,7 @@ impl ModuleGraph {
     }
 
     pub fn topo_order(&self) -> Vec<&ModuleNode> {
-        self.order
-            .iter()
-            .filter_map(|id| self.nodes.get(id))
-            .collect()
+        self.order.iter().filter_map(|id| self.nodes.get(id)).collect()
     }
 
     pub fn entry_node(&self) -> Option<&ModuleNode> {
@@ -223,10 +213,8 @@ impl ModuleGraph {
     pub fn topo_levels(&self) -> Vec<Vec<&ModuleNode>> {
         let mut levels: HashMap<&ModuleId, usize> = HashMap::new();
         for module_id in &self.order {
-            let node = self
-                .nodes
-                .get(module_id)
-                .expect("topo order should reference known modules");
+            let node =
+                self.nodes.get(module_id).expect("topo order should reference known modules");
             let level = node
                 .imports
                 .iter()
@@ -239,13 +227,9 @@ impl ModuleGraph {
         let max_level = levels.values().copied().max().unwrap_or(0);
         let mut grouped: Vec<Vec<&ModuleNode>> = vec![Vec::new(); max_level + 1];
         for module_id in &self.order {
-            let level = *levels
-                .get(module_id)
-                .expect("topo level should exist for ordered module");
+            let level = *levels.get(module_id).expect("topo level should exist for ordered module");
             grouped[level].push(
-                self.nodes
-                    .get(module_id)
-                    .expect("topo order should reference known modules"),
+                self.nodes.get(module_id).expect("topo order should reference known modules"),
             );
         }
         for level in &mut grouped {

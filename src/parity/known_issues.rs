@@ -35,10 +35,7 @@ pub fn open_ids(text: &str) -> BTreeSet<String> {
 pub(crate) fn cited(text: &str) -> Vec<String> {
     text.match_indices("KI-")
         .filter_map(|(at, _)| {
-            let digits: String = text[at + 3..]
-                .chars()
-                .take_while(char::is_ascii_digit)
-                .collect();
+            let digits: String = text[at + 3..].chars().take_while(char::is_ascii_digit).collect();
             (!digits.is_empty()).then(|| format!("KI-{digits}"))
         })
         .collect()
@@ -48,14 +45,9 @@ pub(crate) fn cited(text: &str) -> Vec<String> {
 /// `open` does not hold. A reason that cites no KI is not checked here.
 #[must_use]
 pub fn stale_kis(meta: &FixtureMeta, open: &BTreeSet<String>) -> Vec<String> {
-    let reasons = meta
-        .skip
-        .iter()
-        .chain(meta.skip_ways.iter().map(|skip| &skip.reason));
-    let mut stale: Vec<String> = reasons
-        .flat_map(|reason| cited(reason))
-        .filter(|id| !open.contains(id))
-        .collect();
+    let reasons = meta.skip.iter().chain(meta.skip_ways.iter().map(|skip| &skip.reason));
+    let mut stale: Vec<String> =
+        reasons.flat_map(|reason| cited(reason)).filter(|id| !open.contains(id)).collect();
     stale.sort();
     stale.dedup();
     stale
@@ -94,21 +86,13 @@ See KI-011.
     #[test]
     fn a_skip_must_cite_an_open_ki() {
         let open = open_ids(DOC);
-        let mut meta = FixtureMeta {
-            skip: Some("support file".to_string()),
-            ..FixtureMeta::default()
-        };
-        meta.skip_ways.push(SkipWay {
-            way: Way::Llvm,
-            reason: "KI-102 leak".to_string(),
-        });
+        let mut meta =
+            FixtureMeta { skip: Some("support file".to_string()), ..FixtureMeta::default() };
+        meta.skip_ways.push(SkipWay { way: Way::Llvm, reason: "KI-102 leak".to_string() });
         assert!(stale_kis(&meta, &open).is_empty());
 
         meta.skip = Some("KI-038 was here".to_string());
-        meta.skip_ways.push(SkipWay {
-            way: Way::Vm,
-            reason: "KI-999 and KI-011".to_string(),
-        });
+        meta.skip_ways.push(SkipWay { way: Way::Vm, reason: "KI-999 and KI-011".to_string() });
         let stale = stale_kis(&meta, &open);
         assert_eq!(stale.len(), 3, "{stale:?}");
         assert!(stale[0].starts_with("`KI-011`"));

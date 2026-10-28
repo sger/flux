@@ -76,14 +76,8 @@ pub const HEADER: &str = "file\tway\texit\tclass\tcodes\tstdout\tms\tnote";
 
 impl Row {
     pub fn to_tsv(&self) -> String {
-        let exit = self
-            .exit_kind
-            .map(|kind| kind.to_string())
-            .unwrap_or_default();
-        let ms = self
-            .elapsed
-            .map(|elapsed| elapsed.as_millis().to_string())
-            .unwrap_or_default();
+        let exit = self.exit_kind.map(|kind| kind.to_string()).unwrap_or_default();
+        let ms = self.elapsed.map(|elapsed| elapsed.as_millis().to_string()).unwrap_or_default();
         format!(
             "{}\t{}\t{exit}\t{}\t{}\t{}\t{ms}\t{}",
             self.file,
@@ -174,12 +168,7 @@ fn codes_of(stderr: &str) -> Vec<String> {
 fn classify<'a>(checked: &Checked<'a>, way: Way) -> (Class, Option<&'a RunResult>, String) {
     let Checked { result, meta, .. } = checked;
     if !way_allowed(meta, way) {
-        let declared = meta
-            .ways
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join(", ");
+        let declared = meta.ways.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
         return (Class::NotRun, None, format!("parity: {declared}"));
     }
     if let Some(skip) = result.skipped_ways.iter().find(|skip| skip.way == way) {
@@ -215,21 +204,15 @@ fn classify_run(checked: &Checked<'_>, run: &RunResult) -> (Class, String) {
     };
     if let Some(expected) = expected_failure {
         let codes = codes_of(&run.stderr);
-        let missing: Vec<&String> = meta
-            .expected_errors
-            .iter()
-            .filter(|code| !codes.contains(code))
-            .collect();
+        let missing: Vec<&String> =
+            meta.expected_errors.iter().filter(|code| !codes.contains(code)).collect();
         return if run.exit_kind == expected && missing.is_empty() {
             (Class::ExpectedError, String::new())
         } else if run.exit_kind == expected {
             let missing = missing.iter().map(|c| c.as_str()).collect::<Vec<_>>();
             (Class::Wrong, format!("missing {}", missing.join(", ")))
         } else {
-            (
-                Class::Wrong,
-                format!("expected {expected}, got {}", run.exit_kind),
-            )
+            (Class::Wrong, format!("expected {expected}, got {}", run.exit_kind))
         };
     }
     match run.exit_kind {
@@ -256,21 +239,14 @@ fn classify_by_agreement(checked: &Checked<'_>, run: &RunResult) -> (Class, Stri
         .results
         .iter()
         .filter(|r| {
-            !matches!(
-                r.exit_kind,
-                ExitKind::Crash | ExitKind::Timeout | ExitKind::ToolFailure
-            )
+            !matches!(r.exit_kind, ExitKind::Crash | ExitKind::Timeout | ExitKind::ToolFailure)
         })
         .map(|r| (r.way, outcome(r)))
         .collect();
     let mine = outcome(run);
     let votes = |o: &(ExitKind, String)| voters.iter().filter(|(_, v)| v == o).count();
-    let best_other = voters
-        .iter()
-        .filter(|(_, v)| *v != mine)
-        .map(|(_, v)| votes(v))
-        .max()
-        .unwrap_or(0);
+    let best_other =
+        voters.iter().filter(|(_, v)| *v != mine).map(|(_, v)| votes(v)).max().unwrap_or(0);
     let others = || {
         voters
             .iter()
@@ -295,10 +271,7 @@ fn classify_by_agreement(checked: &Checked<'_>, run: &RunResult) -> (Class, Stri
 /// other successful runs.
 fn classify_output(checked: &Checked<'_>, run: &RunResult) -> (Class, String) {
     if checked.meta.stdout_varies {
-        return (
-            Class::Works,
-            "stdout varies: exit compared only".to_string(),
-        );
+        return (Class::Works, "stdout varies: exit compared only".to_string());
     }
     if let Some(expected) = &checked.meta.expected_stdout {
         return if run.normalized_stdout.trim() == expected.trim() {
@@ -313,12 +286,8 @@ fn classify_output(checked: &Checked<'_>, run: &RunResult) -> (Class, String) {
         .iter()
         .filter(|other| other.exit_kind == ExitKind::Success)
         .collect();
-    let agreeing = |stdout: &str| {
-        succeeded
-            .iter()
-            .filter(|other| other.normalized_stdout == stdout)
-            .count()
-    };
+    let agreeing =
+        |stdout: &str| succeeded.iter().filter(|other| other.normalized_stdout == stdout).count();
     let mine = agreeing(&run.normalized_stdout);
     let best_other = succeeded
         .iter()
@@ -344,12 +313,7 @@ fn classify_output(checked: &Checked<'_>, run: &RunResult) -> (Class, String) {
 /// The line that best says why a run failed: the first diagnostic or panic,
 /// else the first line that is not compiler progress.
 fn first_line(stderr: &str) -> String {
-    let lines = || {
-        stderr
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-    };
+    let lines = || stderr.lines().map(str::trim).filter(|line| !line.is_empty());
     let is_progress = |line: &str| line.starts_with('[') && !line.starts_with("[E");
     lines()
         .find(|line| line.contains("error[E") || line.contains("panicked"))
@@ -385,10 +349,7 @@ mod tests {
     fn result(results: Vec<RunResult>) -> ParityResult {
         ParityResult {
             file: PathBuf::from("examples/x.flx"),
-            elapsed: results
-                .iter()
-                .map(|r| (r.way, Duration::from_millis(5)))
-                .collect(),
+            elapsed: results.iter().map(|r| (r.way, Duration::from_millis(5))).collect(),
             results,
             artifacts: Vec::new(),
             verdict: Verdict::Pass,
@@ -398,15 +359,10 @@ mod tests {
     }
 
     fn classes(result: &ParityResult, meta: &FixtureMeta, has_main: bool) -> Vec<Class> {
-        rows(&Checked {
-            result,
-            meta,
-            ways: &WAYS,
-            has_main,
-        })
-        .into_iter()
-        .map(|row| row.class)
-        .collect()
+        rows(&Checked { result, meta, ways: &WAYS, has_main })
+            .into_iter()
+            .map(|row| row.class)
+            .collect()
     }
 
     #[test]
@@ -431,11 +387,7 @@ mod tests {
             run(Way::LlvmOpt, ExitKind::Success, "2", ""),
         ]);
         let meta = FixtureMeta::default();
-        assert!(
-            classes(&r, &meta, true)
-                .iter()
-                .all(|c| *c == Class::Disagree)
-        );
+        assert!(classes(&r, &meta, true).iter().all(|c| *c == Class::Disagree));
     }
 
     #[test]
@@ -446,10 +398,7 @@ mod tests {
             run(Way::VmOpt, ExitKind::Success, "1", ""),
             run(Way::LlvmOpt, ExitKind::Success, "2", ""),
         ]);
-        let meta = FixtureMeta {
-            expected_stdout: Some("2".to_string()),
-            ..Default::default()
-        };
+        let meta = FixtureMeta { expected_stdout: Some("2".to_string()), ..Default::default() };
         use Class::*;
         assert_eq!(classes(&r, &meta, true), [Wrong, Works, Wrong, Works]);
     }
@@ -459,27 +408,12 @@ mod tests {
         let r = result(vec![
             run(Way::Vm, ExitKind::Success, "", ""),
             run(Way::Llvm, ExitKind::CompileError, "", "error[E300]: no"),
-            run(
-                Way::VmOpt,
-                ExitKind::Crash,
-                "",
-                "thread 'main' panicked at x",
-            ),
-            run(
-                Way::LlvmOpt,
-                ExitKind::RuntimeError,
-                "",
-                "error[E1009]: panic",
-            ),
+            run(Way::VmOpt, ExitKind::Crash, "", "thread 'main' panicked at x"),
+            run(Way::LlvmOpt, ExitKind::RuntimeError, "", "error[E1009]: panic"),
         ]);
         let meta = FixtureMeta::default();
         use Class::*;
-        let rows = rows(&Checked {
-            result: &r,
-            meta: &meta,
-            ways: &WAYS,
-            has_main: true,
-        });
+        let rows = rows(&Checked { result: &r, meta: &meta, ways: &WAYS, has_main: true });
         let got: Vec<Class> = rows.iter().map(|row| row.class).collect();
         assert_eq!(got, [Works, Rejected, Crashed, Wrong]);
         assert_eq!(rows[1].codes, ["E300"]);
@@ -500,10 +434,7 @@ mod tests {
             ..Default::default()
         };
         use Class::*;
-        assert_eq!(
-            classes(&r, &meta, true),
-            [ExpectedError, Wrong, Wrong, Wrong]
-        );
+        assert_eq!(classes(&r, &meta, true), [ExpectedError, Wrong, Wrong, Wrong]);
     }
 
     #[test]
@@ -511,36 +442,17 @@ mod tests {
         let r = result(vec![
             run(Way::Vm, ExitKind::RuntimeError, "", "error[E1000]: arity"),
             run(Way::Llvm, ExitKind::Success, "", ""),
-            run(
-                Way::VmOpt,
-                ExitKind::RuntimeError,
-                "",
-                "error[E1000]: arity",
-            ),
-            run(
-                Way::LlvmOpt,
-                ExitKind::RuntimeError,
-                "",
-                "error[E1000]: arity",
-            ),
+            run(Way::VmOpt, ExitKind::RuntimeError, "", "error[E1000]: arity"),
+            run(Way::LlvmOpt, ExitKind::RuntimeError, "", "error[E1000]: arity"),
         ]);
-        let meta = FixtureMeta {
-            expect: Expect::Any,
-            ..Default::default()
-        };
+        let meta = FixtureMeta { expect: Expect::Any, ..Default::default() };
         use Class::*;
-        assert_eq!(
-            classes(&r, &meta, true),
-            [ExpectedError, Wrong, ExpectedError, ExpectedError]
-        );
+        assert_eq!(classes(&r, &meta, true), [ExpectedError, Wrong, ExpectedError, ExpectedError]);
         let compiles = result(vec![
             run(Way::Vm, ExitKind::Success, "", ""),
             run(Way::Llvm, ExitKind::Success, "", ""),
         ]);
-        assert_eq!(
-            classes(&compiles, &meta, false)[..2],
-            [CompileOnly, CompileOnly]
-        );
+        assert_eq!(classes(&compiles, &meta, false)[..2], [CompileOnly, CompileOnly]);
     }
 
     #[test]
@@ -553,21 +465,9 @@ mod tests {
     #[test]
     fn unrun_ways_say_why() {
         let mut r = result(vec![run(Way::Vm, ExitKind::Success, "1", "")]);
-        r.skipped_ways = vec![SkipWay {
-            way: Way::VmOpt,
-            reason: "KI-104 dictionary".to_string(),
-        }];
-        let meta = FixtureMeta {
-            ways: vec![Way::Vm],
-            declared_ways: true,
-            ..Default::default()
-        };
-        let rows = rows(&Checked {
-            result: &r,
-            meta: &meta,
-            ways: &WAYS,
-            has_main: true,
-        });
+        r.skipped_ways = vec![SkipWay { way: Way::VmOpt, reason: "KI-104 dictionary".to_string() }];
+        let meta = FixtureMeta { ways: vec![Way::Vm], declared_ways: true, ..Default::default() };
+        let rows = rows(&Checked { result: &r, meta: &meta, ways: &WAYS, has_main: true });
         assert_eq!(rows[0].class, Class::Works);
         assert_eq!(rows[1].note, "parity: vm");
         assert!(rows[2].note.starts_with("skip-way: KI-104"));
@@ -576,19 +476,10 @@ mod tests {
 
     #[test]
     fn a_row_is_one_tsv_line() {
-        let r = result(vec![run(
-            Way::Vm,
-            ExitKind::CompileError,
-            "",
-            "error[E300]: a\n\tsecond line",
-        )]);
+        let r =
+            result(vec![run(Way::Vm, ExitKind::CompileError, "", "error[E300]: a\n\tsecond line")]);
         let meta = FixtureMeta::default();
-        let row = &rows(&Checked {
-            result: &r,
-            meta: &meta,
-            ways: &[Way::Vm],
-            has_main: true,
-        })[0];
+        let row = &rows(&Checked { result: &r, meta: &meta, ways: &[Way::Vm], has_main: true })[0];
         let line = row.to_tsv();
         assert_eq!(line.split('\t').count(), HEADER.split('\t').count());
         assert!(!line.contains('\n'));

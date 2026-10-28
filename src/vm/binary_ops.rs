@@ -96,10 +96,7 @@ impl VM {
                     && matches!(left, Value::Integer(_) | Value::Float(_))))
         {
             let (file, span) = self.current_location().unwrap_or_else(|| {
-                (
-                    String::from("<unknown>"),
-                    Span::new(Position::default(), Position::default()),
-                )
+                (String::from("<unknown>"), Span::new(Position::default(), Position::default()))
             });
 
             let chain = HintChain::from_steps(vec![
@@ -109,14 +106,9 @@ impl VM {
             ])
             .with_conclusion("Flux requires explicit type conversions for safety");
 
-            let diag = invalid_operation(
-                op_name,
-                left.type_name(),
-                right.type_name(),
-                file.clone(),
-                span,
-            )
-            .with_hint_chain(chain);
+            let diag =
+                invalid_operation(op_name, left.type_name(), right.type_name(), file.clone(), span)
+                    .with_hint_chain(chain);
 
             let source = std::fs::read_to_string(&file).ok();
             let mut rendered = if let Some(src) = source.as_deref() {

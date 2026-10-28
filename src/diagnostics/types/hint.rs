@@ -28,24 +28,12 @@ pub struct Hint {
 impl Hint {
     /// Create a simple text-only hint
     pub fn text(text: impl Into<String>) -> Self {
-        Self {
-            kind: HintKind::Hint,
-            text: text.into(),
-            span: None,
-            label: None,
-            file: None,
-        }
+        Self { kind: HintKind::Hint, text: text.into(), span: None, label: None, file: None }
     }
 
     /// Create a hint with a source location
     pub fn at(text: impl Into<String>, span: Span) -> Self {
-        Self {
-            kind: HintKind::Hint,
-            text: text.into(),
-            span: Some(span),
-            label: None,
-            file: None,
-        }
+        Self { kind: HintKind::Hint, text: text.into(), span: Some(span), label: None, file: None }
     }
 
     /// Create a hint with a source location and label
@@ -61,35 +49,17 @@ impl Hint {
 
     /// Create a note hint
     pub fn note(text: impl Into<String>) -> Self {
-        Self {
-            kind: HintKind::Note,
-            text: text.into(),
-            span: None,
-            label: None,
-            file: None,
-        }
+        Self { kind: HintKind::Note, text: text.into(), span: None, label: None, file: None }
     }
 
     /// Create a help hint
     pub fn help(text: impl Into<String>) -> Self {
-        Self {
-            kind: HintKind::Help,
-            text: text.into(),
-            span: None,
-            label: None,
-            file: None,
-        }
+        Self { kind: HintKind::Help, text: text.into(), span: None, label: None, file: None }
     }
 
     /// Create an example hint
     pub fn example(text: impl Into<String>) -> Self {
-        Self {
-            kind: HintKind::Example,
-            text: text.into(),
-            span: None,
-            label: None,
-            file: None,
-        }
+        Self { kind: HintKind::Example, text: text.into(), span: None, label: None, file: None }
     }
 
     /// Add a label to this hint
@@ -115,10 +85,7 @@ pub struct HintChain {
 impl HintChain {
     /// Create a new hint chain with the given steps
     pub fn new(steps: Vec<String>) -> Self {
-        Self {
-            steps,
-            conclusion: None,
-        }
+        Self { steps, conclusion: None }
     }
 
     /// Add a conclusion to the hint chain
@@ -129,9 +96,6 @@ impl HintChain {
 
     /// Create a hint chain from a slice of step strings
     pub fn from_steps<S: Into<String>>(steps: impl IntoIterator<Item = S>) -> Self {
-        Self {
-            steps: steps.into_iter().map(|s| s.into()).collect(),
-            conclusion: None,
-        }
+        Self { steps: steps.into_iter().map(|s| s.into()).collect(), conclusion: None }
     }
 }

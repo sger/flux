@@ -28,10 +28,7 @@ const BUILTIN_TYPES: &[(&str, &[(&str, usize)])] = &[
 /// An empty slice means a known abstract built-in with no user constructors
 /// (`List`, `Int`, …).
 pub(super) fn builtin_type_constructors(name: &str) -> Option<&'static [(&'static str, usize)]> {
-    BUILTIN_TYPES
-        .iter()
-        .find(|(ty, _)| *ty == name)
-        .map(|(_, ctors)| *ctors)
+    BUILTIN_TYPES.iter().find(|(ty, _)| *ty == name).map(|(_, ctors)| *ctors)
 }
 
 /// If `name` is a constructor of a built-in type (`Some` → `Option`), the owning
@@ -40,10 +37,7 @@ pub(super) fn builtin_type_constructors(name: &str) -> Option<&'static [(&'stati
 /// their owning type from this table.
 pub(super) fn builtin_constructor_parent(name: &str) -> Option<(&'static str, usize)> {
     BUILTIN_TYPES.iter().find_map(|(ty, ctors)| {
-        ctors
-            .iter()
-            .find(|(ctor, _)| *ctor == name)
-            .map(|(_, arity)| (*ty, *arity))
+        ctors.iter().find(|(ctor, _)| *ctor == name).map(|(_, arity)| (*ty, *arity))
     })
 }
 
@@ -66,11 +60,7 @@ fn format_members(header: String, members: &[(String, String)], builtin_note: &s
     if members.is_empty() {
         return format!("{header}    -- {builtin_note}");
     }
-    let width = members
-        .iter()
-        .map(|(name, _)| name.chars().count())
-        .max()
-        .unwrap_or(0);
+    let width = members.iter().map(|(name, _)| name.chars().count()).max().unwrap_or(0);
     let mut out = header;
     for (name, sig) in members {
         out.push_str(&format!("\n  {name:<width$} : {sig}"));
@@ -83,22 +73,13 @@ mod tests {
     use super::*;
 
     fn pairs(items: &[(&str, &str)]) -> Vec<(String, String)> {
-        items
-            .iter()
-            .map(|(a, b)| (a.to_string(), b.to_string()))
-            .collect()
+        items.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect()
     }
 
     #[test]
     fn builtin_lookup_hits_and_misses() {
-        assert_eq!(
-            builtin_type_constructors("Option"),
-            Some(&[("None", 0), ("Some", 1)][..])
-        );
-        assert_eq!(
-            builtin_type_constructors("Either"),
-            Some(&[("Left", 1), ("Right", 1)][..])
-        );
+        assert_eq!(builtin_type_constructors("Option"), Some(&[("None", 0), ("Some", 1)][..]));
+        assert_eq!(builtin_type_constructors("Either"), Some(&[("Left", 1), ("Right", 1)][..]));
         assert_eq!(builtin_type_constructors("List"), Some(&[][..]));
         assert_eq!(builtin_type_constructors("Color"), None);
     }
@@ -117,28 +98,19 @@ mod tests {
             "Option",
             &pairs(&[("None", "Option a"), ("Some", "(a) -> Option a")]),
         );
-        assert_eq!(
-            block,
-            "type Option\n  None : Option a\n  Some : (a) -> Option a"
-        );
+        assert_eq!(block, "type Option\n  None : Option a\n  Some : (a) -> Option a");
     }
 
     #[test]
     fn empty_type_block_is_a_builtin_note() {
-        assert_eq!(
-            format_type_block("List", &[]),
-            "type List    -- built-in type"
-        );
+        assert_eq!(format_type_block("List", &[]), "type List    -- built-in type");
     }
 
     #[test]
     fn effect_block_lists_operations_aligned() {
         let block = format_effect_block(
             "Console",
-            &pairs(&[
-                ("print", "(a) -> () with Console"),
-                ("println", "(a) -> () with Console"),
-            ]),
+            &pairs(&[("print", "(a) -> () with Console"), ("println", "(a) -> () with Console")]),
         );
         // Names padded to the widest ("println") so the colons line up.
         assert_eq!(
@@ -149,9 +121,6 @@ mod tests {
 
     #[test]
     fn empty_effect_block_is_a_builtin_note() {
-        assert_eq!(
-            format_effect_block("Time", &[]),
-            "effect Time    -- built-in effect"
-        );
+        assert_eq!(format_effect_block("Time", &[]), "effect Time    -- built-in effect");
     }
 }

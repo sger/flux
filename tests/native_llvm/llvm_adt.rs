@@ -18,11 +18,7 @@ use flux::{
 fn parse_and_lower_core(src: &str) -> (flux::core::CoreProgram, Interner) {
     let mut parser = Parser::new(Lexer::new(src));
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<test>", interner.clone());
     let hm_expr_types: HashMap<ExprId, InferType> = compiler.infer_expr_types_for_program(&program);
@@ -40,11 +36,7 @@ fn compile_to_llvm_ir(src: &str) -> String {
 fn compile_per_module_llvm_ir(src: &str, export_user_ctor_name_helper: bool) -> String {
     let mut parser = Parser::new(Lexer::new(src));
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     let llvm = compiler
@@ -95,10 +87,7 @@ fn main() {
 "#,
     );
 
-    assert!(
-        rendered.contains("flux_make_cons"),
-        "expected cons construction"
-    );
+    assert!(rendered.contains("flux_make_cons"), "expected cons construction");
 }
 
 #[test]
@@ -119,10 +108,7 @@ fn main() {
 "#,
     );
 
-    assert!(
-        rendered.contains("flux_make_tuple"),
-        "expected tuple construction"
-    );
+    assert!(rendered.contains("flux_make_tuple"), "expected tuple construction");
 }
 
 #[test]
@@ -146,10 +132,7 @@ fn main() {
         rendered.contains("icmp ule i64 12"),
         "tuple dispatch must guard pointer-tagged sentinels before dereference"
     );
-    assert!(
-        rendered.contains("match.ptrck"),
-        "expected a dedicated tuple pointer-check block"
-    );
+    assert!(rendered.contains("match.ptrck"), "expected a dedicated tuple pointer-check block");
 }
 
 #[test]

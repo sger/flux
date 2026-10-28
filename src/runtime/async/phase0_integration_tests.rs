@@ -99,35 +99,21 @@ fn two_contexts_suspend_and_resume_independently() {
     backend.enqueue(req_a, CompletionPayload::Bytes(vec![0xaa]));
 
     let out_b = tick(&backend, &backend, &mut registry, &mut cx_b, tok_b);
-    assert_eq!(
-        out_b,
-        Some(ResumeOutcome::Resumed(CompletionPayload::Bytes(vec![0xbb])))
-    );
+    assert_eq!(out_b, Some(ResumeOutcome::Resumed(CompletionPayload::Bytes(vec![0xbb]))));
     // A is still parked.
     assert_eq!(cx_a.continuation, Some(tok_a));
     assert_eq!(cx_b.continuation, None);
 
     let out_a = tick(&backend, &backend, &mut registry, &mut cx_a, tok_a);
-    assert_eq!(
-        out_a,
-        Some(ResumeOutcome::Resumed(CompletionPayload::Bytes(vec![0xaa])))
-    );
+    assert_eq!(out_a, Some(ResumeOutcome::Resumed(CompletionPayload::Bytes(vec![0xaa]))));
 
     // Independent state survived the round trip.
     assert!(!cx_a.is_yielding());
     assert!(!cx_b.is_yielding());
     assert!(!cx_a.is_cancelled());
     assert!(!cx_b.is_cancelled());
-    assert_ne!(
-        a_marker,
-        cx_a.fresh_marker(),
-        "marker stream advances locally"
-    );
-    assert_ne!(
-        b_marker,
-        cx_b.fresh_marker(),
-        "marker stream advances locally"
-    );
+    assert_ne!(a_marker, cx_a.fresh_marker(), "marker stream advances locally");
+    assert_ne!(b_marker, cx_b.fresh_marker(), "marker stream advances locally");
 
     assert_eq!(registry.live_count(), 0);
     assert_eq!(backend.pending_len(), 0);
@@ -158,10 +144,7 @@ fn cancellation_before_completion_delivers_cancelled_error() {
     // Without a backend completion to drive the tick, the scheduler
     // synthesises a cancelled completion itself. (Phase 1a's scheduler will
     // do this from a `cancel_pending` queue; Phase 0 just inlines it.)
-    let synthetic = Completion {
-        request_id: req,
-        payload: CompletionPayload::Unit,
-    };
+    let synthetic = Completion { request_id: req, payload: CompletionPayload::Unit };
     let routed = registry.deliver(synthetic).expect("live entry");
     assert_eq!(routed.payload, CompletionPayload::Error("cancelled".into()));
 
@@ -203,10 +186,7 @@ fn abandoned_continuation_is_cleaned_up() {
 
     // Even if a stray completion shows up after abandonment (race with the
     // backend that already had it queued), the registry drops it silently.
-    let stray = Completion {
-        request_id: req,
-        payload: CompletionPayload::Bytes(vec![1, 2, 3]),
-    };
+    let stray = Completion { request_id: req, payload: CompletionPayload::Bytes(vec![1, 2, 3]) };
     assert!(registry.deliver(stray).is_none());
 }
 

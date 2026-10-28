@@ -68,10 +68,7 @@ pub fn features_of(source: &str) -> BTreeSet<String> {
     let mut walk = Walk::default();
     walk.visit_program(&program);
     let mut tags: BTreeSet<String> = walk.tags.iter().map(|tag| (*tag).to_string()).collect();
-    if walk
-        .effect_names
-        .iter()
-        .any(|&name| resolves_to(&interner, name, "Async"))
+    if walk.effect_names.iter().any(|&name| resolves_to(&interner, name, "Async"))
         || walk
             .imports
             .iter()
@@ -93,14 +90,11 @@ fn resolves_to(interner: &Interner, name: Identifier, expected: &str) -> bool {
 
 /// Applies the header's `// feature:` lines to `tags`.
 fn apply_overrides(source: &str, tags: &mut BTreeSet<String>) {
-    let header = source
-        .lines()
-        .map(str::trim)
-        .take_while(|line| line.is_empty() || line.starts_with("//"));
+    let header =
+        source.lines().map(str::trim).take_while(|line| line.is_empty() || line.starts_with("//"));
     for line in header {
-        let Some(list) = line
-            .strip_prefix("//")
-            .and_then(|rest| rest.trim().strip_prefix("feature:"))
+        let Some(list) =
+            line.strip_prefix("//").and_then(|rest| rest.trim().strip_prefix("feature:"))
         else {
             continue;
         };
@@ -228,11 +222,7 @@ impl<'ast> Visitor<'ast> for Walk {
                 self.tag("user-effects");
             }
             Statement::TypeAlias(_) => self.tag("type-aliases"),
-            Statement::Class {
-                superclasses,
-                associated_types,
-                ..
-            } => {
+            Statement::Class { superclasses, associated_types, .. } => {
                 self.tag("classes");
                 if !superclasses.is_empty() {
                     self.tag("superclasses");
@@ -251,12 +241,7 @@ impl<'ast> Visitor<'ast> for Walk {
         match expr {
             Expression::InterpolatedString { .. } => self.tag("interpolation"),
             Expression::DoBlock { .. } => self.tag("do-blocks"),
-            Expression::Function {
-                parameter_types,
-                return_type,
-                effects,
-                ..
-            } => {
+            Expression::Function { parameter_types, return_type, effects, .. } => {
                 self.tag("closures");
                 self.signature(parameter_types, return_type.as_ref());
                 self.effects(effects);
@@ -343,30 +328,20 @@ mod tests {
             ("fn f(x: Int) -> Int { x }", "annotations"),
             ("fn f() { let g = \\x -> x; g(1) }", "closures"),
             ("fn f(xs) { match xs { [h | t] -> h, _ -> 0 } }", "lists"),
-            (
-                "fn f(p) { match p { Some(Some(x)) -> x, _ -> 0 } }",
-                "nested-patterns",
-            ),
+            ("fn f(p) { match p { Some(Some(x)) -> x, _ -> 0 } }", "nested-patterns"),
             ("fn f(x) { match x { n if n > 0 -> n, _ -> 0 } }", "guards"),
             ("import Flow.List", "imports"),
             ("fn f() { (1, 2) }", "tuples"),
         ];
         for (source, tag) in cases {
-            assert!(
-                has(source, tag),
-                "{tag} in {source:?}: {:?}",
-                features_of(source)
-            );
+            assert!(has(source, tag), "{tag} in {source:?}: {:?}", features_of(source));
         }
     }
 
     #[test]
     fn a_call_to_another_function_is_not_recursion() {
         assert!(!has("fn g(n) { n }\nfn f(n) { g(n) }", "recursion"));
-        assert!(!has(
-            "fn f(p) { match p { Some(x) -> x, _ -> 0 } }",
-            "nested-patterns"
-        ));
+        assert!(!has("fn f(p) { match p { Some(x) -> x, _ -> 0 } }", "nested-patterns"));
     }
 
     #[test]

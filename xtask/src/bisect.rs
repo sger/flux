@@ -69,10 +69,8 @@ pub fn run_bisect(root: &Path, options: &Options) -> Result<bool, String> {
     let out = store::run_dir(root, &format!("bisect_{stem}"))?;
     fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
 
-    let build = run(cargo()
-        .current_dir(root)
-        .args(["build", "--all-features", "--quiet"]))
-    .map_err(|e| e.to_string())?;
+    let build = run(cargo().current_dir(root).args(["build", "--all-features", "--quiet"]))
+        .map_err(|e| e.to_string())?;
     if build != 0 {
         return Err("cargo build failed".to_string());
     }
@@ -92,10 +90,7 @@ pub fn run_bisect(root: &Path, options: &Options) -> Result<bool, String> {
     let mut runs = 0;
     let mut opt = |limit: i64, show: Option<&str>| {
         runs += 1;
-        flux(
-            &["--optimize", "--opt-bisect-limit", &limit.to_string()],
-            show,
-        )
+        flux(&["--optimize", "--opt-bisect-limit", &limit.to_string()], show)
     };
 
     println!("bisect-opt: {} on {}", options.fixture, options.way.name());
@@ -112,11 +107,8 @@ pub fn run_bisect(root: &Path, options: &Options) -> Result<bool, String> {
     let count = lines.len() as u64;
     println!("{count} rewrite(s); the numbering is the same on two runs");
 
-    let mut report = format!(
-        "bisect-opt {} on {} ({count} rewrites)\n",
-        options.fixture,
-        options.way.name()
-    );
+    let mut report =
+        format!("bisect-opt {} on {} ({count} rewrites)\n", options.fixture, options.way.name());
     if same_behaviour(&reference, &all) {
         report.push_str("the opt way behaves as the plain way: nothing to bisect\n");
         return finish(&out, &report, runs, started).map(|()| true);
@@ -136,10 +128,7 @@ pub fn run_bisect(root: &Path, options: &Options) -> Result<bool, String> {
         Ok(differs)
     })?;
     let line = &lines[usize::try_from(culprit - 1).unwrap_or(0)];
-    let _ = writeln!(
-        report,
-        "first rewrite that changes the behaviour:\n  {line}"
-    );
+    let _ = writeln!(report, "first rewrite that changes the behaviour:\n  {line}");
     if let Some(def) = def_of(line) {
         let n = i64::try_from(culprit).unwrap_or(i64::MAX);
         let without = shown(&opt(n - 1, Some(def)).stderr);
@@ -153,10 +142,7 @@ pub fn run_bisect(root: &Path, options: &Options) -> Result<bool, String> {
 }
 
 fn finish(out: &Path, report: &str, runs: usize, started: Instant) -> Result<(), String> {
-    let report = format!(
-        "{report}\n{runs} opt run(s) in {}\n",
-        format_duration(started.elapsed())
-    );
+    let report = format!("{report}\n{runs} opt run(s) in {}\n", format_duration(started.elapsed()));
     let file = out.join("report.txt");
     fs::write(&file, &report).map_err(|e| format!("{}: {e}", file.display()))?;
     print!("{report}");
@@ -166,11 +152,7 @@ fn finish(out: &Path, report: &str, runs: usize, started: Instant) -> Result<(),
 
 /// The `opt-bisect:` lines a `-1` run printed, in order.
 fn rewrite_lines(stderr: &str) -> Vec<String> {
-    stderr
-        .lines()
-        .filter(|line| line.starts_with("opt-bisect: "))
-        .map(str::to_string)
-        .collect()
+    stderr.lines().filter(|line| line.starts_with("opt-bisect: ")).map(str::to_string).collect()
 }
 
 /// Whether two runs behave the same: how they ended, their stdout, and
@@ -241,11 +223,8 @@ fn line_diff(a: &str, b: &str) -> String {
     let mut lcs = vec![vec![0usize; b.len() + 1]; a.len() + 1];
     for i in (0..a.len()).rev() {
         for j in (0..b.len()).rev() {
-            lcs[i][j] = if a[i] == b[j] {
-                lcs[i + 1][j + 1] + 1
-            } else {
-                lcs[i + 1][j].max(lcs[i][j + 1])
-            };
+            lcs[i][j] =
+                if a[i] == b[j] { lcs[i + 1][j + 1] + 1 } else { lcs[i + 1][j].max(lcs[i][j + 1]) };
         }
     }
     let mut out = String::new();
@@ -271,12 +250,7 @@ mod tests {
     use super::*;
 
     fn ran(exit: i32, stdout: &str, stderr: &str) -> Ran {
-        Ran {
-            finished: true,
-            exit,
-            stdout: stdout.to_string(),
-            stderr: stderr.to_string(),
-        }
+        Ran { finished: true, exit, stdout: stdout.to_string(), stderr: stderr.to_string() }
     }
 
     #[test]
@@ -297,15 +271,9 @@ mod tests {
     #[test]
     fn behaviour_ignores_bisection_lines_and_a_passing_runs_stderr() {
         let plain = ran(0, "1\n", "");
-        assert!(same_behaviour(
-            &plain,
-            &ran(0, "1\n", "opt-bisect: 1 beta: x in f (m)\n")
-        ));
+        assert!(same_behaviour(&plain, &ran(0, "1\n", "opt-bisect: 1 beta: x in f (m)\n")));
         assert!(!same_behaviour(&plain, &ran(0, "2\n", "")));
-        assert!(!same_behaviour(
-            &ran(1, "", "error A"),
-            &ran(1, "", "error B")
-        ));
+        assert!(!same_behaviour(&ran(1, "", "error A"), &ran(1, "", "error B")));
     }
 
     #[test]
@@ -313,10 +281,7 @@ mod tests {
         let line = "opt-bisect: 12 beta: apply a lambda in main (/x/Main.flx)";
         assert_eq!(def_of(line), Some("main"));
         assert_eq!(def_of("opt-bisect: 3 reuse: x in  (m)"), None);
-        assert_eq!(
-            def_of("opt-bisect: 4 desugar: drop a double `!` (/x/Main.flx)"),
-            None
-        );
+        assert_eq!(def_of("opt-bisect: 4 desugar: drop a double `!` (/x/Main.flx)"), None);
     }
 
     #[test]

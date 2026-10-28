@@ -14,11 +14,7 @@ fn safe(queen: i64, diag: i64, xs: &Solution) -> bool {
 }
 
 fn place(n: i64, row: i64, soln: &Solution) -> i64 {
-    if row == 0 {
-        1
-    } else {
-        try_col(n, row, soln, n)
-    }
+    if row == 0 { 1 } else { try_col(n, row, soln, n) }
 }
 
 fn try_col(n: i64, row: i64, soln: &Solution, col: i64) -> i64 {

@@ -34,9 +34,7 @@ fn the_vm_and_native_debuggers_agree() {
     assert!(!files.is_empty(), "no debug parity fixtures");
     // Each fixture is a full native build, and building them all at once
     // starves a small runner past the build timeout.
-    let workers = std::thread::available_parallelism()
-        .map_or(1, |n| n.get())
-        .min(files.len());
+    let workers = std::thread::available_parallelism().map_or(1, |n| n.get()).min(files.len());
     let next = AtomicUsize::new(0);
     let mut runs: Vec<_> = std::thread::scope(|threads| {
         let handles: Vec<_> = (0..workers)
@@ -52,10 +50,7 @@ fn the_vm_and_native_debuggers_agree() {
                 })
             })
             .collect();
-        handles
-            .into_iter()
-            .flat_map(|handle| handle.join().expect("a fixture worker"))
-            .collect()
+        handles.into_iter().flat_map(|handle| handle.join().expect("a fixture worker")).collect()
     });
     runs.sort_by_key(|(file, _, _)| *file);
     let failures: Vec<String> = runs
@@ -82,9 +77,5 @@ fn the_vm_and_native_debuggers_agree() {
             })
         })
         .collect();
-    assert!(
-        failures.is_empty(),
-        "the debuggers disagree:\n\n{}",
-        failures.join("\n\n")
-    );
+    assert!(failures.is_empty(), "the debuggers disagree:\n\n{}", failures.join("\n\n"));
 }

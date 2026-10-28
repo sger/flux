@@ -43,20 +43,12 @@ pub struct ModuleRoot {
 impl ModuleRoot {
     /// An unscoped root that satisfies any import.
     pub fn unscoped(path: impl Into<PathBuf>) -> Self {
-        Self {
-            path: path.into(),
-            namespace: None,
-            package: None,
-        }
+        Self { path: path.into(), namespace: None, package: None }
     }
 
     /// A root scoped to `namespace`, satisfying only imports beneath it.
     pub fn scoped(path: impl Into<PathBuf>, namespace: impl Into<String>) -> Self {
-        Self {
-            path: path.into(),
-            namespace: Some(namespace.into()),
-            package: None,
-        }
+        Self { path: path.into(), namespace: Some(namespace.into()), package: None }
     }
 
     /// A root scoped to `namespace` and owned by the named package.
@@ -65,19 +57,12 @@ impl ModuleRoot {
         namespace: impl Into<String>,
         package: impl Into<String>,
     ) -> Self {
-        Self {
-            path: path.into(),
-            namespace: Some(namespace.into()),
-            package: Some(package.into()),
-        }
+        Self { path: path.into(), namespace: Some(namespace.into()), package: Some(package.into()) }
     }
 
     /// How this root is named in diagnostics: its package, else its namespace.
     fn label(&self) -> &str {
-        self.package
-            .as_deref()
-            .or(self.namespace.as_deref())
-            .unwrap_or("<unscoped>")
+        self.package.as_deref().or(self.namespace.as_deref()).unwrap_or("<unscoped>")
     }
 
     /// Whether this root may satisfy an import of `name`.
@@ -92,9 +77,7 @@ impl ModuleRoot {
             None => true,
             Some(namespace) => {
                 name == namespace
-                    || name
-                        .split_once('.')
-                        .is_some_and(|(first, _)| first == namespace)
+                    || name.split_once('.').is_some_and(|(first, _)| first == namespace)
             }
         }
     }
@@ -189,13 +172,7 @@ pub(super) fn resolve_imports(
 
     for statement in &program.statements {
         let (name, alias, position) = match statement {
-            Statement::Import {
-                name,
-                alias,
-                except: _,
-                exposing: _,
-                span,
-            } => {
+            Statement::Import { name, alias, except: _, exposing: _, span } => {
                 let name_str = interner.resolve(*name).to_string();
                 let alias_str = alias.map(|a| interner.resolve(a).to_string());
                 (name_str, alias_str, span.start)
@@ -236,22 +213,13 @@ pub(super) fn resolve_imports(
 
         match resolve_import_path(path, &name, position, roots) {
             Ok((target, target_path)) => {
-                edges.push(ImportEdge {
-                    name,
-                    position,
-                    target,
-                    target_path,
-                });
+                edges.push(ImportEdge { name, position, target, target_path });
             }
             Err(diag) => diagnostics.push(*diag),
         }
     }
 
-    if diagnostics.is_empty() {
-        Ok(edges)
-    } else {
-        Err(diagnostics)
-    }
+    if diagnostics.is_empty() { Ok(edges) } else { Err(diagnostics) }
 }
 
 fn resolve_import_path(
@@ -388,10 +356,7 @@ pub(super) fn normalize_roots(roots: &[ModuleRoot]) -> Vec<ModuleRoot> {
     let mut normalized: Vec<ModuleRoot> = Vec::new();
     for root in roots {
         let canonical = fs::canonicalize(&root.path).unwrap_or_else(|_| root.path.to_path_buf());
-        if !normalized
-            .iter()
-            .any(|r| r.path == canonical && r.namespace == root.namespace)
-        {
+        if !normalized.iter().any(|r| r.path == canonical && r.namespace == root.namespace) {
             normalized.push(ModuleRoot {
                 path: canonical,
                 namespace: root.namespace.clone(),
@@ -486,11 +451,7 @@ pub(super) fn validate_file_kind(
         diagnostics.push(diag);
     }
 
-    if diagnostics.is_empty() {
-        Ok(())
-    } else {
-        Err(diagnostics)
-    }
+    if diagnostics.is_empty() { Ok(()) } else { Err(diagnostics) }
 }
 
 /// A module declared outside the namespace of the package that owns its file.

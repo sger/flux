@@ -31,10 +31,7 @@ fn main() with Async, IO, Time {
 }
 "#;
     let (stdout, stderr, success, _) = run_source(source);
-    assert!(
-        success,
-        "fiber_sleep program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "fiber_sleep program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     let (_, elapsed) = flux_runner::program_elapsed(&stdout);
     // Lower bound: proves the timer actually waited (≥45ms allows for
     // ±5ms scheduling jitter on slower CI hosts).
@@ -62,10 +59,7 @@ fn main() with Async {
 }
 "#;
     let (stdout, stderr, success, _elapsed) = run_source(source);
-    assert!(
-        success,
-        "fiber_sleep(0) program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "fiber_sleep(0) program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
 }
 
 #[test]

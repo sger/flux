@@ -37,10 +37,7 @@ fn main() with IO {
 }
 "#,
     );
-    assert!(
-        ok,
-        "native Stream fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(ok, "native Stream fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(stdout.contains("[|1, 2, 3|]"), "{stdout}");
     assert!(stdout.contains("[|6, 8|]"), "{stdout}");
     assert!(stdout.contains("10"), "{stdout}");

@@ -37,18 +37,12 @@ pub fn run_pipeline(flags: DriverFlags, target: RunTarget) {
 
     let session = DriverSession::from(&flags);
     match target.mode {
-        RunMode::Program => run_file(RunProgramRequest {
-            path: &target.path,
-            flags: &flags,
-            session: &session,
-        }),
-        RunMode::Tests => run_test_file(
-            &target.path,
-            TestRunRequest {
-                flags: &flags,
-                session: &session,
-            },
-        ),
+        RunMode::Program => {
+            run_file(RunProgramRequest { path: &target.path, flags: &flags, session: &session })
+        }
+        RunMode::Tests => {
+            run_test_file(&target.path, TestRunRequest { flags: &flags, session: &session })
+        }
     }
 }
 

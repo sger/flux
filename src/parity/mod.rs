@@ -288,21 +288,14 @@ pub fn backend_spec(id: BackendId) -> BackendSpec {
             display_label: "CFG -> bytecode -> VM",
             ir_surface: "cfg",
             lowering_files: &["src/cfg/", "src/bytecode/compiler/"],
-            runtime_files: &[
-                "src/bytecode/vm/core_dispatch.rs",
-                "src/bytecode/vm/dispatch.rs",
-            ],
+            runtime_files: &["src/bytecode/vm/core_dispatch.rs", "src/bytecode/vm/dispatch.rs"],
         },
         BackendId::Llvm => BackendSpec {
             id,
             display_label: "LIR -> LLVM -> native",
             ir_surface: "lir",
             lowering_files: &["src/lir/lower.rs", "src/lir/emit_llvm.rs"],
-            runtime_files: &[
-                "runtime/c/flux_rt.c",
-                "runtime/c/array.c",
-                "runtime/c/hamt.c",
-            ],
+            runtime_files: &["runtime/c/flux_rt.c", "runtime/c/array.c", "runtime/c/hamt.c"],
         },
     }
 }
@@ -518,7 +511,10 @@ pub enum MismatchDetail {
         heap: String,
     },
     /// The debug heap stopped the program at a use after free.
-    HeapFault { way: Way, message: String },
+    HeapFault {
+        way: Way,
+        message: String,
+    },
     DiagnosticCodes {
         way: Way,
         expected: Vec<String>,
@@ -544,10 +540,9 @@ mod tests {
 
     #[test]
     fn opt_ways_pair_with_their_plain_way_on_the_same_backend() {
-        for (opt, plain, backend) in [
-            (Way::VmOpt, Way::Vm, BackendId::Vm),
-            (Way::LlvmOpt, Way::Llvm, BackendId::Llvm),
-        ] {
+        for (opt, plain, backend) in
+            [(Way::VmOpt, Way::Vm, BackendId::Vm), (Way::LlvmOpt, Way::Llvm, BackendId::Llvm)]
+        {
             assert!(opt.is_opt() && !plain.is_opt());
             assert_eq!(opt.non_opt(), plain);
             assert_eq!(opt.backend_id(), backend);

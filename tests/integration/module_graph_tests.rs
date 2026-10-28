@@ -27,20 +27,13 @@ fn parse_program(source: &str) -> (Program, Interner) {
     let lexer = Lexer::new(source);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     (program, interner)
 }
 
 fn first_code(diags: &[Diagnostic]) -> String {
-    diags
-        .first()
-        .and_then(|d| d.code().map(|s| s.to_string()))
-        .unwrap_or_default()
+    diags.first().and_then(|d| d.code().map(|s| s.to_string())).unwrap_or_default()
 }
 
 fn compile_with_graph(
@@ -65,11 +58,7 @@ fn compile_with_graph(
             continue;
         }
     }
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors)
-    }
+    if errors.is_empty() { Ok(()) } else { Err(errors) }
 }
 
 #[test]
@@ -128,10 +117,7 @@ fn alias_import_compiles() {
     let root_scratch = Scratch::new("alias_import");
     let root = root_scratch.path().to_path_buf();
     let module_path = root.join("Data").join("MyFile.flx");
-    write_file(
-        &module_path,
-        "module Data.MyFile { public fn value() { 1; } }",
-    );
+    write_file(&module_path, "module Data.MyFile { public fn value() { 1; } }");
 
     let entry_path = root.join("Main.flx");
     let entry_source = "import Data.MyFile as Alias\nAlias.value();";
@@ -208,14 +194,8 @@ fn duplicate_module_across_roots_is_error() {
     let root_b_scratch = Scratch::new("dupe_root_b");
     let root_b = root_b_scratch.path().to_path_buf();
     let module_rel = Path::new("Dup").join("Mod.flx");
-    write_file(
-        &root_a.join(&module_rel),
-        "module Dup.Mod { fn value() { 1; } }",
-    );
-    write_file(
-        &root_b.join(&module_rel),
-        "module Dup.Mod { fn value() { 2; } }",
-    );
+    write_file(&root_a.join(&module_rel), "module Dup.Mod { fn value() { 1; } }");
+    write_file(&root_b.join(&module_rel), "module Dup.Mod { fn value() { 2; } }");
 
     let entry_path = root_a.join("Main.flx");
     let entry_source = "import Dup.Mod\nDup.Mod.value();";

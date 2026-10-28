@@ -96,19 +96,13 @@ impl VM {
     #[cold]
     #[inline(never)]
     fn tuple_expected_err(found: &Value) -> String {
-        format!(
-            "tuple field access expected Tuple, got {}",
-            found.type_name()
-        )
+        format!("tuple field access expected Tuple, got {}", found.type_name())
     }
 
     #[cold]
     #[inline(never)]
     fn tuple_oob_err(index: usize, len: usize) -> String {
-        format!(
-            "tuple index {} out of bounds for tuple of length {}",
-            index, len
-        )
+        format!("tuple index {} out of bounds for tuple of length {}", index, len)
     }
 
     #[inline(always)]
@@ -621,10 +615,8 @@ impl VM {
             OpCode::OpGetBase => {
                 // OpGetBase is no longer emitted by the compiler.
                 // Base functions are resolved as module members from lib/Flow/.
-                Err(
-                    "OpGetBase is deprecated; base functions are now compiled from lib/Flow/"
-                        .to_string(),
-                )
+                Err("OpGetBase is deprecated; base functions are now compiled from lib/Flow/"
+                    .to_string())
             }
             OpCode::OpCall | OpCode::OpCallLong => {
                 let (num_args, width) = if op == OpCode::OpCall {
@@ -1111,10 +1103,9 @@ impl VM {
                         "OpAdtField: field index {} out of bounds (AdtUnit '{}' has 0 fields)",
                         field_idx, name
                     )),
-                    other => Err(format!(
-                        "OpAdtField: expected Adt value, got {}",
-                        other.type_name()
-                    )),
+                    other => {
+                        Err(format!("OpAdtField: expected Adt value, got {}", other.type_name()))
+                    }
                 }
             }
 
@@ -1204,10 +1195,9 @@ impl VM {
                         self.push(f1)?;
                         Ok(1) // just the opcode byte
                     }
-                    other => Err(format!(
-                        "OpAdtFields2: expected Adt value, got {}",
-                        other.type_name()
-                    )),
+                    other => {
+                        Err(format!("OpAdtFields2: expected Adt value, got {}", other.type_name()))
+                    }
                 }
             }
 
@@ -1223,12 +1213,9 @@ impl VM {
                 let const_idx = Self::read_u16_fast(instructions, ip + 1);
                 let const_val = self.const_get(const_idx);
                 let (effect, ops, has_state, desc_is_discard) = match &const_val {
-                    Value::HandlerDescriptor(desc) => (
-                        desc.effect,
-                        desc.ops.clone(),
-                        desc.has_state,
-                        desc.is_discard,
-                    ),
+                    Value::HandlerDescriptor(desc) => {
+                        (desc.effect, desc.ops.clone(), desc.has_state, desc.is_discard)
+                    }
                     other => {
                         return Err(format!(
                             "OpHandle: expected HandlerDescriptor constant, got {}",
@@ -1237,11 +1224,7 @@ impl VM {
                     }
                 };
                 let n = ops.len();
-                let state = if has_state {
-                    Some(self.pop_untracked()?)
-                } else {
-                    None
-                };
+                let state = if has_state { Some(self.pop_untracked()?) } else { None };
                 // Pop closures in reverse (last pushed = last arm)
                 let mut arm_closures: Vec<Rc<Closure>> = Vec::with_capacity(n);
                 for _ in 0..n {
@@ -1297,11 +1280,7 @@ impl VM {
                     }
                 };
                 let n = ops.len();
-                let state = if has_state {
-                    Some(self.pop_untracked()?)
-                } else {
-                    None
-                };
+                let state = if has_state { Some(self.pop_untracked()?) } else { None };
                 let mut arm_closures: Vec<Rc<Closure>> = Vec::with_capacity(n);
                 for _ in 0..n {
                     let v = self.pop_untracked()?;
@@ -1357,12 +1336,9 @@ impl VM {
 
                 let const_val = self.const_get(const_idx);
                 let (effect, op, effect_name, op_name) = match &const_val {
-                    Value::PerformDescriptor(desc) => (
-                        desc.effect,
-                        desc.op,
-                        desc.effect_name.clone(),
-                        desc.op_name.clone(),
-                    ),
+                    Value::PerformDescriptor(desc) => {
+                        (desc.effect, desc.op, desc.effect_name.clone(), desc.op_name.clone())
+                    }
                     other => {
                         return Err(format!(
                             "OpPerform: expected PerformDescriptor constant, got {}",
@@ -1380,22 +1356,11 @@ impl VM {
 
                 // Find matching evidence entry (most recent wins).
                 let evv_index = self.context.evidence.lookup(effect).ok_or_else(|| {
-                    format!(
-                        "unhandled effect: {} (no matching handle block)",
-                        effect_name
-                    )
+                    format!("unhandled effect: {} (no matching handle block)", effect_name)
                 })?;
-                let evidence = self
-                    .context
-                    .evidence
-                    .get(evv_index)
-                    .cloned()
-                    .ok_or_else(|| {
-                        format!(
-                            "unhandled effect: {} (no matching handle block)",
-                            effect_name
-                        )
-                    })?;
+                let evidence = self.context.evidence.get(evv_index).cloned().ok_or_else(|| {
+                    format!("unhandled effect: {} (no matching handle block)", effect_name)
+                })?;
                 let handler_pos = self
                     .handler_stack
                     .iter()
@@ -1482,10 +1447,8 @@ impl VM {
                     self.context.yield_state.yielding =
                         crate::runtime::yield_state::Yielding::Pending;
                     self.context.yield_state.marker = evidence.marker;
-                    self.context.yield_state.clause = Some(Rc::new(HandlerArm {
-                        op,
-                        closure: arm_closure.clone(),
-                    }));
+                    self.context.yield_state.clause =
+                        Some(Rc::new(HandlerArm { op, closure: arm_closure.clone() }));
                     self.context.yield_state.op_arg = perform_args.first().cloned();
 
                     // Capture continuation from current frame back to the
@@ -1532,9 +1495,7 @@ impl VM {
             }
             OpCode::OpReturnCheck => {
                 if self.context.yield_state.is_yielding() {
-                    self.context
-                        .yield_state
-                        .extend(self.capture_continuation_piece(self.sp, 0));
+                    self.context.yield_state.extend(self.capture_continuation_piece(self.sp, 0));
                 }
                 Ok(1)
             }
@@ -1547,12 +1508,9 @@ impl VM {
 
                 let const_val2 = self.const_get(const_idx);
                 let (effect, op, effect_name, op_name) = match &const_val2 {
-                    Value::PerformDescriptor(desc) => (
-                        desc.effect,
-                        desc.op,
-                        desc.effect_name.clone(),
-                        desc.op_name.clone(),
-                    ),
+                    Value::PerformDescriptor(desc) => {
+                        (desc.effect, desc.op, desc.effect_name.clone(), desc.op_name.clone())
+                    }
                     other => {
                         return Err(format!(
                             "OpPerformDirect: expected PerformDescriptor constant, got {}",
@@ -1568,16 +1526,10 @@ impl VM {
                 perform_args.reverse();
 
                 // Find matching handler (same search as OpPerform)
-                let handler_pos = self
-                    .handler_stack
-                    .iter()
-                    .rposition(|h| h.effect == effect)
-                    .ok_or_else(|| {
-                        format!(
-                            "unhandled effect: {} (no matching handle block)",
-                            effect_name
-                        )
-                    })?;
+                let handler_pos =
+                    self.handler_stack.iter().rposition(|h| h.effect == effect).ok_or_else(
+                        || format!("unhandled effect: {} (no matching handle block)", effect_name),
+                    )?;
 
                 let handler_state = self.handler_stack[handler_pos].state.clone();
                 let has_handler_state = handler_state.is_some();
@@ -1628,9 +1580,7 @@ impl VM {
                 let handler_idx = self.handler_stack.len() - 1 - handler_depth;
                 let handler_state = self.handler_stack[handler_idx].state.clone();
                 let has_handler_state = handler_state.is_some();
-                let arm_closure = self.handler_stack[handler_idx].arms[arm_index]
-                    .closure
-                    .clone();
+                let arm_closure = self.handler_stack[handler_idx].arms[arm_index].closure.clone();
 
                 // Same direct dispatch as OpPerformDirect: push arm closure,
                 // identity resume, then arguments.
@@ -1705,10 +1655,7 @@ impl VM {
                 let constructor_name = match const_val {
                     Value::String(s) => s,
                     other => {
-                        return Err(format!(
-                            "OpReuseAdt: expected string constant, got {}",
-                            other
-                        ));
+                        return Err(format!("OpReuseAdt: expected string constant, got {}", other));
                     }
                 };
 

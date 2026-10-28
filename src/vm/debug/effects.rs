@@ -133,13 +133,8 @@ impl VM {
             return Vec::new();
         };
         let control = &mut state.control;
-        control.pending_suspension = Some(Suspension {
-            arm_index: 0,
-            arm_serial: 0,
-            operation,
-            frames,
-            resumable,
-        });
+        control.pending_suspension =
+            Some(Suspension { arm_index: 0, arm_serial: 0, operation, frames, resumable });
         (entry + 1..=self.frame_index)
             .map(|index| control.serials.get(index).copied().unwrap_or(0))
             .collect()
@@ -176,30 +171,19 @@ impl VM {
                 ip: if index == top {
                     self.frames[index].ip
                 } else {
-                    self.call_ips
-                        .get(index + 1)
-                        .copied()
-                        .unwrap_or(self.frames[index].ip)
+                    self.call_ips.get(index + 1).copied().unwrap_or(self.frames[index].ip)
                 },
                 last_line: control.last_line.get(index).copied().flatten(),
                 serial: control.serials.get(index).copied().unwrap_or(0),
                 tail_calls: control.tail_calls.get(index).cloned().unwrap_or_default(),
             })
             .collect();
-        let stack_from = hidden
-            .first()
-            .map_or(self.sp, |frame| frame.frame.base_pointer);
+        let stack_from = hidden.first().map_or(self.sp, |frame| frame.frame.base_pointer);
         let stack = self.stack[stack_from.min(self.sp)..self.sp]
             .iter()
             .map(super::super::slot::from_slot_ref)
             .collect();
-        control.resumes.push(ResumeNote {
-            entry,
-            top_depth,
-            hidden,
-            stack_from,
-            stack,
-        });
+        control.resumes.push(ResumeNote { entry, top_depth, hidden, stack_from, stack });
     }
 
     /// The continuation a non-tail `resume` ran has returned: the frames it
@@ -225,9 +209,7 @@ impl VM {
             }
             control.serials[index] = frame.serial;
             if control.tail_calls.len() <= index {
-                control
-                    .tail_calls
-                    .resize_with(index + 1, TailCalls::default);
+                control.tail_calls.resize_with(index + 1, TailCalls::default);
             }
             control.tail_calls[index] = frame.tail_calls;
         }

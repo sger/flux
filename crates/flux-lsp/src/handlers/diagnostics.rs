@@ -17,11 +17,7 @@ use crate::workspace::Workspace;
 
 /// A snapshot's diagnostics rendered to LSP form.
 fn to_lsp(snapshot: &Snapshot) -> Vec<Diagnostic> {
-    snapshot
-        .diagnostics
-        .iter()
-        .map(|d| diagnostic_to_lsp(d, &snapshot.position_map))
-        .collect()
+    snapshot.diagnostics.iter().map(|d| diagnostic_to_lsp(d, &snapshot.position_map)).collect()
 }
 
 /// Push-model diagnostics for `textDocument/publishDiagnostics`.
@@ -79,9 +75,7 @@ fn full_or_unchanged(
 /// the same id across pulls, which is what powers the `Unchanged` short-circuit.
 fn content_id(items: &[Diagnostic]) -> String {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    serde_json::to_string(items)
-        .unwrap_or_default()
-        .hash(&mut hasher);
+    serde_json::to_string(items).unwrap_or_default().hash(&mut hasher);
     format!("{:016x}", hasher.finish())
 }
 
@@ -119,10 +113,8 @@ pub fn workspace_gather(
     previous: &[PreviousResultId],
     scan_all: bool,
 ) -> Vec<WorkspaceFile> {
-    let seen: HashMap<&str, &str> = previous
-        .iter()
-        .map(|p| (p.uri.as_str(), p.value.as_str()))
-        .collect();
+    let seen: HashMap<&str, &str> =
+        previous.iter().map(|p| (p.uri.as_str(), p.value.as_str())).collect();
     let mut out = Vec::new();
     for id in workspace.all_file_ids() {
         let snapshot = if scan_all {
@@ -138,12 +130,7 @@ pub fn workspace_gather(
         };
         let version = workspace.version(id).map(i64::from);
         let previous_result_id = seen.get(uri.as_str()).map(|s| s.to_string());
-        out.push(WorkspaceFile {
-            uri,
-            version,
-            snapshot,
-            previous_result_id,
-        });
+        out.push(WorkspaceFile { uri, version, snapshot, previous_result_id });
     }
     out
 }
@@ -154,12 +141,7 @@ pub fn workspace_report(files: &[WorkspaceFile]) -> WorkspaceDiagnosticReportRes
     let items = files
         .iter()
         .map(|f| {
-            workspace_doc_report(
-                &f.uri,
-                f.version,
-                &f.snapshot,
-                f.previous_result_id.as_deref(),
-            )
+            workspace_doc_report(&f.uri, f.version, &f.snapshot, f.previous_result_id.as_deref())
         })
         .collect();
     WorkspaceDiagnosticReport { items }.into()

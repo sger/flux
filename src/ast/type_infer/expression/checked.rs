@@ -24,12 +24,10 @@ impl<'a> InferCtx<'a> {
         // function passed as an argument had its `Num<Int>` recorded against the
         // enclosing call — a site nothing looks up for it.
         let enclosing_expr = self.current_expr.replace(expr.expr_id());
-        let resolved = self
-            .dispatch_check_expression(expr, expected)
-            .unwrap_or_else(|| {
-                let actual = self.infer_expression(expr);
-                self.unify_reporting(expected, &actual, expr.span())
-            });
+        let resolved = self.dispatch_check_expression(expr, expected).unwrap_or_else(|| {
+            let actual = self.infer_expression(expr);
+            self.unify_reporting(expected, &actual, expr.span())
+        });
         self.current_expr = enclosing_expr;
         resolved.apply_type_subst(&self.subst)
     }
@@ -42,25 +40,18 @@ impl<'a> InferCtx<'a> {
         expected: &InferType,
     ) -> Option<InferType> {
         match expr {
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-                span,
-                ..
-            } => Some(self.check_if_expression(
-                condition,
-                consequence,
-                alternative.as_ref(),
-                expected,
-                *span,
-            )),
-            Expression::Match {
-                scrutinee,
-                arms,
-                span,
-                ..
-            } => Some(self.check_match_expression(scrutinee, arms, expected, *span)),
+            Expression::If { condition, consequence, alternative, span, .. } => {
+                Some(self.check_if_expression(
+                    condition,
+                    consequence,
+                    alternative.as_ref(),
+                    expected,
+                    *span,
+                ))
+            }
+            Expression::Match { scrutinee, arms, span, .. } => {
+                Some(self.check_match_expression(scrutinee, arms, expected, *span))
+            }
             Expression::DoBlock { block, .. } => Some(self.check_block_value(block, expected)),
             Expression::Function {
                 parameters,
@@ -70,13 +61,7 @@ impl<'a> InferCtx<'a> {
                 body,
                 ..
             } => Some(self.check_lambda_expression(
-                LambdaInferInput {
-                    parameters,
-                    parameter_types,
-                    return_type,
-                    effects,
-                    body,
-                },
+                LambdaInferInput { parameters, parameter_types, return_type, effects, body },
                 expected,
                 expr.span(),
             )),
@@ -104,9 +89,9 @@ impl<'a> InferCtx<'a> {
             Expression::Hash { pairs, .. } => {
                 Some(self.check_hash_literal(pairs, expected, expr.span()))
             }
-            Expression::Cons {
-                head, tail, span, ..
-            } => Some(self.check_cons_expression(head, tail, expected, *span)),
+            Expression::Cons { head, tail, span, .. } => {
+                Some(self.check_cons_expression(head, tail, expected, *span))
+            }
             Expression::Some { value, .. } => {
                 Some(self.check_wrapper(value, expected, TypeConstructor::Option, 0, expr.span()))
             }
@@ -140,11 +125,8 @@ impl<'a> InferCtx<'a> {
             return self.unify_reporting(expected, &actual, lambda_span);
         }
         self.env.enter_scope();
-        for ((name, expected_ty), annotation) in input
-            .parameters
-            .iter()
-            .zip(expected_params.iter())
-            .zip(input.parameter_types.iter())
+        for ((name, expected_ty), annotation) in
+            input.parameters.iter().zip(expected_params.iter()).zip(input.parameter_types.iter())
         {
             let ty = match annotation {
                 Some(ann) => {
@@ -201,11 +183,7 @@ impl<'a> InferCtx<'a> {
     ) -> InferType {
         let scrutinee_ty = self.infer_expression(scrutinee);
         if arms.is_empty() {
-            return self.infer_match_expression(MatchInferInput {
-                scrutinee,
-                arms,
-                span,
-            });
+            return self.infer_match_expression(MatchInferInput { scrutinee, arms, span });
         }
         let first_span = arms[0].body.span();
         for (i, arm) in arms.iter().enumerate() {
@@ -246,10 +224,8 @@ impl<'a> InferCtx<'a> {
         let value_index = stmts.iter().rposition(|stmt| {
             matches!(
                 stmt,
-                Statement::Expression {
-                    has_semicolon: false,
-                    ..
-                } | Statement::Return { value: Some(_), .. }
+                Statement::Expression { has_semicolon: false, .. }
+                    | Statement::Return { value: Some(_), .. }
             )
         });
         for (i, stmt) in stmts.iter().enumerate() {
@@ -258,9 +234,7 @@ impl<'a> InferCtx<'a> {
                     Statement::Expression { expression, .. } => {
                         self.check_expression(expression, expected);
                     }
-                    Statement::Return {
-                        value: Some(expr), ..
-                    } => {
+                    Statement::Return { value: Some(expr), .. } => {
                         self.check_expression(expr, expected);
                     }
                     _ => unreachable!(),

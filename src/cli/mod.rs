@@ -53,12 +53,9 @@ fn run_command(command: CliCommand) -> ExitCode {
         CliCommand::Features { raw_args } => crate::ast::features::run(&raw_args),
         CliCommand::Init { name, is_lib } => return package::init(name.as_deref(), is_lib),
         CliCommand::New { name, is_lib } => return package::new(&name, is_lib),
-        CliCommand::Package {
-            action,
-            flags,
-            bin,
-            program_args,
-        } => return package::package_command(action, flags, bin.as_deref(), program_args),
+        CliCommand::Package { action, flags, bin, program_args } => {
+            return package::package_command(action, flags, bin.as_deref(), program_args);
+        }
         CliCommand::Help => show_help(),
     }
     ExitCode::SUCCESS
@@ -66,11 +63,7 @@ fn run_command(command: CliCommand) -> ExitCode {
 
 /// Turns a command's success flag into a process exit code.
 fn exit_status(ok: bool) -> ExitCode {
-    if ok {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::FAILURE
-    }
+    if ok { ExitCode::SUCCESS } else { ExitCode::FAILURE }
 }
 
 /// Prints the top-level CLI help text.

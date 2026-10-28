@@ -44,15 +44,9 @@ fn main() with IO, Time {
 }
 "#;
     let (stdout, stderr, success, _) = run_source(source, "timeout_cancel");
-    assert!(
-        success,
-        "timeout program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "timeout program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
-    assert!(
-        stdout.contains("timed_out"),
-        "expected 'timed_out' output:\nstdout:\n{stdout}"
-    );
+    assert!(stdout.contains("timed_out"), "expected 'timed_out' output:\nstdout:\n{stdout}");
     // Must complete well before the body's 2s sleep: ~50ms timer, against
     // ~2000ms without cancellation.
     assert!(

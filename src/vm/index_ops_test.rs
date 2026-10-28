@@ -5,11 +5,7 @@ use crate::{
 };
 
 fn new_vm() -> VM {
-    VM::new(Bytecode {
-        instructions: vec![],
-        constants: vec![],
-        debug_info: None,
-    })
+    VM::new(Bytecode { instructions: vec![], constants: vec![], debug_info: None })
 }
 
 #[test]
@@ -67,8 +63,7 @@ fn hash_index_missing_key() {
     root = rc_hamt::hamt_insert(&root, HashKey::String("k".to_string()), Value::Integer(1));
     let hash = Value::HashMap(root);
 
-    vm.execute_index_expression(hash, Value::String("missing".to_string().into()))
-        .unwrap();
+    vm.execute_index_expression(hash, Value::String("missing".to_string().into())).unwrap();
 
     let result = vm.pop().unwrap();
     assert_eq!(result, Value::None);

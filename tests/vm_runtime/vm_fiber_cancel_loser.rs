@@ -47,15 +47,9 @@ fn main() with IO, Time {
 }
 "#;
     let (stdout, stderr, success, _) = run_source(source, "race_loser");
-    assert!(
-        success,
-        "race program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "race program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
-    assert!(
-        stdout.contains("42"),
-        "expected fast branch result 42:\nstdout:\n{stdout}"
-    );
+    assert!(stdout.contains("42"), "expected fast branch result 42:\nstdout:\n{stdout}");
     // Must complete well before the loser's 2s timer; if the loser is NOT
     // cancelled the program takes ~2000ms of sleep.
     assert!(

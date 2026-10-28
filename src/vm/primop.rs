@@ -22,12 +22,7 @@ impl VM {
         // Keep VM-side arity checks strict so malformed bytecode fails fast.
         // AssertThrows accepts 1 or 2 arguments (optional expected message).
         if op != CorePrimOp::AssertThrows && arity != op.arity() {
-            return Err(format!(
-                "primop {:?} expects {} args, got {}",
-                op,
-                op.arity(),
-                arity
-            ));
+            return Err(format!("primop {:?} expects {} args, got {}", op, op.arity(), arity));
         }
 
         if self.sp < arity {

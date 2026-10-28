@@ -35,11 +35,7 @@ impl Lexer {
                 self.read_char(); // consume escaped scalar
                 let char_end = self.current_index();
 
-                let c = self
-                    .slice_str(char_start, char_end)
-                    .chars()
-                    .next()
-                    .unwrap_or('\u{FFFD}');
+                let c = self.slice_str(char_start, char_end).chars().next().unwrap_or('\u{FFFD}');
 
                 self.warnings.push(LexerWarning {
                     message: format!("Unknown escape sequence '\\{}. Valid escapes are: \\n \\t \\t \\\\ \\\" \\#",

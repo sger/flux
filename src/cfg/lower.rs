@@ -131,11 +131,7 @@ impl Lowerer {
                     function_context.finish_with_metadata(
                         IrType::Tagged,
                         ret,
-                        IrMetadata {
-                            span: Some(*span),
-                            inferred_type: None,
-                            expr_id: None,
-                        },
+                        IrMetadata { span: Some(*span), inferred_type: None, expr_id: None },
                         parameter_types.clone(),
                         return_type.clone(),
                         effects.clone(),
@@ -167,9 +163,7 @@ impl Lowerer {
         for item in items {
             match item {
                 IrTopLevelItem::Function {
-                    name: item_name,
-                    function_id: item_function_id,
-                    ..
+                    name: item_name, function_id: item_function_id, ..
                 } if *item_name == name && item_function_id.is_none() => {
                     *item_function_id = Some(function_id);
                     return true;
@@ -268,10 +262,7 @@ impl<'a> FunctionLoweringContext<'a> {
         captures: Vec<Identifier>,
         body_span: Span,
     ) {
-        if matches!(
-            self.blocks[self.current_block].terminator,
-            IrTerminator::Unreachable(_)
-        ) {
+        if matches!(self.blocks[self.current_block].terminator, IrTerminator::Unreachable(_)) {
             self.blocks[self.current_block].terminator =
                 IrTerminator::Return(ret, metadata.clone());
         }
@@ -326,10 +317,7 @@ impl<'a> FunctionLoweringContext<'a> {
             let is_last = i == len.saturating_sub(1);
             let tail_eligible = matches!(
                 stmt,
-                Statement::Expression {
-                    has_semicolon: false,
-                    ..
-                } | Statement::Return { .. }
+                Statement::Expression { has_semicolon: false, .. } | Statement::Return { .. }
             );
             last = self.lower_statement(stmt, is_last && tail_eligible)?;
         }
@@ -378,11 +366,7 @@ impl<'a> FunctionLoweringContext<'a> {
                 };
                 self.current_block_mut().terminator = IrTerminator::Return(
                     ret,
-                    IrMetadata {
-                        span: Some(*span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    IrMetadata { span: Some(*span), inferred_type: None, expr_id: None },
                 );
                 Ok(Some(ret))
             }
@@ -400,12 +384,7 @@ impl<'a> FunctionLoweringContext<'a> {
     }
 
     fn try_lower_tail_call(&mut self, expr: &Expression) -> Result<bool, Diagnostic> {
-        let Expression::Call {
-            function,
-            arguments,
-            ..
-        } = expr
-        else {
+        let Expression::Call { function, arguments, .. } = expr else {
             return Ok(false);
         };
 
@@ -424,18 +403,14 @@ impl<'a> FunctionLoweringContext<'a> {
 
     fn lower_expression(&mut self, expr: &Expression) -> Result<IrVar, Diagnostic> {
         match expr {
-            Expression::Integer { value, .. } => self.emit_const(
-                IrConst::Int(*value),
-                metadata_for(expr, &self.lowerer.hm_expr_types),
-            ),
+            Expression::Integer { value, .. } => self
+                .emit_const(IrConst::Int(*value), metadata_for(expr, &self.lowerer.hm_expr_types)),
             Expression::Float { value, .. } => self.emit_const(
                 IrConst::Float(*value),
                 metadata_for(expr, &self.lowerer.hm_expr_types),
             ),
-            Expression::Boolean { value, .. } => self.emit_const(
-                IrConst::Bool(*value),
-                metadata_for(expr, &self.lowerer.hm_expr_types),
-            ),
+            Expression::Boolean { value, .. } => self
+                .emit_const(IrConst::Bool(*value), metadata_for(expr, &self.lowerer.hm_expr_types)),
             Expression::String { value, .. } => self.emit_const(
                 IrConst::String(value.clone()),
                 metadata_for(expr, &self.lowerer.hm_expr_types),
@@ -476,12 +451,7 @@ impl<'a> FunctionLoweringContext<'a> {
                 });
                 Ok(dest)
             }
-            Expression::Infix {
-                left,
-                operator,
-                right,
-                ..
-            } => {
+            Expression::Infix { left, operator, right, .. } => {
                 let lhs = self.lower_expression(left)?;
                 let rhs = self.lower_expression(right)?;
                 let op = map_binary_op(operator).ok_or_else(|| {
@@ -496,18 +466,13 @@ impl<'a> FunctionLoweringContext<'a> {
                 });
                 Ok(dest)
             }
-            Expression::Prefix {
-                operator, right, ..
-            } => {
+            Expression::Prefix { operator, right, .. } => {
                 let right = self.lower_expression(right)?;
                 let dest = self.next_var();
                 let metadata = metadata_for(expr, &self.lowerer.hm_expr_types);
                 self.current_block_mut().instrs.push(IrInstr::Assign {
                     dest,
-                    expr: IrExpr::Prefix {
-                        operator: operator.clone(),
-                        right,
-                    },
+                    expr: IrExpr::Prefix { operator: operator.clone(), right },
                     metadata,
                 });
                 Ok(dest)
@@ -592,11 +557,7 @@ impl<'a> FunctionLoweringContext<'a> {
                 let metadata = metadata_for(expr, &self.lowerer.hm_expr_types);
                 self.current_block_mut().instrs.push(IrInstr::Assign {
                     dest,
-                    expr: IrExpr::MemberAccess {
-                        object,
-                        member: *member,
-                        module_name,
-                    },
+                    expr: IrExpr::MemberAccess { object, member: *member, module_name },
                     metadata,
                 });
                 Ok(dest)
@@ -607,19 +568,12 @@ impl<'a> FunctionLoweringContext<'a> {
                 let metadata = metadata_for(expr, &self.lowerer.hm_expr_types);
                 self.current_block_mut().instrs.push(IrInstr::Assign {
                     dest,
-                    expr: IrExpr::TupleFieldAccess {
-                        object,
-                        index: *index,
-                    },
+                    expr: IrExpr::TupleFieldAccess { object, index: *index },
                     metadata,
                 });
                 Ok(dest)
             }
-            Expression::Call {
-                function,
-                arguments,
-                ..
-            } => {
+            Expression::Call { function, arguments, .. } => {
                 let args = self.lower_expr_list(arguments)?;
                 let target = match function.as_ref() {
                     Expression::Identifier { name, .. } => IrCallTarget::Named(*name),
@@ -635,16 +589,11 @@ impl<'a> FunctionLoweringContext<'a> {
                 });
                 Ok(dest)
             }
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-                ..
-            } => self.lower_if_expression(expr, condition, consequence, alternative.as_ref()),
+            Expression::If { condition, consequence, alternative, .. } => {
+                self.lower_if_expression(expr, condition, consequence, alternative.as_ref())
+            }
             Expression::DoBlock { block, .. } => self.lower_block(block),
-            Expression::Match {
-                scrutinee, arms, ..
-            } => {
+            Expression::Match { scrutinee, arms, .. } => {
                 if let Some(var) = self.try_lower_literal_match_expression(expr, scrutinee, arms)? {
                     return Ok(var);
                 }
@@ -719,32 +668,18 @@ impl<'a> FunctionLoweringContext<'a> {
                 });
                 Ok(dest)
             }
-            Expression::Perform {
-                effect,
-                operation,
-                args,
-                ..
-            } => {
+            Expression::Perform { effect, operation, args, .. } => {
                 let args = self.lower_expr_list(args)?;
                 let dest = self.next_var();
                 let metadata = metadata_for(expr, &self.lowerer.hm_expr_types);
                 self.current_block_mut().instrs.push(IrInstr::Assign {
                     dest,
-                    expr: IrExpr::Perform {
-                        effect: *effect,
-                        operation: *operation,
-                        args,
-                    },
+                    expr: IrExpr::Perform { effect: *effect, operation: *operation, args },
                     metadata,
                 });
                 Ok(dest)
             }
-            Expression::Handle {
-                expr: handled,
-                effect,
-                arms,
-                ..
-            } => {
+            Expression::Handle { expr: handled, effect, arms, .. } => {
                 let handled = self.lower_expression(handled)?;
                 let mut lowered_arms = Vec::with_capacity(arms.len());
                 for arm in arms {
@@ -764,30 +699,20 @@ impl<'a> FunctionLoweringContext<'a> {
                 let metadata = metadata_for(expr, &self.lowerer.hm_expr_types);
                 self.current_block_mut().instrs.push(IrInstr::Assign {
                     dest,
-                    expr: IrExpr::Handle {
-                        expr: handled,
-                        effect: *effect,
-                        arms: lowered_arms,
-                    },
+                    expr: IrExpr::Handle { expr: handled, effect: *effect, arms: lowered_arms },
                     metadata,
                 });
                 Ok(dest)
             }
             Expression::Sealing { expr: inner, .. } => self.lower_expression(inner),
-            Expression::Function {
-                parameters, body, ..
-            } => {
+            Expression::Function { parameters, body, .. } => {
                 let free_vars = collect_free_vars(expr);
-                let mut capture_names: Vec<_> = free_vars
-                    .into_iter()
-                    .filter(|name| self.env.contains_key(name))
-                    .collect();
+                let mut capture_names: Vec<_> =
+                    free_vars.into_iter().filter(|name| self.env.contains_key(name)).collect();
                 capture_names.sort_by_key(|name| name.as_u32());
                 let function_id = self.lower_nested_function(parameters, body, &capture_names)?;
-                let capture_vars = capture_names
-                    .iter()
-                    .filter_map(|name| self.env.get(name).copied())
-                    .collect();
+                let capture_vars =
+                    capture_names.iter().filter_map(|name| self.env.get(name).copied()).collect();
                 let dest = self.next_var();
                 let metadata = metadata_for(expr, &self.lowerer.hm_expr_types);
                 self.current_block_mut().instrs.push(IrInstr::Assign {
@@ -833,9 +758,7 @@ impl<'a> FunctionLoweringContext<'a> {
         let scrutinee = self.lower_expression(scrutinee_expr)?;
         let result_var = self.next_var();
         let result_ty = infer_type_to_ir(
-            metadata_for(full_expr, &self.lowerer.hm_expr_types)
-                .inferred_type
-                .as_ref(),
+            metadata_for(full_expr, &self.lowerer.hm_expr_types).inferred_type.as_ref(),
         );
         let merge_block_id = self.lowerer.next_block();
         let saved_env = self.env.clone();
@@ -845,31 +768,19 @@ impl<'a> FunctionLoweringContext<'a> {
             let next_block_id = self.lowerer.next_block();
             let const_var = self.emit_const(
                 value,
-                IrMetadata {
-                    span: Some(arm.span),
-                    inferred_type: None,
-                    expr_id: None,
-                },
+                IrMetadata { span: Some(arm.span), inferred_type: None, expr_id: None },
             )?;
             let cond_var = self.next_var();
             self.current_block_mut().instrs.push(IrInstr::Assign {
                 dest: cond_var,
                 expr: IrExpr::Binary(IrBinaryOp::Eq, scrutinee, const_var),
-                metadata: IrMetadata {
-                    span: Some(arm.span),
-                    inferred_type: None,
-                    expr_id: None,
-                },
+                metadata: IrMetadata { span: Some(arm.span), inferred_type: None, expr_id: None },
             });
             self.current_block_mut().terminator = IrTerminator::Branch {
                 cond: cond_var,
                 then_block: arm_match_block_id,
                 else_block: next_block_id,
-                metadata: IrMetadata {
-                    span: Some(arm.span),
-                    inferred_type: None,
-                    expr_id: None,
-                },
+                metadata: IrMetadata { span: Some(arm.span), inferred_type: None, expr_id: None },
             };
 
             self.blocks.push(IrBlock {
@@ -908,11 +819,7 @@ impl<'a> FunctionLoweringContext<'a> {
                 self.current_block_mut().terminator = IrTerminator::Jump(
                     merge_block_id,
                     vec![body_var],
-                    IrMetadata {
-                        span: Some(arm.span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    IrMetadata { span: Some(arm.span), inferred_type: None, expr_id: None },
                 );
 
                 self.blocks.push(IrBlock {
@@ -927,11 +834,7 @@ impl<'a> FunctionLoweringContext<'a> {
                 self.current_block_mut().terminator = IrTerminator::Jump(
                     merge_block_id,
                     vec![body_var],
-                    IrMetadata {
-                        span: Some(arm.span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    IrMetadata { span: Some(arm.span), inferred_type: None, expr_id: None },
                 );
             }
 
@@ -953,21 +856,13 @@ impl<'a> FunctionLoweringContext<'a> {
             self.current_block_mut().terminator = IrTerminator::Jump(
                 merge_block_id,
                 vec![fallback_var],
-                IrMetadata {
-                    span: Some(fallback_arm.span),
-                    inferred_type: None,
-                    expr_id: None,
-                },
+                IrMetadata { span: Some(fallback_arm.span), inferred_type: None, expr_id: None },
             );
         }
 
         self.blocks.push(IrBlock {
             id: merge_block_id,
-            params: vec![IrBlockParam {
-                var: result_var,
-                ty: result_ty,
-                inferred_ty: None,
-            }],
+            params: vec![IrBlockParam { var: result_var, ty: result_ty, inferred_ty: None }],
             instrs: Vec::new(),
             terminator: IrTerminator::Unreachable(IrMetadata::empty()),
         });
@@ -1004,9 +899,7 @@ impl<'a> FunctionLoweringContext<'a> {
         let scrutinee = self.lower_expression(scrutinee_expr)?;
         let result_var = self.next_var();
         let result_ty = infer_type_to_ir(
-            metadata_for(full_expr, &self.lowerer.hm_expr_types)
-                .inferred_type
-                .as_ref(),
+            metadata_for(full_expr, &self.lowerer.hm_expr_types).inferred_type.as_ref(),
         );
         let merge_block_id = self.lowerer.next_block();
         let saved_env = self.env.clone();
@@ -1017,25 +910,14 @@ impl<'a> FunctionLoweringContext<'a> {
             let cond_var = self.next_var();
             self.current_block_mut().instrs.push(IrInstr::Assign {
                 dest: cond_var,
-                expr: IrExpr::TagTest {
-                    value: scrutinee,
-                    tag,
-                },
-                metadata: IrMetadata {
-                    span: Some(arm.span),
-                    inferred_type: None,
-                    expr_id: None,
-                },
+                expr: IrExpr::TagTest { value: scrutinee, tag },
+                metadata: IrMetadata { span: Some(arm.span), inferred_type: None, expr_id: None },
             });
             self.current_block_mut().terminator = IrTerminator::Branch {
                 cond: cond_var,
                 then_block: arm_match_block_id,
                 else_block: next_block_id,
-                metadata: IrMetadata {
-                    span: Some(arm.span),
-                    inferred_type: None,
-                    expr_id: None,
-                },
+                metadata: IrMetadata { span: Some(arm.span), inferred_type: None, expr_id: None },
             };
 
             self.blocks.push(IrBlock {
@@ -1050,10 +932,7 @@ impl<'a> FunctionLoweringContext<'a> {
                 let payload_var = self.next_var();
                 self.current_block_mut().instrs.push(IrInstr::Assign {
                     dest: payload_var,
-                    expr: IrExpr::TagPayload {
-                        value: scrutinee,
-                        tag,
-                    },
+                    expr: IrExpr::TagPayload { value: scrutinee, tag },
                     metadata: IrMetadata {
                         span: Some(arm.span),
                         inferred_type: None,
@@ -1090,11 +969,7 @@ impl<'a> FunctionLoweringContext<'a> {
                 self.current_block_mut().terminator = IrTerminator::Jump(
                     merge_block_id,
                     vec![body_var],
-                    IrMetadata {
-                        span: Some(arm.span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    IrMetadata { span: Some(arm.span), inferred_type: None, expr_id: None },
                 );
 
                 self.blocks.push(IrBlock {
@@ -1109,11 +984,7 @@ impl<'a> FunctionLoweringContext<'a> {
                 self.current_block_mut().terminator = IrTerminator::Jump(
                     merge_block_id,
                     vec![body_var],
-                    IrMetadata {
-                        span: Some(arm.span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    IrMetadata { span: Some(arm.span), inferred_type: None, expr_id: None },
                 );
             }
 
@@ -1135,21 +1006,13 @@ impl<'a> FunctionLoweringContext<'a> {
             self.current_block_mut().terminator = IrTerminator::Jump(
                 merge_block_id,
                 vec![fallback_var],
-                IrMetadata {
-                    span: Some(fallback_arm.span),
-                    inferred_type: None,
-                    expr_id: None,
-                },
+                IrMetadata { span: Some(fallback_arm.span), inferred_type: None, expr_id: None },
             );
         }
 
         self.blocks.push(IrBlock {
             id: merge_block_id,
-            params: vec![IrBlockParam {
-                var: result_var,
-                ty: result_ty,
-                inferred_ty: None,
-            }],
+            params: vec![IrBlockParam { var: result_var, ty: result_ty, inferred_ty: None }],
             instrs: Vec::new(),
             terminator: IrTerminator::Unreachable(IrMetadata::empty()),
         });
@@ -1188,9 +1051,7 @@ impl<'a> FunctionLoweringContext<'a> {
         let scrutinee = self.lower_expression(scrutinee_expr)?;
         let result_var = self.next_var();
         let result_ty = infer_type_to_ir(
-            metadata_for(full_expr, &self.lowerer.hm_expr_types)
-                .inferred_type
-                .as_ref(),
+            metadata_for(full_expr, &self.lowerer.hm_expr_types).inferred_type.as_ref(),
         );
         let merge_block_id = self.lowerer.next_block();
         let saved_env = self.env.clone();
@@ -1201,25 +1062,14 @@ impl<'a> FunctionLoweringContext<'a> {
             let cond_var = self.next_var();
             self.current_block_mut().instrs.push(IrInstr::Assign {
                 dest: cond_var,
-                expr: IrExpr::TupleArityTest {
-                    value: scrutinee,
-                    arity: bindings.len(),
-                },
-                metadata: IrMetadata {
-                    span: Some(arm.span),
-                    inferred_type: None,
-                    expr_id: None,
-                },
+                expr: IrExpr::TupleArityTest { value: scrutinee, arity: bindings.len() },
+                metadata: IrMetadata { span: Some(arm.span), inferred_type: None, expr_id: None },
             });
             self.current_block_mut().terminator = IrTerminator::Branch {
                 cond: cond_var,
                 then_block: arm_match_block_id,
                 else_block: next_block_id,
-                metadata: IrMetadata {
-                    span: Some(arm.span),
-                    inferred_type: None,
-                    expr_id: None,
-                },
+                metadata: IrMetadata { span: Some(arm.span), inferred_type: None, expr_id: None },
             };
 
             self.blocks.push(IrBlock {
@@ -1235,10 +1085,7 @@ impl<'a> FunctionLoweringContext<'a> {
                     let field_var = self.next_var();
                     self.current_block_mut().instrs.push(IrInstr::Assign {
                         dest: field_var,
-                        expr: IrExpr::TupleFieldAccess {
-                            object: scrutinee,
-                            index,
-                        },
+                        expr: IrExpr::TupleFieldAccess { object: scrutinee, index },
                         metadata: IrMetadata {
                             span: Some(arm.span),
                             inferred_type: None,
@@ -1277,10 +1124,7 @@ impl<'a> FunctionLoweringContext<'a> {
                         let field_var = self.next_var();
                         self.current_block_mut().instrs.push(IrInstr::Assign {
                             dest: field_var,
-                            expr: IrExpr::TupleFieldAccess {
-                                object: scrutinee,
-                                index,
-                            },
+                            expr: IrExpr::TupleFieldAccess { object: scrutinee, index },
                             metadata: IrMetadata {
                                 span: Some(arm.span),
                                 inferred_type: None,
@@ -1294,11 +1138,7 @@ impl<'a> FunctionLoweringContext<'a> {
                 self.current_block_mut().terminator = IrTerminator::Jump(
                     merge_block_id,
                     vec![body_var],
-                    IrMetadata {
-                        span: Some(arm.span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    IrMetadata { span: Some(arm.span), inferred_type: None, expr_id: None },
                 );
 
                 self.blocks.push(IrBlock {
@@ -1313,11 +1153,7 @@ impl<'a> FunctionLoweringContext<'a> {
                 self.current_block_mut().terminator = IrTerminator::Jump(
                     merge_block_id,
                     vec![body_var],
-                    IrMetadata {
-                        span: Some(arm.span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    IrMetadata { span: Some(arm.span), inferred_type: None, expr_id: None },
                 );
             }
 
@@ -1338,20 +1174,12 @@ impl<'a> FunctionLoweringContext<'a> {
         self.current_block_mut().terminator = IrTerminator::Jump(
             merge_block_id,
             vec![fallback_var],
-            IrMetadata {
-                span: Some(fallback_arm.span),
-                inferred_type: None,
-                expr_id: None,
-            },
+            IrMetadata { span: Some(fallback_arm.span), inferred_type: None, expr_id: None },
         );
 
         self.blocks.push(IrBlock {
             id: merge_block_id,
-            params: vec![IrBlockParam {
-                var: result_var,
-                ty: result_ty,
-                inferred_ty: None,
-            }],
+            params: vec![IrBlockParam { var: result_var, ty: result_ty, inferred_ty: None }],
             instrs: Vec::new(),
             terminator: IrTerminator::Unreachable(IrMetadata::empty()),
         });
@@ -1388,9 +1216,7 @@ impl<'a> FunctionLoweringContext<'a> {
         let scrutinee = self.lower_expression(scrutinee_expr)?;
         let result_var = self.next_var();
         let result_ty = infer_type_to_ir(
-            metadata_for(full_expr, &self.lowerer.hm_expr_types)
-                .inferred_type
-                .as_ref(),
+            metadata_for(full_expr, &self.lowerer.hm_expr_types).inferred_type.as_ref(),
         );
         let merge_block_id = self.lowerer.next_block();
         let saved_env = self.env.clone();
@@ -1401,25 +1227,14 @@ impl<'a> FunctionLoweringContext<'a> {
             let cond_var = self.next_var();
             self.current_block_mut().instrs.push(IrInstr::Assign {
                 dest: cond_var,
-                expr: IrExpr::ListTest {
-                    value: scrutinee,
-                    tag: pattern.tag(),
-                },
-                metadata: IrMetadata {
-                    span: Some(arm.span),
-                    inferred_type: None,
-                    expr_id: None,
-                },
+                expr: IrExpr::ListTest { value: scrutinee, tag: pattern.tag() },
+                metadata: IrMetadata { span: Some(arm.span), inferred_type: None, expr_id: None },
             });
             self.current_block_mut().terminator = IrTerminator::Branch {
                 cond: cond_var,
                 then_block: arm_match_block_id,
                 else_block: next_block_id,
-                metadata: IrMetadata {
-                    span: Some(arm.span),
-                    inferred_type: None,
-                    expr_id: None,
-                },
+                metadata: IrMetadata { span: Some(arm.span), inferred_type: None, expr_id: None },
             };
 
             self.blocks.push(IrBlock {
@@ -1460,11 +1275,7 @@ impl<'a> FunctionLoweringContext<'a> {
                 self.current_block_mut().terminator = IrTerminator::Jump(
                     merge_block_id,
                     vec![body_var],
-                    IrMetadata {
-                        span: Some(arm.span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    IrMetadata { span: Some(arm.span), inferred_type: None, expr_id: None },
                 );
 
                 self.blocks.push(IrBlock {
@@ -1479,11 +1290,7 @@ impl<'a> FunctionLoweringContext<'a> {
                 self.current_block_mut().terminator = IrTerminator::Jump(
                     merge_block_id,
                     vec![body_var],
-                    IrMetadata {
-                        span: Some(arm.span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    IrMetadata { span: Some(arm.span), inferred_type: None, expr_id: None },
                 );
             }
 
@@ -1505,21 +1312,13 @@ impl<'a> FunctionLoweringContext<'a> {
             self.current_block_mut().terminator = IrTerminator::Jump(
                 merge_block_id,
                 vec![fallback_var],
-                IrMetadata {
-                    span: Some(fallback_arm.span),
-                    inferred_type: None,
-                    expr_id: None,
-                },
+                IrMetadata { span: Some(fallback_arm.span), inferred_type: None, expr_id: None },
             );
         }
 
         self.blocks.push(IrBlock {
             id: merge_block_id,
-            params: vec![IrBlockParam {
-                var: result_var,
-                ty: result_ty,
-                inferred_ty: None,
-            }],
+            params: vec![IrBlockParam { var: result_var, ty: result_ty, inferred_ty: None }],
             instrs: Vec::new(),
             terminator: IrTerminator::Unreachable(IrMetadata::empty()),
         });
@@ -1558,9 +1357,7 @@ impl<'a> FunctionLoweringContext<'a> {
         let scrutinee = self.lower_expression(scrutinee_expr)?;
         let result_var = self.next_var();
         let result_ty = infer_type_to_ir(
-            metadata_for(full_expr, &self.lowerer.hm_expr_types)
-                .inferred_type
-                .as_ref(),
+            metadata_for(full_expr, &self.lowerer.hm_expr_types).inferred_type.as_ref(),
         );
         let merge_block_id = self.lowerer.next_block();
         let saved_env = self.env.clone();
@@ -1571,25 +1368,14 @@ impl<'a> FunctionLoweringContext<'a> {
             let cond_var = self.next_var();
             self.current_block_mut().instrs.push(IrInstr::Assign {
                 dest: cond_var,
-                expr: IrExpr::AdtTagTest {
-                    value: scrutinee,
-                    constructor: pattern.constructor,
-                },
-                metadata: IrMetadata {
-                    span: Some(arm.span),
-                    inferred_type: None,
-                    expr_id: None,
-                },
+                expr: IrExpr::AdtTagTest { value: scrutinee, constructor: pattern.constructor },
+                metadata: IrMetadata { span: Some(arm.span), inferred_type: None, expr_id: None },
             });
             self.current_block_mut().terminator = IrTerminator::Branch {
                 cond: cond_var,
                 then_block: arm_match_block_id,
                 else_block: next_block_id,
-                metadata: IrMetadata {
-                    span: Some(arm.span),
-                    inferred_type: None,
-                    expr_id: None,
-                },
+                metadata: IrMetadata { span: Some(arm.span), inferred_type: None, expr_id: None },
             };
 
             self.blocks.push(IrBlock {
@@ -1630,11 +1416,7 @@ impl<'a> FunctionLoweringContext<'a> {
                 self.current_block_mut().terminator = IrTerminator::Jump(
                     merge_block_id,
                     vec![body_var],
-                    IrMetadata {
-                        span: Some(arm.span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    IrMetadata { span: Some(arm.span), inferred_type: None, expr_id: None },
                 );
 
                 self.blocks.push(IrBlock {
@@ -1649,11 +1431,7 @@ impl<'a> FunctionLoweringContext<'a> {
                 self.current_block_mut().terminator = IrTerminator::Jump(
                     merge_block_id,
                     vec![body_var],
-                    IrMetadata {
-                        span: Some(arm.span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    IrMetadata { span: Some(arm.span), inferred_type: None, expr_id: None },
                 );
             }
 
@@ -1674,20 +1452,12 @@ impl<'a> FunctionLoweringContext<'a> {
         self.current_block_mut().terminator = IrTerminator::Jump(
             merge_block_id,
             vec![fallback_var],
-            IrMetadata {
-                span: Some(fallback_arm.span),
-                inferred_type: None,
-                expr_id: None,
-            },
+            IrMetadata { span: Some(fallback_arm.span), inferred_type: None, expr_id: None },
         );
 
         self.blocks.push(IrBlock {
             id: merge_block_id,
-            params: vec![IrBlockParam {
-                var: result_var,
-                ty: result_ty,
-                inferred_ty: None,
-            }],
+            params: vec![IrBlockParam { var: result_var, ty: result_ty, inferred_ty: None }],
             instrs: Vec::new(),
             terminator: IrTerminator::Unreachable(IrMetadata::empty()),
         });
@@ -1723,9 +1493,7 @@ impl<'a> FunctionLoweringContext<'a> {
         let scrutinee = self.lower_expression(scrutinee_expr)?;
         let result_var = self.next_var();
         let result_ty = infer_type_to_ir(
-            metadata_for(full_expr, &self.lowerer.hm_expr_types)
-                .inferred_type
-                .as_ref(),
+            metadata_for(full_expr, &self.lowerer.hm_expr_types).inferred_type.as_ref(),
         );
         let merge_block_id = self.lowerer.next_block();
         let saved_env = self.env.clone();
@@ -1768,11 +1536,7 @@ impl<'a> FunctionLoweringContext<'a> {
             self.current_block_mut().terminator = IrTerminator::Jump(
                 merge_block_id,
                 vec![body_var],
-                IrMetadata {
-                    span: Some(arm.span),
-                    inferred_type: None,
-                    expr_id: None,
-                },
+                IrMetadata { span: Some(arm.span), inferred_type: None, expr_id: None },
             );
 
             // Push the fail block for this arm; the next iteration begins here.
@@ -1782,11 +1546,7 @@ impl<'a> FunctionLoweringContext<'a> {
         // After the last fail block: push merge block with result as block param.
         self.blocks.push(IrBlock {
             id: merge_block_id,
-            params: vec![IrBlockParam {
-                var: result_var,
-                ty: result_ty,
-                inferred_ty: None,
-            }],
+            params: vec![IrBlockParam { var: result_var, ty: result_ty, inferred_ty: None }],
             instrs: Vec::new(),
             terminator: IrTerminator::Unreachable(IrMetadata::empty()),
         });
@@ -1823,25 +1583,14 @@ impl<'a> FunctionLoweringContext<'a> {
                 let cond = self.next_var();
                 self.current_block_mut().instrs.push(IrInstr::Assign {
                     dest: cond,
-                    expr: IrExpr::TagTest {
-                        value: scrutinee,
-                        tag: IrTagTest::None,
-                    },
-                    metadata: IrMetadata {
-                        span: Some(span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    expr: IrExpr::TagTest { value: scrutinee, tag: IrTagTest::None },
+                    metadata: IrMetadata { span: Some(span), inferred_type: None, expr_id: None },
                 });
                 self.current_block_mut().terminator = IrTerminator::Branch {
                     cond,
                     then_block: pass_block,
                     else_block: fail_block,
-                    metadata: IrMetadata {
-                        span: Some(span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    metadata: IrMetadata { span: Some(span), inferred_type: None, expr_id: None },
                 };
                 self.push_block(pass_block);
             }
@@ -1850,39 +1599,21 @@ impl<'a> FunctionLoweringContext<'a> {
                 let cond = self.next_var();
                 self.current_block_mut().instrs.push(IrInstr::Assign {
                     dest: cond,
-                    expr: IrExpr::TagTest {
-                        value: scrutinee,
-                        tag: IrTagTest::Some,
-                    },
-                    metadata: IrMetadata {
-                        span: Some(span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    expr: IrExpr::TagTest { value: scrutinee, tag: IrTagTest::Some },
+                    metadata: IrMetadata { span: Some(span), inferred_type: None, expr_id: None },
                 });
                 self.current_block_mut().terminator = IrTerminator::Branch {
                     cond,
                     then_block: pass_block,
                     else_block: fail_block,
-                    metadata: IrMetadata {
-                        span: Some(span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    metadata: IrMetadata { span: Some(span), inferred_type: None, expr_id: None },
                 };
                 self.push_block(pass_block);
                 let payload = self.next_var();
                 self.current_block_mut().instrs.push(IrInstr::Assign {
                     dest: payload,
-                    expr: IrExpr::TagPayload {
-                        value: scrutinee,
-                        tag: IrTagTest::Some,
-                    },
-                    metadata: IrMetadata {
-                        span: Some(span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    expr: IrExpr::TagPayload { value: scrutinee, tag: IrTagTest::Some },
+                    metadata: IrMetadata { span: Some(span), inferred_type: None, expr_id: None },
                 });
                 self.emit_pattern_test(payload, inner, fail_block, span)?;
             }
@@ -1891,39 +1622,21 @@ impl<'a> FunctionLoweringContext<'a> {
                 let cond = self.next_var();
                 self.current_block_mut().instrs.push(IrInstr::Assign {
                     dest: cond,
-                    expr: IrExpr::TagTest {
-                        value: scrutinee,
-                        tag: IrTagTest::Left,
-                    },
-                    metadata: IrMetadata {
-                        span: Some(span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    expr: IrExpr::TagTest { value: scrutinee, tag: IrTagTest::Left },
+                    metadata: IrMetadata { span: Some(span), inferred_type: None, expr_id: None },
                 });
                 self.current_block_mut().terminator = IrTerminator::Branch {
                     cond,
                     then_block: pass_block,
                     else_block: fail_block,
-                    metadata: IrMetadata {
-                        span: Some(span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    metadata: IrMetadata { span: Some(span), inferred_type: None, expr_id: None },
                 };
                 self.push_block(pass_block);
                 let payload = self.next_var();
                 self.current_block_mut().instrs.push(IrInstr::Assign {
                     dest: payload,
-                    expr: IrExpr::TagPayload {
-                        value: scrutinee,
-                        tag: IrTagTest::Left,
-                    },
-                    metadata: IrMetadata {
-                        span: Some(span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    expr: IrExpr::TagPayload { value: scrutinee, tag: IrTagTest::Left },
+                    metadata: IrMetadata { span: Some(span), inferred_type: None, expr_id: None },
                 });
                 self.emit_pattern_test(payload, inner, fail_block, span)?;
             }
@@ -1932,39 +1645,21 @@ impl<'a> FunctionLoweringContext<'a> {
                 let cond = self.next_var();
                 self.current_block_mut().instrs.push(IrInstr::Assign {
                     dest: cond,
-                    expr: IrExpr::TagTest {
-                        value: scrutinee,
-                        tag: IrTagTest::Right,
-                    },
-                    metadata: IrMetadata {
-                        span: Some(span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    expr: IrExpr::TagTest { value: scrutinee, tag: IrTagTest::Right },
+                    metadata: IrMetadata { span: Some(span), inferred_type: None, expr_id: None },
                 });
                 self.current_block_mut().terminator = IrTerminator::Branch {
                     cond,
                     then_block: pass_block,
                     else_block: fail_block,
-                    metadata: IrMetadata {
-                        span: Some(span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    metadata: IrMetadata { span: Some(span), inferred_type: None, expr_id: None },
                 };
                 self.push_block(pass_block);
                 let payload = self.next_var();
                 self.current_block_mut().instrs.push(IrInstr::Assign {
                     dest: payload,
-                    expr: IrExpr::TagPayload {
-                        value: scrutinee,
-                        tag: IrTagTest::Right,
-                    },
-                    metadata: IrMetadata {
-                        span: Some(span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    expr: IrExpr::TagPayload { value: scrutinee, tag: IrTagTest::Right },
+                    metadata: IrMetadata { span: Some(span), inferred_type: None, expr_id: None },
                 });
                 self.emit_pattern_test(payload, inner, fail_block, span)?;
             }
@@ -1973,25 +1668,14 @@ impl<'a> FunctionLoweringContext<'a> {
                 let cond = self.next_var();
                 self.current_block_mut().instrs.push(IrInstr::Assign {
                     dest: cond,
-                    expr: IrExpr::ListTest {
-                        value: scrutinee,
-                        tag: IrListTest::Empty,
-                    },
-                    metadata: IrMetadata {
-                        span: Some(span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    expr: IrExpr::ListTest { value: scrutinee, tag: IrListTest::Empty },
+                    metadata: IrMetadata { span: Some(span), inferred_type: None, expr_id: None },
                 });
                 self.current_block_mut().terminator = IrTerminator::Branch {
                     cond,
                     then_block: pass_block,
                     else_block: fail_block,
-                    metadata: IrMetadata {
-                        span: Some(span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    metadata: IrMetadata { span: Some(span), inferred_type: None, expr_id: None },
                 };
                 self.push_block(pass_block);
             }
@@ -2000,62 +1684,37 @@ impl<'a> FunctionLoweringContext<'a> {
                 let cond = self.next_var();
                 self.current_block_mut().instrs.push(IrInstr::Assign {
                     dest: cond,
-                    expr: IrExpr::ListTest {
-                        value: scrutinee,
-                        tag: IrListTest::Cons,
-                    },
-                    metadata: IrMetadata {
-                        span: Some(span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    expr: IrExpr::ListTest { value: scrutinee, tag: IrListTest::Cons },
+                    metadata: IrMetadata { span: Some(span), inferred_type: None, expr_id: None },
                 });
                 self.current_block_mut().terminator = IrTerminator::Branch {
                     cond,
                     then_block: pass_block,
                     else_block: fail_block,
-                    metadata: IrMetadata {
-                        span: Some(span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    metadata: IrMetadata { span: Some(span), inferred_type: None, expr_id: None },
                 };
                 self.push_block(pass_block);
                 let head_var = self.next_var();
                 self.current_block_mut().instrs.push(IrInstr::Assign {
                     dest: head_var,
                     expr: IrExpr::ListHead { value: scrutinee },
-                    metadata: IrMetadata {
-                        span: Some(span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    metadata: IrMetadata { span: Some(span), inferred_type: None, expr_id: None },
                 });
                 let tail_var = self.next_var();
                 self.current_block_mut().instrs.push(IrInstr::Assign {
                     dest: tail_var,
                     expr: IrExpr::ListTail { value: scrutinee },
-                    metadata: IrMetadata {
-                        span: Some(span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    metadata: IrMetadata { span: Some(span), inferred_type: None, expr_id: None },
                 });
                 self.emit_pattern_test(head_var, head, fail_block, span)?;
                 self.emit_pattern_test(tail_var, tail, fail_block, span)?;
             }
-            Pattern::Tuple {
-                elements,
-                span: tuple_span,
-            } => {
+            Pattern::Tuple { elements, span: tuple_span } => {
                 let pass_block = self.lowerer.next_block();
                 let cond = self.next_var();
                 self.current_block_mut().instrs.push(IrInstr::Assign {
                     dest: cond,
-                    expr: IrExpr::TupleArityTest {
-                        value: scrutinee,
-                        arity: elements.len(),
-                    },
+                    expr: IrExpr::TupleArityTest { value: scrutinee, arity: elements.len() },
                     metadata: IrMetadata {
                         span: Some(*tuple_span),
                         inferred_type: None,
@@ -2077,10 +1736,7 @@ impl<'a> FunctionLoweringContext<'a> {
                     let field_var = self.next_var();
                     self.current_block_mut().instrs.push(IrInstr::Assign {
                         dest: field_var,
-                        expr: IrExpr::TupleFieldAccess {
-                            object: scrutinee,
-                            index: i,
-                        },
+                        expr: IrExpr::TupleFieldAccess { object: scrutinee, index: i },
                         metadata: IrMetadata {
                             span: Some(*tuple_span),
                             inferred_type: None,
@@ -2090,19 +1746,12 @@ impl<'a> FunctionLoweringContext<'a> {
                     self.emit_pattern_test(field_var, element, fail_block, *tuple_span)?;
                 }
             }
-            Pattern::Constructor {
-                name,
-                fields,
-                span: ctor_span,
-            } => {
+            Pattern::Constructor { name, fields, span: ctor_span } => {
                 let pass_block = self.lowerer.next_block();
                 let cond = self.next_var();
                 self.current_block_mut().instrs.push(IrInstr::Assign {
                     dest: cond,
-                    expr: IrExpr::AdtTagTest {
-                        value: scrutinee,
-                        constructor: *name,
-                    },
+                    expr: IrExpr::AdtTagTest { value: scrutinee, constructor: *name },
                     metadata: IrMetadata {
                         span: Some(*ctor_span),
                         inferred_type: None,
@@ -2124,10 +1773,7 @@ impl<'a> FunctionLoweringContext<'a> {
                     let field_var = self.next_var();
                     self.current_block_mut().instrs.push(IrInstr::Assign {
                         dest: field_var,
-                        expr: IrExpr::AdtField {
-                            value: scrutinee,
-                            index: i,
-                        },
+                        expr: IrExpr::AdtField { value: scrutinee, index: i },
                         metadata: IrMetadata {
                             span: Some(*ctor_span),
                             inferred_type: None,
@@ -2143,10 +1789,7 @@ impl<'a> FunctionLoweringContext<'a> {
                      (proposal 0152 Phase 3)"
                 );
             }
-            Pattern::Literal {
-                expression: _,
-                span: lit_span,
-            } => {
+            Pattern::Literal { expression: _, span: lit_span } => {
                 let Some(const_val) = match_literal_pattern(pattern) else {
                     return Err(unsupported_lowering(
                         *lit_span,
@@ -2156,11 +1799,7 @@ impl<'a> FunctionLoweringContext<'a> {
                 let pass_block = self.lowerer.next_block();
                 let const_var = self.emit_const(
                     const_val,
-                    IrMetadata {
-                        span: Some(*lit_span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    IrMetadata { span: Some(*lit_span), inferred_type: None, expr_id: None },
                 )?;
                 let cond = self.next_var();
                 self.current_block_mut().instrs.push(IrInstr::Assign {
@@ -2213,15 +1852,8 @@ impl<'a> FunctionLoweringContext<'a> {
                 let payload = self.next_var();
                 self.current_block_mut().instrs.push(IrInstr::Assign {
                     dest: payload,
-                    expr: IrExpr::TagPayload {
-                        value: scrutinee,
-                        tag: IrTagTest::Some,
-                    },
-                    metadata: IrMetadata {
-                        span: Some(span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    expr: IrExpr::TagPayload { value: scrutinee, tag: IrTagTest::Some },
+                    metadata: IrMetadata { span: Some(span), inferred_type: None, expr_id: None },
                 });
                 self.emit_pattern_bindings(payload, inner, span)?;
             }
@@ -2229,15 +1861,8 @@ impl<'a> FunctionLoweringContext<'a> {
                 let payload = self.next_var();
                 self.current_block_mut().instrs.push(IrInstr::Assign {
                     dest: payload,
-                    expr: IrExpr::TagPayload {
-                        value: scrutinee,
-                        tag: IrTagTest::Left,
-                    },
-                    metadata: IrMetadata {
-                        span: Some(span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    expr: IrExpr::TagPayload { value: scrutinee, tag: IrTagTest::Left },
+                    metadata: IrMetadata { span: Some(span), inferred_type: None, expr_id: None },
                 });
                 self.emit_pattern_bindings(payload, inner, span)?;
             }
@@ -2245,23 +1870,12 @@ impl<'a> FunctionLoweringContext<'a> {
                 let payload = self.next_var();
                 self.current_block_mut().instrs.push(IrInstr::Assign {
                     dest: payload,
-                    expr: IrExpr::TagPayload {
-                        value: scrutinee,
-                        tag: IrTagTest::Right,
-                    },
-                    metadata: IrMetadata {
-                        span: Some(span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    expr: IrExpr::TagPayload { value: scrutinee, tag: IrTagTest::Right },
+                    metadata: IrMetadata { span: Some(span), inferred_type: None, expr_id: None },
                 });
                 self.emit_pattern_bindings(payload, inner, span)?;
             }
-            Pattern::Cons {
-                head,
-                tail,
-                span: cons_span,
-            } => {
+            Pattern::Cons { head, tail, span: cons_span } => {
                 let head_var = self.next_var();
                 self.current_block_mut().instrs.push(IrInstr::Assign {
                     dest: head_var,
@@ -2285,18 +1899,12 @@ impl<'a> FunctionLoweringContext<'a> {
                 self.emit_pattern_bindings(head_var, head, span)?;
                 self.emit_pattern_bindings(tail_var, tail, span)?;
             }
-            Pattern::Tuple {
-                elements,
-                span: tuple_span,
-            } => {
+            Pattern::Tuple { elements, span: tuple_span } => {
                 for (i, element) in elements.iter().enumerate() {
                     let field_var = self.next_var();
                     self.current_block_mut().instrs.push(IrInstr::Assign {
                         dest: field_var,
-                        expr: IrExpr::TupleFieldAccess {
-                            object: scrutinee,
-                            index: i,
-                        },
+                        expr: IrExpr::TupleFieldAccess { object: scrutinee, index: i },
                         metadata: IrMetadata {
                             span: Some(*tuple_span),
                             inferred_type: None,
@@ -2306,19 +1914,12 @@ impl<'a> FunctionLoweringContext<'a> {
                     self.emit_pattern_bindings(field_var, element, span)?;
                 }
             }
-            Pattern::Constructor {
-                fields,
-                span: ctor_span,
-                ..
-            } => {
+            Pattern::Constructor { fields, span: ctor_span, .. } => {
                 for (i, field) in fields.iter().enumerate() {
                     let field_var = self.next_var();
                     self.current_block_mut().instrs.push(IrInstr::Assign {
                         dest: field_var,
-                        expr: IrExpr::AdtField {
-                            value: scrutinee,
-                            index: i,
-                        },
+                        expr: IrExpr::AdtField { value: scrutinee, index: i },
                         metadata: IrMetadata {
                             span: Some(*ctor_span),
                             inferred_type: None,
@@ -2351,9 +1952,7 @@ impl<'a> FunctionLoweringContext<'a> {
         let merge_block_id = self.lowerer.next_block();
         let result_var = self.next_var();
         let result_ty = infer_type_to_ir(
-            metadata_for(full_expr, &self.lowerer.hm_expr_types)
-                .inferred_type
-                .as_ref(),
+            metadata_for(full_expr, &self.lowerer.hm_expr_types).inferred_type.as_ref(),
         );
 
         self.current_block_mut().terminator = IrTerminator::Branch {
@@ -2371,10 +1970,7 @@ impl<'a> FunctionLoweringContext<'a> {
         });
         self.current_block = self.blocks.len() - 1;
         let then_value = self.lower_block(consequence)?;
-        if matches!(
-            self.current_block_mut().terminator,
-            IrTerminator::Unreachable(_)
-        ) {
+        if matches!(self.current_block_mut().terminator, IrTerminator::Unreachable(_)) {
             self.current_block_mut().terminator = IrTerminator::Jump(
                 merge_block_id,
                 vec![then_value],
@@ -2394,10 +1990,7 @@ impl<'a> FunctionLoweringContext<'a> {
         } else {
             self.emit_const(IrConst::Unit, IrMetadata::empty())?
         };
-        if matches!(
-            self.current_block_mut().terminator,
-            IrTerminator::Unreachable(_)
-        ) {
+        if matches!(self.current_block_mut().terminator, IrTerminator::Unreachable(_)) {
             self.current_block_mut().terminator = IrTerminator::Jump(
                 merge_block_id,
                 vec![else_value],
@@ -2407,11 +2000,7 @@ impl<'a> FunctionLoweringContext<'a> {
 
         self.blocks.push(IrBlock {
             id: merge_block_id,
-            params: vec![IrBlockParam {
-                var: result_var,
-                ty: result_ty,
-                inferred_ty: None,
-            }],
+            params: vec![IrBlockParam { var: result_var, ty: result_ty, inferred_ty: None }],
             instrs: Vec::new(),
             terminator: IrTerminator::Unreachable(IrMetadata::empty()),
         });
@@ -2436,20 +2025,12 @@ impl<'a> FunctionLoweringContext<'a> {
         for capture in captures {
             let var = nested.next_var();
             nested.env.insert(*capture, var);
-            nested.params.push(IrParam {
-                name: *capture,
-                var,
-                ty: IrType::Tagged,
-            });
+            nested.params.push(IrParam { name: *capture, var, ty: IrType::Tagged });
         }
         for param in parameters {
             let var = nested.next_var();
             nested.env.insert(*param, var);
-            nested.params.push(IrParam {
-                name: *param,
-                var,
-                ty: IrType::Tagged,
-            });
+            nested.params.push(IrParam { name: *param, var, ty: IrType::Tagged });
         }
         nested.lower_block(body)?;
         let ret = nested.ensure_return_var();
@@ -2467,10 +2048,7 @@ impl<'a> FunctionLoweringContext<'a> {
     }
 
     fn lower_expr_list(&mut self, expressions: &[Expression]) -> Result<Vec<IrVar>, Diagnostic> {
-        expressions
-            .iter()
-            .map(|expr| self.lower_expression(expr))
-            .collect()
+        expressions.iter().map(|expr| self.lower_expression(expr)).collect()
     }
 
     fn emit_const(&mut self, value: IrConst, metadata: IrMetadata) -> Result<IrVar, Diagnostic> {
@@ -2487,43 +2065,33 @@ impl<'a> FunctionLoweringContext<'a> {
 #[allow(clippy::result_large_err)]
 pub(crate) fn lower_top_level_item(statement: &Statement) -> Result<IrTopLevelItem, Diagnostic> {
     match statement {
-        Statement::Let {
-            is_public,
-            name,
-            type_annotation,
-            value,
-            span,
-        } => Ok(IrTopLevelItem::Let {
-            is_public: *is_public,
-            name: *name,
-            type_annotation: type_annotation.clone(),
-            value: value.clone(),
-            span: *span,
-        }),
-        Statement::LetDestructure {
-            is_public,
-            pattern,
-            value,
-            span,
-        } => Ok(IrTopLevelItem::LetDestructure {
-            is_public: *is_public,
-            pattern: pattern.clone(),
-            value: value.clone(),
-            span: *span,
-        }),
-        Statement::Return { value, span } => Ok(IrTopLevelItem::Return {
-            value: value.clone(),
-            span: *span,
-        }),
-        Statement::Expression {
-            expression,
-            has_semicolon,
-            span,
-        } => Ok(IrTopLevelItem::Expression {
-            expression: expression.clone(),
-            has_semicolon: *has_semicolon,
-            span: *span,
-        }),
+        Statement::Let { is_public, name, type_annotation, value, span } => {
+            Ok(IrTopLevelItem::Let {
+                is_public: *is_public,
+                name: *name,
+                type_annotation: type_annotation.clone(),
+                value: value.clone(),
+                span: *span,
+            })
+        }
+        Statement::LetDestructure { is_public, pattern, value, span } => {
+            Ok(IrTopLevelItem::LetDestructure {
+                is_public: *is_public,
+                pattern: pattern.clone(),
+                value: value.clone(),
+                span: *span,
+            })
+        }
+        Statement::Return { value, span } => {
+            Ok(IrTopLevelItem::Return { value: value.clone(), span: *span })
+        }
+        Statement::Expression { expression, has_semicolon, span } => {
+            Ok(IrTopLevelItem::Expression {
+                expression: expression.clone(),
+                has_semicolon: *has_semicolon,
+                span: *span,
+            })
+        }
         Statement::Function {
             is_public,
             name,
@@ -2547,11 +2115,9 @@ pub(crate) fn lower_top_level_item(statement: &Statement) -> Result<IrTopLevelIt
             body: body.clone(),
             span: *span,
         }),
-        Statement::Assign { name, value, span } => Ok(IrTopLevelItem::Assign {
-            name: *name,
-            value: value.clone(),
-            span: *span,
-        }),
+        Statement::Assign { name, value, span } => {
+            Ok(IrTopLevelItem::Assign { name: *name, value: value.clone(), span: *span })
+        }
         Statement::Module { name, body, span } => Ok(IrTopLevelItem::Module {
             name: *name,
             body: body
@@ -2561,13 +2127,7 @@ pub(crate) fn lower_top_level_item(statement: &Statement) -> Result<IrTopLevelIt
                 .collect::<Result<Vec<_>, _>>()?,
             span: *span,
         }),
-        Statement::Import {
-            name,
-            alias,
-            except,
-            exposing,
-            span,
-        } => Ok(IrTopLevelItem::Import {
+        Statement::Import { name, alias, except, exposing, span } => Ok(IrTopLevelItem::Import {
             name: *name,
             alias: *alias,
             except: except.clone(),
@@ -2589,16 +2149,10 @@ pub(crate) fn lower_top_level_item(statement: &Statement) -> Result<IrTopLevelIt
             variants: variants.clone(),
             span: *span,
         }),
-        Statement::EffectDecl { name, ops, span } => Ok(IrTopLevelItem::EffectDecl {
-            name: *name,
-            ops: ops.clone(),
-            span: *span,
-        }),
-        Statement::EffectAlias {
-            name,
-            expansion,
-            span,
-        } => Ok(IrTopLevelItem::EffectAlias {
+        Statement::EffectDecl { name, ops, span } => {
+            Ok(IrTopLevelItem::EffectDecl { name: *name, ops: ops.clone(), span: *span })
+        }
+        Statement::EffectAlias { name, expansion, span } => Ok(IrTopLevelItem::EffectAlias {
             name: *name,
             expansion: expansion.clone(),
             span: *span,
@@ -2649,39 +2203,25 @@ pub(crate) fn ir_top_level_item_to_statement(
     functions: &[super::IrFunction],
 ) -> Statement {
     match item {
-        IrTopLevelItem::Let {
-            is_public,
-            name,
-            type_annotation,
-            value,
-            span,
-        } => Statement::Let {
+        IrTopLevelItem::Let { is_public, name, type_annotation, value, span } => Statement::Let {
             is_public: *is_public,
             name: *name,
             type_annotation: type_annotation.clone(),
             value: value.clone(),
             span: *span,
         },
-        IrTopLevelItem::LetDestructure {
-            is_public,
-            pattern,
-            value,
-            span,
-        } => Statement::LetDestructure {
-            is_public: *is_public,
-            pattern: pattern.clone(),
-            value: value.clone(),
-            span: *span,
-        },
-        IrTopLevelItem::Return { value, span } => Statement::Return {
-            value: value.clone(),
-            span: *span,
-        },
-        IrTopLevelItem::Expression {
-            expression,
-            has_semicolon,
-            span,
-        } => Statement::Expression {
+        IrTopLevelItem::LetDestructure { is_public, pattern, value, span } => {
+            Statement::LetDestructure {
+                is_public: *is_public,
+                pattern: pattern.clone(),
+                value: value.clone(),
+                span: *span,
+            }
+        }
+        IrTopLevelItem::Return { value, span } => {
+            Statement::Return { value: value.clone(), span: *span }
+        }
+        IrTopLevelItem::Expression { expression, has_semicolon, span } => Statement::Expression {
             expression: expression.clone(),
             has_semicolon: *has_semicolon,
             span: *span,
@@ -2703,10 +2243,7 @@ pub(crate) fn ir_top_level_item_to_statement(
             name: *name,
             type_params: type_params
                 .iter()
-                .map(|name| FunctionTypeParam {
-                    name: *name,
-                    constraints: vec![],
-                })
+                .map(|name| FunctionTypeParam { name: *name, constraints: vec![] })
                 .collect(),
             parameters: parameters.clone(),
             parameter_types: parameter_types.clone(),
@@ -2718,11 +2255,9 @@ pub(crate) fn ir_top_level_item_to_statement(
             // The IR keeps no definition id, and nothing infers this result.
             id: crate::syntax::expression::ExprId::UNSET,
         },
-        IrTopLevelItem::Assign { name, value, span } => Statement::Assign {
-            name: *name,
-            value: value.clone(),
-            span: *span,
-        },
+        IrTopLevelItem::Assign { name, value, span } => {
+            Statement::Assign { name: *name, value: value.clone(), span: *span }
+        }
         IrTopLevelItem::Module { name, body, span } => Statement::Module {
             name: *name,
             body: Block {
@@ -2734,25 +2269,14 @@ pub(crate) fn ir_top_level_item_to_statement(
             },
             span: *span,
         },
-        IrTopLevelItem::Import {
-            name,
-            alias,
-            except,
-            exposing,
-            span,
-        } => Statement::Import {
+        IrTopLevelItem::Import { name, alias, except, exposing, span } => Statement::Import {
             name: *name,
             alias: *alias,
             except: except.clone(),
             exposing: exposing.clone(),
             span: *span,
         },
-        IrTopLevelItem::Data {
-            name,
-            type_params,
-            variants,
-            span,
-        } => Statement::Data {
+        IrTopLevelItem::Data { name, type_params, variants, span } => Statement::Data {
             // IR layer doesn't carry ADT visibility — defaults to private
             // when reconstructing the AST. Visibility checks happen before
             // IR lowering, so this is safe.
@@ -2763,64 +2287,48 @@ pub(crate) fn ir_top_level_item_to_statement(
             span: *span,
             deriving: vec![],
         },
-        IrTopLevelItem::EffectDecl { name, ops, span } => Statement::EffectDecl {
-            name: *name,
-            ops: ops.clone(),
-            span: *span,
-        },
-        IrTopLevelItem::EffectAlias {
-            name,
-            expansion,
-            span,
-        } => Statement::EffectAlias {
-            name: *name,
-            expansion: expansion.clone(),
-            span: *span,
-        },
+        IrTopLevelItem::EffectDecl { name, ops, span } => {
+            Statement::EffectDecl { name: *name, ops: ops.clone(), span: *span }
+        }
+        IrTopLevelItem::EffectAlias { name, expansion, span } => {
+            Statement::EffectAlias { name: *name, expansion: expansion.clone(), span: *span }
+        }
         IrTopLevelItem::TypeAlias(alias) => Statement::TypeAlias(alias.clone()),
-        IrTopLevelItem::Class {
-            name,
-            type_params,
-            superclasses,
-            methods,
-            span,
-        } => Statement::Class {
-            // Proposal 0151: cfg/IR is visibility-blind, so the round-trip
-            // through IR loses the original `is_public` value. This function
-            // is `#[allow(dead_code)]` and reserved for future use; if it
-            // becomes load-bearing for visibility-sensitive paths, the IR
-            // type must grow an `is_public` field too.
-            is_public: false,
-            name: *name,
-            type_params: type_params.clone(),
-            superclasses: superclasses.clone(),
-            methods: methods.clone(),
-            // As above: the IR carries no associated types, because they do
-            // not survive inference.
-            associated_types: Vec::new(),
-            span: *span,
-            // The IR carries no separate name span; the whole span is a safe
-            // stand-in on this `#[allow(dead_code)]` round-trip path.
-            name_span: *span,
-        },
-        IrTopLevelItem::Instance {
-            class_name,
-            type_args,
-            context,
-            methods,
-            span,
-        } => Statement::Instance {
-            is_public: false,
-            class_name: *class_name,
-            type_args: type_args.clone(),
-            context: context.clone(),
-            methods: methods.clone(),
-            associated_types: Vec::new(),
-            span: *span,
-            // The IR carries no separate name span; the whole span is a safe
-            // stand-in on this `#[allow(dead_code)]` round-trip path.
-            name_span: *span,
-        },
+        IrTopLevelItem::Class { name, type_params, superclasses, methods, span } => {
+            Statement::Class {
+                // Proposal 0151: cfg/IR is visibility-blind, so the round-trip
+                // through IR loses the original `is_public` value. This function
+                // is `#[allow(dead_code)]` and reserved for future use; if it
+                // becomes load-bearing for visibility-sensitive paths, the IR
+                // type must grow an `is_public` field too.
+                is_public: false,
+                name: *name,
+                type_params: type_params.clone(),
+                superclasses: superclasses.clone(),
+                methods: methods.clone(),
+                // As above: the IR carries no associated types, because they do
+                // not survive inference.
+                associated_types: Vec::new(),
+                span: *span,
+                // The IR carries no separate name span; the whole span is a safe
+                // stand-in on this `#[allow(dead_code)]` round-trip path.
+                name_span: *span,
+            }
+        }
+        IrTopLevelItem::Instance { class_name, type_args, context, methods, span } => {
+            Statement::Instance {
+                is_public: false,
+                class_name: *class_name,
+                type_args: type_args.clone(),
+                context: context.clone(),
+                methods: methods.clone(),
+                associated_types: Vec::new(),
+                span: *span,
+                // The IR carries no separate name span; the whole span is a safe
+                // stand-in on this `#[allow(dead_code)]` round-trip path.
+                name_span: *span,
+            }
+        }
     }
 }
 
@@ -2972,10 +2480,7 @@ fn match_tuple_pattern(pattern: &Pattern) -> Option<Vec<Option<Identifier>>> {
 #[derive(Clone, Copy)]
 enum SimpleListMatchPattern {
     Empty,
-    Cons {
-        head_binding: Option<Identifier>,
-        tail_binding: Option<Identifier>,
-    },
+    Cons { head_binding: Option<Identifier>, tail_binding: Option<Identifier> },
 }
 
 impl SimpleListMatchPattern {
@@ -2987,11 +2492,7 @@ impl SimpleListMatchPattern {
     }
 
     fn bind(self, lowering: &mut FunctionLoweringContext<'_>, scrutinee: IrVar, span: Span) {
-        let Self::Cons {
-            head_binding,
-            tail_binding,
-        } = self
-        else {
+        let Self::Cons { head_binding, tail_binding } = self else {
             return;
         };
 
@@ -3000,11 +2501,7 @@ impl SimpleListMatchPattern {
             lowering.current_block_mut().instrs.push(IrInstr::Assign {
                 dest: head_var,
                 expr: IrExpr::ListHead { value: scrutinee },
-                metadata: IrMetadata {
-                    span: Some(span),
-                    inferred_type: None,
-                    expr_id: None,
-                },
+                metadata: IrMetadata { span: Some(span), inferred_type: None, expr_id: None },
             });
             lowering.env.insert(name, head_var);
         }
@@ -3014,11 +2511,7 @@ impl SimpleListMatchPattern {
             lowering.current_block_mut().instrs.push(IrInstr::Assign {
                 dest: tail_var,
                 expr: IrExpr::ListTail { value: scrutinee },
-                metadata: IrMetadata {
-                    span: Some(span),
-                    inferred_type: None,
-                    expr_id: None,
-                },
+                metadata: IrMetadata { span: Some(span), inferred_type: None, expr_id: None },
             });
             lowering.env.insert(name, tail_var);
         }
@@ -3039,10 +2532,7 @@ fn match_list_pattern(pattern: &Pattern) -> Option<SimpleListMatchPattern> {
                 Pattern::Identifier { name, .. } => Some(*name),
                 _ => return None,
             };
-            Some(SimpleListMatchPattern::Cons {
-                head_binding,
-                tail_binding,
-            })
+            Some(SimpleListMatchPattern::Cons { head_binding, tail_binding })
         }
         _ => None,
     }
@@ -3076,15 +2566,8 @@ impl SimpleConstructorMatchPattern {
                 let field_var = lowering.next_var();
                 lowering.current_block_mut().instrs.push(IrInstr::Assign {
                     dest: field_var,
-                    expr: IrExpr::AdtField {
-                        value: scrutinee,
-                        index,
-                    },
-                    metadata: IrMetadata {
-                        span: Some(span),
-                        inferred_type: None,
-                        expr_id: None,
-                    },
+                    expr: IrExpr::AdtField { value: scrutinee, index },
+                    metadata: IrMetadata { span: Some(span), inferred_type: None, expr_id: None },
                 });
                 lowering.env.insert(*name, field_var);
             }
@@ -3104,10 +2587,7 @@ fn match_constructor_pattern(pattern: &Pattern) -> Option<SimpleConstructorMatch
             _ => return None,
         }
     }
-    Some(SimpleConstructorMatchPattern {
-        constructor: *name,
-        field_bindings,
-    })
+    Some(SimpleConstructorMatchPattern { constructor: *name, field_bindings })
 }
 
 fn unsupported_lowering(span: crate::diagnostics::position::Span, message: &str) -> Diagnostic {
@@ -3132,11 +2612,7 @@ mod tests {
         let lexer = Lexer::new(source);
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
         let mut compiler = Compiler::new_with_interner("<test>", interner);
         let hm = compiler.infer_expr_types_for_program(&program);
@@ -3149,11 +2625,7 @@ mod tests {
         let lexer = Lexer::new(source);
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
         let mut compiler = Compiler::new_with_interner("<test>", interner);
         let hm = compiler.infer_expr_types_for_program(&program);
@@ -3345,20 +2817,14 @@ let matched = match opt { Some(x) -> x, _ -> 0 };
     fn lowers_mixed_pattern_match_to_cfg_blocks() {
         // Mixed literal + wildcard: none of the specialized helpers handle this
         let ir = lower("let x = match 1 { 0 -> \"zero\", 1 -> \"one\", _ -> \"other\" }");
-        assert!(
-            !ir.contains("Match {"),
-            "fallback IrExpr::Match must not appear"
-        );
+        assert!(!ir.contains("Match {"), "fallback IrExpr::Match must not appear");
         assert!(ir.contains("Branch"));
     }
 
     #[test]
     fn lowers_nested_tag_pattern_to_cfg_blocks() {
         let ir = lower("let x = match Some([1, 2]) { Some([h | _]) -> h, _ -> 0 }");
-        assert!(
-            !ir.contains("Match {"),
-            "fallback IrExpr::Match must not appear"
-        );
+        assert!(!ir.contains("Match {"), "fallback IrExpr::Match must not appear");
         assert!(ir.contains("Branch"));
     }
 
@@ -3376,20 +2842,14 @@ fn depth(t) {
 }
 "#,
         );
-        assert!(
-            !ir.contains("Match {"),
-            "fallback IrExpr::Match must not appear"
-        );
+        assert!(!ir.contains("Match {"), "fallback IrExpr::Match must not appear");
         assert!(ir.contains("Branch"));
     }
 
     #[test]
     fn lowers_guarded_general_match_to_cfg_blocks() {
         let ir = lower("let x = match (1, 2) { (a, b) if a > 0 -> a + b, _ -> 0 }");
-        assert!(
-            !ir.contains("Match {"),
-            "fallback IrExpr::Match must not appear"
-        );
+        assert!(!ir.contains("Match {"), "fallback IrExpr::Match must not appear");
         assert!(ir.contains("Branch"));
     }
 
@@ -3399,20 +2859,11 @@ fn depth(t) {
     fn lowers_simple_named_function_produces_valid_ir() {
         let ir = lower_and_validate("fn double(x) { x + x }");
         // A named fn must appear with the NamedFunction origin tag.
-        assert!(
-            ir.contains("NamedFunction"),
-            "fn should have NamedFunction origin"
-        );
+        assert!(ir.contains("NamedFunction"), "fn should have NamedFunction origin");
         // The function body must terminate with a Return, not fall off the end.
-        assert!(
-            ir.contains("Return"),
-            "fn should end with Return terminator"
-        );
+        assert!(ir.contains("Return"), "fn should end with Return terminator");
         // The addition must be present as a binary IR node.
-        assert!(
-            ir.contains("Binary(Add"),
-            "fn body should contain binary Add"
-        );
+        assert!(ir.contains("Binary(Add"), "fn body should contain binary Add");
     }
 
     #[test]
@@ -3430,14 +2881,8 @@ fn classify(n) {
 }
 "#,
         );
-        assert!(
-            !ir.contains("Match {"),
-            "no fallback Match node should remain"
-        );
-        assert!(
-            ir.contains("Branch"),
-            "arms must be encoded as Branch terminators"
-        );
+        assert!(!ir.contains("Match {"), "no fallback Match node should remain");
+        assert!(ir.contains("Branch"), "arms must be encoded as Branch terminators");
         assert!(ir.contains("Return"), "all arms must eventually return");
     }
 
@@ -3445,15 +2890,9 @@ fn classify(n) {
     fn lowers_closure_capturing_outer_variable_produces_valid_ir() {
         let ir = lower_and_validate("let base = 10; let add_base = fn(x) { x + base };");
         // The closure body is compiled as a separate FunctionLiteral function.
-        assert!(
-            ir.contains("FunctionLiteral"),
-            "closure body should be a FunctionLiteral"
-        );
+        assert!(ir.contains("FunctionLiteral"), "closure body should be a FunctionLiteral");
         // The outer function must emit a MakeClosure that closes over `base`.
-        assert!(
-            ir.contains("MakeClosure"),
-            "closure creation should use MakeClosure"
-        );
+        assert!(ir.contains("MakeClosure"), "closure creation should use MakeClosure");
     }
 
     #[test]
@@ -3474,14 +2913,8 @@ greet("world") handle Log {
 "#,
         );
         // perform lowers to IrExpr::Perform in the flat IR.
-        assert!(
-            ir.contains("Perform"),
-            "perform should lower to a Perform IR node"
-        );
+        assert!(ir.contains("Perform"), "perform should lower to a Perform IR node");
         // handle lowers to IrExpr::Handle wrapping the scrutinee var.
-        assert!(
-            ir.contains("Handle"),
-            "handle should lower to a Handle IR node"
-        );
+        assert!(ir.contains("Handle"), "handle should lower to a Handle IR node");
     }
 }

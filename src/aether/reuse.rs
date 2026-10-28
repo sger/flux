@@ -62,68 +62,35 @@ fn rewrite_with_ctx(
                             "reuse a dropped cell for a new one".to_string()
                         }) =>
                     {
-                        return CoreExpr::Drop {
-                            var,
-                            body: Box::new(before),
-                            span,
-                        };
+                        return CoreExpr::Drop { var, body: Box::new(before), span };
                     }
                     _ => return rewritten.expr,
                 }
             }
-            CoreExpr::Drop {
-                var,
-                body: Box::new(rewritten.expr),
-                span,
-            }
+            CoreExpr::Drop { var, body: Box::new(rewritten.expr), span }
         }
         // Recurse into all other forms
-        CoreExpr::Let {
-            var,
-            rhs,
-            body,
-            span,
-        } => CoreExpr::Let {
+        CoreExpr::Let { var, rhs, body, span } => CoreExpr::Let {
             var,
             rhs: Box::new(rewrite_with_ctx(*rhs, arm, blocked_outer_token)),
             body: Box::new(rewrite_with_ctx(*body, arm, blocked_outer_token)),
             span,
         },
-        CoreExpr::LetRec {
-            var,
-            rhs,
-            body,
-            span,
-        } => CoreExpr::LetRec {
+        CoreExpr::LetRec { var, rhs, body, span } => CoreExpr::LetRec {
             var,
             rhs: Box::new(rewrite_with_ctx(*rhs, arm, blocked_outer_token)),
             body: Box::new(rewrite_with_ctx(*body, arm, blocked_outer_token)),
             span,
         },
-        CoreExpr::LetRecGroup {
-            bindings,
-            body,
-            span,
-        } => CoreExpr::LetRecGroup {
+        CoreExpr::LetRecGroup { bindings, body, span } => CoreExpr::LetRecGroup {
             bindings: bindings
                 .into_iter()
-                .map(|(var, rhs)| {
-                    (
-                        var,
-                        Box::new(rewrite_with_ctx(*rhs, arm, blocked_outer_token)),
-                    )
-                })
+                .map(|(var, rhs)| (var, Box::new(rewrite_with_ctx(*rhs, arm, blocked_outer_token))))
                 .collect(),
             body: Box::new(rewrite_with_ctx(*body, arm, blocked_outer_token)),
             span,
         },
-        CoreExpr::Lam {
-            params,
-            param_types,
-            result_ty,
-            body,
-            span,
-        } => CoreExpr::Lam {
+        CoreExpr::Lam { params, param_types, result_ty, body, span } => CoreExpr::Lam {
             params,
             param_types,
             result_ty,
@@ -132,10 +99,7 @@ fn rewrite_with_ctx(
         },
         CoreExpr::App { func, args, span } => CoreExpr::App {
             func: Box::new(rewrite_with_ctx(*func, arm, blocked_outer_token)),
-            args: args
-                .into_iter()
-                .map(|a| rewrite_with_ctx(a, arm, blocked_outer_token))
-                .collect(),
+            args: args.into_iter().map(|a| rewrite_with_ctx(a, arm, blocked_outer_token)).collect(),
             span,
         },
         CoreExpr::AetherCall {
@@ -147,21 +111,13 @@ fn rewrite_with_ctx(
             span,
         } => CoreExpr::AetherCall {
             func: Box::new(rewrite_with_ctx(*func, arm, blocked_outer_token)),
-            args: args
-                .into_iter()
-                .map(|a| rewrite_with_ctx(a, arm, blocked_outer_token))
-                .collect(),
+            args: args.into_iter().map(|a| rewrite_with_ctx(a, arm, blocked_outer_token)).collect(),
             arg_modes,
             guarded_borrowed_args,
             owned_after,
             span,
         },
-        CoreExpr::Case {
-            scrutinee,
-            alts,
-            join_ty,
-            span,
-        } => {
+        CoreExpr::Case { scrutinee, alts, join_ty, span } => {
             let matched = match scrutinee.as_ref() {
                 CoreExpr::Var { var, .. } => var.binder,
                 _ => None,
@@ -205,39 +161,21 @@ fn rewrite_with_ctx(
         },
         CoreExpr::PrimOp { op, args, span } => CoreExpr::PrimOp {
             op,
-            args: args
-                .into_iter()
-                .map(|a| rewrite_with_ctx(a, arm, blocked_outer_token))
-                .collect(),
+            args: args.into_iter().map(|a| rewrite_with_ctx(a, arm, blocked_outer_token)).collect(),
             span,
         },
         CoreExpr::Return { value, span } => CoreExpr::Return {
             value: Box::new(rewrite_with_ctx(*value, arm, blocked_outer_token)),
             span,
         },
-        CoreExpr::Perform {
+        CoreExpr::Perform { effect, operation, args, owned_after, span } => CoreExpr::Perform {
             effect,
             operation,
-            args,
-            owned_after,
-            span,
-        } => CoreExpr::Perform {
-            effect,
-            operation,
-            args: args
-                .into_iter()
-                .map(|a| rewrite_with_ctx(a, arm, blocked_outer_token))
-                .collect(),
+            args: args.into_iter().map(|a| rewrite_with_ctx(a, arm, blocked_outer_token)).collect(),
             owned_after,
             span,
         },
-        CoreExpr::Handle {
-            body,
-            effect,
-            parameter,
-            handlers,
-            span,
-        } => CoreExpr::Handle {
+        CoreExpr::Handle { body, effect, parameter, handlers, span } => CoreExpr::Handle {
             body: Box::new(rewrite_with_ctx(*body, arm, blocked_outer_token)),
             effect,
             parameter: parameter.map(|p| Box::new(rewrite_with_ctx(*p, arm, blocked_outer_token))),
@@ -255,13 +193,7 @@ fn rewrite_with_ctx(
             body: Box::new(rewrite_with_ctx(*body, arm, blocked_outer_token)),
             span,
         },
-        CoreExpr::Reuse {
-            token,
-            tag,
-            fields,
-            field_mask,
-            span,
-        } => CoreExpr::Reuse {
+        CoreExpr::Reuse { token, tag, fields, field_mask, span } => CoreExpr::Reuse {
             token,
             tag,
             fields: fields
@@ -274,12 +206,7 @@ fn rewrite_with_ctx(
         // DropSpecialized (Perceus Section 2.4): on the unique path the
         // scrutinee is uniquely owned, so a Con of the constructor it matched
         // reuses its cell without a check.
-        CoreExpr::DropSpecialized {
-            scrutinee,
-            unique_body,
-            shared_body,
-            span,
-        } => {
+        CoreExpr::DropSpecialized { scrutinee, unique_body, shared_body, span } => {
             let unique_body =
                 reuse_on_unique_path(&scrutinee, *unique_body, arm, span, blocked_outer_token);
             let shared_releases = scrutinee
@@ -299,20 +226,12 @@ fn rewrite_with_ctx(
                 span,
             }
         }
-        CoreExpr::MemberAccess {
-            object,
-            member,
-            span,
-        } => CoreExpr::MemberAccess {
+        CoreExpr::MemberAccess { object, member, span } => CoreExpr::MemberAccess {
             object: Box::new(rewrite_with_ctx(*object, arm, blocked_outer_token)),
             member,
             span,
         },
-        CoreExpr::TupleField {
-            object,
-            index,
-            span,
-        } => CoreExpr::TupleField {
+        CoreExpr::TupleField { object, index, span } => CoreExpr::TupleField {
             object: Box::new(rewrite_with_ctx(*object, arm, blocked_outer_token)),
             index,
             span,
@@ -346,10 +265,7 @@ fn reuse_on_unique_path(
     let (pat_binders, pat_tag) = ArmShape::matched_by(arm, scrutinee.binder);
     let original = body.clone();
     let walked = insert_reuse_in_unique(scrutinee, body, pat_tag, arm, blocked_outer_token);
-    if scrutinee
-        .binder
-        .is_some_and(|id| uses_shell_on_every_path(&walked, id, true))
-    {
+    if scrutinee.binder.is_some_and(|id| uses_shell_on_every_path(&walked, id, true)) {
         return Some(walked);
     }
     let rewritten = rewrite_drop_body(
@@ -365,9 +281,7 @@ fn reuse_on_unique_path(
     // first. Here drop_spec took those copies out, so that drop would release
     // the fields a second time.
     if rewritten.reused
-        && scrutinee
-            .binder
-            .is_some_and(|id| uses_shell_on_every_path(&rewritten.expr, id, true))
+        && scrutinee.binder.is_some_and(|id| uses_shell_on_every_path(&rewritten.expr, id, true))
     {
         Some(rewritten.expr)
     } else {
@@ -384,12 +298,10 @@ fn uses_shell_on_every_path(expr: &CoreExpr, token: CoreBinderId, reuse: bool) -
         token: CoreBinderId,
         reuse: bool,
     ) -> Option<(u8, u8)> {
-        children
-            .into_iter()
-            .try_fold((0u8, 0u8), |(min, max), child| {
-                let (child_min, child_max) = counts(child, token, reuse)?;
-                Some(((min + child_min).min(2), (max + child_max).min(2)))
-            })
+        children.into_iter().try_fold((0u8, 0u8), |(min, max), child| {
+            let (child_min, child_max) = counts(child, token, reuse)?;
+            Some(((min + child_min).min(2), (max + child_max).min(2)))
+        })
     }
 
     fn branches<'a>(
@@ -397,15 +309,13 @@ fn uses_shell_on_every_path(expr: &CoreExpr, token: CoreBinderId, reuse: bool) -
         token: CoreBinderId,
         reuse: bool,
     ) -> Option<(u8, u8)> {
-        children
-            .into_iter()
-            .try_fold(None::<(u8, u8)>, |joined, child| {
-                let (min, max) = counts(child, token, reuse)?;
-                Some(Some(match joined {
-                    None => (min, max),
-                    Some((lo, hi)) => (min.min(lo), max.max(hi)),
-                }))
-            })?
+        children.into_iter().try_fold(None::<(u8, u8)>, |joined, child| {
+            let (min, max) = counts(child, token, reuse)?;
+            Some(Some(match joined {
+                None => (min, max),
+                Some((lo, hi)) => (min.min(lo), max.max(hi)),
+            }))
+        })?
     }
 
     fn counts(expr: &CoreExpr, token: CoreBinderId, reuse: bool) -> Option<(u8, u8)> {
@@ -419,16 +329,11 @@ fn uses_shell_on_every_path(expr: &CoreExpr, token: CoreBinderId, reuse: bool) -
                 sequence([rhs.as_ref(), body.as_ref()], token, reuse)
             }
             CoreExpr::LetRecGroup { bindings, body, .. } => sequence(
-                bindings
-                    .iter()
-                    .map(|(_, rhs)| rhs.as_ref())
-                    .chain([body.as_ref()]),
+                bindings.iter().map(|(_, rhs)| rhs.as_ref()).chain([body.as_ref()]),
                 token,
                 reuse,
             ),
-            CoreExpr::Case {
-                scrutinee, alts, ..
-            } => {
+            CoreExpr::Case { scrutinee, alts, .. } => {
                 for guard in alts.iter().filter_map(|alt| alt.guard.as_ref()) {
                     if counts(guard, token, reuse)? != (0, 0) {
                         return None;
@@ -456,11 +361,7 @@ fn uses_shell_on_every_path(expr: &CoreExpr, token: CoreBinderId, reuse: bool) -
                     counts(body, token, reuse)
                 }
             }
-            CoreExpr::Reuse {
-                token: reused,
-                fields,
-                ..
-            } => {
+            CoreExpr::Reuse { token: reused, fields, .. } => {
                 if !reuse && reused.binder == Some(token) {
                     return None;
                 }
@@ -478,12 +379,7 @@ fn uses_shell_on_every_path(expr: &CoreExpr, token: CoreBinderId, reuse: bool) -
             CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
                 counts(object, token, reuse)
             }
-            CoreExpr::DropSpecialized {
-                scrutinee,
-                unique_body,
-                shared_body,
-                ..
-            } => {
+            CoreExpr::DropSpecialized { scrutinee, unique_body, shared_body, .. } => {
                 if scrutinee.binder == Some(token) {
                     None
                 } else {
@@ -515,22 +411,11 @@ fn insert_reuse_in_unique(
         && tag == *expected
         && is_heap_tag(&tag)
     {
-        return CoreExpr::Reuse {
-            token: *scrutinee,
-            tag,
-            fields,
-            field_mask: None,
-            span,
-        };
+        return CoreExpr::Reuse { token: *scrutinee, tag, fields, field_mask: None, span };
     }
     match body {
         // Walk through Let spine
-        CoreExpr::Let {
-            var,
-            rhs,
-            body: let_body,
-            span,
-        } => CoreExpr::Let {
+        CoreExpr::Let { var, rhs, body: let_body, span } => CoreExpr::Let {
             var,
             rhs,
             body: Box::new(insert_reuse_in_unique(
@@ -543,11 +428,7 @@ fn insert_reuse_in_unique(
             span,
         },
         // Walk through Dup spine
-        CoreExpr::Dup {
-            var,
-            body: dup_body,
-            span,
-        } => CoreExpr::Dup {
+        CoreExpr::Dup { var, body: dup_body, span } => CoreExpr::Dup {
             var,
             body: Box::new(insert_reuse_in_unique(
                 scrutinee,
@@ -559,30 +440,17 @@ fn insert_reuse_in_unique(
             span,
         },
         // Walk through Drop spine
-        CoreExpr::Drop {
-            var,
-            body: drop_body,
-            span,
-        } => {
+        CoreExpr::Drop { var, body: drop_body, span } => {
             let body =
                 insert_reuse_in_unique(scrutinee, *drop_body, pat_tag, arm, blocked_outer_token);
             if var.binder == scrutinee.binder {
                 body
             } else {
-                CoreExpr::Drop {
-                    var,
-                    body: Box::new(body),
-                    span,
-                }
+                CoreExpr::Drop { var, body: Box::new(body), span }
             }
         }
         // Recurse into branchy bodies while preserving the outer reuse token.
-        CoreExpr::Case {
-            scrutinee: case_scrutinee,
-            alts,
-            join_ty,
-            span,
-        } => CoreExpr::Case {
+        CoreExpr::Case { scrutinee: case_scrutinee, alts, join_ty, span } => CoreExpr::Case {
             scrutinee: Box::new(rewrite_with_ctx(*case_scrutinee, None, None)),
             alts: alts
                 .into_iter()
@@ -620,9 +488,7 @@ mod tests {
 
     fn reuses_of(expr: &CoreExpr, token: CoreBinderId) -> usize {
         match expr {
-            CoreExpr::Reuse {
-                token: t, fields, ..
-            } => {
+            CoreExpr::Reuse { token: t, fields, .. } => {
                 usize::from(t.binder == Some(token))
                     + fields.iter().map(|f| reuses_of(f, token)).sum::<usize>()
             }
@@ -718,15 +584,9 @@ mod tests {
     fn a_forwarded_constructor_reused_on_one_path_keeps_the_other_release() {
         let mut interner = Interner::new();
         let pair2 = interner.intern("Pair2");
-        let [xs, y, ys, acc, tmp, c] = [
-            (1, "xs"),
-            (2, "y"),
-            (3, "ys"),
-            (4, "acc"),
-            (5, "tmp"),
-            (6, "c"),
-        ]
-        .map(|(id, name)| CoreBinder::new(CoreBinderId(id), interner.intern(name)));
+        let [xs, y, ys, acc, tmp, c] =
+            [(1, "xs"), (2, "y"), (3, "ys"), (4, "acc"), (5, "tmp"), (6, "c")]
+                .map(|(id, name)| CoreBinder::new(CoreBinderId(id), interner.intern(name)));
         let pair = |first, second| CoreExpr::AetherCall {
             func: Box::new(CoreExpr::Var {
                 var: CoreVarRef::unresolved(pair2),
@@ -795,11 +655,7 @@ mod tests {
     }
 
     fn con(tag: CoreTag, fields: Vec<CoreExpr>) -> CoreExpr {
-        CoreExpr::Con {
-            tag,
-            fields,
-            span: Span::default(),
-        }
+        CoreExpr::Con { tag, fields, span: Span::default() }
     }
 
     fn drop_in(var: CoreBinder, body: CoreExpr) -> CoreExpr {
@@ -815,12 +671,7 @@ mod tests {
             scrutinee: Box::new(v(scrutinee)),
             alts: alts
                 .into_iter()
-                .map(|(pat, rhs)| CoreAlt {
-                    pat,
-                    guard: None,
-                    rhs,
-                    span: Span::default(),
-                })
+                .map(|(pat, rhs)| CoreAlt { pat, guard: None, rhs, span: Span::default() })
                 .collect(),
             join_ty: None,
             span: Span::default(),
@@ -841,10 +692,7 @@ mod tests {
         case(
             xs,
             vec![(
-                CorePat::Con {
-                    tag: CoreTag::Cons,
-                    fields: vec![CorePat::Var(h), CorePat::Var(t)],
-                },
+                CorePat::Con { tag: CoreTag::Cons, fields: vec![CorePat::Var(h), CorePat::Var(t)] },
                 copy(h, copy(t, drop_in(xs, body))),
             )],
         )
@@ -866,16 +714,10 @@ mod tests {
         let CoreExpr::Case { alts, .. } = &rewritten else {
             panic!("expected a case: {rewritten:?}");
         };
-        assert!(
-            !matches!(alts[0].rhs, CoreExpr::DropSpecialized { .. }),
-            "{rewritten:?}"
-        );
+        assert!(!matches!(alts[0].rhs, CoreExpr::DropSpecialized { .. }), "{rewritten:?}");
         assert_eq!(drops_of(&rewritten, xs.id), 1, "{rewritten:?}");
         assert_eq!(reuses_of(&rewritten, xs.id), 0, "{rewritten:?}");
-        assert!(
-            crate::aether::verify::verify_contract_aether(&rewritten).is_ok(),
-            "{rewritten:?}"
-        );
+        assert!(crate::aether::verify::verify_contract_aether(&rewritten).is_ok(), "{rewritten:?}");
     }
 
     #[test]
@@ -900,16 +742,10 @@ mod tests {
         let CoreExpr::Case { alts, .. } = &rewritten else {
             panic!("expected a case: {rewritten:?}");
         };
-        assert!(
-            !matches!(alts[0].rhs, CoreExpr::DropSpecialized { .. }),
-            "{rewritten:?}"
-        );
+        assert!(!matches!(alts[0].rhs, CoreExpr::DropSpecialized { .. }), "{rewritten:?}");
         assert_eq!(reuses_of(&rewritten, xs.id), 1, "{rewritten:?}");
         assert_eq!(drops_of(&rewritten, xs.id), 1, "{rewritten:?}");
-        assert!(
-            crate::aether::verify::verify_contract_aether(&rewritten).is_ok(),
-            "{rewritten:?}"
-        );
+        assert!(crate::aether::verify::verify_contract_aether(&rewritten).is_ok(), "{rewritten:?}");
     }
 
     #[test]
@@ -922,27 +758,16 @@ mod tests {
         let CoreExpr::Case { alts, .. } = &rewritten else {
             panic!("expected a case: {rewritten:?}");
         };
-        let CoreExpr::DropSpecialized {
-            unique_body,
-            shared_body,
-            ..
-        } = &alts[0].rhs
-        else {
+        let CoreExpr::DropSpecialized { unique_body, shared_body, .. } = &alts[0].rhs else {
             panic!("expected specialization: {rewritten:?}");
         };
         assert_eq!(reuses_of(unique_body, xs.id), 1, "{rewritten:?}");
         assert_eq!(drops_of(unique_body, xs.id), 0, "{rewritten:?}");
-        let CoreExpr::Dup {
-            var: first, body, ..
-        } = shared_body.as_ref()
-        else {
+        let CoreExpr::Dup { var: first, body, .. } = shared_body.as_ref() else {
             panic!("expected first field copy: {rewritten:?}");
         };
         assert_eq!(first.binder, Some(h.id));
-        let CoreExpr::Dup {
-            var: second, body, ..
-        } = body.as_ref()
-        else {
+        let CoreExpr::Dup { var: second, body, .. } = body.as_ref() else {
             panic!("expected second field copy: {rewritten:?}");
         };
         assert_eq!(second.binder, Some(t.id));
@@ -950,10 +775,7 @@ mod tests {
             matches!(body.as_ref(), CoreExpr::Drop { var, .. } if var.binder == Some(xs.id)),
             "{rewritten:?}"
         );
-        assert!(
-            crate::aether::verify::verify_contract_aether(&rewritten).is_ok(),
-            "{rewritten:?}"
-        );
+        assert!(crate::aether::verify::verify_contract_aether(&rewritten).is_ok(), "{rewritten:?}");
     }
 
     /// The `Big` arm drops only `o`, whose cell may be smaller than a `Big`:
@@ -991,10 +813,7 @@ mod tests {
             n,
             vec![
                 (CorePat::Lit(crate::core::CoreLit::Int(0)), v(rest)),
-                (
-                    CorePat::Wildcard,
-                    drop_in(o, con(CoreTag::Cons, vec![v(n), v(rest)])),
-                ),
+                (CorePat::Wildcard, drop_in(o, con(CoreTag::Cons, vec![v(n), v(rest)]))),
             ],
         );
 
@@ -1010,10 +829,7 @@ mod tests {
         let expr = case(
             xs,
             vec![(
-                CorePat::Con {
-                    tag: CoreTag::Cons,
-                    fields: vec![CorePat::Var(h), CorePat::Var(t)],
-                },
+                CorePat::Con { tag: CoreTag::Cons, fields: vec![CorePat::Var(h), CorePat::Var(t)] },
                 drop_in(xs, con(CoreTag::Cons, vec![v(h), v(t)])),
             )],
         );
@@ -1032,10 +848,7 @@ mod tests {
         let expr = case(
             xs,
             vec![(
-                CorePat::Con {
-                    tag: CoreTag::Cons,
-                    fields: vec![CorePat::Var(h), CorePat::Var(t)],
-                },
+                CorePat::Con { tag: CoreTag::Cons, fields: vec![CorePat::Var(h), CorePat::Var(t)] },
                 case(
                     c,
                     vec![
@@ -1064,14 +877,8 @@ mod tests {
         let expr = case(
             o,
             vec![(
-                CorePat::Con {
-                    tag: CoreTag::Some,
-                    fields: vec![CorePat::Var(y)],
-                },
-                drop_in(
-                    o,
-                    con(pair2, vec![con(CoreTag::Cons, vec![v(y), v(acc)]), v(ys)]),
-                ),
+                CorePat::Con { tag: CoreTag::Some, fields: vec![CorePat::Var(y)] },
+                drop_in(o, con(pair2, vec![con(CoreTag::Cons, vec![v(y), v(acc)]), v(ys)])),
             )],
         );
 
@@ -1089,10 +896,7 @@ mod tests {
         let expr = case(
             xs,
             vec![(
-                CorePat::Con {
-                    tag: CoreTag::Cons,
-                    fields: vec![CorePat::Var(h), CorePat::Var(t)],
-                },
+                CorePat::Con { tag: CoreTag::Cons, fields: vec![CorePat::Var(h), CorePat::Var(t)] },
                 CoreExpr::DropSpecialized {
                     scrutinee: CoreVarRef::resolved(&xs),
                     unique_body: Box::new(con(CoreTag::Some, vec![v(h)])),

@@ -30,12 +30,7 @@ pub fn inline_trivial_lets(expr: CoreExpr) -> CoreExpr {
             } else {
                 // Keep the binding; rhs has side-effects or is non-trivial.
                 let span = rhs.span();
-                CoreExpr::Let {
-                    var,
-                    rhs: Box::new(rhs),
-                    body: Box::new(body),
-                    span,
-                }
+                CoreExpr::Let { var, rhs: Box::new(rhs), body: Box::new(body), span }
             }
         }
         CoreExpr::Lam { .. }
@@ -67,25 +62,11 @@ fn occurs_as_callee(var: crate::core::CoreBinderId, expr: &CoreExpr) -> bool {
                 || occurs_as_callee(var, func)
                 || args.iter().any(|arg| occurs_as_callee(var, arg))
         }
-        CoreExpr::Let {
-            var: binding,
-            rhs,
-            body,
-            ..
-        } => {
+        CoreExpr::Let { var: binding, rhs, body, .. } => {
             occurs_as_callee(var, rhs)
-                || if binding.id == var {
-                    false
-                } else {
-                    occurs_as_callee(var, body)
-                }
+                || if binding.id == var { false } else { occurs_as_callee(var, body) }
         }
-        CoreExpr::LetRec {
-            var: binding,
-            rhs,
-            body,
-            ..
-        } => {
+        CoreExpr::LetRec { var: binding, rhs, body, .. } => {
             if binding.id == var {
                 false
             } else {
@@ -100,18 +81,14 @@ fn occurs_as_callee(var: crate::core::CoreBinderId, expr: &CoreExpr) -> bool {
                     || occurs_as_callee(var, body)
             }
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             occurs_as_callee(var, scrutinee)
                 || alts.iter().any(|alt| {
                     let shadowed = pattern_binds(var, &alt.pat);
                     if shadowed {
                         return false;
                     }
-                    alt.guard
-                        .as_ref()
-                        .is_some_and(|guard| occurs_as_callee(var, guard))
+                    alt.guard.as_ref().is_some_and(|guard| occurs_as_callee(var, guard))
                         || occurs_as_callee(var, &alt.rhs)
                 })
         }
@@ -120,15 +97,8 @@ fn occurs_as_callee(var: crate::core::CoreBinderId, expr: &CoreExpr) -> bool {
         }
         CoreExpr::Return { value, .. } => occurs_as_callee(var, value),
         CoreExpr::Perform { args, .. } => args.iter().any(|arg| occurs_as_callee(var, arg)),
-        CoreExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
-            parameter
-                .as_ref()
-                .is_some_and(|parameter| occurs_as_callee(var, parameter))
+        CoreExpr::Handle { body, parameter, handlers, .. } => {
+            parameter.as_ref().is_some_and(|parameter| occurs_as_callee(var, parameter))
                 || occurs_as_callee(var, body)
                 || handlers.iter().any(|handler| {
                     if handler.params.iter().any(|p| p.id == var)

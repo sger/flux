@@ -77,11 +77,8 @@ fn run(native: bool) -> (String, bool) {
         .lock()
         .expect("cross-module effect test lock poisoned");
 
-    let scratch = Scratch::new(if native {
-        "native-cross-module-effect"
-    } else {
-        "vm-cross-module-effect"
-    });
+    let scratch =
+        Scratch::new(if native { "native-cross-module-effect" } else { "vm-cross-module-effect" });
     scratch.write("Effectful.flx", EFFECT_MODULE);
     let entry = scratch.write("main.flx", ENTRY);
     let dir = scratch.path().to_string_lossy().into_owned();
@@ -114,10 +111,7 @@ fn run(native: bool) -> (String, bool) {
 fn a_perform_in_another_module_unwinds_to_the_handler_on_both_backends() {
     let (vm_out, vm_ok) = run(false);
     assert!(vm_ok, "VM run failed:\n{vm_out}");
-    assert!(
-        vm_out.contains("bad"),
-        "VM must reach the handler and surface the message:\n{vm_out}"
-    );
+    assert!(vm_out.contains("bad"), "VM must reach the handler and surface the message:\n{vm_out}");
 
     let (native_out, native_ok) = run(true);
     // Asserted before `native_ok` so the crash itself is the reported failure

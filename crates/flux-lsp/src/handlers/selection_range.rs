@@ -20,10 +20,7 @@ use crate::snapshot::Snapshot;
 
 /// One [`SelectionRange`] chain per requested position, in the same order.
 pub fn selection_ranges(snapshot: &Snapshot, positions: &[Position]) -> Vec<SelectionRange> {
-    positions
-        .iter()
-        .map(|&p| selection_range_at(snapshot, p))
-        .collect()
+    positions.iter().map(|&p| selection_range_at(snapshot, p)).collect()
 }
 
 /// Build the nested-range chain for a single position.
@@ -49,23 +46,12 @@ fn selection_range_at(snapshot: &Snapshot, position: Position) -> SelectionRange
             parent: node.map(Box::new),
         });
     }
-    node.unwrap_or(SelectionRange {
-        range: Range {
-            start: position,
-            end: position,
-        },
-        parent: None,
-    })
+    node.unwrap_or(SelectionRange { range: Range { start: position, end: position }, parent: None })
 }
 
 /// Source length of `span` in bytes — an exact, total ordering for nesting.
 fn span_len(snapshot: &Snapshot, span: FluxSpan) -> usize {
-    let offset = |p| {
-        snapshot
-            .position_map
-            .flux_to_offset(p)
-            .map_or(0, usize::from)
-    };
+    let offset = |p| snapshot.position_map.flux_to_offset(p).map_or(0, usize::from);
     offset(span.end).saturating_sub(offset(span.start))
 }
 
@@ -75,10 +61,7 @@ fn collect_stmt(stmt: &Statement, target: FluxPosition, out: &mut Vec<FluxSpan>)
         // a separate block. Synthesize a whole-declaration span so "expand
         // selection" has a step covering the entire `fn`/`module`.
         Statement::Function { body, span, .. } | Statement::Module { body, span, .. } => {
-            let whole = FluxSpan {
-                start: span.start,
-                end: body.span.end,
-            };
+            let whole = FluxSpan { start: span.start, end: body.span.end };
             if position_in_span(target, whole) {
                 out.push(whole);
             }
@@ -120,11 +103,7 @@ fn collect_expr(expr: &Expression, target: FluxPosition, out: &mut Vec<FluxSpan>
     }
     out.push(expr.span());
     match expr {
-        Expression::Call {
-            function,
-            arguments,
-            ..
-        } => {
+        Expression::Call { function, arguments, .. } => {
             collect_expr(function, target, out);
             for a in arguments {
                 collect_expr(a, target, out);
@@ -135,21 +114,14 @@ fn collect_expr(expr: &Expression, target: FluxPosition, out: &mut Vec<FluxSpan>
             collect_expr(right, target, out);
         }
         Expression::Prefix { right, .. } => collect_expr(right, target, out),
-        Expression::If {
-            condition,
-            consequence,
-            alternative,
-            ..
-        } => {
+        Expression::If { condition, consequence, alternative, .. } => {
             collect_expr(condition, target, out);
             collect_block(consequence, target, out);
             if let Some(alt) = alternative {
                 collect_block(alt, target, out);
             }
         }
-        Expression::Match {
-            scrutinee, arms, ..
-        } => {
+        Expression::Match { scrutinee, arms, .. } => {
             collect_expr(scrutinee, target, out);
             for arm in arms {
                 collect_expr(&arm.body, target, out);
@@ -197,9 +169,7 @@ fn collect_expr(expr: &Expression, target: FluxPosition, out: &mut Vec<FluxSpan>
                 collect_expr(a, target, out);
             }
         }
-        Expression::Spread {
-            base, overrides, ..
-        } => {
+        Expression::Spread { base, overrides, .. } => {
             collect_expr(base, target, out);
             for f in overrides {
                 if let Some(v) = &f.value {

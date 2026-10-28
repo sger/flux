@@ -41,9 +41,7 @@ fn readme_dirs(readme: &str) -> BTreeSet<String> {
     readme
         .lines()
         .filter_map(|line| {
-            let rest = line
-                .strip_prefix("├── ")
-                .or_else(|| line.strip_prefix("└── "))?;
+            let rest = line.strip_prefix("├── ").or_else(|| line.strip_prefix("└── "))?;
             Some(rest.split('/').next()?.trim().to_string())
         })
         .filter(|name| !name.is_empty())
@@ -65,15 +63,11 @@ fn layout_problems(readme: &str, dirs: &[String], files: &[String]) -> Vec<Strin
     }
     for dir in &listed {
         if !present.contains(dir) {
-            problems.push(format!(
-                "tests/README.md lists tests/{dir}/, which does not exist"
-            ));
+            problems.push(format!("tests/README.md lists tests/{dir}/, which does not exist"));
         }
     }
-    let mut files: Vec<&String> = files
-        .iter()
-        .filter(|name| name.as_str() != "README.md")
-        .collect();
+    let mut files: Vec<&String> =
+        files.iter().filter(|name| name.as_str() != "README.md").collect();
     files.sort();
     for file in files {
         problems.push(format!(
@@ -162,18 +156,12 @@ mod tests {
     }
 
     fn sources(items: &[(&str, &str)]) -> Vec<(String, String)> {
-        items
-            .iter()
-            .map(|(path, text)| (path.to_string(), text.to_string()))
-            .collect()
+        items.iter().map(|(path, text)| (path.to_string(), text.to_string())).collect()
     }
 
     #[test]
     fn the_readme_tree_names_its_folders() {
-        assert_eq!(
-            readme_dirs(README).into_iter().collect::<Vec<_>>(),
-            ["parity", "support"]
-        );
+        assert_eq!(readme_dirs(README).into_iter().collect::<Vec<_>>(), ["parity", "support"]);
     }
 
     #[test]
@@ -196,10 +184,7 @@ mod tests {
     fn a_file_is_compiled_as_a_target_or_through_a_path_attribute() {
         let targets: BTreeSet<String> = ["tests/vm_runtime/a_tests.rs".to_string()].into();
         let files = sources(&[
-            (
-                "tests/vm_runtime/a_tests.rs",
-                "#[path = \"../shared/b.rs\"]\nmod b;",
-            ),
+            ("tests/vm_runtime/a_tests.rs", "#[path = \"../shared/b.rs\"]\nmod b;"),
             ("tests/shared/b.rs", ""),
             ("tests/support/scratch.rs", ""),
             ("tests/vm_runtime/forgotten.rs", "#[test] fn t() {}"),
@@ -220,10 +205,7 @@ mod tests {
                 "use x;\nfn workspace_root() -> &'static Path {}\nlet d = std::env::temp_dir();",
             ),
             ("tests/support/scratch.rs", "pub fn workspace_root() {}"),
-            (
-                "tests/vm_runtime/b_tests.rs",
-                "let s = \"target/test-scratch/x.bin\";",
-            ),
+            ("tests/vm_runtime/b_tests.rs", "let s = \"target/test-scratch/x.bin\";"),
         ]);
         let problems = local_helpers(&files);
         assert_eq!(problems.len(), 2, "{problems:?}");

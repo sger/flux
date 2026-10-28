@@ -440,25 +440,13 @@ impl fmt::Display for Expression {
                 write!(f, "\"")
             }
             Expression::Boolean { value, .. } => write!(f, "{}", value),
-            Expression::Prefix {
-                operator, right, ..
-            } => {
+            Expression::Prefix { operator, right, .. } => {
                 write!(f, "({}{})", operator, right)
             }
-            Expression::Infix {
-                left,
-                operator,
-                right,
-                ..
-            } => {
+            Expression::Infix { left, operator, right, .. } => {
                 write!(f, "({} {} {})", left, operator, right)
             }
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-                ..
-            } => {
+            Expression::If { condition, consequence, alternative, .. } => {
                 write!(f, "if {} {}", condition, consequence)?;
                 if let Some(alt) = alternative {
                     write!(f, " else {}", alt)?;
@@ -477,12 +465,10 @@ impl fmt::Display for Expression {
                 let params: Vec<String> = parameters
                     .iter()
                     .enumerate()
-                    .map(
-                        |(idx, param)| match parameter_types.get(idx).and_then(|ta| ta.as_ref()) {
-                            Some(ta) => format!("{param}: {ta}"),
-                            None => param.to_string(),
-                        },
-                    )
+                    .map(|(idx, param)| match parameter_types.get(idx).and_then(|ta| ta.as_ref()) {
+                        Some(ta) => format!("{param}: {ta}"),
+                        None => param.to_string(),
+                    })
                     .collect();
                 if let Some(return_type) = return_type {
                     if effects.is_empty() {
@@ -504,20 +490,10 @@ impl fmt::Display for Expression {
                 } else {
                     let effects_text: Vec<String> =
                         effects.iter().map(ToString::to_string).collect();
-                    write!(
-                        f,
-                        "fn({}) with {} {}",
-                        params.join(", "),
-                        effects_text.join(", "),
-                        body
-                    )
+                    write!(f, "fn({}) with {} {}", params.join(", "), effects_text.join(", "), body)
                 }
             }
-            Expression::Call {
-                function,
-                arguments,
-                ..
-            } => {
+            Expression::Call { function, arguments, .. } => {
                 let args: Vec<String> = arguments.iter().map(|a| a.to_string()).collect();
                 write!(f, "{}({})", function, args.join(", "))
             }
@@ -552,9 +528,7 @@ impl fmt::Display for Expression {
             Expression::TupleFieldAccess { object, index, .. } => {
                 write!(f, "{}.{}", object, index)
             }
-            Expression::Match {
-                scrutinee, arms, ..
-            } => {
+            Expression::Match { scrutinee, arms, .. } => {
                 write!(f, "match {} {{", scrutinee)?;
                 for arm in arms {
                     if let Some(guard) = &arm.guard {
@@ -570,28 +544,11 @@ impl fmt::Display for Expression {
             Expression::Left { value, .. } => write!(f, "Left({})", value),
             Expression::Right { value, .. } => write!(f, "Right({})", value),
             Expression::Cons { head, tail, .. } => write!(f, "[{} | {}]", head, tail),
-            Expression::Perform {
-                effect,
-                operation,
-                args,
-                ..
-            } => {
+            Expression::Perform { effect, operation, args, .. } => {
                 let args_str: Vec<String> = args.iter().map(|a| format!("{a}")).collect();
-                write!(
-                    f,
-                    "perform {}.{}({})",
-                    effect,
-                    operation,
-                    args_str.join(", ")
-                )
+                write!(f, "perform {}.{}({})", effect, operation, args_str.join(", "))
             }
-            Expression::Handle {
-                expr,
-                effect,
-                parameter,
-                arms,
-                ..
-            } => {
+            Expression::Handle { expr, effect, parameter, arms, .. } => {
                 write!(f, "{} handle {}", expr, effect)?;
                 if let Some(parameter) = parameter {
                     write!(f, "({})", parameter)?;
@@ -602,13 +559,7 @@ impl fmt::Display for Expression {
                         .chain(arm.params.iter().copied())
                         .map(|p| format!("{p}"))
                         .collect();
-                    write!(
-                        f,
-                        " {}({}) -> {},",
-                        arm.operation_name,
-                        param.join(", "),
-                        arm.body
-                    )?;
+                    write!(f, " {}({}) -> {},", arm.operation_name, param.join(", "), arm.body)?;
                 }
                 write!(f, " }}")
             }
@@ -629,9 +580,7 @@ impl fmt::Display for Expression {
                 }
                 write!(f, " }}")
             }
-            Expression::Spread {
-                base, overrides, ..
-            } => {
+            Expression::Spread { base, overrides, .. } => {
                 write!(f, "{{ ...{}", base)?;
                 for field in overrides {
                     match &field.value {
@@ -779,26 +728,16 @@ impl Expression {
                 out
             }
             Expression::Boolean { value, .. } => format!("{}", value),
-            Expression::Prefix {
-                operator, right, ..
-            } => format!("({}{})", operator, right.display_with(interner)),
-            Expression::Infix {
-                left,
-                operator,
-                right,
-                ..
-            } => format!(
+            Expression::Prefix { operator, right, .. } => {
+                format!("({}{})", operator, right.display_with(interner))
+            }
+            Expression::Infix { left, operator, right, .. } => format!(
                 "({} {} {})",
                 left.display_with(interner),
                 operator,
                 right.display_with(interner)
             ),
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-                ..
-            } => {
+            Expression::If { condition, consequence, alternative, .. } => {
                 let mut out = format!("if {} {}", condition.display_with(interner), consequence);
                 if let Some(alt) = alternative {
                     out.push_str(&format!(" else {}", alt));
@@ -851,19 +790,10 @@ impl Expression {
                 } else {
                     let effects_text: Vec<String> =
                         effects.iter().map(|e| e.display_with(interner)).collect();
-                    format!(
-                        "fn({}) with {} {}",
-                        params.join(", "),
-                        effects_text.join(", "),
-                        body
-                    )
+                    format!("fn({}) with {} {}", params.join(", "), effects_text.join(", "), body)
                 }
             }
-            Expression::Call {
-                function,
-                arguments,
-                ..
-            } => {
+            Expression::Call { function, arguments, .. } => {
                 let args: Vec<String> =
                     arguments.iter().map(|a| a.display_with(interner)).collect();
                 format!("{}({})", function.display_with(interner), args.join(", "))
@@ -889,11 +819,7 @@ impl Expression {
             }
             Expression::EmptyList { .. } => "[]".to_string(),
             Expression::Index { left, index, .. } => {
-                format!(
-                    "({}[{}])",
-                    left.display_with(interner),
-                    index.display_with(interner)
-                )
+                format!("({}[{}])", left.display_with(interner), index.display_with(interner))
             }
             Expression::Hash { pairs, .. } => {
                 let items: Vec<String> = pairs
@@ -905,18 +831,12 @@ impl Expression {
                 format!("{{{}}}", items.join(", "))
             }
             Expression::MemberAccess { object, member, .. } => {
-                format!(
-                    "{}.{}",
-                    object.display_with(interner),
-                    interner.resolve(*member)
-                )
+                format!("{}.{}", object.display_with(interner), interner.resolve(*member))
             }
             Expression::TupleFieldAccess { object, index, .. } => {
                 format!("{}.{}", object.display_with(interner), index)
             }
-            Expression::Match {
-                scrutinee, arms, ..
-            } => {
+            Expression::Match { scrutinee, arms, .. } => {
                 let mut out = format!("match {} {{", scrutinee.display_with(interner));
                 for arm in arms {
                     if let Some(guard) = &arm.guard {
@@ -948,18 +868,9 @@ impl Expression {
                 format!("Right({})", value.display_with(interner))
             }
             Expression::Cons { head, tail, .. } => {
-                format!(
-                    "[{} | {}]",
-                    head.display_with(interner),
-                    tail.display_with(interner)
-                )
+                format!("[{} | {}]", head.display_with(interner), tail.display_with(interner))
             }
-            Expression::Perform {
-                effect,
-                operation,
-                args,
-                ..
-            } => {
+            Expression::Perform { effect, operation, args, .. } => {
                 let args_str: Vec<String> = args.iter().map(|a| a.display_with(interner)).collect();
                 format!(
                     "perform {}.{}({})",
@@ -968,18 +879,9 @@ impl Expression {
                     args_str.join(", ")
                 )
             }
-            Expression::Handle {
-                expr,
-                effect,
-                parameter,
-                arms,
-                ..
-            } => {
-                let mut out = format!(
-                    "{} handle {}",
-                    expr.display_with(interner),
-                    interner.resolve(*effect)
-                );
+            Expression::Handle { expr, effect, parameter, arms, .. } => {
+                let mut out =
+                    format!("{} handle {}", expr.display_with(interner), interner.resolve(*effect));
                 if let Some(parameter) = parameter {
                     out.push_str(&format!("({})", parameter.display_with(interner)));
                 }
@@ -1002,11 +904,7 @@ impl Expression {
             Expression::Sealing { expr, allowed, .. } => {
                 let effects: Vec<String> =
                     allowed.iter().map(|e| e.display_with(interner)).collect();
-                format!(
-                    "{} sealing {{ {} }}",
-                    expr.display_with(interner),
-                    effects.join(" | ")
-                )
+                format!("{} sealing {{ {} }}", expr.display_with(interner), effects.join(" | "))
             }
             Expression::NamedConstructor { name, fields, .. } => {
                 let mut out = format!("{} {{", interner.resolve(*name));
@@ -1026,9 +924,7 @@ impl Expression {
                 out.push_str(" }");
                 out
             }
-            Expression::Spread {
-                base, overrides, ..
-            } => {
+            Expression::Spread { base, overrides, .. } => {
                 let mut out = format!("{{ ...{}", base.display_with(interner));
                 for field in overrides {
                     match &field.value {
@@ -1065,11 +961,7 @@ impl Pattern {
                 format!("Right({})", pattern.display_with(interner))
             }
             Pattern::Cons { head, tail, .. } => {
-                format!(
-                    "[{} | {}]",
-                    head.display_with(interner),
-                    tail.display_with(interner)
-                )
+                format!("[{} | {}]", head.display_with(interner), tail.display_with(interner))
             }
             Pattern::EmptyList { .. } => "[]".to_string(),
             Pattern::Tuple { elements, .. } => {
@@ -1089,9 +981,7 @@ impl Pattern {
                     format!("{}({})", interner.resolve(*name), fs.join(", "))
                 }
             }
-            Pattern::NamedConstructor {
-                name, fields, rest, ..
-            } => {
+            Pattern::NamedConstructor { name, fields, rest, .. } => {
                 let mut parts: Vec<String> = fields
                     .iter()
                     .map(|f| match &f.pattern {
@@ -1138,9 +1028,7 @@ impl fmt::Display for Pattern {
                     write!(f, "{}({})", name, fs.join(", "))
                 }
             }
-            Pattern::NamedConstructor {
-                name, fields, rest, ..
-            } => {
+            Pattern::NamedConstructor { name, fields, rest, .. } => {
                 let mut parts: Vec<String> = fields
                     .iter()
                     .map(|fld| match &fld.pattern {

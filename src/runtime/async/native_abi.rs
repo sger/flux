@@ -68,10 +68,7 @@ const DEFAULT_LOGICAL_WORKERS: usize = 2;
 fn resolve_default_worker_count() -> usize {
     static ENV_WORKERS: OnceLock<Option<usize>> = OnceLock::new();
     let env = *ENV_WORKERS.get_or_init(|| {
-        std::env::var("FLUX_WORKERS")
-            .ok()
-            .and_then(|s| s.parse::<usize>().ok())
-            .filter(|&n| n > 0)
+        std::env::var("FLUX_WORKERS").ok().and_then(|s| s.parse::<usize>().ok()).filter(|&n| n > 0)
     });
     env.or_else(|| std::thread::available_parallelism().ok().map(|n| n.get()))
         .unwrap_or(DEFAULT_LOGICAL_WORKERS)
@@ -294,11 +291,7 @@ impl NativeRun {
     fn describe_blocked(&self, out: &mut debug_json::Out, blocked: &Blocked) -> std::fmt::Result {
         use std::fmt::Write;
         let threads = |out: &mut debug_json::Out, ids: &[u64]| -> std::fmt::Result {
-            out.write_str(if ids.len() == 1 {
-                " (thread "
-            } else {
-                " (threads "
-            })?;
+            out.write_str(if ids.len() == 1 { " (thread " } else { " (threads " })?;
             for (index, id) in ids.iter().enumerate() {
                 if index > 0 {
                     out.write_str(", ")?;
@@ -353,11 +346,7 @@ impl NativeRun {
             if !std::mem::take(&mut first) {
                 out.write_str(",")?;
             }
-            write!(
-                out,
-                "{{\"thread\":{},\"state\":\"{state}\"",
-                self.thread_of(id)
-            )?;
+            write!(out, "{{\"thread\":{},\"state\":\"{state}\"", self.thread_of(id))?;
             if let Some(blocked) = blocked {
                 out.write_str(",\"blocked\":\"")?;
                 self.describe_blocked(out, blocked)?;
@@ -396,23 +385,15 @@ impl NativeRun {
 
     fn new(root_closure: i64, worker_count: usize) -> Self {
         let root = next_fiber_id();
-        fiber_trace::emit(FiberEvent::Spawn {
-            fid: root,
-            worker: 0,
-        });
+        fiber_trace::emit(FiberEvent::Spawn { fid: root, worker: 0 });
         let worker_count = worker_count.max(1);
         let mut bodies = HashMap::new();
         bodies.insert(root, closure_code(root_closure));
-        let mut ready = (0..worker_count)
-            .map(|_| VecDeque::new())
-            .collect::<Vec<_>>();
+        let mut ready = (0..worker_count).map(|_| VecDeque::new()).collect::<Vec<_>>();
         ready[0].push_back(Fiber {
             id: root,
             home_worker: 0,
-            work: Work::Closure {
-                closure: root_closure,
-                owned: false,
-            },
+            work: Work::Closure { closure: root_closure, owned: false },
             effect_context: callbacks()
                 .map(EffectSnapshot::capture)
                 .unwrap_or_else(EffectSnapshot::null),
@@ -491,29 +472,25 @@ impl NativeRun {
         // `worker` may exceed `ready.len()` when a pooled worker (sized by an
         // earlier, larger `run_async`) serves a later run that asked for fewer
         // workers — in that case it owns no local queue and only steals.
-        let fiber = self
-            .ready
-            .get_mut(worker)
-            .and_then(VecDeque::pop_front)
-            .or_else(|| {
-                if !work_stealing_enabled() || self.ready.len() <= 1 {
-                    return None;
+        let fiber = self.ready.get_mut(worker).and_then(VecDeque::pop_front).or_else(|| {
+            if !work_stealing_enabled() || self.ready.len() <= 1 {
+                return None;
+            }
+            let base = worker % self.ready.len();
+            for offset in 1..self.ready.len() {
+                let victim = (base + offset) % self.ready.len();
+                let Some(pos) = self.ready[victim]
+                    .iter()
+                    .rposition(|fiber| fiber.id != self.root && fiber.stealable)
+                else {
+                    continue;
+                };
+                if let Some(fiber) = self.ready[victim].remove(pos) {
+                    return Some(fiber);
                 }
-                let base = worker % self.ready.len();
-                for offset in 1..self.ready.len() {
-                    let victim = (base + offset) % self.ready.len();
-                    let Some(pos) = self.ready[victim]
-                        .iter()
-                        .rposition(|fiber| fiber.id != self.root && fiber.stealable)
-                    else {
-                        continue;
-                    };
-                    if let Some(fiber) = self.ready[victim].remove(pos) {
-                        return Some(fiber);
-                    }
-                }
-                None
-            })?;
+            }
+            None
+        })?;
         self.running += 1;
         Some(fiber)
     }
@@ -570,19 +547,13 @@ impl NativeRun {
         self.push_ready(Fiber {
             id,
             home_worker,
-            work: Work::Closure {
-                closure,
-                owned: true,
-            },
+            work: Work::Closure { closure, owned: true },
             effect_context: callbacks()
                 .map(EffectSnapshot::capture)
                 .unwrap_or_else(EffectSnapshot::null),
             stealable,
         });
-        fiber_trace::emit(FiberEvent::Spawn {
-            fid: id,
-            worker: home_worker as u32,
-        });
+        fiber_trace::emit(FiberEvent::Spawn { fid: id, worker: home_worker as u32 });
         id
     }
 
@@ -603,10 +574,7 @@ impl NativeRun {
         if self.is_cancelled(fiber.id) {
             self.blocked.remove(&req);
             let fiber_id = fiber.id;
-            release_cancelled_work(Work::Resume {
-                continuation,
-                value: FLUX_NONE,
-            });
+            release_cancelled_work(Work::Resume { continuation, value: FLUX_NONE });
             release_cancelled_fiber(fiber);
             if let Some(value) = self.pending_wakes.remove(&req) {
                 release_outcome(value);
@@ -616,19 +584,13 @@ impl NativeRun {
         }
         promote_value(continuation);
         fiber.stealable = true;
-        fiber.work = Work::Resume {
-            continuation,
-            value: FLUX_NONE,
-        };
+        fiber.work = Work::Resume { continuation, value: FLUX_NONE };
         if let Some(outcome) = self.pending_wakes.remove(&req) {
             self.blocked.remove(&req);
             match outcome {
                 FiberOutcome::Value(value) => {
                     if let Work::Resume { continuation, .. } = fiber.work {
-                        fiber.work = Work::Resume {
-                            continuation,
-                            value,
-                        };
+                        fiber.work = Work::Resume { continuation, value };
                     }
                     self.push_ready(fiber);
                 }
@@ -653,9 +615,7 @@ impl NativeRun {
         });
 
         let ready = self.ready_fiber_ids();
-        let events = self
-            .awaits
-            .record_suspended(fiber_id, |child| ready.contains(&child));
+        let events = self.awaits.record_suspended(fiber_id, |child| ready.contains(&child));
         self.apply_await_events(events);
     }
 
@@ -682,17 +642,10 @@ impl NativeRun {
                         promote_value(value);
                     }
                     if let Work::Resume { continuation, .. } = fiber.work {
-                        fiber.work = Work::Resume {
-                            continuation,
-                            value,
-                        };
+                        fiber.work = Work::Resume { continuation, value };
                     }
                     self.push_ready(fiber);
-                    fiber_trace::emit(FiberEvent::Resume {
-                        fid,
-                        worker,
-                        request_id: req,
-                    });
+                    fiber_trace::emit(FiberEvent::Resume { fid, worker, request_id: req });
                 }
                 FiberOutcome::Error(err) => {
                     self.complete_fiber(
@@ -714,18 +667,12 @@ impl NativeRun {
 
     fn complete_fiber(&mut self, id: u64, outcome: FiberOutcome, home_worker: u32) {
         if self.is_cancelled(id) {
-            fiber_trace::emit(FiberEvent::Cancel {
-                fid: id,
-                worker: home_worker,
-            });
+            fiber_trace::emit(FiberEvent::Cancel { fid: id, worker: home_worker });
             release_outcome(outcome);
             self.forget_cancelled_fiber(id);
             return;
         }
-        fiber_trace::emit(FiberEvent::Complete {
-            fid: id,
-            worker: home_worker,
-        });
+        fiber_trace::emit(FiberEvent::Complete { fid: id, worker: home_worker });
         self.bodies.remove(&id);
 
         if id == self.root {
@@ -750,20 +697,13 @@ impl NativeRun {
     }
 
     fn ready_fiber_ids(&self) -> HashSet<u64> {
-        self.ready
-            .iter()
-            .flat_map(|queue| queue.iter().map(|fiber| fiber.id))
-            .collect()
+        self.ready.iter().flat_map(|queue| queue.iter().map(|fiber| fiber.id)).collect()
     }
 
     fn apply_await_events(&mut self, events: Vec<AwaitEvent<u64, FiberOutcome, TryMeta>>) {
         for event in events {
             match event {
-                AwaitEvent::BothReady {
-                    request,
-                    left,
-                    right,
-                } => match (left, right) {
+                AwaitEvent::BothReady { request, left, right } => match (left, right) {
                     (FiberOutcome::Value(left), FiberOutcome::Value(right)) => {
                         if let Some(cb) = callbacks() {
                             let tuple = unsafe { (cb.make_tuple2)(left, right) };
@@ -776,23 +716,14 @@ impl NativeRun {
                         self.wake(request, FiberOutcome::Error(err));
                     }
                 },
-                AwaitEvent::BothError {
-                    request,
-                    error,
-                    loser,
-                    discarded,
-                } => {
+                AwaitEvent::BothError { request, error, loser, discarded } => {
                     for outcome in discarded {
                         release_outcome(outcome);
                     }
                     self.wake(request, error);
                     self.cancel_fibers(&[loser]);
                 }
-                AwaitEvent::TryReady {
-                    request,
-                    outcome,
-                    meta,
-                } => {
+                AwaitEvent::TryReady { request, outcome, meta } => {
                     if let Some(cb) = callbacks() {
                         let result = match outcome {
                             FiberOutcome::Value(v) => unsafe {
@@ -809,25 +740,14 @@ impl NativeRun {
                         self.wake(request, FiberOutcome::Value(FLUX_NONE));
                     }
                 }
-                AwaitEvent::RaceReady {
-                    request,
-                    outcome,
-                    losers,
-                    discarded,
-                } => {
+                AwaitEvent::RaceReady { request, outcome, losers, discarded } => {
                     for outcome in discarded {
                         release_outcome(outcome);
                     }
                     self.wake(request, outcome);
                     self.cancel_fibers(&losers);
                 }
-                AwaitEvent::FirstOfReady {
-                    request,
-                    index,
-                    outcome,
-                    losers,
-                    discarded,
-                } => {
+                AwaitEvent::FirstOfReady { request, index, outcome, losers, discarded } => {
                     for outcome in discarded {
                         release_outcome(outcome);
                     }
@@ -1069,10 +989,7 @@ fn release_executed_work(work: Work) {
     if let Some(cb) = callbacks() {
         unsafe {
             match work {
-                Work::Closure {
-                    closure,
-                    owned: true,
-                } => (cb.release)(closure),
+                Work::Closure { closure, owned: true } => (cb.release)(closure),
                 Work::Closure { owned: false, .. } => {}
                 Work::Resume { continuation, .. } => (cb.release)(continuation),
             }
@@ -1137,10 +1054,7 @@ impl RunHandle {
 /// across `thread::spawn`.
 fn pool_ensure(worker_count: usize, cb: FluxAsyncCallbacks) {
     let pool = FIBER_POOL.get_or_init(|| FiberWorkerPool {
-        inner: Mutex::new(PoolInner {
-            spawned: 0,
-            handles: Vec::new(),
-        }),
+        inner: Mutex::new(PoolInner { spawned: 0, handles: Vec::new() }),
         cvar: Condvar::new(),
     });
     let want = worker_count.max(1) - 1;
@@ -1161,11 +1075,7 @@ fn pool_ensure(worker_count: usize, cb: FluxAsyncCallbacks) {
             .expect("spawn pooled async worker");
         spawned.push(handle);
     }
-    pool.inner
-        .lock()
-        .expect("fiber pool poisoned")
-        .handles
-        .extend(spawned);
+    pool.inner.lock().expect("fiber pool poisoned").handles.extend(spawned);
 }
 
 /// A pooled fiber worker. Lives for the process lifetime: serves the current
@@ -1182,16 +1092,8 @@ fn pool_worker_loop(id: usize, cb: FluxAsyncCallbacks) {
         // Pick a fiber from the current active run, if any has work for us.
         let picked = active_run().and_then(|handle| {
             let fiber = {
-                let mut state = handle
-                    .shared
-                    .state
-                    .lock()
-                    .expect("native async state poisoned");
-                if state.shutdown {
-                    None
-                } else {
-                    state.pop_ready_or_steal(id)
-                }
+                let mut state = handle.shared.state.lock().expect("native async state poisoned");
+                if state.shutdown { None } else { state.pop_ready_or_steal(id) }
             };
             fiber.map(|f| (handle, f))
         });
@@ -1215,15 +1117,9 @@ fn release_cancelled_work(work: Work) {
     if let Some(cb) = callbacks() {
         unsafe {
             match work {
-                Work::Closure {
-                    closure,
-                    owned: true,
-                } => (cb.release)(closure),
+                Work::Closure { closure, owned: true } => (cb.release)(closure),
                 Work::Closure { owned: false, .. } => {}
-                Work::Resume {
-                    continuation,
-                    value,
-                } => {
+                Work::Resume { continuation, value } => {
                     (cb.release)(continuation);
                     (cb.release)(value);
                 }
@@ -1311,11 +1207,7 @@ fn with_run<R>(f: impl FnOnce(&mut NativeRun) -> R) -> Option<R> {
 
 fn execute_fiber(handle: &RunHandle, worker: usize, mut fiber: Fiber, cb: FluxAsyncCallbacks) {
     {
-        let mut state = handle
-            .shared
-            .state
-            .lock()
-            .expect("native async state poisoned");
+        let mut state = handle.shared.state.lock().expect("native async state poisoned");
         if state.is_cancelled(fiber.id) {
             state.release_discarded_fiber(fiber);
             state.worker_finished();
@@ -1334,19 +1226,14 @@ fn execute_fiber(handle: &RunHandle, worker: usize, mut fiber: Fiber, cb: FluxAs
     let ok = unsafe {
         match fiber.work {
             Work::Closure { closure, .. } => (cb.try_call0)(closure, &mut result as *mut i64) != 0,
-            Work::Resume {
-                continuation,
-                value,
-            } => (cb.try_resume1)(continuation, value, &mut result as *mut i64) != 0,
+            Work::Resume { continuation, value } => {
+                (cb.try_resume1)(continuation, value, &mut result as *mut i64) != 0
+            }
         }
     };
     CURRENT_FIBER.with(|current| current.set(0));
 
-    let mut state = handle
-        .shared
-        .state
-        .lock()
-        .expect("native async state poisoned");
+    let mut state = handle.shared.state.lock().expect("native async state poisoned");
     state.running_fibers.remove(&fiber.id);
     if unsafe { (cb.is_suspended)() } != 0 {
         let request = untag_int(unsafe { (cb.current_request)() });
@@ -1468,11 +1355,7 @@ pub extern "C" fn flux_async_fs_request(
     let Some(path) = string_from_raw(path, path_len) else {
         return 0;
     };
-    let extra = if extra.is_null() {
-        None
-    } else {
-        string_from_raw(extra, extra_len)
-    };
+    let extra = if extra.is_null() { None } else { string_from_raw(extra, extra_len) };
     let tags = if tags.is_null() {
         FluxFsTags {
             ok_tag: 0,
@@ -1569,11 +1452,7 @@ fn string_from_raw(data: *const u8, len: usize) -> Option<String> {
 }
 
 fn socket_addr_from_host(host: &str, port: i64, listen: bool) -> Option<SocketAddr> {
-    let host = if listen && host.is_empty() {
-        "0.0.0.0"
-    } else {
-        host
-    };
+    let host = if listen && host.is_empty() { "0.0.0.0" } else { host };
     format!("{host}:{port}").parse().ok()
 }
 
@@ -1626,11 +1505,7 @@ pub extern "C" fn flux_async_tcp_read(handle: u64, max: usize) -> u64 {
         return 0;
     }
     let req = next_request_id();
-    let max = if max > 0 && max <= (1 << 24) {
-        max
-    } else {
-        4096
-    };
+    let max = if max > 0 && max <= (1 << 24) { max } else { 4096 };
     backend().tcp_read(RequestId(req), IoHandle(handle), max);
     req
 }
@@ -1685,10 +1560,7 @@ fn flux_async_run_root_configured(root_closure: i64, worker_count: usize) -> i64
     }
     if crate::runtime::replay::is_active() {
         crate::runtime::replay::async_tape::set_fiber_source(|| {
-            CURRENT_FIBER
-                .try_with(|c| c.get())
-                .ok()
-                .filter(|id| *id != 0)
+            CURRENT_FIBER.try_with(|c| c.get()).ok().filter(|id| *id != 0)
         });
     }
     let Some(cb) = callbacks().copied() else {
@@ -1707,20 +1579,12 @@ fn flux_async_run_root_configured(root_closure: i64, worker_count: usize) -> i64
     // Reuse the process-global worker pool instead of spawning fresh threads
     // per boundary; pooled workers serve whatever `active_run()` currently is.
     pool_ensure(worker_count, cb);
-    FIBER_POOL
-        .get()
-        .expect("pool_ensure initializes FIBER_POOL")
-        .cvar
-        .notify_all();
+    FIBER_POOL.get().expect("pool_ensure initializes FIBER_POOL").cvar.notify_all();
     let mut result = FLUX_NONE;
 
     loop {
         let next = {
-            let mut state = handle
-                .shared
-                .state
-                .lock()
-                .expect("native async state poisoned");
+            let mut state = handle.shared.state.lock().expect("native async state poisoned");
             if let Some(done) = state.root_result {
                 result = match done {
                     FiberOutcome::Value(value) => {
@@ -1751,11 +1615,7 @@ fn flux_async_run_root_configured(root_closure: i64, worker_count: usize) -> i64
         }
 
         {
-            let state = handle
-                .shared
-                .state
-                .lock()
-                .expect("native async state poisoned");
+            let state = handle.shared.state.lock().expect("native async state poisoned");
             if state.shutdown {
                 break;
             }
@@ -1767,11 +1627,7 @@ fn flux_async_run_root_configured(root_closure: i64, worker_count: usize) -> i64
             })
         {
             {
-                let mut state = handle
-                    .shared
-                    .state
-                    .lock()
-                    .expect("native async state poisoned");
+                let mut state = handle.shared.state.lock().expect("native async state poisoned");
                 state.wake(req, FiberOutcome::Value(value));
             }
             handle.notify_all();
@@ -1782,20 +1638,12 @@ fn flux_async_run_root_configured(root_closure: i64, worker_count: usize) -> i64
             let req = completion.request_id.0;
             let payload = completion.payload;
             {
-                let mut state = handle
-                    .shared
-                    .state
-                    .lock()
-                    .expect("native async state poisoned");
+                let mut state = handle.shared.state.lock().expect("native async state poisoned");
                 state.route_backend_completion(req, payload);
             }
             handle.notify_all();
         } else {
-            let state = handle
-                .shared
-                .state
-                .lock()
-                .expect("native async state poisoned");
+            let state = handle.shared.state.lock().expect("native async state poisoned");
             let _ = handle
                 .shared
                 .cvar
@@ -1805,11 +1653,7 @@ fn flux_async_run_root_configured(root_closure: i64, worker_count: usize) -> i64
     }
 
     {
-        let mut state = handle
-            .shared
-            .state
-            .lock()
-            .expect("native async state poisoned");
+        let mut state = handle.shared.state.lock().expect("native async state poisoned");
         state.shutdown = true;
     }
     handle.notify_all();
@@ -1819,11 +1663,7 @@ fn flux_async_run_root_configured(root_closure: i64, worker_count: usize) -> i64
     // they must not be running this run's code once the slot points elsewhere.
     // Replaces the old per-boundary `for w in workers { w.join() }`.
     {
-        let mut state = handle
-            .shared
-            .state
-            .lock()
-            .expect("native async state poisoned");
+        let mut state = handle.shared.state.lock().expect("native async state poisoned");
         while state.running > 0 {
             state = handle
                 .shared
@@ -1840,11 +1680,7 @@ fn flux_async_run_root_configured(root_closure: i64, worker_count: usize) -> i64
     // already-completed tasks, so the call is safe even when the task
     // finished on its own. Bounds Task.spawn lifetime to run_async.
     let leaked: Vec<i64> = {
-        let mut state = handle
-            .shared
-            .state
-            .lock()
-            .expect("native async state poisoned");
+        let mut state = handle.shared.state.lock().expect("native async state poisoned");
         let mut leaked: Vec<i64> = state.root_tasks.drain().collect();
         leaked.sort_unstable();
         leaked
@@ -1881,8 +1717,7 @@ pub extern "C" fn flux_async_fiber_both(left: i64, right: i64) -> u64 {
         run.spawn_child_on(left_worker, left_id, left);
         let right_worker = run.pick_next_worker();
         run.spawn_child_on(right_worker, right_id, right);
-        run.blocked
-            .insert(parent_req, Blocked::Both(left_id, right_id));
+        run.blocked.insert(parent_req, Blocked::Both(left_id, right_id));
         parent_req
     })
     .unwrap_or(0)
@@ -1895,15 +1730,13 @@ pub extern "C" fn flux_async_fiber_race(left: i64, right: i64) -> u64 {
         let worker = current_worker();
         let left_id = next_fiber_id();
         let right_id = next_fiber_id();
-        run.awaits
-            .register_race(parent_req, vec![left_id, right_id]);
+        run.awaits.register_race(parent_req, vec![left_id, right_id]);
         // Launch race candidates on the caller's worker in source order so
         // immediate completions have deterministic FIFO tie-breaking. Once a
         // child suspends, backend completions still race normally.
         run.spawn_child_on_with_stealable(worker, left_id, left, false);
         run.spawn_child_on_with_stealable(worker, right_id, right, false);
-        run.blocked
-            .insert(parent_req, Blocked::Race(vec![left_id, right_id]));
+        run.blocked.insert(parent_req, Blocked::Race(vec![left_id, right_id]));
         parent_req
     })
     .unwrap_or(0)
@@ -1926,10 +1759,8 @@ pub extern "C" fn flux_async_fiber_first_of(children: *const i64, len: usize) ->
             child_ids.push((id, idx));
             planned.push((id, closure));
         }
-        run.blocked.insert(
-            parent_req,
-            Blocked::FirstOf(child_ids.iter().map(|(id, _)| *id).collect()),
-        );
+        run.blocked
+            .insert(parent_req, Blocked::FirstOf(child_ids.iter().map(|(id, _)| *id).collect()));
         run.awaits.register_first_of(parent_req, child_ids);
         for (id, closure) in planned {
             run.spawn_child_on_with_stealable(worker, id, closure, false);
@@ -1951,14 +1782,7 @@ pub extern "C" fn flux_async_fiber_try(
         let parent_req = next_request_id();
         let child_id = next_fiber_id();
         let child_worker = run.pick_next_worker();
-        run.awaits.register_try(
-            parent_req,
-            child_id,
-            TryMeta {
-                ok_ctor_tag,
-                err_ctor_tag,
-            },
-        );
+        run.awaits.register_try(parent_req, child_id, TryMeta { ok_ctor_tag, err_ctor_tag });
         run.spawn_child_on(child_worker, child_id, body);
         run.blocked.insert(parent_req, Blocked::Try(child_id));
         parent_req
@@ -1975,8 +1799,7 @@ pub extern "C" fn flux_async_fiber_timeout(ms: i64, body: i64) -> u64 {
         run.awaits.register_timeout(parent_req, body_id);
         run.spawn_child_on(body_worker, body_id, body);
         let delay = if ms < 0 { 0 } else { ms as u64 };
-        run.blocked
-            .insert(parent_req, Blocked::Timeout(delay, body_id));
+        run.blocked.insert(parent_req, Blocked::Timeout(delay, body_id));
         backend().timer_start(RequestId(parent_req), delay);
         parent_req
     })
@@ -1990,16 +1813,12 @@ pub extern "C" fn flux_async_scope_new() -> u64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn flux_async_fork_scoped(scope: u64, body: i64) -> i32 {
-    with_run(|run| run.spawn_scoped_child(scope, body))
-        .map(|_| 0)
-        .unwrap_or(-1)
+    with_run(|run| run.spawn_scoped_child(scope, body)).map(|_| 0).unwrap_or(-1)
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn flux_async_cancel_scope(scope: u64) -> i32 {
-    with_run(|run| run.cancel_scope(scope))
-        .map(|_| 0)
-        .unwrap_or(-1)
+    with_run(|run| run.cancel_scope(scope)).map(|_| 0).unwrap_or(-1)
 }
 
 /// Register a detached task with the active run's root task set so it is
@@ -2081,11 +1900,8 @@ pub extern "C" fn flux_async_run_root_with(
     if dns_pool_size > 0 {
         configure_default_dns_pool_size(dns_pool_size as usize);
     }
-    let worker_count = if worker_count > 0 {
-        worker_count as usize
-    } else {
-        resolve_default_worker_count()
-    };
+    let worker_count =
+        if worker_count > 0 { worker_count as usize } else { resolve_default_worker_count() };
     flux_async_run_root_configured(root_closure, worker_count)
 }
 
@@ -2150,14 +1966,10 @@ mod tests {
         let ordered = run.spawn_child_on_with_stealable(0, next_fiber_id(), 0, false);
 
         assert!(run.pop_ready_or_steal(1).is_none());
-        let local = run
-            .pop_ready_or_steal(0)
-            .expect("worker 0 keeps root first");
+        let local = run.pop_ready_or_steal(0).expect("worker 0 keeps root first");
         assert_eq!(local.id, run.root);
         release_cancelled_fiber(local);
-        let local = run
-            .pop_ready_or_steal(0)
-            .expect("worker 0 runs ordered child");
+        let local = run.pop_ready_or_steal(0).expect("worker 0 runs ordered child");
         assert_eq!(local.id, ordered);
         release_cancelled_fiber(local);
     }
@@ -2245,11 +2057,7 @@ pub extern "C" fn flux_async_suspend_request(request_id: u64) -> i64 {
 /// fail loudly instead of silently falling back to a blocking join.
 #[unsafe(no_mangle)]
 pub extern "C" fn flux_async_task_await_request() -> u64 {
-    if active_run().is_some() {
-        next_request_id()
-    } else {
-        0
-    }
+    if active_run().is_some() { next_request_id() } else { 0 }
 }
 
 /// Allocate a scheduler request for `Async.yield_now()` (Proposal 0174 slice
@@ -2284,11 +2092,7 @@ pub extern "C" fn flux_async_task_complete(request_id: u64, value: i64) {
 
     promote_value(value);
     {
-        let mut state = handle
-            .shared
-            .state
-            .lock()
-            .expect("native async state poisoned");
+        let mut state = handle.shared.state.lock().expect("native async state poisoned");
         if crate::runtime::replay::is_active() && !ON_RUN_THREAD.with(|on| on.get()) {
             // From another thread: the run's thread delivers it where the
             // tape has it (0188 S8c).
@@ -2305,11 +2109,7 @@ pub extern "C" fn flux_async_task_complete(request_id: u64, value: i64) {
 /// `req`'s, which the tape says has been handed over.
 fn take_handed_over(handle: &RunHandle, want: Option<u64>) -> Option<(u64, (u64, i64))> {
     let started = std::time::Instant::now();
-    let mut state = handle
-        .shared
-        .state
-        .lock()
-        .expect("native async state poisoned");
+    let mut state = handle.shared.state.lock().expect("native async state poisoned");
     loop {
         let at = match want {
             None => (!state.handed_over.is_empty()).then_some(0),

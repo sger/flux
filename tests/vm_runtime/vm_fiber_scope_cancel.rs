@@ -44,15 +44,9 @@ fn main() with IO, Time {
 }
 "#;
     let (stdout, stderr, success, _) = run_source(source, "scope_cancel");
-    assert!(
-        success,
-        "scope-cancel program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "scope-cancel program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
-    assert!(
-        stdout.contains("42"),
-        "expected result 42:\nstdout:\n{stdout}"
-    );
+    assert!(stdout.contains("42"), "expected result 42:\nstdout:\n{stdout}");
     // Must complete well before the forked fibers' 2s sleeps.
     assert!(
         elapsed < Duration::from_millis(1500),
@@ -86,12 +80,6 @@ fn main() with IO {
 }
 "#;
     let (stdout, stderr, success, _elapsed) = run_source(source, "fork_runs");
-    assert!(
-        success,
-        "fork program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
-    assert!(
-        stdout.contains("99"),
-        "expected result 99:\nstdout:\n{stdout}"
-    );
+    assert!(success, "fork program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
+    assert!(stdout.contains("99"), "expected result 99:\nstdout:\n{stdout}");
 }

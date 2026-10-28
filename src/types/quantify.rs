@@ -92,17 +92,10 @@ impl Quantified {
             .scheme_constraints
             .into_iter()
             .filter(|c| {
-                c.type_args
-                    .iter()
-                    .flat_map(InferType::free_vars)
-                    .all(|v| forall_set.contains(&v))
+                c.type_args.iter().flat_map(InferType::free_vars).all(|v| forall_set.contains(&v))
             })
             .collect();
-        Scheme {
-            forall: self.forall,
-            constraints,
-            infer_type: self.infer_type,
-        }
+        Scheme { forall: self.forall, constraints, infer_type: self.infer_type }
     }
 }
 
@@ -117,11 +110,8 @@ impl Quantified {
 pub fn decide_quantification(spec: QuantifySpec<'_>) -> Quantified {
     let resolved_type = spec.infer_type.apply_type_subst(spec.current_subst);
     let resolved_constraints = apply_wanted_constraints_subst(spec.constraints, spec.current_subst);
-    let public_vars: HashSet<TypeVarId> = resolved_type
-        .free_vars()
-        .difference(spec.env_free_vars)
-        .copied()
-        .collect();
+    let public_vars: HashSet<TypeVarId> =
+        resolved_type.free_vars().difference(spec.env_free_vars).copied().collect();
 
     let default_subst = build_numeric_default_subst(
         &resolved_constraints,
@@ -134,11 +124,8 @@ pub fn decide_quantification(spec: QuantifySpec<'_>) -> Quantified {
         apply_wanted_constraints_subst(&resolved_constraints, &default_subst);
 
     // The one derivation of the quantified set. Everything below reads it.
-    let mut quantified: HashSet<TypeVarId> = finalized_type
-        .free_vars()
-        .difference(spec.env_free_vars)
-        .copied()
-        .collect();
+    let mut quantified: HashSet<TypeVarId> =
+        finalized_type.free_vars().difference(spec.env_free_vars).copied().collect();
 
     // A field predicate never justifies quantification: it *pins* its receiver.
     // A tuple-projection predicate (`pair.0`, proposal 0185 stage 5) says the
@@ -277,9 +264,8 @@ fn mark_generalized(
                         && candidate.type_args == entry.wanted.type_args
                 })
             {
-                entry.disposition = Disposition::Generalized {
-                    scheme_constraint: scheme_constraint.clone(),
-                };
+                entry.disposition =
+                    Disposition::Generalized { scheme_constraint: scheme_constraint.clone() };
             }
             entry
         })
@@ -375,9 +361,7 @@ fn collect_scheme_constraints(
     // specified, so inference still supplies the context, which is what keeps
     // `fn list_size<a>(value: List<a>)` working.
     let declared_context = mode == MonoRestriction::Generalize
-        && constraints
-            .iter()
-            .any(|c| c.origin == WantedClassConstraintOrigin::ExplicitBound);
+        && constraints.iter().any(|c| c.origin == WantedClassConstraintOrigin::ExplicitBound);
 
     let mut result: Vec<SchemeConstraint> = Vec::new();
     for constraint in retained {
@@ -462,9 +446,7 @@ fn retain_minimal_by_superclasses(
             constraints.iter().any(|other| {
                 other != candidate
                     && other.type_args == candidate.type_args
-                    && class_env
-                        .superclass_path(other.class_id, candidate.class_id)
-                        .is_some()
+                    && class_env.superclass_path(other.class_id, candidate.class_id).is_some()
             })
         })
         .collect();
@@ -573,11 +555,7 @@ fn reduce_one(
         else {
             return vec![constraint];
         };
-        context.push(SchemeConstraint {
-            class_name: ctx.class_name,
-            class_id,
-            type_args,
-        });
+        context.push(SchemeConstraint { class_name: ctx.class_name, class_id, type_args });
     }
 
     context
@@ -643,11 +621,8 @@ pub(crate) fn ambiguous_uses(
     };
     let resolved_type = binding_type.apply_type_subst(current_subst);
     let resolved = apply_wanted_constraints_subst(constraints, current_subst);
-    let public_vars: HashSet<TypeVarId> = resolved_type
-        .free_vars()
-        .difference(env_free_vars)
-        .copied()
-        .collect();
+    let public_vars: HashSet<TypeVarId> =
+        resolved_type.free_vars().difference(env_free_vars).copied().collect();
     let default_subst =
         build_numeric_default_subst(&resolved, &public_vars, Some(class_env), interner);
     let constraints = apply_wanted_constraints_subst(&resolved, &default_subst);
@@ -668,11 +643,7 @@ pub(crate) fn ambiguous_uses(
             let Some(receiver) = c.type_args.first() else {
                 continue;
             };
-            if receiver
-                .free_vars()
-                .iter()
-                .all(|var| determined.contains(var))
-            {
+            if receiver.free_vars().iter().all(|var| determined.contains(var)) {
                 determined.extend(c.type_args.iter().flat_map(InferType::free_vars));
             }
         }
@@ -691,23 +662,14 @@ pub(crate) fn ambiguous_uses(
             ) && !is_functional(c)
         })
         .filter(|c| {
-            class_env
-                .lookup_class_by_id(c.class_id)
-                .is_some_and(|class| !class.methods.is_empty())
+            class_env.lookup_class_by_id(c.class_id).is_some_and(|class| !class.methods.is_empty())
         })
         // A predicate the call fixed in part (`Convert<Int, ?b>`) is the
         // solver's: improved from a sole candidate, or E459 with the
         // candidates named, or E444. Only one with nothing fixed is judged.
+        .filter(|c| c.type_args.iter().all(|arg| matches!(arg, InferType::Var(_))))
         .filter(|c| {
-            c.type_args
-                .iter()
-                .all(|arg| matches!(arg, InferType::Var(_)))
-        })
-        .filter(|c| {
-            c.type_args
-                .iter()
-                .flat_map(InferType::free_vars)
-                .any(|var| !determined.contains(&var))
+            c.type_args.iter().flat_map(InferType::free_vars).any(|var| !determined.contains(&var))
         })
         .map(|constraint| {
             let class = interner.resolve(constraint.class_name);
@@ -748,14 +710,12 @@ fn ambiguous_bound_diagnostics(
             } else {
                 format!("Type argument {} of `{class}`", position + 1)
             };
-            Some(
-                diagnostic_for(&AMBIGUOUS_TYPE_VARIABLE)
-                    .with_span(constraint.span)
-                    .with_message(format!(
-                        "{subject} is not determined by this signature, so no call can select an \
+            Some(diagnostic_for(&AMBIGUOUS_TYPE_VARIABLE).with_span(constraint.span).with_message(
+                format!(
+                    "{subject} is not determined by this signature, so no call can select an \
                          instance for it."
-                    )),
-            )
+                ),
+            ))
         })
         .collect()
 }
@@ -809,11 +769,7 @@ mod tests {
         let finalized = decide_quantification(QuantifySpec {
             infer_type: &bool_(),
             env_free_vars: &HashSet::new(),
-            constraints: &[wanted(
-                num,
-                vec![var(0)],
-                WantedClassConstraintOrigin::MethodCall,
-            )],
+            constraints: &[wanted(num, vec![var(0)], WantedClassConstraintOrigin::MethodCall)],
             current_subst: &TypeSubst::empty(),
             class_env: None,
             interner: &interner,
@@ -836,11 +792,7 @@ mod tests {
                 crate::types::infer_effect_row::InferEffectRow::closed_empty(),
             ),
             env_free_vars: &HashSet::new(),
-            constraints: &[wanted(
-                num,
-                vec![var(0)],
-                WantedClassConstraintOrigin::MethodCall,
-            )],
+            constraints: &[wanted(num, vec![var(0)], WantedClassConstraintOrigin::MethodCall)],
             current_subst: &TypeSubst::empty(),
             class_env: None,
             interner: &interner,
@@ -865,11 +817,7 @@ mod tests {
         let finalized = decide_quantification(QuantifySpec {
             infer_type: &var(0),
             env_free_vars: &HashSet::new(),
-            constraints: &[wanted(
-                num,
-                vec![var(0)],
-                WantedClassConstraintOrigin::ExplicitBound,
-            )],
+            constraints: &[wanted(num, vec![var(0)], WantedClassConstraintOrigin::ExplicitBound)],
             current_subst: &TypeSubst::empty(),
             class_env: None,
             interner: &interner,
@@ -878,10 +826,7 @@ mod tests {
 
         assert!(finalized.default_subst.is_empty());
         assert_eq!(finalized.scheme_constraints.len(), 1);
-        assert_eq!(
-            finalized.scheme_constraints[0].type_args,
-            vec![InferType::Var(0)]
-        );
+        assert_eq!(finalized.scheme_constraints[0].type_args, vec![InferType::Var(0)]);
     }
 
     /// With no class environment there is nothing to verify a candidate
@@ -920,11 +865,7 @@ mod tests {
         let finalized = decide_quantification(QuantifySpec {
             infer_type: &bool_(),
             env_free_vars: &HashSet::new(),
-            constraints: &[wanted(
-                num,
-                vec![var(0)],
-                WantedClassConstraintOrigin::MethodCall,
-            )],
+            constraints: &[wanted(num, vec![var(0)], WantedClassConstraintOrigin::MethodCall)],
             current_subst: &TypeSubst::empty(),
             class_env: Some(&class_env),
             interner: &interner,
@@ -955,18 +896,9 @@ mod quantification_decision_tests {
     /// The Report's rule, by arity. A written signature wins over both.
     #[test]
     fn restriction_follows_arity_unless_a_signature_says_otherwise() {
-        assert_eq!(
-            monomorphism_restriction(1, false),
-            MonoRestriction::Generalize
-        );
-        assert_eq!(
-            monomorphism_restriction(0, false),
-            MonoRestriction::Restricted
-        );
-        assert_eq!(
-            monomorphism_restriction(0, true),
-            MonoRestriction::Generalize
-        );
+        assert_eq!(monomorphism_restriction(1, false), MonoRestriction::Generalize);
+        assert_eq!(monomorphism_restriction(0, false), MonoRestriction::Restricted);
+        assert_eq!(monomorphism_restriction(0, true), MonoRestriction::Generalize);
     }
 
     /// The scheme is built from the set the decision produced, not from a set

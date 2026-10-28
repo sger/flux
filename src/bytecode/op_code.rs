@@ -522,11 +522,7 @@ pub fn disassemble(instructions: &Instructions) -> String {
             }
         }
 
-        let operand_str = operands
-            .iter()
-            .map(|o| o.to_string())
-            .collect::<Vec<_>>()
-            .join(" ");
+        let operand_str = operands.iter().map(|o| o.to_string()).collect::<Vec<_>>().join(" ");
         result.push_str(&format!("{:04} {} {}\n", i, op, operand_str));
         i = offset;
     }

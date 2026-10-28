@@ -53,14 +53,8 @@ fn main() with IO {{
 "#
     );
     let (stdout, stderr, success, _elapsed) = run_source(&source, "echo");
-    assert!(
-        success,
-        "tcp echo must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
-    assert!(
-        stdout.trim() == "\"hello\"",
-        "expected '\"hello\"', got:\n{stdout}"
-    );
+    assert!(success, "tcp echo must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
+    assert!(stdout.trim() == "\"hello\"", "expected '\"hello\"', got:\n{stdout}");
 }
 
 #[test]
@@ -93,12 +87,6 @@ fn main() with IO {{
 "#
     );
     let (stdout, stderr, success, _elapsed) = run_source(&source, "accept_close");
-    assert!(
-        success,
-        "tcp listen/accept/close must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
-    assert!(
-        stdout.trim() == "\"ok\"",
-        "expected '\"ok\"', got:\n{stdout}"
-    );
+    assert!(success, "tcp listen/accept/close must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
+    assert!(stdout.trim() == "\"ok\"", "expected '\"ok\"', got:\n{stdout}");
 }

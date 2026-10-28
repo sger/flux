@@ -55,10 +55,7 @@ static ACTIVE_WAITS: OnceLock<Mutex<HashSet<u64>>> = OnceLock::new();
 fn wait_queue() -> &'static WaitQueue {
     WAIT_COMPLETIONS.get_or_init(|| {
         let (tx, rx) = mpsc::channel();
-        WaitQueue {
-            tx,
-            rx: Mutex::new(rx),
-        }
+        WaitQueue { tx, rx: Mutex::new(rx) }
     })
 }
 
@@ -103,11 +100,7 @@ fn insert(event: VmEvent) -> i64 {
 
 fn get(id: i64) -> Result<VmEvent, String> {
     EVENTS.with(|events| {
-        events
-            .borrow()
-            .get(&id)
-            .cloned()
-            .ok_or_else(|| format!("event {id} not found"))
+        events.borrow().get(&id).cloned().ok_or_else(|| format!("event {id} not found"))
     })
 }
 
@@ -120,19 +113,14 @@ pub(super) fn send(ch: i64, value: Value) -> i64 {
 }
 
 pub(super) fn send_move(ch: i64, value: Value) -> Result<i64, String> {
-    Ok(insert(VmEvent::SendMove(
-        ch,
-        VmSendValue::try_transfer_from_value(value)?,
-    )))
+    Ok(insert(VmEvent::SendMove(ch, VmSendValue::try_transfer_from_value(value)?)))
 }
 
 pub(super) fn after(ms: i64) -> Result<i64, String> {
     if ms < 0 {
         return Err("event_after: ms must be non-negative".to_string());
     }
-    Ok(insert(VmEvent::After(
-        now() + Duration::from_millis(ms as u64),
-    )))
+    Ok(insert(VmEvent::After(now() + Duration::from_millis(ms as u64))))
 }
 
 pub(super) fn always(value: Value) -> i64 {
@@ -167,10 +155,7 @@ pub(super) fn poll_value(ctx: &mut dyn RuntimeContext, id: i64) -> Result<Value,
 }
 
 pub(super) fn wait(id: i64, request_id: u64) -> Result<(), String> {
-    active_waits()
-        .lock()
-        .expect("VM event active wait set poisoned")
-        .insert(request_id);
+    active_waits().lock().expect("VM event active wait set poisoned").insert(request_id);
     if is_ready(id)? {
         complete_wait(request_id);
         return Ok(());
@@ -179,10 +164,7 @@ pub(super) fn wait(id: i64, request_id: u64) -> Result<(), String> {
 }
 
 pub(super) fn complete_wait(request_id: u64) {
-    if active_waits()
-        .lock()
-        .expect("VM event active wait set poisoned")
-        .remove(&request_id)
+    if active_waits().lock().expect("VM event active wait set poisoned").remove(&request_id)
         && !super::core_dispatch::wake_here(request_id, || Ok(Value::None))
     {
         let _ = wait_queue().tx.send(request_id);
@@ -190,17 +172,11 @@ pub(super) fn complete_wait(request_id: u64) {
 }
 
 pub(super) fn is_wait_active(request_id: u64) -> bool {
-    active_waits()
-        .lock()
-        .expect("VM event active wait set poisoned")
-        .contains(&request_id)
+    active_waits().lock().expect("VM event active wait set poisoned").contains(&request_id)
 }
 
 pub(super) fn try_recv_completion() -> Option<u64> {
-    let rx = wait_queue()
-        .rx
-        .lock()
-        .expect("VM event wait completion queue poisoned");
+    let rx = wait_queue().rx.lock().expect("VM event wait completion queue poisoned");
     match rx.try_recv() {
         Ok(request_id) => Some(request_id),
         Err(mpsc::TryRecvError::Empty) | Err(mpsc::TryRecvError::Disconnected) => None,
@@ -351,10 +327,7 @@ pub(super) fn collect_ids(value: &Value) -> Result<Vec<i64>, String> {
                 current = cell.tail.clone();
             }
             other => {
-                return Err(format!(
-                    "event_choose expected List<Int>, got {}",
-                    other.type_name()
-                ));
+                return Err(format!("event_choose expected List<Int>, got {}", other.type_name()));
             }
         }
     }

@@ -31,10 +31,7 @@ fn main() with Async {
 }
 "#;
     let (stdout, stderr, success, elapsed) = run_source(source, "run_async_root");
-    assert!(
-        success,
-        "run_async program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "run_async program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(
         elapsed < Duration::from_secs(5),
         "elapsed {elapsed:?} too long — scheduler init/teardown likely stuck",
@@ -64,10 +61,7 @@ fn main() with IO {
 }
 "#;
     let (stdout, stderr, success, elapsed) = run_source(source, "fork_alloc_id");
-    assert!(
-        success,
-        "both/fork program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "both/fork program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(
         elapsed < Duration::from_secs(5),
         "elapsed {elapsed:?} too long — fork registry path likely stuck",

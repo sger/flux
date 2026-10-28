@@ -91,20 +91,13 @@ fn emit_native_aether_trace(
     diagnostics: DriverDiagnosticConfig,
 ) {
     input.compiler.infer_expr_types_for_program(program);
-    match input
-        .compiler
-        .render_aether_report(program, compile.enable_optimize, false)
-    {
+    match input.compiler.render_aether_report(program, compile.enable_optimize, false) {
         Ok(report) => print_aether_trace(
             AetherTraceContext {
                 path: input.path,
                 backend: TraceBackend::Native,
                 pipeline: "AST -> Core -> LIR -> LLVM -> native",
-                cache: Some(if cache.no_cache {
-                    "disabled"
-                } else {
-                    "enabled"
-                }),
+                cache: Some(if cache.no_cache { "disabled" } else { "enabled" }),
                 optimize: compile.enable_optimize,
                 analyze: compile.enable_analyze,
                 strict: compile.strict_mode,
@@ -173,44 +166,28 @@ pub(crate) struct NativeRunRequest<'a> {
 #[cfg(feature = "llvm")]
 /// Resolves the binary or temporary output path used by the native backend.
 fn native_output_path(request: &NativeRunRequest<'_>) -> PathBuf {
-    request
-        .output
-        .output_path
-        .as_ref()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            if request.output.emit_binary {
-                PathBuf::from(
-                    request
-                        .program
-                        .path
-                        .strip_suffix(".flx")
-                        .unwrap_or(request.program.path),
-                )
-            } else if !request.cache.no_cache {
-                let bin_name = std::path::Path::new(request.program.path)
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("program");
-                // A debug-heap binary links another runtime: a plain run
-                // must not reuse it, nor the other way round (0188 S10c).
-                let kind =
-                    match flux::llvm::pipeline::RuntimeVariant::from_env(request.output.debug_heap)
-                    {
-                        flux::llvm::pipeline::RuntimeVariant::DebugHeap => ".debug-heap",
-                        flux::llvm::pipeline::RuntimeVariant::Sanitize => ".sanitize",
-                        flux::llvm::pipeline::RuntimeVariant::Tsan => ".tsan",
-                        flux::llvm::pipeline::RuntimeVariant::Plain => "",
-                    };
-                request
-                    .cache
-                    .cache_layout
-                    .native_dir()
-                    .join(format!("{bin_name}{kind}.bin"))
-            } else {
-                native_temp_dir(request.cache.cache_layout).join("program")
-            }
-        })
+    request.output.output_path.as_ref().map(PathBuf::from).unwrap_or_else(|| {
+        if request.output.emit_binary {
+            PathBuf::from(request.program.path.strip_suffix(".flx").unwrap_or(request.program.path))
+        } else if !request.cache.no_cache {
+            let bin_name = std::path::Path::new(request.program.path)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("program");
+            // A debug-heap binary links another runtime: a plain run
+            // must not reuse it, nor the other way round (0188 S10c).
+            let kind =
+                match flux::llvm::pipeline::RuntimeVariant::from_env(request.output.debug_heap) {
+                    flux::llvm::pipeline::RuntimeVariant::DebugHeap => ".debug-heap",
+                    flux::llvm::pipeline::RuntimeVariant::Sanitize => ".sanitize",
+                    flux::llvm::pipeline::RuntimeVariant::Tsan => ".tsan",
+                    flux::llvm::pipeline::RuntimeVariant::Plain => "",
+                };
+            request.cache.cache_layout.native_dir().join(format!("{bin_name}{kind}.bin"))
+        } else {
+            native_temp_dir(request.cache.cache_layout).join("program")
+        }
+    })
 }
 
 #[cfg(feature = "llvm")]
@@ -226,11 +203,7 @@ fn total_graph_source_lines(graph: &ModuleGraph) -> usize {
     graph
         .topo_order()
         .iter()
-        .map(|node| {
-            std::fs::read_to_string(&node.path)
-                .map(|s| s.lines().count())
-                .unwrap_or(0)
-        })
+        .map(|node| std::fs::read_to_string(&node.path).map(|s| s.lines().count()).unwrap_or(0))
         .sum()
 }
 
@@ -247,9 +220,8 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
         };
 
         if request.output.emit_llvm {
-            let native_program = native_program
-                .as_ref()
-                .expect("native program should exist for LLVM emission");
+            let native_program =
+                native_program.as_ref().expect("native program should exist for LLVM emission");
             if request.runtime.trace_aether {
                 emit_native_aether_trace(
                     &mut request.program,
@@ -259,10 +231,7 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
                     request.diagnostics,
                 );
             } else {
-                request
-                    .program
-                    .compiler
-                    .infer_expr_types_for_program(native_program);
+                request.program.compiler.infer_expr_types_for_program(native_program);
             }
             eprintln!("{}", native_lir_lowering_banner());
             let mut llvm_module = match request
@@ -304,10 +273,7 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
         let runtime = flux::llvm::pipeline::RuntimeVariant::from_env(request.output.debug_heap);
         let runtime_lib_dir = locate_runtime_lib_dir(runtime);
         if request.runtime.verbose {
-            eprintln!(
-                "[lir→llvm] toolchain: {}",
-                flux::llvm::pipeline::toolchain_info()
-            );
+            eprintln!("[lir→llvm] toolchain: {}", flux::llvm::pipeline::toolchain_info());
         }
         eprintln!("{}", native_module_lowering_banner());
         let native_modules_start = Instant::now();
@@ -377,11 +343,8 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
                     .cloned()
             })
             .collect();
-        let std_lib_objects: Vec<PathBuf> = object_paths
-            .iter()
-            .filter(|p| flow_object_paths.contains(*p))
-            .cloned()
-            .collect();
+        let std_lib_objects: Vec<PathBuf> =
+            object_paths.iter().filter(|p| flow_object_paths.contains(*p)).cloned().collect();
 
         let link_paths = if std_lib_objects.len() >= 2 && !request.cache.no_cache {
             let archive_name = if request.compile.enable_optimize {
@@ -402,21 +365,15 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
                     object_paths.clone()
                 } else {
                     let std_set: HashSet<PathBuf> = std_lib_objects.iter().cloned().collect();
-                    let mut paths: Vec<PathBuf> = object_paths
-                        .iter()
-                        .filter(|p| !std_set.contains(*p))
-                        .cloned()
-                        .collect();
+                    let mut paths: Vec<PathBuf> =
+                        object_paths.iter().filter(|p| !std_set.contains(*p)).cloned().collect();
                     paths.push(archive_path);
                     paths
                 }
             } else {
                 let std_set: HashSet<PathBuf> = std_lib_objects.iter().cloned().collect();
-                let mut paths: Vec<PathBuf> = object_paths
-                    .iter()
-                    .filter(|p| !std_set.contains(*p))
-                    .cloned()
-                    .collect();
+                let mut paths: Vec<PathBuf> =
+                    object_paths.iter().filter(|p| !std_set.contains(*p)).cloned().collect();
                 paths.push(archive_path);
                 paths
             }
@@ -455,9 +412,8 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
         );
 
         if request.runtime.trace_aether {
-            let native_program = native_program
-                .as_ref()
-                .expect("native program should exist for Aether tracing");
+            let native_program =
+                native_program.as_ref().expect("native program should exist for Aether tracing");
             emit_native_aether_trace(
                 &mut request.program,
                 native_program,
@@ -526,11 +482,8 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
         let exec_start = Instant::now();
         let fiber_trace = std::env::var("FLUX_FIBER_TRACE").ok();
         // `-o app` names a file here, not a command to look up on PATH.
-        let runnable = if out.is_relative() {
-            std::path::Path::new(".").join(&out)
-        } else {
-            out.clone()
-        };
+        let runnable =
+            if out.is_relative() { std::path::Path::new(".").join(&out) } else { out.clone() };
         let mut native_cmd = std::process::Command::new(&runnable);
         // Forward the program's own arguments (everything the driver saw
         // after `--`). The child is a separate process, so argv[0] would
@@ -609,10 +562,7 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
                 // A program that ends normally has its stderr dropped; the
                 // debug heap's counts are the one line asked for by name.
                 if exit_code == 0 && heap_stats_wanted() {
-                    for line in child_stderr
-                        .lines()
-                        .filter(|line| line.starts_with("heap: "))
-                    {
+                    for line in child_stderr.lines().filter(|line| line.starts_with("heap: ")) {
                         eprintln!("{line}");
                     }
                 }
@@ -690,10 +640,7 @@ fn native_temp_dir(cache_layout: &crate::shared::cache_paths::CacheLayout) -> Pa
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let pid = std::process::id();
     let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
-    cache_layout
-        .native_dir()
-        .join("scratch")
-        .join(format!("flux_native_{pid}_{counter}"))
+    cache_layout.native_dir().join("scratch").join(format!("flux_native_{pid}_{counter}"))
 }
 
 #[cfg(all(test, feature = "llvm"))]
@@ -719,11 +666,7 @@ mod tests {
         let temp = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("target")
             .join("test-scratch")
-            .join(format!(
-                "flux_native_line_count_{}_{}",
-                std::process::id(),
-                safe_name
-            ));
+            .join(format!("flux_native_line_count_{}_{}", std::process::id(), safe_name));
         std::fs::create_dir_all(&temp).expect("create temp dir");
         let first = temp.join("Main.flx");
         std::fs::write(&first, "fn main = 1\nfn next = 2\n").expect("write first");

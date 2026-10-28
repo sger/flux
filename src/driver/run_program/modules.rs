@@ -35,11 +35,7 @@ pub(crate) struct CompileModulesRequest<'a> {
 
 pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
     let entry_canonical = std::fs::canonicalize(request.entry_path).ok();
-    let entry_module_kind = request
-        .graph
-        .entry_node()
-        .map(|node| node.kind)
-        .unwrap_or_default();
+    let entry_module_kind = request.graph.entry_node().map(|node| node.kind).unwrap_or_default();
     let mut preloaded_interfaces: HashSet<PathBuf> = HashSet::new();
     let mut loaded_interfaces: HashMap<PathBuf, flux::types::module_interface::ModuleInterface> =
         HashMap::new();
@@ -72,10 +68,7 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
             continue;
         }
 
-        let failed_dep = node
-            .imports
-            .iter()
-            .find(|e| failed.contains(&e.target_path));
+        let failed_dep = node.imports.iter().find(|e| failed.contains(&e.target_path));
         if let Some(dep) = failed_dep {
             failed.insert(node.path.clone());
             let display = render_display_path(&node.path.to_string_lossy()).into_owned();
@@ -114,10 +107,8 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
                 continue;
             };
             let dep_semantic_config_hash = {
-                let dep_kind = nodes_by_path
-                    .get(&dep.target_path)
-                    .map(|node| node.kind)
-                    .unwrap_or_default();
+                let dep_kind =
+                    nodes_by_path.get(&dep.target_path).map(|node| node.kind).unwrap_or_default();
                 let strict_mode = effective_module_strictness(
                     dep_kind,
                     entry_module_kind,
@@ -161,9 +152,7 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
         }
         for dep in &node.imports {
             if let Some(dep_node) = nodes_by_path.get(&dep.target_path) {
-                request
-                    .compiler
-                    .preload_dependency_program(&dep_node.program);
+                request.compiler.preload_dependency_program(&dep_node.program);
             }
         }
         if node.kind != ModuleKind::FlowStdlib {
@@ -171,24 +160,18 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
                 if !node.imports.iter().any(|dep| &dep.target_path == path)
                     && dep_node.kind == ModuleKind::FlowStdlib
                 {
-                    request
-                        .compiler
-                        .preload_dependency_program(&dep_node.program);
+                    request.compiler.preload_dependency_program(&dep_node.program);
                 }
             }
         }
 
-        request
-            .compiler
-            .set_file_path(node.path.to_string_lossy().to_string());
+        request.compiler.set_file_path(node.path.to_string_lossy().to_string());
         request.compiler.set_current_module_kind(node.kind);
         let is_entry_module = entry_canonical.as_ref().is_some_and(|p| p == &node.path);
         let module_strict_mode =
             effective_module_strictness(node.kind, entry_module_kind, request.compile.strict_mode);
         request.compiler.set_strict_mode(module_strict_mode);
-        request
-            .compiler
-            .set_debug_level(request.compile.debug_level);
+        request.compiler.set_debug_level(request.compile.debug_level);
         let module_semantic_config_hash =
             flux::compiler::module_interface::compute_artifact_config_hash(
                 module_strict_mode,
@@ -240,9 +223,7 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
             None
         };
         let must_rebuild_due_to_dependency = node.imports.iter().any(|dep| {
-            module_states
-                .get(&dep.target_path)
-                .is_some_and(|state| state.interface_changed)
+            module_states.get(&dep.target_path).is_some_and(|state| state.interface_changed)
         });
         let current_interface = if !request.cache.no_cache {
             match flux::compiler::module_interface::load_valid_interface(
@@ -325,10 +306,7 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
                 .unwrap_or_else(|| module_display_name(&node.path));
             seq_completed += 1;
             if !request.runtime.quiet {
-                eprintln!(
-                    "{}",
-                    progress_line(seq_completed, seq_total, "Cached", &display_name,)
-                );
+                eprintln!("{}", progress_line(seq_completed, seq_total, "Cached", &display_name,));
             }
             module_states.insert(
                 node.path.clone(),
@@ -360,10 +338,7 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
                     .unwrap_or_else(|| "not eligible".to_string());
                 eprintln!("module-cache: miss (reason: {reason})");
             } else if current_interface.is_none() && !is_entry_module {
-                eprintln!(
-                    "interface: miss {} (no valid interface)",
-                    node.path.display()
-                );
+                eprintln!("interface: miss {} (no valid interface)", node.path.display());
             }
         } else if request.runtime.verbose
             && !request.cache.no_cache
@@ -403,10 +378,7 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
             seq_completed += 1;
             if !request.runtime.quiet {
                 let name = module_display_name(&node.path);
-                eprintln!(
-                    "{}",
-                    progress_line(seq_completed, seq_total, "Compiling", &name)
-                );
+                eprintln!("{}", progress_line(seq_completed, seq_total, "Compiling", &name));
             }
         }
 
@@ -427,9 +399,7 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
             && request.allow_cached_module_bytecode
             && request.backend == Backend::Vm
         {
-            let cached_module = request
-                .compiler
-                .build_cached_module_bytecode(module_snapshot);
+            let cached_module = request.compiler.build_cached_module_bytecode(module_snapshot);
             if let Err(e) = module_cache.store(
                 &node.path,
                 &module_cache_key,

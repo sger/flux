@@ -50,11 +50,8 @@ fn new_git_package(scratch: &Scratch) -> (PathBuf, String) {
     git(&repo, &["config", "user.email", "tests@flux-lang.org"]);
     git(&repo, &["config", "user.name", "Flux tests"]);
     git(&repo, &["checkout", "-b", "main"]);
-    std::fs::write(
-        repo.join("flux.toml"),
-        "[package]\nname = \"shared\"\nversion = \"0.1.0\"\n",
-    )
-    .expect("write dependency manifest");
+    std::fs::write(repo.join("flux.toml"), "[package]\nname = \"shared\"\nversion = \"0.1.0\"\n")
+        .expect("write dependency manifest");
     std::fs::create_dir_all(repo.join("src")).expect("create dependency source dir");
     std::fs::write(
         repo.join("src/Shared.flx"),
@@ -120,28 +117,14 @@ fn git_dependency_builds_and_records_its_commit() {
     let scratch = Scratch::new("pkg-git-build");
     let (repo, commit) = new_git_package(&scratch);
     let url = file_url(&repo);
-    let app = app(
-        &scratch,
-        &format!("shared = {{ git = \"{url}\", rev = \"{commit}\" }}"),
-    );
+    let app = app(&scratch, &format!("shared = {{ git = \"{url}\", rev = \"{commit}\" }}"));
 
     let output = flux(&args(&["run"]), &app, &scratch);
-    assert!(
-        output.status.success(),
-        "git build failed:\n{}",
-        text(&output)
-    );
-    assert!(
-        text(&output).contains("shared v1"),
-        "unexpected output:\n{}",
-        text(&output)
-    );
+    assert!(output.status.success(), "git build failed:\n{}", text(&output));
+    assert!(text(&output).contains("shared v1"), "unexpected output:\n{}", text(&output));
 
     let lock = std::fs::read_to_string(app.join("flux.lock")).expect("read lockfile");
-    assert!(
-        lock.contains(&format!("source = \"git+{url}#{commit}\"")),
-        "{lock}"
-    );
+    assert!(lock.contains(&format!("source = \"git+{url}#{commit}\"")), "{lock}");
 }
 
 #[test]
@@ -149,17 +132,10 @@ fn offline_build_uses_the_locked_git_checkout() {
     let scratch = Scratch::new("pkg-git-offline");
     let (repo, commit) = new_git_package(&scratch);
     let url = file_url(&repo);
-    let app = app(
-        &scratch,
-        &format!("shared = {{ git = \"{url}\", rev = \"{commit}\" }}"),
-    );
+    let app = app(&scratch, &format!("shared = {{ git = \"{url}\", rev = \"{commit}\" }}"));
 
     let first = flux(&args(&["run"]), &app, &scratch);
-    assert!(
-        first.status.success(),
-        "initial build failed:\n{}",
-        text(&first)
-    );
+    assert!(first.status.success(), "initial build failed:\n{}", text(&first));
     std::fs::remove_dir_all(&repo).expect("remove source repository");
 
     let offline = flux(&args(&["run", "--offline"]), &app, &scratch);
@@ -168,11 +144,7 @@ fn offline_build_uses_the_locked_git_checkout() {
         "offline build did not reuse the checkout:\n{}",
         text(&offline)
     );
-    assert!(
-        text(&offline).contains("shared v1"),
-        "unexpected output:\n{}",
-        text(&offline)
-    );
+    assert!(text(&offline).contains("shared v1"), "unexpected output:\n{}", text(&offline));
 }
 
 #[test]
@@ -182,50 +154,25 @@ fn add_remove_and_tree_cover_a_git_dependency() {
     let url = file_url(&repo);
     let app = app(&scratch, "");
 
-    let added = flux(
-        &args(&["add", "shared", "--git", &url, "--rev", &commit]),
-        &app,
-        &scratch,
-    );
+    let added = flux(&args(&["add", "shared", "--git", &url, "--rev", &commit]), &app, &scratch);
     assert!(added.status.success(), "flux add failed:\n{}", text(&added));
     let manifest = std::fs::read_to_string(app.join("flux.toml")).expect("read manifest");
     assert!(manifest.starts_with("# Keep this comment"), "{manifest}");
-    assert!(manifest.contains(&format!(
-        "shared = {{ git = \"{url}\", rev = \"{commit}\" }}"
-    )));
+    assert!(manifest.contains(&format!("shared = {{ git = \"{url}\", rev = \"{commit}\" }}")));
 
     let built = flux(&args(&["run"]), &app, &scratch);
-    assert!(
-        built.status.success(),
-        "git dependency failed to build:\n{}",
-        text(&built)
-    );
+    assert!(built.status.success(), "git dependency failed to build:\n{}", text(&built));
 
     let tree = flux(&args(&["tree"]), &app, &scratch);
     assert!(tree.status.success(), "flux tree failed:\n{}", text(&tree));
-    assert!(
-        text(&tree).contains("shared"),
-        "tree omitted dependency:\n{}",
-        text(&tree)
-    );
-    assert!(
-        text(&tree).contains(&commit[..7]),
-        "tree omitted locked commit:\n{}",
-        text(&tree)
-    );
+    assert!(text(&tree).contains("shared"), "tree omitted dependency:\n{}", text(&tree));
+    assert!(text(&tree).contains(&commit[..7]), "tree omitted locked commit:\n{}", text(&tree));
 
     let removed = flux(&args(&["remove", "shared"]), &app, &scratch);
-    assert!(
-        removed.status.success(),
-        "flux remove failed:\n{}",
-        text(&removed)
-    );
+    assert!(removed.status.success(), "flux remove failed:\n{}", text(&removed));
     let manifest = std::fs::read_to_string(app.join("flux.toml")).expect("read manifest");
     assert!(manifest.starts_with("# Keep this comment"), "{manifest}");
-    assert!(
-        !manifest.contains("shared ="),
-        "dependency was not removed:\n{manifest}"
-    );
+    assert!(!manifest.contains("shared ="), "dependency was not removed:\n{manifest}");
 }
 
 #[test]
@@ -233,17 +180,10 @@ fn update_refreshes_a_branch_and_reports_the_new_commit() {
     let scratch = Scratch::new("pkg-git-update");
     let (repo, first) = new_git_package(&scratch);
     let url = file_url(&repo);
-    let app = app(
-        &scratch,
-        &format!("shared = {{ git = \"{url}\", branch = \"main\" }}"),
-    );
+    let app = app(&scratch, &format!("shared = {{ git = \"{url}\", branch = \"main\" }}"));
 
     let initial = flux(&args(&["run"]), &app, &scratch);
-    assert!(
-        initial.status.success(),
-        "initial branch build failed:\n{}",
-        text(&initial)
-    );
+    assert!(initial.status.success(), "initial branch build failed:\n{}", text(&initial));
 
     std::fs::write(
         repo.join("src/Shared.flx"),
@@ -253,11 +193,7 @@ fn update_refreshes_a_branch_and_reports_the_new_commit() {
     let second = commit(&repo, "shared v2");
 
     let updated = flux(&args(&["update"]), &app, &scratch);
-    assert!(
-        updated.status.success(),
-        "flux update failed:\n{}",
-        text(&updated)
-    );
+    assert!(updated.status.success(), "flux update failed:\n{}", text(&updated));
     assert!(
         text(&updated).contains(&format!("{} -> {}", &first[..7], &second[..7])),
         "update did not report the commit change:\n{}",
@@ -265,16 +201,9 @@ fn update_refreshes_a_branch_and_reports_the_new_commit() {
     );
 
     let lock = std::fs::read_to_string(app.join("flux.lock")).expect("read updated lockfile");
-    assert!(
-        lock.contains(&format!("#{second}")),
-        "lockfile was not updated:\n{lock}"
-    );
+    assert!(lock.contains(&format!("#{second}")), "lockfile was not updated:\n{lock}");
     let rebuilt = flux(&args(&["run"]), &app, &scratch);
-    assert!(
-        rebuilt.status.success(),
-        "updated build failed:\n{}",
-        text(&rebuilt)
-    );
+    assert!(rebuilt.status.success(), "updated build failed:\n{}", text(&rebuilt));
     assert!(
         text(&rebuilt).contains("shared v2"),
         "updated source was not built:\n{}",

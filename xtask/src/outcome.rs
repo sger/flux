@@ -47,10 +47,7 @@ pub struct Outcome {
 
 impl Outcome {
     pub fn new() -> Self {
-        Self {
-            entries: Vec::new(),
-            started: Instant::now(),
-        }
+        Self { entries: Vec::new(), started: Instant::now() }
     }
 
     pub fn record(&mut self, step: &str, ok: bool, line: String, took: Duration) -> &mut Entry {
@@ -152,17 +149,9 @@ impl Outcome {
     pub fn to_file(&self) -> String {
         let mut text = String::new();
         for entry in &self.entries {
-            let seconds = entry
-                .took
-                .map(|took| took.as_secs().to_string())
-                .unwrap_or_default();
-            let _ = writeln!(
-                text,
-                "{}\t{}\t{seconds}\t{}",
-                entry.step,
-                entry.mark.word(),
-                entry.line
-            );
+            let seconds = entry.took.map(|took| took.as_secs().to_string()).unwrap_or_default();
+            let _ =
+                writeln!(text, "{}\t{}\t{seconds}\t{}", entry.step, entry.mark.word(), entry.line);
         }
         let _ = writeln!(text, "{TOTAL}\t\t{}\t", self.total().as_secs());
         text
@@ -219,10 +208,7 @@ pub fn format_delta(now: Duration, before: Duration) -> String {
         std::cmp::Ordering::Less => "−",
         std::cmp::Ordering::Equal => "±",
     };
-    format!(
-        "{sign}{}",
-        format_duration(Duration::from_secs(now.abs_diff(before)))
-    )
+    format!("{sign}{}", format_duration(Duration::from_secs(now.abs_diff(before))))
 }
 
 /// The run's steps, numbered as they start: `== [4/9] debug build parity`.

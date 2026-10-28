@@ -20,10 +20,7 @@ fn semantic_matrix_runtime_vm_cases_match_expected_output() {
     let cases: &[(&str, &[&str])] = &[
         ("primitives/integer_arithmetic.flx", &["42", "0", "11"]),
         ("functions/polymorphism.flx", &["7", "\"x\""]),
-        (
-            "functions/closures_and_recursion.flx",
-            &["15", "120", "true"],
-        ),
+        ("functions/closures_and_recursion.flx", &["15", "120", "true"]),
         ("collections/shapes.flx", &["3", "3", "9", "4"]),
         ("adts/generic_adts.flx", &["7", "9"]),
         ("modules/public_api/main.flx", &["42"]),
@@ -38,15 +35,8 @@ fn semantic_matrix_runtime_vm_cases_match_expected_output() {
     for (fixture, expected_lines) in cases {
         let output = run_fixture(fixture, false);
         let text = combined_output(&output);
-        assert!(
-            output.status.success(),
-            "VM run failed for {fixture}:\n{text}"
-        );
-        assert_eq!(
-            output_lines(&text),
-            *expected_lines,
-            "VM output for {fixture}"
-        );
+        assert!(output.status.success(), "VM run failed for {fixture}:\n{text}");
+        assert_eq!(output_lines(&text), *expected_lines, "VM output for {fixture}");
     }
 }
 
@@ -78,17 +68,11 @@ fn semantic_matrix_runtime_native_matches_vm_output() {
     for fixture in cases {
         let vm = run_fixture(fixture, false);
         let vm_text = combined_output(&vm);
-        assert!(
-            vm.status.success(),
-            "VM run failed for {fixture}:\n{vm_text}"
-        );
+        assert!(vm.status.success(), "VM run failed for {fixture}:\n{vm_text}");
 
         let native = run_fixture(fixture, true);
         let native_text = combined_output(&native);
-        assert!(
-            native.status.success(),
-            "native run failed for {fixture}:\n{native_text}"
-        );
+        assert!(native.status.success(), "native run failed for {fixture}:\n{native_text}");
 
         assert_eq!(
             output_lines(&native_text),

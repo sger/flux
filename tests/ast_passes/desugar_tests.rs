@@ -7,11 +7,7 @@ fn parse_and_desugar(input: &str) -> Expression {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "Parse errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "Parse errors: {:?}", parser.errors);
 
     let desugared = desugar(program);
     assert_eq!(desugared.statements.len(), 1, "Expected single statement");
@@ -26,11 +22,7 @@ fn parse_and_desugar_statement(input: &str) -> Statement {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "Parse errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "Parse errors: {:?}", parser.errors);
 
     let desugared = desugar(program);
     assert_eq!(desugared.statements.len(), 1, "Expected single statement");
@@ -51,12 +43,8 @@ fn desugars_double_negation() {
 /// The operand of `!!e` when the expression is still a double negation.
 fn double_negated(expr: &Expression) -> Option<&Expression> {
     match expr {
-        Expression::Prefix {
-            operator, right, ..
-        } if operator == "!" => match right.as_ref() {
-            Expression::Prefix {
-                operator, right, ..
-            } if operator == "!" => Some(right),
+        Expression::Prefix { operator, right, .. } if operator == "!" => match right.as_ref() {
+            Expression::Prefix { operator, right, .. } if operator == "!" => Some(right),
             _ => None,
         },
         _ => None,
@@ -117,9 +105,7 @@ fn single_negation_unchanged() {
 fn triple_negation_reduces_to_single() {
     // !!!x → !x (bottom-up: inner !! → identity, outer ! remains)
     match parse_and_desugar("!!!x;") {
-        Expression::Prefix {
-            operator, right, ..
-        } => {
+        Expression::Prefix { operator, right, .. } => {
             assert_eq!(operator, "!");
             match right.as_ref() {
                 Expression::Identifier { .. } => {}
@@ -185,9 +171,7 @@ fn desugars_triple_negation() {
 
     // !!!false → !false (after removing double negation)
     match result {
-        Expression::Prefix {
-            operator, right, ..
-        } => {
+        Expression::Prefix { operator, right, .. } => {
             assert_eq!(operator, "!");
             match right.as_ref() {
                 Expression::Boolean { value, .. } => assert!(!(*value)),
@@ -204,12 +188,7 @@ fn desugars_negated_equality() {
 
     // Should desugar to: 5 != 3
     match result {
-        Expression::Infix {
-            left,
-            operator,
-            right,
-            ..
-        } => {
+        Expression::Infix { left, operator, right, .. } => {
             assert_eq!(operator, "!=");
             match (left.as_ref(), right.as_ref()) {
                 (Expression::Integer { value: a, .. }, Expression::Integer { value: b, .. }) => {
@@ -229,12 +208,7 @@ fn desugars_negated_inequality() {
 
     // Should desugar to: x == y
     match result {
-        Expression::Infix {
-            left,
-            operator,
-            right,
-            ..
-        } => {
+        Expression::Infix { left, operator, right, .. } => {
             assert_eq!(operator, "==");
             match (left.as_ref(), right.as_ref()) {
                 (Expression::Identifier { .. }, Expression::Identifier { .. }) => {
@@ -255,9 +229,7 @@ fn does_not_desugar_single_negation() {
 
     // Should remain as-is: !true
     match result {
-        Expression::Prefix {
-            operator, right, ..
-        } => {
+        Expression::Prefix { operator, right, .. } => {
             assert_eq!(operator, "!");
             match right.as_ref() {
                 Expression::Boolean { value, .. } => assert!(*value),
@@ -275,9 +247,7 @@ fn does_not_desugar_other_negated_comparisons() {
     // Should remain as-is: !(x < y)
     // We don't desugar negated <, >, <=, >= comparisons
     match result {
-        Expression::Prefix {
-            operator, right, ..
-        } => {
+        Expression::Prefix { operator, right, .. } => {
             assert_eq!(operator, "!");
             match right.as_ref() {
                 Expression::Infix { operator, .. } => {

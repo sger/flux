@@ -91,13 +91,7 @@ fn balance2(left_tree: Tree, right_tree: Tree) -> Tree {
 
 fn ins(tree: Tree, kx: i64, vx: bool) -> Tree {
     match tree {
-        Tree::Leaf => Tree::Node(
-            Color::Red,
-            Box::new(Tree::Leaf),
-            kx,
-            vx,
-            Box::new(Tree::Leaf),
-        ),
+        Tree::Leaf => Tree::Node(Color::Red, Box::new(Tree::Leaf), kx, vx, Box::new(Tree::Leaf)),
         Tree::Node(Color::Red, a, ky, vy, b) => {
             if kx < ky {
                 Tree::Node(Color::Red, Box::new(ins(*a, kx, vx)), ky, vy, b)
@@ -141,11 +135,7 @@ fn set_black(tree: Tree) -> Tree {
 }
 
 fn insert(tree: Tree, key: i64, value: bool) -> Tree {
-    if is_red(&tree) {
-        set_black(ins(tree, key, value))
-    } else {
-        ins(tree, key, value)
-    }
+    if is_red(&tree) { set_black(ins(tree, key, value)) } else { ins(tree, key, value) }
 }
 
 fn mk_map_aux(n: i64, tree: Tree) -> Tree {

@@ -367,9 +367,7 @@ mod tests {
             let mut interface = ModuleInterface::new("Test", "hash", "cfg");
             for n in 0..32 {
                 interface.symbol_table.insert(n, format!("name{n}"));
-                interface
-                    .member_is_value
-                    .insert(format!("member{n}"), n % 2 == 0);
+                interface.member_is_value.insert(format!("member{n}"), n % 2 == 0);
             }
             serde_json::to_string(&interface).expect("serialize")
         };
@@ -392,9 +390,7 @@ mod tests {
             }
             let mut interner = Interner::new();
             interface.build_symbol_remap(&mut interner);
-            (0..32)
-                .map(|n| interner.lookup(&format!("fresh{n}")))
-                .collect::<Vec<_>>()
+            (0..32).map(|n| interner.lookup(&format!("fresh{n}"))).collect::<Vec<_>>()
         };
         let first = load();
         for _ in 0..8 {
@@ -435,9 +431,7 @@ mod tests {
         let sym = crate::syntax::builtin_effects::io_effect_symbol(&mut interner);
 
         let mut interface = ModuleInterface::new("Test", "hash", "cfg");
-        interface
-            .symbol_table
-            .insert(sym.as_u32(), "IO".to_string());
+        interface.symbol_table.insert(sym.as_u32(), "IO".to_string());
 
         let remap = interface.build_symbol_remap(&mut interner);
         assert!(remap.is_empty());
@@ -504,10 +498,7 @@ mod tests {
                             InferEffectRow::closed_empty(),
                         ),
                     ],
-                    Box::new(InferType::App(
-                        TypeConstructor::List,
-                        vec![InferType::Var(1)],
-                    )),
+                    Box::new(InferType::App(TypeConstructor::List, vec![InferType::Var(1)])),
                     InferEffectRow::closed_empty(),
                 ),
             },
@@ -522,22 +513,17 @@ mod tests {
         interface.member_is_value.insert("map".to_string(), false);
         interface.member_is_value.insert("answer".to_string(), true);
         interface.interface_fingerprint = "f00d".to_string();
-        interface
-            .dependency_fingerprints
-            .push(DependencyFingerprint {
-                module_name: "Flow.List".to_string(),
-                source_path: "lib/Flow/List.flx".to_string(),
-                interface_fingerprint: "beef".to_string(),
-            });
+        interface.dependency_fingerprints.push(DependencyFingerprint {
+            module_name: "Flow.List".to_string(),
+            source_path: "lib/Flow/List.flx".to_string(),
+            interface_fingerprint: "beef".to_string(),
+        });
 
         let json = serde_json::to_string(&interface).expect("module interface should serialize");
         let decoded: ModuleInterface =
             serde_json::from_str(&json).expect("module interface should deserialize");
 
         assert_eq!(decoded, interface);
-        assert_eq!(
-            decoded.cache_format_version,
-            MODULE_INTERFACE_FORMAT_VERSION
-        );
+        assert_eq!(decoded.cache_format_version, MODULE_INTERFACE_FORMAT_VERSION);
     }
 }

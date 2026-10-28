@@ -3,11 +3,7 @@ use crate::{
 };
 
 fn new_vm() -> VM {
-    VM::new(Bytecode {
-        instructions: vec![],
-        constants: vec![],
-        debug_info: None,
-    })
+    VM::new(Bytecode { instructions: vec![], constants: vec![], debug_info: None })
 }
 
 #[test]
@@ -61,10 +57,8 @@ fn compare_none() {
 #[test]
 fn compare_left_right_not_equal() {
     let mut vm = new_vm();
-    vm.push(Value::Left(std::rc::Rc::new(Value::Integer(1))))
-        .unwrap();
-    vm.push(Value::Right(std::rc::Rc::new(Value::Integer(1))))
-        .unwrap();
+    vm.push(Value::Left(std::rc::Rc::new(Value::Integer(1)))).unwrap();
+    vm.push(Value::Right(std::rc::Rc::new(Value::Integer(1)))).unwrap();
 
     vm.execute_comparison(OpCode::OpEqual).unwrap();
 

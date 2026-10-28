@@ -10,9 +10,8 @@ use flux::diagnostics::{
 #[test]
 fn renders_hint_without_double_prefix() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
-    let output = Diagnostic::warning("TEST")
-        .with_hint_text("Hint:\n  foo")
-        .render(None, Some("test.flx"));
+    let output =
+        Diagnostic::warning("TEST").with_hint_text("Hint:\n  foo").render(None, Some("test.flx"));
 
     assert!(output.contains("\n\nHint:\n  foo\n"));
     assert!(!output.contains("Hint:\n  Hint:"));
@@ -22,9 +21,7 @@ fn renders_hint_without_double_prefix() {
 fn renders_multi_line_span() {
     let source = "let x = 1;\nlet y = 2;\n";
     let span = Span::new(Position::new(1, 4), Position::new(2, 5));
-    let output = Diagnostic::warning("TEST")
-        .with_span(span)
-        .render(Some(source), Some("test.flx"));
+    let output = Diagnostic::warning("TEST").with_span(span).render(Some(source), Some("test.flx"));
 
     assert!(output.contains("1 | let x = 1;"));
     assert!(output.contains("2 | let y = 2;"));
@@ -437,9 +434,7 @@ fn categorized_hints_ordering() {
     let hint_pos = output.find("Hint:\n").expect("Hint section not found");
     let note_pos = output.find("Note:\n").expect("Note section not found");
     let help_pos = output.find("Help:\n").expect("Help section not found");
-    let example_pos = output
-        .find("Example:\n")
-        .expect("Example section not found");
+    let example_pos = output.find("Example:\n").expect("Example section not found");
 
     // Verify order: Hint < Note < Help < Example
     assert!(hint_pos < note_pos, "Hint should come before Note");
@@ -570,10 +565,7 @@ fn inline_suggestion_builder() {
     let suggestion = InlineSuggestion::new(span, "const").with_message("Use const for constants");
 
     assert_eq!(suggestion.replacement, "const");
-    assert_eq!(
-        suggestion.message,
-        Some("Use const for constants".to_string())
-    );
+    assert_eq!(suggestion.message, Some("Use const for constants".to_string()));
 }
 
 #[test]
@@ -621,9 +613,8 @@ fn hint_chain_with_conclusion() {
     ])
     .with_conclusion("Type annotations can help prevent these errors");
 
-    let output = Diagnostic::warning("Type error")
-        .with_hint_chain(chain)
-        .render(None, Some("test.flx"));
+    let output =
+        Diagnostic::warning("Type error").with_hint_chain(chain).render(None, Some("test.flx"));
 
     assert!(output.contains("1. Check the variable type"));
     assert!(output.contains("2. Ensure it matches the expected type"));

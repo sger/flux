@@ -48,13 +48,7 @@ impl InstanceIndex {
     pub fn build(program: &Program) -> Self {
         let mut by_key = HashMap::new();
         for stmt in &program.statements {
-            let Statement::Instance {
-                class_name,
-                type_args,
-                methods,
-                ..
-            } = stmt
-            else {
+            let Statement::Instance { class_name, type_args, methods, .. } = stmt else {
                 continue;
             };
             let Some(head) = head_ctor_of(type_args.first()) else {
@@ -63,10 +57,7 @@ impl InstanceIndex {
             for m in methods {
                 by_key.insert(
                     (*class_name, head, m.name),
-                    Entry {
-                        full_span: stmt.span(),
-                        focus_span: m.span,
-                    },
+                    Entry { full_span: stmt.span(), focus_span: m.span },
                 );
             }
         }

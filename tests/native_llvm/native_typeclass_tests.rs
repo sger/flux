@@ -17,11 +17,8 @@ fn run_fixture(native: bool) -> (String, String, bool) {
         .get_or_init(|| Mutex::new(()))
         .lock()
         .expect("typeclass test lock poisoned");
-    let scratch = Scratch::new(if native {
-        "native-dotted-typeclass"
-    } else {
-        "vm-dotted-typeclass"
-    });
+    let scratch =
+        Scratch::new(if native { "native-dotted-typeclass" } else { "vm-dotted-typeclass" });
     scratch.write(
         "Data/Enc.flx",
         r#"
@@ -49,10 +46,7 @@ fn main() with IO {
 "#,
     );
 
-    let mut args = vec![
-        entry.to_string_lossy().into_owned(),
-        "--no-cache".to_string(),
-    ];
+    let mut args = vec![entry.to_string_lossy().into_owned(), "--no-cache".to_string()];
     args.extend(scratch.cache_args());
     if native {
         args.push("--native".to_string());
@@ -112,10 +106,7 @@ fn main() with IO {
 "#,
     );
 
-    let mut args = vec![
-        entry.to_string_lossy().into_owned(),
-        "--no-cache".to_string(),
-    ];
+    let mut args = vec![entry.to_string_lossy().into_owned(), "--no-cache".to_string()];
     args.extend(scratch.cache_args());
     if native {
         args.push("--native".to_string());
@@ -148,10 +139,8 @@ fn module_scoped_contextual_instance_recurses_on_vm_and_llvm() {
         "module-scoped contextual instance fixture failed natively:\nstdout:\n{native_stdout}\nstderr:\n{native_stderr}"
     );
     for (backend, stdout) in [("VM", vm_stdout), ("native", native_stdout)] {
-        let values: Vec<_> = stdout
-            .lines()
-            .filter(|line| matches!(*line, "true" | "false"))
-            .collect();
+        let values: Vec<_> =
+            stdout.lines().filter(|line| matches!(*line, "true" | "false")).collect();
         assert_eq!(
             values,
             vec!["true", "true", "false"],
@@ -173,11 +162,8 @@ fn run_same_class_name_fixture(native: bool) -> (String, String, bool) {
         .get_or_init(|| Mutex::new(()))
         .lock()
         .expect("typeclass test lock poisoned");
-    let scratch = Scratch::new(if native {
-        "native-same-class-name"
-    } else {
-        "vm-same-class-name"
-    });
+    let scratch =
+        Scratch::new(if native { "native-same-class-name" } else { "vm-same-class-name" });
     for (module, answer) in [("Alpha", "alpha"), ("Beta", "beta")] {
         scratch.write(
             &format!("{module}.flx"),
@@ -209,10 +195,7 @@ fn main() with IO {
 "#,
     );
 
-    let mut args = vec![
-        entry.to_string_lossy().into_owned(),
-        "--no-cache".to_string(),
-    ];
+    let mut args = vec![entry.to_string_lossy().into_owned(), "--no-cache".to_string()];
     args.extend(scratch.cache_args());
     if native {
         args.push("--native".to_string());
@@ -245,10 +228,7 @@ fn same_class_name_in_two_modules_stays_distinct_on_vm_and_llvm() {
     );
     // Each module must answer for itself; a collapsed symbol prints one twice.
     for stdout in [&vm_stdout, &native_stdout] {
-        assert!(
-            stdout.contains("alpha"),
-            "expected Alpha's answer:\n{stdout}"
-        );
+        assert!(stdout.contains("alpha"), "expected Alpha's answer:\n{stdout}");
         assert!(stdout.contains("beta"), "expected Beta's answer:\n{stdout}");
     }
 }
@@ -266,10 +246,7 @@ fn dotted_module_instance_dispatches_on_vm_and_llvm() {
         "dotted typeclass fixture failed natively:\nstdout:\n{native_stdout}\nstderr:\n{native_stderr}"
     );
     assert!(vm_stdout.contains("42"), "VM output was:\n{vm_stdout}");
-    assert!(
-        native_stdout.contains("42"),
-        "native output was:\n{native_stdout}"
-    );
+    assert!(native_stdout.contains("42"), "native output was:\n{native_stdout}");
 }
 
 fn run_same_named_fixture(native: bool) -> (String, String, bool) {
@@ -277,11 +254,8 @@ fn run_same_named_fixture(native: bool) -> (String, String, bool) {
         .get_or_init(|| Mutex::new(()))
         .lock()
         .expect("typeclass test lock poisoned");
-    let scratch = Scratch::new(if native {
-        "native-qualified-class-id"
-    } else {
-        "vm-qualified-class-id"
-    });
+    let scratch =
+        Scratch::new(if native { "native-qualified-class-id" } else { "vm-qualified-class-id" });
     scratch.write(
         "Mod/A.flx",
         r#"
@@ -323,10 +297,7 @@ fn main() with IO {
 "#,
     );
 
-    let mut args = vec![
-        entry.to_string_lossy().into_owned(),
-        "--no-cache".to_string(),
-    ];
+    let mut args = vec![entry.to_string_lossy().into_owned(), "--no-cache".to_string()];
     args.extend(scratch.cache_args());
     if native {
         args.push("--native".to_string());
@@ -357,10 +328,7 @@ fn same_named_module_classes_dispatch_on_vm_and_llvm() {
         native_ok,
         "same-named class fixture failed natively:\nstdout:\n{native_stdout}\nstderr:\n{native_stderr}"
     );
-    assert!(
-        vm_stdout.contains("A") && vm_stdout.contains("B"),
-        "VM output was:\n{vm_stdout}"
-    );
+    assert!(vm_stdout.contains("A") && vm_stdout.contains("B"), "VM output was:\n{vm_stdout}");
     assert!(
         native_stdout.contains("A") && native_stdout.contains("B"),
         "native output was:\n{native_stdout}"

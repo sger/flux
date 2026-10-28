@@ -24,16 +24,9 @@ use crate::syntax::interner::Interner;
 /// Errors that can occur during LLVM IR lowering.
 #[derive(Debug, Clone)]
 pub enum CoreToLlvmError {
-    Unsupported {
-        feature: &'static str,
-        context: String,
-    },
-    Malformed {
-        message: String,
-    },
-    MissingSymbol {
-        message: String,
-    },
+    Unsupported { feature: &'static str, context: String },
+    Malformed { message: String },
+    MissingSymbol { message: String },
 }
 
 impl std::fmt::Display for CoreToLlvmError {
@@ -56,7 +49,5 @@ impl std::error::Error for CoreToLlvmError {}
 
 /// Resolve an `Identifier` (interned symbol) to a display string.
 pub(super) fn display_ident(ident: Identifier, interner: Option<&Interner>) -> String {
-    interner
-        .map(|it| it.resolve(ident).to_string())
-        .unwrap_or_else(|| ident.to_string())
+    interner.map(|it| it.resolve(ident).to_string()).unwrap_or_else(|| ident.to_string())
 }

@@ -376,10 +376,7 @@ impl InstanceDef {
     /// The module defining head `idx`; `EMPTY` past the end of
     /// [`head_modules`](InstanceDef::head_modules).
     pub fn head_module(&self, idx: usize) -> ModulePath {
-        self.head_modules
-            .get(idx)
-            .copied()
-            .unwrap_or(ModulePath::EMPTY)
+        self.head_modules.get(idx).copied().unwrap_or(ModulePath::EMPTY)
     }
 
     /// Whether this instance's head is `type_args`, with each head type from
@@ -387,16 +384,11 @@ impl InstanceDef {
     /// modules are different heads.
     pub fn has_same_head(&self, type_args: &[TypeExpr], head_modules: &[ModulePath]) -> bool {
         self.type_args.len() == type_args.len()
-            && self
-                .type_args
-                .iter()
-                .zip(type_args)
-                .enumerate()
-                .all(|(idx, (mine, theirs))| {
-                    mine.structural_eq(theirs)
-                        && self.head_module(idx)
-                            == head_modules.get(idx).copied().unwrap_or(ModulePath::EMPTY)
-                })
+            && self.type_args.iter().zip(type_args).enumerate().all(|(idx, (mine, theirs))| {
+                mine.structural_eq(theirs)
+                    && self.head_module(idx)
+                        == head_modules.get(idx).copied().unwrap_or(ModulePath::EMPTY)
+            })
     }
 }
 
@@ -528,13 +520,7 @@ impl ClassEnv {
             &mut diagnostics,
             interner,
         );
-        Self::collect_deriving(
-            statements,
-            ModulePath::EMPTY,
-            self,
-            &mut diagnostics,
-            interner,
-        );
+        Self::collect_deriving(statements, ModulePath::EMPTY, self, &mut diagnostics, interner);
 
         // Proposal 0151, Phase 2: orphan rule enforcement. Every collected
         // instance is checked against the relaxed orphan rule (instance is
@@ -597,12 +583,7 @@ impl ClassEnv {
                 .superclass_class_ids
                 .iter()
                 .map(|&superclass| DictSlot::Superclass(superclass))
-                .chain(
-                    class_def
-                        .methods
-                        .iter()
-                        .map(|method| DictSlot::Method(method.name)),
-                )
+                .chain(class_def.methods.iter().map(|method| DictSlot::Method(method.name)))
                 .collect(),
         )
     }
@@ -653,22 +634,16 @@ pub fn select_dictionary<T: PartialEq>(
     let consistent: Vec<&(usize, Vec<T>)> = candidates
         .iter()
         .filter(|(_, type_args)| {
-            observed
-                .iter()
-                .enumerate()
-                .all(|(position, seen)| match seen {
-                    Some(ty) => type_args.get(position) == Some(ty),
-                    None => true,
-                })
+            observed.iter().enumerate().all(|(position, seen)| match seen {
+                Some(ty) => type_args.get(position) == Some(ty),
+                None => true,
+            })
         })
         .collect();
     let Some((first_index, first_args)) = consistent.first() else {
         return DictSelection::NoMatch;
     };
-    if consistent
-        .iter()
-        .all(|(_, type_args)| type_args == first_args)
-    {
+    if consistent.iter().all(|(_, type_args)| type_args == first_args) {
         return DictSelection::Unique(*first_index);
     }
     DictSelection::Ambiguous
@@ -794,11 +769,8 @@ impl ClassEnv {
         superclass: ClassId,
         instance: &InstanceDef,
     ) -> Option<&InstanceDef> {
-        let candidates = || {
-            self.instances
-                .iter()
-                .filter(move |candidate| candidate.class_id == superclass)
-        };
+        let candidates =
+            || self.instances.iter().filter(move |candidate| candidate.class_id == superclass);
         candidates()
             .find(|candidate| candidate.has_same_head(&instance.type_args, &instance.head_modules))
             .or_else(|| {
@@ -1063,11 +1035,7 @@ impl ClassEnv {
     pub fn associated_type_class(&self, name: Identifier) -> Option<ClassId> {
         let mut found: Option<ClassId> = None;
         for class_def in self.classes.values() {
-            if !class_def
-                .associated_types
-                .iter()
-                .any(|declaration| declaration.name == name)
-            {
+            if !class_def.associated_types.iter().any(|declaration| declaration.name == name) {
                 continue;
             }
             if found.is_some() {
@@ -1094,10 +1062,8 @@ impl ClassEnv {
             if instance.class_id != class_id {
                 return None;
             }
-            let equation = instance
-                .associated_types
-                .iter()
-                .find(|equation| equation.name == name)?;
+            let equation =
+                instance.associated_types.iter().find(|equation| equation.name == name)?;
             if equation.head.len() != args.len() {
                 return None;
             }
@@ -1280,11 +1246,9 @@ impl ClassEnv {
                 .join(" -> ");
             let display_class = interner.resolve(id.name);
             diagnostics.push(
-                diagnostic_for(&SUPERCLASS_CYCLE)
-                    .with_span(class_def.span)
-                    .with_message(format!(
-                        "Class `{display_class}` is reachable from its own superclasses: {path}."
-                    )),
+                diagnostic_for(&SUPERCLASS_CYCLE).with_span(class_def.span).with_message(format!(
+                    "Class `{display_class}` is reachable from its own superclasses: {path}."
+                )),
             );
         }
 
@@ -1305,11 +1269,8 @@ impl ClassEnv {
                 // discharges the obligation here whether or not `Eq<Int>` is
                 // visible from this module — the instance is conditional on
                 // it, and a use site that cannot supply it reports E444.
-                if instance
-                    .context_class_ids
-                    .iter()
-                    .zip(instance.context.iter())
-                    .any(|(context_id, constraint)| {
+                if instance.context_class_ids.iter().zip(instance.context.iter()).any(
+                    |(context_id, constraint)| {
                         *context_id == superclass_id
                             && constraint.type_args.len() == instance.type_args.len()
                             && constraint
@@ -1317,8 +1278,8 @@ impl ClassEnv {
                                 .iter()
                                 .zip(instance.type_args.iter())
                                 .all(|(left, right)| left.structural_eq(right))
-                    })
-                {
+                    },
+                ) {
                     continue;
                 }
                 let display_class = interner.resolve(instance.class_id.name);
@@ -1363,13 +1324,9 @@ impl ClassEnv {
                 return false;
             }
             let mut subst = HashMap::new();
-            candidate
-                .type_args
-                .iter()
-                .zip(subject)
-                .all(|(pattern, actual)| {
-                    Self::match_instance_head(pattern, actual, &mut subst, interner)
-                })
+            candidate.type_args.iter().zip(subject).all(|(pattern, actual)| {
+                Self::match_instance_head(pattern, actual, &mut subst, interner)
+            })
         })
     }
 
@@ -1402,16 +1359,8 @@ impl ClassEnv {
                 }
             }
             (
-                TypeExpr::Named {
-                    name,
-                    args: pattern_args,
-                    ..
-                },
-                TypeExpr::Named {
-                    name: subject_name,
-                    args: subject_args,
-                    ..
-                },
+                TypeExpr::Named { name, args: pattern_args, .. },
+                TypeExpr::Named { name: subject_name, args: subject_args, .. },
             ) => {
                 name == subject_name
                     && pattern_args.len() == subject_args.len()
@@ -1449,11 +1398,8 @@ impl ClassEnv {
             };
 
             let display_class = interner.resolve(inst.class_name);
-            let display_type: Vec<String> = inst
-                .type_args
-                .iter()
-                .map(|t| t.display_with(interner))
-                .collect();
+            let display_type: Vec<String> =
+                inst.type_args.iter().map(|t| t.display_with(interner)).collect();
             let display_head = display_type.join(", ");
 
             // E450: public instance of a private (non-built-in) class.
@@ -1614,14 +1560,7 @@ impl ClassEnv {
         };
         for stmt in statements {
             match stmt {
-                Statement::Data {
-                    is_public,
-                    name,
-                    type_params,
-                    variants,
-                    span,
-                    ..
-                } => {
+                Statement::Data { is_public, name, type_params, variants, span, .. } => {
                     Self::try_synthesize_sendable_for_adt(
                         env,
                         interner,
@@ -1634,11 +1573,7 @@ impl ClassEnv {
                         *span,
                     );
                 }
-                Statement::Module {
-                    name: module_name,
-                    body,
-                    ..
-                } => {
+                Statement::Module { name: module_name, body, .. } => {
                     let module_path = ModulePath::from_identifier(*module_name);
                     Self::synthesize_sendable_instances(
                         &body.statements,
@@ -1680,21 +1615,13 @@ impl ClassEnv {
         }
 
         let head_args: Vec<TypeExpr> = if type_params.is_empty() {
-            vec![TypeExpr::Named {
-                name: adt_name,
-                args: Vec::new(),
-                span: Span::default(),
-            }]
+            vec![TypeExpr::Named { name: adt_name, args: Vec::new(), span: Span::default() }]
         } else {
             vec![TypeExpr::Named {
                 name: adt_name,
                 args: type_params
                     .iter()
-                    .map(|p| TypeExpr::Named {
-                        name: *p,
-                        args: Vec::new(),
-                        span: Span::default(),
-                    })
+                    .map(|p| TypeExpr::Named { name: *p, args: Vec::new(), span: Span::default() })
                     .collect(),
                 span: Span::default(),
             }]
@@ -1750,15 +1677,11 @@ impl ClassEnv {
     ) {
         for stmt in statements {
             match stmt {
-                Statement::Data {
-                    is_public, name, ..
-                } => {
+                Statement::Data { is_public, name, .. } => {
                     // First-wins: if the same ADT name appears twice (which
                     // would be flagged elsewhere), keep the first sighting.
-                    out.entry(*name).or_insert(DataInfo {
-                        module: current_module,
-                        is_public: *is_public,
-                    });
+                    out.entry(*name)
+                        .or_insert(DataInfo { module: current_module, is_public: *is_public });
                 }
                 Statement::Module { name, body, .. } => {
                     let module_path = ModulePath::from_identifier(*name);
@@ -1801,11 +1724,8 @@ impl ClassEnv {
             }
 
             let display_class = interner.resolve(inst.class_name);
-            let display_type: Vec<String> = inst
-                .type_args
-                .iter()
-                .map(|t| t.display_with(interner))
-                .collect();
+            let display_type: Vec<String> =
+                inst.type_args.iter().map(|t| t.display_with(interner)).collect();
             let display_head = display_type.join(", ");
 
             diagnostics.push(
@@ -1867,11 +1787,9 @@ impl ClassEnv {
                     if env.classes.contains_key(&class_id) {
                         let display_name = interner.resolve(*name);
                         diagnostics.push(
-                            diagnostic_for(&DUPLICATE_CLASS)
-                                .with_span(*span)
-                                .with_message(format!(
-                                    "Type class `{display_name}` is already defined."
-                                )),
+                            diagnostic_for(&DUPLICATE_CLASS).with_span(*span).with_message(
+                                format!("Type class `{display_name}` is already defined."),
+                            ),
                         );
                         continue;
                     }
@@ -2123,10 +2041,8 @@ impl ClassEnv {
 
                     // Validate: all required methods are implemented
                     let method_names: Vec<Identifier> = methods.iter().map(|m| m.name).collect();
-                    let method_effects: Vec<(Identifier, Vec<EffectExpr>)> = methods
-                        .iter()
-                        .map(|m| (m.name, m.effects.clone()))
-                        .collect();
+                    let method_effects: Vec<(Identifier, Vec<EffectExpr>)> =
+                        methods.iter().map(|m| (m.name, m.effects.clone())).collect();
 
                     for required in &class_def.methods {
                         let has_impl = method_names.contains(&required.name);
@@ -2279,14 +2195,9 @@ impl ClassEnv {
     ) {
         for stmt in statements {
             match stmt {
-                Statement::Data {
-                    is_public,
-                    name,
-                    type_params,
-                    deriving,
-                    span,
-                    ..
-                } if !deriving.is_empty() => {
+                Statement::Data { is_public, name, type_params, deriving, span, .. }
+                    if !deriving.is_empty() =>
+                {
                     for class_name in deriving {
                         // Check that the class exists. Phase 1b Step 4: prefer
                         // a class in the same module as the data declaration,
@@ -2365,23 +2276,23 @@ impl ClassEnv {
                         if let Some(method) = underivable {
                             let method_display = interner.resolve(*method);
                             diagnostics.push(
-                                diagnostic_for(&UNDERIVABLE_CLASS)
-                                    .with_span(*span)
-                                    .with_message(format!(
+                                diagnostic_for(&UNDERIVABLE_CLASS).with_span(*span).with_message(
+                                    format!(
                                         "`{class_display}` cannot be derived for \
                                          `{type_display}`: no usable `{method_display}` can be \
                                          generated for it."
-                                    )),
+                                    ),
+                                ),
                             );
                         } else if ambiguous_context {
                             diagnostics.push(
-                                diagnostic_for(&UNDERIVABLE_CLASS)
-                                    .with_span(*span)
-                                    .with_message(format!(
+                                diagnostic_for(&UNDERIVABLE_CLASS).with_span(*span).with_message(
+                                    format!(
                                         "`{class_display}` cannot be derived for \
                                          `{type_display}`, which has more than one type \
                                          parameter. Write the instance by hand."
-                                    )),
+                                    ),
+                                ),
                             );
                         }
                         let origin = if underivable.is_some() || ambiguous_context {
@@ -2392,10 +2303,7 @@ impl ClassEnv {
 
                         let type_arg = TypeExpr::Named {
                             name: *name,
-                            args: type_params
-                                .iter()
-                                .map(|param| builtin_type(*param))
-                                .collect(),
+                            args: type_params.iter().map(|param| builtin_type(*param)).collect(),
                             span: Span::default(),
                         };
                         let context = type_params
@@ -2485,10 +2393,8 @@ impl ClassEnv {
     ) -> Option<&ClassDef> {
         // Same-module preference: walk only classes whose owning module
         // matches `current_module`.
-        if let Some(def) = self
-            .classes
-            .values()
-            .find(|def| def.name == name && def.module == current_module)
+        if let Some(def) =
+            self.classes.values().find(|def| def.name == name && def.module == current_module)
         {
             return Some(def);
         }
@@ -2502,10 +2408,7 @@ impl ClassEnv {
     /// owning module the class lives in. Use
     /// [`instances_for_id`](Self::instances_for_id) to disambiguate.
     pub fn instances_for(&self, class_name: Identifier) -> Vec<&InstanceDef> {
-        self.instances
-            .iter()
-            .filter(|i| i.class_name == class_name)
-            .collect()
+        self.instances.iter().filter(|i| i.class_name == class_name).collect()
     }
 
     /// Given a method name, find which class declares it when it is unique.
@@ -2530,13 +2433,8 @@ impl ClassEnv {
         method_name: Identifier,
     ) -> Option<ClassId> {
         let matches = self.method_class_ids(method_name);
-        let local = matches
-            .iter()
-            .find(|class| class.module == current_module)
-            .copied();
-        local
-            .or_else(|| (matches.len() == 1).then(|| matches[0]))
-            .map(ClassDef::class_id)
+        let local = matches.iter().find(|class| class.module == current_module).copied();
+        local.or_else(|| (matches.len() == 1).then(|| matches[0])).map(ClassDef::class_id)
     }
 
     /// All class definitions declaring `method_name`, used by the source
@@ -2544,12 +2442,7 @@ impl ClassEnv {
     pub fn method_class_ids(&self, method_name: Identifier) -> Vec<&ClassDef> {
         self.classes
             .values()
-            .filter(|class| {
-                class
-                    .methods
-                    .iter()
-                    .any(|method| method.name == method_name)
-            })
+            .filter(|class| class.methods.iter().any(|method| method.name == method_name))
             .collect()
     }
 
@@ -2567,12 +2460,7 @@ impl ClassEnv {
         let matches: Vec<_> = self
             .classes
             .values()
-            .filter(|class| {
-                class
-                    .methods
-                    .iter()
-                    .any(|method| method.name == method_name)
-            })
+            .filter(|class| class.methods.iter().any(|method| method.name == method_name))
             .filter(|class| {
                 class.module.as_identifier().is_some_and(|module| {
                     let module = interner.resolve(module);
@@ -2620,10 +2508,8 @@ impl ClassEnv {
         current_module: ModulePath,
         name: Identifier,
     ) -> Option<ClassId> {
-        if let Some(class) = self
-            .classes
-            .values()
-            .find(|class| class.module == current_module && class.name == name)
+        if let Some(class) =
+            self.classes.values().find(|class| class.module == current_module && class.name == name)
         {
             return Some(class.class_id());
         }
@@ -2636,10 +2522,7 @@ impl ClassEnv {
     /// so two same-named classes in different modules return disjoint
     /// instance lists.
     pub fn instances_for_id(&self, id: ClassId) -> Vec<&InstanceDef> {
-        self.instances
-            .iter()
-            .filter(|inst| inst.class_id == id)
-            .collect()
+        self.instances.iter().filter(|inst| inst.class_id == id).collect()
     }
 
     /// Return the positional index of a method within a class identified by
@@ -2667,12 +2550,9 @@ impl ClassEnv {
 
             let mut subst = HashMap::new();
             let matches =
-                inst.type_args
-                    .iter()
-                    .zip(actual_type_args.iter())
-                    .all(|(pattern, actual)| {
-                        Self::match_instance_type_expr(pattern, actual, &mut subst, interner)
-                    });
+                inst.type_args.iter().zip(actual_type_args.iter()).all(|(pattern, actual)| {
+                    Self::match_instance_type_expr(pattern, actual, &mut subst, interner)
+                });
 
             matches.then_some((inst, subst))
         })
@@ -2697,8 +2577,7 @@ impl ClassEnv {
             "Option" => InferType::Con(TypeConstructor::Option),
             other => InferType::Con(TypeConstructor::Adt(interner.lookup(other)?)),
         };
-        self.resolve_instance_with_subst(class_name, &[actual], interner)
-            .map(|(inst, _)| inst)
+        self.resolve_instance_with_subst(class_name, &[actual], interner).map(|(inst, _)| inst)
     }
 
     /// Resolve an instance against concrete inferred type arguments.
@@ -2711,8 +2590,7 @@ impl ClassEnv {
         actual_type_args: &[InferType],
         interner: &Interner,
     ) -> Option<(&InstanceDef, HashMap<Identifier, InferType>)> {
-        self.candidate_instances(class_name, actual_type_args, interner)
-            .next()
+        self.candidate_instances(class_name, actual_type_args, interner).next()
     }
 
     /// Every instance whose head matches `actual_type_args`, in declaration
@@ -2737,12 +2615,9 @@ impl ClassEnv {
 
             let mut subst = HashMap::new();
             let matches =
-                inst.type_args
-                    .iter()
-                    .zip(actual_type_args.iter())
-                    .all(|(pattern, actual)| {
-                        Self::match_instance_type_expr(pattern, actual, &mut subst, interner)
-                    });
+                inst.type_args.iter().zip(actual_type_args.iter()).all(|(pattern, actual)| {
+                    Self::match_instance_type_expr(pattern, actual, &mut subst, interner)
+                });
 
             matches.then_some((inst, subst))
         })
@@ -2763,12 +2638,9 @@ impl ClassEnv {
             }
             let mut subst = HashMap::new();
             let matches =
-                inst.type_args
-                    .iter()
-                    .zip(actual_type_args.iter())
-                    .all(|(pattern, actual)| {
-                        Self::match_instance_type_expr(pattern, actual, &mut subst, interner)
-                    });
+                inst.type_args.iter().zip(actual_type_args.iter()).all(|(pattern, actual)| {
+                    Self::match_instance_type_expr(pattern, actual, &mut subst, interner)
+                });
             matches.then_some((inst, subst))
         })
     }
@@ -2786,15 +2658,12 @@ impl ClassEnv {
                 return false;
             }
             let mut subst = HashMap::new();
-            inst.type_args
-                .iter()
-                .zip(known)
-                .all(|(pattern, actual)| match actual {
-                    Some(actual) => {
-                        Self::match_instance_type_expr(pattern, actual, &mut subst, interner)
-                    }
-                    None => true,
-                })
+            inst.type_args.iter().zip(known).all(|(pattern, actual)| match actual {
+                Some(actual) => {
+                    Self::match_instance_type_expr(pattern, actual, &mut subst, interner)
+                }
+                None => true,
+            })
         });
         let first = matches.next()?;
         matches.next().is_none().then_some(first)
@@ -2834,15 +2703,12 @@ impl ClassEnv {
                 return false;
             }
             let mut subst = HashMap::new();
-            inst.type_args
-                .iter()
-                .zip(known)
-                .all(|(pattern, actual)| match actual {
-                    Some(actual) => {
-                        Self::match_instance_type_expr(pattern, actual, &mut subst, interner)
-                    }
-                    None => true,
-                })
+            inst.type_args.iter().zip(known).all(|(pattern, actual)| match actual {
+                Some(actual) => {
+                    Self::match_instance_type_expr(pattern, actual, &mut subst, interner)
+                }
+                None => true,
+            })
         })
     }
 
@@ -2909,15 +2775,12 @@ impl ClassEnv {
                 return false;
             }
             let mut subst = HashMap::new();
-            inst.type_args
-                .iter()
-                .zip(known)
-                .all(|(pattern, actual)| match actual {
-                    Some(actual) => {
-                        Self::match_instance_type_expr(pattern, actual, &mut subst, interner)
-                    }
-                    None => true,
-                })
+            inst.type_args.iter().zip(known).all(|(pattern, actual)| match actual {
+                Some(actual) => {
+                    Self::match_instance_type_expr(pattern, actual, &mut subst, interner)
+                }
+                None => true,
+            })
         })
     }
 
@@ -2967,8 +2830,7 @@ impl ClassEnv {
         &self,
         constraint: &crate::ast::type_infer::constraint::SchemeConstraint,
     ) -> bool {
-        self.lookup_class_by_id(constraint.class_id)
-            .is_none_or(|class| !class.methods.is_empty())
+        self.lookup_class_by_id(constraint.class_id).is_none_or(|class| !class.methods.is_empty())
     }
 
     /// Resolve the dictionary reference needed for a concrete class application.
@@ -3024,11 +2886,7 @@ impl ClassEnv {
         }
         let key = (
             class_id,
-            actual_type_args
-                .iter()
-                .map(|arg| arg.to_string())
-                .collect::<Vec<_>>()
-                .join(", "),
+            actual_type_args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>().join(", "),
         );
         if path.contains(&key) {
             return None;
@@ -3072,10 +2930,7 @@ impl ClassEnv {
             })
             .collect::<Option<Vec<_>>>()?;
 
-        Some(ResolvedDictionaryRef {
-            dict_name,
-            context_args,
-        })
+        Some(ResolvedDictionaryRef { dict_name, context_args })
     }
 
     pub(crate) fn resolve_instance_context_dictionary_requests_by_id(
@@ -3145,9 +3000,7 @@ impl ClassEnv {
     ///
     /// Decided by name prefix, the same rule `ModuleKind::FlowStdlib` uses.
     pub fn is_stdlib_module(module: ModulePath, interner: &Interner) -> bool {
-        module
-            .as_identifier()
-            .is_some_and(|name| interner.resolve(name).starts_with("Flow."))
+        module.as_identifier().is_some_and(|name| interner.resolve(name).starts_with("Flow."))
     }
 
     /// The standard class hierarchy, as the prelude modules declare it.
@@ -3296,9 +3149,7 @@ impl ClassEnv {
         let expected = builtin_type(type_name);
         let already_exists = self.instances.iter().any(|i| {
             i.class_name == class_name
-                && i.type_args
-                    .first()
-                    .is_some_and(|t| t.structural_eq(&expected))
+                && i.type_args.first().is_some_and(|t| t.structural_eq(&expected))
         });
         if already_exists {
             return;
@@ -3460,11 +3311,7 @@ impl ClassEnv {
     }
 
     fn is_instance_type_var(name: Identifier, interner: &Interner) -> bool {
-        interner
-            .resolve(name)
-            .chars()
-            .next()
-            .is_some_and(|c| c.is_ascii_lowercase())
+        interner.resolve(name).chars().next().is_some_and(|c| c.is_ascii_lowercase())
     }
 
     pub(crate) fn type_constructor_matches(
@@ -3524,10 +3371,7 @@ pub fn instance_type_key(
         .enumerate()
         .map(|(idx, arg)| {
             let rendered = arg.display_with(interner);
-            match head_modules
-                .get(idx)
-                .and_then(|module| module.as_identifier())
-            {
+            match head_modules.get(idx).and_then(|module| module.as_identifier()) {
                 Some(module) => module_qualified_symbol(interner.resolve(module), &rendered),
                 None => rendered,
             }
@@ -3540,29 +3384,19 @@ pub fn instance_type_key(
 /// name, so `A.Foo` and `B.Foo` cannot collapse after native symbol
 /// sanitization.
 fn module_qualified_symbol(module: &str, name: &str) -> String {
-    let encoded_module = module
-        .as_bytes()
-        .iter()
-        .map(|byte| format!("{byte:02X}"))
-        .collect::<String>();
+    let encoded_module =
+        module.as_bytes().iter().map(|byte| format!("{byte:02X}")).collect::<String>();
     format!("m{}_{encoded_module}_{name}", module.len())
 }
 
 /// Render the canonical dictionary global for a concrete instance head.
 pub fn dictionary_name(class_id: ClassId, type_key: &str, interner: &Interner) -> String {
-    format!(
-        "{DICTIONARY_PREFIX}{}_{}",
-        class_symbol_name(class_id, interner),
-        type_key
-    )
+    format!("{DICTIONARY_PREFIX}{}_{}", class_symbol_name(class_id, interner), type_key)
 }
 
 /// Render the canonical prefix used for contextual dictionary parameters.
 pub fn dictionary_prefix(class_id: ClassId, interner: &Interner) -> String {
-    format!(
-        "{DICTIONARY_PREFIX}{}",
-        class_symbol_name(class_id, interner)
-    )
+    format!("{DICTIONARY_PREFIX}{}", class_symbol_name(class_id, interner))
 }
 
 /// Whether `name` was built by [`dictionary_prefix`] or [`dictionary_name`].
@@ -3621,11 +3455,7 @@ pub fn is_generated_instance_method(name: &str) -> bool {
 
 /// Create a simple named TypeExpr for built-in type references.
 fn builtin_type(name: Identifier) -> TypeExpr {
-    TypeExpr::Named {
-        name,
-        args: vec![],
-        span: Span::default(),
-    }
+    TypeExpr::Named { name, args: vec![], span: Span::default() }
 }
 
 /// True if `expr` syntactically contains any function-type subterm.
@@ -3692,11 +3522,7 @@ module Hb {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -3727,22 +3553,14 @@ class TopLvlClass<a> {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(diags.is_empty(), "collection errors: {:?}", diags);
 
-        let class_sym = interner
-            .lookup("TopLvlClass")
-            .expect("class name should be interned");
-        let class_def = env
-            .lookup_class(class_sym)
-            .expect("TopLvlClass should be in the env");
+        let class_sym = interner.lookup("TopLvlClass").expect("class name should be interned");
+        let class_def = env.lookup_class(class_sym).expect("TopLvlClass should be in the env");
         assert_eq!(
             class_def.module,
             ModulePath::EMPTY,
@@ -3765,24 +3583,17 @@ module Phase1b.Step1 {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
         assert!(diags.is_empty(), "collection errors: {:?}", diags);
 
         let class_sym = interner.lookup("ModScoped").expect("class interned");
-        let class_def = env
-            .lookup_class(class_sym)
-            .expect("ModScoped should be in env");
+        let class_def = env.lookup_class(class_sym).expect("ModScoped should be in env");
 
-        let expected_module_sym = interner
-            .lookup("Phase1b.Step1")
-            .expect("module name should be interned");
+        let expected_module_sym =
+            interner.lookup("Phase1b.Step1").expect("module name should be interned");
         assert_eq!(
             class_def.module,
             ModulePath::from_identifier(expected_module_sym),
@@ -3813,11 +3624,7 @@ instance Step2Eq<Int> {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -3855,11 +3662,7 @@ module Phase1b.Step2 {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -3907,19 +3710,11 @@ module Phase1b.Step2Derive {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
-        assert!(
-            diags.is_empty(),
-            "unexpected collection errors: {:?}",
-            diags
-        );
+        assert!(diags.is_empty(), "unexpected collection errors: {:?}", diags);
 
         let class_sym = interner.lookup("Show").unwrap();
         let color_sym = interner.lookup("Color").unwrap();
@@ -3968,11 +3763,7 @@ module Mod.B {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -3984,11 +3775,7 @@ module Mod.B {
         );
 
         // Both classes are present as distinct entries.
-        assert_eq!(
-            env.classes.len(),
-            2,
-            "expected exactly 2 distinct ClassDef entries"
-        );
+        assert_eq!(env.classes.len(), 2, "expected exactly 2 distinct ClassDef entries");
 
         let foo_sym = interner.lookup("Foo").unwrap();
         let mod_a = interner.lookup("Mod.A").unwrap();
@@ -3997,12 +3784,8 @@ module Mod.B {
         let id_a = ClassId::new(ModulePath::from_identifier(mod_a), foo_sym);
         let id_b = ClassId::new(ModulePath::from_identifier(mod_b), foo_sym);
 
-        let def_a = env
-            .lookup_class_by_id(id_a)
-            .expect("Mod.A.Foo should be findable");
-        let def_b = env
-            .lookup_class_by_id(id_b)
-            .expect("Mod.B.Foo should be findable");
+        let def_a = env.lookup_class_by_id(id_a).expect("Mod.A.Foo should be findable");
+        let def_b = env.lookup_class_by_id(id_b).expect("Mod.B.Foo should be findable");
 
         // Both have the same short name but different owning modules.
         assert_eq!(def_a.name, foo_sym);
@@ -4013,10 +3796,7 @@ module Mod.B {
         // A bare-name semantic lookup is ambiguous once multiple modules
         // provide the same class, so only the ClassId-keyed API can select it.
         let bare = env.lookup_class(foo_sym);
-        assert!(
-            bare.is_none(),
-            "ambiguous bare lookup must not select a class"
-        );
+        assert!(bare.is_none(), "ambiguous bare lookup must not select a class");
     }
 
     #[test]
@@ -4036,37 +3816,22 @@ module Mod.B {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
         let (env, _, diagnostics) = ClassEnv::from_statements(&program.statements, &interner);
-        assert!(
-            diagnostics.is_empty(),
-            "collection errors: {:?}",
-            diagnostics
-        );
+        assert!(diagnostics.is_empty(), "collection errors: {:?}", diagnostics);
 
         let foo = interner.lookup("Foo").unwrap();
         let render = interner.resolve(interner.lookup("render").unwrap());
         let int = "Int";
-        let id_a = ClassId::new(
-            ModulePath::from_identifier(interner.lookup("Mod.A").unwrap()),
-            foo,
-        );
-        let id_b = ClassId::new(
-            ModulePath::from_identifier(interner.lookup("Mod.B").unwrap()),
-            foo,
-        );
+        let id_a =
+            ClassId::new(ModulePath::from_identifier(interner.lookup("Mod.A").unwrap()), foo);
+        let id_b =
+            ClassId::new(ModulePath::from_identifier(interner.lookup("Mod.B").unwrap()), foo);
         let method_a = mangled_method_name(id_a, int, render, &interner);
         let method_b = mangled_method_name(id_b, int, render, &interner);
         assert_ne!(method_a, method_b);
-        assert_ne!(
-            dictionary_name(id_a, int, &interner),
-            dictionary_name(id_b, int, &interner)
-        );
+        assert_ne!(dictionary_name(id_a, int, &interner), dictionary_name(id_b, int, &interner));
         assert_eq!(env.instances_for_id(id_a).len(), 1);
         assert_eq!(env.instances_for_id(id_b).len(), 1);
     }
@@ -4108,11 +3873,7 @@ module Mod.B {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -4143,14 +3904,8 @@ module Mod.B {
         assert_eq!(insts_b[0].class_id, id_b);
 
         // Their owning modules also differ.
-        assert_eq!(
-            insts_a[0].instance_module,
-            ModulePath::from_identifier(mod_a)
-        );
-        assert_eq!(
-            insts_b[0].instance_module,
-            ModulePath::from_identifier(mod_b)
-        );
+        assert_eq!(insts_a[0].instance_module, ModulePath::from_identifier(mod_a));
+        assert_eq!(insts_b[0].instance_module, ModulePath::from_identifier(mod_b));
 
         // The bare-name shim still returns BOTH (it can't disambiguate).
         let bare = env.instances_for(foo_sym);
@@ -4186,11 +3941,7 @@ module Mod.B {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -4214,8 +3965,7 @@ module Mod.B {
         // Mod.B.Foo<Int> does NOT exist — must return None even though
         // Mod.A.Foo<Int> shares the same short class name.
         assert!(
-            env.resolve_instance_with_subst_by_id(id_b, &[int], &interner)
-                .is_none(),
+            env.resolve_instance_with_subst_by_id(id_b, &[int], &interner).is_none(),
             "Mod.B.Foo<Int> should NOT resolve to Mod.A's instance"
         );
     }
@@ -4239,11 +3989,7 @@ module Mod.Same {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -4275,11 +4021,7 @@ module Outer.Inner.Deep {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -4315,11 +4057,7 @@ module Mod.A {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -4353,11 +4091,7 @@ module Mod.Type {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -4393,11 +4127,7 @@ module Mod.Third {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -4427,11 +4157,7 @@ module Mod.Type {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -4459,11 +4185,7 @@ instance TopLvlShow<Int> {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -4497,11 +4219,7 @@ module Mod.A {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -4531,11 +4249,7 @@ module Mod.A {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -4564,11 +4278,7 @@ module Mod.A {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -4601,11 +4311,7 @@ module Mod.A {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         // We don't register built-in classes here — `from_statements`
@@ -4645,11 +4351,7 @@ module Mod.A {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -4680,11 +4382,7 @@ module Mod.A {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -4716,11 +4414,7 @@ module Mod.A {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -4750,11 +4444,7 @@ module Mod.A {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -4786,11 +4476,7 @@ module Mod.A {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -4817,11 +4503,7 @@ module Mod.A {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -4848,11 +4530,7 @@ module Mod.A {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -4880,11 +4558,7 @@ module Mod.A {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -4944,11 +4618,7 @@ module Mod.Class {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -4991,11 +4661,7 @@ module Mod.Class {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -5055,11 +4721,7 @@ module Mod.Other {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -5072,12 +4734,7 @@ module Mod.Other {
 
         // The hint must mention BOTH module names so users can find
         // the existing colliding declaration.
-        let hint_text = dupe
-            .hints()
-            .iter()
-            .map(|h| h.text.clone())
-            .collect::<Vec<_>>()
-            .join(" ");
+        let hint_text = dupe.hints().iter().map(|h| h.text.clone()).collect::<Vec<_>>().join(" ");
         assert!(
             hint_text.contains("Mod.Class") && hint_text.contains("Mod.Other"),
             "E443 hint must mention both owning modules, got: {hint_text:?}"
@@ -5107,11 +4764,7 @@ module Mod.Class {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let (_env, _, diags) = ClassEnv::from_statements(&program.statements, &interner);
@@ -5154,15 +4807,10 @@ module Mod.Class {
         let list = interner.intern("List");
         let (env, functor) = env_with_instance(&mut interner, "Functor", vec![builtin_type(list)]);
 
-        let actual = InferType::App(
-            TypeConstructor::List,
-            vec![InferType::Con(TypeConstructor::Int)],
-        );
+        let actual =
+            InferType::App(TypeConstructor::List, vec![InferType::Con(TypeConstructor::Int)]);
 
-        assert!(
-            env.resolve_instance_with_subst(functor, &[actual], &interner)
-                .is_some()
-        );
+        assert!(env.resolve_instance_with_subst(functor, &[actual], &interner).is_some());
     }
 
     #[test]
@@ -5176,10 +4824,7 @@ module Mod.Class {
             vec![InferType::Con(TypeConstructor::Int)],
         );
 
-        assert!(
-            env.resolve_instance_with_subst(functor, &[actual], &interner)
-                .is_some()
-        );
+        assert!(env.resolve_instance_with_subst(functor, &[actual], &interner).is_some());
     }
 
     #[test]
@@ -5191,16 +4836,10 @@ module Mod.Class {
 
         let actual = InferType::App(
             TypeConstructor::Either,
-            vec![
-                InferType::Con(TypeConstructor::String),
-                InferType::Con(TypeConstructor::Int),
-            ],
+            vec![InferType::Con(TypeConstructor::String), InferType::Con(TypeConstructor::Int)],
         );
 
-        assert!(
-            env.resolve_instance_with_subst(bifunctor, &[actual], &interner)
-                .is_some()
-        );
+        assert!(env.resolve_instance_with_subst(bifunctor, &[actual], &interner).is_some());
     }
 
     #[test]
@@ -5209,15 +4848,10 @@ module Mod.Class {
         let list = interner.intern("List");
         let (env, functor) = env_with_instance(&mut interner, "Functor", vec![builtin_type(list)]);
 
-        let actual = InferType::App(
-            TypeConstructor::Option,
-            vec![InferType::Con(TypeConstructor::Int)],
-        );
+        let actual =
+            InferType::App(TypeConstructor::Option, vec![InferType::Con(TypeConstructor::Int)]);
 
-        assert!(
-            env.resolve_instance_with_subst(functor, &[actual], &interner)
-                .is_none()
-        );
+        assert!(env.resolve_instance_with_subst(functor, &[actual], &interner).is_none());
     }
 
     #[test]
@@ -5235,23 +4869,13 @@ module Mod.Class {
             }],
         );
 
-        let matches = InferType::App(
-            TypeConstructor::List,
-            vec![InferType::Con(TypeConstructor::Int)],
-        );
-        let does_not_match = InferType::App(
-            TypeConstructor::List,
-            vec![InferType::Con(TypeConstructor::String)],
-        );
+        let matches =
+            InferType::App(TypeConstructor::List, vec![InferType::Con(TypeConstructor::Int)]);
+        let does_not_match =
+            InferType::App(TypeConstructor::List, vec![InferType::Con(TypeConstructor::String)]);
 
-        assert!(
-            env.resolve_instance_with_subst(eq, &[matches], &interner)
-                .is_some()
-        );
-        assert!(
-            env.resolve_instance_with_subst(eq, &[does_not_match], &interner)
-                .is_none()
-        );
+        assert!(env.resolve_instance_with_subst(eq, &[matches], &interner).is_some());
+        assert!(env.resolve_instance_with_subst(eq, &[does_not_match], &interner).is_none());
     }
 }
 
@@ -5265,14 +4889,8 @@ mod dict_selection_tests {
     #[test]
     fn a_matching_argument_type_names_one_constraint() {
         let candidates = vec![(0, vec!["a"]), (1, vec!["b"])];
-        assert_eq!(
-            select_dictionary(&candidates, &[Some("b")]),
-            DictSelection::Unique(1)
-        );
-        assert_eq!(
-            select_dictionary(&candidates, &[Some("a")]),
-            DictSelection::Unique(0)
-        );
+        assert_eq!(select_dictionary(&candidates, &[Some("b")]), DictSelection::Unique(1));
+        assert_eq!(select_dictionary(&candidates, &[Some("a")]), DictSelection::Unique(0));
     }
 
     /// Two constraints over the same type name the same instance, so whichever
@@ -5282,10 +4900,7 @@ mod dict_selection_tests {
     #[test]
     fn candidates_over_the_same_type_are_interchangeable() {
         let candidates = vec![(0, vec!["a"]), (1, vec!["b"]), (2, vec!["a"])];
-        assert_eq!(
-            select_dictionary(&candidates, &[Some("a")]),
-            DictSelection::Unique(0)
-        );
+        assert_eq!(select_dictionary(&candidates, &[Some("a")]), DictSelection::Unique(0));
     }
 
     /// Revealing nothing does not narrow. With one dictionary in scope that is
@@ -5293,10 +4908,7 @@ mod dict_selection_tests {
     /// change exists to stop.
     #[test]
     fn revealing_nothing_narrows_nothing() {
-        assert_eq!(
-            select_dictionary(&[(0, vec!["a"])], &[None]),
-            DictSelection::Unique(0)
-        );
+        assert_eq!(select_dictionary(&[(0, vec!["a"])], &[None]), DictSelection::Unique(0));
         assert_eq!(
             select_dictionary(&[(0, vec!["a"]), (1, vec!["b"])], &[None]),
             DictSelection::Ambiguous
@@ -5312,10 +4924,7 @@ mod dict_selection_tests {
             select_dictionary(&[(0, vec!["a"]), (1, vec!["b"])], &[Some("Int")]),
             DictSelection::NoMatch
         );
-        assert_eq!(
-            select_dictionary::<&str>(&[], &[None]),
-            DictSelection::NoMatch
-        );
+        assert_eq!(select_dictionary::<&str>(&[], &[None]), DictSelection::NoMatch);
     }
 
     /// Every class parameter must agree, so a multi-parameter class narrows on
@@ -5327,9 +4936,6 @@ mod dict_selection_tests {
             select_dictionary(&candidates, &[Some("a"), Some("y")]),
             DictSelection::Unique(1)
         );
-        assert_eq!(
-            select_dictionary(&candidates, &[Some("a"), None]),
-            DictSelection::Ambiguous
-        );
+        assert_eq!(select_dictionary(&candidates, &[Some("a"), None]), DictSelection::Ambiguous);
     }
 }

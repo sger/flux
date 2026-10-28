@@ -24,10 +24,7 @@ fn run_source(source: &str, native: bool) -> (String, String, bool) {
         "vm-qualified-resolution"
     });
     let path = scratch.write("fixture.flx", source);
-    let mut args = vec![
-        path.to_string_lossy().into_owned(),
-        "--no-cache".to_string(),
-    ];
+    let mut args = vec![path.to_string_lossy().into_owned(), "--no-cache".to_string()];
     args.extend(scratch.cache_args());
     if native {
         args.push("--native".to_string());
@@ -75,8 +72,5 @@ fn main() with IO {
         "qualified-resolution fixture failed natively:\nstdout:\n{native_stdout}\nstderr:\n{native_stderr}"
     );
     assert!(vm_stdout.contains("hi"), "VM output was:\n{vm_stdout}");
-    assert!(
-        native_stdout.contains("hi"),
-        "native output was:\n{native_stdout}"
-    );
+    assert!(native_stdout.contains("hi"), "native output was:\n{native_stdout}");
 }

@@ -34,10 +34,8 @@ impl VM {
         let mut frame = self.frames[self.frame_index].clone();
         frame.ip += advance_ip;
         let entry_sp = frame.base_pointer;
-        let stack: Vec<Value> = self.stack[entry_sp..resume_slot]
-            .iter()
-            .map(super::slot::from_slot_ref)
-            .collect();
+        let stack: Vec<Value> =
+            self.stack[entry_sp..resume_slot].iter().map(super::slot::from_slot_ref).collect();
         Value::Continuation(Rc::new(std::cell::RefCell::new(Continuation {
             frames: vec![frame],
             stack,
@@ -62,11 +60,9 @@ impl VM {
         shell.frames.clear();
         shell.frames.push(frame);
         shell.stack.clear();
-        shell.stack.extend(
-            self.stack[entry_sp..resume_slot]
-                .iter()
-                .map(super::slot::from_slot_ref),
-        );
+        shell
+            .stack
+            .extend(self.stack[entry_sp..resume_slot].iter().map(super::slot::from_slot_ref));
         shell.sp = resume_slot;
         shell.entry_sp = entry_sp;
         shell.entry_frame_index = frame_index.saturating_sub(1);
@@ -116,9 +112,7 @@ impl VM {
         )?;
         self.reset_sp(entry_sp)?;
         self.cont_pieces.clear();
-        Ok(Value::Continuation(Rc::new(std::cell::RefCell::new(
-            composed,
-        ))))
+        Ok(Value::Continuation(Rc::new(std::cell::RefCell::new(composed))))
     }
 
     #[inline]
@@ -131,10 +125,7 @@ impl VM {
             return Ok(());
         };
         let args_start = self.sp - num_args;
-        let hidden_args = closure
-            .function
-            .num_parameters
-            .saturating_sub(contract.params.len());
+        let hidden_args = closure.function.num_parameters.saturating_sub(contract.params.len());
         for (index, maybe_expected) in contract.params.iter().enumerate() {
             let Some(expected) = maybe_expected.as_ref() else {
                 continue;
@@ -167,10 +158,7 @@ impl VM {
         let Some(contract) = closure.function.contract.as_ref() else {
             return Ok(());
         };
-        let hidden_args = closure
-            .function
-            .num_parameters
-            .saturating_sub(contract.params.len());
+        let hidden_args = closure.function.num_parameters.saturating_sub(contract.params.len());
         for (index, maybe_expected) in contract.params.iter().enumerate() {
             let Some(expected) = maybe_expected.as_ref() else {
                 continue;
@@ -315,8 +303,7 @@ impl VM {
         self.tail_arg_scratch.clear();
         self.tail_arg_scratch.reserve(num_args);
         for i in 0..num_args {
-            self.tail_arg_scratch
-                .push(self.stack[self.sp - num_args + i].clone());
+            self.tail_arg_scratch.push(self.stack[self.sp - num_args + i].clone());
         }
 
         // Overwrite old locals with new arguments
@@ -376,15 +363,9 @@ impl VM {
         if num_args != 1 && num_args != 2 {
             return Err(format!("resume expects 1 or 2 arguments, got {}", num_args));
         }
-        let return_slot = self
-            .sp
-            .checked_sub(1 + num_args)
-            .ok_or_else(|| "stack underflow".to_string())?;
-        let next_state = if num_args == 2 {
-            Some(self.pop_untracked()?)
-        } else {
-            None
-        };
+        let return_slot =
+            self.sp.checked_sub(1 + num_args).ok_or_else(|| "stack underflow".to_string())?;
+        let next_state = if num_args == 2 { Some(self.pop_untracked()?) } else { None };
         let resume_val = self.pop_untracked()?;
         let cont_val = self.pop_untracked()?; // the callee (Continuation)
         let next_state_for_caller = next_state.clone();
@@ -399,10 +380,8 @@ impl VM {
         let caller = caller_ip_advance.map(|advance| {
             let mut frame = self.current_frame().clone();
             frame.ip += advance;
-            let stack = self.stack[..self.sp]
-                .iter()
-                .map(super::slot::from_slot_ref)
-                .collect::<Vec<_>>();
+            let stack =
+                self.stack[..self.sp].iter().map(super::slot::from_slot_ref).collect::<Vec<_>>();
             (self.frame_index, frame, stack, self.handler_stack.clone())
         });
 
@@ -453,13 +432,10 @@ impl VM {
             let next_state = next_state.ok_or_else(|| {
                 "parameterized handler resume expects next state argument".to_string()
             })?;
-            let handler = self
-                .handler_stack
-                .iter_mut()
-                .rfind(|h| h.marker == state_marker)
-                .ok_or_else(|| {
-                    "parameterized handler resume could not find handler frame".to_string()
-                })?;
+            let handler =
+                self.handler_stack.iter_mut().rfind(|h| h.marker == state_marker).ok_or_else(
+                    || "parameterized handler resume could not find handler frame".to_string(),
+                )?;
             handler.state = Some(next_state);
         } else if next_state.is_some() {
             return Err("non-parameterized resume received next state argument".to_string());

@@ -44,26 +44,14 @@ fn metadata_is_versioned_json() {
     package(&project, "app", "fn main() with IO { print(\"ok\") }\n");
     let build = run(&["run"], &project, &scratch);
     assert!(build.status.success(), "{}", text(&build));
-    assert!(
-        scratch
-            .join("flux-home/store")
-            .join("flux-fxmc-26")
-            .is_dir()
-    );
+    assert!(scratch.join("flux-home/store").join("flux-fxmc-26").is_dir());
     let output = run(&["metadata", "--format", "json"], &project, &scratch);
     assert!(output.status.success(), "{}", text(&output));
     let value: serde_json::Value =
         serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("metadata JSON");
     assert_eq!(value["format_version"], 1);
-    assert_eq!(
-        value["workspace"]["root"],
-        project.to_string_lossy().as_ref()
-    );
-    assert!(
-        value["packages"]
-            .as_array()
-            .is_some_and(|items| !items.is_empty())
-    );
+    assert_eq!(value["workspace"]["root"], project.to_string_lossy().as_ref());
+    assert!(value["packages"].as_array().is_some_and(|items| !items.is_empty()));
 }
 
 #[test]
@@ -77,10 +65,8 @@ fn publish_dry_run_verifies_a_clean_checkout_and_excludes_target() {
     assert!(output.status.success(), "{}", text(&output));
     let archive = project.join("target/flux/publish/app-0.1.0.tar");
     assert!(archive.is_file());
-    let listing = Command::new("tar")
-        .args(["-tf", archive.to_str().unwrap()])
-        .output()
-        .expect("tar list");
+    let listing =
+        Command::new("tar").args(["-tf", archive.to_str().unwrap()]).output().expect("tar list");
     let listing = String::from_utf8_lossy(&listing.stdout);
     assert!(!listing.contains("target/"));
     assert!(text(&output).contains("verified clean checkout"));
@@ -91,17 +77,10 @@ fn workspace_member_metadata_uses_the_workspace_root() {
     let scratch = Scratch::new("pkg-phase3-workspace");
     let root = scratch.join("workspace");
     std::fs::create_dir_all(&root).expect("workspace");
-    std::fs::write(
-        root.join("flux.toml"),
-        "[workspace]\nmembers = [\"member\"]\n",
-    )
-    .expect("workspace manifest");
+    std::fs::write(root.join("flux.toml"), "[workspace]\nmembers = [\"member\"]\n")
+        .expect("workspace manifest");
     let member = root.join("member");
-    package(
-        &member,
-        "member",
-        "fn main() with IO { print(\"member\") }\n",
-    );
+    package(&member, "member", "fn main() with IO { print(\"member\") }\n");
     let output = run(&["metadata", "--format", "json"], &member, &scratch);
     assert!(output.status.success(), "{}", text(&output));
     let value: serde_json::Value =
@@ -111,13 +90,7 @@ fn workspace_member_metadata_uses_the_workspace_root() {
         value["targets"]["cache_root"],
         root.join("target").join("flux").to_string_lossy().as_ref()
     );
-    assert!(
-        value["packages"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["name"] == "member")
-    );
+    assert!(value["packages"].as_array().unwrap().iter().any(|item| item["name"] == "member"));
 }
 
 #[test]

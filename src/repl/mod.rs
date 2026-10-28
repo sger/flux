@@ -68,11 +68,7 @@ pub fn run_repl(mut flags: DriverFlags) {
     flags.runtime.quiet = true;
     let path = synthetic_repl_path().to_string_lossy().into_owned();
     let session = DriverSession::from(&flags);
-    let request = RunProgramRequest {
-        path: &path,
-        flags: &flags,
-        session: &session,
-    };
+    let request = RunProgramRequest { path: &path, flags: &flags, session: &session };
 
     let engine = match ReplEngine::bootstrap(request) {
         Ok(engine) => engine,
@@ -119,9 +115,8 @@ fn run_interactive(mut engine: ReplEngine, request: RunProgramRequest<'_>) {
     // because List requires a *second* Tab to draw the candidate list whenever the
     // typed word is already the longest common prefix (e.g. `ma` for map/match/max),
     // which feels unresponsive.
-    let config = rustyline::Config::builder()
-        .completion_type(rustyline::CompletionType::Circular)
-        .build();
+    let config =
+        rustyline::Config::builder().completion_type(rustyline::CompletionType::Circular).build();
     let mut editor: ReplEditor = match rustyline::Editor::with_config(config) {
         Ok(editor) => editor,
         Err(err) => {
@@ -365,11 +360,7 @@ fn edit_command(engine: &mut ReplEngine, arg: &str, request: RunProgramRequest<'
         eprintln!("no editor configured (set $EDITOR)");
         return;
     };
-    match std::process::Command::new(program)
-        .args(words)
-        .arg(&target)
-        .status()
-    {
+    match std::process::Command::new(program).args(words).arg(&target).status() {
         Ok(_) => {
             if engine.loaded_path() == Some(&target) {
                 reload_command(engine, request);
@@ -425,9 +416,7 @@ fn read_script_input(reader: &mut impl BufRead) -> Option<String> {
 
 /// The user's home directory from `HOME` (Unix) or `USERPROFILE` (Windows).
 fn home_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(PathBuf::from)
+    std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from)
 }
 
 /// Expand a leading `~` (or `~/…`) to the home directory; otherwise the path
@@ -437,11 +426,7 @@ fn expand_tilde(path: &str) -> PathBuf {
         && let Some(home) = home_dir()
     {
         let rest = rest.strip_prefix(['/', '\\']).unwrap_or(rest);
-        return if rest.is_empty() {
-            home
-        } else {
-            home.join(rest)
-        };
+        return if rest.is_empty() { home } else { home.join(rest) };
     }
     PathBuf::from(path)
 }
@@ -501,11 +486,7 @@ fn reload_command(engine: &mut ReplEngine, request: RunProgramRequest<'_>) {
     };
     if let Some(count) = fresh.load_file(&path) {
         *engine = fresh;
-        eprintln!(
-            "Reloaded {} ({count} definition{}).",
-            path.display(),
-            plural(count)
-        );
+        eprintln!("Reloaded {} ({count} definition{}).", path.display(), plural(count));
     }
 }
 
@@ -597,11 +578,7 @@ fn classify(line: &str) -> LineKind {
     if program.statements.is_empty() {
         // No statements + no errors ⇒ blank or comment-only; otherwise a parse
         // error we let the engine report.
-        return if parser.errors.is_empty() {
-            LineKind::Skip
-        } else {
-            LineKind::Expr
-        };
+        return if parser.errors.is_empty() { LineKind::Skip } else { LineKind::Expr };
     }
     match &program.statements[0] {
         Statement::Expression { .. } if program.statements.len() == 1 => LineKind::Expr,
@@ -644,11 +621,7 @@ fn read_input(reader: &mut impl BufRead) -> Option<String> {
         let mut line = String::new();
         match reader.read_line(&mut line) {
             Ok(0) => {
-                return if buffer.trim().is_empty() {
-                    None
-                } else {
-                    Some(buffer)
-                };
+                return if buffer.trim().is_empty() { None } else { Some(buffer) };
             }
             Ok(_) => buffer.push_str(&line),
             Err(_) => return None,
@@ -748,10 +721,7 @@ mod tests {
         assert!(matches!(classify("let xs = [1, 2, 3]"), LineKind::Decl));
         assert!(matches!(classify("fn f() -> Int { 1 }"), LineKind::Decl));
         assert!(matches!(classify("import Flow.List"), LineKind::Decl));
-        assert!(matches!(
-            classify("data Color { Red, Green }"),
-            LineKind::Decl
-        ));
+        assert!(matches!(classify("data Color { Red, Green }"), LineKind::Decl));
         assert!(matches!(classify(""), LineKind::Skip));
         assert!(matches!(classify("// a comment"), LineKind::Skip));
     }

@@ -30,9 +30,6 @@ fn main() with IO {
 }
 "#,
     );
-    assert!(
-        ok,
-        "native JSON fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(ok, "native JSON fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(stdout.contains("\"[\"a\",false,null]\""), "{stdout}");
 }

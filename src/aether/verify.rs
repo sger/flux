@@ -95,11 +95,7 @@ pub fn verify_contract_aether(expr: &AetherExpr) -> Result<(), Vec<AetherError>>
     let mut errors = Vec::new();
     check_contract(expr, &mut errors);
     check_single_release(expr, &mut Vec::new(), &mut errors);
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors)
-    }
+    if errors.is_empty() { Ok(()) } else { Err(errors) }
 }
 
 /// Verify the fatal Aether contract for a definition: the expression's, and
@@ -131,11 +127,7 @@ pub fn verify_def_contract_aether(
             check_borrowed_kept(body, &borrowed, &mut errors);
         }
     }
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors)
-    }
+    if errors.is_empty() { Ok(()) } else { Err(errors) }
 }
 
 /// The parameters `signature` marks Borrowed.
@@ -162,9 +154,8 @@ pub fn verify_def_views_aether(
     let mut views = Views::default();
     match expr {
         AetherExpr::Lam { params, body, .. } => {
-            let borrowed = signature
-                .map(|signature| borrowed_params(params, signature))
-                .unwrap_or_default();
+            let borrowed =
+                signature.map(|signature| borrowed_params(params, signature)).unwrap_or_default();
             for param in params {
                 views.bind(param, borrowed.contains(&param.id));
             }
@@ -205,10 +196,7 @@ impl Views {
     /// A lambda's or a handler clause's body: the closure holds its own
     /// reference to each capture, so inside the body a capture is a view.
     fn function(&self, body: &AetherExpr, own: &[CoreBinder]) -> Views {
-        let mut inner = Views {
-            locals: self.locals.clone(),
-            ..Views::default()
-        };
+        let mut inner = Views { locals: self.locals.clone(), ..Views::default() };
         for id in super::free_vars::collect_free_vars_aether(body) {
             if self.locals.get(&id) == Some(&true) && !own.iter().any(|b| b.id == id) {
                 inner.binders.insert(id);
@@ -263,12 +251,7 @@ fn check_views(
                 check_views(arg, true, views, diags);
             }
         }
-        AetherExpr::AetherCall {
-            func,
-            args,
-            arg_modes,
-            ..
-        } => {
+        AetherExpr::AetherCall { func, args, arg_modes, .. } => {
             check_views(func, false, views, diags);
             for (i, arg) in args.iter().enumerate() {
                 let lent = arg_modes.get(i) == Some(&super::borrow_infer::BorrowMode::Borrowed);
@@ -314,9 +297,7 @@ fn check_views(
             }
             check_views(body, owned, views, diags);
         }
-        AetherExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        AetherExpr::Case { scrutinee, alts, .. } => {
             check_views(scrutinee, false, views, diags);
             let parent = match scrutinee.as_ref() {
                 AetherExpr::Var { var, .. } => var.binder,
@@ -404,12 +385,7 @@ fn check_views(
                 });
             }
         }
-        AetherExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        AetherExpr::Handle { body, parameter, handlers, .. } => {
             if let Some(parameter) = parameter {
                 check_views(parameter, true, views, diags);
             }
@@ -438,12 +414,7 @@ fn check_views(
             check_views(body, owned, views, diags);
         }
         AetherExpr::Drop { body, .. } => check_views(body, owned, views, diags),
-        AetherExpr::DropSpecialized {
-            scrutinee,
-            unique_body,
-            shared_body,
-            ..
-        } => {
+        AetherExpr::DropSpecialized { scrutinee, unique_body, shared_body, .. } => {
             // On the unique side the cell is this path's alone: it hands the
             // arm its one reference to each field it holds, in place of the
             // copy drop_spec removed. A second use still needs a copy.
@@ -492,15 +463,13 @@ fn check_borrowed_kept(
     errors: &mut Vec<AetherError>,
 ) {
     let released = |var: &crate::core::CoreVarRef| {
-        var.binder
-            .is_some_and(|binder| borrowed.contains(&binder))
-            .then(|| AetherError {
-                kind: AetherErrorKind::BorrowedParamReleased,
-                message: format!(
-                    "borrowed parameter {:?} is released by the function that borrows it",
-                    var.binder
-                ),
-            })
+        var.binder.is_some_and(|binder| borrowed.contains(&binder)).then(|| AetherError {
+            kind: AetherErrorKind::BorrowedParamReleased,
+            message: format!(
+                "borrowed parameter {:?} is released by the function that borrows it",
+                var.binder
+            ),
+        })
     };
     let mut walk = |child: &AetherExpr| check_borrowed_kept(child, borrowed, errors);
     match expr {
@@ -524,9 +493,7 @@ fn check_borrowed_kept(
             bindings.iter().for_each(|(_, rhs)| walk(rhs));
             walk(body);
         }
-        AetherExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        AetherExpr::Case { scrutinee, alts, .. } => {
             walk(scrutinee);
             for alt in alts {
                 if let Some(guard) = &alt.guard {
@@ -541,12 +508,7 @@ fn check_borrowed_kept(
         AetherExpr::MemberAccess { object, .. } | AetherExpr::TupleField { object, .. } => {
             walk(object)
         }
-        AetherExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        AetherExpr::Handle { body, parameter, handlers, .. } => {
             if let Some(parameter) = parameter {
                 walk(parameter);
             }
@@ -555,16 +517,9 @@ fn check_borrowed_kept(
         }
         AetherExpr::Reuse { token, fields, .. } => {
             errors.extend(released(token));
-            fields
-                .iter()
-                .for_each(|field| check_borrowed_kept(field, borrowed, errors));
+            fields.iter().for_each(|field| check_borrowed_kept(field, borrowed, errors));
         }
-        AetherExpr::DropSpecialized {
-            scrutinee,
-            unique_body,
-            shared_body,
-            ..
-        } => {
+        AetherExpr::DropSpecialized { scrutinee, unique_body, shared_body, .. } => {
             errors.extend(released(scrutinee));
             check_borrowed_kept(unique_body, borrowed, errors);
             check_borrowed_kept(shared_body, borrowed, errors);
@@ -641,9 +596,7 @@ fn check_single_release(
             }
             check_single_release(body, released, errors);
         }
-        AetherExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        AetherExpr::Case { scrutinee, alts, .. } => {
             check_single_release(scrutinee, released, errors);
             // A failed guard falls through to the next arm with what it
             // released.
@@ -675,12 +628,7 @@ fn check_single_release(
         AetherExpr::MemberAccess { object, .. } | AetherExpr::TupleField { object, .. } => {
             check_single_release(object, released, errors)
         }
-        AetherExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        AetherExpr::Handle { body, parameter, handlers, .. } => {
             if let Some(parameter) = parameter {
                 check_single_release(parameter, released, errors);
             }
@@ -701,19 +649,11 @@ fn check_single_release(
             }
             release(token, released, errors);
         }
-        AetherExpr::DropSpecialized {
-            scrutinee,
-            unique_body,
-            shared_body,
-            ..
-        } => {
+        AetherExpr::DropSpecialized { scrutinee, unique_body, shared_body, .. } => {
             // Each side releases the scrutinee explicitly: reuse on the
             // unique side, a drop after the copies on the shared side.
             let entry = released.clone();
-            if scrutinee
-                .binder
-                .is_some_and(|binder| entry.contains(&binder))
-            {
+            if scrutinee.binder.is_some_and(|binder| entry.contains(&binder)) {
                 release(scrutinee, &mut entry.clone(), errors);
             }
             let mut unique = entry.clone();
@@ -762,10 +702,7 @@ impl ReleasedSoFar {
                 format!("view {binder:?} is read after {holder:?}, which holds it, was released")
             }
         };
-        errors.push(AetherError {
-            kind: AetherErrorKind::UsedAfterRelease,
-            message,
-        });
+        errors.push(AetherError { kind: AetherErrorKind::UsedAfterRelease, message });
     }
 
     /// Releases `binder`, and with it each view read out of it, at any
@@ -774,12 +711,8 @@ impl ReleasedSoFar {
         // A view that releases its own copy is a view again.
         self.copied.remove(&binder);
         self.release_cell(binder);
-        let views: Vec<CoreBinderId> = self
-            .parents
-            .keys()
-            .copied()
-            .filter(|view| self.held_only_by(*view, binder))
-            .collect();
+        let views: Vec<CoreBinderId> =
+            self.parents.keys().copied().filter(|view| self.held_only_by(*view, binder)).collect();
         for view in views {
             self.gone.entry(view).or_insert(Some(binder));
         }
@@ -795,11 +728,8 @@ impl ReleasedSoFar {
     /// A function body nested in this path: it starts with nothing released,
     /// binding `params`.
     fn function<'a>(&self, params: impl IntoIterator<Item = &'a CoreBinder>) -> Self {
-        let mut body = Self {
-            unboxed: self.unboxed.clone(),
-            local: self.local.clone(),
-            ..Self::default()
-        };
+        let mut body =
+            Self { unboxed: self.unboxed.clone(), local: self.local.clone(), ..Self::default() };
         for param in params {
             body.bind(param);
         }
@@ -887,14 +817,13 @@ impl ReleasedSoFar {
         self.copied.retain(|binder| other.copied.contains(binder));
         self.unboxed.extend(other.unboxed);
         self.local.extend(other.local);
-        self.extra
-            .retain(|binder, count| match other.extra.get(binder) {
-                Some(theirs) => {
-                    *count = (*count).min(*theirs);
-                    true
-                }
-                None => false,
-            });
+        self.extra.retain(|binder, count| match other.extra.get(binder) {
+            Some(theirs) => {
+                *count = (*count).min(*theirs);
+                true
+            }
+            None => false,
+        });
     }
 }
 
@@ -931,12 +860,7 @@ fn check_reads_after_release(
                 check_reads_after_release(arg, path, errors);
             }
         }
-        AetherExpr::AetherCall {
-            func,
-            args,
-            arg_modes,
-            ..
-        } => {
+        AetherExpr::AetherCall { func, args, arg_modes, .. } => {
             check_reads_after_release(func, path, errors);
             for arg in args {
                 check_reads_after_release(arg, path, errors);
@@ -973,9 +897,7 @@ fn check_reads_after_release(
             }
             check_reads_after_release(body, path, errors);
         }
-        AetherExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        AetherExpr::Case { scrutinee, alts, .. } => {
             check_reads_after_release(scrutinee, path, errors);
             let matched = match scrutinee.as_ref() {
                 AetherExpr::Var { var, .. } => var.binder,
@@ -1047,12 +969,7 @@ fn check_reads_after_release(
         AetherExpr::MemberAccess { object, .. } | AetherExpr::TupleField { object, .. } => {
             check_reads_after_release(object, path, errors)
         }
-        AetherExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        AetherExpr::Handle { body, parameter, handlers, .. } => {
             // The handle gives its state to the runtime.
             if let Some(parameter) = parameter {
                 check_reads_after_release(parameter, path, errors);
@@ -1108,12 +1025,7 @@ fn check_reads_after_release(
                 path.release_cell(binder);
             }
         }
-        AetherExpr::DropSpecialized {
-            scrutinee,
-            unique_body,
-            shared_body,
-            ..
-        } => {
+        AetherExpr::DropSpecialized { scrutinee, unique_body, shared_body, .. } => {
             if let Some(binder) = scrutinee.binder {
                 path.read(binder, errors);
             }
@@ -1157,9 +1069,7 @@ fn check_reuse_tokens(
             }
             check_reuse_tokens(body, arm, errors);
         }
-        AetherExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        AetherExpr::Case { scrutinee, alts, .. } => {
             check_reuse_tokens(scrutinee, None, errors);
             let matched = match scrutinee.as_ref() {
                 AetherExpr::Var { var, .. } => var.binder,
@@ -1170,12 +1080,9 @@ fn check_reuse_tokens(
                     check_reuse_tokens(guard, None, errors);
                 }
                 let shape = match (matched, &alt.pat) {
-                    (Some(scrutinee), CorePat::Con { tag, .. }) => Some(ArmShape {
-                        scrutinee,
-                        binders: None,
-                        tag,
-                        outer: arm,
-                    }),
+                    (Some(scrutinee), CorePat::Con { tag, .. }) => {
+                        Some(ArmShape { scrutinee, binders: None, tag, outer: arm })
+                    }
                     _ => None,
                 };
                 check_reuse_tokens(&alt.rhs, shape.as_ref().or(arm), errors);
@@ -1191,12 +1098,7 @@ fn check_reuse_tokens(
         AetherExpr::MemberAccess { object, .. } | AetherExpr::TupleField { object, .. } => {
             check_reuse_tokens(object, arm, errors);
         }
-        AetherExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        AetherExpr::Handle { body, parameter, handlers, .. } => {
             if let Some(parameter) = parameter {
                 check_reuse_tokens(parameter, arm, errors);
             }
@@ -1208,9 +1110,7 @@ fn check_reuse_tokens(
         AetherExpr::Dup { body, .. } | AetherExpr::Drop { body, .. } => {
             check_reuse_tokens(body, arm, errors);
         }
-        AetherExpr::Reuse {
-            token, tag, fields, ..
-        } => {
+        AetherExpr::Reuse { token, tag, fields, .. } => {
             // An unresolved token is reported by `check_contract`.
             if let Some(binder) = token.binder
                 && ArmShape::matched_by(arm, Some(binder)).1 != Some(tag)
@@ -1226,11 +1126,7 @@ fn check_reuse_tokens(
                 check_reuse_tokens(field, arm, errors);
             }
         }
-        AetherExpr::DropSpecialized {
-            unique_body,
-            shared_body,
-            ..
-        } => {
+        AetherExpr::DropSpecialized { unique_body, shared_body, .. } => {
             check_reuse_tokens(unique_body, arm, errors);
             check_reuse_tokens(shared_body, arm, errors);
         }
@@ -1249,13 +1145,7 @@ fn check_contract(expr: &AetherExpr, errors: &mut Vec<AetherError>) {
                 check_contract(arg, errors);
             }
         }
-        AetherExpr::AetherCall {
-            func,
-            args,
-            arg_modes,
-            guarded_borrowed_args,
-            ..
-        } => {
+        AetherExpr::AetherCall { func, args, arg_modes, guarded_borrowed_args, .. } => {
             if args.len() != arg_modes.len() {
                 errors.push(AetherError {
                     kind: AetherErrorKind::InvalidAetherCallModes,
@@ -1291,9 +1181,7 @@ fn check_contract(expr: &AetherExpr, errors: &mut Vec<AetherError>) {
             }
             check_contract(body, errors);
         }
-        AetherExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        AetherExpr::Case { scrutinee, alts, .. } => {
             check_contract(scrutinee, errors);
             for alt in alts {
                 if let Some(guard) = &alt.guard {
@@ -1312,12 +1200,7 @@ fn check_contract(expr: &AetherExpr, errors: &mut Vec<AetherError>) {
                 check_contract(arg, errors);
             }
         }
-        AetherExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        AetherExpr::Handle { body, parameter, handlers, .. } => {
             if let Some(parameter) = parameter {
                 check_contract(parameter, errors);
             }
@@ -1357,13 +1240,7 @@ fn check_contract(expr: &AetherExpr, errors: &mut Vec<AetherError>) {
             }
             check_contract(body, errors);
         }
-        AetherExpr::Reuse {
-            token,
-            tag,
-            fields,
-            field_mask,
-            ..
-        } => {
+        AetherExpr::Reuse { token, tag, fields, field_mask, .. } => {
             if token.binder.is_none() {
                 errors.push(AetherError {
                     kind: AetherErrorKind::UnresolvedAetherVar,
@@ -1377,9 +1254,7 @@ fn check_contract(expr: &AetherExpr, errors: &mut Vec<AetherError>) {
                 });
             }
             if let Some(token_id) = token.binder
-                && fields
-                    .iter()
-                    .any(|field| use_counts_aether(field).contains_key(&token_id))
+                && fields.iter().any(|field| use_counts_aether(field).contains_key(&token_id))
             {
                 errors.push(AetherError {
                     kind: AetherErrorKind::ReuseTokenEscapesIntoFields,
@@ -1405,12 +1280,7 @@ fn check_contract(expr: &AetherExpr, errors: &mut Vec<AetherError>) {
                 check_contract(field, errors);
             }
         }
-        AetherExpr::DropSpecialized {
-            scrutinee,
-            unique_body,
-            shared_body,
-            ..
-        } => {
+        AetherExpr::DropSpecialized { scrutinee, unique_body, shared_body, .. } => {
             let Some(scrutinee_id) = scrutinee.binder else {
                 errors.push(AetherError {
                     kind: AetherErrorKind::InvalidDropSpecializedScrutinee,
@@ -1459,9 +1329,7 @@ fn check_contract(expr: &AetherExpr, errors: &mut Vec<AetherError>) {
 
 fn check_diagnostics(expr: &AetherExpr, diags: &mut Vec<AetherDiagnostic>) {
     match expr {
-        AetherExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        AetherExpr::Case { scrutinee, alts, .. } => {
             check_diagnostics(scrutinee, diags);
             for alt in alts {
                 let destr_tag = pat_constructor_tag(&alt.pat);
@@ -1539,12 +1407,7 @@ fn check_diagnostics(expr: &AetherExpr, diags: &mut Vec<AetherDiagnostic>) {
                 check_diagnostics(a, diags);
             }
         }
-        AetherExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        AetherExpr::Handle { body, parameter, handlers, .. } => {
             if let Some(parameter) = parameter {
                 check_diagnostics(parameter, diags);
             }
@@ -1609,9 +1472,7 @@ fn invalid_drop_specialized_uses_aether(
                 .sum::<usize>()
                 + invalid_drop_specialized_uses_aether(body, scrutinee_id, count_reuse_token)
         }
-        AetherExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        AetherExpr::Case { scrutinee, alts, .. } => {
             invalid_drop_specialized_uses_aether(scrutinee, scrutinee_id, count_reuse_token)
                 + alts
                     .iter()
@@ -1644,12 +1505,7 @@ fn invalid_drop_specialized_uses_aether(
             .iter()
             .map(|arg| invalid_drop_specialized_uses_aether(arg, scrutinee_id, count_reuse_token))
             .sum(),
-        AetherExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        AetherExpr::Handle { body, parameter, handlers, .. } => {
             parameter.as_ref().map_or(0, |parameter| {
                 invalid_drop_specialized_uses_aether(parameter, scrutinee_id, count_reuse_token)
             }) + invalid_drop_specialized_uses_aether(body, scrutinee_id, count_reuse_token)
@@ -1685,12 +1541,7 @@ fn invalid_drop_specialized_uses_aether(
         AetherExpr::MemberAccess { object, .. } | AetherExpr::TupleField { object, .. } => {
             invalid_drop_specialized_uses_aether(object, scrutinee_id, count_reuse_token)
         }
-        AetherExpr::DropSpecialized {
-            scrutinee,
-            unique_body,
-            shared_body,
-            ..
-        } => {
+        AetherExpr::DropSpecialized { scrutinee, unique_body, shared_body, .. } => {
             usize::from(scrutinee.binder == Some(scrutinee_id))
                 + invalid_drop_specialized_uses_aether(unique_body, scrutinee_id, count_reuse_token)
                 + invalid_drop_specialized_uses_aether(shared_body, scrutinee_id, count_reuse_token)
@@ -1803,12 +1654,7 @@ mod tests {
                     rhs: then,
                     span: s(),
                 },
-                CoreAlt {
-                    pat: CorePat::Wildcard,
-                    guard: None,
-                    rhs: other,
-                    span: s(),
-                },
+                CoreAlt { pat: CorePat::Wildcard, guard: None, rhs: other, span: s() },
             ],
             join_ty: None,
             span: s(),
@@ -1961,12 +1807,7 @@ mod tests {
                     rhs,
                     span: s(),
                 },
-                CoreAlt {
-                    pat: CorePat::Wildcard,
-                    guard: None,
-                    rhs: other,
-                    span: s(),
-                },
+                CoreAlt { pat: CorePat::Wildcard, guard: None, rhs: other, span: s() },
             ],
             join_ty: None,
             span: s(),
@@ -2030,12 +1871,7 @@ mod tests {
         assert!(contract_errors(&in_guard).contains(&AetherErrorKind::ReuseOfUnmatchedToken));
         let in_scrutinee = in_cons_arm(CoreExpr::Case {
             scrutinee: Box::new(reuse(xs, CoreTag::Cons, vec![v(h), v(t)])),
-            alts: vec![CoreAlt {
-                pat: CorePat::Wildcard,
-                guard: None,
-                rhs: zero(),
-                span: s(),
-            }],
+            alts: vec![CoreAlt { pat: CorePat::Wildcard, guard: None, rhs: zero(), span: s() }],
             join_ty: None,
             span: s(),
         });
@@ -2174,13 +2010,8 @@ mod tests {
     fn a_field_read_after_its_cell_is_given_away_is_rejected() {
         let mut interner = Interner::new();
         let [f, xs, h, t, a] = ["f", "xs", "h", "t", "a"].map(|name| interner.intern(name));
-        let (f, xs, h, t, a) = (
-            binder(1, f),
-            binder(2, xs),
-            binder(3, h),
-            binder(4, t),
-            binder(5, a),
-        );
+        let (f, xs, h, t, a) =
+            (binder(1, f), binder(2, xs), binder(3, h), binder(4, t), binder(5, a));
         let given_then_read = CoreExpr::Let {
             var: a,
             rhs: Box::new(give(f, v(xs))),
@@ -2195,13 +2026,8 @@ mod tests {
     fn a_field_copied_before_its_cell_is_given_away_is_accepted() {
         let mut interner = Interner::new();
         let [f, xs, h, t, a] = ["f", "xs", "h", "t", "a"].map(|name| interner.intern(name));
-        let (f, xs, h, t, a) = (
-            binder(1, f),
-            binder(2, xs),
-            binder(3, h),
-            binder(4, t),
-            binder(5, a),
-        );
+        let (f, xs, h, t, a) =
+            (binder(1, f), binder(2, xs), binder(3, h), binder(4, t), binder(5, a));
         let copied_first = dup(
             t,
             CoreExpr::Let {
@@ -2234,14 +2060,8 @@ mod tests {
     fn a_field_read_after_a_copy_and_the_cell_are_given_away_is_rejected() {
         let mut interner = Interner::new();
         let [f, xs, h, t, a, b] = ["f", "xs", "h", "t", "a", "b"].map(|name| interner.intern(name));
-        let (f, xs, h, t, a, b) = (
-            binder(1, f),
-            binder(2, xs),
-            binder(3, h),
-            binder(4, t),
-            binder(5, a),
-            binder(6, b),
-        );
+        let (f, xs, h, t, a, b) =
+            (binder(1, f), binder(2, xs), binder(3, h), binder(4, t), binder(5, a), binder(6, b));
         let gives = CoreExpr::Let {
             var: a,
             rhs: Box::new(give(f, dup(xs, v(xs)))),
@@ -2291,12 +2111,7 @@ mod tests {
         let a = binder(3, interner.intern("a"));
         let plan = lam(
             vec![f, n],
-            CoreExpr::Let {
-                var: a,
-                rhs: Box::new(give(f, v(n))),
-                body: Box::new(v(n)),
-                span: s(),
-            },
+            CoreExpr::Let { var: a, rhs: Box::new(give(f, v(n))), body: Box::new(v(n)), span: s() },
         );
         assert!(!contract_errors(&plan).contains(&AetherErrorKind::UsedAfterRelease));
     }
@@ -2330,11 +2145,7 @@ mod tests {
         let mut interner = Interner::new();
         let [xs, h, t] = ["xs", "h", "t"].map(|name| interner.intern(name));
         let (xs, h, t) = (binder(1, xs), binder(2, h), binder(3, t));
-        let rebuild = || CoreExpr::Con {
-            tag: CoreTag::Cons,
-            fields: vec![v(h), v(t)],
-            span: s(),
-        };
+        let rebuild = || CoreExpr::Con { tag: CoreTag::Cons, fields: vec![v(h), v(t)], span: s() };
         let specialized = CoreExpr::DropSpecialized {
             scrutinee: crate::core::CoreVarRef::resolved(&xs),
             unique_body: Box::new(rebuild()),
@@ -2405,16 +2216,9 @@ mod tests {
         let f = binder(1, interner.intern("f"));
         let pair = binder(2, interner.intern("pair"));
         let x = binder(3, interner.intern("x"));
-        let field = || CoreExpr::TupleField {
-            object: Box::new(v(pair)),
-            index: 0,
-            span: s(),
-        };
+        let field = || CoreExpr::TupleField { object: Box::new(v(pair)), index: 0, span: s() };
         // `f(pair.0)`.
-        assert_eq!(
-            views_consumed(&lam(vec![f, pair], give(f, field())), None),
-            1
-        );
+        assert_eq!(views_consumed(&lam(vec![f, pair], give(f, field())), None), 1);
         // `let x = pair.0 in f(x)`, and the same with a copy.
         let named = |given| CoreExpr::Let {
             var: x,
@@ -2423,10 +2227,7 @@ mod tests {
             span: s(),
         };
         assert_eq!(views_consumed(&lam(vec![f, pair], named(v(x))), None), 1);
-        assert_eq!(
-            views_consumed(&lam(vec![f, pair], named(dup(x, v(x)))), None),
-            0
-        );
+        assert_eq!(views_consumed(&lam(vec![f, pair], named(dup(x, v(x)))), None), 0);
     }
 
     #[test]
@@ -2434,13 +2235,8 @@ mod tests {
         let mut interner = Interner::new();
         let [f, xs, h, t, c, h2, t2, a] =
             ["f", "xs", "h", "t", "c", "h2", "t2", "a"].map(|name| interner.intern(name));
-        let (f, xs, h, t, c) = (
-            binder(1, f),
-            binder(2, xs),
-            binder(3, h),
-            binder(4, t),
-            binder(5, c),
-        );
+        let (f, xs, h, t, c) =
+            (binder(1, f), binder(2, xs), binder(3, h), binder(4, t), binder(5, c));
         let (h2, t2, a) = (binder(6, h2), binder(7, t2), binder(8, a));
         // `dup t in let a = (case c of [_ | _] -> f(t), _ -> 0) in f(t)`.
         let body = dup(
@@ -2452,10 +2248,7 @@ mod tests {
                 span: s(),
             },
         );
-        assert_eq!(
-            views_consumed(&lam(vec![f, xs, c], on_cons(xs, h, t, body)), None),
-            1
-        );
+        assert_eq!(views_consumed(&lam(vec![f, xs, c], on_cons(xs, h, t, body)), None), 1);
     }
 
     #[test]
@@ -2463,11 +2256,7 @@ mod tests {
         let mut interner = Interner::new();
         let [xs, h, t, a] = ["xs", "h", "t", "a"].map(|name| interner.intern(name));
         let (xs, h, t, a) = (binder(1, xs), binder(2, h), binder(3, t), binder(4, a));
-        let cons = |fields| CoreExpr::Con {
-            tag: CoreTag::Cons,
-            fields,
-            span: s(),
-        };
+        let cons = |fields| CoreExpr::Con { tag: CoreTag::Cons, fields, span: s() };
         let specialized = |unique| CoreExpr::DropSpecialized {
             scrutinee: crate::core::CoreVarRef::resolved(&xs),
             unique_body: Box::new(unique),
@@ -2551,10 +2340,7 @@ mod tests {
             span: s(),
         };
         let err = verify_contract(&expr).expect_err("expected token-escape error");
-        assert!(
-            err.iter()
-                .any(|e| e.kind == AetherErrorKind::ReuseTokenEscapesIntoFields)
-        );
+        assert!(err.iter().any(|e| e.kind == AetherErrorKind::ReuseTokenEscapesIntoFields));
     }
 
     #[test]
@@ -2569,10 +2355,7 @@ mod tests {
             span: s(),
         };
         let err = verify_contract(&expr).expect_err("expected invalid reuse tag");
-        assert!(
-            err.iter()
-                .any(|e| e.kind == AetherErrorKind::InvalidReuseTag)
-        );
+        assert!(err.iter().any(|e| e.kind == AetherErrorKind::InvalidReuseTag));
     }
 
     #[test]
@@ -2589,10 +2372,7 @@ mod tests {
             span: s(),
         };
         let err = verify_contract(&expr).expect_err("expected invalid field mask");
-        assert!(
-            err.iter()
-                .any(|e| e.kind == AetherErrorKind::InvalidFieldMask)
-        );
+        assert!(err.iter().any(|e| e.kind == AetherErrorKind::InvalidFieldMask));
     }
 
     #[test]
@@ -2606,10 +2386,7 @@ mod tests {
             span: s(),
         };
         let err = verify_contract(&expr).expect_err("expected invalid drop_spec scrutinee");
-        assert!(
-            err.iter()
-                .any(|e| e.kind == AetherErrorKind::InvalidDropSpecializedScrutinee)
-        );
+        assert!(err.iter().any(|e| e.kind == AetherErrorKind::InvalidDropSpecializedScrutinee));
     }
 
     #[test]
@@ -2638,8 +2415,7 @@ mod tests {
 
         let err = verify_contract(&expr).expect_err("expected invalid shared drop_spec reuse");
         assert!(
-            err.iter()
-                .any(|e| e.kind == AetherErrorKind::InvalidDropSpecializedUse),
+            err.iter().any(|e| e.kind == AetherErrorKind::InvalidDropSpecializedUse),
             "shared branch must not reuse the drop-specialized scrutinee"
         );
     }
@@ -2650,11 +2426,7 @@ mod tests {
         let xs = binder(1, interner.intern("xs"));
         let h = binder(2, interner.intern("h"));
         let t = binder(3, interner.intern("t"));
-        let rebuilt = || CoreExpr::Con {
-            tag: CoreTag::Cons,
-            fields: vec![v(h), v(t)],
-            span: s(),
-        };
+        let rebuilt = || CoreExpr::Con { tag: CoreTag::Cons, fields: vec![v(h), v(t)], span: s() };
         let specialized = CoreExpr::DropSpecialized {
             scrutinee: CoreVarRef::resolved(&xs),
             unique_body: Box::new(CoreExpr::Reuse {
@@ -2696,10 +2468,7 @@ mod tests {
             span: s(),
         };
         let err = verify_contract(&expr).expect_err("expected invalid aether_call mode count");
-        assert!(
-            err.iter()
-                .any(|e| e.kind == AetherErrorKind::InvalidAetherCallModes)
-        );
+        assert!(err.iter().any(|e| e.kind == AetherErrorKind::InvalidAetherCallModes));
     }
 
     #[test]
@@ -2915,12 +2684,7 @@ mod tests {
         };
         let on_t = |rhs| CoreExpr::Case {
             scrutinee: Box::new(v(t)),
-            alts: vec![CoreAlt {
-                pat: cons(h2, t2),
-                guard: None,
-                rhs,
-                span: s(),
-            }],
+            alts: vec![CoreAlt { pat: cons(h2, t2), guard: None, rhs, span: s() }],
             join_ty: None,
             span: s(),
         };

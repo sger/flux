@@ -106,10 +106,7 @@ mod tests {
     use super::*;
 
     fn span(start_line: usize, start_col: usize, end_line: usize, end_col: usize) -> Span {
-        Span::new(
-            Position::new(start_line, start_col),
-            Position::new(end_line, end_col),
-        )
+        Span::new(Position::new(start_line, start_col), Position::new(end_line, end_col))
     }
 
     #[test]

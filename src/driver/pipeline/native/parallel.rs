@@ -156,11 +156,8 @@ fn compile_parallel_native_module(
     compiler.set_debug_level(request.debug_level);
     compiler.set_file_path(node.path.to_string_lossy().to_string());
 
-    let compile_result = compiler.compile_with_opts(
-        &node.program,
-        request.enable_optimize,
-        request.enable_analyze,
-    );
+    let compile_result =
+        compiler.compile_with_opts(&node.program, request.enable_optimize, request.enable_analyze);
     let _ = compiler.take_warnings();
     if let Err(mut diags) = compile_result {
         tag_module_diagnostics(&mut diags, DiagnosticPhase::TypeCheck, &node.path);
@@ -236,22 +233,17 @@ fn compile_parallel_native_module(
             request.export_user_ctor_name_helper,
         ) {
             Ok(path) => path,
-            Err(_) => request
-                .cache_layout
-                .native_dir()
-                .join(cache_paths::cache_key_filename(
-                    &node.path,
-                    &cache_key,
-                    if cfg!(windows) { "obj" } else { "o" },
-                )),
+            Err(_) => request.cache_layout.native_dir().join(cache_paths::cache_key_filename(
+                &node.path,
+                &cache_key,
+                if cfg!(windows) { "obj" } else { "o" },
+            )),
         }
     };
 
-    if let Err(err) = compile_ir_to_object(
-        &ll_text,
-        &object_path,
-        if request.enable_optimize { 2 } else { 0 },
-    ) {
+    if let Err(err) =
+        compile_ir_to_object(&ll_text, &object_path, if request.enable_optimize { 2 } else { 0 })
+    {
         return NativeParallelModuleResult {
             path: node.path.clone(),
             object_path: PathBuf::new(),
@@ -270,10 +262,8 @@ fn compile_parallel_native_module(
     let exported_runtime_contracts = compiler.exported_runtime_contracts();
     let interface = extract_module_name_and_sym(&node.program, &compiler.interner).and_then(
         |(module_name, module_sym)| {
-            compiler
-                .lower_aether_report_program(&node.program, request.enable_optimize)
-                .ok()
-                .map(|core| {
+            compiler.lower_aether_report_program(&node.program, request.enable_optimize).ok().map(
+                |core| {
                     build_interface(
                         &module_name,
                         module_sym,
@@ -288,14 +278,13 @@ fn compile_parallel_native_module(
                         &compiler.interner,
                         Some(&node.program),
                     )
-                })
+                },
+            )
         },
     );
 
-    let interface_changed = interfaces_changed(
-        request.loaded_interfaces.get(&node.path),
-        interface.as_ref(),
-    );
+    let interface_changed =
+        interfaces_changed(request.loaded_interfaces.get(&node.path), interface.as_ref());
 
     NativeParallelModuleResult {
         path: node.path.clone(),
@@ -342,10 +331,8 @@ impl NativeParallelBuildState {
 
     fn record_progress(&mut self, result: &NativeParallelModuleResult, verbose: bool) {
         self.completed_modules += 1;
-        let name = progress_name(
-            result.interface.as_ref().map(|i| i.module_name.as_str()),
-            &result.path,
-        );
+        let name =
+            progress_name(result.interface.as_ref().map(|i| i.module_name.as_str()), &result.path);
         if result.skipped {
             emit_progress(
                 self.completed_modules,
@@ -418,10 +405,7 @@ fn handle_native_result(
             }));
         }
         return Err(result.error_message.unwrap_or_else(|| {
-            format!(
-                "native module compilation failed for {}",
-                result.path.display()
-            )
+            format!("native module compilation failed for {}", result.path.display())
         }));
     }
 
@@ -444,9 +428,7 @@ fn handle_native_result(
 
     build_state.record_progress(&result, verbose);
     if result.interface_changed {
-        build_state
-            .interface_changed_modules
-            .insert(result.path.clone());
+        build_state.interface_changed_modules.insert(result.path.clone());
     }
     if let Some(interface) = result.interface {
         if !result.skipped {
@@ -457,9 +439,7 @@ fn handle_native_result(
                 Some(&interface),
             );
         }
-        build_state
-            .loaded_interfaces
-            .insert(result.path.clone(), interface);
+        build_state.loaded_interfaces.insert(result.path.clone(), interface);
     }
     build_state.object_paths.push(result.object_path);
     Ok(())
@@ -486,11 +466,8 @@ pub(crate) fn compile_native_modules_parallel(
         .map(|node| node.path.clone())
         .ok_or_else(|| "native module graph is missing an entry node".to_string())?;
     let entry_module_kind = graph.entry_node().map(|node| node.kind).unwrap_or_default();
-    let nodes_by_path: HashMap<PathBuf, ModuleNode> = graph
-        .topo_order()
-        .into_iter()
-        .map(|node| (node.path.clone(), node.clone()))
-        .collect();
+    let nodes_by_path: HashMap<PathBuf, ModuleNode> =
+        graph.topo_order().into_iter().map(|node| (node.path.clone(), node.clone())).collect();
     let user_ctor_helper_owner = graph
         .topo_order()
         .into_iter()
@@ -506,11 +483,9 @@ pub(crate) fn compile_native_modules_parallel(
                 &batch,
                 |node| &node.path,
                 |node| {
-                    node.imports.iter().any(|dep| {
-                        build_state
-                            .interface_changed_modules
-                            .contains(&dep.target_path)
-                    })
+                    node.imports
+                        .iter()
+                        .any(|dep| build_state.interface_changed_modules.contains(&dep.target_path))
                 },
             );
 
@@ -578,16 +553,8 @@ mod tests {
 
     #[test]
     fn native_cache_hit_requires_interface_except_for_entry_module() {
-        assert!(native_cache_hit_is_usable(
-            true,
-            ModuleKind::FlowStdlib,
-            false
-        ));
-        assert!(!native_cache_hit_is_usable(
-            false,
-            ModuleKind::FlowStdlib,
-            false
-        ));
+        assert!(native_cache_hit_is_usable(true, ModuleKind::FlowStdlib, false));
+        assert!(!native_cache_hit_is_usable(false, ModuleKind::FlowStdlib, false));
         assert!(native_cache_hit_is_usable(true, ModuleKind::User, false));
         assert!(!native_cache_hit_is_usable(false, ModuleKind::User, false));
         assert!(native_cache_hit_is_usable(false, ModuleKind::User, true));

@@ -70,10 +70,7 @@ impl ParserRecoveryState {
 
     fn begin_structural_root(&mut self, code: Option<&str>, span: Option<Span>) {
         self.suppress_structural_followups = true;
-        self.structural_root = Some(StructuralRoot {
-            code: code.map(ToOwned::to_owned),
-            span,
-        });
+        self.structural_root = Some(StructuralRoot { code: code.map(ToOwned::to_owned), span });
     }
 
     fn clear_structural_suppression(&mut self) {
@@ -317,11 +314,8 @@ impl Parser {
                 i += 1;
                 end_line = docs[i].end_line;
             }
-            let text = docs[run_start..=i]
-                .iter()
-                .map(|d| d.text.as_str())
-                .collect::<Vec<_>>()
-                .join("\n");
+            let text =
+                docs[run_start..=i].iter().map(|d| d.text.as_str()).collect::<Vec<_>>().join("\n");
             index.insert(end_line + 1, text);
             i += 1;
         }
@@ -365,10 +359,7 @@ impl Parser {
     pub(super) fn enter_parser_context(&mut self, context: ParserContext) -> ParserContextGuard {
         let depth = self.parser_contexts.len();
         self.push_parser_context(context);
-        ParserContextGuard {
-            parser: std::ptr::NonNull::from(self),
-            depth,
-        }
+        ParserContextGuard { parser: std::ptr::NonNull::from(self), depth }
     }
 
     pub(super) fn current_parser_breadcrumb(&self) -> Option<String> {
@@ -421,8 +412,7 @@ impl Parser {
             return false;
         }
         if is_structural_parse_diagnostic_code(diag.code()) {
-            self.recovery_state
-                .begin_structural_root(diag.code(), diag.span());
+            self.recovery_state.begin_structural_root(diag.code(), diag.span());
         }
         self.errors.push(diag);
         true
@@ -440,11 +430,7 @@ fn is_uppercase_ident(token: &Token) -> bool {
     if token.token_type != TokenType::Ident {
         return false;
     }
-    token
-        .literal
-        .chars()
-        .next()
-        .is_some_and(|ch| ch.is_ascii_uppercase())
+    token.literal.chars().next().is_some_and(|ch| ch.is_ascii_uppercase())
 }
 
 /// Check if token is PascalCase (starts uppercase, contains lowercase)

@@ -64,9 +64,7 @@ impl Scope {
     /// Lends `ids` for a body planned next, returning the ones that were not
     /// lent already, for `unlend` to take back after it.
     fn lend(&mut self, ids: impl IntoIterator<Item = CoreBinderId>) -> Vec<CoreBinderId> {
-        ids.into_iter()
-            .filter(|id| self.borrowed_params.insert(*id))
-            .collect()
+        ids.into_iter().filter(|id| self.borrowed_params.insert(*id)).collect()
     }
 
     fn unlend(&mut self, ids: Vec<CoreBinderId>) {
@@ -179,10 +177,7 @@ pub fn insert_dup_drop_for_def(
     registry: &BorrowRegistry,
     borrowed_params: HashSet<CoreBinderId>,
 ) -> CoreExpr {
-    let mut scope = Scope {
-        borrowed_params,
-        ..Scope::default()
-    };
+    let mut scope = Scope { borrowed_params, ..Scope::default() };
     let mut field_parents = FieldParents::new();
     plan_expr(
         expr,
@@ -207,16 +202,8 @@ fn plan_expr(
 ) -> AetherPlan {
     match expr {
         CoreExpr::Var { var, span } => plan_var(var, span, tail_env, demand, scope, field_parents),
-        CoreExpr::Lit(_, _) => AetherPlan {
-            expr,
-            env_before: tail_env,
-        },
-        CoreExpr::Let {
-            var,
-            rhs,
-            body,
-            span,
-        } => {
+        CoreExpr::Lit(_, _) => AetherPlan { expr, env_before: tail_env },
+        CoreExpr::Let { var, rhs, body, span } => {
             scope.insert(var.id, var);
 
             // Track field→parent for TupleField access (e.g. `let total = st.2`).
@@ -227,14 +214,8 @@ fn plan_expr(
                 && let Some(parent_id) = obj_var.binder
             {
                 scope.views.insert(var.id);
-                field_parents.insert(
-                    var.id,
-                    FieldParent {
-                        parent: parent_id,
-                        tag: None,
-                        pattern: false,
-                    },
-                );
+                field_parents
+                    .insert(var.id, FieldParent { parent: parent_id, tag: None, pattern: false });
                 true
             } else {
                 false
@@ -242,15 +223,8 @@ fn plan_expr(
 
             // The binding made the value, so it holds a reference of its own.
             let owner = !view && var.rep.needs_rc() && produces_fresh_value(&rhs, registry);
-            let body_plan = plan_expr(
-                *body,
-                tail_env,
-                demand,
-                position,
-                registry,
-                scope,
-                field_parents,
-            );
+            let body_plan =
+                plan_expr(*body, tail_env, demand, position, registry, scope, field_parents);
             let mut binder_demand = binder_demand(&body_plan.env_before, var.id);
             let mut body_expr = body_plan.expr;
             if binder_demand == ValueDemand::Ignore && !view {
@@ -311,23 +285,11 @@ fn plan_expr(
                 env_before,
             }
         }
-        CoreExpr::LetRec {
-            var,
-            rhs,
-            body,
-            span,
-        } => {
+        CoreExpr::LetRec { var, rhs, body, span } => {
             scope.insert(var.id, var);
             let owner = var.rep.needs_rc() && matches!(rhs.as_ref(), CoreExpr::Lam { .. });
-            let body_plan = plan_expr(
-                *body,
-                tail_env,
-                demand,
-                position,
-                registry,
-                scope,
-                field_parents,
-            );
+            let body_plan =
+                plan_expr(*body, tail_env, demand, position, registry, scope, field_parents);
             let mut binder_demand = binder_demand(&body_plan.env_before, var.id);
             let mut body_expr = body_plan.expr;
             if binder_demand == ValueDemand::Ignore {
@@ -374,23 +336,12 @@ fn plan_expr(
                 env_before,
             }
         }
-        CoreExpr::LetRecGroup {
-            bindings,
-            body,
-            span,
-        } => {
+        CoreExpr::LetRecGroup { bindings, body, span } => {
             for (var, _) in &bindings {
                 scope.insert(var.id, *var);
             }
-            let body_plan = plan_expr(
-                *body,
-                tail_env,
-                demand,
-                position,
-                registry,
-                scope,
-                field_parents,
-            );
+            let body_plan =
+                plan_expr(*body, tail_env, demand, position, registry, scope, field_parents);
             let mut body_expr = body_plan.expr;
             // An unused binding is released first; a used one, as for
             // `LetRec`, after its last use.
@@ -454,13 +405,7 @@ fn plan_expr(
                 env_before: env,
             }
         }
-        CoreExpr::Lam {
-            params,
-            param_types,
-            result_ty,
-            body,
-            span,
-        } => {
+        CoreExpr::Lam { params, param_types, result_ty, body, span } => {
             let mut param_ids = Vec::with_capacity(params.len());
             for param in &params {
                 scope.insert(param.id, *param);
@@ -546,11 +491,7 @@ fn plan_expr(
                     let borrowed = resolved_callee
                         .zip(registry)
                         .is_some_and(|(callee, reg)| reg.is_borrowed(callee, index));
-                    if borrowed {
-                        BorrowMode::Borrowed
-                    } else {
-                        BorrowMode::Owned
-                    }
+                    if borrowed { BorrowMode::Borrowed } else { BorrowMode::Owned }
                 })
                 .collect();
             let guarded_borrowed_args =
@@ -599,11 +540,7 @@ fn plan_expr(
                     .map(|index| {
                         let borrowed =
                             resolved_callee.is_some_and(|callee| reg.is_borrowed(callee, index));
-                        if borrowed {
-                            BorrowMode::Borrowed
-                        } else {
-                            BorrowMode::Owned
-                        }
+                        if borrowed { BorrowMode::Borrowed } else { BorrowMode::Owned }
                     })
                     .collect()
             } else {
@@ -640,12 +577,7 @@ fn plan_expr(
                 env_before: func_plan.env_before,
             }
         }
-        CoreExpr::Case {
-            scrutinee,
-            alts,
-            join_ty,
-            span,
-        } => {
+        CoreExpr::Case { scrutinee, alts, join_ty, span } => {
             let scrutinee_var = match scrutinee.as_ref() {
                 CoreExpr::Var { var, .. } => var.binder.map(|id| CoreBinder::new(id, var.name)),
                 _ => None,
@@ -653,11 +585,7 @@ fn plan_expr(
 
             let arm_uses: Vec<bool> = alts
                 .iter()
-                .map(|alt| {
-                    scrutinee_var
-                        .as_ref()
-                        .is_some_and(|sv| alt_uses_binder(alt, sv.id))
-                })
+                .map(|alt| scrutinee_var.as_ref().is_some_and(|sv| alt_uses_binder(alt, sv.id)))
                 .collect();
 
             // Pattern views of an owned value that some arm still uses. An arm
@@ -669,9 +597,7 @@ fn plan_expr(
                     .filter(|(child, field)| {
                         field.pattern
                             && scope.views.contains(*child)
-                            && scrutinee_var
-                                .as_ref()
-                                .is_none_or(|sv| sv.id != field.parent)
+                            && scrutinee_var.as_ref().is_none_or(|sv| sv.id != field.parent)
                             && scope.get(&field.parent).is_some()
                             && !scope.views.contains(&field.parent)
                             && !scope.lent(field.parent, field_parents)
@@ -692,12 +618,7 @@ fn plan_expr(
 
             let mut branch_plans = Vec::with_capacity(alts.len());
             for (index, alt) in alts.into_iter().enumerate() {
-                let CoreAlt {
-                    pat,
-                    guard,
-                    rhs,
-                    span: alt_span,
-                } = alt;
+                let CoreAlt { pat, guard, rhs, span: alt_span } = alt;
                 let pat_ids = pat_binders(&pat);
                 // The arm may release the matched cell: it owns the cell,
                 // matched a constructor, and nothing reads the cell again.
@@ -736,9 +657,9 @@ fn plan_expr(
                 // only when the value is one.
                 let views = !own_fields
                     && match &pat {
-                        crate::core::CorePat::Var(_) => scrutinee_var
-                            .as_ref()
-                            .is_some_and(|sv| scope.views.contains(&sv.id)),
+                        crate::core::CorePat::Var(_) => {
+                            scrutinee_var.as_ref().is_some_and(|sv| scope.views.contains(&sv.id))
+                        }
                         _ => true,
                     };
                 for binder_id in &pat_ids {
@@ -758,11 +679,7 @@ fn plan_expr(
                     for &bid in &pat_ids {
                         field_parents.insert(
                             bid,
-                            FieldParent {
-                                parent: sv.id,
-                                tag: parent_tag.clone(),
-                                pattern: true,
-                            },
+                            FieldParent { parent: sv.id, tag: parent_tag.clone(), pattern: true },
                         );
                     }
                 }
@@ -863,10 +780,7 @@ fn plan_expr(
             }
 
             let joined = join_branch_envs(
-                &branch_plans
-                    .iter()
-                    .map(|arm| arm.env_without_pats.clone())
-                    .collect::<Vec<_>>(),
+                &branch_plans.iter().map(|arm| arm.env_without_pats.clone()).collect::<Vec<_>>(),
             );
             let alts = branch_plans
                 .into_iter()
@@ -898,9 +812,7 @@ fn plan_expr(
                                     && !tail_env.is_live(*binder_id)
                             })
                             .filter(|binder_id| {
-                                !field_parents
-                                    .get(binder_id)
-                                    .is_some_and(|field| field.pattern)
+                                !field_parents.get(binder_id).is_some_and(|field| field.pattern)
                             })
                             .filter(|binder_id| {
                                 let Some(field) = field_parents.get(binder_id).cloned() else {
@@ -1000,12 +912,7 @@ fn plan_expr(
                             .rev()
                             .fold(rhs, |body, field| wrap_dups(field, body, alt_span, 1));
 
-                        CoreAlt {
-                            pat,
-                            guard,
-                            rhs,
-                            span: alt_span,
-                        }
+                        CoreAlt { pat, guard, rhs, span: alt_span }
                     },
                 )
                 .collect();
@@ -1035,24 +942,14 @@ fn plan_expr(
                 plan_expr_list(fields, tail_env, registry, scope, field_parents, |_| {
                     ValueDemand::Owned
                 });
-            AetherPlan {
-                expr: CoreExpr::Con { tag, fields, span },
-                env_before,
-            }
+            AetherPlan { expr: CoreExpr::Con { tag, fields, span }, env_before }
         }
         CoreExpr::PrimOp { op, args, span } => {
             let (args, env_before) =
                 plan_expr_list(args, tail_env, registry, scope, field_parents, |index| {
-                    if op.takes_arg(index) {
-                        ValueDemand::Owned
-                    } else {
-                        ValueDemand::Borrowed
-                    }
+                    if op.takes_arg(index) { ValueDemand::Owned } else { ValueDemand::Borrowed }
                 });
-            AetherPlan {
-                expr: CoreExpr::PrimOp { op, args, span },
-                env_before,
-            }
+            AetherPlan { expr: CoreExpr::PrimOp { op, args, span }, env_before }
         }
         CoreExpr::Return { value, span } => {
             let value_plan = plan_expr(
@@ -1065,20 +962,11 @@ fn plan_expr(
                 field_parents,
             );
             AetherPlan {
-                expr: CoreExpr::Return {
-                    value: Box::new(value_plan.expr),
-                    span,
-                },
+                expr: CoreExpr::Return { value: Box::new(value_plan.expr), span },
                 env_before: value_plan.env_before,
             }
         }
-        CoreExpr::Perform {
-            effect,
-            operation,
-            args,
-            owned_after,
-            span,
-        } => {
+        CoreExpr::Perform { effect, operation, args, owned_after, span } => {
             // The runtime takes the arguments. A value live across the effect
             // needs nothing more: if the effect suspends, the frame hands what
             // it holds to the continuation, and each resume copies it (`held`).
@@ -1087,23 +975,11 @@ fn plan_expr(
                     ValueDemand::Owned
                 });
             AetherPlan {
-                expr: CoreExpr::Perform {
-                    effect,
-                    operation,
-                    args,
-                    owned_after,
-                    span,
-                },
+                expr: CoreExpr::Perform { effect, operation, args, owned_after, span },
                 env_before,
             }
         }
-        CoreExpr::Handle {
-            body,
-            effect,
-            parameter,
-            handlers,
-            span,
-        } => {
+        CoreExpr::Handle { body, effect, parameter, handlers, span } => {
             // The handle gives its state to the runtime, which releases it
             // with the handler.
             let parameter_plan = parameter.map(|p| {
@@ -1191,50 +1067,22 @@ fn plan_expr(
             }
         }
         CoreExpr::Dup { var, body, span } => {
-            let body_plan = plan_expr(
-                *body,
-                tail_env,
-                demand,
-                position,
-                registry,
-                scope,
-                field_parents,
-            );
+            let body_plan =
+                plan_expr(*body, tail_env, demand, position, registry, scope, field_parents);
             AetherPlan {
-                expr: CoreExpr::Dup {
-                    var,
-                    body: Box::new(body_plan.expr),
-                    span,
-                },
+                expr: CoreExpr::Dup { var, body: Box::new(body_plan.expr), span },
                 env_before: body_plan.env_before,
             }
         }
         CoreExpr::Drop { var, body, span } => {
-            let body_plan = plan_expr(
-                *body,
-                tail_env,
-                demand,
-                position,
-                registry,
-                scope,
-                field_parents,
-            );
+            let body_plan =
+                plan_expr(*body, tail_env, demand, position, registry, scope, field_parents);
             AetherPlan {
-                expr: CoreExpr::Drop {
-                    var,
-                    body: Box::new(body_plan.expr),
-                    span,
-                },
+                expr: CoreExpr::Drop { var, body: Box::new(body_plan.expr), span },
                 env_before: body_plan.env_before,
             }
         }
-        CoreExpr::Reuse {
-            token,
-            tag,
-            fields,
-            field_mask,
-            span,
-        } => {
+        CoreExpr::Reuse { token, tag, fields, field_mask, span } => {
             let (fields, mut env_before) =
                 plan_expr_list(fields, tail_env, registry, scope, field_parents, |_| {
                     ValueDemand::Owned
@@ -1243,21 +1091,11 @@ fn plan_expr(
                 env_before.mark_owned(token_id);
             }
             AetherPlan {
-                expr: CoreExpr::Reuse {
-                    token,
-                    tag,
-                    fields,
-                    field_mask,
-                    span,
-                },
+                expr: CoreExpr::Reuse { token, tag, fields, field_mask, span },
                 env_before,
             }
         }
-        CoreExpr::MemberAccess {
-            object,
-            member,
-            span,
-        } => {
+        CoreExpr::MemberAccess { object, member, span } => {
             let object_plan = plan_expr(
                 *object,
                 tail_env,
@@ -1268,19 +1106,11 @@ fn plan_expr(
                 field_parents,
             );
             AetherPlan {
-                expr: CoreExpr::MemberAccess {
-                    object: Box::new(object_plan.expr),
-                    member,
-                    span,
-                },
+                expr: CoreExpr::MemberAccess { object: Box::new(object_plan.expr), member, span },
                 env_before: object_plan.env_before,
             }
         }
-        CoreExpr::TupleField {
-            object,
-            index,
-            span,
-        } => {
+        CoreExpr::TupleField { object, index, span } => {
             let given_away =
                 demand == ValueDemand::Owned && matches!(object.as_ref(), CoreExpr::Var { .. });
             let object_plan = plan_expr(
@@ -1292,11 +1122,7 @@ fn plan_expr(
                 scope,
                 field_parents,
             );
-            let mut expr = CoreExpr::TupleField {
-                object: Box::new(object_plan.expr),
-                index,
-                span,
-            };
+            let mut expr = CoreExpr::TupleField { object: Box::new(object_plan.expr), index, span };
             // The tuple keeps its field: one given away is copied first.
             if given_away {
                 let held = scope.temp();
@@ -1305,27 +1131,16 @@ fn plan_expr(
                     rhs: Box::new(expr),
                     body: Box::new(wrap_dups(
                         held,
-                        CoreExpr::Var {
-                            var: CoreVarRef::resolved(&held),
-                            span,
-                        },
+                        CoreExpr::Var { var: CoreVarRef::resolved(&held), span },
                         span,
                         1,
                     )),
                     span,
                 };
             }
-            AetherPlan {
-                expr,
-                env_before: object_plan.env_before,
-            }
+            AetherPlan { expr, env_before: object_plan.env_before }
         }
-        CoreExpr::DropSpecialized {
-            scrutinee,
-            unique_body,
-            shared_body,
-            span,
-        } => {
+        CoreExpr::DropSpecialized { scrutinee, unique_body, shared_body, span } => {
             let unique_plan = plan_expr(
                 *unique_body,
                 tail_env.clone(),
@@ -1344,15 +1159,10 @@ fn plan_expr(
                 scope,
                 field_parents,
             );
-            let joined = join_branch_envs(&[
-                unique_plan.env_before.clone(),
-                shared_plan.env_before.clone(),
-            ]);
+            let joined =
+                join_branch_envs(&[unique_plan.env_before.clone(), shared_plan.env_before.clone()]);
             let scrutinee_plan = plan_expr(
-                CoreExpr::Var {
-                    var: scrutinee,
-                    span,
-                },
+                CoreExpr::Var { var: scrutinee, span },
                 joined,
                 ValueDemand::Borrowed,
                 TailPosition::NonTail,
@@ -1511,28 +1321,20 @@ fn plan_var(
     field_parents: &FieldParents,
 ) -> AetherPlan {
     let Some(id) = var.binder else {
-        return AetherPlan {
-            expr: CoreExpr::Var { var, span },
-            env_before: tail_env,
-        };
+        return AetherPlan { expr: CoreExpr::Var { var, span }, env_before: tail_env };
     };
 
     match demand {
-        ValueDemand::Ignore => AetherPlan {
-            expr: CoreExpr::Var { var, span },
-            env_before: tail_env,
-        },
+        ValueDemand::Ignore => {
+            AetherPlan { expr: CoreExpr::Var { var, span }, env_before: tail_env }
+        }
         ValueDemand::Borrowed => {
             tail_env.mark_borrowed(id);
-            AetherPlan {
-                expr: CoreExpr::Var { var, span },
-                env_before: tail_env,
-            }
+            AetherPlan { expr: CoreExpr::Var { var, span }, env_before: tail_env }
         }
         ValueDemand::Owned => {
-            let borrowed_parent = field_parents
-                .get(&id)
-                .is_some_and(|field| tail_env.is_borrowed(field.parent));
+            let borrowed_parent =
+                field_parents.get(&id).is_some_and(|field| tail_env.is_borrowed(field.parent));
             // An owned use of something the caller lent takes its own
             // reference: the caller keeps the one it lent.
             let lent = scope.lent(id, field_parents);
@@ -1561,10 +1363,7 @@ fn plan_var(
             } else {
                 CoreExpr::Var { var, span }
             };
-            AetherPlan {
-                expr,
-                env_before: tail_env,
-            }
+            AetherPlan { expr, env_before: tail_env }
         }
     }
 }
@@ -1620,11 +1419,7 @@ fn wrap_drop(binder: CoreBinder, body: CoreExpr, span: Span) -> CoreExpr {
     if !binder.rep.needs_rc() {
         return body;
     }
-    CoreExpr::Drop {
-        var: CoreVarRef::resolved(&binder),
-        body: Box::new(body),
-        span,
-    }
+    CoreExpr::Drop { var: CoreVarRef::resolved(&binder), body: Box::new(body), span }
 }
 
 fn wrap_dups(binder: CoreBinder, body: CoreExpr, span: Span, n: usize) -> CoreExpr {
@@ -1634,11 +1429,7 @@ fn wrap_dups(binder: CoreBinder, body: CoreExpr, span: Span, n: usize) -> CoreEx
     }
     let mut result = body;
     for _ in 0..n {
-        result = CoreExpr::Dup {
-            var: CoreVarRef::resolved(&binder),
-            body: Box::new(result),
-            span,
-        };
+        result = CoreExpr::Dup { var: CoreVarRef::resolved(&binder), body: Box::new(result), span };
     }
     result
 }
@@ -1659,19 +1450,9 @@ fn release_owner(
     if aliases_owned_unknown(&body, &aliases, scope, registry) {
         return (body, false);
     }
-    let mut release = Release {
-        owner,
-        span,
-        registry,
-        released: false,
-    };
-    let path = ReleasePath {
-        whole: aliases.clone(),
-        aliases,
-        lent_result,
-        position,
-        matched: None,
-    };
+    let mut release = Release { owner, span, registry, released: false };
+    let path =
+        ReleasePath { whole: aliases.clone(), aliases, lent_result, position, matched: None };
     let body = release.after(body, &path, scope);
     (body, release.released)
 }
@@ -1735,9 +1516,9 @@ fn fresh_result(
         CoreExpr::LetRecGroup { body, .. }
         | CoreExpr::Dup { body, .. }
         | CoreExpr::Drop { body, .. } => fresh_result(body, registry, fresh),
-        CoreExpr::Case { alts, .. } => alts
-            .iter()
-            .all(|alt| fresh_result(&alt.rhs, registry, fresh)),
+        CoreExpr::Case { alts, .. } => {
+            alts.iter().all(|alt| fresh_result(&alt.rhs, registry, fresh))
+        }
         _ => false,
     }
 }
@@ -1777,9 +1558,7 @@ fn returns_early(expr: &CoreExpr) -> bool {
 }
 
 fn mentions(expr: &CoreExpr, binders: &BTreeSet<CoreBinderId>) -> bool {
-    super::free_vars::collect_free_vars_aether(expr)
-        .iter()
-        .any(|id| binders.contains(id))
+    super::free_vars::collect_free_vars_aether(expr).iter().any(|id| binders.contains(id))
 }
 
 /// The binder a `let` adds to `aliases`: one whose value is computed from
@@ -1822,9 +1601,9 @@ fn ends_in(expr: &CoreExpr, var: &CoreVarRef) -> bool {
     match expr {
         CoreExpr::Var { var: inner, .. } => inner.binder.is_some() && inner.binder == var.binder,
         CoreExpr::Drop { body, .. } => ends_in(body, var),
-        CoreExpr::Let {
-            var: bound, body, ..
-        } => Some(bound.id) != var.binder && ends_in(body, var),
+        CoreExpr::Let { var: bound, body, .. } => {
+            Some(bound.id) != var.binder && ends_in(body, var)
+        }
         _ => false,
     }
 }
@@ -1889,9 +1668,7 @@ fn aliases_owned_unknown(
         | CoreExpr::Return { value: body, .. } => {
             aliases_owned_unknown(body, aliases, scope, registry)
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             let matched = mentions(scrutinee, aliases);
             alts.iter().any(|alt| {
                 let mut arm = aliases.clone();
@@ -1957,26 +1734,22 @@ fn tail_bare(expr: &CoreExpr, whole: &BTreeSet<CoreBinderId>) -> bool {
         CoreExpr::LetRec { body, .. }
         | CoreExpr::LetRecGroup { body, .. }
         | CoreExpr::Drop { body, .. } => tail_bare(body, whole),
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => alts
-            .iter()
-            .any(|alt| match renames(scrutinee, &alt.pat, whole) {
+        CoreExpr::Case { scrutinee, alts, .. } => {
+            alts.iter().any(|alt| match renames(scrutinee, &alt.pat, whole) {
                 Some(name) => {
                     let mut arm = whole.clone();
                     arm.insert(name);
                     tail_bare(&alt.rhs, &arm)
                 }
                 None => tail_bare(&alt.rhs, whole),
-            }),
+            })
+        }
         CoreExpr::Handle { body, handlers, .. } => {
             tail_bare(body, whole) || handlers.iter().any(|h| tail_bare(&h.body, whole))
         }
-        CoreExpr::DropSpecialized {
-            unique_body,
-            shared_body,
-            ..
-        } => tail_bare(unique_body, whole) || tail_bare(shared_body, whole),
+        CoreExpr::DropSpecialized { unique_body, shared_body, .. } => {
+            tail_bare(unique_body, whole) || tail_bare(shared_body, whole)
+        }
         _ => false,
     }
 }
@@ -1997,12 +1770,7 @@ fn gives_away(expr: &CoreExpr, whole: &BTreeSet<CoreBinderId>, owned: bool) -> b
         CoreExpr::Reuse { token, fields, .. } => {
             named(token) || fields.iter().any(|field| gives_away(field, whole, true))
         }
-        CoreExpr::DropSpecialized {
-            scrutinee,
-            unique_body,
-            shared_body,
-            ..
-        } => {
+        CoreExpr::DropSpecialized { scrutinee, unique_body, shared_body, .. } => {
             named(scrutinee)
                 || gives_away(unique_body, whole, owned)
                 || gives_away(shared_body, whole, owned)
@@ -2018,31 +1786,20 @@ fn gives_away(expr: &CoreExpr, whole: &BTreeSet<CoreBinderId>, owned: bool) -> b
             gives_away(rhs, whole, false) || gives_away(body, whole, owned)
         }
         CoreExpr::LetRecGroup { bindings, body, .. } => {
-            bindings
-                .iter()
-                .any(|(_, rhs)| gives_away(rhs, whole, false))
+            bindings.iter().any(|(_, rhs)| gives_away(rhs, whole, false))
                 || gives_away(body, whole, owned)
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             gives_away(scrutinee, whole, false)
                 || alts.iter().any(|alt| {
                     let mut arm = whole.clone();
                     arm.extend(renames(scrutinee, &alt.pat, whole));
-                    alt.guard
-                        .as_ref()
-                        .is_some_and(|guard| gives_away(guard, &arm, false))
+                    alt.guard.as_ref().is_some_and(|guard| gives_away(guard, &arm, false))
                         || gives_away(&alt.rhs, &arm, owned)
                 })
         }
         CoreExpr::Con { fields, .. } => fields.iter().any(|field| gives_away(field, whole, true)),
-        CoreExpr::AetherCall {
-            func,
-            args,
-            arg_modes,
-            ..
-        } => {
+        CoreExpr::AetherCall { func, args, arg_modes, .. } => {
             gives_away(func, whole, false)
                 || args.iter().enumerate().any(|(index, arg)| {
                     let taken = arg_modes.get(index) == Some(&BorrowMode::Owned);
@@ -2052,21 +1809,13 @@ fn gives_away(expr: &CoreExpr, whole: &BTreeSet<CoreBinderId>, owned: bool) -> b
         CoreExpr::App { func, args, .. } => {
             gives_away(func, whole, false) || args.iter().any(|arg| gives_away(arg, whole, true))
         }
-        CoreExpr::PrimOp { op, args, .. } => args
-            .iter()
-            .enumerate()
-            .any(|(index, arg)| gives_away(arg, whole, op.takes_arg(index))),
+        CoreExpr::PrimOp { op, args, .. } => {
+            args.iter().enumerate().any(|(index, arg)| gives_away(arg, whole, op.takes_arg(index)))
+        }
         CoreExpr::Perform { args, .. } => args.iter().any(|arg| gives_away(arg, whole, true)),
         CoreExpr::Return { value, .. } => gives_away(value, whole, true),
-        CoreExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
-            parameter
-                .as_ref()
-                .is_some_and(|parameter| gives_away(parameter, whole, true))
+        CoreExpr::Handle { body, parameter, handlers, .. } => {
+            parameter.as_ref().is_some_and(|parameter| gives_away(parameter, whole, true))
                 || gives_away(body, whole, owned)
                 || handlers.iter().any(|h| gives_away(&h.body, whole, owned))
         }
@@ -2135,10 +1884,7 @@ impl Release<'_> {
         let mut returned = path.clone();
         returned.lent_result = false;
         returned.position = TailPosition::Tail;
-        CoreExpr::Return {
-            value: Box::new(self.after(value, &returned, scope)),
-            span,
-        }
+        CoreExpr::Return { value: Box::new(self.after(value, &returned, scope)), span }
     }
 
     /// Releases the owner at each return `expr` reaches, and nowhere else:
@@ -2147,29 +1893,17 @@ impl Release<'_> {
     fn at_returns(&mut self, expr: CoreExpr, path: &ReleasePath, scope: &mut Scope) -> CoreExpr {
         match expr {
             CoreExpr::Return { value, span } => self.before_return(*value, span, path, scope),
-            CoreExpr::Let {
-                var,
-                rhs,
-                body,
-                span,
-            } => {
+            CoreExpr::Let { var, rhs, body, span } => {
                 let gives = gives_away(&rhs, &path.whole, false);
                 let rhs = Box::new(self.at_returns(*rhs, path, scope));
                 if gives || !returns_early(&body) {
-                    return CoreExpr::Let {
-                        var,
-                        rhs,
-                        body,
-                        span,
-                    };
+                    return CoreExpr::Let { var, rhs, body, span };
                 }
                 let mut inner = path.clone();
                 if tail_bare(&rhs, &path.whole) {
                     inner.whole.insert(var.id);
                 }
-                inner
-                    .aliases
-                    .extend(alias_of(&var, &rhs, &path.aliases, self.registry));
+                inner.aliases.extend(alias_of(&var, &rhs, &path.aliases, self.registry));
                 CoreExpr::Let {
                     var,
                     rhs,
@@ -2177,17 +1911,13 @@ impl Release<'_> {
                     span,
                 }
             }
-            CoreExpr::Case {
-                scrutinee,
-                alts,
-                join_ty,
-                span,
-            } if !gives_away(&scrutinee, &path.whole, false)
-                && !alts.iter().any(|alt| {
-                    alt.guard
-                        .as_ref()
-                        .is_some_and(|guard| gives_away(guard, &path.whole, false))
-                }) =>
+            CoreExpr::Case { scrutinee, alts, join_ty, span }
+                if !gives_away(&scrutinee, &path.whole, false)
+                    && !alts.iter().any(|alt| {
+                        alt.guard
+                            .as_ref()
+                            .is_some_and(|guard| gives_away(guard, &path.whole, false))
+                    }) =>
             {
                 let reads = mentions(&scrutinee, &path.aliases);
                 let alts = alts
@@ -2204,26 +1934,15 @@ impl Release<'_> {
                         CoreAlt { rhs, ..alt }
                     })
                     .collect();
-                CoreExpr::Case {
-                    scrutinee,
-                    alts,
-                    join_ty,
-                    span,
-                }
+                CoreExpr::Case { scrutinee, alts, join_ty, span }
             }
-            CoreExpr::Dup { var, body, span } => CoreExpr::Dup {
-                var,
-                body: Box::new(self.at_returns(*body, path, scope)),
-                span,
-            },
+            CoreExpr::Dup { var, body, span } => {
+                CoreExpr::Dup { var, body: Box::new(self.at_returns(*body, path, scope)), span }
+            }
             CoreExpr::Drop { var, body, span }
                 if !var.binder.is_some_and(|id| path.whole.contains(&id)) =>
             {
-                CoreExpr::Drop {
-                    var,
-                    body: Box::new(self.at_returns(*body, path, scope)),
-                    span,
-                }
+                CoreExpr::Drop { var, body: Box::new(self.at_returns(*body, path, scope)), span }
             }
             other => other,
         }
@@ -2231,15 +1950,8 @@ impl Release<'_> {
 
     fn after(&mut self, body: CoreExpr, path: &ReleasePath, scope: &mut Scope) -> CoreExpr {
         let used = mentions(&body, &path.aliases)
-            || path
-                .matched
-                .as_ref()
-                .is_some_and(|tag| rhs_has_compatible_tag(&body, tag));
-        if used {
-            self.after_last_use(body, path, scope)
-        } else {
-            self.drop_before(body)
-        }
+            || path.matched.as_ref().is_some_and(|tag| rhs_has_compatible_tag(&body, tag));
+        if used { self.after_last_use(body, path, scope) } else { self.drop_before(body) }
     }
 
     fn after_last_use(
@@ -2249,12 +1961,7 @@ impl Release<'_> {
         scope: &mut Scope,
     ) -> CoreExpr {
         match body {
-            CoreExpr::Let {
-                var,
-                rhs,
-                body,
-                span,
-            } => {
+            CoreExpr::Let { var, rhs, body, span } => {
                 let gives = gives_away(&rhs, &path.whole, false);
                 // A return in the right-hand side leaves before the body,
                 // where the walk puts the release.
@@ -2266,63 +1973,25 @@ impl Release<'_> {
                 // Given away here on some path: those paths need no release,
                 // and the walk keeps out of the others it cannot tell apart.
                 if gives {
-                    return CoreExpr::Let {
-                        var,
-                        rhs,
-                        body,
-                        span,
-                    };
+                    return CoreExpr::Let { var, rhs, body, span };
                 }
                 let mut inner = path.clone();
                 if tail_bare(&rhs, &path.whole) {
                     inner.whole.insert(var.id);
                 }
-                inner
-                    .aliases
-                    .extend(alias_of(&var, &rhs, &path.aliases, self.registry));
+                inner.aliases.extend(alias_of(&var, &rhs, &path.aliases, self.registry));
                 let body = Box::new(self.after(*body, &inner, scope));
-                CoreExpr::Let {
-                    var,
-                    rhs,
-                    body,
-                    span,
-                }
+                CoreExpr::Let { var, rhs, body, span }
             }
-            CoreExpr::LetRec {
-                var,
-                rhs,
-                body,
-                span,
-            } => {
+            CoreExpr::LetRec { var, rhs, body, span } => {
                 if gives_away(&rhs, &path.whole, false) {
-                    return CoreExpr::LetRec {
-                        var,
-                        rhs,
-                        body,
-                        span,
-                    };
+                    return CoreExpr::LetRec { var, rhs, body, span };
                 }
-                CoreExpr::LetRec {
-                    var,
-                    rhs,
-                    body: Box::new(self.after(*body, path, scope)),
-                    span,
-                }
+                CoreExpr::LetRec { var, rhs, body: Box::new(self.after(*body, path, scope)), span }
             }
-            CoreExpr::LetRecGroup {
-                bindings,
-                body,
-                span,
-            } => {
-                if bindings
-                    .iter()
-                    .any(|(_, rhs)| gives_away(rhs, &path.whole, false))
-                {
-                    return CoreExpr::LetRecGroup {
-                        bindings,
-                        body,
-                        span,
-                    };
+            CoreExpr::LetRecGroup { bindings, body, span } => {
+                if bindings.iter().any(|(_, rhs)| gives_away(rhs, &path.whole, false)) {
+                    return CoreExpr::LetRecGroup { bindings, body, span };
                 }
                 CoreExpr::LetRecGroup {
                     bindings,
@@ -2330,40 +1999,24 @@ impl Release<'_> {
                     span,
                 }
             }
-            CoreExpr::Dup { var, body, span } => CoreExpr::Dup {
-                var,
-                body: Box::new(self.after(*body, path, scope)),
-                span,
-            },
+            CoreExpr::Dup { var, body, span } => {
+                CoreExpr::Dup { var, body: Box::new(self.after(*body, path, scope)), span }
+            }
             // The owner released here already.
             CoreExpr::Drop { var, body, span }
                 if var.binder.is_some_and(|id| path.whole.contains(&id)) =>
             {
                 CoreExpr::Drop { var, body, span }
             }
-            CoreExpr::Drop { var, body, span } => CoreExpr::Drop {
-                var,
-                body: Box::new(self.after(*body, path, scope)),
-                span,
-            },
-            CoreExpr::Case {
-                scrutinee,
-                alts,
-                join_ty,
-                span,
-            } => {
+            CoreExpr::Drop { var, body, span } => {
+                CoreExpr::Drop { var, body: Box::new(self.after(*body, path, scope)), span }
+            }
+            CoreExpr::Case { scrutinee, alts, join_ty, span } => {
                 let guards_give_away = alts.iter().any(|alt| {
-                    alt.guard
-                        .as_ref()
-                        .is_some_and(|guard| gives_away(guard, &path.whole, false))
+                    alt.guard.as_ref().is_some_and(|guard| gives_away(guard, &path.whole, false))
                 });
                 if gives_away(&scrutinee, &path.whole, false) || guards_give_away {
-                    return CoreExpr::Case {
-                        scrutinee,
-                        alts,
-                        join_ty,
-                        span,
-                    };
+                    return CoreExpr::Case { scrutinee, alts, join_ty, span };
                 }
                 let reads = mentions(&scrutinee, &path.aliases);
                 let claimant = match scrutinee.as_ref() {
@@ -2407,12 +2060,7 @@ impl Release<'_> {
                         CoreAlt { rhs, ..alt }
                     })
                     .collect();
-                CoreExpr::Case {
-                    scrutinee,
-                    alts,
-                    join_ty,
-                    span,
-                }
+                CoreExpr::Case { scrutinee, alts, join_ty, span }
             }
             CoreExpr::Return { value, span } => self.before_return(*value, span, path, scope),
             // Given away: no release on this path. A release after an effect
@@ -2447,14 +2095,11 @@ impl Release<'_> {
                     }
                 }
                 let call = self.drop_before(call);
-                copies
-                    .into_iter()
-                    .rev()
-                    .fold(call, |body, (var, span)| CoreExpr::Dup {
-                        var,
-                        body: Box::new(body),
-                        span,
-                    })
+                copies.into_iter().rev().fold(call, |body, (var, span)| CoreExpr::Dup {
+                    var,
+                    body: Box::new(body),
+                    span,
+                })
             }
             // A cell built from copies and from names that point into nothing
             // the owner holds: the copies go first and the release before the
@@ -2485,14 +2130,11 @@ impl Release<'_> {
                     })
                     .collect();
                 let cell = self.drop_before(CoreExpr::Con { tag, fields, span });
-                copies
-                    .into_iter()
-                    .rev()
-                    .fold(cell, |body, (var, span)| CoreExpr::Dup {
-                        var,
-                        body: Box::new(body),
-                        span,
-                    })
+                copies.into_iter().rev().fold(cell, |body, (var, span)| CoreExpr::Dup {
+                    var,
+                    body: Box::new(body),
+                    span,
+                })
             }
             // A lent result took no reference of its own, so the enclosing
             // expression would read it after the release.
@@ -2547,10 +2189,7 @@ fn find_binder_in_pat(pat: &crate::core::CorePat, target: CoreBinderId) -> Optio
 }
 
 fn is_constructor_pat(pat: &crate::core::CorePat) -> bool {
-    matches!(
-        pat,
-        crate::core::CorePat::Con { .. } | crate::core::CorePat::Tuple(_)
-    )
+    matches!(pat, crate::core::CorePat::Con { .. } | crate::core::CorePat::Tuple(_))
 }
 
 fn pat_constructor_tag(pat: &crate::core::CorePat) -> Option<CoreTag> {
@@ -2596,9 +2235,7 @@ fn unclaimed_con_tag_in_spine(
         _ if constructor_shape_for_tag_aether(expr, Some(expected_tag)).is_some() => {
             constructor_shape_for_tag_aether(expr, Some(expected_tag)).map(|(tag, _, _)| tag)
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             let scrutinee = match scrutinee.as_ref() {
                 CoreExpr::Var { var, .. } => var.binder,
                 _ => None,
@@ -2629,10 +2266,7 @@ fn unclaimed_con_tag_in_spine(
 
 fn alt_uses_binder(alt: &CoreAlt, binder: CoreBinderId) -> bool {
     expr_uses_binder(&alt.rhs, binder)
-        || alt
-            .guard
-            .as_ref()
-            .is_some_and(|guard| expr_uses_binder(guard, binder))
+        || alt.guard.as_ref().is_some_and(|guard| expr_uses_binder(guard, binder))
 }
 
 fn rhs_has_compatible_tag(rhs: &CoreExpr, tag: &CoreTag) -> bool {
@@ -2649,9 +2283,9 @@ fn find_con_tag_in_spine(
         _ if constructor_shape_for_tag_aether(expr, expected_tag).is_some() => {
             constructor_shape_for_tag_aether(expr, expected_tag).map(|(tag, _, _)| tag)
         }
-        CoreExpr::Case { alts, .. } => alts
-            .iter()
-            .find_map(|alt| find_con_tag_in_spine(&alt.rhs, expected_tag)),
+        CoreExpr::Case { alts, .. } => {
+            alts.iter().find_map(|alt| find_con_tag_in_spine(&alt.rhs, expected_tag))
+        }
         CoreExpr::Let { body, .. } | CoreExpr::Drop { body, .. } | CoreExpr::Dup { body, .. } => {
             find_con_tag_in_spine(body, expected_tag)
         }
@@ -2683,9 +2317,7 @@ pub(super) fn expr_drops_binder(expr: &CoreExpr, binder: CoreBinderId) -> bool {
             expr_drops_binder(rhs, binder) || expr_drops_binder(body, binder)
         }
         CoreExpr::LetRecGroup { bindings, body, .. } => {
-            bindings
-                .iter()
-                .any(|(_, rhs)| expr_drops_binder(rhs, binder))
+            bindings.iter().any(|(_, rhs)| expr_drops_binder(rhs, binder))
                 || expr_drops_binder(body, binder)
         }
         CoreExpr::Lam { body, .. }
@@ -2694,14 +2326,10 @@ pub(super) fn expr_drops_binder(expr: &CoreExpr, binder: CoreBinderId) -> bool {
         CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
             expr_drops_binder(func, binder) || args.iter().any(|arg| expr_drops_binder(arg, binder))
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             expr_drops_binder(scrutinee, binder)
                 || alts.iter().any(|alt| {
-                    alt.guard
-                        .as_ref()
-                        .is_some_and(|guard| expr_drops_binder(guard, binder))
+                    alt.guard.as_ref().is_some_and(|guard| expr_drops_binder(guard, binder))
                         || expr_drops_binder(&alt.rhs, binder)
                 })
         }
@@ -2711,25 +2339,14 @@ pub(super) fn expr_drops_binder(expr: &CoreExpr, binder: CoreBinderId) -> bool {
         | CoreExpr::Perform { args: fields, .. } => {
             fields.iter().any(|field| expr_drops_binder(field, binder))
         }
-        CoreExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
-            parameter
-                .as_ref()
-                .is_some_and(|parameter| expr_drops_binder(parameter, binder))
+        CoreExpr::Handle { body, parameter, handlers, .. } => {
+            parameter.as_ref().is_some_and(|parameter| expr_drops_binder(parameter, binder))
                 || expr_drops_binder(body, binder)
-                || handlers
-                    .iter()
-                    .any(|handler| expr_drops_binder(&handler.body, binder))
+                || handlers.iter().any(|handler| expr_drops_binder(&handler.body, binder))
         }
-        CoreExpr::DropSpecialized {
-            unique_body,
-            shared_body,
-            ..
-        } => expr_drops_binder(unique_body, binder) || expr_drops_binder(shared_body, binder),
+        CoreExpr::DropSpecialized { unique_body, shared_body, .. } => {
+            expr_drops_binder(unique_body, binder) || expr_drops_binder(shared_body, binder)
+        }
         CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
             expr_drops_binder(object, binder)
         }
@@ -2756,18 +2373,14 @@ mod tests {
     }
 
     fn var(binder: CoreBinder) -> CoreExpr {
-        CoreExpr::Var {
-            var: CoreVarRef::resolved(&binder),
-            span: Span::default(),
-        }
+        CoreExpr::Var { var: CoreVarRef::resolved(&binder), span: Span::default() }
     }
 
     fn borrowed_call_mask(expr: &CoreExpr) -> Option<Vec<bool>> {
         match expr {
-            CoreExpr::AetherCall {
-                guarded_borrowed_args,
-                ..
-            } => Some(guarded_borrowed_args.clone()),
+            CoreExpr::AetherCall { guarded_borrowed_args, .. } => {
+                Some(guarded_borrowed_args.clone())
+            }
             CoreExpr::Let { rhs, body, .. } => {
                 borrowed_call_mask(rhs).or_else(|| borrowed_call_mask(body))
             }
@@ -2824,9 +2437,7 @@ mod tests {
                     .sum::<usize>()
                     + count_binder_nodes(body, binder, predicate)
             }
-            CoreExpr::Case {
-                scrutinee, alts, ..
-            } => {
+            CoreExpr::Case { scrutinee, alts, .. } => {
                 count_binder_nodes(scrutinee, binder, predicate)
                     + alts
                         .iter()
@@ -2841,32 +2452,23 @@ mod tests {
             CoreExpr::Con { fields, .. }
             | CoreExpr::PrimOp { args: fields, .. }
             | CoreExpr::Reuse { fields, .. }
-            | CoreExpr::Perform { args: fields, .. } => fields
-                .iter()
-                .map(|field| count_binder_nodes(field, binder, predicate))
-                .sum(),
+            | CoreExpr::Perform { args: fields, .. } => {
+                fields.iter().map(|field| count_binder_nodes(field, binder, predicate)).sum()
+            }
             CoreExpr::Return { value, .. }
             | CoreExpr::Dup { body: value, .. }
             | CoreExpr::Drop { body: value, .. } => count_binder_nodes(value, binder, predicate),
-            CoreExpr::Handle {
-                body,
-                parameter,
-                handlers,
-                ..
-            } => {
-                parameter.as_ref().map_or(0, |parameter| {
-                    count_binder_nodes(parameter, binder, predicate)
-                }) + count_binder_nodes(body, binder, predicate)
+            CoreExpr::Handle { body, parameter, handlers, .. } => {
+                parameter
+                    .as_ref()
+                    .map_or(0, |parameter| count_binder_nodes(parameter, binder, predicate))
+                    + count_binder_nodes(body, binder, predicate)
                     + handlers
                         .iter()
                         .map(|handler| count_binder_nodes(&handler.body, binder, predicate))
                         .sum::<usize>()
             }
-            CoreExpr::DropSpecialized {
-                unique_body,
-                shared_body,
-                ..
-            } => {
+            CoreExpr::DropSpecialized { unique_body, shared_body, .. } => {
                 count_binder_nodes(unique_body, binder, predicate)
                     + count_binder_nodes(shared_body, binder, predicate)
             }
@@ -3211,12 +2813,7 @@ mod tests {
             CoreExpr::Case {
                 scrutinee: Box::new(var(xs)),
                 alts: vec![
-                    CoreAlt {
-                        pat,
-                        guard,
-                        rhs,
-                        span: Span::default(),
-                    },
+                    CoreAlt { pat, guard, rhs, span: Span::default() },
                     CoreAlt {
                         pat: CorePat::Wildcard,
                         guard: None,
@@ -3261,12 +2858,7 @@ mod tests {
         assert_eq!(views_consumed(&plain), 0, "{plain:?}");
 
         let guarded = insert_dup_drop_with_registry(
-            match_one(
-                xs,
-                cons(h, t),
-                Some(call(ok, vec![var(h)])),
-                call(f, vec![var(t)]),
-            ),
+            match_one(xs, cons(h, t), Some(call(ok, vec![var(h)])), call(f, vec![var(t)])),
             &BorrowRegistry::default(),
         );
         assert_eq!(dups(&guarded, t), 1, "{guarded:?}");
@@ -3286,11 +2878,7 @@ mod tests {
             match_one(xs, CorePat::Var(ys), None, call(f, vec![var(ys)])),
             &BorrowRegistry::default(),
         );
-        assert_eq!(
-            (dups(&planned, ys), dups(&planned, xs)),
-            (0, 0),
-            "{planned:?}"
-        );
+        assert_eq!((dups(&planned, ys), dups(&planned, xs)), (0, 0), "{planned:?}");
         assert_eq!(views_consumed(&planned), 0, "{planned:?}");
     }
 
@@ -3340,13 +2928,7 @@ mod tests {
         let discard = interner.intern("discard");
 
         let planned = insert_dup_drop_with_registry(
-            guarded_match(
-                vec![x, junk],
-                junk,
-                [h, t],
-                call(discard, vec![var(x)]),
-                var(x),
-            ),
+            guarded_match(vec![x, junk], junk, [h, t], call(discard, vec![var(x)]), var(x)),
             &BorrowRegistry::default(),
         );
         assert_eq!(dups(&planned, x), 1, "{planned:?}");
@@ -3382,11 +2964,7 @@ mod tests {
     }
 
     fn field_of(object: CoreBinder, index: usize) -> CoreExpr {
-        CoreExpr::TupleField {
-            object: Box::new(var(object)),
-            index,
-            span: Span::default(),
-        }
+        CoreExpr::TupleField { object: Box::new(var(object)), index, span: Span::default() }
     }
 
     /// `let x = t.0` reads the field without a reference of its own: giving
@@ -3412,10 +2990,7 @@ mod tests {
         assert_eq!(views_consumed(&given), 0, "{given:?}");
 
         let unused = insert_dup_drop_with_registry(
-            lam(
-                vec![t],
-                let_x(CoreExpr::Lit(CoreLit::Int(0), Span::default())),
-            ),
+            lam(vec![t], let_x(CoreExpr::Lit(CoreLit::Int(0), Span::default()))),
             &BorrowRegistry::default(),
         );
         assert_eq!(drops(&unused, x), 0, "{unused:?}");
@@ -3452,19 +3027,10 @@ mod tests {
         };
 
         let planned = insert_dup_drop_with_registry(
-            match_one(
-                xs,
-                cons(h, t),
-                None,
-                cell(vec![var(h), cell(vec![var(h), var(t)])]),
-            ),
+            match_one(xs, cons(h, t), None, cell(vec![var(h), cell(vec![var(h), var(t)])])),
             &BorrowRegistry::default(),
         );
-        assert_eq!(
-            (dups(&planned, h), dups(&planned, t)),
-            (2, 1),
-            "{planned:?}"
-        );
+        assert_eq!((dups(&planned, h), dups(&planned, t)), (2, 1), "{planned:?}");
         assert_eq!(views_consumed(&planned), 0, "{planned:?}");
     }
 
@@ -3508,21 +3074,13 @@ mod tests {
         let x = binder(&mut interner, 3, "x");
         let f = interner.intern("f");
         let h = interner.intern("h");
-        let arm = |pat, rhs| CoreAlt {
-            pat,
-            guard: None,
-            rhs,
-            span: Span::default(),
-        };
+        let arm = |pat, rhs| CoreAlt { pat, guard: None, rhs, span: Span::default() };
         let body = CoreExpr::Case {
             scrutinee: Box::new(var(c)),
             alts: vec![
                 arm(CorePat::Lit(CoreLit::Int(0)), call(f, vec![var(x)])),
                 arm(CorePat::Lit(CoreLit::Int(1)), call(h, vec![var(t)])),
-                arm(
-                    CorePat::Wildcard,
-                    CoreExpr::Lit(CoreLit::Int(0), Span::default()),
-                ),
+                arm(CorePat::Wildcard, CoreExpr::Lit(CoreLit::Int(0), Span::default())),
             ],
             join_ty: None,
             span: Span::default(),
@@ -3600,20 +3158,12 @@ mod tests {
         let xs = binder(&mut interner, 1, "xs");
         let c = binder(&mut interner, 2, "c");
         let f = interner.intern("f");
-        let arm = |pat, rhs| CoreAlt {
-            pat,
-            guard: None,
-            rhs,
-            span: Span::default(),
-        };
+        let arm = |pat, rhs| CoreAlt { pat, guard: None, rhs, span: Span::default() };
         let body = CoreExpr::Case {
             scrutinee: Box::new(var(c)),
             alts: vec![
                 arm(CorePat::Lit(CoreLit::Int(0)), call(f, vec![var(xs)])),
-                arm(
-                    CorePat::Wildcard,
-                    CoreExpr::Lit(CoreLit::Int(0), Span::default()),
-                ),
+                arm(CorePat::Wildcard, CoreExpr::Lit(CoreLit::Int(0), Span::default())),
             ],
             join_ty: None,
             span: Span::default(),
@@ -3881,11 +3431,9 @@ mod tests {
     fn release_registry(interner: &mut Interner) -> BorrowRegistry {
         use crate::aether::borrow_infer::{BorrowProvenance, BorrowSignature};
         let mut registry = borrowed_len_registry(interner);
-        for (name, params) in [
-            ("g", vec![]),
-            ("own", vec![BorrowMode::Owned]),
-            ("walk", vec![BorrowMode::Borrowed]),
-        ] {
+        for (name, params) in
+            [("g", vec![]), ("own", vec![BorrowMode::Owned]), ("walk", vec![BorrowMode::Borrowed])]
+        {
             registry.by_name.insert(
                 interner.intern(name),
                 BorrowSignature::new(params, BorrowProvenance::Inferred),
@@ -3895,12 +3443,7 @@ mod tests {
     }
 
     fn let_in(var: CoreBinder, rhs: CoreExpr, body: CoreExpr) -> CoreExpr {
-        CoreExpr::Let {
-            var,
-            rhs: Box::new(rhs),
-            body: Box::new(body),
-            span: Span::default(),
-        }
+        CoreExpr::Let { var, rhs: Box::new(rhs), body: Box::new(body), span: Span::default() }
     }
 
     /// Whether a `let` of `after` has `Drop binder` at the head of its body.
@@ -3971,10 +3514,7 @@ mod tests {
             join_ty: None,
             span: Span::default(),
         };
-        let expr = lam(
-            vec![c],
-            let_in(x, g, let_in(u, early, let_in(t, read, var(t)))),
-        );
+        let expr = lam(vec![c], let_in(x, g, let_in(u, early, let_in(t, read, var(t)))));
 
         let rewritten = insert_dup_drop_with_registry(expr, &registry);
         assert_eq!(drops_of(&rewritten, x.id), 2, "{rewritten:?}");
@@ -4005,10 +3545,7 @@ mod tests {
         let g = call(interner.intern("g"), vec![]);
         let give = call(interner.intern("own"), vec![var(x)]);
         let read = call(interner.intern("len"), vec![var(x)]);
-        let expr = lam(
-            vec![],
-            let_in(x, g, let_in(a, give, let_in(t, read, var(t)))),
-        );
+        let expr = lam(vec![], let_in(x, g, let_in(a, give, let_in(t, read, var(t)))));
 
         let rewritten = insert_dup_drop_with_registry(expr, &registry);
         assert_eq!(dups_of(&rewritten, x.id), 1, "{rewritten:?}");
@@ -4129,12 +3666,7 @@ mod tests {
                     rhs: then,
                     span: Span::default(),
                 },
-                CoreAlt {
-                    pat: CorePat::Wildcard,
-                    guard: None,
-                    rhs: other,
-                    span: Span::default(),
-                },
+                CoreAlt { pat: CorePat::Wildcard, guard: None, rhs: other, span: Span::default() },
             ],
             join_ty: None,
             span: Span::default(),
@@ -4193,11 +3725,7 @@ mod tests {
                 if var.id == k.id && drops_of(body, xs.id) == 1),
             "{rewritten:?}"
         );
-        assert_eq!(
-            drops_of(first_arm_rhs(&rewritten, 1), xs.id),
-            1,
-            "{rewritten:?}"
-        );
+        assert_eq!(drops_of(first_arm_rhs(&rewritten, 1), xs.id), 1, "{rewritten:?}");
         assert_contract(&rewritten);
     }
 
@@ -4279,12 +3807,7 @@ mod tests {
                     rhs: cell,
                     span: Span::default(),
                 },
-                CoreAlt {
-                    pat: CorePat::Wildcard,
-                    guard: None,
-                    rhs: nil(),
-                    span: Span::default(),
-                },
+                CoreAlt { pat: CorePat::Wildcard, guard: None, rhs: nil(), span: Span::default() },
             ],
             join_ty: None,
             span: Span::default(),
@@ -4330,11 +3853,7 @@ mod tests {
         let [k, l] = [(1, "k"), (2, "l")].map(|(id, name)| binder(&mut interner, id, name));
         let counted = let_in(
             l,
-            CoreExpr::PrimOp {
-                op: CorePrimOp::Len,
-                args: vec![var(k)],
-                span: Span::default(),
-            },
+            CoreExpr::PrimOp { op: CorePrimOp::Len, args: vec![var(k)], span: Span::default() },
             CoreExpr::Dup {
                 var: CoreVarRef::resolved(&l),
                 body: Box::new(CoreExpr::Drop {
@@ -4348,11 +3867,7 @@ mod tests {
         assert!(super::counted_result(&counted));
         let uncounted = let_in(
             l,
-            CoreExpr::PrimOp {
-                op: CorePrimOp::Len,
-                args: vec![var(k)],
-                span: Span::default(),
-            },
+            CoreExpr::PrimOp { op: CorePrimOp::Len, args: vec![var(k)], span: Span::default() },
             var(l),
         );
         assert!(!super::counted_result(&uncounted));
@@ -4375,10 +3890,7 @@ mod tests {
             join_ty: None,
             span: Span::default(),
         };
-        assert!(super::tail_bare(
-            &renamed,
-            &std::collections::BTreeSet::from([xs.id])
-        ));
+        assert!(super::tail_bare(&renamed, &std::collections::BTreeSet::from([xs.id])));
     }
 
     /// `let x = g(); walk(x)`, `walk` a Flux function borrowing `x`. The
@@ -4405,10 +3917,7 @@ mod tests {
         let CoreExpr::Let { rhs, body, .. } = body.as_ref() else {
             panic!("expected the call held in a temporary: {body:?}");
         };
-        assert!(
-            matches!(rhs.as_ref(), CoreExpr::AetherCall { .. }),
-            "{rhs:?}"
-        );
+        assert!(matches!(rhs.as_ref(), CoreExpr::AetherCall { .. }), "{rhs:?}");
         assert!(
             matches!(body.as_ref(), CoreExpr::Drop { var, .. } if var.binder == Some(x.id)),
             "{body:?}"
@@ -4494,12 +4003,7 @@ mod tests {
                         rhs,
                         span: Span::default(),
                     },
-                    CoreAlt {
-                        pat: CorePat::Wildcard,
-                        guard: None,
-                        rhs: g,
-                        span: Span::default(),
-                    },
+                    CoreAlt { pat: CorePat::Wildcard, guard: None, rhs: g, span: Span::default() },
                 ],
                 join_ty: None,
                 span: Span::default(),
@@ -4631,19 +4135,9 @@ mod tests {
         let registry = release_registry(&mut interner);
         let g = call(interner.intern("g"), vec![]);
         let give = call(interner.intern("own"), vec![var(xs)]);
-        let invoke = CoreExpr::App {
-            func: Box::new(var(f)),
-            args: vec![],
-            span: Span::default(),
-        };
-        let expr = lam(
-            vec![],
-            let_in(
-                xs,
-                g,
-                let_in(f, lam(vec![], give), let_in(r, invoke, var(r))),
-            ),
-        );
+        let invoke = CoreExpr::App { func: Box::new(var(f)), args: vec![], span: Span::default() };
+        let expr =
+            lam(vec![], let_in(xs, g, let_in(f, lam(vec![], give), let_in(r, invoke, var(r)))));
 
         let rewritten = insert_dup_drop_with_registry(expr, &registry);
         assert_eq!(drops_of(&rewritten, xs.id), 1, "{rewritten:?}");
@@ -4699,10 +4193,7 @@ mod tests {
         let CoreExpr::Lam { body, .. } = &rewritten else {
             panic!("expected a lambda");
         };
-        let CoreExpr::Let {
-            var: held, body, ..
-        } = body.as_ref()
-        else {
+        let CoreExpr::Let { var: held, body, .. } = body.as_ref() else {
             panic!("expected the result held in a temporary: {body:?}");
         };
         assert!(
@@ -4859,14 +4350,8 @@ mod tests {
         let parents = super::FieldParents::new();
         let mask = |modes: &[BorrowMode]| super::call_guard_mask(&args, modes, &env, &parents);
 
-        assert_eq!(
-            mask(&[BorrowMode::Borrowed, BorrowMode::Owned]),
-            [true, false]
-        );
-        assert_eq!(
-            mask(&[BorrowMode::Owned, BorrowMode::Borrowed]),
-            [false, false]
-        );
+        assert_eq!(mask(&[BorrowMode::Borrowed, BorrowMode::Owned]), [true, false]);
+        assert_eq!(mask(&[BorrowMode::Owned, BorrowMode::Borrowed]), [false, false]);
     }
 
     /// The expressions directly inside `expr`.
@@ -4890,34 +4375,22 @@ mod tests {
                 .map(|(_, rhs)| rhs.as_ref())
                 .chain(std::iter::once(body.as_ref()))
                 .collect(),
-            CoreExpr::Case {
-                scrutinee, alts, ..
-            } => std::iter::once(scrutinee.as_ref())
-                .chain(
-                    alts.iter()
-                        .flat_map(|alt| alt.guard.iter().chain([&alt.rhs])),
-                )
+            CoreExpr::Case { scrutinee, alts, .. } => std::iter::once(scrutinee.as_ref())
+                .chain(alts.iter().flat_map(|alt| alt.guard.iter().chain([&alt.rhs])))
                 .collect(),
             CoreExpr::Con { fields, .. }
             | CoreExpr::PrimOp { args: fields, .. }
             | CoreExpr::Reuse { fields, .. }
             | CoreExpr::Perform { args: fields, .. } => fields.iter().collect(),
-            CoreExpr::Handle {
-                body,
-                parameter,
-                handlers,
-                ..
-            } => parameter
+            CoreExpr::Handle { body, parameter, handlers, .. } => parameter
                 .iter()
                 .map(|parameter| parameter.as_ref())
                 .chain(std::iter::once(body.as_ref()))
                 .chain(handlers.iter().map(|handler| &handler.body))
                 .collect(),
-            CoreExpr::DropSpecialized {
-                unique_body,
-                shared_body,
-                ..
-            } => vec![unique_body, shared_body],
+            CoreExpr::DropSpecialized { unique_body, shared_body, .. } => {
+                vec![unique_body, shared_body]
+            }
         }
     }
 
@@ -4946,9 +4419,7 @@ mod tests {
                     walk(body, run, xs, fields)
                 }
                 CoreExpr::Drop { var, body, .. } if var.binder == Some(xs.id) => {
-                    fields
-                        .iter()
-                        .all(|field| uses(body, *field) == 0 || run.contains(&field.id))
+                    fields.iter().all(|field| uses(body, *field) == 0 || run.contains(&field.id))
                         && walk(body, &mut Vec::new(), xs, fields)
                 }
                 CoreExpr::Drop { body, .. } => walk(body, run, xs, fields),
@@ -4961,11 +4432,7 @@ mod tests {
     }
 
     fn cons_of(fields: Vec<CoreExpr>) -> CoreExpr {
-        CoreExpr::Con {
-            tag: crate::core::CoreTag::Cons,
-            fields,
-            span: Span::default(),
-        }
+        CoreExpr::Con { tag: crate::core::CoreTag::Cons, fields, span: Span::default() }
     }
 
     /// Audit L2: the drop of the matched cell may free it and its fields, so
@@ -4983,11 +4450,7 @@ mod tests {
         );
         assert_eq!(drops(&planned, xs), 2, "{planned:?}");
         assert!(copied_before_release(&planned, xs, &[h, t]), "{planned:?}");
-        assert_eq!(
-            (dups(&planned, h), dups(&planned, t)),
-            (1, 1),
-            "{planned:?}"
-        );
+        assert_eq!((dups(&planned, h), dups(&planned, t)), (1, 1), "{planned:?}");
     }
 
     /// Audit L1's shape: a field stored twice needs two references, one from
@@ -4999,22 +4462,13 @@ mod tests {
             [(1, "xs"), (2, "h"), (3, "t")].map(|(id, name)| binder(&mut interner, id, name));
 
         let planned = super::insert_dup_drop_for_def(
-            match_one(
-                xs,
-                cons(h, t),
-                None,
-                cons_of(vec![var(h), cons_of(vec![var(h), var(t)])]),
-            ),
+            match_one(xs, cons(h, t), None, cons_of(vec![var(h), cons_of(vec![var(h), var(t)])])),
             &BorrowRegistry::default(),
             Default::default(),
         );
         assert_eq!(drops(&planned, xs), 2, "{planned:?}");
         assert!(copied_before_release(&planned, xs, &[h, t]), "{planned:?}");
-        assert_eq!(
-            (dups(&planned, h), dups(&planned, t)),
-            (2, 1),
-            "{planned:?}"
-        );
+        assert_eq!((dups(&planned, h), dups(&planned, t)), (2, 1), "{planned:?}");
     }
 
     /// A nested field lives in an inner cell, which the outer cell's release
@@ -5035,10 +4489,7 @@ mod tests {
             Default::default(),
         );
         assert_eq!(drops(&planned, xs), 2, "{planned:?}");
-        assert!(
-            copied_before_release(&planned, xs, &[h2, t2]),
-            "{planned:?}"
-        );
+        assert!(copied_before_release(&planned, xs, &[h2, t2]), "{planned:?}");
     }
 
     /// `case xs of Cons(h, t) -> f(h); _ -> xs`: the first arm owes the cell
@@ -5113,12 +4564,7 @@ mod tests {
                 CoreExpr::Case {
                     scrutinee: Box::new(var(xs)),
                     alts: vec![
-                        CoreAlt {
-                            pat: cons(h, t),
-                            guard: None,
-                            rhs: inner,
-                            span: Span::default(),
-                        },
+                        CoreAlt { pat: cons(h, t), guard: None, rhs: inner, span: Span::default() },
                         CoreAlt {
                             pat: CorePat::Wildcard,
                             guard: None,
@@ -5137,11 +4583,7 @@ mod tests {
         assert!(copied_before_release(&planned, xs, &[h, t]), "{planned:?}");
         // Each copy is the field's own reference from then on, so the cell
         // takes it over rather than a second copy.
-        assert_eq!(
-            (dups(&planned, h), dups(&planned, t)),
-            (1, 1),
-            "{planned:?}"
-        );
+        assert_eq!((dups(&planned, h), dups(&planned, t)), (1, 1), "{planned:?}");
     }
 
     /// The guard runs while the cell is still held, so its copies are its
@@ -5154,12 +4596,7 @@ mod tests {
         let ok = interner.intern("ok");
 
         let planned = super::insert_dup_drop_for_def(
-            match_one(
-                xs,
-                cons(h, t),
-                Some(call(ok, vec![var(h)])),
-                cons_of(vec![var(h), var(t)]),
-            ),
+            match_one(xs, cons(h, t), Some(call(ok, vec![var(h)])), cons_of(vec![var(h), var(t)])),
             &BorrowRegistry::default(),
             Default::default(),
         );
@@ -5172,12 +4609,7 @@ mod tests {
             scrutinee: Box::new(var(scrutinee)),
             alts: alts
                 .into_iter()
-                .map(|(pat, rhs)| CoreAlt {
-                    pat,
-                    guard: None,
-                    rhs,
-                    span: Span::default(),
-                })
+                .map(|(pat, rhs)| CoreAlt { pat, guard: None, rhs, span: Span::default() })
                 .collect(),
             join_ty: None,
             span: Span::default(),
@@ -5185,11 +4617,7 @@ mod tests {
     }
 
     fn nil() -> CoreExpr {
-        CoreExpr::Con {
-            tag: crate::core::CoreTag::Nil,
-            fields: vec![],
-            span: Span::default(),
-        }
+        CoreExpr::Con { tag: crate::core::CoreTag::Nil, fields: vec![], span: Span::default() }
     }
 
     /// `h2` is read out of `t`, which is read out of `xs`: releasing `xs`
@@ -5197,22 +4625,12 @@ mod tests {
     #[test]
     fn a_field_of_a_field_is_copied_before_the_outer_cell_is_released() {
         let mut interner = Interner::new();
-        let [xs, c, h, t, h2, t2] = [
-            (1, "xs"),
-            (2, "c"),
-            (3, "h"),
-            (4, "t"),
-            (5, "h2"),
-            (6, "t2"),
-        ]
-        .map(|(id, name)| binder(&mut interner, id, name));
+        let [xs, c, h, t, h2, t2] = [(1, "xs"), (2, "c"), (3, "h"), (4, "t"), (5, "h2"), (6, "t2")]
+            .map(|(id, name)| binder(&mut interner, id, name));
 
         let innermost = case_of(
             c,
-            vec![
-                (CorePat::Lit(CoreLit::Bool(true)), var(xs)),
-                (CorePat::Wildcard, var(h2)),
-            ],
+            vec![(CorePat::Lit(CoreLit::Bool(true)), var(xs)), (CorePat::Wildcard, var(h2))],
         );
         let planned = super::insert_dup_drop_for_def(
             lam(
@@ -5222,10 +4640,7 @@ mod tests {
                     vec![
                         (
                             cons(h, t),
-                            case_of(
-                                t,
-                                vec![(cons(h2, t2), innermost), (CorePat::Wildcard, nil())],
-                            ),
+                            case_of(t, vec![(cons(h2, t2), innermost), (CorePat::Wildcard, nil())]),
                         ),
                         (CorePat::Wildcard, nil()),
                     ],
@@ -5243,23 +4658,13 @@ mod tests {
     #[test]
     fn a_binder_matched_deeper_in_the_arm_claims_no_constructor() {
         let mut interner = Interner::new();
-        let [xs, h, t, a, zs, b, c] = [
-            (1, "xs"),
-            (2, "h"),
-            (3, "t"),
-            (4, "a"),
-            (5, "zs"),
-            (6, "b"),
-            (7, "c"),
-        ]
-        .map(|(id, name)| binder(&mut interner, id, name));
+        let [xs, h, t, a, zs, b, c] =
+            [(1, "xs"), (2, "h"), (3, "t"), (4, "a"), (5, "zs"), (6, "b"), (7, "c")]
+                .map(|(id, name)| binder(&mut interner, id, name));
 
         let deepest = case_of(
             zs,
-            vec![
-                (cons(b, c), cons_of(vec![var(b), var(c)])),
-                (CorePat::Wildcard, nil()),
-            ],
+            vec![(cons(b, c), cons_of(vec![var(b), var(c)])), (CorePat::Wildcard, nil())],
         );
         let planned = super::insert_dup_drop_for_def(
             lam(
@@ -5325,13 +4730,8 @@ mod tests {
         let n = CoreBinder::with_rep(CoreBinderId(4), interner.intern("n"), FluxRep::IntRep);
         let registry = release_registry(&mut interner);
         let read = call(interner.intern("len"), vec![var(h)]);
-        let rewritten = planned_cons_arm(
-            xs,
-            h,
-            t,
-            let_in(n, read, cons_of(vec![var(n), var(t)])),
-            &registry,
-        );
+        let rewritten =
+            planned_cons_arm(xs, h, t, let_in(n, read, cons_of(vec![var(n), var(t)])), &registry);
 
         assert_eq!(dups_of(&rewritten, h.id), 1, "{rewritten:?}");
         assert_eq!(drops_of(&rewritten, h.id), 1, "{rewritten:?}");
@@ -5350,10 +4750,8 @@ mod tests {
         let registry = release_registry(&mut interner);
         let give = call(interner.intern("own"), vec![var(h)]);
         let read = call(interner.intern("len"), vec![var(h)]);
-        let rhs = on_true(
-            cons_of(vec![give, var(t)]),
-            let_in(n, read, cons_of(vec![var(n), var(t)])),
-        );
+        let rhs =
+            on_true(cons_of(vec![give, var(t)]), let_in(n, read, cons_of(vec![var(n), var(t)])));
         let rewritten = planned_cons_arm(xs, h, t, rhs, &registry);
 
         assert_eq!(drops_of(&rewritten, h.id), 1, "{rewritten:?}");
@@ -5410,12 +4808,7 @@ mod tests {
                     rhs: cons_of(vec![var(x), var(t)]),
                     span: Span::default(),
                 },
-                CoreAlt {
-                    pat: CorePat::Wildcard,
-                    guard: None,
-                    rhs: var(t),
-                    span: Span::default(),
-                },
+                CoreAlt { pat: CorePat::Wildcard, guard: None, rhs: var(t), span: Span::default() },
             ],
             join_ty: None,
             span: Span::default(),
@@ -5440,18 +4833,10 @@ mod tests {
         let [xs, h, t, n] = [(1, "xs"), (2, "h"), (3, "t"), (4, "n")]
             .map(|(id, name)| binder(&mut interner, id, name));
         let registry = release_registry(&mut interner);
-        let read = CoreExpr::PrimOp {
-            op: CorePrimOp::Len,
-            args: vec![var(h)],
-            span: Span::default(),
-        };
-        let rewritten = planned_cons_arm(
-            xs,
-            h,
-            t,
-            let_in(n, read, cons_of(vec![var(n), var(t)])),
-            &registry,
-        );
+        let read =
+            CoreExpr::PrimOp { op: CorePrimOp::Len, args: vec![var(h)], span: Span::default() };
+        let rewritten =
+            planned_cons_arm(xs, h, t, let_in(n, read, cons_of(vec![var(n), var(t)])), &registry);
         assert!(released_after(&rewritten, h.id, n.id), "{rewritten:?}");
         assert_contract(&rewritten);
     }
@@ -5468,13 +4853,8 @@ mod tests {
             args: vec![var(h), var(t)],
             span: Span::default(),
         };
-        let rewritten = planned_cons_arm(
-            xs,
-            h,
-            t,
-            let_in(m, pick, cons_of(vec![var(m), var(t)])),
-            &registry,
-        );
+        let rewritten =
+            planned_cons_arm(xs, h, t, let_in(m, pick, cons_of(vec![var(m), var(t)])), &registry);
         assert!(!released_after(&rewritten, h.id, m.id), "{rewritten:?}");
     }
 
@@ -5491,10 +4871,7 @@ mod tests {
         let own = interner.intern("own");
         let arm = on_true(call(own, vec![var(t)]), call(own, vec![var(xs)]));
         let planned = insert_dup_drop_with_registry(
-            lam(
-                vec![xs],
-                case_of(xs, vec![(cons(h, t), arm), (CorePat::Wildcard, nil())]),
-            ),
+            lam(vec![xs], case_of(xs, vec![(cons(h, t), arm), (CorePat::Wildcard, nil())])),
             &registry,
         );
         assert_eq!(dups_of(&planned, t.id), 1, "{planned:?}");

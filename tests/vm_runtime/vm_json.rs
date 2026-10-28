@@ -23,17 +23,11 @@ fn main() with IO {
 }
 "#,
     );
-    assert!(
-        ok,
-        "JSON fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(ok, "JSON fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(stdout.contains("\"null\""), "{stdout}");
     assert!(stdout.contains("\"3.5\""), "{stdout}");
     assert!(stdout.contains("\"[\"a\",false]\""), "{stdout}");
-    assert!(
-        stdout.contains("\"{\"flag\":true,\"name\":\"flux\"}\""),
-        "{stdout}"
-    );
+    assert!(stdout.contains("\"{\"flag\":true,\"name\":\"flux\"}\""), "{stdout}");
 }
 
 #[test]
@@ -50,10 +44,7 @@ fn main() with IO {
 }
 "#,
     );
-    assert!(
-        ok,
-        "contextual JSON encoder fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(ok, "contextual JSON encoder fixture failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert_eq!(stdout, "\"42\"\n\"[1,2]\"\n\"[1,2]\"\n", "{stdout}");
 }
 

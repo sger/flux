@@ -74,13 +74,7 @@ fn walk(
             }
             walk(func, pending, false, counted);
         }
-        AetherExpr::AetherCall {
-            func,
-            args,
-            arg_modes,
-            owned_after,
-            ..
-        } => {
+        AetherExpr::AetherCall { func, args, arg_modes, owned_after, .. } => {
             *owned_after = held(pending, counted);
             for (arg, mode) in args.iter_mut().zip(arg_modes.iter()).rev() {
                 walk(arg, pending, *mode == BorrowMode::Owned, counted);
@@ -111,9 +105,7 @@ fn walk(
                 walk(rhs, pending, false, counted);
             }
         }
-        AetherExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        AetherExpr::Case { scrutinee, alts, .. } => {
             let after = pending.clone();
             let mut arms = Vec::with_capacity(alts.len());
             for alt in alts.iter_mut() {
@@ -150,20 +142,13 @@ fn walk(
             walk(value, pending, true, counted);
         }
         // The runtime takes the argument and releases it after the clause.
-        AetherExpr::Perform {
-            args, owned_after, ..
-        } => {
+        AetherExpr::Perform { args, owned_after, .. } => {
             *owned_after = held(pending, counted);
             for arg in args.iter_mut().rev() {
                 walk(arg, pending, true, counted);
             }
         }
-        AetherExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        AetherExpr::Handle { body, parameter, handlers, .. } => {
             for handler in handlers.iter_mut() {
                 function_body(&mut handler.body, counted);
             }
@@ -188,11 +173,7 @@ fn walk(
         }
         // Each side releases the scrutinee itself: reuse on the unique side,
         // a drop after the copies on the shared side.
-        AetherExpr::DropSpecialized {
-            unique_body,
-            shared_body,
-            ..
-        } => {
+        AetherExpr::DropSpecialized { unique_body, shared_body, .. } => {
             let after = pending.clone();
             let mut unique = after.clone();
             walk(unique_body, &mut unique, given, counted);
@@ -262,9 +243,7 @@ fn collect_counted(expr: &AetherExpr, out: &mut HashSet<CoreBinderId>) {
             }
             collect_counted(body, out);
         }
-        AetherExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        AetherExpr::Case { scrutinee, alts, .. } => {
             collect_counted(scrutinee, out);
             for alt in alts {
                 collect_pattern(&alt.pat, out);
@@ -285,12 +264,7 @@ fn collect_counted(expr: &AetherExpr, out: &mut HashSet<CoreBinderId>) {
         AetherExpr::MemberAccess { object, .. }
         | AetherExpr::TupleField { object, .. }
         | AetherExpr::Return { value: object, .. } => collect_counted(object, out),
-        AetherExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        AetherExpr::Handle { body, parameter, handlers, .. } => {
             collect_counted(body, out);
             if let Some(parameter) = parameter {
                 collect_counted(parameter, out);
@@ -308,11 +282,7 @@ fn collect_counted(expr: &AetherExpr, out: &mut HashSet<CoreBinderId>) {
             }
         }
         AetherExpr::Dup { body, .. } | AetherExpr::Drop { body, .. } => collect_counted(body, out),
-        AetherExpr::DropSpecialized {
-            unique_body,
-            shared_body,
-            ..
-        } => {
+        AetherExpr::DropSpecialized { unique_body, shared_body, .. } => {
             collect_counted(unique_body, out);
             collect_counted(shared_body, out);
         }
@@ -389,19 +359,11 @@ mod tests {
     }
 
     fn var(binder: CoreBinder) -> AetherExpr {
-        AetherExpr::Var {
-            var: CoreVarRef::resolved(&binder),
-            span: Span::default(),
-        }
+        AetherExpr::Var { var: CoreVarRef::resolved(&binder), span: Span::default() }
     }
 
     fn let_in(var: CoreBinder, rhs: AetherExpr, body: AetherExpr) -> AetherExpr {
-        AetherExpr::Let {
-            var,
-            rhs: Box::new(rhs),
-            body: Box::new(body),
-            span: Span::default(),
-        }
+        AetherExpr::Let { var, rhs: Box::new(rhs), body: Box::new(body), span: Span::default() }
     }
 
     fn dup(binder: CoreBinder, body: AetherExpr) -> AetherExpr {
@@ -421,11 +383,7 @@ mod tests {
     }
 
     fn len(binder: CoreBinder) -> AetherExpr {
-        AetherExpr::PrimOp {
-            op: CorePrimOp::Len,
-            args: vec![var(binder)],
-            span: Span::default(),
-        }
+        AetherExpr::PrimOp { op: CorePrimOp::Len, args: vec![var(binder)], span: Span::default() }
     }
 
     fn lam(params: Vec<CoreBinder>, body: AetherExpr) -> AetherExpr {
@@ -469,10 +427,7 @@ mod tests {
             args: vec![var(n), len(p)],
             span: Span::default(),
         };
-        let expr = lam(
-            vec![p],
-            let_in(xs, g, let_in(k, f, let_in(n, len(xs), drop(xs, sum)))),
-        );
+        let expr = lam(vec![p], let_in(xs, g, let_in(k, f, let_in(n, len(xs), drop(xs, sum)))));
 
         let annotated = annotate_owned_after(expr);
         assert_eq!(held_at(&annotated, k.id), vec![xs.id]);
@@ -505,10 +460,7 @@ mod tests {
         let g = names.call("g", vec![]);
         let f = names.call("f", vec![]);
         let h = names.call("h", vec![dup(xs, var(xs))]);
-        let expr = lam(
-            vec![],
-            let_in(xs, g, let_in(k, f, let_in(r, h, drop(xs, var(r))))),
-        );
+        let expr = lam(vec![], let_in(xs, g, let_in(k, f, let_in(r, h, drop(xs, var(r))))));
 
         let annotated = annotate_owned_after(expr);
         assert_eq!(held_at(&annotated, k.id), vec![xs.id]);

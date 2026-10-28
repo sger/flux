@@ -155,10 +155,8 @@ impl std::fmt::Display for ExpectedCount {
 }
 
 /// The count directives and the `--metrics` key each reads.
-const COUNT_DIRECTIVES: [(&str, &str); 2] = [
-    ("expect-reuse", "aether_reuses"),
-    ("expect-allocs", "aether_allocs"),
-];
+const COUNT_DIRECTIVES: [(&str, &str); 2] =
+    [("expect-reuse", "aether_reuses"), ("expect-allocs", "aether_allocs")];
 
 /// `>= 1`, `<= 3`, `= 3` or `3`.
 fn parse_count(
@@ -180,12 +178,7 @@ fn parse_count(
         .trim()
         .parse()
         .map_err(|_| "expected a count: `3`, `= 3`, `>= 1` or `<= 3`".to_string())?;
-    Ok(ExpectedCount {
-        directive,
-        key,
-        op,
-        value,
-    })
+    Ok(ExpectedCount { directive, key, op, value })
 }
 
 impl Default for FixtureMeta {
@@ -297,10 +290,7 @@ pub fn parse_fixture_meta_allowing(path: &Path, allowed: &[String]) -> FixtureMe
 fn apply_directive(meta: &mut FixtureMeta, comment: &str) {
     if let Some(value) = comment.strip_prefix("parity:") {
         let value = value.trim();
-        let ways: Vec<Way> = value
-            .split(',')
-            .filter_map(|s| Way::parse(s.trim()))
-            .collect();
+        let ways: Vec<Way> = value.split(',').filter_map(|s| Way::parse(s.trim())).collect();
         if !ways.is_empty() {
             meta.ways = ways;
             meta.declared_ways = true;
@@ -329,9 +319,7 @@ fn apply_directive(meta: &mut FixtureMeta, comment: &str) {
     {
         match parse_count(directive, key, value) {
             Ok(count) => meta.expected_counts.push(count),
-            Err(error) => meta
-                .meta_errors
-                .push(format!("`// {directive}:{value}`: {error}")),
+            Err(error) => meta.meta_errors.push(format!("`// {directive}:{value}`: {error}")),
         }
     } else if let Some(code) = comment.strip_prefix("expect-error:") {
         let code = code.trim();
@@ -352,8 +340,7 @@ fn apply_directive(meta: &mut FixtureMeta, comment: &str) {
             if flag == "--strict" {
                 meta.extra_args.push(flag.to_string());
             } else {
-                meta.meta_errors
-                    .push(format!("`// flags: {flag}`: the only flag is `--strict`"));
+                meta.meta_errors.push(format!("`// flags: {flag}`: the only flag is `--strict`"));
             }
         }
     } else if let Some(value) = comment.strip_prefix("bug:") {
@@ -366,16 +353,14 @@ fn apply_directive(meta: &mut FixtureMeta, comment: &str) {
     } else if let Some(value) = comment.strip_prefix("skip-way:") {
         match parse_skip_way(value) {
             Ok(skips) => meta.skip_ways.extend(skips),
-            Err(error) => meta
-                .meta_errors
-                .push(format!("`// skip-way:{value}`: {error}")),
+            Err(error) => meta.meta_errors.push(format!("`// skip-way:{value}`: {error}")),
         }
     } else if let Some(value) = comment.strip_prefix("stdout:") {
         match value.trim() {
             "varies" => meta.stdout_varies = true,
-            other => meta
-                .meta_errors
-                .push(format!("`// stdout: {other}`: the only value is `varies`")),
+            other => {
+                meta.meta_errors.push(format!("`// stdout: {other}`: the only value is `varies`"))
+            }
         }
     } else if let Some(value) = comment.strip_prefix("census-skip:") {
         meta.census_skip = Some(value.trim().to_string());
@@ -398,10 +383,7 @@ fn directory_defaults(path: &Path) -> FixtureMeta {
     let mut meta = FixtureMeta::default();
     let mut folders: Vec<&Path> = path.ancestors().skip(1).collect();
     // Stop at the repository root, the folder with `Cargo.toml`.
-    if let Some(root) = folders
-        .iter()
-        .position(|dir| dir.join("Cargo.toml").is_file())
-    {
+    if let Some(root) = folders.iter().position(|dir| dir.join("Cargo.toml").is_file()) {
         folders.truncate(root + 1);
     }
     for folder in folders.iter().rev() {
@@ -451,10 +433,7 @@ fn parse_skip_way(value: &str) -> Result<Vec<SkipWay>, String> {
         .map(str::trim)
         .map(|name| {
             Way::parse(name)
-                .map(|way| SkipWay {
-                    way,
-                    reason: reason.to_string(),
-                })
+                .map(|way| SkipWay { way, reason: reason.to_string() })
                 .ok_or_else(|| format!("unknown way `{name}`"))
         })
         .collect()
@@ -536,10 +515,7 @@ mod tests {
         assert_eq!(meta.expect, Expect::RuntimeError);
         assert_eq!(meta.expected_errors, vec!["E1004"]);
         assert_eq!(meta.extra_args, Vec::<String>::new());
-        assert_eq!(
-            meta.bug.as_deref(),
-            Some("division by zero differs across backends")
-        );
+        assert_eq!(meta.bug.as_deref(), Some("division by zero differs across backends"));
         assert_eq!(meta.skip.as_deref(), Some("temporary backend gap"));
         assert_eq!(meta.expected_stdout.as_deref(), Some("line 1\nline 2"));
         assert_eq!(
@@ -567,11 +543,7 @@ mod tests {
             "expect-allocs: 0",
         ]);
         assert!(meta.meta_errors.is_empty(), "{:?}", meta.meta_errors);
-        let shown: Vec<String> = meta
-            .expected_counts
-            .iter()
-            .map(ToString::to_string)
-            .collect();
+        let shown: Vec<String> = meta.expected_counts.iter().map(ToString::to_string).collect();
         assert_eq!(
             shown,
             [
@@ -587,11 +559,7 @@ mod tests {
 
     #[test]
     fn expected_counts_hold_by_their_comparison() {
-        let meta = counts_of(&[
-            "expect-reuse: >= 1",
-            "expect-allocs: <= 3",
-            "expect-reuse: 2",
-        ]);
+        let meta = counts_of(&["expect-reuse: >= 1", "expect-allocs: <= 3", "expect-reuse: 2"]);
         let [at_least, at_most, exactly] = &meta.expected_counts[..] else {
             panic!("three counts");
         };
@@ -602,11 +570,7 @@ mod tests {
 
     #[test]
     fn a_bad_expected_count_is_a_meta_error() {
-        let meta = counts_of(&[
-            "expect-reuse: lots",
-            "expect-allocs: >= -1",
-            "expect-reuse:",
-        ]);
+        let meta = counts_of(&["expect-reuse: lots", "expect-allocs: >= -1", "expect-reuse:"]);
         assert!(meta.expected_counts.is_empty());
         assert_eq!(meta.meta_errors.len(), 3, "{:?}", meta.meta_errors);
         assert!(meta.meta_errors[0].starts_with("`// expect-reuse: lots`"));
@@ -630,9 +594,7 @@ mod tests {
         };
         apply_platform_requirement(&mut meta, &[]);
         assert!(
-            meta.skip
-                .as_deref()
-                .is_some_and(|r| r.contains("requires a")),
+            meta.skip.as_deref().is_some_and(|r| r.contains("requires a")),
             "expected a platform skip reason, got {:?}",
             meta.skip
         );
@@ -642,10 +604,7 @@ mod tests {
     fn unrecognised_requires_skips_rather_than_running() {
         // A typo must not run the fixture on the platform it declared it
         // cannot run on. Skipping is visible in the SKIP line; ignoring is not.
-        let mut meta = FixtureMeta {
-            requires: Some("unixx".to_string()),
-            ..Default::default()
-        };
+        let mut meta = FixtureMeta { requires: Some("unixx".to_string()), ..Default::default() };
         apply_platform_requirement(&mut meta, &[]);
         assert!(
             meta.skip.as_deref().is_some_and(|r| r.contains("unixx")),
@@ -711,17 +670,11 @@ mod tests {
 
     #[test]
     fn network_is_skipped_unless_allowed() {
-        let network = || FixtureMeta {
-            requires: Some("network".to_string()),
-            ..Default::default()
-        };
+        let network =
+            || FixtureMeta { requires: Some("network".to_string()), ..Default::default() };
         let mut meta = network();
         apply_platform_requirement(&mut meta, &[]);
-        assert!(
-            meta.skip
-                .as_deref()
-                .is_some_and(|r| r.contains("--allow network"))
-        );
+        assert!(meta.skip.as_deref().is_some_and(|r| r.contains("--allow network")));
         let mut meta = network();
         apply_platform_requirement(&mut meta, &["network".to_string()]);
         assert_eq!(meta.skip, None);
@@ -832,11 +785,7 @@ mod tests {
     #[test]
     fn skip_way_rejects_an_anonymous_reason_an_unknown_way_and_no_reason() {
         assert!(parse_skip_way(" llvm: flaky").unwrap_err().contains("KI-"));
-        assert!(
-            parse_skip_way(" llvmm: KI-091 x")
-                .unwrap_err()
-                .contains("llvmm")
-        );
+        assert!(parse_skip_way(" llvmm: KI-091 x").unwrap_err().contains("llvmm"));
         assert!(parse_skip_way(" llvm").is_err());
     }
 

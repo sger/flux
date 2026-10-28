@@ -52,11 +52,7 @@ fn fun_with_effects(
     ret: InferType,
     effects: Vec<flux::syntax::Identifier>,
 ) -> InferType {
-    InferType::Fun(
-        params,
-        Box::new(ret),
-        InferEffectRow::closed_from_symbols(effects),
-    )
+    InferType::Fun(params, Box::new(ret), InferEffectRow::closed_from_symbols(effects))
 }
 
 fn tuple(elems: Vec<InferType>) -> InferType {
@@ -65,28 +61,18 @@ fn tuple(elems: Vec<InferType>) -> InferType {
 
 fn infer_program_from_source(
     source: &str,
-) -> (
-    flux::ast::type_infer::InferProgramResult,
-    flux::syntax::program::Program,
-) {
+) -> (flux::ast::type_infer::InferProgramResult, flux::syntax::program::Program) {
     infer_program_from_source_with_class_env(source, None)
 }
 
 fn infer_program_from_source_with_class_env(
     source: &str,
     class_env: Option<flux::types::class_env::ClassEnv>,
-) -> (
-    flux::ast::type_infer::InferProgramResult,
-    flux::syntax::program::Program,
-) {
+) -> (flux::ast::type_infer::InferProgramResult, flux::syntax::program::Program) {
     let lexer = Lexer::new(source);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut effect_op_sigs = HashMap::new();
     fn effect_op_scheme(
@@ -125,12 +111,7 @@ fn infer_program_from_source_with_class_env(
                 }
             }
         }
-        let flux::syntax::type_expr::TypeExpr::Function {
-            params,
-            ret,
-            effects,
-            ..
-        } = type_expr
+        let flux::syntax::type_expr::TypeExpr::Function { params, ret, effects, .. } = type_expr
         else {
             panic!("effect operation signature must be function-shaped");
         };
@@ -169,10 +150,7 @@ fn infer_program_from_source_with_class_env(
         let effect_row =
             InferEffectRow::from_effect_exprs(effects, &mut row_var_env, &mut next_var)
                 .expect("effect op effect row should lower");
-        generalize(
-            &InferType::Fun(param_tys, Box::new(ret_ty), effect_row),
-            &HashSet::new(),
-        )
+        generalize(&InferType::Fun(param_tys, Box::new(ret_ty), effect_row), &HashSet::new())
     }
     fn collect_effect_sigs(
         statements: &[Statement],
@@ -223,38 +201,26 @@ fn first_perform_expr(program: &flux::syntax::program::Program) -> Option<&Expre
             Expression::Perform { .. } => Some(expr),
             Expression::Prefix { right, .. } => walk_expr(right),
             Expression::Infix { left, right, .. } => walk_expr(left).or_else(|| walk_expr(right)),
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-                ..
-            } => walk_expr(condition)
+            Expression::If { condition, consequence, alternative, .. } => walk_expr(condition)
                 .or_else(|| walk_block(consequence))
                 .or_else(|| alternative.as_ref().and_then(walk_block)),
             Expression::DoBlock { block, .. } => walk_block(block),
             Expression::Function { body, .. } => walk_block(body),
-            Expression::Call {
-                function,
-                arguments,
-                ..
-            } => walk_expr(function).or_else(|| arguments.iter().find_map(walk_expr)),
+            Expression::Call { function, arguments, .. } => {
+                walk_expr(function).or_else(|| arguments.iter().find_map(walk_expr))
+            }
             Expression::TupleLiteral { elements, .. }
             | Expression::ListLiteral { elements, .. }
             | Expression::ArrayLiteral { elements, .. } => elements.iter().find_map(walk_expr),
-            Expression::Hash { pairs, .. } => pairs
-                .iter()
-                .find_map(|(k, v)| walk_expr(k).or_else(|| walk_expr(v))),
+            Expression::Hash { pairs, .. } => {
+                pairs.iter().find_map(|(k, v)| walk_expr(k).or_else(|| walk_expr(v)))
+            }
             Expression::Index { left, index, .. } => walk_expr(left).or_else(|| walk_expr(index)),
             Expression::MemberAccess { object, .. }
             | Expression::TupleFieldAccess { object, .. } => walk_expr(object),
-            Expression::Match {
-                scrutinee, arms, ..
-            } => walk_expr(scrutinee).or_else(|| {
+            Expression::Match { scrutinee, arms, .. } => walk_expr(scrutinee).or_else(|| {
                 arms.iter().find_map(|arm| {
-                    arm.guard
-                        .as_ref()
-                        .and_then(walk_expr)
-                        .or_else(|| walk_expr(&arm.body))
+                    arm.guard.as_ref().and_then(walk_expr).or_else(|| walk_expr(&arm.body))
                 })
             }),
             Expression::Some { value, .. }
@@ -293,38 +259,26 @@ fn first_handle_expr(program: &flux::syntax::program::Program) -> Option<&Expres
             Expression::Handle { .. } => Some(expr),
             Expression::Prefix { right, .. } => walk_expr(right),
             Expression::Infix { left, right, .. } => walk_expr(left).or_else(|| walk_expr(right)),
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-                ..
-            } => walk_expr(condition)
+            Expression::If { condition, consequence, alternative, .. } => walk_expr(condition)
                 .or_else(|| walk_block(consequence))
                 .or_else(|| alternative.as_ref().and_then(walk_block)),
             Expression::DoBlock { block, .. } => walk_block(block),
             Expression::Function { body, .. } => walk_block(body),
-            Expression::Call {
-                function,
-                arguments,
-                ..
-            } => walk_expr(function).or_else(|| arguments.iter().find_map(walk_expr)),
+            Expression::Call { function, arguments, .. } => {
+                walk_expr(function).or_else(|| arguments.iter().find_map(walk_expr))
+            }
             Expression::TupleLiteral { elements, .. }
             | Expression::ListLiteral { elements, .. }
             | Expression::ArrayLiteral { elements, .. } => elements.iter().find_map(walk_expr),
-            Expression::Hash { pairs, .. } => pairs
-                .iter()
-                .find_map(|(k, v)| walk_expr(k).or_else(|| walk_expr(v))),
+            Expression::Hash { pairs, .. } => {
+                pairs.iter().find_map(|(k, v)| walk_expr(k).or_else(|| walk_expr(v)))
+            }
             Expression::Index { left, index, .. } => walk_expr(left).or_else(|| walk_expr(index)),
             Expression::MemberAccess { object, .. }
             | Expression::TupleFieldAccess { object, .. } => walk_expr(object),
-            Expression::Match {
-                scrutinee, arms, ..
-            } => walk_expr(scrutinee).or_else(|| {
+            Expression::Match { scrutinee, arms, .. } => walk_expr(scrutinee).or_else(|| {
                 arms.iter().find_map(|arm| {
-                    arm.guard
-                        .as_ref()
-                        .and_then(walk_expr)
-                        .or_else(|| walk_expr(&arm.body))
+                    arm.guard.as_ref().and_then(walk_expr).or_else(|| walk_expr(&arm.body))
                 })
             }),
             Expression::Some { value, .. }
@@ -360,27 +314,20 @@ fn first_match_expr(program: &flux::syntax::program::Program) -> Option<&Express
             Expression::Match { .. } => Some(expr),
             Expression::Prefix { right, .. } => walk_expr(right),
             Expression::Infix { left, right, .. } => walk_expr(left).or_else(|| walk_expr(right)),
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-                ..
-            } => walk_expr(condition)
+            Expression::If { condition, consequence, alternative, .. } => walk_expr(condition)
                 .or_else(|| walk_block(consequence))
                 .or_else(|| alternative.as_ref().and_then(walk_block)),
             Expression::DoBlock { block, .. } => walk_block(block),
             Expression::Function { body, .. } => walk_block(body),
-            Expression::Call {
-                function,
-                arguments,
-                ..
-            } => walk_expr(function).or_else(|| arguments.iter().find_map(walk_expr)),
+            Expression::Call { function, arguments, .. } => {
+                walk_expr(function).or_else(|| arguments.iter().find_map(walk_expr))
+            }
             Expression::TupleLiteral { elements, .. }
             | Expression::ListLiteral { elements, .. }
             | Expression::ArrayLiteral { elements, .. } => elements.iter().find_map(walk_expr),
-            Expression::Hash { pairs, .. } => pairs
-                .iter()
-                .find_map(|(k, v)| walk_expr(k).or_else(|| walk_expr(v))),
+            Expression::Hash { pairs, .. } => {
+                pairs.iter().find_map(|(k, v)| walk_expr(k).or_else(|| walk_expr(v)))
+            }
             Expression::Index { left, index, .. } => walk_expr(left).or_else(|| walk_expr(index)),
             Expression::MemberAccess { object, .. }
             | Expression::TupleFieldAccess { object, .. } => walk_expr(object),
@@ -415,20 +362,14 @@ fn first_match_expr(program: &flux::syntax::program::Program) -> Option<&Express
 }
 
 fn has_diagnostic_code(result: &flux::ast::type_infer::InferProgramResult, code: &str) -> bool {
-    result
-        .diagnostics
-        .iter()
-        .any(|diag| diag.code() == Some(code))
+    result.diagnostics.iter().any(|diag| diag.code() == Some(code))
 }
 
 fn has_diagnostic_message_fragment(
     result: &flux::ast::type_infer::InferProgramResult,
     fragment: &str,
 ) -> bool {
-    result
-        .diagnostics
-        .iter()
-        .any(|diag| diag.message().is_some_and(|m| m.contains(fragment)))
+    result.diagnostics.iter().any(|diag| diag.message().is_some_and(|m| m.contains(fragment)))
 }
 
 #[test]
@@ -499,11 +440,7 @@ fn main() -> Unit {
             "The branches of this `if` expression do not agree on a type."
         ),
         "expected contextual if-branch mismatch message, got: {:#?}",
-        result
-            .diagnostics
-            .iter()
-            .map(|d| d.message().unwrap_or(""))
-            .collect::<Vec<_>>()
+        result.diagnostics.iter().map(|d| d.message().unwrap_or("")).collect::<Vec<_>>()
     );
 
     let diag = result
@@ -517,15 +454,11 @@ fn main() -> Unit {
         })
         .expect("expected contextual if E300 diagnostic");
     assert!(
-        diag.labels()
-            .iter()
-            .any(|l| l.style == flux::diagnostics::LabelStyle::Primary),
+        diag.labels().iter().any(|l| l.style == flux::diagnostics::LabelStyle::Primary),
         "expected primary label on contextual if diagnostic"
     );
     assert!(
-        diag.labels()
-            .iter()
-            .any(|l| l.style == flux::diagnostics::LabelStyle::Secondary),
+        diag.labels().iter().any(|l| l.style == flux::diagnostics::LabelStyle::Secondary),
         "expected secondary label on contextual if diagnostic"
     );
 }
@@ -540,21 +473,14 @@ fn main() -> Unit {
     let (result, program) = infer_program_from_source(source);
     let expected_else_value_span = match &program.statements[0] {
         Statement::Function { body, .. } => match &body.statements[0] {
-            Statement::Let {
-                value:
-                    Expression::If {
-                        alternative: Some(alt),
-                        ..
-                    },
-                ..
-            } => match alt.statements.last() {
-                Some(Statement::Expression {
-                    expression,
-                    has_semicolon: false,
-                    ..
-                }) => expression.span(),
-                other => panic!("unexpected else block tail statement shape: {other:?}"),
-            },
+            Statement::Let { value: Expression::If { alternative: Some(alt), .. }, .. } => {
+                match alt.statements.last() {
+                    Some(Statement::Expression { expression, has_semicolon: false, .. }) => {
+                        expression.span()
+                    }
+                    other => panic!("unexpected else block tail statement shape: {other:?}"),
+                }
+            }
             other => panic!("unexpected function body statement shape: {other:?}"),
         },
         other => panic!("unexpected program statement shape: {other:?}"),
@@ -621,11 +547,7 @@ fn main() -> Unit {
             "The arms of this `match` expression do not agree on a type."
         ),
         "expected contextual match-arm mismatch message, got: {:#?}",
-        result
-            .diagnostics
-            .iter()
-            .map(|d| d.message().unwrap_or(""))
-            .collect::<Vec<_>>()
+        result.diagnostics.iter().map(|d| d.message().unwrap_or("")).collect::<Vec<_>>()
     );
 
     let diag = result
@@ -639,15 +561,11 @@ fn main() -> Unit {
         })
         .expect("expected contextual match E300 diagnostic");
     assert!(
-        diag.labels()
-            .iter()
-            .any(|l| l.style == flux::diagnostics::LabelStyle::Primary),
+        diag.labels().iter().any(|l| l.style == flux::diagnostics::LabelStyle::Primary),
         "expected primary label on contextual match diagnostic"
     );
     assert!(
-        diag.labels()
-            .iter()
-            .any(|l| l.style == flux::diagnostics::LabelStyle::Secondary),
+        diag.labels().iter().any(|l| l.style == flux::diagnostics::LabelStyle::Secondary),
         "expected secondary label on contextual match diagnostic"
     );
 }
@@ -683,9 +601,7 @@ fn main() -> Unit {
     let msgs: Vec<_> = contextual
         .iter()
         .filter_map(|d| {
-            d.labels()
-                .iter()
-                .find(|l| l.style == flux::diagnostics::LabelStyle::Primary)
+            d.labels().iter().find(|l| l.style == flux::diagnostics::LabelStyle::Primary)
         })
         .map(|l| l.text.clone())
         .collect();
@@ -758,12 +674,10 @@ fn main() -> Unit {
         .iter()
         .find_map(|statement| match statement {
             Statement::Function { body, .. } => {
-                body.statements
-                    .iter()
-                    .find_map(|statement| match statement {
-                        Statement::Let { value, .. } => Some(value),
-                        _ => None,
-                    })
+                body.statements.iter().find_map(|statement| match statement {
+                    Statement::Let { value, .. } => Some(value),
+                    _ => None,
+                })
             }
             _ => None,
         })
@@ -931,10 +845,8 @@ fn main() -> Unit {
     // The only diagnostic allowed is the coverage checker's
     // "Redundant Match Arm" warning for the trailing `_ -> ...`
     // arm (covered by `Some(_)` + `None`). No errors should appear.
-    let has_error = result
-        .diagnostics
-        .iter()
-        .any(|d| d.severity() == flux::diagnostics::Severity::Error);
+    let has_error =
+        result.diagnostics.iter().any(|d| d.severity() == flux::diagnostics::Severity::Error);
     assert!(
         !has_error,
         "expected no error diagnostics for concrete Option match, got: {:#?}",
@@ -960,14 +872,9 @@ fn main() -> Unit {
     let (result, program) = infer_program_from_source(source);
     let call_expr = match &program.statements[1] {
         Statement::Function { body, .. } => match &body.statements[0] {
-            Statement::Let {
-                value: Expression::Call { .. },
-                ..
-            } => {
-                if let Statement::Let {
-                    value: call @ Expression::Call { .. },
-                    ..
-                } = &body.statements[0]
+            Statement::Let { value: Expression::Call { .. }, .. } => {
+                if let Statement::Let { value: call @ Expression::Call { .. }, .. } =
+                    &body.statements[0]
                 {
                     call
                 } else {
@@ -1014,21 +921,12 @@ fn fib(n) {
     let Statement::Function { body, .. } = &program.statements[0] else {
         panic!("expected `fib`");
     };
-    let Some(Statement::Return {
-        value: Some(sum @ Expression::Infix { .. }),
-        ..
-    }) = body.statements.last()
+    let Some(Statement::Return { value: Some(sum @ Expression::Infix { .. }), .. }) =
+        body.statements.last()
     else {
-        panic!(
-            "expected `return fib(n - 1) + fib(n - 2)`, got {:?}",
-            body.statements.last()
-        );
+        panic!("expected `return fib(n - 1) + fib(n - 2)`, got {:?}", body.statements.last());
     };
-    assert_eq!(
-        result.expr_types.get(&sum.expr_id()),
-        Some(&int()),
-        "the sum's type"
-    );
+    assert_eq!(result.expr_types.get(&sum.expr_id()), Some(&int()), "the sum's type");
 }
 
 /// What follows a block's own `return` never runs, so it is not the block's
@@ -1106,14 +1004,9 @@ fn main() -> Unit {
     let (result, program) = infer_program_from_source(source);
     let call_expr = match &program.statements[1] {
         Statement::Function { body, .. } => match &body.statements[0] {
-            Statement::Let {
-                value: Expression::Call { .. },
-                ..
-            } => {
-                if let Statement::Let {
-                    value: call @ Expression::Call { .. },
-                    ..
-                } = &body.statements[0]
+            Statement::Let { value: Expression::Call { .. }, .. } => {
+                if let Statement::Let { value: call @ Expression::Call { .. }, .. } =
+                    &body.statements[0]
                 {
                     call
                 } else {
@@ -1164,11 +1057,7 @@ fn main() -> Unit {
     assert!(
         has_diagnostic_message_fragment(&result, "Parameter 1 has the wrong type."),
         "expected function param mismatch message, got: {:#?}",
-        result
-            .diagnostics
-            .iter()
-            .map(|d| d.message().unwrap_or(""))
-            .collect::<Vec<_>>()
+        result.diagnostics.iter().map(|d| d.message().unwrap_or("")).collect::<Vec<_>>()
     );
 }
 
@@ -1197,11 +1086,7 @@ fn main() -> Unit {
             "The body of this function does not match its return type."
         ),
         "expected function return mismatch message, got: {:#?}",
-        result
-            .diagnostics
-            .iter()
-            .map(|d| d.message().unwrap_or(""))
-            .collect::<Vec<_>>()
+        result.diagnostics.iter().map(|d| d.message().unwrap_or("")).collect::<Vec<_>>()
     );
 }
 
@@ -1227,11 +1112,7 @@ fn main() -> Unit {
     assert!(
         has_diagnostic_message_fragment(&result, "too many arguments"),
         "expected function arity mismatch message, got: {:#?}",
-        result
-            .diagnostics
-            .iter()
-            .map(|d| d.message().unwrap_or(""))
-            .collect::<Vec<_>>()
+        result.diagnostics.iter().map(|d| d.message().unwrap_or("")).collect::<Vec<_>>()
     );
 }
 
@@ -1323,11 +1204,7 @@ fn unify_fun_with_var_return() {
 
 #[test]
 fn unify_fun_arity_mismatch() {
-    let err = unify(
-        &fun(vec![int()], string()),
-        &fun(vec![int(), int()], string()),
-    )
-    .unwrap_err();
+    let err = unify(&fun(vec![int()], string()), &fun(vec![int(), int()], string())).unwrap_err();
     assert_eq!(err.kind, UnifyErrorKind::Mismatch);
 }
 
@@ -1385,16 +1262,9 @@ fn main() -> Unit with Console {
 "#,
     );
     assert!(
-        result
-            .diagnostics
-            .iter()
-            .any(|d| d.code().is_some_and(|code| code == "E300")),
+        result.diagnostics.iter().any(|d| d.code().is_some_and(|code| code == "E300")),
         "expected E300 diagnostics for perform arg mismatch, got: {:?}",
-        result
-            .diagnostics
-            .iter()
-            .map(|d| d.code().unwrap_or(""))
-            .collect::<Vec<_>>()
+        result.diagnostics.iter().map(|d| d.code().unwrap_or("")).collect::<Vec<_>>()
     );
 }
 
@@ -1642,11 +1512,7 @@ fn main() -> Unit {
     assert!(
         result.diagnostics.is_empty(),
         "expected no diagnostics for order-equivalent effect rows, got: {:?}",
-        result
-            .diagnostics
-            .iter()
-            .map(|d| d.code().unwrap_or(""))
-            .collect::<Vec<_>>()
+        result.diagnostics.iter().map(|d| d.code().unwrap_or("")).collect::<Vec<_>>()
     );
 }
 
@@ -1672,11 +1538,7 @@ fn main() -> Unit {
     assert!(
         result.diagnostics.is_empty(),
         "expected no HM diagnostics for satisfiable row-variable subtraction signature, got: {:?}",
-        result
-            .diagnostics
-            .iter()
-            .map(|d| d.code().unwrap_or(""))
-            .collect::<Vec<_>>()
+        result.diagnostics.iter().map(|d| d.code().unwrap_or("")).collect::<Vec<_>>()
     );
 }
 
@@ -1698,11 +1560,7 @@ fn main() -> Unit {
     assert!(
         has_diagnostic_code(&result, "E300"),
         "expected HM effect-row mismatch diagnostics, got: {:?}",
-        result
-            .diagnostics
-            .iter()
-            .map(|d| d.code().unwrap_or(""))
-            .collect::<Vec<_>>()
+        result.diagnostics.iter().map(|d| d.code().unwrap_or("")).collect::<Vec<_>>()
     );
 }
 
@@ -1731,11 +1589,7 @@ fn main() -> Unit with Time {
     assert!(
         result.diagnostics.is_empty(),
         "expected HM to remain diagnostics-clean for linked row-var absence flow; compiler enforces call-site row constraints, got: {:?}",
-        result
-            .diagnostics
-            .iter()
-            .map(|d| d.code().unwrap_or(""))
-            .collect::<Vec<_>>()
+        result.diagnostics.iter().map(|d| d.code().unwrap_or("")).collect::<Vec<_>>()
     );
 }
 
@@ -1776,10 +1630,7 @@ fn main() -> Unit with Console {
 "#,
     );
     assert!(
-        result
-            .diagnostics
-            .iter()
-            .any(|d| d.code().is_some_and(|code| code == "E300")),
+        result.diagnostics.iter().any(|d| d.code().is_some_and(|code| code == "E300")),
         "expected E300 diagnostics for handler param type usage mismatch"
     );
 }
@@ -1812,11 +1663,7 @@ fn main() -> Unit with Id {
 
 #[test]
 fn unify_tuple_match() {
-    let subst = unify(
-        &tuple(vec![var(0), string()]),
-        &tuple(vec![int(), string()]),
-    )
-    .unwrap();
+    let subst = unify(&tuple(vec![var(0), string()]), &tuple(vec![int(), string()])).unwrap();
     assert_eq!(subst.get(0), Some(&int()));
 }
 
@@ -1870,10 +1717,7 @@ fn subst_apply_nested() {
     let mut subst = TypeSubst::empty();
     subst.insert(0, string());
     assert_eq!(list(var(0)).apply_type_subst(&subst), list(string()));
-    assert_eq!(
-        fun(vec![var(0)], var(0)).apply_type_subst(&subst),
-        fun(vec![string()], string())
-    );
+    assert_eq!(fun(vec![var(0)], var(0)).apply_type_subst(&subst), fun(vec![string()], string()));
 }
 
 #[test]
@@ -1913,11 +1757,7 @@ fn scheme_instantiate_mono() {
 #[test]
 fn scheme_instantiate_poly() {
     // ∀0. 0 → 0  (identity function scheme)
-    let s = Scheme {
-        forall: vec![0],
-        constraints: vec![],
-        infer_type: fun(vec![var(0)], var(0)),
-    };
+    let s = Scheme { forall: vec![0], constraints: vec![], infer_type: fun(vec![var(0)], var(0)) };
     let mut counter = 10u32;
     let (ty, mapping, _) = s.instantiate(&mut counter);
     // Fresh var 10 should replace var 0
@@ -2036,22 +1876,13 @@ fn type_env_free_vars() {
 #[test]
 fn type_env_try_to_runtime_primitives() {
     use flux::runtime::runtime_type::RuntimeType;
-    assert_eq!(
-        TypeEnv::try_to_runtime(&int(), &TypeSubst::empty()).unwrap(),
-        RuntimeType::Int
-    );
-    assert_eq!(
-        TypeEnv::try_to_runtime(&float(), &TypeSubst::empty()).unwrap(),
-        RuntimeType::Float
-    );
+    assert_eq!(TypeEnv::try_to_runtime(&int(), &TypeSubst::empty()).unwrap(), RuntimeType::Int);
+    assert_eq!(TypeEnv::try_to_runtime(&float(), &TypeSubst::empty()).unwrap(), RuntimeType::Float);
     assert_eq!(
         TypeEnv::try_to_runtime(&string(), &TypeSubst::empty()).unwrap(),
         RuntimeType::String
     );
-    assert_eq!(
-        TypeEnv::try_to_runtime(&bool_(), &TypeSubst::empty()).unwrap(),
-        RuntimeType::Bool
-    );
+    assert_eq!(TypeEnv::try_to_runtime(&bool_(), &TypeSubst::empty()).unwrap(), RuntimeType::Bool);
     assert_eq!(
         TypeEnv::try_to_runtime(&var(0), &TypeSubst::empty())
             .expect_err("unresolved vars should not lower as a concrete runtime type")
@@ -2109,10 +1940,7 @@ fn main() -> Unit {
     let (result, program) = infer_program_from_source(source);
     let expected_arg_span = match &program.statements[1] {
         Statement::Function { body, .. } => match &body.statements[0] {
-            Statement::Let {
-                value: Expression::Call { arguments, .. },
-                ..
-            } => arguments[1].span(),
+            Statement::Let { value: Expression::Call { arguments, .. }, .. } => arguments[1].span(),
             other => panic!("unexpected function body statement shape: {other:?}"),
         },
         other => panic!("unexpected program statement shape: {other:?}"),
@@ -2192,11 +2020,7 @@ fn main() -> Unit {
     let lexer = Lexer::new(source);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut interner_for_base = interner.clone();
     let map = interner_for_base.intern("map");
@@ -2572,11 +2396,7 @@ fn plus<a>(x: a, y: a) -> a {
     assert!(
         result.diagnostics.iter().any(|d| d.code() == Some("E487")),
         "expected E487 when `Num` is absent from a present class environment, got: {:?}",
-        result
-            .diagnostics
-            .iter()
-            .map(|d| d.code().unwrap_or(""))
-            .collect::<Vec<_>>()
+        result.diagnostics.iter().map(|d| d.code().unwrap_or("")).collect::<Vec<_>>()
     );
 }
 

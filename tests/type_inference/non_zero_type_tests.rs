@@ -30,8 +30,5 @@ fn non_zero_vm_native_parity() {
     assert!(success, "native backend failed:\n{native_out}");
     let vm_lines: Vec<&str> = vm_out.lines().collect();
     let native_lines: Vec<&str> = native_out.lines().filter(|l| !l.starts_with('[')).collect();
-    assert_eq!(
-        vm_lines, native_lines,
-        "VM and native output differ for NonZero arithmetic"
-    );
+    assert_eq!(vm_lines, native_lines, "VM and native output differ for NonZero arithmetic");
 }

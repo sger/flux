@@ -160,14 +160,8 @@ pub fn preload_module_into_compiler(
     // those in too so we don't regress whatever M2c already worked for.
     for (member_id, scheme) in &result.resolved_binding_schemes {
         if let Some(name) = compiler.interner.try_resolve(*member_id) {
-            interface
-                .schemes
-                .entry(name.to_string())
-                .or_insert_with(|| scheme.clone());
-            interface
-                .member_is_value
-                .entry(name.to_string())
-                .or_insert(false);
+            interface.schemes.entry(name.to_string()).or_insert_with(|| scheme.clone());
+            interface.member_is_value.entry(name.to_string()).or_insert(false);
         }
     }
     compiler.preload_module_interface(&interface);
@@ -211,14 +205,8 @@ pub fn preload_module_into_compiler_with_program(
     }
     for (member_id, scheme) in &result.resolved_binding_schemes {
         if let Some(name) = compiler.interner.try_resolve(*member_id) {
-            interface
-                .schemes
-                .entry(name.to_string())
-                .or_insert_with(|| scheme.clone());
-            interface
-                .member_is_value
-                .entry(name.to_string())
-                .or_insert(false);
+            interface.schemes.entry(name.to_string()).or_insert_with(|| scheme.clone());
+            interface.member_is_value.entry(name.to_string()).or_insert(false);
         }
     }
     compiler.preload_module_interface(&interface);
@@ -251,14 +239,8 @@ pub fn stash_module_schemes(
     }
     for (member_id, scheme) in &result.resolved_binding_schemes {
         if let Some(name) = compiler.interner.try_resolve(*member_id) {
-            interface
-                .schemes
-                .entry(name.to_string())
-                .or_insert_with(|| scheme.clone());
-            interface
-                .member_is_value
-                .entry(name.to_string())
-                .or_insert(false);
+            interface.schemes.entry(name.to_string()).or_insert_with(|| scheme.clone());
+            interface.member_is_value.entry(name.to_string()).or_insert(false);
         }
     }
     compiler.preload_module_interface(&interface);
@@ -345,11 +327,8 @@ pub fn flow_module_file_for(flow_dir: &Path, module_name: &str) -> Option<std::p
 /// (which stops at the first `Cargo.toml`) because in a Cargo workspace the
 /// prelude lives at the workspace root, not the inner crate root.
 fn find_flow_dir(start: &Path) -> Option<std::path::PathBuf> {
-    let mut current = if start.is_file() {
-        start.parent()?.to_path_buf()
-    } else {
-        start.to_path_buf()
-    };
+    let mut current =
+        if start.is_file() { start.parent()?.to_path_buf() } else { start.to_path_buf() };
     for _ in 0..16 {
         let candidate = current.join("lib").join("Flow");
         if candidate.is_dir() {
@@ -368,9 +347,7 @@ mod tests {
 
     /// Locate `lib/Flow/` from the crate manifest directory.
     fn flow_dir() -> std::path::PathBuf {
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("lib")
-            .join("Flow")
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("lib").join("Flow")
     }
 
     /// The LSP mirrors `FLOW_PRELUDE_MODULES` from `driver::frontend`. Both
@@ -437,9 +414,7 @@ mod tests {
     #[test]
     fn result_module_is_not_auto_injected() {
         assert!(
-            !FLOW_PRELUDE_MODULES
-                .iter()
-                .any(|(name, _)| *name == "Flow.Result"),
+            !FLOW_PRELUDE_MODULES.iter().any(|(name, _)| *name == "Flow.Result"),
             "Flow.Result must stay an explicit-import module; auto-injection is \
              the one choice that cannot be walked back"
         );
@@ -459,9 +434,7 @@ mod tests {
     /// session started in a nested directory still finds the stdlib.
     #[test]
     fn find_flow_dir_walks_up_from_a_nested_path() {
-        let nested = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src")
-            .join("driver");
+        let nested = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("driver");
         assert_eq!(
             find_flow_dir(&nested).as_deref(),
             Some(flow_dir().as_path()),

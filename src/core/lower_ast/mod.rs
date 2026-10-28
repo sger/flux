@@ -135,14 +135,8 @@ pub fn lower_program_ast_with_evidence(
     class_env: Option<&crate::types::class_env::ClassEnv>,
     evidence: Option<&crate::types::evidence::EvidenceMap>,
 ) -> (CoreProgram, Vec<crate::diagnostics::Diagnostic>) {
-    let mut lowerer = AstLowerer::new(
-        hm_expr_types,
-        interner,
-        type_env,
-        effect_op_sigs,
-        class_env,
-        evidence,
-    );
+    let mut lowerer =
+        AstLowerer::new(hm_expr_types, interner, type_env, effect_op_sigs, class_env, evidence);
     lowerer.collect_ctor_field_names(program);
     lowerer.collect_local_function_names(program);
     lowerer.collect_specializations(program);
@@ -169,10 +163,7 @@ pub fn lower_program_ast_with_evidence(
             }
         }
     }
-    let mut core = CoreProgram {
-        defs,
-        top_level_items,
-    };
+    let mut core = CoreProgram { defs, top_level_items };
     let is_dict = |name: Identifier| {
         interner
             .and_then(|interner| interner.try_resolve(name))
@@ -240,18 +231,9 @@ struct CallSiteInstantiations<'a> {
 
 impl<'ast> crate::ast::visit::Visitor<'ast> for CallSiteInstantiations<'_> {
     fn visit_stmt(&mut self, stmt: &'ast Statement) {
-        if let Statement::Function {
-            name,
-            parameters,
-            type_params,
-            ..
-        } = stmt
-        {
+        if let Statement::Function { name, parameters, type_params, .. } = stmt {
             self.params.insert(*name, parameters.clone());
-            if type_params
-                .iter()
-                .any(|param| !param.constraints.is_empty())
-            {
+            if type_params.iter().any(|param| !param.constraints.is_empty()) {
                 self.constrained.insert(*name);
             }
             let outer = self.enclosing.replace(*name);
@@ -282,15 +264,10 @@ impl<'ast> crate::ast::visit::Visitor<'ast> for CallSiteInstantiations<'_> {
         }
         if let Expression::Identifier { name, .. } = expr
             && let Some(enclosing) = self.enclosing
-            && self
-                .params
-                .get(&enclosing)
-                .is_some_and(|ps| ps.contains(name))
+            && self.params.get(&enclosing).is_some_and(|ps| ps.contains(name))
             && let Some(ty) = self.hm_expr_types.get(&expr.expr_id())
         {
-            self.param_types
-                .entry((enclosing, *name))
-                .or_insert_with(|| ty.clone());
+            self.param_types.entry((enclosing, *name)).or_insert_with(|| ty.clone());
         }
         crate::ast::visit::walk_expr(self, expr);
     }
@@ -454,11 +431,7 @@ impl<'a> AstLowerer<'a> {
                 }
             }
         }
-        walk(
-            &program.statements,
-            &mut self.local_function_names,
-            &mut self.user_function_names,
-        );
+        walk(&program.statements, &mut self.local_function_names, &mut self.user_function_names);
     }
 
     /// 0187 B1: find every generalized function whose call sites all agree on
@@ -604,11 +577,7 @@ impl<'a> AstLowerer<'a> {
                 }
             }
         }
-        walk(
-            &program.statements,
-            &mut self.ctor_field_names,
-            &mut self.adt_variants,
-        );
+        walk(&program.statements, &mut self.ctor_field_names, &mut self.adt_variants);
     }
 
     pub(super) fn bind_name(&mut self, name: crate::syntax::Identifier) -> CoreBinder {
@@ -628,11 +597,7 @@ impl<'a> AstLowerer<'a> {
         let rep = self.rep_for_expr(expr_id);
         // Keep the full type too: `rep` collapses every boxed type to
         // `TaggedRep`, which cannot tell one rigid parameter from another.
-        if let Some(ty) = self
-            .hm_type(expr_id)
-            .as_ref()
-            .and_then(super::CoreType::try_from_infer)
-        {
+        if let Some(ty) = self.hm_type(expr_id).as_ref().and_then(super::CoreType::try_from_infer) {
             self.binder_types.insert(id, ty);
         }
         CoreBinder::with_rep(id, name, rep)
@@ -707,10 +672,9 @@ impl<'a> AstLowerer<'a> {
             let param_types = scheme.infer_type.param_types();
             if param_types.len() == parameters.len() && !param_types.is_empty() {
                 let param_types: Vec<InferType> = match self.active_subst.as_ref() {
-                    Some(subst) => param_types
-                        .iter()
-                        .map(|ty| ty.apply_type_subst(subst))
-                        .collect(),
+                    Some(subst) => {
+                        param_types.iter().map(|ty| ty.apply_type_subst(subst)).collect()
+                    }
                     None => param_types.to_vec(),
                 };
                 return parameters
@@ -745,9 +709,7 @@ impl<'a> AstLowerer<'a> {
 
     /// Convert an HM-inferred expression type to a `CoreType`, if available.
     fn infer_core_type(&self, id: ExprId) -> Option<super::CoreType> {
-        self.hm_expr_types
-            .get(&id)
-            .and_then(super::CoreType::try_from_infer)
+        self.hm_expr_types.get(&id).and_then(super::CoreType::try_from_infer)
     }
 
     fn lambda_signature_from_infer_type(
@@ -775,9 +737,7 @@ impl<'a> AstLowerer<'a> {
         fn_name: crate::syntax::Identifier,
     ) -> (Vec<Option<super::CoreType>>, Option<super::CoreType>) {
         self.lambda_signature_from_infer_type(
-            self.type_env
-                .and_then(|env| env.lookup(fn_name))
-                .map(|scheme| &scheme.infer_type),
+            self.type_env.and_then(|env| env.lookup(fn_name)).map(|scheme| &scheme.infer_type),
         )
     }
 
@@ -862,10 +822,7 @@ impl<'a> AstLowerer<'a> {
         if let Some(op) = intrinsic {
             CoreExpr::PrimOp {
                 op,
-                args: params
-                    .iter()
-                    .map(|param| CoreExpr::bound_var(param, span))
-                    .collect(),
+                args: params.iter().map(|param| CoreExpr::bound_var(param, span)).collect(),
                 span,
             }
         } else {
@@ -952,9 +909,7 @@ impl<'a> AstLowerer<'a> {
             }
 
             // Value binding → CoreDef for the RHS expression.
-            Statement::Let {
-                name, value, span, ..
-            } => {
+            Statement::Let { name, value, span, .. } => {
                 let result_ty = self.infer_core_type(value.expr_id());
                 let binder = self.bind_name_with_expr_type(*name, value.expr_id());
                 let mut def = CoreDef::new(binder, self.lower_expr(value), false, *span);
@@ -972,9 +927,7 @@ impl<'a> AstLowerer<'a> {
             }
 
             // Expression statement → anonymous CoreDef (evaluated for effects).
-            Statement::Expression {
-                expression, span, ..
-            } => {
+            Statement::Expression { expression, span, .. } => {
                 let result_ty = self.infer_core_type(expression.expr_id());
                 let mut def = CoreDef::new_anonymous(
                     self.bind_name(crate::syntax::symbol::Symbol::new(0)),
@@ -987,12 +940,7 @@ impl<'a> AstLowerer<'a> {
             }
 
             // Destructuring let → synthetic tmp var + Case alt for the pattern.
-            Statement::LetDestructure {
-                pattern,
-                value,
-                span,
-                ..
-            } => {
+            Statement::LetDestructure { pattern, value, span, .. } => {
                 let rhs = self.lower_expr(value);
                 let core_pat = self.lower_pattern(pattern);
                 // Wrap: let $destructure = value in case $destructure of { pat -> () }
@@ -1033,24 +981,14 @@ impl<'a> AstLowerer<'a> {
     fn lower_module_defs(&mut self, stmts: &[Statement], out: &mut Vec<CoreDef>) {
         for stmt in stmts {
             match stmt {
-                Statement::Let {
-                    name, value, span, ..
-                } => {
+                Statement::Let { name, value, span, .. } => {
                     let result_ty = self.infer_core_type(value.expr_id());
                     let binder = self.bind_name_with_expr_type(*name, value.expr_id());
                     let mut def = CoreDef::new(binder, self.lower_expr(value), false, *span);
                     def.result_ty = result_ty;
                     out.push(def);
                 }
-                Statement::Function {
-                    name,
-                    parameters,
-                    body,
-                    intrinsic,
-                    span,
-                    id,
-                    ..
-                } => {
+                Statement::Function { name, parameters, body, intrinsic, span, id, .. } => {
                     let binder = self.bind_name(*name);
                     let params = self.bind_fn_params(*name, parameters);
                     let (mut param_types, result_ty) =
@@ -1085,16 +1023,9 @@ impl<'a> AstLowerer<'a> {
 
     fn lower_decl_item(&mut self, stmt: &Statement) -> Option<CoreTopLevelItem> {
         match stmt {
-            Statement::Let {
-                is_public,
-                name,
-                span,
-                ..
-            } => Some(CoreTopLevelItem::Let {
-                is_public: *is_public,
-                name: *name,
-                span: *span,
-            }),
+            Statement::Let { is_public, name, span, .. } => {
+                Some(CoreTopLevelItem::Let { is_public: *is_public, name: *name, span: *span })
+            }
             Statement::Function {
                 is_public,
                 name,
@@ -1127,19 +1058,15 @@ impl<'a> AstLowerer<'a> {
                     .collect(),
                 span: *span,
             }),
-            Statement::Import {
-                name,
-                alias,
-                except,
-                exposing,
-                span,
-            } => Some(CoreTopLevelItem::Import {
-                name: *name,
-                alias: *alias,
-                except: except.clone(),
-                exposing: exposing.clone(),
-                span: *span,
-            }),
+            Statement::Import { name, alias, except, exposing, span } => {
+                Some(CoreTopLevelItem::Import {
+                    name: *name,
+                    alias: *alias,
+                    except: except.clone(),
+                    exposing: exposing.clone(),
+                    span: *span,
+                })
+            }
             Statement::Data {
                 // Proposal 0151: ADT visibility is enforced at the class
                 // visibility walker; Core IR is visibility-blind.
@@ -1155,11 +1082,9 @@ impl<'a> AstLowerer<'a> {
                 variants: variants.clone(),
                 span: *span,
             }),
-            Statement::EffectDecl { name, ops, span } => Some(CoreTopLevelItem::EffectDecl {
-                name: *name,
-                ops: ops.clone(),
-                span: *span,
-            }),
+            Statement::EffectDecl { name, ops, span } => {
+                Some(CoreTopLevelItem::EffectDecl { name: *name, ops: ops.clone(), span: *span })
+            }
             // Effect aliases (Proposal 0161 B1) are a compile-time-only
             // construct — they are consumed by the Compiler's alias table
             // before Core lowering runs, so the Core IR never sees them.
@@ -1295,15 +1220,8 @@ impl<'a> AstLowerer<'a> {
             .iter()
             .zip(binders)
             .map(|(stmt, binder)| {
-                let Statement::Function {
-                    name,
-                    parameters,
-                    body,
-                    intrinsic,
-                    span: s,
-                    id,
-                    ..
-                } = stmt
+                let Statement::Function { name, parameters, body, intrinsic, span: s, id, .. } =
+                    stmt
                 else {
                     unreachable!("lower_scc_group called with non-function statement");
                 };
@@ -1329,11 +1247,7 @@ impl<'a> AstLowerer<'a> {
             })
             .collect();
 
-        CoreExpr::LetRecGroup {
-            bindings,
-            body: Box::new(tail),
-            span,
-        }
+        CoreExpr::LetRecGroup { bindings, body: Box::new(tail), span }
     }
 
     fn prepend_stmt(
@@ -1349,12 +1263,7 @@ impl<'a> AstLowerer<'a> {
     /// Wrap `tail` with the binding/effect introduced by a single statement.
     fn prepend_one_stmt(&mut self, stmt: &Statement, tail: CoreExpr, _span: Span) -> CoreExpr {
         match stmt {
-            Statement::Let {
-                name,
-                value,
-                span: s,
-                ..
-            } => CoreExpr::Let {
+            Statement::Let { name, value, span: s, .. } => CoreExpr::Let {
                 var: self.bind_name_with_expr_type(*name, value.expr_id()),
                 rhs: Box::new(self.lower_expr(value)),
                 body: Box::new(tail),
@@ -1362,15 +1271,8 @@ impl<'a> AstLowerer<'a> {
             },
 
             Statement::Function { .. } => {
-                let Statement::Function {
-                    name,
-                    parameters,
-                    body,
-                    intrinsic,
-                    span: s,
-                    id,
-                    ..
-                } = stmt
+                let Statement::Function { name, parameters, body, intrinsic, span: s, id, .. } =
+                    stmt
                 else {
                     unreachable!();
                 };
@@ -1398,23 +1300,14 @@ impl<'a> AstLowerer<'a> {
                 }
             }
 
-            Statement::Assign {
-                name,
-                value,
-                span: s,
-            } => CoreExpr::Let {
+            Statement::Assign { name, value, span: s } => CoreExpr::Let {
                 var: self.bind_name_with_expr_type(*name, value.expr_id()),
                 rhs: Box::new(self.lower_expr(value)),
                 body: Box::new(tail),
                 span: *s,
             },
 
-            Statement::LetDestructure {
-                pattern,
-                value,
-                span: s,
-                ..
-            } => {
+            Statement::LetDestructure { pattern, value, span: s, .. } => {
                 // Bind the scrutinee to a tmp var and use Case to extract fields.
                 let rhs = self.lower_expr(value);
                 let core_pat = self.lower_pattern(pattern);
@@ -1424,12 +1317,7 @@ impl<'a> AstLowerer<'a> {
                 self.fresh += 1;
                 let tmp_binder = self.fresh_binder(tmp_name);
                 let tmp_var = CoreExpr::bound_var(&tmp_binder, *s);
-                let alt = CoreAlt {
-                    pat: core_pat,
-                    guard: None,
-                    rhs: tail,
-                    span: *s,
-                };
+                let alt = CoreAlt { pat: core_pat, guard: None, rhs: tail, span: *s };
                 CoreExpr::Let {
                     var: tmp_binder,
                     rhs: Box::new(rhs),
@@ -1444,11 +1332,7 @@ impl<'a> AstLowerer<'a> {
             }
 
             // Expression statement: evaluate for its effect, discard result.
-            Statement::Expression {
-                expression,
-                has_semicolon: true,
-                span: s,
-            } => {
+            Statement::Expression { expression, has_semicolon: true, span: s } => {
                 let tmp_name = crate::syntax::symbol::Symbol::new(self.fresh + 2_000_000);
                 self.fresh += 1;
                 CoreExpr::Let {
@@ -1461,11 +1345,7 @@ impl<'a> AstLowerer<'a> {
 
             // Expression without semicolon in a non-last position is unusual.
             // Treat as sequencing (result discarded).
-            Statement::Expression {
-                expression,
-                has_semicolon: false,
-                span: s,
-            } => {
+            Statement::Expression { expression, has_semicolon: false, span: s } => {
                 let tmp_name = crate::syntax::symbol::Symbol::new(self.fresh + 2_000_000);
                 self.fresh += 1;
                 CoreExpr::Let {
@@ -1481,10 +1361,7 @@ impl<'a> AstLowerer<'a> {
                     Some(v) => self.lower_expr(v),
                     None => CoreExpr::Lit(CoreLit::Unit, *s),
                 };
-                CoreExpr::Return {
-                    value: Box::new(ret_value),
-                    span: *s,
-                }
+                CoreExpr::Return { value: Box::new(ret_value), span: *s }
             }
 
             // Declarations don't contribute to block value.
@@ -1502,18 +1379,12 @@ impl<'a> AstLowerer<'a> {
     /// Lower the last (or only) statement in a block as an expression.
     fn lower_stmt_as_expr(&mut self, stmt: &Statement, span: Span) -> CoreExpr {
         match stmt {
-            Statement::Expression {
-                expression,
-                has_semicolon: false,
-                ..
-            } => self.lower_expr(expression),
+            Statement::Expression { expression, has_semicolon: false, .. } => {
+                self.lower_expr(expression)
+            }
             // Semicolon-terminated expression discards its value — evaluate
             // for effect, then return unit.
-            Statement::Expression {
-                expression,
-                has_semicolon: true,
-                span: s,
-            } => {
+            Statement::Expression { expression, has_semicolon: true, span: s } => {
                 let tmp = crate::syntax::symbol::Symbol::new(self.fresh + 2_000_000);
                 self.fresh += 1;
                 CoreExpr::Let {
@@ -1524,14 +1395,10 @@ impl<'a> AstLowerer<'a> {
                 }
             }
             Statement::Return { value, span: s } => match value {
-                Some(v) => CoreExpr::Return {
-                    value: Box::new(self.lower_expr(v)),
-                    span: *s,
-                },
-                None => CoreExpr::Return {
-                    value: Box::new(CoreExpr::Lit(CoreLit::Unit, *s)),
-                    span: *s,
-                },
+                Some(v) => CoreExpr::Return { value: Box::new(self.lower_expr(v)), span: *s },
+                None => {
+                    CoreExpr::Return { value: Box::new(CoreExpr::Lit(CoreLit::Unit, *s)), span: *s }
+                }
             },
             // A `let` or `fn` as the last statement returns unit.
             other => {
@@ -1553,11 +1420,7 @@ mod tests {
 
     fn parse_and_infer(
         src: &str,
-    ) -> (
-        crate::syntax::program::Program,
-        HashMap<ExprId, InferType>,
-        Interner,
-    ) {
+    ) -> (crate::syntax::program::Program, HashMap<ExprId, InferType>, Interner) {
         let mut parser = Parser::new(Lexer::new(src));
         let program = parser.parse_program();
         let mut interner = parser.take_interner();
@@ -1622,9 +1485,7 @@ mod tests {
                 }
                 collect_ops_in_expr(body, out);
             }
-            CoreExpr::Case {
-                scrutinee, alts, ..
-            } => {
+            CoreExpr::Case { scrutinee, alts, .. } => {
                 collect_ops_in_expr(scrutinee, out);
                 for alt in alts {
                     collect_ops_in_expr(&alt.rhs, out);
@@ -1654,9 +1515,7 @@ mod tests {
                 }
                 collect_var_refs(body, out);
             }
-            CoreExpr::Case {
-                scrutinee, alts, ..
-            } => {
+            CoreExpr::Case { scrutinee, alts, .. } => {
                 collect_var_refs(scrutinee, out);
                 for alt in alts {
                     if let Some(guard) = &alt.guard {
@@ -1676,12 +1535,7 @@ mod tests {
                     collect_var_refs(arg, out);
                 }
             }
-            CoreExpr::Handle {
-                body,
-                parameter,
-                handlers,
-                ..
-            } => {
+            CoreExpr::Handle { body, parameter, handlers, .. } => {
                 if let Some(parameter) = parameter {
                     collect_var_refs(parameter, out);
                 }
@@ -1702,11 +1556,7 @@ mod tests {
         let src = "fn add(x: Int, y: Int) -> Int { x + y }";
         let (prog, types, _) = parse_and_infer(src);
         let ops = collect_primops(&prog, &types);
-        assert!(
-            ops.contains(&CorePrimOp::IAdd),
-            "expected IAdd for Int addition, got: {:?}",
-            ops
-        );
+        assert!(ops.contains(&CorePrimOp::IAdd), "expected IAdd for Int addition, got: {:?}", ops);
         assert!(
             !ops.contains(&CorePrimOp::Add),
             "should not emit generic Add for typed Int addition"
@@ -1718,11 +1568,7 @@ mod tests {
         let src = "fn mul(x: Int, y: Int) -> Int { x * y }";
         let (prog, types, _) = parse_and_infer(src);
         let ops = collect_primops(&prog, &types);
-        assert!(
-            ops.contains(&CorePrimOp::IMul),
-            "expected IMul, got: {:?}",
-            ops
-        );
+        assert!(ops.contains(&CorePrimOp::IMul), "expected IMul, got: {:?}", ops);
     }
 
     #[test]
@@ -1730,11 +1576,7 @@ mod tests {
         let src = "fn fadd(x: Float, y: Float) -> Float { x + y }";
         let (prog, types, _) = parse_and_infer(src);
         let ops = collect_primops(&prog, &types);
-        assert!(
-            ops.contains(&CorePrimOp::FAdd),
-            "expected FAdd, got: {:?}",
-            ops
-        );
+        assert!(ops.contains(&CorePrimOp::FAdd), "expected FAdd, got: {:?}", ops);
     }
 
     #[test]
@@ -1752,14 +1594,8 @@ mod tests {
             "expected generic Add for String addition, got: {:?}",
             ops
         );
-        assert!(
-            !ops.contains(&CorePrimOp::IAdd),
-            "should not emit IAdd for String addition"
-        );
-        assert!(
-            !ops.contains(&CorePrimOp::FAdd),
-            "should not emit FAdd for String addition"
-        );
+        assert!(!ops.contains(&CorePrimOp::IAdd), "should not emit IAdd for String addition");
+        assert!(!ops.contains(&CorePrimOp::FAdd), "should not emit FAdd for String addition");
     }
 
     #[test]
@@ -1777,15 +1613,10 @@ fn main() {
         let main = core.defs.iter().find(|def| def.name == main_name).unwrap();
         let mut refs = Vec::new();
         collect_var_refs(&main.expr, &mut refs);
-        let x_refs: Vec<_> = refs
-            .into_iter()
-            .filter(|var| interner.try_resolve(var.name) == Some("x"))
-            .collect();
+        let x_refs: Vec<_> =
+            refs.into_iter().filter(|var| interner.try_resolve(var.name) == Some("x")).collect();
         let last = x_refs.last().unwrap();
-        assert!(
-            last.binder.is_some(),
-            "expected lexical x reference to be resolved"
-        );
+        assert!(last.binder.is_some(), "expected lexical x reference to be resolved");
     }
 
     #[test]
@@ -1805,10 +1636,7 @@ fn main() {
             .into_iter()
             .find(|var| interner.try_resolve(var.name) == Some("print"))
             .expect("expected print reference");
-        assert_eq!(
-            print_ref.binder, None,
-            "external name should stay unresolved in Core"
-        );
+        assert_eq!(print_ref.binder, None, "external name should stay unresolved in Core");
     }
 
     #[test]
@@ -1830,27 +1658,15 @@ effect Console {
         let (prog, types, _) = parse_and_infer(src);
         let core = lower_program_ast(&prog, &types);
 
-        assert!(matches!(
-            core.top_level_items.first(),
-            Some(CoreTopLevelItem::Module { .. })
-        ));
-        assert!(matches!(
-            core.top_level_items.get(1),
-            Some(CoreTopLevelItem::Data { .. })
-        ));
-        assert!(matches!(
-            core.top_level_items.get(2),
-            Some(CoreTopLevelItem::EffectDecl { .. })
-        ));
+        assert!(matches!(core.top_level_items.first(), Some(CoreTopLevelItem::Module { .. })));
+        assert!(matches!(core.top_level_items.get(1), Some(CoreTopLevelItem::Data { .. })));
+        assert!(matches!(core.top_level_items.get(2), Some(CoreTopLevelItem::EffectDecl { .. })));
 
         let module_body = match &core.top_level_items[0] {
             CoreTopLevelItem::Module { body, .. } => body,
             other => panic!("expected module item, got {other:?}"),
         };
-        assert!(matches!(
-            module_body.first(),
-            Some(CoreTopLevelItem::Function { .. })
-        ));
+        assert!(matches!(module_body.first(), Some(CoreTopLevelItem::Function { .. })));
     }
 
     #[test]
@@ -1861,11 +1677,7 @@ f("flux")
 "#;
         let (prog, types, mut interner) = parse_and_infer(src);
         let f_name = interner.intern("f");
-        assert_eq!(
-            f_name.as_u32(),
-            0,
-            "test requires first identifier to be Symbol(0)"
-        );
+        assert_eq!(f_name.as_u32(), 0, "test requires first identifier to be Symbol(0)");
 
         let core = lower_program_ast(&prog, &types);
         let f_def = core
@@ -1925,9 +1737,7 @@ f("flux")
                 count_bindings_in_expr(body, groups, singles);
             }
             CoreExpr::Lam { body, .. } => count_bindings_in_expr(body, groups, singles),
-            CoreExpr::Case {
-                scrutinee, alts, ..
-            } => {
+            CoreExpr::Case { scrutinee, alts, .. } => {
                 count_bindings_in_expr(scrutinee, groups, singles);
                 for alt in alts {
                     count_bindings_in_expr(&alt.rhs, groups, singles);
@@ -2002,12 +1812,7 @@ f("flux")
         };
 
         let global = lowerer
-            .render_dict_arg(
-                &DictArg::Global {
-                    instance: key(show, "Int"),
-                },
-                span,
-            )
+            .render_dict_arg(&DictArg::Global { instance: key(show, "Int") }, span)
             .expect("a global");
         assert_eq!(var(&global), (show_int, None));
 
@@ -2015,9 +1820,7 @@ f("flux")
             .render_dict_arg(
                 &DictArg::Applied {
                     instance: key(eq, "List"),
-                    context: vec![DictArg::Global {
-                        instance: key(eq, "Int"),
-                    }],
+                    context: vec![DictArg::Global { instance: key(eq, "Int") }],
                 },
                 span,
             )
@@ -2029,28 +1832,14 @@ f("flux")
         assert_eq!(args.iter().map(var).collect::<Vec<_>>(), [(eq_int, None)]);
 
         let projected = lowerer
-            .render_dict_arg(
-                &DictArg::Param {
-                    owner,
-                    index: 0,
-                    path: vec![0],
-                },
-                span,
-            )
+            .render_dict_arg(&DictArg::Param { owner, index: 0, path: vec![0] }, span)
             .expect("a parameter's superclass");
-        let CoreExpr::TupleField {
-            object, index: 0, ..
-        } = &projected
-        else {
+        let CoreExpr::TupleField { object, index: 0, .. } = &projected else {
             panic!("expected slot 0 of the parameter, got {projected:?}");
         };
         assert_eq!(var(object), (param, Some(binder.id)));
 
-        let unknown_owner = DictArg::Param {
-            owner: ExprId(8),
-            index: 0,
-            path: Vec::new(),
-        };
+        let unknown_owner = DictArg::Param { owner: ExprId(8), index: 0, path: Vec::new() };
         assert!(lowerer.render_dict_arg(&unknown_owner, span).is_none());
     }
 }

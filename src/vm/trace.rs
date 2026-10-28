@@ -16,10 +16,7 @@ impl VM {
         let (title, details) = split_first_line(message);
 
         let (file, span) = self.current_location().unwrap_or_else(|| {
-            (
-                String::from("<unknown>"),
-                Span::new(Position::default(), Position::default()),
-            )
+            (String::from("<unknown>"), Span::new(Position::default(), Position::default()))
         });
 
         // Determine error code based on error message pattern
@@ -55,20 +52,11 @@ impl VM {
         values: &[&str],
     ) -> String {
         let (file, span) = self.current_location().unwrap_or_else(|| {
-            (
-                String::from("<unknown>"),
-                Span::new(Position::default(), Position::default()),
-            )
+            (String::from("<unknown>"), Span::new(Position::default(), Position::default()))
         });
 
         let diag = if error_code.code == RUNTIME_TYPE_ERROR.code && values.len() >= 2 {
-            runtime_type_error(
-                values[0],
-                values[1],
-                values.get(2).copied(),
-                file.clone(),
-                span,
-            )
+            runtime_type_error(values[0], values[1], values.get(2).copied(), file.clone(), span)
         } else {
             Diagnostic::make_error(error_code, values, file.clone(), span)
                 .with_phase(DiagnosticPhase::Runtime)
@@ -125,15 +113,9 @@ impl VM {
         is_root_frame: bool,
     ) -> (String, Option<String>) {
         let debug_info = frame.closure.function.debug_info.as_ref();
-        let name = debug_info
-            .and_then(|info| info.name.clone())
-            .unwrap_or_else(|| {
-                if is_root_frame {
-                    "<entry>".to_string()
-                } else {
-                    "<anonymous>".to_string()
-                }
-            });
+        let name = debug_info.and_then(|info| info.name.clone()).unwrap_or_else(|| {
+            if is_root_frame { "<entry>".to_string() } else { "<anonymous>".to_string() }
+        });
         let location = debug_info.and_then(|info| {
             info.location_at(ip).and_then(|loc| {
                 info.file_for(loc.file_id).map(|file| {
@@ -189,21 +171,15 @@ impl VM {
                 _ => {}
             }
         }
-        let operand_str = if operands.is_empty() {
-            "".to_string()
-        } else {
-            format!(" {}", operands.join(" "))
-        };
+        let operand_str =
+            if operands.is_empty() { "".to_string() } else { format!(" {}", operands.join(" ")) };
         println!("IP={:04} {}{}", ip, op, operand_str);
         self.trace_stack();
         self.trace_locals();
     }
 
     fn trace_stack(&self) {
-        let items: Vec<String> = self.stack[..self.sp]
-            .iter()
-            .map(|obj| obj.to_string())
-            .collect();
+        let items: Vec<String> = self.stack[..self.sp].iter().map(|obj| obj.to_string()).collect();
         println!("  stack: [{}]", items.join(", "));
     }
 
@@ -215,10 +191,7 @@ impl VM {
             return;
         }
         let end = (bp + locals).min(self.stack.len());
-        let items: Vec<String> = self.stack[bp..end]
-            .iter()
-            .map(|obj| obj.to_string())
-            .collect();
+        let items: Vec<String> = self.stack[bp..end].iter().map(|obj| obj.to_string()).collect();
         println!("  locals: [{}]", items.join(", "));
     }
 }

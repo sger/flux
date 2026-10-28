@@ -29,13 +29,7 @@ pub fn expand_effect_aliases_in_program(
 
 fn expand_stmt(stmt: &mut Statement, aliases: &HashMap<Identifier, EffectExpr>) {
     match stmt {
-        Statement::Function {
-            effects,
-            parameter_types,
-            return_type,
-            body,
-            ..
-        } => {
+        Statement::Function { effects, parameter_types, return_type, body, .. } => {
             for effect in effects.iter_mut() {
                 *effect = effect.expand_aliases(aliases);
             }
@@ -77,9 +71,7 @@ fn expand_stmt(stmt: &mut Statement, aliases: &HashMap<Identifier, EffectExpr>) 
         Statement::Let { value, .. }
         | Statement::LetDestructure { value, .. }
         | Statement::Assign { value, .. }
-        | Statement::Expression {
-            expression: value, ..
-        } => {
+        | Statement::Expression { expression: value, .. } => {
             expand_expr(value, aliases);
         }
         Statement::Return { value: Some(v), .. } => expand_expr(v, aliases),
@@ -107,13 +99,7 @@ fn expand_block(block: &mut Block, aliases: &HashMap<Identifier, EffectExpr>) {
 
 fn expand_expr(expr: &mut Expression, aliases: &HashMap<Identifier, EffectExpr>) {
     match expr {
-        Expression::Function {
-            effects,
-            parameter_types,
-            return_type,
-            body,
-            ..
-        } => {
+        Expression::Function { effects, parameter_types, return_type, body, .. } => {
             for effect in effects.iter_mut() {
                 *effect = effect.expand_aliases(aliases);
             }
@@ -126,21 +112,14 @@ fn expand_expr(expr: &mut Expression, aliases: &HashMap<Identifier, EffectExpr>)
             expand_block(body, aliases);
         }
         Expression::DoBlock { block, .. } => expand_block(block, aliases),
-        Expression::If {
-            condition,
-            consequence,
-            alternative,
-            ..
-        } => {
+        Expression::If { condition, consequence, alternative, .. } => {
             expand_expr(condition, aliases);
             expand_block(consequence, aliases);
             if let Some(alt) = alternative {
                 expand_block(alt, aliases);
             }
         }
-        Expression::Match {
-            scrutinee, arms, ..
-        } => {
+        Expression::Match { scrutinee, arms, .. } => {
             expand_expr(scrutinee, aliases);
             for arm in arms {
                 if let Some(guard) = arm.guard.as_mut() {
@@ -149,11 +128,7 @@ fn expand_expr(expr: &mut Expression, aliases: &HashMap<Identifier, EffectExpr>)
                 expand_expr(&mut arm.body, aliases);
             }
         }
-        Expression::Call {
-            function,
-            arguments,
-            ..
-        } => {
+        Expression::Call { function, arguments, .. } => {
             expand_expr(function, aliases);
             for arg in arguments {
                 expand_expr(arg, aliases);
@@ -169,12 +144,7 @@ fn expand_expr(expr: &mut Expression, aliases: &HashMap<Identifier, EffectExpr>)
                 expand_expr(arg, aliases);
             }
         }
-        Expression::Handle {
-            expr,
-            parameter,
-            arms,
-            ..
-        } => {
+        Expression::Handle { expr, parameter, arms, .. } => {
             expand_expr(expr, aliases);
             if let Some(parameter) = parameter {
                 expand_expr(parameter, aliases);
@@ -241,12 +211,7 @@ pub fn expand_type_effect_aliases(ty: &mut TypeExpr, aliases: &HashMap<Identifie
 
 fn expand_type(ty: &mut TypeExpr, aliases: &HashMap<Identifier, EffectExpr>) {
     match ty {
-        TypeExpr::Function {
-            params,
-            ret,
-            effects,
-            ..
-        } => {
+        TypeExpr::Function { params, ret, effects, .. } => {
             for effect in effects.iter_mut() {
                 *effect = effect.expand_aliases(aliases);
             }

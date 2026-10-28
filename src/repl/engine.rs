@@ -86,10 +86,7 @@ enum LineOutcome {
     /// Compiled and ran cleanly (session state already advanced).
     Committed,
     /// Compile (or parse) failed; `diagnostics` describe why, against `source`.
-    CompileFailed {
-        source: String,
-        diagnostics: Vec<Diagnostic>,
-    },
+    CompileFailed { source: String, diagnostics: Vec<Diagnostic> },
     /// Compiled but the chunk errored at runtime; already rolled back.
     RuntimeFailed(String),
 }
@@ -98,14 +95,8 @@ impl ReplEngine {
     /// Build the session: load + compile the Flow prelude into one compiler and
     /// populate a live VM's globals from it. See [`bootstrap_repl_session`].
     pub(super) fn bootstrap(request: RunProgramRequest<'_>) -> Result<Self, String> {
-        let ReplBootstrap {
-            compiler,
-            vm,
-            optimize,
-            analyze,
-            diagnostics,
-            path,
-        } = bootstrap_repl_session(request)?;
+        let ReplBootstrap { compiler, vm, optimize, analyze, diagnostics, path } =
+            bootstrap_repl_session(request)?;
         Ok(Self {
             compiler,
             vm,
@@ -148,10 +139,7 @@ impl ReplEngine {
                 self.loaded = Some(path.to_path_buf());
                 Some(count)
             }
-            LineOutcome::CompileFailed {
-                source,
-                diagnostics,
-            } => {
+            LineOutcome::CompileFailed { source, diagnostics } => {
                 self.render(&diagnostics, &source);
                 None
             }
@@ -185,10 +173,7 @@ impl ReplEngine {
                 self.commit(name, resolved);
                 true
             }
-            LineOutcome::CompileFailed {
-                source,
-                diagnostics,
-            } => {
+            LineOutcome::CompileFailed { source, diagnostics } => {
                 // A declaration whose initializer is effectful (e.g.
                 // `let x = read_line()`) is rejected at top level (E413). A *named*
                 // `let name = init` persists by capturing its initializer's value
@@ -280,10 +265,7 @@ impl ReplEngine {
     fn run_rebind_step(&mut self, source: String, checkpoint: &Compiler) -> bool {
         match self.run_line(source) {
             LineOutcome::Committed => true,
-            LineOutcome::CompileFailed {
-                source,
-                diagnostics,
-            } => {
+            LineOutcome::CompileFailed { source, diagnostics } => {
                 self.compiler = checkpoint.clone();
                 self.render(&diagnostics, &source);
                 false
@@ -346,10 +328,7 @@ impl ReplEngine {
                 );
                 true
             }
-            LineOutcome::CompileFailed {
-                source,
-                diagnostics,
-            } => {
+            LineOutcome::CompileFailed { source, diagnostics } => {
                 self.render(&diagnostics, &source);
                 false
             }
@@ -382,10 +361,7 @@ impl ReplEngine {
                 eprintln!("{err}");
                 false
             }
-            LineOutcome::CompileFailed {
-                source,
-                diagnostics,
-            } => {
+            LineOutcome::CompileFailed { source, diagnostics } => {
                 // A pure top-level binding is rejected for an effectful
                 // expression (E413). Re-run it inside `main` instead.
                 if has_top_level_effect_error(&diagnostics) {
@@ -414,10 +390,7 @@ impl ReplEngine {
                 }
                 true
             }
-            LineOutcome::CompileFailed {
-                source,
-                diagnostics,
-            } => {
+            LineOutcome::CompileFailed { source, diagnostics } => {
                 self.render(&diagnostics, &source);
                 false
             }
@@ -475,10 +448,8 @@ impl ReplEngine {
         }
         // 2. A built-in type (curated — these are `TypeConstructor`s, not registry ADTs).
         if let Some(ctors) = super::info::builtin_type_constructors(name) {
-            let owned: Vec<(String, usize)> = ctors
-                .iter()
-                .map(|(c, arity)| (c.to_string(), *arity))
-                .collect();
+            let owned: Vec<(String, usize)> =
+                ctors.iter().map(|(c, arity)| (c.to_string(), *arity)).collect();
             return Some(self.type_info(request, name, &owned));
         }
         // 3. A declared effect.
@@ -487,14 +458,8 @@ impl ReplEngine {
         }
         // 4a. A registered data constructor: its signature, then its ADT's block.
         if let Some(adt) = self.compiler.repl_constructor_parent(name) {
-            let ctors = self
-                .compiler
-                .repl_adt_constructors(&adt)
-                .unwrap_or_default();
-            let arity = ctors
-                .iter()
-                .find(|(ctor, _)| ctor == name)
-                .map_or(0, |(_, arity)| *arity);
+            let ctors = self.compiler.repl_adt_constructors(&adt).unwrap_or_default();
+            let arity = ctors.iter().find(|(ctor, _)| ctor == name).map_or(0, |(_, arity)| *arity);
             return self.constructor_block(request, name, arity, &adt, &ctors);
         }
         // 4b. A built-in constructor (`Some`/`None`/`Left`/`Right` — not in the registry).
@@ -569,10 +534,8 @@ impl ReplEngine {
         let expr = format!("fn({joined}) {{ {ctor}({joined}) }}");
         // The synthetic closure carries an open, label-free effect row (` with |_`);
         // constructors are pure, so drop that artifact for a clean signature.
-        self.infer_type(request, &expr).map(|sig| {
-            sig.strip_suffix(" with |_")
-                .map_or(sig.clone(), str::to_string)
-        })
+        self.infer_type(request, &expr)
+            .map(|sig| sig.strip_suffix(" with |_").map_or(sig.clone(), str::to_string))
     }
 
     /// A human-readable provenance note for a value-level `name`, used by `:info`:
@@ -582,16 +545,10 @@ impl ReplEngine {
         if name == "it" && self.last_result.is_some() {
             return Some("the most recent result".to_string());
         }
-        if self
-            .committed
-            .iter()
-            .any(|decl| decl.name.as_deref() == Some(name))
-        {
+        if self.committed.iter().any(|decl| decl.name.as_deref() == Some(name)) {
             return Some("Defined in the current session".to_string());
         }
-        self.compiler
-            .repl_value_origin(name)
-            .map(|origin| format!("Defined in {origin}"))
+        self.compiler.repl_value_origin(name).map(|origin| format!("Defined in {origin}"))
     }
 
     /// The committed top-level declaration sources, for `:list`.
@@ -618,9 +575,7 @@ impl ReplEngine {
             "optimize" => self.optimize = enabled,
             "analyze" => self.analyze = enabled,
             other => {
-                return Err(format!(
-                    "unknown option `{other}` (known: +t, +s, optimize, analyze)"
-                ));
+                return Err(format!("unknown option `{other}` (known: +t, +s, optimize, analyze)"));
             }
         }
         Ok(())
@@ -631,11 +586,7 @@ impl ReplEngine {
     pub(super) fn settings(&self) -> [(&'static str, bool, &'static str); 4] {
         [
             ("+t", self.show_type, "print the type after each evaluation"),
-            (
-                "+s",
-                self.show_timing,
-                "print elapsed time after each evaluation",
-            ),
+            ("+s", self.show_timing, "print elapsed time after each evaluation"),
             ("optimize", self.optimize, "optimize each compiled line"),
             ("analyze", self.analyze, "run analysis passes on each line"),
         ]
@@ -653,11 +604,8 @@ impl ReplEngine {
         // The session group is exactly the user's own `let` / `fn` bindings — the
         // names recorded in `committed` — looked up in the accumulated binding
         // schemes (which also hold prelude bindings, hence the narrowing).
-        let session_names: std::collections::HashSet<&str> = self
-            .committed
-            .iter()
-            .filter_map(|decl| decl.name.as_deref())
-            .collect();
+        let session_names: std::collections::HashSet<&str> =
+            self.committed.iter().filter_map(|decl| decl.name.as_deref()).collect();
         let session: Vec<(String, String)> = self
             .compiler
             .repl_inferred_binding_types()
@@ -693,11 +641,7 @@ impl ReplEngine {
         if self.last_result.is_some() {
             names.push("it".to_string());
         }
-        names.extend(
-            crate::syntax::token_type::KEYWORDS
-                .iter()
-                .map(|kw| kw.to_string()),
-        );
+        names.extend(crate::syntax::token_type::KEYWORDS.iter().map(|kw| kw.to_string()));
         names.extend(self.compiler.repl_qualified_names());
         names.sort_unstable();
         names.dedup();
@@ -710,10 +654,8 @@ impl ReplEngine {
     /// `__repl_N`) are appended.
     fn commit(&mut self, name: Option<String>, source: String) {
         if let Some(ref n) = name
-            && let Some(pos) = self
-                .committed
-                .iter()
-                .position(|d| d.name.as_deref() == Some(n.as_str()))
+            && let Some(pos) =
+                self.committed.iter().position(|d| d.name.as_deref() == Some(n.as_str()))
         {
             self.committed[pos] = SessionDecl { name, source };
         } else {
@@ -739,10 +681,7 @@ impl ReplEngine {
         let (program, parse_errors) = self.parse(&source);
         if !parse_errors.is_empty() {
             self.compiler = checkpoint;
-            return LineOutcome::CompileFailed {
-                source,
-                diagnostics: parse_errors,
-            };
+            return LineOutcome::CompileFailed { source, diagnostics: parse_errors };
         }
 
         // Allow rebinding: a line that redefines an existing session name forgets
@@ -758,14 +697,10 @@ impl ReplEngine {
         // are skipped.
         let start = self.compiler.top_level_instruction_len();
         if let Err(diagnostics) =
-            self.compiler
-                .compile_with_opts(&program, self.optimize, self.analyze)
+            self.compiler.compile_with_opts(&program, self.optimize, self.analyze)
         {
             self.compiler = checkpoint;
-            return LineOutcome::CompileFailed {
-                source,
-                diagnostics,
-            };
+            return LineOutcome::CompileFailed { source, diagnostics };
         }
 
         if let Err(err) = self.vm.run_top_level(self.compiler.bytecode(), start) {
@@ -924,11 +859,8 @@ fn value_as_literal_within(value: &Value, budget: &mut usize) -> Option<String> 
             if adt.fields.is_empty() {
                 Some(adt.constructor.to_string())
             } else {
-                let items: Option<Vec<String>> = adt
-                    .fields
-                    .iter()
-                    .map(|field| value_as_literal_within(field, budget))
-                    .collect();
+                let items: Option<Vec<String>> =
+                    adt.fields.iter().map(|field| value_as_literal_within(field, budget)).collect();
                 Some(format!("{}({})", adt.constructor, items?.join(", ")))
             }
         }
@@ -940,10 +872,7 @@ fn value_as_literal_within(value: &Value, budget: &mut usize) -> Option<String> 
 /// Render every element of a tuple/array, threading the node `budget`. `None` if
 /// any element has no literal form or the budget runs out.
 fn render_elements(elements: &[Value], budget: &mut usize) -> Option<Vec<String>> {
-    elements
-        .iter()
-        .map(|element| value_as_literal_within(element, budget))
-        .collect()
+    elements.iter().map(|element| value_as_literal_within(element, budget)).collect()
 }
 
 /// A Flux double-quoted string literal for `s`, escaping the sequences Flux
@@ -1018,15 +947,12 @@ fn top_level_binding_name(source: &str) -> Option<String> {
     let mut parser = Parser::new(Lexer::new(source));
     let program = parser.parse_program();
     let interner = parser.interner();
-    program
-        .statements
-        .iter()
-        .find_map(|statement| match statement {
-            Statement::Let { name, .. } | Statement::Function { name, .. } => {
-                Some(interner.resolve(*name).to_string())
-            }
-            _ => None,
-        })
+    program.statements.iter().find_map(|statement| match statement {
+        Statement::Let { name, .. } | Statement::Function { name, .. } => {
+            Some(interner.resolve(*name).to_string())
+        }
+        _ => None,
+    })
 }
 
 #[cfg(test)]
@@ -1046,11 +972,7 @@ mod tests {
         let mut path = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
         path.push("__flux_repl__.flx");
         let path = path.to_string_lossy().into_owned();
-        let request = RunProgramRequest {
-            path: &path,
-            flags: &flags,
-            session: &session,
-        };
+        let request = RunProgramRequest { path: &path, flags: &flags, session: &session };
         ReplEngine::bootstrap(request).expect("bootstrap REPL session")
     }
 

@@ -56,11 +56,7 @@ impl Compiler {
     }
 
     pub(in crate::compiler) fn validate_reserved_primop_names(&mut self, program: &Program) {
-        if self
-            .file_path
-            .replace('\\', "/")
-            .ends_with("lib/Flow/Primops.flx")
-        {
+        if self.file_path.replace('\\', "/").ends_with("lib/Flow/Primops.flx") {
             return;
         }
         for statement in &program.statements {
@@ -70,9 +66,7 @@ impl Compiler {
 
     fn validate_reserved_primop_statement(&mut self, statement: &Statement) {
         match statement {
-            Statement::Function {
-                name, body, span, ..
-            } => {
+            Statement::Function { name, body, span, .. } => {
                 if self.sym(*name).starts_with("__primop_") {
                     self.errors.push(
                         Diagnostic::make_error_dynamic(
@@ -94,9 +88,7 @@ impl Compiler {
                 }
                 self.validate_reserved_primop_block(body);
             }
-            Statement::Let {
-                name, value, span, ..
-            } => {
+            Statement::Let { name, value, span, .. } => {
                 if self.sym(*name).starts_with("__primop_") {
                     self.errors.push(
                         Diagnostic::make_error_dynamic(
@@ -121,9 +113,7 @@ impl Compiler {
             Statement::LetDestructure { value, .. } | Statement::Assign { value, .. } => {
                 self.validate_reserved_primop_expression(value);
             }
-            Statement::Return {
-                value: Some(value), ..
-            } => {
+            Statement::Return { value: Some(value), .. } => {
                 self.validate_reserved_primop_expression(value);
             }
             Statement::Return { value: None, .. } => {}
@@ -180,23 +170,14 @@ impl Compiler {
             Expression::Function { body, .. } | Expression::DoBlock { block: body, .. } => {
                 self.validate_reserved_primop_block(body);
             }
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-                ..
-            } => {
+            Expression::If { condition, consequence, alternative, .. } => {
                 self.validate_reserved_primop_expression(condition);
                 self.validate_reserved_primop_block(consequence);
                 if let Some(alt) = alternative {
                     self.validate_reserved_primop_block(alt);
                 }
             }
-            Expression::Call {
-                function,
-                arguments,
-                ..
-            } => {
+            Expression::Call { function, arguments, .. } => {
                 self.validate_reserved_primop_expression(function);
                 for argument in arguments {
                     self.validate_reserved_primop_expression(argument);
@@ -207,9 +188,7 @@ impl Compiler {
                 self.validate_reserved_primop_expression(right);
             }
             Expression::Prefix { right, .. } => self.validate_reserved_primop_expression(right),
-            Expression::Match {
-                scrutinee, arms, ..
-            } => {
+            Expression::Match { scrutinee, arms, .. } => {
                 self.validate_reserved_primop_expression(scrutinee);
                 for arm in arms {
                     if let Some(guard) = arm.guard.as_ref() {
@@ -223,12 +202,7 @@ impl Compiler {
                     self.validate_reserved_primop_expression(arg);
                 }
             }
-            Expression::Handle {
-                expr,
-                parameter,
-                arms,
-                ..
-            } => {
+            Expression::Handle { expr, parameter, arms, .. } => {
                 self.validate_reserved_primop_expression(expr);
                 if let Some(parameter) = parameter {
                     self.validate_reserved_primop_expression(parameter);
@@ -280,9 +254,7 @@ impl Compiler {
                     }
                 }
             }
-            Expression::Spread {
-                base, overrides, ..
-            } => {
+            Expression::Spread { base, overrides, .. } => {
                 self.validate_reserved_primop_expression(base);
                 for field in overrides {
                     if let Some(value) = field.value.as_ref() {
@@ -301,10 +273,7 @@ impl Compiler {
     }
 
     fn warn_on_legacy_builtin_helper_surface(&mut self, program: &Program) {
-        if matches!(
-            self.legacy_helper_surface_policy(),
-            LegacyHelperSurfacePolicy::Allow
-        ) {
+        if matches!(self.legacy_helper_surface_policy(), LegacyHelperSurfacePolicy::Allow) {
             return;
         }
 
@@ -345,12 +314,9 @@ impl Compiler {
 
     fn validate_intrinsic_statement(&mut self, statement: &Statement) {
         match statement {
-            Statement::Function {
-                intrinsic: Some(primop),
-                name,
-                span,
-                ..
-            } if !self.file_path.replace('\\', "/").contains("lib/Flow/") => {
+            Statement::Function { intrinsic: Some(primop), name, span, .. }
+                if !self.file_path.replace('\\', "/").contains("lib/Flow/") =>
+            {
                 self.errors.push(
                     Diagnostic::make_error_dynamic(
                         "E034",
@@ -394,11 +360,7 @@ impl Compiler {
 
     fn warn_on_legacy_expression(&mut self, expression: &Expression) {
         match expression {
-            Expression::Call {
-                function,
-                arguments,
-                ..
-            } => {
+            Expression::Call { function, arguments, .. } => {
                 if let Expression::Identifier { name, span, .. } = function.as_ref()
                     && let Some(replacement) =
                         CorePrimOp::legacy_surface_replacement(self.sym(*name), arguments.len())
@@ -459,23 +421,12 @@ impl Compiler {
                 self.warn_on_legacy_expression(right);
             }
             Expression::Infix { left, right, .. }
-            | Expression::Index {
-                left, index: right, ..
-            }
-            | Expression::Cons {
-                head: left,
-                tail: right,
-                ..
-            } => {
+            | Expression::Index { left, index: right, .. }
+            | Expression::Cons { head: left, tail: right, .. } => {
                 self.warn_on_legacy_expression(left);
                 self.warn_on_legacy_expression(right);
             }
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-                ..
-            } => {
+            Expression::If { condition, consequence, alternative, .. } => {
                 self.warn_on_legacy_expression(condition);
                 self.warn_on_legacy_block(consequence);
                 if let Some(alternative) = alternative {
@@ -503,9 +454,7 @@ impl Compiler {
                 }
             }
             Expression::MemberAccess { object, .. } => self.warn_on_legacy_expression(object),
-            Expression::Match {
-                scrutinee, arms, ..
-            } => {
+            Expression::Match { scrutinee, arms, .. } => {
                 self.warn_on_legacy_expression(scrutinee);
                 for arm in arms {
                     if let Some(guard) = &arm.guard {
@@ -519,12 +468,7 @@ impl Compiler {
                     self.warn_on_legacy_expression(argument);
                 }
             }
-            Expression::Handle {
-                expr,
-                parameter,
-                arms,
-                ..
-            } => {
+            Expression::Handle { expr, parameter, arms, .. } => {
                 self.warn_on_legacy_expression(expr);
                 if let Some(parameter) = parameter {
                     self.warn_on_legacy_expression(parameter);
@@ -544,9 +488,7 @@ impl Compiler {
                 }
             }
             Expression::NamedConstructor { fields, .. }
-            | Expression::Spread {
-                overrides: fields, ..
-            } => {
+            | Expression::Spread { overrides: fields, .. } => {
                 for field in fields {
                     if let Some(value) = &field.value {
                         self.warn_on_legacy_expression(value);

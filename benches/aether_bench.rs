@@ -109,10 +109,5 @@ fn bench_cons_map_fresh(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(
-    benches,
-    bench_cons_fresh_alloc,
-    bench_cons_reuse,
-    bench_cons_map_fresh
-);
+criterion_group!(benches, bench_cons_fresh_alloc, bench_cons_reuse, bench_cons_map_fresh);
 criterion_main!(benches);

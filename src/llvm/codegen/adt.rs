@@ -53,17 +53,10 @@ impl AdtMetadata {
         program: &CoreProgram,
         interner: Option<&Interner>,
     ) -> Result<Self, CoreToLlvmError> {
-        let mut metadata = Self {
-            user_constructor_tags: HashMap::new(),
-            constructor_arities: HashMap::new(),
-        };
+        let mut metadata =
+            Self { user_constructor_tags: HashMap::new(), constructor_arities: HashMap::new() };
         let mut next_tag = FIRST_USER_TAG_ID;
-        collect_items(
-            &program.top_level_items,
-            &mut metadata,
-            &mut next_tag,
-            interner,
-        )?;
+        collect_items(&program.top_level_items, &mut metadata, &mut next_tag, interner)?;
         Ok(metadata)
     }
 
@@ -145,15 +138,11 @@ fn collect_items(
                             ),
                         });
                     }
-                    metadata
-                        .constructor_arities
-                        .insert(variant.name, variant.fields.len());
+                    metadata.constructor_arities.insert(variant.name, variant.fields.len());
                     if metadata.user_constructor_tags.contains_key(&variant.name) {
                         continue;
                     }
-                    metadata
-                        .user_constructor_tags
-                        .insert(variant.name, *next_tag);
+                    metadata.user_constructor_tags.insert(variant.name, *next_tag);
                     *next_tag += 1;
                 }
             }
@@ -172,11 +161,7 @@ fn collect_items(
 }
 
 fn emit_adt_type(module: &mut LlvmModule) {
-    if module
-        .type_defs
-        .iter()
-        .any(|def| def.name == FLUX_ADT_TYPE_NAME)
-    {
+    if module.type_defs.iter().any(|def| def.name == FLUX_ADT_TYPE_NAME) {
         return;
     }
     module.type_defs.push(LlvmTypeDef {
@@ -186,21 +171,14 @@ fn emit_adt_type(module: &mut LlvmModule) {
             fields: vec![
                 LlvmType::i32(),
                 LlvmType::i32(),
-                LlvmType::Array {
-                    len: 0,
-                    element: Box::new(LlvmType::i64()),
-                },
+                LlvmType::Array { len: 0, element: Box::new(LlvmType::i64()) },
             ],
         },
     });
 }
 
 fn emit_tuple_type(module: &mut LlvmModule) {
-    if module
-        .type_defs
-        .iter()
-        .any(|def| def.name == FLUX_TUPLE_TYPE_NAME)
-    {
+    if module.type_defs.iter().any(|def| def.name == FLUX_TUPLE_TYPE_NAME) {
         return;
     }
     module.type_defs.push(LlvmTypeDef {
@@ -213,10 +191,7 @@ fn emit_tuple_type(module: &mut LlvmModule) {
                 LlvmType::i8(),  // _pad[1]
                 LlvmType::i8(),  // _pad[2]
                 LlvmType::i32(), // arity
-                LlvmType::Array {
-                    len: 0,
-                    element: Box::new(LlvmType::i64()),
-                },
+                LlvmType::Array { len: 0, element: Box::new(LlvmType::i64()) },
             ],
         },
     });
@@ -266,12 +241,7 @@ fn emit_make_adt(module: &mut LlvmModule) {
                     ],
                     attrs: vec![],
                 },
-                gep_struct_field(
-                    "tag.ptr",
-                    adt_type(),
-                    local_operand("mem"),
-                    FLUX_ADT_TAG_FIELD,
-                ),
+                gep_struct_field("tag.ptr", adt_type(), local_operand("mem"), FLUX_ADT_TAG_FIELD),
                 LlvmInstr::Store {
                     ty: LlvmType::i32(),
                     value: local_operand("ctor_tag"),
@@ -319,10 +289,7 @@ fn emit_make_adt(module: &mut LlvmModule) {
                     attrs: vec![],
                 },
             ],
-            term: LlvmTerminator::Ret {
-                ty: LlvmType::i64(),
-                value: local_operand("boxed"),
-            },
+            term: LlvmTerminator::Ret { ty: LlvmType::i64(), value: local_operand("boxed") },
         }],
     });
 }
@@ -380,10 +347,7 @@ fn emit_make_cons(module: &mut LlvmModule) {
                     attrs: vec![],
                 },
             ],
-            term: LlvmTerminator::Ret {
-                ty: LlvmType::i64(),
-                value: local_operand("boxed"),
-            },
+            term: LlvmTerminator::Ret { ty: LlvmType::i64(), value: local_operand("boxed") },
         }],
     });
 }
@@ -437,10 +401,7 @@ fn emit_make_tuple(module: &mut LlvmModule) {
                 ),
                 LlvmInstr::Store {
                     ty: LlvmType::i8(),
-                    value: LlvmOperand::Const(LlvmConst::Int {
-                        bits: 8,
-                        value: 0xF3,
-                    }),
+                    value: LlvmOperand::Const(LlvmConst::Int { bits: 8, value: 0xF3 }),
                     ptr: local_operand("tag.ptr"),
                     align: Some(1),
                 },
@@ -485,10 +446,7 @@ fn emit_make_tuple(module: &mut LlvmModule) {
                     attrs: vec![],
                 },
             ],
-            term: LlvmTerminator::Ret {
-                ty: LlvmType::i64(),
-                value: local_operand("boxed"),
-            },
+            term: LlvmTerminator::Ret { ty: LlvmType::i64(), value: local_operand("boxed") },
         }],
     });
 }
@@ -526,10 +484,7 @@ fn emit_tuple_len(module: &mut LlvmModule) {
                     align: Some(4),
                 },
             ],
-            term: LlvmTerminator::Ret {
-                ty: LlvmType::i32(),
-                value: local_operand("arity"),
-            },
+            term: LlvmTerminator::Ret { ty: LlvmType::i32(), value: local_operand("arity") },
         }],
     });
 }

@@ -79,12 +79,6 @@ fn main() -> Unit with Console {
 }
 "#,
     );
-    assert!(
-        success,
-        "Flow.Path is no longer usable from a pure function:\n{stdout}"
-    );
-    assert!(
-        stdout.contains("a/c"),
-        "expected normalized join to print a/c, got:\n{stdout}"
-    );
+    assert!(success, "Flow.Path is no longer usable from a pure function:\n{stdout}");
+    assert!(stdout.contains("a/c"), "expected normalized join to print a/c, got:\n{stdout}");
 }

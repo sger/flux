@@ -18,12 +18,7 @@ use super::helpers::{bind_pattern, map_children};
 
 pub fn case_of_known_constructor(expr: CoreExpr) -> CoreExpr {
     match expr {
-        CoreExpr::Case {
-            scrutinee,
-            alts,
-            join_ty,
-            span,
-        } => {
+        CoreExpr::Case { scrutinee, alts, join_ty, span } => {
             let scrutinee = case_of_known_constructor(*scrutinee);
             let alts: Vec<_> = alts
                 .into_iter()
@@ -98,12 +93,7 @@ pub fn case_of_known_constructor(expr: CoreExpr) -> CoreExpr {
                         span,
                     }
                 }
-                _ => CoreExpr::Case {
-                    scrutinee: Box::new(scrutinee),
-                    alts,
-                    join_ty,
-                    span,
-                },
+                _ => CoreExpr::Case { scrutinee: Box::new(scrutinee), alts, join_ty, span },
             }
         }
         CoreExpr::Lam { .. }
@@ -133,17 +123,11 @@ fn match_con_pat(
     match pat {
         CorePat::Wildcard => Some(vec![]),
         CorePat::Var(binder) => {
-            let val = CoreExpr::Con {
-                tag: tag.clone(),
-                fields: fields.to_vec(),
-                span: Span::default(),
-            };
+            let val =
+                CoreExpr::Con { tag: tag.clone(), fields: fields.to_vec(), span: Span::default() };
             Some(vec![(*binder, val)])
         }
-        CorePat::Con {
-            tag: pat_tag,
-            fields: pat_fields,
-        } => {
+        CorePat::Con { tag: pat_tag, fields: pat_fields } => {
             if pat_tag != tag || pat_fields.len() != fields.len() {
                 return None;
             }

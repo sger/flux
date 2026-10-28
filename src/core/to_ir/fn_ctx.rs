@@ -137,18 +137,12 @@ impl<'a> FnCtx<'a> {
     }
 
     pub(super) fn current_block_is_open(&self) -> bool {
-        matches!(
-            self.blocks[self.current_block].terminator,
-            IrTerminator::Unreachable(_)
-        )
+        matches!(self.blocks[self.current_block].terminator, IrTerminator::Unreachable(_))
     }
 
     pub(super) fn finish_return(self, ret: IrVar, span: Span) {
         let mut s = self;
-        if matches!(
-            s.blocks[s.current_block].terminator,
-            IrTerminator::Unreachable(_)
-        ) {
+        if matches!(s.blocks[s.current_block].terminator, IrTerminator::Unreachable(_)) {
             s.blocks[s.current_block].terminator =
                 IrTerminator::Return(ret, IrMetadata::from_span(span));
         }
@@ -264,11 +258,7 @@ impl<'a> FnCtx<'a> {
                 self.with_bound_var(var.id, var.name, rhs_var, |this| this.lower_expr(body))
             }
 
-            CoreExpr::LetRecGroup {
-                bindings,
-                body,
-                span,
-            } => {
+            CoreExpr::LetRecGroup { bindings, body, span } => {
                 // Phase 1: Create placeholders for all bindings so they can
                 // reference each other (mutual recursion).
                 let mut placeholders = Vec::with_capacity(bindings.len());
@@ -313,12 +303,9 @@ impl<'a> FnCtx<'a> {
                 result
             }
 
-            CoreExpr::Case {
-                scrutinee,
-                alts,
-                join_ty,
-                span,
-            } => self.lower_case(scrutinee, alts, join_ty.as_ref(), *span),
+            CoreExpr::Case { scrutinee, alts, join_ty, span } => {
+                self.lower_case(scrutinee, alts, join_ty.as_ref(), *span)
+            }
 
             CoreExpr::Con { tag, fields, span } => {
                 let field_vars: Vec<IrVar> = fields.iter().map(|f| self.lower_expr(f)).collect();
@@ -331,10 +318,7 @@ impl<'a> FnCtx<'a> {
                         IrExpr::Right(*field_vars.first().expect("Right needs 1 field"))
                     }
                     CoreTag::Nil => IrExpr::EmptyList,
-                    CoreTag::Cons => IrExpr::Cons {
-                        head: field_vars[0],
-                        tail: field_vars[1],
-                    },
+                    CoreTag::Cons => IrExpr::Cons { head: field_vars[0], tail: field_vars[1] },
                     CoreTag::Named(name) => IrExpr::MakeAdt(*name, field_vars),
                 };
                 self.emit(IrInstr::Assign {
@@ -347,11 +331,7 @@ impl<'a> FnCtx<'a> {
 
             CoreExpr::PrimOp { op, args, span } => self.lower_primop(op, args, *span),
 
-            CoreExpr::MemberAccess {
-                object,
-                member,
-                span,
-            } => {
+            CoreExpr::MemberAccess { object, member, span } => {
                 let module_name = match object.as_ref() {
                     CoreExpr::Var { var, .. } => Some(var.name),
                     _ => None,
@@ -360,29 +340,18 @@ impl<'a> FnCtx<'a> {
                 let dest = self.ctx.alloc_var();
                 self.emit(IrInstr::Assign {
                     dest,
-                    expr: IrExpr::MemberAccess {
-                        object: obj,
-                        member: *member,
-                        module_name,
-                    },
+                    expr: IrExpr::MemberAccess { object: obj, member: *member, module_name },
                     metadata: IrMetadata::from_span(*span),
                 });
                 dest
             }
 
-            CoreExpr::TupleField {
-                object,
-                index,
-                span,
-            } => {
+            CoreExpr::TupleField { object, index, span } => {
                 let obj = self.lower_expr(object);
                 let dest = self.ctx.alloc_var();
                 self.emit(IrInstr::Assign {
                     dest,
-                    expr: IrExpr::TupleFieldAccess {
-                        object: obj,
-                        index: *index,
-                    },
+                    expr: IrExpr::TupleFieldAccess { object: obj, index: *index },
                     metadata: IrMetadata::from_span(*span),
                 });
                 dest
@@ -396,12 +365,7 @@ impl<'a> FnCtx<'a> {
                 ret
             }
 
-            CoreExpr::Perform {
-                effect,
-                operation,
-                args,
-                span,
-            } => {
+            CoreExpr::Perform { effect, operation, args, span } => {
                 let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr(a)).collect();
                 let dest = self.ctx.alloc_var();
                 self.emit(IrInstr::Assign {
@@ -416,13 +380,7 @@ impl<'a> FnCtx<'a> {
                 dest
             }
 
-            CoreExpr::Handle {
-                body,
-                effect,
-                parameter,
-                handlers,
-                span,
-            } => {
+            CoreExpr::Handle { body, effect, parameter, handlers, span } => {
                 let initial_state = parameter.as_ref().map(|p| self.lower_expr(p));
                 // Compile each handler arm as a separate closure function.
                 let mut scope_arms = Vec::new();
@@ -444,13 +402,11 @@ impl<'a> FnCtx<'a> {
                 let cont_block_idx = self.new_block();
                 let cont_block_id = self.blocks[cont_block_idx].id;
                 let dest = self.ctx.alloc_var();
-                self.blocks[cont_block_idx]
-                    .params
-                    .push(crate::cfg::IrBlockParam {
-                        var: dest,
-                        ty: IrType::Tagged,
-                        inferred_ty: None,
-                    });
+                self.blocks[cont_block_idx].params.push(crate::cfg::IrBlockParam {
+                    var: dest,
+                    ty: IrType::Tagged,
+                    inferred_ty: None,
+                });
 
                 // Emit HandleScope in the current block, then terminate with
                 // a jump into the body entry block.
@@ -502,22 +458,17 @@ impl<'a> FnCtx<'a> {
                 });
                 dest
             }
-            AetherExpr::Lam {
-                params,
-                param_types,
-                result_ty,
-                body,
-                span,
-            } => self.lower_lam_as_closure_aether(
-                None,
-                None,
-                params,
-                param_types,
-                result_ty.as_ref(),
-                body,
-                *span,
-                expr,
-            ),
+            AetherExpr::Lam { params, param_types, result_ty, body, span } => self
+                .lower_lam_as_closure_aether(
+                    None,
+                    None,
+                    params,
+                    param_types,
+                    result_ty.as_ref(),
+                    body,
+                    *span,
+                    expr,
+                ),
             AetherExpr::App { func, args, span } => {
                 let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr_aether(a)).collect();
                 let dest = self.ctx.alloc_var();
@@ -553,9 +504,7 @@ impl<'a> FnCtx<'a> {
                 }
                 dest
             }
-            AetherExpr::AetherCall {
-                func, args, span, ..
-            } => {
+            AetherExpr::AetherCall { func, args, span, .. } => {
                 let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr_aether(a)).collect();
                 let dest = self.ctx.alloc_var();
                 let meta = IrMetadata::from_span(*span);
@@ -593,19 +542,11 @@ impl<'a> FnCtx<'a> {
             }
             AetherExpr::Let { var, rhs, body, .. } => {
                 let rhs_var = self.lower_expr_aether(rhs);
-                self.with_bound_var(var.id, var.name, rhs_var, |this| {
-                    this.lower_expr_aether(body)
-                })
+                self.with_bound_var(var.id, var.name, rhs_var, |this| this.lower_expr_aether(body))
             }
             AetherExpr::LetRec { var, rhs, body, .. } => {
                 let rhs_var = match rhs.as_ref() {
-                    AetherExpr::Lam {
-                        params,
-                        param_types,
-                        result_ty,
-                        body,
-                        span,
-                    } => {
+                    AetherExpr::Lam { params, param_types, result_ty, body, span } => {
                         let placeholder = self.ctx.alloc_var();
                         self.emit(IrInstr::Assign {
                             dest: placeholder,
@@ -627,15 +568,9 @@ impl<'a> FnCtx<'a> {
                     }
                     _ => self.lower_expr_aether(rhs),
                 };
-                self.with_bound_var(var.id, var.name, rhs_var, |this| {
-                    this.lower_expr_aether(body)
-                })
+                self.with_bound_var(var.id, var.name, rhs_var, |this| this.lower_expr_aether(body))
             }
-            AetherExpr::LetRecGroup {
-                bindings,
-                body,
-                span,
-            } => {
+            AetherExpr::LetRecGroup { bindings, body, span } => {
                 let mut placeholders = Vec::with_capacity(bindings.len());
                 for (var, _) in bindings {
                     let placeholder = self.ctx.alloc_var();
@@ -652,22 +587,17 @@ impl<'a> FnCtx<'a> {
                 let mut rhs_vars = Vec::with_capacity(bindings.len());
                 for (var, rhs) in bindings {
                     let rhs_var = match rhs.as_ref() {
-                        AetherExpr::Lam {
-                            params,
-                            param_types,
-                            result_ty,
-                            body,
-                            span,
-                        } => self.lower_lam_as_closure_aether(
-                            Some(var.name),
-                            Some(var.id),
-                            params,
-                            param_types,
-                            result_ty.as_ref(),
-                            body,
-                            *span,
-                            rhs.as_ref(),
-                        ),
+                        AetherExpr::Lam { params, param_types, result_ty, body, span } => self
+                            .lower_lam_as_closure_aether(
+                                Some(var.name),
+                                Some(var.id),
+                                params,
+                                param_types,
+                                result_ty.as_ref(),
+                                body,
+                                *span,
+                                rhs.as_ref(),
+                            ),
                         _ => self.lower_expr_aether(rhs),
                     };
                     rhs_vars.push((var, rhs_var));
@@ -683,12 +613,9 @@ impl<'a> FnCtx<'a> {
                 }
                 result
             }
-            AetherExpr::Case {
-                scrutinee,
-                alts,
-                join_ty,
-                span,
-            } => self.lower_case_aether(scrutinee, alts, join_ty.as_ref(), *span),
+            AetherExpr::Case { scrutinee, alts, join_ty, span } => {
+                self.lower_case_aether(scrutinee, alts, join_ty.as_ref(), *span)
+            }
             AetherExpr::Con { tag, fields, span } => {
                 let field_vars: Vec<IrVar> =
                     fields.iter().map(|f| self.lower_expr_aether(f)).collect();
@@ -701,10 +628,7 @@ impl<'a> FnCtx<'a> {
                         IrExpr::Right(*field_vars.first().expect("Right needs 1 field"))
                     }
                     CoreTag::Nil => IrExpr::EmptyList,
-                    CoreTag::Cons => IrExpr::Cons {
-                        head: field_vars[0],
-                        tail: field_vars[1],
-                    },
+                    CoreTag::Cons => IrExpr::Cons { head: field_vars[0], tail: field_vars[1] },
                     CoreTag::Named(name) => IrExpr::MakeAdt(*name, field_vars),
                 };
                 self.emit(IrInstr::Assign {
@@ -715,11 +639,7 @@ impl<'a> FnCtx<'a> {
                 dest
             }
             AetherExpr::PrimOp { op, args, span } => self.lower_primop_aether(op, args, *span),
-            AetherExpr::MemberAccess {
-                object,
-                member,
-                span,
-            } => {
+            AetherExpr::MemberAccess { object, member, span } => {
                 let module_name = match object.as_ref() {
                     AetherExpr::Var { var, .. } => Some(var.name),
                     _ => None,
@@ -728,28 +648,17 @@ impl<'a> FnCtx<'a> {
                 let dest = self.ctx.alloc_var();
                 self.emit(IrInstr::Assign {
                     dest,
-                    expr: IrExpr::MemberAccess {
-                        object: obj,
-                        member: *member,
-                        module_name,
-                    },
+                    expr: IrExpr::MemberAccess { object: obj, member: *member, module_name },
                     metadata: IrMetadata::from_span(*span),
                 });
                 dest
             }
-            AetherExpr::TupleField {
-                object,
-                index,
-                span,
-            } => {
+            AetherExpr::TupleField { object, index, span } => {
                 let obj = self.lower_expr_aether(object);
                 let dest = self.ctx.alloc_var();
                 self.emit(IrInstr::Assign {
                     dest,
-                    expr: IrExpr::TupleFieldAccess {
-                        object: obj,
-                        index: *index,
-                    },
+                    expr: IrExpr::TupleFieldAccess { object: obj, index: *index },
                     metadata: IrMetadata::from_span(*span),
                 });
                 dest
@@ -761,13 +670,7 @@ impl<'a> FnCtx<'a> {
                 }
                 ret
             }
-            AetherExpr::Perform {
-                effect,
-                operation,
-                args,
-                span,
-                ..
-            } => {
+            AetherExpr::Perform { effect, operation, args, span, .. } => {
                 let arg_vars: Vec<IrVar> = args.iter().map(|a| self.lower_expr_aether(a)).collect();
                 let dest = self.ctx.alloc_var();
                 self.emit(IrInstr::Assign {
@@ -781,13 +684,7 @@ impl<'a> FnCtx<'a> {
                 });
                 dest
             }
-            AetherExpr::Handle {
-                body,
-                effect,
-                parameter,
-                handlers,
-                span,
-            } => {
+            AetherExpr::Handle { body, effect, parameter, handlers, span } => {
                 let initial_state = parameter.as_ref().map(|p| self.lower_expr_aether(p));
                 let mut scope_arms = Vec::new();
                 for h in handlers {
@@ -804,13 +701,11 @@ impl<'a> FnCtx<'a> {
                 let cont_block_idx = self.new_block();
                 let cont_block_id = self.blocks[cont_block_idx].id;
                 let dest = self.ctx.alloc_var();
-                self.blocks[cont_block_idx]
-                    .params
-                    .push(crate::cfg::IrBlockParam {
-                        var: dest,
-                        ty: IrType::Tagged,
-                        inferred_ty: None,
-                    });
+                self.blocks[cont_block_idx].params.push(crate::cfg::IrBlockParam {
+                    var: dest,
+                    ty: IrType::Tagged,
+                    inferred_ty: None,
+                });
                 let meta = IrMetadata::from_span(*span);
                 self.emit(IrInstr::HandleScope {
                     effect: *effect,
@@ -840,13 +735,7 @@ impl<'a> FnCtx<'a> {
                 self.lower_expr_aether(body)
             }
             AetherExpr::Dup { body, .. } => self.lower_expr_aether(body),
-            AetherExpr::Reuse {
-                token,
-                tag,
-                fields,
-                field_mask,
-                span,
-            } => {
+            AetherExpr::Reuse { token, tag, fields, field_mask, span } => {
                 let token_var = if let Some(binder) = token.binder
                     && let Some(&ir_var) = self.env.get(&binder)
                 {
@@ -867,10 +756,7 @@ impl<'a> FnCtx<'a> {
                             IrExpr::Right(*field_vars.first().expect("Right needs 1 field"))
                         }
                         CoreTag::Nil => IrExpr::EmptyList,
-                        CoreTag::Cons => IrExpr::Cons {
-                            head: field_vars[0],
-                            tail: field_vars[1],
-                        },
+                        CoreTag::Cons => IrExpr::Cons { head: field_vars[0], tail: field_vars[1] },
                         CoreTag::Named(name) => IrExpr::MakeAdt(*name, field_vars),
                     };
                     self.emit(IrInstr::Assign {
@@ -899,18 +785,11 @@ impl<'a> FnCtx<'a> {
                         tail: field_vars[1],
                         field_mask: *field_mask,
                     },
-                    CoreTag::Some => IrExpr::ReuseSome {
-                        token: reuse_token,
-                        inner: field_vars[0],
-                    },
-                    CoreTag::Left => IrExpr::ReuseLeft {
-                        token: reuse_token,
-                        inner: field_vars[0],
-                    },
-                    CoreTag::Right => IrExpr::ReuseRight {
-                        token: reuse_token,
-                        inner: field_vars[0],
-                    },
+                    CoreTag::Some => IrExpr::ReuseSome { token: reuse_token, inner: field_vars[0] },
+                    CoreTag::Left => IrExpr::ReuseLeft { token: reuse_token, inner: field_vars[0] },
+                    CoreTag::Right => {
+                        IrExpr::ReuseRight { token: reuse_token, inner: field_vars[0] }
+                    }
                     CoreTag::Named(name) => IrExpr::ReuseAdt {
                         token: reuse_token,
                         constructor: *name,
@@ -927,17 +806,10 @@ impl<'a> FnCtx<'a> {
                 });
                 dest
             }
-            AetherExpr::DropSpecialized {
-                scrutinee,
-                unique_body,
-                shared_body,
-                span,
-            } => {
+            AetherExpr::DropSpecialized { scrutinee, unique_body, shared_body, span } => {
                 let meta = IrMetadata::from_span(*span);
                 let scrut_ir = self.bound_var(
-                    scrutinee
-                        .binder
-                        .expect("DropSpecialized scrutinee must be resolved"),
+                    scrutinee.binder.expect("DropSpecialized scrutinee must be resolved"),
                     scrutinee.name,
                 );
 
@@ -958,13 +830,11 @@ impl<'a> FnCtx<'a> {
                 let join_block_idx = self.new_block();
                 let join_block_id = self.blocks[join_block_idx].id;
                 let result_var = self.ctx.alloc_var();
-                self.blocks[join_block_idx]
-                    .params
-                    .push(crate::cfg::IrBlockParam {
-                        var: result_var,
-                        ty: IrType::Tagged,
-                        inferred_ty: None,
-                    });
+                self.blocks[join_block_idx].params.push(crate::cfg::IrBlockParam {
+                    var: result_var,
+                    ty: IrType::Tagged,
+                    inferred_ty: None,
+                });
 
                 self.set_terminator(IrTerminator::Branch {
                     cond: is_unique_var,

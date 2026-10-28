@@ -70,15 +70,8 @@ impl NativeModuleCacheLoadError {
             Self::CompilerVersionMismatch => "compiler version mismatch".into(),
             Self::FormatVersionMismatch => "format version mismatch".into(),
             Self::CacheKeyMismatch => "cache key mismatch".into(),
-            Self::DependencyFingerprintMismatch {
-                module_name,
-                source_path,
-                reason,
-            } => {
-                format!(
-                    "dependency mismatch ({module_name} @ {source_path}): {}",
-                    reason.label()
-                )
+            Self::DependencyFingerprintMismatch { module_name, source_path, reason } => {
+                format!("dependency mismatch ({module_name} @ {source_path}): {}", reason.label())
             }
         }
     }
@@ -103,19 +96,11 @@ impl NativeModuleCache {
     }
 
     pub fn object_path(&self, source_path: &Path, cache_key: &[u8; 32]) -> PathBuf {
-        self.cache_dir.join(cache_paths::cache_key_filename(
-            source_path,
-            cache_key,
-            object_ext(),
-        ))
+        self.cache_dir.join(cache_paths::cache_key_filename(source_path, cache_key, object_ext()))
     }
 
     pub fn metadata_path(&self, source_path: &Path, cache_key: &[u8; 32]) -> PathBuf {
-        self.cache_dir.join(cache_paths::cache_key_filename(
-            source_path,
-            cache_key,
-            "fno",
-        ))
+        self.cache_dir.join(cache_paths::cache_key_filename(source_path, cache_key, "fno"))
     }
 
     pub fn store(
@@ -172,10 +157,7 @@ impl NativeModuleCache {
             return Err(NativeModuleCacheLoadError::CacheKeyMismatch);
         }
         let dependency_statuses = self.inspect_dependency_statuses(&metadata, cache_root);
-        if let Some(bad) = dependency_statuses
-            .iter()
-            .find(|s| s.status != DependencyStatus::Ok)
-        {
+        if let Some(bad) = dependency_statuses.iter().find(|s| s.status != DependencyStatus::Ok) {
             let reason = match bad.status {
                 DependencyStatus::Ok => unreachable!(),
                 DependencyStatus::Missing => DependencyMissReason::InterfaceMissing,
@@ -206,12 +188,7 @@ impl NativeModuleCache {
         )
         .map_err(|_| NativeModuleCacheLoadError::InvalidMetadata)?;
         let dependency_statuses = self.inspect_dependency_statuses(&metadata, cache_root);
-        Ok(NativeModuleArtifactInfo {
-            object_path,
-            metadata_path,
-            metadata,
-            dependency_statuses,
-        })
+        Ok(NativeModuleArtifactInfo { object_path, metadata_path, metadata, dependency_statuses })
     }
 
     fn inspect_dependency_statuses(
@@ -265,11 +242,7 @@ fn object_ext() -> &'static str {
 
 pub fn support_object_path(cache_layout: &cache_paths::CacheLayout, optimize: bool) -> PathBuf {
     cache_layout.native_dir().join(if optimize {
-        if cfg!(windows) {
-            "flux_support_O2.obj"
-        } else {
-            "flux_support_O2.o"
-        }
+        if cfg!(windows) { "flux_support_O2.obj" } else { "flux_support_O2.o" }
     } else if cfg!(windows) {
         "flux_support_O0.obj"
     } else {
@@ -316,9 +289,8 @@ mod tests {
             .expect("store metadata");
         fs::write(&object_path, []).expect("write object");
 
-        let validated = cache
-            .validate(source, &cache_key, &cache_root, false)
-            .expect("validate artifact");
+        let validated =
+            cache.validate(source, &cache_key, &cache_root, false).expect("validate artifact");
         assert_eq!(validated, object_path);
     }
 
@@ -355,14 +327,9 @@ mod tests {
             .expect("store metadata");
         fs::write(&object_path, []).expect("write object");
 
-        let info = cache
-            .inspect(source, &cache_key, &cache_root)
-            .expect("inspect artifact");
+        let info = cache.inspect(source, &cache_key, &cache_root).expect("inspect artifact");
         assert_eq!(info.dependency_statuses.len(), 1);
         assert_eq!(info.dependency_statuses[0].status, DependencyStatus::Stale);
-        assert_eq!(
-            info.dependency_statuses[0].current_fingerprint.as_deref(),
-            Some("feedface")
-        );
+        assert_eq!(info.dependency_statuses[0].current_fingerprint.as_deref(), Some("feedface"));
     }
 }

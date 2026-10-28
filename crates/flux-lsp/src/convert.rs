@@ -24,10 +24,7 @@ pub fn severity_to_lsp(s: FluxSeverity) -> DiagnosticSeverity {
 }
 
 pub fn diagnostic_to_lsp(d: &FluxDiagnostic, position_map: &PositionMap) -> LspDiagnostic {
-    let range = d
-        .span()
-        .map(|s| position_map.flux_span_to_range(s))
-        .unwrap_or_default();
+    let range = d.span().map(|s| position_map.flux_span_to_range(s)).unwrap_or_default();
     let message = match (d.message(), d.title()) {
         (Some(msg), title) if !title.is_empty() => format!("{title}: {msg}"),
         (Some(msg), _) => msg.to_string(),

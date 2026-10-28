@@ -37,11 +37,8 @@ fn package(root: &Path, name: &str, version: &str, deps: &str) -> PathBuf {
         "[package]\nname = \"{name}\"\nversion = \"{version}\"\nedition = \"2026\"\n{deps}"
     );
     std::fs::write(dir.join("flux.toml"), manifest).expect("write manifest");
-    std::fs::write(
-        dir.join("src").join("main.flx"),
-        "fn main() with IO { print(\"hi\") }\n",
-    )
-    .expect("write source");
+    std::fs::write(dir.join("src").join("main.flx"), "fn main() with IO { print(\"hi\") }\n")
+        .expect("write source");
     dir
 }
 
@@ -63,12 +60,7 @@ fn tree_of_a_nested_dependency_graph() {
     let root = scratch.path();
 
     package(root, "leaf", "0.3.0", "");
-    package(
-        root,
-        "mid",
-        "0.2.0",
-        "\n[dependencies]\nleaf = { path = \"../leaf\" }\n",
-    );
+    package(root, "mid", "0.2.0", "\n[dependencies]\nleaf = { path = \"../leaf\" }\n");
     let app = package(
         root,
         "app",

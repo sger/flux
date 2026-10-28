@@ -136,14 +136,7 @@ fn function_reaches_run_async_with(func: &LirFunction, known: &HashSet<LirFuncId
 }
 
 fn is_run_async_with_primcall(instr: &LirInstr) -> bool {
-    matches!(
-        instr,
-        LirInstr::PrimCall {
-            dst: Some(_),
-            op: CorePrimOp::FiberRunAsyncWith,
-            ..
-        }
-    )
+    matches!(instr, LirInstr::PrimCall { dst: Some(_), op: CorePrimOp::FiberRunAsyncWith, .. })
 }
 
 fn terminator_run_async_with_target(
@@ -151,14 +144,12 @@ fn terminator_run_async_with_target(
     run_async_funcs: &HashSet<LirFuncId>,
 ) -> Option<LirFuncId> {
     match term {
-        LirTerminator::Call {
-            kind: CallKind::Direct { func_id },
-            ..
+        LirTerminator::Call { kind: CallKind::Direct { func_id }, .. }
+        | LirTerminator::TailCall { kind: CallKind::Direct { func_id }, .. }
+            if run_async_funcs.contains(func_id) =>
+        {
+            Some(*func_id)
         }
-        | LirTerminator::TailCall {
-            kind: CallKind::Direct { func_id },
-            ..
-        } if run_async_funcs.contains(func_id) => Some(*func_id),
         _ => None,
     }
 }
@@ -183,23 +174,14 @@ fn outline_instr_site(
         };
         block.locs.truncate(instr_idx);
         let after_instrs = block.instrs.split_off(instr_idx + 1);
-        let outlined = block
-            .instrs
-            .pop()
-            .expect("outline position should have an instruction");
-        let LirInstr::PrimCall {
-            dst: Some(dst),
-            op: CorePrimOp::FiberRunAsyncWith,
-            args,
-        } = outlined
+        let outlined = block.instrs.pop().expect("outline position should have an instruction");
+        let LirInstr::PrimCall { dst: Some(dst), op: CorePrimOp::FiberRunAsyncWith, args } =
+            outlined
         else {
             unreachable!("outline position must be a FiberRunAsyncWith PrimCall");
         };
 
-        block.instrs.push(LirInstr::Const {
-            dst: dummy_func,
-            value: LirConst::None,
-        });
+        block.instrs.push(LirInstr::Const { dst: dummy_func, value: LirConst::None });
         let old_terminator = std::mem::replace(
             &mut block.terminator,
             LirTerminator::Call {
@@ -214,14 +196,7 @@ fn outline_instr_site(
             },
         );
         let old_term_loc = std::mem::replace(&mut block.term_loc, outlined_loc);
-        (
-            dst,
-            args,
-            after_instrs,
-            after_locs,
-            old_terminator,
-            old_term_loc,
-        )
+        (dst, args, after_instrs, after_locs, old_terminator, old_term_loc)
     };
 
     func.blocks.push(LirBlock {
@@ -257,11 +232,7 @@ fn outline_terminator_site(
                 *suppress_yield_check = true;
                 (original, arity)
             }
-            LirTerminator::TailCall {
-                args,
-                kind: CallKind::Direct { func_id },
-                ..
-            } => {
+            LirTerminator::TailCall { args, kind: CallKind::Direct { func_id }, .. } => {
                 let original = *func_id;
                 let arity = args.len();
                 *func_id = helper_id;
@@ -280,9 +251,7 @@ fn suppress_run_async_boundary_yield_checks(
 ) {
     for block in &mut func.blocks {
         if let LirTerminator::Call {
-            kind: CallKind::Direct { func_id },
-            suppress_yield_check,
-            ..
+            kind: CallKind::Direct { func_id }, suppress_yield_check, ..
         } = &mut block.terminator
             && run_async_funcs.contains(func_id)
         {
@@ -350,10 +319,7 @@ fn make_direct_call_helper(
             term_loc: Default::default(),
             id: BlockId(0),
             params: Vec::new(),
-            instrs: vec![LirInstr::Const {
-                dst: dummy_func,
-                value: LirConst::None,
-            }],
+            instrs: vec![LirInstr::Const { dst: dummy_func, value: LirConst::None }],
             terminator: LirTerminator::TailCall {
                 func: dummy_func,
                 args: params,
@@ -368,15 +334,7 @@ fn make_direct_call_helper(
 }
 
 fn sanitize_name_fragment(name: &str) -> String {
-    name.chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '_' {
-                ch
-            } else {
-                '_'
-            }
-        })
-        .collect()
+    name.chars().map(|ch| if ch.is_ascii_alphanumeric() || ch == '_' { ch } else { '_' }).collect()
 }
 
 #[cfg(test)]
@@ -419,13 +377,7 @@ mod tests {
             .iter()
             .flat_map(|block| &block.instrs)
             .filter(|instr| {
-                matches!(
-                    instr,
-                    LirInstr::PrimCall {
-                        op: CorePrimOp::FiberRunAsyncWith,
-                        ..
-                    }
-                )
+                matches!(instr, LirInstr::PrimCall { op: CorePrimOp::FiberRunAsyncWith, .. })
             })
             .count()
     }
@@ -463,23 +415,14 @@ mod tests {
         assert_eq!(program.functions.len(), 2);
         let main = &program.functions[0];
         let helper = &program.functions[1];
-        assert_eq!(
-            count_run_async_primcalls(main),
-            RUN_ASYNC_WITH_INLINE_SITE_LIMIT
-        );
+        assert_eq!(count_run_async_primcalls(main), RUN_ASYNC_WITH_INLINE_SITE_LIMIT);
         assert_eq!(count_run_async_primcalls(helper), 1);
         assert!(is_run_async_with_outline_helper(helper));
         assert!(matches!(
             main.blocks[0].terminator,
-            LirTerminator::Call {
-                kind: CallKind::Direct { .. },
-                ..
-            }
+            LirTerminator::Call { kind: CallKind::Direct { .. }, .. }
         ));
-        assert!(matches!(
-            helper.blocks[0].terminator,
-            LirTerminator::Return(_)
-        ));
+        assert!(matches!(helper.blocks[0].terminator, LirTerminator::Return(_)));
     }
 
     #[test]
@@ -503,24 +446,15 @@ mod tests {
                 locs: Vec::new(),
                 term_loc: Default::default(),
                 id: BlockId(idx),
-                params: if idx == 0 {
-                    Vec::new()
-                } else {
-                    vec![LirVar(100 + idx - 1)]
-                },
-                instrs: vec![LirInstr::Const {
-                    dst: LirVar(200 + idx),
-                    value: LirConst::None,
-                }],
+                params: if idx == 0 { Vec::new() } else { vec![LirVar(100 + idx - 1)] },
+                instrs: vec![LirInstr::Const { dst: LirVar(200 + idx), value: LirConst::None }],
                 terminator: if idx == 8 {
                     LirTerminator::Call {
                         dst: LirVar(108),
                         func: LirVar(200 + idx),
                         args: vec![LirVar(0), LirVar(1), LirVar(2), LirVar(3)],
                         cont: BlockId(9),
-                        kind: CallKind::Direct {
-                            func_id: LirFuncId(10),
-                        },
+                        kind: CallKind::Direct { func_id: LirFuncId(10) },
                         suppress_yield_check: false,
                         yield_cont: None,
                         held: None,
@@ -531,9 +465,7 @@ mod tests {
                         func: LirVar(200 + idx),
                         args: vec![LirVar(0), LirVar(1), LirVar(2), LirVar(3)],
                         cont: BlockId(idx + 1),
-                        kind: CallKind::Direct {
-                            func_id: LirFuncId(10),
-                        },
+                        kind: CallKind::Direct { func_id: LirFuncId(10) },
                         suppress_yield_check: false,
                         yield_cont: None,
                         held: None,
@@ -567,12 +499,7 @@ mod tests {
         ));
         assert!(matches!(
             helper.blocks[0].terminator,
-            LirTerminator::TailCall {
-                kind: CallKind::Direct {
-                    func_id: LirFuncId(10)
-                },
-                ..
-            }
+            LirTerminator::TailCall { kind: CallKind::Direct { func_id: LirFuncId(10) }, .. }
         ));
     }
 }

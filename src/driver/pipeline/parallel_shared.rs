@@ -29,9 +29,8 @@ pub(crate) fn partition_module_batches<T: Clone>(
     items: &[T],
     kind_of: impl Fn(&T) -> ModuleKind,
 ) -> Vec<Vec<T>> {
-    let (flow_nodes, user_nodes): (Vec<_>, Vec<_>) = items
-        .iter()
-        .partition(|item| kind_of(item) == ModuleKind::FlowStdlib);
+    let (flow_nodes, user_nodes): (Vec<_>, Vec<_>) =
+        items.iter().partition(|item| kind_of(item) == ModuleKind::FlowStdlib);
     let flow_nodes: Vec<_> = flow_nodes.into_iter().cloned().collect();
     let user_nodes: Vec<_> = user_nodes.into_iter().cloned().collect();
     if flow_nodes.is_empty() {
@@ -49,11 +48,7 @@ pub(crate) fn dependency_changed_paths<T>(
     path_of: impl Fn(&T) -> &PathBuf,
     is_changed: impl Fn(&T) -> bool,
 ) -> HashSet<PathBuf> {
-    items
-        .iter()
-        .filter(|item| is_changed(item))
-        .map(|item| path_of(item).clone())
-        .collect()
+    items.iter().filter(|item| is_changed(item)).map(|item| path_of(item).clone()).collect()
 }
 
 /// Sorts result collections by module path to keep output deterministic after parallel work.
@@ -63,9 +58,7 @@ pub(crate) fn sort_by_path<T>(items: &mut [T], path_of: impl Fn(&T) -> &PathBuf)
 
 /// Chooses the user-facing module name for progress output.
 pub(crate) fn progress_name(interface_name: Option<&str>, path: &Path) -> String {
-    interface_name
-        .map(str::to_string)
-        .unwrap_or_else(|| module_display_name(path))
+    interface_name.map(str::to_string).unwrap_or_else(|| module_display_name(path))
 }
 
 /// Emits cache miss details and a progress line for the current module.
@@ -88,10 +81,7 @@ pub(crate) fn emit_progress(
 
 /// Removes error diagnostics when only warnings/notes should be replayed.
 pub(crate) fn filter_non_error_diagnostics(diags: Vec<Diagnostic>) -> Vec<Diagnostic> {
-    diags
-        .into_iter()
-        .filter(|diag| diag.severity() != Severity::Error)
-        .collect()
+    diags.into_iter().filter(|diag| diag.severity() != Severity::Error).collect()
 }
 
 /// Replays module diagnostics using the shared compiler replay path.
@@ -131,13 +121,11 @@ pub(crate) fn collect_dependency_fingerprints(
     imports
         .iter()
         .filter_map(|dep| {
-            loaded_interfaces
-                .get(&dep.target_path)
-                .map(|interface| DependencyFingerprint {
-                    module_name: interface.module_name.clone(),
-                    source_path: dep.target_path.to_string_lossy().to_string(),
-                    interface_fingerprint: interface.interface_fingerprint.clone(),
-                })
+            loaded_interfaces.get(&dep.target_path).map(|interface| DependencyFingerprint {
+                module_name: interface.module_name.clone(),
+                source_path: dep.target_path.to_string_lossy().to_string(),
+                interface_fingerprint: interface.interface_fingerprint.clone(),
+            })
         })
         .collect()
 }
@@ -207,21 +195,13 @@ mod tests {
     #[test]
     fn partitions_stdlib_before_user_batches() {
         let nodes = vec![
-            TestNode {
-                path: PathBuf::from("user_a.flx"),
-                kind: ModuleKind::User,
-                changed: false,
-            },
+            TestNode { path: PathBuf::from("user_a.flx"), kind: ModuleKind::User, changed: false },
             TestNode {
                 path: PathBuf::from("flow_a.flx"),
                 kind: ModuleKind::FlowStdlib,
                 changed: false,
             },
-            TestNode {
-                path: PathBuf::from("user_b.flx"),
-                kind: ModuleKind::User,
-                changed: false,
-            },
+            TestNode { path: PathBuf::from("user_b.flx"), kind: ModuleKind::User, changed: false },
         ];
 
         let batches = partition_module_batches(&nodes, |node| node.kind);
@@ -235,16 +215,8 @@ mod tests {
     #[test]
     fn dependency_changed_paths_collects_only_changed_items() {
         let nodes = vec![
-            TestNode {
-                path: PathBuf::from("a.flx"),
-                kind: ModuleKind::User,
-                changed: true,
-            },
-            TestNode {
-                path: PathBuf::from("b.flx"),
-                kind: ModuleKind::User,
-                changed: false,
-            },
+            TestNode { path: PathBuf::from("a.flx"), kind: ModuleKind::User, changed: true },
+            TestNode { path: PathBuf::from("b.flx"), kind: ModuleKind::User, changed: false },
         ];
 
         let changed = dependency_changed_paths(&nodes, |node| &node.path, |node| node.changed);
@@ -256,16 +228,8 @@ mod tests {
     #[test]
     fn sort_by_path_produces_deterministic_order() {
         let mut nodes = vec![
-            TestNode {
-                path: PathBuf::from("z.flx"),
-                kind: ModuleKind::User,
-                changed: false,
-            },
-            TestNode {
-                path: PathBuf::from("a.flx"),
-                kind: ModuleKind::User,
-                changed: false,
-            },
+            TestNode { path: PathBuf::from("z.flx"), kind: ModuleKind::User, changed: false },
+            TestNode { path: PathBuf::from("a.flx"), kind: ModuleKind::User, changed: false },
         ];
 
         sort_by_path(&mut nodes, |node| &node.path);
@@ -280,27 +244,17 @@ mod tests {
             progress_name(Some("Flow.List"), PathBuf::from("list.flx").as_path()),
             "Flow.List"
         );
-        assert_eq!(
-            progress_name(None, PathBuf::from("list.flx").as_path()),
-            "list"
-        );
+        assert_eq!(progress_name(None, PathBuf::from("list.flx").as_path()), "list");
     }
 
     #[test]
     fn filter_non_error_diagnostics_keeps_only_non_errors() {
-        let diags = vec![
-            Diagnostic::warning("warn"),
-            Diagnostic::warning("warn2"),
-            crate::ice!("boom"),
-        ];
+        let diags =
+            vec![Diagnostic::warning("warn"), Diagnostic::warning("warn2"), crate::ice!("boom")];
 
         let filtered = filter_non_error_diagnostics(diags);
 
         assert_eq!(filtered.len(), 2);
-        assert!(
-            filtered
-                .iter()
-                .all(|diag| diag.severity() != Severity::Error)
-        );
+        assert!(filtered.iter().all(|diag| diag.severity() != Severity::Error));
     }
 }

@@ -61,10 +61,8 @@ pub fn build(
         .unwrap_or_else(|| "program".to_string());
     let binary = workdir.join(&stem);
 
-    let (program, base) = spec
-        .flux_command
-        .split_first()
-        .ok_or_else(|| "`fluxCommand` is empty".to_string())?;
+    let (program, base) =
+        spec.flux_command.split_first().ok_or_else(|| "`fluxCommand` is empty".to_string())?;
     let mut command = Command::new(program);
     command
         .args(base)
@@ -79,16 +77,8 @@ pub fn build(
     if let Some(cwd) = &spec.cwd {
         command.current_dir(cwd);
     }
-    output(
-        "console",
-        &format!(
-            "Building {} for native debugging…\n",
-            spec.program.display()
-        ),
-    );
-    let mut child = command
-        .spawn()
-        .map_err(|err| format!("cannot start `{program}`: {err}"))?;
+    output("console", &format!("Building {} for native debugging…\n", spec.program.display()));
+    let mut child = command.spawn().map_err(|err| format!("cannot start `{program}`: {err}"))?;
     let stderr = child.stderr.take().expect("piped stderr");
     let mut reader = BufReader::new(stderr);
     let mut line = String::new();
@@ -98,23 +88,17 @@ pub fn build(
         }
         line.clear();
     }
-    let status = child
-        .wait()
-        .map_err(|err| format!("the build did not finish: {err}"))?;
+    let status = child.wait().map_err(|err| format!("the build did not finish: {err}"))?;
     if !status.success() || !binary.exists() {
         let _ = std::fs::remove_dir_all(&workdir);
         return Err(
-            "the program did not build for native debugging; see the Debug Console".to_string(),
+            "the program did not build for native debugging; see the Debug Console".to_string()
         );
     }
     let script = workdir.join("flux_lldb.py");
     std::fs::write(&script, flux::debuginfo::LLDB_SCRIPT)
         .map_err(|err| format!("cannot write flux_lldb.py: {err}"))?;
-    Ok(NativeBuild {
-        binary,
-        script,
-        workdir,
-    })
+    Ok(NativeBuild { binary, script, workdir })
 }
 
 /// The `lldb-dap` to run: the launch configuration's `lldbDap`, else
@@ -126,14 +110,8 @@ pub fn find_lldb_dap(configured: Option<&str>) -> Result<Vec<String>, String> {
     if let Some(path) = std::env::var_os("FLUX_LLDB_DAP") {
         return Ok(vec![path.to_string_lossy().into_owned()]);
     }
-    let names = [
-        "lldb-dap",
-        "lldb-dap-22",
-        "lldb-dap-21",
-        "lldb-dap-20",
-        "lldb-dap-19",
-        "lldb-dap-18",
-    ];
+    let names =
+        ["lldb-dap", "lldb-dap-22", "lldb-dap-21", "lldb-dap-20", "lldb-dap-19", "lldb-dap-18"];
     if let Some(paths) = std::env::var_os("PATH") {
         for dir in std::env::split_paths(&paths) {
             for name in names {
@@ -156,12 +134,10 @@ pub fn find_lldb_dap(configured: Option<&str>) -> Result<Vec<String>, String> {
             return Ok(vec![path]);
         }
     }
-    Err(
-        "cannot find lldb-dap, which native debugging runs on: install LLVM's lldb \
+    Err("cannot find lldb-dap, which native debugging runs on: install LLVM's lldb \
          (or Xcode on macOS), or set `lldbDap` in the launch configuration or \
          `flux.lldbDapPath` in the settings"
-            .to_string(),
-    )
+        .to_string())
 }
 
 impl NativeEngine {
@@ -172,9 +148,8 @@ impl NativeEngine {
         workdir: PathBuf,
         inputs: Sender<Input>,
     ) -> Result<Self, String> {
-        let (program, args) = command
-            .split_first()
-            .ok_or_else(|| "the lldb-dap command is empty".to_string())?;
+        let (program, args) =
+            command.split_first().ok_or_else(|| "the lldb-dap command is empty".to_string())?;
         let mut child = Command::new(program)
             .args(args)
             .stdin(Stdio::piped())
@@ -210,12 +185,7 @@ impl NativeEngine {
                 }
             }
         });
-        Ok(Self {
-            child,
-            stdin,
-            next_seq: 0,
-            workdir,
-        })
+        Ok(Self { child, stdin, next_seq: 0, workdir })
     }
 
     /// Sends `message` with a sequence number of `lldb-dap`'s, and returns it.
@@ -252,16 +222,10 @@ pub fn launch_arguments(spec: &LaunchSpec, build: &NativeBuild, editor: &Value) 
     // fibers' threads then follow the program's own order.
     let mut env = vec!["FLUX_WORKERS=1".to_string()];
     if let Some(tape) = &spec.record {
-        env.push(format!(
-            "FLUX_TAPE_RECORD={}",
-            absolute(spec, tape).display()
-        ));
+        env.push(format!("FLUX_TAPE_RECORD={}", absolute(spec, tape).display()));
     }
     if let Some(tape) = &spec.replay {
-        env.push(format!(
-            "FLUX_TAPE_REPLAY={}",
-            absolute(spec, tape).display()
-        ));
+        env.push(format!("FLUX_TAPE_REPLAY={}", absolute(spec, tape).display()));
     }
     let mut arguments = json!({
         "program": build.binary,
@@ -378,9 +342,7 @@ pub fn spliced_stack(body: &Value, lines: &[Value], first_id: i64) -> Vec<Value>
 /// fiber that waits is `fiber_threads + its number`. None outside
 /// `run_async`, where lldb-dap's own threads are the program's.
 pub fn fiber_threads(text: &str, fiber_threads: i64) -> Option<Vec<Value>> {
-    let line = text
-        .lines()
-        .find(|line| line.trim_start().starts_with('['))?;
+    let line = text.lines().find(|line| line.trim_start().starts_with('['))?;
     let listed: Vec<Value> = serde_json::from_str(line.trim()).ok()?;
     if listed.len() <= 1 && listed.iter().all(|thread| thread["os"].is_i64()) {
         // One thread, the program's: no fibers to show.
@@ -408,9 +370,7 @@ pub fn fiber_threads(text: &str, fiber_threads: i64) -> Option<Vec<Value>> {
 /// The runtime error `flux where`'s answer says the program stopped at:
 /// `stopped: exception (panic: too big) at …`.
 pub fn stop_exception(text: &str) -> Option<ExceptionInfo> {
-    let rest = text
-        .lines()
-        .find_map(|line| line.trim().strip_prefix("stopped: exception ("))?;
+    let rest = text.lines().find_map(|line| line.trim().strip_prefix("stopped: exception ("))?;
     let (error, _) = rest.rsplit_once(") at ")?;
     let (label, message) = error.split_once(": ").unwrap_or((error, error));
     let kind = match label {
@@ -420,10 +380,7 @@ pub fn stop_exception(text: &str) -> Option<ExceptionInfo> {
         "fiber failure" => "fiber_failure",
         _ => "runtime_error",
     };
-    Some(ExceptionInfo {
-        kind: kind.to_string(),
-        message: message.to_string(),
-    })
+    Some(ExceptionInfo { kind: kind.to_string(), message: message.to_string() })
 }
 
 /// `lldb-dap`'s scopes, as a Flux frame has them: its variables, without
@@ -432,9 +389,7 @@ pub fn flux_scopes(mut body: Value, show_internals: bool) -> Value {
     if !show_internals && let Some(scopes) = body["scopes"].as_array_mut() {
         scopes.retain(|scope| {
             scope["presentationHint"] == "locals"
-                || scope["name"]
-                    .as_str()
-                    .is_some_and(|name| name.starts_with("Local"))
+                || scope["name"].as_str().is_some_and(|name| name.starts_with("Local"))
         });
     }
     body
@@ -463,9 +418,7 @@ pub fn flux_evaluation(mut body: Value) -> Value {
 /// lldb-dap shows a value with a summary as `<raw word> <summary>`. For the
 /// Flux typedefs the word means nothing to the reader: keep the summary.
 fn flux_value(item: &mut Value, field: &str) {
-    let is_flux = item["type"]
-        .as_str()
-        .is_some_and(|ty| ty.starts_with("Flux"));
+    let is_flux = item["type"].as_str().is_some_and(|ty| ty.starts_with("Flux"));
     if !is_flux {
         return;
     }

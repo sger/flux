@@ -72,36 +72,24 @@ fn normalize(
         InferType::Var(_) | InferType::Con(_) => ty.clone(),
         InferType::App(con, args) => InferType::App(
             con.clone(),
-            args.iter()
-                .map(|arg| normalize(arg, class_env, interner, fuel))
-                .collect(),
+            args.iter().map(|arg| normalize(arg, class_env, interner, fuel)).collect(),
         ),
         InferType::Assoc(class_id, name, args) => InferType::Assoc(
             *class_id,
             *name,
-            args.iter()
-                .map(|arg| normalize(arg, class_env, interner, fuel))
-                .collect(),
+            args.iter().map(|arg| normalize(arg, class_env, interner, fuel)).collect(),
         ),
         InferType::Tuple(elements) => InferType::Tuple(
-            elements
-                .iter()
-                .map(|element| normalize(element, class_env, interner, fuel))
-                .collect(),
+            elements.iter().map(|element| normalize(element, class_env, interner, fuel)).collect(),
         ),
         InferType::Fun(params, ret, effects) => InferType::Fun(
-            params
-                .iter()
-                .map(|param| normalize(param, class_env, interner, fuel))
-                .collect(),
+            params.iter().map(|param| normalize(param, class_env, interner, fuel)).collect(),
             Box::new(normalize(ret, class_env, interner, fuel)),
             effects.clone(),
         ),
         InferType::HktApp(head, args) => InferType::HktApp(
             Box::new(normalize(head, class_env, interner, fuel)),
-            args.iter()
-                .map(|arg| normalize(arg, class_env, interner, fuel))
-                .collect(),
+            args.iter().map(|arg| normalize(arg, class_env, interner, fuel)).collect(),
         ),
     };
 

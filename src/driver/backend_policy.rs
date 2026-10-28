@@ -107,19 +107,11 @@ pub fn should_render_native_runtime_error(flags: &DriverFlags) -> bool {
 }
 
 pub fn compile_backend_label(flags: &DriverFlags) -> &'static str {
-    if flags.is_native_backend() {
-        "llvm"
-    } else {
-        "bytecode"
-    }
+    if flags.is_native_backend() { "llvm" } else { "bytecode" }
 }
 
 pub fn execute_backend_label(flags: &DriverFlags) -> &'static str {
-    if flags.is_native_backend() {
-        "native"
-    } else {
-        "vm"
-    }
+    if flags.is_native_backend() { "native" } else { "vm" }
 }
 
 pub fn should_show_native_cache(flags: &DriverFlags) -> bool {

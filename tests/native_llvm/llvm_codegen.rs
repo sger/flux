@@ -23,11 +23,7 @@ use flux::{
 fn parse_and_lower_core(src: &str) -> (flux::core::CoreProgram, Interner) {
     let mut parser = Parser::new(Lexer::new(src));
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<test>", interner.clone());
     let hm_expr_types: HashMap<ExprId, InferType> = compiler.infer_expr_types_for_program(&program);
@@ -44,9 +40,7 @@ fn compile_to_llvm_ir(src: &str) -> String {
 
 fn llvm_function_text<'a>(ll: &'a str, name: &str) -> &'a str {
     let marker = format!("@{name}(");
-    let start = ll
-        .find(&marker)
-        .unwrap_or_else(|| panic!("missing function {name}"));
+    let start = ll.find(&marker).unwrap_or_else(|| panic!("missing function {name}"));
     let function_start = ll[..start].rfind("define ").unwrap_or(start);
     let rest = &ll[function_start..];
     let end = rest.find("\ndefine ").unwrap_or(rest.len());
@@ -81,10 +75,7 @@ fn main(x) {
     );
 
     // `main` is renamed to `flux_main` with ccc calling convention.
-    assert!(
-        rendered.contains("@flux_main"),
-        "expected flux_main in output"
-    );
+    assert!(rendered.contains("@flux_main"), "expected flux_main in output");
 }
 
 #[test]
@@ -97,10 +88,7 @@ fn factorial(n, acc) {
 "#,
     );
 
-    assert!(
-        rendered.contains("@flux_factorial"),
-        "expected flux_factorial in output"
-    );
+    assert!(rendered.contains("@flux_factorial"), "expected flux_factorial in output");
     assert!(
         rendered.contains("flux_isub") || rendered.contains("flux_sub"),
         "expected subtraction"
@@ -121,14 +109,8 @@ fn fibonacci(n) {
 "#,
     );
 
-    assert!(
-        rendered.contains("@flux_fibonacci"),
-        "expected flux_fibonacci in output"
-    );
-    assert!(
-        rendered.contains("flux_iadd") || rendered.contains("flux_add"),
-        "expected addition"
-    );
+    assert!(rendered.contains("@flux_fibonacci"), "expected flux_fibonacci in output");
+    assert!(rendered.contains("flux_iadd") || rendered.contains("flux_add"), "expected addition");
 }
 
 #[test]
@@ -141,14 +123,8 @@ fn main(x) {
 }
 "#,
     );
-    assert!(
-        rendered.contains("flux_make_closure"),
-        "expected closure creation"
-    );
-    assert!(
-        rendered.contains("flux_call_closure"),
-        "expected closure call"
-    );
+    assert!(rendered.contains("flux_make_closure"), "expected closure creation");
+    assert!(rendered.contains("flux_call_closure"), "expected closure call");
 }
 
 #[test]
@@ -166,15 +142,9 @@ fn main(x) {
     assert!(rendered.contains("flux_cos"), "expected flux_cos helper");
     assert!(rendered.contains("flux_exp"), "expected flux_exp helper");
     assert!(rendered.contains("flux_log"), "expected flux_log helper");
-    assert!(
-        rendered.contains("flux_floor"),
-        "expected flux_floor helper"
-    );
+    assert!(rendered.contains("flux_floor"), "expected flux_floor helper");
     assert!(rendered.contains("flux_ceil"), "expected flux_ceil helper");
-    assert!(
-        rendered.contains("flux_round"),
-        "expected flux_round helper"
-    );
+    assert!(rendered.contains("flux_round"), "expected flux_round helper");
 }
 
 #[test]
@@ -227,22 +197,10 @@ fn factorial(n, acc) {
 #[test]
 fn outlines_excess_run_async_with_calls_before_llvm_rendering() {
     let mut instrs = vec![
-        LirInstr::Const {
-            dst: LirVar(0),
-            value: LirConst::Tagged(1),
-        },
-        LirInstr::Const {
-            dst: LirVar(1),
-            value: LirConst::Tagged(0),
-        },
-        LirInstr::Const {
-            dst: LirVar(2),
-            value: LirConst::Tagged(0),
-        },
-        LirInstr::Const {
-            dst: LirVar(3),
-            value: LirConst::None,
-        },
+        LirInstr::Const { dst: LirVar(0), value: LirConst::Tagged(1) },
+        LirInstr::Const { dst: LirVar(1), value: LirConst::Tagged(0) },
+        LirInstr::Const { dst: LirVar(2), value: LirConst::Tagged(0) },
+        LirInstr::Const { dst: LirVar(3), value: LirConst::None },
     ];
     for idx in 0..9 {
         instrs.push(LirInstr::PrimCall {

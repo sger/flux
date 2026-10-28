@@ -69,10 +69,7 @@ fn normalize_type_variable_ids(input: &str) -> String {
         let (prefix, after_marker) = rest.split_at(offset + MARKER.len());
         normalized.push_str(&prefix[..offset]);
         normalized.push_str(MARKER);
-        let digit_count = after_marker
-            .chars()
-            .take_while(|ch| ch.is_ascii_digit())
-            .count();
+        let digit_count = after_marker.chars().take_while(|ch| ch.is_ascii_digit()).count();
         normalized.push('N');
         rest = &after_marker[digit_count..];
     }
@@ -119,11 +116,7 @@ fn regression_fixtures_cli_output() {
     let flux_bin = PathBuf::from(env!("CARGO_BIN_EXE_flux"));
 
     let fixtures = discover_fixtures(&fixtures_root);
-    assert!(
-        !fixtures.is_empty(),
-        "no fixtures found under `{}`",
-        fixtures_root.display()
-    );
+    assert!(!fixtures.is_empty(), "no fixtures found under `{}`", fixtures_root.display());
 
     for fixture in fixtures {
         let snapshot = snapshot_name(&fixtures_root, &fixture);

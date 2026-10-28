@@ -67,14 +67,8 @@ fn main() -> Unit with IO {
 }
 "#,
     );
-    assert!(
-        success,
-        "a failed read must not abort:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
-    assert!(
-        stdout.contains("handled NotFound"),
-        "expected handled NotFound:\n{stdout}"
-    );
+    assert!(success, "a failed read must not abort:\nstdout:\n{stdout}\nstderr:\n{stderr}");
+    assert!(stdout.contains("handled NotFound"), "expected handled NotFound:\n{stdout}");
     assert!(
         stdout.contains("still running"),
         "execution should continue after a failed read:\n{stdout}"
@@ -133,10 +127,7 @@ fn main() -> Unit with IO {{
         ),
     );
     assert!(success, "run failed:\n{stdout}\n{stderr}");
-    assert!(
-        stdout.contains("got:hello fs"),
-        "expected got:hello fs:\n{stdout}"
-    );
+    assert!(stdout.contains("got:hello fs"), "expected got:hello fs:\n{stdout}");
 }
 
 /// `read_file_or` collapses the `Result` for the "optional config" shape.
@@ -153,10 +144,7 @@ fn main() -> Unit with IO {
 "#,
     );
     assert!(success, "run failed:\n{stdout}\n{stderr}");
-    assert!(
-        stdout.contains("defaulted"),
-        "expected defaulted:\n{stdout}"
-    );
+    assert!(stdout.contains("defaulted"), "expected defaulted:\n{stdout}");
 }
 
 /// `Flow.Fs.read_file` carries `FileSystem`, so a caller that does not declare
@@ -181,10 +169,7 @@ fn main() -> Unit with IO {
 }
 "#,
     );
-    assert!(
-        !success,
-        "an undeclared FileSystem effect must be rejected:\nstdout:\n{stdout}"
-    );
+    assert!(!success, "an undeclared FileSystem effect must be rejected:\nstdout:\n{stdout}");
     let combined = format!("{stdout}{stderr}");
     assert!(
         combined.contains("FileSystem"),
@@ -243,20 +228,12 @@ fn main() -> Unit with IO {{
         ),
     );
     assert!(success, "run failed:\n{stdout}\n{stderr}");
-    for expected in [
-        "mkdir=true",
-        "write=true",
-        "rename=true",
-        "content=v",
-        "rmtree=true",
-        "gone=true",
-    ] {
+    for expected in
+        ["mkdir=true", "write=true", "rename=true", "content=v", "rmtree=true", "gone=true"]
+    {
         assert!(stdout.contains(expected), "missing {expected}:\n{stdout}");
     }
-    assert!(
-        !workspace_root().join(base).exists(),
-        "remove_dir_all left the tree behind"
-    );
+    assert!(!workspace_root().join(base).exists(), "remove_dir_all left the tree behind");
 }
 
 /// Errors are classified the same way on both backends. The VM matches on
@@ -287,12 +264,7 @@ fn main() -> Unit with IO {
 "#,
     );
     assert!(success, "run failed:\n{stdout}\n{stderr}");
-    for expected in [
-        "write=NotFound",
-        "rmfile=NotFound",
-        "rmdir=NotFound",
-        "rename=NotFound",
-    ] {
+    for expected in ["write=NotFound", "rmfile=NotFound", "rmdir=NotFound", "rename=NotFound"] {
         assert!(stdout.contains(expected), "missing {expected}:\n{stdout}");
     }
 }
@@ -316,10 +288,7 @@ fn main() -> Unit with IO {
 }
 "#,
     );
-    assert!(
-        !success,
-        "an undeclared FileSystem effect must be rejected:\n{stdout}"
-    );
+    assert!(!success, "an undeclared FileSystem effect must be rejected:\n{stdout}");
     assert!(
         format!("{stdout}{stderr}").contains("FileSystem"),
         "the diagnostic should name the FileSystem effect"
@@ -361,13 +330,7 @@ fn main() -> Unit with IO {{
     );
     let _ = std::fs::remove_dir_all(workspace_root().join(base));
     assert!(success, "run failed:\n{stdout}\n{stderr}");
-    for expected in [
-        "count=2",
-        "has_a=true",
-        "has_b=true",
-        "no_dot=true",
-        "bare=true",
-    ] {
+    for expected in ["count=2", "has_a=true", "has_b=true", "no_dot=true", "bare=true"] {
         assert!(stdout.contains(expected), "missing {expected}:\n{stdout}");
     }
 }
@@ -442,14 +405,9 @@ fn report_file(path: String) -> Unit with IO {{
     );
     let _ = std::fs::remove_dir_all(workspace_root().join(base));
     assert!(success, "run failed:\n{stdout}\n{stderr}");
-    for expected in [
-        "size=5",
-        "is_file=true",
-        "is_dir=false",
-        "agrees=true",
-        "mtime=true",
-        "dir_is_dir=true",
-    ] {
+    for expected in
+        ["size=5", "is_file=true", "is_dir=false", "agrees=true", "mtime=true", "dir_is_dir=true"]
+    {
         assert!(stdout.contains(expected), "missing {expected}:\n{stdout}");
     }
 }
@@ -477,14 +435,8 @@ fn main() -> Unit with IO {
     );
     assert!(success, "run failed:\n{stdout}\n{stderr}");
     assert!(stdout.contains("kind=NotFound"), "got:\n{stdout}");
-    assert!(
-        stdout.contains("path=/nonexistent/meta.txt"),
-        "got:\n{stdout}"
-    );
-    assert!(
-        stdout.contains("still running"),
-        "a failed stat must not abort:\n{stdout}"
-    );
+    assert!(stdout.contains("path=/nonexistent/meta.txt"), "got:\n{stdout}");
+    assert!(stdout.contains("still running"), "a failed stat must not abort:\n{stdout}");
 }
 
 /// Inspection carries `FileSystem` like every other operation here.
@@ -505,10 +457,7 @@ fn main() -> Unit with IO {
 }
 "#,
     );
-    assert!(
-        !success,
-        "an undeclared FileSystem effect must be rejected:\n{stdout}"
-    );
+    assert!(!success, "an undeclared FileSystem effect must be rejected:\n{stdout}");
     assert!(
         format!("{stdout}{stderr}").contains("FileSystem"),
         "the diagnostic should name the FileSystem effect"

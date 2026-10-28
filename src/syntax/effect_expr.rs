@@ -10,9 +10,15 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EffectExpr {
     /// A concrete effect atom, such as `IO` or `Time`.
-    Named { name: Identifier, span: Span },
+    Named {
+        name: Identifier,
+        span: Span,
+    },
     /// An open row variable, rendered as `|e`.
-    RowVar { name: Identifier, span: Span },
+    RowVar {
+        name: Identifier,
+        span: Span,
+    },
     Add {
         left: Box<EffectExpr>,
         right: Box<EffectExpr>,
@@ -42,18 +48,10 @@ impl EffectExpr {
             EffectExpr::Named { name, .. } => interner.resolve(*name).to_string(),
             EffectExpr::RowVar { name, .. } => format!("|{}", interner.resolve(*name)),
             EffectExpr::Add { left, right, .. } => {
-                format!(
-                    "{} + {}",
-                    left.display_with(interner),
-                    right.display_with(interner)
-                )
+                format!("{} + {}", left.display_with(interner), right.display_with(interner))
             }
             EffectExpr::Subtract { left, right, .. } => {
-                format!(
-                    "{} - {}",
-                    left.display_with(interner),
-                    right.display_with(interner)
-                )
+                format!("{} - {}", left.display_with(interner), right.display_with(interner))
             }
         }
     }
@@ -251,19 +249,13 @@ mod tests {
             left: Box::new(EffectExpr::Add {
                 left: Box::new(EffectExpr::Add {
                     left: Box::new(EffectExpr::Named { name: io, span }),
-                    right: Box::new(EffectExpr::Named {
-                        name: console,
-                        span,
-                    }),
+                    right: Box::new(EffectExpr::Named { name: console, span }),
                     span,
                 }),
                 right: Box::new(EffectExpr::Named { name: time, span }),
                 span,
             }),
-            right: Box::new(EffectExpr::Named {
-                name: console,
-                span,
-            }),
+            right: Box::new(EffectExpr::Named { name: console, span }),
             span,
         };
 
@@ -280,18 +272,12 @@ mod tests {
         let clock = interner.intern("Clock");
         let span = Span::default();
 
-        let atom = EffectExpr::Named {
-            name: console,
-            span,
-        };
+        let atom = EffectExpr::Named { name: console, span };
         assert!(!atom.contains_add());
         assert!(!atom.contains_subtract());
 
         let add = EffectExpr::Add {
-            left: Box::new(EffectExpr::Named {
-                name: console,
-                span,
-            }),
+            left: Box::new(EffectExpr::Named { name: console, span }),
             right: Box::new(EffectExpr::Named { name: clock, span }),
             span,
         };

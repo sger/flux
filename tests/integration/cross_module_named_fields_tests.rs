@@ -32,13 +32,7 @@ fn run_project(case: &str, module_name: &str, module_src: &str, main_src: &str) 
 
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
-        .args([
-            "run",
-            main.to_str().unwrap(),
-            "--root",
-            dir.to_str().unwrap(),
-            "--no-cache",
-        ])
+        .args(["run", main.to_str().unwrap(), "--root", dir.to_str().unwrap(), "--no-cache"])
         .args(scratch.cache_args())
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux for {case}: {e}"));
@@ -82,14 +76,8 @@ fn main() -> Unit {
 }
 "#,
     );
-    assert!(
-        success,
-        "named-field pattern on an imported ctor failed:\n{out}"
-    );
-    assert!(
-        out.contains("got p m"),
-        "expected `got p m`, output:\n{out}"
-    );
+    assert!(success, "named-field pattern on an imported ctor failed:\n{out}");
+    assert!(out.contains("got p m"), "expected `got p m`, output:\n{out}");
 }
 
 #[test]
@@ -112,14 +100,8 @@ fn main() -> Unit {
 }
 "#,
     );
-    assert!(
-        success,
-        "named-field construction of an imported ctor failed:\n{out}"
-    );
-    assert!(
-        out.contains("built p2 m2"),
-        "expected `built p2 m2`:\n{out}"
-    );
+    assert!(success, "named-field construction of an imported ctor failed:\n{out}");
+    assert!(out.contains("built p2 m2"), "expected `built p2 m2`:\n{out}");
 }
 
 /// Field *order* is what the desugaring resolves, so writing the fields out of
@@ -177,10 +159,7 @@ fn main() -> Unit {
 "#,
     );
     assert!(success, "local ctor should shadow the imported one:\n{out}");
-    assert!(
-        out.contains("local local 7"),
-        "expected `local local 7`:\n{out}"
-    );
+    assert!(out.contains("local local 7"), "expected `local local 7`:\n{out}");
 }
 
 /// The field order has to survive the `.flxi` cache, not just a cold compile.
@@ -212,12 +191,7 @@ fn main() -> Unit {
     let run = || {
         let output = Command::new(env!("CARGO_BIN_EXE_flux"))
             .current_dir(workspace_root())
-            .args([
-                "run",
-                dir.join("main.flx").to_str().unwrap(),
-                "--root",
-                dir.to_str().unwrap(),
-            ])
+            .args(["run", dir.join("main.flx").to_str().unwrap(), "--root", dir.to_str().unwrap()])
             .args(scratch.cache_args())
             .output()
             .expect("failed to run flux");

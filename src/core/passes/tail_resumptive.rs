@@ -8,9 +8,7 @@ use crate::core::{CoreBinderId, CoreExpr, CoreHandler};
 
 /// Returns `true` if **all** arms of a handler are tail-resumptive.
 pub fn is_core_handler_tail_resumptive(handlers: &[CoreHandler]) -> bool {
-    handlers
-        .iter()
-        .all(|h| is_arm_tail_resumptive(h.resume.id, &h.body))
+    handlers.iter().all(|h| is_arm_tail_resumptive(h.resume.id, &h.body))
 }
 
 /// Check whether a handler arm body terminates with `resume(v)` on every path.
@@ -29,9 +27,9 @@ fn is_arm_tail_resumptive(resume_id: CoreBinderId, body: &CoreExpr) -> bool {
         CoreExpr::LetRecGroup { body, .. } => is_arm_tail_resumptive(resume_id, body),
 
         // Case: all alternatives must be tail-resumptive.
-        CoreExpr::Case { alts, .. } => alts
-            .iter()
-            .all(|alt| is_arm_tail_resumptive(resume_id, &alt.rhs)),
+        CoreExpr::Case { alts, .. } => {
+            alts.iter().all(|alt| is_arm_tail_resumptive(resume_id, &alt.rhs))
+        }
 
         // Anything else is conservatively NOT tail-resumptive.
         _ => false,

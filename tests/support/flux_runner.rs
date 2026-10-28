@@ -67,14 +67,7 @@ pub fn flux_file(rel: &str) -> FluxRun<'_> {
 
 impl<'a> FluxRun<'a> {
     fn new(program: Program<'a>, tag: &'a str) -> Self {
-        Self {
-            program,
-            tag,
-            args: Vec::new(),
-            env: Vec::new(),
-            native: false,
-            timeout: None,
-        }
+        Self { program, tag, args: Vec::new(), env: Vec::new(), native: false, timeout: None }
     }
 
     pub fn native(mut self) -> Self {
@@ -105,11 +98,8 @@ impl<'a> FluxRun<'a> {
     }
 
     pub fn run(self) -> Ran {
-        let label: String = self
-            .tag
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-            .collect();
+        let label: String =
+            self.tag.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
         let scratch = Scratch::new(&format!("flux-runner-{label}"));
         let path = match self.program {
             Program::Source(source) => scratch.write("fixture.flx", source),
@@ -178,12 +168,7 @@ fn run_with_timeout(
         std::thread::sleep(Duration::from_millis(20));
     };
     let success = status.is_some_and(|s| s.success());
-    (
-        stdout.join().unwrap(),
-        stderr.join().unwrap(),
-        success,
-        timed_out,
-    )
+    (stdout.join().unwrap(), stderr.join().unwrap(), success, timed_out)
 }
 
 /// Run `source` on the VM and return `(stdout, stderr, success)`. `tag`

@@ -7,10 +7,7 @@ mod flux_runner;
 /// stdout then stderr.
 fn run_native(fixture: &str) -> String {
     let rel = format!("examples/runtime_errors/{fixture}");
-    let ran = flux_runner::flux_file(&rel)
-        .native()
-        .env("NO_COLOR", "1")
-        .run();
+    let ran = flux_runner::flux_file(&rel).native().env("NO_COLOR", "1").run();
     ran.stdout + &ran.stderr
 }
 

@@ -85,20 +85,12 @@ pub(crate) fn compile_native_support_object(
     let object_path = if no_cache {
         let dir = native_temp_dir(cache_layout);
         let _ = std::fs::create_dir_all(&dir);
-        dir.join(if cfg!(windows) {
-            "flux_support.obj"
-        } else {
-            "flux_support.o"
-        })
+        dir.join(if cfg!(windows) { "flux_support.obj" } else { "flux_support.o" })
     } else {
         let dir = cache_layout.native_dir();
         let _ = std::fs::create_dir_all(&dir);
         dir.join(if enable_optimize {
-            if cfg!(windows) {
-                "flux_support_O2.obj"
-            } else {
-                "flux_support_O2.o"
-            }
+            if cfg!(windows) { "flux_support_O2.obj" } else { "flux_support_O2.o" }
         } else if cfg!(windows) {
             "flux_support_O0.obj"
         } else {
@@ -195,11 +187,7 @@ mod tests {
     fn runtime_lib_candidates_include_repo_relative_fallback() {
         let candidates = runtime_lib_candidates();
 
-        assert!(
-            candidates
-                .iter()
-                .any(|candidate| candidate == std::path::Path::new("runtime/c"))
-        );
+        assert!(candidates.iter().any(|candidate| candidate == std::path::Path::new("runtime/c")));
     }
 
     #[cfg(feature = "llvm")]

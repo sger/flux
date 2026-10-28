@@ -63,10 +63,8 @@ fn main() with IO {
         "Map API should not produce unresolved strict boundary diagnostics:\n{out}"
     );
 
-    let lines: Vec<&str> = out
-        .lines()
-        .filter(|line| !line.starts_with('[') || line.starts_with("[|"))
-        .collect();
+    let lines: Vec<&str> =
+        out.lines().filter(|line| !line.starts_with('[') || line.starts_with("[|")).collect();
     assert_eq!(
         lines,
         vec![

@@ -45,12 +45,7 @@ impl NavigationTarget {
     /// where the alias position is the whole declaration, or upstream
     /// data that exposes only one span).
     pub fn collapsed(uri: Uri, range: Range, name: impl Into<String>) -> Self {
-        Self {
-            uri,
-            full_range: range,
-            focus_range: range,
-            name: name.into(),
-        }
+        Self { uri, full_range: range, focus_range: range, name: name.into() }
     }
 
     /// Lower to a `LocationLink` for clients that requested

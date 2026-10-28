@@ -104,26 +104,18 @@ impl EventKind {
             EventKind::EnvArgs => EffectRequest::EnvArgs,
             EventKind::EnvCwd => EffectRequest::EnvCwd,
             EventKind::EnvHomeDir => EffectRequest::EnvHomeDir,
-            EventKind::ProcRun => EffectRequest::ProcRun {
-                cmd: text(0),
-                argv: (1..args.len()).map(text).collect(),
-            },
+            EventKind::ProcRun => {
+                EffectRequest::ProcRun { cmd: text(0), argv: (1..args.len()).map(text).collect() }
+            }
             EventKind::ClockNow => EffectRequest::ClockNow,
-            EventKind::WriteFile => EffectRequest::WriteFile {
-                path: text(0),
-                contents: bytes(1),
-            },
-            EventKind::FsWriteFile => EffectRequest::FsWriteFile {
-                path: text(0),
-                contents: bytes(1),
-            },
+            EventKind::WriteFile => EffectRequest::WriteFile { path: text(0), contents: bytes(1) },
+            EventKind::FsWriteFile => {
+                EffectRequest::FsWriteFile { path: text(0), contents: bytes(1) }
+            }
             EventKind::FsCreateDirAll => EffectRequest::FsCreateDirAll { path: text(0) },
             EventKind::FsRemoveFile => EffectRequest::FsRemoveFile { path: text(0) },
             EventKind::FsRemoveDirAll => EffectRequest::FsRemoveDirAll { path: text(0) },
-            EventKind::FsRename => EffectRequest::FsRename {
-                from: text(0),
-                to: text(1),
-            },
+            EventKind::FsRename => EffectRequest::FsRename { from: text(0), to: text(1) },
             EventKind::EventClock => EffectRequest::EventClock,
         }
     }
@@ -244,9 +236,7 @@ unsafe fn read_argv(argc: i32, argv: *const *const c_char) -> Vec<String> {
             if arg.is_null() {
                 String::new()
             } else {
-                unsafe { CStr::from_ptr(arg) }
-                    .to_string_lossy()
-                    .into_owned()
+                unsafe { CStr::from_ptr(arg) }.to_string_lossy().into_owned()
             }
         })
         .collect()
@@ -284,9 +274,7 @@ pub unsafe extern "C" fn flux_tape_init(
     let program_hash = if program_hash.is_null() {
         String::new()
     } else {
-        unsafe { CStr::from_ptr(program_hash) }
-            .to_string_lossy()
-            .into_owned()
+        unsafe { CStr::from_ptr(program_hash) }.to_string_lossy().into_owned()
     };
     // Errors found inside the async scheduler are reported the same way as
     // the rest.
@@ -395,10 +383,7 @@ pub unsafe extern "C" fn flux_tape_list_push(ptr: *const u8, len: usize) {
 }
 
 fn take_request(pending: &mut Pending) -> EffectRequest {
-    let kind = pending
-        .kind
-        .take()
-        .expect("flux_tape_begin before recording or replaying");
+    let kind = pending.kind.take().expect("flux_tape_begin before recording or replaying");
     kind.request(&pending.args)
 }
 
@@ -466,11 +451,8 @@ pub unsafe extern "C" fn flux_tape_list_item(index: usize, len: *mut usize) -> *
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn flux_tape_console(stream: i32, ptr: *const u8, len: usize) -> i32 {
     let text = TapeBytes(unsafe { slice(ptr, len) }.to_vec());
-    let request = if stream == 1 {
-        EffectRequest::Stderr { text }
-    } else {
-        EffectRequest::Stdout { text }
-    };
+    let request =
+        if stream == 1 { EffectRequest::Stderr { text } } else { EffectRequest::Stdout { text } };
     match super::console_begin(request) {
         Ok(shown) => shown as i32,
         Err(err) => fatal(err),
@@ -493,16 +475,8 @@ const ORDERED_TASK_AWAIT: u32 = 6;
 const ORDERED_CHANNEL: u32 = 7;
 
 /// The channel operations `flux_tape_ordered_begin` names by number.
-const CHANNEL_OPS: [&str; 8] = [
-    "make",
-    "send",
-    "recv",
-    "try_send",
-    "try_recv",
-    "close",
-    "len",
-    "is_closed",
-];
+const CHANNEL_OPS: [&str; 8] =
+    ["make", "send", "recv", "try_send", "try_recv", "close", "len", "is_closed"];
 
 /// Begins something that crosses threads while a tape is active: `kind` is
 /// one of the `ORDERED_*` numbers, `a` the logical task (or the real
@@ -512,13 +486,7 @@ const CHANNEL_OPS: [&str; 8] = [
 #[unsafe(no_mangle)]
 pub extern "C" fn flux_tape_ordered_begin(kind: u32, a: u64, b: u64) -> u64 {
     let id = a as u32;
-    let channel_op = || {
-        CHANNEL_OPS
-            .get(b as usize)
-            .copied()
-            .unwrap_or("?")
-            .to_string()
-    };
+    let channel_op = || CHANNEL_OPS.get(b as usize).copied().unwrap_or("?").to_string();
     let hint = match kind {
         ORDERED_TASK_SPAWN => EffectRequest::TaskSpawn { id: 0 },
         ORDERED_TASK_START => EffectRequest::TaskStart { id },
@@ -526,19 +494,13 @@ pub extern "C" fn flux_tape_ordered_begin(kind: u32, a: u64, b: u64) -> u64 {
         ORDERED_TASK_CANCEL => EffectRequest::TaskCancel { id },
         ORDERED_TASK_JOIN => EffectRequest::TaskJoin { id },
         ORDERED_TASK_AWAIT => EffectRequest::TaskAwait { id },
-        _ => EffectRequest::Channel {
-            chan: 0,
-            op: channel_op(),
-        },
+        _ => EffectRequest::Channel { chan: 0, op: channel_op() },
     };
     let made = super::ordered_begin(&hint, || match kind {
-        ORDERED_TASK_SPAWN => EffectRequest::TaskSpawn {
-            id: super::async_tape::next_task(),
-        },
-        ORDERED_CHANNEL => EffectRequest::Channel {
-            chan: super::async_tape::logical_channel(a),
-            op: channel_op(),
-        },
+        ORDERED_TASK_SPAWN => EffectRequest::TaskSpawn { id: super::async_tape::next_task() },
+        ORDERED_CHANNEL => {
+            EffectRequest::Channel { chan: super::async_tape::logical_channel(a), op: channel_op() }
+        }
         _ => hint.clone(),
     });
     match made {
@@ -612,9 +574,7 @@ pub unsafe extern "C" fn flux_tape_refuse(what: *const c_char) {
         "this effect".to_string()
     } else {
         // SAFETY: C passes a NUL-terminated string.
-        unsafe { CStr::from_ptr(what) }
-            .to_string_lossy()
-            .into_owned()
+        unsafe { CStr::from_ptr(what) }.to_string_lossy().into_owned()
     };
     let err = super::unsupported(&what);
     let _ = super::finish(true, Some(err.message()));
@@ -634,10 +594,7 @@ unsafe fn decode(raw: &FluxTapeOutcome, list: Vec<Vec<u8>>) -> Outcome {
         OUT_SOME => Outcome::Some(s0()),
         OUT_NONE => Outcome::None,
         OUT_ERR => Outcome::Err(TapeIoError {
-            kind: IoKind::ALL
-                .get(raw.err_kind as usize)
-                .copied()
-                .unwrap_or(IoKind::Other),
+            kind: IoKind::ALL.get(raw.err_kind as usize).copied().unwrap_or(IoKind::Other),
             message: s0().lossy(),
             path: s1().lossy(),
         }),
@@ -647,18 +604,10 @@ unsafe fn decode(raw: &FluxTapeOutcome, list: Vec<Vec<u8>>) -> Outcome {
             is_dir: raw.b0 != 0,
             is_file: raw.b1 != 0,
         }),
-        OUT_PROC => Outcome::Proc(ProcOut {
-            status: raw.i0,
-            stdout: s0(),
-            stderr: s1(),
-        }),
+        OUT_PROC => Outcome::Proc(ProcOut { status: raw.i0, stdout: s0(), stderr: s1() }),
         _ => Outcome::Fail(s0().lossy()),
     };
-    if raw.ok != 0 {
-        Outcome::Ok(Box::new(inner))
-    } else {
-        inner
-    }
+    if raw.ok != 0 { Outcome::Ok(Box::new(inner)) } else { inner }
 }
 
 /// An [`Outcome`] as C's flat struct, its bytes kept in `pending`.

@@ -158,13 +158,8 @@ pub fn route_effectful_primops_and_synthesize_handlers(
     let mut top_level_shadowed: ShadowedNames = HashSet::new();
     collect_function_names(&owned.statements, &mut top_level_shadowed);
     for stmt in &mut owned.statements {
-        changed |= route_stmt(
-            stmt,
-            interner,
-            false,
-            &mut routed_call_perform_ids,
-            &top_level_shadowed,
-        );
+        changed |=
+            route_stmt(stmt, interner, false, &mut routed_call_perform_ids, &top_level_shadowed);
     }
     for stmt in &mut owned.statements {
         changed |= synthesize_stmt_entry_handlers(
@@ -176,11 +171,7 @@ pub fn route_effectful_primops_and_synthesize_handlers(
             user_redefined_builtin_effects,
         );
     }
-    RoutingResult {
-        program: owned,
-        changed,
-        routed_call_perform_ids,
-    }
+    RoutingResult { program: owned, changed, routed_call_perform_ids }
 }
 
 fn collect_user_effect_ops(
@@ -382,24 +373,17 @@ fn route_stmt(
         | Statement::Assign { value, .. } => {
             route_expr(value, interner, skip, routed_ids, shadowed)
         }
-        Statement::Return {
-            value: Some(value), ..
-        } => route_expr(value, interner, skip, routed_ids, shadowed),
+        Statement::Return { value: Some(value), .. } => {
+            route_expr(value, interner, skip, routed_ids, shadowed)
+        }
         Statement::Return { value: None, .. } => false,
         Statement::Expression { expression, .. } => {
             route_expr(expression, interner, skip, routed_ids, shadowed)
         }
-        Statement::Function {
-            intrinsic,
-            body,
-            name,
-            ..
-        } => {
+        Statement::Function { intrinsic, body, name, .. } => {
             let skip_body = skip
                 || intrinsic.is_some()
-                || interner
-                    .try_resolve(*name)
-                    .is_some_and(|name| name.starts_with("__primop_"));
+                || interner.try_resolve(*name).is_some_and(|name| name.starts_with("__primop_"));
             route_block(body, interner, skip_body, routed_ids, shadowed)
         }
         Statement::Module { name, body, .. } => {
@@ -455,12 +439,7 @@ fn route_expr(
     }
     let mut changed = false;
     match expr {
-        Expression::Call {
-            function,
-            arguments,
-            span,
-            id,
-        } => {
+        Expression::Call { function, arguments, span, id } => {
             changed |= route_expr(function, interner, false, routed_ids, shadowed);
             for arg in arguments.iter_mut() {
                 changed |= route_expr(arg, interner, false, routed_ids, shadowed);
@@ -482,21 +461,14 @@ fn route_expr(
         Expression::Function { body, .. } | Expression::DoBlock { block: body, .. } => {
             changed |= route_block(body, interner, false, routed_ids, shadowed);
         }
-        Expression::If {
-            condition,
-            consequence,
-            alternative,
-            ..
-        } => {
+        Expression::If { condition, consequence, alternative, .. } => {
             changed |= route_expr(condition, interner, false, routed_ids, shadowed);
             changed |= route_block(consequence, interner, false, routed_ids, shadowed);
             if let Some(alt) = alternative {
                 changed |= route_block(alt, interner, false, routed_ids, shadowed);
             }
         }
-        Expression::Match {
-            scrutinee, arms, ..
-        } => {
+        Expression::Match { scrutinee, arms, .. } => {
             changed |= route_expr(scrutinee, interner, false, routed_ids, shadowed);
             for arm in arms {
                 if let Some(guard) = arm.guard.as_mut() {
@@ -517,12 +489,7 @@ fn route_expr(
                 changed |= route_expr(arg, interner, false, routed_ids, shadowed);
             }
         }
-        Expression::Handle {
-            expr: handled,
-            parameter,
-            arms,
-            ..
-        } => {
+        Expression::Handle { expr: handled, parameter, arms, .. } => {
             changed |= route_expr(handled, interner, false, routed_ids, shadowed);
             if let Some(parameter) = parameter {
                 changed |= route_expr(parameter, interner, false, routed_ids, shadowed);
@@ -574,9 +541,7 @@ fn route_expr(
                 }
             }
         }
-        Expression::Spread {
-            base, overrides, ..
-        } => {
+        Expression::Spread { base, overrides, .. } => {
             changed |= route_expr(base, interner, false, routed_ids, shadowed);
             for field in overrides {
                 if let Some(value) = field.value.as_mut() {
@@ -662,13 +627,7 @@ fn synthesize_stmt_entry_handlers(
     user_redefined_builtin_effects: &HashSet<Identifier>,
 ) -> bool {
     match stmt {
-        Statement::Function {
-            name,
-            effects,
-            body,
-            span,
-            ..
-        } if is_entry_name(*name, interner) => {
+        Statement::Function { name, effects, body, span, .. } if is_entry_name(*name, interner) => {
             let mut entry_effects = HashSet::new();
             for effect in effects {
                 collect_default_effects_from_annotation(effect, interner, &mut entry_effects);
@@ -705,9 +664,7 @@ fn synthesize_stmt_entry_handlers(
 }
 
 fn is_entry_name(name: Identifier, interner: &Interner) -> bool {
-    interner
-        .try_resolve(name)
-        .is_some_and(|name| name == "main" || name.starts_with("test_"))
+    interner.try_resolve(name).is_some_and(|name| name == "main" || name.starts_with("test_"))
 }
 
 struct DefaultHandlerContext<'a> {
@@ -740,28 +697,12 @@ fn wrap_block_with_default_handlers(
         return false;
     }
 
-    let original = std::mem::replace(
-        block,
-        Block {
-            statements: Vec::new(),
-            span,
-        },
-    );
-    let mut expr = Expression::DoBlock {
-        block: original,
-        span,
-        id: ctx.ids.next_id(),
-    };
+    let original = std::mem::replace(block, Block { statements: Vec::new(), span });
+    let mut expr = Expression::DoBlock { block: original, span, id: ctx.ids.next_id() };
 
-    for effect in [
-        be::CONSOLE,
-        be::FILESYSTEM,
-        be::STDIN,
-        be::ENV,
-        be::PROCESS,
-        be::CLOCK,
-        be::DEBUG,
-    ] {
+    for effect in
+        [be::CONSOLE, be::FILESYSTEM, be::STDIN, be::ENV, be::PROCESS, be::CLOCK, be::DEBUG]
+    {
         if !required_effects.contains(effect) {
             continue;
         }
@@ -780,11 +721,7 @@ fn wrap_block_with_default_handlers(
     }
 
     *block = Block {
-        statements: vec![Statement::Expression {
-            expression: expr,
-            has_semicolon: false,
-            span,
-        }],
+        statements: vec![Statement::Expression { expression: expr, has_semicolon: false, span }],
         span,
     };
     true
@@ -814,9 +751,9 @@ fn collect_default_effects_stmt(
         | Statement::Assign { value, .. } => {
             collect_default_effects_expr(value, interner, function_effects, out);
         }
-        Statement::Return {
-            value: Some(value), ..
-        } => collect_default_effects_expr(value, interner, function_effects, out),
+        Statement::Return { value: Some(value), .. } => {
+            collect_default_effects_expr(value, interner, function_effects, out)
+        }
         Statement::Return { value: None, .. } => {}
         Statement::Expression { expression, .. } => {
             collect_default_effects_expr(expression, interner, function_effects, out);
@@ -844,11 +781,7 @@ fn collect_default_effects_expr(
     out: &mut HashSet<&'static str>,
 ) {
     match expr {
-        Expression::Call {
-            function,
-            arguments,
-            ..
-        } => {
+        Expression::Call { function, arguments, .. } => {
             collect_default_effects_expr(function, interner, function_effects, out);
             if let Expression::Identifier { name, .. } = function.as_ref() {
                 if let Some(effects) = function_effects.get(name) {
@@ -875,12 +808,7 @@ fn collect_default_effects_expr(
                 collect_default_effects_stmt(stmt, interner, function_effects, out);
             }
         }
-        Expression::If {
-            condition,
-            consequence,
-            alternative,
-            ..
-        } => {
+        Expression::If { condition, consequence, alternative, .. } => {
             collect_default_effects_expr(condition, interner, function_effects, out);
             for stmt in &consequence.statements {
                 collect_default_effects_stmt(stmt, interner, function_effects, out);
@@ -891,9 +819,7 @@ fn collect_default_effects_expr(
                 }
             }
         }
-        Expression::Match {
-            scrutinee, arms, ..
-        } => {
+        Expression::Match { scrutinee, arms, .. } => {
             collect_default_effects_expr(scrutinee, interner, function_effects, out);
             for arm in arms {
                 if let Some(guard) = arm.guard.as_ref() {
@@ -938,12 +864,7 @@ fn collect_default_effects_expr(
                 collect_default_effects_expr(arg, interner, function_effects, out);
             }
         }
-        Expression::Handle {
-            expr: handled,
-            parameter,
-            arms,
-            ..
-        } => {
+        Expression::Handle { expr: handled, parameter, arms, .. } => {
             collect_default_effects_expr(handled, interner, function_effects, out);
             if let Some(parameter) = parameter {
                 collect_default_effects_expr(parameter, interner, function_effects, out);
@@ -995,9 +916,7 @@ fn collect_default_effects_expr(
                 }
             }
         }
-        Expression::Spread {
-            base, overrides, ..
-        } => {
+        Expression::Spread { base, overrides, .. } => {
             collect_default_effects_expr(base, interner, function_effects, out);
             for field in overrides {
                 if let Some(value) = field.value.as_ref() {
@@ -1030,16 +949,11 @@ fn default_handler_arms(
         .filter(|entry| entry.effect == effect)
         .filter(|entry| {
             allowed_ops.is_none_or(|ops| {
-                interner
-                    .lookup(entry.operation)
-                    .is_some_and(|op| ops.contains(&op))
+                interner.lookup(entry.operation).is_some_and(|op| ops.contains(&op))
             })
         })
         .collect::<Vec<_>>();
-    entries
-        .into_iter()
-        .map(|entry| default_handler_arm(entry, interner, ids, span))
-        .collect()
+    entries.into_iter().map(|entry| default_handler_arm(entry, interner, ids, span)).collect()
 }
 
 fn default_handler_arm(
@@ -1049,9 +963,8 @@ fn default_handler_arm(
     span: Span,
 ) -> HandleArm {
     let resume = interner.intern("__resume_default");
-    let params = (0..entry.arity)
-        .map(|idx| interner.intern(&format!("__arg{idx}")))
-        .collect::<Vec<_>>();
+    let params =
+        (0..entry.arity).map(|idx| interner.intern(&format!("__arg{idx}"))).collect::<Vec<_>>();
     let primop_call = Expression::Call {
         function: Box::new(Expression::Identifier {
             name: interner.intern(entry.internal_name),
@@ -1060,30 +973,18 @@ fn default_handler_arm(
         }),
         arguments: params
             .iter()
-            .map(|param| Expression::Identifier {
-                name: *param,
-                span,
-                id: ids.next_id(),
-            })
+            .map(|param| Expression::Identifier { name: *param, span, id: ids.next_id() })
             .collect(),
         span,
         id: ids.next_id(),
     };
     let resume_arg = if entry.returns_unit {
-        Expression::TupleLiteral {
-            elements: Vec::new(),
-            span,
-            id: ids.next_id(),
-        }
+        Expression::TupleLiteral { elements: Vec::new(), span, id: ids.next_id() }
     } else {
         primop_call.clone()
     };
     let resume_call = Expression::Call {
-        function: Box::new(Expression::Identifier {
-            name: resume,
-            span,
-            id: ids.next_id(),
-        }),
+        function: Box::new(Expression::Identifier { name: resume, span, id: ids.next_id() }),
         arguments: vec![resume_arg],
         span,
         id: ids.next_id(),
@@ -1092,16 +993,8 @@ fn default_handler_arm(
         Expression::DoBlock {
             block: Block {
                 statements: vec![
-                    Statement::Expression {
-                        expression: primop_call,
-                        has_semicolon: true,
-                        span,
-                    },
-                    Statement::Expression {
-                        expression: resume_call,
-                        has_semicolon: false,
-                        span,
-                    },
+                    Statement::Expression { expression: primop_call, has_semicolon: true, span },
+                    Statement::Expression { expression: resume_call, has_semicolon: false, span },
                 ],
                 span,
             },
@@ -1130,11 +1023,7 @@ mod tests {
         let lexer = Lexer::new(source);
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "fixture failed to parse: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "fixture failed to parse: {:?}", parser.errors);
         let mut interner = parser.take_interner();
         let result = route_effectful_primops_and_synthesize_handlers(
             &program,
@@ -1148,9 +1037,7 @@ mod tests {
     fn count_performs(program: &Program, interner: &Interner, operation: &str) -> usize {
         fn in_expr(expr: &Expression, interner: &Interner, op: &str, n: &mut usize) {
             match expr {
-                Expression::Perform {
-                    operation, args, ..
-                } => {
+                Expression::Perform { operation, args, .. } => {
                     if interner.try_resolve(*operation) == Some(op) {
                         *n += 1;
                     }
@@ -1158,11 +1045,7 @@ mod tests {
                         in_expr(a, interner, op, n);
                     }
                 }
-                Expression::Call {
-                    function,
-                    arguments,
-                    ..
-                } => {
+                Expression::Call { function, arguments, .. } => {
                     in_expr(function, interner, op, n);
                     for a in arguments {
                         in_expr(a, interner, op, n);

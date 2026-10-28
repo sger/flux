@@ -73,9 +73,6 @@ fn main() with IO {
 }
 "#;
     let (stdout, stderr, ok) = run_flux_source(source, "try_basic");
-    assert!(
-        ok,
-        "try must compile and recover from fail:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(ok, "try must compile and recover from fail:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert_eq!(stdout.trim(), "9");
 }

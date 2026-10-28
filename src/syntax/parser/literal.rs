@@ -51,10 +51,7 @@ impl Parser {
         let start = self.current_token.position;
         if !super::is_pascal_case_ident(&self.current_token) {
             return Some(Expression::Identifier {
-                name: self
-                    .current_token
-                    .symbol
-                    .expect("ident token should have symbol"),
+                name: self.current_token.symbol.expect("ident token should have symbol"),
                 span: Span::new(start, self.current_token.end_position),
                 id: self.next_expr_id(),
             });
@@ -66,10 +63,7 @@ impl Parser {
         // Follow-up track: docs/proposals/implemented/0055_lexer_performance_and_architecture.md.
         if !self.is_peek_token(TokenType::Dot) || !super::is_pascal_case_ident(&self.peek2_token) {
             return Some(Expression::Identifier {
-                name: self
-                    .current_token
-                    .symbol
-                    .expect("ident token should have symbol"),
+                name: self.current_token.symbol.expect("ident token should have symbol"),
                 span: Span::new(start, self.current_token.end_position),
                 id: self.next_expr_id(),
             });
@@ -219,8 +213,7 @@ impl Parser {
                     }
                     break;
                 } else {
-                    self.errors
-                        .push(unterminated_interpolation(self.peek_token.span()));
+                    self.errors.push(unterminated_interpolation(self.peek_token.span()));
                     self.synchronize_after_error();
                     return None;
                 }
@@ -233,8 +226,7 @@ impl Parser {
             if self.is_peek_token(TokenType::RBrace) {
                 self.next_token();
             } else {
-                self.errors
-                    .push(missing_string_interpolation_close(self.peek_token.span()));
+                self.errors.push(missing_string_interpolation_close(self.peek_token.span()));
                 return None;
             }
 
@@ -258,8 +250,7 @@ impl Parser {
                 break;
             } else {
                 // Unexpected token - report error
-                self.errors
-                    .push(unterminated_interpolation(self.peek_token.span()));
+                self.errors.push(unterminated_interpolation(self.peek_token.span()));
                 if self.peek_token.token_type == TokenType::UnterminatedString {
                     self.suppress_unterminated_string_error_at = Some(self.peek_token.position);
                     self.errors.retain(|diag| {
@@ -299,15 +290,9 @@ impl Parser {
 /// so the caller can emit the `invalid_integer` diagnostic.
 fn parse_int_literal(literal: &str) -> Option<i64> {
     let cleaned = literal.replace('_', "");
-    if let Some(hex) = cleaned
-        .strip_prefix("0x")
-        .or_else(|| cleaned.strip_prefix("0X"))
-    {
+    if let Some(hex) = cleaned.strip_prefix("0x").or_else(|| cleaned.strip_prefix("0X")) {
         i64::from_str_radix(hex, 16).ok()
-    } else if let Some(bin) = cleaned
-        .strip_prefix("0b")
-        .or_else(|| cleaned.strip_prefix("0B"))
-    {
+    } else if let Some(bin) = cleaned.strip_prefix("0b").or_else(|| cleaned.strip_prefix("0B")) {
         i64::from_str_radix(bin, 2).ok()
     } else {
         cleaned.parse::<i64>().ok()

@@ -26,14 +26,7 @@ pub(crate) fn run_eval(expr: &str, mut flags: DriverFlags) {
     let path = synthetic_eval_path();
     let path = path.to_string_lossy().into_owned();
     let session = DriverSession::from(&flags);
-    run_from_source(
-        RunProgramRequest {
-            path: &path,
-            flags: &flags,
-            session: &session,
-        },
-        source,
-    );
+    run_from_source(RunProgramRequest { path: &path, flags: &flags, session: &session }, source);
 }
 
 /// Wrap a bare expression into a runnable program. Flux rejects top-level effects

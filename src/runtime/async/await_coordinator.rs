@@ -10,68 +10,22 @@ use std::hash::Hash;
 
 #[derive(Debug, Clone)]
 enum AwaitKind<F, O, T> {
-    Both {
-        left: F,
-        right: F,
-        left_value: Option<O>,
-        right_value: Option<O>,
-    },
-    Try {
-        child: F,
-        meta: T,
-    },
-    Race {
-        children: Vec<F>,
-        completed: Vec<(F, O)>,
-    },
-    FirstOf {
-        children: Vec<(F, usize)>,
-        completed: Vec<(F, usize, O)>,
-    },
-    Timeout {
-        body: F,
-    },
+    Both { left: F, right: F, left_value: Option<O>, right_value: Option<O> },
+    Try { child: F, meta: T },
+    Race { children: Vec<F>, completed: Vec<(F, O)> },
+    FirstOf { children: Vec<(F, usize)>, completed: Vec<(F, usize, O)> },
+    Timeout { body: F },
 }
 
 #[derive(Debug)]
 pub enum AwaitEvent<F, O, T> {
-    BothReady {
-        request: u64,
-        left: O,
-        right: O,
-    },
-    BothError {
-        request: u64,
-        error: O,
-        loser: F,
-        discarded: Vec<O>,
-    },
-    TryReady {
-        request: u64,
-        outcome: O,
-        meta: T,
-    },
-    RaceReady {
-        request: u64,
-        outcome: O,
-        losers: Vec<F>,
-        discarded: Vec<O>,
-    },
-    FirstOfReady {
-        request: u64,
-        index: usize,
-        outcome: O,
-        losers: Vec<F>,
-        discarded: Vec<O>,
-    },
-    TimeoutBodyReady {
-        request: u64,
-        outcome: O,
-    },
-    TimeoutTimerReady {
-        request: u64,
-        body: F,
-    },
+    BothReady { request: u64, left: O, right: O },
+    BothError { request: u64, error: O, loser: F, discarded: Vec<O> },
+    TryReady { request: u64, outcome: O, meta: T },
+    RaceReady { request: u64, outcome: O, losers: Vec<F>, discarded: Vec<O> },
+    FirstOfReady { request: u64, index: usize, outcome: O, losers: Vec<F>, discarded: Vec<O> },
+    TimeoutBodyReady { request: u64, outcome: O },
+    TimeoutTimerReady { request: u64, body: F },
 }
 
 #[derive(Debug)]
@@ -94,10 +48,7 @@ where
     F: Copy + Eq + Hash,
 {
     pub fn new() -> Self {
-        Self {
-            awaits: HashMap::new(),
-            awaiter_index: HashMap::new(),
-        }
+        Self { awaits: HashMap::new(), awaiter_index: HashMap::new() }
     }
 
     pub fn clear(&mut self) {
@@ -131,15 +82,8 @@ where
     }
 
     pub fn register_both(&mut self, request: u64, left: F, right: F) {
-        self.awaits.insert(
-            request,
-            AwaitKind::Both {
-                left,
-                right,
-                left_value: None,
-                right_value: None,
-            },
-        );
+        self.awaits
+            .insert(request, AwaitKind::Both { left, right, left_value: None, right_value: None });
         self.index_child(left, request);
         self.index_child(right, request);
     }
@@ -153,26 +97,14 @@ where
         for child in &children {
             self.index_child(*child, request);
         }
-        self.awaits.insert(
-            request,
-            AwaitKind::Race {
-                children,
-                completed: Vec::new(),
-            },
-        );
+        self.awaits.insert(request, AwaitKind::Race { children, completed: Vec::new() });
     }
 
     pub fn register_first_of(&mut self, request: u64, children: Vec<(F, usize)>) {
         for (child, _) in &children {
             self.index_child(*child, request);
         }
-        self.awaits.insert(
-            request,
-            AwaitKind::FirstOf {
-                children,
-                completed: Vec::new(),
-            },
-        );
+        self.awaits.insert(request, AwaitKind::FirstOf { children, completed: Vec::new() });
     }
 
     pub fn register_timeout(&mut self, request: u64, body: F) {
@@ -203,14 +135,10 @@ where
         let mut events = Vec::new();
         for request in parent_reqs {
             match self.awaits.remove(&request) {
-                Some(AwaitKind::Race {
-                    children,
-                    completed,
-                }) => self.resolve_race(request, children, completed, &mut is_ready, &mut events),
-                Some(AwaitKind::FirstOf {
-                    children,
-                    completed,
-                }) => {
+                Some(AwaitKind::Race { children, completed }) => {
+                    self.resolve_race(request, children, completed, &mut is_ready, &mut events)
+                }
+                Some(AwaitKind::FirstOf { children, completed }) => {
                     self.resolve_first_of(request, children, completed, &mut is_ready, &mut events)
                 }
                 Some(other) => {
@@ -238,12 +166,7 @@ where
                 continue;
             };
             match kind {
-                AwaitKind::Both {
-                    left,
-                    right,
-                    mut left_value,
-                    mut right_value,
-                } => {
+                AwaitKind::Both { left, right, mut left_value, mut right_value } => {
                     let outcome = pending_outcome
                         .take()
                         .expect("completed outcome consumed by multiple awaiters");
@@ -253,11 +176,8 @@ where
                         right_value = Some(outcome);
                     }
 
-                    let child_value = if child == left {
-                        left_value.as_ref()
-                    } else {
-                        right_value.as_ref()
-                    };
+                    let child_value =
+                        if child == left { left_value.as_ref() } else { right_value.as_ref() };
                     if child_value.is_some_and(&mut is_error) {
                         let error = if child == left {
                             left_value.take().expect("left just set")
@@ -267,12 +187,7 @@ where
                         let loser = if child == left { right } else { left };
                         let discarded = left_value.into_iter().chain(right_value).collect();
                         self.unindex_child_request(loser, request);
-                        events.push(AwaitEvent::BothError {
-                            request,
-                            error,
-                            loser,
-                            discarded,
-                        });
+                        events.push(AwaitEvent::BothError { request, error, loser, discarded });
                     } else if left_value.is_some() && right_value.is_some() {
                         events.push(AwaitEvent::BothReady {
                             request,
@@ -282,52 +197,27 @@ where
                     } else {
                         self.awaits.insert(
                             request,
-                            AwaitKind::Both {
-                                left,
-                                right,
-                                left_value,
-                                right_value,
-                            },
+                            AwaitKind::Both { left, right, left_value, right_value },
                         );
                     }
                 }
-                AwaitKind::Try {
-                    child: expected,
-                    meta,
-                } => {
+                AwaitKind::Try { child: expected, meta } => {
                     if child == expected {
                         let outcome = pending_outcome
                             .take()
                             .expect("try outcome consumed by multiple awaiters");
-                        events.push(AwaitEvent::TryReady {
-                            request,
-                            outcome,
-                            meta,
-                        });
+                        events.push(AwaitEvent::TryReady { request, outcome, meta });
                     } else {
-                        self.awaits.insert(
-                            request,
-                            AwaitKind::Try {
-                                child: expected,
-                                meta,
-                            },
-                        );
+                        self.awaits.insert(request, AwaitKind::Try { child: expected, meta });
                     }
                 }
-                AwaitKind::Race {
-                    children,
-                    mut completed,
-                } => {
-                    let outcome = pending_outcome
-                        .take()
-                        .expect("race outcome consumed by multiple awaiters");
+                AwaitKind::Race { children, mut completed } => {
+                    let outcome =
+                        pending_outcome.take().expect("race outcome consumed by multiple awaiters");
                     completed.push((child, outcome));
                     self.resolve_race(request, children, completed, &mut is_ready, &mut events);
                 }
-                AwaitKind::FirstOf {
-                    children,
-                    mut completed,
-                } => {
+                AwaitKind::FirstOf { children, mut completed } => {
                     let outcome = pending_outcome
                         .take()
                         .expect("first_of outcome consumed by multiple awaiters");
@@ -373,36 +263,21 @@ where
         is_ready: &mut impl FnMut(F) -> bool,
         events: &mut Vec<AwaitEvent<F, O, T>>,
     ) {
-        let winner = children.iter().copied().find(|child| {
-            completed
-                .iter()
-                .any(|(completed_child, _)| completed_child == child)
-        });
+        let winner = children
+            .iter()
+            .copied()
+            .find(|child| completed.iter().any(|(completed_child, _)| completed_child == child));
 
         let Some(winner) = winner else {
-            self.awaits.insert(
-                request,
-                AwaitKind::Race {
-                    children,
-                    completed,
-                },
-            );
+            self.awaits.insert(request, AwaitKind::Race { children, completed });
             return;
         };
 
-        let blocked_by_earlier_ready = children
-            .iter()
-            .take_while(|child| **child != winner)
-            .any(|child| is_ready(*child));
+        let blocked_by_earlier_ready =
+            children.iter().take_while(|child| **child != winner).any(|child| is_ready(*child));
 
         if blocked_by_earlier_ready {
-            self.awaits.insert(
-                request,
-                AwaitKind::Race {
-                    children,
-                    completed,
-                },
-            );
+            self.awaits.insert(request, AwaitKind::Race { children, completed });
             return;
         }
 
@@ -438,19 +313,11 @@ where
         events: &mut Vec<AwaitEvent<F, O, T>>,
     ) {
         let winner = children.iter().copied().find(|(child, _)| {
-            completed
-                .iter()
-                .any(|(completed_child, _, _)| completed_child == child)
+            completed.iter().any(|(completed_child, _, _)| completed_child == child)
         });
 
         let Some((winner, index)) = winner else {
-            self.awaits.insert(
-                request,
-                AwaitKind::FirstOf {
-                    children,
-                    completed,
-                },
-            );
+            self.awaits.insert(request, AwaitKind::FirstOf { children, completed });
             return;
         };
 
@@ -460,13 +327,7 @@ where
             .any(|(child, _)| is_ready(*child));
 
         if blocked_by_earlier_ready {
-            self.awaits.insert(
-                request,
-                AwaitKind::FirstOf {
-                    children,
-                    completed,
-                },
-            );
+            self.awaits.insert(request, AwaitKind::FirstOf { children, completed });
             return;
         }
 

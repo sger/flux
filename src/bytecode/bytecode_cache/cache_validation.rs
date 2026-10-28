@@ -12,11 +12,7 @@ pub(super) fn validate_magic(reader: &mut std::fs::File, magic: &[u8; 4]) -> Opt
 
 pub(super) fn validate_format_version(reader: &mut std::fs::File, expected: u16) -> Option<u16> {
     let version = read_u16(reader)?;
-    if version == expected {
-        Some(version)
-    } else {
-        None
-    }
+    if version == expected { Some(version) } else { None }
 }
 
 pub(super) fn validate_cache_key(
@@ -25,11 +21,7 @@ pub(super) fn validate_cache_key(
 ) -> Option<[u8; 32]> {
     let mut cached_key = [0u8; 32];
     reader.read_exact(&mut cached_key).ok()?;
-    if &cached_key == expected {
-        Some(cached_key)
-    } else {
-        None
-    }
+    if &cached_key == expected { Some(cached_key) } else { None }
 }
 
 pub(super) fn read_deps_and_validate(reader: &mut std::fs::File, deps_count: usize) -> Option<()> {

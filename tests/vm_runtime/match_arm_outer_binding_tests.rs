@@ -47,10 +47,7 @@ const EXPECTED: &[&str] = &[
 
 fn run(native: bool) -> (String, bool) {
     let path = workspace_root().join("tests").join("parity").join(FIXTURE);
-    let mut args: Vec<String> = vec![
-        path.to_string_lossy().into_owned(),
-        "--no-cache".to_string(),
-    ];
+    let mut args: Vec<String> = vec![path.to_string_lossy().into_owned(), "--no-cache".to_string()];
     if native {
         args.push("--native".to_string());
     }
@@ -66,17 +63,11 @@ fn run(native: bool) -> (String, bool) {
 
     // Stderr is folded in on failure so an abort shows its diagnostic rather
     // than surfacing as unexplained empty output.
-    let stdout = String::from_utf8_lossy(&output.stdout)
-        .replace("\r\n", "\n")
-        .trim()
-        .to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n").trim().to_string();
     if output.status.success() {
         return (stdout, true);
     }
-    let stderr = String::from_utf8_lossy(&output.stderr)
-        .replace("\r\n", "\n")
-        .trim()
-        .to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n").trim().to_string();
     (format!("{stdout}\n── stderr ──\n{stderr}"), false)
 }
 

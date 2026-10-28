@@ -138,11 +138,7 @@ fn relative_to_cwd(place: String) -> String {
     let mut prefix = cwd.display().to_string();
     prefix.push(std::path::MAIN_SEPARATOR);
     let place = place.replace(&format!("({prefix}"), "(");
-    if cfg!(windows) {
-        place.replace('\\', "/")
-    } else {
-        place
-    }
+    if cfg!(windows) { place.replace('\\', "/") } else { place }
 }
 
 /// Where the Flux frames at a return address are, from the program's line
@@ -196,10 +192,7 @@ mod exe_dwarf {
 
     impl Lines {
         pub(super) fn load() -> Self {
-            Self::read().unwrap_or(Lines {
-                context: None,
-                bias: 0,
-            })
+            Self::read().unwrap_or(Lines { context: None, bias: 0 })
         }
 
         fn read() -> Option<Self> {
@@ -265,10 +258,7 @@ fn shown(frames: &[String]) -> Vec<String> {
         return frames.to_vec();
     }
     let mut shown = frames[..HEAD].to_vec();
-    shown.push(format!(
-        "... {} more frames ...",
-        frames.len() - HEAD - TAIL
-    ));
+    shown.push(format!("... {} more frames ...", frames.len() - HEAD - TAIL));
     shown.extend_from_slice(&frames[frames.len() - TAIL..]);
     shown
 }

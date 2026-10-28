@@ -431,11 +431,7 @@ pub fn compiler_build_id() -> &'static str {
 fn current_exe_fingerprint() -> Option<String> {
     let exe = std::env::current_exe().ok()?;
     let metadata = fs::metadata(&exe).ok()?;
-    let modified = metadata
-        .modified()
-        .ok()?
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()?;
+    let modified = metadata.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?;
     let mut hasher = Sha256::new();
     hasher.update(exe.to_string_lossy().as_bytes());
     hasher.update([0]);
@@ -468,9 +464,7 @@ impl CacheLayout {
 }
 
 pub fn resolve_cache_layout(entry_file: &Path, cache_dir: Option<&Path>) -> CacheLayout {
-    CacheLayout {
-        root: resolve_cache_root(entry_file, cache_dir),
-    }
+    CacheLayout { root: resolve_cache_root(entry_file, cache_dir) }
 }
 
 pub fn resolve_cache_root(entry_file: &Path, cache_dir: Option<&Path>) -> PathBuf {
@@ -575,18 +569,11 @@ fn find_marker_upwards(entry_file: &Path, marker: &str) -> Option<PathBuf> {
 }
 
 pub fn interface_cache_path(cache_root: &Path, source_path: &Path) -> PathBuf {
-    cache_root
-        .join("interfaces")
-        .join(format!("{}.flxi", artifact_stem(source_path)))
+    cache_root.join("interfaces").join(format!("{}.flxi", artifact_stem(source_path)))
 }
 
 pub fn cache_key_filename(source_path: &Path, cache_key: &[u8; 32], ext: &str) -> String {
-    format!(
-        "{}-{}.{}",
-        artifact_stem(source_path),
-        hex_prefix(cache_key, 16),
-        ext
-    )
+    format!("{}-{}.{}", artifact_stem(source_path), hex_prefix(cache_key, 16), ext)
 }
 
 pub fn artifact_stem(source_path: &Path) -> String {
@@ -605,10 +592,7 @@ fn entry_directory(entry_file: &Path) -> PathBuf {
     if absolute.is_dir() {
         absolute
     } else {
-        absolute
-            .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| PathBuf::from("."))
+        absolute.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."))
     }
 }
 
@@ -649,13 +633,7 @@ fn normalize_for_hash(path: &Path) -> String {
 fn sanitize_component(input: &str) -> String {
     input
         .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
-                ch
-            } else {
-                '-'
-            }
-        })
+        .map(|ch| if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' { ch } else { '-' })
         .collect()
 }
 
@@ -713,16 +691,8 @@ mod tests {
     fn interface_paths_live_under_interfaces_dir() {
         let root = Path::new("/tmp/flux-cache");
         let path = interface_cache_path(root, Path::new("examples/aoc/2024/day06.flx"));
-        assert_eq!(
-            path.parent().unwrap(),
-            Path::new("/tmp/flux-cache/interfaces")
-        );
-        assert!(
-            path.file_name()
-                .unwrap()
-                .to_string_lossy()
-                .ends_with(".flxi")
-        );
+        assert_eq!(path.parent().unwrap(), Path::new("/tmp/flux-cache/interfaces"));
+        assert!(path.file_name().unwrap().to_string_lossy().ends_with(".flxi"));
     }
 
     #[test]

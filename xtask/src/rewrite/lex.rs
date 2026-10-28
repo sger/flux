@@ -80,9 +80,8 @@ pub fn is_keyword(word: &str) -> bool {
 
 /// Operators lexed as one token, longest first, so `...` is not three field
 /// accesses and `->` can be told apart from `-`.
-const MULTI: [&str; 15] = [
-    "...", "..", "->", "=>", "<-", "==", "!=", "<=", ">=", "&&", "||", "|>", "::", "++", "<>",
-];
+const MULTI: [&str; 15] =
+    ["...", "..", "->", "=>", "<-", "==", "!=", "<=", ">=", "&&", "||", "|>", "::", "++", "<>"];
 
 pub fn tokenize(source: &str) -> Result<Vec<Token>, String> {
     let bytes = source.as_bytes();
@@ -95,12 +94,7 @@ pub fn tokenize(source: &str) -> Result<Vec<Token>, String> {
     while at < bytes.len() {
         let c = bytes[at];
         let in_interpolation = !interpolations.is_empty();
-        let token = |kind, start, end| Token {
-            kind,
-            start,
-            end,
-            in_interpolation,
-        };
+        let token = |kind, start, end| Token { kind, start, end, in_interpolation };
         if c.is_ascii_whitespace() {
             at += 1;
         } else if source[at..].starts_with("//") {
@@ -162,13 +156,10 @@ pub fn tokenize(source: &str) -> Result<Vec<Token>, String> {
             tokens.push(token(Kind::Number, at, end));
             at = end;
         } else {
-            let len = MULTI
-                .iter()
-                .find(|op| source[at..].starts_with(*op))
-                .map_or_else(
-                    || source[at..].chars().next().map_or(1, char::len_utf8),
-                    |op| op.len(),
-                );
+            let len = MULTI.iter().find(|op| source[at..].starts_with(*op)).map_or_else(
+                || source[at..].chars().next().map_or(1, char::len_utf8),
+                |op| op.len(),
+            );
             tokens.push(token(Kind::Punct, at, at + len));
             at += len;
         }
@@ -181,10 +172,7 @@ pub fn tokenize(source: &str) -> Result<Vec<Token>, String> {
 }
 
 fn scan(bytes: &[u8], from: usize, keep: impl Fn(u8) -> bool) -> usize {
-    bytes[from..]
-        .iter()
-        .position(|&b| !keep(b))
-        .map_or(bytes.len(), |n| from + n)
+    bytes[from..].iter().position(|&b| !keep(b)).map_or(bytes.len(), |n| from + n)
 }
 
 /// The end of the `/* */` comment at `start`, counting nested ones.
@@ -232,19 +220,12 @@ mod tests {
     use super::*;
 
     fn texts(source: &str) -> Vec<&str> {
-        tokenize(source)
-            .unwrap()
-            .into_iter()
-            .map(|t| t.text(source))
-            .collect()
+        tokenize(source).unwrap().into_iter().map(|t| t.text(source)).collect()
     }
 
     #[test]
     fn nested_block_comments_are_one_token() {
-        assert_eq!(
-            texts("a /* x /* y */ z */ b"),
-            ["a", "/* x /* y */ z */", "b"]
-        );
+        assert_eq!(texts("a /* x /* y */ z */ b"), ["a", "/* x /* y */ z */", "b"]);
     }
 
     #[test]
@@ -257,9 +238,7 @@ mod tests {
         let source = r#""n: #{if ok { "yes" } else { "no" }}!""#;
         assert_eq!(
             texts(source),
-            [
-                "\"n: #{", "if", "ok", "{", "\"yes\"", "}", "else", "{", "\"no\"", "}", "}!\""
-            ]
+            ["\"n: #{", "if", "ok", "{", "\"yes\"", "}", "else", "{", "\"no\"", "}", "}!\""]
         );
         let tokens = tokenize(source).unwrap();
         assert!(!tokens[0].in_interpolation);
@@ -279,24 +258,14 @@ mod tests {
     fn doc_comments_are_told_from_comments() {
         let source = "/// doc\n// plain\n/** block doc */ /* plain */";
         let kinds: Vec<Kind> = tokenize(source).unwrap().iter().map(|t| t.kind).collect();
-        assert_eq!(
-            kinds,
-            [
-                Kind::DocComment,
-                Kind::Comment,
-                Kind::DocComment,
-                Kind::Comment
-            ]
-        );
+        assert_eq!(kinds, [Kind::DocComment, Kind::Comment, Kind::DocComment, Kind::Comment]);
     }
 
     #[test]
     fn operators_keep_their_length() {
         assert_eq!(
             texts("{ ...a, b: c.d } -> x"),
-            [
-                "{", "...", "a", ",", "b", ":", "c", ".", "d", "}", "->", "x"
-            ]
+            ["{", "...", "a", ",", "b", ":", "c", ".", "d", "}", "->", "x"]
         );
     }
 

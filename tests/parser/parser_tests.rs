@@ -77,11 +77,7 @@ let test2 = "this compiles";
         let lexer = Lexer::new(input);
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "Parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "Parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
         (program, interner)
     }
@@ -168,10 +164,7 @@ let test2 = "this compiles";
         let (program, _interner) = parse("let y = do { let x = 1; x + 1 };");
         assert_eq!(program.statements.len(), 1);
         match &program.statements[0] {
-            Statement::Let {
-                value: Expression::DoBlock { .. },
-                ..
-            } => {}
+            Statement::Let { value: Expression::DoBlock { .. }, .. } => {}
             _ => panic!("expected let initializer to be a do block"),
         }
     }
@@ -233,19 +226,13 @@ let test2 = "this compiles";
         assert_eq!(program.statements.len(), 1);
 
         match &program.statements[0] {
-            Statement::Expression {
-                expression: Expression::Match { arms, .. },
-                ..
-            } => {
+            Statement::Expression { expression: Expression::Match { arms, .. }, .. } => {
                 assert_eq!(arms.len(), 2);
                 assert!(
                     matches!(arms[0].guard.as_ref(), Some(Expression::Infix { .. })),
                     "expected first arm guard to parse as expression"
                 );
-                assert!(
-                    arms[1].guard.is_none(),
-                    "expected second arm to be unguarded"
-                );
+                assert!(arms[1].guard.is_none(), "expected second arm to be unguarded");
             }
             _ => panic!("expected match expression statement"),
         }
@@ -287,11 +274,7 @@ let test2 = "this compiles";
             .collect();
         assert_eq!(sep_diags.len(), 1, "expected one separator diagnostic");
         assert_eq!(
-            parser
-                .errors
-                .iter()
-                .filter(|d| d.code() == Some("E031"))
-                .count(),
+            parser.errors.iter().filter(|d| d.code() == Some("E031")).count(),
             0,
             "semicolon separator recovery should avoid EXPECTED_EXPRESSION cascades"
         );
@@ -320,11 +303,7 @@ let test2 = "this compiles";
             .collect();
         assert_eq!(sep_diags.len(), 1, "expected one separator diagnostic");
         assert_eq!(
-            parser
-                .errors
-                .iter()
-                .filter(|d| d.code() == Some("E031"))
-                .count(),
+            parser.errors.iter().filter(|d| d.code() == Some("E031")).count(),
             0,
             "mixed separator recovery should avoid EXPECTED_EXPRESSION cascades"
         );
@@ -348,9 +327,7 @@ let test2 = "this compiles";
         assert_eq!(program.statements.len(), 1);
 
         match &program.statements[0] {
-            Statement::Function {
-                name, parameters, ..
-            } => {
+            Statement::Function { name, parameters, .. } => {
                 assert_eq!(interner.resolve(*name), "add");
                 let param_names: Vec<_> = parameters.iter().map(|p| interner.resolve(*p)).collect();
                 assert_eq!(param_names, vec!["x", "y"]);
@@ -385,12 +362,7 @@ fn t(x) {
         }
 
         match &program.statements[1] {
-            Statement::Function {
-                name,
-                parameters,
-                body,
-                ..
-            } => {
+            Statement::Function { name, parameters, body, .. } => {
                 assert_eq!(interner.resolve(*name), "t");
                 let param_names: Vec<_> = parameters.iter().map(|p| interner.resolve(*p)).collect();
                 assert_eq!(param_names, vec!["x"]);
@@ -416,15 +388,8 @@ fn t(x) {
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
 
-        let missing_comma_count = parser
-            .errors
-            .iter()
-            .filter(|d| d.code() == Some("E073"))
-            .count();
-        assert_eq!(
-            missing_comma_count, 2,
-            "expected one E073 per missing comma gap"
-        );
+        let missing_comma_count = parser.errors.iter().filter(|d| d.code() == Some("E073")).count();
+        assert_eq!(missing_comma_count, 2, "expected one E073 per missing comma gap");
         assert!(
             parser.errors.iter().all(|d| d.code() == Some("E073")),
             "missing-comma recovery should avoid generic cascade diagnostics"
@@ -443,19 +408,10 @@ fn t(x) {
         let program = parser.parse_program();
         let interner = parser.take_interner();
 
-        let missing_comma: Vec<_> = parser
-            .errors
-            .iter()
-            .filter(|d| d.code() == Some("E073"))
-            .collect();
-        assert_eq!(
-            missing_comma.len(),
-            1,
-            "expected exactly one missing-comma diagnostic"
-        );
-        let span = missing_comma[0]
-            .span()
-            .expect("expected missing-comma span");
+        let missing_comma: Vec<_> =
+            parser.errors.iter().filter(|d| d.code() == Some("E073")).collect();
+        assert_eq!(missing_comma.len(), 1, "expected exactly one missing-comma diagnostic");
+        let span = missing_comma[0].span().expect("expected missing-comma span");
         assert_eq!(span.start, Position::new(1, 6));
         assert!(
             parser.errors.iter().all(|d| d.code() == Some("E073")),
@@ -480,10 +436,9 @@ fn t(x) {
         let (program, _interner) = parse("\"\"\"alpha\r\nbeta\r\ngamma\"\"\"");
 
         match &program.statements[0] {
-            Statement::Expression {
-                expression: Expression::String { value, .. },
-                ..
-            } => assert_eq!(value, "alpha\nbeta\ngamma"),
+            Statement::Expression { expression: Expression::String { value, .. }, .. } => {
+                assert_eq!(value, "alpha\nbeta\ngamma")
+            }
             other => panic!("expected string expression, got {other:?}"),
         }
     }
@@ -535,44 +490,21 @@ fn t(x) {
         let mut parser = Parser::new(lexer);
         let _ = parser.parse_program();
 
-        let e072_count = parser
-            .errors
-            .iter()
-            .filter(|d| d.code() == Some("E072"))
-            .count();
-        let e071_count = parser
-            .errors
-            .iter()
-            .filter(|d| d.code() == Some("E071"))
-            .count();
+        let e072_count = parser.errors.iter().filter(|d| d.code() == Some("E072")).count();
+        let e071_count = parser.errors.iter().filter(|d| d.code() == Some("E071")).count();
 
         assert_eq!(e072_count, 1, "expected one interpolation error");
-        assert_eq!(
-            e071_count, 1,
-            "expected one unterminated string error after recovery"
-        );
+        assert_eq!(e071_count, 1, "expected one unterminated string error after recovery");
     }
 
     #[test]
     fn t1_named_delimiter_diagnostics_are_contextual() {
         let cases = [
-            (
-                "let h = {one: 1, two: 2",
-                "Expected `}` to close hash literal.",
-            ),
+            ("let h = {one: 1, two: 2", "Expected `}` to close hash literal."),
             ("let xs = [|1, 2|", "Expected `]` to close array literal."),
-            (
-                "let add = \\(x, y -> x + y",
-                "Expected `)` to close lambda parameter list.",
-            ),
-            (
-                "let msg = \"Hello #{name\"",
-                "Expected `}` to close string interpolation.",
-            ),
-            (
-                "let ys = [x + 1 | x <- [1, 2]",
-                "Expected `]` to close list comprehension.",
-            ),
+            ("let add = \\(x, y -> x + y", "Expected `)` to close lambda parameter list."),
+            ("let msg = \"Hello #{name\"", "Expected `}` to close string interpolation."),
+            ("let ys = [x + 1 | x <- [1, 2]", "Expected `]` to close list comprehension."),
         ];
 
         for (input, expected_msg) in cases {
@@ -649,15 +581,8 @@ fn t(x) {
         let mut parser = Parser::new(lexer);
         let _ = parser.parse_program();
 
-        let missing_comma_count = parser
-            .errors
-            .iter()
-            .filter(|d| d.code() == Some("E073"))
-            .count();
-        assert_eq!(
-            missing_comma_count, 2,
-            "expected one E073 per missing comma gap"
-        );
+        let missing_comma_count = parser.errors.iter().filter(|d| d.code() == Some("E073")).count();
+        assert_eq!(missing_comma_count, 2, "expected one E073 per missing comma gap");
         assert!(
             parser.errors.iter().all(|d| d.code() == Some("E073")),
             "missing-comma recovery should avoid generic cascade diagnostics"
@@ -671,19 +596,10 @@ fn t(x) {
         let program = parser.parse_program();
         let interner = parser.take_interner();
 
-        let missing_comma: Vec<_> = parser
-            .errors
-            .iter()
-            .filter(|d| d.code() == Some("E073"))
-            .collect();
-        assert_eq!(
-            missing_comma.len(),
-            1,
-            "expected exactly one missing-comma diagnostic"
-        );
-        let span = missing_comma[0]
-            .span()
-            .expect("expected missing-comma span");
+        let missing_comma: Vec<_> =
+            parser.errors.iter().filter(|d| d.code() == Some("E073")).collect();
+        assert_eq!(missing_comma.len(), 1, "expected exactly one missing-comma diagnostic");
+        let span = missing_comma[0].span().expect("expected missing-comma span");
         assert_eq!(span.start, Position::new(1, 5));
         assert!(
             parser.errors.iter().all(|d| d.code() == Some("E073")),
@@ -730,10 +646,7 @@ fn t(x) {
         let _program = parser.parse_program();
 
         assert!(
-            parser
-                .errors
-                .iter()
-                .any(|d| d.code() == Some("E076") || d.code() == Some("E034")),
+            parser.errors.iter().any(|d| d.code() == Some("E076") || d.code() == Some("E034")),
             "expected an unclosed-delimiter or unexpected-token diagnostic for missing `)`"
         );
         assert!(
@@ -783,15 +696,8 @@ fn t(x) {
         let mut parser = Parser::new(lexer);
         let _program = parser.parse_program();
 
-        let e034_count = parser
-            .errors
-            .iter()
-            .filter(|d| d.code() == Some("E034"))
-            .count();
-        assert_eq!(
-            e034_count, 1,
-            "expected only one E034 for dangling member access"
-        );
+        let e034_count = parser.errors.iter().filter(|d| d.code() == Some("E034")).count();
+        assert_eq!(e034_count, 1, "expected only one E034 for dangling member access");
     }
 
     #[test]
@@ -802,12 +708,8 @@ fn t(x) {
         let interner = parser.take_interner();
 
         assert!(
-            parser
-                .errors
-                .iter()
-                .any(|d| (d.code() == Some("E076") || d.code() == Some("E034"))
-                    && d.message()
-                        .is_some_and(|m| m.contains(")") || m.contains("closing"))),
+            parser.errors.iter().any(|d| (d.code() == Some("E076") || d.code() == Some("E034"))
+                && d.message().is_some_and(|m| m.contains(")") || m.contains("closing"))),
             "expected missing `)` diagnostic: {:?}",
             parser.errors
         );
@@ -836,19 +738,14 @@ fn t(x) {
             "expected bounded cascade (<= 3 errors), got: {:?}",
             parser.errors
         );
-        let first = parser
-            .errors
-            .first()
-            .expect("expected at least one parse error");
+        let first = parser.errors.first().expect("expected at least one parse error");
         assert!(
             first.code() == Some("E076") || first.code() == Some("E034"),
             "expected UNCLOSED_DELIMITER or UNEXPECTED_TOKEN, got: {:?}",
             first.code()
         );
         assert!(
-            first
-                .message()
-                .is_some_and(|m| m.contains(")") || m.contains("closing")),
+            first.message().is_some_and(|m| m.contains(")") || m.contains("closing")),
             "expected first diagnostic to be about missing `)`, got: {:?}",
             first.message()
         );
@@ -865,10 +762,7 @@ fn t(x) {
             "expected bounded cascade (<= 3 errors), got: {:?}",
             parser.errors
         );
-        let first = parser
-            .errors
-            .first()
-            .expect("expected at least one parse error");
+        let first = parser.errors.first().expect("expected at least one parse error");
         assert_eq!(first.code(), Some("E034"));
         assert!(
             first
@@ -901,8 +795,7 @@ fn t(x) {
 
         let redundant_param_followup = parser.errors.iter().any(|d| {
             d.code() == Some("E034")
-                && d.message()
-                    .is_some_and(|m| m.contains("after function parameter"))
+                && d.message().is_some_and(|m| m.contains("after function parameter"))
         });
         assert!(
             !redundant_param_followup,
@@ -936,10 +829,7 @@ fn t(x) {
         assert_eq!(program.statements.len(), 1);
 
         match &program.statements[0] {
-            Statement::Expression {
-                expression: Expression::Function { span, .. },
-                ..
-            } => {
+            Statement::Expression { expression: Expression::Function { span, .. }, .. } => {
                 assert_eq!(span.start, Position::new(1, 0));
                 assert_eq!(span.end, Position::new(1, 11));
             }
@@ -954,10 +844,7 @@ fn t(x) {
 
         match &program.statements[0] {
             Statement::Expression {
-                expression:
-                    Expression::Function {
-                        parameters, span, ..
-                    },
+                expression: Expression::Function { parameters, span, .. },
                 ..
             } => {
                 let param_names: Vec<_> = parameters.iter().map(|p| interner.resolve(*p)).collect();
@@ -976,29 +863,21 @@ fn t(x) {
 
         let sugar_params = match &sugar.statements[0] {
             Statement::Expression {
-                expression: Expression::Function { parameters, .. },
-                ..
+                expression: Expression::Function { parameters, .. }, ..
             } => parameters.clone(),
             _ => panic!("expected lambda function expression"),
         };
         let paren_params = match &parenthesized.statements[0] {
             Statement::Expression {
-                expression: Expression::Function { parameters, .. },
-                ..
+                expression: Expression::Function { parameters, .. }, ..
             } => parameters.clone(),
             _ => panic!("expected lambda function expression"),
         };
 
         assert_eq!(sugar_params.len(), 1);
         assert_eq!(paren_params.len(), 1);
-        let sugar_names: Vec<_> = sugar_params
-            .iter()
-            .map(|p| sugar_interner.resolve(*p))
-            .collect();
-        let paren_names: Vec<_> = paren_params
-            .iter()
-            .map(|p| paren_interner.resolve(*p))
-            .collect();
+        let sugar_names: Vec<_> = sugar_params.iter().map(|p| sugar_interner.resolve(*p)).collect();
+        let paren_names: Vec<_> = paren_params.iter().map(|p| paren_interner.resolve(*p)).collect();
         assert_eq!(sugar_names, paren_names);
         assert_eq!(sugar_interner.resolve(sugar_params[0]), "x");
     }
@@ -1049,11 +928,7 @@ fn t(x) {
             parser.errors
         );
 
-        let e034_count = parser
-            .errors
-            .iter()
-            .filter(|d| d.code() == Some("E034"))
-            .count();
+        let e034_count = parser.errors.iter().filter(|d| d.code() == Some("E034")).count();
         assert!(
             e034_count <= 1,
             "expected no flood of unrelated E034 diagnostics, got: {:?}",
@@ -1063,10 +938,7 @@ fn t(x) {
 
     #[test]
     fn test_let_in_if_and_match_expression_positions_reports_targeted_diagnostic() {
-        let inputs = [
-            "if let x = 1 { 1 } else { 0 }",
-            "match 1 { 1 -> let y = 2, _ -> 0 }",
-        ];
+        let inputs = ["if let x = 1 { 1 } else { 0 }", "match 1 { 1 -> let y = 2, _ -> 0 }"];
 
         for input in inputs {
             let lexer = Lexer::new(input);
@@ -1100,20 +972,13 @@ fn t(x) {
         let mut parser = Parser::new(lexer);
         let _ = parser.parse_program();
 
-        assert_eq!(
-            parser.errors.len(),
-            1,
-            "expected exactly one diagnostic for missing arrow"
-        );
+        assert_eq!(parser.errors.len(), 1, "expected exactly one diagnostic for missing arrow");
         let diag = parser
             .errors
             .iter()
             .find(|d| d.code() == Some("E034"))
             .expect("expected E034 diagnostic for missing lambda arrow");
-        assert!(
-            diag.message()
-                .is_some_and(|m| m.contains("lambda parameters"))
-        );
+        assert!(diag.message().is_some_and(|m| m.contains("lambda parameters")));
         assert!(
             diag.hints()
                 .iter()
@@ -1136,8 +1001,7 @@ fn t(x) {
             .find(|d| d.code() == Some("E034"))
             .expect("expected E034 diagnostic for missing match arm arrow");
         assert!(
-            diag.message()
-                .is_some_and(|m| m.contains("match arm") && m.contains("`->`")),
+            diag.message().is_some_and(|m| m.contains("match arm") && m.contains("`->`")),
             "expected contextual match-arrow message, got: {:?}",
             diag.message()
         );
@@ -1155,8 +1019,7 @@ fn t(x) {
             .find(|d| d.code() == Some("E034"))
             .expect("expected E034 orphan constructor-pattern diagnostic");
         assert!(
-            diag.message()
-                .is_some_and(|m| m.contains("outside `match`")),
+            diag.message().is_some_and(|m| m.contains("outside `match`")),
             "expected orphan-constructor contextual message, got: {:?}",
             diag.message()
         );
@@ -1185,10 +1048,7 @@ let w = match x { Some(n) -> n, None -> 0 };
             .iter()
             .find(|d| d.code() == Some("E034"))
             .expect("expected E034 for non-identifier function parameter");
-        assert!(
-            diag.message()
-                .is_some_and(|m| m.contains("parameter name here"))
-        );
+        assert!(diag.message().is_some_and(|m| m.contains("parameter name here")));
     }
 
     #[test]
@@ -1202,10 +1062,7 @@ let w = match x { Some(n) -> n, None -> 0 };
             .iter()
             .find(|d| d.code() == Some("E034"))
             .expect("expected E034 for non-identifier lambda parameter");
-        assert!(
-            diag.message()
-                .is_some_and(|m| m.contains("parameter name here"))
-        );
+        assert!(diag.message().is_some_and(|m| m.contains("parameter name here")));
     }
 
     #[test]
@@ -1236,10 +1093,7 @@ let w = match x { Some(n) -> n, None -> 0 };
         assert_eq!(single_parser.errors.len(), 1);
         assert_eq!(paren_parser.errors.len(), 1);
         assert!(
-            single_parser
-                .errors
-                .iter()
-                .all(|d| d.code() != Some("E036")),
+            single_parser.errors.iter().all(|d| d.code() != Some("E036")),
             "single-param keyword lambda should use parameter validation, not syntax error"
         );
 
@@ -1344,10 +1198,7 @@ let w = match x { Some(n) -> n, None -> 0 };
             .expect("expected E034 for missing comma between parameters");
         let span = diag.span().expect("expected diagnostic span");
         assert_eq!(span.start, Position::new(1, 7));
-        assert!(
-            diag.message()
-                .is_some_and(|m| m.contains("after function parameter"))
-        );
+        assert!(diag.message().is_some_and(|m| m.contains("after function parameter")));
 
         match &program.statements[0] {
             Statement::Function { parameters, .. } => {
@@ -1386,17 +1237,10 @@ let w = match x { Some(n) -> n, None -> 0 };
         let program = parser.parse_program();
         let interner = parser.take_interner();
 
-        let e105_diags: Vec<_> = parser
-            .errors
-            .iter()
-            .filter(|d| d.code() == Some("E034"))
-            .collect();
+        let e105_diags: Vec<_> =
+            parser.errors.iter().filter(|d| d.code() == Some("E034")).collect();
         assert_eq!(e105_diags.len(), 1, "expected one E034 for extra comma");
-        assert!(
-            e105_diags[0]
-                .message()
-                .is_some_and(|m| m.contains("parameter name here"))
-        );
+        assert!(e105_diags[0].message().is_some_and(|m| m.contains("parameter name here")));
 
         match &program.statements[0] {
             Statement::Function { parameters, .. } => {
@@ -1414,17 +1258,10 @@ let w = match x { Some(n) -> n, None -> 0 };
         let program = parser.parse_program();
         let interner = parser.take_interner();
 
-        let e105_diags: Vec<_> = parser
-            .errors
-            .iter()
-            .filter(|d| d.code() == Some("E034"))
-            .collect();
+        let e105_diags: Vec<_> =
+            parser.errors.iter().filter(|d| d.code() == Some("E034")).collect();
         assert_eq!(e105_diags.len(), 1, "expected one E034 for leading comma");
-        assert!(
-            e105_diags[0]
-                .message()
-                .is_some_and(|m| m.contains("parameter name here"))
-        );
+        assert!(e105_diags[0].message().is_some_and(|m| m.contains("parameter name here")));
 
         match &program.statements[0] {
             Statement::Function { parameters, .. } => {
@@ -1448,12 +1285,7 @@ let w = match x { Some(n) -> n, None -> 0 };
         );
 
         match &program.statements[0] {
-            Statement::Let {
-                name,
-                type_annotation,
-                value,
-                ..
-            } => {
+            Statement::Let { name, type_annotation, value, .. } => {
                 assert_eq!(interner.resolve(*name), "x");
                 assert!(type_annotation.is_none(), "annotation should be dropped");
                 assert!(matches!(value, Expression::Integer { value, .. } if *value == 1));
@@ -1481,17 +1313,10 @@ let w = match x { Some(n) -> n, None -> 0 };
         );
 
         match &program.statements[0] {
-            Statement::Function {
-                parameters,
-                parameter_types,
-                ..
-            } => {
+            Statement::Function { parameters, parameter_types, .. } => {
                 assert_eq!(parameters.len(), 2);
                 assert_eq!(parameter_types.len(), 2);
-                assert!(
-                    parameter_types[0].is_none(),
-                    "malformed annotation should become None"
-                );
+                assert!(parameter_types[0].is_none(), "malformed annotation should become None");
                 assert!(
                     parameter_types[1].is_some(),
                     "later valid parameter annotation should be preserved"
@@ -1514,13 +1339,8 @@ let w = match x { Some(n) -> n, None -> 0 };
         );
 
         match &program.statements[0] {
-            Statement::Function {
-                return_type, body, ..
-            } => {
-                assert!(
-                    return_type.is_none(),
-                    "malformed return annotation should be dropped"
-                );
+            Statement::Function { return_type, body, .. } => {
+                assert!(return_type.is_none(), "malformed return annotation should be dropped");
                 assert!(
                     !body.statements.is_empty(),
                     "function body should still be parsed after recovery"
@@ -1575,10 +1395,7 @@ let w = match x { Some(n) -> n, None -> 0 };
             "expected no diagnostics for trailing comma in call arguments"
         );
         match &program.statements[0] {
-            Statement::Expression {
-                expression: Expression::Call { arguments, .. },
-                ..
-            } => {
+            Statement::Expression { expression: Expression::Call { arguments, .. }, .. } => {
                 assert_eq!(arguments.len(), 1);
             }
             _ => panic!("expected call expression statement"),
@@ -1597,8 +1414,7 @@ let w = match x { Some(n) -> n, None -> 0 };
         );
         match &program.statements[0] {
             Statement::Expression {
-                expression: Expression::ArrayLiteral { elements, .. },
-                ..
+                expression: Expression::ArrayLiteral { elements, .. }, ..
             } => {
                 assert_eq!(elements.len(), 1);
             }
@@ -1618,8 +1434,7 @@ let w = match x { Some(n) -> n, None -> 0 };
         );
         match &program.statements[0] {
             Statement::Expression {
-                expression: Expression::ArrayLiteral { elements, .. },
-                ..
+                expression: Expression::ArrayLiteral { elements, .. }, ..
             } => {
                 assert_eq!(elements.len(), 1);
             }
@@ -1633,14 +1448,10 @@ let w = match x { Some(n) -> n, None -> 0 };
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
 
-        assert!(
-            parser.errors.is_empty(),
-            "expected no diagnostics for empty [||] array literal"
-        );
+        assert!(parser.errors.is_empty(), "expected no diagnostics for empty [||] array literal");
         match &program.statements[0] {
             Statement::Expression {
-                expression: Expression::ArrayLiteral { elements, .. },
-                ..
+                expression: Expression::ArrayLiteral { elements, .. }, ..
             } => {
                 assert!(elements.is_empty());
             }
@@ -1662,8 +1473,7 @@ let w = match x { Some(n) -> n, None -> 0 };
         let span = diag.span().expect("expected diagnostic span");
         assert_eq!(span.start, Position::new(1, 4));
         assert!(
-            diag.message()
-                .is_some_and(|m| m.contains("Expected expression after `,`, got `,`"))
+            diag.message().is_some_and(|m| m.contains("Expected expression after `,`, got `,`"))
         );
     }
 
@@ -1680,10 +1490,7 @@ let w = match x { Some(n) -> n, None -> 0 };
         assert_eq!(program.statements.len(), 1);
 
         match &program.statements[0] {
-            Statement::Expression {
-                expression: Expression::Call { arguments, .. },
-                ..
-            } => {
+            Statement::Expression { expression: Expression::Call { arguments, .. }, .. } => {
                 assert_eq!(arguments.len(), 2);
                 assert!(
                     matches!(&arguments[0], Expression::ArrayLiteral { elements, .. } if elements.len() == 2)
@@ -1702,10 +1509,7 @@ let w = match x { Some(n) -> n, None -> 0 };
         assert_eq!(program.statements.len(), 1);
 
         match &program.statements[0] {
-            Statement::Expression {
-                expression: Expression::Call { arguments, .. },
-                ..
-            } => {
+            Statement::Expression { expression: Expression::Call { arguments, .. }, .. } => {
                 assert_eq!(arguments.len(), 2);
                 assert!(
                     matches!(&arguments[0], Expression::ArrayLiteral { elements, .. } if elements.len() == 2)
@@ -1725,30 +1529,16 @@ let w = match x { Some(n) -> n, None -> 0 };
         let program = parser.parse_program();
         let interner = parser.take_interner();
 
-        let missing_comma_count = parser
-            .errors
-            .iter()
-            .filter(|d| d.code() == Some("E073"))
-            .count();
-        assert_eq!(
-            missing_comma_count, 1,
-            "expected one missing comma diagnostic"
-        );
+        let missing_comma_count = parser.errors.iter().filter(|d| d.code() == Some("E073")).count();
+        assert_eq!(missing_comma_count, 1, "expected one missing comma diagnostic");
         assert!(
             parser.errors.iter().all(|d| d.code() == Some("E073")),
             "missing-comma recovery should avoid generic cascade diagnostics"
         );
 
         match &program.statements[0] {
-            Statement::Expression {
-                expression: Expression::Call { arguments, .. },
-                ..
-            } => {
-                assert_eq!(
-                    arguments.len(),
-                    4,
-                    "expected trailing argument to be preserved"
-                );
+            Statement::Expression { expression: Expression::Call { arguments, .. }, .. } => {
+                assert_eq!(arguments.len(), 4, "expected trailing argument to be preserved");
                 assert!(
                     matches!(&arguments[3], Expression::Identifier { name, .. } if interner.resolve(*name) == "d"),
                     "expected final argument `d` to be parsed after recovery"
@@ -1803,8 +1593,7 @@ let w = match x { Some(n) -> n, None -> 0 };
         let (program, _interner) = parse("(1, 2, 3);");
         match &program.statements[0] {
             Statement::Expression {
-                expression: Expression::TupleLiteral { elements, .. },
-                ..
+                expression: Expression::TupleLiteral { elements, .. }, ..
             } => assert_eq!(elements.len(), 3),
             _ => panic!("expected tuple literal"),
         }
@@ -1815,15 +1604,13 @@ let w = match x { Some(n) -> n, None -> 0 };
         let (program, _interner) = parse("(42,); ()");
         match &program.statements[0] {
             Statement::Expression {
-                expression: Expression::TupleLiteral { elements, .. },
-                ..
+                expression: Expression::TupleLiteral { elements, .. }, ..
             } => assert_eq!(elements.len(), 1),
             _ => panic!("expected singleton tuple"),
         }
         match &program.statements[1] {
             Statement::Expression {
-                expression: Expression::TupleLiteral { elements, .. },
-                ..
+                expression: Expression::TupleLiteral { elements, .. }, ..
             } => assert!(elements.is_empty()),
             _ => panic!("expected unit tuple"),
         }
@@ -1833,10 +1620,7 @@ let w = match x { Some(n) -> n, None -> 0 };
     fn test_parenthesized_grouping_stays_grouping() {
         let (program, _interner) = parse("(1 + 2);");
         match &program.statements[0] {
-            Statement::Expression {
-                expression: Expression::Infix { .. },
-                ..
-            } => {}
+            Statement::Expression { expression: Expression::Infix { .. }, .. } => {}
             _ => panic!("expected grouped infix expression"),
         }
     }
@@ -1889,10 +1673,7 @@ let w = match x { Some(n) -> n, None -> 0 };
 
     #[test]
     fn test_call_list_error_limit_caps_diagnostics_and_still_parses_following_statements() {
-        let input = format!(
-            "print({});\nlet ok = \"still parsed\";\nprint(ok);",
-            spaced_ints(200)
-        );
+        let input = format!("print({});\nlet ok = \"still parsed\";\nprint(ok);", spaced_ints(200));
         let lexer = Lexer::new(&input);
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
@@ -1901,10 +1682,7 @@ let w = match x { Some(n) -> n, None -> 0 };
         let summary_diags: Vec<_> = parser
             .errors
             .iter()
-            .filter(|d| {
-                d.message()
-                    .is_some_and(|m| m.contains("Too many errors in this list"))
-            })
+            .filter(|d| d.message().is_some_and(|m| m.contains("Too many errors in this list")))
             .collect();
         assert_eq!(
             summary_diags.len(),
@@ -1912,11 +1690,7 @@ let w = match x { Some(n) -> n, None -> 0 };
             "expected exactly one list error-limit summary diagnostic"
         );
 
-        let missing_comma_count = parser
-            .errors
-            .iter()
-            .filter(|d| d.code() == Some("E073"))
-            .count();
+        let missing_comma_count = parser.errors.iter().filter(|d| d.code() == Some("E073")).count();
         assert_eq!(
             missing_comma_count, 50,
             "expected missing-comma diagnostics to stop at the list limit"
@@ -1951,10 +1725,7 @@ let w = match x { Some(n) -> n, None -> 0 };
 
     #[test]
     fn test_array_list_error_limit_caps_diagnostics_and_still_parses_following_statements() {
-        let input = format!(
-            "[{}];\nlet ok = \"still parsed\";\nprint(ok);",
-            spaced_ints(200)
-        );
+        let input = format!("[{}];\nlet ok = \"still parsed\";\nprint(ok);", spaced_ints(200));
         let lexer = Lexer::new(&input);
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
@@ -1963,10 +1734,7 @@ let w = match x { Some(n) -> n, None -> 0 };
         let summary_diags: Vec<_> = parser
             .errors
             .iter()
-            .filter(|d| {
-                d.message()
-                    .is_some_and(|m| m.contains("Too many errors in this list"))
-            })
+            .filter(|d| d.message().is_some_and(|m| m.contains("Too many errors in this list")))
             .collect();
         assert_eq!(
             summary_diags.len(),
@@ -1974,11 +1742,7 @@ let w = match x { Some(n) -> n, None -> 0 };
             "expected exactly one list error-limit summary diagnostic"
         );
 
-        let missing_comma_count = parser
-            .errors
-            .iter()
-            .filter(|d| d.code() == Some("E073"))
-            .count();
+        let missing_comma_count = parser.errors.iter().filter(|d| d.code() == Some("E073")).count();
         assert_eq!(
             missing_comma_count, 50,
             "expected missing-comma diagnostics to stop at the list limit"
@@ -2013,10 +1777,7 @@ let w = match x { Some(n) -> n, None -> 0 };
 
     #[test]
     fn test_match_arm_list_error_limit_caps_diagnostics_and_still_parses_following_statements() {
-        let input = format!(
-            "match x {{ {} }}\nlet ok = 1;",
-            semicolon_separated_match_arms(200)
-        );
+        let input = format!("match x {{ {} }}\nlet ok = 1;", semicolon_separated_match_arms(200));
         let lexer = Lexer::new(&input);
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
@@ -2026,8 +1787,7 @@ let w = match x { Some(n) -> n, None -> 0 };
             .errors
             .iter()
             .filter(|d| {
-                d.message()
-                    .is_some_and(|m| m.contains("Too many errors in this match arm list"))
+                d.message().is_some_and(|m| m.contains("Too many errors in this match arm list"))
             })
             .collect();
         assert_eq!(
@@ -2113,11 +1873,7 @@ let w = match x { Some(n) -> n, None -> 0 };
         let program = parser.parse_program();
         let interner = parser.take_interner();
 
-        let missing_comma_count = parser
-            .errors
-            .iter()
-            .filter(|d| d.code() == Some("E073"))
-            .count();
+        let missing_comma_count = parser.errors.iter().filter(|d| d.code() == Some("E073")).count();
         assert_eq!(
             missing_comma_count, 7,
             "expected missing-comma diagnostics at all intended gaps"
@@ -2128,8 +1884,7 @@ let w = match x { Some(n) -> n, None -> 0 };
         );
         assert!(
             !parser.errors.iter().any(|d| {
-                d.message()
-                    .is_some_and(|m| m.to_ascii_lowercase().contains("semicolon"))
+                d.message().is_some_and(|m| m.to_ascii_lowercase().contains("semicolon"))
             }),
             "expected no missing-semicolon diagnostics"
         );
@@ -2256,8 +2011,7 @@ let w = match x { Some(n) -> n, None -> 0 };
         let _program = parser.parse_program();
 
         assert!(parser.errors.iter().any(|d| {
-            d.message()
-                .is_some_and(|m| m.contains("Missing `:` in effect operation signature"))
+            d.message().is_some_and(|m| m.contains("Missing `:` in effect operation signature"))
         }));
     }
 
@@ -2270,11 +2024,7 @@ let w = match x { Some(n) -> n, None -> 0 };
         let program = parser.parse_program();
         let interner = parser.take_interner();
 
-        assert!(
-            parser.errors.is_empty(),
-            "unexpected errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "unexpected errors: {:?}", parser.errors);
         assert!(program.statements.iter().any(|stmt| matches!(
             stmt,
             Statement::EffectDecl { name, ops, .. }
@@ -2293,10 +2043,7 @@ public alias Bytes = String
 "#,
         );
 
-        assert!(matches!(
-            program.statements[0],
-            Statement::EffectAlias { .. }
-        ));
+        assert!(matches!(program.statements[0], Statement::EffectAlias { .. }));
         assert!(matches!(
             &program.statements[1],
             Statement::TypeAlias(alias)
@@ -2330,23 +2077,13 @@ let result = program() handle State(0) {
         let Statement::Let { value, .. } = &program.statements[0] else {
             panic!("expected let statement");
         };
-        let Expression::Handle {
-            expr,
-            effect,
-            parameter,
-            arms,
-            ..
-        } = value
-        else {
+        let Expression::Handle { expr, effect, parameter, arms, .. } = value else {
             panic!("expected handle expression, got {value:?}");
         };
 
         assert!(matches!(expr.as_ref(), Expression::Call { .. }));
         assert_eq!(interner.resolve(*effect), "State");
-        assert!(matches!(
-            parameter.as_deref(),
-            Some(Expression::Integer { value: 0, .. })
-        ));
+        assert!(matches!(parameter.as_deref(), Some(Expression::Integer { value: 0, .. })));
         assert_eq!(arms.len(), 2);
         assert_eq!(interner.resolve(arms[0].operation_name), "get");
         assert_eq!(arms[0].params.len(), 1);
@@ -2366,8 +2103,7 @@ let result = program() handle State(0) {
         let interner = parser.take_interner();
 
         assert!(parser.errors.iter().any(|d| {
-            d.message()
-                .is_some_and(|m| m.contains("Missing `->` before function return type"))
+            d.message().is_some_and(|m| m.contains("Missing `->` before function return type"))
         }));
         assert!(program.statements.iter().any(
             |stmt| matches!(stmt, Statement::Let { name, .. } if interner.resolve(*name) == "ok")
@@ -2380,11 +2116,7 @@ let result = program() handle State(0) {
             let lexer = Lexer::new(input);
             let mut parser = Parser::new(lexer);
             let _program = parser.parse_program();
-            parser
-                .errors
-                .iter()
-                .filter_map(|d| d.message().map(ToString::to_string))
-                .collect()
+            parser.errors.iter().filter_map(|d| d.message().map(ToString::to_string)).collect()
         };
 
         let def_msgs = collect("def foo() { 1 }");
@@ -2404,9 +2136,7 @@ let result = program() handle State(0) {
 
         let case_msgs = collect("case 1 { 0 -> 0, _ -> 1 }");
         assert!(
-            case_msgs
-                .iter()
-                .any(|m| m.contains("Unknown keyword `case`")),
+            case_msgs.iter().any(|m| m.contains("Unknown keyword `case`")),
             "expected `case` alias diagnostic, got: {:#?}",
             case_msgs
         );
@@ -2418,11 +2148,8 @@ let result = program() handle State(0) {
         let mut parser = Parser::new(lexer);
         let _program = parser.parse_program();
 
-        let msgs: Vec<String> = parser
-            .errors
-            .iter()
-            .filter_map(|d| d.message().map(ToString::to_string))
-            .collect();
+        let msgs: Vec<String> =
+            parser.errors.iter().filter_map(|d| d.message().map(ToString::to_string)).collect();
         assert!(
             msgs.iter()
                 .any(|m| m.contains("Unknown keyword `elif`")
@@ -2431,8 +2158,7 @@ let result = program() handle State(0) {
             msgs
         );
         assert!(
-            msgs.iter()
-                .any(|m| m.contains("`end` is not a keyword in Flux")),
+            msgs.iter().any(|m| m.contains("`end` is not a keyword in Flux")),
             "expected end-keyword diagnostic, got: {:#?}",
             msgs
         );
@@ -2444,36 +2170,26 @@ let result = program() handle State(0) {
             let lexer = Lexer::new(input);
             let mut parser = Parser::new(lexer);
             let _program = parser.parse_program();
-            parser
-                .errors
-                .iter()
-                .filter_map(|d| d.message().map(ToString::to_string))
-                .collect()
+            parser.errors.iter().filter_map(|d| d.message().map(ToString::to_string)).collect()
         };
 
         let fn_msgs = collect("fn foo -> Int { 1 }");
         assert!(
-            fn_msgs
-                .iter()
-                .any(|m| m.contains("parameter list after `foo`")),
+            fn_msgs.iter().any(|m| m.contains("parameter list after `foo`")),
             "expected missing-parameter-list message, got: {:#?}",
             fn_msgs
         );
 
         let if_msgs = collect("if true 1 else 2");
         assert!(
-            if_msgs
-                .iter()
-                .any(|m| m.contains("`if` branch needs to start with `{`")),
+            if_msgs.iter().any(|m| m.contains("`if` branch needs to start with `{`")),
             "expected missing-if-brace message, got: {:#?}",
             if_msgs
         );
 
         let let_msgs = collect("let x 1");
         assert!(
-            let_msgs
-                .iter()
-                .any(|m| m.contains("Expected `=` after `let x`")),
+            let_msgs.iter().any(|m| m.contains("Expected `=` after `let x`")),
             "expected missing-let-assign message, got: {:#?}",
             let_msgs
         );
@@ -2488,14 +2204,10 @@ let result = program() handle State(0) {
         let program = parser.parse_program();
         let interner = parser.take_interner();
 
-        let msgs: Vec<String> = parser
-            .errors
-            .iter()
-            .filter_map(|d| d.message().map(ToString::to_string))
-            .collect();
+        let msgs: Vec<String> =
+            parser.errors.iter().filter_map(|d| d.message().map(ToString::to_string)).collect();
         assert!(
-            msgs.iter()
-                .any(|m| m.contains("Match arms are separated by `,` in Flux, not `|`")),
+            msgs.iter().any(|m| m.contains("Match arms are separated by `,` in Flux, not `|`")),
             "expected `|` separator diagnostic, got: {:#?}",
             msgs
         );
@@ -2518,11 +2230,7 @@ let result = program() handle State(0) {
         let mut parser = Parser::new(lexer);
         let _program = parser.parse_program();
 
-        let alias_diag_count = parser
-            .errors
-            .iter()
-            .filter(|d| d.code() == Some("E030"))
-            .count();
+        let alias_diag_count = parser.errors.iter().filter(|d| d.code() == Some("E030")).count();
         assert_eq!(
             alias_diag_count, 0,
             "did not expect statement-keyword alias diagnostics for identifier usage"
@@ -2601,11 +2309,7 @@ let result = program() handle State(0) {
                 case.name,
                 msg
             );
-            assert!(
-                !diag.hints().is_empty(),
-                "expected help hint for case `{}`",
-                case.name
-            );
+            assert!(!diag.hints().is_empty(), "expected help hint for case `{}`", case.name);
         }
     }
 
@@ -2757,14 +2461,8 @@ let result = program() handle State(0) {
                 include_str!("../../examples/parser_errors/malformed_type_variant_fields.flx"),
                 "constructor",
             ),
-            (
-                include_str!("../../examples/parser_errors/malformed_effect_op_list.flx"),
-                "effect",
-            ),
-            (
-                include_str!("../../examples/parser_errors/eof_after_perform_dot.flx"),
-                "perform",
-            ),
+            (include_str!("../../examples/parser_errors/malformed_effect_op_list.flx"), "effect"),
+            (include_str!("../../examples/parser_errors/eof_after_perform_dot.flx"), "perform"),
         ];
 
         for (input, fragment) in cases {
@@ -2774,10 +2472,7 @@ let result = program() handle State(0) {
             let _ = parser.parse_program();
 
             assert!(
-                parser
-                    .errors
-                    .iter()
-                    .any(|d| d.code() == Some("E034") || d.code() == Some("E076")),
+                parser.errors.iter().any(|d| d.code() == Some("E034") || d.code() == Some("E076")),
                 "expected structural parser diagnostic, got: {:?}",
                 parser.errors
             );
@@ -2786,9 +2481,7 @@ let result = program() handle State(0) {
                     .errors
                     .iter()
                     .filter(|d| d.code() == Some("E034"))
-                    .all(|d| d
-                        .display_title()
-                        .is_some_and(|title| title != "Unexpected Token")),
+                    .all(|d| d.display_title().is_some_and(|title| title != "Unexpected Token")),
                 "expected contextual E034 display titles, got: {:?}",
                 parser.errors
             );
@@ -2856,19 +2549,14 @@ let result = program() handle State(0) {
             let mut parser = Parser::new(lexer);
             let _ = parser.parse_program();
 
-            let diag = parser
-                .errors
-                .first()
-                .expect("expected eof-truncation diagnostic");
+            let diag = parser.errors.first().expect("expected eof-truncation diagnostic");
             assert_eq!(diag.code(), Some("E034"));
             assert_eq!(diag.display_title(), Some(expected_title));
 
             let span = diag.span().expect("expected eof-truncation span");
             assert_eq!(span.start.line, expected_line);
             assert!(
-                diag.labels()
-                    .iter()
-                    .any(|label| label.text == expected_label),
+                diag.labels().iter().any(|label| label.text == expected_label),
                 "expected origin label `{expected_label}`, got: {:?}",
                 diag.labels()
             );
@@ -2881,14 +2569,10 @@ let result = program() handle State(0) {
         let mut parser = Parser::new(lexer);
         let _ = parser.parse_program();
 
-        let diag = parser
-            .errors
-            .first()
-            .expect("expected parser diagnostic for missing function body");
+        let diag =
+            parser.errors.first().expect("expected parser diagnostic for missing function body");
         assert!(
-            diag.hints()
-                .iter()
-                .any(|hint| hint.text.contains("while parsing function `greet`")),
+            diag.hints().iter().any(|hint| hint.text.contains("while parsing function `greet`")),
             "expected breadcrumb note on parser diagnostic, got: {:?}",
             diag.hints()
         );

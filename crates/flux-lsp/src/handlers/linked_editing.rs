@@ -54,8 +54,5 @@ pub fn linked_editing_ranges(
     ranges.sort_by_key(|r| (r.start.line, r.start.character));
     ranges.dedup();
 
-    Some(LinkedEditingRanges {
-        ranges,
-        word_pattern: Some(IDENT_PATTERN.to_string()),
-    })
+    Some(LinkedEditingRanges { ranges, word_pattern: Some(IDENT_PATTERN.to_string()) })
 }

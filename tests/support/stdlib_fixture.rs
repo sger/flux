@@ -69,20 +69,14 @@ pub fn run_fixture(fixture: &str, native: bool) -> (String, bool) {
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux --test on {fixture}: {e}"));
 
-    let stdout = String::from_utf8_lossy(&output.stdout)
-        .replace("\r\n", "\n")
-        .trim()
-        .to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n").trim().to_string();
     let success = output.status.success();
     if success {
         return (stdout, true);
     }
     // The failure detail is almost always on stderr; without it the caller can
     // only report "no summary", which says nothing about what went wrong.
-    let stderr = String::from_utf8_lossy(&output.stderr)
-        .replace("\r\n", "\n")
-        .trim()
-        .to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n").trim().to_string();
     let combined = if stderr.is_empty() {
         stdout
     } else {
@@ -116,10 +110,7 @@ fn assert_vm_passed(fixture: &str, stdout: &str, success: bool) {
     assert!(success, "{fixture} failed on the VM:\n{stdout}");
     match parse_summary(stdout) {
         Some((passed, failed)) => {
-            assert_eq!(
-                failed, 0,
-                "{fixture} had {failed} failing test(s):\n{stdout}"
-            );
+            assert_eq!(failed, 0, "{fixture} had {failed} failing test(s):\n{stdout}");
             assert!(passed > 0, "{fixture} ran no tests at all:\n{stdout}");
         }
         None => panic!("could not parse a test summary from {fixture}:\n{stdout}"),

@@ -142,10 +142,7 @@ fn suggestion_actions(
         out.push(quick_fix(
             title,
             uri,
-            vec![TextEdit {
-                range,
-                new_text: suggestion.replacement.clone(),
-            }],
+            vec![TextEdit { range, new_text: suggestion.replacement.clone() }],
             lsp_diag,
         ));
     }
@@ -169,10 +166,7 @@ fn did_you_mean_actions(
         out.push(quick_fix(
             format!("Change to `{name}`"),
             uri,
-            vec![TextEdit {
-                range: diag_range,
-                new_text: name,
-            }],
+            vec![TextEdit { range: diag_range, new_text: name }],
             lsp_diag,
         ));
     }
@@ -188,19 +182,11 @@ fn catchall_arm_action(
 ) -> Option<CodeActionOrCommand> {
     let (insert, arm_indent, terminated) = match_arm_insertion(snapshot, span)?;
     let new_text = arms_insert_text(&["_ -> ()".to_string()], &arm_indent, terminated);
-    let pos = snapshot
-        .position_map
-        .offset_to_lsp(u32::try_from(insert).ok()?.into());
+    let pos = snapshot.position_map.offset_to_lsp(u32::try_from(insert).ok()?.into());
     Some(quick_fix(
         "Add catch-all `_` arm".to_string(),
         uri,
-        vec![TextEdit {
-            range: Range {
-                start: pos,
-                end: pos,
-            },
-            new_text,
-        }],
+        vec![TextEdit { range: Range { start: pos, end: pos }, new_text }],
         lsp_diag,
     ))
 }
@@ -219,9 +205,8 @@ fn fill_match_arms_action(
     let infer = snapshot.infer.as_ref()?;
     // `span.start` is the `match` keyword — the locator's deepest node there is
     // the match expression itself.
-    let NodeRef::Expr(Expression::Match {
-        scrutinee, arms, ..
-    }) = find_at(&snapshot.program, &snapshot.interner, span.start)?
+    let NodeRef::Expr(Expression::Match { scrutinee, arms, .. }) =
+        find_at(&snapshot.program, &snapshot.interner, span.start)?
     else {
         return None;
     };
@@ -256,9 +241,7 @@ fn fill_match_arms_action(
 
     let (insert, arm_indent, terminated) = match_arm_insertion(snapshot, span)?;
     let new_text = arms_insert_text(&missing, &arm_indent, terminated);
-    let pos = snapshot
-        .position_map
-        .offset_to_lsp(u32::try_from(insert).ok()?.into());
+    let pos = snapshot.position_map.offset_to_lsp(u32::try_from(insert).ok()?.into());
     let title = if missing.len() == 1 {
         "Fill missing match arm".to_string()
     } else {
@@ -267,13 +250,7 @@ fn fill_match_arms_action(
     Some(quick_fix(
         title,
         uri,
-        vec![TextEdit {
-            range: Range {
-                start: pos,
-                end: pos,
-            },
-            new_text,
-        }],
+        vec![TextEdit { range: Range { start: pos, end: pos }, new_text }],
         lsp_diag,
     ))
 }
@@ -338,10 +315,7 @@ fn block_braces(snapshot: &Snapshot, span: FluxSpan) -> Option<(usize, usize)> {
 /// Leading whitespace of the line the byte at `offset` sits on — the indent to
 /// align a closing brace (or to derive a one-level-deeper member indent from).
 fn line_indent(bytes: &[u8], offset: usize) -> String {
-    let line_start = bytes[..offset]
-        .iter()
-        .rposition(|&b| b == b'\n')
-        .map_or(0, |p| p + 1);
+    let line_start = bytes[..offset].iter().rposition(|&b| b == b'\n').map_or(0, |p| p + 1);
     bytes[line_start..offset]
         .iter()
         .take_while(|&&b| b == b' ' || b == b'\t')
@@ -369,11 +343,7 @@ fn match_arm_insertion(snapshot: &Snapshot, span: FluxSpan) -> Option<(usize, St
     let prev = bytes[insert - 1];
     // `,` → already terminated; `{` → empty arm list. Either way no comma.
     let terminated = prev == b',' || prev == b'{';
-    Some((
-        insert,
-        format!("{}    ", line_indent(bytes, brace)),
-        terminated,
-    ))
+    Some((insert, format!("{}    ", line_indent(bytes, brace)), terminated))
 }
 
 /// Render one or more arm bodies as the text to splice in after the last arm:
@@ -381,11 +351,7 @@ fn match_arm_insertion(snapshot: &Snapshot, span: FluxSpan) -> Option<(usize, St
 /// when the previous arm wasn't already terminated.
 fn arms_insert_text(arms: &[String], arm_indent: &str, terminated: bool) -> String {
     let lead = if terminated { "" } else { "," };
-    let joined = arms
-        .iter()
-        .map(|a| format!("\n{arm_indent}{a}"))
-        .collect::<Vec<_>>()
-        .join(",");
+    let joined = arms.iter().map(|a| format!("\n{arm_indent}{a}")).collect::<Vec<_>>().join(",");
     format!("{lead}{joined}")
 }
 
@@ -406,11 +372,8 @@ fn effect_annotation_action(
     let Some(effect) = diag.hints().iter().find_map(|h| parse_with_effect(&h.text)) else {
         return;
     };
-    let Some(Statement::Function {
-        effects,
-        span: fn_span,
-        ..
-    }) = enclosing_function(&snapshot.program.statements, span)
+    let Some(Statement::Function { effects, span: fn_span, .. }) =
+        enclosing_function(&snapshot.program.statements, span)
     else {
         return;
     };
@@ -420,20 +383,11 @@ fn effect_annotation_action(
         Some(end) => (end, format!(", {effect}")),
         None => (fn_span.end, format!(" with {effect}")),
     };
-    let pos = snapshot
-        .position_map
-        .flux_span_to_range(FluxSpan { start: at, end: at })
-        .start;
+    let pos = snapshot.position_map.flux_span_to_range(FluxSpan { start: at, end: at }).start;
     out.push(quick_fix(
         format!("Add effect `{effect}` to the enclosing function"),
         uri,
-        vec![TextEdit {
-            range: Range {
-                start: pos,
-                end: pos,
-            },
-            new_text,
-        }],
+        vec![TextEdit { range: Range { start: pos, end: pos }, new_text }],
         lsp_diag,
     ));
 }
@@ -474,14 +428,8 @@ fn remove_unused_import_actions(
         let stmt_range = snapshot.position_map.flux_span_to_range(span);
         let edit = TextEdit {
             range: Range {
-                start: Position {
-                    line: stmt_range.start.line,
-                    character: 0,
-                },
-                end: Position {
-                    line: stmt_range.end.line + 1,
-                    character: 0,
-                },
+                start: Position { line: stmt_range.start.line, character: 0 },
+                end: Position { line: stmt_range.end.line + 1, character: 0 },
             },
             new_text: String::new(),
         };
@@ -516,12 +464,7 @@ fn prefix_unused_let_actions(
     out: &mut Vec<CodeActionOrCommand>,
 ) {
     let mut candidates: Vec<(Identifier, FluxSpan)> = Vec::new();
-    collect_lets_in_range(
-        &snapshot.program.statements,
-        snapshot,
-        range,
-        &mut candidates,
-    );
+    collect_lets_in_range(&snapshot.program.statements, snapshot, range, &mut candidates);
     if candidates.is_empty() {
         return;
     }
@@ -536,14 +479,10 @@ fn prefix_unused_let_actions(
         // A zero-width insert of `_` right before the binding name. The `let`
         // statement's span starts at `let` (a `public` modifier is consumed
         // before it), so the name always begins `"let ".len()` past the start.
-        let insert_at = FluxPosition {
-            line: span.start.line,
-            column: span.start.column + LET_KEYWORD_LEN,
-        };
-        let insert_range = snapshot.position_map.flux_span_to_range(FluxSpan {
-            start: insert_at,
-            end: insert_at,
-        });
+        let insert_at =
+            FluxPosition { line: span.start.line, column: span.start.column + LET_KEYWORD_LEN };
+        let insert_range =
+            snapshot.position_map.flux_span_to_range(FluxSpan { start: insert_at, end: insert_at });
         out.push(CodeActionOrCommand::CodeAction(CodeAction {
             title: format!("Prefix `{name_text}` with `_`"),
             kind: Some(CodeActionKind::QUICKFIX),
@@ -590,10 +529,9 @@ fn collect_lets_in_range(
                     line: span.start.line,
                     column: span.start.column + LET_KEYWORD_LEN + name_text.chars().count(),
                 };
-                let name_range = snapshot.position_map.flux_span_to_range(FluxSpan {
-                    start: span.start,
-                    end: name_end,
-                });
+                let name_range = snapshot
+                    .position_map
+                    .flux_span_to_range(FluxSpan { start: span.start, end: name_end });
                 if ranges_overlap(name_range, range) {
                     out.push((*name, *span));
                 }
@@ -624,16 +562,9 @@ fn parse_with_effect(hint: &str) -> Option<String> {
 fn enclosing_function(stmts: &[Statement], span: FluxSpan) -> Option<&Statement> {
     for stmt in stmts {
         match stmt {
-            Statement::Function {
-                span: fn_span,
-                body,
-                ..
-            } => {
+            Statement::Function { span: fn_span, body, .. } => {
                 let here = span_contains(*fn_span, span)
-                    || body
-                        .statements
-                        .iter()
-                        .any(|s| span_contains(s.span(), span));
+                    || body.statements.iter().any(|s| span_contains(s.span(), span));
                 if here {
                     // Prefer a nested function inside the body.
                     return enclosing_function(&body.statements, span).or(Some(stmt));
@@ -659,10 +590,7 @@ fn span_contains(outer: FluxSpan, inner: FluxSpan) -> bool {
 /// The rightmost end position across a function's declared effect row, or
 /// `None` when it declares no effects.
 fn effect_row_end(effects: &[EffectExpr]) -> Option<FluxPosition> {
-    effects
-        .iter()
-        .map(effect_expr_end)
-        .reduce(|a, b| if pos_le(a, b) { b } else { a })
+    effects.iter().map(effect_expr_end).reduce(|a, b| if pos_le(a, b) { b } else { a })
 }
 
 fn effect_expr_end(e: &EffectExpr) -> FluxPosition {
@@ -700,13 +628,7 @@ fn add_type_annotation_action(
         format!("Add type annotation `: {ty_text}`"),
         CodeActionKind::REFACTOR_REWRITE,
         uri,
-        vec![TextEdit {
-            range: Range {
-                start: pos,
-                end: pos,
-            },
-            new_text: format!(": {ty_text}"),
-        }],
+        vec![TextEdit { range: Range { start: pos, end: pos }, new_text: format!(": {ty_text}") }],
     ))
 }
 
@@ -721,19 +643,11 @@ fn annotatable_let(
 ) -> Option<(FluxPosition, String)> {
     for stmt in stmts {
         match stmt {
-            Statement::Let {
-                name,
-                value,
-                type_annotation: None,
-                span,
-                is_public,
-                ..
-            } => {
+            Statement::Let { name, value, type_annotation: None, span, is_public, .. } => {
                 let name_end = let_name_end(snapshot, *name, *span, *is_public)?;
-                let name_range = snapshot.position_map.flux_span_to_range(FluxSpan {
-                    start: span.start,
-                    end: name_end,
-                });
+                let name_range = snapshot
+                    .position_map
+                    .flux_span_to_range(FluxSpan { start: span.start, end: name_end });
                 if ranges_overlap(name_range, range) {
                     let ty = infer.expr_types.get(&value.expr_id())?;
                     return Some((name_end, display_infer_type(ty, &snapshot.interner)));
@@ -775,33 +689,22 @@ fn introduce_variable_action(
         return None;
     }
     let bytes = text.as_bytes();
-    let line_start = bytes[..start_off]
-        .iter()
-        .rposition(|&b| b == b'\n')
-        .map_or(0, |p| p + 1);
+    let line_start = bytes[..start_off].iter().rposition(|&b| b == b'\n').map_or(0, |p| p + 1);
     let indent: String = bytes[line_start..start_off]
         .iter()
         .take_while(|&&b| b == b' ' || b == b'\t')
         .map(|&b| b as char)
         .collect();
     let name = fresh_name(text, "extracted");
-    let insert_pos = snapshot
-        .position_map
-        .offset_to_lsp(u32::try_from(line_start).ok()?.into());
+    let insert_pos = snapshot.position_map.offset_to_lsp(u32::try_from(line_start).ok()?.into());
     // Two non-overlapping edits against the original buffer: the new `let` line,
     // and the selection rewritten to the new name.
     let edits = vec![
         TextEdit {
-            range: Range {
-                start: insert_pos,
-                end: insert_pos,
-            },
+            range: Range { start: insert_pos, end: insert_pos },
             new_text: format!("{indent}let {name} = {selected}\n"),
         },
-        TextEdit {
-            range,
-            new_text: name.clone(),
-        },
+        TextEdit { range, new_text: name.clone() },
     ];
     Some(refactor_action(
         format!("Introduce variable `{name}`"),
@@ -826,10 +729,7 @@ fn inline_let_action(snapshot: &Snapshot, uri: &Uri, range: Range) -> Option<Cod
     let use_span = *spans.iter().find(|s| **s != let_span)?;
 
     let text = snapshot.text.as_ref();
-    let v_start: usize = snapshot
-        .position_map
-        .flux_to_offset(value_span.start)?
-        .into();
+    let v_start: usize = snapshot.position_map.flux_to_offset(value_span.start)?.into();
     let v_end: usize = snapshot.position_map.flux_to_offset(value_span.end)?.into();
     let value_text = text.get(v_start..v_end)?.trim();
     // Parenthesize a compound value so precedence is preserved at the use site
@@ -848,14 +748,8 @@ fn inline_let_action(snapshot: &Snapshot, uri: &Uri, range: Range) -> Option<Cod
         // Delete the whole `let` line, including its trailing newline.
         TextEdit {
             range: Range {
-                start: Position {
-                    line: stmt_range.start.line,
-                    character: 0,
-                },
-                end: Position {
-                    line: stmt_range.end.line + 1,
-                    character: 0,
-                },
+                start: Position { line: stmt_range.start.line, character: 0 },
+                end: Position { line: stmt_range.end.line + 1, character: 0 },
             },
             new_text: String::new(),
         },
@@ -881,18 +775,11 @@ fn let_at_cursor(
 ) -> Option<(Identifier, FluxSpan, FluxSpan)> {
     for stmt in stmts {
         match stmt {
-            Statement::Let {
-                name,
-                value,
-                span,
-                is_public,
-                ..
-            } => {
+            Statement::Let { name, value, span, is_public, .. } => {
                 let name_end = let_name_end(snapshot, *name, *span, *is_public)?;
-                let name_range = snapshot.position_map.flux_span_to_range(FluxSpan {
-                    start: span.start,
-                    end: name_end,
-                });
+                let name_range = snapshot
+                    .position_map
+                    .flux_span_to_range(FluxSpan { start: span.start, end: name_end });
                 if ranges_overlap(name_range, range) {
                     return Some((*name, value.span(), *span));
                 }
@@ -917,11 +804,7 @@ fn let_name_end(
     is_public: bool,
 ) -> Option<FluxPosition> {
     let name_text = snapshot.interner.try_resolve(name)?;
-    let keyword_len = if is_public {
-        "public let ".len()
-    } else {
-        "let ".len()
-    };
+    let keyword_len = if is_public { "public let ".len() } else { "let ".len() };
     Some(FluxPosition {
         line: span.start.line,
         column: span.start.column + keyword_len + name_text.len(),
@@ -997,13 +880,7 @@ fn add_missing_methods_action(
     range: Range,
 ) -> Option<CodeActionOrCommand> {
     for stmt in &snapshot.program.statements {
-        let Statement::Instance {
-            class_name,
-            methods,
-            span,
-            ..
-        } = stmt
-        else {
+        let Statement::Instance { class_name, methods, span, .. } = stmt else {
             continue;
         };
         if !ranges_overlap(snapshot.position_map.flux_span_to_range(*span), range) {
@@ -1050,14 +927,10 @@ fn add_missing_methods_action(
 /// `None` when no `class` named `class` is declared here (e.g. it lives in an
 /// imported module — out of scope for this assist).
 fn find_class_methods(snapshot: &Snapshot, class: Identifier) -> Option<&[ClassMethod]> {
-    snapshot
-        .program
-        .statements
-        .iter()
-        .find_map(|stmt| match stmt {
-            Statement::Class { name, methods, .. } if *name == class => Some(methods.as_slice()),
-            _ => None,
-        })
+    snapshot.program.statements.iter().find_map(|stmt| match stmt {
+        Statement::Class { name, methods, .. } if *name == class => Some(methods.as_slice()),
+        _ => None,
+    })
 }
 
 /// One `fn name(p, …) { panic("todo") }` line for a class method. Instance
@@ -1070,16 +943,10 @@ fn method_stub(snapshot: &Snapshot, m: &ClassMethod) -> Option<String> {
         .iter()
         .enumerate()
         .map(|(i, p)| {
-            snapshot
-                .interner
-                .try_resolve(*p)
-                .map_or_else(|| format!("arg{i}"), str::to_string)
+            snapshot.interner.try_resolve(*p).map_or_else(|| format!("arg{i}"), str::to_string)
         })
         .collect();
-    Some(format!(
-        "fn {name}({}) {{ panic(\"todo\") }}",
-        params.join(", ")
-    ))
+    Some(format!("fn {name}({}) {{ panic(\"todo\") }}", params.join(", ")))
 }
 
 /// The `TextEdit` that splices `stubs` into an instance body whose braces are at
@@ -1095,10 +962,7 @@ fn instance_methods_edit(
     let bytes = snapshot.text.as_bytes();
     let brace_indent = line_indent(bytes, close);
     let member_indent = format!("{brace_indent}    ");
-    let body: String = stubs
-        .iter()
-        .map(|s| format!("\n{member_indent}{s}"))
-        .collect();
+    let body: String = stubs.iter().map(|s| format!("\n{member_indent}{s}")).collect();
 
     // Walk back over trailing whitespace before the close brace.
     let mut insert = close;
@@ -1107,29 +971,14 @@ fn instance_methods_edit(
     }
     if insert == open + 1 {
         // Empty body: replace `{ … }`'s inter-brace whitespace with a clean block.
-        let start = snapshot
-            .position_map
-            .offset_to_lsp(u32::try_from(open + 1).ok()?.into());
-        let end = snapshot
-            .position_map
-            .offset_to_lsp(u32::try_from(close).ok()?.into());
-        Some(TextEdit {
-            range: Range { start, end },
-            new_text: format!("{body}\n{brace_indent}"),
-        })
+        let start = snapshot.position_map.offset_to_lsp(u32::try_from(open + 1).ok()?.into());
+        let end = snapshot.position_map.offset_to_lsp(u32::try_from(close).ok()?.into());
+        Some(TextEdit { range: Range { start, end }, new_text: format!("{body}\n{brace_indent}") })
     } else {
         // Non-empty: append after the last existing method; the body's own
         // trailing `\n<indent>}` already puts the close brace on its own line.
-        let pos = snapshot
-            .position_map
-            .offset_to_lsp(u32::try_from(insert).ok()?.into());
-        Some(TextEdit {
-            range: Range {
-                start: pos,
-                end: pos,
-            },
-            new_text: body,
-        })
+        let pos = snapshot.position_map.offset_to_lsp(u32::try_from(insert).ok()?.into());
+        Some(TextEdit { range: Range { start: pos, end: pos }, new_text: body })
     }
 }
 

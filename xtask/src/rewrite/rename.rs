@@ -17,12 +17,8 @@ use super::lex::{Kind, Token, is_keyword};
 pub fn rename(fixture: &Fixture) -> Option<String> {
     let source = fixture.source;
     let excluded = excluded_names(fixture);
-    let taken: HashSet<&str> = fixture
-        .tokens
-        .iter()
-        .filter(|t| t.kind == Kind::Ident)
-        .map(|t| t.text(source))
-        .collect();
+    let taken: HashSet<&str> =
+        fixture.tokens.iter().filter(|t| t.kind == Kind::Ident).map(|t| t.text(source)).collect();
     let mut fresh = 0;
     let mut edits: Vec<(Token, String)> = Vec::new();
     for item in fixture.items.iter().filter(|item| item.has_code()) {
@@ -157,12 +153,7 @@ fn tuple_binders(source: &str, code: &[Token], open: usize) -> Vec<usize> {
 /// a field — a name before `:` in braces, or a punned field.
 fn excluded_names<'a>(fixture: &Fixture<'a>) -> BTreeSet<&'a str> {
     let source = fixture.source;
-    let code: Vec<Token> = fixture
-        .tokens
-        .iter()
-        .copied()
-        .filter(|t| t.is_code())
-        .collect();
+    let code: Vec<Token> = fixture.tokens.iter().copied().filter(|t| t.is_code()).collect();
     let text = |i: usize| code.get(i).map_or("", |t| t.text(source));
     let mut names = BTreeSet::new();
     // For each open bracket: its text, and whether it opens a record (after a
@@ -226,10 +217,7 @@ mod tests {
 
     #[test]
     fn a_name_inside_an_interpolation_is_renamed() {
-        assert_eq!(
-            renamed("fn f(n) { \"n=#{n}\" }\n"),
-            "fn f(rw0_n) { \"n=#{rw0_n}\" }\n"
-        );
+        assert_eq!(renamed("fn f(n) { \"n=#{n}\" }\n"), "fn f(rw0_n) { \"n=#{rw0_n}\" }\n");
     }
 
     #[test]
@@ -259,9 +247,6 @@ mod tests {
     #[test]
     fn a_type_in_a_parameter_list_is_not_a_binder() {
         let out = renamed("fn f(g: (a) -> a, x: a) -> a { g(x) }\n");
-        assert_eq!(
-            out,
-            "fn f(rw0_g: (a) -> a, rw1_x: a) -> a { rw0_g(rw1_x) }\n"
-        );
+        assert_eq!(out, "fn f(rw0_g: (a) -> a, rw1_x: a) -> a { rw0_g(rw1_x) }\n");
     }
 }

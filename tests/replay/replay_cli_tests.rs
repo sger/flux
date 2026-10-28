@@ -39,9 +39,8 @@ impl Case {
         let source = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/replay/fixtures")
             .join(format!("{fixture}.flx"));
-        let text = std::fs::read_to_string(source)
-            .unwrap()
-            .replace("PORT", &free_port().to_string());
+        let text =
+            std::fs::read_to_string(source).unwrap().replace("PORT", &free_port().to_string());
         let program = scratch.write("app.flx", &text);
         Case { scratch, program }
     }
@@ -71,12 +70,7 @@ impl Case {
             command.env(key, value);
         }
         let mut child = command.spawn().expect("run flux");
-        child
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(stdin.as_bytes())
-            .unwrap();
+        child.stdin.take().unwrap().write_all(stdin.as_bytes()).unwrap();
         let output = child.wait_with_output().unwrap();
         Run {
             stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
@@ -133,16 +127,8 @@ fn assert_replays(fixture: &str, from: Backend, to: Backend) {
     );
 }
 
-const FIXTURES: &[&str] = &[
-    "console",
-    "fs_reads",
-    "fs_writes",
-    "env",
-    "proc_run",
-    "stdin",
-    "clock",
-    "panic",
-];
+const FIXTURES: &[&str] =
+    &["console", "fs_reads", "fs_writes", "env", "proc_run", "stdin", "clock", "panic"];
 
 #[test]
 fn each_fixture_replays_on_the_vm() {
@@ -168,17 +154,10 @@ fn replay_reads_nothing_from_outside_the_program() {
     let replayed = case.replay(
         Backend::Vm,
         &tape,
-        &[
-            ("REPLAY_FIXTURE_VAR", "different now"),
-            ("REPLAY_FIXTURE_ABSENT", "x"),
-        ],
+        &[("REPLAY_FIXTURE_VAR", "different now"), ("REPLAY_FIXTURE_ABSENT", "x")],
     );
     assert_eq!(replayed.stdout, recorded.stdout);
-    assert!(
-        replayed.stdout.contains("set when recorded"),
-        "{}",
-        replayed.stdout
-    );
+    assert!(replayed.stdout.contains("set when recorded"), "{}", replayed.stdout);
 
     let case = Case::new("stdin");
     let tape = case.tape("run.jsonl");
@@ -189,17 +168,9 @@ fn replay_reads_nothing_from_outside_the_program() {
     let case = Case::new("proc_run");
     let tape = case.tape("run.jsonl");
     let recorded = case.record(Backend::Vm, &tape, "", &[]);
-    let replayed = case.replay(
-        Backend::Vm,
-        &tape,
-        &[("FLUX_PROC_HELPER", "/nonexistent/helper")],
-    );
+    let replayed = case.replay(Backend::Vm, &tape, &[("FLUX_PROC_HELPER", "/nonexistent/helper")]);
     assert_eq!(replayed.stdout, recorded.stdout);
-    assert!(
-        replayed.stdout.contains("from the helper"),
-        "{}",
-        replayed.stdout
-    );
+    assert!(replayed.stdout.contains("from the helper"), "{}", replayed.stdout);
 }
 
 #[test]
@@ -212,10 +183,7 @@ fn replay_changes_nothing_outside_the_program() {
 
     let replayed = case.replay(Backend::Vm, &tape, &[]);
     assert_eq!(replayed.stdout, recorded.stdout);
-    assert!(
-        !case.scratch.join("out").exists(),
-        "replay re-created files the recorded run wrote"
-    );
+    assert!(!case.scratch.join("out").exists(), "replay re-created files the recorded run wrote");
 }
 
 /// Records the clock fixture and returns its tape's lines.
@@ -223,11 +191,7 @@ fn recorded_lines(case: &Case) -> (PathBuf, Vec<String>) {
     let tape = case.tape("run.jsonl");
     let recorded = case.record(Backend::Vm, &tape, "", &[]);
     assert_eq!(recorded.code, 0, "{}", recorded.stderr);
-    let lines = std::fs::read_to_string(&tape)
-        .unwrap()
-        .lines()
-        .map(str::to_string)
-        .collect();
+    let lines = std::fs::read_to_string(&tape).unwrap().lines().map(str::to_string).collect();
     (tape, lines)
 }
 
@@ -236,21 +200,13 @@ fn write_lines(path: &Path, lines: &[String]) {
 }
 
 fn assert_tape_error(run: &Run, code: &str, needle: &str) {
-    assert_ne!(
-        run.code, 0,
-        "the replay should have failed:\n{}",
-        run.stdout
-    );
+    assert_ne!(run.code, 0, "the replay should have failed:\n{}", run.stdout);
     assert!(
         run.stderr.contains(&format!("error[{code}]")),
         "expected {code}, got:\n{}",
         run.stderr
     );
-    assert!(
-        run.stderr.contains(needle),
-        "expected `{needle}` in:\n{}",
-        run.stderr
-    );
+    assert!(run.stderr.contains(needle), "expected `{needle}` in:\n{}", run.stderr);
 }
 
 #[test]
@@ -266,75 +222,42 @@ fn an_edited_tape_stops_the_replay_where_it_diverges() {
     write_lines(&edited, &changed);
     let run = case.replay(Backend::Vm, &edited, &[]);
     assert_tape_error(&run, "E1023", "\"data/other.txt\"");
-    assert!(
-        run.stderr.contains("app.flx:"),
-        "the VM names the line:\n{}",
-        run.stderr
-    );
+    assert!(run.stderr.contains("app.flx:"), "the VM names the line:\n{}", run.stderr);
 
     // A different kind of effect.
     let mut changed = lines.clone();
     changed[1] = r#"{"seq":0,"kind":"clock_now","result":{"int":1}}"#.to_string();
     write_lines(&edited, &changed);
-    assert_tape_error(
-        &case.replay(Backend::Vm, &edited, &[]),
-        "E1022",
-        "clock_now()",
-    );
+    assert_tape_error(&case.replay(Backend::Vm, &edited, &[]), "E1022", "clock_now()");
 
     // The tape stops early.
     write_lines(&edited, &lines[..3]);
-    assert_tape_error(
-        &case.replay(Backend::Vm, &edited, &[]),
-        "E1024",
-        "The tape ended",
-    );
+    assert_tape_error(&case.replay(Backend::Vm, &edited, &[]), "E1024", "The tape ended");
 
     // Different printed text.
     let mut changed = lines.clone();
-    let stdout = changed
-        .iter()
-        .position(|line| line.contains("\"stdout\""))
-        .unwrap();
+    let stdout = changed.iter().position(|line| line.contains("\"stdout\"")).unwrap();
     changed[stdout] = changed[stdout].replace("alpha", "ALPHA");
     write_lines(&edited, &changed);
-    assert_tape_error(
-        &case.replay(Backend::Vm, &edited, &[]),
-        "E1023",
-        "the printed text",
-    );
+    assert_tape_error(&case.replay(Backend::Vm, &edited, &[]), "E1023", "the printed text");
 
     // More recorded than the program does: an extra event before `exit`.
     let mut changed = lines.clone();
     let exit = changed.pop().unwrap();
     let next = changed.len() - 1;
-    changed.push(format!(
-        r#"{{"seq":{next},"kind":"stdout","text":"extra\n"}}"#
-    ));
+    changed.push(format!(r#"{{"seq":{next},"kind":"stdout","text":"extra\n"}}"#));
     changed.push(exit.replace(&format!("\"seq\":{next}"), &format!("\"seq\":{}", next + 1)));
     write_lines(&edited, &changed);
-    assert_tape_error(
-        &case.replay(Backend::Vm, &edited, &[]),
-        "E1025",
-        "never replayed",
-    );
+    assert_tape_error(&case.replay(Backend::Vm, &edited, &[]), "E1025", "never replayed");
 
     // Not a tape at all.
     std::fs::write(&edited, "hello\n").unwrap();
-    assert_tape_error(
-        &case.replay(Backend::Vm, &edited, &[]),
-        "E1026",
-        "not a Flux tape",
-    );
+    assert_tape_error(&case.replay(Backend::Vm, &edited, &[]), "E1026", "not a Flux tape");
 
     // The program changed since recording.
     let source = std::fs::read_to_string(&case.program).unwrap();
     std::fs::write(&case.program, source + "\n// edited\n").unwrap();
-    assert_tape_error(
-        &case.replay(Backend::Vm, &tape, &[]),
-        "E1026",
-        "different program",
-    );
+    assert_tape_error(&case.replay(Backend::Vm, &tape, &[]), "E1026", "different program");
 }
 
 /// Async code: fibers, sleeps, channels, events, sockets and file system
@@ -394,19 +317,12 @@ fn assert_tcp_replays_without_sockets(backend: Backend) {
     let recorded = case.record(backend, &tape, "", &[]);
     assert_eq!(recorded.code, 0, "{}", recorded.stderr);
     let source = std::fs::read_to_string(&case.program).unwrap();
-    let port = source
-        .split("\"127.0.0.1\", ")
-        .nth(1)
-        .and_then(|rest| rest.split(')').next())
-        .unwrap();
+    let port =
+        source.split("\"127.0.0.1\", ").nth(1).and_then(|rest| rest.split(')').next()).unwrap();
     let _taken = std::net::TcpListener::bind(format!("127.0.0.1:{port}")).unwrap();
     let replayed = case.replay(backend, &tape, &[]);
     assert_eq!(replayed.stdout, recorded.stdout, "{}", replayed.stderr);
-    assert!(
-        recorded.stdout.contains("client got echo hello"),
-        "{}",
-        recorded.stdout
-    );
+    assert!(recorded.stdout.contains("client got echo hello"), "{}", recorded.stdout);
 }
 
 #[test]
@@ -443,11 +359,7 @@ fn assert_replays_with_workers(fixture: &str, backend: Backend) {
             recorded.stderr
         );
         let replayed = case.replay(backend, &tape, &[("FLUX_WORKERS", "4")]);
-        assert_eq!(
-            replayed.stdout, recorded.stdout,
-            "attempt {attempt}: {}",
-            replayed.stderr
-        );
+        assert_eq!(replayed.stdout, recorded.stdout, "attempt {attempt}: {}", replayed.stderr);
     }
 }
 
@@ -471,18 +383,12 @@ fn assert_async_tape_divergence(backend: Backend) {
     let tape = case.tape("run.jsonl");
     let recorded = case.record(backend, &tape, "", &[]);
     assert_eq!(recorded.code, 0, "{}", recorded.stderr);
-    let lines: Vec<String> = std::fs::read_to_string(&tape)
-        .unwrap()
-        .lines()
-        .map(str::to_string)
-        .collect();
+    let lines: Vec<String> =
+        std::fs::read_to_string(&tape).unwrap().lines().map(str::to_string).collect();
     let edited = case.tape("edited.jsonl");
 
     // A timer of another length.
-    let timer = lines
-        .iter()
-        .position(|line| line.contains("\"timer_start\""))
-        .unwrap();
+    let timer = lines.iter().position(|line| line.contains("\"timer_start\"")).unwrap();
     let mut changed = lines.clone();
     changed[timer] = changed[timer].replace("\"ms\":60", "\"ms\":61");
     assert_ne!(changed[timer], lines[timer], "{}", lines[timer]);
@@ -491,10 +397,7 @@ fn assert_async_tape_divergence(backend: Backend) {
 
     // A completion that never arrives: the program waits for it while the
     // tape goes on with something else.
-    let completion = lines
-        .iter()
-        .position(|line| line.contains("\"async_complete\""))
-        .unwrap();
+    let completion = lines.iter().position(|line| line.contains("\"async_complete\"")).unwrap();
     let mut changed = lines.clone();
     changed.remove(completion);
     write_lines(&edited, &renumber(&changed));
@@ -539,11 +442,7 @@ fn assert_replays_identically(fixture: &str, from: Backend, to: Backend, times: 
             "{fixture}: replay {run} printed something else:\n{}",
             replayed.stderr
         );
-        assert_eq!(
-            replayed.code, 0,
-            "{fixture}: replay {run}: {}",
-            replayed.stderr
-        );
+        assert_eq!(replayed.code, 0, "{fixture}: replay {run}: {}", replayed.stderr);
     }
 }
 
@@ -561,19 +460,10 @@ fn assert_task_tape_divergence(backend: Backend) {
     let tape = case.tape("run.jsonl");
     let recorded = case.record(backend, &tape, "", &[]);
     assert_eq!(recorded.code, 0, "{}", recorded.stderr);
-    let mut lines: Vec<String> = std::fs::read_to_string(&tape)
-        .unwrap()
-        .lines()
-        .map(str::to_string)
-        .collect();
-    let spawn = lines
-        .iter()
-        .position(|line| line.contains("\"task_spawn\""))
-        .unwrap();
-    let start = lines
-        .iter()
-        .position(|line| line.contains("\"task_start\""))
-        .unwrap();
+    let mut lines: Vec<String> =
+        std::fs::read_to_string(&tape).unwrap().lines().map(str::to_string).collect();
+    let spawn = lines.iter().position(|line| line.contains("\"task_spawn\"")).unwrap();
+    let start = lines.iter().position(|line| line.contains("\"task_start\"")).unwrap();
     lines.swap(spawn, start);
     let edited = case.tape("edited.jsonl");
     write_lines(&edited, &renumber(&lines));
@@ -600,19 +490,11 @@ fn record_and_replay_are_for_running_a_program() {
     let tape = tape.to_str().unwrap();
     let both = case.run(Backend::Vm, &["--record", tape, "--replay", tape], "", &[]);
     assert_ne!(both.code, 0);
-    assert!(
-        both.stderr.contains("one of --record and --replay"),
-        "{}",
-        both.stderr
-    );
+    assert!(both.stderr.contains("one of --record and --replay"), "{}", both.stderr);
 
     let test_mode = case.run(Backend::Vm, &["--test", "--record", tape], "", &[]);
     assert_ne!(test_mode.code, 0);
-    assert!(
-        test_mode.stderr.contains("apply only to running a program"),
-        "{}",
-        test_mode.stderr
-    );
+    assert!(test_mode.stderr.contains("apply only to running a program"), "{}", test_mode.stderr);
 }
 
 #[cfg(feature = "llvm")]
@@ -675,12 +557,8 @@ mod native {
         let recorded = case.record(Backend::Native, &tape, "", &[]);
         assert_eq!(recorded.code, 0, "{}", recorded.stderr);
 
-        let replayed = case.run(
-            Backend::Native,
-            &["--verbose", "--replay", tape.to_str().unwrap()],
-            "",
-            &[],
-        );
+        let replayed =
+            case.run(Backend::Native, &["--verbose", "--replay", tape.to_str().unwrap()], "", &[]);
         assert_eq!(replayed.stdout, recorded.stdout, "{}", replayed.stderr);
         assert!(
             replayed.stderr.contains(UP_TO_DATE),
@@ -689,12 +567,8 @@ mod native {
         );
 
         let again = case.tape("again.jsonl");
-        let rerecorded = case.run(
-            Backend::Native,
-            &["--verbose", "--record", again.to_str().unwrap()],
-            "",
-            &[],
-        );
+        let rerecorded =
+            case.run(Backend::Native, &["--verbose", "--record", again.to_str().unwrap()], "", &[]);
         assert_eq!(rerecorded.code, 0, "{}", rerecorded.stderr);
         assert!(
             rerecorded.stderr.contains(UP_TO_DATE),
@@ -706,12 +580,8 @@ mod native {
     /// Builds the case's program as a native binary, as an editor does.
     fn build_binary(case: &Case) -> PathBuf {
         let binary = case.scratch.join("app_bin");
-        let run = case.run(
-            Backend::Native,
-            &["--emit-binary", "-o", binary.to_str().unwrap()],
-            "",
-            &[],
-        );
+        let run =
+            case.run(Backend::Native, &["--emit-binary", "-o", binary.to_str().unwrap()], "", &[]);
         assert_eq!(run.code, 0, "{}", run.stderr);
         binary
     }
@@ -719,10 +589,7 @@ mod native {
     /// Runs a native binary the driver built, without the driver.
     fn run_binary(case: &Case, binary: &Path, env: &[(&str, &Path)]) -> Run {
         let mut command = Command::new(binary);
-        command
-            .current_dir(case.scratch.path())
-            .env("NO_COLOR", "1")
-            .stdin(Stdio::null());
+        command.current_dir(case.scratch.path()).env("NO_COLOR", "1").stdin(Stdio::null());
         for (key, value) in env {
             command.env(key, value);
         }
@@ -777,20 +644,11 @@ mod native {
         assert_eq!(run.code, 1);
         // Rendered for the person running it, and as the line tools read.
         assert!(run.stderr.contains("error[E1026]"), "{}", run.stderr);
-        assert!(
-            run.stderr.contains("recorded from a different program"),
-            "{}",
-            run.stderr
-        );
+        assert!(run.stderr.contains("recorded from a different program"), "{}", run.stderr);
         assert!(run.stderr.contains("flux-tape-error: {"), "{}", run.stderr);
         // Through the driver, the error is shown once.
         let run = case.replay(Backend::Native, &tape, &[]);
-        assert_eq!(
-            run.stderr.matches("error[E1026]").count(),
-            1,
-            "{}",
-            run.stderr
-        );
+        assert_eq!(run.stderr.matches("error[E1026]").count(), 1, "{}", run.stderr);
         assert!(!run.stderr.contains("flux-tape-error:"), "{}", run.stderr);
     }
 

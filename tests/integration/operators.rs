@@ -29,16 +29,8 @@ fn lex_token_types(input: &str) -> Vec<TokenType> {
 
 fn parse_expr_to_string(input: &str) -> String {
     let (program, errors, interner) = parse_program_no_panic(input);
-    assert!(
-        errors.is_empty(),
-        "parser errors for `{}`: {:?}",
-        input,
-        errors
-    );
-    program
-        .display_with(&interner)
-        .trim_end_matches(';')
-        .to_string()
+    assert!(errors.is_empty(), "parser errors for `{}`: {:?}", input, errors);
+    program.display_with(&interner).trim_end_matches(';').to_string()
 }
 
 fn parse_program_no_panic(input: &str) -> (Program, Vec<Diagnostic>, Interner) {
@@ -96,60 +88,12 @@ fn expression_shape(expr: &Expression) -> ExprShape {
 #[test]
 fn lex_operator_longest_match_and_prefix_collisions() {
     let cases: [(&str, Vec<TokenType>); 9] = [
-        (
-            "a==b",
-            vec![
-                TokenType::Ident,
-                TokenType::Eq,
-                TokenType::Ident,
-                TokenType::Eof,
-            ],
-        ),
-        (
-            "a>=b",
-            vec![
-                TokenType::Ident,
-                TokenType::Gte,
-                TokenType::Ident,
-                TokenType::Eof,
-            ],
-        ),
-        (
-            "a<=b",
-            vec![
-                TokenType::Ident,
-                TokenType::Lte,
-                TokenType::Ident,
-                TokenType::Eof,
-            ],
-        ),
-        (
-            "a!=b",
-            vec![
-                TokenType::Ident,
-                TokenType::NotEq,
-                TokenType::Ident,
-                TokenType::Eof,
-            ],
-        ),
-        (
-            "a->b",
-            vec![
-                TokenType::Ident,
-                TokenType::Arrow,
-                TokenType::Ident,
-                TokenType::Eof,
-            ],
-        ),
-        (
-            "x|>f",
-            vec![
-                TokenType::Ident,
-                TokenType::Pipe,
-                TokenType::Ident,
-                TokenType::Eof,
-            ],
-        ),
+        ("a==b", vec![TokenType::Ident, TokenType::Eq, TokenType::Ident, TokenType::Eof]),
+        ("a>=b", vec![TokenType::Ident, TokenType::Gte, TokenType::Ident, TokenType::Eof]),
+        ("a<=b", vec![TokenType::Ident, TokenType::Lte, TokenType::Ident, TokenType::Eof]),
+        ("a!=b", vec![TokenType::Ident, TokenType::NotEq, TokenType::Ident, TokenType::Eof]),
+        ("a->b", vec![TokenType::Ident, TokenType::Arrow, TokenType::Ident, TokenType::Eof]),
+        ("x|>f", vec![TokenType::Ident, TokenType::Pipe, TokenType::Ident, TokenType::Eof]),
         (
             "a&&b||c",
             vec![
@@ -221,11 +165,7 @@ fn parse_parentheses_override_precedence() {
 
     for (input, expected) in cases {
         let got = parse_expr_to_string(input);
-        assert_eq!(
-            got, expected,
-            "parentheses grouping mismatch for `{}`",
-            input
-        );
+        assert_eq!(got, expected, "parentheses grouping mismatch for `{}`", input);
     }
 }
 
@@ -379,25 +319,19 @@ fn generic_infix_dispatch_is_in_sync_with_operator_registry() {
 #[test]
 fn operator_registry_nonassoc_is_reserved_for_future_chaining_diagnostics() {
     assert!(
-        !OPERATOR_TABLE
-            .iter()
-            .any(|op| op.associativity == Assoc::Nonassoc),
+        !OPERATOR_TABLE.iter().any(|op| op.associativity == Assoc::Nonassoc),
         "Nonassoc is reserved: add parser diagnostics for non-associative chains before registering Nonassoc operators"
     );
 }
 
 #[test]
 fn parser_dispatch_is_compatible_with_registered_infix_and_postfix_operators() {
-    for op in OPERATOR_TABLE
-        .iter()
-        .filter(|op| matches!(op.fixity, Fixity::Infix | Fixity::Postfix))
+    for op in
+        OPERATOR_TABLE.iter().filter(|op| matches!(op.fixity, Fixity::Infix | Fixity::Postfix))
     {
         let (src, expected_shape) = match op.token {
             TokenType::Pipe => ("a |> f;", ExprShape::Call), // lowered by specialized branch
-            TokenType::Handle => (
-                "a handle Console { print(resume, x) -> x };",
-                ExprShape::Handle,
-            ), // specialized parsing
+            TokenType::Handle => ("a handle Console { print(resume, x) -> x };", ExprShape::Handle), // specialized parsing
             TokenType::Sealing => ("a sealing { Console };", ExprShape::Sealing),
             TokenType::Or => ("a || b;", ExprShape::Infix),
             TokenType::And => ("a && b;", ExprShape::Infix),
@@ -450,21 +384,12 @@ fn parser_dispatch_accepts_parameterized_handle_postfix_shape() {
     );
 
     let expr = first_expression(&program);
-    let Expression::Handle {
-        effect,
-        parameter,
-        arms,
-        ..
-    } = expr
-    else {
+    let Expression::Handle { effect, parameter, arms, .. } = expr else {
         panic!("expected handle expression, got {expr:?}");
     };
 
     assert_eq!(interner.resolve(*effect), "Console");
-    assert!(matches!(
-        parameter.as_deref(),
-        Some(Expression::Integer { value: 0, .. })
-    ));
+    assert!(matches!(parameter.as_deref(), Some(Expression::Integer { value: 0, .. })));
     assert_eq!(arms.len(), 1);
     assert_eq!(interner.resolve(arms[0].operation_name), "print");
     assert_eq!(arms[0].params.len(), 2);

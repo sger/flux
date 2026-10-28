@@ -41,10 +41,7 @@ pub(super) enum VmSendValue {
     Closure(Box<VmSendClosure>),
     Array(Vec<VmSendValue>),
     Tuple(Vec<VmSendValue>),
-    Adt {
-        constructor: String,
-        fields: Vec<VmSendValue>,
-    },
+    Adt { constructor: String, fields: Vec<VmSendValue> },
     AdtUnit(String),
     Cons(Box<VmSendValue>, Box<VmSendValue>),
     HashMap(Vec<(HashKey, VmSendValue)>),
@@ -125,16 +122,8 @@ fn ended() -> &'static Mutex<HashMap<i64, bool>> {
 /// was cancelled before its end.
 fn taped_result(id: i64, handle: TaskHandle<TaskResult>) -> TaskResult {
     let result = finished_result(handle);
-    let cancelled = ended()
-        .lock()
-        .expect("VM task end set poisoned")
-        .remove(&id)
-        .unwrap_or(false);
-    if cancelled {
-        Err("TaskCancelled".to_string())
-    } else {
-        result
-    }
+    let cancelled = ended().lock().expect("VM task end set poisoned").remove(&id).unwrap_or(false);
+    if cancelled { Err("TaskCancelled".to_string()) } else { result }
 }
 
 fn scheduler() -> &'static TaskScheduler {
@@ -146,10 +135,7 @@ fn scheduler() -> &'static TaskScheduler {
 fn completion_queue() -> &'static CompletionQueue {
     COMPLETIONS.get_or_init(|| {
         let (tx, rx) = mpsc::channel();
-        CompletionQueue {
-            tx,
-            rx: Mutex::new(rx),
-        }
+        CompletionQueue { tx, rx: Mutex::new(rx) }
     })
 }
 
@@ -190,13 +176,10 @@ impl VM {
             if let Some(action) = &name_from {
                 super::fiber_debug::note_task(id, action, handle.finished_check());
             }
-            tasks().lock().expect("VM task table poisoned").insert(
-                id,
-                VmTaskEntry {
-                    handle: Some(handle),
-                    logical,
-                },
-            );
+            tasks()
+                .lock()
+                .expect("VM task table poisoned")
+                .insert(id, VmTaskEntry { handle: Some(handle), logical });
         };
         if replay::is_active() {
             replay::spawn_task(start).unwrap_or_else(|err| replay::async_tape::fail(err));
@@ -372,15 +355,8 @@ pub(super) fn blocking_join(id: i64) -> Result<Value, String> {
 }
 
 fn join_now(id: i64) -> Result<Value, String> {
-    ended()
-        .lock()
-        .expect("VM task end set poisoned")
-        .remove(&id);
-    if cancelled()
-        .lock()
-        .expect("VM task cancel set poisoned")
-        .remove(&id)
-    {
+    ended().lock().expect("VM task end set poisoned").remove(&id);
+    if cancelled().lock().expect("VM task cancel set poisoned").remove(&id) {
         let _ = take_handle(id);
         return Err("TaskCancelled".to_string());
     }
@@ -397,17 +373,10 @@ pub(super) fn cancel(id: i64) -> Result<(), String> {
         // (0188 S8c).
         let logical = logical_of(id);
         replay::ordered(EffectRequest::TaskCancel { id: logical }, || {
-            cancelled()
-                .lock()
-                .expect("VM task cancel set poisoned")
-                .insert(id);
+            cancelled().lock().expect("VM task cancel set poisoned").insert(id);
             // A task that has already ended loses its result, as on native
             // (0188 S9d).
-            if let Some(dropped) = ended()
-                .lock()
-                .expect("VM task end set poisoned")
-                .get_mut(&id)
-            {
+            if let Some(dropped) = ended().lock().expect("VM task end set poisoned").get_mut(&id) {
                 *dropped = true;
             }
             None
@@ -415,10 +384,7 @@ pub(super) fn cancel(id: i64) -> Result<(), String> {
         .unwrap_or_else(|err| replay::async_tape::fail(err));
         return Ok(());
     }
-    cancelled()
-        .lock()
-        .expect("VM task cancel set poisoned")
-        .insert(id);
+    cancelled().lock().expect("VM task cancel set poisoned").insert(id);
     let map = tasks().lock().expect("VM task table poisoned");
     if let Some(entry) = map.get(&id)
         && let Some(handle) = entry.handle.as_ref()
@@ -429,11 +395,7 @@ pub(super) fn cancel(id: i64) -> Result<(), String> {
 }
 
 pub(super) fn start_await(id: i64, request_id: u64) -> Result<(), String> {
-    if cancelled()
-        .lock()
-        .expect("VM task cancel set poisoned")
-        .remove(&id)
-    {
+    if cancelled().lock().expect("VM task cancel set poisoned").remove(&id) {
         let _ = take_handle(id);
         return Err("TaskCancelled".to_string());
     }
@@ -470,10 +432,7 @@ pub(super) fn taped_await(id: i64, request_id: u64) -> Result<Option<TaskResult>
     let logical = logical_of(id);
     let mut finished = false;
     replay::ordered(EffectRequest::TaskAwait { id: logical }, || {
-        finished = ended()
-            .lock()
-            .expect("VM task end set poisoned")
-            .contains_key(&id);
+        finished = ended().lock().expect("VM task end set poisoned").contains_key(&id);
         Some(Outcome::Bool(finished))
     })
     .unwrap_or_else(|err| replay::async_tape::fail(err));
@@ -521,21 +480,14 @@ pub(crate) fn any_live() -> bool {
 /// cancelled and forgotten. A thread still running one finishes on its own,
 /// without touching the tape (`replay::pause` moved the generation on).
 pub(crate) fn abandon_all() {
-    let entries: Vec<VmTaskEntry> = tasks()
-        .lock()
-        .expect("VM task table poisoned")
-        .drain()
-        .map(|(_, entry)| entry)
-        .collect();
+    let entries: Vec<VmTaskEntry> =
+        tasks().lock().expect("VM task table poisoned").drain().map(|(_, entry)| entry).collect();
     for entry in entries {
         if let Some(handle) = entry.handle {
             handle.cancel();
         }
     }
-    cancelled()
-        .lock()
-        .expect("VM task cancel set poisoned")
-        .clear();
+    cancelled().lock().expect("VM task cancel set poisoned").clear();
     ended().lock().expect("VM task end set poisoned").clear();
     while try_recv_completion().is_some() {}
 }
@@ -551,11 +503,7 @@ pub(super) fn try_recv_completion() -> Option<(u64, Result<Value, String>)> {
 
 /// Task `id`'s logical number on the tape.
 fn logical_of(id: i64) -> u32 {
-    tasks()
-        .lock()
-        .expect("VM task table poisoned")
-        .get(&id)
-        .map_or(0, |entry| entry.logical)
+    tasks().lock().expect("VM task table poisoned").get(&id).map_or(0, |entry| entry.logical)
 }
 
 enum JoinTarget {
@@ -566,9 +514,7 @@ enum JoinTarget {
 fn take_handle(id: i64) -> Result<JoinTarget, String> {
     let mut map = tasks().lock().expect("VM task table poisoned");
     let Some(mut entry) = map.remove(&id) else {
-        return Err(format!(
-            "task {id} not found (already joined or never spawned)"
-        ));
+        return Err(format!("task {id} not found (already joined or never spawned)"));
     };
     Ok(match entry.handle.take() {
         Some(handle) => JoinTarget::Join(handle),
@@ -605,23 +551,17 @@ fn join_error(err: TaskJoinError) -> String {
 }
 
 fn run_task_payload(payload: VmTaskPayload) -> TaskResult {
-    let VmTaskPayload {
-        action,
-        constants,
-        globals,
-    } = payload;
+    let VmTaskPayload { action, constants, globals } = payload;
     let action = match action {
         VmTaskAction::Shared(value) => demote_value(value),
         VmTaskAction::Send(value) => value.into_value()?,
     };
 
-    let mut vm = TASK_WORKER_VM
-        .with(|pool| pool.borrow_mut().take())
-        .unwrap_or_else(task_worker_vm);
+    let mut vm =
+        TASK_WORKER_VM.with(|pool| pool.borrow_mut().take()).unwrap_or_else(task_worker_vm);
     vm.prepare_for_task(constants, &globals);
-    let result = vm
-        .invoke_value(action, vec![])
-        .and_then(|value| VmSendValue::try_from_value(&value));
+    let result =
+        vm.invoke_value(action, vec![]).and_then(|value| VmSendValue::try_from_value(&value));
     vm.cleanup_after_task();
     TASK_WORKER_VM.with(|pool| {
         *pool.borrow_mut() = Some(vm);
@@ -641,36 +581,17 @@ fn run_taped_task(id: i64, logical: u32, payload: VmTaskPayload) -> TaskResult {
     };
     let mut ran = false;
     taped(EffectRequest::TaskStart { id: logical }, &mut || {
-        ran = !cancelled()
-            .lock()
-            .expect("VM task cancel set poisoned")
-            .contains(&id);
+        ran = !cancelled().lock().expect("VM task cancel set poisoned").contains(&id);
         Some(Outcome::Bool(ran))
     });
-    let result = if ran {
-        run_task_payload(payload)
-    } else {
-        Err("TaskCancelled".to_string())
-    };
+    let result = if ran { run_task_payload(payload) } else { Err("TaskCancelled".to_string()) };
     // A task cancelled before it ran did not fail, as on native.
     let failed = ran && result.is_err();
-    taped(
-        EffectRequest::TaskEnd {
-            id: logical,
-            failed,
-        },
-        &mut || {
-            let cancelled = cancelled()
-                .lock()
-                .expect("VM task cancel set poisoned")
-                .contains(&id);
-            ended()
-                .lock()
-                .expect("VM task end set poisoned")
-                .insert(id, cancelled);
-            None
-        },
-    );
+    taped(EffectRequest::TaskEnd { id: logical, failed }, &mut || {
+        let cancelled = cancelled().lock().expect("VM task cancel set poisoned").contains(&id);
+        ended().lock().expect("VM task end set poisoned").insert(id, cancelled);
+        None
+    });
     replay::async_tape::enter_task(0);
     result
 }
@@ -716,9 +637,9 @@ fn validate_task_value(value: &Value) -> Result<(), String> {
             validate_task_value(&cell.head)?;
             validate_task_value(&cell.tail)
         }
-        Value::HashMap(root) => hamt::hamt_iter(root)
-            .into_iter()
-            .try_for_each(|(_, v)| validate_task_value(&v)),
+        Value::HashMap(root) => {
+            hamt::hamt_iter(root).into_iter().try_for_each(|(_, v)| validate_task_value(&v))
+        }
         _ => Ok(()),
     }
 }
@@ -741,16 +662,12 @@ impl VmSendValue {
             }
             Value::Function(f) => Self::Function(Box::new(VmSendFunction::from_function(f))),
             Value::Closure(c) => Self::Closure(Box::new(VmSendClosure::try_from_closure(c)?)),
-            Value::Array(v) => Self::Array(
-                v.iter()
-                    .map(Self::try_from_value)
-                    .collect::<Result<Vec<_>, _>>()?,
-            ),
-            Value::Tuple(v) => Self::Tuple(
-                v.iter()
-                    .map(Self::try_from_value)
-                    .collect::<Result<Vec<_>, _>>()?,
-            ),
+            Value::Array(v) => {
+                Self::Array(v.iter().map(Self::try_from_value).collect::<Result<Vec<_>, _>>()?)
+            }
+            Value::Tuple(v) => {
+                Self::Tuple(v.iter().map(Self::try_from_value).collect::<Result<Vec<_>, _>>()?)
+            }
             Value::Adt(adt) => Self::Adt {
                 constructor: (*adt.constructor).clone(),
                 fields: adt
@@ -826,17 +743,13 @@ impl VmSendValue {
             },
             Value::Array(v) => match Rc::try_unwrap(v) {
                 Ok(v) => Self::Array(
-                    v.into_iter()
-                        .map(Self::try_move_owned)
-                        .collect::<Result<Vec<_>, _>>()?,
+                    v.into_iter().map(Self::try_move_owned).collect::<Result<Vec<_>, _>>()?,
                 ),
                 Err(v) => return Err(MoveValueError::Shared(Value::Array(v))),
             },
             Value::Tuple(v) => match Rc::try_unwrap(v) {
                 Ok(v) => Self::Tuple(
-                    v.into_iter()
-                        .map(Self::try_move_owned)
-                        .collect::<Result<Vec<_>, _>>()?,
+                    v.into_iter().map(Self::try_move_owned).collect::<Result<Vec<_>, _>>()?,
                 ),
                 Err(v) => return Err(MoveValueError::Shared(Value::Tuple(v))),
             },
@@ -898,32 +811,21 @@ impl VmSendValue {
             Self::Function(f) => Value::Function(Arc::new(f.into_function())),
             Self::Closure(c) => Value::Closure(Rc::new(c.into_closure()?)),
             Self::Array(v) => Value::Array(Rc::new(
-                v.into_iter()
-                    .map(Self::into_value)
-                    .collect::<Result<Vec<_>, _>>()?,
+                v.into_iter().map(Self::into_value).collect::<Result<Vec<_>, _>>()?,
             )),
             Self::Tuple(v) => Value::Tuple(Rc::new(
-                v.into_iter()
-                    .map(Self::into_value)
-                    .collect::<Result<Vec<_>, _>>()?,
+                v.into_iter().map(Self::into_value).collect::<Result<Vec<_>, _>>()?,
             )),
-            Self::Adt {
-                constructor,
-                fields,
-            } => Value::Adt(Rc::new(AdtValue {
+            Self::Adt { constructor, fields } => Value::Adt(Rc::new(AdtValue {
                 constructor: Rc::new(constructor),
                 fields: AdtFields::from_vec(
-                    fields
-                        .into_iter()
-                        .map(Self::into_value)
-                        .collect::<Result<Vec<_>, _>>()?,
+                    fields.into_iter().map(Self::into_value).collect::<Result<Vec<_>, _>>()?,
                 ),
             })),
             Self::AdtUnit(name) => Value::AdtUnit(Rc::new(name)),
-            Self::Cons(head, tail) => Value::Cons(Rc::new(ConsCell::new(
-                head.into_value()?,
-                tail.into_value()?,
-            ))),
+            Self::Cons(head, tail) => {
+                Value::Cons(Rc::new(ConsCell::new(head.into_value()?, tail.into_value()?)))
+            }
             Self::HashMap(entries) => {
                 let mut root = hamt::hamt_empty();
                 for (key, value) in entries {
@@ -992,10 +894,7 @@ impl VmSendClosure {
     fn into_closure(self) -> Result<Closure, String> {
         Ok(Closure::new(
             Arc::new(self.function.into_function()),
-            self.free
-                .into_iter()
-                .map(VmSendValue::into_value)
-                .collect::<Result<Vec<_>, _>>()?,
+            self.free.into_iter().map(VmSendValue::into_value).collect::<Result<Vec<_>, _>>()?,
         ))
     }
 }
@@ -1116,12 +1015,8 @@ mod tests {
 
     #[test]
     fn task_shared_constants_are_cached_and_preserve_function_arc() {
-        let function = Arc::new(CompiledFunction::new(
-            vec![OpCode::OpReturnValue as u8],
-            0,
-            0,
-            None,
-        ));
+        let function =
+            Arc::new(CompiledFunction::new(vec![OpCode::OpReturnValue as u8], 0, 0, None));
         let mut vm = VM::new(Bytecode {
             instructions: vec![],
             constants: vec![Value::Function(Arc::clone(&function))],
@@ -1147,19 +1042,18 @@ mod tests {
         vm.prepare_for_task(Arc::clone(&constants), &globals);
         vm.push(Value::Integer(99)).expect("push");
         vm.global_set(9, Value::Integer(100));
-        vm.handler_stack
-            .push(crate::runtime::handler_frame::HandlerFrame {
-                effect: crate::syntax::symbol::Symbol::SENTINEL,
-                arms: Rc::new(vec![]),
-                marker: 1,
-                saved_evv: crate::runtime::evidence::EvidenceVector::new(),
-                state: None,
-                entry_frame_index: 0,
-                entry_sp: 0,
-                entry_handler_stack_len: 0,
-                is_direct: false,
-                is_discard: false,
-            });
+        vm.handler_stack.push(crate::runtime::handler_frame::HandlerFrame {
+            effect: crate::syntax::symbol::Symbol::SENTINEL,
+            arms: Rc::new(vec![]),
+            marker: 1,
+            saved_evv: crate::runtime::evidence::EvidenceVector::new(),
+            state: None,
+            entry_frame_index: 0,
+            entry_sp: 0,
+            entry_handler_stack_len: 0,
+            is_direct: false,
+            is_discard: false,
+        });
         vm.context.cancel_scope = crate::runtime::r#async::context::CancelScope::Cancelled;
 
         vm.cleanup_after_task();

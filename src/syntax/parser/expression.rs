@@ -25,10 +25,7 @@ use crate::{
 use super::{Parser, ParserContext, RecoveryBoundary, helpers::ParameterListContext};
 
 fn is_lowercase_ident_literal(literal: &str) -> bool {
-    literal
-        .chars()
-        .next()
-        .is_some_and(|ch| ch.is_ascii_lowercase())
+    literal.chars().next().is_some_and(|ch| ch.is_ascii_lowercase())
 }
 
 impl Parser {
@@ -305,22 +302,13 @@ impl Parser {
         let call = match right {
             // a |> f => f(a)
             Expression::Identifier { name, span, .. } => Some(Expression::Call {
-                function: Box::new(Expression::Identifier {
-                    name,
-                    span,
-                    id: self.next_expr_id(),
-                }),
+                function: Box::new(Expression::Identifier { name, span, id: self.next_expr_id() }),
                 arguments: vec![left],
                 span: Span::new(start, span.end),
                 id: self.next_expr_id(),
             }),
             // a |> Module.func => Module.func(a)
-            Expression::MemberAccess {
-                object,
-                member,
-                span,
-                ..
-            } => Some(Expression::Call {
+            Expression::MemberAccess { object, member, span, .. } => Some(Expression::Call {
                 function: Box::new(Expression::MemberAccess {
                     object,
                     member,
@@ -332,12 +320,7 @@ impl Parser {
                 id: self.next_expr_id(),
             }),
             // a |> f(b, c) => f(a, b, c)
-            Expression::Call {
-                function,
-                mut arguments,
-                span,
-                ..
-            } => {
+            Expression::Call { function, mut arguments, span, .. } => {
                 arguments.insert(0, left);
                 Some(Expression::Call {
                     function,
@@ -347,8 +330,7 @@ impl Parser {
                 })
             }
             _ => {
-                self.errors
-                    .push(pipe_target_error(self.current_token.span()));
+                self.errors.push(pipe_target_error(self.current_token.span()));
                 None
             }
         }?;
@@ -462,10 +444,7 @@ impl Parser {
             return None;
         }
 
-        let member = self
-            .current_token
-            .symbol
-            .expect("ident token should have symbol");
+        let member = self.current_token.symbol.expect("ident token should have symbol");
 
         Some(Expression::MemberAccess {
             object: Box::new(object),
@@ -661,8 +640,7 @@ impl Parser {
             if self.is_peek_token(TokenType::RBracket) {
                 self.next_token();
             } else {
-                self.errors
-                    .push(missing_array_close_bracket(self.peek_token.span()));
+                self.errors.push(missing_array_close_bracket(self.peek_token.span()));
                 return None;
             }
             return Some(Expression::ArrayLiteral {
@@ -774,10 +752,7 @@ impl Parser {
     ) -> Option<Expression> {
         // Collect clauses: generators (var <- source) and guards (expr)
         enum Clause {
-            Generator {
-                var: crate::syntax::Identifier,
-                source: Expression,
-            },
+            Generator { var: crate::syntax::Identifier, source: Expression },
             Guard(Expression),
         }
 
@@ -795,10 +770,7 @@ impl Parser {
             ) {
                 return None;
             }
-            let var = self
-                .lexer
-                .interner_mut()
-                .intern(&self.current_token.literal);
+            let var = self.lexer.interner_mut().intern(&self.current_token.literal);
 
             // Expect <-
             if !self.expect_peek_context_with_details(
@@ -848,8 +820,7 @@ impl Parser {
         if self.is_peek_token(TokenType::RBracket) {
             self.next_token();
         } else {
-            self.errors
-                .push(missing_comprehension_close_bracket(self.peek_token.span()));
+            self.errors.push(missing_comprehension_close_bracket(self.peek_token.span()));
             return None;
         }
 
@@ -870,11 +841,7 @@ impl Parser {
         for clause in clauses {
             match clause {
                 Clause::Generator { var, source } => {
-                    groups.push(GeneratorGroup {
-                        var,
-                        source,
-                        guards: Vec::new(),
-                    });
+                    groups.push(GeneratorGroup { var, source, guards: Vec::new() });
                 }
                 Clause::Guard(expr) => {
                     if let Some(group) = groups.last_mut() {
@@ -909,11 +876,7 @@ impl Parser {
     /// Build an `Expression::Identifier` from a string, interning it.
     fn make_ident(&mut self, name: &str, span: Span) -> Expression {
         let sym = self.lexer.interner_mut().intern(name);
-        Expression::Identifier {
-            name: sym,
-            span,
-            id: self.next_expr_id(),
-        }
+        Expression::Identifier { name: sym, span, id: self.next_expr_id() }
     }
 
     /// Build a single-parameter lambda: `\param -> body`
@@ -994,12 +957,7 @@ impl Parser {
             span,
             id: self.next_expr_id(),
         };
-        Expression::Call {
-            function: Box::new(access),
-            arguments,
-            span,
-            id: self.next_expr_id(),
-        }
+        Expression::Call { function: Box::new(access), arguments, span, id: self.next_expr_id() }
     }
 
     fn make_select_arm_event(
@@ -1082,8 +1040,7 @@ impl Parser {
                     || self.peek_token.position.line > self.current_token.end_position.line
                     || self.token_starts_statement(self.peek_token.token_type)
                 {
-                    self.errors
-                        .push(missing_hash_close_brace(self.peek_token.span()));
+                    self.errors.push(missing_hash_close_brace(self.peek_token.span()));
                 } else {
                     self.emit_expected_token(
                         TokenType::Comma,
@@ -1098,8 +1055,7 @@ impl Parser {
         if self.is_peek_token(TokenType::RBrace) {
             self.next_token();
         } else {
-            self.errors
-                .push(missing_hash_close_brace(self.peek_token.span()));
+            self.errors.push(missing_hash_close_brace(self.peek_token.span()));
             return None;
         }
 
@@ -1134,10 +1090,7 @@ impl Parser {
                 return None;
             }
             let field_start = self.current_token.position;
-            let field_name = self
-                .current_token
-                .symbol
-                .expect("ident token should have symbol");
+            let field_name = self.current_token.symbol.expect("ident token should have symbol");
             let field_name_end = self.current_token.end_position;
 
             let (value, field_end) = if self.is_peek_token(TokenType::Colon) {
@@ -1209,10 +1162,7 @@ impl Parser {
                 return None;
             }
             let field_start = self.current_token.position;
-            let field_name = self
-                .current_token
-                .symbol
-                .expect("ident token should have symbol");
+            let field_name = self.current_token.symbol.expect("ident token should have symbol");
             let field_name_end = self.current_token.end_position;
 
             let (value, field_end) = if self.is_peek_token(TokenType::Colon) {
@@ -1274,10 +1224,7 @@ impl Parser {
                 return None;
             }
             let field_start = self.current_token.position;
-            let field_name = self
-                .current_token
-                .symbol
-                .expect("ident token should have symbol");
+            let field_name = self.current_token.symbol.expect("ident token should have symbol");
             let field_name_end = self.current_token.end_position;
 
             let (inner, field_end) = if self.is_peek_token(TokenType::Colon) {
@@ -1419,8 +1366,7 @@ impl Parser {
     pub(super) fn parse_do_block_expression(&mut self) -> Option<Expression> {
         let start = self.current_token.position;
         if !self.is_peek_token(TokenType::LBrace) {
-            self.errors
-                .push(missing_do_block_brace(self.peek_token.span()));
+            self.errors.push(missing_do_block_brace(self.peek_token.span()));
             self.request_recovery_boundary(RecoveryBoundary::NextLineOrBlock);
             return None;
         }
@@ -1447,10 +1393,7 @@ impl Parser {
         ) {
             return None;
         }
-        let effect = self
-            .lexer
-            .interner_mut()
-            .intern(&self.current_token.literal);
+        let effect = self.lexer.interner_mut().intern(&self.current_token.literal);
 
         // `.`
         if !self.expect_peek_context_with_details(
@@ -1467,23 +1410,19 @@ impl Parser {
         // Operation name (Ident)
         if !self.is_peek_token(TokenType::Ident) {
             let anchor = self.eof_anchor_span(perform_dot_span);
-            self.errors
-                .push(missing_syntax_token_diagnostic_with_origin(
-                    &crate::diagnostics::UNEXPECTED_TOKEN,
-                    anchor,
-                    "Missing Effect Operation Name",
-                    crate::diagnostics::DiagnosticCategory::ParserSeparator,
-                    "Expected operation name after `perform Effect.`.",
-                    "this `perform` expression ends here",
-                    "Perform expressions use `perform Effect.op(args...)`.",
-                ));
+            self.errors.push(missing_syntax_token_diagnostic_with_origin(
+                &crate::diagnostics::UNEXPECTED_TOKEN,
+                anchor,
+                "Missing Effect Operation Name",
+                crate::diagnostics::DiagnosticCategory::ParserSeparator,
+                "Expected operation name after `perform Effect.`.",
+                "this `perform` expression ends here",
+                "Perform expressions use `perform Effect.op(args...)`.",
+            ));
             return None;
         }
         self.next_token();
-        let operation = self
-            .lexer
-            .interner_mut()
-            .intern(&self.current_token.literal);
+        let operation = self.lexer.interner_mut().intern(&self.current_token.literal);
 
         // `(`
         if !self.expect_peek_context(
@@ -1523,10 +1462,7 @@ impl Parser {
         ) {
             return None;
         }
-        let effect = self
-            .lexer
-            .interner_mut()
-            .intern(&self.current_token.literal);
+        let effect = self.lexer.interner_mut().intern(&self.current_token.literal);
 
         let parameter = if self.is_peek_token(TokenType::LParen) {
             self.next_token(); // consume `(`
@@ -1565,10 +1501,7 @@ impl Parser {
                 return None;
             }
             let arm_start = self.current_token.position;
-            let op_name = self
-                .lexer
-                .interner_mut()
-                .intern(&self.current_token.literal);
+            let op_name = self.lexer.interner_mut().intern(&self.current_token.literal);
 
             // `(`
             if !self.expect_peek_context(
@@ -1587,10 +1520,7 @@ impl Parser {
             ) {
                 return None;
             }
-            let resume_param = self
-                .lexer
-                .interner_mut()
-                .intern(&self.current_token.literal);
+            let resume_param = self.lexer.interner_mut().intern(&self.current_token.literal);
 
             // Remaining params
             let mut params = Vec::new();
@@ -1603,10 +1533,7 @@ impl Parser {
                 ) {
                     return None;
                 }
-                let p = self
-                    .lexer
-                    .interner_mut()
-                    .intern(&self.current_token.literal);
+                let p = self.lexer.interner_mut().intern(&self.current_token.literal);
                 params.push(p);
             }
 
@@ -1732,10 +1659,7 @@ impl Parser {
                 return None;
             }
             effects.push(EffectExpr::Named {
-                name: self
-                    .current_token
-                    .symbol
-                    .expect("ident token should have symbol"),
+                name: self.current_token.symbol.expect("ident token should have symbol"),
                 span: self.current_token.span(),
             });
 
@@ -1793,10 +1717,7 @@ impl Parser {
             return None;
         }
         let ambient = EffectExpr::RowVar {
-            name: self
-                .current_token
-                .symbol
-                .expect("ident token should have symbol"),
+            name: self.current_token.symbol.expect("ident token should have symbol"),
             span: self.current_token.span(),
         };
 
@@ -1825,10 +1746,7 @@ impl Parser {
             return None;
         }
         let rhs = EffectExpr::Named {
-            name: self
-                .current_token
-                .symbol
-                .expect("ident token should have symbol"),
+            name: self.current_token.symbol.expect("ident token should have symbol"),
             span: self.current_token.span(),
         };
         let span = Span::new(ambient.span().start, rhs.span().end);
@@ -1839,11 +1757,7 @@ impl Parser {
         ) {
             return None;
         }
-        Some(EffectExpr::Subtract {
-            left: Box::new(ambient),
-            right: Box::new(rhs),
-            span,
-        })
+        Some(EffectExpr::Subtract { left: Box::new(ambient), right: Box::new(rhs), span })
     }
 
     pub(super) fn parse_match_expression(&mut self) -> Option<Expression> {
@@ -1910,12 +1824,7 @@ impl Parser {
             let body = self.parse_expression(Precedence::Lowest)?;
 
             let span = Span::new(pattern.span().start, body.span().end);
-            arms.push(MatchArm {
-                pattern,
-                guard,
-                body,
-                span,
-            });
+            arms.push(MatchArm { pattern, guard, body, span });
 
             match self.peek_token.token_type {
                 TokenType::Comma => {
@@ -2046,15 +1955,9 @@ impl Parser {
                     ) {
                         return None;
                     }
-                    let param = self
-                        .lexer
-                        .interner_mut()
-                        .intern(&self.current_token.literal);
+                    let param = self.lexer.interner_mut().intern(&self.current_token.literal);
                     let span = Span::new(arm_start, ch.span().end);
-                    (
-                        self.make_member_call("Event", "recv", vec![ch], span),
-                        param,
-                    )
+                    (self.make_member_call("Event", "recv", vec![ch], span), param)
                 }
                 "send" => {
                     self.next_token();
@@ -2072,19 +1975,13 @@ impl Parser {
                     self.next_token();
                     let value = self.parse_expression(Precedence::Lowest)?;
                     let span = Span::new(arm_start, value.span().end);
-                    (
-                        self.make_member_call("Event", "send", vec![ch, value], span),
-                        ignored_param,
-                    )
+                    (self.make_member_call("Event", "send", vec![ch, value], span), ignored_param)
                 }
                 "after" => {
                     self.next_token();
                     let ms = self.parse_expression(Precedence::Lowest)?;
                     let span = Span::new(arm_start, ms.span().end);
-                    (
-                        self.make_member_call("Event", "after", vec![ms], span),
-                        ignored_param,
-                    )
+                    (self.make_member_call("Event", "after", vec![ms], span), ignored_param)
                 }
                 _ => {
                     self.emit_parser_diagnostic(unexpected_token(
@@ -2150,27 +2047,20 @@ impl Parser {
     pub(super) fn parse_pattern(&mut self) -> Option<Pattern> {
         let start = self.current_token.position;
         match &self.current_token.token_type {
-            TokenType::Ident if self.current_token.literal == "_" => Some(Pattern::Wildcard {
-                span: Span::new(start, self.current_token.end_position),
-            }),
+            TokenType::Ident if self.current_token.literal == "_" => {
+                Some(Pattern::Wildcard { span: Span::new(start, self.current_token.end_position) })
+            }
             // Uppercase-initial identifier → ADT constructor pattern: `Red`, `Circle(r)`, `Node(l, v, r)`
             TokenType::Ident
-                if self
-                    .current_token
-                    .literal
-                    .starts_with(|c: char| c.is_uppercase()) =>
+                if self.current_token.literal.starts_with(|c: char| c.is_uppercase()) =>
             {
-                let name = self
-                    .current_token
-                    .symbol
-                    .expect("ident token should have symbol");
+                let name = self.current_token.symbol.expect("ident token should have symbol");
 
                 // If followed by '(' → parse field sub-patterns
                 if self.is_peek_token(TokenType::LParen) {
                     self.next_token(); // advance to '('
-                    let fields = self
-                        .parse_comma_separated_patterns(TokenType::RParen)
-                        .unwrap_or_default();
+                    let fields =
+                        self.parse_comma_separated_patterns(TokenType::RParen).unwrap_or_default();
                     Some(Pattern::Constructor {
                         name,
                         fields,
@@ -2189,15 +2079,12 @@ impl Parser {
                 }
             }
             TokenType::Ident => Some(Pattern::Identifier {
-                name: self
-                    .current_token
-                    .symbol
-                    .expect("ident token should have symbol"),
+                name: self.current_token.symbol.expect("ident token should have symbol"),
                 span: Span::new(start, self.current_token.end_position),
             }),
-            TokenType::None => Some(Pattern::None {
-                span: Span::new(start, self.current_token.end_position),
-            }),
+            TokenType::None => {
+                Some(Pattern::None { span: Span::new(start, self.current_token.end_position) })
+            }
             TokenType::Some => {
                 let inner_pattern = self.parse_parenthesized(
                     "`Some` pattern payload",
@@ -2326,10 +2213,7 @@ impl Parser {
             | TokenType::False => {
                 let expr = self.parse_prefix()?;
                 let span = expr.span();
-                Some(Pattern::Literal {
-                    expression: expr,
-                    span,
-                })
+                Some(Pattern::Literal { expression: expr, span })
             }
             _ => {
                 self.emit_parser_diagnostic(invalid_pattern(
@@ -2403,12 +2287,7 @@ impl Parser {
                 params.push(param);
                 let param_name = self.lexer.interner().resolve(param).to_string();
                 let type_annotation = self.parse_type_annotation_opt_with_missing_colon(
-                    &[
-                        TokenType::Arrow,
-                        TokenType::LBrace,
-                        TokenType::Semicolon,
-                        TokenType::Eof,
-                    ],
+                    &[TokenType::Arrow, TokenType::LBrace, TokenType::Semicolon, TokenType::Eof],
                     "lambda parameter",
                     Some(param_name.as_str()),
                 );

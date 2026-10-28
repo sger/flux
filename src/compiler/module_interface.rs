@@ -52,15 +52,8 @@ impl InterfaceLoadError {
             Self::FormatVersionMismatch => "format version mismatch".to_string(),
             Self::SourceHashMismatch => "source hash mismatch".to_string(),
             Self::SemanticConfigMismatch => "semantic config mismatch".to_string(),
-            Self::DependencyFingerprintMismatch {
-                module_name,
-                source_path,
-                reason,
-            } => {
-                format!(
-                    "dependency mismatch ({module_name} @ {source_path}): {}",
-                    reason.label()
-                )
+            Self::DependencyFingerprintMismatch { module_name, source_path, reason } => {
+                format!("dependency mismatch ({module_name} @ {source_path}): {}", reason.label())
             }
         }
     }
@@ -123,14 +116,10 @@ pub fn build_interface(
             interface.schemes.insert(name.clone(), scheme.clone());
         }
         if let Some(signature) = &def.borrow_signature {
-            interface
-                .borrow_signatures
-                .insert(name.clone(), signature.clone());
+            interface.borrow_signatures.insert(name.clone(), signature.clone());
         }
         if let Some(contract) = runtime_contracts.get(&(module_sym, def.name)) {
-            interface
-                .runtime_contracts
-                .insert(name.clone(), contract.clone());
+            interface.runtime_contracts.insert(name.clone(), contract.clone());
         }
         interface
             .member_is_value
@@ -150,9 +139,7 @@ pub fn build_interface(
     collect_symbols_from_public_classes(&interface.public_classes, &mut symbols);
     collect_symbols_from_public_instances(&interface.public_instances, &mut symbols);
     for &sym in &symbols {
-        interface
-            .symbol_table
-            .insert(sym.as_u32(), interner.resolve(sym).to_string());
+        interface.symbol_table.insert(sym.as_u32(), interner.resolve(sym).to_string());
     }
 
     // record declared field order for this module's public
@@ -185,9 +172,7 @@ pub fn build_interface(
             collect_symbols_from_type_expr(&entry.body, &mut ctor_symbols);
         }
         for sym in ctor_symbols {
-            interface
-                .symbol_table
-                .insert(sym.as_u32(), interner.resolve(sym).to_string());
+            interface.symbol_table.insert(sym.as_u32(), interner.resolve(sym).to_string());
         }
     }
 
@@ -219,13 +204,7 @@ fn collect_public_ctor_types(
         use crate::syntax::statement::Statement;
         for statement in statements {
             match statement {
-                Statement::Data {
-                    name,
-                    is_public,
-                    type_params,
-                    variants,
-                    ..
-                } => {
+                Statement::Data { name, is_public, type_params, variants, .. } => {
                     if !is_public {
                         continue;
                     }
@@ -339,11 +318,7 @@ fn collect_public_ctor_field_names(
         use crate::syntax::statement::Statement;
         for statement in statements {
             match statement {
-                Statement::Data {
-                    is_public,
-                    variants,
-                    ..
-                } => {
+                Statement::Data { is_public, variants, .. } => {
                     if !is_public {
                         continue;
                     }
@@ -351,10 +326,7 @@ fn collect_public_ctor_field_names(
                         if let Some(names) = variant.field_names.as_ref() {
                             out.insert(
                                 interner.resolve(variant.name).to_string(),
-                                names
-                                    .iter()
-                                    .map(|n| interner.resolve(*n).to_string())
-                                    .collect(),
+                                names.iter().map(|n| interner.resolve(*n).to_string()).collect(),
                             );
                         }
                     }
@@ -389,11 +361,8 @@ fn collect_public_class_entries(
                 .as_identifier()
                 .map(|id| interner.resolve(id).to_string())
                 .unwrap_or_default();
-            let method_names = def
-                .methods
-                .iter()
-                .map(|m| interner.resolve(m.name).to_string())
-                .collect();
+            let method_names =
+                def.methods.iter().map(|m| interner.resolve(m.name).to_string()).collect();
             PublicClassEntry {
                 class_module,
                 name: interner.resolve(def.name).to_string(),
@@ -444,12 +413,7 @@ fn class_parameter_kind(
     let arity = class
         .methods
         .iter()
-        .flat_map(|method| {
-            method
-                .param_types
-                .iter()
-                .chain(std::iter::once(&method.return_type))
-        })
+        .flat_map(|method| method.param_types.iter().chain(std::iter::once(&method.return_type)))
         .map(|ty| type_expr_parameter_arity(ty, parameter))
         .max()
         .unwrap_or(0);
@@ -464,10 +428,7 @@ fn type_expr_parameter_arity(
         crate::syntax::type_expr::TypeExpr::Named { name, args, .. } => {
             let own = if *name == parameter { args.len() } else { 0 };
             own.max(
-                args.iter()
-                    .map(|arg| type_expr_parameter_arity(arg, parameter))
-                    .max()
-                    .unwrap_or(0),
+                args.iter().map(|arg| type_expr_parameter_arity(arg, parameter)).max().unwrap_or(0),
             )
         }
         crate::syntax::type_expr::TypeExpr::Tuple { elements, .. } => elements
@@ -540,11 +501,8 @@ fn collect_public_instance_entries(
                 .as_identifier()
                 .map(|id| interner.resolve(id).to_string())
                 .unwrap_or_default();
-            let head_type_repr: Vec<String> = inst
-                .type_args
-                .iter()
-                .map(|t| t.display_with(interner))
-                .collect();
+            let head_type_repr: Vec<String> =
+                inst.type_args.iter().map(|t| t.display_with(interner)).collect();
             PublicInstanceEntry {
                 class_module,
                 class_name: interner.resolve(inst.class_name).to_string(),
@@ -682,12 +640,7 @@ fn collect_symbols_from_type_expr(
                 collect_symbols_from_type_expr(elem, out);
             }
         }
-        crate::syntax::type_expr::TypeExpr::Function {
-            params,
-            ret,
-            effects,
-            ..
-        } => {
+        crate::syntax::type_expr::TypeExpr::Function { params, ret, effects, .. } => {
             for param in params {
                 collect_symbols_from_type_expr(param, out);
             }
@@ -723,12 +676,7 @@ fn collect_symbols_from_effect_expr(
 /// new settings are added.
 pub fn compute_semantic_config_hash(strict_mode: bool, optimize_mode: bool) -> [u8; 32] {
     hash_bytes(
-        config_marker(
-            strict_mode,
-            optimize_mode,
-            crate::debuginfo::DebugLevel::None,
-        )
-        .as_bytes(),
+        config_marker(strict_mode, optimize_mode, crate::debuginfo::DebugLevel::None).as_bytes(),
     )
 }
 
@@ -803,11 +751,7 @@ pub fn compute_interface_fingerprint(interface: &ModuleInterface) -> String {
             scheme: interface.schemes.get(member),
             borrow_signature: interface.borrow_signatures.get(member),
             runtime_contract: interface.runtime_contracts.get(member),
-            is_value: interface
-                .member_is_value
-                .get(member)
-                .copied()
-                .unwrap_or(false),
+            is_value: interface.member_is_value.get(member).copied().unwrap_or(false),
         })
         .collect();
 
@@ -1033,10 +977,8 @@ mod tests {
             vec![BorrowMode::Borrowed, BorrowMode::Borrowed],
             BorrowProvenance::Inferred,
         ));
-        program.defs[1].borrow_signature = Some(BorrowSignature::new(
-            vec![BorrowMode::Owned],
-            BorrowProvenance::Inferred,
-        ));
+        program.defs[1].borrow_signature =
+            Some(BorrowSignature::new(vec![BorrowMode::Owned], BorrowProvenance::Inferred));
 
         let mut schemes = HashMap::new();
         schemes.insert(
@@ -1053,23 +995,15 @@ mod tests {
                             InferEffectRow::closed_empty(),
                         ),
                     ],
-                    Box::new(InferType::App(
-                        TypeConstructor::List,
-                        vec![InferType::Var(1)],
-                    )),
+                    Box::new(InferType::App(TypeConstructor::List, vec![InferType::Var(1)])),
                     InferEffectRow::closed_empty(),
                 ),
             },
         );
-        schemes.insert(
-            (module, private_name),
-            Scheme::mono(InferType::Con(TypeConstructor::Int)),
-        );
+        schemes.insert((module, private_name), Scheme::mono(InferType::Con(TypeConstructor::Int)));
 
-        let visibility = HashMap::from([
-            ((module, public_name), true),
-            ((module, private_name), false),
-        ]);
+        let visibility =
+            HashMap::from([((module, public_name), true), ((module, private_name), false)]);
         let hash = crate::bytecode::bytecode_cache::hash_bytes(b"module Base.List {}");
         let semantic_hash = compute_semantic_config_hash(false, false);
         let interface = build_interface(
@@ -1092,10 +1026,7 @@ mod tests {
         );
 
         assert_eq!(interface.module_name, "Base.List");
-        assert_eq!(
-            interface.cache_format_version,
-            MODULE_INTERFACE_FORMAT_VERSION
-        );
+        assert_eq!(interface.cache_format_version, MODULE_INTERFACE_FORMAT_VERSION);
         assert!(interface.schemes.contains_key("map"));
         assert!(interface.borrow_signatures.contains_key("map"));
         assert!(!interface.schemes.contains_key("helper"));
@@ -1160,14 +1091,8 @@ mod tests {
             "expected at least 2 entries, got: {:?}",
             interface.symbol_table
         );
-        assert_eq!(
-            interface.symbol_table.get(&adt_sym.as_u32()),
-            Some(&"Color".to_string())
-        );
-        assert_eq!(
-            interface.symbol_table.get(&effect_sym.as_u32()),
-            Some(&"IO".to_string())
-        );
+        assert_eq!(interface.symbol_table.get(&adt_sym.as_u32()), Some(&"Color".to_string()));
+        assert_eq!(interface.symbol_table.get(&effect_sym.as_u32()), Some(&"IO".to_string()));
     }
 
     #[test]
@@ -1227,10 +1152,7 @@ mod tests {
     #[test]
     fn interface_roundtrip() {
         let mut schemes = HashMap::new();
-        schemes.insert(
-            "map".to_string(),
-            Scheme::mono(InferType::Con(TypeConstructor::Int)),
-        );
+        schemes.insert("map".to_string(), Scheme::mono(InferType::Con(TypeConstructor::Int)));
         let mut borrow_signatures = HashMap::new();
         borrow_signatures.insert(
             "map".to_string(),
@@ -1296,14 +1218,8 @@ mod tests {
     fn fingerprint_ignores_private_exports_by_shape() {
         let mut a = ModuleInterface::new("Mod", "src", "cfg");
         let mut b = ModuleInterface::new("Mod", "src2", "cfg");
-        a.schemes.insert(
-            "pub".to_string(),
-            Scheme::mono(InferType::Con(TypeConstructor::Int)),
-        );
-        b.schemes.insert(
-            "pub".to_string(),
-            Scheme::mono(InferType::Con(TypeConstructor::Int)),
-        );
+        a.schemes.insert("pub".to_string(), Scheme::mono(InferType::Con(TypeConstructor::Int)));
+        b.schemes.insert("pub".to_string(), Scheme::mono(InferType::Con(TypeConstructor::Int)));
         a.borrow_signatures.insert(
             "pub".to_string(),
             BorrowSignature::new(vec![BorrowMode::Borrowed], BorrowProvenance::Imported),
@@ -1325,17 +1241,13 @@ mod tests {
     #[test]
     fn ctor_field_order_changes_the_interface_fingerprint() {
         let mut a = ModuleInterface::new("M", "src", "cfg");
-        a.ctor_field_names.insert(
-            "IoError".to_string(),
-            vec!["kind".to_string(), "message".to_string()],
-        );
+        a.ctor_field_names
+            .insert("IoError".to_string(), vec!["kind".to_string(), "message".to_string()]);
         let fingerprint_a = compute_interface_fingerprint(&a);
 
         let mut b = ModuleInterface::new("M", "src", "cfg");
-        b.ctor_field_names.insert(
-            "IoError".to_string(),
-            vec!["message".to_string(), "kind".to_string()],
-        );
+        b.ctor_field_names
+            .insert("IoError".to_string(), vec!["message".to_string(), "kind".to_string()]);
         let fingerprint_b = compute_interface_fingerprint(&b);
 
         assert_ne!(
@@ -1351,9 +1263,7 @@ mod tests {
     fn adding_a_record_constructor_changes_the_interface_fingerprint() {
         let bare = ModuleInterface::new("M", "src", "cfg");
         let mut with_ctor = ModuleInterface::new("M", "src", "cfg");
-        with_ctor
-            .ctor_field_names
-            .insert("IoError".to_string(), vec!["kind".to_string()]);
+        with_ctor.ctor_field_names.insert("IoError".to_string(), vec!["kind".to_string()]);
 
         assert_ne!(
             compute_interface_fingerprint(&bare),
@@ -1504,10 +1414,7 @@ mod tests {
         let env_empty = ClassEnv::new();
         let hash = hash_bytes(b"src");
         let cfg = compute_semantic_config_hash(false, false);
-        let program = CoreProgram {
-            defs: Vec::new(),
-            top_level_items: Vec::new(),
-        };
+        let program = CoreProgram { defs: Vec::new(), top_level_items: Vec::new() };
         let schemes = HashMap::new();
         let visibility = HashMap::new();
 
@@ -1575,14 +1482,10 @@ mod tests {
     fn fingerprint_changes_when_borrow_signature_changes() {
         let mut borrowed = ModuleInterface::new("Mod", "src", "cfg");
         let mut owned = ModuleInterface::new("Mod", "src", "cfg");
-        borrowed.schemes.insert(
-            "pub".to_string(),
-            Scheme::mono(InferType::Con(TypeConstructor::Int)),
-        );
-        owned.schemes.insert(
-            "pub".to_string(),
-            Scheme::mono(InferType::Con(TypeConstructor::Int)),
-        );
+        borrowed
+            .schemes
+            .insert("pub".to_string(), Scheme::mono(InferType::Con(TypeConstructor::Int)));
+        owned.schemes.insert("pub".to_string(), Scheme::mono(InferType::Con(TypeConstructor::Int)));
         borrowed.borrow_signatures.insert(
             "pub".to_string(),
             BorrowSignature::new(vec![BorrowMode::Borrowed], BorrowProvenance::Imported),
@@ -1592,10 +1495,7 @@ mod tests {
             BorrowSignature::new(vec![BorrowMode::Owned], BorrowProvenance::Imported),
         );
 
-        assert_ne!(
-            compute_interface_fingerprint(&borrowed),
-            compute_interface_fingerprint(&owned)
-        );
+        assert_ne!(compute_interface_fingerprint(&borrowed), compute_interface_fingerprint(&owned));
     }
 
     #[test]
@@ -1605,18 +1505,8 @@ mod tests {
             Path::new("examples/aoc/2024/Day07Solver.flx"),
         );
         assert_eq!(path.parent().unwrap(), Path::new("target/flux/interfaces"));
-        assert!(
-            path.file_name()
-                .unwrap()
-                .to_string_lossy()
-                .starts_with("Day07Solver-")
-        );
-        assert!(
-            path.file_name()
-                .unwrap()
-                .to_string_lossy()
-                .ends_with(".flxi")
-        );
+        assert!(path.file_name().unwrap().to_string_lossy().starts_with("Day07Solver-"));
+        assert!(path.file_name().unwrap().to_string_lossy().ends_with(".flxi"));
     }
 
     #[test]
@@ -1639,10 +1529,9 @@ mod tests {
         let dep_cfg = compute_semantic_config_hash(false, false);
         let mut dep_interface =
             ModuleInterface::new("Dep", hex::encode(&dep_hash), hex::encode(&dep_cfg));
-        dep_interface.schemes.insert(
-            "value".to_string(),
-            Scheme::mono(InferType::Con(TypeConstructor::Int)),
-        );
+        dep_interface
+            .schemes
+            .insert("value".to_string(), Scheme::mono(InferType::Con(TypeConstructor::Int)));
         dep_interface.interface_fingerprint = compute_interface_fingerprint(&dep_interface);
         save_interface(&interface_path(&temp, &dep_source), &dep_interface).unwrap();
 
@@ -1650,29 +1539,20 @@ mod tests {
         let source_hash = hash_bytes(source.as_bytes());
         let mut interface =
             ModuleInterface::new("Main", hex::encode(&source_hash), hex::encode(&dep_cfg));
-        interface.schemes.insert(
-            "main".to_string(),
-            Scheme::mono(InferType::Con(TypeConstructor::Int)),
-        );
         interface
-            .dependency_fingerprints
-            .push(DependencyFingerprint {
-                module_name: "Dep".to_string(),
-                source_path: dep_source.to_string_lossy().to_string(),
-                interface_fingerprint: "stale".to_string(),
-            });
+            .schemes
+            .insert("main".to_string(), Scheme::mono(InferType::Con(TypeConstructor::Int)));
+        interface.dependency_fingerprints.push(DependencyFingerprint {
+            module_name: "Dep".to_string(),
+            source_path: dep_source.to_string_lossy().to_string(),
+            interface_fingerprint: "stale".to_string(),
+        });
         interface.interface_fingerprint = compute_interface_fingerprint(&interface);
-        save_interface(
-            &interface_path(&temp, temp.join("Main.flx").as_path()),
-            &interface,
-        )
-        .unwrap();
+        save_interface(&interface_path(&temp, temp.join("Main.flx").as_path()), &interface)
+            .unwrap();
 
         let result = load_valid_interface(&temp, temp.join("Main.flx").as_path(), source, &dep_cfg);
-        assert!(matches!(
-            result,
-            Err(InterfaceLoadError::DependencyFingerprintMismatch { .. })
-        ));
+        assert!(matches!(result, Err(InterfaceLoadError::DependencyFingerprintMismatch { .. })));
 
         std::fs::remove_dir_all(temp).ok();
     }
@@ -1699,18 +1579,14 @@ mod tests {
         let stale_cfg = compute_semantic_config_hash(true, false);
         let mut interface =
             ModuleInterface::new("Main", hex::encode(&source_hash), hex::encode(&stale_cfg));
-        interface.schemes.insert(
-            "main".to_string(),
-            Scheme::mono(InferType::Con(TypeConstructor::Int)),
-        );
+        interface
+            .schemes
+            .insert("main".to_string(), Scheme::mono(InferType::Con(TypeConstructor::Int)));
         interface.interface_fingerprint = compute_interface_fingerprint(&interface);
         save_interface(&interface_path(&temp, &source_path), &interface).unwrap();
 
         let result = load_valid_interface(&temp, &source_path, source, &current_cfg);
-        assert!(matches!(
-            result,
-            Err(InterfaceLoadError::SemanticConfigMismatch)
-        ));
+        assert!(matches!(result, Err(InterfaceLoadError::SemanticConfigMismatch)));
 
         std::fs::remove_dir_all(temp).ok();
     }
@@ -1737,18 +1613,14 @@ mod tests {
         let mut interface =
             ModuleInterface::new("Main", hex::encode(&source_hash), hex::encode(&cfg));
         interface.cache_format_version = MODULE_INTERFACE_FORMAT_VERSION + 1;
-        interface.schemes.insert(
-            "main".to_string(),
-            Scheme::mono(InferType::Con(TypeConstructor::Int)),
-        );
+        interface
+            .schemes
+            .insert("main".to_string(), Scheme::mono(InferType::Con(TypeConstructor::Int)));
         interface.interface_fingerprint = compute_interface_fingerprint(&interface);
         save_interface(&interface_path(&temp, &source_path), &interface).unwrap();
 
         let result = load_valid_interface(&temp, &source_path, source, &cfg);
-        assert!(matches!(
-            result,
-            Err(InterfaceLoadError::FormatVersionMismatch)
-        ));
+        assert!(matches!(result, Err(InterfaceLoadError::FormatVersionMismatch)));
 
         std::fs::remove_dir_all(temp).ok();
     }

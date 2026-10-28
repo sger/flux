@@ -49,9 +49,8 @@ pub fn signature_help(snapshot: &Snapshot, position: Position) -> Option<Signatu
     // Parameter names + doc comment from the callee's declaration. `None` for
     // computed callees, or functions whose declaration we can't locate (e.g.
     // imported unqualified via `exposing`) — those show types only.
-    let decl = name
-        .as_deref()
-        .and_then(|n| resolve_callee_decl(snapshot, function, n, param_types.len()));
+    let decl =
+        name.as_deref().and_then(|n| resolve_callee_decl(snapshot, function, n, param_types.len()));
 
     // Build the label, recording each parameter's [start, end) offset within it
     // in UTF-16 code units (the unit the LSP signature-help spec mandates).
@@ -87,16 +86,10 @@ pub fn signature_help(snapshot: &Snapshot, position: Position) -> Option<Signatu
     // Clamp the active parameter into range — a trailing comma or surplus
     // argument keeps the last parameter highlighted; a no-arg signature has
     // none.
-    let active = param_types
-        .len()
-        .checked_sub(1)
-        .map(|last| active_param.min(last) as u32);
+    let active = param_types.len().checked_sub(1).map(|last| active_param.min(last) as u32);
 
     let documentation = decl.and_then(|d| d.doc).map(|doc| {
-        Documentation::MarkupContent(MarkupContent {
-            kind: MarkupKind::Markdown,
-            value: doc,
-        })
+        Documentation::MarkupContent(MarkupContent { kind: MarkupKind::Markdown, value: doc })
     });
 
     Some(SignatureHelp {
@@ -136,19 +129,13 @@ fn resolve_callee_decl(
         let key = module_key_for(snapshot, object)?;
         let (program, _, _) = snapshot.module_programs.get(&key)?;
         let (param_names, span) = function_decl(program, &snapshot.interner, name, arity)?;
-        return Some(CalleeDecl {
-            param_names,
-            doc: doc_for(program, span),
-        });
+        return Some(CalleeDecl { param_names, doc: doc_for(program, span) });
     }
     // Direct `foo` — search this buffer first.
     if let Some((param_names, span)) =
         function_decl(&snapshot.program, &snapshot.interner, name, arity)
     {
-        return Some(CalleeDecl {
-            param_names,
-            doc: doc_for(&snapshot.program, span),
-        });
+        return Some(CalleeDecl { param_names, doc: doc_for(&snapshot.program, span) });
     }
     // Then any module that exposes `foo` unqualified.
     resolve_exposed_decl(snapshot, name, arity)
@@ -158,23 +145,17 @@ fn resolve_callee_decl(
 /// `import M exposing (name)` or `import M exposing (..)` in this buffer.
 fn resolve_exposed_decl(snapshot: &Snapshot, name: &str, arity: usize) -> Option<CalleeDecl> {
     for stmt in &snapshot.program.statements {
-        let Statement::Import {
-            name: module_name,
-            exposing,
-            except,
-            ..
-        } = stmt
-        else {
+        let Statement::Import { name: module_name, exposing, except, .. } = stmt else {
             continue;
         };
         let exposed = match exposing {
             ImportExposing::None => false,
-            ImportExposing::All => !except
-                .iter()
-                .any(|e| snapshot.interner.try_resolve(*e) == Some(name)),
-            ImportExposing::Names(names) => names
-                .iter()
-                .any(|n| snapshot.interner.try_resolve(*n) == Some(name)),
+            ImportExposing::All => {
+                !except.iter().any(|e| snapshot.interner.try_resolve(*e) == Some(name))
+            }
+            ImportExposing::Names(names) => {
+                names.iter().any(|n| snapshot.interner.try_resolve(*n) == Some(name))
+            }
         };
         if !exposed {
             continue;
@@ -186,10 +167,7 @@ fn resolve_exposed_decl(snapshot: &Snapshot, name: &str, arity: usize) -> Option
             continue;
         };
         if let Some((param_names, span)) = function_decl(program, &snapshot.interner, name, arity) {
-            return Some(CalleeDecl {
-                param_names,
-                doc: doc_for(program, span),
-            });
+            return Some(CalleeDecl { param_names, doc: doc_for(program, span) });
         }
     }
     None
@@ -236,12 +214,7 @@ fn function_decl(
         name: &str,
         arity: usize,
     ) -> Option<(Vec<String>, FluxSpan)> {
-        if let Statement::Function {
-            name: fname,
-            parameters,
-            span,
-            ..
-        } = stmt
+        if let Statement::Function { name: fname, parameters, span, .. } = stmt
             && interner.try_resolve(*fname) == Some(name)
             && parameters.len() == arity
         {

@@ -151,11 +151,7 @@ fn malformed_expression_corpus_recovers_without_panicking() {
             input: "->\nlet ok = 1;",
             expect_followup_let: None,
         },
-        RecoveryCase {
-            name: "stray_comma",
-            input: ",\nlet ok = 1;",
-            expect_followup_let: None,
-        },
+        RecoveryCase { name: "stray_comma", input: ",\nlet ok = 1;", expect_followup_let: None },
         RecoveryCase {
             name: "unterminated_string_then_valid_statement",
             input: "let s = \"oops\nlet ok = 1;\nprint(ok);",
@@ -170,20 +166,11 @@ fn malformed_expression_corpus_recovers_without_panicking() {
 
     for case in cases {
         let parsed = parse_no_panic(case.input);
-        assert!(
-            parsed.is_ok(),
-            "parser panicked for case `{}`: {:?}",
-            case.name,
-            parsed.err()
-        );
+        assert!(parsed.is_ok(), "parser panicked for case `{}`: {:?}", case.name, parsed.err());
 
         let (program, diagnostics, interner) = parsed.expect("already checked panic state");
 
-        assert!(
-            !diagnostics.is_empty(),
-            "expected diagnostics for malformed case `{}`",
-            case.name
-        );
+        assert!(!diagnostics.is_empty(), "expected diagnostics for malformed case `{}`", case.name);
         assert!(
             diagnostics.iter().any(|d| d.code().is_some()),
             "expected at least one coded diagnostic for case `{}`",
@@ -192,11 +179,7 @@ fn malformed_expression_corpus_recovers_without_panicking() {
 
         // Program shape invariant: parser still returns a valid root Program span.
         let span = program.span();
-        assert!(
-            span.end.line >= 1,
-            "expected a valid root Program span for case `{}`",
-            case.name
-        );
+        assert!(span.end.line >= 1, "expected a valid root Program span for case `{}`", case.name);
 
         if let Some(binding_name) = case.expect_followup_let {
             assert!(
@@ -212,18 +195,8 @@ fn malformed_expression_corpus_recovers_without_panicking() {
 #[test]
 fn malformed_statements_recover_and_keep_followup_statements() {
     let cases = [
-        (
-            "missing_let_initializer_then_followup_let",
-            "let x = ;\nlet y = 1;",
-            true,
-            false,
-        ),
-        (
-            "stray_closing_brace_then_followup_let",
-            "}\nlet a = 1;",
-            true,
-            false,
-        ),
+        ("missing_let_initializer_then_followup_let", "let x = ;\nlet y = 1;", true, false),
+        ("stray_closing_brace_then_followup_let", "}\nlet a = 1;", true, false),
         (
             "malformed_if_condition_then_followup_print",
             "if (true { print(1); }\nprint(2);",
@@ -234,30 +207,17 @@ fn malformed_statements_recover_and_keep_followup_statements() {
 
     for (name, input, expect_let, expect_print) in cases {
         let parsed = parse_no_panic(input);
-        assert!(
-            parsed.is_ok(),
-            "parser panicked for recovery case `{}`: {:?}",
-            name,
-            parsed.err()
-        );
+        assert!(parsed.is_ok(), "parser panicked for recovery case `{}`: {:?}", name, parsed.err());
 
         let (program, diagnostics, interner) = parsed.expect("already checked panic state");
-        assert!(
-            !diagnostics.is_empty(),
-            "expected diagnostics for recovery case `{}`",
-            name
-        );
+        assert!(!diagnostics.is_empty(), "expected diagnostics for recovery case `{}`", name);
 
         if expect_let {
             assert!(
                 has_let_binding(
                     &program,
                     &interner,
-                    if name.contains("initializer") {
-                        "y"
-                    } else {
-                        "a"
-                    }
+                    if name.contains("initializer") { "y" } else { "a" }
                 ),
                 "expected follow-up let binding to be present in recovery case `{}`",
                 name
@@ -323,10 +283,7 @@ fn kitchen_sink_many_errors_reports_broad_error_set_without_panicking() {
         diagnostics.len() >= 18,
         "expected broad parser coverage with at least 18 diagnostics, got {}: {:#?}",
         diagnostics.len(),
-        diagnostics
-            .iter()
-            .map(|d| (d.code(), d.title(), d.message()))
-            .collect::<Vec<_>>()
+        diagnostics.iter().map(|d| (d.code(), d.title(), d.message())).collect::<Vec<_>>()
     );
 
     assert!(
@@ -339,24 +296,20 @@ fn kitchen_sink_many_errors_reports_broad_error_set_without_panicking() {
     );
     assert!(
         diagnostics.iter().any(|d| {
-            d.message()
-                .is_some_and(|m| m.contains("This import needs a module path"))
+            d.message().is_some_and(|m| m.contains("This import needs a module path"))
         }),
         "expected missing-import-path diagnostic in kitchen-sink fixture"
     );
     assert!(
         diagnostics.iter().any(|d| {
-            d.message()
-                .is_some_and(|m| m.contains("Missing Handle Arm Arrow"))
-                || d.message()
-                    .is_some_and(|m| m.contains("Expected `->` in handle arm"))
+            d.message().is_some_and(|m| m.contains("Missing Handle Arm Arrow"))
+                || d.message().is_some_and(|m| m.contains("Expected `->` in handle arm"))
         }),
         "expected late-file handle-arm diagnostic in kitchen-sink fixture"
     );
     assert!(
         diagnostics.iter().any(|d| {
-            d.message()
-                .is_some_and(|m| m.contains("This import alias needs a name after `as`."))
+            d.message().is_some_and(|m| m.contains("This import alias needs a name after `as`."))
                 || d.message().is_some_and(|m| m.contains("import alias"))
         }),
         "expected missing-import-alias diagnostic in kitchen-sink fixture"
@@ -373,16 +326,11 @@ fn long_functions_clean_many_errors_reports_broad_late_recovery_without_noise() 
         diagnostics.len() >= 12,
         "expected many independent diagnostics in clean long-functions fixture, got {}: {:#?}",
         diagnostics.len(),
-        diagnostics
-            .iter()
-            .map(|d| (d.code(), d.display_title(), d.message()))
-            .collect::<Vec<_>>()
+        diagnostics.iter().map(|d| (d.code(), d.display_title(), d.message())).collect::<Vec<_>>()
     );
 
     assert!(
-        diagnostics
-            .iter()
-            .any(|d| d.display_title() == Some("Missing Hash Colon")),
+        diagnostics.iter().any(|d| d.display_title() == Some("Missing Hash Colon")),
         "expected missing-hash-colon diagnostic in clean long-functions fixture"
     );
     assert!(
@@ -390,22 +338,12 @@ fn long_functions_clean_many_errors_reports_broad_late_recovery_without_noise() 
         "expected missing-comma diagnostic in clean long-functions fixture"
     );
     assert!(
-        diagnostics
-            .iter()
-            .any(|d| d.display_title() == Some("Missing Else Body")),
+        diagnostics.iter().any(|d| d.display_title() == Some("Missing Else Body")),
         "expected missing-else-body diagnostic in clean long-functions fixture"
     );
     assert!(
-        diagnostics
-            .iter()
-            .filter(|d| d.display_title() == Some("Missing Hash Colon"))
-            .count()
-            >= 4
-            && diagnostics
-                .iter()
-                .filter(|d| d.code() == Some("E073"))
-                .count()
-                >= 4
+        diagnostics.iter().filter(|d| d.display_title() == Some("Missing Hash Colon")).count() >= 4
+            && diagnostics.iter().filter(|d| d.code() == Some("E073")).count() >= 4
             && diagnostics
                 .iter()
                 .filter(|d| d.display_title() == Some("Missing Else Body"))
@@ -416,10 +354,8 @@ fn long_functions_clean_many_errors_reports_broad_late_recovery_without_noise() 
     assert!(
         !diagnostics.iter().any(|d| {
             d.display_title() == Some("Unexpected Closing Delimiter")
-                || d.message()
-                    .is_some_and(|m| m.contains("Unexpected `}` outside of a block."))
-                || d.message()
-                    .is_some_and(|m| m.contains("Expected expression, found `)`."))
+                || d.message().is_some_and(|m| m.contains("Unexpected `}` outside of a block."))
+                || d.message().is_some_and(|m| m.contains("Expected expression, found `)`."))
         }),
         "did not expect obvious stray-closer fallout in clean long-functions fixture: {diagnostics:#?}"
     );
@@ -451,17 +387,13 @@ fn missing_else_brace_does_not_emit_outer_unclosed_brace() {
     let (_program, diagnostics, _) = parse_no_panic(input).expect("fixture should not panic");
 
     assert!(
-        diagnostics
-            .iter()
-            .any(|diag| diag.message().is_some_and(|m| m.contains("`else` branch"))),
+        diagnostics.iter().any(|diag| diag.message().is_some_and(|m| m.contains("`else` branch"))),
         "expected missing else-body diagnostic, got: {diagnostics:#?}"
     );
     assert!(
         !diagnostics.iter().any(|diag| {
             diag.code() == Some("E076")
-                && diag
-                    .message()
-                    .is_some_and(|m| m.contains("function `main`"))
+                && diag.message().is_some_and(|m| m.contains("function `main`"))
         }),
         "did not expect false outer unclosed-brace diagnostic, got: {diagnostics:#?}"
     );
@@ -473,17 +405,15 @@ fn missing_lambda_arrow_does_not_emit_trailing_paren_expression_error() {
     let (_program, diagnostics, _) = parse_no_panic(input).expect("fixture should not panic");
 
     assert!(
-        diagnostics.iter().any(|diag| diag
-            .message()
-            .is_some_and(|m| m.contains("lambda parameters"))),
+        diagnostics
+            .iter()
+            .any(|diag| diag.message().is_some_and(|m| m.contains("lambda parameters"))),
         "expected missing lambda arrow diagnostic, got: {diagnostics:#?}"
     );
     assert!(
         !diagnostics.iter().any(|diag| {
             diag.code() == Some("E031")
-                && diag
-                    .message()
-                    .is_some_and(|m| m.contains("Expected expression, found )"))
+                && diag.message().is_some_and(|m| m.contains("Expected expression, found )"))
         }),
         "did not expect trailing `)` expression fallout, got: {diagnostics:#?}"
     );
@@ -511,17 +441,11 @@ fn missing_import_path_points_at_import_site() {
 
     let import_diag = diagnostics
         .iter()
-        .find(|diag| {
-            diag.message()
-                .is_some_and(|m| m.contains("module path after `import`"))
-        })
+        .find(|diag| diag.message().is_some_and(|m| m.contains("module path after `import`")))
         .expect("expected import-path diagnostic");
 
     let span = import_diag.span().expect("expected import-path span");
-    assert_eq!(
-        span.start.line, 5,
-        "expected diagnostic to point at import line"
-    );
+    assert_eq!(span.start.line, 5, "expected diagnostic to point at import line");
 }
 
 #[test]
@@ -530,17 +454,13 @@ fn missing_module_brace_does_not_emit_stray_top_level_rbrace() {
     let (_program, diagnostics, _) = parse_no_panic(input).expect("fixture should not panic");
 
     assert!(
-        diagnostics
-            .iter()
-            .any(|diag| diag.message().is_some_and(|m| m.contains("module body"))),
+        diagnostics.iter().any(|diag| diag.message().is_some_and(|m| m.contains("module body"))),
         "expected missing module-body brace diagnostic, got: {diagnostics:#?}"
     );
     assert!(
         !diagnostics.iter().any(|diag| {
             diag.code() == Some("E034")
-                && diag
-                    .message()
-                    .is_some_and(|m| m.contains("Unexpected `}` outside of a block"))
+                && diag.message().is_some_and(|m| m.contains("Unexpected `}` outside of a block"))
         }),
         "did not expect stray top-level `}}` fallout, got: {diagnostics:#?}"
     );
@@ -552,10 +472,8 @@ fn parser_error_experience_recovery_fixture_keeps_followup_statement() {
     let (program, diagnostics, interner) =
         parse_no_panic(input).expect("059 parser-error recovery fixture should not panic");
 
-    let messages: Vec<String> = diagnostics
-        .iter()
-        .filter_map(|d| d.message().map(ToString::to_string))
-        .collect();
+    let messages: Vec<String> =
+        diagnostics.iter().filter_map(|d| d.message().map(ToString::to_string)).collect();
     assert!(
         messages.iter().any(|m| m.contains("Unknown keyword `def`")),
         "expected keyword-alias diagnostic"
@@ -565,9 +483,7 @@ fn parser_error_experience_recovery_fixture_keeps_followup_statement() {
         "expected contextual fat-arrow diagnostic"
     );
     assert!(
-        messages
-            .iter()
-            .any(|m| m.contains("Match arms are separated by `,` in Flux, not `|`")),
+        messages.iter().any(|m| m.contains("Match arms are separated by `,` in Flux, not `|`")),
         "expected match `|` separator diagnostic"
     );
 
@@ -583,16 +499,11 @@ fn mixed_closer_nested_delimiters_does_not_invent_outer_unclosed_brace() {
     let (program, diagnostics, interner) =
         parse_no_panic(input).expect("mixed-closer fixture should not panic");
 
-    assert!(
-        !diagnostics.is_empty(),
-        "expected parser diagnostics for mixed closer fixture"
-    );
+    assert!(!diagnostics.is_empty(), "expected parser diagnostics for mixed closer fixture");
     assert!(
         !diagnostics.iter().any(|diag| {
             diag.code() == Some("E076")
-                && diag
-                    .message()
-                    .is_some_and(|m| m.contains("function `main`"))
+                && diag.message().is_some_and(|m| m.contains("function `main`"))
         }),
         "did not expect false outer unclosed-brace diagnostic, got: {diagnostics:#?}"
     );
@@ -611,11 +522,7 @@ fn eof_truncation_fixtures_report_root_construct_diagnostics() {
             include_str!("../../examples/parser_errors/eof_after_if_condition.flx"),
             "if",
         ),
-        (
-            "eof_after_else",
-            include_str!("../../examples/parser_errors/eof_after_else.flx"),
-            "else",
-        ),
+        ("eof_after_else", include_str!("../../examples/parser_errors/eof_after_else.flx"), "else"),
         (
             "eof_after_match_open",
             include_str!("../../examples/parser_errors/eof_after_match_open.flx"),
@@ -653,16 +560,12 @@ fn eof_truncation_fixtures_report_root_construct_diagnostics() {
             assert!(
                 !diagnostics.iter().any(|diag| {
                     diag.code() == Some("E076")
-                        && diag
-                            .message()
-                            .is_some_and(|m| m.contains("function `main`"))
+                        && diag.message().is_some_and(|m| m.contains("function `main`"))
                 }),
                 "expected `{name}` to prefer the inner construct over the outer function block, got: {diagnostics:#?}"
             );
         }
-        let first = diagnostics
-            .first()
-            .expect("expected eof-truncation diagnostic");
+        let first = diagnostics.first().expect("expected eof-truncation diagnostic");
         let span = first.span().expect("expected eof-truncation span");
         assert!(
             span.start.line <= source_line_count + 1,
@@ -729,18 +632,12 @@ fn nested_multi_declaration_errors_are_all_reported() {
         "expected multiple independent diagnostics, got: {diagnostics:#?}"
     );
     assert!(
-        diagnostics
-            .iter()
-            .filter_map(|d| d.message())
-            .any(|m| m.contains("constructor fields"))
+        diagnostics.iter().filter_map(|d| d.message()).any(|m| m.contains("constructor fields"))
             && diagnostics
                 .iter()
                 .filter_map(|d| d.message())
                 .any(|m| m.contains("effect operation signature"))
-            && diagnostics
-                .iter()
-                .filter_map(|d| d.message())
-                .any(|m| m.contains("match arm")),
+            && diagnostics.iter().filter_map(|d| d.message()).any(|m| m.contains("match arm")),
         "expected data/effect/match diagnostics together, got: {diagnostics:#?}"
     );
 }
@@ -783,9 +680,7 @@ fn t1_named_delimiter_fixtures_keep_followup_statement_when_recoverable() {
         let (program, diagnostics, interner) =
             parse_no_panic(input).expect("T1 fixture parse should not panic");
         assert!(
-            diagnostics
-                .iter()
-                .any(|d| d.code() == Some("E034") && d.message().is_some()),
+            diagnostics.iter().any(|d| d.code() == Some("E034") && d.message().is_some()),
             "expected E034 parser diagnostic for case `{name}`"
         );
         if expect_followup {
@@ -923,11 +818,8 @@ fn t15_broad_contextual_expect_peek_fixtures_emit_e034_and_recover() {
                             .is_some_and(|m| m.contains("handle arm") && m.contains("`->`"))
                 })
                 .expect("expected exact handle-arm E034 diagnostic");
-            let first_hint = diag
-                .hints()
-                .first()
-                .map(|h| h.text.as_str())
-                .expect("expected handle-arm hint");
+            let first_hint =
+                diag.hints().first().map(|h| h.text.as_str()).expect("expected handle-arm hint");
             assert_eq!(
                 first_hint, "Handle arms use `op(resume, arg1, ...) -> body`.",
                 "handle-arm hint text regressed"
@@ -970,13 +862,8 @@ fn t16_contextual_recovery_fixtures_emit_e034_and_recover() {
             .iter()
             .find(|d| d.code() == Some("E034") && d.message() == Some(expected_message))
             .unwrap_or_else(|| panic!("expected exact E034 message for case `{name}`"));
-        let msg = diag
-            .message()
-            .unwrap_or_else(|| panic!("expected message for case `{name}`"));
-        assert_eq!(
-            msg, expected_message,
-            "unexpected E034 message for case `{name}`"
-        );
+        let msg = diag.message().unwrap_or_else(|| panic!("expected message for case `{name}`"));
+        assert_eq!(msg, expected_message, "unexpected E034 message for case `{name}`");
         assert_ne!(
             msg.trim(),
             "Unexpected token.",
@@ -987,10 +874,7 @@ fn t16_contextual_recovery_fixtures_emit_e034_and_recover() {
             .first()
             .map(|h| h.text.as_str())
             .unwrap_or_else(|| panic!("expected hint for case `{name}`"));
-        assert_eq!(
-            first_hint, expected_hint,
-            "unexpected E034 hint for case `{name}`"
-        );
+        assert_eq!(first_hint, expected_hint, "unexpected E034 hint for case `{name}`");
         assert!(
             has_let_binding(&program, &interner, "after"),
             "expected trailing `let after` to remain after recovery for case `{name}`"

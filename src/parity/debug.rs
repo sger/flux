@@ -98,9 +98,7 @@ fn work_dir(file: &Path, way: Way) -> PathBuf {
         .file_stem()
         .map(|stem| stem.to_string_lossy().into_owned())
         .unwrap_or_else(|| "fixture".to_string());
-    PathBuf::from("target/parity-cache")
-        .join(way.to_string())
-        .join(stem)
+    PathBuf::from("target/parity-cache").join(way.to_string()).join(stem)
 }
 
 fn failure(way: Way, message: &str) -> RunResult {
@@ -221,9 +219,7 @@ pub fn find_lldb() -> Option<Vec<String>> {
     if let Some(path) = std::env::var_os("FLUX_LLDB") {
         return Some(vec![path.to_string_lossy().into_owned()]);
     }
-    for name in [
-        "lldb", "lldb-18", "lldb-19", "lldb-20", "lldb-21", "lldb-22",
-    ] {
+    for name in ["lldb", "lldb-18", "lldb-19", "lldb-20", "lldb-21", "lldb-22"] {
         let found = Command::new(name)
             .arg("--version")
             .output()
@@ -265,9 +261,7 @@ fn run_lldb(
         ));
     }
     let Some(lldb) = find_lldb() else {
-        return Err(format!(
-            "{NATIVE_DEBUG_SKIPPED}: lldb not found (set FLUX_LLDB)"
-        ));
+        return Err(format!("{NATIVE_DEBUG_SKIPPED}: lldb not found (set FLUX_LLDB)"));
     };
     let dir = std::fs::canonicalize(dir).map_err(|err| err.to_string())?;
     let program = dir.join("app");
@@ -286,10 +280,8 @@ fn run_lldb(
     }
     let lldb_script = dir.join("flux_lldb.py");
     std::fs::write(&lldb_script, crate::debuginfo::LLDB_SCRIPT).map_err(|err| err.to_string())?;
-    let file_name = file
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
+    let file_name =
+        file.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
 
     let mut commands = vec![
         "settings set target.load-script-from-symbol-file false".to_string(),
@@ -315,10 +307,8 @@ fn run_lldb(
             "continue" | "c" if !started => {
                 started = true;
                 // The program's own output stays out of the transcript.
-                commands.push(format!(
-                    "process launch -o \"{}\"",
-                    dir.join("output.txt").display()
-                ));
+                commands
+                    .push(format!("process launch -o \"{}\"", dir.join("output.txt").display()));
                 WHERE.to_string()
             }
             "continue" | "c" => {
@@ -357,16 +347,11 @@ fn run_lldb(
         command.arg("-o").arg(line);
     }
     // One worker, as `flux debug` runs async code (S8).
-    command
-        .arg(&program)
-        .current_dir(&dir)
-        .env("FLUX_WORKERS", "1");
+    command.arg(&program).current_dir(&dir).env("FLUX_WORKERS", "1");
     let (_, stdout, stderr) = run(command, timeout * 2, "lldb")?;
     let transcript = format!("{stdout}{stderr}");
     if transcript.contains("script interpreter") {
-        return Err(format!(
-            "{NATIVE_DEBUG_SKIPPED}: this lldb runs no Python scripts"
-        ));
+        return Err(format!("{NATIVE_DEBUG_SKIPPED}: this lldb runs no Python scripts"));
     }
     Ok((normalize_lldb(&transcript), transcript))
 }
@@ -419,10 +404,7 @@ pub fn normalize_lldb(transcript: &str) -> String {
 /// VM, `thread 3` natively), and, for a caught runtime error,
 /// `exception <kind>`.
 fn push_stop(out: &mut Transcript, rest: &str) {
-    let (rest, notes) = match rest
-        .strip_suffix(')')
-        .and_then(|rest| rest.rsplit_once(" ("))
-    {
+    let (rest, notes) = match rest.strip_suffix(')').and_then(|rest| rest.rsplit_once(" (")) {
         Some((rest, notes)) if !notes.contains(" at ") => (rest, notes),
         _ => (rest, ""),
     };
@@ -439,16 +421,11 @@ fn push_stop(out: &mut Transcript, rest: &str) {
     };
     out.push(format!("stop {}{thread}", place_of(function, place)));
     if let Some(error) = why.strip_prefix("exception (") {
-        let kind = [
-            "panic",
-            "division by zero",
-            "unhandled effect",
-            "fiber failure",
-            "runtime error",
-        ]
-        .into_iter()
-        .find(|kind| error.starts_with(kind))
-        .unwrap_or("runtime error");
+        let kind =
+            ["panic", "division by zero", "unhandled effect", "fiber failure", "runtime error"]
+                .into_iter()
+                .find(|kind| error.starts_with(kind))
+                .unwrap_or("runtime error");
         out.push(format!("exception {kind}"));
     }
 }
@@ -556,12 +533,8 @@ fn parse_frame(line: &str) -> Option<String> {
     // `   (suspended)` and `   (suspended, not resumable)`: native code
     // cannot tell whether a handler will resume. `   [inlined]`: the VM
     // inlines nothing, and native code's lambda is the VM's frame.
-    let rest = rest
-        .split_once("   (suspended")
-        .map_or(rest, |(rest, _)| rest);
-    let rest = rest
-        .split_once("   [inlined]")
-        .map_or(rest, |(rest, _)| rest);
+    let rest = rest.split_once("   (suspended").map_or(rest, |(rest, _)| rest);
+    let rest = rest.split_once("   [inlined]").map_or(rest, |(rest, _)| rest);
     let (function, place) = rest.rsplit_once(" at ")?;
     Some(format!("frame {}", place_of(function, place)))
 }
@@ -573,11 +546,7 @@ fn parse_frame(line: &str) -> Option<String> {
 /// A fixture's own file is named in lower case.
 fn place_of(function: &str, place: &str) -> String {
     let file = file_line(place);
-    if is_library_file(&file) {
-        "<library>".to_string()
-    } else {
-        format!("{function} {file}")
-    }
+    if is_library_file(&file) { "<library>".to_string() } else { format!("{function} {file}") }
 }
 
 fn is_library_file(file_line: &str) -> bool {
@@ -587,9 +556,7 @@ fn is_library_file(file_line: &str) -> bool {
 /// `* 3 fast [stopped] at app.flx:14:5` → `thread 3 fast [stopped]
 /// app.flx:14`, from `threads` (S8).
 fn parse_thread(line: &str) -> Option<String> {
-    let rest = line
-        .strip_prefix("* ")
-        .or_else(|| line.strip_prefix("  "))?;
+    let rest = line.strip_prefix("* ").or_else(|| line.strip_prefix("  "))?;
     let (number, rest) = rest.split_once(' ')?;
     number.parse::<u64>().ok()?;
     let (name, rest) = rest.split_once(" [")?;
@@ -598,11 +565,7 @@ fn parse_thread(line: &str) -> Option<String> {
         .strip_prefix(" at ")
         .map(|place| {
             let file = file_line(place);
-            if is_library_file(&file) {
-                " <library>".to_string()
-            } else {
-                format!(" {file}")
-            }
+            if is_library_file(&file) { " <library>".to_string() } else { format!(" {file}") }
         })
         .unwrap_or_default();
     Some(format!("thread {number} {name} [{state}]{place}"))
@@ -618,9 +581,7 @@ fn parse_handler(line: &str) -> Option<String> {
     let effect = rest.split(' ').next()?;
     let is_handler = !rest.contains(" at ")
         && effect.chars().next().is_some_and(char::is_uppercase)
-        && effect
-            .chars()
-            .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
+        && effect.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '.')
         && (rest == effect || rest.starts_with(&format!("{effect} state = ")));
     is_handler.then(|| format!("handler {rest}"))
 }
@@ -641,9 +602,7 @@ fn parse_value(line: &str) -> Option<Value> {
     }
     let valid = !name.is_empty()
         && !name.starts_with(char::is_whitespace)
-        && name
-            .chars()
-            .all(|c| c.is_alphanumeric() || c == '_' || c == '.' || c == '\'');
+        && name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '.' || c == '\'');
     valid.then(|| Value::Variable(format!("{name} = {value}")))
 }
 
@@ -797,10 +756,8 @@ finished";
     #[test]
     fn native_may_still_show_what_the_vm_moved_but_nothing_else_differs() {
         let vm = run(Way::VmDebug, "stop area a.flx:3\nh = 4\nw = 3\nfinished");
-        let more = run(
-            Way::LlvmDebug,
-            "stop area a.flx:3\nh = 4\nshape = Rect(3, 4)\nw = 3\nfinished",
-        );
+        let more =
+            run(Way::LlvmDebug, "stop area a.flx:3\nh = 4\nshape = Rect(3, 4)\nw = 3\nfinished");
         assert!(outputs_match(&vm, &more));
         assert!(outputs_match(&more, &vm));
         let other_value = run(Way::LlvmDebug, "stop area a.flx:3\nh = 5\nw = 3\nfinished");

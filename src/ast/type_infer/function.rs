@@ -150,11 +150,7 @@ impl<'a> InferCtx<'a> {
         forall.sort_unstable();
         forall.dedup();
         let constraints = self.declared_scheme_constraints(type_params, &tp_map);
-        Some(Scheme {
-            forall,
-            constraints,
-            infer_type: fn_ty,
-        })
+        Some(Scheme { forall, constraints, infer_type: fn_ty })
     }
 
     /// The declared bounds of `type_params`, as the constraints of the
@@ -209,10 +205,7 @@ impl<'a> InferCtx<'a> {
         &mut self,
         type_params: &[crate::syntax::statement::FunctionTypeParam],
     ) -> HashMap<Identifier, TypeVarId> {
-        type_params
-            .iter()
-            .map(|param| (param.name, self.env.alloc_type_var_id()))
-            .collect()
+        type_params.iter().map(|param| (param.name, self.env.alloc_type_var_id())).collect()
     }
 
     /// Emit class constraints declared inline on function generic parameters.
@@ -281,11 +274,8 @@ impl<'a> InferCtx<'a> {
         let Some(class_env) = self.class_env.as_ref() else {
             return false;
         };
-        let matches: Vec<_> = class_env
-            .classes
-            .values()
-            .filter(|def| def.name == short_name)
-            .collect();
+        let matches: Vec<_> =
+            class_env.classes.values().filter(|def| def.name == short_name).collect();
         if matches.len() < 2 {
             return false;
         }
@@ -296,12 +286,7 @@ impl<'a> InferCtx<'a> {
         // `Semigroup` to every module, so without this any program declaring
         // a class of one of those names is ambiguous by construction and
         // cannot name its own class in a bound.
-        if matches
-            .iter()
-            .filter(|def| def.module == self.current_module)
-            .count()
-            == 1
-        {
+        if matches.iter().filter(|def| def.module == self.current_module).count() == 1 {
             return false;
         }
 
@@ -489,10 +474,7 @@ impl<'a> InferCtx<'a> {
     fn is_settled(&self, ty: &InferType) -> bool {
         ty.is_concrete()
             || (crate::types::assoc_type::contains_unreduced(ty)
-                && ty
-                    .free_type_vars()
-                    .iter()
-                    .all(|var| self.skolem_vars.contains(var)))
+                && ty.free_type_vars().iter().all(|var| self.skolem_vars.contains(var)))
     }
 
     /// Unify the body type against the declared return annotation, emitting
@@ -600,10 +582,8 @@ impl<'a> InferCtx<'a> {
         declared_effect_row: &InferEffectRow,
         constraint_start: constraint::CaptureWindow,
     ) {
-        let final_param_tys: Vec<InferType> = param_tys
-            .iter()
-            .map(|ty| ty.apply_type_subst(&self.subst))
-            .collect();
+        let final_param_tys: Vec<InferType> =
+            param_tys.iter().map(|ty| ty.apply_type_subst(&self.subst)).collect();
         let effect_row = declared_effect_row.apply_row_subst(&self.subst);
         let fn_ty = InferType::Fun(final_param_tys, Box::new(ret_ty.clone()), effect_row);
 
@@ -640,8 +620,7 @@ impl<'a> InferCtx<'a> {
                 Scheme::mono(fn_ty)
             };
 
-        self.binding_schemes_by_span
-            .insert(binding_span_key(fn_span), scheme.clone());
+        self.binding_schemes_by_span.insert(binding_span_key(fn_span), scheme.clone());
         self.env.bind_with_span(name, scheme, Some(fn_span));
     }
 
@@ -658,12 +637,7 @@ impl<'a> InferCtx<'a> {
         fn_ty: &InferType,
         window: constraint::CaptureWindow,
     ) {
-        if self
-            .body_facts
-            .arity_mismatches
-            .iter()
-            .any(|&position| position >= window.simple)
-        {
+        if self.body_facts.arity_mismatches.iter().any(|&position| position >= window.simple) {
             return;
         }
         let also_determined: HashSet<TypeVarId> = self
@@ -683,11 +657,8 @@ impl<'a> InferCtx<'a> {
             self.interner,
         );
         for (constraint, diagnostic) in ambiguous {
-            let key = (
-                constraint.span.start.line,
-                constraint.span.start.column,
-                constraint.class_id,
-            );
+            let key =
+                (constraint.span.start.line, constraint.span.start.column, constraint.class_id);
             if self.body_facts.reported_ambiguous.insert(key) {
                 self.errors.push(diagnostic);
             }
@@ -722,10 +693,7 @@ impl<'a> InferCtx<'a> {
         if !type_params.is_empty() {
             return true;
         }
-        let unconstrained = self
-            .class_constraints
-            .captured_since(constraint_start)
-            .is_empty()
+        let unconstrained = self.class_constraints.captured_since(constraint_start).is_empty()
             && !self.shares_var_with_pending_field_predicate(fn_ty);
         !param_tys.is_empty() && unconstrained
     }
@@ -812,11 +780,8 @@ impl<'a> InferCtx<'a> {
         ) = (&placeholder, fn_ty)
             && placeholder_params.len() == params.len()
         {
-            let pairs: Vec<(InferType, InferType)> = placeholder_params
-                .iter()
-                .cloned()
-                .zip(params.iter().cloned())
-                .collect();
+            let pairs: Vec<(InferType, InferType)> =
+                placeholder_params.iter().cloned().zip(params.iter().cloned()).collect();
             let placeholder_ret = (**placeholder_ret).clone();
             let ret = (**ret).clone();
             for (expected, actual) in pairs {
@@ -847,10 +812,8 @@ impl<'a> InferCtx<'a> {
         current_ret: &InferType,
     ) -> InferType {
         self.env.enter_scope();
-        let refined_param_tys: Vec<InferType> = param_tys
-            .iter()
-            .map(|ty| ty.apply_type_subst(&self.subst))
-            .collect();
+        let refined_param_tys: Vec<InferType> =
+            param_tys.iter().map(|ty| ty.apply_type_subst(&self.subst)).collect();
         for (param_name, param_ty) in parameters.iter().zip(refined_param_tys.iter()) {
             self.env.bind(*param_name, Scheme::mono(param_ty.clone()));
         }
@@ -890,8 +853,7 @@ impl<'a> InferCtx<'a> {
             // increase precision and would otherwise fall back to an unresolved variable.
             current_resolved
         } else {
-            self.unify_silent(&current_resolved, &refined_resolved)
-                .apply_type_subst(&self.subst)
+            self.unify_silent(&current_resolved, &refined_resolved).apply_type_subst(&self.subst)
         }
     }
 
@@ -914,10 +876,7 @@ struct SelfCallSearch {
 impl SelfCallSearch {
     /// Create a new self call search instance for `target_name`.
     fn new(target_name: Identifier) -> Self {
-        Self {
-            target_name,
-            found: false,
-        }
+        Self { target_name, found: false }
     }
 }
 

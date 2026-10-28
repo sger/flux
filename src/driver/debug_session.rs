@@ -102,10 +102,7 @@ impl CommandObserver {
             match script {
                 Some(path) => {
                     let text = std::fs::read_to_string(path).map_err(|err| {
-                        format!(
-                            "Error: cannot read debugger script {}: {err}",
-                            path.display()
-                        )
+                        format!("Error: cannot read debugger script {}: {err}", path.display())
                     })?;
                     let lines: Vec<String> = text.lines().map(str::to_string).collect();
                     (Box::new(lines.into_iter()), true, false)
@@ -117,12 +114,7 @@ impl CommandObserver {
                     (Box::new(StdinLines), !interactive, interactive)
                 }
             };
-        Ok(Self {
-            commands,
-            echo,
-            interactive,
-            program_path: program_path.to_path_buf(),
-        })
+        Ok(Self { commands, echo, interactive, program_path: program_path.to_path_buf() })
     }
 
     fn next_command(&mut self) -> Option<String> {
@@ -244,10 +236,7 @@ impl CommandObserver {
     fn breakpoint_target(&self, spec: &str) -> Option<(String, usize)> {
         match spec.rsplit_once(':') {
             Some((file, line)) => Some((file.to_string(), line.trim().parse().ok()?)),
-            None => Some((
-                self.program_path.display().to_string(),
-                spec.trim().parse().ok()?,
-            )),
+            None => Some((self.program_path.display().to_string(), spec.trim().parse().ok()?)),
         }
     }
 
@@ -258,14 +247,10 @@ impl CommandObserver {
         };
         match inspector.set_breakpoint(&file, line) {
             Ok(set) if set == line => say(&format!("breakpoint at {}:{line}", short(&file))),
-            Ok(set) => say(&format!(
-                "no code on line {line}; breakpoint at {}:{set}",
-                short(&file)
-            )),
-            Err(_) => say(&format!(
-                "no code at or after line {line} of {}",
-                short(&file)
-            )),
+            Ok(set) => {
+                say(&format!("no code on line {line}; breakpoint at {}:{set}", short(&file)))
+            }
+            Err(_) => say(&format!("no code at or after line {line} of {}", short(&file))),
         }
     }
 
@@ -285,11 +270,9 @@ impl CommandObserver {
 impl VmObserver for CommandObserver {
     fn on_start(&mut self, inspector: &mut Inspector<'_>) -> Resume {
         if self.interactive {
-            say(
-                "The program has not started. Set breakpoints with `break <line>`, then \
+            say("The program has not started. Set breakpoints with `break <line>`, then \
                  `continue` to run to them, or `step` to stop at its first line. `help` lists \
-                 the commands.",
-            );
+                 the commands.");
         }
         self.command_loop(inspector, false)
     }
@@ -321,10 +304,8 @@ impl VmObserver for CommandObserver {
                     frame.name,
                     inspector.position()
                 ));
-                if let Some(text) = frame
-                    .file
-                    .as_deref()
-                    .and_then(|file| source_line(file, frame.line))
+                if let Some(text) =
+                    frame.file.as_deref().and_then(|file| source_line(file, frame.line))
                 {
                     say(&format!("  {:>4} | {text}", frame.line));
                 }
@@ -386,9 +367,7 @@ fn short(file: &str) -> String {
 
 fn source_line(file: &str, line: usize) -> Option<String> {
     let text = std::fs::read_to_string(file).ok()?;
-    text.lines()
-        .nth(line.checked_sub(1)?)
-        .map(|line| line.trim_end().to_string())
+    text.lines().nth(line.checked_sub(1)?).map(|line| line.trim_end().to_string())
 }
 
 fn backtrace(inspector: &Inspector<'_>) {
@@ -416,9 +395,7 @@ fn backtrace(inspector: &Inspector<'_>) {
         number += 1;
         if let Some((count, last)) = &frame.elided {
             let calls = if *count == 1 { "call" } else { "calls" };
-            say(&format!(
-                "   … {count} {calls} elided by tail calls (last: {last})"
-            ));
+            say(&format!("   … {count} {calls} elided by tail calls (last: {last})"));
         }
     }
 }
@@ -465,20 +442,10 @@ fn threads(inspector: &mut Inspector<'_>) {
             .and_then(|()| inspector.stack().into_iter().next())
             .and_then(|frame| {
                 let file = frame.file?;
-                Some(format!(
-                    " at {}:{}:{}",
-                    short(&file),
-                    frame.line,
-                    frame.column
-                ))
+                Some(format!(" at {}:{}:{}", short(&file), frame.line, frame.column))
             })
             .unwrap_or_default();
-        say(&format!(
-            "{mark} {} {} [{}]{place}",
-            thread.id,
-            thread.name,
-            thread.state.describe()
-        ));
+        say(&format!("{mark} {} {} [{}]{place}", thread.id, thread.name, thread.state.describe()));
     }
     let _ = inspector.select_thread(looking_at);
 }
@@ -538,11 +505,7 @@ fn locals(inspector: &Inspector<'_>) {
         say(&format!("{} = {}", variable.name, variable.value.render()));
     }
     for variable in captured {
-        say(&format!(
-            "{} = {} (captured)",
-            variable.name,
-            variable.value.render()
-        ));
+        say(&format!("{} = {} (captured)", variable.name, variable.value.render()));
     }
 }
 

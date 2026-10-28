@@ -88,23 +88,11 @@ pub enum CmpOp {
 pub enum LirInstr {
     // ── Memory ──────────────────────────────────────────────────────
     /// Load a NaN-boxed word from `ptr + offset`.
-    Load {
-        dst: LirVar,
-        ptr: LirVar,
-        offset: i32,
-    },
+    Load { dst: LirVar, ptr: LirVar, offset: i32 },
     /// Store a NaN-boxed word to `ptr + offset`.
-    Store {
-        ptr: LirVar,
-        offset: i32,
-        val: LirVar,
-    },
+    Store { ptr: LirVar, offset: i32, val: LirVar },
     /// Store a raw 32-bit integer to `ptr + offset`.
-    StoreI32 {
-        ptr: LirVar,
-        offset: i32,
-        value: i32,
-    },
+    StoreI32 { ptr: LirVar, offset: i32, value: i32 },
     /// Allocate `size` bytes of heap memory.  Returns a raw pointer
     /// (not yet NaN-boxed).  The caller must `TagPtr` before storing.
     Alloc {
@@ -144,19 +132,9 @@ pub enum LirInstr {
     /// Integer multiplication on raw (untagged) i64 values.
     IMul { dst: LirVar, a: LirVar, b: LirVar },
     /// Signed integer division on raw i64 values.
-    IDiv {
-        dst: LirVar,
-        a: LirVar,
-        b: LirVar,
-        span: Span,
-    },
+    IDiv { dst: LirVar, a: LirVar, b: LirVar, span: Span },
     /// Signed integer remainder on raw i64 values.
-    IRem {
-        dst: LirVar,
-        a: LirVar,
-        b: LirVar,
-        span: Span,
-    },
+    IRem { dst: LirVar, a: LirVar, b: LirVar, span: Span },
     /// Integer bitwise and on raw i64 values.
     IAnd { dst: LirVar, a: LirVar, b: LirVar },
     /// Integer bitwise or on raw i64 values.
@@ -168,21 +146,12 @@ pub enum LirInstr {
     /// Integer arithmetic right shift on raw i64 values.
     IShr { dst: LirVar, a: LirVar, b: LirVar },
     /// Integer comparison on raw i64 values.  Result is 0 or 1.
-    ICmp {
-        dst: LirVar,
-        op: CmpOp,
-        a: LirVar,
-        b: LirVar,
-    },
+    ICmp { dst: LirVar, op: CmpOp, a: LirVar, b: LirVar },
 
     // ── C runtime calls (CorePrimOp dispatch) ───────────────────────
     /// Call a C runtime function identified by `CorePrimOp`.
     /// Arguments and result are NaN-boxed i64 values.
-    PrimCall {
-        dst: Option<LirVar>,
-        op: CorePrimOp,
-        args: Vec<LirVar>,
-    },
+    PrimCall { dst: Option<LirVar>, op: CorePrimOp, args: Vec<LirVar> },
 
     // ── Aether reference counting ───────────────────────────────────
     /// Increment the reference count of a NaN-boxed value.
@@ -205,19 +174,11 @@ pub enum LirInstr {
     /// `func_id` is the stable unique identity of the target function,
     /// resolved via `LirProgram.func_index` by each backend.
     /// `captures` are outer-scope LirVars whose values are baked into the closure.
-    MakeClosure {
-        dst: LirVar,
-        func_id: LirFuncId,
-        captures: Vec<LirVar>,
-    },
+    MakeClosure { dst: LirVar, func_id: LirFuncId, captures: Vec<LirVar> },
     /// Create a closure from an externally linked top-level function symbol.
     /// Used by the native backend when an imported public function is referenced
     /// as a first-class value across module boundaries.
-    MakeExternClosure {
-        dst: LirVar,
-        symbol: String,
-        arity: usize,
-    },
+    MakeExternClosure { dst: LirVar, symbol: String, arity: usize },
 
     // ── Collection construction ────────────────────────────────────
     /// Build an array from elements on the stack.
@@ -236,11 +197,7 @@ pub enum LirInstr {
     ///
     /// High-level instruction: the bytecode emitter maps this to `OpTupleIndex`,
     /// the LLVM emitter expands to UntagPtr + Load at the field offset.
-    TupleGet {
-        dst: LirVar,
-        tuple: LirVar,
-        index: usize,
-    },
+    TupleGet { dst: LirVar, tuple: LirVar, index: usize },
 
     // ── Constructor creation ────────────────────────────────────────
     /// Build a constructor value from a tag and fields.
@@ -315,23 +272,11 @@ pub enum LirTerminator {
     /// Unconditional jump to a block.
     Jump(BlockId),
     /// Conditional branch on a boolean (0 or 1).
-    Branch {
-        cond: LirVar,
-        then_block: BlockId,
-        else_block: BlockId,
-    },
+    Branch { cond: LirVar, then_block: BlockId, else_block: BlockId },
     /// Multi-way switch on an integer tag.
-    Switch {
-        scrutinee: LirVar,
-        cases: Vec<(i64, BlockId)>,
-        default: BlockId,
-    },
+    Switch { scrutinee: LirVar, cases: Vec<(i64, BlockId)>, default: BlockId },
     /// Tail call (reuses the current stack frame).
-    TailCall {
-        func: LirVar,
-        args: Vec<LirVar>,
-        kind: CallKind,
-    },
+    TailCall { func: LirVar, args: Vec<LirVar>, kind: CallKind },
     /// Non-tail function call with a continuation block.
     /// The result is bound to `dst` in `cont`.
     Call {
@@ -365,11 +310,7 @@ pub enum LirTerminator {
     /// Each arm has a constructor tag, field binders, and a target block.
     /// Field binders are LirVars that receive the extracted constructor fields
     /// at the start of the target block.
-    MatchCtor {
-        scrutinee: LirVar,
-        arms: Vec<CtorArm>,
-        default: BlockId,
-    },
+    MatchCtor { scrutinee: LirVar, arms: Vec<CtorArm>, default: BlockId },
     /// Marks unreachable code (after panic, exhaustive match, etc.).
     Unreachable,
 }
@@ -417,10 +358,7 @@ pub enum CallKind {
     Direct { func_id: LirFuncId },
     /// Known nested function with captures — emit a direct call to the
     /// capture-worker entry using the provided capture values followed by args.
-    DirectClosure {
-        func_id: LirFuncId,
-        captures: Vec<LirVar>,
-    },
+    DirectClosure { func_id: LirFuncId, captures: Vec<LirVar> },
     /// Known imported top-level function — emit direct call to an external symbol.
     DirectExtern { symbol: String },
     /// Unknown closure or higher-order value — dispatch via `flux_call_closure`.
@@ -474,22 +412,14 @@ pub struct LirLoc {
 }
 
 impl LirLoc {
-    pub const NONE: LirLoc = LirLoc {
-        line: 0,
-        col: 0,
-        inlined: 0,
-    };
+    pub const NONE: LirLoc = LirLoc { line: 0, col: 0, inlined: 0 };
 
     /// From a source span; a span the compiler made up has no location.
     pub fn from_span(span: crate::diagnostics::position::Span) -> Self {
         if span.start.line == 0 {
             return Self::NONE;
         }
-        LirLoc {
-            line: span.start.line as u32,
-            col: span.start.column as u32 + 1,
-            inlined: 0,
-        }
+        LirLoc { line: span.start.line as u32, col: span.start.column as u32 + 1, inlined: 0 }
     }
 
     pub fn is_none(self) -> bool {
@@ -680,9 +610,7 @@ pub fn is_direct_async_extern_symbol(symbol: &str) -> bool {
             // `sync` must not match `sync_id`; the latter has its own entry.
             // Still allow mangled symbols that end in `_Flow_Event_sync`.
             normalized == *needle
-                || normalized
-                    .strip_suffix(needle)
-                    .is_some_and(|prefix| prefix.ends_with('_'))
+                || normalized.strip_suffix(needle).is_some_and(|prefix| prefix.ends_with('_'))
         } else {
             normalized.contains(needle)
         }

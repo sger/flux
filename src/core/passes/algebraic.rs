@@ -58,16 +58,11 @@ pub fn algebraic_simplify(expr: CoreExpr) -> CoreExpr {
                     CoreExpr::Lit(CoreLit::Float(0.0), span)
                 }
 
-                (
-                    CorePrimOp::Not,
-                    [
-                        CoreExpr::PrimOp {
-                            op: CorePrimOp::Not,
-                            args: inner,
-                            ..
-                        },
-                    ],
-                ) if inner.len() == 1 && expr_is_known_bool(&inner[0]) => inner[0].clone(),
+                (CorePrimOp::Not, [CoreExpr::PrimOp { op: CorePrimOp::Not, args: inner, .. }])
+                    if inner.len() == 1 && expr_is_known_bool(&inner[0]) =>
+                {
+                    inner[0].clone()
+                }
                 (CorePrimOp::And, [lhs, CoreExpr::Lit(CoreLit::Bool(true), _)])
                     if expr_is_known_bool(lhs) =>
                 {

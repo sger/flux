@@ -54,23 +54,14 @@ pub fn runtime_contract_from_annotations(
 ) -> Option<FunctionContract> {
     let params = parameter_types
         .iter()
-        .map(|ty| {
-            ty.as_ref()
-                .and_then(|t| convert_type_expr_for_contract(t, interner))
-        })
+        .map(|ty| ty.as_ref().and_then(|t| convert_type_expr_for_contract(t, interner)))
         .collect::<Vec<_>>();
-    let ret = return_type
-        .as_ref()
-        .and_then(|ty| convert_type_expr_for_contract(ty, interner));
+    let ret = return_type.as_ref().and_then(|ty| convert_type_expr_for_contract(ty, interner));
     if !params.iter().any(|t| t.is_some()) && ret.is_none() && effects.is_empty() {
         None
     } else {
         let effects = crate::syntax::effect_expr::EffectExpr::sorted_names(effects);
-        Some(FunctionContract {
-            params,
-            ret,
-            effects,
-        })
+        Some(FunctionContract { params, ret, effects })
     }
 }
 
@@ -94,9 +85,9 @@ fn convert_type_expr_for_contract(ty: &TypeExpr, interner: &Interner) -> Option<
                     Box::new(convert_type_expr_for_contract(&args[0], interner)?),
                     Box::new(convert_type_expr_for_contract(&args[1], interner)?),
                 )),
-                ("Array", 1) => Some(RuntimeType::Array(Box::new(
-                    convert_type_expr_for_contract(&args[0], interner)?,
-                ))),
+                ("Array", 1) => Some(RuntimeType::Array(Box::new(convert_type_expr_for_contract(
+                    &args[0], interner,
+                )?))),
                 ("Map", 2) => Some(RuntimeType::Map(
                     Box::new(convert_type_expr_for_contract(&args[0], interner)?),
                     Box::new(convert_type_expr_for_contract(&args[1], interner)?),
@@ -126,10 +117,7 @@ mod tests {
         // a cached interface differed from one compilation to the next.
         let span = Span::default();
         let row = (1..32)
-            .map(|n| EffectExpr::Named {
-                name: Symbol::new(n),
-                span,
-            })
+            .map(|n| EffectExpr::Named { name: Symbol::new(n), span })
             .reduce(|left, right| EffectExpr::Add {
                 left: Box::new(left),
                 right: Box::new(right),

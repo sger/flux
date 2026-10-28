@@ -139,9 +139,9 @@ pub fn plan_block(stmts: &[Statement]) -> Vec<PlanItem<'_>> {
         .iter()
         .map(|&index| {
             let refs = match &stmts[index] {
-                Statement::Function {
-                    parameters, body, ..
-                } => collect_free_vars_in_function_body(parameters, body),
+                Statement::Function { parameters, body, .. } => {
+                    collect_free_vars_in_function_body(parameters, body)
+                }
                 _ => HashSet::new(),
             };
             (index, refs)
@@ -203,11 +203,7 @@ fn group_anchor(
                 .iter()
                 .any(|name| members.iter().any(|m| references[m].contains(name)))
     });
-    if reads_intervening_binding {
-        last
-    } else {
-        first
-    }
+    if reads_intervening_binding { last } else { first }
 }
 
 /// Order the nodes so that each comes after everything it depends on.
@@ -270,10 +266,8 @@ fn topological_order(
                 }
             }
             Node::Group { members, .. } => {
-                let group_refs: HashSet<Identifier> = members
-                    .iter()
-                    .flat_map(|m| references[m].iter().copied())
-                    .collect();
+                let group_refs: HashSet<Identifier> =
+                    members.iter().flat_map(|m| references[m].iter().copied()).collect();
 
                 for (other, item) in nodes.iter().enumerate() {
                     match item {
@@ -360,11 +354,7 @@ mod tests {
         let lexer = Lexer::new(source);
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let interner = parser.take_interner();
 
         let describe = |stmt: &Statement, interner: &Interner| match stmt {
@@ -392,10 +382,7 @@ mod tests {
         // The regression: source order would put `a` first, and Core lowering
         // folds the plan from the back, so `a` would become the outermost
         // binding and close over b's uninitialised slot.
-        assert_eq!(
-            plan_names("fn a() { b() }\nfn b() { 41 }\n"),
-            vec!["b", "a"]
-        );
+        assert_eq!(plan_names("fn a() { b() }\nfn b() { 41 }\n"), vec!["b", "a"]);
     }
 
     #[test]
@@ -417,10 +404,7 @@ mod tests {
 
     #[test]
     fn unrelated_definitions_keep_source_order() {
-        assert_eq!(
-            plan_names("fn a() { 1 }\nfn b() { 2 }\nfn c() { 3 }\n"),
-            vec!["a", "b", "c"]
-        );
+        assert_eq!(plan_names("fn a() { 1 }\nfn b() { 2 }\nfn c() { 3 }\n"), vec!["a", "b", "c"]);
     }
 
     #[test]
@@ -434,10 +418,7 @@ mod tests {
     fn a_group_split_by_a_value_binding_is_still_one_group() {
         // KI-087: grouping is by reference, not adjacency.
         let plan = plan_names("fn even(n) { odd(n) }\nlet k = 1\nfn odd(n) { even(n - k) }\n");
-        assert!(
-            plan.contains(&"even+odd".to_string()),
-            "expected one group, got {plan:?}"
-        );
+        assert!(plan.contains(&"even+odd".to_string()), "expected one group, got {plan:?}");
     }
 
     #[test]

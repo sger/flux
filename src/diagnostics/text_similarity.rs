@@ -31,14 +31,11 @@ pub fn levenshtein_distance(a: &str, b: &str) -> usize {
     for (i, &a_char) in a_chars.iter().enumerate() {
         for (j, &b_char) in b_chars.iter().enumerate() {
             let cost = if a_char == b_char { 0 } else { 1 };
-            matrix[i + 1][j + 1] = *[
-                matrix[i][j + 1] + 1,
-                matrix[i + 1][j] + 1,
-                matrix[i][j] + cost,
-            ]
-            .iter()
-            .min()
-            .expect("distance candidates are non-empty");
+            matrix[i + 1][j + 1] =
+                *[matrix[i][j + 1] + 1, matrix[i + 1][j] + 1, matrix[i][j] + cost]
+                    .iter()
+                    .min()
+                    .expect("distance candidates are non-empty");
         }
     }
 

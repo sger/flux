@@ -75,10 +75,8 @@ where
     let adjacency: Vec<Vec<usize>> = nodes
         .iter()
         .map(|node| {
-            let mut edges: Vec<usize> = successors(*node)
-                .into_iter()
-                .filter_map(|to| index_of.get(&to).copied())
-                .collect();
+            let mut edges: Vec<usize> =
+                successors(*node).into_iter().filter_map(|to| index_of.get(&to).copied()).collect();
             edges.sort_unstable();
             edges.dedup();
             edges
@@ -166,20 +164,13 @@ mod tests {
     /// Builds the successor lookup the compiler's call sites use: a map from
     /// node to an unordered set of nodes.
     fn graph(edges: &[(u32, &[u32])]) -> HashMap<u32, HashSet<u32>> {
-        edges
-            .iter()
-            .map(|(from, to)| (*from, to.iter().copied().collect()))
-            .collect()
+        edges.iter().map(|(from, to)| (*from, to.iter().copied().collect())).collect()
     }
 
     fn sccs(nodes: &[u32], edges: &[(u32, &[u32])]) -> Vec<Vec<u32>> {
         let deps = graph(edges);
         strongly_connected_components(nodes, |n| {
-            deps.get(&n)
-                .into_iter()
-                .flatten()
-                .copied()
-                .collect::<Vec<_>>()
+            deps.get(&n).into_iter().flatten().copied().collect::<Vec<_>>()
         })
     }
 
@@ -262,10 +253,7 @@ mod tests {
         ];
 
         let expected = strongly_connected_components(&nodes, |n| {
-            base.iter()
-                .find(|(from, _)| *from == n)
-                .map(|(_, to)| to.clone())
-                .unwrap_or_default()
+            base.iter().find(|(from, _)| *from == n).map(|(_, to)| to.clone()).unwrap_or_default()
         });
 
         for rotation in 1..4 {

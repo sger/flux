@@ -23,19 +23,14 @@ pub fn run_dir(root: &Path, tag: &str) -> Result<PathBuf, String> {
     if plain {
         Ok(store_root(root).join(tag))
     } else {
-        Err(format!(
-            "`{tag}` cannot be a tag: use a plain name such as s4 or main"
-        ))
+        Err(format!("`{tag}` cannot be a tag: use a plain name such as s4 or main"))
     }
 }
 
 /// `path` with the home folder shown as `~`.
 pub fn display(path: &Path) -> String {
     let home = std::env::var_os("HOME").map(PathBuf::from);
-    match home
-        .as_deref()
-        .and_then(|home| path.strip_prefix(home).ok())
-    {
+    match home.as_deref().and_then(|home| path.strip_prefix(home).ok()) {
         Some(rest) => format!("~/{}", rest.display()),
         None => path.display().to_string(),
     }
@@ -75,9 +70,7 @@ fn runs(store: &Path) -> Vec<Run> {
 /// The latest modification time of anything under `path`: a run's folder is
 /// older than the files a later rerun of the same tag rewrites.
 fn newest_change(path: &Path) -> SystemTime {
-    let own = fs::metadata(path)
-        .and_then(|m| m.modified())
-        .unwrap_or(SystemTime::UNIX_EPOCH);
+    let own = fs::metadata(path).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
     let Ok(entries) = fs::read_dir(path) else {
         return own;
     };
@@ -88,10 +81,7 @@ fn newest_change(path: &Path) -> SystemTime {
             if child.is_dir() {
                 newest_change(&child)
             } else {
-                entry
-                    .metadata()
-                    .and_then(|m| m.modified())
-                    .unwrap_or(SystemTime::UNIX_EPOCH)
+                entry.metadata().and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH)
             }
         })
         .fold(own, SystemTime::max)
@@ -105,11 +95,7 @@ fn size_of(path: &Path) -> u64 {
         .flatten()
         .map(|entry| {
             let child = entry.path();
-            if child.is_dir() {
-                size_of(&child)
-            } else {
-                entry.metadata().map_or(0, |m| m.len())
-            }
+            if child.is_dir() { size_of(&child) } else { entry.metadata().map_or(0, |m| m.len()) }
         })
         .sum()
 }
@@ -117,10 +103,7 @@ fn size_of(path: &Path) -> u64 {
 /// The runs to delete: all but the newest `keep`, never one tagged in
 /// `keep_tags`. `runs` is newest first.
 fn to_prune<'a>(runs: &'a [Run], keep: usize, keep_tags: &[String]) -> Vec<&'a Run> {
-    runs.iter()
-        .filter(|run| !keep_tags.contains(&run.tag))
-        .skip(keep)
-        .collect()
+    runs.iter().filter(|run| !keep_tags.contains(&run.tag)).skip(keep).collect()
 }
 
 /// Lists the stored runs and what pruning would delete; deletes them with
@@ -131,11 +114,7 @@ pub fn prune(root: &Path, keep: usize, keep_tags: &[String], yes: bool) -> bool 
     println!("runs in {}: {}", display(&store), runs.len());
     let doomed = to_prune(&runs, keep, keep_tags);
     for run in &runs {
-        let fate = if doomed.iter().any(|d| d.tag == run.tag) {
-            "delete"
-        } else {
-            "keep  "
-        };
+        let fate = if doomed.iter().any(|d| d.tag == run.tag) { "delete" } else { "keep  " };
         println!("  {fate} {:<24} {:>8}", run.tag, megabytes(run.bytes));
     }
     let freed: u64 = doomed.iter().map(|run| run.bytes).sum();
@@ -183,13 +162,7 @@ mod tests {
     #[test]
     fn prunes_all_but_the_newest_and_the_protected() {
         // Newest first, as `runs` returns them.
-        let runs = [
-            run("s4", 1),
-            run("s3", 2),
-            run("main", 3),
-            run("s2", 4),
-            run("s1", 5),
-        ];
+        let runs = [run("s4", 1), run("s3", 2), run("main", 3), run("s2", 4), run("s1", 5)];
         let tags = |list: Vec<&Run>| list.iter().map(|r| r.tag.clone()).collect::<Vec<_>>();
         assert_eq!(tags(to_prune(&runs, 2, &[])), ["main", "s2", "s1"]);
         assert_eq!(tags(to_prune(&runs, 2, &["main".into()])), ["s2", "s1"]);

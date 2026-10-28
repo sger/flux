@@ -148,10 +148,7 @@ pub(crate) struct CliCommandValueOptions {
 impl Default for CliDiagnosticOptions {
     /// Returns diagnostic option defaults used by the CLI parser.
     fn default() -> Self {
-        Self {
-            diagnostics_format: DiagnosticOutputFormat::Text,
-            max_errors: DEFAULT_MAX_ERRORS,
-        }
+        Self { diagnostics_format: DiagnosticOutputFormat::Text, max_errors: DEFAULT_MAX_ERRORS }
     }
 }
 
@@ -526,9 +523,7 @@ fn consume_named_value_option<T>(
     missing_value: &str,
     parse: impl FnOnce(String) -> Result<T, String>,
 ) -> Result<Option<T>, String> {
-    take_required_long_option(args, index, flag, missing_value)?
-        .map(parse)
-        .transpose()
+    take_required_long_option(args, index, flag, missing_value)?.map(parse).transpose()
 }
 
 /// Consumes a short option like `-o value` and returns the provided value.
@@ -624,12 +619,9 @@ fn parse_max_errors(value: String) -> Result<usize, String> {
 
 /// Parses the `--opt-bisect-limit` payload: a rewrite count, or -1.
 fn parse_opt_bisect_limit(value: String) -> Result<i64, String> {
-    i64::from_str(&value)
-        .ok()
-        .filter(|n| *n >= -1)
-        .ok_or_else(|| {
-            "Error: --opt-bisect-limit expects -1 or a non-negative integer.".to_string()
-        })
+    i64::from_str(&value).ok().filter(|n| *n >= -1).ok_or_else(|| {
+        "Error: --opt-bisect-limit expects -1 or a non-negative integer.".to_string()
+    })
 }
 
 #[cfg(test)]
@@ -672,12 +664,8 @@ mod tests {
 
     #[test]
     fn extract_flags_preserves_native_backend_requests_for_later_validation() {
-        let mut args = vec![
-            "flux".into(),
-            "file.flx".into(),
-            "--native".into(),
-            "--dump-lir-llvm".into(),
-        ];
+        let mut args =
+            vec!["flux".into(), "file.flx".into(), "--native".into(), "--dump-lir-llvm".into()];
 
         let parsed = extract_cli_flag_groups(&mut args);
 
@@ -708,27 +696,14 @@ mod tests {
 
         let values = extract_cli_value_options(&mut args).unwrap();
 
-        assert_eq!(
-            values.paths.cache_dir.as_deref(),
-            Some(Path::new(".flux-cache"))
-        );
-        assert_eq!(
-            values.diagnostics.diagnostics_format,
-            DiagnosticOutputFormat::JsonCompact
-        );
+        assert_eq!(values.paths.cache_dir.as_deref(), Some(Path::new(".flux-cache")));
+        assert_eq!(values.diagnostics.diagnostics_format, DiagnosticOutputFormat::JsonCompact);
         assert_eq!(values.diagnostics.max_errors, 12);
         assert_eq!(values.command.test_filter.as_deref(), Some("arith"));
         assert_eq!(values.command.dump_core, CoreDumpMode::Debug);
         assert_eq!(values.paths.output_path.as_deref(), Some("out.ll"));
         assert_eq!(values.paths.roots.len(), 2);
-        assert_eq!(
-            args,
-            vec![
-                "flux".to_string(),
-                "run".to_string(),
-                "file.flx".to_string()
-            ]
-        );
+        assert_eq!(args, vec!["flux".to_string(), "run".to_string(), "file.flx".to_string()]);
     }
 
     #[test]
@@ -787,11 +762,8 @@ mod tests {
     fn dump_debug_info_implies_full_debug_information() {
         use crate::debuginfo::DebugLevel;
         let build = |extra: &[&str]| {
-            let mut args: Vec<String> = ["flux", "file.flx"]
-                .iter()
-                .chain(extra)
-                .map(|arg| arg.to_string())
-                .collect();
+            let mut args: Vec<String> =
+                ["flux", "file.flx"].iter().chain(extra).map(|arg| arg.to_string()).collect();
             let parsed = extract_cli_flag_groups(&mut args);
             let values = extract_cli_value_options(&mut args).unwrap();
             build_driver_flags(parsed, values)
@@ -810,11 +782,8 @@ mod tests {
     #[test]
     fn leak_check_implies_the_debug_heap() {
         let build = |extra: &[&str]| {
-            let mut args: Vec<String> = ["flux", "file.flx"]
-                .iter()
-                .chain(extra)
-                .map(|arg| arg.to_string())
-                .collect();
+            let mut args: Vec<String> =
+                ["flux", "file.flx"].iter().chain(extra).map(|arg| arg.to_string()).collect();
             let parsed = extract_cli_flag_groups(&mut args);
             let values = extract_cli_value_options(&mut args).unwrap();
             build_driver_flags(parsed, values)
@@ -878,10 +847,7 @@ mod tests {
                     enable_optimize: Some(true),
                     ..ParsedCliLanguageFlags::default()
                 },
-                dumps: ParsedCliDumpFlags {
-                    dump_cfg: true,
-                    ..ParsedCliDumpFlags::default()
-                },
+                dumps: ParsedCliDumpFlags { dump_cfg: true, ..ParsedCliDumpFlags::default() },
                 backend: ParsedCliBackendFlags {
                     emit_llvm: true,
                     ..ParsedCliBackendFlags::default()

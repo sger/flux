@@ -106,10 +106,7 @@ impl TypeEnv {
 
     /// Bind a name to a scheme and optional definition span in the current scope.
     pub fn bind_with_span(&mut self, name: Identifier, scheme: Scheme, def_span: Option<Span>) {
-        self.bindings
-            .entry(name)
-            .or_default()
-            .push(TypeBindingEntry { scheme, def_span });
+        self.bindings.entry(name).or_default().push(TypeBindingEntry { scheme, def_span });
         if let Some(marker) = self.scope_markers.last_mut() {
             marker.push(name);
         }
@@ -127,9 +124,7 @@ impl TypeEnv {
     /// definition whose name also exists further out, leaving the body to
     /// resolve against the outer binding it shadows.
     pub fn is_bound_in_current_scope(&self, name: Identifier) -> bool {
-        self.scope_markers
-            .last()
-            .is_some_and(|marker| marker.contains(&name))
+        self.scope_markers.last().is_some_and(|marker| marker.contains(&name))
     }
 
     /// Iterate over all currently visible bindings (top of each shadow stack).
@@ -165,10 +160,7 @@ impl TypeEnv {
     /// The scope level of the binding `name` resolves to: the innermost scope
     /// that binds it.
     pub fn visible_binding_level(&self, name: Identifier) -> Option<u32> {
-        self.scope_markers
-            .iter()
-            .rposition(|names| names.contains(&name))
-            .map(|level| level as u32)
+        self.scope_markers.iter().rposition(|names| names.contains(&name)).map(|level| level as u32)
     }
 
     /// Push a new empty scope and bump the level.
@@ -245,11 +237,7 @@ impl TypeEnv {
             .filter(|v| self.var_levels.get(v).copied().unwrap_or(0) > level)
             .collect();
         forall.sort_unstable();
-        Scheme {
-            forall,
-            constraints: Vec::new(),
-            infer_type: ty.clone(),
-        }
+        Scheme { forall, constraints: Vec::new(), infer_type: ty.clone() }
     }
 
     // -------------------------------------------------------------------------
@@ -276,9 +264,7 @@ impl TypeEnv {
         let Some(async_id) = async_sym else {
             return std::borrow::Cow::Borrowed(effects);
         };
-        if !effects
-            .iter()
-            .any(|e| matches!(e, EffectExpr::Named { name, .. } if *name == async_id))
+        if !effects.iter().any(|e| matches!(e, EffectExpr::Named { name, .. } if *name == async_id))
         {
             return std::borrow::Cow::Borrowed(effects);
         }
@@ -304,10 +290,7 @@ impl TypeEnv {
                         // the Async name so we don't panic (the row will be closed).
                         async_id
                     });
-                    out.push(EffectExpr::Named {
-                        name: id,
-                        span: dummy_span,
-                    });
+                    out.push(EffectExpr::Named { name: id, span: dummy_span });
                 }
             } else {
                 out.push(e.clone());
@@ -423,12 +406,7 @@ impl TypeEnv {
                     .collect();
                 Some(InferType::Tuple(elem_tys?))
             }
-            TypeExpr::Function {
-                params,
-                ret,
-                effects,
-                ..
-            } => {
+            TypeExpr::Function { params, ret, effects, .. } => {
                 let param_tys: Option<Vec<InferType>> = params
                     .iter()
                     .map(|p| {
@@ -488,10 +466,7 @@ impl TypeEnv {
             ),
             RuntimeType::Map(k, v) => InferType::App(
                 TypeConstructor::Map,
-                vec![
-                    Self::try_infer_type_from_runtime(k)?,
-                    Self::try_infer_type_from_runtime(v)?,
-                ],
+                vec![Self::try_infer_type_from_runtime(k)?, Self::try_infer_type_from_runtime(v)?],
             ),
             RuntimeType::Tuple(elems) => InferType::Tuple(
                 elems
@@ -499,11 +474,7 @@ impl TypeEnv {
                     .map(Self::try_infer_type_from_runtime)
                     .collect::<Result<Vec<_>, _>>()?,
             ),
-            RuntimeType::Function {
-                params,
-                ret,
-                effects,
-            } => InferType::Fun(
+            RuntimeType::Function { params, ret, effects } => InferType::Fun(
                 params
                     .iter()
                     .map(Self::try_infer_type_from_runtime)
@@ -511,9 +482,7 @@ impl TypeEnv {
                 Box::new(Self::try_infer_type_from_runtime(ret)?),
                 InferEffectRow::closed_from_symbols(effects.iter().copied()),
             ),
-            RuntimeType::Adt {
-                name, type_args, ..
-            } => {
+            RuntimeType::Adt { name, type_args, .. } => {
                 if type_args.is_empty() {
                     InferType::Con(TypeConstructor::Adt(*name))
                 } else {
@@ -557,19 +526,19 @@ impl TypeEnv {
                 )),
             },
             InferType::App(con, args) => match con {
-                TypeConstructor::Option if args.len() == 1 => Ok(RuntimeType::Option(Box::new(
-                    Self::try_to_runtime(&args[0], type_subst)?,
-                ))),
-                TypeConstructor::List if args.len() == 1 => Ok(RuntimeType::List(Box::new(
-                    Self::try_to_runtime(&args[0], type_subst)?,
-                ))),
+                TypeConstructor::Option if args.len() == 1 => {
+                    Ok(RuntimeType::Option(Box::new(Self::try_to_runtime(&args[0], type_subst)?)))
+                }
+                TypeConstructor::List if args.len() == 1 => {
+                    Ok(RuntimeType::List(Box::new(Self::try_to_runtime(&args[0], type_subst)?)))
+                }
                 TypeConstructor::Either if args.len() == 2 => Ok(RuntimeType::Either(
                     Box::new(Self::try_to_runtime(&args[0], type_subst)?),
                     Box::new(Self::try_to_runtime(&args[1], type_subst)?),
                 )),
-                TypeConstructor::Array if args.len() == 1 => Ok(RuntimeType::Array(Box::new(
-                    Self::try_to_runtime(&args[0], type_subst)?,
-                ))),
+                TypeConstructor::Array if args.len() == 1 => {
+                    Ok(RuntimeType::Array(Box::new(Self::try_to_runtime(&args[0], type_subst)?)))
+                }
                 TypeConstructor::Map if args.len() == 2 => Ok(RuntimeType::Map(
                     Box::new(Self::try_to_runtime(&args[0], type_subst)?),
                     Box::new(Self::try_to_runtime(&args[1], type_subst)?),
@@ -581,9 +550,9 @@ impl TypeEnv {
             // An unreduced associated type has no runtime representation. It
             // should have reduced or been reported before reaching a boundary
             // that wants a real type.
-            InferType::Assoc(_, _, _) => Err(RuntimeTypeLoweringError::new(
-                RuntimeTypeLoweringIssue::UnsupportedNominalType,
-            )),
+            InferType::Assoc(_, _, _) => {
+                Err(RuntimeTypeLoweringError::new(RuntimeTypeLoweringIssue::UnsupportedNominalType))
+            }
             InferType::Tuple(elems) => Ok(RuntimeType::Tuple(
                 elems
                     .iter()
@@ -597,11 +566,8 @@ impl TypeEnv {
                         RuntimeTypeLoweringIssue::OpenFunctionEffects,
                     ));
                 }
-                let mut effect_set = resolved_effects
-                    .concrete()
-                    .iter()
-                    .copied()
-                    .collect::<Vec<_>>();
+                let mut effect_set =
+                    resolved_effects.concrete().iter().copied().collect::<Vec<_>>();
                 effect_set.sort_by_key(|sym| sym.as_u32());
                 effect_set.dedup();
                 Ok(RuntimeType::Function {
@@ -613,9 +579,9 @@ impl TypeEnv {
                     effects: effect_set,
                 })
             }
-            InferType::Var(_) => Err(RuntimeTypeLoweringError::new(
-                RuntimeTypeLoweringIssue::UnresolvedTypeVariable,
-            )),
+            InferType::Var(_) => {
+                Err(RuntimeTypeLoweringError::new(RuntimeTypeLoweringIssue::UnresolvedTypeVariable))
+            }
             InferType::HktApp(..) => Err(RuntimeTypeLoweringError::new(
                 RuntimeTypeLoweringIssue::UnsupportedHigherKindedType,
             )),
@@ -739,18 +705,10 @@ mod tests {
         let string = interner.intern("String");
 
         let type_expr = TypeExpr::Function {
-            params: vec![TypeExpr::Named {
-                name: t,
-                args: vec![],
-                span: Span::default(),
-            }],
+            params: vec![TypeExpr::Named { name: t, args: vec![], span: Span::default() }],
             ret: Box::new(TypeExpr::Named {
                 name: option,
-                args: vec![TypeExpr::Named {
-                    name: string,
-                    args: vec![],
-                    span: Span::default(),
-                }],
+                args: vec![TypeExpr::Named { name: string, args: vec![], span: Span::default() }],
                 span: Span::default(),
             }),
             effects: vec![],
@@ -873,10 +831,7 @@ mod tests {
 
         let err = TypeEnv::try_to_runtime(&ty, &TypeSubst::empty()).expect_err("hkt should fail");
 
-        assert_eq!(
-            err.issue(),
-            &RuntimeTypeLoweringIssue::UnsupportedHigherKindedType
-        );
+        assert_eq!(err.issue(), &RuntimeTypeLoweringIssue::UnsupportedHigherKindedType);
     }
 
     #[test]

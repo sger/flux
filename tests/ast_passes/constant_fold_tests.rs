@@ -7,11 +7,7 @@ fn parse_and_fold(input: &str) -> Expression {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "Parse errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "Parse errors: {:?}", parser.errors);
 
     let folded = constant_fold(program);
     assert_eq!(folded.statements.len(), 1, "Expected single statement");
@@ -26,11 +22,7 @@ fn parse_and_fold_statement(input: &str) -> Statement {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "Parse errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "Parse errors: {:?}", parser.errors);
 
     let folded = constant_fold(program);
     assert_eq!(folded.statements.len(), 1, "Expected single statement");
@@ -41,11 +33,7 @@ fn parse_and_fold_with_interner(input: &str) -> Expression {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "Parse errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "Parse errors: {:?}", parser.errors);
     let interner = parser.take_interner();
 
     let folded = constant_fold_with_interner(program, &interner);

@@ -64,16 +64,8 @@ fn init_scaffolds_a_runnable_binary_package() {
 
     // What init produced must actually build and run.
     let run = flux(&["src/main.flx"], &pkg);
-    assert!(
-        run.status.success(),
-        "scaffold failed to run:\n{}",
-        combined(&run)
-    );
-    assert!(
-        combined(&run).contains("Hello from Flux"),
-        "unexpected output:\n{}",
-        combined(&run)
-    );
+    assert!(run.status.success(), "scaffold failed to run:\n{}", combined(&run));
+    assert!(combined(&run).contains("Hello from Flux"), "unexpected output:\n{}", combined(&run));
 }
 
 /// `--lib` produces the namespace root module that is the package's public
@@ -92,10 +84,7 @@ fn new_lib_derives_a_namespace_from_the_package_name() {
         module.is_file(),
         "expected src/HttpClient.flx, found: {:?}",
         std::fs::read_dir(pkg.join("src"))
-            .map(|e| e
-                .filter_map(Result::ok)
-                .map(|e| e.path())
-                .collect::<Vec<_>>())
+            .map(|e| e.filter_map(Result::ok).map(|e| e.path()).collect::<Vec<_>>())
             .unwrap_or_default()
     );
     let source = std::fs::read_to_string(&module).expect("read module");
@@ -111,11 +100,7 @@ fn init_refuses_to_overwrite_an_existing_package() {
     assert!(flux(&["init"], &pkg).status.success(), "first init failed");
 
     let second = flux(&["init"], &pkg);
-    assert!(
-        !second.status.success(),
-        "a second init must fail:\n{}",
-        combined(&second)
-    );
+    assert!(!second.status.success(), "a second init must fail:\n{}", combined(&second));
     assert!(
         combined(&second).contains("already exists"),
         "unexpected message:\n{}",
@@ -128,11 +113,7 @@ fn new_requires_a_package_name() {
     let scratch = Scratch::new("cli-new-no-name");
     let out = flux(&["new"], scratch.path());
     assert!(!out.status.success(), "expected a usage error");
-    assert!(
-        combined(&out).contains("Usage: flux new"),
-        "unexpected message:\n{}",
-        combined(&out)
-    );
+    assert!(combined(&out).contains("Usage: flux new"), "unexpected message:\n{}", combined(&out));
 }
 
 /// A scaffolded package is a real project: its path dependencies resolve, so
@@ -142,15 +123,10 @@ fn a_scaffolded_package_can_depend_on_another() {
     let scratch = Scratch::new("cli-init-deps");
 
     assert!(
-        flux(&["new", "shared", "--lib"], scratch.path())
-            .status
-            .success(),
+        flux(&["new", "shared", "--lib"], scratch.path()).status.success(),
         "creating the dependency failed"
     );
-    assert!(
-        flux(&["new", "app"], scratch.path()).status.success(),
-        "creating the app failed"
-    );
+    assert!(flux(&["new", "app"], scratch.path()).status.success(), "creating the app failed");
 
     let app = scratch.path().join("app");
     let manifest = std::fs::read_to_string(app.join("flux.toml")).expect("read manifest");
@@ -166,16 +142,8 @@ fn a_scaffolded_package_can_depend_on_another() {
     .expect("write main");
 
     let run = flux(&["src/main.flx"], &app);
-    assert!(
-        run.status.success(),
-        "cross-package build failed:\n{}",
-        combined(&run)
-    );
-    assert!(
-        combined(&run).contains("Hello from Shared"),
-        "unexpected output:\n{}",
-        combined(&run)
-    );
+    assert!(run.status.success(), "cross-package build failed:\n{}", combined(&run));
+    assert!(combined(&run).contains("Hello from Shared"), "unexpected output:\n{}", combined(&run));
 }
 
 /// KI-019: a command that reports an error must exit non-zero, or scripts and
@@ -211,11 +179,8 @@ fn failing_commands_exit_non_zero() {
 #[test]
 fn succeeding_commands_still_exit_zero() {
     let scratch = Scratch::new("cli-exit-codes-ok");
-    std::fs::write(
-        scratch.path().join("ok.flx"),
-        "fn main() with IO { print(\"ok\") }\n",
-    )
-    .expect("write source");
+    std::fs::write(scratch.path().join("ok.flx"), "fn main() with IO { print(\"ok\") }\n")
+        .expect("write source");
 
     for command in [
         vec!["ok.flx"],
@@ -256,11 +221,7 @@ fn package_commands_operate_on_the_current_package() {
     // build and check compile without executing.
     for command in ["build", "check"] {
         let out = flux(&[command], &pkg);
-        assert!(
-            out.status.success(),
-            "{command} failed:\n{}",
-            combined(&out)
-        );
+        assert!(out.status.success(), "{command} failed:\n{}", combined(&out));
         assert!(
             !combined(&out).contains("ran"),
             "{command} must not run the program:\n{}",
@@ -270,11 +231,7 @@ fn package_commands_operate_on_the_current_package() {
 
     let test = flux(&["test"], &pkg);
     assert!(test.status.success(), "test failed:\n{}", combined(&test));
-    assert!(
-        combined(&test).contains("1 passed"),
-        "unexpected test summary:\n{}",
-        combined(&test)
-    );
+    assert!(combined(&test).contains("1 passed"), "unexpected test summary:\n{}", combined(&test));
 }
 
 #[test]
@@ -289,10 +246,7 @@ fn package_metadata_reports_the_selected_profile() {
     )
     .expect("write manifest");
 
-    let out = flux(
-        &["metadata", "--profile", "release", "--format", "json"],
-        &pkg,
-    );
+    let out = flux(&["metadata", "--profile", "release", "--format", "json"], &pkg);
     assert!(out.status.success(), "metadata failed:\n{}", combined(&out));
     let value: serde_json::Value = serde_json::from_str(&combined(&out)).expect("metadata json");
     assert_eq!(value["targets"]["backend"], "native");
@@ -308,11 +262,7 @@ fn build_plan_reports_backend_and_profile() {
     assert!(flux(&["init"], &pkg).status.success(), "init failed");
 
     let out = flux(&["build", "--plan"], &pkg);
-    assert!(
-        out.status.success(),
-        "build plan failed:\n{}",
-        combined(&out)
-    );
+    assert!(out.status.success(), "build plan failed:\n{}", combined(&out));
     let value: serde_json::Value = serde_json::from_str(&combined(&out)).expect("plan json");
     assert_eq!(value["format_version"], 1);
     assert_eq!(value["units"][0]["backend"], "vm");
@@ -324,11 +274,7 @@ fn profile_is_rejected_for_standalone_source_files() {
     let scratch = Scratch::new("cli-profile-source");
     let source = scratch.write("main.flx", "fn main() with IO { print(\"ok\") }\n");
     let out = flux(
-        &[
-            source.file_name().unwrap().to_str().unwrap(),
-            "--profile",
-            "release",
-        ],
+        &[source.file_name().unwrap().to_str().unwrap(), "--profile", "release"],
         scratch.path(),
     );
     assert!(!out.status.success(), "profile should be package-only");
@@ -363,11 +309,8 @@ fn build_and_check_fail_on_a_compile_error() {
     let pkg = scratch.path().join("app");
     std::fs::create_dir_all(&pkg).expect("create package dir");
     assert!(flux(&["init"], &pkg).status.success(), "init failed");
-    std::fs::write(
-        pkg.join("src").join("main.flx"),
-        "fn main() with IO { print(1 + \"x\") }\n",
-    )
-    .expect("write main");
+    std::fs::write(pkg.join("src").join("main.flx"), "fn main() with IO { print(1 + \"x\") }\n")
+        .expect("write main");
 
     for command in ["build", "check"] {
         let out = flux(&[command], &pkg);
@@ -407,16 +350,8 @@ fn run_bin_selects_a_named_target() {
     .expect("write manifest");
 
     let named = flux(&["run", "--bin", "tool"], &pkg);
-    assert!(
-        named.status.success(),
-        "--bin failed:\n{}",
-        combined(&named)
-    );
-    assert!(
-        combined(&named).contains("named-target"),
-        "{}",
-        combined(&named)
-    );
+    assert!(named.status.success(), "--bin failed:\n{}", combined(&named));
+    assert!(combined(&named).contains("named-target"), "{}", combined(&named));
 
     // A declared [[bin]] must not displace the conventional entry point.
     let default = flux(&["run"], &pkg);
@@ -435,10 +370,7 @@ fn run_bin_selects_a_named_target() {
 fn package_commands_require_a_manifest() {
     let scratch = Scratch::new("cli-package-no-manifest");
     let out = flux(&["build"], scratch.path());
-    assert!(
-        !out.status.success(),
-        "expected a failure outside a project"
-    );
+    assert!(!out.status.success(), "expected a failure outside a project");
     assert!(
         combined(&out).contains("flux.toml"),
         "the error must name the missing manifest:\n{}",
@@ -453,15 +385,10 @@ fn test_sees_path_dependencies() {
     let scratch = Scratch::new("cli-test-deps");
 
     assert!(
-        flux(&["new", "shared", "--lib"], scratch.path())
-            .status
-            .success(),
+        flux(&["new", "shared", "--lib"], scratch.path()).status.success(),
         "creating the dependency failed"
     );
-    assert!(
-        flux(&["new", "app"], scratch.path()).status.success(),
-        "creating the app failed"
-    );
+    assert!(flux(&["new", "app"], scratch.path()).status.success(), "creating the app failed");
 
     let app = scratch.path().join("app");
     let manifest = std::fs::read_to_string(app.join("flux.toml")).expect("read manifest");
@@ -485,16 +412,8 @@ fn test_sees_path_dependencies() {
     assert!(run.status.success(), "run failed:\n{}", combined(&run));
 
     let test = flux(&["test"], &app);
-    assert!(
-        test.status.success(),
-        "test must see the dependency:\n{}",
-        combined(&test)
-    );
-    assert!(
-        combined(&test).contains("1 passed"),
-        "unexpected test summary:\n{}",
-        combined(&test)
-    );
+    assert!(test.status.success(), "test must see the dependency:\n{}", combined(&test));
+    assert!(combined(&test).contains("1 passed"), "unexpected test summary:\n{}", combined(&test));
 }
 
 /// KI-020: `flux test` collected tests only from the entry file, so tests in a
@@ -553,11 +472,7 @@ fn build_and_check_do_not_poison_a_later_run() {
         assert!(pre.status.success(), "{first} failed:\n{}", combined(&pre));
 
         let run = flux(&["run"], &pkg);
-        assert!(
-            run.status.success(),
-            "run after {first} failed:\n{}",
-            combined(&run)
-        );
+        assert!(run.status.success(), "run after {first} failed:\n{}", combined(&run));
         assert!(
             combined(&run).contains("Hello from Flux"),
             "run after {first} produced no output:\n{}",
@@ -574,15 +489,10 @@ fn editing_a_manifest_invalidates_the_cached_roots() {
     let scratch = Scratch::new("cli-roots-cache");
 
     assert!(
-        flux(&["new", "shared", "--lib"], scratch.path())
-            .status
-            .success(),
+        flux(&["new", "shared", "--lib"], scratch.path()).status.success(),
         "creating the dependency failed"
     );
-    assert!(
-        flux(&["new", "app"], scratch.path()).status.success(),
-        "creating the app failed"
-    );
+    assert!(flux(&["new", "app"], scratch.path()).status.success(), "creating the app failed");
 
     let app = scratch.path().join("app");
     let manifest = std::fs::read_to_string(app.join("flux.toml")).expect("read manifest");
@@ -598,11 +508,7 @@ fn editing_a_manifest_invalidates_the_cached_roots() {
     .expect("write main");
 
     let first = flux(&["run"], &app);
-    assert!(
-        first.status.success(),
-        "first run failed:\n{}",
-        combined(&first)
-    );
+    assert!(first.status.success(), "first run failed:\n{}", combined(&first));
 
     // Rename the dependency's namespace; the cached roots must not survive it.
     std::fs::write(

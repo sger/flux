@@ -38,11 +38,7 @@ impl Fixture {
         let scratch = Scratch::new(name);
         let app = scratch.path().join("app");
         let home = scratch.path().join("home");
-        Self {
-            _scratch: scratch,
-            app,
-            home,
-        }
+        Self { _scratch: scratch, app, home }
     }
 
     /// Declare the application, requiring `requirement` of package `json`.
@@ -68,12 +64,7 @@ impl Fixture {
     fn publish(&self, version: &str, checksum: &str) {
         self.publish_index_only(version, checksum);
         write(
-            &self
-                .home
-                .join("registry/src/json")
-                .join(version)
-                .join("src")
-                .join("Json.flx"),
+            &self.home.join("registry/src/json").join(version).join("src").join("Json.flx"),
             &format!(
                 "module Json {{\n    public fn tag() -> String {{ \"json {version}\" }}\n}}\n"
             ),
@@ -135,10 +126,7 @@ fn the_highest_matching_version_is_chosen() {
 
     let (text, ok) = fixture.run();
     assert!(ok, "expected the build to succeed:\n{text}");
-    assert!(
-        text.contains("json 1.2.0"),
-        "expected the highest 1.x, got:\n{text}"
-    );
+    assert!(text.contains("json 1.2.0"), "expected the highest 1.x, got:\n{text}");
 }
 
 /// The lockfile records the version *and* the checksum the index published,
@@ -197,10 +185,7 @@ fn deleting_the_lockfile_re_resolves() {
 
     let (text, ok) = fixture.run();
     assert!(ok, "expected the rebuild to succeed:\n{text}");
-    assert!(
-        text.contains("json 1.5.0"),
-        "deleting the lockfile must re-resolve:\n{text}"
-    );
+    assert!(text.contains("json 1.5.0"), "deleting the lockfile must re-resolve:\n{text}");
     assert!(fixture.lock().contains("1.5.0"), "{}", fixture.lock());
 }
 
@@ -241,11 +226,7 @@ fn an_unchanged_rebuild_leaves_the_lockfile_alone() {
 
     let (text, ok) = fixture.run();
     assert!(ok, "expected the rebuild to succeed:\n{text}");
-    assert_eq!(
-        first,
-        fixture.lock(),
-        "the lockfile churned across a rebuild"
-    );
+    assert_eq!(first, fixture.lock(), "the lockfile churned across a rebuild");
 }
 
 #[test]
@@ -256,10 +237,7 @@ fn an_unsatisfiable_requirement_is_reported() {
 
     let (text, ok) = fixture.run();
     assert!(!ok, "expected the build to fail:\n{text}");
-    assert!(
-        text.contains("json"),
-        "the failure must name the package:\n{text}"
-    );
+    assert!(text.contains("json"), "the failure must name the package:\n{text}");
 }
 
 #[test]
@@ -269,10 +247,7 @@ fn a_package_missing_from_the_index_is_reported() {
 
     let (text, ok) = fixture.run();
     assert!(!ok, "expected the build to fail:\n{text}");
-    assert!(
-        text.contains("json"),
-        "the failure must name the package:\n{text}"
-    );
+    assert!(text.contains("json"), "the failure must name the package:\n{text}");
 }
 
 /// A version that resolves but was never unpacked is a different failure from
@@ -285,10 +260,7 @@ fn a_resolved_but_unpacked_version_is_reported() {
 
     let (text, ok) = fixture.run();
     assert!(!ok, "expected the build to fail:\n{text}");
-    assert!(
-        text.contains("sources are not in"),
-        "expected a sources-missing message:\n{text}"
-    );
+    assert!(text.contains("sources are not in"), "expected a sources-missing message:\n{text}");
 }
 
 /// A malformed index line fails the read rather than being skipped: an index
@@ -327,10 +299,7 @@ fn a_lockfile_entry_without_a_checksum_is_rejected() {
 
     let (text, ok) = fixture.run();
     assert!(!ok, "expected the build to fail:\n{text}");
-    assert!(
-        text.contains("checksum"),
-        "expected a checksum failure:\n{text}"
-    );
+    assert!(text.contains("checksum"), "expected a checksum failure:\n{text}");
 }
 
 /// A lockfile from a newer toolchain is refused rather than partially read.
@@ -343,10 +312,7 @@ fn a_future_lockfile_format_is_rejected() {
 
     let (text, ok) = fixture.run();
     assert!(!ok, "expected the build to fail:\n{text}");
-    assert!(
-        text.contains("does not understand"),
-        "expected a format-version failure:\n{text}"
-    );
+    assert!(text.contains("does not understand"), "expected a format-version failure:\n{text}");
 }
 
 /// A project with no registry dependencies never reads the index and never
@@ -354,10 +320,7 @@ fn a_future_lockfile_format_is_rejected() {
 #[test]
 fn a_project_without_registry_dependencies_writes_no_lockfile() {
     let fixture = Fixture::new("pkg-registry-none");
-    write(
-        &fixture.app.join("flux.toml"),
-        "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
-    );
+    write(&fixture.app.join("flux.toml"), "[package]\nname = \"app\"\nversion = \"0.1.0\"\n");
     write(
         &fixture.app.join("src").join("main.flx"),
         "fn main() with IO { print(\"standalone\") }\n",

@@ -23,9 +23,8 @@ fn is_excluded(name: &str) -> bool {
 
 fn run_subdir(workspace_root: &Path, subdir: &str) {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
-    for case in snapshot_dir(workspace_root, subdir)
-        .into_iter()
-        .filter(|c| !is_excluded(&c.snapshot_name))
+    for case in
+        snapshot_dir(workspace_root, subdir).into_iter().filter(|c| !is_excluded(&c.snapshot_name))
     {
         insta::with_settings!({
             snapshot_path => "../snapshots/examples_fixtures",

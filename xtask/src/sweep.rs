@@ -95,10 +95,7 @@ pub struct Options {
 }
 
 pub fn default_jobs() -> usize {
-    thread::available_parallelism()
-        .map(|n| n.get().saturating_sub(2))
-        .unwrap_or(1)
-        .max(1)
+    thread::available_parallelism().map(|n| n.get().saturating_sub(2)).unwrap_or(1).max(1)
 }
 
 #[derive(Debug, Clone)]
@@ -181,10 +178,7 @@ fn is_numbering(before: &[char]) -> bool {
     ["bb", "fn", "v", "b"].into_iter().any(|prefix| {
         let len = prefix.chars().count();
         ends_with(prefix)
-            && before
-                .len()
-                .checked_sub(len + 1)
-                .is_none_or(|start| !is_word(&before[start]))
+            && before.len().checked_sub(len + 1).is_none_or(|start| !is_word(&before[start]))
     })
 }
 
@@ -220,10 +214,7 @@ pub(crate) fn run_flux(
     timeout: Duration,
 ) -> Ran {
     let mut command = Command::new(flux);
-    command
-        .args(["--no-cache", "--quiet"])
-        .args(flags)
-        .arg(file);
+    command.args(["--no-cache", "--quiet"]).args(flags).arg(file);
     run_with_timeout(command, root, timeout)
 }
 
@@ -241,12 +232,7 @@ pub(crate) fn run_with_timeout(mut command: Command, root: &Path, timeout: Durat
         Ok(child) => wait_with_timeout(child, timeout),
         Err(e) => (true, -1, String::new(), format!("failed to start: {e}")),
     };
-    Ran {
-        finished,
-        exit,
-        stdout,
-        stderr,
-    }
+    Ran { finished, exit, stdout, stderr }
 }
 
 /// How a run ended. `text` is its stderr without colour.
@@ -314,10 +300,7 @@ fn collect_flx(root: &Path, dir: &Path, files: &mut Vec<String>) -> io::Result<(
 
 pub fn run(root: &Path, options: &Options) -> Result<Vec<FileResult>, String> {
     if !options.flux.is_file() {
-        return Err(format!(
-            "no compiler at {}; run cargo build first",
-            options.flux.display()
-        ));
+        return Err(format!("no compiler at {}; run cargo build first", options.flux.display()));
     }
     let files = corpus(root, options.files.as_deref()).map_err(|e| e.to_string())?;
 
@@ -384,13 +367,7 @@ pub fn determinism(root: &Path, options: &Options) -> Result<bool, String> {
     let (a, b) = (with_suffix("_a"), with_suffix("_b"));
     let mut files = 0;
     for dir in [&a, &b] {
-        let results = run(
-            root,
-            &Options {
-                out_dir: dir.clone(),
-                ..options.clone()
-            },
-        )?;
+        let results = run(root, &Options { out_dir: dir.clone(), ..options.clone() })?;
         files = results.len();
     }
     let comparison = crate::compare::run(root, &a, &b, true)?;
@@ -418,10 +395,7 @@ const CACHE_CORPUS: &str = "tests/parity";
 /// Returns whether every file's two caches agreed.
 pub fn cache_determinism(root: &Path, options: &Options) -> Result<bool, String> {
     if !options.flux.is_file() {
-        return Err(format!(
-            "no compiler at {}; run cargo build first",
-            options.flux.display()
-        ));
+        return Err(format!("no compiler at {}; run cargo build first", options.flux.display()));
     }
     let files = if let Some(list) = &options.files {
         corpus(root, Some(list)).map_err(|e| e.to_string())?
@@ -619,12 +593,7 @@ fn sweep_file(
     timeout: Duration,
 ) -> FileResult {
     let clock = Instant::now();
-    let Ran {
-        finished,
-        exit,
-        stdout,
-        stderr,
-    } = run_flux(root, flux, flags, file, timeout);
+    let Ran { finished, exit, stdout, stderr } = run_flux(root, flux, flags, file, timeout);
     let ms = clock.elapsed().as_millis();
 
     // The dump goes to stdout and is long; diagnostics go to stderr. Keep the
@@ -644,14 +613,7 @@ fn sweep_file(
         ),
     );
 
-    FileResult {
-        file: file.to_string(),
-        status,
-        exit,
-        codes,
-        ms,
-        dump: DumpHash::of(&stdout),
-    }
+    FileResult { file: file.to_string(), status, exit, codes, ms, dump: DumpHash::of(&stdout) }
 }
 
 /// Waits for `child`, killing it after `timeout`. Returns whether it finished,
@@ -695,11 +657,7 @@ fn read_all(stream: Option<impl Read + Send + 'static>) -> thread::JoinHandle<St
 pub(crate) fn format_hashes(mode: Mode, results: &[FileResult]) -> String {
     let mut text = format!("# mode {}\n", mode.name());
     for r in results {
-        let _ = write!(
-            text,
-            "{}\t{:016x}\t{}\t{}",
-            r.file, r.dump.fnv, r.dump.bytes, r.dump.lines
-        );
+        let _ = write!(text, "{}\t{:016x}\t{}\t{}", r.file, r.dump.fnv, r.dump.bytes, r.dump.lines);
         if let Some(normalized) = r.dump.normalized {
             let _ = write!(text, "\t{normalized:016x}");
         }
@@ -716,10 +674,7 @@ fn write_outputs(
 ) -> io::Result<()> {
     let mut tsv = String::new();
     for r in results {
-        tsv.push_str(&format!(
-            "{}\t{}\t{}\t{}\t{}\n",
-            r.file, r.status, r.exit, r.codes, r.ms
-        ));
+        tsv.push_str(&format!("{}\t{}\t{}\t{}\t{}\n", r.file, r.status, r.exit, r.codes, r.ms));
     }
     fs::write(out_dir.join("results.tsv"), tsv)?;
     fs::write(out_dir.join("hashes.tsv"), format_hashes(mode, results))?;
@@ -734,11 +689,7 @@ fn write_outputs(
         format!("elapsed: {}s", elapsed.as_secs()),
         String::new(),
     ];
-    summary.extend(
-        counts
-            .iter()
-            .map(|(status, count)| format!("{status:<8} {count}")),
-    );
+    summary.extend(counts.iter().map(|(status, count)| format!("{status:<8} {count}")));
     fs::write(out_dir.join("summary.txt"), summary.join("\n") + "\n")?;
 
     let mut errors = String::new();
@@ -774,28 +725,16 @@ mod tests {
         let cases = [
             ("    v307 = LoadName(#243)", "    v_ = LoadName(#_)"),
             ("  b22(v6836: Tuple(0)):", "  b_(v_: Tuple(0)):"),
-            (
-                "    v11263 = MakeClosure(fn36, [v11260])",
-                "    v_ = MakeClosure(fn_, [v_])",
-            ),
+            ("    v11263 = MakeClosure(fn36, [v11260])", "    v_ = MakeClosure(fn_, [v_])"),
             ("    let %t530 = ICmpEq(n, 0)", "    let %t_ = ICmpEq(n, 0)"),
-            (
-                "fn factorial [fn#1321] (%0, %1) {",
-                "fn factorial [fn#_] (%_, %_) {",
-            ),
+            ("fn factorial [fn#1321] (%0, %1) {", "fn factorial [fn#_] (%_, %_) {"),
             ("    br %8, bb2, bb3", "    br %_, bb_, bb_"),
             (
                 "  reuse xs#1250 as Cons(h#1252, <sym:4001814>#1814)",
                 "  reuse xs#_ as Cons(h#_, <sym:_>#_)",
             ),
-            (
-                "    v59452 = Const(3.141592653589793f)",
-                "    v_ = Const(3.141592653589793f)",
-            ),
-            (
-                "lam(__arg0, sub2, abc12) -> b",
-                "lam(__arg0, sub2, abc12) -> b",
-            ),
+            ("    v59452 = Const(3.141592653589793f)", "    v_ = Const(3.141592653589793f)"),
+            ("lam(__arg0, sub2, abc12) -> b", "lam(__arg0, sub2, abc12) -> b"),
         ];
         for (dump, normalized) in cases {
             assert_eq!(normalize(dump), normalized, "{dump}");
@@ -822,34 +761,18 @@ mod tests {
     #[test]
     fn the_determinism_sample_is_stable_and_only_ok_files() {
         let results: Vec<FileResult> = (0..40)
-            .map(|n| {
-                result(
-                    &format!("f{n}.flx"),
-                    if n % 4 == 0 { "error" } else { "ok" },
-                )
-            })
+            .map(|n| result(&format!("f{n}.flx"), if n % 4 == 0 { "error" } else { "ok" }))
             .collect();
         let pick = |results: &[FileResult]| -> Vec<String> {
-            determinism_sample(results, 5)
-                .iter()
-                .map(|r| r.file.clone())
-                .collect()
+            determinism_sample(results, 5).iter().map(|r| r.file.clone()).collect()
         };
         let first = pick(&results);
         assert_eq!(first.len(), 5);
         let mut reversed = results.clone();
         reversed.reverse();
-        assert_eq!(
-            pick(&reversed),
-            first,
-            "the order of the results does not matter"
-        );
+        assert_eq!(pick(&reversed), first, "the order of the results does not matter");
         assert!(determinism_sample(&results, 0).is_empty());
-        assert!(
-            determinism_sample(&results, 100)
-                .iter()
-                .all(|r| r.status == "ok")
-        );
+        assert!(determinism_sample(&results, 100).iter().all(|r| r.status == "ok"));
         assert_eq!(determinism_sample(&results, 100).len(), 30);
     }
 
@@ -871,24 +794,14 @@ mod tests {
         write("b", "home/store/new", "1");
         assert_eq!(
             tree_differences(&scratch.join("a"), &scratch.join("b")),
-            [
-                "home/store/new only in b",
-                "interfaces/gone.flxi only in a",
-                "vm/x.fxm differs"
-            ]
+            ["home/store/new only in b", "interfaces/gone.flxi only in a", "vm/x.fxm differs"]
         );
         let _ = fs::remove_dir_all(&scratch);
     }
 
     #[test]
     fn every_mode_reads_back_from_its_name() {
-        for mode in [
-            Mode::Cfg,
-            Mode::Core,
-            Mode::CoreOpt,
-            Mode::Aether,
-            Mode::Lir,
-        ] {
+        for mode in [Mode::Cfg, Mode::Core, Mode::CoreOpt, Mode::Aether, Mode::Lir] {
             assert_eq!(Mode::parse(mode.name()), Some(mode));
         }
         assert_eq!(Mode::Lir.flags(), ["--native", "--dump-lir"]);
@@ -898,25 +811,12 @@ mod tests {
     fn classifies_every_ending() {
         assert_eq!(classify(false, -1, "", &[]), "timeout");
         assert_eq!(
-            classify(
-                true,
-                1,
-                "error: Internal Compiler Error: x",
-                &codes(&["E300"])
-            ),
+            classify(true, 1, "error: Internal Compiler Error: x", &codes(&["E300"])),
             "ice"
         );
+        assert_eq!(classify(true, 101, "thread 'main' panicked at src/x.rs:1:1", &[]), "panic");
         assert_eq!(
-            classify(true, 101, "thread 'main' panicked at src/x.rs:1:1", &[]),
-            "panic"
-        );
-        assert_eq!(
-            classify(
-                true,
-                -1073741571,
-                "\nthread 'main' has overflowed its stack\n",
-                &[]
-            ),
+            classify(true, -1073741571, "\nthread 'main' has overflowed its stack\n", &[]),
             "panic"
         );
         assert_eq!(classify(true, 0, "", &[]), "ok");
@@ -926,10 +826,7 @@ mod tests {
 
     #[test]
     fn a_timeout_wins_over_everything() {
-        assert_eq!(
-            classify(false, -1, "panicked at", &codes(&["E300"])),
-            "timeout"
-        );
+        assert_eq!(classify(false, -1, "panicked at", &codes(&["E300"])), "timeout");
     }
 
     #[test]

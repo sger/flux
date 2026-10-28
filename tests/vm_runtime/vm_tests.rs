@@ -94,16 +94,10 @@ fn compile_program(input: &str, with_prelude: bool) -> Result<Bytecode, String> 
     // `Eq<Int> => Ord<Int>`, and `Eq` belongs to `Flow.Eq`.
     let mut ordered_nodes = graph_result.graph.topo_order();
     ordered_nodes.sort_by_key(|node| {
-        if node.kind == flux::syntax::module_graph::ModuleKind::FlowStdlib {
-            0
-        } else {
-            1
-        }
+        if node.kind == flux::syntax::module_graph::ModuleKind::FlowStdlib { 0 } else { 1 }
     });
-    let nodes_by_path: std::collections::HashMap<_, _> = ordered_nodes
-        .iter()
-        .map(|node| (node.path.clone(), (*node).clone()))
-        .collect();
+    let nodes_by_path: std::collections::HashMap<_, _> =
+        ordered_nodes.iter().map(|node| (node.path.clone(), (*node).clone())).collect();
     for node in &ordered_nodes {
         for dep in &node.imports {
             if let Some(dep_node) = nodes_by_path.get(&dep.target_path) {
@@ -181,11 +175,7 @@ outer();"#;
         "runtime diagnostics should not include file grouping headers, got:\n{}",
         err
     );
-    assert!(
-        err.contains(":2:1"),
-        "expected 1-based column in stack trace, got:\n{}",
-        err
-    );
+    assert!(err.contains(":2:1"), "expected 1-based column in stack trace, got:\n{}", err);
 }
 
 #[test]
@@ -271,21 +261,13 @@ compute() handle Counter(0) {
 #[test]
 fn unmigrated_runtime_error_maps_not_a_function_code() {
     let instructions = make(OpCode::OpClosure, &[0, 0]);
-    let bytecode = Bytecode {
-        instructions,
-        constants: vec![Value::Integer(1)],
-        debug_info: None,
-    };
+    let bytecode = Bytecode { instructions, constants: vec![Value::Integer(1)], debug_info: None };
 
     let mut vm = VM::new(bytecode);
     let err = vm.run().unwrap_err();
 
     assert!(err.contains("[E1001]"), "expected E1001, got:\n{}", err);
-    assert!(
-        !err.contains("[E1002]"),
-        "should not map to E1002, got:\n{}",
-        err
-    );
+    assert!(!err.contains("[E1002]"), "should not map to E1002, got:\n{}", err);
 }
 
 #[test]
@@ -351,10 +333,7 @@ t(9) + x;
 #[test]
 fn test_functions() {
     assert_eq!(run("let f = fn() { 5 + 10 }; f();"), Value::Integer(15));
-    assert_eq!(
-        run("let add_pair = fn(a, b) { a + b }; add_pair(1, 2);"),
-        Value::Integer(3)
-    );
+    assert_eq!(run("let add_pair = fn(a, b) { a + b }; add_pair(1, 2);"), Value::Integer(3));
 }
 
 #[test]
@@ -437,18 +416,9 @@ fn test_array_literals() {
 
 #[test]
 fn test_array_index() {
-    assert_eq!(
-        run("#[1, 2, 3][0];"),
-        Value::Some(std::rc::Rc::new(Value::Integer(1)))
-    );
-    assert_eq!(
-        run("#[1, 2, 3][1];"),
-        Value::Some(std::rc::Rc::new(Value::Integer(2)))
-    );
-    assert_eq!(
-        run("#[1, 2, 3][2];"),
-        Value::Some(std::rc::Rc::new(Value::Integer(3)))
-    );
+    assert_eq!(run("#[1, 2, 3][0];"), Value::Some(std::rc::Rc::new(Value::Integer(1))));
+    assert_eq!(run("#[1, 2, 3][1];"), Value::Some(std::rc::Rc::new(Value::Integer(2))));
+    assert_eq!(run("#[1, 2, 3][2];"), Value::Some(std::rc::Rc::new(Value::Integer(3))));
     assert_eq!(run("#[1, 2, 3][3];"), Value::None);
     assert_eq!(run("#[1, 2, 3][-1];"), Value::None);
 }
@@ -457,19 +427,12 @@ fn test_array_index() {
 fn test_hash_literals() {
     let result = run(r#"{"a": 1};"#);
     // Hash literals produce Value::HashMap (Rc-based HAMT)
-    assert!(
-        matches!(result, Value::HashMap(_)),
-        "expected HashMap, got {:?}",
-        result
-    );
+    assert!(matches!(result, Value::HashMap(_)), "expected HashMap, got {:?}", result);
 }
 
 #[test]
 fn test_hash_index() {
-    assert_eq!(
-        run(r#"{"a": 1}["a"];"#),
-        Value::Some(std::rc::Rc::new(Value::Integer(1)))
-    );
+    assert_eq!(run(r#"{"a": 1}["a"];"#), Value::Some(std::rc::Rc::new(Value::Integer(1))));
     assert_eq!(run(r#"{"a": 1}["b"];"#), Value::None);
     assert_eq!(
         run(r#"{1: "one"}[1];"#),
@@ -481,19 +444,10 @@ fn test_hash_index() {
 fn test_block_tail_semantics_and_do_block() {
     assert_eq!(run("fn f() { let x = 1; x + 2 } f();"), Value::Integer(3));
     assert_eq!(run("fn f() { 1; } f();"), Value::None);
-    assert_eq!(
-        run("let y = do { let x = 1; x + 1 }; y;"),
-        Value::Integer(2)
-    );
+    assert_eq!(run("let y = do { let x = 1; x + 1 }; y;"), Value::Integer(2));
     assert_eq!(run("let y = do { let x = 1; x + 1; }; y;"), Value::None);
-    assert_eq!(
-        run("if true { let x = 1; x } else { 0 };"),
-        Value::Integer(1)
-    );
-    assert_eq!(
-        run("match 1 { 1 -> do { let x = 2; x }, _ -> 0 };"),
-        Value::Integer(2)
-    );
+    assert_eq!(run("if true { let x = 1; x } else { 0 };"), Value::Integer(1));
+    assert_eq!(run("match 1 { 1 -> do { let x = 2; x }, _ -> 0 };"), Value::Integer(2));
     assert_eq!(
         run(r#"let h = {"a": 1, "b": 2}; h["a"];"#),
         Value::Some(std::rc::Rc::new(Value::Integer(1)))
@@ -596,34 +550,23 @@ fn test_modulo_operator() {
 
 #[test]
 fn large_array_literal_no_stack_overflow() {
-    let values = (1..=3000)
-        .map(|n| n.to_string())
-        .collect::<Vec<_>>()
-        .join(", ");
+    let values = (1..=3000).map(|n| n.to_string()).collect::<Vec<_>>().join(", ");
     let input = format!("let arr = #[{}]; len(arr);", values);
     assert_eq!(run(&input), Value::Integer(3000));
 }
 
 #[test]
 fn large_map_pipeline_no_stack_overflow() {
-    let values = (1..=3000)
-        .map(|n| n.to_string())
-        .collect::<Vec<_>>()
-        .join(", ");
-    let input = format!(
-        "let arr = [{}]; let mapped = map(arr, \\x -> x + 1); len(mapped);",
-        values
-    );
+    let values = (1..=3000).map(|n| n.to_string()).collect::<Vec<_>>().join(", ");
+    let input =
+        format!("let arr = [{}]; let mapped = map(arr, \\x -> x + 1); len(mapped);", values);
     assert_eq!(run(&input), Value::Integer(3000));
 }
 
 #[test]
 fn map_filter_fold_across_u16_boundary() {
     let n: i64 = 65_536;
-    let values = (1..=n)
-        .map(|x| x.to_string())
-        .collect::<Vec<_>>()
-        .join(", ");
+    let values = (1..=n).map(|x| x.to_string()).collect::<Vec<_>>().join(", ");
     let input = format!(
         r#"
 let arr = [{}];
@@ -642,10 +585,7 @@ fold(filtered, 0, \(acc, x) -> acc + x);
 #[test]
 fn test_pipe_operator() {
     // Basic pipe: value |> function
-    assert_eq!(
-        run("let double = fn(x) { x * 2 }; 5 |> double;"),
-        Value::Integer(10)
-    );
+    assert_eq!(run("let double = fn(x) { x * 2 }; 5 |> double;"), Value::Integer(10));
 
     // Chained pipes: value |> f |> g
     assert_eq!(
@@ -654,16 +594,10 @@ fn test_pipe_operator() {
     );
 
     // Pipe with additional arguments: value |> function(arg)
-    assert_eq!(
-        run("let add = fn(x, y) { x + y }; 5 |> add(3);"),
-        Value::Integer(8)
-    );
+    assert_eq!(run("let add = fn(x, y) { x + y }; 5 |> add(3);"), Value::Integer(8));
 
     // Pipe with multiple additional arguments
-    assert_eq!(
-        run("let sum3 = fn(a, b, c) { a + b + c }; 1 |> sum3(2, 3);"),
-        Value::Integer(6)
-    );
+    assert_eq!(run("let sum3 = fn(a, b, c) { a + b + c }; 1 |> sum3(2, 3);"), Value::Integer(6));
 
     // Complex chain with mixed calls
     assert_eq!(
@@ -712,16 +646,10 @@ fn test_pipe_operator() {
 #[test]
 fn test_either_left_right() {
     // Basic Left creation
-    assert_eq!(
-        run("let x = Left(42); x;"),
-        Value::Left(std::rc::Rc::new(Value::Integer(42)))
-    );
+    assert_eq!(run("let x = Left(42); x;"), Value::Left(std::rc::Rc::new(Value::Integer(42))));
 
     // Basic Right creation
-    assert_eq!(
-        run("let x = Right(42); x;"),
-        Value::Right(std::rc::Rc::new(Value::Integer(42)))
-    );
+    assert_eq!(run("let x = Right(42); x;"), Value::Right(std::rc::Rc::new(Value::Integer(42))));
 
     // Left with string
     assert_eq!(
@@ -732,41 +660,31 @@ fn test_either_left_right() {
     // Right with string
     assert_eq!(
         run(r#"let x = Right("success"); x;"#),
-        Value::Right(std::rc::Rc::new(Value::String(
-            "success".to_string().into()
-        )))
+        Value::Right(std::rc::Rc::new(Value::String("success".to_string().into())))
     );
 
     // Nested Left
     assert_eq!(
         run("let x = Left(Left(1)); x;"),
-        Value::Left(std::rc::Rc::new(Value::Left(std::rc::Rc::new(
-            Value::Integer(1)
-        ))))
+        Value::Left(std::rc::Rc::new(Value::Left(std::rc::Rc::new(Value::Integer(1)))))
     );
 
     // Nested Right
     assert_eq!(
         run("let x = Right(Right(1)); x;"),
-        Value::Right(std::rc::Rc::new(Value::Right(std::rc::Rc::new(
-            Value::Integer(1)
-        ))))
+        Value::Right(std::rc::Rc::new(Value::Right(std::rc::Rc::new(Value::Integer(1)))))
     );
 
     // Left containing Right
     assert_eq!(
         run("let x = Left(Right(42)); x;"),
-        Value::Left(std::rc::Rc::new(Value::Right(std::rc::Rc::new(
-            Value::Integer(42)
-        ))))
+        Value::Left(std::rc::Rc::new(Value::Right(std::rc::Rc::new(Value::Integer(42)))))
     );
 
     // Right containing Left
     assert_eq!(
         run("let x = Right(Left(42)); x;"),
-        Value::Right(std::rc::Rc::new(Value::Left(std::rc::Rc::new(
-            Value::Integer(42)
-        ))))
+        Value::Right(std::rc::Rc::new(Value::Left(std::rc::Rc::new(Value::Integer(42)))))
     );
 }
 
@@ -929,9 +847,7 @@ fn test_either_in_functions() {
             }
             safeDivide(10, 0);
         "#),
-        Value::Left(std::rc::Rc::new(Value::String(
-            "division by zero".to_string().into()
-        )))
+        Value::Left(std::rc::Rc::new(Value::String("division by zero".to_string().into())))
     );
 }
 
@@ -957,31 +873,22 @@ fn test_either_with_option() {
     // Left containing Some
     assert_eq!(
         run("let x = Left(Some(42)); x;"),
-        Value::Left(std::rc::Rc::new(Value::Some(std::rc::Rc::new(
-            Value::Integer(42)
-        ))))
+        Value::Left(std::rc::Rc::new(Value::Some(std::rc::Rc::new(Value::Integer(42)))))
     );
 
     // Right containing None
-    assert_eq!(
-        run("let x = Right(None); x;"),
-        Value::Right(std::rc::Rc::new(Value::None))
-    );
+    assert_eq!(run("let x = Right(None); x;"), Value::Right(std::rc::Rc::new(Value::None)));
 
     // Some containing Left
     assert_eq!(
         run("let x = Some(Left(1)); x;"),
-        Value::Some(std::rc::Rc::new(Value::Left(std::rc::Rc::new(
-            Value::Integer(1)
-        ))))
+        Value::Some(std::rc::Rc::new(Value::Left(std::rc::Rc::new(Value::Integer(1)))))
     );
 
     // Some containing Right
     assert_eq!(
         run("let x = Some(Right(1)); x;"),
-        Value::Some(std::rc::Rc::new(Value::Right(std::rc::Rc::new(
-            Value::Integer(1)
-        ))))
+        Value::Some(std::rc::Rc::new(Value::Right(std::rc::Rc::new(Value::Integer(1)))))
     );
 }
 
@@ -1006,16 +913,14 @@ fn test_either_in_hash() {
     // Hash with Either values
     assert_eq!(
         run(r#"let h = {"ok": Right(1), "err": Left("fail")}; h["ok"];"#),
-        Value::Some(std::rc::Rc::new(Value::Right(std::rc::Rc::new(
-            Value::Integer(1)
-        ))))
+        Value::Some(std::rc::Rc::new(Value::Right(std::rc::Rc::new(Value::Integer(1)))))
     );
 
     assert_eq!(
         run(r#"let h = {"ok": Right(1), "err": Left("fail")}; h["err"];"#),
-        Value::Some(std::rc::Rc::new(Value::Left(std::rc::Rc::new(
-            Value::String("fail".to_string().into())
-        ))))
+        Value::Some(std::rc::Rc::new(Value::Left(std::rc::Rc::new(Value::String(
+            "fail".to_string().into()
+        )))))
     );
 }
 
@@ -1060,26 +965,17 @@ fn test_base_filter() {
 
 #[test]
 fn test_base_filter_none_pass() {
-    assert_eq!(
-        run("len(filter([1, 2, 3], fn(x) { x > 10 }));"),
-        Value::Integer(0)
-    );
+    assert_eq!(run("len(filter([1, 2, 3], fn(x) { x > 10 }));"), Value::Integer(0));
 }
 
 #[test]
 fn test_base_filter_all_pass() {
-    assert_eq!(
-        run("len(filter([1, 2, 3], fn(x) { x > 0 }));"),
-        Value::Integer(3)
-    );
+    assert_eq!(run("len(filter([1, 2, 3], fn(x) { x > 0 }));"), Value::Integer(3));
 }
 
 #[test]
 fn test_base_fold_sum() {
-    assert_eq!(
-        run("fold([1, 2, 3, 4], 0, fn(acc, x) { acc + x });"),
-        Value::Integer(10)
-    );
+    assert_eq!(run("fold([1, 2, 3, 4], 0, fn(acc, x) { acc + x });"), Value::Integer(10));
 }
 
 #[test]
@@ -1093,10 +989,7 @@ L.fold(["a", "b", "c"], "", fn(acc, x) { acc + x });"#),
 
 #[test]
 fn test_base_fold_empty() {
-    assert_eq!(
-        run("fold([], 42, fn(acc, x) { acc + x });"),
-        Value::Integer(42)
-    );
+    assert_eq!(run("fold([], 42, fn(acc, x) { acc + x });"), Value::Integer(42));
 }
 
 #[test]
@@ -1141,10 +1034,7 @@ fn test_filter_with_lambda() {
 
 #[test]
 fn test_fold_with_lambda() {
-    assert_eq!(
-        run(r#"fold([1, 2, 3], 0, \(a, b) -> a + b);"#),
-        Value::Integer(6)
-    );
+    assert_eq!(run(r#"fold([1, 2, 3], 0, \(a, b) -> a + b);"#), Value::Integer(6));
 }
 
 #[test]
@@ -1417,10 +1307,7 @@ fn test_map_large_array_5k() {
     // Test that the growable stack handles 5k elements
     let program = format!(
         "let big = [{}]; let doubled = map(big, fn(x) {{ x * 2; }}); len(doubled);",
-        (0..5000)
-            .map(|i| i.to_string())
-            .collect::<Vec<_>>()
-            .join(",")
+        (0..5000).map(|i| i.to_string()).collect::<Vec<_>>().join(",")
     );
     assert_eq!(run(&program), Value::Integer(5000));
 }
@@ -1430,10 +1317,7 @@ fn test_filter_large_array_5k() {
     // Test filter with 5k elements
     let program = format!(
         "let big = [{}]; let filtered = filter(big, fn(x) {{ x % 2 == 0 }}); len(filtered);",
-        (0..5000)
-            .map(|i| i.to_string())
-            .collect::<Vec<_>>()
-            .join(",")
+        (0..5000).map(|i| i.to_string()).collect::<Vec<_>>().join(",")
     );
     assert_eq!(run(&program), Value::Integer(2500));
 }
@@ -1443,10 +1327,7 @@ fn test_fold_large_array_5k() {
     // Test fold with 5k elements
     let program = format!(
         "let big = [{}]; fold(big, 0, fn(acc, x) {{ acc + 1 }});",
-        (0..5000)
-            .map(|i| i.to_string())
-            .collect::<Vec<_>>()
-            .join(",")
+        (0..5000).map(|i| i.to_string()).collect::<Vec<_>>().join(",")
     );
     assert_eq!(run(&program), Value::Integer(5000));
 }
@@ -1459,10 +1340,7 @@ fn test_chained_operations_large_array() {
          let mapped = map(arr, fn(x) {{ x * 2 }}); \
          let filtered = filter(mapped, fn(x) {{ x % 3 == 0 }}); \
          len(filtered);",
-        (0..1000)
-            .map(|i| i.to_string())
-            .collect::<Vec<_>>()
-            .join(",")
+        (0..1000).map(|i| i.to_string()).collect::<Vec<_>>().join(",")
     );
     let result = run(&program);
     assert!(matches!(result, Value::Integer(_)));
@@ -1493,10 +1371,7 @@ fn test_array_does_not_match_list_pattern() {
 
 #[test]
 fn test_tuple_does_not_match_option_pattern() {
-    assert_eq!(
-        run(r#"match (1, 2) { Some(x) -> "option", _ -> "tuple" };"#),
-        make_string("tuple")
-    );
+    assert_eq!(run(r#"match (1, 2) { Some(x) -> "option", _ -> "tuple" };"#), make_string("tuple"));
 }
 
 #[test]
@@ -1523,10 +1398,7 @@ match value {
 fn test_list_constructor() {
     assert_eq!(run("first(list(10, 20, 30));"), Value::Integer(10));
     assert_eq!(run("first(rest(list(10, 20, 30)));"), Value::Integer(20));
-    assert_eq!(
-        run("first(rest(rest(list(10, 20, 30))));"),
-        Value::Integer(30)
-    );
+    assert_eq!(run("first(rest(rest(list(10, 20, 30))));"), Value::Integer(30));
 }
 
 #[test]
@@ -1571,10 +1443,7 @@ fn test_list_pattern_match() {
         run("let xs = list(10, 20, 30); match xs { [h | t] -> h, _ -> 0 };"),
         Value::Integer(10)
     );
-    assert_eq!(
-        run("let xs = list(); match xs { [h | t] -> h, _ -> 0 };"),
-        Value::Integer(0)
-    );
+    assert_eq!(run("let xs = list(); match xs { [h | t] -> h, _ -> 0 };"), Value::Integer(0));
 }
 
 #[test]
@@ -1586,32 +1455,14 @@ fn test_list_is_list() {
 
 #[test]
 fn test_list_slicing_and_span() {
-    assert_eq!(
-        run("to_string(take([1, 2, 3, 4], 2));"),
-        make_string("[1, 2]")
-    );
-    assert_eq!(
-        run("to_string(drop([1, 2, 3, 4], 2));"),
-        make_string("[3, 4]")
-    );
+    assert_eq!(run("to_string(take([1, 2, 3, 4], 2));"), make_string("[1, 2]"));
+    assert_eq!(run("to_string(drop([1, 2, 3, 4], 2));"), make_string("[3, 4]"));
     assert_eq!(run("to_string(take([1, 2, 3], 0));"), make_string("[]"));
-    assert_eq!(
-        run("to_string(drop([1, 2, 3], -1));"),
-        make_string("[1, 2, 3]")
-    );
+    assert_eq!(run("to_string(drop([1, 2, 3], -1));"), make_string("[1, 2, 3]"));
     assert_eq!(run("to_string(take([1, 2], 10));"), make_string("[1, 2]"));
-    assert_eq!(
-        run("to_string(take_while([1, 2, 3, 1], fn(x) { x < 3 }));"),
-        make_string("[1, 2]")
-    );
-    assert_eq!(
-        run("to_string(drop_while([1, 2, 3, 1], fn(x) { x < 3 }));"),
-        make_string("[3, 1]")
-    );
-    assert_eq!(
-        run("to_string(split_at([1, 2, 3, 4], 2));"),
-        make_string("([1, 2], [3, 4])")
-    );
+    assert_eq!(run("to_string(take_while([1, 2, 3, 1], fn(x) { x < 3 }));"), make_string("[1, 2]"));
+    assert_eq!(run("to_string(drop_while([1, 2, 3, 1], fn(x) { x < 3 }));"), make_string("[3, 1]"));
+    assert_eq!(run("to_string(split_at([1, 2, 3, 4], 2));"), make_string("([1, 2], [3, 4])"));
     assert_eq!(
         run("to_string(span([1, 2, 3, 1], fn(x) { x < 3 }));"),
         make_string("([1, 2], [3, 1])")
@@ -1620,14 +1471,8 @@ fn test_list_slicing_and_span() {
 
 #[test]
 fn test_list_folds_scans_and_builders() {
-    assert_eq!(
-        run(r#"foldr(["a", "b", "c"], "", fn(x, acc) { x + acc });"#),
-        make_string("abc")
-    );
-    assert_eq!(
-        run("fold1([2, 3, 4], fn(a, b) { a * b });"),
-        Value::Integer(24)
-    );
+    assert_eq!(run(r#"foldr(["a", "b", "c"], "", fn(x, acc) { x + acc });"#), make_string("abc"));
+    assert_eq!(run("fold1([2, 3, 4], fn(a, b) { a * b });"), Value::Integer(24));
     assert_eq!(
         run("to_string(scanl([1, 2, 3], 0, fn(acc, x) { acc + x }));"),
         make_string("[0, 1, 3, 6]")
@@ -1637,10 +1482,7 @@ fn test_list_folds_scans_and_builders() {
         make_string("[6, 5, 3, 0]")
     );
     assert_eq!(run("to_string(replicate(3, 9));"), make_string("[9, 9, 9]"));
-    assert_eq!(
-        run("to_string(iterate(1, fn(x) { x * 2 }, 4));"),
-        make_string("[1, 2, 4, 8]")
-    );
+    assert_eq!(run("to_string(iterate(1, fn(x) { x * 2 }, 4));"), make_string("[1, 2, 4, 8]"));
     assert_eq!(
         run("to_string(unfold(0, fn(n) { if n < 4 { Some((n * 2, n + 1)) } else { None } }));"),
         make_string("[0, 2, 4, 6]")
@@ -1706,38 +1548,14 @@ fn test_list_utilities_and_sorting() {
     assert_eq!(run("null([]);"), Value::Boolean(true));
     assert_eq!(run("null([1]);"), Value::Boolean(false));
     assert_eq!(run("to_string(init([1, 2, 3]));"), make_string("[1, 2]"));
-    assert_eq!(
-        run("to_string(nth([10, 20, 30], 1));"),
-        make_string("Some(20)")
-    );
-    assert_eq!(
-        run("to_string(nth([10, 20, 30], 99));"),
-        make_string("None")
-    );
-    assert_eq!(
-        run("to_string(nth([10, 20, 30], -1));"),
-        make_string("None")
-    );
-    assert_eq!(
-        run("to_string(maximum([3, 9, 4]));"),
-        make_string("Some(9)")
-    );
-    assert_eq!(
-        run("to_string(minimum([3, 9, 4]));"),
-        make_string("Some(3)")
-    );
-    assert_eq!(
-        run("let none: List<Int> = []; to_string(maximum(none));"),
-        make_string("None")
-    );
-    assert_eq!(
-        run("let none: List<Int> = []; to_string(minimum(none));"),
-        make_string("None")
-    );
-    assert_eq!(
-        run("to_string(sort([3, 1, 4, 1, 2]));"),
-        make_string("[1, 1, 2, 3, 4]")
-    );
+    assert_eq!(run("to_string(nth([10, 20, 30], 1));"), make_string("Some(20)"));
+    assert_eq!(run("to_string(nth([10, 20, 30], 99));"), make_string("None"));
+    assert_eq!(run("to_string(nth([10, 20, 30], -1));"), make_string("None"));
+    assert_eq!(run("to_string(maximum([3, 9, 4]));"), make_string("Some(9)"));
+    assert_eq!(run("to_string(minimum([3, 9, 4]));"), make_string("Some(3)"));
+    assert_eq!(run("let none: List<Int> = []; to_string(maximum(none));"), make_string("None"));
+    assert_eq!(run("let none: List<Int> = []; to_string(minimum(none));"), make_string("None"));
+    assert_eq!(run("to_string(sort([3, 1, 4, 1, 2]));"), make_string("[1, 1, 2, 3, 4]"));
     assert_eq!(
         run("to_string(sort_by([\"bbb\", \"a\", \"cc\"], fn(x) { len(x) }));"),
         make_string("[\"a\", \"cc\", \"bbb\"]")
@@ -1775,18 +1593,9 @@ fn test_removed_list_and_array_sort_primops_require_library_apis() {
 
 #[test]
 fn test_tuple_literals_and_grouping() {
-    assert_eq!(
-        run("to_string((1, 2, 3));"),
-        Value::String("(1, 2, 3)".to_string().into())
-    );
-    assert_eq!(
-        run("to_string((42,));"),
-        Value::String("(42,)".to_string().into())
-    );
-    assert_eq!(
-        run("to_string(());"),
-        Value::String("()".to_string().into())
-    );
+    assert_eq!(run("to_string((1, 2, 3));"), Value::String("(1, 2, 3)".to_string().into()));
+    assert_eq!(run("to_string((42,));"), Value::String("(42,)".to_string().into()));
+    assert_eq!(run("to_string(());"), Value::String("()".to_string().into()));
     assert_eq!(run("(1 + 2);"), Value::Integer(3));
 }
 
@@ -1797,20 +1606,14 @@ fn test_tuple_destructure_and_nested_destructure() {
         run(r#"let (x, y, z) = (1, "two", true); type_of(y);"#),
         Value::String("String".to_string().into())
     );
-    assert_eq!(
-        run("let (a, (b, c)) = (1, (2, 3)); a + b + c;"),
-        Value::Integer(6)
-    );
+    assert_eq!(run("let (a, (b, c)) = (1, (2, 3)); a + b + c;"), Value::Integer(6));
 }
 
 #[test]
 fn test_tuple_access_and_indexing() {
     assert_eq!(run("let t = (1, 2, 3); t.0;"), Value::Integer(1));
     assert_eq!(run("let t = (1, 2, 3); t.1;"), Value::Integer(2));
-    assert_eq!(
-        run("let t = (1, 2, 3); t[0];"),
-        Value::Some(std::rc::Rc::new(Value::Integer(1)))
-    );
+    assert_eq!(run("let t = (1, 2, 3); t[0];"), Value::Some(std::rc::Rc::new(Value::Integer(1))));
     assert_eq!(run("let t = (1, 2, 3); t[99];"), Value::None);
 }
 
@@ -1821,10 +1624,7 @@ fn test_tuple_match_and_base_functions() {
         Value::Integer(3)
     );
     assert_eq!(run("len((1, 2, 3));"), Value::Integer(3));
-    assert_eq!(
-        run(r#"type_of((1, 2));"#),
-        Value::String("Tuple".to_string().into())
-    );
+    assert_eq!(run(r#"type_of((1, 2));"#), Value::String("Tuple".to_string().into()));
     assert_eq!(run("(1, 2) == (1, 2);"), Value::Boolean(true));
 }
 
@@ -1834,10 +1634,7 @@ fn test_tuple_match_and_base_functions() {
 
 #[test]
 fn test_list_comprehension_single_generator() {
-    assert_eq!(
-        run("fold([x * 2 | x <- [1, 2, 3]], 0, fn(a, x) { a + x });"),
-        Value::Integer(12)
-    );
+    assert_eq!(run("fold([x * 2 | x <- [1, 2, 3]], 0, fn(a, x) { a + x });"), Value::Integer(12));
 }
 
 #[test]
@@ -1885,10 +1682,7 @@ let xs = list(1, 2, 3); L.fold([x * 10 | x <- xs], 0, fn(a, x) { a + x });"#),
 
 #[test]
 fn test_list_comprehension_identity() {
-    assert_eq!(
-        run("fold([x | x <- [1, 2, 3]], 0, fn(a, x) { a + x });"),
-        Value::Integer(6)
-    );
+    assert_eq!(run("fold([x | x <- [1, 2, 3]], 0, fn(a, x) { a + x });"), Value::Integer(6));
 }
 
 #[test]
@@ -1907,10 +1701,7 @@ fn test_flat_map_base() {
 
 #[test]
 fn test_top_level_match_binding() {
-    assert_eq!(
-        run("let x = match Some(7) { Some(n) -> n, _ -> 0 }\nx"),
-        Value::Integer(7)
-    );
+    assert_eq!(run("let x = match Some(7) { Some(n) -> n, _ -> 0 }\nx"), Value::Integer(7));
 }
 
 #[test]

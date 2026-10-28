@@ -27,11 +27,8 @@ pub fn free_vars_rec_aether(
         }
         AetherExpr::Lit(_, _) => {}
         AetherExpr::Lam { params, body, .. } => {
-            let new_params: Vec<_> = params
-                .iter()
-                .filter(|p| bound.insert(p.id))
-                .cloned()
-                .collect();
+            let new_params: Vec<_> =
+                params.iter().filter(|p| bound.insert(p.id)).cloned().collect();
             free_vars_rec_aether(body, bound, free);
             for p in new_params {
                 bound.remove(&p.id);
@@ -74,18 +71,13 @@ pub fn free_vars_rec_aether(
                 bound.remove(&id);
             }
         }
-        AetherExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        AetherExpr::Case { scrutinee, alts, .. } => {
             free_vars_rec_aether(scrutinee, bound, free);
             for alt in alts {
                 let mut alt_bound = HashSet::new();
                 collect_pat_binders(&alt.pat, &mut alt_bound);
-                let new_binders: Vec<_> = alt_bound
-                    .iter()
-                    .filter(|binder| bound.insert(**binder))
-                    .cloned()
-                    .collect();
+                let new_binders: Vec<_> =
+                    alt_bound.iter().filter(|binder| bound.insert(**binder)).cloned().collect();
                 if let Some(guard) = &alt.guard {
                     free_vars_rec_aether(guard, bound, free);
                 }
@@ -106,12 +98,7 @@ pub fn free_vars_rec_aether(
             free_vars_rec_aether(object, bound, free);
         }
         AetherExpr::Return { value, .. } => free_vars_rec_aether(value, bound, free),
-        AetherExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        AetherExpr::Handle { body, parameter, handlers, .. } => {
             if let Some(parameter) = parameter {
                 free_vars_rec_aether(parameter, bound, free);
             }
@@ -155,12 +142,7 @@ pub fn free_vars_rec_aether(
                 free_vars_rec_aether(field, bound, free);
             }
         }
-        AetherExpr::DropSpecialized {
-            scrutinee,
-            unique_body,
-            shared_body,
-            ..
-        } => {
+        AetherExpr::DropSpecialized { scrutinee, unique_body, shared_body, .. } => {
             if let Some(binder) = scrutinee.binder
                 && !bound.contains(&binder)
             {

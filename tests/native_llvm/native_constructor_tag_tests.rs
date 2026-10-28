@@ -63,15 +63,9 @@ fn main() -> Unit with IO {
 }
 "#,
     );
-    assert_eq!(
-        vm, native,
-        "VM and native disagree:\nvm:\n{vm}\nnative:\n{native}"
-    );
+    assert_eq!(vm, native, "VM and native disagree:\nvm:\n{vm}\nnative:\n{native}");
     assert!(vm.contains("read=true"), "expected read=true:\n{vm}");
-    assert!(
-        vm.contains("missing=false"),
-        "expected missing=false:\n{vm}"
-    );
+    assert!(vm.contains("missing=false"), "expected missing=false:\n{vm}");
 }
 
 /// `Result<Unit, _>` is the shape the filesystem mutations return. Its `Ok`
@@ -95,10 +89,7 @@ fn main() -> Unit with IO {
 "#,
     );
     let _ = std::fs::remove_dir_all(workspace_root().join("target/test-scratch/ctor_tag_unit"));
-    assert_eq!(
-        vm, native,
-        "VM and native disagree:\nvm:\n{vm}\nnative:\n{native}"
-    );
+    assert_eq!(vm, native, "VM and native disagree:\nvm:\n{vm}\nnative:\n{native}");
     for expected in ["mkdir=true", "write=true", "rm=true", "missing=true"] {
         assert!(vm.contains(expected), "missing {expected}:\n{vm}");
     }
@@ -126,10 +117,7 @@ fn main() -> Unit with IO {
 }
 "#,
     );
-    assert_eq!(
-        vm, native,
-        "VM and native disagree:\nvm:\n{vm}\nnative:\n{native}"
-    );
+    assert_eq!(vm, native, "VM and native disagree:\nvm:\n{vm}\nnative:\n{native}");
     assert!(vm.contains("is_err=true"), "{vm}");
     assert!(vm.contains("kind=NotFound"), "{vm}");
     assert!(vm.contains("not_found=true"), "{vm}");

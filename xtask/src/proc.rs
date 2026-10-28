@@ -20,11 +20,7 @@ fn describe(cmd: &Command) -> String {
             .unwrap_or(path)
             .to_string_lossy()
             .into_owned();
-        if shown.is_empty() || shown.contains(' ') {
-            format!("'{shown}'")
-        } else {
-            shown
-        }
+        if shown.is_empty() || shown.contains(' ') { format!("'{shown}'") } else { shown }
     };
     let mut parts: Vec<String> = cmd
         .get_envs()
@@ -57,16 +53,10 @@ pub fn run_tee(
 ) -> io::Result<i32> {
     echo(cmd);
     if let Some(log) = log {
-        println!(
-            "{}",
-            Paint::detect().dim(&format!("  log: {}", log.display()))
-        );
+        println!("{}", Paint::detect().dim(&format!("  log: {}", log.display())));
     }
-    let mut child = cmd
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
+    let mut child =
+        cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
     let (tx, rx) = mpsc::channel::<String>();
     let readers = [
         forward_lines(child.stdout.take().expect("piped stdout"), tx.clone()),
@@ -122,17 +112,11 @@ mod tests {
     #[test]
     fn describes_a_command_as_a_shell_line() {
         let mut cmd = Command::new("/opt/rust/bin/cargo");
-        cmd.current_dir("/repo")
-            .env("INSTA_FORCE_PASS", "1")
-            .args(["test", "--all"]);
+        cmd.current_dir("/repo").env("INSTA_FORCE_PASS", "1").args(["test", "--all"]);
         assert_eq!(describe(&cmd), "INSTA_FORCE_PASS=1 cargo test --all");
 
         let mut cmd = Command::new("/repo/target/debug/flux");
-        cmd.current_dir("/repo")
-            .args(["parity-check", "/repo/tests/parity", "--ways", "vm,llvm"]);
-        assert_eq!(
-            describe(&cmd),
-            "target/debug/flux parity-check tests/parity --ways vm,llvm"
-        );
+        cmd.current_dir("/repo").args(["parity-check", "/repo/tests/parity", "--ways", "vm,llvm"]);
+        assert_eq!(describe(&cmd), "target/debug/flux parity-check tests/parity --ways vm,llvm");
     }
 }

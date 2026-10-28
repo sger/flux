@@ -54,12 +54,7 @@ struct InlinebleBody {
 
 impl<'a> TypeInformedFoldCtx<'a> {
     fn new(type_env: &'a TypeEnv, ids: ExprIdGen) -> Self {
-        Self {
-            type_env,
-            fn_bodies: HashMap::new(),
-            ids,
-            let_literals: HashMap::new(),
-        }
+        Self { type_env, fn_bodies: HashMap::new(), ids, let_literals: HashMap::new() }
     }
 
     /// Collect top-level functions eligible for inlining.
@@ -141,10 +136,7 @@ impl<'a> TypeInformedFoldCtx<'a> {
                 continue;
             }
             // An unused parameter would become an unused lambda parameter.
-            if !parameters
-                .iter()
-                .all(|param| expr_references_name(body_expr, *param))
-            {
+            if !parameters.iter().all(|param| expr_references_name(body_expr, *param)) {
                 continue;
             }
 
@@ -229,11 +221,8 @@ impl<'a> TypeInformedFoldCtx<'a> {
             set_expr_span(&mut copy, span);
             return Some(copy);
         }
-        let (parameters, parameter_types) = body
-            .params
-            .into_iter()
-            .map(|(param, ty)| (param, Some(ty)))
-            .unzip();
+        let (parameters, parameter_types) =
+            body.params.into_iter().map(|(param, ty)| (param, Some(ty))).unzip();
         let lambda = Expression::Function {
             parameters,
             parameter_types,
@@ -266,39 +255,35 @@ impl Folder for TypeInformedFoldCtx<'_> {
 
         match expr {
             // T3: Dead branch elimination remove branches on literal booleans.
-            Expression::If {
-                ref condition,
-                consequence,
-                alternative,
-                span,
-                id,
-            } => match condition.as_ref() {
-                Expression::Boolean { value: true, .. }
-                    if opt_bisect::allow("type_informed_fold", || {
-                        "drop the else of `if true`".to_string()
-                    }) =>
-                {
-                    block_to_expr(consequence, span)
-                }
-                Expression::Boolean { value: false, .. }
-                    if opt_bisect::allow("type_informed_fold", || {
-                        "drop the then of `if false`".to_string()
-                    }) =>
-                {
-                    if let Some(alt) = alternative {
-                        block_to_expr(alt, span)
-                    } else {
-                        Expression::None { span, id }
+            Expression::If { ref condition, consequence, alternative, span, id } => {
+                match condition.as_ref() {
+                    Expression::Boolean { value: true, .. }
+                        if opt_bisect::allow("type_informed_fold", || {
+                            "drop the else of `if true`".to_string()
+                        }) =>
+                    {
+                        block_to_expr(consequence, span)
                     }
+                    Expression::Boolean { value: false, .. }
+                        if opt_bisect::allow("type_informed_fold", || {
+                            "drop the then of `if false`".to_string()
+                        }) =>
+                    {
+                        if let Some(alt) = alternative {
+                            block_to_expr(alt, span)
+                        } else {
+                            Expression::None { span, id }
+                        }
+                    }
+                    _ => Expression::If {
+                        condition: condition.clone(),
+                        consequence,
+                        alternative,
+                        span,
+                        id,
+                    },
                 }
-                _ => Expression::If {
-                    condition: condition.clone(),
-                    consequence,
-                    alternative,
-                    span,
-                    id,
-                },
-            },
+            }
 
             // T2: Constant propagation replace known-literal identifiers.
             Expression::Identifier { name, span, id } => {
@@ -316,12 +301,7 @@ impl Folder for TypeInformedFoldCtx<'_> {
             }
 
             // T1: Pure function inlining.
-            Expression::Call {
-                ref function,
-                ref arguments,
-                span,
-                id,
-            } => {
+            Expression::Call { ref function, ref arguments, span, id } => {
                 if let Some(inlined) = self.try_inline_call(function, arguments, span)
                     && opt_bisect::allow("type_informed_fold", || "inline a pure call".to_string())
                 {
@@ -376,9 +356,7 @@ fn local_binder_names(program: &Program) -> HashSet<Symbol> {
                 Statement::Let { name, .. } if self.depth > 0 => {
                     self.names.insert(*name);
                 }
-                Statement::Function {
-                    name, parameters, ..
-                } => {
+                Statement::Function { name, parameters, .. } => {
                     if self.depth > 0 {
                         self.names.insert(*name);
                     }
@@ -408,10 +386,7 @@ fn local_binder_names(program: &Program) -> HashSet<Symbol> {
         }
     }
 
-    let mut binders = Binders {
-        names: HashSet::new(),
-        depth: 0,
-    };
+    let mut binders = Binders { names: HashSet::new(), depth: 0 };
     binders.visit_program(program);
     binders.names
 }
@@ -437,14 +412,8 @@ fn single_expression_body(block: &Block) -> Option<&Expression> {
         return None;
     }
     match &block.statements[0] {
-        Statement::Expression {
-            expression,
-            has_semicolon: false,
-            ..
-        } => Some(expression),
-        Statement::Return {
-            value: Some(expr), ..
-        } => Some(expr),
+        Statement::Expression { expression, has_semicolon: false, .. } => Some(expression),
+        Statement::Return { value: Some(expr), .. } => Some(expr),
         _ => None,
     }
 }
@@ -488,25 +457,13 @@ fn expr_references_name(expr: &Expression, target: Symbol) -> bool {
             expr_references_name(left, target) || expr_references_name(right, target)
         }
         Expression::Prefix { right, .. } => expr_references_name(right, target),
-        Expression::Call {
-            function,
-            arguments,
-            ..
-        } => {
+        Expression::Call { function, arguments, .. } => {
             expr_references_name(function, target)
                 || arguments.iter().any(|a| expr_references_name(a, target))
         }
-        Expression::If {
-            condition,
-            consequence,
-            alternative,
-            ..
-        } => {
+        Expression::If { condition, consequence, alternative, .. } => {
             expr_references_name(condition, target)
-                || consequence
-                    .statements
-                    .iter()
-                    .any(|s| stmt_reference_name(s, target))
+                || consequence.statements.iter().any(|s| stmt_reference_name(s, target))
                 || alternative
                     .as_ref()
                     .is_some_and(|a| a.statements.iter().any(|s| stmt_reference_name(s, target)))
@@ -529,18 +486,13 @@ fn expr_references_name(expr: &Expression, target: Symbol) -> bool {
             expr_references_name(object, target)
         }
         Expression::Sealing { expr, .. } => expr_references_name(expr, target),
-        Expression::Match {
-            scrutinee, arms, ..
-        } => {
+        Expression::Match { scrutinee, arms, .. } => {
             expr_references_name(scrutinee, target)
-                || arms
-                    .iter()
-                    .any(|arm| expr_references_name(&arm.body, target))
+                || arms.iter().any(|arm| expr_references_name(&arm.body, target))
         }
-        Expression::DoBlock { block, .. } => block
-            .statements
-            .iter()
-            .any(|s| stmt_reference_name(s, target)),
+        Expression::DoBlock { block, .. } => {
+            block.statements.iter().any(|s| stmt_reference_name(s, target))
+        }
         Expression::Hash { pairs, .. } => pairs
             .iter()
             .any(|(k, v)| expr_references_name(k, target) || expr_references_name(v, target)),
@@ -560,9 +512,7 @@ fn stmt_reference_name(stmt: &Statement, target: Symbol) -> bool {
     match stmt {
         Statement::Expression { expression, .. } => expr_references_name(expression, target),
         Statement::Let { value, .. } => expr_references_name(value, target),
-        Statement::Return {
-            value: Some(expr), ..
-        } => expr_references_name(expr, target),
+        Statement::Return { value: Some(expr), .. } => expr_references_name(expr, target),
         Statement::Assign { value, .. } => expr_references_name(value, target),
         _ => false,
     }
@@ -572,19 +522,11 @@ fn stmt_reference_name(stmt: &Statement, target: Symbol) -> bool {
 /// statement, unwrap it; otherwise wrap in a DoBlock.
 fn block_to_expr(block: Block, span: Span) -> Expression {
     if block.statements.len() == 1
-        && let Statement::Expression {
-            expression,
-            has_semicolon: false,
-            ..
-        } = &block.statements[0]
+        && let Statement::Expression { expression, has_semicolon: false, .. } = &block.statements[0]
     {
         return expression.clone();
     }
-    Expression::DoBlock {
-        block,
-        span,
-        id: ExprId::UNSET,
-    }
+    Expression::DoBlock { block, span, id: ExprId::UNSET }
 }
 
 /// Set the span on an expression top-level only.

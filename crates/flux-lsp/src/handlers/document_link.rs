@@ -50,15 +50,7 @@ fn module_file_uri(snapshot: &Snapshot, name_text: &str) -> Option<Uri> {
 /// codepoint width equals its byte length. Matches the locator's `ImportName`
 /// span so the clickable region lines up with goto-definition's focus.
 fn import_name_range(snapshot: &Snapshot, stmt: FluxSpan, name_text: &str) -> lsp_types::Range {
-    let start = FluxPosition {
-        line: stmt.start.line,
-        column: stmt.start.column + "import ".len(),
-    };
-    let end = FluxPosition {
-        line: start.line,
-        column: start.column + name_text.len(),
-    };
-    snapshot
-        .position_map
-        .flux_span_to_range(FluxSpan { start, end })
+    let start = FluxPosition { line: stmt.start.line, column: stmt.start.column + "import ".len() };
+    let end = FluxPosition { line: start.line, column: start.column + name_text.len() };
+    snapshot.position_map.flux_span_to_range(FluxSpan { start, end })
 }

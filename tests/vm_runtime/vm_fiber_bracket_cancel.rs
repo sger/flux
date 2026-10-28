@@ -48,15 +48,9 @@ fn main() with IO, Time {
 }
 "#;
     let (stdout, stderr, success, _) = run_source(source, "cancelled_clean");
-    assert!(
-        success,
-        "cancelled-fiber program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "cancelled-fiber program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
-    assert!(
-        stdout.contains("42"),
-        "expected fast result 42:\nstdout:\n{stdout}"
-    );
+    assert!(stdout.contains("42"), "expected fast result 42:\nstdout:\n{stdout}");
     // Must complete well before the slow fiber's 2s sleep.
     assert!(
         elapsed < Duration::from_millis(1500),
@@ -97,10 +91,7 @@ fn main() with IO, Time {
         "timeout-cancelled program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
     let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
-    assert!(
-        stdout.contains("timed_out"),
-        "expected 'timed_out':\nstdout:\n{stdout}"
-    );
+    assert!(stdout.contains("timed_out"), "expected 'timed_out':\nstdout:\n{stdout}");
     assert!(
         elapsed < Duration::from_millis(1500),
         "elapsed {elapsed:?} — body child not cancelled"

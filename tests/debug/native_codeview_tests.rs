@@ -63,11 +63,7 @@ fn flux(scratch: &Scratch, args: &[&str], may_fail: bool) -> String {
 
 /// Builds `program` with `-g` into `binary` without running it.
 fn build(scratch: &Scratch, program: &str, binary: &str) {
-    flux(
-        scratch,
-        &[program, "--native", "-g", "--emit-binary", "-o", binary],
-        false,
-    );
+    flux(scratch, &[program, "--native", "-g", "--emit-binary", "-o", binary], false);
 }
 
 /// `name` from `env`, else from PATH, else the first of `fallbacks` that
@@ -81,20 +77,11 @@ fn find_tool(env: &str, name: &str, fallbacks: &[&str]) -> Option<PathBuf> {
             .map(|dir| dir.join(name))
             .find(|candidate| candidate.is_file())
     });
-    on_path.or_else(|| {
-        fallbacks
-            .iter()
-            .map(PathBuf::from)
-            .find(|candidate| candidate.is_file())
-    })
+    on_path.or_else(|| fallbacks.iter().map(PathBuf::from).find(|candidate| candidate.is_file()))
 }
 
 fn pdbutil() -> Option<PathBuf> {
-    find_tool(
-        "FLUX_PDBUTIL",
-        "llvm-pdbutil.exe",
-        &[r"C:\Program Files\LLVM\bin\llvm-pdbutil.exe"],
-    )
+    find_tool("FLUX_PDBUTIL", "llvm-pdbutil.exe", &[r"C:\Program Files\LLVM\bin\llvm-pdbutil.exe"])
 }
 
 fn cdb() -> Option<PathBuf> {
@@ -185,10 +172,7 @@ fn the_pdb_lists_flux_functions_and_their_lines() {
     }
 
     let dump = run_tool(&pdbutil, &["dump", "-l", &pdb], scratch.path());
-    assert!(
-        !dump.contains(r"\\?\"),
-        "a verbatim path in the PDB:\n{dump}"
-    );
+    assert!(!dump.contains(r"\\?\"), "a verbatim path in the PDB:\n{dump}");
     let lines = lines_of(&dump, "calls.flx");
     for line in [3, 4, 8, 9, 10, 14, 15] {
         assert!(lines.contains(&line), "no calls.flx:{line} in {lines:?}");
@@ -213,17 +197,10 @@ fn each_module_has_its_own_file_in_the_pdb() {
 fn a_cached_debug_run_keeps_its_pdb_and_an_uncached_one_removes_it() {
     let scratch = prepare("cache");
     let cache = scratch.cache_dir();
-    assert_eq!(
-        flux(&scratch, &["calls.flx", "--native", "-g"], false).trim(),
-        "25"
-    );
+    assert_eq!(flux(&scratch, &["calls.flx", "--native", "-g"], false).trim(), "25");
     assert!(cache.join("native/calls.pdb").exists(), "no cached PDB");
 
-    flux(
-        &scratch,
-        &["calls.flx", "--native", "-g", "--no-cache"],
-        false,
-    );
+    flux(&scratch, &["calls.flx", "--native", "-g", "--no-cache"], false);
     let scratch_builds = cache.join("native/scratch");
     let mut left = Vec::new();
     let mut pending = vec![scratch_builds];
@@ -235,10 +212,7 @@ fn a_cached_debug_run_keeps_its_pdb_and_an_uncached_one_removes_it() {
             let path = entry.path();
             if path.is_dir() {
                 pending.push(path);
-            } else if path
-                .extension()
-                .is_some_and(|ext| ext == "exe" || ext == "pdb")
-            {
+            } else if path.extension().is_some_and(|ext| ext == "exe" || ext == "pdb") {
                 left.push(path);
             }
         }
@@ -273,12 +247,6 @@ fn cdb_shows_flux_frames_where_a_program_panics() {
     );
     // The first runtime error is the division by zero in `ratio`, called
     // from `main` at line 17.
-    assert!(
-        session.contains("panic!ratio") && session.contains("panic!main"),
-        "{session}"
-    );
-    assert!(
-        session.contains("panic.flx @ 11") && session.contains("panic.flx @ 17"),
-        "{session}"
-    );
+    assert!(session.contains("panic!ratio") && session.contains("panic!main"), "{session}");
+    assert!(session.contains("panic.flx @ 11") && session.contains("panic.flx @ 17"), "{session}");
 }

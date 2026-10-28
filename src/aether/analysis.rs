@@ -168,9 +168,7 @@ fn count_uses(expr: &CoreExpr, counts: &mut HashMap<CoreBinderId, usize>) {
             }
             merge_counts(counts, &inner);
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             count_uses(scrutinee, counts);
             for alt in alts {
                 let mut alt_counts = HashMap::new();
@@ -199,12 +197,7 @@ fn count_uses(expr: &CoreExpr, counts: &mut HashMap<CoreBinderId, usize>) {
                 count_uses(a, counts);
             }
         }
-        CoreExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        CoreExpr::Handle { body, parameter, handlers, .. } => {
             if let Some(parameter) = parameter {
                 count_uses(parameter, counts);
             }
@@ -275,9 +268,7 @@ fn count_uses_aether(expr: &AetherExpr, counts: &mut HashMap<CoreBinderId, usize
             }
             merge_counts(counts, &inner);
         }
-        AetherExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        AetherExpr::Case { scrutinee, alts, .. } => {
             count_uses_aether(scrutinee, counts);
             for alt in alts {
                 count_alt_uses_aether(alt, counts);
@@ -294,12 +285,7 @@ fn count_uses_aether(expr: &AetherExpr, counts: &mut HashMap<CoreBinderId, usize
             }
         }
         AetherExpr::Return { value, .. } => count_uses_aether(value, counts),
-        AetherExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        AetherExpr::Handle { body, parameter, handlers, .. } => {
             if let Some(parameter) = parameter {
                 count_uses_aether(parameter, counts);
             }
@@ -328,11 +314,7 @@ fn count_uses_aether(expr: &AetherExpr, counts: &mut HashMap<CoreBinderId, usize
         AetherExpr::MemberAccess { object, .. } | AetherExpr::TupleField { object, .. } => {
             count_uses_aether(object, counts)
         }
-        AetherExpr::DropSpecialized {
-            unique_body,
-            shared_body,
-            ..
-        } => {
+        AetherExpr::DropSpecialized { unique_body, shared_body, .. } => {
             count_uses_aether(unique_body, counts);
             count_uses_aether(shared_body, counts);
         }
@@ -450,15 +432,11 @@ fn count_owned_inner(
         CoreExpr::PrimOp { args, .. } => {
             // Args are trivial after ANF (Var or Lit).
             // Each arg that matches var is a borrowed use → not counted.
-            args.iter()
-                .map(|a| count_owned_skip_direct(var, a, registry))
-                .sum::<usize>()
+            args.iter().map(|a| count_owned_skip_direct(var, a, registry)).sum::<usize>()
         }
 
         // Case scrutinee is READ-ONLY (borrowed). Pattern RHS is normal.
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             let scrut = count_owned_skip_direct(var, scrutinee, registry);
             let alts_owned: usize = alts
                 .iter()
@@ -467,10 +445,8 @@ fn count_owned_inner(
                         0 // shadowed by pattern
                     } else {
                         let rhs = count_owned_inner(var, &alt.rhs, registry);
-                        let guard = alt
-                            .guard
-                            .as_ref()
-                            .map_or(0, |g| count_owned_inner(var, g, registry));
+                        let guard =
+                            alt.guard.as_ref().map_or(0, |g| count_owned_inner(var, g, registry));
                         rhs + guard
                     }
                 })
@@ -484,9 +460,9 @@ fn count_owned_inner(
             let func_owned = count_owned_skip_direct(var, func, registry);
 
             let resolved_callee = registry.and_then(|reg| match func.as_ref() {
-                CoreExpr::Var {
-                    var: callee_var, ..
-                } => Some(reg.classify_var_ref(callee_var).borrow_callee),
+                CoreExpr::Var { var: callee_var, .. } => {
+                    Some(reg.classify_var_ref(callee_var).borrow_callee)
+                }
                 CoreExpr::MemberAccess { object, member, .. } => match object.as_ref() {
                     CoreExpr::Var { var, .. } => {
                         Some(reg.resolve_member_access_callee(var.name, *member))
@@ -516,10 +492,9 @@ fn count_owned_inner(
             func_owned + args_owned
         }
         // Con fields are OWNED (stored in data structure).
-        CoreExpr::Con { fields, .. } => fields
-            .iter()
-            .map(|f| count_owned_inner(var, f, registry))
-            .sum(),
+        CoreExpr::Con { fields, .. } => {
+            fields.iter().map(|f| count_owned_inner(var, f, registry)).sum()
+        }
 
         // Return value is OWNED (escapes scope).
         CoreExpr::Return { value, .. } => count_owned_inner(var, value, registry),
@@ -535,12 +510,7 @@ fn count_owned_inner(
         }
 
         // Let: recurse into rhs and body with proper scoping
-        CoreExpr::Let {
-            var: binding,
-            rhs,
-            body,
-            ..
-        } => {
+        CoreExpr::Let { var: binding, rhs, body, .. } => {
             let rhs_owned = count_owned_inner(var, rhs, registry);
             if binding.id == var {
                 rhs_owned // shadowed in body
@@ -549,12 +519,7 @@ fn count_owned_inner(
             }
         }
 
-        CoreExpr::LetRec {
-            var: binding,
-            rhs,
-            body,
-            ..
-        } => {
+        CoreExpr::LetRec { var: binding, rhs, body, .. } => {
             if binding.id == var {
                 0 // shadowed in both
             } else {
@@ -566,31 +531,20 @@ fn count_owned_inner(
             if bindings.iter().any(|(b, _)| b.id == var) {
                 0 // shadowed
             } else {
-                bindings
-                    .iter()
-                    .map(|(_, rhs)| count_owned_inner(var, rhs, registry))
-                    .sum::<usize>()
+                bindings.iter().map(|(_, rhs)| count_owned_inner(var, rhs, registry)).sum::<usize>()
                     + count_owned_inner(var, body, registry)
             }
         }
 
         // Perform args are OWNED (continuation capture boundary).
-        CoreExpr::Perform { args, .. } => args
-            .iter()
-            .map(|a| count_owned_inner(var, a, registry))
-            .sum(),
+        CoreExpr::Perform { args, .. } => {
+            args.iter().map(|a| count_owned_inner(var, a, registry)).sum()
+        }
 
         // Handle: body is normal context, handler bodies have their own scope.
-        CoreExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        CoreExpr::Handle { body, parameter, handlers, .. } => {
             let body_owned = count_owned_inner(var, body, registry)
-                + parameter
-                    .as_ref()
-                    .map_or(0, |p| count_owned_inner(var, p, registry));
+                + parameter.as_ref().map_or(0, |p| count_owned_inner(var, p, registry));
             let handlers_owned: usize = handlers
                 .iter()
                 .map(|h| {

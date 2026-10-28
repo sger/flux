@@ -34,10 +34,7 @@ fn build_match_adt_like_corpus() -> String {
         let _ = writeln!(src, "fn f_{i}(x: Int) -> Result<Int, String> {{");
         let _ = writeln!(src, "  if x > 0 {{ Ok(x) }} else {{ Err(\"bad\") }}");
         let _ = writeln!(src, "}}");
-        let _ = writeln!(
-            src,
-            "let m_{i}: Int = match f_{i}({i}) {{ Ok(v) -> v, Err(_) -> 0 }};"
-        );
+        let _ = writeln!(src, "let m_{i}: Int = match f_{i}({i}) {{ Ok(v) -> v, Err(_) -> 0 }};");
     }
 
     let _ = writeln!(src, "fn main() {{ m_0 + m_1 + m_2; }}");
@@ -46,14 +43,8 @@ fn build_match_adt_like_corpus() -> String {
 
 fn build_corpora() -> Vec<Corpus> {
     vec![
-        Corpus {
-            name: "typed_function_heavy",
-            source: build_typed_function_corpus(),
-        },
-        Corpus {
-            name: "match_adt_heavy",
-            source: build_match_adt_like_corpus(),
-        },
+        Corpus { name: "typed_function_heavy", source: build_typed_function_corpus() },
+        Corpus { name: "match_adt_heavy", source: build_match_adt_like_corpus() },
     ]
 }
 

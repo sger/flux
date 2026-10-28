@@ -37,20 +37,12 @@ fn main() -> Result<()> {
     // watcher for clients without dynamic `didChangeWatchedFiles` registration.
     let watcher = WatcherKind::for_client(&params);
     tracing::debug!(?watcher, "file-watch backend");
-    let supports_progress = params
-        .capabilities
-        .window
-        .as_ref()
-        .and_then(|w| w.work_done_progress)
-        .unwrap_or(false);
+    let supports_progress =
+        params.capabilities.window.as_ref().and_then(|w| w.work_done_progress).unwrap_or(false);
     // The client pulls diagnostics if it advertises `textDocument.diagnostic`;
     // it re-pulls on demand if it also advertises `workspace.diagnostic.refresh`.
-    let supports_pull_diagnostics = params
-        .capabilities
-        .text_document
-        .as_ref()
-        .and_then(|td| td.diagnostic.as_ref())
-        .is_some();
+    let supports_pull_diagnostics =
+        params.capabilities.text_document.as_ref().and_then(|td| td.diagnostic.as_ref()).is_some();
     let supports_diagnostic_refresh = params
         .capabilities
         .workspace
@@ -74,9 +66,7 @@ fn main() -> Result<()> {
     let mut server = Server::new(connection, encoding, watcher);
     server.set_progress_support(supports_progress);
     server.set_diagnostic_support(supports_pull_diagnostics, supports_diagnostic_refresh);
-    server
-        .state
-        .set_workspace_diagnostics_scan_all(scan_all_files);
+    server.state.set_workspace_diagnostics_scan_all(scan_all_files);
     server.state.set_workspace_folders(roots);
     server.run()?;
 
@@ -97,20 +87,12 @@ fn workspace_roots(params: &InitializeParams) -> Vec<PathBuf> {
         }
     }
     #[allow(deprecated)]
-    params
-        .root_uri
-        .as_ref()
-        .and_then(uri_to_path)
-        .into_iter()
-        .collect()
+    params.root_uri.as_ref().and_then(uri_to_path).into_iter().collect()
 }
 
 fn pick_encoding(params: &InitializeParams) -> PositionEncoding {
-    let supported = params
-        .capabilities
-        .general
-        .as_ref()
-        .and_then(|g| g.position_encodings.as_deref());
+    let supported =
+        params.capabilities.general.as_ref().and_then(|g| g.position_encodings.as_deref());
     negotiate_encoding(supported)
 }
 

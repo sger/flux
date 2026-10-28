@@ -13,10 +13,7 @@ fn contextual_instance_list_fixture_native_outputs_expected_results() {
     let (stdout, success) = run_native(FIXTURE);
     assert!(success, "native backend failed:\n{stdout}");
 
-    let lines: Vec<&str> = stdout
-        .lines()
-        .filter(|line| !line.starts_with('['))
-        .collect();
+    let lines: Vec<&str> = stdout.lines().filter(|line| !line.starts_with('[')).collect();
     assert_eq!(lines, vec!["true", "false"]);
 }
 
@@ -27,10 +24,8 @@ fn contextual_instance_list_fixture_vm_native_parity() {
     assert!(success, "native backend failed:\n{native_out}");
 
     let vm_lines: Vec<&str> = vm_out.lines().collect();
-    let native_lines: Vec<&str> = native_out
-        .lines()
-        .filter(|line| !line.starts_with('['))
-        .collect();
+    let native_lines: Vec<&str> =
+        native_out.lines().filter(|line| !line.starts_with('[')).collect();
     assert_eq!(
         vm_lines, native_lines,
         "VM and native output differ for contextual instance fixture"

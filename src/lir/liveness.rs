@@ -56,19 +56,13 @@ impl FunctionLiveness {
     /// Return the set of vars live entering `block`. Empty set if the block is
     /// missing (shouldn't happen on a well-formed function).
     pub fn live_in(&self, block: BlockId) -> &HashSet<LirVar> {
-        self.blocks
-            .get(&block)
-            .map(|b| &b.live_in)
-            .unwrap_or(&EMPTY_SET)
+        self.blocks.get(&block).map(|b| &b.live_in).unwrap_or(&EMPTY_SET)
     }
 
     /// Return the set of vars live leaving `block`. Empty for returning / tail
     /// blocks.
     pub fn live_out(&self, block: BlockId) -> &HashSet<LirVar> {
-        self.blocks
-            .get(&block)
-            .map(|b| &b.live_out)
-            .unwrap_or(&EMPTY_SET)
+        self.blocks.get(&block).map(|b| &b.live_out).unwrap_or(&EMPTY_SET)
     }
 }
 
@@ -84,17 +78,11 @@ static EMPTY_SET: LazyLock<HashSet<LirVar>> = LazyLock::new(HashSet::new);
 /// until no summary changes. LIR CFGs are small enough that a worklist isn't
 /// necessary.
 pub fn compute(function: &LirFunction) -> FunctionLiveness {
-    let mut blocks: HashMap<BlockId, BlockLiveness> = function
-        .blocks
-        .iter()
-        .map(|b| (b.id, BlockLiveness::default()))
-        .collect();
+    let mut blocks: HashMap<BlockId, BlockLiveness> =
+        function.blocks.iter().map(|b| (b.id, BlockLiveness::default())).collect();
 
-    let successors: HashMap<BlockId, Vec<BlockId>> = function
-        .blocks
-        .iter()
-        .map(|b| (b.id, terminator_successors(&b.terminator)))
-        .collect();
+    let successors: HashMap<BlockId, Vec<BlockId>> =
+        function.blocks.iter().map(|b| (b.id, terminator_successors(&b.terminator))).collect();
 
     let match_binders = match_ctor_field_binders_by_target(function);
 
@@ -168,9 +156,7 @@ fn match_ctor_field_binders_by_target(func: &LirFunction) -> HashMap<BlockId, Ha
         if let LirTerminator::MatchCtor { arms, .. } = &block.terminator {
             for arm in arms {
                 if !arm.field_binders.is_empty() {
-                    map.entry(arm.target)
-                        .or_default()
-                        .extend(arm.field_binders.iter().copied());
+                    map.entry(arm.target).or_default().extend(arm.field_binders.iter().copied());
                 }
             }
         }
@@ -316,13 +302,7 @@ pub(crate) fn terminator_uses(term: &LirTerminator) -> Vec<LirVar> {
             }
             v
         }
-        LirTerminator::Call {
-            func,
-            args,
-            kind,
-            yield_cont,
-            ..
-        } => {
+        LirTerminator::Call { func, args, kind, yield_cont, .. } => {
             let mut v = vec![*func];
             v.extend(args.iter().copied());
             if let CallKind::DirectClosure { captures, .. } = kind {
@@ -345,11 +325,7 @@ fn terminator_successors(term: &LirTerminator) -> Vec<BlockId> {
             Vec::new()
         }
         LirTerminator::Jump(b) => vec![*b],
-        LirTerminator::Branch {
-            then_block,
-            else_block,
-            ..
-        } => vec![*then_block, *else_block],
+        LirTerminator::Branch { then_block, else_block, .. } => vec![*then_block, *else_block],
         LirTerminator::Switch { cases, default, .. } => {
             let mut v: Vec<BlockId> = cases.iter().map(|(_, b)| *b).collect();
             v.push(*default);
@@ -416,10 +392,7 @@ mod tests {
             term_loc: Default::default(),
             id: BlockId(0),
             params: Vec::new(),
-            instrs: vec![LirInstr::Const {
-                dst: v0,
-                value: crate::lir::LirConst::Int(7),
-            }],
+            instrs: vec![LirInstr::Const { dst: v0, value: crate::lir::LirConst::Int(7) }],
             terminator: LirTerminator::Return(v0),
         });
         f.next_var = 1;
@@ -453,9 +426,7 @@ mod tests {
                 func,
                 args: vec![v0],
                 cont: BlockId(1),
-                kind: CallKind::Indirect {
-                    async_capable: false,
-                },
+                kind: CallKind::Indirect { async_capable: false },
                 suppress_yield_check: false,
                 yield_cont: None,
                 held: None,

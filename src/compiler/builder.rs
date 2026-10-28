@@ -92,9 +92,7 @@ impl Compiler {
 
     fn add_instruction(&mut self, instruction: &[u8], span: Option<Span>) -> usize {
         let pos = self.scopes[self.scope_index].instructions.len();
-        self.scopes[self.scope_index]
-            .instructions
-            .extend_from_slice(instruction);
+        self.scopes[self.scope_index].instructions.extend_from_slice(instruction);
         self.add_location(pos, span);
         pos
     }
@@ -102,17 +100,13 @@ impl Compiler {
     fn add_location(&mut self, offset: usize, span: Option<Span>) {
         let file_id = self.file_id_for_current();
         let location = span.map(|span| Location { file_id, span });
-        self.scopes[self.scope_index]
-            .locations
-            .push(InstructionLocation { offset, location });
+        self.scopes[self.scope_index].locations.push(InstructionLocation { offset, location });
     }
 
     fn file_id_for_current(&mut self) -> u32 {
         let files = &mut self.scopes[self.scope_index].files;
-        if let Some((index, _)) = files
-            .iter()
-            .enumerate()
-            .find(|(_, file)| file.as_str() == self.file_path)
+        if let Some((index, _)) =
+            files.iter().enumerate().find(|(_, file)| file.as_str() == self.file_path)
         {
             return index as u32;
         }
@@ -123,10 +117,8 @@ impl Compiler {
     fn set_last_instruction(&mut self, op_code: OpCode, pos: usize) {
         let previous = self.scopes[self.scope_index].last_instruction.clone();
         self.scopes[self.scope_index].previous_instruction = previous;
-        self.scopes[self.scope_index].last_instruction = EmittedInstruction {
-            opcode: Some(op_code),
-            position: pos,
-        };
+        self.scopes[self.scope_index].last_instruction =
+            EmittedInstruction { opcode: Some(op_code), position: pos };
     }
 
     pub(super) fn add_constant(&mut self, value: Value) -> usize {
@@ -181,9 +173,7 @@ impl Compiler {
         let last_pos = self.scopes[self.scope_index].last_instruction.position;
         let previous = self.scopes[self.scope_index].previous_instruction.clone();
 
-        self.scopes[self.scope_index]
-            .instructions
-            .truncate(last_pos);
+        self.scopes[self.scope_index].instructions.truncate(last_pos);
         while let Some(last) = self.scopes[self.scope_index].locations.last() {
             if last.offset >= last_pos {
                 self.scopes[self.scope_index].locations.pop();

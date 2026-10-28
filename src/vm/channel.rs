@@ -39,10 +39,7 @@ fn channels() -> &'static Mutex<HashMap<i64, Arc<ChannelEntry>>> {
 fn completion_queue() -> &'static CompletionQueue {
     COMPLETIONS.get_or_init(|| {
         let (tx, rx) = mpsc::channel();
-        CompletionQueue {
-            tx,
-            rx: Mutex::new(rx),
-        }
+        CompletionQueue { tx, rx: Mutex::new(rx) }
     })
 }
 
@@ -167,10 +164,7 @@ pub(crate) fn next_id() -> i64 {
 /// (0188 S9a): channels made since are gone, and the re-run makes them
 /// again with the same ids.
 pub(crate) fn rewind_ids(next: i64) {
-    channels()
-        .lock()
-        .expect("VM channel registry poisoned")
-        .retain(|id, _| *id < next);
+    channels().lock().expect("VM channel registry poisoned").retain(|id, _| *id < next);
     NEXT_CHANNEL_ID.store(next, Ordering::Relaxed);
 }
 
@@ -191,10 +185,7 @@ pub(super) fn make(capacity: i64) -> Result<i64, String> {
         }),
         ready: Condvar::new(),
     });
-    channels()
-        .lock()
-        .expect("VM channel registry poisoned")
-        .insert(id, entry);
+    channels().lock().expect("VM channel registry poisoned").insert(id, entry);
     Ok(id)
 }
 
@@ -389,21 +380,12 @@ pub(super) fn close(id: i64) -> Result<(), String> {
 
 pub(super) fn len(id: i64) -> Result<i64, String> {
     let entry = lookup(id)?;
-    Ok(entry
-        .cell
-        .lock()
-        .expect("VM channel cell poisoned")
-        .buf
-        .len() as i64)
+    Ok(entry.cell.lock().expect("VM channel cell poisoned").buf.len() as i64)
 }
 
 pub(super) fn cap(id: i64) -> Result<i64, String> {
     let entry = lookup(id)?;
-    Ok(entry
-        .cell
-        .lock()
-        .expect("VM channel cell poisoned")
-        .capacity as i64)
+    Ok(entry.cell.lock().expect("VM channel cell poisoned").capacity as i64)
 }
 
 pub(super) fn is_closed(id: i64) -> Result<bool, String> {
@@ -447,10 +429,7 @@ pub(super) fn watch_send(id: i64, request_id: u64) -> Result<(), String> {
 
 pub(super) fn try_recv_completion() -> Option<(u64, Result<Value, String>)> {
     let queue = completion_queue();
-    let rx = queue
-        .rx
-        .lock()
-        .expect("VM channel completion queue poisoned");
+    let rx = queue.rx.lock().expect("VM channel completion queue poisoned");
     match rx.try_recv() {
         Ok((request_id, result)) => Some((request_id, result.and_then(|v| v.into_value()))),
         Err(mpsc::TryRecvError::Empty) | Err(mpsc::TryRecvError::Disconnected) => None,

@@ -24,11 +24,8 @@ pub(crate) fn apply_wanted_constraints_subst(
         .iter()
         .cloned()
         .map(|mut constraint| {
-            constraint.type_args = constraint
-                .type_args
-                .iter()
-                .map(|ty| ty.apply_type_subst(subst))
-                .collect();
+            constraint.type_args =
+                constraint.type_args.iter().map(|ty| ty.apply_type_subst(subst)).collect();
             constraint
         })
         .collect()
@@ -114,11 +111,8 @@ pub(crate) fn build_numeric_default_subst(
     let mut unary: HashMap<TypeVarId, Vec<&WantedClassConstraint>> = HashMap::new();
     let mut blocked: HashSet<TypeVarId> = HashSet::new();
     for constraint in constraints {
-        let vars = constraint
-            .type_args
-            .iter()
-            .flat_map(InferType::free_vars)
-            .collect::<HashSet<_>>();
+        let vars =
+            constraint.type_args.iter().flat_map(InferType::free_vars).collect::<HashSet<_>>();
         if vars.is_empty() {
             continue;
         }

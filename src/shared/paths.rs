@@ -24,10 +24,7 @@ mod tests {
 
     #[test]
     fn a_drive_path_loses_the_prefix() {
-        assert_eq!(
-            without_verbatim_prefix(r"\\?\E:\src\app.flx"),
-            r"E:\src\app.flx"
-        );
+        assert_eq!(without_verbatim_prefix(r"\\?\E:\src\app.flx"), r"E:\src\app.flx");
     }
 
     #[test]
@@ -41,9 +38,6 @@ mod tests {
     #[test]
     fn other_paths_are_unchanged() {
         assert_eq!(without_verbatim_prefix("/src/app.flx"), "/src/app.flx");
-        assert_eq!(
-            without_verbatim_prefix(r"E:\src\app.flx"),
-            r"E:\src\app.flx"
-        );
+        assert_eq!(without_verbatim_prefix(r"E:\src\app.flx"), r"E:\src\app.flx");
     }
 }

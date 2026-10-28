@@ -74,10 +74,7 @@ fn run_unified_pipeline(
         {
             continue;
         }
-        let failed_dep = node
-            .imports
-            .iter()
-            .find(|e| failed.contains(&e.target_path));
+        let failed_dep = node.imports.iter().find(|e| failed.contains(&e.target_path));
         if let Some(dep) = failed_dep {
             failed.insert(node.path.clone());
             all_diagnostics.push(module_skipped_note(
@@ -127,16 +124,8 @@ fn script_syntax_errors_reported() {
     write_file(&entry, source);
 
     let (diags, rendered) = run_unified_pipeline(&entry, source, &[root], DEFAULT_MAX_ERRORS);
-    let error_count = diags
-        .iter()
-        .filter(|d| d.severity() == Severity::Error)
-        .count();
-    assert!(
-        error_count >= 2,
-        "expected at least 2 errors, got {}: {:?}",
-        error_count,
-        diags
-    );
+    let error_count = diags.iter().filter(|d| d.severity() == Severity::Error).count();
+    assert!(error_count >= 2, "expected at least 2 errors, got {}: {:?}", error_count, diags);
     assert!(!rendered.is_empty(), "rendered output should not be empty");
 }
 
@@ -148,10 +137,7 @@ fn single_module_semantic_errors() {
     let root_scratch = Scratch::new("semantic_errors");
     let root = root_scratch.path().to_path_buf();
     let module_path = root.join("Dups.flx");
-    write_file(
-        &module_path,
-        "module Dups { fn value() { 1; } fn value() { 2; } }",
-    );
+    write_file(&module_path, "module Dups { fn value() { 1; } fn value() { 2; } }");
 
     let entry = root.join("Main.flx");
     let source = "import Dups\nDups.value();";
@@ -211,10 +197,7 @@ fn mixed_graph_parse_and_semantic() {
     let root_scratch = Scratch::new("mixed_errors");
     let root = root_scratch.path().to_path_buf();
     write_file(&root.join("Broken.flx"), "module Broken { fn a() { 1; }");
-    write_file(
-        &root.join("Valid.flx"),
-        "module Valid { fn x() { 1; } fn x() { 2; } }",
-    );
+    write_file(&root.join("Valid.flx"), "module Valid { fn x() { 1; } fn x() { 2; } }");
 
     let entry = root.join("Main.flx");
     let source = "import Broken\nimport Valid\n1;";
@@ -233,10 +216,7 @@ fn mixed_graph_parse_and_semantic() {
     assert!(
         has_semantic_error,
         "expected E001 from Valid module (no cascade from Broken). Diags: {:?}",
-        diags
-            .iter()
-            .map(|d| format!("{:?} file={:?}", d.code(), d.file()))
-            .collect::<Vec<_>>()
+        diags.iter().map(|d| format!("{:?} file={:?}", d.code(), d.file())).collect::<Vec<_>>()
     );
 }
 
@@ -270,10 +250,7 @@ fn diagnostic_cap_enforcement() {
 
     let (diags, rendered) = run_unified_pipeline(&entry, &imports, &[root], DEFAULT_MAX_ERRORS);
 
-    let error_count = diags
-        .iter()
-        .filter(|d| d.severity() == Severity::Error)
-        .count();
+    let error_count = diags.iter().filter(|d| d.severity() == Severity::Error).count();
     assert!(
         error_count > DEFAULT_MAX_ERRORS,
         "test setup: expected >50 errors to test cap, got {}",
@@ -298,15 +275,8 @@ fn parser_example_max_error_cap_enforcement() {
 
     let (diags, rendered) = run_unified_pipeline(&entry, source, &[root], DEFAULT_MAX_ERRORS);
 
-    let error_count = diags
-        .iter()
-        .filter(|d| d.severity() == Severity::Error)
-        .count();
-    assert!(
-        error_count > DEFAULT_MAX_ERRORS,
-        "expected >50 parser errors, got {}",
-        error_count
-    );
+    let error_count = diags.iter().filter(|d| d.severity() == Severity::Error).count();
+    assert!(error_count > DEFAULT_MAX_ERRORS, "expected >50 parser errors, got {}", error_count);
     assert!(
         rendered.contains("not shown"),
         "expected truncation note in parser output, got:\n{}",
@@ -378,11 +348,8 @@ fn pass2_multi_error_continuation_ordering() {
 
     let (diags, rendered) = run_unified_pipeline(&entry, source, &[root], DEFAULT_MAX_ERRORS);
 
-    let error_codes: Vec<_> = diags
-        .iter()
-        .filter(|d| d.severity() == Severity::Error)
-        .filter_map(|d| d.code())
-        .collect();
+    let error_codes: Vec<_> =
+        diags.iter().filter(|d| d.severity() == Severity::Error).filter_map(|d| d.code()).collect();
     assert!(
         error_codes.contains(&"E002"),
         "expected E002 in unified diagnostics, got {:?}",
@@ -394,12 +361,8 @@ fn pass2_multi_error_continuation_ordering() {
         error_codes
     );
 
-    let e002_idx = rendered
-        .find("error[E002]")
-        .expect("expected rendered E002 in unified output");
-    let e300_idx = rendered
-        .find("error[E300]")
-        .expect("expected rendered E300 in unified output");
+    let e002_idx = rendered.find("error[E002]").expect("expected rendered E002 in unified output");
+    let e300_idx = rendered.find("error[E300]").expect("expected rendered E300 in unified output");
     assert!(
         e002_idx < e300_idx,
         "expected deterministic source-order diagnostics (E002 before E300), got:\n{}",
@@ -418,10 +381,7 @@ fn adversarial_compiler_fixture_reports_multiple_independent_errors() {
     write_file(&entry, source);
 
     let (diags, rendered) = run_unified_pipeline(&entry, source, &[root], DEFAULT_MAX_ERRORS);
-    let errors: Vec<_> = diags
-        .iter()
-        .filter(|d| d.severity() == Severity::Error)
-        .collect();
+    let errors: Vec<_> = diags.iter().filter(|d| d.severity() == Severity::Error).collect();
 
     assert!(
         errors.iter().any(|d| d.code() == Some("E300")),
@@ -575,9 +535,7 @@ fn common_dev_mistakes_graph_reports_broad_compiler_errors() {
         diags.iter().filter_map(|d| d.code()).collect::<Vec<_>>()
     );
     assert!(
-        diags
-            .iter()
-            .any(|d| matches!(d.code(), Some("E404") | Some("E080") | Some("E013"))),
+        diags.iter().any(|d| matches!(d.code(), Some("E404") | Some("E080") | Some("E013"))),
         "expected an unknown operation/member typo diagnostic, got {:?}",
         diags.iter().filter_map(|d| d.code()).collect::<Vec<_>>()
     );
@@ -631,30 +589,17 @@ fn stable_ordering() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
     let root_scratch = Scratch::new("stable_order");
     let root = root_scratch.path().to_path_buf();
-    write_file(
-        &root.join("A.flx"),
-        "module A { fn x() { 1; } fn x() { 2; } }",
-    );
-    write_file(
-        &root.join("B.flx"),
-        "module B { fn y() { 1; } fn y() { 2; } }",
-    );
+    write_file(&root.join("A.flx"), "module A { fn x() { 1; } fn x() { 2; } }");
+    write_file(&root.join("B.flx"), "module B { fn y() { 1; } fn y() { 2; } }");
 
     let entry = root.join("Main.flx");
     let source = "import A\nimport B\n1;";
     write_file(&entry, source);
 
-    let (_, rendered1) = run_unified_pipeline(
-        &entry,
-        source,
-        std::slice::from_ref(&root),
-        DEFAULT_MAX_ERRORS,
-    );
+    let (_, rendered1) =
+        run_unified_pipeline(&entry, source, std::slice::from_ref(&root), DEFAULT_MAX_ERRORS);
     let (_, rendered2) = run_unified_pipeline(&entry, source, &[root], DEFAULT_MAX_ERRORS);
 
-    assert_eq!(
-        rendered1, rendered2,
-        "output should be deterministic across runs"
-    );
+    assert_eq!(rendered1, rendered2, "output should be deterministic across runs");
     assert!(!rendered1.is_empty(), "expected diagnostics output");
 }

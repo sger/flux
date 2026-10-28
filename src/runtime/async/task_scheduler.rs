@@ -119,10 +119,7 @@ impl TaskScheduler {
     pub fn new(n_workers: usize) -> io::Result<Self> {
         let pool = TaskManager::new();
         pool.start(n_workers)?;
-        Ok(Self {
-            pool,
-            next_id: AtomicU64::new(1),
-        })
+        Ok(Self { pool, next_id: AtomicU64::new(1) })
     }
 
     /// Schedule `action` to run on a worker thread and return a handle.
@@ -167,11 +164,7 @@ impl TaskScheduler {
     {
         let mut guard = handle.state.outcome.lock().expect("task outcome poisoned");
         while guard.is_none() {
-            guard = handle
-                .state
-                .finished
-                .wait(guard)
-                .expect("task condvar poisoned");
+            guard = handle.state.finished.wait(guard).expect("task condvar poisoned");
         }
         match guard.take().expect("loop exits only on Some") {
             TaskOutcome::Completed(v) => Ok(v),
@@ -246,10 +239,8 @@ mod tests {
                 i
             }));
         }
-        let mut results: Vec<usize> = handles
-            .into_iter()
-            .map(|h| sched.blocking_join(h).unwrap())
-            .collect();
+        let mut results: Vec<usize> =
+            handles.into_iter().map(|h| sched.blocking_join(h).unwrap()).collect();
         results.sort();
         assert_eq!(results, (0..n).collect::<Vec<_>>());
     }
@@ -279,14 +270,8 @@ mod tests {
 
         gate_tx.send(()).unwrap();
         assert_eq!(sched.blocking_join(blocker), Ok("blocker-done".to_string()));
-        assert_eq!(
-            sched.blocking_join(cancelled_task),
-            Err(TaskJoinError::Cancelled)
-        );
-        assert!(
-            !ran.load(Ordering::SeqCst),
-            "cancelled-before-pickup task body must not execute"
-        );
+        assert_eq!(sched.blocking_join(cancelled_task), Err(TaskJoinError::Cancelled));
+        assert!(!ran.load(Ordering::SeqCst), "cancelled-before-pickup task body must not execute");
     }
 
     #[test]

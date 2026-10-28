@@ -399,13 +399,7 @@ impl Lexer {
         };
 
         self.reader.advance_ascii_bytes(2);
-        Some(Token::new_static_with_end(
-            token_type,
-            literal,
-            line,
-            col,
-            self.cursor_position(),
-        ))
+        Some(Token::new_static_with_end(token_type, literal, line, col, self.cursor_position()))
     }
 
     fn one_byte_token(
@@ -453,12 +447,6 @@ impl Lexer {
         };
 
         self.reader.advance_ascii_bytes(1);
-        Some(Token::new_static_with_end(
-            token_type,
-            literal,
-            line,
-            col,
-            self.cursor_position(),
-        ))
+        Some(Token::new_static_with_end(token_type, literal, line, col, self.cursor_position()))
     }
 }

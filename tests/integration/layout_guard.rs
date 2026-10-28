@@ -25,12 +25,8 @@ fn no_new_top_level_rs_tests() {
             continue;
         }
         if path.extension().is_some_and(|ext| ext == "rs") {
-            offenders.push(
-                path.file_name()
-                    .expect("file has a name")
-                    .to_string_lossy()
-                    .into_owned(),
-            );
+            offenders
+                .push(path.file_name().expect("file has a name").to_string_lossy().into_owned());
         }
     }
 

@@ -41,11 +41,7 @@ fn check_all(files: &[PathBuf], label: &str) {
 
     // CI runners have three cores; more builds there slow the timed tests
     // running beside these.
-    let workers = if std::env::var_os("CI").is_some() {
-        1
-    } else {
-        2
-    };
+    let workers = if std::env::var_os("CI").is_some() { 1 } else { 2 };
     let flux = Path::new(env!("CARGO_BIN_EXE_flux"));
     let next = AtomicUsize::new(0);
     let passed = AtomicUsize::new(0);
@@ -72,18 +68,12 @@ fn check_all(files: &[PathBuf], label: &str) {
                 })
             })
             .collect();
-        handles
-            .into_iter()
-            .flat_map(|handle| handle.join().expect("a fixture worker"))
-            .collect()
+        handles.into_iter().flat_map(|handle| handle.join().expect("a fixture worker")).collect()
     });
     failures.sort();
     // As `parity-check` does: a part where every fixture was skipped has
     // checked nothing.
-    assert!(
-        passed.into_inner() > 0,
-        "no fixture in {label} ran: all were skipped"
-    );
+    assert!(passed.into_inner() > 0, "no fixture in {label} ran: all were skipped");
     assert!(
         failures.is_empty(),
         "these fixtures disagree (details above); rerun one with\n  \
@@ -96,10 +86,7 @@ fn check_all(files: &[PathBuf], label: &str) {
 #[test]
 fn guide_type_system_examples_run_the_same_natively() {
     let files = fixtures_in(&root().join("examples/guide_type_system"));
-    assert!(
-        !files.is_empty(),
-        "no examples in examples/guide_type_system"
-    );
+    assert!(!files.is_empty(), "no examples in examples/guide_type_system");
     check_all(&files, "examples/guide_type_system");
 }
 

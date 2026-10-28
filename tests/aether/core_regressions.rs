@@ -15,19 +15,12 @@ use flux::types::infer_type::InferType;
 
 fn parse_and_infer(
     src: &str,
-) -> (
-    flux::syntax::program::Program,
-    HashMap<flux::syntax::expression::ExprId, InferType>,
-    Interner,
-) {
+) -> (flux::syntax::program::Program, HashMap<flux::syntax::expression::ExprId, InferType>, Interner)
+{
     let lexer = Lexer::new(src);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
 
     let mut compiler = flux::compiler::Compiler::new_with_interner("<test>", interner.clone());
@@ -39,11 +32,7 @@ fn run(src: &str) -> Value {
     let lexer = Lexer::new(src);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut compiler = flux::compiler::Compiler::new_with_interner("<test>", interner);
     compiler.compile(&program).expect("compile ok");
@@ -72,9 +61,7 @@ fn collect_core_exprs(expr: &CoreExpr) -> Vec<&CoreExpr> {
             }
             out.extend(collect_core_exprs(body));
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             out.extend(collect_core_exprs(scrutinee));
             for alt in alts {
                 out.extend(collect_core_exprs(&alt.rhs));
@@ -103,11 +90,7 @@ fn collect_core_exprs(expr: &CoreExpr) -> Vec<&CoreExpr> {
         CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => {
             out.extend(collect_core_exprs(body));
         }
-        CoreExpr::DropSpecialized {
-            unique_body,
-            shared_body,
-            ..
-        } => {
+        CoreExpr::DropSpecialized { unique_body, shared_body, .. } => {
             out.extend(collect_core_exprs(unique_body));
             out.extend(collect_core_exprs(shared_body));
         }
@@ -120,10 +103,7 @@ fn collect_core_exprs(expr: &CoreExpr) -> Vec<&CoreExpr> {
 }
 
 fn count_matching(expr: &CoreExpr, predicate: &impl Fn(&CoreExpr) -> bool) -> usize {
-    collect_core_exprs(expr)
-        .into_iter()
-        .filter(|expr| predicate(expr))
-        .count()
+    collect_core_exprs(expr).into_iter().filter(|expr| predicate(expr)).count()
 }
 
 fn lowered_core(src: impl AsRef<str>) -> AetherProgram {
@@ -144,9 +124,7 @@ fn lowered_core_and_interner(src: impl AsRef<str>) -> (AetherProgram, Interner) 
 
 /// How many `Dup`s of a binder named `name` the program holds.
 fn dups_named(core: &AetherProgram, interner: &Interner, name: &str) -> usize {
-    let name = interner
-        .lookup(name)
-        .unwrap_or_else(|| panic!("the program binds `{name}`"));
+    let name = interner.lookup(name).unwrap_or_else(|| panic!("the program binds `{name}`"));
     core.defs
         .iter()
         .map(|def| {
@@ -166,11 +144,7 @@ fn compile_fixture_warnings(rel: &str) -> Vec<Diagnostic> {
     let lexer = Lexer::new(&source);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
 
     let mut roots = Vec::new();
     if let Some(parent) = fixture.parent() {
@@ -183,11 +157,7 @@ fn compile_fixture_warnings(rel: &str) -> Vec<Diagnostic> {
 
     let graph =
         ModuleGraph::build_with_entry_and_roots(&fixture, &program, parser.take_interner(), &roots);
-    assert!(
-        graph.diagnostics.is_empty(),
-        "module diagnostics: {:?}",
-        graph.diagnostics
-    );
+    assert!(graph.diagnostics.is_empty(), "module diagnostics: {:?}", graph.diagnostics);
 
     let mut compiler = Compiler::new_with_interner(rel, graph.interner);
     for node in graph.graph.topo_order() {
@@ -234,10 +204,7 @@ fn main() { len_twice(#[1, 2, 3]) }
         .flat_map(|def| collect_core_exprs(&def.expr))
         .filter(|expr| matches!(expr, CoreExpr::Dup { .. }))
         .count();
-    assert_eq!(
-        dup_count, 0,
-        "borrowed primop args should not introduce dups"
-    );
+    assert_eq!(dup_count, 0, "borrowed primop args should not introduce dups");
     assert_eq!(run(src), Value::Integer(6));
 }
 
@@ -272,15 +239,8 @@ fn loop(xs, n) {
 fn main() { loop(#[1, 2, 3], 3) }
 "#;
     let core = lowered_core(src);
-    let loop_def = core
-        .defs
-        .iter()
-        .find(|def| def.name == core.defs[1].name)
-        .expect("loop def");
-    let sig = loop_def
-        .borrow_signature
-        .as_ref()
-        .expect("borrow signature");
+    let loop_def = core.defs.iter().find(|def| def.name == core.defs[1].name).expect("loop def");
+    let sig = loop_def.borrow_signature.as_ref().expect("borrow signature");
     assert_eq!(
         sig.params,
         vec![
@@ -327,10 +287,7 @@ fn main() { loop(\x -> x + 1, 3) }
 "#;
     let core = lowered_core(src);
     let loop_def = core.defs.first().expect("loop def");
-    let sig = loop_def
-        .borrow_signature
-        .as_ref()
-        .expect("borrow signature");
+    let sig = loop_def.borrow_signature.as_ref().expect("borrow signature");
     assert_eq!(
         sig.params,
         vec![
@@ -384,10 +341,7 @@ fn main() { use_closure(#[1, 2, 3]) }
         .into_iter()
         .filter(|expr| matches!(expr, CoreExpr::Dup { var, .. } if var.binder == Some(xs)))
         .count();
-    assert_eq!(
-        dups, 0,
-        "read-only closure capture should not introduce dups"
-    );
+    assert_eq!(dups, 0, "read-only closure capture should not introduce dups");
 }
 
 #[test]
@@ -402,16 +356,10 @@ fn main() { use_closure(#[1, 2, 3]) }
 "#;
     let core = lowered_core(src);
     let use_closure = core.defs.get(1).expect("use_closure def");
-    let sig = use_closure
-        .borrow_signature
-        .as_ref()
-        .expect("borrow signature");
+    let sig = use_closure.borrow_signature.as_ref().expect("borrow signature");
     // array_len borrows its arg, so my_len borrows xs, so the closure
     // only reads xs — use_closure's xs stays Borrowed.
-    assert_eq!(
-        sig.params,
-        vec![flux::aether::borrow_infer::BorrowMode::Borrowed]
-    );
+    assert_eq!(sig.params, vec![flux::aether::borrow_infer::BorrowMode::Borrowed]);
 }
 
 #[test]
@@ -480,10 +428,7 @@ fn main() { rebuild([("key", [1, 2])]) }
     };
     assert_eq!((dups_of(key), dups_of(value)), (1, 1), "{rhs:?}");
     assert_eq!(
-        count_matching(rhs, &|expr| matches!(
-            expr,
-            CoreExpr::DropSpecialized { .. }
-        )),
+        count_matching(rhs, &|expr| matches!(expr, CoreExpr::DropSpecialized { .. })),
         0,
         "{rhs:?}"
     );
@@ -538,15 +483,7 @@ fn maintained_reuse_alias_spines_fixture_emits_masked_reuse() {
         .defs
         .iter()
         .flat_map(|def| collect_core_exprs(&def.expr))
-        .filter(|expr| {
-            matches!(
-                expr,
-                CoreExpr::Reuse {
-                    field_mask: Some(_),
-                    ..
-                }
-            )
-        })
+        .filter(|expr| matches!(expr, CoreExpr::Reuse { field_mask: Some(_), .. }))
         .count();
     assert!(
         masked >= 2,
@@ -579,19 +516,10 @@ fn reuse_specialization_profitable_case_is_masked() {
     let src = std::fs::read_to_string("examples/aether/reuse_specialization.flx")
         .expect("fixture should exist");
     let core = lowered_core(src);
-    assert!(
-        core.defs
-            .iter()
-            .flat_map(|def| collect_core_exprs(&def.expr))
-            .any(|expr| matches!(
-                expr,
-                CoreExpr::Reuse {
-                    tag: flux::core::CoreTag::Named(_),
-                    field_mask: Some(_),
-                    ..
-                }
-            ))
-    );
+    assert!(core.defs.iter().flat_map(|def| collect_core_exprs(&def.expr)).any(|expr| matches!(
+        expr,
+        CoreExpr::Reuse { tag: flux::core::CoreTag::Named(_), field_mask: Some(_), .. }
+    )));
 }
 
 #[test]
@@ -599,16 +527,9 @@ fn maintained_drop_spec_branchy_fixture_emits_reuse_inside_drop_specialized() {
     let src = std::fs::read_to_string("examples/aether/drop_spec_branchy.flx")
         .expect("fixture should exist");
     let core = lowered_core(src);
-    let found = core
-        .defs
-        .iter()
-        .flat_map(|def| collect_core_exprs(&def.expr))
-        .any(|expr| match expr {
-            CoreExpr::DropSpecialized {
-                unique_body,
-                shared_body,
-                ..
-            } => {
+    let found =
+        core.defs.iter().flat_map(|def| collect_core_exprs(&def.expr)).any(|expr| match expr {
+            CoreExpr::DropSpecialized { unique_body, shared_body, .. } => {
                 let unique_reuses = collect_core_exprs(unique_body)
                     .into_iter()
                     .filter(|inner| matches!(inner, CoreExpr::Reuse { .. }))
@@ -647,16 +568,9 @@ fn maintained_drop_spec_branchy_fixture_keeps_unique_path_dup_free() {
     let src = std::fs::read_to_string("examples/aether/drop_spec_branchy.flx")
         .expect("fixture should exist");
     let core = lowered_core(src);
-    let found = core
-        .defs
-        .iter()
-        .flat_map(|def| collect_core_exprs(&def.expr))
-        .any(|expr| match expr {
-            CoreExpr::DropSpecialized {
-                unique_body,
-                shared_body,
-                ..
-            } => {
+    let found =
+        core.defs.iter().flat_map(|def| collect_core_exprs(&def.expr)).any(|expr| match expr {
+            CoreExpr::DropSpecialized { unique_body, shared_body, .. } => {
                 let unique_dups = collect_core_exprs(unique_body)
                     .into_iter()
                     .filter(|inner| matches!(inner, CoreExpr::Dup { .. }))
@@ -690,10 +604,7 @@ fn maintained_drop_spec_recursive_fixture_has_no_dups_for_int_elements() {
         .count();
     // Typed binders eliminate dups for IntRep pattern variables. The remaining
     // dups (if any) are for boxed values like the list tail or closures.
-    assert!(
-        total_dups <= 2,
-        "typed pattern binders should minimize dups; got {total_dups}"
-    );
+    assert!(total_dups <= 2, "typed pattern binders should minimize dups; got {total_dups}");
 }
 
 #[test]
@@ -710,19 +621,10 @@ fn keep_right_only(t) {
 fn main() { keep_right_only(Node(Red, Leaf, 5, Leaf)) }
 "#;
     let core = lowered_core(src);
-    assert!(
-        core.defs
-            .iter()
-            .flat_map(|def| collect_core_exprs(&def.expr))
-            .any(|expr| matches!(
-                expr,
-                CoreExpr::Reuse {
-                    tag: flux::core::CoreTag::Named(_),
-                    field_mask: None,
-                    ..
-                }
-            ))
-    );
+    assert!(core.defs.iter().flat_map(|def| collect_core_exprs(&def.expr)).any(|expr| matches!(
+        expr,
+        CoreExpr::Reuse { tag: flux::core::CoreTag::Named(_), field_mask: None, .. }
+    )));
 }
 
 #[test]
@@ -783,9 +685,8 @@ fn main() with IO { shadow_in_handler(41) }
 "#;
     let core = lowered_core(src);
     let shadow_def = &core.defs[0];
-    let drop_count = count_matching(&shadow_def.expr, &|expr| {
-        matches!(expr, CoreExpr::Drop { .. })
-    });
+    let drop_count =
+        count_matching(&shadow_def.expr, &|expr| matches!(expr, CoreExpr::Drop { .. }));
     // `x` is unused, so it is Borrowed: its caller keeps it, and the
     // function never releases it, shadowed or not (F2).
     assert_eq!(
@@ -830,16 +731,9 @@ fn keep_or_dup_left(t, keep) {
 fn main() { keep_or_dup_left(Node(Red, Leaf, 5, Leaf), false) }
 "#;
     let core = lowered_core(src);
-    let found = core
-        .defs
-        .iter()
-        .flat_map(|def| collect_core_exprs(&def.expr))
-        .any(|expr| match expr {
-            CoreExpr::DropSpecialized {
-                unique_body,
-                shared_body,
-                ..
-            } => {
+    let found =
+        core.defs.iter().flat_map(|def| collect_core_exprs(&def.expr)).any(|expr| match expr {
+            CoreExpr::DropSpecialized { unique_body, shared_body, .. } => {
                 let unique_reuses = collect_core_exprs(unique_body)
                     .into_iter()
                     .filter(|inner| matches!(inner, CoreExpr::Reuse { .. }))
@@ -852,10 +746,7 @@ fn main() { keep_or_dup_left(Node(Red, Leaf, 5, Leaf), false) }
             }
             _ => false,
         });
-    assert!(
-        found,
-        "expected branchy named ADT DropSpecialized to reuse only on the unique path"
-    );
+    assert!(found, "expected branchy named ADT DropSpecialized to reuse only on the unique path");
 }
 
 #[test]
@@ -897,10 +788,7 @@ fn fbip_clean_fixture_keeps_annotations_provable() {
     let mut core = lower_program_ast(&program, &types);
     run_core_passes_with_interner(&mut core, &interner, false).expect("core passes should succeed");
     let fbip = flux::aether::check_fbip::check_fbip(&core, &interner);
-    assert!(
-        fbip.error.is_none(),
-        "verify_aether should not hard-fail FBIP"
-    );
+    assert!(fbip.error.is_none(), "verify_aether should not hard-fail FBIP");
 }
 
 #[test]
@@ -951,11 +839,8 @@ fn bench_reuse_fixture_my_map_shows_borrowed_recursion_and_plain_reuse() {
     let has_reuse = collect_core_exprs(&my_map.expr)
         .into_iter()
         .any(|expr| matches!(expr, CoreExpr::Reuse { .. }));
-    let borrowed_benchmark_wrappers = core
-        .defs
-        .iter()
-        .flat_map(|def| collect_core_exprs(&def.expr))
-        .any(|expr| {
+    let borrowed_benchmark_wrappers =
+        core.defs.iter().flat_map(|def| collect_core_exprs(&def.expr)).any(|expr| {
             matches!(
                 expr,
                 CoreExpr::AetherCall { arg_modes, .. }
@@ -1002,14 +887,8 @@ fn bench_reuse_ab_control_fixtures_differ_only_in_intended_reuse_profile() {
         .filter(|expr| matches!(expr, CoreExpr::Reuse { .. }))
         .count();
 
-    assert!(
-        enabled_reuses >= 1,
-        "reuse-enabled benchmark should currently emit plain Reuse"
-    );
-    assert_eq!(
-        blocked_reuses, 0,
-        "reuse-blocked benchmark should keep plain Reuse disabled"
-    );
+    assert!(enabled_reuses >= 1, "reuse-enabled benchmark should currently emit plain Reuse");
+    assert_eq!(blocked_reuses, 0, "reuse-blocked benchmark should keep plain Reuse disabled");
 }
 
 #[test]
@@ -1038,10 +917,7 @@ fn main() { map_like([1, 2, 3], \x -> x + 1) }
                 ]
         )
     });
-    assert!(
-        has_reuse,
-        "higher-order recursive rebuild should now emit plain Reuse"
-    );
+    assert!(has_reuse, "higher-order recursive rebuild should now emit plain Reuse");
     assert!(
         borrowed_self_call,
         "higher-order recursive rebuild owns the list it reuses and borrows its function (F2)"
@@ -1060,11 +936,8 @@ fn keep_or_inc(xs, choose) {
 fn main() { keep_or_inc([1, 2, 3], true) }
 "#;
     let core = lowered_core(src);
-    let found = core
-        .defs
-        .iter()
-        .flat_map(|def| collect_core_exprs(&def.expr))
-        .any(|expr| match expr {
+    let found =
+        core.defs.iter().flat_map(|def| collect_core_exprs(&def.expr)).any(|expr| match expr {
             CoreExpr::Case { alts, .. } => {
                 let branch_reuses = alts
                     .iter()
@@ -1079,10 +952,7 @@ fn main() { keep_or_inc([1, 2, 3], true) }
             }
             _ => false,
         });
-    assert!(
-        found,
-        "branch-sensitive rebuild should allow plain Reuse on the exact branch only"
-    );
+    assert!(found, "branch-sensitive rebuild should allow plain Reuse on the exact branch only");
 }
 
 #[test]
@@ -1107,10 +977,7 @@ fn main() { bad_rebuild([1, 2, 3]) }
     let has_reuse = collect_core_exprs(&bad_rebuild.expr)
         .into_iter()
         .any(|expr| matches!(expr, CoreExpr::Reuse { .. }));
-    assert!(
-        !has_reuse,
-        "token-dependent precompute lets must keep plain Reuse disabled"
-    );
+    assert!(!has_reuse, "token-dependent precompute lets must keep plain Reuse disabled");
 }
 
 #[test]
@@ -1129,15 +996,7 @@ fn main() { rebuild([1, 2, 3], true) }
         .defs
         .iter()
         .flat_map(|def| collect_core_exprs(&def.expr))
-        .filter(|expr| {
-            matches!(
-                expr,
-                CoreExpr::Reuse {
-                    tag: flux::core::CoreTag::Cons,
-                    ..
-                }
-            )
-        })
+        .filter(|expr| matches!(expr, CoreExpr::Reuse { tag: flux::core::CoreTag::Cons, .. }))
         .count();
     assert!(
         reuse_count >= 2,
@@ -1161,15 +1020,7 @@ fn main() { rebuild(Some(1), true) }
         .defs
         .iter()
         .flat_map(|def| collect_core_exprs(&def.expr))
-        .filter(|expr| {
-            matches!(
-                expr,
-                CoreExpr::Reuse {
-                    tag: flux::core::CoreTag::Some,
-                    ..
-                }
-            )
-        })
+        .filter(|expr| matches!(expr, CoreExpr::Reuse { tag: flux::core::CoreTag::Some, .. }))
         .count();
     assert!(
         reuse_count >= 2,
@@ -1232,11 +1083,7 @@ fn verify_aether_fixture_claimed_fast_paths_match_current_core_shape() {
             collect_core_exprs(&def.expr).into_iter().any(|expr| {
                 matches!(
                     expr,
-                    CoreExpr::Reuse {
-                        tag: flux::core::CoreTag::Named(_),
-                        field_mask: Some(_),
-                        ..
-                    }
+                    CoreExpr::Reuse { tag: flux::core::CoreTag::Named(_), field_mask: Some(_), .. }
                 )
             })
         })
@@ -1244,11 +1091,7 @@ fn verify_aether_fixture_claimed_fast_paths_match_current_core_shape() {
     assert!(collect_core_exprs(&set_black.expr).into_iter().any(|expr| {
         matches!(
             expr,
-            CoreExpr::Reuse {
-                tag: flux::core::CoreTag::Named(_),
-                field_mask: Some(_),
-                ..
-            }
+            CoreExpr::Reuse { tag: flux::core::CoreTag::Named(_), field_mask: Some(_), .. }
         )
     }));
 
@@ -1259,26 +1102,16 @@ fn verify_aether_fixture_claimed_fast_paths_match_current_core_shape() {
         .defs
         .iter()
         .find(|def| {
-            collect_core_exprs(&def.expr).into_iter().any(|expr| {
-                matches!(
-                    expr,
-                    CoreExpr::Reuse {
-                        tag: flux::core::CoreTag::Cons,
-                        ..
-                    }
-                )
-            })
+            collect_core_exprs(&def.expr)
+                .into_iter()
+                .any(|expr| matches!(expr, CoreExpr::Reuse { tag: flux::core::CoreTag::Cons, .. }))
         })
         .expect("my_filter-like def (Cons reuse)");
-    assert!(collect_core_exprs(&my_filter.expr).into_iter().any(|expr| {
-        matches!(
-            expr,
-            CoreExpr::Reuse {
-                tag: flux::core::CoreTag::Cons,
-                ..
-            }
-        )
-    }));
+    assert!(
+        collect_core_exprs(&my_filter.expr)
+            .into_iter()
+            .any(|expr| { matches!(expr, CoreExpr::Reuse { tag: flux::core::CoreTag::Cons, .. }) })
+    );
 
     let my_map = core
         .defs
@@ -1319,9 +1152,7 @@ fn hof_recursive_suite_fixture_claims_match_current_core_shape() {
         .iter()
         .find(|def| {
             let exprs = collect_core_exprs(&def.expr);
-            exprs
-                .iter()
-                .any(|expr| matches!(expr, CoreExpr::Reuse { .. }))
+            exprs.iter().any(|expr| matches!(expr, CoreExpr::Reuse { .. }))
                 && exprs.iter().any(|expr| {
                     matches!(
                         expr,
@@ -1355,9 +1186,7 @@ fn hof_recursive_suite_fixture_claims_match_current_core_shape() {
                             flux::aether::borrow_infer::BorrowMode::Borrowed,
                         ]
                 )
-            }) && !exprs
-                .iter()
-                .any(|expr| matches!(expr, CoreExpr::Reuse { .. }))
+            }) && !exprs.iter().any(|expr| matches!(expr, CoreExpr::Reuse { .. }))
         })
         .expect("count_if-like def");
     assert!(
@@ -1380,21 +1209,13 @@ fn tree_updates_fixture_claims_match_current_core_shape() {
     let src =
         std::fs::read_to_string("examples/aether/tree_updates.flx").expect("fixture should exist");
     let core = lowered_core(src);
-    let exprs = core
-        .defs
-        .iter()
-        .flat_map(|def| collect_core_exprs(&def.expr))
-        .collect::<Vec<_>>();
+    let exprs = core.defs.iter().flat_map(|def| collect_core_exprs(&def.expr)).collect::<Vec<_>>();
 
     assert!(
         exprs.iter().any(|expr| {
             matches!(
                 expr,
-                CoreExpr::Reuse {
-                    tag: flux::core::CoreTag::Named(_),
-                    field_mask: Some(_),
-                    ..
-                }
+                CoreExpr::Reuse { tag: flux::core::CoreTag::Named(_), field_mask: Some(_), .. }
             )
         }),
         "tree_updates should include masked named-ADT reuse"
@@ -1403,11 +1224,7 @@ fn tree_updates_fixture_claims_match_current_core_shape() {
         exprs.iter().any(|expr| {
             matches!(
                 expr,
-                CoreExpr::Reuse {
-                    tag: flux::core::CoreTag::Named(_),
-                    field_mask: Some(_),
-                    ..
-                }
+                CoreExpr::Reuse { tag: flux::core::CoreTag::Named(_), field_mask: Some(_), .. }
             )
         }),
         "tree_updates should include an additional named-ADT reuse site"
@@ -1416,22 +1233,14 @@ fn tree_updates_fixture_claims_match_current_core_shape() {
         exprs.iter().any(|expr| {
             matches!(
                 expr,
-                CoreExpr::Reuse {
-                    tag: flux::core::CoreTag::Named(_),
-                    field_mask: None,
-                    ..
-                }
+                CoreExpr::Reuse { tag: flux::core::CoreTag::Named(_), field_mask: None, .. }
             )
         }),
         "tree_updates should include plain named-ADT reuse on a wider rewrite"
     );
     assert!(
         exprs.iter().any(|expr| match expr {
-            CoreExpr::DropSpecialized {
-                unique_body,
-                shared_body,
-                ..
-            } => {
+            CoreExpr::DropSpecialized { unique_body, shared_body, .. } => {
                 let unique_reuses = collect_core_exprs(unique_body)
                     .into_iter()
                     .filter(|inner| matches!(inner, CoreExpr::Reuse { .. }))
@@ -1453,18 +1262,10 @@ fn queue_workload_fixture_claims_match_current_core_shape() {
     let src = std::fs::read_to_string("examples/aether/queue_workload.flx")
         .expect("fixture should exist");
     let core = lowered_core(src);
-    let exprs = core
-        .defs
-        .iter()
-        .flat_map(|def| collect_core_exprs(&def.expr))
-        .collect::<Vec<_>>();
+    let exprs = core.defs.iter().flat_map(|def| collect_core_exprs(&def.expr)).collect::<Vec<_>>();
 
     assert!(
-        exprs
-            .iter()
-            .filter(|expr| matches!(expr, CoreExpr::Reuse { .. }))
-            .count()
-            >= 2,
+        exprs.iter().filter(|expr| matches!(expr, CoreExpr::Reuse { .. })).count() >= 2,
         "queue workload should currently emit two wrapper reuse sites"
     );
     assert!(
@@ -1488,11 +1289,7 @@ fn forwarded_wrapper_fixture_rewrites_only_the_inner_child() {
     let src = std::fs::read_to_string("examples/aether/forwarded_wrapper_reuse.flx")
         .expect("fixture should exist");
     let core = lowered_core(src);
-    let exprs = core
-        .defs
-        .iter()
-        .flat_map(|def| collect_core_exprs(&def.expr))
-        .collect::<Vec<_>>();
+    let exprs = core.defs.iter().flat_map(|def| collect_core_exprs(&def.expr)).collect::<Vec<_>>();
 
     assert!(
         exprs.iter().any(|expr| {
@@ -1508,13 +1305,7 @@ fn forwarded_wrapper_fixture_rewrites_only_the_inner_child() {
     );
     assert!(
         !exprs.iter().any(|expr| {
-            matches!(
-                expr,
-                CoreExpr::Reuse {
-                    tag: flux::core::CoreTag::Named(_),
-                    ..
-                }
-            )
+            matches!(expr, CoreExpr::Reuse { tag: flux::core::CoreTag::Named(_), .. })
         }),
         "forwarded wrapper fixture should not speculate into outer wrapper reuse"
     );
@@ -1545,13 +1336,8 @@ fn a_forwarded_child_is_built_once() {
     let cons_built = count_matching(unique, &|expr| {
         matches!(
             expr,
-            CoreExpr::Con {
-                tag: flux::core::CoreTag::Cons,
-                ..
-            } | CoreExpr::Reuse {
-                tag: flux::core::CoreTag::Cons,
-                ..
-            }
+            CoreExpr::Con { tag: flux::core::CoreTag::Cons, .. }
+                | CoreExpr::Reuse { tag: flux::core::CoreTag::Cons, .. }
         )
     });
     assert_eq!(cons_built, 1, "{unique:?}");
@@ -1562,35 +1348,23 @@ fn opt_corpus_positive_fixture_claims_match_current_core_shape() {
     let src = std::fs::read_to_string("examples/aether/opt_corpus_positive.flx")
         .expect("fixture should exist");
     let core = lowered_core(src);
-    let exprs = core
-        .defs
-        .iter()
-        .flat_map(|def| collect_core_exprs(&def.expr))
-        .collect::<Vec<_>>();
+    let exprs = core.defs.iter().flat_map(|def| collect_core_exprs(&def.expr)).collect::<Vec<_>>();
 
     assert!(
-        exprs
-            .iter()
-            .any(|expr| matches!(expr, CoreExpr::Reuse { .. })),
+        exprs.iter().any(|expr| matches!(expr, CoreExpr::Reuse { .. })),
         "positive corpus should include at least one Reuse site"
     );
     assert!(
         exprs.iter().any(|expr| {
             matches!(
                 expr,
-                CoreExpr::Reuse {
-                    tag: flux::core::CoreTag::Named(_),
-                    field_mask: Some(_),
-                    ..
-                }
+                CoreExpr::Reuse { tag: flux::core::CoreTag::Named(_), field_mask: Some(_), .. }
             )
         }),
         "positive corpus should include masked named-ADT reuse"
     );
     assert!(
-        exprs
-            .iter()
-            .any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. })),
+        exprs.iter().any(|expr| matches!(expr, CoreExpr::DropSpecialized { .. })),
         "positive corpus should include DropSpecialized"
     );
     assert!(
@@ -1626,18 +1400,10 @@ fn opt_corpus_negative_fixture_stays_conservative_on_intended_shapes() {
     let src = std::fs::read_to_string("examples/aether/opt_corpus_negative.flx")
         .expect("fixture should exist");
     let core = lowered_core(src);
-    let exprs = core
-        .defs
-        .iter()
-        .flat_map(|def| collect_core_exprs(&def.expr))
-        .collect::<Vec<_>>();
+    let exprs = core.defs.iter().flat_map(|def| collect_core_exprs(&def.expr)).collect::<Vec<_>>();
 
     assert!(
-        exprs
-            .iter()
-            .filter(|expr| matches!(expr, CoreExpr::Reuse { .. }))
-            .count()
-            == 1,
+        exprs.iter().filter(|expr| matches!(expr, CoreExpr::Reuse { .. })).count() == 1,
         "negative corpus should keep reuse limited to the single exact fresh_tree path"
     );
     assert!(
@@ -1661,11 +1427,7 @@ fn opt_corpus_negative_fixture_stays_conservative_on_intended_shapes() {
 #[test]
 fn fbip_success_cases_fixture_stays_provable() {
     let warnings = compile_fixture_warnings("examples/aether/fbip_success_cases.flx");
-    assert_eq!(
-        warnings.len(),
-        3,
-        "expected current Stage 3 FBIP warning set"
-    );
+    assert_eq!(warnings.len(), 3, "expected current Stage 3 FBIP warning set");
     assert!(warnings.iter().any(|d| {
         d.message().is_some_and(|m| {
             m.contains("@fip on `rebuild_list`")

@@ -255,11 +255,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             }
             _ => self.lower_primop(
                 op,
-                &args
-                    .iter()
-                    .cloned()
-                    .map(AetherExpr::into_core)
-                    .collect::<Vec<_>>(),
+                &args.iter().cloned().map(AetherExpr::into_core).collect::<Vec<_>>(),
                 span,
             ),
         }

@@ -32,15 +32,12 @@ impl<'a> super::AstLowerer<'a> {
         parameter_ty: Option<crate::core::CoreType>,
     ) -> CoreHandler {
         // Look up op signature: (effect, operation) → (param_types, return_type)
-        let op_sig = self
-            .effect_op_sigs
-            .and_then(|sigs| sigs.get(&(effect, arm.operation_name)));
+        let op_sig = self.effect_op_sigs.and_then(|sigs| sigs.get(&(effect, arm.operation_name)));
 
         let has_state = parameter_ty.is_some() && !arm.params.is_empty();
         let source_op_param_count = arm.params.len().saturating_sub(usize::from(has_state));
-        let state_source = has_state
-            .then(|| arm.params[source_op_param_count])
-            .map(|p| self.bind_name(p));
+        let state_source =
+            has_state.then(|| arm.params[source_op_param_count]).map(|p| self.bind_name(p));
 
         let (params, param_types, state, state_ty) = if let Some((param_tys, _ret_ty)) = op_sig {
             if param_tys.len() == source_op_param_count {
@@ -51,10 +48,8 @@ impl<'a> super::AstLowerer<'a> {
                     .zip(param_tys.iter())
                     .map(|(&p, ty)| self.bind_name_with_type(p, ty))
                     .collect();
-                let param_types = param_tys
-                    .iter()
-                    .map(crate::core::CoreType::try_from_infer)
-                    .collect();
+                let param_types =
+                    param_tys.iter().map(crate::core::CoreType::try_from_infer).collect();
                 (params, param_types, state_source, parameter_ty.clone())
             } else {
                 (
@@ -70,11 +65,7 @@ impl<'a> super::AstLowerer<'a> {
             }
         } else {
             (
-                arm.params
-                    .iter()
-                    .take(source_op_param_count)
-                    .map(|&p| self.bind_name(p))
-                    .collect(),
+                arm.params.iter().take(source_op_param_count).map(|&p| self.bind_name(p)).collect(),
                 Vec::new(),
                 state_source,
                 parameter_ty.clone(),
@@ -95,13 +86,9 @@ impl<'a> super::AstLowerer<'a> {
                 }
                 crate::core::CoreType::Function(
                     params,
-                    Box::new(
-                        handle_result_ty
-                            .clone()
-                            .unwrap_or(crate::core::CoreType::Abstract(
-                                crate::core::CoreAbstractType::Named(arm.resume_param, Vec::new()),
-                            )),
-                    ),
+                    Box::new(handle_result_ty.clone().unwrap_or(crate::core::CoreType::Abstract(
+                        crate::core::CoreAbstractType::Named(arm.resume_param, Vec::new()),
+                    ))),
                 )
             })
         });
@@ -200,10 +187,7 @@ impl<'a> super::AstLowerer<'a> {
                 Expression::Boolean { value, .. } => CorePat::Lit(CoreLit::Bool(*value)),
                 _ => CorePat::Wildcard,
             },
-            Pattern::None { .. } => CorePat::Con {
-                tag: CoreTag::None,
-                fields: Vec::new(),
-            },
+            Pattern::None { .. } => CorePat::Con { tag: CoreTag::None, fields: Vec::new() },
             Pattern::Some { pattern, .. } => {
                 // Extract inner type from Option<T>
                 let inner_ty = ty.and_then(|t| match t {
@@ -270,10 +254,7 @@ impl<'a> super::AstLowerer<'a> {
                         .zip(types.iter())
                         .map(|(p, t)| self.lower_pattern_typed(p, Some(t)))
                         .collect(),
-                    None => elements
-                        .iter()
-                        .map(|p| self.lower_pattern_typed(p, None))
-                        .collect(),
+                    None => elements.iter().map(|p| self.lower_pattern_typed(p, None)).collect(),
                 })
             }
             Pattern::Constructor { name, fields, .. } => {
@@ -285,10 +266,7 @@ impl<'a> super::AstLowerer<'a> {
                 // constructor type info threaded into the lowerer).
                 CorePat::Con {
                     tag: CoreTag::Named(*name),
-                    fields: fields
-                        .iter()
-                        .map(|p| self.lower_pattern_typed(p, None))
-                        .collect(),
+                    fields: fields.iter().map(|p| self.lower_pattern_typed(p, None)).collect(),
                 }
             }
             Pattern::NamedConstructor { name, fields, .. } => {
@@ -308,10 +286,7 @@ impl<'a> super::AstLowerer<'a> {
                         positional[index] = sub;
                     }
                 }
-                CorePat::Con {
-                    tag: CoreTag::Named(*name),
-                    fields: positional,
-                }
+                CorePat::Con { tag: CoreTag::Named(*name), fields: positional }
             }
         }
     }

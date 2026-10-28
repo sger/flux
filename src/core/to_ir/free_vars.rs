@@ -24,11 +24,8 @@ pub(super) fn free_vars_rec(
         }
         CoreExpr::Lit(_, _) => {}
         CoreExpr::Lam { params, body, .. } => {
-            let new_params: Vec<_> = params
-                .iter()
-                .filter(|p| bound.insert(p.id))
-                .cloned()
-                .collect();
+            let new_params: Vec<_> =
+                params.iter().filter(|p| bound.insert(p.id)).cloned().collect();
             free_vars_rec(body, bound, free);
             for p in new_params {
                 bound.remove(&p.id);
@@ -71,18 +68,13 @@ pub(super) fn free_vars_rec(
                 bound.remove(&id);
             }
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             free_vars_rec(scrutinee, bound, free);
             for alt in alts {
                 let mut alt_bound = HashSet::new();
                 collect_pat_binders(&alt.pat, &mut alt_bound);
-                let new_binders: Vec<_> = alt_bound
-                    .iter()
-                    .filter(|b| bound.insert(**b))
-                    .cloned()
-                    .collect();
+                let new_binders: Vec<_> =
+                    alt_bound.iter().filter(|b| bound.insert(**b)).cloned().collect();
                 if let Some(guard) = &alt.guard {
                     free_vars_rec(guard, bound, free);
                 }
@@ -108,12 +100,7 @@ pub(super) fn free_vars_rec(
                 free_vars_rec(a, bound, free);
             }
         }
-        CoreExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        CoreExpr::Handle { body, parameter, handlers, .. } => {
             if let Some(parameter) = parameter {
                 free_vars_rec(parameter, bound, free);
             }

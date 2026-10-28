@@ -58,10 +58,7 @@ fn main() -> Unit with Console {
 }
 "#,
     );
-    assert!(
-        success,
-        "Stream.append must reach Flow.Stream, not Semigroup:\n{stdout}\n{stderr}"
-    );
+    assert!(success, "Stream.append must reach Flow.Stream, not Semigroup:\n{stdout}\n{stderr}");
     // Match the diagnostic's shape, not the bare class name: since Proposal
     // 0179 Stage 8 the prelude compiles `Flow.Semigroup`, so a bare `Semigroup`
     // appears in the progress output of every successful run.
@@ -95,10 +92,7 @@ fn qualified_class_method_calls_still_dispatch_to_their_instances() {
             .unwrap_or_else(|e| panic!("failed to run {example}: {e}"));
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(
-            output.status.success(),
-            "{example} must still run:\n{stdout}\n{stderr}"
-        );
+        assert!(output.status.success(), "{example} must still run:\n{stdout}\n{stderr}");
         assert!(
             !format!("{stdout}{stderr}").contains("No instance"),
             "{example} lost its instance dispatch:\n{stdout}\n{stderr}"
