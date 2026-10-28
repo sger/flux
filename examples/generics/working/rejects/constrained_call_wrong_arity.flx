@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E056
 
 // Calling a constrained generic function with the wrong number of arguments —
 // proposal 0185 stage 2 / KI-082.
@@ -18,5 +17,5 @@ fn describe<a: Show>(x: a) -> String {
 }
 
 fn main() with IO {
-    print(describe(1, 2))
+    print(describe(1, 2)) //~ E056
 }

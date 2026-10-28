@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E459
 
 // An empty list's element type is fixed by nothing here, so no `Ord`
 // instance — and no dictionary — can be chosen for `sort`. The old lowering
@@ -11,5 +10,5 @@
 //   print(sort(no_ints))
 
 fn main() with IO {
-    print(sort([]))
+    print(sort([])) //~ E459
 }

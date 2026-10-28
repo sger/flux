@@ -9,9 +9,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `name`.
 
-  examples/generics/failing/compile/Ki086Greet.flx:38:45
+  examples/generics/failing/compile/Ki086Greet.flx:37:45
    |
-38 |         fn greet(x: a) -> String { "hi, " + name(x) }
+37 |         fn greet(x: a) -> String { "hi, " + name(x) }
    |                                             ^^^^
 
 Hint:

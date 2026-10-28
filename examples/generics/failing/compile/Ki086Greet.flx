@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E004
 
 // GAP — owner: KI-086, High, 0.0.8.
 // Measured 2026-09-11: error[E004] Undefined Variable — I can't find a value
@@ -35,6 +34,6 @@
 module Ki086Greet {
     public class Greet<a> {
         fn name(x: a) -> String
-        fn greet(x: a) -> String { "hi, " + name(x) }
+        fn greet(x: a) -> String { "hi, " + name(x) } //~ E004
     }
 }

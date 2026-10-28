@@ -29,12 +29,12 @@ stderr:
 • 1 error • examples/generics/failing/runtime/ki_090_constrained_fn_as_value.flx
 error[E1000]: wrong number of arguments: want=2, got=1
 
-  examples/generics/failing/runtime/ki_090_constrained_fn_as_value.flx:32:7
+  examples/generics/failing/runtime/ki_090_constrained_fn_as_value.flx:31:7
    |
-32 |     f(f(x))
+31 |     f(f(x))
    |       ^^^^
 
 Stack trace:
-  at twice (examples/generics/failing/runtime/ki_090_constrained_fn_as_value.flx:32:7)
-  at main (examples/generics/failing/runtime/ki_090_constrained_fn_as_value.flx:40:11)
+  at twice (examples/generics/failing/runtime/ki_090_constrained_fn_as_value.flx:31:7)
+  at main (examples/generics/failing/runtime/ki_090_constrained_fn_as_value.flx:39:11)
   at <main>

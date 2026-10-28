@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E459
 
 // An ambiguous instance choice is reported at compile time — roadmap E2 /
 // 0183 R6d, landed with the 0.0.8 plan's step 1e.
@@ -29,6 +28,6 @@ instance Def<String> {
 }
 
 fn main() with IO {
-    let x = zero()
+    let x = zero() //~ E459
     print("reached")
 }

@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E034
 
 // GAP — owner: KI-074, Low, 0.0.8 (item D15).
 // Measured 2026-09-11: error[E034] Missing Function Body.
@@ -22,7 +21,7 @@ instance sz<Int> {
     fn size_of(x) { x }
 }
 
-fn twice<a>(x: a) -> Int where sz<a> {
+fn twice<a>(x: a) -> Int where sz<a> { //~ E034
     size_of(x) + size_of(x)
 }
 
