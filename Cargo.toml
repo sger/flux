@@ -226,24 +226,8 @@ name = "tail_call_tests"
 path = "tests/ast_passes/tail_call_tests.rs"
 
 [[test]]
-name = "lexer_tests"
-path = "tests/lexer/lexer_tests.rs"
-
-[[test]]
-name = "token_tests"
-path = "tests/lexer/token_tests.rs"
-
-[[test]]
-name = "token_type_tests"
-path = "tests/lexer/token_type_tests.rs"
-
-[[test]]
-name = "interner_span_tests"
-path = "tests/lexer/interner_span_tests.rs"
-
-[[test]]
-name = "perf_parse_ops"
-path = "tests/lexer/perf_parse_ops.rs"
+name = "lexer"
+path = "tests/lexer/main.rs"
 
 [[test]]
 name = "parser_tests"
@@ -844,10 +828,6 @@ path = "tests/integration/layout_guard.rs"
 
 # Legacy snapshot-wrapper binaries. Names are preserved so insta snapshot
 # filenames (which are prefixed with the test-binary name) do not drift.
-[[test]]
-name = "snapshot_lexer"
-path = "tests/lexer/snapshot_lexer.rs"
-
 [[test]]
 name = "snapshot_parser"
 path = "tests/parser/snapshot_parser.rs"
