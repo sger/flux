@@ -42,9 +42,9 @@ Severity is about consequence, not effort:
 
 ## Open
 
-### KI-143 — A duplicate instance also reports a duplicate internal name, with no location
+### KI-143 — A duplicate instance also reported a duplicate internal name, with no location — FIXED 2026-10-28
 
-**Severity:** Low · **Area:** diagnostics, type classes · **Verified:** 2026-10-28 · **From:** moving `examples/compiler_errors` to `//~` annotations (proposal 0191)
+**Severity:** Low · **Area:** diagnostics, type classes · **Verified fixed:** 2026-10-28 · **From:** moving `examples/compiler_errors` to `//~` annotations (proposal 0191)
 
 ```flux
 class Sizeable<a> {
@@ -64,26 +64,22 @@ fn main() {
 }
 ```
 
-The CLI reports the right error, E443 "Duplicate instance for
-`Sizeable<Int>`" at the second instance, and then a second one:
+The CLI reported the right error, E443 "Duplicate instance for
+`Sizeable<Int>`" at the second instance, and then
+`error[E001]: Duplicate binding: '__tc_Sizeable_Int_size' is already
+defined` at 0:1. That names a function the compiler generates for the
+instance's method, which the user never wrote, and points at line 0.
 
-```
-error[E001]: Duplicate Name
+Collection rejects the second instance, so only the first is collected. But
+method generation (`src/types/class_dispatch.rs`) found each declaration's
+collected instance by class and head type, so the second declaration matched
+the first one's and defined its methods again.
 
-Duplicate binding: `__tc_Sizeable_Int_size` is already defined.
+**The fix.** Each collected instance is matched to one declaration only. The
+duplicate then finds none, and is treated like any declaration collection
+rejected: its methods are not generated.
 
-  examples/compiler_errors/duplicate_instance.flx:0:1
-```
-
-It names a function the compiler generates for the instance's method, which
-the user never wrote, and points at line 0. It is a follow-on of the E443:
-both instances still define their method, so the generated name is bound
-twice. The duplicate instance should stop the second definition, or its
-E001 should be dropped.
-
-`examples/compiler_errors/duplicate_instance.flx` pins both errors today
-(`expect-error: E443` and `E001`), so it stays on `expect-error:`; a `//~`
-annotation can't point at line 0.
+Test: `compiler_rules_tests::modules_and_matches::a_duplicate_instance_reports_no_duplicate_internal_name_ki143`.
 
 ### KI-141 — A test's port can be taken between `free_port()` and the bind
 
