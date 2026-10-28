@@ -85,7 +85,42 @@ static FLUX_TLS int flux_thread_ctx_capture_transferred;
 
 typedef struct FluxEffectContextSnapshot {
     FluxEffectContext ctx;
+#ifdef FLUX_DEBUG_HEAP
+    const void *thread; /* the capturing thread's flux_snapshot_thread */
+#endif
 } FluxEffectContextSnapshot;
+
+#ifdef FLUX_DEBUG_HEAP
+/* Its address tells threads apart. */
+static FLUX_TLS char flux_snapshot_thread;
+
+/* A snapshot is restored and released on whichever worker runs its fiber.
+ * On a thread other than the one that captured it, a field still counted
+ * by that thread alone would have its count changed on two threads. */
+static void flux_effect_context_check_crossing(const FluxEffectContextSnapshot *snapshot,
+                                               const char *operation) {
+    if (snapshot->thread == &flux_snapshot_thread) return;
+    const FluxEffectContext *ctx = &snapshot->ctx;
+    const char *field = NULL;
+    if (flux_rc_is_thread_local(ctx->current_evv)) field = "evidence vector";
+    else if (flux_rc_is_thread_local(ctx->yield_evv)) field = "yield evidence";
+    else if (flux_rc_is_thread_local(ctx->clause)) field = "clause";
+    else if (flux_rc_is_thread_local(ctx->op_arg)) field = "operation argument";
+    else if (flux_rc_is_thread_local(ctx->op_state)) field = "handler state";
+    for (int32_t i = 0; !field && i < ctx->conts_count && i < FLUX_EFFECT_CONTS_MAX; i++) {
+        if (flux_rc_is_thread_local(ctx->conts[i])) field = "continuation";
+    }
+    if (!field) return;
+    char message[200];
+    int len = snprintf(message, sizeof message,
+                       "an effect context captured on one thread was %s on another "
+                       "while its %s was counted by the first thread alone",
+                       operation, field);
+    if (len < 0) len = 0;
+    if ((size_t)len >= sizeof message) len = (int)sizeof message - 1;
+    flux_heap_fault(message, (uint32_t)len);
+}
+#endif
 
 void flux_effect_context_reset(void);
 
@@ -130,6 +165,9 @@ void *flux_effect_context_capture(void) {
     if (!snapshot) return NULL;
     snapshot->ctx = flux_thread_ctx;
     flux_effect_context_dup_fields(&snapshot->ctx);
+#ifdef FLUX_DEBUG_HEAP
+    snapshot->thread = &flux_snapshot_thread;
+#endif
 #ifdef FLUX_DEBUG
     flux_thread_ctx_capture_transferred = 1;
 #endif
@@ -140,6 +178,9 @@ void flux_effect_context_restore(void *snapshot_raw) {
     flux_effect_context_reset();
     if (!snapshot_raw) return;
     FluxEffectContextSnapshot *snapshot = (FluxEffectContextSnapshot *)snapshot_raw;
+#ifdef FLUX_DEBUG_HEAP
+    flux_effect_context_check_crossing(snapshot, "restored");
+#endif
     flux_thread_ctx = snapshot->ctx;
 }
 
@@ -165,6 +206,9 @@ void flux_effect_context_reset(void) {
 void flux_effect_context_release(void *snapshot_raw) {
     if (!snapshot_raw) return;
     FluxEffectContextSnapshot *snapshot = (FluxEffectContextSnapshot *)snapshot_raw;
+#ifdef FLUX_DEBUG_HEAP
+    flux_effect_context_check_crossing(snapshot, "released");
+#endif
     flux_effect_context_drop_fields(&snapshot->ctx);
     free(snapshot);
 }
