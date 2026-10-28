@@ -8,15 +8,9 @@
 
 #[path = "../support/stdlib_fixture.rs"]
 mod stdlib_fixture;
-
-use stdlib_fixture::{assert_backends_agree, assert_fixture_passes};
-
-#[test]
-fn generics_fixture_passes_on_the_vm() {
-    assert_fixture_passes("generics.flx");
-}
+use stdlib_fixture::assert_backends_agree;
 
 #[test]
-fn generics_fixture_agrees_across_backends() {
+fn generics_passes_on_the_vm_and_natively() {
     assert_backends_agree("generics.flx");
 }

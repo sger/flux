@@ -7,14 +7,15 @@
 //! ```rust
 //! #[path = "../support/stdlib_fixture.rs"]
 //! mod stdlib_fixture;
-//! use stdlib_fixture::{assert_fixture_passes, assert_backends_agree};
+//! use stdlib_fixture::assert_backends_agree;
 //! ```
 //!
-//! Two things are asserted per module. `assert_fixture_passes` runs the
-//! fixture on the VM and requires every test in it to pass. `assert_backends_agree`
-//! runs it again natively and requires the same tests to pass there — backend
-//! parity is the main risk called out by proposal 0178, and the `Flow.Fs` work
-//! surfaced a real divergence this way that no VM-only test could have caught.
+//! `assert_fixture_passes` runs the fixture on the VM and requires every test
+//! in it to pass. `assert_backends_agree` does the same and then, with the
+//! `llvm` feature, runs it natively and requires the same tests to pass there.
+//! Backend parity is the main risk called out by proposal 0178, and the
+//! `Flow.Fs` work surfaced a real divergence this way that no VM-only test
+//! could have caught.
 
 use std::process::Command;
 
@@ -102,15 +103,18 @@ pub fn parse_summary(stdout: &str) -> Option<(u32, u32)> {
 }
 
 /// Run `fixture` on the VM and require every test in it to pass.
-///
-/// Asserts a non-zero test count as well, so a fixture that silently stops
-/// being discovered fails loudly instead of vacuously passing.
 #[allow(dead_code)]
 pub fn assert_fixture_passes(fixture: &str) {
     let (stdout, success) = run_fixture(fixture, false);
-    let summary = parse_summary(&stdout);
+    assert_vm_passed(fixture, &stdout, success);
+}
+
+/// Every test in a VM run passed, and there was at least one, so a fixture
+/// that silently stops being discovered fails loudly instead of vacuously
+/// passing.
+fn assert_vm_passed(fixture: &str, stdout: &str, success: bool) {
     assert!(success, "{fixture} failed on the VM:\n{stdout}");
-    match summary {
+    match parse_summary(stdout) {
         Some((passed, failed)) => {
             assert_eq!(
                 failed, 0,
@@ -122,21 +126,22 @@ pub fn assert_fixture_passes(fixture: &str) {
     }
 }
 
-/// Run `fixture` on both backends and require identical pass/fail counts.
+/// Run `fixture` on the VM as `assert_fixture_passes` does, then natively,
+/// and require identical pass/fail counts.
 ///
 /// The counts are compared rather than raw stdout because the runner prints
 /// per-test timings, which legitimately differ between backends.
 ///
-/// Skips when the `llvm` feature is off: `--native` is rejected at flag
-/// validation there, so the run produces no summary to compare and the
-/// assertion would fail for a reason unrelated to the fixture.
+/// Without the `llvm` feature only the VM half runs: `--native` is rejected
+/// at flag validation there.
 #[allow(dead_code)]
 pub fn assert_backends_agree(fixture: &str) {
+    let (vm_out, vm_ok) = run_fixture(fixture, false);
+    assert_vm_passed(fixture, &vm_out, vm_ok);
     if !cfg!(feature = "llvm") {
         eprintln!("skipping native parity for {fixture}: built without the `llvm` feature");
         return;
     }
-    let (vm_out, vm_ok) = run_fixture(fixture, false);
     let (native_out, native_ok) = run_fixture(fixture, true);
 
     let vm =
@@ -149,8 +154,5 @@ pub fn assert_backends_agree(fixture: &str) {
         "{fixture} disagrees between backends: VM {vm:?} vs native {native:?}\n\
          ── VM ──\n{vm_out}\n── native ──\n{native_out}"
     );
-    assert!(
-        vm_ok && native_ok,
-        "{fixture} must pass on both backends (vm_ok={vm_ok}, native_ok={native_ok})"
-    );
+    assert!(native_ok, "{fixture} must pass natively too:\n{native_out}");
 }
