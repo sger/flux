@@ -6,9 +6,9 @@
 //
 // Missing `:` in lambda parameter type annotation. Write it as `x: Type`.
 //
-//   examples/type_system/failing/103_missing_colon_lambda_param.flx:40:12
+//   examples/type_system/failing/103_missing_colon_lambda_param.flx:38:12
 //    |
-// 40 | let f = \x Int -> x
+// 38 | let f = \x Int -> x
 //    |            ^^^
 //
 // Hint:
@@ -19,9 +19,9 @@
 //
 // I was expecting `->` after the lambda parameters, but I found the end of the file.
 //
-//   examples/type_system/failing/103_missing_colon_lambda_param.flx:40:19
+//   examples/type_system/failing/103_missing_colon_lambda_param.flx:38:19
 //    |
-// 40 | let f = \x Int -> x
+// 38 | let f = \x Int -> x
 //    |                   ^
 //    |                   - this lambda parameter list ends here
 //
@@ -34,7 +34,5 @@
 // Found 2 errors.
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E034
-// expect-error: E034
 
-let f = \x Int -> x
+let f = \x Int -> x //~ E034 E034

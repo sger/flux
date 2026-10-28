@@ -9,15 +9,15 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 2nd argument to `pair`.
 
-  examples/type_system/failing/131_call_arg_span_precision.flx:34:22
-   |
-31 | fn pair(a: Int, b: Int) -> Int { a + b }
-   | ------------------------------ `pair` expects `Int` as the 2nd parameter
-32 | 
-33 | fn main() -> Unit {
-34 |     let _x = pair(1, "oops")
-   |                      ^^^^^^
-   |                      ------ this argument has type `String`
+  examples/type_system/failing/131_call_arg_span_precision.flx:8:22
+  |
+5 | fn pair(a: Int, b: Int) -> Int { a + b }
+  | ------------------------------ `pair` expects `Int` as the 2nd parameter
+6 | 
+7 | fn main() -> Unit {
+8 |     let _x = pair(1, "oops")
+  |                      ^^^^^^
+  |                      ------ this argument has type `String`
 
 Note:
   expected argument type: Int

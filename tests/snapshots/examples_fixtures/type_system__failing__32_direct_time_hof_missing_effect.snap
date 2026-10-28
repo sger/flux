@@ -9,9 +9,9 @@ error[E004]: Undefined Variable
 
 I can't find a value named `time`.
 
-  examples/type_system/failing/32_direct_time_hof_missing_effect.flx:23:5
+  examples/type_system/failing/32_direct_time_hof_missing_effect.flx:22:5
    |
-23 |     time(/() -> 1)
+22 |     time(/() -> 1)
    |     ^^^^
 
 Hint:

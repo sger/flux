@@ -9,15 +9,15 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `typed_add`.
 
-  examples/type_system/failing/185_runtime_boundary_arg_e300.flx:14:11
+  examples/type_system/failing/185_runtime_boundary_arg_e300.flx:13:11
    |
- 9 | fn typed_add(a: Int, b: Int) -> Int {
+ 8 | fn typed_add(a: Int, b: Int) -> Int {
    | ----------------------------------- `typed_add` expects `Int` as the 1st parameter
-10 |     a + b
-11 | }
-12 | 
-13 | let dynamic = TypeSystem.BoundaryUnknown.dynamic_string()
-14 | typed_add(dynamic, 1)
+ 9 |     a + b
+10 | }
+11 | 
+12 | let dynamic = TypeSystem.BoundaryUnknown.dynamic_string()
+13 | typed_add(dynamic, 1)
    |           ^^^^^^^
    |           ------- this argument has type `String`
 

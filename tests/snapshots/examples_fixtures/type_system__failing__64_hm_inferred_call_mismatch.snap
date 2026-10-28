@@ -9,9 +9,9 @@ error[E300]: Annotation Type Mismatch
 
 The value of `b` does not match its type annotation.
 
-  examples/type_system/failing/64_hm_inferred_call_mismatch.flx:34:18
+  examples/type_system/failing/64_hm_inferred_call_mismatch.flx:12:18
    |
-34 |     let b: Int = f("x")
+12 |     let b: Int = f("x")
    |                  ^^^^^^
    |                  ------ this value has type `String`
 

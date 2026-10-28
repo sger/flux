@@ -9,17 +9,17 @@ error[E300]: Return Type Mismatch
 
 The body of `compute_rate` does not match its declared return type.
 
-  examples/type_system/failing/06_runtime_float_string_return.flx:28:5
+  examples/type_system/failing/06_runtime_float_string_return.flx:32:5
    |
-27 | fn compute_rate() -> Float {
+31 | fn compute_rate() -> Float {
    |                      ----- `compute_rate` was declared to return `Float`
-28 |     "slow"
+32 |     "slow"
    |     ^^^^^^
    |     ------ this expression has type `String`
    |
 help: Change return type to `String`
    |
-27 | fn compute_rate() -> String {
+31 | fn compute_rate() -> String {
    |                      ~~~~~~
 
 Note:

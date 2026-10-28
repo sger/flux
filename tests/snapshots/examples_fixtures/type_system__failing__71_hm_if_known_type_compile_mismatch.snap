@@ -9,16 +9,16 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `expect_int`.
 
-  examples/type_system/failing/71_hm_if_known_type_compile_mismatch.flx:44:32
+  examples/type_system/failing/71_hm_if_known_type_compile_mismatch.flx:15:32
    |
-34 | fn expect_int(x: Int) -> Int {
+ 5 | fn expect_int(x: Int) -> Int {
    | ---------------------------- `expect_int` expects `Int` as the 1st parameter
-35 |     x
-36 | }
+ 6 |     x
+ 7 | }
 ... |
-42 |         "right"
-43 |     }
-44 |     print(to_string(expect_int(picked)))
+13 |         "right"
+14 |     }
+15 |     print(to_string(expect_int(picked)))
    |                                ^^^^^^
    |                                ------ this argument has type `String`
 

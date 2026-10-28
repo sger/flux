@@ -9,9 +9,9 @@ error[E400]: Missing Ambient Effect
 
 Call to `call_io_step` requires effect `Console` in this function signature.
 
-  examples/type_system/failing/33_module_qualified_effect_propagation_missing.flx:12:5
+  examples/type_system/failing/33_module_qualified_effect_propagation_missing.flx:11:5
    |
-12 |     TypeSystem.EffectsChain.call_io_step(1)
+11 |     TypeSystem.EffectsChain.call_io_step(1)
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |     ------------------------------------ effectful call occurs here
 

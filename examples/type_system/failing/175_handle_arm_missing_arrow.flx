@@ -6,9 +6,9 @@
 //
 // Expected `->` in handle arm.
 //
-//   examples/type_system/failing/175_handle_arm_missing_arrow.flx:24:42
+//   examples/type_system/failing/175_handle_arm_missing_arrow.flx:23:42
 //    |
-// 24 | let x = 1 handle IO { print(resume, msg) resume(msg) }
+// 23 | let x = 1 handle IO { print(resume, msg) resume(msg) }
 //    |                                          ^^^^^^
 //
 // Hint:
@@ -19,7 +19,6 @@
 //   Suppressed 1 cascading parser diagnostic(s) likely caused by an earlier syntax error.
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E034
 
-let x = 1 handle IO { print(resume, msg) resume(msg) }
+let x = 1 handle IO { print(resume, msg) resume(msg) } //~ E034
 let after = 1

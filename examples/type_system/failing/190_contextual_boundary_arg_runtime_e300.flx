@@ -2,7 +2,6 @@
 // parity-expected-stdout-end
 // root: examples/type_system
 // expect: compile_error
-// expect-error: E300
 
 // E300: a module-qualified dynamic value passed to a typed argument is caught
 // at compile time, before the runtime boundary check (E1004).
@@ -14,4 +13,4 @@ fn typed_add(a: Int, b: Int) -> Int {
 }
 
 let dynamic = TypeSystem.BoundaryUnknown.dynamic_string()
-typed_add(dynamic, 1)
+typed_add(dynamic, 1) //~ E300

@@ -2,7 +2,6 @@
 // parity-expected-stdout-end
 // root: examples/type_system
 // expect: compile_error
-// expect-error: E071
 
 // Multi-module stage filtering fixture.
 // Entry has parse errors; imported module has type/effect diagnostics.
@@ -12,4 +11,4 @@ import Stage150Type
 
 fn main() -> Unit {
     let broken = "unterminated
-}
+} //~^ E071

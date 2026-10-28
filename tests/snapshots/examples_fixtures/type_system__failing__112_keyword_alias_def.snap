@@ -9,10 +9,10 @@ error[E030]: Unknown Keyword
 
 Unknown keyword `def`. Flux uses `fn` for function declarations.
 
-  examples/type_system/failing/112_keyword_alias_def.flx:33:1
-   |
-33 | def add(a: Int, b: Int) -> Int {
-   | ^^^
+  examples/type_system/failing/112_keyword_alias_def.flx:5:1
+  |
+5 | def add(a: Int, b: Int) -> Int {
+  | ^^^
 
 Hint:
   Did you mean `fn`?
@@ -22,10 +22,10 @@ error[E031]: Expected Expression
 
 Expected expression, found `->`.
 
-  examples/type_system/failing/112_keyword_alias_def.flx:33:25
-   |
-33 | def add(a: Int, b: Int) -> Int {
-   |                         ^^
+  examples/type_system/failing/112_keyword_alias_def.flx:5:25
+  |
+5 | def add(a: Int, b: Int) -> Int {
+  |                         ^^
 
 Found 2 errors.
 == stdout ==

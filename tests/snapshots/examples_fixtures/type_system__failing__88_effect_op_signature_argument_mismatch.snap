@@ -9,9 +9,9 @@ error[E300]: Type Mismatch
 
 I found a type mismatch.
 
-  examples/type_system/failing/88_effect_op_signature_argument_mismatch.flx:36:35
+  examples/type_system/failing/88_effect_op_signature_argument_mismatch.flx:13:35
    |
-36 |     let _ = (perform Console.read(123)) handle Console {
+13 |     let _ = (perform Console.read(123)) handle Console {
    |                                   ^^^
    |                                   --- this expression has type `Int`
 

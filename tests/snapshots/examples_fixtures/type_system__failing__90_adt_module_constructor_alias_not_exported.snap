@@ -9,9 +9,9 @@ error[E086]: Cross-Module Constructor Access
 
 Direct constructor access `Node` from module `TypeSystem.GenericResultTree` is not allowed in strict mode.
 
-  examples/type_system/failing/90_adt_module_constructor_alias_not_exported.flx:12:14
+  examples/type_system/failing/90_adt_module_constructor_alias_not_exported.flx:11:14
    |
-12 |     let _x = G.Node(G.demo_tree(), G.demo_tree())
+11 |     let _x = G.Node(G.demo_tree(), G.demo_tree())
    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Hint:

@@ -6,9 +6,9 @@
 //
 // I found a type mismatch.
 //
-//   examples/type_system/failing/86_hm_mixed_numeric_typed_mismatch.flx:53:18
+//   examples/type_system/failing/86_hm_mixed_numeric_typed_mismatch.flx:56:18
 //    |
-// 53 |     let x: Int = 1 + 2.5
+// 56 |     let x: Int = 1 + 2.5
 //    |                  ^^^^^^^
 //    |                  ------- this expression has type `Float`
 //
@@ -27,14 +27,19 @@
 //
 // The body of `main` does not match its declared return type.
 //
-//   examples/type_system/failing/86_hm_mixed_numeric_typed_mismatch.flx:54:5
+//   examples/type_system/failing/86_hm_mixed_numeric_typed_mismatch.flx:57:5
 //    |
-// 52 | fn main() -> Unit {
+// 55 | fn main() -> Unit {
 //    |              ---- `main` was declared to return `Unit`
-// 53 |     let x: Int = 1 + 2.5
-// 54 |     x
+// 56 |     let x: Int = 1 + 2.5
+// 57 |     x
 //    |     ^
 //    |     - this expression has type `Int`
+//    |
+// help: Change return type to `Int`
+//    |
+// 55 | fn main() -> Int {
+//    |              ~~~
 //
 // Note:
 //   declared return type: Unit
@@ -46,10 +51,8 @@
 // Found 2 errors.
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E300
-// expect-error: E300
 
 fn main() -> Unit {
-    let x: Int = 1 + 2.5
-    x
+    let x: Int = 1 + 2.5 //~ E300
+    x //~ E300
 }

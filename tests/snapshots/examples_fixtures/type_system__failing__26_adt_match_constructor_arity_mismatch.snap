@@ -9,13 +9,13 @@ error[E015]: Non-Exhaustive Match
 
 Match is not exhaustive: 1 missing pattern.
 
-  examples/type_system/failing/26_adt_match_constructor_arity_mismatch.flx:47:5
+  examples/type_system/failing/26_adt_match_constructor_arity_mismatch.flx:12:5
    |
-47 |     match x {
-   |     ^^^^^^^^^
-48 |         Pair(a) -> a,
-   | ^^^^^^^^^^^^^^^^^^^^^
-49 |     }
+12 |     match x { //~ E015
+   |     ^^^^^^^^^^^^^^^^^^
+13 |         Pair(a) -> a, //~ E085
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+14 |     }
    | ^^^^^
 
 Hint:
@@ -26,9 +26,9 @@ error[E085]: Constructor Pattern Arity Mismatch
 
 Constructor pattern `Pair` expects 2 argument(s) but got 1.
 
-  examples/type_system/failing/26_adt_match_constructor_arity_mismatch.flx:48:9
+  examples/type_system/failing/26_adt_match_constructor_arity_mismatch.flx:13:9
    |
-48 |         Pair(a) -> a,
+13 |         Pair(a) -> a,
    |         ^^^^^^^
 
 Hint:

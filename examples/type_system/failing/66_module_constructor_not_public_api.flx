@@ -3,7 +3,6 @@
 // root: examples/type_system
 // flags: --strict
 // expect: compile_error
-// expect-error: E086
 
 // Policy fixture (0.0.4): module ADT constructors are internal API.
 // External usage should go through module `public fn` factories/accessors.
@@ -11,7 +10,7 @@
 import TypeSystem.GenericResultTree
 
 fn main() {
-    let _t = TypeSystem.GenericResultTree.Node(
+    let _t = TypeSystem.GenericResultTree.Node( //~ E086
         TypeSystem.GenericResultTree.Leaf(TypeSystem.GenericResultTree.Ok(1)),
         TypeSystem.GenericResultTree.Leaf(TypeSystem.GenericResultTree.Err("x")),
     )

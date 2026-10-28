@@ -9,19 +9,19 @@ error[E300]: Return Type Mismatch
 
 The body of this function does not match its return type.
 
-  examples/type_system/failing/97_hm_fun_return_mismatch_contextual.flx:46:14
+  examples/type_system/failing/97_hm_fun_return_mismatch_contextual.flx:15:14
    |
-46 |     let _f = if true {
-   |              ^^^^^^^^^
-47 |         ret_int
+15 |     let _f = if true { //~ E300
+   |              ^^^^^^^^^^^^^^^^^^
+16 |         ret_int
    | ^^^^^^^^^^^^^^^
    |         ------- this branch established the expected type
-48 |     } else {
+17 |     } else {
    | ^^^^^^^^^^^^
-49 |         ret_string
+18 |         ret_string
    | ^^^^^^^^^^^^^^^^^^
    |         ---------- this branch conflicts with that type
-50 |     }
+19 |     }
    | ^^^^^
 
 Note:

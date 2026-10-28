@@ -9,15 +9,15 @@ error[E056]: Wrong Number Of Arguments
 
 The `add` function takes 2 arguments, but 3 were provided.
 
-  examples/type_system/failing/94_wrong_argument_count_too_many.flx:33:14
+  examples/type_system/failing/94_wrong_argument_count_too_many.flx:11:14
    |
-28 | fn add(a: Int, b: Int) -> Int {
+ 6 | fn add(a: Int, b: Int) -> Int {
    | ----------------------------- `add` is defined with 2 parameters
-29 |     a + b
-30 | }
-31 | 
-32 | fn main() -> Unit {
-33 |     let _x = add(1, 2, 3)
+ 7 |     a + b
+ 8 | }
+ 9 | 
+10 | fn main() -> Unit {
+11 |     let _x = add(1, 2, 3)
    |              ^^^^^^^^^^^^
    |              ------------ 3 arguments provided here, expected 2
 

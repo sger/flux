@@ -9,9 +9,9 @@ error[E086]: Cross-Module Constructor Access
 
 Direct constructor access `SomeInt` from module `TypeSystem.BoundaryCtor` is not allowed in strict mode.
 
-  examples/type_system/failing/149_cross_module_constructor_access_strict.flx:13:14
+  examples/type_system/failing/149_cross_module_constructor_access_strict.flx:12:14
    |
-13 |     let _x = TypeSystem.BoundaryCtor.SomeInt(1)
+12 |     let _x = TypeSystem.BoundaryCtor.SomeInt(1)
    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Hint:

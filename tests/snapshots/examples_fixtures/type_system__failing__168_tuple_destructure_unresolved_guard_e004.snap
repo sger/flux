@@ -9,10 +9,10 @@ error[E004]: Undefined Variable
 
 I can't find a value named `mystery_value`.
 
-  examples/type_system/failing/168_tuple_destructure_unresolved_guard_e004.flx:21:18
-   |
-21 |     let (a, b) = mystery_value
-   |                  ^^^^^^^^^^^^^
+  examples/type_system/failing/168_tuple_destructure_unresolved_guard_e004.flx:6:18
+  |
+6 |     let (a, b) = mystery_value
+  |                  ^^^^^^^^^^^^^
 
 Hint:
   Define it first: let mystery_value = ...;

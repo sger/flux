@@ -9,13 +9,13 @@ error[E300]: Annotation Type Mismatch
 
 The value of `x` does not match its type annotation.
 
-  examples/type_system/failing/79_hm_module_generic_call_mismatch.flx:10:18
-   |
-10 |     let x: Int = M.id("oops")
-   |                  ^^^^^^^^^^^^
-   |                  ------------ this value has type `String`
+  examples/type_system/failing/79_hm_module_generic_call_mismatch.flx:9:18
+  |
+9 |     let x: Int = M.id("oops")
+  |                  ^^^^^^^^^^^^
+  |                  ------------ this value has type `String`
 
-   |            --- but `x` was annotated as `Int`
+  |            --- but `x` was annotated as `Int`
 
 Note:
   annotated type: Int

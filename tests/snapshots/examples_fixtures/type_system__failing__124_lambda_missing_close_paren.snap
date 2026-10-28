@@ -9,9 +9,9 @@ error[E034]: Missing Closing Delimiter
 
 Expected `)` to close lambda parameter list.
 
-  examples/type_system/failing/124_lambda_missing_close_paren.flx:37:18
+  examples/type_system/failing/124_lambda_missing_close_paren.flx:35:18
    |
-37 | let add = /(x, y -> x + y
+35 | let add = /(x, y -> x + y
    |                  ^^
 
 Hint:
@@ -22,7 +22,7 @@ error[E034]: Missing Lambda Arrow
 
 I was expecting `->` after the lambda parameters, but I found the end of the file.
 
-  examples/type_system/failing/124_lambda_missing_close_paren.flx:39:1
+  examples/type_system/failing/124_lambda_missing_close_paren.flx:37:1
    |
 
 Note:
