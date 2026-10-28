@@ -43,6 +43,31 @@ Fields:
 - `expect-error:` — one diagnostic code, such as `E300`; repeat the line once per
   reported error, duplicates included. Non-strict ways must report exactly these
   codes. Strict ways must report all of them and may add their own, such as `E425`.
+
+### Expected errors on their line
+
+A new failing fixture marks each expected error on the line it is reported
+on, instead of listing codes with `expect-error:`. Then the line is checked
+too, not just the code (proposal 0191):
+
+```
+print(add("x", 2)) //~ E300
+//~^ E034         the line above; `^^` is two lines above
+//~v E034         the line below
+f(1, 2, 3)         //~ E056 E300
+```
+
+- Non-strict ways must report exactly these (line, code) pairs; strict ways
+  must report them all and may add more. A mismatch lists each missing and
+  unexpected pair.
+- Only the fixture's own lines can be annotated. A fixture whose error is
+  located in a module it imports keeps `expect-error:`.
+- A fixture uses one form or the other, never both.
+- `--bless` rewrites the annotations from what the ways report, when they all
+  agree. It never adds or removes a line: a line that already has a comment is
+  annotated from the next free line with `//~^`.
+- Rendered errors show source lines without their trailing comments, so an
+  annotation never appears in a snapshot or a stderr block.
 - `bug:` — what regression this fixture guards against
 - `root:` — a module root passed to every way as `--root <path>`. The examples
   snapshot harness reads it too.
