@@ -2312,6 +2312,8 @@ fn effect_row_absent_ordering_linked_ok_fixture_compiles() {
     );
 }
 
+// The CLI hides this E421 behind an earlier E300 (KI-137). This checks that
+// the type checker still finds it.
 #[test]
 fn effect_row_invalid_subtract_reports_e421() {
     let source =

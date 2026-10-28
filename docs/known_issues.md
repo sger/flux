@@ -42,6 +42,37 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-137 — Twenty failing fixtures are named for an error code the CLI does not report
+
+**Severity:** Low · **Area:** diagnostics, test fixtures · **Verified:** 2026-10-28, by comparing each file name with its `expect-error:` header · **From:** the test-suite review
+
+77 fixtures under `examples/` carry an error code in their file name. In 20
+of them the code the CLI reports, pinned by the file's `expect-error:`
+header, is a different one:
+
+| Named for | CLI reports | Fixtures |
+|---|---|---|
+| E420, E421, E422 (effect rows) | E300 or E304 | `type_system/failing/195`, `197`, `198`, `199`; `compiler_errors/row_effects/invalid_row_subtract_e421`, `unresolved_row_subtract_multi_e420`, `unsatisfied_row_subset_e422` |
+| E1004 (runtime boundary) | E300 | `type_system/failing/185`, `186`, `187`, `188`, `190` |
+| E425 (strict mode) | E004 | `type_system/failing/154`, `155`, `156`, `162`, `168` |
+| E303 | E300, E423 | `compiler_errors/invalid_type_annotation_e303` |
+| E304 | E034 | `compiler_errors/invalid_effect_row_e304` |
+| E405 | E402 | `compiler_errors/row_effects/unknown_handled_effect_e405` |
+
+The effect-row rows lose information. In
+`195_effect_row_invalid_subtract_e421.flx` the type checker does find the
+specific error: `compiler_rules_tests::effect_row_invalid_subtract_reports_e421`
+compiles it in process and sees E421, "I cannot subtract effect `Console`".
+The CLI reports a generic E300 parameter mismatch first and hides the E421
+as a later-stage error. That E300 also shows the argument as
+`() -> Unit with …` where the function returns `Int`. The headers have
+said E300 since 063f6a57 (2026-04-26), when the stderr blocks were added.
+
+The other rows may be deliberate: a boundary error caught at compile time
+(E300) instead of at run time (E1004) is an improvement. Each needs a
+decision: change the diagnostic, or rename the fixture and the docs that
+cite it (`docs/internals/effect_row_system.md`, proposal 0049).
+
 ### KI-136 — On newer Linux, lldb loses the frames a `resume` runs on top of
 
 **Severity:** Medium · **Area:** native debugging, CI · **Verified:** 2026-10-27 · **From:** the CI run of the verification-toolkit PR
