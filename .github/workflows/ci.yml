@@ -56,6 +56,12 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+      # tests/ matches the layout tests/README.md describes. The check reads
+      # only files and cargo metadata, so one OS is enough.
+      - name: Tidy
+        if: ${{ runner.os == 'Linux' }}
+        run: cargo xtask tidy
+
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -118,13 +124,29 @@ jobs:
         with:
           tool: cargo-nextest@0.9.143
 
+      - name: Install cargo-insta
+        if: ${{ runner.os == 'macOS' }}
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-insta@1.46.3
+
       # Built as its own step so a compile failure is reported as a compile
       # failure, and so the run step's duration reflects only the tests.
       - name: Build tests
         run: cargo test-all --no-run
 
       - name: Tests
+        if: ${{ runner.os != 'macOS' }}
         run: cargo test-all
+
+      # The same run through insta, which after a passing run also fails on a
+      # snapshot no test produced. One OS is enough: no snapshot test is
+      # platform-specific.
+      - name: Tests (and unreferenced snapshots)
+        if: ${{ runner.os == 'macOS' }}
+        env:
+          NEXTEST_PROFILE: ci
+        run: cargo insta test --workspace --all-features --test-runner nextest --disable-nextest-doctest --unreferenced=reject
 
       # nextest does not run doctests.
       - name: Doctests
