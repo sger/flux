@@ -86,7 +86,7 @@ below. The hook reads this table, so a new area is added here first.
 | `census` | `cargo xtask census` and the support matrix |
 | `ci` | the CI workflows |
 | `tests` | test harnesses and suites that belong to no single area above |
-| `debug-heap` | the debug-heap test suite (`tests/native_llvm/native_debug_heap_tests.rs`) |
+| `debug-heap` | the debug-heap test suite (`tests/debug/native_debug_heap_tests.rs`) |
 | `examples` | `examples/` |
 | `benchmarks` | `benches/` and `benchmarks/` |
 | `known-issues` | `docs/known_issues.md` |

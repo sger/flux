@@ -86,8 +86,10 @@ impl Phase {
             Phase::Aether => &["aether"],
             Phase::Bytecode => &["bytecode"],
             Phase::Vm => &["vm_runtime"],
-            Phase::Llvm => &["native_llvm"],
-            Phase::Debug => &["debug", "debuginfo"],
+            // A codegen or link change can break the debug info the
+            // debugger tests read.
+            Phase::Llvm => &["native_llvm", "debug"],
+            Phase::Debug => &["debug"],
             Phase::Diagnostics => &["diagnostics", "error_fixtures"],
             Phase::Examples => &["examples"],
             Phase::Integration => &["integration"],
@@ -325,7 +327,7 @@ fn phases_for_src_path(path: &str) -> &'static [Phase] {
 
 /// Test directories whose binaries are gated on `cfg(feature = "llvm")`.
 fn source_needs_llvm(path: &str) -> bool {
-    ["tests/native_llvm/", "tests/debug/", "tests/debuginfo/"]
+    ["tests/native_llvm/", "tests/debug/"]
         .iter()
         .any(|dir| path.starts_with(dir))
 }
@@ -643,10 +645,7 @@ mod tests {
                     "type_semantics_matrix_tests",
                     "tests/type_inference/type_semantics_matrix_tests.rs",
                 ),
-                (
-                    "native_debug_tests",
-                    "tests/native_llvm/native_debug_tests.rs",
-                ),
+                ("native_debug_tests", "tests/debug/native_debug_tests.rs"),
             ]),
             members: owned(&[("flux-lsp", "crates/flux-lsp/"), ("xtask", "xtask/")]),
             sources: owned(&[
@@ -664,7 +663,7 @@ mod tests {
                     r#"#[path = "../support/semantic_infer.rs"]"#,
                 ),
                 (
-                    "tests/native_llvm/native_debug_tests.rs",
+                    "tests/debug/native_debug_tests.rs",
                     "tools/lldb/flux_lldb.py",
                 ),
             ]),

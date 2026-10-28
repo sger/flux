@@ -2,7 +2,7 @@
 //! that Visual Studio, WinDbg and cdb read, for call stacks with Flux names
 //! and `.flx` lines.
 //!
-//! Each fixture in `tests/native_llvm/debug/` is built with
+//! Each fixture in `tests/debug/native/` is built with
 //! `--native -g -o <binary>.exe`. Then:
 //! - `llvm-pdbutil` must list the Flux functions and the `.flx` lines;
 //! - cdb, stopped where a Flux program panics, must show Flux frames.
@@ -20,7 +20,7 @@ mod scratch;
 use scratch::Scratch;
 
 fn fixture_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/native_llvm/debug")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/debug/native")
 }
 
 /// Copies the fixtures into scratch.

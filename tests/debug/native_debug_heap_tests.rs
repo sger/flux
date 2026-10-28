@@ -18,7 +18,7 @@ mod scratch;
 use scratch::Scratch;
 use scratch::workspace_root;
 
-const FIXTURE: &str = "tests/native_llvm/debug_heap/use_after_free.flx";
+const FIXTURE: &str = "tests/debug/heap/use_after_free.flx";
 
 /// What `flux <file> <args>` printed (stdout, stderr) and its exit code,
 /// with `fault` as `FLUX_AETHER_FAULT` when given.
@@ -77,15 +77,15 @@ fn a_use_after_free_is_caught() {
     assert!(
         stderr.contains(
             "use after free: copying a constructor value that was already freed \
-             (allocated at numbers (tests/native_llvm/debug_heap/use_after_free.flx:2:5), \
-             freed at main (tests/native_llvm/debug_heap/use_after_free.flx:16:16))"
+             (allocated at numbers (tests/debug/heap/use_after_free.flx:2:5), \
+             freed at main (tests/debug/heap/use_after_free.flx:16:16))"
         ),
         "{stderr}"
     );
     // Where the freed list was used again: the call that lends it to `total`.
     assert!(stderr.contains("Stack trace:"), "{stderr}");
     assert!(
-        stderr.contains("at main (tests/native_llvm/debug_heap/use_after_free.flx:17:23)"),
+        stderr.contains("at main (tests/debug/heap/use_after_free.flx:17:23)"),
         "{stderr}"
     );
 }
@@ -145,7 +145,7 @@ fn programs_run_the_same_on_the_debug_heap() {
 #[test]
 fn a_nested_match_releases_each_list_once() {
     let scratch = Scratch::new("debug-heap-nested-match");
-    let file = "tests/native_llvm/debug_heap/nested_match.flx";
+    let file = "tests/debug/heap/nested_match.flx";
     let (vm, _, _) = run(&scratch, file, &["--vm"], None);
     let (heap, stderr, code) = run(&scratch, file, &["--native", "--debug-heap"], None);
     assert_eq!((heap.as_str(), code), (vm.as_str(), 0), "{stderr}");
@@ -160,8 +160,8 @@ fn a_nested_match_releases_each_list_once() {
 fn kept_lists_survive_the_functions_they_are_lent_to() {
     let scratch = Scratch::new("debug-heap-shared-lists");
     for file in [
-        "tests/native_llvm/debug_heap/shared_lists.flx",
-        "tests/native_llvm/debug_heap/shared_lists_tasks.flx",
+        "tests/debug/heap/shared_lists.flx",
+        "tests/debug/heap/shared_lists_tasks.flx",
     ] {
         let (vm, _, _) = run(&scratch, file, &["--vm"], None);
         let (heap, stderr, code) = run(&scratch, file, &["--native", "--debug-heap"], None);
@@ -175,14 +175,14 @@ fn kept_lists_survive_the_functions_they_are_lent_to() {
 #[test]
 fn a_list_lent_and_given_in_one_call_survives_the_call() {
     let scratch = Scratch::new("debug-heap-lent-and-owned");
-    let file = "tests/native_llvm/debug_heap/lent_and_owned.flx";
+    let file = "tests/debug/heap/lent_and_owned.flx";
     let (vm, _, _) = run(&scratch, file, &["--vm"], None);
     assert_eq!(vm, "3\n");
     let (heap, stderr, code) = run(&scratch, file, &["--native", "--debug-heap"], None);
     assert_eq!((heap.as_str(), code), ("3\n", 0), "{stderr}");
 }
 
-const LEAK_FIXTURE: &str = "tests/native_llvm/debug_heap/leak.flx";
+const LEAK_FIXTURE: &str = "tests/debug/heap/leak.flx";
 
 /// The lines of a leak report that name an allocation site.
 fn site_lines(stderr: &str) -> Vec<&str> {
@@ -212,7 +212,7 @@ fn a_leak_is_reported_at_exit_with_its_allocation_site() {
         assert_eq!(
             line,
             "  a constructor value (24 bytes) allocated at numbers \
-             (tests/native_llvm/debug_heap/leak.flx:5:5)",
+             (tests/debug/heap/leak.flx:5:5)",
             "{stderr}"
         );
     }
@@ -249,7 +249,7 @@ fn a_value_passed_by_ownership_is_freed_by_its_callee() {
     let scratch = Scratch::new("debug-heap-owned-arg");
     let (stdout, stderr, code) = run(
         &scratch,
-        "tests/native_llvm/debug_heap/owned_arg.flx",
+        "tests/debug/heap/owned_arg.flx",
         &["--native", "--leak-check"],
         None,
     );
@@ -357,7 +357,7 @@ fn heap_stats(stderr: &str) -> Option<(u64, u64, u64)> {
 #[test]
 fn heap_stats_are_reported_only_when_asked() {
     let scratch = Scratch::new("debug-heap-stats");
-    let file = "tests/native_llvm/debug_heap/owned_arg.flx";
+    let file = "tests/debug/heap/owned_arg.flx";
     let args = ["--native", "--debug-heap"];
     let (_, stderr, code) = run_env(&scratch, file, &args, &[("FLUX_HEAP_STATS", "1")]);
     assert_eq!(code, 0, "{stderr}");
@@ -392,7 +392,7 @@ fn heap_stats_are_reported_only_when_asked() {
     assert!(!stderr.contains("heap:"), "{stderr}");
 }
 
-const OWNED_MOVES: &str = "tests/native_llvm/debug_heap/owned_moves";
+const OWNED_MOVES: &str = "tests/debug/heap/owned_moves";
 
 /// Proposal 0189's hazards V1, V2, V4, V6 and V7, and the step-1 review's
 /// repros: places a value is handed out or shared without being counted. Each

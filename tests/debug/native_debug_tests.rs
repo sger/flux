@@ -1,7 +1,7 @@
 //! Native debug builds (proposal 0188 S5 and S6): DWARF that lldb and Xcode
 //! read, and `tools/lldb/flux_lldb.py`, which shows Flux values.
 //!
-//! Each fixture in `tests/native_llvm/debug/` is built with
+//! Each fixture in `tests/debug/native/` is built with
 //! `--native -g -o <binary>`. Then:
 //! - `llvm-dwarfdump --verify` must find no errors in the Flux debug
 //!   information, in the Flux objects the build cached, and the line table
@@ -35,7 +35,7 @@ mod scratch;
 use scratch::Scratch;
 
 fn fixture_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/native_llvm/debug")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/debug/native")
 }
 
 /// Copies fixture `name` (a file, or a directory of modules) into scratch.
