@@ -4,61 +4,22 @@
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
-use std::path::PathBuf;
-use std::process::Command;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
-#[path = "../support/scratch.rs"]
-mod scratch;
-use scratch::Scratch;
-use scratch::workspace_root;
+#[path = "../support/flux_runner.rs"]
+mod flux_runner;
+use flux_runner::flux_source;
+use flux_runner::scratch::free_port;
 
-static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(1);
 static NATIVE_HTTP_CLIENT_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
-fn next_port() -> u16 {
-    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind ephemeral loopback port");
-    listener
-        .local_addr()
-        .expect("read ephemeral loopback port")
-        .port()
-}
-
-fn write_fixture(source: String) -> PathBuf {
-    let id = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
-    let dir = workspace_root()
-        .join("target")
-        .join("test-scratch")
-        .join(format!(
-            "flux-native-http-client-{}-{id}",
-            std::process::id()
-        ));
-    std::fs::create_dir_all(&dir).expect("create temp dir");
-    let path = dir.join("fixture.flx");
-    std::fs::write(&path, source).expect("write fixture");
-    path
-}
-
 fn run_source(source: String) -> (String, String, bool) {
-    let path = write_fixture(source);
-    // Private cache root: `--no-cache` does not isolate native
-    // builds, which write shared artifacts regardless (KI-010).
-    let scratch = Scratch::new("native-llvm");
-    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(workspace_root())
-        .args([path.to_str().unwrap(), "--native", "--no-cache"])
-        .args(scratch.cache_args())
-        .output()
-        .expect("run native flux");
-    let _ = std::fs::remove_file(&path);
-    (
-        String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
-        String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n"),
-        output.status.success(),
-    )
+    let ran = flux_source(&source, "native_http_client_tests")
+        .native()
+        .run();
+    (ran.stdout, ran.stderr, ran.success)
 }
 
 fn native_http_client_test_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -140,7 +101,7 @@ fn spawn_malformed_response_server(listener: TcpListener) -> thread::JoinHandle<
 #[test]
 fn native_http_client_get_exposes_response_fields() {
     let _guard = native_http_client_test_lock();
-    let port = next_port();
+    let port = free_port();
     let source = raw_server_source(
         port,
         r#"
@@ -166,7 +127,7 @@ fn native_http_client_get_exposes_response_fields() {
 #[test]
 fn native_http_client_post_loopback() {
     let _guard = native_http_client_test_lock();
-    let port = next_port();
+    let port = free_port();
     let source = raw_server_source(
         port,
         r#"
@@ -197,7 +158,7 @@ fn native_http_client_post_loopback() {
 #[test]
 fn native_http_client_decodes_chunked_response() {
     let _guard = native_http_client_test_lock();
-    let port = next_port();
+    let port = free_port();
     let source = raw_server_source(
         port,
         r#"
