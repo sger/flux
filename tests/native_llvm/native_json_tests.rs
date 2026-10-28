@@ -15,7 +15,7 @@ fn run_source(source: &str) -> (String, String, bool) {
         .get_or_init(|| Mutex::new(()))
         .lock()
         .expect("native JSON test lock poisoned");
-    let ran = flux_source(&source, "native_json_tests").native().run();
+    let ran = flux_source(source, "native_json_tests").native().run();
     (ran.stdout, ran.stderr, ran.success)
 }
 
