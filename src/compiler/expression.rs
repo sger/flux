@@ -2527,6 +2527,9 @@ impl Compiler {
             )));
         }
 
+        // The name a caller gave this function, before a lambda inside its
+        // body takes it.
+        let name = self.pipe_sites.next_function_name.take();
         self.enter_scope();
 
         for (index, param) in parameters.iter().enumerate() {
@@ -2620,6 +2623,7 @@ impl Compiler {
             let info = FunctionDebugInfo::new(None, files, locations)
                 .with_boundary_location(Some(boundary_location))
                 .with_effect_summary(effect_summary);
+            self.pipe_sites.next_function_name = name;
             self.with_function_debug_tables(info, &free_symbols)
         };
         let fn_idx = self.add_constant(Value::Function(Arc::new(

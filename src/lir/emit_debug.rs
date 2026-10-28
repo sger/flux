@@ -159,8 +159,15 @@ impl DebugBuilder {
         };
         let name = match &debug.kind {
             LirFnKind::Named(name) => name.clone(),
+            // A `__` name is one the debugger hides, as the VM's.
+            LirFnKind::Lambda if debug.artificial => "__lambda".to_string(),
             LirFnKind::Lambda => {
                 format!("<lambda {}:{}:{}>", self.file_name, debug.loc.line, debug.loc.col)
+            }
+            LirFnKind::Resumed { parent, after }
+                if parent == super::cont_split::LAMBDA_PARENT && debug.artificial =>
+            {
+                format!("__lambda (resumed after {}:{})", after.line, after.col)
             }
             LirFnKind::Resumed { parent, after } if parent == super::cont_split::LAMBDA_PARENT => {
                 format!(

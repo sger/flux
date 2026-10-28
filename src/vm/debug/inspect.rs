@@ -125,6 +125,9 @@ pub(super) fn is_artificial(name: Option<&str>) -> bool {
 
 const INSTANCE_METHOD: &str = "__tc_";
 
+/// The frame a handle's body runs in (`compile_handle_action`).
+pub const HANDLE_BODY: &str = "__handle_body";
+
 /// How a function is named on the stack: an instance method as
 /// `Class<Type>.method`, everything else as compiled.
 pub(crate) fn display_name(name: &str) -> String {
@@ -259,13 +262,23 @@ impl<'a> Inspector<'a> {
     /// running `resume` will return to. Compiler-made frames are left out
     /// unless internals are shown.
     pub fn stack(&self) -> Vec<StackFrame> {
-        let mut frames: Vec<StackFrame> = self
-            .layout()
-            .into_iter()
-            .map(|(_, frame)| frame)
-            .filter(|frame| !frame.artificial || self.control.show_internals)
-            .collect();
-        frames.reverse();
+        let show = self.control.show_internals;
+        let mut frames = Vec::new();
+        // A handle body's own frame is part of the function it is in, so that
+        // function shows where the body is.
+        let mut body: Option<StackFrame> = None;
+        for (_, mut frame) in self.layout().into_iter().rev() {
+            if frame.name == HANDLE_BODY && !show {
+                body.get_or_insert(frame);
+                continue;
+            }
+            if let Some(body) = body.take() {
+                (frame.file, frame.line, frame.column) = (body.file, body.line, body.column);
+            }
+            if !frame.artificial || show {
+                frames.push(frame);
+            }
+        }
         frames
     }
 
@@ -664,8 +677,17 @@ impl<'a> Inspector<'a> {
                     .unwrap_or_default();
                 let internal = arm_name.starts_with("__default_handler");
                 let effect = handled_effect(&arm_name).unwrap_or_else(|| "<effect>".to_string());
-                let handled_in = (handler.entry_frame_index <= self.vm.frame_index)
-                    .then(|| frame_summary(self.vm, handler.entry_frame_index).0);
+                // A handle in a frame the compiler made, such as a handle
+                // body's own, is in the function that frame belongs to.
+                let handled_in = (handler.entry_frame_index <= self.vm.frame_index).then(|| {
+                    let mut index = handler.entry_frame_index;
+                    let mut name = frame_summary(self.vm, index).0;
+                    while index > 0 && is_artificial(Some(&name)) {
+                        index -= 1;
+                        name = frame_summary(self.vm, index).0;
+                    }
+                    name
+                });
                 HandlerView {
                     effect,
                     state: handler.state.clone().map(ValueView::new),
