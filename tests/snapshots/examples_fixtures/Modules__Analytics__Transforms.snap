@@ -9,9 +9,9 @@ error[E024]: Module Path Mismatch
 
 Module name `Modules.Analytics.Transforms` doesn't match file path `examples/Modules/Analytics/Transforms.flx`.
 
-  examples/Modules/Analytics/Transforms.flx:7:1
+  examples/Modules/Analytics/Transforms.flx:6:1
   |
-7 | module Modules.Analytics.Transforms {
+6 | module Modules.Analytics.Transforms {
   | ^
 
 Hint:

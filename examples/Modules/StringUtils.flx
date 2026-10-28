@@ -1,7 +1,6 @@
 // expect: compile_error
-// expect-error: E024
 
-module Modules.StringUtils {
+module Modules.StringUtils { //~ E024
     public fn wrap(s, prefix, suffix) {
         return prefix + s + suffix
     }

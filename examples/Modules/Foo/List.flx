@@ -1,7 +1,6 @@
 // expect: compile_error
-// expect-error: E024
 
-module Modules.Foo.List {
+module Modules.Foo.List { //~ E024
   fn value() {
     10;
   }

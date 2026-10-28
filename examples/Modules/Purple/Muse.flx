@@ -1,7 +1,6 @@
 // expect: compile_error
-// expect-error: E024
 
-module Modules.Purple.Muse {
+module Modules.Purple.Muse { //~ E024
   fn exclaim(text) {
     text + "!";
   }

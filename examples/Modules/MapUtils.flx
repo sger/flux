@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E024
 
 // Module: MapUtils
 // Utilities for working with the Flow.Map public surface.
@@ -7,7 +6,7 @@
 import Flow.Array as Array
 import Flow.Map as Map
 
-module Modules.MapUtils {
+module Modules.MapUtils { //~ E024
     // Unwrap a map value (get returns Some/None, this returns the value or None)
     fn val(m, k) {
         match Map.get(m, k) {
