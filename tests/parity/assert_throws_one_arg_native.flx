@@ -1,0 +1,28 @@
+// parity: vm, llvm
+// expect: success
+// bug: natively, `assert_throws` with one argument called the two-parameter
+//      `flux_assert_throws` with only the thunk, so the expected message was
+//      whatever the second argument register held. On Windows that was a
+//      non-null value: the assertion reported a message mismatch, or crashed
+//      reading it as a string.
+// parity-expected-stdout-begin
+// "after"
+// parity-expected-stdout-end
+
+import Flow.Task as Task
+import Flow.Async exposing (..)
+
+fn await_cancelled() -> Int with Async {
+    let t = Task.spawn(fn() { 99 });
+    Task.cancel(t);
+    Task.await(t)
+}
+
+fn check() {
+    assert_throws(fn() { run_async(await_cancelled) })
+}
+
+fn main() with IO {
+    check()
+    print("after")
+}
