@@ -713,13 +713,9 @@ pub fn archive_is_up_to_date(obj_paths: &[PathBuf], archive_path: &Path) -> bool
     // (e.g. Flow.Channel added after the archive was built) would pass the mtime
     // check if its .o happens to share a timestamp with the archive, but would
     // silently be missing from the archive, causing undefined symbol errors.
-    let archive_members: std::collections::HashSet<String> =
-        match std::process::Command::new("ar").arg("t").arg(archive_path).output() {
-            Ok(out) => {
-                String::from_utf8_lossy(&out.stdout).lines().map(|l| l.trim().to_owned()).collect()
-            }
-            Err(_) => return false,
-        };
+    let Some(archive_members) = archive_members(archive_path) else {
+        return false;
+    };
     obj_paths.iter().all(|obj| {
         let name = obj.file_name().and_then(|f| f.to_str()).unwrap_or("").to_owned();
         if !archive_members.contains(&name) {
@@ -727,6 +723,33 @@ pub fn archive_is_up_to_date(obj_paths: &[PathBuf], archive_path: &Path) -> bool
         }
         fs::metadata(obj).and_then(|m| m.modified()).is_ok_and(|t| t <= archive_mtime)
     })
+}
+
+/// The file names of the members of `archive_path`, listed by the archiver
+/// `create_archive` built it with. A bare `ar` does not exist beside
+/// `llvm-ar` on Windows, so asking it made every archive look stale.
+fn archive_members(archive_path: &Path) -> Option<std::collections::HashSet<String>> {
+    let output = match detect_c_toolchain().ok()? {
+        CToolchain::Gcc { ar, .. } => Command::new(ar).arg("t").arg(archive_path).output(),
+        CToolchain::Msvc { lib_tool, .. } => {
+            Command::new(lib_tool).args(["/nologo", "/list"]).arg(archive_path).output()
+        }
+    }
+    .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    // `lib /list` prints each member's path as it was added; `ar t` prints
+    // its name. Either way the name is what an object is matched by.
+    let members = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| {
+            Path::new(line).file_name().map_or(line, |n| n.to_str().unwrap_or(line)).to_owned()
+        })
+        .collect();
+    Some(members)
 }
 
 /// Compile LLVM IR to a native binary.

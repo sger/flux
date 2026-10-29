@@ -68,11 +68,7 @@ jobs:
     name: test (${{ matrix.os }})
     needs: lint
     runs-on: ${{ matrix.os }}
-    # 60 rather than 45 for the Windows runner, which is slower than the others
-    # before any Flux-specific cost, and then pays one more: the archive
-    # freshness check in `src/llvm/pipeline.rs` spawns a bare `ar`, which does
-    # not exist under an llvm-ar/lib.exe toolchain, so the check always reports
-    # stale and the stdlib archive is rebuilt on every native link.
+    # 60 rather than 45 for the Windows runner, which is slower than the others.
     timeout-minutes: 60
 
     strategy:
