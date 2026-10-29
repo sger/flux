@@ -1210,23 +1210,50 @@ fn check_output(tool: &'static str, output: &std::process::Output) -> Result<(),
 
 #[cfg(test)]
 mod tests {
-    use super::{RuntimeVariant, archive_is_up_to_date, create_archive, native_build_base_dir};
+    use super::{
+        CToolchain, RuntimeVariant, archive_is_up_to_date, create_archive, detect_c_toolchain,
+        native_build_base_dir,
+    };
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+
+    /// Compiles a one-function C file to `<dir>/<stem>.o` (`.obj` for `cl`).
+    fn compile_member(toolchain: &CToolchain, dir: &Path, stem: &str) -> Option<PathBuf> {
+        let src = dir.join(format!("{stem}.c"));
+        std::fs::write(&src, format!("int flux_archive_check_{stem}(void) {{ return 1; }}\n"))
+            .ok()?;
+        let (obj, mut cmd) = match toolchain {
+            CToolchain::Gcc { cc, .. } => {
+                let obj = dir.join(format!("{stem}.o"));
+                let mut cmd = Command::new(cc);
+                cmd.arg("-c").arg(&src).arg("-o").arg(&obj);
+                (obj, cmd)
+            }
+            CToolchain::Msvc { cc, .. } => {
+                let obj = dir.join(format!("{stem}.obj"));
+                let mut cmd = Command::new(cc);
+                cmd.args(["/nologo", "/c"]).arg(&src).arg(format!("/Fo{}", obj.display()));
+                (obj, cmd)
+            }
+        };
+        cmd.output().ok()?.status.success().then_some(obj)
+    }
 
     #[test]
     fn an_archive_just_built_is_up_to_date() {
         let dir = native_build_base_dir().join(format!("archive_check_{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("create scratch dir");
-        let members: Vec<_> = ["a.o", "b.o"]
-            .iter()
-            .map(|name| {
-                let path = dir.join(name);
-                std::fs::write(&path, name.as_bytes()).expect("write member");
-                path
-            })
-            .collect();
-        let archive = dir.join("libmembers.a");
-        // No C toolchain, or one whose archiver refuses non-object members:
+        // Real objects, because Apple's ranlib drops members that are not
+        // Mach-O and the archive would list none of them. No C toolchain:
         // nothing to check here.
+        let members: Option<Vec<_>> = detect_c_toolchain().ok().and_then(|toolchain| {
+            ["a", "b"].iter().map(|stem| compile_member(&toolchain, &dir, stem)).collect()
+        });
+        let Some(members) = members else {
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        };
+        let archive = dir.join("libmembers.a");
         if create_archive(&members, &archive).is_err() {
             let _ = std::fs::remove_dir_all(&dir);
             return;
