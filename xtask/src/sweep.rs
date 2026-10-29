@@ -219,8 +219,15 @@ pub(crate) fn run_flux(
 }
 
 /// Runs `command` from `root` without colour or stdin, killing it after
-/// `timeout`.
+/// `timeout` times `FLUX_TEST_TIMEOUT_SCALE`, the scale the tests' hang limits
+/// take on a slow machine (`tests/support/flux_runner.rs`).
 pub(crate) fn run_with_timeout(mut command: Command, root: &Path, timeout: Duration) -> Ran {
+    let scale = std::env::var("FLUX_TEST_TIMEOUT_SCALE")
+        .ok()
+        .and_then(|value| value.trim().parse::<f64>().ok())
+        .filter(|scale| scale.is_finite() && *scale > 0.0)
+        .unwrap_or(1.0);
+    let timeout = timeout.mul_f64(scale);
     let spawned = command
         .current_dir(root)
         .env("NO_COLOR", "1")

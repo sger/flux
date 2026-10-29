@@ -12,6 +12,18 @@ fn run_source(source: &str, fixture_tag: &str) -> (String, String, bool, Duratio
     flux_runner::run_flux_timed(source, fixture_tag)
 }
 
+/// The scale that stretches the tests' hang limits on slow machines.
+#[test]
+fn the_test_timeout_scale_is_one_unless_set_to_a_positive_number() {
+    let scale = flux_runner::timeout_scale;
+    assert!((scale(None) - 1.0).abs() < f64::EPSILON);
+    assert!((scale(Some("2")) - 2.0).abs() < f64::EPSILON);
+    assert!((scale(Some(" 1.5 ")) - 1.5).abs() < f64::EPSILON);
+    for bad in ["", "fast", "0", "-2", "NaN", "inf"] {
+        assert!((scale(Some(bad)) - 1.0).abs() < f64::EPSILON, "{bad:?}");
+    }
+}
+
 #[test]
 fn timeout_fires_when_body_too_slow() {
     // Body would take 1000ms; timeout cuts it off at 50ms. Should return

@@ -68,7 +68,8 @@ fn run_ok(source: String) -> String {
 fn spawn_malformed_response_server(listener: TcpListener) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         listener.set_nonblocking(true).expect("set malformed server nonblocking");
-        let deadline = Instant::now() + Duration::from_secs(15);
+        let deadline =
+            Instant::now() + crate::support::flux_runner::scaled(Duration::from_secs(15));
         loop {
             match listener.accept() {
                 Ok((mut stream, _addr)) => {

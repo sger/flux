@@ -29,7 +29,7 @@ fn fixtures() -> Vec<PathBuf> {
 #[test]
 fn the_vm_and_native_debuggers_agree() {
     let flux = Path::new(env!("CARGO_BIN_EXE_flux"));
-    let timeout = Duration::from_secs(60);
+    let timeout = crate::support::flux_runner::scaled(Duration::from_secs(60));
     let files = fixtures();
     assert!(!files.is_empty(), "no debug parity fixtures");
     // Each fixture is a full native build, and building them all at once

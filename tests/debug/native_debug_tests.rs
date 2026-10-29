@@ -429,11 +429,15 @@ fn every_module_gets_its_own_compile_unit() {
 fn lldb_session(lldb: &[String], scratch: &Scratch, binary: &str, commands: &[&str]) -> String {
     // A loaded CI runner can take longer than lldb's 6-second handshake to
     // start `lldb-server`, and `run` then fails before the program starts.
+    let packet_timeout = crate::support::flux_runner::scaled(std::time::Duration::from_secs(30));
     let mut args: Vec<String> = vec![
         "-b".to_string(),
         "--no-lldbinit".to_string(),
         "-O".to_string(),
-        "settings set plugin.process.gdb-remote.packet-timeout 30".to_string(),
+        format!(
+            "settings set plugin.process.gdb-remote.packet-timeout {}",
+            packet_timeout.as_secs()
+        ),
     ];
     for command in commands {
         args.push("-o".to_string());
