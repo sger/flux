@@ -4,17 +4,19 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::mpsc;
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
 use crate::support::flux_runner;
-use flux_runner::flux_source;
 use flux_runner::scratch::free_port;
+use flux_runner::{flux_source, timed_out_message};
 
 static VM_HTTP_CLIENT_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 fn run_source(source: String) -> (String, String, bool) {
     let mutex = VM_HTTP_CLIENT_TEST_LOCK.get_or_init(|| Mutex::new(()));
     let _guard = mutex.lock().unwrap_or_else(|e| e.into_inner());
-    let ran = flux_source(&source, "vm_http_client").run();
+    let ran = flux_source(&source, "vm_http_client").timeout(Duration::from_secs(60)).run();
+    assert!(!ran.timed_out, "{}", timed_out_message(&ran.stdout, &ran.stderr));
     (ran.stdout, ran.stderr, ran.success)
 }
 

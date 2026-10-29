@@ -7,7 +7,9 @@
 [profile.default]
 fail-fast = true
 test-threads = "num-cpus"
-slow-timeout = { period = "60s" }
+# A test still running after five periods is killed and reported, so one
+# that hangs fails the run instead of stalling it until CI's job timeout.
+slow-timeout = { period = "60s", terminate-after = 5 }
 # Replay stress tests: a hundred runs of one program, 38s for the VM one.
 # `ci` still runs them.
 default-filter = "not test(/a_hundred_times/)"
@@ -19,7 +21,7 @@ retries = 0
 # The thread count the full suite has passed at on a laptop. The native
 # group below caps the tests that build native binaries.
 test-threads = 6
-slow-timeout = { period = "60s" }
+slow-timeout = { period = "60s", terminate-after = 5 }
 
 [profile.ci.junit]
 path = "junit.xml"
@@ -28,8 +30,21 @@ path = "junit.xml"
 # oversubscribe the machine (tests/README.md#running).
 [test-groups]
 native = { max-threads = 4 }
+network = { max-threads = 1 }
 
 # Default-profile overrides also apply to `ci`.
+#
+# Tests that take a port from `free_port()` and bind it later run one at a
+# time: run side by side, one test's connections could take another's port
+# before its program bound it (KI-141). First, so it wins over `native` for
+# the native HTTP tests.
+[[profile.default.overrides]]
+filter = '''
+test(/^(vm_http_server|vm_http_client|vm_tcp_echo|native_http_server_tests|native_http_client_tests)::/)
+| test(/^replay_cli_tests::.*(async_replay_opens_no_sockets|each_async_fixture|async_tape_replays)/)
+'''
+test-group = "network"
+
 [[profile.default.overrides]]
 filter = '''
 binary(=native_llvm)
@@ -42,4 +57,4 @@ test-group = "native"
 # `ci` runs them.
 [[profile.ci.overrides]]
 filter = "test(/a_hundred_times/)"
-slow-timeout = { period = "120s" }
+slow-timeout = { period = "120s", terminate-after = 5 }
