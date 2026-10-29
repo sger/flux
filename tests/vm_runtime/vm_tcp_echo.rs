@@ -18,6 +18,19 @@ fn run_source(source: &str, tag: &str) -> (String, String, bool, Duration) {
     (ran.stdout, ran.stderr, ran.success, ran.elapsed)
 }
 
+/// Outgoing connections take their local port from the OS's ephemeral range,
+/// so a port picked there can be gone by the time the program binds it
+/// (KI-141).
+#[test]
+fn free_port_is_outside_the_ephemeral_range() {
+    let first = free_port();
+    let second = free_port();
+    for port in [first, second] {
+        assert!((20000..30000).contains(&port), "port {port} is not in 20000..30000");
+    }
+    assert_ne!(first, second, "two calls in one process gave the same port");
+}
+
 #[test]
 fn tcp_loopback_echo_round_trips() {
     let port = free_port();
