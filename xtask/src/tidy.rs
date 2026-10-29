@@ -1,12 +1,14 @@
 //! `cargo xtask tidy`: checks formatting, then that `tests/` is laid out the
-//! way `tests/README.md` says, as rustc's `x test tidy` does, and that a
-//! fixture named for an error code expects that code. Rules that live only in
-//! prose drift; these fail the build instead.
+//! way `tests/README.md` says, as rustc's `x test tidy` does, that a
+//! fixture named for an error code expects that code, and that every known
+//! flake cites an open KI. Rules that live only in prose drift; these fail the
+//! build instead.
 
 use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
 
 use crate::affected::{Repo, declared_modules, relative_to};
+use crate::census::{KnownIssues, ki_in};
 use crate::verify::cargo;
 
 pub fn run(root: &Path) -> Result<bool, String> {
@@ -32,11 +34,18 @@ pub fn run(root: &Path) -> Result<bool, String> {
     problems.extend(uncompiled(&targets, repo.sources()));
     problems.extend(local_helpers(repo.sources()));
     problems.extend(misnamed_fixtures(&flux_fixtures(root)?));
+    let nextest = std::fs::read_to_string(root.join(".config/nextest.toml"))
+        .map_err(|e| format!(".config/nextest.toml: {e}"))?;
+    let known = std::fs::read_to_string(root.join("docs/known_issues.md"))
+        .map_err(|e| format!("docs/known_issues.md: {e}"))?;
+    problems.extend(uncited_flakes(&nextest, &KnownIssues::parse(&known)));
     for problem in &problems {
         println!("tidy: {problem}");
     }
     if problems.is_empty() {
-        println!("tidy: formatted, and tests/ matches tests/README.md");
+        println!(
+            "tidy: formatted, tests/ matches tests/README.md, and every known flake cites an open KI"
+        );
     }
     Ok(problems.is_empty())
 }
@@ -270,6 +279,42 @@ fn misnamed_fixtures(fixtures: &[(String, String)]) -> Vec<String> {
     problems
 }
 
+/// A nextest override that lets a pass on a retry pass the run (`flaky-result
+/// = "pass"`) must cite a KI that is open, as Go's `SkipFlaky` takes an issue
+/// and GHC's `fragile` a ticket: otherwise a flake stays hidden with nothing
+/// tracking it, or after its KI is closed.
+fn uncited_flakes(nextest: &str, known: &KnownIssues) -> Vec<String> {
+    // Each table starts at its `[…]` header and runs to the next one.
+    let mut tables: Vec<(usize, Vec<&str>)> = Vec::new();
+    for (number, line) in nextest.lines().enumerate() {
+        if line.trim_start().starts_with('[') {
+            tables.push((number + 1, Vec::new()));
+        }
+        if let Some((_, lines)) = tables.last_mut() {
+            lines.push(line);
+        }
+    }
+    let lets_flakes_pass = |lines: &[&str]| {
+        lines.iter().any(|line| {
+            let setting = line.split('#').next().unwrap_or_default();
+            setting.replace(' ', "") == "flaky-result=\"pass\""
+        })
+    };
+    tables
+        .into_iter()
+        .filter(|(_, lines)| lines[0].contains(".overrides]]") && lets_flakes_pass(lines))
+        .filter_map(|(number, lines)| match lines.iter().find_map(|line| ki_in(line)) {
+            Some(id) if known.get(&id).is_some_and(|issue| issue.open) => None,
+            Some(id) => Some(format!(
+                ".config/nextest.toml:{number}: a known-flaky override cites {id}, which is not open in docs/known_issues.md; remove the override or cite the open KI"
+            )),
+            None => Some(format!(
+                ".config/nextest.toml:{number}: a known-flaky override (`flaky-result = \"pass\"`) cites no KI; file one and name it in a comment"
+            )),
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -379,5 +424,45 @@ mod tests {
         assert_eq!(problems.len(), 2, "{problems:?}");
         assert!(problems[0].starts_with("examples/a/drifted_e421.flx is named for E421"));
         assert!(problems[1].starts_with("examples/a/no_header_e406.flx is named for E406"));
+    }
+
+    #[test]
+    fn a_known_flake_must_cite_an_open_ki() {
+        let known = KnownIssues::parse(
+            "## Open\n\n### KI-144 — open one\n\n### KI-120 — FIXED 2026-10-01\n\n## Resolved\n\n### KI-010 — old\n",
+        );
+        let nextest = r#"[profile.ci]
+retries = 1
+flaky-result = "fail"
+
+# A commented example is not an override:
+# flaky-result = "pass"
+
+[[profile.ci.overrides]]
+# KI-144: cited and open
+filter = "test(=a)"
+flaky-result = "pass"
+
+[[profile.ci.overrides]]
+# KI-120: fixed
+filter = "test(=b)"
+flaky-result = "pass"
+
+[[profile.ci.overrides]]
+filter = "test(=c)"
+flaky-result = "pass" # no KI
+
+[[profile.ci.overrides]]
+# KI-010
+filter = "test(=d)"
+slow-timeout = "60s"
+"#;
+        let problems = uncited_flakes(nextest, &known);
+        assert_eq!(problems.len(), 2, "{problems:?}");
+        assert!(
+            problems[0].starts_with(".config/nextest.toml:13: a known-flaky override cites KI-120")
+        );
+        assert!(problems[1].starts_with(".config/nextest.toml:18: a known-flaky override"));
+        assert!(problems[1].contains("cites no KI"));
     }
 }
