@@ -8,10 +8,6 @@ use crate::support::flux_runner;
 use flux_runner::scratch::free_port;
 use std::time::Duration;
 
-// Bind to port 0 to let the OS pick a free port, then release the listener
-// immediately.  There is a small TOCTOU window before the Flux subprocess
-// binds, but this is acceptable for integration tests and avoids hardcoded
-// port collisions when multiple CI jobs run in parallel.
 fn run_source(source: &str, tag: &str) -> (String, String, bool, Duration) {
     let ran = flux_runner::flux_source(source, tag).timeout(Duration::from_secs(60)).run();
     assert!(!ran.timed_out, "{}", flux_runner::timed_out_message(&ran.stdout, &ran.stderr));
