@@ -1210,6 +1210,11 @@ f() //~ E004
     }
 
     #[test]
+    fn an_annotation_after_a_string_left_open_on_its_line_is_found() {
+        assert_eq!(annotations_inside_tokens("let x = \"open //~ E071\n}\n"), [1]);
+    }
+
+    #[test]
     fn expected_codes_come_from_either_form() {
         let listed = FixtureMeta { expected_errors: vec!["E300".into()], ..Default::default() };
         assert_eq!(listed.expected_codes(), ["E300"]);
