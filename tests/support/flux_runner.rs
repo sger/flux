@@ -84,9 +84,9 @@ impl<'a> FluxRun<'a> {
     }
 
     /// Kill the run after `timeout`, so a deadlock fails the test instead of
-    /// hanging it.
+    /// hanging it. The limit is [`scaled`].
     pub fn timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = Some(timeout);
+        self.timeout = Some(scaled(timeout));
         self
     }
 
@@ -125,6 +125,24 @@ impl<'a> FluxRun<'a> {
             elapsed: start.elapsed(),
         }
     }
+}
+
+/// `timeout` times `FLUX_TEST_TIMEOUT_SCALE` (1 when unset or not a positive
+/// number), as Go's `GO_TEST_TIMEOUT_SCALE` and Common Test's
+/// `-multiply_timetraps` stretch theirs: a slow or loaded machine gets longer
+/// before a run counts as hung. Only for limits that catch a hang. A bound
+/// that tells right behaviour from wrong, such as "overlapping sleeps finish
+/// before sequential ones would", must not stretch with it.
+pub fn scaled(timeout: Duration) -> Duration {
+    timeout.mul_f64(timeout_scale(std::env::var("FLUX_TEST_TIMEOUT_SCALE").ok().as_deref()))
+}
+
+/// The scale `FLUX_TEST_TIMEOUT_SCALE`'s `value` gives.
+pub fn timeout_scale(value: Option<&str>) -> f64 {
+    value
+        .and_then(|value| value.trim().parse::<f64>().ok())
+        .filter(|scale| scale.is_finite() && *scale > 0.0)
+        .unwrap_or(1.0)
 }
 
 /// Runs `cmd`, killing it once `timeout` has passed. The pipes are drained on

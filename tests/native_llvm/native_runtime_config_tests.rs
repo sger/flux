@@ -70,6 +70,7 @@ fn run_source_with_timeout(
     tag: &str,
     timeout: Duration,
 ) -> (String, String, bool, Duration) {
+    let timeout = crate::support::flux_runner::scaled(timeout);
     // Private cache root: `--no-cache` does not isolate native
     // builds, which write shared artifacts regardless (KI-010).
     let scratch = Scratch::new(&format!("flux-native-runtime-config-timeout-{tag}"));
@@ -132,7 +133,7 @@ fn main() with IO {
         "native run_async_with_workers(4, ...) must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
     assert!(stdout.contains("42"), "expected 42 on stdout, got: {stdout:?}");
-    assert!(elapsed < Duration::from_secs(30));
+    assert!(elapsed < crate::support::flux_runner::scaled(Duration::from_secs(30)));
 }
 
 #[test]
