@@ -315,3 +315,16 @@ fn emitted_prelude_and_arith_opt_verify_if_available() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+/// Every program imports the prelude's modules, and `--emit-llvm` lowers them
+/// all as one merged program, so it must not mistake one module's expressions
+/// for another's (KI-053).
+#[test]
+fn emit_llvm_prints_ir_for_a_program_that_imports_the_prelude() {
+    let ran = crate::support::flux_runner::flux_file("examples/guide/arithmetic.flx")
+        .native()
+        .args(&["--emit-llvm"])
+        .run();
+    assert!(ran.success, "--emit-llvm failed:\n{}", ran.stderr);
+    assert!(ran.stdout.contains("define "), "no function in the emitted IR:\n{}", ran.stdout);
+}
