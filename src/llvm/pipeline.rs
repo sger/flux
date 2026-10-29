@@ -1170,7 +1170,31 @@ fn check_output(tool: &'static str, output: &std::process::Output) -> Result<(),
 
 #[cfg(test)]
 mod tests {
-    use super::RuntimeVariant;
+    use super::{RuntimeVariant, archive_is_up_to_date, create_archive, native_build_base_dir};
+
+    #[test]
+    fn an_archive_just_built_is_up_to_date() {
+        let dir = native_build_base_dir().join(format!("archive_check_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("create scratch dir");
+        let members: Vec<_> = ["a.o", "b.o"]
+            .iter()
+            .map(|name| {
+                let path = dir.join(name);
+                std::fs::write(&path, name.as_bytes()).expect("write member");
+                path
+            })
+            .collect();
+        let archive = dir.join("libmembers.a");
+        // No C toolchain, or one whose archiver refuses non-object members:
+        // nothing to check here.
+        if create_archive(&members, &archive).is_err() {
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
+        let fresh = archive_is_up_to_date(&members, &archive);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(fresh, "an archive built from these members just now reads as stale");
+    }
 
     #[test]
     fn the_debug_heap_runtime_is_its_own_library() {
