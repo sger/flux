@@ -503,23 +503,37 @@ fn discover_rust_staticlib() -> Option<PathBuf> {
     // `flux_print_backtrace` (S10a) and the debug heap's `flux_capture_site`
     // (S10c); an archive left from an older build lacks them.
     let has_sentinel = |path: &Path| {
-        archive_exports_symbol(path, "flux_async_run_root")
-            && archive_exports_symbol(path, "flux_tape_init")
-            && archive_exports_symbol(path, "flux_async_debug_block")
-            && archive_exports_symbol(path, "flux_tape_ordered_begin")
-            && archive_exports_symbol(path, "flux_debug_tape_events")
-            && archive_exports_symbol(path, "flux_print_backtrace")
-            && archive_exports_symbol(path, "flux_capture_site")
+        archive_exports_symbols(
+            path,
+            &[
+                "flux_async_run_root",
+                "flux_tape_init",
+                "flux_async_debug_block",
+                "flux_tape_ordered_begin",
+                "flux_debug_tape_events",
+                "flux_print_backtrace",
+                "flux_capture_site",
+            ],
+        )
     };
 
-    // Fast path: sidecar written by a previous successful link.
-    // The archive filename embeds a cargo content hash — if native_abi.rs
-    // changed, cargo produces a new hash and the old sidecar path no longer
-    // exists on disk, causing an automatic fallthrough to the slow scan.
+    // Fast path: sidecar written by a previous successful check, naming the
+    // archive with its size and modification time. An archive that still
+    // matches them is the one checked then, so `nm` need not read its
+    // hundreds of MB again on every native build. The archive filename
+    // embeds a cargo content hash — if native_abi.rs changed, cargo produces
+    // a new hash and the old sidecar path no longer exists on disk, causing
+    // an automatic fallthrough to the slow scan.
     let sidecar = profile_dir.join("flux-staticlib.path");
     if let Ok(raw) = fs::read_to_string(&sidecar) {
-        let path = PathBuf::from(raw.trim());
+        let mut lines = raw.lines();
+        let path = PathBuf::from(lines.next().unwrap_or_default().trim());
+        let stamp = lines.next().map(str::trim);
+        if stamp.is_some() && stamp == archive_stamp(&path).as_deref() {
+            return Some(path);
+        }
         if path.exists() && has_sentinel(&path) {
+            write_staticlib_sidecar(&sidecar, &path);
             return Some(path);
         }
     }
@@ -544,11 +558,30 @@ fn discover_rust_staticlib() -> Option<PathBuf> {
 
     // Cache result. Next run uses the fast path unless the file disappears
     // (which happens automatically when cargo rebuilds with a new content hash).
-    let _ = fs::write(&sidecar, found.to_string_lossy().as_bytes());
+    write_staticlib_sidecar(&sidecar, &found);
     Some(found)
 }
 
-fn archive_exports_symbol(path: &Path, symbol: &str) -> bool {
+/// The size and modification time of `path`, as the staticlib sidecar
+/// records them.
+fn archive_stamp(path: &Path) -> Option<String> {
+    let metadata = fs::metadata(path).ok()?;
+    let modified = metadata.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?;
+    Some(format!("{} {}", metadata.len(), modified.as_nanos()))
+}
+
+fn write_staticlib_sidecar(sidecar: &Path, archive: &Path) {
+    let mut contents = format!("{}\n", archive.to_string_lossy());
+    if let Some(stamp) = archive_stamp(archive) {
+        contents.push_str(&stamp);
+        contents.push('\n');
+    }
+    let _ = fs::write(sidecar, contents);
+}
+
+/// Whether the archive at `path` exports every one of `symbols`, read from
+/// a single listing: each `nm` run reads the whole archive.
+fn archive_exports_symbols(path: &Path, symbols: &[&str]) -> bool {
     // Prefer llvm-nm: Xcode's nm emits "Unknown attribute kind" errors on
     // Rust-produced LLVM bitcode (LLVM version mismatch) and may return false
     // negatives. Both tools exit non-zero when any object file errors, even if
@@ -559,7 +592,7 @@ fn archive_exports_symbol(path: &Path, symbol: &str) -> bool {
             continue;
         };
         let stdout = String::from_utf8_lossy(&output.stdout);
-        if stdout.contains(symbol) {
+        if symbols.iter().all(|symbol| stdout.contains(symbol)) {
             return true;
         }
     }
