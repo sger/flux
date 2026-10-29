@@ -308,8 +308,13 @@ beyond the plan:
 - a fix for KI-143, whose duplicate-instance fixture also reported an error
   with no location.
 
-`tests/flux/parse_error.flx` keeps `expect-error:`. It is run by
-`flux --test`, not `parity-check`; see the last unresolved question.
+`tests/flux/parse_error.flx`, run by `flux --test` rather than
+`parity-check`, was annotated too, so no fixture lists codes with
+`expect-error:`. Converting it found a gap: `--annotate` put `//~ E071`
+inside the string the line leaves open, where the matcher cannot see it, and
+the converted fixture passed with any code. The lexer check now finds an
+annotation inside an unterminated string, and the annotation moves to the
+next line.
 
 ## Unresolved questions
 [unresolved-questions]: #unresolved-questions
@@ -318,8 +323,9 @@ beyond the plan:
   annotated. Every error in today's fixtures has one; the one that didn't
   was a bug (KI-143). If one turns up that should have none, it needs a
   form not tied to a line, perhaps `//~? E…` anywhere in the file.
-- Should `flux --test` fixtures in `tests/flux/` (one uses `expect-error:`
-  today, `tests/flux/parse_error.flx`) take the same syntax?
+- ~~Should `flux --test` fixtures in `tests/flux/` take the same syntax?~~
+  Yes, so there is one syntax. `flux --test` does not check it; the Rust test
+  that runs `tests/flux/parse_error.flx` asserts its code itself.
 
 ## Future possibilities
 [future-possibilities]: #future-possibilities
