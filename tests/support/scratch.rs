@@ -113,15 +113,35 @@ pub fn cache_args_for(cache_dir: &Path) -> Vec<String> {
     vec!["--cache-dir".to_string(), cache_dir.to_string_lossy().into_owned()]
 }
 
-/// A loopback port nothing listens on right now, chosen by the OS. A counter
-/// from a fixed base is unique only within one process, and nextest runs each
-/// test in its own process, so every test got the same first port.
+/// The ports `free_port` picks from. They lie below every OS's ephemeral
+/// range (Linux from 32768, Windows and macOS from 49152), the range outgoing
+/// connections take their local port from. A port the OS chose with port 0
+/// came from that range, and another test's connection could take it before
+/// the program bound it (KI-141).
+const TEST_PORTS: std::ops::Range<u16> = 20000..30000;
+
+static NEXT_PORT: AtomicU64 = AtomicU64::new(0);
+
+/// A loopback port nothing listens on right now, from `TEST_PORTS`. Each
+/// process starts at its own offset: nextest runs each test in its own
+/// process, so a counter from a fixed base gave every test the same port.
+/// Ports that do not bind (in use, or excluded, as Windows does for Hyper-V)
+/// are skipped.
 #[allow(dead_code)]
 pub fn free_port() -> u16 {
-    std::net::TcpListener::bind(("127.0.0.1", 0))
-        .and_then(|listener| listener.local_addr())
-        .expect("bind a loopback port")
-        .port()
+    let span = u64::from(TEST_PORTS.end - TEST_PORTS.start);
+    let clock = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.subsec_nanos());
+    let start = u64::from(std::process::id()).wrapping_mul(7919) ^ u64::from(clock);
+    for _ in 0..span {
+        let step = NEXT_PORT.fetch_add(1, Ordering::Relaxed);
+        let port = TEST_PORTS.start + ((start.wrapping_add(step)) % span) as u16;
+        if std::net::TcpListener::bind(("127.0.0.1", port)).is_ok() {
+            return port;
+        }
+    }
+    panic!("no free loopback port in {TEST_PORTS:?}");
 }
 
 impl Drop for Scratch {
