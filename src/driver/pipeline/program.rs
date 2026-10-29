@@ -91,7 +91,7 @@ fn should_build_merged_program(flags: &DriverFlags, is_multimodule: bool) -> boo
 /// parsed separately and all number their expressions from one, and the merged
 /// program is inferred as a whole, so overlapping ids would share one entry in
 /// the type table.
-fn merge_programs<'a>(programs: impl IntoIterator<Item = &'a Program>) -> Program {
+pub(crate) fn merge_programs<'a>(programs: impl IntoIterator<Item = &'a Program>) -> Program {
     let mut merged = Program::new();
     for program in programs {
         let offset =
