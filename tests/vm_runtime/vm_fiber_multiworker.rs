@@ -14,6 +14,7 @@
 //!   5. Four-worker race returns the fast branch.
 //!   6. Load-aware spawn placement (least-loaded queue) and the
 //!      `FLUX_WORK_STEALING=0` round-robin fallback both produce correct output.
+//!   7. Two busy fibers run at once on two workers (ignored until KI-144).
 
 use crate::support::flux_runner;
 use std::time::Duration;
@@ -102,6 +103,58 @@ fn main() with IO, Time {
         elapsed < Duration::from_millis(800),
         "elapsed {elapsed:?} — fibers didn't overlap across workers \
          (sequential would be ~1000ms of sleep)"
+    );
+}
+
+// ── Test 7: two workers at once ───────────────────────────────────────────
+
+/// Scheduling is cooperative, so a fiber that never yields holds its worker:
+/// two such fibers overlap only on two OS workers. Checking that their runs
+/// overlap, rather than a time budget, holds however loaded the machine is.
+#[test]
+#[ignore = "KI-144: a fiber on a second VM worker cannot perform Clock; run with `cargo nextest run --run-ignored only -E 'test(=vm_fiber_multiworker::multiworker_both_runs_on_two_workers_at_once)'`"]
+fn multiworker_both_runs_on_two_workers_at_once() {
+    let source = r#"
+import Flow.Async exposing (..)
+
+fn spin_until(t: Int) -> Int with Time {
+    let now = now_ms()
+    if now < t { spin_until(t) } else { now }
+}
+
+fn spin_from(start: Int) -> (Int, Int) with Time {
+    (start, spin_until(start + 1000))
+}
+
+fn busy() -> (Int, Int) with Async, Time {
+    spin_from(now_ms())
+}
+
+fn body() -> ((Int, Int), (Int, Int)) with Async, Time {
+    both(busy, busy)
+}
+
+fn print_run(run: (Int, Int)) with IO {
+    print(run.0)
+    print(run.1)
+}
+
+fn main() with IO, Time {
+    let runs = run_async_with_workers(2, body)
+    print_run(runs.0)
+    print_run(runs.1)
+}
+"#;
+    let (stdout, stderr, success, _) = run_source(source, "busy_two_workers");
+    assert!(success, "two busy fibers must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
+    let times: Vec<u64> = stdout.lines().filter_map(|line| line.trim().parse().ok()).collect();
+    let [left_start, left_end, right_start, right_end] = times[..] else {
+        panic!("expected four times, start and end of each fiber:\nstdout:\n{stdout}");
+    };
+    assert!(
+        left_start < right_end && right_start < left_end,
+        "the fibers ran one after the other ({left_start}..{left_end}, then \
+         {right_start}..{right_end}), so they did not run on two workers at once"
     );
 }
 
