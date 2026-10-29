@@ -70,11 +70,7 @@ fn emit_checked_div_helper(module: &mut LlvmModule, name: &str, op: LlvmValueKin
     // Declare external C functions used by the zero check.
     for (ext_name, ret, params) in [
         ("flux_panic", LlvmType::Void, vec![LlvmType::i64()]),
-        (
-            "flux_string_new",
-            LlvmType::i64(),
-            vec![LlvmType::Ptr, LlvmType::i32()],
-        ),
+        ("flux_string_new", LlvmType::i64(), vec![LlvmType::Ptr, LlvmType::i32()]),
     ] {
         if !module.declarations.iter().any(|d| d.name.0 == ext_name)
             && !has_function(module, ext_name)
@@ -82,12 +78,7 @@ fn emit_checked_div_helper(module: &mut LlvmModule, name: &str, op: LlvmValueKin
             module.declarations.push(LlvmDecl {
                 linkage: Linkage::External,
                 name: GlobalId(ext_name.into()),
-                sig: LlvmFunctionSig {
-                    ret,
-                    params,
-                    varargs: false,
-                    call_conv: CallConv::Ccc,
-                },
+                sig: LlvmFunctionSig { ret, params, varargs: false, call_conv: CallConv::Ccc },
                 attrs: vec!["nounwind".into()],
             });
         }
@@ -99,20 +90,11 @@ fn emit_checked_div_helper(module: &mut LlvmModule, name: &str, op: LlvmValueKin
     module.globals.push(LlvmGlobal {
         linkage: Linkage::Private,
         name: msg_global_id.clone(),
-        ty: LlvmType::Array {
-            len: msg.len() as u64,
-            element: Box::new(LlvmType::i8()),
-        },
+        ty: LlvmType::Array { len: msg.len() as u64, element: Box::new(LlvmType::i8()) },
         is_constant: true,
         value: Some(LlvmConst::Array {
             element_ty: LlvmType::i8(),
-            elements: msg
-                .bytes()
-                .map(|b| LlvmConst::Int {
-                    bits: 8,
-                    value: b as i128,
-                })
-                .collect(),
+            elements: msg.bytes().map(|b| LlvmConst::Int { bits: 8, value: b as i128 }).collect(),
         }),
         attrs: vec![],
     });
@@ -192,10 +174,7 @@ fn emit_checked_div_helper(module: &mut LlvmModule, name: &str, op: LlvmValueKin
                     },
                     call_i64("result", "flux_tag_int", vec![local("result_raw")]),
                 ],
-                term: LlvmTerminator::Ret {
-                    ty: LlvmType::i64(),
-                    value: local("result"),
-                },
+                term: LlvmTerminator::Ret { ty: LlvmType::i64(), value: local("result") },
             },
         ],
     });
@@ -226,10 +205,7 @@ fn emit_tagged_binary_helper(module: &mut LlvmModule, name: &str, op: LlvmValueK
                 },
                 call_i64("result", "flux_tag_int", vec![local("result_raw")]),
             ],
-            term: LlvmTerminator::Ret {
-                ty: LlvmType::i64(),
-                value: local("result"),
-            },
+            term: LlvmTerminator::Ret { ty: LlvmType::i64(), value: local("result") },
         }],
     });
 }
@@ -258,10 +234,7 @@ fn emit_ineg(module: &mut LlvmModule) {
                 },
                 call_i64("result", "flux_tag_int", vec![local("neg")]),
             ],
-            term: LlvmTerminator::Ret {
-                ty: LlvmType::i64(),
-                value: local("result"),
-            },
+            term: LlvmTerminator::Ret { ty: LlvmType::i64(), value: local("result") },
         }],
     });
 }
@@ -324,10 +297,7 @@ fn emit_fneg(module: &mut LlvmModule) {
                     attrs: vec![],
                 },
             ],
-            term: LlvmTerminator::Ret {
-                ty: LlvmType::i64(),
-                value: local("result"),
-            },
+            term: LlvmTerminator::Ret { ty: LlvmType::i64(), value: local("result") },
         }],
     });
 }
@@ -379,10 +349,7 @@ fn emit_dispatch_binary(module: &mut LlvmModule, name: &str, int_helper: &str, f
                     args: vec![(LlvmType::i64(), local("a")), (LlvmType::i64(), local("b"))],
                     attrs: vec![],
                 }],
-                term: LlvmTerminator::Ret {
-                    ty: LlvmType::i64(),
-                    value: local("int_result"),
-                },
+                term: LlvmTerminator::Ret { ty: LlvmType::i64(), value: local("int_result") },
             },
             LlvmBlock {
                 label: LabelId("do_float".into()),
@@ -395,10 +362,7 @@ fn emit_dispatch_binary(module: &mut LlvmModule, name: &str, int_helper: &str, f
                     args: vec![(LlvmType::i64(), local("a")), (LlvmType::i64(), local("b"))],
                     attrs: vec![],
                 }],
-                term: LlvmTerminator::Ret {
-                    ty: LlvmType::i64(),
-                    value: local("float_result"),
-                },
+                term: LlvmTerminator::Ret { ty: LlvmType::i64(), value: local("float_result") },
             },
         ],
     });
@@ -447,10 +411,7 @@ fn emit_dispatch_unary(module: &mut LlvmModule, name: &str, int_helper: &str, fl
                     args: vec![(LlvmType::i64(), local("a"))],
                     attrs: vec![],
                 }],
-                term: LlvmTerminator::Ret {
-                    ty: LlvmType::i64(),
-                    value: local("int_result"),
-                },
+                term: LlvmTerminator::Ret { ty: LlvmType::i64(), value: local("int_result") },
             },
             LlvmBlock {
                 label: LabelId("do_float".into()),
@@ -463,10 +424,7 @@ fn emit_dispatch_unary(module: &mut LlvmModule, name: &str, int_helper: &str, fl
                     args: vec![(LlvmType::i64(), local("a"))],
                     attrs: vec![],
                 }],
-                term: LlvmTerminator::Ret {
-                    ty: LlvmType::i64(),
-                    value: local("float_result"),
-                },
+                term: LlvmTerminator::Ret { ty: LlvmType::i64(), value: local("float_result") },
             },
         ],
     });
@@ -524,10 +482,7 @@ fn emit_float_binary_helper(module: &mut LlvmModule, name: &str, op: LlvmValueKi
                     attrs: vec![],
                 },
             ],
-            term: LlvmTerminator::Ret {
-                ty: LlvmType::i64(),
-                value: local("result"),
-            },
+            term: LlvmTerminator::Ret { ty: LlvmType::i64(), value: local("result") },
         }],
     });
 }
@@ -560,20 +515,14 @@ pub fn emit_not(module: &mut LlvmModule) {
                     op: LlvmCmpOp::Eq,
                     ty: LlvmType::i64(),
                     lhs: local("a"),
-                    rhs: LlvmOperand::Const(LlvmConst::Int {
-                        bits: 64,
-                        value: false_bits.into(),
-                    }),
+                    rhs: LlvmOperand::Const(LlvmConst::Int { bits: 64, value: false_bits.into() }),
                 },
                 LlvmInstr::Icmp {
                     dst: LlvmLocal("is_none".into()),
                     op: LlvmCmpOp::Eq,
                     ty: LlvmType::i64(),
                     lhs: local("a"),
-                    rhs: LlvmOperand::Const(LlvmConst::Int {
-                        bits: 64,
-                        value: none_bits.into(),
-                    }),
+                    rhs: LlvmOperand::Const(LlvmConst::Int { bits: 64, value: none_bits.into() }),
                 },
                 LlvmInstr::Icmp {
                     dst: LlvmLocal("is_empty".into()),
@@ -590,10 +539,7 @@ pub fn emit_not(module: &mut LlvmModule) {
                     op: LlvmCmpOp::Eq,
                     ty: LlvmType::i64(),
                     lhs: local("a"),
-                    rhs: LlvmOperand::Const(LlvmConst::Int {
-                        bits: 64,
-                        value: uninit_bits.into(),
-                    }),
+                    rhs: LlvmOperand::Const(LlvmConst::Int { bits: 64, value: uninit_bits.into() }),
                 },
                 // falsy = is_false || is_none || is_empty || is_uninit
                 LlvmInstr::Binary {
@@ -633,10 +579,7 @@ pub fn emit_not(module: &mut LlvmModule) {
                     }),
                 },
             ],
-            term: LlvmTerminator::Ret {
-                ty: LlvmType::i64(),
-                value: local("result"),
-            },
+            term: LlvmTerminator::Ret { ty: LlvmType::i64(), value: local("result") },
         }],
     });
 }
@@ -655,14 +598,8 @@ fn emit_bool_binary_helper(module: &mut LlvmModule, name: &str, is_and: bool) {
     }
     let true_bits = tagged_bool_bits(true);
     let false_bits = tagged_bool_bits(false);
-    let true_const = LlvmOperand::Const(LlvmConst::Int {
-        bits: 64,
-        value: true_bits.into(),
-    });
-    let false_const = LlvmOperand::Const(LlvmConst::Int {
-        bits: 64,
-        value: false_bits.into(),
-    });
+    let true_const = LlvmOperand::Const(LlvmConst::Int { bits: 64, value: true_bits.into() });
+    let false_const = LlvmOperand::Const(LlvmConst::Int { bits: 64, value: false_bits.into() });
     // and: both must be true  => a == true_bits && b == true_bits
     // or:  either can be true => a == true_bits || b == true_bits
     let (combine_op, identity) = if is_and {
@@ -716,10 +653,7 @@ fn emit_bool_binary_helper(module: &mut LlvmModule, name: &str, is_and: bool) {
                     }),
                 },
             ],
-            term: LlvmTerminator::Ret {
-                ty: LlvmType::i64(),
-                value: local("result"),
-            },
+            term: LlvmTerminator::Ret { ty: LlvmType::i64(), value: local("result") },
         }],
     });
 }
@@ -786,11 +720,7 @@ fn call_i64(dst: &str, callee: &str, args: Vec<LlvmOperand>) -> LlvmInstr {
 }
 
 fn tagged_bool_bits(value: bool) -> i64 {
-    if value {
-        FluxPtrTagLayout::FLUX_TRUE
-    } else {
-        FluxPtrTagLayout::FLUX_FALSE
-    }
+    if value { FluxPtrTagLayout::FLUX_TRUE } else { FluxPtrTagLayout::FLUX_FALSE }
 }
 
 #[cfg(test)]

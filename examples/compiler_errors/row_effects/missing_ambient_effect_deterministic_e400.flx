@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E400
 
 fn call_requires_io_time(f: (() -> Int with Time, IO)) -> Int with Time, IO {
     f()
@@ -11,7 +10,7 @@ fn worker() -> Int with IO, Time {
 }
 
 fn caller() -> Int {
-    call_requires_io_time(worker)
+    call_requires_io_time(worker) //~ E400
 }
 
 fn main() -> Unit {

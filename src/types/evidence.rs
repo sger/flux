@@ -194,9 +194,7 @@ impl EvidenceMap {
         if count == 0 {
             return None;
         }
-        (0..count)
-            .map(|index| self.get(&EvidenceSite::new(expr, index)))
-            .collect()
+        (0..count).map(|index| self.get(&EvidenceSite::new(expr, index))).collect()
     }
 
     /// The dictionary arguments `expr` passes, in argument order.
@@ -232,11 +230,7 @@ impl EvidenceMap {
             .into_iter()
             .map(|evidence| evidence_to_arg(evidence, &param_of))
             .collect::<Option<Vec<_>>>()?;
-        Some(
-            args.into_iter()
-                .filter(|arg| *arg != DictArg::None)
-                .collect(),
-        )
+        Some(args.into_iter().filter(|arg| *arg != DictArg::None).collect())
     }
 
     /// Every instance named by the evidence recorded here.
@@ -250,9 +244,7 @@ impl EvidenceMap {
             out: &mut Vec<&'e crate::types::class_disposition::InstanceKey>,
         ) {
             match evidence {
-                Evidence::FromInstance {
-                    instance, context, ..
-                } => {
+                Evidence::FromInstance { instance, context, .. } => {
                     out.push(instance);
                     for inner in context {
                         walk(inner, out);
@@ -321,16 +313,11 @@ impl EvidenceMap {
                     })
                 })
                 .collect();
-            let recorded = DefinitionParams {
-                params,
-                param_of_given,
-            };
+            let recorded = DefinitionParams { params, param_of_given };
             // A definition closes one implication. Should it ever close a
             // second, the two must agree, or one of them is wrong.
-            let existing = self
-                .definitions
-                .entry(implication.definition)
-                .or_insert_with(|| recorded.clone());
+            let existing =
+                self.definitions.entry(implication.definition).or_insert_with(|| recorded.clone());
             debug_assert_eq!(
                 *existing, recorded,
                 "definition {:?} closed two implications with different parameters",

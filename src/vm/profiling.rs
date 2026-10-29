@@ -27,11 +27,8 @@ pub fn print_profile_report(centres: &[CostCentre], total_time_ns: u64) {
     }
 
     // Filter to cost centres that were actually entered.
-    let mut active: Vec<(usize, &CostCentre)> = centres
-        .iter()
-        .enumerate()
-        .filter(|(_, cc)| cc.entries > 0)
-        .collect();
+    let mut active: Vec<(usize, &CostCentre)> =
+        centres.iter().enumerate().filter(|(_, cc)| cc.entries > 0).collect();
 
     if active.is_empty() {
         return;
@@ -46,14 +43,8 @@ pub fn print_profile_report(centres: &[CostCentre], total_time_ns: u64) {
 
     eprintln!();
     eprintln!("  ── Flux Profiling Report ─────────────────────────────────────");
-    eprintln!(
-        "  {:<24} {:<16} {:>8} {:>8}",
-        "COST CENTRE", "MODULE", "entries", "%time"
-    );
-    eprintln!(
-        "  {:<24} {:<16} {:>8} {:>8}",
-        "───────────", "──────", "───────", "─────"
-    );
+    eprintln!("  {:<24} {:<16} {:>8} {:>8}", "COST CENTRE", "MODULE", "entries", "%time");
+    eprintln!("  {:<24} {:<16} {:>8} {:>8}", "───────────", "──────", "───────", "─────");
 
     for (_, cc) in &active {
         let self_time = cc.time_ns.saturating_sub(cc.inner_time_ns);
@@ -71,9 +62,5 @@ pub fn print_profile_report(centres: &[CostCentre], total_time_ns: u64) {
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        format!("{}…", &s[..max - 1])
-    }
+    if s.len() <= max { s.to_string() } else { format!("{}…", &s[..max - 1]) }
 }

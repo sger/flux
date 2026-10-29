@@ -2,6 +2,16 @@
 // expect: success
 // Tests the Flow.String primops — concat, length, slice — and the helpers
 // built on them.
+// parity-expected-stdout-begin
+// "hello world"
+// 5
+// "hello"
+// "x-y-z"
+// [|"a", "b", "c"|]
+// true
+// true
+// true
+// parity-expected-stdout-end
 
 import Flow.String
 

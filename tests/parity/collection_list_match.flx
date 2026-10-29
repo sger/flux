@@ -4,6 +4,12 @@
 //       when the native backend mishandles the cons cell tag check.
 //
 // note: list() is deprecated — use [] literal syntax instead.
+// parity-expected-stdout-begin
+// 15
+// 5
+// 0
+// 0
+// parity-expected-stdout-end
 
 fn sum(xs) {
     match xs {

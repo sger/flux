@@ -63,33 +63,18 @@ impl RuntimeType {
                 let parts: Vec<String> = elements.iter().map(RuntimeType::type_name).collect();
                 format!("({})", parts.join(", "))
             }
-            RuntimeType::Function {
-                params,
-                ret,
-                effects,
-            } => {
-                let params_str = params
-                    .iter()
-                    .map(RuntimeType::type_name)
-                    .collect::<Vec<_>>()
-                    .join(", ");
+            RuntimeType::Function { params, ret, effects } => {
+                let params_str =
+                    params.iter().map(RuntimeType::type_name).collect::<Vec<_>>().join(", ");
                 let mut out = format!("({params_str}) -> {}", ret.type_name());
                 if !effects.is_empty() {
-                    let effects_str = effects
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect::<Vec<_>>()
-                        .join(", ");
+                    let effects_str =
+                        effects.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
                     out.push_str(&format!(" with {effects_str}"));
                 }
                 out
             }
-            RuntimeType::Adt {
-                module_name_text,
-                display_name,
-                type_args,
-                ..
-            } => {
+            RuntimeType::Adt { module_name_text, display_name, type_args, .. } => {
                 let base = match module_name_text {
                     Some(module) => format!("{module}.{display_name}"),
                     None => display_name.clone(),
@@ -97,11 +82,8 @@ impl RuntimeType {
                 if type_args.is_empty() {
                     base
                 } else {
-                    let args = type_args
-                        .iter()
-                        .map(RuntimeType::type_name)
-                        .collect::<Vec<_>>()
-                        .join(", ");
+                    let args =
+                        type_args.iter().map(RuntimeType::type_name).collect::<Vec<_>>().join(", ");
                     format!("{base}<{}>", args)
                 }
             }
@@ -122,24 +104,14 @@ impl RuntimeType {
                     element.collect_symbols(out);
                 }
             }
-            RuntimeType::Function {
-                params,
-                ret,
-                effects,
-            } => {
+            RuntimeType::Function { params, ret, effects } => {
                 for param in params {
                     param.collect_symbols(out);
                 }
                 ret.collect_symbols(out);
                 out.extend(effects.iter().copied());
             }
-            RuntimeType::Adt {
-                module_name,
-                name,
-                type_args,
-                constructors,
-                ..
-            } => {
+            RuntimeType::Adt { module_name, name, type_args, constructors, .. } => {
                 if let Some(module_name) = module_name {
                     out.insert(*module_name);
                 }
@@ -176,20 +148,10 @@ impl RuntimeType {
                 Box::new(value.remap_symbols(remap)),
             ),
             RuntimeType::Tuple(elements) => RuntimeType::Tuple(
-                elements
-                    .iter()
-                    .map(|element| element.remap_symbols(remap))
-                    .collect(),
+                elements.iter().map(|element| element.remap_symbols(remap)).collect(),
             ),
-            RuntimeType::Function {
-                params,
-                ret,
-                effects,
-            } => RuntimeType::Function {
-                params: params
-                    .iter()
-                    .map(|param| param.remap_symbols(remap))
-                    .collect(),
+            RuntimeType::Function { params, ret, effects } => RuntimeType::Function {
+                params: params.iter().map(|param| param.remap_symbols(remap)).collect(),
                 ret: Box::new(ret.remap_symbols(remap)),
                 effects: effects
                     .iter()
@@ -209,10 +171,7 @@ impl RuntimeType {
                 module_name_text: module_name_text.clone(),
                 name: remap.get(name).copied().unwrap_or(*name),
                 display_name: display_name.clone(),
-                type_args: type_args
-                    .iter()
-                    .map(|arg| arg.remap_symbols(remap))
-                    .collect(),
+                type_args: type_args.iter().map(|arg| arg.remap_symbols(remap)).collect(),
                 constructors: constructors
                     .iter()
                     .map(|ctor| AdtConstructorContract {
@@ -277,11 +236,7 @@ impl RuntimeType {
                     .all(|(ty, value)| ty.matches_value(value, ctx)),
                 _ => false,
             },
-            RuntimeType::Function {
-                params,
-                ret,
-                effects,
-            } => {
+            RuntimeType::Function { params, ret, effects } => {
                 if !value.is_callable() {
                     return false;
                 }
@@ -344,28 +299,14 @@ fn runtime_type_compatible(expected: &RuntimeType, actual: &RuntimeType) -> bool
         }
         (RuntimeType::Tuple(elems_e), RuntimeType::Tuple(elems_a)) => {
             elems_e.len() == elems_a.len()
-                && elems_e
-                    .iter()
-                    .zip(elems_a.iter())
-                    .all(|(e, a)| runtime_type_compatible(e, a))
+                && elems_e.iter().zip(elems_a.iter()).all(|(e, a)| runtime_type_compatible(e, a))
         }
         (
-            RuntimeType::Function {
-                params: e_params,
-                ret: e_ret,
-                effects: e_effects,
-            },
-            RuntimeType::Function {
-                params: a_params,
-                ret: a_ret,
-                effects: a_effects,
-            },
+            RuntimeType::Function { params: e_params, ret: e_ret, effects: e_effects },
+            RuntimeType::Function { params: a_params, ret: a_ret, effects: a_effects },
         ) => {
             e_params.len() == a_params.len()
-                && e_params
-                    .iter()
-                    .zip(a_params.iter())
-                    .all(|(e, a)| runtime_type_compatible(e, a))
+                && e_params.iter().zip(a_params.iter()).all(|(e, a)| runtime_type_compatible(e, a))
                 && runtime_type_compatible(e_ret, a_ret)
                 && effects_subset(a_effects, e_effects)
         }
@@ -389,10 +330,7 @@ fn runtime_type_compatible(expected: &RuntimeType, actual: &RuntimeType) -> bool
                 && e_name == a_name
                 && e_args.len() == a_args.len()
                 && e_ctors.len() == a_ctors.len()
-                && e_args
-                    .iter()
-                    .zip(a_args.iter())
-                    .all(|(e, a)| runtime_type_compatible(e, a))
+                && e_args.iter().zip(a_args.iter()).all(|(e, a)| runtime_type_compatible(e, a))
                 && e_ctors.iter().zip(a_ctors.iter()).all(|(e, a)| {
                     e.name == a.name
                         && e.fields.len() == a.fields.len()
@@ -467,10 +405,8 @@ mod tests {
     #[test]
     fn list_runtime_type_matches_cons_lists_recursively() {
         let ctx = TestCtx::new();
-        let good = ConsCell::cons(
-            Value::Integer(1),
-            ConsCell::cons(Value::Integer(2), Value::EmptyList),
-        );
+        let good =
+            ConsCell::cons(Value::Integer(1), ConsCell::cons(Value::Integer(2), Value::EmptyList));
 
         let ty = RuntimeType::List(Box::new(RuntimeType::Int));
         assert!(ty.matches_value(&good, &ctx));
@@ -493,10 +429,9 @@ mod tests {
         let ctx = TestCtx::new();
         let ty = RuntimeType::Either(Box::new(RuntimeType::String), Box::new(RuntimeType::Int));
 
-        assert!(ty.matches_value(
-            &Value::Left(Value::String("ok".to_string().into()).into()),
-            &ctx
-        ));
+        assert!(
+            ty.matches_value(&Value::Left(Value::String("ok".to_string().into()).into()), &ctx)
+        );
         assert!(ty.matches_value(&Value::Right(Value::Integer(7).into()), &ctx));
         assert!(!ty.matches_value(&Value::Left(Value::Integer(7).into()), &ctx));
     }
@@ -505,14 +440,8 @@ mod tests {
     fn runtime_type_compatibility_requires_matching_shapes() {
         let ctx = TestCtx::new();
         assert!(!RuntimeType::Int.matches_value(&Value::String("x".to_string().into()), &ctx));
-        assert!(!super::runtime_type_compatible(
-            &RuntimeType::Int,
-            &RuntimeType::String
-        ));
-        assert!(super::runtime_type_compatible(
-            &RuntimeType::Int,
-            &RuntimeType::Int
-        ));
+        assert!(!super::runtime_type_compatible(&RuntimeType::Int, &RuntimeType::String));
+        assert!(super::runtime_type_compatible(&RuntimeType::Int, &RuntimeType::Int));
     }
 
     #[test]

@@ -117,10 +117,7 @@ impl FiberScheduler {
             self.next_ready_worker = worker_idx;
         }
         self.workers[worker_idx].ready.push(fiber);
-        fiber_trace::emit(FiberEvent::Spawn {
-            fid: id.0,
-            worker: home_worker.0,
-        });
+        fiber_trace::emit(FiberEvent::Spawn { fid: id.0, worker: home_worker.0 });
         id
     }
 
@@ -197,18 +194,10 @@ impl FiberScheduler {
     pub fn suspend(&mut self, mut fiber: Fiber, request_id: RequestId) {
         let worker = fiber.home_worker.0;
         let fid = fiber.id.0;
-        fiber.state = FiberState::Suspended {
-            request_id: request_id.0,
-        };
+        fiber.state = FiberState::Suspended { request_id: request_id.0 };
         let worker_idx = fiber.home_worker.0 as usize;
-        self.workers[worker_idx]
-            .suspended
-            .insert(request_id.0, fiber);
-        fiber_trace::emit(FiberEvent::Suspend {
-            fid,
-            worker,
-            request_id: request_id.0,
-        });
+        self.workers[worker_idx].suspended.insert(request_id.0, fiber);
+        fiber_trace::emit(FiberEvent::Suspend { fid, worker, request_id: request_id.0 });
     }
 
     /// Deliver a backend completion: move the matching fiber back to ready.
@@ -273,11 +262,7 @@ impl FiberScheduler {
                 .suspended
                 .keys()
                 .filter(|&&req| {
-                    worker
-                        .suspended
-                        .get(&req)
-                        .map(|f| id_set.contains(&f.id.0))
-                        .unwrap_or(false)
+                    worker.suspended.get(&req).map(|f| id_set.contains(&f.id.0)).unwrap_or(false)
                 })
                 .copied()
                 .collect();
@@ -293,10 +278,7 @@ impl FiberScheduler {
                         ready_was_empty = false;
                     }
                     worker.ready.push(fiber);
-                    fiber_trace::emit(FiberEvent::Cancel {
-                        fid,
-                        worker: worker_idx as u32,
-                    });
+                    fiber_trace::emit(FiberEvent::Cancel { fid, worker: worker_idx as u32 });
                 }
             }
             // A delivery-completion racing with this cancellation may have
@@ -452,11 +434,8 @@ impl FiberScheduler {
     /// Return all request IDs currently in the suspended map for a worker.
     /// Used by `exit_run_async` to cancel outstanding backend requests on teardown.
     pub fn all_suspended_reqs(&self, worker: WorkerId) -> Vec<u64> {
-        let mut reqs: Vec<u64> = self.workers[worker.0 as usize]
-            .suspended
-            .keys()
-            .copied()
-            .collect();
+        let mut reqs: Vec<u64> =
+            self.workers[worker.0 as usize].suspended.keys().copied().collect();
         reqs.sort_unstable();
         reqs
     }
@@ -732,10 +711,7 @@ mod tests {
         remote_fiber.mark_parked();
         sched.spawn_existing(remote_fiber);
 
-        let fiber = sched
-            .next_ready_or_steal_inner(w0(), FiberId(999), true)
-            .unwrap()
-            .unwrap();
+        let fiber = sched.next_ready_or_steal_inner(w0(), FiberId(999), true).unwrap().unwrap();
         assert_eq!(fiber.id, local);
         assert_eq!(sched.ready_count(WorkerId(1)), 1);
         assert_eq!(sched.next_ready(WorkerId(1)).unwrap().id, remote);
@@ -752,10 +728,7 @@ mod tests {
             sched.spawn_existing(fiber);
         }
 
-        let stolen = sched
-            .next_ready_or_steal_inner(w0(), FiberId(999), true)
-            .unwrap()
-            .unwrap();
+        let stolen = sched.next_ready_or_steal_inner(w0(), FiberId(999), true).unwrap().unwrap();
         assert_eq!(stolen.id, second);
         assert_eq!(stolen.home_worker, w0());
         assert_eq!(sched.pending_drop_count(WorkerId(1)), 1);
@@ -781,10 +754,7 @@ mod tests {
             sched.spawn_existing(fiber);
         }
 
-        let stolen = sched
-            .next_ready_or_steal_inner(w0(), root, true)
-            .unwrap()
-            .unwrap();
+        let stolen = sched.next_ready_or_steal_inner(w0(), root, true).unwrap().unwrap();
         assert_eq!(stolen.id, stealable);
         assert!(sched.is_ready(root));
         assert!(sched.is_ready(non_stealable));
@@ -825,22 +795,15 @@ mod tests {
         // background worker — is migratable and gets stolen.
         let mut sched = FiberScheduler::new(2);
         sched.spawn_existing(parked_fiber_with_baseline(0, 0));
-        let stolen = sched
-            .next_ready_or_steal_inner(w0(), FiberId(999), true)
-            .unwrap();
+        let stolen = sched.next_ready_or_steal_inner(w0(), FiberId(999), true).unwrap();
         assert!(stolen.is_some(), "shallow-baseline fiber must be stealable");
 
         // A continuation captured deep on worker 0's main VM cannot be rebased
         // onto a shallow worker VM, so it must stay on its home worker.
         let mut sched = FiberScheduler::new(2);
         sched.spawn_existing(parked_fiber_with_baseline(2, 14));
-        let stolen = sched
-            .next_ready_or_steal_inner(w0(), FiberId(999), true)
-            .unwrap();
-        assert!(
-            stolen.is_none(),
-            "deep-baseline continuation must not migrate to a shallow VM"
-        );
+        let stolen = sched.next_ready_or_steal_inner(w0(), FiberId(999), true).unwrap();
+        assert!(stolen.is_none(), "deep-baseline continuation must not migrate to a shallow VM");
         assert_eq!(sched.ready_count(WorkerId(1)), 1);
     }
 
@@ -852,9 +815,7 @@ mod tests {
         fiber.mark_parked();
         sched.spawn_existing(fiber);
 
-        let stolen = sched
-            .next_ready_or_steal_inner(w0(), FiberId(999), false)
-            .unwrap();
+        let stolen = sched.next_ready_or_steal_inner(w0(), FiberId(999), false).unwrap();
         assert!(stolen.is_none());
         assert_eq!(sched.ready_count(WorkerId(1)), 1);
     }

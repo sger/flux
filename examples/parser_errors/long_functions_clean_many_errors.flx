@@ -6,9 +6,9 @@
 //
 // This hash entry needs `:` between the key and value.
 //
-//   examples/parser_errors/long_functions_clean_many_errors.flx:190:22
+//   examples/parser_errors/long_functions_clean_many_errors.flx:181:22
 //     |
-// 190 |     let hash = { "a" 1 }
+// 181 |     let hash = { "a" 1 }
 //     |                      ^
 //
 // Hint:
@@ -22,9 +22,9 @@
 //
 // Missing comma between arguments.
 //
-//   examples/parser_errors/long_functions_clean_many_errors.flx:191:20
+//   examples/parser_errors/long_functions_clean_many_errors.flx:182:20
 //     |
-// 191 |     let _r = add(1 2)
+// 182 |     let _r = add(1 2)
 //     |                    ^
 //
 // Hint:
@@ -38,9 +38,9 @@
 //
 // This `else` branch needs to start with `{`.
 //
-//   examples/parser_errors/long_functions_clean_many_errors.flx:192:35
+//   examples/parser_errors/long_functions_clean_many_errors.flx:183:35
 //     |
-// 192 |     let _label = if true { "ok" } else "bad"
+// 183 |     let _label = if true { "ok" } else "bad"
 //     |                                   ^^^^
 //     |                                   ---- `else` starts here
 //
@@ -55,9 +55,9 @@
 //
 // This hash entry needs `:` between the key and value.
 //
-//   examples/parser_errors/long_functions_clean_many_errors.flx:193:22
+//   examples/parser_errors/long_functions_clean_many_errors.flx:184:22
 //     |
-// 193 |     let more = { "c" 3 }
+// 184 |     let more = { "c" 3 }
 //     |                      ^
 //
 // Hint:
@@ -71,9 +71,9 @@
 //
 // Missing comma between arguments.
 //
-//   examples/parser_errors/long_functions_clean_many_errors.flx:194:23
+//   examples/parser_errors/long_functions_clean_many_errors.flx:185:23
 //     |
-// 194 |     let _next = add(3 4)
+// 185 |     let _next = add(3 4)
 //     |                       ^
 //
 // Hint:
@@ -87,9 +87,9 @@
 //
 // This `else` branch needs to start with `{`.
 //
-//   examples/parser_errors/long_functions_clean_many_errors.flx:195:37
+//   examples/parser_errors/long_functions_clean_many_errors.flx:186:37
 //     |
-// 195 |     let again = if false { "left" } else "right"
+// 186 |     let again = if false { "left" } else "right"
 //     |                                     ^^^^
 //     |                                     ---- `else` starts here
 //
@@ -104,9 +104,9 @@
 //
 // This hash entry needs `:` between the key and value.
 //
-//   examples/parser_errors/long_functions_clean_many_errors.flx:199:22
+//   examples/parser_errors/long_functions_clean_many_errors.flx:190:22
 //     |
-// 199 |     let info = { "b" 2 }
+// 190 |     let info = { "b" 2 }
 //     |                      ^
 //
 // Hint:
@@ -120,9 +120,9 @@
 //
 // Missing comma between arguments.
 //
-//   examples/parser_errors/long_functions_clean_many_errors.flx:200:28
+//   examples/parser_errors/long_functions_clean_many_errors.flx:191:28
 //     |
-// 200 |     let _s = greet("Alice" "Bob")
+// 191 |     let _s = greet("Alice" "Bob")
 //     |                            ^^^^^
 //
 // Hint:
@@ -136,9 +136,9 @@
 //
 // This `else` branch needs to start with `{`.
 //
-//   examples/parser_errors/long_functions_clean_many_errors.flx:201:39
+//   examples/parser_errors/long_functions_clean_many_errors.flx:192:39
 //     |
-// 201 |     let _branch = if false { "left" } else "right"
+// 192 |     let _branch = if false { "left" } else "right"
 //     |                                       ^^^^
 //     |                                       ---- `else` starts here
 //
@@ -176,29 +176,20 @@
 // Found 12 errors and 3 notes.
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E034
-// expect-error: E073
-// expect-error: E034
-// expect-error: E034
-// expect-error: E073
-// expect-error: E034
-// expect-error: E034
-// expect-error: E073
-// expect-error: E034
 
 fn first_clean_long_function() -> Unit {
-    let hash = { "a" 1 }
-    let _r = add(1 2)
-    let _label = if true { "ok" } else "bad"
-    let more = { "c" 3 }
-    let _next = add(3 4)
-    let again = if false { "left" } else "right"
+    let hash = { "a" 1 } //~ E034
+    let _r = add(1 2) //~ E073
+    let _label = if true { "ok" } else "bad" //~ E034
+    let more = { "c" 3 } //~ E034
+    let _next = add(3 4) //~ E073
+    let again = if false { "left" } else "right" //~ E034
 }
 
 fn second_clean_long_function() -> Unit {
-    let info = { "b" 2 }
-    let _s = greet("Alice" "Bob")
-    let _branch = if false { "left" } else "right"
+    let info = { "b" 2 } //~ E034
+    let _s = greet("Alice" "Bob") //~ E073
+    let _branch = if false { "left" } else "right" //~ E034
     let more_data = { "d" 4 }
     let _call = greet("Carol" "Dave")
     let final_branch = if true { "up" } else "down"

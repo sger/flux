@@ -9,9 +9,9 @@ error[E300]: Type Mismatch
 
 I found a type mismatch.
 
-  examples/type_system/failing/91_adt_nested_pattern_binding_type_mismatch.flx:34:25
+  examples/type_system/failing/91_adt_nested_pattern_binding_type_mismatch.flx:11:25
    |
-34 |         Boxed(Ok(v)) -> v + "x",
+11 |         Boxed(Ok(v)) -> v + "x",
    |                         ^^^^^^^
    |                         ------- this expression has type `Int and String`
 

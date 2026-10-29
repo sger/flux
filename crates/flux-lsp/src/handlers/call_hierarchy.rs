@@ -85,10 +85,7 @@ pub fn item_gather(
 ) -> Option<CallHierarchyBundle> {
     let file = workspace.file_id(&item.uri)?;
     let files = scope_files(workspace, file);
-    Some(CallHierarchyBundle {
-        target: item.name.clone(),
-        files,
-    })
+    Some(CallHierarchyBundle { target: item.name.clone(), files })
 }
 
 /// Owned snapshot + uri for every file in `file`'s module-graph component,
@@ -184,10 +181,7 @@ pub fn outgoing_calls(
     let mut out = Vec::new();
     for (callee, from_ranges) in grouped {
         if let Some(to) = items.get(callee) {
-            out.push(CallHierarchyOutgoingCall {
-                to: to.clone(),
-                from_ranges,
-            });
+            out.push(CallHierarchyOutgoingCall { to: to.clone(), from_ranges });
         }
     }
     out.sort_by(|a, b| a.to.name.cmp(&b.to.name));
@@ -200,8 +194,7 @@ fn decl_items_by_name(bundle: &CallHierarchyBundle) -> HashMap<String, CallHiera
     let mut map = HashMap::new();
     for f in &bundle.files {
         for decl in function_decls(&f.snapshot.program, &f.snapshot.interner) {
-            map.entry(decl.name.clone())
-                .or_insert_with(|| make_item(&f.uri, &f.snapshot, &decl));
+            map.entry(decl.name.clone()).or_insert_with(|| make_item(&f.uri, &f.snapshot, &decl));
         }
     }
     map
@@ -263,14 +256,7 @@ fn collect_decls_stmt(
     out: &mut Vec<FnDecl>,
 ) {
     match stmt {
-        Statement::Function {
-            is_public,
-            name,
-            parameters,
-            body,
-            span,
-            ..
-        } => {
+        Statement::Function { is_public, name, parameters, body, span, .. } => {
             let body_owner = match interner.try_resolve(*name) {
                 Some(name_str) => {
                     let focus_start = decl_name_start(span.start, *is_public, "fn");
@@ -281,10 +267,8 @@ fn collect_decls_stmt(
                             column: focus_start.column + name_str.len(),
                         },
                     };
-                    let params: Vec<&str> = parameters
-                        .iter()
-                        .filter_map(|p| interner.try_resolve(*p))
-                        .collect();
+                    let params: Vec<&str> =
+                        parameters.iter().filter_map(|p| interner.try_resolve(*p)).collect();
                     let idx = out.len();
                     out.push(FnDecl {
                         name: name_str.to_string(),
@@ -328,11 +312,7 @@ fn collect_calls_expr(
     out: &mut Vec<FnDecl>,
 ) {
     match expr {
-        Expression::Call {
-            function,
-            arguments,
-            ..
-        } => {
+        Expression::Call { function, arguments, .. } => {
             if let Some(idx) = current
                 && let Some((callee, span)) = callee_name(function, interner)
             {
@@ -349,12 +329,7 @@ fn collect_calls_expr(
                 collect_decls_stmt(s, interner, current, out);
             }
         }
-        Expression::If {
-            condition,
-            consequence,
-            alternative,
-            ..
-        } => {
+        Expression::If { condition, consequence, alternative, .. } => {
             collect_calls_expr(condition, interner, current, out);
             for s in &consequence.statements {
                 collect_decls_stmt(s, interner, current, out);
@@ -370,9 +345,7 @@ fn collect_calls_expr(
             collect_calls_expr(left, interner, current, out);
             collect_calls_expr(right, interner, current, out);
         }
-        Expression::Match {
-            scrutinee, arms, ..
-        } => {
+        Expression::Match { scrutinee, arms, .. } => {
             collect_calls_expr(scrutinee, interner, current, out);
             for arm in arms {
                 if let Some(g) = &arm.guard {
@@ -413,12 +386,7 @@ fn collect_calls_expr(
                 collect_calls_expr(a, interner, current, out);
             }
         }
-        Expression::Handle {
-            expr,
-            parameter,
-            arms,
-            ..
-        } => {
+        Expression::Handle { expr, parameter, arms, .. } => {
             collect_calls_expr(expr, interner, current, out);
             if let Some(p) = parameter {
                 collect_calls_expr(p, interner, current, out);
@@ -435,9 +403,7 @@ fn collect_calls_expr(
                 }
             }
         }
-        Expression::Spread {
-            base, overrides, ..
-        } => {
+        Expression::Spread { base, overrides, .. } => {
             collect_calls_expr(base, interner, current, out);
             for field in overrides {
                 if let Some(v) = &field.value {
@@ -465,9 +431,9 @@ fn callee_name(func: &Expression, interner: &Interner) -> Option<(String, FluxSp
         Expression::Identifier { name, span, .. } => {
             interner.try_resolve(*name).map(|s| (s.to_string(), *span))
         }
-        Expression::MemberAccess { member, span, .. } => interner
-            .try_resolve(*member)
-            .map(|s| (s.to_string(), *span)),
+        Expression::MemberAccess { member, span, .. } => {
+            interner.try_resolve(*member).map(|s| (s.to_string(), *span))
+        }
         _ => None,
     }
 }

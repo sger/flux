@@ -20,9 +20,8 @@ use flux::{
     },
 };
 
-pub fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+use super::scratch;
+pub use scratch::workspace_root;
 
 pub fn semantic_fixture_root() -> PathBuf {
     workspace_root().join("tests/fixtures/semantic_types")
@@ -33,10 +32,7 @@ pub fn semantic_fixture_path(rel: &str) -> PathBuf {
 }
 
 pub fn first_error_code(diags: &[Diagnostic]) -> String {
-    diags
-        .iter()
-        .find_map(|diag| diag.code().map(str::to_string))
-        .unwrap_or_default()
+    diags.iter().find_map(|diag| diag.code().map(str::to_string)).unwrap_or_default()
 }
 
 pub struct InferredFixture {
@@ -103,13 +99,7 @@ fn collect_effect_sigs(
                 }
             }
         }
-        let TypeExpr::Function {
-            params,
-            ret,
-            effects,
-            ..
-        } = type_expr
-        else {
+        let TypeExpr::Function { params, ret, effects, .. } = type_expr else {
             panic!("effect operation signature must be function-shaped");
         };
         let mut implicit_type_params = HashSet::new();
@@ -147,10 +137,7 @@ fn collect_effect_sigs(
         let effect_row =
             InferEffectRow::from_effect_exprs(effects, &mut row_var_env, &mut next_var)
                 .expect("effect op effect row should lower");
-        generalize(
-            &InferType::Fun(param_tys, Box::new(ret_ty), effect_row),
-            &HashSet::new(),
-        )
+        generalize(&InferType::Fun(param_tys, Box::new(ret_ty), effect_row), &HashSet::new())
     }
 
     for statement in statements {
@@ -210,11 +197,7 @@ pub fn infer_fixture(rel: &str) -> InferredFixture {
             preloaded_adt_data: Vec::new(),
         },
     );
-    InferredFixture {
-        result,
-        interner,
-        source,
-    }
+    InferredFixture { result, interner, source }
 }
 
 pub fn compile_single_file_fixture(rel: &str) -> Result<CompiledFixture, Vec<Diagnostic>> {
@@ -223,12 +206,7 @@ pub fn compile_single_file_fixture(rel: &str) -> Result<CompiledFixture, Vec<Dia
     let (program, interner) = parse_source(&source);
     let mut compiler = Compiler::new_with_interner(rel, interner.clone());
     match compiler.compile(&program) {
-        Ok(()) => Ok(CompiledFixture {
-            compiler,
-            interner,
-            program,
-            source,
-        }),
+        Ok(()) => Ok(CompiledFixture { compiler, interner, program, source }),
         Err(diags) => Err(diags),
     }
 }
@@ -239,21 +217,14 @@ pub fn compile_module_fixture(rel: &str) -> Result<CompiledFixture, Vec<Diagnost
         .unwrap_or_else(|err| panic!("failed to read fixture {}: {err}", entry_path.display()));
     let (program, interner) = parse_source(&source);
     let fixture_root = semantic_fixture_root();
-    let entry_parent = entry_path
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| fixture_root.clone());
+    let entry_parent =
+        entry_path.parent().map(Path::to_path_buf).unwrap_or_else(|| fixture_root.clone());
     let roots = vec![entry_parent, fixture_root, workspace_root().join("lib")];
     let graph_result =
         ModuleGraph::build_with_entry_and_roots(&entry_path, &program, interner, &roots);
 
     let mut all_diags = graph_result.diagnostics.clone();
-    if DiagnosticsAggregator::new(&all_diags)
-        .report()
-        .counts
-        .errors
-        > 0
-    {
+    if DiagnosticsAggregator::new(&all_diags).report().counts.errors > 0 {
         return Err(all_diags);
     }
 
@@ -270,12 +241,7 @@ pub fn compile_module_fixture(rel: &str) -> Result<CompiledFixture, Vec<Diagnost
         }
     }
 
-    Ok(CompiledFixture {
-        interner: compiler.interner.clone(),
-        compiler,
-        program,
-        source,
-    })
+    Ok(CompiledFixture { interner: compiler.interner.clone(), compiler, program, source })
 }
 
 pub fn normalize_scheme(interner: &Interner, scheme: &Scheme) -> String {
@@ -324,17 +290,11 @@ pub fn assert_module_member_schemes(rel: &str, expected: &[(&str, &str, &str)]) 
             .interner
             .lookup(member_name)
             .unwrap_or_else(|| panic!("member `{member_name}` is not interned in {rel}"));
-        let scheme = compiled
-            .compiler
-            .cached_member_schemes()
-            .get(&(module, member))
-            .unwrap_or_else(|| {
+        let scheme =
+            compiled.compiler.cached_member_schemes().get(&(module, member)).unwrap_or_else(|| {
                 panic!("missing cached module scheme `{module_name}.{member_name}` in {rel}")
             });
         let got = normalize_scheme(&compiled.interner, scheme);
-        assert_eq!(
-            got, *expected_scheme,
-            "`{module_name}.{member_name}` in {rel}"
-        );
+        assert_eq!(got, *expected_scheme, "`{module_name}.{member_name}` in {rel}");
     }
 }

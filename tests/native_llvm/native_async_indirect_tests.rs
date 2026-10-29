@@ -2,35 +2,20 @@
 
 #![cfg(feature = "llvm")]
 
-use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
-#[path = "../support/scratch.rs"]
-mod scratch;
+use crate::support::scratch;
 use scratch::Scratch;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+use scratch::workspace_root;
 
 fn run_source(source: &str, tag: &str) -> (String, String, bool, Duration) {
-    let dir = workspace_root()
-        .join("target")
-        .join("test-scratch")
-        .join(format!(
-            "flux-native-async-indirect-{}-{}",
-            std::process::id(),
-            tag,
-        ));
-    std::fs::create_dir_all(&dir).expect("create temp dir");
-    let path = dir.join("fixture.flx");
-    std::fs::write(&path, source).expect("write fixture");
-
-    let start = std::time::Instant::now();
     // Private cache root: `--no-cache` does not isolate native
     // builds, which write shared artifacts regardless (KI-010).
-    let scratch = Scratch::new("native-llvm");
+    let scratch = Scratch::new(&format!("flux-native-async-indirect-{tag}"));
+    let path = scratch.write("fixture.flx", source);
+
+    let start = std::time::Instant::now();
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args([path.to_str().unwrap(), "--native", "--no-cache"])
@@ -189,10 +174,7 @@ fn main() with IO {
 }
 "#;
     let (stdout, stderr, success, _elapsed) = run_source(source, "try_body");
-    assert!(
-        success,
-        "native async try body must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "native async try body must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert_eq!(stdout.trim(), "Ok(42)");
 }
 
@@ -329,10 +311,7 @@ fn main() with IO {
 }
 "#;
     let (stdout, stderr, success, _elapsed) = run_source(source, "scope_body");
-    assert!(
-        success,
-        "native async scope body must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "native async scope body must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert_eq!(stdout.trim(), "77");
 }
 

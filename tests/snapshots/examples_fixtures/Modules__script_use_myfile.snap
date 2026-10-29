@@ -9,9 +9,9 @@ error[E018]: Import Not Found
 
 Cannot find module `Modules.Data.MyFile` to import.
 
-  examples/Modules/script_use_myfile.flx:4:1
+  examples/Modules/script_use_myfile.flx:3:1
   |
-4 | import Modules.Data.MyFile
+3 | import Modules.Data.MyFile
   | ^
 
 Hint:

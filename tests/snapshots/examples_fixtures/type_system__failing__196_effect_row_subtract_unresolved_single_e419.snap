@@ -9,9 +9,9 @@ error[E419]: Unresolved Effect Row
 
 I cannot resolve the effect variable `e` introduced by this call.
 
-  examples/type_system/failing/196_effect_row_subtract_unresolved_single_e419.flx:34:13
+  examples/type_system/failing/196_effect_row_subtract_unresolved_single_e419.flx:12:13
    |
-34 |     let _ = unresolved(1)
+12 |     let _ = unresolved(1)
    |             ^^^^^^^^^^
    |             ---------- this call leaves an effect variable unconstrained
 

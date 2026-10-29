@@ -29,11 +29,7 @@ pub fn render_header(
     _message: Option<&str>,
     use_color: bool,
 ) {
-    let colors = if use_color {
-        Colors::with_color()
-    } else {
-        Colors::no_color()
-    };
+    let colors = if use_color { Colors::with_color() } else { Colors::no_color() };
 
     if use_color {
         out.push_str(colors.yellow);
@@ -139,11 +135,7 @@ pub fn render_suggestions(
         return;
     }
 
-    let colors = if use_color {
-        Colors::with_color()
-    } else {
-        Colors::no_color()
-    };
+    let colors = if use_color { Colors::with_color() } else { Colors::no_color() };
 
     for suggestion in suggestions {
         let span = suggestion.span;
@@ -161,10 +153,7 @@ pub fn render_suggestions(
             if let Some(msg) = &suggestion.message {
                 out.push_str(&format!("help: {}\n", msg));
             } else {
-                out.push_str(&format!(
-                    "help: Replace with '{}'\n",
-                    suggestion.replacement
-                ));
+                out.push_str(&format!("help: Replace with '{}'\n", suggestion.replacement));
             }
             if use_color {
                 out.push_str(colors.reset);
@@ -189,12 +178,7 @@ pub fn render_suggestions(
             let replaced_line = format!("{}{}{}", prefix, suggestion.replacement, suffix);
 
             out.push_str("   |\n");
-            out.push_str(&format!(
-                "{:>width$} | {}\n",
-                line_no,
-                replaced_line,
-                width = line_width
-            ));
+            out.push_str(&format!("{:>width$} | {}\n", line_no, replaced_line, width = line_width));
 
             // Show tildes under the replacement
             out.push_str(&format!(
@@ -246,11 +230,7 @@ pub fn render_hints(
         return;
     }
 
-    let colors = if use_color {
-        Colors::with_color()
-    } else {
-        Colors::no_color()
-    };
+    let colors = if use_color { Colors::with_color() } else { Colors::no_color() };
 
     // Separate hints into those with and without spans
     let (text_hints, span_hints): (Vec<_>, Vec<_>) = hints.iter().partition(|h| h.span.is_none());
@@ -263,12 +243,7 @@ pub fn render_hints(
 
     // Render text-only hints grouped by kind
     // Order: Hint, Note, Help, Example
-    for kind in [
-        HintKind::Hint,
-        HintKind::Note,
-        HintKind::Help,
-        HintKind::Example,
-    ] {
+    for kind in [HintKind::Hint, HintKind::Note, HintKind::Help, HintKind::Example] {
         if let Some(hints) = hints_by_kind.get(&kind) {
             ensure_section_spacing(out);
             let (label, color) = match kind {
@@ -420,11 +395,7 @@ pub fn render_related(
         return;
     }
 
-    let colors = if use_color {
-        Colors::with_color()
-    } else {
-        Colors::no_color()
-    };
+    let colors = if use_color { Colors::with_color() } else { Colors::no_color() };
 
     for related_item in related {
         ensure_section_spacing(out);
@@ -488,11 +459,7 @@ pub fn render_stack_trace(out: &mut String, stack_trace: &[StackTraceFrame], use
         return;
     }
 
-    let colors = if use_color {
-        Colors::with_color()
-    } else {
-        Colors::no_color()
-    };
+    let colors = if use_color { Colors::with_color() } else { Colors::no_color() };
 
     ensure_section_spacing(out);
     if use_color {
@@ -570,9 +537,7 @@ fn header_label(severity: Severity) -> &'static str {
 }
 
 fn display_title_for_text(title: &str, display_title: Option<&str>) -> String {
-    display_title
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| humanize_title(title))
+    display_title.map(ToOwned::to_owned).unwrap_or_else(|| humanize_title(title))
 }
 
 fn humanize_title(title: &str) -> String {
@@ -580,18 +545,11 @@ fn humanize_title(title: &str) -> String {
     if trimmed.is_empty() {
         return "Diagnostic".to_string();
     }
-    if !trimmed
-        .chars()
-        .all(|ch| !ch.is_ascii_lowercase() || ch.is_whitespace())
-    {
+    if !trimmed.chars().all(|ch| !ch.is_ascii_lowercase() || ch.is_whitespace()) {
         return trimmed.to_string();
     }
 
-    trimmed
-        .split_whitespace()
-        .map(humanize_word)
-        .collect::<Vec<_>>()
-        .join(" ")
+    trimmed.split_whitespace().map(humanize_word).collect::<Vec<_>>().join(" ")
 }
 
 fn humanize_word(word: &str) -> String {

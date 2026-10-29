@@ -20,11 +20,7 @@ fn parse(input: &str) -> (Program, Interner) {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "Parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "Parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     (program, interner)
 }
@@ -36,10 +32,7 @@ fn rename_ident_in_let() {
     let sym_a = interner.intern("a");
     let sym_b = interner.intern("b");
 
-    let mut folder = RenameIdent {
-        from: sym_a,
-        to: sym_b,
-    };
+    let mut folder = RenameIdent { from: sym_a, to: sym_b };
 
     let rewritten = folder.fold_program(program);
 
@@ -60,10 +53,7 @@ fn rename_ident_in_expression() {
     let sym_a = interner.intern("a");
     let sym_b = interner.intern("b");
 
-    let mut folder = RenameIdent {
-        from: sym_a,
-        to: sym_b,
-    };
+    let mut folder = RenameIdent { from: sym_a, to: sym_b };
 
     let rewritten = folder.fold_program(program);
 
@@ -92,10 +82,7 @@ fn rename_preserves_other_idents() {
     let sym_x = interner.intern("x");
     let sym_y = interner.intern("y");
 
-    let mut folder = RenameIdent {
-        from: sym_a,
-        to: sym_b,
-    };
+    let mut folder = RenameIdent { from: sym_a, to: sym_b };
 
     let rewritten = folder.fold_program(program);
 
@@ -133,30 +120,25 @@ fn rename_in_function_parameters() {
     let sym_a = interner.intern("a");
     let sym_b = interner.intern("b");
 
-    let mut folder = RenameIdent {
-        from: sym_a,
-        to: sym_b,
-    };
+    let mut folder = RenameIdent { from: sym_a, to: sym_b };
 
     let rewritten = folder.fold_program(program);
 
     match &rewritten.statements[0] {
-        flux::syntax::statement::Statement::Function {
-            parameters, body, ..
-        } => {
+        flux::syntax::statement::Statement::Function { parameters, body, .. } => {
             // Parameter `a` should be renamed to `b`
             assert_eq!(parameters[0], sym_b);
 
             // Return value `a` should also be renamed to `b`
             match &body.statements[0] {
-                flux::syntax::statement::Statement::Return {
-                    value: Some(expr), ..
-                } => match expr {
-                    Expression::Identifier { name, .. } => {
-                        assert_eq!(*name, sym_b);
+                flux::syntax::statement::Statement::Return { value: Some(expr), .. } => {
+                    match expr {
+                        Expression::Identifier { name, .. } => {
+                            assert_eq!(*name, sym_b);
+                        }
+                        other => panic!("expected Identifier, got {:?}", other),
                     }
-                    other => panic!("expected Identifier, got {:?}", other),
-                },
+                }
                 other => panic!("expected Return statement, got {:?}", other),
             }
         }

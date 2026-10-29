@@ -36,6 +36,15 @@ fn is_trivial(expr: &CoreExpr) -> bool {
     matches!(expr, CoreExpr::Var { .. } | CoreExpr::Lit(_, _))
 }
 
+/// `Module.member`, where `Module` names an imported module, not a value.
+fn is_module_member(expr: &CoreExpr) -> bool {
+    matches!(
+        expr,
+        CoreExpr::MemberAccess { object, .. }
+            if matches!(object.as_ref(), CoreExpr::Var { var, .. } if var.binder.is_none())
+    )
+}
+
 /// Allocate a fresh binder for an ANF temporary with a known rep.
 fn fresh_anf_binder(next_id: &mut u32, rep: FluxRep) -> CoreBinder {
     let id = *next_id;
@@ -220,15 +229,12 @@ pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
 
 /// Wrap a body expression with accumulated let-bindings (innermost last).
 fn wrap_lets(bindings: Vec<(CoreBinder, CoreExpr)>, body: CoreExpr, span: Span) -> CoreExpr {
-    bindings
-        .into_iter()
-        .rev()
-        .fold(body, |acc, (binder, rhs)| CoreExpr::Let {
-            var: binder,
-            rhs: Box::new(rhs),
-            body: Box::new(acc),
-            span,
-        })
+    bindings.into_iter().rev().fold(body, |acc, (binder, rhs)| CoreExpr::Let {
+        var: binder,
+        rhs: Box::new(rhs),
+        body: Box::new(acc),
+        span,
+    })
 }
 
 /// Recursively ANF-normalize an expression.
@@ -238,13 +244,7 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => expr,
 
         // Lambda — normalize body only (params stay as-is).
-        CoreExpr::Lam {
-            params,
-            param_types,
-            result_ty,
-            body,
-            span,
-        } => CoreExpr::Lam {
+        CoreExpr::Lam { params, param_types, result_ty, body, span } => CoreExpr::Lam {
             params,
             param_types,
             result_ty,
@@ -256,7 +256,11 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
         CoreExpr::App { func, args, span } => {
             let mut bindings = Vec::new();
             let func = anf_expr(*func, next_id);
-            let func = anf_atom(func, next_id, &mut bindings);
+            // A module member stays the callee, so Aether can look up the
+            // imported function's signature: hoisted, it is a call to an
+            // unknown function, given arguments the function may only borrow.
+            let func =
+                if is_module_member(&func) { func } else { anf_atom(func, next_id, &mut bindings) };
             let args: Vec<CoreExpr> = args
                 .into_iter()
                 .map(|a| {
@@ -264,20 +268,11 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
                     anf_atom(a, next_id, &mut bindings)
                 })
                 .collect();
-            let app = CoreExpr::App {
-                func: Box::new(func),
-                args,
-                span,
-            };
+            let app = CoreExpr::App { func: Box::new(func), args, span };
             wrap_lets(bindings, app, span)
         }
         // Let — normalize RHS and body.
-        CoreExpr::Let {
-            var,
-            rhs,
-            body,
-            span,
-        } => CoreExpr::Let {
+        CoreExpr::Let { var, rhs, body, span } => CoreExpr::Let {
             var,
             rhs: Box::new(anf_expr(*rhs, next_id)),
             body: Box::new(anf_expr(*body, next_id)),
@@ -285,12 +280,7 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
         },
 
         // LetRec — normalize RHS and body.
-        CoreExpr::LetRec {
-            var,
-            rhs,
-            body,
-            span,
-        } => CoreExpr::LetRec {
+        CoreExpr::LetRec { var, rhs, body, span } => CoreExpr::LetRec {
             var,
             rhs: Box::new(anf_expr(*rhs, next_id)),
             body: Box::new(anf_expr(*body, next_id)),
@@ -298,11 +288,7 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
         },
 
         // LetRecGroup — normalize all RHS and body.
-        CoreExpr::LetRecGroup {
-            bindings,
-            body,
-            span,
-        } => CoreExpr::LetRecGroup {
+        CoreExpr::LetRecGroup { bindings, body, span } => CoreExpr::LetRecGroup {
             bindings: bindings
                 .into_iter()
                 .map(|(b, rhs)| (b, Box::new(anf_expr(*rhs, next_id))))
@@ -312,12 +298,7 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
         },
 
         // Case — normalize scrutinee to atom, normalize alt bodies.
-        CoreExpr::Case {
-            scrutinee,
-            alts,
-            join_ty,
-            span,
-        } => {
+        CoreExpr::Case { scrutinee, alts, join_ty, span } => {
             let mut bindings = Vec::new();
             let scrutinee = anf_expr(*scrutinee, next_id);
             let scrutinee = anf_atom(scrutinee, next_id, &mut bindings);
@@ -329,12 +310,7 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
                     alt
                 })
                 .collect();
-            let case = CoreExpr::Case {
-                scrutinee: Box::new(scrutinee),
-                alts,
-                join_ty,
-                span,
-            };
+            let case = CoreExpr::Case { scrutinee: Box::new(scrutinee), alts, join_ty, span };
             wrap_lets(bindings, case, span)
         }
 
@@ -371,20 +347,12 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
             let mut bindings = Vec::new();
             let value = anf_expr(*value, next_id);
             let value = anf_atom(value, next_id, &mut bindings);
-            let ret = CoreExpr::Return {
-                value: Box::new(value),
-                span,
-            };
+            let ret = CoreExpr::Return { value: Box::new(value), span };
             wrap_lets(bindings, ret, span)
         }
 
         // Perform — normalize args to atoms.
-        CoreExpr::Perform {
-            effect,
-            operation,
-            args,
-            span,
-        } => {
+        CoreExpr::Perform { effect, operation, args, span } => {
             let mut bindings = Vec::new();
             let args: Vec<CoreExpr> = args
                 .into_iter()
@@ -393,23 +361,12 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
                     anf_atom(a, next_id, &mut bindings)
                 })
                 .collect();
-            let perform = CoreExpr::Perform {
-                effect,
-                operation,
-                args,
-                span,
-            };
+            let perform = CoreExpr::Perform { effect, operation, args, span };
             wrap_lets(bindings, perform, span)
         }
 
         // Handle — normalize body and handler bodies.
-        CoreExpr::Handle {
-            body,
-            effect,
-            parameter,
-            handlers,
-            span,
-        } => CoreExpr::Handle {
+        CoreExpr::Handle { body, effect, parameter, handlers, span } => CoreExpr::Handle {
             body: Box::new(anf_expr(*body, next_id)),
             effect,
             parameter: parameter.map(|p| Box::new(anf_expr(*p, next_id))),
@@ -424,36 +381,20 @@ fn anf_expr(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
         },
 
         // MemberAccess — normalize object to atom.
-        CoreExpr::MemberAccess {
-            object,
-            member,
-            span,
-        } => {
+        CoreExpr::MemberAccess { object, member, span } => {
             let mut bindings = Vec::new();
             let object = anf_expr(*object, next_id);
             let object = anf_atom(object, next_id, &mut bindings);
-            let access = CoreExpr::MemberAccess {
-                object: Box::new(object),
-                member,
-                span,
-            };
+            let access = CoreExpr::MemberAccess { object: Box::new(object), member, span };
             wrap_lets(bindings, access, span)
         }
 
         // TupleField — normalize object to atom.
-        CoreExpr::TupleField {
-            object,
-            index,
-            span,
-        } => {
+        CoreExpr::TupleField { object, index, span } => {
             let mut bindings = Vec::new();
             let object = anf_expr(*object, next_id);
             let object = anf_atom(object, next_id, &mut bindings);
-            let field = CoreExpr::TupleField {
-                object: Box::new(object),
-                index,
-                span,
-            };
+            let field = CoreExpr::TupleField { object: Box::new(object), index, span };
             wrap_lets(bindings, field, span)
         }
     }

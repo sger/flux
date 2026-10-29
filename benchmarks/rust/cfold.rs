@@ -16,10 +16,7 @@ fn mk_expr(n: i64, v: i64) -> Expr {
     if n == 0 {
         if v == 0 { Expr::Var(()) } else { Expr::Val(v) }
     } else {
-        Expr::Add(
-            Box::new(mk_expr(n - 1, v + 1)),
-            Box::new(mk_expr(n - 1, dec(v))),
-        )
+        Expr::Add(Box::new(mk_expr(n - 1, v + 1)), Box::new(mk_expr(n - 1, dec(v))))
     }
 }
 
@@ -51,10 +48,9 @@ fn fold_add(left: Expr, right: Expr) -> Expr {
         (Expr::Val(a), Expr::Add(inner_left, inner_right)) => match (*inner_left, *inner_right) {
             (expr, Expr::Val(b)) => Expr::Add(Box::new(Expr::Val(a + b)), Box::new(expr)),
             (Expr::Val(b), expr) => Expr::Add(Box::new(Expr::Val(a + b)), Box::new(expr)),
-            (lhs, rhs) => Expr::Add(
-                Box::new(Expr::Val(a)),
-                Box::new(Expr::Add(Box::new(lhs), Box::new(rhs))),
-            ),
+            (lhs, rhs) => {
+                Expr::Add(Box::new(Expr::Val(a)), Box::new(Expr::Add(Box::new(lhs), Box::new(rhs))))
+            }
         },
         (lhs, rhs) => Expr::Add(Box::new(lhs), Box::new(rhs)),
     }
@@ -66,10 +62,9 @@ fn fold_mul(left: Expr, right: Expr) -> Expr {
         (Expr::Val(a), Expr::Mul(inner_left, inner_right)) => match (*inner_left, *inner_right) {
             (expr, Expr::Val(b)) => Expr::Mul(Box::new(Expr::Val(a * b)), Box::new(expr)),
             (Expr::Val(b), expr) => Expr::Mul(Box::new(Expr::Val(a * b)), Box::new(expr)),
-            (lhs, rhs) => Expr::Mul(
-                Box::new(Expr::Val(a)),
-                Box::new(Expr::Mul(Box::new(lhs), Box::new(rhs))),
-            ),
+            (lhs, rhs) => {
+                Expr::Mul(Box::new(Expr::Val(a)), Box::new(Expr::Mul(Box::new(lhs), Box::new(rhs))))
+            }
         },
         (lhs, rhs) => Expr::Mul(Box::new(lhs), Box::new(rhs)),
     }

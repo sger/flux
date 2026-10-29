@@ -48,12 +48,7 @@ const MAX_NESTING_DEPTH: usize = 4;
 
 impl<'a> Linter<'a> {
     pub fn new(file: Option<String>, interner: &'a Interner) -> Self {
-        Self {
-            scopes: vec![HashMap::new()],
-            warnings: Vec::new(),
-            file,
-            interner,
-        }
+        Self { scopes: vec![HashMap::new()], warnings: Vec::new(), file, interner }
     }
 
     pub fn lint(mut self, program: &Program) -> Vec<Diagnostic> {
@@ -147,14 +142,7 @@ impl<'a> Linter<'a> {
             );
         }
         if let Some(scope) = self.scopes.last_mut() {
-            scope.insert(
-                name,
-                BindingInfo {
-                    position,
-                    used: false,
-                    kind,
-                },
-            );
+            scope.insert(name, BindingInfo { position, used: false, kind });
         }
     }
 
@@ -259,12 +247,7 @@ impl<'a> Linter<'a> {
     /// `f: (() -> Int with Console + Clock)` are also caught.
     fn check_effect_style_in_type(&mut self, ty: &TypeExpr) {
         match ty {
-            TypeExpr::Function {
-                params,
-                ret,
-                effects,
-                ..
-            } => {
+            TypeExpr::Function { params, ret, effects, .. } => {
                 self.check_effect_separator_style(effects);
                 for p in params {
                     self.check_effect_style_in_type(p);
@@ -367,9 +350,7 @@ impl<'ast, 'a> Visitor<'ast> for Linter<'a> {
 
     fn visit_stmt(&mut self, stmt: &'ast Statement) {
         match stmt {
-            Statement::Let {
-                name, value, span, ..
-            } => {
+            Statement::Let { name, value, span, .. } => {
                 self.visit_expr(value);
                 self.define_binding(*name, span.start, BindingKind::Let);
             }
@@ -377,11 +358,7 @@ impl<'ast, 'a> Visitor<'ast> for Linter<'a> {
                 self.visit_expr(value);
                 self.extract_pattern_bindings(pattern);
             }
-            Statement::Assign {
-                name,
-                value,
-                span: _,
-            } => {
+            Statement::Assign { name, value, span: _ } => {
                 self.mark_used(*name);
                 self.visit_expr(value);
             }
@@ -426,23 +403,14 @@ impl<'ast, 'a> Visitor<'ast> for Linter<'a> {
                 self.lint_block_statements(&body.statements);
                 self.finish_scope();
             }
-            Statement::Import {
-                name,
-                alias,
-                except: _,
-                exposing: _,
-                span,
-            } => {
+            Statement::Import { name, alias, except: _, exposing: _, span } => {
                 let name_str = self.sym(*name);
                 if !is_valid_module_name(name_str) {
                     self.push_warning(
                         "IMPORT NAME STYLE",
                         "W006",
                         span.start,
-                        format!(
-                            "`{}` should use UpperCamelCase segments separated by dots.",
-                            name
-                        ),
+                        format!("`{}` should use UpperCamelCase segments separated by dots.", name),
                     );
                 }
                 let binding = alias.unwrap_or(*name);
@@ -490,9 +458,7 @@ impl<'ast, 'a> Visitor<'ast> for Linter<'a> {
                 self.lint_block_statements(&body.statements);
                 self.finish_scope();
             }
-            Expression::Match {
-                scrutinee, arms, ..
-            } => {
+            Expression::Match { scrutinee, arms, .. } => {
                 self.visit_expr(scrutinee);
                 for arm in arms {
                     self.enter_scope();
@@ -527,8 +493,6 @@ fn is_snake_case(name: &str) -> bool {
     if trimmed.is_empty() {
         return true;
     }
-    trimmed
-        .chars()
-        .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_')
+    trimmed.chars().all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_')
         && !trimmed.contains("__")
 }

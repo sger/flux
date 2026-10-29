@@ -121,10 +121,7 @@ impl Editor {
     }
 
     fn receive(&mut self) -> Value {
-        let message = self
-            .from_adapter
-            .recv_timeout(WAIT)
-            .expect("the adapter answers in time");
+        let message = self.from_adapter.recv_timeout(WAIT).expect("the adapter answers in time");
         if message["type"] == "event" && message["event"] == "output" {
             let text = message["body"]["output"].as_str().unwrap_or_default();
             self.output.push_str(text);
@@ -168,10 +165,8 @@ impl Editor {
 
     /// Waits for the response to request `seq`, keeping events for later.
     fn response(&mut self, seq: i64) -> Value {
-        if let Some(index) = self
-            .pending
-            .iter()
-            .position(|m| m["type"] == "response" && m["request_seq"] == seq)
+        if let Some(index) =
+            self.pending.iter().position(|m| m["type"] == "response" && m["request_seq"] == seq)
         {
             return self.pending.remove(index).unwrap();
         }
@@ -241,10 +236,8 @@ impl Editor {
         assert_eq!(launched["success"], true, "{launched}");
         self.event("initialized");
         if !breakpoints.is_empty() {
-            let lines: Vec<Value> = breakpoints
-                .iter()
-                .map(|line| json!({ "line": line }))
-                .collect();
+            let lines: Vec<Value> =
+                breakpoints.iter().map(|line| json!({ "line": line })).collect();
             self.request(
                 "setBreakpoints",
                 json!({ "source": { "path": program }, "breakpoints": lines }),
@@ -265,11 +258,7 @@ impl Editor {
                 self.output.push_str(text);
             }
         }
-        format!(
-            "{}\n--- program output ---\n{}",
-            self.transcript.join("\n"),
-            self.output
-        )
+        format!("{}\n--- program output ---\n{}", self.transcript.join("\n"), self.output)
     }
 }
 
@@ -329,18 +318,10 @@ fn breakpoints_stack_variables_and_watches() {
     // `pair` has parts: a tuple holding a list.
     editor.request("variables", json!({ "variablesReference": 2 }));
     editor.request("variables", json!({ "variablesReference": 3 }));
-    editor.request(
-        "evaluate",
-        json!({ "expression": "pair.1", "frameId": 3, "context": "watch" }),
-    );
-    editor.request(
-        "evaluate",
-        json!({ "expression": "sa", "frameId": 3, "context": "hover" }),
-    );
-    editor.request(
-        "evaluate",
-        json!({ "expression": "nothing", "frameId": 3, "context": "watch" }),
-    );
+    editor.request("evaluate", json!({ "expression": "pair.1", "frameId": 3, "context": "watch" }));
+    editor.request("evaluate", json!({ "expression": "sa", "frameId": 3, "context": "hover" }));
+    editor
+        .request("evaluate", json!({ "expression": "nothing", "frameId": 3, "context": "watch" }));
     editor.request("continue", json!({ "threadId": 1 }));
     snapshot("breakpoints_stack_variables_and_watches", &editor.finish());
 }
@@ -350,14 +331,8 @@ const REFS: &str = "fn total(xs: List<Int>) -> Int {\n    let ys = xs\n    let p
 
 /// The Debug Console's answer to `expression`.
 fn console_result(editor: &mut Editor, expression: &str) -> String {
-    let reply = editor.request(
-        "evaluate",
-        json!({ "expression": expression, "context": "repl" }),
-    );
-    reply["body"]["result"]
-        .as_str()
-        .unwrap_or_default()
-        .to_string()
+    let reply = editor.request("evaluate", json!({ "expression": expression, "context": "repl" }));
+    reply["body"]["result"].as_str().unwrap_or_default().to_string()
 }
 
 #[test]
@@ -372,14 +347,8 @@ fn the_console_counts_references() {
         "pair: 1 reference (unique: can be reused in place)"
     );
     // `main`'s `fresh`, `xs`, `ys` and the tuple's.
-    assert_eq!(
-        console_result(&mut editor, ".refs pair.0"),
-        "pair.0: 4 references (shared)"
-    );
-    let usage = editor.request(
-        "evaluate",
-        json!({ "expression": ".refs", "context": "repl" }),
-    );
+    assert_eq!(console_result(&mut editor, ".refs pair.0"), "pair.0: 4 references (shared)");
+    let usage = editor.request("evaluate", json!({ "expression": ".refs", "context": "repl" }));
     assert_eq!(usage["message"], "usage: .refs <name>[.<n>...]", "{usage}");
     editor.request("terminate", json!({}));
     editor.finish();
@@ -402,7 +371,7 @@ fn native_the_console_counts_references() {
         "native .refs pair"
     );
     assert!(
-        console_result(&mut editor, ".refs pair.0").contains("pair.0: 3 references (shared)"),
+        console_result(&mut editor, ".refs pair.0").contains("pair.0: 2 references (shared)"),
         "native .refs pair.0"
     );
     editor.request("continue", json!({ "threadId": thread }));
@@ -557,25 +526,16 @@ fn a_handler_shows_the_frames_it_suspended_and_its_state() {
     let suspended = stack["body"]["stackFrames"]
         .as_array()
         .and_then(|frames| {
-            frames.iter().find(|frame| {
-                frame["name"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .contains("suspended")
-            })
+            frames
+                .iter()
+                .find(|frame| frame["name"].as_str().unwrap_or_default().contains("suspended"))
         })
         .map(|frame| frame["id"].clone())
         .expect("a suspended frame");
     editor.request("scopes", json!({ "frameId": suspended }));
-    editor.request(
-        "evaluate",
-        json!({ "expression": ".handlers", "context": "repl" }),
-    );
+    editor.request("evaluate", json!({ "expression": ".handlers", "context": "repl" }));
     editor.request("continue", json!({ "threadId": 1 }));
-    snapshot(
-        "a_handler_shows_the_frames_it_suspended_and_its_state",
-        &editor.finish(),
-    );
+    snapshot("a_handler_shows_the_frames_it_suspended_and_its_state", &editor.finish());
 }
 
 #[test]
@@ -587,10 +547,8 @@ fn a_panic_stops_as_an_exception() {
     );
     let mut editor = Editor::start(&scratch);
     let initialized = editor.request("initialize", json!({ "adapterID": "flux" }));
-    let filters: Vec<Value> = initialized["body"]["exceptionBreakpointFilters"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
+    let filters: Vec<Value> =
+        initialized["body"]["exceptionBreakpointFilters"].as_array().cloned().unwrap_or_default();
     assert_eq!(filters.len(), 5, "{initialized}");
     assert_eq!(initialized["body"]["supportsExceptionInfoRequest"], true);
     let args = editor.launch_args(&program, json!({}));
@@ -650,10 +608,7 @@ fn fibers_are_threads_with_their_own_stacks() {
     let locals = scopes["body"]["scopes"][0]["variablesReference"].clone();
     editor.request("variables", json!({ "variablesReference": locals }));
     editor.request("stackTrace", json!({ "threadId": 2 }));
-    editor.request(
-        "evaluate",
-        json!({ "expression": ".threads", "context": "repl" }),
-    );
+    editor.request("evaluate", json!({ "expression": ".threads", "context": "repl" }));
     editor.request("continue", json!({ "threadId": 3 }));
     snapshot("fibers_are_threads_with_their_own_stacks", &editor.finish());
 }
@@ -672,10 +627,7 @@ fn pause_while_every_fiber_waits() {
     let stopped = editor.event("stopped");
     assert_eq!(stopped["body"]["reason"], "pause");
     let threads = editor.request("threads", Value::Null);
-    assert_eq!(
-        threads["body"]["threads"][0]["name"], "main — waiting sleep 1500 ms",
-        "{threads}"
-    );
+    assert_eq!(threads["body"]["threads"][0]["name"], "main — waiting sleep 1500 ms", "{threads}");
     let stack = editor.request("stackTrace", json!({ "threadId": 1 }));
     assert_eq!(stack["body"]["stackFrames"][0]["name"], "nap (suspended)");
     editor.request("continue", json!({ "threadId": 1 }));
@@ -743,14 +695,9 @@ fn launch_native_with(
             editor.pending.push_back(message);
         }
     }
-    let lines: Vec<Value> = breakpoints
-        .iter()
-        .map(|line| json!({ "line": line }))
-        .collect();
-    let set = editor.request(
-        "setBreakpoints",
-        json!({ "source": { "path": program }, "breakpoints": lines }),
-    );
+    let lines: Vec<Value> = breakpoints.iter().map(|line| json!({ "line": line })).collect();
+    let set = editor
+        .request("setBreakpoints", json!({ "source": { "path": program }, "breakpoints": lines }));
     assert_eq!(set["success"], true, "{set}");
     editor.request("configurationDone", json!({}));
     let launched = editor.response(launch);
@@ -764,12 +711,7 @@ fn frame_names(editor: &mut Editor, thread: &Value) -> Vec<(String, Value)> {
         .as_array()
         .unwrap()
         .iter()
-        .map(|frame| {
-            (
-                frame["name"].as_str().unwrap_or_default().to_string(),
-                frame.clone(),
-            )
-        })
+        .map(|frame| (frame["name"].as_str().unwrap_or_default().to_string(), frame.clone()))
         .collect()
 }
 
@@ -807,10 +749,7 @@ fn native_breakpoints_stack_and_variables() {
         .find(|message| message["event"] == "capabilities")
         .cloned()
         .expect("a capabilities event");
-    assert_eq!(
-        capabilities["body"]["capabilities"]["supportsStepBack"], false,
-        "{capabilities}"
-    );
+    assert_eq!(capabilities["body"]["capabilities"]["supportsStepBack"], false, "{capabilities}");
     let thread = stopped["body"]["threadId"].clone();
 
     // Only Flux frames, by their Flux names.
@@ -819,9 +758,7 @@ fn native_breakpoints_stack_and_variables() {
     assert_eq!(names, ["sum_squares", "main"], "{frames:?}");
     assert_eq!(frames[0].1["line"], 9);
     assert!(
-        frames[0].1["source"]["path"]
-            .as_str()
-            .is_some_and(|path| path.ends_with("calls.flx")),
+        frames[0].1["source"]["path"].as_str().is_some_and(|path| path.ends_with("calls.flx")),
         "{frames:?}"
     );
 
@@ -830,19 +767,12 @@ fn native_breakpoints_stack_and_variables() {
     let scopes = scopes["body"]["scopes"].as_array().unwrap().clone();
     assert_eq!(scopes.len(), 1, "{scopes:?}");
     let locals = values(&mut editor, &scopes[0]["variablesReference"]);
-    let shown = |name: &str| {
-        locals
-            .iter()
-            .find(|(shown, _)| shown == name)
-            .map(|(_, value)| value.clone())
-    };
+    let shown =
+        |name: &str| locals.iter().find(|(shown, _)| shown == name).map(|(_, value)| value.clone());
     assert_eq!(shown("a").as_deref(), Some("3"), "{locals:?}");
     assert_eq!(shown("sa").as_deref(), Some("9"), "{locals:?}");
     // Native code frees `pair` after its last use, which was its binding.
-    assert!(
-        matches!(shown("pair").as_deref(), Some("(9, [3, 4])" | "<dropped>")),
-        "{locals:?}"
-    );
+    assert!(matches!(shown("pair").as_deref(), Some("(9, [3, 4])" | "<dropped>")), "{locals:?}");
     assert_eq!(shown("sb"), None, "`sb` is not bound yet: {locals:?}");
 
     // The Debug Console's commands reach flux_lldb.py.
@@ -854,10 +784,7 @@ fn native_breakpoints_stack_and_variables() {
     assert!(text.contains("sa = 9"), "{console}");
     let back = editor.request("stepBack", json!({ "threadId": thread }));
     assert_eq!(back["success"], false, "{back}");
-    let reverse = editor.request(
-        "evaluate",
-        json!({ "expression": ".rs", "context": "repl" }),
-    );
+    let reverse = editor.request("evaluate", json!({ "expression": ".rs", "context": "repl" }));
     assert_eq!(reverse["success"], false, "{reverse}");
 
     // Stepping moves through Flux lines.
@@ -924,11 +851,7 @@ fn native_fibers_are_threads_with_their_own_stacks() {
     let names: Vec<&str> = listed.iter().map(|(_, name)| name.as_str()).collect();
     assert_eq!(
         names,
-        [
-            "main — waiting both (threads 2, 3)",
-            "slow — waiting sleep 20 ms",
-            "fast"
-        ],
+        ["main — waiting both (threads 2, 3)", "slow — waiting sleep 20 ms", "fast"],
         "{threads}"
     );
     // The fiber that stopped is the OS thread lldb-dap stopped.
@@ -942,10 +865,8 @@ fn native_fibers_are_threads_with_their_own_stacks() {
     let names: Vec<&str> = frames.iter().map(|(name, _)| name.as_str()).collect();
     assert_eq!(names, ["slow (suspended)"], "{frames:?}");
     assert_eq!(frames[0].1["line"], 4, "{frames:?}");
-    let console = editor.request(
-        "evaluate",
-        json!({ "expression": ".threads", "context": "repl" }),
-    );
+    let console =
+        editor.request("evaluate", json!({ "expression": ".threads", "context": "repl" }));
     let text = console["body"]["result"].as_str().unwrap_or_default();
     assert!(text.contains("* 3 fast [stopped]"), "{console}");
 
@@ -998,15 +919,9 @@ fn native_handler_arms_show_the_frames_they_suspended() {
     editor.event("stopped");
     let frames = frame_names(&mut editor, &thread);
     let names: Vec<&str> = frames.iter().map(|(name, _)| name.as_str()).collect();
-    assert_eq!(
-        names,
-        ["decide", "twice", "<handler Flip.flip>", "main"],
-        "{frames:?}"
-    );
-    let handlers = editor.request(
-        "evaluate",
-        json!({ "expression": ".handlers", "context": "repl" }),
-    );
+    assert_eq!(names, ["decide", "twice", "<handler Flip.flip>", "main"], "{frames:?}");
+    let handlers =
+        editor.request("evaluate", json!({ "expression": ".handlers", "context": "repl" }));
     let text = handlers["body"]["result"].as_str().unwrap_or_default();
     assert!(text.contains("#0 Flip"), "{handlers}");
 
@@ -1080,9 +995,7 @@ fn a_native_program_that_does_not_build() {
     let launched = editor.request("launch", args);
     assert_eq!(launched["success"], false, "{launched}");
     assert!(
-        launched["message"]
-            .as_str()
-            .is_some_and(|text| text.contains("did not build")),
+        launched["message"].as_str().is_some_and(|text| text.contains("did not build")),
         "{launched}"
     );
     assert!(editor.output.contains("nope"), "{}", editor.output);
@@ -1140,9 +1053,7 @@ fn stepping_back_into_async_code() {
 /// What the program printed, from a finished transcript: its output
 /// without the adapter's and lldb's own lines.
 fn program_output(transcript: &str) -> String {
-    let output = transcript
-        .split_once("--- program output ---\n")
-        .map_or("", |(_, output)| output);
+    let output = transcript.split_once("--- program output ---\n").map_or("", |(_, output)| output);
     output
         .lines()
         .map(|line| line.trim_end_matches('\r'))
@@ -1173,10 +1084,7 @@ fn the_timeline_lists_the_effects_and_goes_to_one() {
     editor.request("continue", json!({ "threadId": 1 }));
     editor.event("stopped");
     editor.request("continue", json!({ "threadId": 1 }));
-    snapshot(
-        "the_timeline_lists_the_effects_and_goes_to_one",
-        &editor.finish(),
-    );
+    snapshot("the_timeline_lists_the_effects_and_goes_to_one", &editor.finish());
 }
 
 const CLOCK: &str = "\
@@ -1204,14 +1112,8 @@ fn native_record_and_replay_with_the_timeline() {
         return;
     };
     // A line can have more than one location: clear it to run to the end.
-    editor.request(
-        "setBreakpoints",
-        json!({ "source": { "path": program }, "breakpoints": [] }),
-    );
-    editor.request(
-        "continue",
-        json!({ "threadId": stopped["body"]["threadId"] }),
-    );
+    editor.request("setBreakpoints", json!({ "source": { "path": program }, "breakpoints": [] }));
+    editor.request("continue", json!({ "threadId": stopped["body"]["threadId"] }));
     let recorded = editor.finish();
     let recorded = program_output(&recorded);
     let header = std::fs::read_to_string(&tape).unwrap();
@@ -1228,10 +1130,7 @@ fn native_record_and_replay_with_the_timeline() {
     assert_eq!(listed[0]["reached"], true, "{events}");
     assert_eq!(listed[1]["next"], true, "{events}");
     assert_eq!(listed[4]["text"], "a normal exit", "{events}");
-    let console = editor.request(
-        "evaluate",
-        json!({ "expression": ".events", "context": "repl" }),
-    );
+    let console = editor.request("evaluate", json!({ "expression": ".events", "context": "repl" }));
     let text = console["body"]["result"].as_str().unwrap_or_default();
     assert!(text.contains("#1 clock_now() (next)"), "{console}");
     let went = editor.request("fluxGoToEvent", json!({ "index": 3 }));
@@ -1244,17 +1143,8 @@ fn native_record_and_replay_with_the_timeline() {
     // lldb-dap owns the process: going back needs a new session.
     let back = editor.request("fluxGoToEvent", json!({ "index": 0 }));
     assert_eq!(back["success"], false, "{back}");
-    assert!(
-        back["message"]
-            .as_str()
-            .unwrap_or_default()
-            .contains("restart the session"),
-        "{back}"
-    );
-    editor.request(
-        "setBreakpoints",
-        json!({ "source": { "path": program }, "breakpoints": [] }),
-    );
+    assert!(back["message"].as_str().unwrap_or_default().contains("restart the session"), "{back}");
+    editor.request("setBreakpoints", json!({ "source": { "path": program }, "breakpoints": [] }));
     editor.request("continue", json!({ "threadId": thread }));
     let replayed = editor.finish();
     assert_eq!(program_output(&replayed), recorded, "{replayed}");

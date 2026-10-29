@@ -1,6 +1,4 @@
 // expect: compile_error
-// expect-error: E443
-// expect-error: E001
 
 // Two instances of the same class for the same type.
 //
@@ -16,7 +14,7 @@ instance Sizeable<Int> {
     fn size(x) { x }
 }
 
-instance Sizeable<Int> {
+instance Sizeable<Int> { //~ E443
     fn size(x) { x + 1 }
 }
 

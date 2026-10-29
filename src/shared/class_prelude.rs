@@ -27,9 +27,7 @@ pub const FLOW_CLASS_PRELUDE_MODULES: &[(&str, &str)] = &[
 
 /// Whether `module_name` is one of the class-prelude modules.
 pub fn is_class_prelude_module(module_name: &str) -> bool {
-    FLOW_CLASS_PRELUDE_MODULES
-        .iter()
-        .any(|(name, _)| *name == module_name)
+    FLOW_CLASS_PRELUDE_MODULES.iter().any(|(name, _)| *name == module_name)
 }
 
 /// The import statements that bring the class prelude into scope, minus any

@@ -241,9 +241,7 @@ impl SolveOutcome {
     /// can `.cloned()`, and callers feeding an existing collection can
     /// `.extend()` without an intermediate `Vec`.
     pub fn diagnostics(&self) -> impl Iterator<Item = &Diagnostic> {
-        self.dispositions
-            .iter()
-            .filter_map(|entry| entry.disposition.diagnostic())
+        self.dispositions.iter().filter_map(|entry| entry.disposition.diagnostic())
     }
 
     /// Consume the outcome, yielding its diagnostics by value.
@@ -251,12 +249,10 @@ impl SolveOutcome {
     /// Preferred over `diagnostics().cloned()` where the outcome is no longer
     /// needed: the diagnostics are moved out instead of duplicated.
     pub fn into_diagnostics(self) -> impl Iterator<Item = Diagnostic> {
-        self.dispositions
-            .into_iter()
-            .filter_map(|entry| match entry.disposition {
-                Disposition::Diagnosed { diagnostic } => Some(*diagnostic),
-                _ => None,
-            })
+        self.dispositions.into_iter().filter_map(|entry| match entry.disposition {
+            Disposition::Diagnosed { diagnostic } => Some(*diagnostic),
+            _ => None,
+        })
     }
 
     /// The predicates that could not be decided at this scope.
@@ -335,32 +331,26 @@ impl SolveOutcome {
     }
 
     pub fn stuck(&self) -> impl Iterator<Item = (&DispositionedConstraint, StuckReason)> {
-        self.dispositions
-            .iter()
-            .filter_map(|entry| match entry.disposition {
-                Disposition::Stuck { reason } => Some((entry, reason)),
-                _ => None,
-            })
+        self.dispositions.iter().filter_map(|entry| match entry.disposition {
+            Disposition::Stuck { reason } => Some((entry, reason)),
+            _ => None,
+        })
     }
 
     /// The predicates that were discharged, with their evidence.
     pub fn evidence(&self) -> impl Iterator<Item = (&WantedClassConstraint, &Evidence)> {
-        self.dispositions
-            .iter()
-            .filter_map(|entry| match &entry.disposition {
-                Disposition::Solved { evidence } => Some((&entry.wanted, evidence)),
-                _ => None,
-            })
+        self.dispositions.iter().filter_map(|entry| match &entry.disposition {
+            Disposition::Solved { evidence } => Some((&entry.wanted, evidence)),
+            _ => None,
+        })
     }
 
     /// The constraints retained on the enclosing binding's scheme.
     pub fn generalized(&self) -> impl Iterator<Item = &SchemeConstraint> {
-        self.dispositions
-            .iter()
-            .filter_map(|entry| match &entry.disposition {
-                Disposition::Generalized { scheme_constraint } => Some(scheme_constraint),
-                _ => None,
-            })
+        self.dispositions.iter().filter_map(|entry| match &entry.disposition {
+            Disposition::Generalized { scheme_constraint } => Some(scheme_constraint),
+            _ => None,
+        })
     }
 }
 
@@ -413,9 +403,7 @@ mod tests {
             dispositions: vec![
                 DispositionedConstraint {
                     wanted: wanted(eq),
-                    disposition: Disposition::Solved {
-                        evidence: Evidence::Marker,
-                    },
+                    disposition: Disposition::Solved { evidence: Evidence::Marker },
                 },
                 DispositionedConstraint {
                     wanted: wanted(num),
@@ -429,9 +417,7 @@ mod tests {
                 },
                 DispositionedConstraint {
                     wanted: wanted(show),
-                    disposition: Disposition::Stuck {
-                        reason: StuckReason::OuterScopeVariable,
-                    },
+                    disposition: Disposition::Stuck { reason: StuckReason::OuterScopeVariable },
                 },
                 DispositionedConstraint {
                     wanted: wanted(ord),
@@ -464,9 +450,7 @@ mod tests {
         let outcome = SolveOutcome {
             dispositions: vec![DispositionedConstraint {
                 wanted: wanted(eq),
-                disposition: Disposition::Stuck {
-                    reason: StuckReason::UnknownClass,
-                },
+                disposition: Disposition::Stuck { reason: StuckReason::UnknownClass },
             }],
         };
         let reasons: Vec<StuckReason> = outcome.stuck().map(|(_, reason)| reason).collect();
@@ -481,9 +465,7 @@ mod tests {
             dispositions: vec![
                 DispositionedConstraint {
                     wanted: wanted(eq),
-                    disposition: Disposition::Solved {
-                        evidence: Evidence::Unrecorded,
-                    },
+                    disposition: Disposition::Solved { evidence: Evidence::Unrecorded },
                 },
                 DispositionedConstraint {
                     wanted: wanted(eq),
@@ -502,22 +484,10 @@ mod tests {
     #[test]
     fn only_diagnosed_is_an_error() {
         assert!(
-            Disposition::Diagnosed {
-                diagnostic: Box::new(diagnostic_for(&NO_INSTANCE))
-            }
-            .is_error()
+            Disposition::Diagnosed { diagnostic: Box::new(diagnostic_for(&NO_INSTANCE)) }
+                .is_error()
         );
-        assert!(
-            !Disposition::Solved {
-                evidence: Evidence::Marker
-            }
-            .is_error()
-        );
-        assert!(
-            !Disposition::Stuck {
-                reason: StuckReason::SyntheticOrigin
-            }
-            .is_error()
-        );
+        assert!(!Disposition::Solved { evidence: Evidence::Marker }.is_error());
+        assert!(!Disposition::Stuck { reason: StuckReason::SyntheticOrigin }.is_error());
     }
 }

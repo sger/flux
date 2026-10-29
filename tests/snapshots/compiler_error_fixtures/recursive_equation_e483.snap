@@ -9,9 +9,9 @@ error[E483]: Recursive Associated Type
 
 Associated type `Element` reduces to a type mentioning `Element`.
 
-  examples/compiler_errors/recursive_equation_e483.flx:19:5
+  examples/compiler_errors/recursive_equation_e483.flx:18:5
    |
-19 |     type Element<List<a>> = Element<List<a>>
+18 |     type Element<List<a>> = Element<List<a>>
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 == stdout ==
 <not executed>

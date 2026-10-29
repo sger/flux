@@ -9,9 +9,9 @@ error[E034]: Missing Effect Operation Colon
 
 Missing `:` in effect operation signature. Write it as `op: Type -> Return`.
 
-  examples/parser_errors/modules_many_errors/BrokenEffect.flx:38:15
+  examples/parser_errors/modules_many_errors/BrokenEffect.flx:36:15
    |
-38 |         print String -> Unit,,
+36 |         print String -> Unit,,
    |               ^^^^^^
 
 Note:
@@ -22,9 +22,9 @@ error[E034]: Invalid Effect Operation
 
 I was expecting an operation name in this `effect` declaration, but I found `,`.
 
-  examples/parser_errors/modules_many_errors/BrokenEffect.flx:38:30
+  examples/parser_errors/modules_many_errors/BrokenEffect.flx:36:30
    |
-38 |         print String -> Unit,,
+36 |         print String -> Unit,,
    |                              ^
 
 Note:
@@ -35,11 +35,11 @@ error[E034]: Missing Function Body
 
 This function body needs to start with `{`.
 
-  examples/parser_errors/modules_many_errors/BrokenFn.flx:50:9
+  examples/parser_errors/modules_many_errors/BrokenFn.flx:48:9
    |
-49 |     pub fn greet(name: String) -> String
+47 |     pub fn greet(name: String) -> String
    |         - `greet` starts here
-50 |         "Hello, " + name
+48 |         "Hello, " + name
    |         ^^^^^^^^^
    |         --------- This looks like the function body
 
@@ -54,11 +54,11 @@ error[E034]: Missing Function Body
 
 This function body needs to start with `{`.
 
-  examples/parser_errors/modules_many_errors/BrokenFn.flx:53:9
+  examples/parser_errors/modules_many_errors/BrokenFn.flx:51:9
    |
-52 |     pub fn parting(name: String) -> String
+50 |     pub fn parting(name: String) -> String
    |         - `parting` starts here
-53 |         "Goodbye, " + name
+51 |         "Goodbye, " + name
    |         ^^^^^^^^^^^
    |         ----------- This looks like the function body
 
@@ -73,9 +73,9 @@ error[E034]: Missing Match Arm Arrow
 
 I was expecting `->` in this match arm, but I found a string literal.
 
-  examples/parser_errors/modules_many_errors/BrokenMatch.flx:26:15
+  examples/parser_errors/modules_many_errors/BrokenMatch.flx:25:15
    |
-26 |             0 "zero",
+25 |             0 "zero",
    |               ^^^^^^
 
 Note:

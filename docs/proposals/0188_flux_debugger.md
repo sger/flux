@@ -830,7 +830,7 @@ Natively, as built in S8b (`src/runtime/async/native_abi.rs`,
   a continuation resumes on has no location in it, so a breakpoint there
   resolves only where the line runs first.
 - **Proxy.** lldb-dap's threads are replaced by `flux threads --json`: the
-  stopped fiber keeps its OS thread id, a waiting one is `5_000_000 + N`
+  stopped fiber keeps its OS thread id, a waiting one is `2^49 + N`
   with frames from `flux bt --json --thread N`. Sessions run with
   `FLUX_WORKERS=1`.
 - **Builds.** `dsymutil` takes one of two machine-wide lock slots

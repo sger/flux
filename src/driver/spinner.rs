@@ -46,20 +46,14 @@ impl Spinner {
     /// terminal.
     pub(crate) fn start(message: &str) -> Self {
         if !should_animate() {
-            return Self {
-                stop: Arc::new(AtomicBool::new(true)),
-                handle: None,
-            };
+            return Self { stop: Arc::new(AtomicBool::new(true)), handle: None };
         }
 
         let stop = Arc::new(AtomicBool::new(false));
         let label = message.to_string();
         let flag = Arc::clone(&stop);
         let handle = thread::spawn(move || animate(&label, &flag));
-        Self {
-            stop,
-            handle: Some(handle),
-        }
+        Self { stop, handle: Some(handle) }
     }
 
     /// Stop the animation and erase the line.

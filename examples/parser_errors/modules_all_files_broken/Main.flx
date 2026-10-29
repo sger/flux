@@ -1,34 +1,14 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
 // parity-expected-stderr-begin
-// • 1 error • examples/parser_errors/modules_all_files_broken/Main.flx
-// error[E034]: Missing Function Body
-//
-// This function body needs to start with `{`.
-//
-//   examples/parser_errors/modules_all_files_broken/Main.flx:101:5
-//     |
-// 100 | fn main() -> Unit
-//     | - `main` starts here
-// 101 |     print("parser torture entry")
-//     |     ^^^^^
-//     |     ----- This looks like the function body
-//
-// Note:
-//   while parsing function `main`
-//
-// Help:
-//   Try adding `{` after the function signature.
-//
-//
 // • 2 errors • examples/parser_errors/modules_all_files_broken/BrokenEffect.flx
 // error[E034]: Missing Effect Operation Colon
 //
 // Missing `:` in effect operation signature. Write it as `op: Type -> Return`.
 //
-//   examples/parser_errors/modules_all_files_broken/BrokenEffect.flx:38:15
+//   examples/parser_errors/modules_all_files_broken/BrokenEffect.flx:36:15
 //    |
-// 38 |         print String -> Unit,,
+// 36 |         print String -> Unit,,
 //    |               ^^^^^^
 //
 // Note:
@@ -39,9 +19,9 @@
 //
 // I was expecting an operation name in this `effect` declaration, but I found `,`.
 //
-//   examples/parser_errors/modules_all_files_broken/BrokenEffect.flx:38:30
+//   examples/parser_errors/modules_all_files_broken/BrokenEffect.flx:36:30
 //    |
-// 38 |         print String -> Unit,,
+// 36 |         print String -> Unit,,
 //    |                              ^
 //
 // Note:
@@ -53,11 +33,11 @@
 //
 // This function body needs to start with `{`.
 //
-//   examples/parser_errors/modules_all_files_broken/BrokenFn.flx:28:9
+//   examples/parser_errors/modules_all_files_broken/BrokenFn.flx:27:9
 //    |
-// 27 |     pub fn greet(name: String) -> String
+// 26 |     pub fn greet(name: String) -> String
 //    |         - `greet` starts here
-// 28 |         "Hello, " + name
+// 27 |         "Hello, " + name
 //    |         ^^^^^^^^^
 //    |         --------- This looks like the function body
 //
@@ -73,9 +53,9 @@
 //
 // I was expecting `->` in this match arm, but I found a string literal.
 //
-//   examples/parser_errors/modules_all_files_broken/BrokenMatch.flx:26:15
+//   examples/parser_errors/modules_all_files_broken/BrokenMatch.flx:25:15
 //    |
-// 26 |             0 "zero",
+// 25 |             0 "zero",
 //    |               ^^^^^^
 //
 // Note:
@@ -84,19 +64,37 @@
 // Help:
 //   Write match arms as `match x { pattern -> body, ... }`.
 //
+//
+// • 1 error • examples/parser_errors/modules_all_files_broken/Main.flx
+// error[E034]: Missing Function Body
+//
+// This function body needs to start with `{`.
+//
+//   examples/parser_errors/modules_all_files_broken/Main.flx:99:5
+//    |
+// 98 | fn main() -> Unit
+//    | - `main` starts here
+// 99 |     print("parser torture entry")
+//    |     ^^^^^
+//    |     ----- This looks like the function body
+//
+// Note:
+//   while parsing function `main`
+//
+// Help:
+//   Try adding `{` after the function signature.
+//
 // Found 5 errors across 4 modules.
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E034
-// expect-error: E034
-// expect-error: E034
-// expect-error: E034
-// expect-error: E034
 
+//~ BrokenEffect.flx:36 E034 E034
+//~ BrokenFn.flx:27 E034
+//~ BrokenMatch.flx:25 E034
 import BrokenFn
 import BrokenMatch
 import BrokenEffect
 
 fn main() -> Unit
-    print("parser torture entry")
+    print("parser torture entry") //~ E034
 

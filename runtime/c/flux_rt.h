@@ -58,7 +58,9 @@ static inline int flux_is_ptr(int64_t val) {
 }
 
 static inline int64_t flux_tag_int(int64_t raw) {
-    return (raw << 1) | 1;
+    /* Shifted unsigned: a left shift of a negative signed value is undefined
+     * in C (UBSan reports it, 0190 S15); the bits are the same. */
+    return (int64_t)(((uint64_t)raw << 1) | 1);
 }
 
 static inline int64_t flux_untag_int(int64_t val) {
@@ -115,6 +117,7 @@ static inline double flux_unbox_float(int64_t val) {
 #define FLUX_OBJ_EVIDENCE 0xF7
 #define FLUX_OBJ_FLOAT    0xF8
 #define FLUX_OBJ_THUNK    0xF9
+#define FLUX_OBJ_MAP      0xFA
 
 static inline uint8_t flux_obj_tag(void *ptr) {
     /* Read obj_tag from the FluxHeader at ptr - 8.
@@ -177,8 +180,12 @@ extern __thread int flux_worker_thread;
  * worker boundaries; flux_rc_is_shared reports the current mode. */
 void flux_dup(int64_t val);
 void flux_drop(int64_t val);
+/* flux_dup on each of `n` values: what a primop copies out of a value it was
+ * lent, since the lender may release that value right after the call. */
+void flux_dup_range(const int64_t *vals, uint32_t n);
 int  flux_rc_is_unique(int64_t val);
 int  flux_rc_is_shared(int64_t val);
+int  flux_rc_is_thread_local(int64_t val);
 void flux_rc_promote(int64_t val);
 
 /* Concurrency / Task<a> (proposal 0174 D5-b/c). Implemented in tasks.c
@@ -854,6 +861,19 @@ void    flux_panic_unhooked(int64_t msg);
  * debugger hook, then the message and the Flux trace, as a panic nothing
  * catches. A `try` does not catch it: the heap is no longer sound. */
 void    flux_heap_fault(const char *msg, uint32_t len);
+#ifdef FLUX_DEBUG_HEAP
+/* At the program's normal end, with the debug heap and FLUX_LEAK_CHECK set
+ * (`flux --leak-check`): names up to ten blocks nothing freed, with where
+ * each was allocated, and exits with FLUX_EXIT_LEAK. Returns when every
+ * block was freed, or when the check is off (0190 S15). */
+#define FLUX_EXIT_LEAK 3
+void    flux_debug_heap_report_leaks(void);
+/* At the program's normal end, with the debug heap and FLUX_HEAP_STATS
+ * set: one stderr line, `heap: allocs=N frees=N live=N`, counting every
+ * block the program allocated and freed. Exact, since every block goes through the debug
+ * allocator; the oracle 0189's steps are checked against. */
+void    flux_debug_heap_report_stats(void);
+#endif
 /* Reports an effect no handler covers and aborts. */
 void    flux_unhandled_effect(const char *where, int64_t htag);
 /* Prints the Flux frames the program is in to stderr, from its line table
@@ -939,14 +959,18 @@ int64_t flux_ho_find(int64_t collection, int64_t func);
 /* Evidence vector management. */
 int64_t flux_evv_get(void);
 void    flux_evv_set(int64_t evv);
+int64_t flux_effect_catch_point(void);
+void    flux_effect_unwound(int64_t evv);
 int64_t flux_fresh_marker(void);
-int64_t flux_evv_insert(int64_t evv, int64_t htag, int64_t marker, int64_t handler, int64_t state);
+int64_t flux_evv_insert(int64_t evv, int64_t htag, int64_t marker, int64_t handler, int64_t state,
+                        int64_t tail_resumptive);
 
 /* Yield operations. */
 int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity);
 int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t resume, int64_t arity);
 int64_t flux_yield_extend(int64_t cont);
-int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result);
+int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result,
+                          int64_t own_evv);
 int64_t flux_compose_conts(void);
 int32_t flux_is_yielding(void);
 void   *flux_effect_context_capture(void);

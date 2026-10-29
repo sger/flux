@@ -16,33 +16,12 @@
 //!     reserves its result constructors.
 //!   * `Flow.Async` declares its own `Result` and must keep working.
 
-use std::path::Path;
 use std::process::Command;
 
-#[path = "../support/scratch.rs"]
-mod scratch;
-use scratch::Scratch;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
-
-fn run_flux_test(fixture: &str) -> (String, bool) {
-    let path = workspace_root().join("tests").join("flux").join(fixture);
-    let scratch = Scratch::new(fixture.trim_end_matches(".flx"));
-    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(workspace_root())
-        .args(["--test", path.to_str().unwrap(), "--no-cache"])
-        .args(scratch.cache_args())
-        .output()
-        .unwrap_or_else(|e| panic!("failed to run flux --test on {fixture}: {e}"));
-
-    let stdout = String::from_utf8_lossy(&output.stdout)
-        .replace("\r\n", "\n")
-        .trim()
-        .to_string();
-    (stdout, output.status.success())
-}
+use crate::support::flux_runner;
+use flux_runner::run_flux_test;
+use flux_runner::scratch::Scratch;
+use flux_runner::workspace_root;
 
 /// Run a snippet through the VM and return `(stdout, stderr, success)`.
 fn run_source(name: &str, source: &str) -> (String, String, bool) {
@@ -103,10 +82,7 @@ fn main() -> Unit {
          stdout:\n{stdout}\nstderr:\n{stderr}"
     );
     assert!(stdout.contains("ok:1"), "expected ok:1, got:\n{stdout}");
-    assert!(
-        stdout.contains("err:boom"),
-        "expected err:boom, got:\n{stdout}"
-    );
+    assert!(stdout.contains("err:boom"), "expected err:boom, got:\n{stdout}");
 }
 
 /// `Ok`/`Err` are ordinary constructor names, not reserved words. Several
@@ -133,10 +109,7 @@ fn main() -> Unit {
         success,
         "a user-declared Result must keep working.\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    assert!(
-        stdout.contains("local ok 5"),
-        "expected the local constructor to win, got:\n{stdout}"
-    );
+    assert!(stdout.contains("local ok 5"), "expected the local constructor to win, got:\n{stdout}");
 }
 
 /// A user `data` declaration reusing `Ok`/`Err` must work alongside an
@@ -156,10 +129,7 @@ fn main() -> Unit {
 }
 "#,
     );
-    assert!(
-        success,
-        "a user data decl may reuse Ok/Err.\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "a user data decl may reuse Ok/Err.\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(stdout.contains("mine 9"), "expected mine 9, got:\n{stdout}");
 }
 
@@ -187,10 +157,7 @@ fn main() -> Unit {
         "Flow.Async's Result must not collide with Flow.Result's.\n\
          stdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    assert!(
-        stdout.contains("flow-result 3"),
-        "expected flow-result 3, got:\n{stdout}"
-    );
+    assert!(stdout.contains("flow-result 3"), "expected flow-result 3, got:\n{stdout}");
 }
 
 /// `Result` carries no effects: it is a plain data type, so a function that
@@ -212,10 +179,7 @@ fn main() -> Unit {
 }
 "#,
     );
-    assert!(
-        success,
-        "Result combinators must be pure.\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "Result combinators must be pure.\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert!(stdout.contains('8'), "expected 8, got:\n{stdout}");
     assert!(stdout.contains("-1"), "expected -1, got:\n{stdout}");
 }

@@ -2,6 +2,12 @@
 // expect: success
 // bug: top-level pure expressions (no main) may fail on the native backend
 //       when top-level bindings are not emitted before their use sites.
+// parity-expected-stdout-begin
+// 10
+// 15
+// 30
+// 900
+// parity-expected-stdout-end
 
 let a = 10
 let b = a + 5

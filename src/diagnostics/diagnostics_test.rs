@@ -41,9 +41,8 @@ fn diagnostic_position_uses_span_start() {
 
 #[test]
 fn aggregator_deduplicates_identical_diagnostics() {
-    let diag = Diagnostic::warning("OOPS")
-        .with_message("boom")
-        .with_error_type(ErrorType::Compiler);
+    let diag =
+        Diagnostic::warning("OOPS").with_message("boom").with_error_type(ErrorType::Compiler);
     let diagnostics = vec![diag.clone(), diag];
 
     let report = DiagnosticsAggregator::new(&diagnostics).report();
@@ -66,10 +65,7 @@ fn render_display_path_strips_cwd_prefix() {
 
 #[test]
 fn render_display_path_strips_windows_verbatim_prefix() {
-    let cwd = std::env::current_dir()
-        .unwrap()
-        .to_string_lossy()
-        .replace('\\', "/");
+    let cwd = std::env::current_dir().unwrap().to_string_lossy().replace('\\', "/");
     let under_cwd = format!("{cwd}/src/main.rs");
     let verbatim = if let Some(rest) = under_cwd.strip_prefix('/') {
         format!("//?/{rest}")

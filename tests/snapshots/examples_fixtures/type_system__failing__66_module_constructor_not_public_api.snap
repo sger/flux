@@ -3,19 +3,24 @@ source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/66_module_constructor_not_public_api.flx
 == compile ==
-failed (module)
+failed (compile)
 == diagnostics ==
-error[E018]: Import Not Found
+error[E086]: Cross-Module Constructor Access
 
-Cannot find module `TypeSystem.GenericResultTree` to import.
+Direct constructor access `Node` from module `TypeSystem.GenericResultTree` is not allowed in strict mode.
 
-  examples/type_system/failing/66_module_constructor_not_public_api.flx:55:1
+  examples/type_system/failing/66_module_constructor_not_public_api.flx:13:14
    |
-55 | import TypeSystem.GenericResultTree
-   | ^
+13 |     let _t = TypeSystem.GenericResultTree.Node( //~ E086
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+14 |         TypeSystem.GenericResultTree.Leaf(TypeSystem.GenericResultTree.Ok(1)),
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+15 |         TypeSystem.GenericResultTree.Leaf(TypeSystem.GenericResultTree.Err("x")),
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+16 |     )
+   | ^^^^^
 
 Hint:
-  Check that: 1) The module file exists (e.g., `TypeSystem.GenericResultTree.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `TypeSystem.GenericResultTree` under roots: examples/type_system/failing, src, lib (imported from examples/type_system/failing/66_module_constructor_not_public_api.flx).
+  Use the module's public factory/accessor functions instead.
 == stdout ==
 <not executed>

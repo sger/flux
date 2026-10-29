@@ -63,9 +63,7 @@ fn diagnostics_public_items_require_rustdoc() {
     // Scoped to `src/diagnostics` deliberately. This guard came from
     // `crates/flux-diagnostics`, where `CARGO_MANIFEST_DIR/src` *was* the
     // diagnostics tree; at the workspace root that path is the whole compiler.
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("src")
-        .join("diagnostics");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("diagnostics");
     let mut files = Vec::new();
     collect_rs_files(&root, &mut files);
     files.sort();
@@ -90,11 +88,7 @@ fn diagnostics_public_items_require_rustdoc() {
                 continue;
             }
             if !has_preceding_doc_block(&lines, line_idx) {
-                violations.push(format!(
-                    "{}:{} missing rustdoc",
-                    file.display(),
-                    line_idx + 1
-                ));
+                violations.push(format!("{}:{} missing rustdoc", file.display(), line_idx + 1));
             }
         }
     }

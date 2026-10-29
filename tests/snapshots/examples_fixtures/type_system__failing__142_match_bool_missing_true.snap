@@ -9,13 +9,13 @@ error[E015]: Non-Exhaustive Match
 
 Match is not exhaustive: 1 missing pattern.
 
-  examples/type_system/failing/142_match_bool_missing_true.flx:27:14
+  examples/type_system/failing/142_match_bool_missing_true.flx:8:14
    |
-27 |     let _x = match b {
-   |              ^^^^^^^^^
-28 |         false -> 0
+ 8 |     let _x = match b { //~ E015
+   |              ^^^^^^^^^^^^^^^^^^
+ 9 |         false -> 0
    | ^^^^^^^^^^^^^^^^^^
-29 |     }
+10 |     }
    | ^^^^^
 
 Hint:

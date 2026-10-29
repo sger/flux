@@ -3,6 +3,12 @@ members = [".", "crates/flux-lsp", "crates/flux-dap", "xtask"]
 exclude = ["vendor/clipboard-win-stub"]
 resolver = "2"
 
+# The lints rust-lang/rust adds to every in-tree crate. CI's clippy runs with
+# -D warnings, so a new one fails there.
+[workspace.lints.rust]
+rust_2018_idioms = { level = "warn", priority = -1 }
+unused_lifetimes = "warn"
+
 # Replace `rustyline`'s transitive `clipboard-win` dependency (Windows-only) with a
 # local no-op stub. clipboard-win's Win32 clipboard/bitmap imports made small
 # unsigned flux binaries trip Windows Defender's ML heuristic
@@ -13,7 +19,7 @@ clipboard-win = { path = "vendor/clipboard-win-stub" }
 
 [package]
 name = "flux"
-version = "0.0.7"
+version = "0.0.8"
 edition = "2024"
 authors = ["Spiros Gerokostas <spiros.gerokostas@gmail.com>"]
 license = "MIT"
@@ -32,6 +38,9 @@ repl = ["dep:rustyline"]
 
 [lib]
 crate-type = ["rlib", "staticlib"]
+
+[lints]
+workspace = true
 
 [dependencies]
 sha2 = "0.10"
@@ -171,750 +180,73 @@ name = "flux_proc_helper"
 path = "tests/support/proc_helper.rs"
 
 # -----------------------------------------------------------------------------
-# Tests moved into phase subdirectories. Test binary names are
-# kept identical to the old flat filenames so insta snapshot prefixes do not
-# drift.
+# One test binary per phase folder; each file in the folder is a module of
+# its `main.rs` (tests/README.md).
 # -----------------------------------------------------------------------------
 
 [[test]]
-name = "aether_cli_snapshots"
-path = "tests/aether/cli_snapshots.rs"
+name = "aether"
+path = "tests/aether/main.rs"
 
 [[test]]
-name = "aether_core_regressions"
-path = "tests/aether/core_regressions.rs"
+name = "ast_passes"
+path = "tests/ast_passes/main.rs"
 
 [[test]]
-name = "aether_fbip_diagnostics"
-path = "tests/aether/fbip_diagnostics.rs"
+name = "lexer"
+path = "tests/lexer/main.rs"
 
 [[test]]
-name = "ast_complexity_tests"
-path = "tests/ast_passes/complexity_tests.rs"
+name = "parser"
+path = "tests/parser/main.rs"
 
 [[test]]
-name = "ast_constant_fold_tests"
-path = "tests/ast_passes/constant_fold_tests.rs"
+name = "core_ir"
+path = "tests/core_ir/main.rs"
 
 [[test]]
-name = "ast_desugar_tests"
-path = "tests/ast_passes/desugar_tests.rs"
+name = "bytecode"
+path = "tests/bytecode/main.rs"
 
 [[test]]
-name = "ast_fold_smoke"
-path = "tests/ast_passes/fold_smoke.rs"
+name = "vm_runtime"
+path = "tests/vm_runtime/main.rs"
 
 [[test]]
-name = "ast_free_vars_tests"
-path = "tests/ast_passes/free_vars_tests.rs"
+name = "native_llvm"
+path = "tests/native_llvm/main.rs"
 
 [[test]]
-name = "ast_rename_tests"
-path = "tests/ast_passes/rename_tests.rs"
+name = "integration"
+path = "tests/integration/main.rs"
 
 [[test]]
-name = "ast_tail_position_tests"
-path = "tests/ast_passes/tail_position_tests.rs"
+name = "flume"
+path = "tests/flume/main.rs"
 
 [[test]]
-name = "ast_visit_smoke"
-path = "tests/ast_passes/visit_smoke.rs"
+name = "type_inference"
+path = "tests/type_inference/main.rs"
 
 [[test]]
-name = "tail_call_tests"
-path = "tests/ast_passes/tail_call_tests.rs"
+name = "debug"
+path = "tests/debug/main.rs"
 
 [[test]]
-name = "lexer_tests"
-path = "tests/lexer/lexer_tests.rs"
+name = "diagnostics"
+path = "tests/diagnostics/main.rs"
 
 [[test]]
-name = "token_tests"
-path = "tests/lexer/token_tests.rs"
+name = "examples"
+path = "tests/examples/main.rs"
 
 [[test]]
-name = "token_type_tests"
-path = "tests/lexer/token_type_tests.rs"
+name = "error_fixtures"
+path = "tests/error_fixtures/main.rs"
 
 [[test]]
-name = "interner_span_tests"
-path = "tests/lexer/interner_span_tests.rs"
-
-[[test]]
-name = "perf_parse_ops"
-path = "tests/lexer/perf_parse_ops.rs"
-
-[[test]]
-name = "parser_tests"
-path = "tests/parser/parser_tests.rs"
-
-[[test]]
-name = "parser_recovery"
-path = "tests/parser/parser_recovery.rs"
-
-[[test]]
-name = "list_literal_syntax_tests"
-path = "tests/parser/list_literal_syntax_tests.rs"
-
-[[test]]
-name = "span_tests"
-path = "tests/parser/span_tests.rs"
-
-[[test]]
-name = "linter_tests"
-path = "tests/parser/linter_tests.rs"
-
-[[test]]
-name = "core_type_contract_matrix_tests"
-path = "tests/core_ir/core_type_contract_matrix_tests.rs"
-
-[[test]]
-name = "primop_compiler_lowering_tests"
-path = "tests/core_ir/primop_compiler_lowering_tests.rs"
-
-[[test]]
-name = "primop_effect_summary_tests"
-path = "tests/core_ir/primop_effect_summary_tests.rs"
-
-[[test]]
-name = "backend_representation_runtime_tests"
-path = "tests/core_ir/backend_representation_runtime_tests.rs"
-
-[[test]]
-name = "ir_pipeline_tests"
-path = "tests/core_ir/ir_pipeline_tests.rs"
-
-[[test]]
-name = "op_code_tests"
-path = "tests/bytecode/op_code_tests.rs"
-
-[[test]]
-name = "superinstruction_tests"
-path = "tests/bytecode/superinstruction_tests.rs"
-
-[[test]]
-name = "cmp_jump_fusion_tests"
-path = "tests/bytecode/cmp_jump_fusion_tests.rs"
-
-[[test]]
-name = "vm_tests"
-path = "tests/vm_runtime/vm_tests.rs"
-
-[[test]]
-name = "program_tests"
-path = "tests/vm_runtime/program_tests.rs"
-
-[[test]]
-name = "contextual_instance_runtime_tests"
-path = "tests/vm_runtime/contextual_instance_runtime_tests.rs"
-
-[[test]]
-name = "stackless_drop_native"
-path = "tests/vm_runtime/stackless_drop_native.rs"
-
-[[test]]
-name = "runtime_list_index_tests"
-path = "tests/vm_runtime/runtime_list_index_tests.rs"
-
-[[test]]
-name = "stdlib_list_tail_recursive"
-path = "tests/vm_runtime/stdlib_list_tail_recursive.rs"
-
-[[test]]
-name = "stdlib_path_tests"
-path = "tests/vm_runtime/stdlib_path_tests.rs"
-
-[[test]]
-name = "stdlib_result_tests"
-path = "tests/vm_runtime/stdlib_result_tests.rs"
-
-[[test]]
-name = "stdlib_io_tests"
-path = "tests/vm_runtime/stdlib_io_tests.rs"
-
-[[test]]
-name = "stdlib_fs_tests"
-path = "tests/vm_runtime/stdlib_fs_tests.rs"
-
-[[test]]
-name = "stdlib_crypto_tests"
-path = "tests/vm_runtime/stdlib_crypto_tests.rs"
-
-[[test]]
-name = "stdlib_list_tests"
-path = "tests/vm_runtime/stdlib_list_tests.rs"
-
-[[test]]
-name = "aether_collection_ownership_tests"
-path = "tests/vm_runtime/aether_collection_ownership_tests.rs"
-
-[[test]]
-name = "stdlib_list_native_tests"
-path = "tests/native_llvm/stdlib_list_native_tests.rs"
-
-[[test]]
-name = "aether_collection_ownership_native_tests"
-path = "tests/native_llvm/aether_collection_ownership_tests.rs"
-
-[[test]]
-name = "stdlib_option_tests"
-path = "tests/vm_runtime/stdlib_option_tests.rs"
-
-[[test]]
-name = "stdlib_either_tests"
-path = "tests/vm_runtime/stdlib_either_tests.rs"
-
-[[test]]
-name = "stdlib_map_tests"
-path = "tests/vm_runtime/stdlib_map_tests.rs"
-
-[[test]]
-name = "fn_shadowing_tests"
-path = "tests/vm_runtime/fn_shadowing_tests.rs"
-
-[[test]]
-name = "generics_tests"
-path = "tests/vm_runtime/generics_tests.rs"
-
-[[test]]
-name = "stdlib_array_tests"
-path = "tests/vm_runtime/stdlib_array_tests.rs"
-
-[[test]]
-name = "stdlib_string_numeric_math_tests"
-path = "tests/vm_runtime/stdlib_string_numeric_math_tests.rs"
-
-[[test]]
-name = "stdlib_stream_tests"
-path = "tests/vm_runtime/stdlib_stream_tests.rs"
-
-[[test]]
-name = "stdlib_option_native_tests"
-path = "tests/native_llvm/stdlib_option_native_tests.rs"
-
-[[test]]
-name = "stdlib_either_native_tests"
-path = "tests/native_llvm/stdlib_either_native_tests.rs"
-
-[[test]]
-name = "stdlib_map_native_tests"
-path = "tests/native_llvm/stdlib_map_native_tests.rs"
-
-[[test]]
-name = "stdlib_array_native_tests"
-path = "tests/native_llvm/stdlib_array_native_tests.rs"
-
-[[test]]
-name = "qualified_class_method_dispatch_tests"
-path = "tests/integration/qualified_class_method_dispatch_tests.rs"
-
-[[test]]
-name = "named_field_class_dispatch_tests"
-path = "tests/integration/named_field_class_dispatch_tests.rs"
-
-[[test]]
-name = "stdlib_env_tests"
-path = "tests/vm_runtime/stdlib_env_tests.rs"
-
-[[test]]
-name = "stdlib_process_tests"
-path = "tests/vm_runtime/stdlib_process_tests.rs"
-
-[[test]]
-name = "stdlib_discovery_tests"
-path = "tests/integration/stdlib_discovery_tests.rs"
-
-[[test]]
-name = "project_root_tests"
-path = "tests/integration/project_root_tests.rs"
-
-[[test]]
-name = "package_registry_tests"
-path = "tests/integration/package_registry_tests.rs"
-
-[[test]]
-name = "package_git_tests"
-path = "tests/integration/package_git_tests.rs"
-
-[[test]]
-name = "package_build_tests"
-path = "tests/integration/package_build_tests.rs"
-
-[[test]]
-name = "package_cli_tests"
-path = "tests/integration/package_cli_tests.rs"
-
-[[test]]
-name = "package_store_publish_workspace_tests"
-path = "tests/integration/package_store_publish_workspace_tests.rs"
-
-[[test]]
-name = "package_tree_tests"
-path = "tests/integration/package_tree_tests.rs"
-
-[[test]]
-name = "imported_constructor_types_tests"
-path = "tests/type_inference/imported_constructor_types_tests.rs"
-
-[[test]]
-name = "imported_ctor_payload_forwarding_tests"
-path = "tests/type_inference/imported_ctor_payload_forwarding_tests.rs"
-
-[[test]]
-name = "flume_version_tests"
-path = "tests/flume/flume_version_tests.rs"
-
-[[test]]
-name = "flume_toml_tests"
-path = "tests/flume/flume_toml_tests.rs"
-
-[[test]]
-name = "flume_plan_tests"
-path = "tests/flume/flume_plan_tests.rs"
-
-[[test]]
-name = "flume_build_plan_tests"
-path = "tests/flume/flume_build_plan_tests.rs"
-
-[[test]]
-name = "flume_index_tests"
-path = "tests/flume/flume_index_tests.rs"
-
-[[test]]
-name = "flume_edit_tests"
-path = "tests/flume/flume_edit_tests.rs"
-
-[[test]]
-name = "flume_lock_tests"
-path = "tests/flume/flume_lock_tests.rs"
-
-[[test]]
-name = "flume_manifest_tests"
-path = "tests/flume/flume_manifest_tests.rs"
-
-[[test]]
-name = "flume_resolve_tests"
-path = "tests/flume/flume_resolve_tests.rs"
-
-[[test]]
-name = "native_constructor_tag_tests"
-path = "tests/native_llvm/native_constructor_tag_tests.rs"
-required-features = ["llvm"]
-
-[[test]]
-name = "cross_module_named_fields_tests"
-path = "tests/integration/cross_module_named_fields_tests.rs"
-
-[[test]]
-name = "module_local_shadowing_tests"
-path = "tests/integration/module_local_shadowing_tests.rs"
-
-[[test]]
-name = "map_contract_tests"
-path = "tests/vm_runtime/map_contract_tests.rs"
-
-[[test]]
-name = "llvm_adt"
-path = "tests/native_llvm/llvm_adt.rs"
-
-[[test]]
-name = "llvm_closures"
-path = "tests/native_llvm/llvm_closures.rs"
-
-[[test]]
-name = "llvm_codegen"
-path = "tests/native_llvm/llvm_codegen.rs"
-
-[[test]]
-name = "llvm_snapshots"
-path = "tests/native_llvm/llvm_snapshots.rs"
-
-[[test]]
-name = "llvm_type_class"
-path = "tests/native_llvm/llvm_type_class.rs"
-
-[[test]]
-name = "bitwise_primop_native_tests"
-path = "tests/native_llvm/bitwise_primop_native_tests.rs"
-
-[[test]]
-name = "math_primop_native_tests"
-path = "tests/native_llvm/math_primop_native_tests.rs"
-
-[[test]]
-name = "safe_arithmetic_tests"
-path = "tests/native_llvm/safe_arithmetic_tests.rs"
-
-[[test]]
-name = "native_debug_tests"
-path = "tests/native_llvm/native_debug_tests.rs"
-
-[[test]]
-name = "native_codeview_tests"
-path = "tests/native_llvm/native_codeview_tests.rs"
-
-[[test]]
-name = "parity_debug_tests"
-path = "tests/debug/parity_debug_tests.rs"
-
-[[test]]
-name = "native_runtime_error_spans"
-path = "tests/native_llvm/native_runtime_error_spans.rs"
-
-[[test]]
-name = "native_panic_trace_tests"
-path = "tests/native_llvm/native_panic_trace_tests.rs"
-
-[[test]]
-name = "native_debug_heap_tests"
-path = "tests/native_llvm/native_debug_heap_tests.rs"
-
-[[test]]
-name = "effect_runtime_parity_tests"
-path = "tests/native_llvm/effect_runtime_parity_tests.rs"
-
-[[test]]
-name = "effect_multi_shot_tests"
-path = "tests/native_llvm/effect_multi_shot_tests.rs"
-
-[[test]]
-name = "native_async_sleep_tests"
-path = "tests/native_llvm/native_async_sleep_tests.rs"
-
-[[test]]
-name = "native_http_server_tests"
-path = "tests/native_llvm/native_http_server_tests.rs"
-
-[[test]]
-name = "native_http_client_tests"
-path = "tests/native_llvm/native_http_client_tests.rs"
-
-[[test]]
-name = "native_json_tests"
-path = "tests/native_llvm/native_json_tests.rs"
-
-[[test]]
-name = "native_resolution_tests"
-path = "tests/native_llvm/native_resolution_tests.rs"
-
-[[test]]
-name = "native_typeclass_tests"
-path = "tests/native_llvm/native_typeclass_tests.rs"
-
-[[test]]
-name = "native_cross_module_effect_tests"
-path = "tests/native_llvm/native_cross_module_effect_tests.rs"
-
-[[test]]
-name = "native_stream_tests"
-path = "tests/native_llvm/native_stream_tests.rs"
-
-[[test]]
-name = "native_async_indirect_tests"
-path = "tests/native_llvm/native_async_indirect_tests.rs"
-
-[[test]]
-name = "native_work_stealing_tests"
-path = "tests/native_llvm/native_work_stealing_tests.rs"
-
-[[test]]
-name = "native_runtime_config_tests"
-path = "tests/native_llvm/native_runtime_config_tests.rs"
-
-[[test]]
-name = "type_inference_tests"
-path = "tests/type_inference/type_inference_tests.rs"
-
-[[test]]
-name = "type_semantics_matrix_tests"
-path = "tests/type_inference/type_semantics_matrix_tests.rs"
-
-[[test]]
-name = "type_semantics_runtime_matrix_tests"
-path = "tests/type_inference/type_semantics_runtime_matrix_tests.rs"
-
-[[test]]
-name = "static_typing_closure"
-path = "tests/type_inference/static_typing_closure.rs"
-
-[[test]]
-name = "static_typing_contract_tests"
-path = "tests/type_inference/static_typing_contract_tests.rs"
-
-[[test]]
-name = "static_type_validation_tests"
-path = "tests/type_inference/static_type_validation_tests.rs"
-
-[[test]]
-name = "constrained_type_params_integration"
-path = "tests/type_inference/constrained_type_params_integration.rs"
-
-[[test]]
-name = "typeclass_baseline_tests"
-path = "tests/type_inference/typeclass_baseline_tests.rs"
-
-[[test]]
-name = "sendable_tests"
-path = "tests/type_inference/sendable_tests.rs"
-
-[[test]]
-name = "flow_task_tests"
-path = "tests/integration/flow_task_tests.rs"
-
-[[test]]
-name = "flow_async_surface_tests"
-path = "tests/integration/flow_async_surface_tests.rs"
-
-[[test]]
-name = "vm_channel_tests"
-path = "tests/integration/vm_channel_tests.rs"
-
-[[test]]
-name = "vm_fiber_sleep"
-path = "tests/integration/vm_fiber_sleep.rs"
-
-[[test]]
-name = "vm_fiber_check_cancelled"
-path = "tests/integration/vm_fiber_check_cancelled.rs"
-
-[[test]]
-name = "vm_runtime_config"
-path = "tests/integration/vm_runtime_config.rs"
-
-[[test]]
-name = "vm_fiber_registry"
-path = "tests/integration/vm_fiber_registry.rs"
-
-[[test]]
-name = "vm_fiber_overlap"
-path = "tests/integration/vm_fiber_overlap.rs"
-
-[[test]]
-name = "vm_fiber_first_of"
-path = "tests/integration/vm_fiber_first_of.rs"
-
-[[test]]
-name = "vm_fiber_timeout"
-path = "tests/integration/vm_fiber_timeout.rs"
-
-[[test]]
-name = "vm_fiber_cancel_loser"
-path = "tests/integration/vm_fiber_cancel_loser.rs"
-
-[[test]]
-name = "vm_fiber_cancel_timeout"
-path = "tests/integration/vm_fiber_cancel_timeout.rs"
-
-[[test]]
-name = "vm_fiber_multiworker"
-path = "tests/integration/vm_fiber_multiworker.rs"
-
-[[test]]
-name = "vm_fiber_migration"
-path = "tests/integration/vm_fiber_migration.rs"
-
-[[test]]
-name = "vm_fiber_bracket_cancel"
-path = "tests/integration/vm_fiber_bracket_cancel.rs"
-
-[[test]]
-name = "vm_fiber_scope_cancel"
-path = "tests/integration/vm_fiber_scope_cancel.rs"
-
-[[test]]
-name = "vm_tcp_echo"
-path = "tests/integration/vm_tcp_echo.rs"
-
-[[test]]
-name = "vm_http_server"
-path = "tests/integration/vm_http_server.rs"
-
-[[test]]
-name = "vm_http_client"
-path = "tests/integration/vm_http_client.rs"
-
-[[test]]
-name = "vm_json"
-path = "tests/integration/vm_json.rs"
-
-[[test]]
-name = "vm_stream"
-path = "tests/integration/vm_stream.rs"
-
-[[test]]
-name = "non_zero_type_tests"
-path = "tests/type_inference/non_zero_type_tests.rs"
-
-[[test]]
-name = "pattern_validation"
-path = "tests/type_inference/pattern_validation.rs"
-
-[[test]]
-name = "match_some_pattern_tests"
-path = "tests/type_inference/match_some_pattern_tests.rs"
-
-[[test]]
-name = "match_arm_outer_binding_tests"
-path = "tests/vm_runtime/match_arm_outer_binding_tests.rs"
-
-[[test]]
-name = "perf_type_infer"
-path = "tests/type_inference/perf_type_infer.rs"
-
-[[test]]
-name = "type_infer_guards"
-path = "tests/type_inference/type_infer_guards.rs"
-
-[[test]]
-name = "boundary_contract_tests"
-path = "tests/type_inference/boundary_contract_tests.rs"
-
-[[test]]
-name = "diagnostic_render_tests"
-path = "tests/diagnostics/diagnostic_render_tests.rs"
-
-[[test]]
-name = "diagnostic_span_render_tests"
-path = "tests/diagnostics/diagnostic_span_render_tests.rs"
-
-[[test]]
-name = "diagnostics_aggregator_tests"
-path = "tests/diagnostics/diagnostics_aggregator_tests.rs"
-
-[[test]]
-name = "diagnostics_rendering_extended_tests"
-path = "tests/diagnostics/diagnostics_rendering_extended_tests.rs"
-
-[[test]]
-name = "unified_diagnostics_tests"
-path = "tests/diagnostics/unified_diagnostics_tests.rs"
-
-[[test]]
-name = "error_codes_registry_tests"
-path = "tests/diagnostics/error_codes_registry_tests.rs"
-
-[[test]]
-name = "diagnostics_rustdoc_guard"
-path = "tests/diagnostics/diagnostics_rustdoc_guard.rs"
-
-[[test]]
-name = "examples_guide_snapshots"
-path = "tests/examples/examples_guide_snapshots.rs"
-
-[[test]]
-name = "examples_fixtures_snapshots"
-path = "tests/examples/examples_fixtures_snapshots.rs"
-
-[[test]]
-name = "parser_error_fixtures_snapshots"
-path = "tests/error_fixtures/parser_error_fixtures_snapshots.rs"
-
-[[test]]
-name = "compiler_error_fixtures_snapshots"
-path = "tests/error_fixtures/compiler_error_fixtures_snapshots.rs"
-
-[[test]]
-name = "runtime_error_fixtures_snapshots"
-path = "tests/error_fixtures/runtime_error_fixtures_snapshots.rs"
-
-[[test]]
-name = "cache_invalidation_tests"
-path = "tests/integration/cache_invalidation_tests.rs"
-
-[[test]]
-name = "debug_info_tests"
-path = "tests/debuginfo/debug_info_tests.rs"
-
-[[test]]
-name = "vm_debug_tests"
-path = "tests/debug/vm_debug_tests.rs"
-
-[[test]]
-name = "replay_cli_tests"
-path = "tests/replay/replay_cli_tests.rs"
-
-[[test]]
-name = "tuple_projection_predicate_tests"
-path = "tests/integration/tuple_projection_predicate_tests.rs"
-
-[[test]]
-name = "type_alias_effect_row_tests"
-path = "tests/integration/type_alias_effect_row_tests.rs"
-
-[[test]]
-name = "compiler_optimization_tests"
-path = "tests/integration/compiler_optimization_tests.rs"
-
-[[test]]
-name = "compiler_rules_tests"
-path = "tests/integration/compiler_rules_tests.rs"
-
-[[test]]
-name = "cross_module_function_tests"
-path = "tests/integration/cross_module_function_tests.rs"
-
-[[test]]
-name = "flow_effects_spec_drift"
-path = "tests/integration/flow_effects_spec_drift.rs"
-
-[[test]]
-name = "flow_prelude_module_tests"
-path = "tests/integration/flow_prelude_module_tests.rs"
-
-[[test]]
-name = "module_graph_tests"
-path = "tests/integration/module_graph_tests.rs"
-
-[[test]]
-name = "module_linking_integration_tests"
-path = "tests/integration/module_linking_integration_tests.rs"
-
-[[test]]
-name = "module_scoped_classes_tests"
-path = "tests/integration/module_scoped_classes_tests.rs"
-
-[[test]]
-name = "mutual_recursion"
-path = "tests/integration/mutual_recursion.rs"
-
-[[test]]
-name = "operators"
-path = "tests/integration/operators.rs"
-
-[[test]]
-name = "symbol_table_tests"
-path = "tests/integration/symbol_table_tests.rs"
-
-[[test]]
-name = "test_runner_cli"
-path = "tests/integration/test_runner_cli.rs"
-
-[[test]]
-name = "regression_snapshots"
-path = "tests/integration/regression_snapshots.rs"
-
-[[test]]
-name = "layout_guard"
-path = "tests/integration/layout_guard.rs"
+name = "replay"
+path = "tests/replay/main.rs"
 
 # Legacy snapshot-wrapper binaries. Names are preserved so insta snapshot
 # filenames (which are prefixed with the test-binary name) do not drift.
-[[test]]
-name = "snapshot_lexer"
-path = "tests/lexer/snapshot_lexer.rs"
-
-[[test]]
-name = "snapshot_parser"
-path = "tests/parser/snapshot_parser.rs"
-
-[[test]]
-name = "snapshot_formatter"
-path = "tests/parser/snapshot_formatter.rs"
-
-[[test]]
-name = "snapshot_bytecode"
-path = "tests/bytecode/snapshot_bytecode.rs"
-
-[[test]]
-name = "snapshot_diagnostics"
-path = "tests/diagnostics/snapshot_diagnostics.rs"

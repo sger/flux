@@ -20,10 +20,9 @@ impl<'a> InferCtx<'a> {
                 InferType::App(TypeConstructor::Option, vec![args[1].clone()])
             }
             InferType::Tuple(elements) => self.infer_tuple_index_expression(&elements, index),
-            _other => InferType::App(
-                TypeConstructor::Option,
-                vec![self.env.alloc_infer_type_var()],
-            ),
+            _other => {
+                InferType::App(TypeConstructor::Option, vec![self.env.alloc_infer_type_var()])
+            }
         }
     }
 
@@ -43,10 +42,7 @@ impl<'a> InferCtx<'a> {
             );
         }
         let joined = elements.iter().skip(1).fold(
-            elements
-                .first()
-                .cloned()
-                .unwrap_or_else(|| self.env.alloc_infer_type_var()),
+            elements.first().cloned().unwrap_or_else(|| self.env.alloc_infer_type_var()),
             |acc, ty| self.unify_reporting(&acc, ty, index.span()),
         );
         InferType::App(TypeConstructor::Option, vec![joined])
@@ -67,13 +63,11 @@ impl<'a> InferCtx<'a> {
         module_name: Identifier,
         member: Identifier,
     ) -> Option<&crate::types::scheme::Scheme> {
-        self.module_member_schemes
-            .get(&(module_name, member))
-            .or_else(|| {
-                self.module_aliases
-                    .get(&module_name)
-                    .and_then(|target| self.module_member_schemes.get(&(*target, member)))
-            })
+        self.module_member_schemes.get(&(module_name, member)).or_else(|| {
+            self.module_aliases
+                .get(&module_name)
+                .and_then(|target| self.module_member_schemes.get(&(*target, member)))
+        })
     }
 
     /// The scheme of `module.member` when the module declares a class with
@@ -88,11 +82,7 @@ impl<'a> InferCtx<'a> {
         if self.env.lookup(module_name).is_some() {
             return None;
         }
-        let target = self
-            .module_aliases
-            .get(&module_name)
-            .copied()
-            .unwrap_or(module_name);
+        let target = self.module_aliases.get(&module_name).copied().unwrap_or(module_name);
         let class_env = self.class_env.as_ref()?;
         let class_id =
             class_env.resolve_qualified_method_class_id(target, member, self.interner)?;
@@ -139,9 +129,7 @@ impl<'a> InferCtx<'a> {
             return ty;
         }
 
-        if let Expression::Identifier {
-            name: module_name, ..
-        } = object
+        if let Expression::Identifier { name: module_name, .. } = object
             && *module_name == self.flow_module_symbol
             && self.known_flow_names.contains(&member)
         {
@@ -239,10 +227,9 @@ impl<'a> InferCtx<'a> {
     ) -> InferType {
         let object_ty = self.infer_expression(object);
         match object_ty.apply_type_subst(&self.subst) {
-            InferType::Tuple(elements) => elements
-                .get(index)
-                .cloned()
-                .unwrap_or_else(|| self.alloc_fallback_var()),
+            InferType::Tuple(elements) => {
+                elements.get(index).cloned().unwrap_or_else(|| self.alloc_fallback_var())
+            }
             // The same guard the field predicate uses: a receiver that is an
             // unbound name has already been reported as `E004`, and its type is
             // a fallback variable rather than something a call site will

@@ -5,6 +5,12 @@
 //      Two `both` children that print/yield/print therefore interleave as
 //      1, 2, 3, 4 on both backends. Pinned to one worker so the FIFO ordering
 //      is deterministic on the native scheduler.
+// parity-expected-stdout-begin
+// 1
+// 2
+// 3
+// 4
+// parity-expected-stdout-end
 
 import Flow.Async exposing (..)
 

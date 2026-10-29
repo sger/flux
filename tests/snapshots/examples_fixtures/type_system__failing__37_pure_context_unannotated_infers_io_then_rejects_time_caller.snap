@@ -9,9 +9,9 @@ error[E400]: Missing Ambient Effect
 
 Call to `sink` requires effect `Console` in this function signature.
 
-  examples/type_system/failing/37_pure_context_unannotated_infers_io_then_rejects_time_caller.flx:28:5
+  examples/type_system/failing/37_pure_context_unannotated_infers_io_then_rejects_time_caller.flx:12:5
    |
-28 |     sink("hello")
+12 |     sink("hello")
    |     ^^^^
    |     ---- effectful call occurs here
 

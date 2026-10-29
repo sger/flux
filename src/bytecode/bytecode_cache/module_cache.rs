@@ -7,8 +7,9 @@ use std::{
 use crate::{
     bytecode::{
         bytecode_cache::cache_serialization::{
-            read_function_debug_info, read_object, read_string, read_u32,
-            write_function_debug_info, write_object, write_string, write_u16, write_u32,
+            read_function_debug_info_naming, read_object_naming, read_string, read_u32,
+            write_function_debug_info_naming, write_object_naming, write_string, write_u16,
+            write_u32,
         },
         bytecode_cache::cache_validation::{
             validate_cache_key, validate_format_version, validate_magic,
@@ -32,10 +33,7 @@ pub enum ModuleCacheLoadError {
     FormatVersionMismatch,
     CompilerVersionMismatch,
     CacheKeyMismatch,
-    DependencyFingerprintMismatch {
-        path: String,
-        reason: DependencyMissReason,
-    },
+    DependencyFingerprintMismatch { path: String, reason: DependencyMissReason },
     CorruptPayload,
 }
 
@@ -118,8 +116,7 @@ impl ModuleBytecodeCache {
         compiler_version: &str,
         cache_root: &Path,
     ) -> Option<CachedModuleBytecode> {
-        self.load_with_reason(source_path, cache_key, compiler_version, cache_root)
-            .ok()
+        self.load_with_reason(source_path, cache_key, compiler_version, cache_root).ok()
     }
 
     pub fn load_failure_reason(
@@ -143,6 +140,7 @@ impl ModuleBytecodeCache {
     ) -> Result<CachedModuleBytecode, ModuleCacheLoadError> {
         let path = self.cache_path(source_path, cache_key);
         let mut file = File::open(path).map_err(|_| ModuleCacheLoadError::NotFound)?;
+        let own_file = source_path.to_string_lossy();
 
         validate_magic(&mut file, MAGIC).ok_or(ModuleCacheLoadError::BadMagic)?;
         validate_format_version(&mut file, FORMAT_VERSION)
@@ -170,24 +168,21 @@ impl ModuleBytecodeCache {
             read_u32(&mut file).ok_or(ModuleCacheLoadError::CorruptPayload)? as usize;
         let mut constants = Vec::with_capacity(constants_count);
         for _ in 0..constants_count {
-            constants.push(read_object(&mut file).ok_or(ModuleCacheLoadError::CorruptPayload)?);
+            constants.push(
+                read_object_naming(&mut file, Some(&own_file))
+                    .ok_or(ModuleCacheLoadError::CorruptPayload)?,
+            );
         }
 
         let instructions_len =
             read_u32(&mut file).ok_or(ModuleCacheLoadError::CorruptPayload)? as usize;
         let mut instructions = vec![0u8; instructions_len];
-        file.read_exact(&mut instructions)
-            .map_err(|_| ModuleCacheLoadError::CorruptPayload)?;
+        file.read_exact(&mut instructions).map_err(|_| ModuleCacheLoadError::CorruptPayload)?;
 
-        let debug_info =
-            read_function_debug_info(&mut file).ok_or(ModuleCacheLoadError::CorruptPayload)?;
+        let debug_info = read_function_debug_info_naming(&mut file, Some(&own_file))
+            .ok_or(ModuleCacheLoadError::CorruptPayload)?;
 
-        Ok(CachedModuleBytecode {
-            globals,
-            constants,
-            instructions,
-            debug_info,
-        })
+        Ok(CachedModuleBytecode { globals, constants, instructions, debug_info })
     }
 
     pub fn store(
@@ -202,9 +197,7 @@ impl ModuleBytecodeCache {
         let path = self.cache_path(source_path, cache_key);
         let tmp_path = path.with_extension(format!(
             "{}.tmp",
-            path.extension()
-                .and_then(|ext| ext.to_str())
-                .unwrap_or("fxm")
+            path.extension().and_then(|ext| ext.to_str()).unwrap_or("fxm")
         ));
         let mut file = File::create(&tmp_path)?;
 
@@ -224,14 +217,15 @@ impl ModuleBytecodeCache {
             write_binding(&mut file, binding)?;
         }
 
+        let own_file = source_path.to_string_lossy();
         write_u32(&mut file, bytecode.constants.len() as u32)?;
         for constant in &bytecode.constants {
-            write_object(&mut file, constant)?;
+            write_object_naming(&mut file, constant, Some(&own_file))?;
         }
 
         write_u32(&mut file, bytecode.instructions.len() as u32)?;
         file.write_all(&bytecode.instructions)?;
-        write_function_debug_info(&mut file, Some(&bytecode.debug_info))?;
+        write_function_debug_info_naming(&mut file, Some(&bytecode.debug_info), Some(&own_file))?;
         file.sync_all()?;
         drop(file);
         fs::rename(tmp_path, path)?;
@@ -240,11 +234,7 @@ impl ModuleBytecodeCache {
     }
 
     pub fn cache_path(&self, source_path: &Path, cache_key: &[u8; 32]) -> PathBuf {
-        self.dir.join(cache_paths::cache_key_filename(
-            source_path,
-            cache_key,
-            "fxm",
-        ))
+        self.dir.join(cache_paths::cache_key_filename(source_path, cache_key, "fxm"))
     }
 
     pub fn inspect(
@@ -417,13 +407,10 @@ mod tests {
     };
 
     fn temp_dir(name: &str) -> PathBuf {
-        let mut path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("target")
-            .join("test-scratch");
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let mut path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join("test-scratch");
+        let nanos =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
         let pid = std::process::id();
         path.push(format!("flux_module_cache_{}_{}_{}", name, pid, nanos));
         std::fs::create_dir_all(&path).unwrap();
@@ -473,12 +460,7 @@ mod tests {
             .unwrap();
 
         let loaded = cache
-            .load(
-                &source_path,
-                &cache_key,
-                crate::shared::cache_paths::compiler_build_id(),
-                &dir,
-            )
+            .load(&source_path, &cache_key, crate::shared::cache_paths::compiler_build_id(), &dir)
             .expect("expected module cache hit");
 
         assert_eq!(loaded, payload);
@@ -518,10 +500,7 @@ mod tests {
                 &cache_key,
                 crate::shared::cache_paths::compiler_build_id(),
                 &bytecode,
-                &[(
-                    dep_path.to_string_lossy().to_string(),
-                    "expected-fingerprint".to_string(),
-                )],
+                &[(dep_path.to_string_lossy().to_string(), "expected-fingerprint".to_string())],
             )
             .expect("store");
 
@@ -534,10 +513,7 @@ mod tests {
             )
             .expect("inspect");
         assert_eq!(info.dependency_statuses.len(), 1);
-        assert_eq!(
-            info.dependency_statuses[0].status,
-            ModuleDependencyStatus::Stale
-        );
+        assert_eq!(info.dependency_statuses[0].status, ModuleDependencyStatus::Stale);
     }
 
     #[test]
@@ -568,10 +544,7 @@ mod tests {
                 &cache_key,
                 crate::shared::cache_paths::compiler_build_id(),
                 &payload,
-                &[(
-                    dep_source.to_string_lossy().to_string(),
-                    "stale-abi".to_string(),
-                )],
+                &[(dep_source.to_string_lossy().to_string(), "stale-abi".to_string())],
             )
             .unwrap();
 
@@ -640,12 +613,7 @@ mod tests {
             .expect("store");
 
         let loaded = cache
-            .load(
-                &source_path,
-                &cache_key,
-                crate::shared::cache_paths::compiler_build_id(),
-                &dir,
-            )
+            .load(&source_path, &cache_key, crate::shared::cache_paths::compiler_build_id(), &dir)
             .expect("expected module cache hit");
 
         assert_eq!(loaded, payload);

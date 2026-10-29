@@ -1,0 +1,24 @@
+// parity: vm, llvm
+// expect: success
+// When every child of first_of finishes without suspending, the first in
+// source order wins.
+// parity-expected-stdout-begin
+// 0
+// 10
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+
+fn ten() -> Int with Async { 10 }
+fn twenty() -> Int with Async { 20 }
+fn thirty() -> Int with Async { 30 }
+
+fn body() -> (Int, Int) with Async {
+    first_of([ten, twenty, thirty])
+}
+
+fn main() with IO {
+    let pair = run_async(body)
+    print(pair.0)
+    print(pair.1)
+}

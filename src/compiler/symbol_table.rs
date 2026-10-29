@@ -51,11 +51,7 @@ impl SymbolTable {
     }
 
     pub fn define(&mut self, name: Symbol, span: Span) -> Binding {
-        let scope = if self.outer.is_none() {
-            SymbolScope::Global
-        } else {
-            SymbolScope::Local
-        };
+        let scope = if self.outer.is_none() { SymbolScope::Global } else { SymbolScope::Local };
 
         if let Some(_existing) = self.store.get(&name) {
             // Variable already defined in this scope - this would be caught during compilation
@@ -106,17 +102,9 @@ impl SymbolTable {
     }
 
     pub fn define_temp(&mut self) -> Binding {
-        let scope = if self.outer.is_none() {
-            SymbolScope::Global
-        } else {
-            SymbolScope::Local
-        };
-        let symbol = Binding::new(
-            Symbol::new(u32::MAX),
-            scope,
-            self.num_definitions,
-            Span::default(),
-        );
+        let scope = if self.outer.is_none() { SymbolScope::Global } else { SymbolScope::Local };
+        let symbol =
+            Binding::new(Symbol::new(u32::MAX), scope, self.num_definitions, Span::default());
         self.num_definitions += 1;
         self.log_definition(&symbol);
         symbol
@@ -129,10 +117,7 @@ impl SymbolTable {
     /// `&self` context.
     pub fn is_bound(&self, name: Symbol) -> bool {
         self.store.contains_key(&name)
-            || self
-                .outer
-                .as_ref()
-                .is_some_and(|outer| outer.is_bound(name))
+            || self.outer.as_ref().is_some_and(|outer| outer.is_bound(name))
     }
 
     /// Whether `name` is bound in a scope *inner* to the outermost one.
@@ -157,11 +142,7 @@ impl SymbolTable {
                     if obj.symbol_scope == SymbolScope::Global {
                         return Some(obj);
                     }
-                    if self.allow_free {
-                        Some(self.define_free(obj))
-                    } else {
-                        Some(obj)
-                    }
+                    if self.allow_free { Some(self.define_free(obj)) } else { Some(obj) }
                 } else {
                     None
                 }

@@ -3,6 +3,10 @@
 // bug: contextual dictionary constructor global was declared but never stored,
 // so a constrained call reached it as None (E1001) on the VM while the native
 // backend accepted the mismatched call unchecked.
+// parity-expected-stdout-begin
+// false
+// true
+// parity-expected-stdout-end
 
 class MyEq<a> {
     fn my_eq(x: a, y: a) -> Bool

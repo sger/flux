@@ -9,9 +9,9 @@ error[E300]: Annotation Type Mismatch
 
 The value of `_x` does not match its type annotation.
 
-  examples/type_system/failing/78_hm_inline_call_no_runtime_fallback.flx:30:23
+  examples/type_system/failing/78_hm_inline_call_no_runtime_fallback.flx:29:23
    |
-30 |     let _x: String = (/(n: Int) -> n)(1)
+29 |     let _x: String = (/(n: Int) -> n)(1)
    |                       ^^^^^^^^^^^^^^^^^^
    |                       ------------------ this value has type `Int`
 

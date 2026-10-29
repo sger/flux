@@ -9,9 +9,9 @@ error[E459]: Undetermined Class Parameter
 
 Cannot determine which `Def` instance this needs: nothing in this definition fixes its type.
 
-  examples/generics/working/rejects/e2_ambiguous_instance_selection.flx:32:13
+  examples/generics/working/rejects/e2_ambiguous_instance_selection.flx:31:13
    |
-32 |     let x = zero()
+31 |     let x = zero()
    |             ^^^^^^
 == stdout ==
 <not executed>

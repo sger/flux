@@ -308,11 +308,7 @@ fn specialize_tys(tys: &[TyShape], c: &Ctor) -> Vec<TyShape> {
         }
         Ctor::Adt(name, _) => {
             if let TyShape::Adt { ctors, .. } = &tys[0] {
-                ctors
-                    .iter()
-                    .find(|(n, _)| n == name)
-                    .map(|(_, fs)| fs.clone())
-                    .unwrap_or_default()
+                ctors.iter().find(|(n, _)| n == name).map(|(_, fs)| fs.clone()).unwrap_or_default()
             } else {
                 Vec::new()
             }
@@ -347,12 +343,9 @@ fn all_ctors(ty: &TyShape) -> Option<Vec<Ctor>> {
         TyShape::Either(_, _) => Some(vec![Ctor::Left, Ctor::Right]),
         TyShape::List(_) => Some(vec![Ctor::Nil, Ctor::Cons]),
         TyShape::Tuple(fs) => Some(vec![Ctor::Tuple(fs.len())]),
-        TyShape::Adt { ctors, .. } => Some(
-            ctors
-                .iter()
-                .map(|(n, fs)| Ctor::Adt(n.clone(), fs.len()))
-                .collect(),
-        ),
+        TyShape::Adt { ctors, .. } => {
+            Some(ctors.iter().map(|(n, fs)| Ctor::Adt(n.clone(), fs.len())).collect())
+        }
         TyShape::Opaque => None,
     }
 }
@@ -381,9 +374,7 @@ fn missing_witnesses(matrix: &[Vec<Pat>], tys: &[TyShape]) -> Vec<Pat> {
             Vec::new()
         };
     }
-    let has_wild_row = matrix
-        .iter()
-        .any(|r| !r.is_empty() && matches!(r[0], Pat::Wild));
+    let has_wild_row = matrix.iter().any(|r| !r.is_empty() && matches!(r[0], Pat::Wild));
     match all_ctors(&tys[0]) {
         Some(all) => missing_witnesses_known(matrix, tys, &all, has_wild_row),
         None => missing_witnesses_opaque(matrix, tys, has_wild_row),
@@ -401,10 +392,7 @@ fn missing_witnesses_known(
     let missing_ctors: Vec<Ctor> = if has_wild_row {
         Vec::new()
     } else {
-        all.iter()
-            .filter(|c| !column_ctors.contains(c))
-            .cloned()
-            .collect()
+        all.iter().filter(|c| !column_ctors.contains(c)).cloned().collect()
     };
     if !missing_ctors.is_empty() {
         return missing_ctors
@@ -416,11 +404,7 @@ fn missing_witnesses_known(
     if has_wild_row {
         let dmat = default_matrix(matrix);
         let sub = missing_witnesses(&dmat, &tys[1..]);
-        return if sub.is_empty() {
-            Vec::new()
-        } else {
-            vec![Pat::Wild]
-        };
+        return if sub.is_empty() { Vec::new() } else { vec![Pat::Wild] };
     }
     // Recurse into each ctor to find nested missing patterns.
     for c in all {
@@ -453,9 +437,8 @@ fn missing_witnesses_opaque(matrix: &[Vec<Pat>], tys: &[TyShape], has_wild_row: 
         // Literal heads on an opaque (infinite) domain — e.g. `Int`
         // or `String` — can never exhaust the domain: only a
         // wildcard/identifier binding can. Report missing.
-        let any_literal_head = matrix
-            .iter()
-            .any(|r| !r.is_empty() && matches!(&r[0], Pat::Ctor(Ctor::Lit(_), _)));
+        let any_literal_head =
+            matrix.iter().any(|r| !r.is_empty() && matches!(&r[0], Pat::Ctor(Ctor::Lit(_), _)));
         if any_literal_head {
             return vec![Pat::Wild];
         }
@@ -469,11 +452,7 @@ fn missing_witnesses_opaque(matrix: &[Vec<Pat>], tys: &[TyShape], has_wild_row: 
     }
     let dmat = default_matrix(matrix);
     let sub = missing_witnesses(&dmat, &tys[1..]);
-    if sub.is_empty() {
-        Vec::new()
-    } else {
-        vec![Pat::Wild]
-    }
+    if sub.is_empty() { Vec::new() } else { vec![Pat::Wild] }
 }
 
 /// Take the first `arity` fields of a reconstructed witness, leaving
@@ -511,14 +490,8 @@ mod tests {
     fn adt_exhaustive_two_ctors() {
         let ty = adt_shape();
         let arms = vec![
-            (
-                Pat::Ctor(Ctor::Adt("Circle".into(), 1), vec![Pat::Wild]),
-                false,
-            ),
-            (
-                Pat::Ctor(Ctor::Adt("Rect".into(), 2), vec![Pat::Wild, Pat::Wild]),
-                false,
-            ),
+            (Pat::Ctor(Ctor::Adt("Circle".into(), 1), vec![Pat::Wild]), false),
+            (Pat::Ctor(Ctor::Adt("Rect".into(), 2), vec![Pat::Wild, Pat::Wild]), false),
         ];
         let cov = check_match(&ty, &arms);
         assert!(cov.is_exhaustive(), "missing: {:?}", cov.missing);
@@ -528,10 +501,7 @@ mod tests {
     #[test]
     fn adt_missing_ctor() {
         let ty = adt_shape();
-        let arms = vec![(
-            Pat::Ctor(Ctor::Adt("Circle".into(), 1), vec![Pat::Wild]),
-            false,
-        )];
+        let arms = vec![(Pat::Ctor(Ctor::Adt("Circle".into(), 1), vec![Pat::Wild]), false)];
         let cov = check_match(&ty, &arms);
         assert!(!cov.is_exhaustive());
         assert_eq!(cov.missing.len(), 1);
@@ -564,11 +534,7 @@ mod tests {
         let arms = vec![(Pat::nullary(Ctor::Bool(true)), false)];
         let cov = check_match(&ty, &arms);
         assert!(!cov.is_exhaustive());
-        assert!(
-            cov.missing
-                .iter()
-                .any(|p| matches!(p, Pat::Ctor(Ctor::Bool(false), _)))
-        );
+        assert!(cov.missing.iter().any(|p| matches!(p, Pat::Ctor(Ctor::Bool(false), _))));
     }
 
     #[test]
@@ -578,11 +544,7 @@ mod tests {
         let arms = vec![(Pat::Ctor(Ctor::Cons, vec![Pat::Wild, Pat::Wild]), false)];
         let cov = check_match(&ty, &arms);
         assert!(!cov.is_exhaustive());
-        assert!(
-            cov.missing
-                .iter()
-                .any(|p| matches!(p, Pat::Ctor(Ctor::Nil, _)))
-        );
+        assert!(cov.missing.iter().any(|p| matches!(p, Pat::Ctor(Ctor::Nil, _))));
     }
 
     #[test]
@@ -613,11 +575,7 @@ mod tests {
         let arms = vec![(Pat::Ctor(Ctor::Some, vec![Pat::Wild]), false)];
         let cov = check_match(&ty, &arms);
         assert!(!cov.is_exhaustive());
-        assert!(
-            cov.missing
-                .iter()
-                .any(|p| matches!(p, Pat::Ctor(Ctor::None, _)))
-        );
+        assert!(cov.missing.iter().any(|p| matches!(p, Pat::Ctor(Ctor::None, _))));
     }
 
     #[test]

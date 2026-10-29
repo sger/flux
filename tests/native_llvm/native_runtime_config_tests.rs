@@ -1,6 +1,6 @@
 //! Native `RuntimeConfig` end-to-end (proposal 0174 Phase 2 slice 2-vii cleanup).
 //!
-//! Mirrors [`tests/integration/vm_runtime_config.rs`] but drives the LLVM
+//! Mirrors [`tests/vm_runtime/vm_runtime_config.rs`] but drives the LLVM
 //! native backend via `--native`. Verifies that:
 //!
 //!   - explicit `worker_count` flows from `run_async_with_workers` down
@@ -18,40 +18,25 @@
 
 #![cfg(feature = "llvm")]
 
-use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-#[path = "../support/scratch.rs"]
-mod scratch;
+use crate::support::scratch;
 use scratch::Scratch;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+use scratch::workspace_root;
 
 fn run_source_with_env(
     source: &str,
     tag: &str,
     env: &[(&str, &str)],
 ) -> (String, String, bool, Duration) {
-    let dir = workspace_root()
-        .join("target")
-        .join("test-scratch")
-        .join(format!(
-            "flux-native-runtime-config-{}-{}",
-            std::process::id(),
-            tag,
-        ));
-    std::fs::create_dir_all(&dir).expect("create temp dir");
-    let path = dir.join("fixture.flx");
-    std::fs::write(&path, source).expect("write fixture");
-
-    let start = Instant::now();
     // Private cache root: `--no-cache` does not isolate native
     // builds, which write shared artifacts regardless (KI-010).
-    let scratch = Scratch::new("native-llvm");
+    let scratch = Scratch::new(&format!("flux-native-runtime-config-{tag}"));
+    let path = scratch.write("fixture.flx", source);
+
+    let start = Instant::now();
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_flux"));
     cmd.current_dir(workspace_root())
         .args([path.to_str().unwrap(), "--native", "--no-cache"])
@@ -71,9 +56,8 @@ fn run_source_with_env(
 fn kill_process_tree(child: &mut Child) {
     #[cfg(windows)]
     {
-        let _ = Command::new("taskkill")
-            .args(["/PID", &child.id().to_string(), "/T", "/F"])
-            .output();
+        let _ =
+            Command::new("taskkill").args(["/PID", &child.id().to_string(), "/T", "/F"]).output();
     }
     #[cfg(not(windows))]
     {
@@ -86,22 +70,12 @@ fn run_source_with_timeout(
     tag: &str,
     timeout: Duration,
 ) -> (String, String, bool, Duration) {
-    let dir = workspace_root()
-        .join("target")
-        .join("test-scratch")
-        .join(format!(
-            "flux-native-runtime-config-timeout-{}-{}",
-            std::process::id(),
-            tag,
-        ));
-    std::fs::create_dir_all(&dir).expect("create temp dir");
-    let path = dir.join("fixture.flx");
-    std::fs::write(&path, source).expect("write fixture");
-
-    let start = Instant::now();
     // Private cache root: `--no-cache` does not isolate native
     // builds, which write shared artifacts regardless (KI-010).
-    let scratch = Scratch::new("native-llvm");
+    let scratch = Scratch::new(&format!("flux-native-runtime-config-timeout-{tag}"));
+    let path = scratch.write("fixture.flx", source);
+
+    let start = Instant::now();
     let mut child = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args([path.to_str().unwrap(), "--native", "--no-cache"])
@@ -127,27 +101,15 @@ fn run_source_with_timeout(
         let _ = child.wait();
         let elapsed = start.elapsed();
         let _ = std::fs::remove_file(&path);
-        return (
-            String::new(),
-            format!("timed out after {}s", timeout.as_secs()),
-            false,
-            elapsed,
-        );
+        return (String::new(), format!("timed out after {}s", timeout.as_secs()), false, elapsed);
     }
 
-    let output = child
-        .wait_with_output()
-        .expect("collect flux native output");
+    let output = child.wait_with_output().expect("collect flux native output");
     let elapsed = start.elapsed();
     let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
     let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n");
     let _ = std::fs::remove_file(&path);
-    (
-        stdout,
-        stderr,
-        output.status.success() && !timed_out,
-        elapsed,
-    )
+    (stdout, stderr, output.status.success() && !timed_out, elapsed)
 }
 
 #[test]
@@ -169,10 +131,7 @@ fn main() with IO {
         success,
         "native run_async_with_workers(4, ...) must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    assert!(
-        stdout.contains("42"),
-        "expected 42 on stdout, got: {stdout:?}"
-    );
+    assert!(stdout.contains("42"), "expected 42 on stdout, got: {stdout:?}");
     assert!(elapsed < Duration::from_secs(30));
 }
 
@@ -192,14 +151,8 @@ fn main() with IO {
 }
 "#;
     let (stdout, stderr, success, _elapsed) = run_source_with_env(source, "wc-explicit", &[]);
-    assert!(
-        success,
-        "current_worker_count must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
-    assert!(
-        stdout.contains("4"),
-        "expected 4 on stdout, got: {stdout:?}"
-    );
+    assert!(success, "current_worker_count must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
+    assert!(stdout.contains("4"), "expected 4 on stdout, got: {stdout:?}");
 }
 
 #[test]
@@ -223,10 +176,7 @@ fn main() with IO {
         success,
         "FLUX_WORKERS=3 native run must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    assert!(
-        stdout.contains("3"),
-        "expected 3 on stdout, got: {stdout:?}"
-    );
+    assert!(stdout.contains("3"), "expected 3 on stdout, got: {stdout:?}");
 }
 
 #[test]
@@ -251,10 +201,7 @@ fn main() with IO {
         success,
         "native default-config run must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    assert!(
-        stdout.contains("7"),
-        "expected 7 on stdout, got: {stdout:?}"
-    );
+    assert!(stdout.contains("7"), "expected 7 on stdout, got: {stdout:?}");
 }
 
 #[test]
@@ -304,14 +251,8 @@ fn main() with IO {
 }
 "#;
     let (stdout, stderr, success, _elapsed) = run_source_with_env(source, "plain", &[]);
-    assert!(
-        success,
-        "native plain run_async must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
-    assert!(
-        stdout.contains("13"),
-        "expected 13 on stdout, got: {stdout:?}"
-    );
+    assert!(success, "native plain run_async must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
+    assert!(stdout.contains("13"), "expected 13 on stdout, got: {stdout:?}");
 }
 
 #[test]
@@ -336,8 +277,5 @@ fn main() with IO {
         success,
         "FLUX_WORKERS=1 native run must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    assert!(
-        stdout.contains("99"),
-        "expected 99 on stdout, got: {stdout:?}"
-    );
+    assert!(stdout.contains("99"), "expected 99 on stdout, got: {stdout:?}");
 }

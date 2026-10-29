@@ -1,6 +1,7 @@
 use crate::ast::fold::{self, Folder};
 use crate::core::CorePrimOp;
 use crate::diagnostics::position::Span;
+use crate::shared::opt_bisect;
 use crate::syntax::expression::ExprId;
 use crate::syntax::interner::Interner;
 use crate::syntax::{expression::Expression, program::Program};
@@ -25,38 +26,29 @@ impl Folder for ConstantFolder<'_> {
         let expr = fold::fold_expr(self, expr);
 
         match expr {
-            Expression::Infix {
-                ref left,
-                ref operator,
-                ref right,
-                span,
-                id,
-            } => {
-                if let Some(folded) = try_fold_infix(left, operator, right, span, id) {
+            Expression::Infix { ref left, ref operator, ref right, span, id } => {
+                if let Some(folded) = try_fold_infix(left, operator, right, span, id)
+                    && opt_bisect::allow("ast_constant_fold", || format!("fold `{operator}`"))
+                {
                     return folded;
                 }
                 expr
             }
-            Expression::Prefix {
-                ref operator,
-                ref right,
-                span,
-                id,
-            } => {
-                if let Some(folded) = try_fold_prefix(operator, right, span, id) {
+            Expression::Prefix { ref operator, ref right, span, id } => {
+                if let Some(folded) = try_fold_prefix(operator, right, span, id)
+                    && opt_bisect::allow("ast_constant_fold", || {
+                        format!("fold prefix `{operator}`")
+                    })
+                {
                     return folded;
                 }
                 expr
             }
-            Expression::Call {
-                ref function,
-                ref arguments,
-                span,
-                id,
-            } => {
+            Expression::Call { ref function, ref arguments, span, id } => {
                 if let Some(interner) = self.interner
                     && let Some(folded) =
                         try_fold_pure_primop_call(interner, function, arguments, span, id)
+                    && opt_bisect::allow("ast_constant_fold", || "fold a pure call".to_string())
                 {
                     return folded;
                 }
@@ -79,87 +71,27 @@ fn try_fold_infix(
         (Expression::Integer { value: a, .. }, Expression::Integer { value: b, .. }) => {
             let (a, b) = (*a, *b);
             match operator {
-                "+" => Some(Expression::Integer {
-                    value: a + b,
-                    span,
-                    id,
-                }),
-                "-" => Some(Expression::Integer {
-                    value: a - b,
-                    span,
-                    id,
-                }),
-                "*" => Some(Expression::Integer {
-                    value: a * b,
-                    span,
-                    id,
-                }),
-                "/" if b != 0 => Some(Expression::Integer {
-                    value: a / b,
-                    span,
-                    id,
-                }),
-                "%" if b != 0 => Some(Expression::Integer {
-                    value: a % b,
-                    span,
-                    id,
-                }),
-                "==" => Some(Expression::Boolean {
-                    value: a == b,
-                    span,
-                    id,
-                }),
-                "!=" => Some(Expression::Boolean {
-                    value: a != b,
-                    span,
-                    id,
-                }),
-                "<" => Some(Expression::Boolean {
-                    value: a < b,
-                    span,
-                    id,
-                }),
-                ">" => Some(Expression::Boolean {
-                    value: a > b,
-                    span,
-                    id,
-                }),
-                "<=" => Some(Expression::Boolean {
-                    value: a <= b,
-                    span,
-                    id,
-                }),
-                ">=" => Some(Expression::Boolean {
-                    value: a >= b,
-                    span,
-                    id,
-                }),
+                "+" => Some(Expression::Integer { value: a + b, span, id }),
+                "-" => Some(Expression::Integer { value: a - b, span, id }),
+                "*" => Some(Expression::Integer { value: a * b, span, id }),
+                "/" if b != 0 => Some(Expression::Integer { value: a / b, span, id }),
+                "%" if b != 0 => Some(Expression::Integer { value: a % b, span, id }),
+                "==" => Some(Expression::Boolean { value: a == b, span, id }),
+                "!=" => Some(Expression::Boolean { value: a != b, span, id }),
+                "<" => Some(Expression::Boolean { value: a < b, span, id }),
+                ">" => Some(Expression::Boolean { value: a > b, span, id }),
+                "<=" => Some(Expression::Boolean { value: a <= b, span, id }),
+                ">=" => Some(Expression::Boolean { value: a >= b, span, id }),
                 _ => None,
             }
         }
         (Expression::Float { value: a, .. }, Expression::Float { value: b, .. }) => {
             let (a, b) = (*a, *b);
             match operator {
-                "+" => Some(Expression::Float {
-                    value: a + b,
-                    span,
-                    id,
-                }),
-                "-" => Some(Expression::Float {
-                    value: a - b,
-                    span,
-                    id,
-                }),
-                "*" => Some(Expression::Float {
-                    value: a * b,
-                    span,
-                    id,
-                }),
-                "/" => Some(Expression::Float {
-                    value: a / b,
-                    span,
-                    id,
-                }),
+                "+" => Some(Expression::Float { value: a + b, span, id }),
+                "-" => Some(Expression::Float { value: a - b, span, id }),
+                "*" => Some(Expression::Float { value: a * b, span, id }),
+                "/" => Some(Expression::Float { value: a / b, span, id }),
                 _ => None,
             }
         }
@@ -167,11 +99,7 @@ fn try_fold_infix(
             if operator == "+" {
                 let mut result = a.clone();
                 result.push_str(b);
-                Some(Expression::String {
-                    value: result,
-                    span,
-                    id,
-                })
+                Some(Expression::String { value: result, span, id })
             } else {
                 None
             }
@@ -179,16 +107,8 @@ fn try_fold_infix(
         (Expression::Boolean { value: a, .. }, Expression::Boolean { value: b, .. }) => {
             let (a, b) = (*a, *b);
             match operator {
-                "&&" => Some(Expression::Boolean {
-                    value: a && b,
-                    span,
-                    id,
-                }),
-                "||" => Some(Expression::Boolean {
-                    value: a || b,
-                    span,
-                    id,
-                }),
+                "&&" => Some(Expression::Boolean { value: a && b, span, id }),
+                "||" => Some(Expression::Boolean { value: a || b, span, id }),
                 _ => None,
             }
         }
@@ -204,21 +124,15 @@ fn try_fold_prefix(
     id: ExprId,
 ) -> Option<Expression> {
     match (operator, right) {
-        ("-", Expression::Integer { value, .. }) => Some(Expression::Integer {
-            value: -value,
-            span,
-            id,
-        }),
-        ("-", Expression::Float { value, .. }) => Some(Expression::Float {
-            value: -value,
-            span,
-            id,
-        }),
-        ("!", Expression::Boolean { value, .. }) => Some(Expression::Boolean {
-            value: !value,
-            span,
-            id,
-        }),
+        ("-", Expression::Integer { value, .. }) => {
+            Some(Expression::Integer { value: -value, span, id })
+        }
+        ("-", Expression::Float { value, .. }) => {
+            Some(Expression::Float { value: -value, span, id })
+        }
+        ("!", Expression::Boolean { value, .. }) => {
+            Some(Expression::Boolean { value: !value, span, id })
+        }
         _ => None,
     }
 }
@@ -246,16 +160,12 @@ fn try_fold_pure_primop_call(
 
     match op {
         CorePrimOp::Abs => match arguments.first()? {
-            Expression::Integer { value, .. } => Some(Expression::Integer {
-                value: value.abs(),
-                span,
-                id,
-            }),
-            Expression::Float { value, .. } => Some(Expression::Float {
-                value: value.abs(),
-                span,
-                id,
-            }),
+            Expression::Integer { value, .. } => {
+                Some(Expression::Integer { value: value.abs(), span, id })
+            }
+            Expression::Float { value, .. } => {
+                Some(Expression::Float { value: value.abs(), span, id })
+            }
             _ => None,
         },
         CorePrimOp::FSqrt => fold_float_unary(arguments, span, id, f64::sqrt),
@@ -269,29 +179,23 @@ fn try_fold_pure_primop_call(
         CorePrimOp::BitAnd => fold_int_binary(arguments, span, id, |a, b| a & b),
         CorePrimOp::BitOr => fold_int_binary(arguments, span, id, |a, b| a | b),
         CorePrimOp::BitXor => fold_int_binary(arguments, span, id, |a, b| a ^ b),
-        CorePrimOp::BitShl => fold_int_binary(arguments, span, id, |a, b| {
-            a.wrapping_shl(masked_shift_amount(b))
-        }),
-        CorePrimOp::BitShr => fold_int_binary(arguments, span, id, |a, b| {
-            a.wrapping_shr(masked_shift_amount(b))
-        }),
+        CorePrimOp::BitShl => {
+            fold_int_binary(arguments, span, id, |a, b| a.wrapping_shl(masked_shift_amount(b)))
+        }
+        CorePrimOp::BitShr => {
+            fold_int_binary(arguments, span, id, |a, b| a.wrapping_shr(masked_shift_amount(b)))
+        }
         CorePrimOp::Min => fold_min_max(arguments, span, true, id),
         CorePrimOp::Max => fold_min_max(arguments, span, false, id),
         CorePrimOp::StringLength => match arguments.first()? {
-            Expression::String { value, .. } => Some(Expression::Integer {
-                value: value.len() as i64,
-                span,
-                id,
-            }),
+            Expression::String { value, .. } => {
+                Some(Expression::Integer { value: value.len() as i64, span, id })
+            }
             _ => None,
         },
         CorePrimOp::StringConcat => match (arguments.first()?, arguments.get(1)?) {
             (Expression::String { value: left, .. }, Expression::String { value: right, .. }) => {
-                Some(Expression::String {
-                    value: format!("{left}{right}"),
-                    span,
-                    id,
-                })
+                Some(Expression::String { value: format!("{left}{right}"), span, id })
             }
             _ => None,
         },
@@ -306,11 +210,7 @@ fn fold_float_unary(
     f: impl FnOnce(f64) -> f64,
 ) -> Option<Expression> {
     match arguments.first()? {
-        Expression::Float { value, .. } => Some(Expression::Float {
-            value: f(*value),
-            span,
-            id,
-        }),
+        Expression::Float { value, .. } => Some(Expression::Float { value: f(*value), span, id }),
         _ => None,
     }
 }
@@ -323,11 +223,7 @@ fn fold_int_binary(
 ) -> Option<Expression> {
     match (arguments.first()?, arguments.get(1)?) {
         (Expression::Integer { value: a, .. }, Expression::Integer { value: b, .. }) => {
-            Some(Expression::Integer {
-                value: f(*a, *b),
-                span,
-                id,
-            })
+            Some(Expression::Integer { value: f(*a, *b), span, id })
         }
         _ => None,
     }
@@ -362,11 +258,7 @@ fn fold_min_max(
         }
         (Expression::Integer { value: a, .. }, Expression::Float { value: b, .. }) => {
             let a = *a as f64;
-            Some(Expression::Float {
-                value: if is_min { a.min(*b) } else { a.max(*b) },
-                span,
-                id,
-            })
+            Some(Expression::Float { value: if is_min { a.min(*b) } else { a.max(*b) }, span, id })
         }
         (Expression::Float { value: a, .. }, Expression::Integer { value: b, .. }) => {
             let b = *b as f64;
@@ -382,14 +274,16 @@ fn fold_min_max(
 
 /// Apply constant folding to a program (without primop folding).
 pub fn constant_fold(program: Program) -> Program {
+    // Its rewrites belong to no Core definition (0190 §13).
+    opt_bisect::set_def(String::new);
     let mut folder = ConstantFolder { interner: None };
     folder.fold_program(program)
 }
 
 /// Apply constant folding with identifier-aware pure-primop folding.
 pub fn constant_fold_with_interner(program: Program, interner: &Interner) -> Program {
-    let mut folder = ConstantFolder {
-        interner: Some(interner),
-    };
+    // Its rewrites belong to no Core definition (0190 §13).
+    opt_bisect::set_def(String::new);
+    let mut folder = ConstantFolder { interner: Some(interner) };
     folder.fold_program(program)
 }

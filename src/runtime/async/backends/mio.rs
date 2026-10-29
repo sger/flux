@@ -104,11 +104,7 @@ fn configured_fs_pool_size(raw: usize) -> usize {
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
         .filter(|n| *n > 0)
-        .or_else(|| {
-            std::thread::available_parallelism()
-                .ok()
-                .map(|n| n.get().min(4))
-        })
+        .or_else(|| std::thread::available_parallelism().ok().map(|n| n.get().min(4)))
         .unwrap_or(DEFAULT_FS_POOL_SIZE)
 }
 
@@ -123,10 +119,7 @@ struct TimerEntry {
 // is at the top. Ties broken by request_id for stable ordering.
 impl Ord for TimerEntry {
     fn cmp(&self, other: &Self) -> CmpOrdering {
-        other
-            .deadline
-            .cmp(&self.deadline)
-            .then_with(|| other.request_id.cmp(&self.request_id))
+        other.deadline.cmp(&self.deadline).then_with(|| other.request_id.cmp(&self.request_id))
     }
 }
 impl PartialOrd for TimerEntry {
@@ -224,12 +217,7 @@ impl MioBackend {
     }
 
     pub fn new_with_pool_sizes(dns_pool_size: usize, fs_pool_size: usize) -> Self {
-        Self {
-            inner: Mutex::new(None),
-            dns_pool_size,
-            fs_pool_size,
-            taped: AtomicBool::new(false),
-        }
+        Self { inner: Mutex::new(None), dns_pool_size, fs_pool_size, taped: AtomicBool::new(false) }
     }
 
     /// Marks this as the backend a program's async code runs on: while an
@@ -266,10 +254,7 @@ impl MioBackend {
                 .timers
                 .lock()
                 .expect("timer-heap poisoned")
-                .push(TimerEntry {
-                    deadline,
-                    request_id: req,
-                });
+                .push(TimerEntry { deadline, request_id: req });
             // Wake the reactor so it recomputes its next poll timeout against
             // the new deadline.
             let _ = shared.waker.wake();
@@ -286,11 +271,7 @@ impl MioBackend {
 
     fn pop_completion(&self) -> Option<Completion> {
         self.with_shared(|shared| {
-            shared
-                .completions
-                .lock()
-                .expect("completions poisoned")
-                .pop_front()
+            shared.completions.lock().expect("completions poisoned").pop_front()
         })
         .flatten()
     }
@@ -325,10 +306,7 @@ impl MioBackend {
             .spawn(move || run_reactor(poll, thread_shared))
             .map_err(io::Error::other)?;
 
-        *slot = Some(Inner {
-            shared,
-            handle: Some(handle),
-        });
+        *slot = Some(Inner { shared, handle: Some(handle) });
         Ok(())
     }
 
@@ -346,9 +324,7 @@ impl MioBackend {
         if let Some(handle) = inner.handle.take()
             && let Err(e) = handle.join()
         {
-            return Err(io::Error::other(format!(
-                "mio reactor thread panicked: {e:?}"
-            )));
+            return Err(io::Error::other(format!("mio reactor thread panicked: {e:?}")));
         }
         Ok(())
     }
@@ -356,20 +332,13 @@ impl MioBackend {
     /// Run `f` against the live shared state, or no-op if the backend is
     /// stopped. Avoids exposing `Inner`/`Arc` to the trait impls.
     fn with_shared<R>(&self, f: impl FnOnce(&Arc<ReactorShared>) -> R) -> Option<R> {
-        self.inner
-            .lock()
-            .expect("MioBackend mutex poisoned")
-            .as_ref()
-            .map(|inner| f(&inner.shared))
+        self.inner.lock().expect("MioBackend mutex poisoned").as_ref().map(|inner| f(&inner.shared))
     }
 
     /// True when the reactor thread is currently running. Test-only helper.
     #[cfg(test)]
     pub(crate) fn is_running(&self) -> bool {
-        self.inner
-            .lock()
-            .expect("MioBackend mutex poisoned")
-            .is_some()
+        self.inner.lock().expect("MioBackend mutex poisoned").is_some()
     }
 }
 
@@ -396,11 +365,7 @@ impl AsyncBackend for MioBackend {
             return;
         }
         if let Some(()) = self.with_shared(|shared| {
-            shared
-                .cancelled
-                .lock()
-                .expect("cancelled-set poisoned")
-                .insert(req);
+            shared.cancelled.lock().expect("cancelled-set poisoned").insert(req);
             shared
                 .completions
                 .lock()
@@ -451,13 +416,7 @@ impl AsyncBackend for MioBackend {
     }
 
     fn dns_resolve(&self, req: RequestId, host: String, port: u16) {
-        if !self.performs(
-            Some(req),
-            Submission::Dns {
-                host: host.clone(),
-                port,
-            },
-        ) {
+        if !self.performs(Some(req), Submission::Dns { host: host.clone(), port }) {
             return;
         }
         let _ = self.with_shared(|shared| {
@@ -516,13 +475,7 @@ impl AsyncBackend for MioBackend {
 
     fn tcp_write(&self, req: RequestId, handle: IoHandle, bytes: Vec<u8>) {
         if self.on_tape()
-            && !async_tape::submit(
-                Some(req),
-                Submission::Write {
-                    handle,
-                    bytes: bytes.clone(),
-                },
-            )
+            && !async_tape::submit(Some(req), Submission::Write { handle, bytes: bytes.clone() })
         {
             return;
         }
@@ -574,10 +527,7 @@ impl AsyncBackend for MioBackend {
                 .tcp_commands
                 .lock()
                 .expect("tcp commands poisoned")
-                .push_back(TcpCommand::Accept {
-                    req,
-                    listener_handle: handle,
-                });
+                .push_back(TcpCommand::Accept { req, listener_handle: handle });
             let _ = shared.waker.wake();
         });
     }
@@ -766,10 +716,7 @@ fn drain_tcp_commands(
                     );
                     continue;
                 };
-                c.pending_read = Some(PendingRead {
-                    request_id: req,
-                    max,
-                });
+                c.pending_read = Some(PendingRead { request_id: req, max });
                 // The connection is registered for READABLE | WRITABLE
                 // already; we'll service the read on the next readable
                 // event (or attempt one immediately for already-buffered
@@ -785,11 +732,7 @@ fn drain_tcp_commands(
                     );
                     continue;
                 };
-                c.pending_write = Some(PendingWrite {
-                    request_id: req,
-                    bytes,
-                    written: 0,
-                });
+                c.pending_write = Some(PendingWrite { request_id: req, bytes, written: 0 });
                 try_progress_write(shared, c);
             }
             TcpCommand::Close { handle } => {
@@ -828,11 +771,7 @@ fn drain_tcp_commands(
                         }
                         listeners.insert(
                             handle,
-                            TcpListenerState {
-                                listener,
-                                token,
-                                pending_accept: None,
-                            },
+                            TcpListenerState { listener, token, pending_accept: None },
                         );
                         listener_tokens.insert(token, handle);
                         // Listen completes immediately — Flux `listen()` returns the listener handle.
@@ -847,10 +786,7 @@ fn drain_tcp_commands(
                     }
                 }
             }
-            TcpCommand::Accept {
-                req,
-                listener_handle,
-            } => {
+            TcpCommand::Accept { req, listener_handle } => {
                 let Some(ls) = listeners.get_mut(&listener_handle) else {
                     push_completion(
                         shared,
@@ -874,10 +810,7 @@ fn drain_tcp_commands(
                     if c.pending_read.as_ref().is_some_and(|p| p.request_id == req) {
                         c.pending_read = None;
                     }
-                    if c.pending_write
-                        .as_ref()
-                        .is_some_and(|p| p.request_id == req)
-                    {
+                    if c.pending_write.as_ref().is_some_and(|p| p.request_id == req) {
                         c.pending_write = None;
                     }
                     if c.pending_connect == Some(req) {
@@ -955,11 +888,7 @@ fn try_progress_read(shared: &ReactorShared, c: &mut TcpConnState) {
         Err(e) => {
             let req = pending.request_id;
             c.pending_read = None;
-            push_completion(
-                shared,
-                req,
-                CompletionPayload::Error(format!("read failed: {e}")),
-            );
+            push_completion(shared, req, CompletionPayload::Error(format!("read failed: {e}")));
         }
     }
 }
@@ -982,11 +911,7 @@ fn try_progress_write(shared: &ReactorShared, c: &mut TcpConnState) {
                 // as an error so the request doesn't hang forever.
                 let req = pending.request_id;
                 c.pending_write = None;
-                push_completion(
-                    shared,
-                    req,
-                    CompletionPayload::Error("write returned 0".into()),
-                );
+                push_completion(shared, req, CompletionPayload::Error("write returned 0".into()));
                 return;
             }
             Ok(n) => {
@@ -1045,11 +970,7 @@ fn try_progress_accept(
         }
         Err(e) => {
             ls.pending_accept = None;
-            push_completion(
-                shared,
-                req,
-                CompletionPayload::Error(format!("accept failed: {e}")),
-            );
+            push_completion(shared, req, CompletionPayload::Error(format!("accept failed: {e}")));
         }
     }
 }
@@ -1059,10 +980,7 @@ fn push_completion(shared: &ReactorShared, req: RequestId, payload: CompletionPa
         .completions
         .lock()
         .expect("completions poisoned")
-        .push_back(Completion {
-            request_id: req,
-            payload,
-        });
+        .push_back(Completion { request_id: req, payload });
 }
 
 fn fs_error(err: std::io::Error, path: impl Into<String>) -> FsError {
@@ -1078,11 +996,7 @@ fn fs_error(err: std::io::Error, path: impl Into<String>) -> FsError {
         | std::io::ErrorKind::WouldBlock => FsErrorKind::Interrupted,
         _ => FsErrorKind::Other,
     };
-    FsError {
-        kind,
-        message: err.to_string(),
-        path: path.into(),
-    }
+    FsError { kind, message: err.to_string(), path: path.into() }
 }
 
 fn execute_fs_operation(operation: FsOperation) -> FsCompletion {
@@ -1181,12 +1095,7 @@ fn fs_submit_error(operation: FsOperation, message: String) -> FsCompletion {
 }
 
 fn push_completion_if_live(shared: &ReactorShared, req: RequestId, payload: CompletionPayload) {
-    if shared
-        .cancelled
-        .lock()
-        .expect("cancelled-set poisoned")
-        .contains(&req)
-    {
+    if shared.cancelled.lock().expect("cancelled-set poisoned").contains(&req) {
         return;
     }
     push_completion(shared, req, payload);
@@ -1361,10 +1270,7 @@ mod tests {
 
         // No further completion should arrive within a reasonable grace period.
         let extra = wait_for(&backend, Duration::from_millis(400));
-        assert!(
-            extra.is_none(),
-            "cancelled timer must not produce a completion: got {extra:?}"
-        );
+        assert!(extra.is_none(), "cancelled timer must not produce a completion: got {extra:?}");
         backend.shutdown().unwrap();
     }
 
@@ -1585,9 +1491,7 @@ mod tests {
 
         backend.fs_request(
             RequestId(300),
-            FsOperation::CreateDirAll {
-                path: nested.to_string_lossy().into_owned(),
-            },
+            FsOperation::CreateDirAll { path: nested.to_string_lossy().into_owned() },
         );
         assert!(matches!(
             wait_for(&backend, Duration::from_secs(2)).unwrap().payload,
@@ -1608,9 +1512,7 @@ mod tests {
 
         backend.fs_request(
             RequestId(302),
-            FsOperation::ReadFile {
-                path: path.to_string_lossy().into_owned(),
-            },
+            FsOperation::ReadFile { path: path.to_string_lossy().into_owned() },
         );
         assert!(matches!(
             wait_for(&backend, Duration::from_secs(2)).unwrap().payload,
@@ -1619,24 +1521,9 @@ mod tests {
         ));
 
         for (request, operation) in [
-            (
-                303,
-                FsOperation::Exists {
-                    path: path.to_string_lossy().into_owned(),
-                },
-            ),
-            (
-                304,
-                FsOperation::IsFile {
-                    path: path.to_string_lossy().into_owned(),
-                },
-            ),
-            (
-                305,
-                FsOperation::IsDir {
-                    path: nested.to_string_lossy().into_owned(),
-                },
-            ),
+            (303, FsOperation::Exists { path: path.to_string_lossy().into_owned() }),
+            (304, FsOperation::IsFile { path: path.to_string_lossy().into_owned() }),
+            (305, FsOperation::IsDir { path: nested.to_string_lossy().into_owned() }),
         ] {
             backend.fs_request(RequestId(request), operation);
             assert!(matches!(
@@ -1647,9 +1534,7 @@ mod tests {
 
         backend.fs_request(
             RequestId(306),
-            FsOperation::ListDir {
-                path: nested.to_string_lossy().into_owned(),
-            },
+            FsOperation::ListDir { path: nested.to_string_lossy().into_owned() },
         );
         assert!(matches!(
             wait_for(&backend, Duration::from_secs(2)).unwrap().payload,
@@ -1659,9 +1544,7 @@ mod tests {
 
         backend.fs_request(
             RequestId(307),
-            FsOperation::Metadata {
-                path: path.to_string_lossy().into_owned(),
-            },
+            FsOperation::Metadata { path: path.to_string_lossy().into_owned() },
         );
         assert!(matches!(
             wait_for(&backend, Duration::from_secs(2)).unwrap().payload,
@@ -1683,9 +1566,7 @@ mod tests {
 
         backend.fs_request(
             RequestId(309),
-            FsOperation::RemoveFile {
-                path: renamed.to_string_lossy().into_owned(),
-            },
+            FsOperation::RemoveFile { path: renamed.to_string_lossy().into_owned() },
         );
         assert!(matches!(
             wait_for(&backend, Duration::from_secs(2)).unwrap().payload,
@@ -1693,9 +1574,7 @@ mod tests {
         ));
         backend.fs_request(
             RequestId(310),
-            FsOperation::RemoveDirAll {
-                path: base.to_string_lossy().into_owned(),
-            },
+            FsOperation::RemoveDirAll { path: base.to_string_lossy().into_owned() },
         );
         assert!(matches!(
             wait_for(&backend, Duration::from_secs(2)).unwrap().payload,

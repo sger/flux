@@ -9,9 +9,9 @@ error[E423]: Unknown Type
 
 I can't find a type named `Any`.
 
-  examples/type_system/failing/56_strict_any_nested_rejected.flx:59:26
+  examples/type_system/failing/56_strict_any_nested_rejected.flx:61:26
    |
-59 | public fn first(xs: List<Any>) -> Any {
+61 | public fn first(xs: List<Any>) -> Any {
    |                          ^^^
    |                          --- unknown type used here
 
@@ -23,9 +23,9 @@ error[E423]: Unknown Type
 
 I can't find a type named `Any`.
 
-  examples/type_system/failing/56_strict_any_nested_rejected.flx:59:35
+  examples/type_system/failing/56_strict_any_nested_rejected.flx:61:35
    |
-59 | public fn first(xs: List<Any>) -> Any {
+61 | public fn first(xs: List<Any>) -> Any {
    |                                   ^^^
    |                                   --- unknown type used here
 
@@ -37,17 +37,17 @@ error[E300]: Return Type Mismatch
 
 The body of `first` does not match its declared return type.
 
-  examples/type_system/failing/56_strict_any_nested_rejected.flx:60:5
+  examples/type_system/failing/56_strict_any_nested_rejected.flx:62:5
    |
-59 | public fn first(xs: List<Any>) -> Any {
+61 | public fn first(xs: List<Any>) -> Any {
    |                                   --- `first` was declared to return `Any`
-60 |     1
+62 |     1
    |     ^
    |     - this expression has type `Int`
    |
 help: Change return type to `Int`
    |
-59 | public fn first(xs: List<Any>) -> Int {
+61 | public fn first(xs: List<Any>) -> Int { //~ E423 E423
    |                                   ~~~
 
 Note:

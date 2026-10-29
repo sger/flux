@@ -1,4 +1,5 @@
 use crate::core::{CoreBinder, CoreExpr, CorePrimOp};
+use crate::shared::opt_bisect;
 
 use super::{
     helpers::{is_pure, subst},
@@ -9,12 +10,7 @@ use super::{
 /// Specialize trivial known wrappers into direct Core forms.
 pub fn specialize_known_shapes(expr: CoreExpr) -> CoreExpr {
     match expr {
-        CoreExpr::Let {
-            var,
-            rhs,
-            body,
-            span,
-        } => {
+        CoreExpr::Let { var, rhs, body, span } => {
             let rhs = specialize_known_shapes(*rhs);
             let body = specialize_known_shapes(*body);
             if !keep::keeps(var.id)
@@ -22,15 +18,13 @@ pub fn specialize_known_shapes(expr: CoreExpr) -> CoreExpr {
                 && occurs_as_callee(var.id, &body)
                 && is_specializable_rhs(&rhs)
                 && is_pure(&rhs)
+                && opt_bisect::allow("specialize_known_shapes", || {
+                    "inline a wrapper into its one call".to_string()
+                })
             {
                 specialize_known_shapes(subst(body, var.id, &rhs))
             } else {
-                CoreExpr::Let {
-                    var,
-                    rhs: Box::new(rhs),
-                    body: Box::new(body),
-                    span,
-                }
+                CoreExpr::Let { var, rhs: Box::new(rhs), body: Box::new(body), span }
             }
         }
         other => super::helpers::map_children(other, specialize_known_shapes),
@@ -61,8 +55,7 @@ fn is_specializable_wrapper(params: &[CoreBinder], body: &CoreExpr) -> bool {
 fn wrapper_atom(params: &[CoreBinder], expr: &CoreExpr) -> bool {
     match expr {
         CoreExpr::Var { var, .. } => {
-            var.binder
-                .is_some_and(|binder| params.iter().any(|param| param.id == binder))
+            var.binder.is_some_and(|binder| params.iter().any(|param| param.id == binder))
                 || var.binder.is_none()
         }
         CoreExpr::Lit(_, _) => true,

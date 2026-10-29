@@ -6,9 +6,9 @@
 //
 // Expected `{` to begin data constructors.
 //
-//   examples/type_system/failing/179_data_missing_open_brace.flx:24:15
+//   examples/type_system/failing/179_data_missing_open_brace.flx:23:15
 //    |
-// 24 | data Maybe<T> Some(T), None }
+// 23 | data Maybe<T> Some(T), None }
 //    |               ^^^^
 //
 // Hint:
@@ -19,7 +19,6 @@
 //   Suppressed 1 cascading parser diagnostic(s) likely caused by an earlier syntax error.
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E034
 
-data Maybe<T> Some(T), None }
+data Maybe<T> Some(T), None } //~ E034
 let after = 1

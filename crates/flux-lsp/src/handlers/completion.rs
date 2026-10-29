@@ -42,9 +42,8 @@ const BUILTIN_EFFECTS: &[&str] = &[
     "AsyncFail",
 ];
 
-const BUILTIN_TYPES: &[&str] = &[
-    "Int", "Float", "String", "Bool", "List", "Array", "Option", "Result",
-];
+const BUILTIN_TYPES: &[&str] =
+    &["Int", "Float", "String", "Bool", "List", "Array", "Option", "Result"];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public entry point
@@ -259,22 +258,14 @@ fn expr_items(
 fn module_name_items(snapshot: &Snapshot) -> Vec<CompletionItem> {
     let mut seen: HashSet<String> = HashSet::new();
     let mut items = Vec::new();
-    for key in snapshot
-        .module_programs
-        .keys()
-        .chain(snapshot.module_members.keys())
-    {
+    for key in snapshot.module_programs.keys().chain(snapshot.module_members.keys()) {
         if key.is_empty() || !seen.insert(key.clone()) {
             continue;
         }
         let import_edit = module_full_name(snapshot, key)
             .and_then(|full| crate::handlers::auto_import::import_edit_for(snapshot, &full, key))
             .map(|edit| vec![edit]);
-        let detail = if import_edit.is_some() {
-            "module (auto-imports)"
-        } else {
-            "module"
-        };
+        let detail = if import_edit.is_some() { "module (auto-imports)" } else { "module" };
         items.push(CompletionItem {
             label: key.clone(),
             kind: Some(CompletionItemKind::MODULE),
@@ -491,82 +482,26 @@ fn push_module_member(stmt: &Statement, interner: &Interner, out: &mut Vec<Compl
                 parameter_types,
                 return_type.as_ref(),
             );
-            push_item(
-                interner,
-                *name,
-                CompletionItemKind::FUNCTION,
-                Some(detail),
-                "0_",
-                out,
-            );
+            push_item(interner, *name, CompletionItemKind::FUNCTION, Some(detail), "0_", out);
         }
-        Statement::Let {
-            is_public: true,
-            name,
-            type_annotation,
-            ..
-        } => {
+        Statement::Let { is_public: true, name, type_annotation, .. } => {
             let detail = type_annotation.as_ref().map(|t| t.display_with(interner));
-            push_item(
-                interner,
-                *name,
-                CompletionItemKind::CONSTANT,
-                detail,
-                "0_",
-                out,
-            );
+            push_item(interner, *name, CompletionItemKind::CONSTANT, detail, "0_", out);
         }
-        Statement::Data {
-            is_public: true,
-            name,
-            variants,
-            ..
-        } => {
+        Statement::Data { is_public: true, name, variants, .. } => {
             push_item(interner, *name, CompletionItemKind::STRUCT, None, "0_", out);
             for v in variants {
-                push_item(
-                    interner,
-                    v.name,
-                    CompletionItemKind::CONSTRUCTOR,
-                    None,
-                    "0_",
-                    out,
-                );
+                push_item(interner, v.name, CompletionItemKind::CONSTRUCTOR, None, "0_", out);
             }
         }
-        Statement::Class {
-            is_public: true,
-            name,
-            ..
-        } => {
-            push_item(
-                interner,
-                *name,
-                CompletionItemKind::INTERFACE,
-                None,
-                "0_",
-                out,
-            );
+        Statement::Class { is_public: true, name, .. } => {
+            push_item(interner, *name, CompletionItemKind::INTERFACE, None, "0_", out);
         }
         Statement::EffectDecl { name, .. } | Statement::EffectAlias { name, .. } => {
-            push_item(
-                interner,
-                *name,
-                CompletionItemKind::INTERFACE,
-                None,
-                "0_",
-                out,
-            );
+            push_item(interner, *name, CompletionItemKind::INTERFACE, None, "0_", out);
         }
         Statement::TypeAlias(a) => {
-            push_item(
-                interner,
-                a.name,
-                CompletionItemKind::TYPE_PARAMETER,
-                None,
-                "0_",
-                out,
-            );
+            push_item(interner, a.name, CompletionItemKind::TYPE_PARAMETER, None, "0_", out);
         }
         _ => {}
     }
@@ -593,15 +528,8 @@ fn function_signature(
             }
         })
         .collect();
-    let ret = return_type
-        .map(|t| format!(" -> {}", t.display_with(interner)))
-        .unwrap_or_default();
-    format!(
-        "fn {}({}){}",
-        interner.try_resolve(name).unwrap_or("?"),
-        params.join(", "),
-        ret
-    )
+    let ret = return_type.map(|t| format!(" -> {}", t.display_with(interner))).unwrap_or_default();
+    format!("fn {}({}){}", interner.try_resolve(name).unwrap_or("?"), params.join(", "), ret)
 }
 
 /// Map the identifier written before a `.` to a `module_programs` /
@@ -617,11 +545,7 @@ fn resolve_module_key(snapshot: &Snapshot, name: &str) -> Option<String> {
         return Some(name.to_string());
     }
     for stmt in &snapshot.program.statements {
-        if let Statement::Import {
-            name: qualified,
-            alias: Some(alias),
-            ..
-        } = stmt
+        if let Statement::Import { name: qualified, alias: Some(alias), .. } = stmt
             && snapshot.interner.try_resolve(*alias) == Some(name)
         {
             let qualified = snapshot.interner.try_resolve(*qualified)?;
@@ -645,10 +569,7 @@ fn resolve_module_key(snapshot: &Snapshot, name: &str) -> Option<String> {
 ///   completion.
 fn module_completion_context(snapshot: &Snapshot, path: &str) -> Option<CompletionContext> {
     if let Some(key) = resolve_module_key(snapshot, path) {
-        return Some(CompletionContext::ModuleMember {
-            key,
-            reference: path.to_string(),
-        });
+        return Some(CompletionContext::ModuleMember { key, reference: path.to_string() });
     }
     let prefix = format!("{path}.");
     let is_namespace = snapshot
@@ -665,11 +586,7 @@ fn module_namespace_items(snapshot: &Snapshot, prefix: &str) -> CompletionRespon
     let dotted = format!("{prefix}.");
     let mut seen: HashSet<String> = HashSet::new();
     let mut items: Vec<CompletionItem> = Vec::new();
-    for key in snapshot
-        .module_programs
-        .keys()
-        .chain(snapshot.module_members.keys())
-    {
+    for key in snapshot.module_programs.keys().chain(snapshot.module_members.keys()) {
         if let Some(rest) = key.strip_prefix(&dotted) {
             let segment = rest.split('.').next().unwrap_or(rest);
             if !segment.is_empty() && seen.insert(segment.to_string()) {
@@ -713,11 +630,7 @@ fn record_field_items(snapshot: &Snapshot, variant: Identifier) -> Option<Comple
     let items: Vec<CompletionItem> = fields
         .iter()
         .map(|(field_name, ty)| CompletionItem {
-            label: snapshot
-                .interner
-                .try_resolve(*field_name)
-                .unwrap_or("?")
-                .to_string(),
+            label: snapshot.interner.try_resolve(*field_name).unwrap_or("?").to_string(),
             kind: Some(CompletionItemKind::FIELD),
             detail: Some(ty.display_with(&snapshot.interner)),
             ..Default::default()
@@ -755,15 +668,12 @@ fn perform_op_items(snapshot: &Snapshot) -> CompletionResponse {
                 .iter()
                 .filter_map(|stmt| {
                     if let Statement::EffectDecl { name, .. } = stmt {
-                        snapshot
-                            .interner
-                            .try_resolve(*name)
-                            .map(|n| CompletionItem {
-                                label: n.to_string(),
-                                kind: Some(CompletionItemKind::INTERFACE),
-                                detail: Some("effect".to_string()),
-                                ..Default::default()
-                            })
+                        snapshot.interner.try_resolve(*name).map(|n| CompletionItem {
+                            label: n.to_string(),
+                            kind: Some(CompletionItemKind::INTERFACE),
+                            detail: Some("effect".to_string()),
+                            ..Default::default()
+                        })
                     } else {
                         None
                     }
@@ -853,22 +763,13 @@ fn collect_locals(
     out: &mut Vec<CompletionItem>,
 ) {
     for stmt in &snapshot.program.statements {
-        if let Statement::Function {
-            span,
-            parameters,
-            parameter_types,
-            body,
-            ..
-        } = stmt
-        {
+        if let Statement::Function { span, parameters, parameter_types, body, .. } = stmt {
             if !span_contains_offset(*span, &snapshot.position_map, cursor_offset) {
                 continue;
             }
             // Parameters
             for (param, param_ty) in parameters.iter().zip(parameter_types.iter()) {
-                let detail = param_ty
-                    .as_ref()
-                    .map(|ty| ty.display_with(&snapshot.interner));
+                let detail = param_ty.as_ref().map(|ty| ty.display_with(&snapshot.interner));
                 push_item(
                     &snapshot.interner,
                     *param,
@@ -921,14 +822,7 @@ fn collect_locals_from_block(
                 collect_pattern_bindings(pattern, value, snapshot, out);
             }
             Statement::Function { name, .. } => {
-                push_item(
-                    &snapshot.interner,
-                    *name,
-                    CompletionItemKind::FUNCTION,
-                    None,
-                    "0_",
-                    out,
-                );
+                push_item(&snapshot.interner, *name, CompletionItemKind::FUNCTION, None, "0_", out);
             }
             _ => {}
         }
@@ -948,14 +842,7 @@ fn collect_pattern_bindings(
                     .get(&value.expr_id())
                     .map(|ty| display_infer_type(ty, &snapshot.interner))
             });
-            push_item(
-                &snapshot.interner,
-                *name,
-                CompletionItemKind::VARIABLE,
-                detail,
-                "0_",
-                out,
-            );
+            push_item(&snapshot.interner, *name, CompletionItemKind::VARIABLE, detail, "0_", out);
         }
         Pattern::Tuple { elements, .. } => {
             for e in elements {
@@ -977,9 +864,7 @@ fn enclosing_function_span(snapshot: &Snapshot, offset: usize) -> Option<FluxSpa
         {
             // Check one level of nested functions
             for inner in &body.statements {
-                if let Statement::Function {
-                    span: inner_span, ..
-                } = inner
+                if let Statement::Function { span: inner_span, .. } = inner
                     && span_contains_offset(*inner_span, &snapshot.position_map, offset)
                 {
                     return Some(*inner_span);
@@ -992,24 +877,13 @@ fn enclosing_function_span(snapshot: &Snapshot, offset: usize) -> Option<FluxSpa
 }
 
 fn span_contains_offset(span: FluxSpan, pos_map: &PositionMap, offset: usize) -> bool {
-    let start = pos_map
-        .flux_to_offset(span.start)
-        .map(usize::from)
-        .unwrap_or(usize::MAX);
-    let end = pos_map
-        .flux_to_offset(span.end)
-        .map(usize::from)
-        .unwrap_or(0);
+    let start = pos_map.flux_to_offset(span.start).map(usize::from).unwrap_or(usize::MAX);
+    let end = pos_map.flux_to_offset(span.end).map(usize::from).unwrap_or(0);
     offset >= start && offset <= end
 }
 
 fn span_key(span: FluxSpan) -> (usize, usize, usize, usize) {
-    (
-        span.start.line,
-        span.start.column,
-        span.end.line,
-        span.end.column,
-    )
+    (span.start.line, span.start.column, span.end.line, span.end.column)
 }
 
 fn push_item(
@@ -1047,9 +921,7 @@ fn ident_before_dot(bytes: &[u8], off: usize) -> Option<String> {
     if start == dot_pos {
         return None;
     }
-    std::str::from_utf8(&bytes[start..dot_pos])
-        .ok()
-        .map(String::from)
+    std::str::from_utf8(&bytes[start..dot_pos]).ok().map(String::from)
 }
 
 /// Returns `true` when the text immediately before the cursor (ignoring
@@ -1079,11 +951,7 @@ fn cursor_after_keyword(bytes: &[u8], off: usize, keyword: &[u8]) -> bool {
 }
 
 fn cursor_in_with_clause(bytes: &[u8], off: usize) -> bool {
-    let line_start = bytes[..off]
-        .iter()
-        .rposition(|&b| b == b'\n')
-        .map(|p| p + 1)
-        .unwrap_or(0);
+    let line_start = bytes[..off].iter().rposition(|&b| b == b'\n').map(|p| p + 1).unwrap_or(0);
     let line = &bytes[line_start..off];
     if line.len() < 5 {
         return false;
@@ -1180,9 +1048,7 @@ fn local_binding_variant_in_stmt(
 ) -> Option<Identifier> {
     if let Statement::Let { name, value, .. } = stmt
         && interner.try_resolve(*name) == Some(binding_name)
-        && let Expression::NamedConstructor {
-            name: variant_name, ..
-        } = value
+        && let Expression::NamedConstructor { name: variant_name, .. } = value
     {
         return Some(*variant_name);
     }

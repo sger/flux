@@ -36,30 +36,30 @@ pub struct UnifyError {
     pub detail: UnifyErrorDetail,
     /// Source span where the mismatch was detected (may be `Span::default()`).
     pub span: Span,
+    /// The two effect rows disagree. Kept apart from `detail`, which the
+    /// function-parameter wrap overwrites, so diagnostics can still tell an
+    /// effect error from a type error.
+    pub effect_row: bool,
 }
 
 impl UnifyError {
     /// Build an effect-row mismatch error by wrapping both rows in synthetic
     /// `() -> Unit with row` Fun types (compatible with the generic diagnostic path).
+    /// A function-parameter mismatch replaces them with the real parameter types.
     pub(crate) fn effect_row_mismatch(
         left: InferEffectRow,
         right: InferEffectRow,
         span: Span,
     ) -> Self {
-        Self::mismatch(
-            InferType::Fun(
-                vec![],
-                Box::new(InferType::Con(TypeConstructor::Unit)),
-                left,
-            ),
-            InferType::Fun(
-                vec![],
-                Box::new(InferType::Con(TypeConstructor::Unit)),
-                right,
-            ),
-            span,
-            UnifyErrorDetail::None,
-        )
+        UnifyError {
+            effect_row: true,
+            ..Self::mismatch(
+                InferType::Fun(vec![], Box::new(InferType::Con(TypeConstructor::Unit)), left),
+                InferType::Fun(vec![], Box::new(InferType::Con(TypeConstructor::Unit)), right),
+                span,
+                UnifyErrorDetail::None,
+            )
+        }
     }
 
     pub(crate) fn mismatch(
@@ -74,6 +74,7 @@ impl UnifyError {
             kind: UnifyErrorKind::Mismatch,
             detail,
             span,
+            effect_row: false,
         }
     }
 
@@ -85,6 +86,7 @@ impl UnifyError {
             kind: UnifyErrorKind::OccursCheck(v),
             detail: UnifyErrorDetail::None,
             span,
+            effect_row: false,
         }
     }
 
@@ -97,6 +99,7 @@ impl UnifyError {
             kind: UnifyErrorKind::RigidBind(v),
             detail: UnifyErrorDetail::None,
             span,
+            effect_row: false,
         }
     }
 }

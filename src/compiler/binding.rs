@@ -13,13 +13,7 @@ pub struct Binding {
 
 impl Binding {
     pub fn new(name: Symbol, symbol_scope: SymbolScope, index: usize, span: Span) -> Self {
-        Self {
-            name,
-            symbol_scope,
-            index,
-            is_assigned: false,
-            span,
-        }
+        Self { name, symbol_scope, index, is_assigned: false, span }
     }
 
     pub fn mark_assigned(&mut self) {

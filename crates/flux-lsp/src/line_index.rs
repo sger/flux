@@ -45,11 +45,7 @@ pub struct PositionMap {
 impl PositionMap {
     pub fn new(text: Arc<str>, encoding: PositionEncoding) -> Self {
         let index = LineIndex::new(&text);
-        Self {
-            text,
-            index,
-            encoding,
-        }
+        Self { text, index, encoding }
     }
 
     pub fn encoding(&self) -> PositionEncoding {
@@ -65,24 +61,13 @@ impl PositionMap {
 
     pub fn lsp_to_offset(&self, p: LspPosition) -> Option<TextSize> {
         let line_col = match self.encoding {
-            PositionEncoding::Utf8 => LineCol {
-                line: p.line,
-                col: p.character,
-            },
-            PositionEncoding::Utf16 => self.index.to_utf8(
-                WideEncoding::Utf16,
-                WideLineCol {
-                    line: p.line,
-                    col: p.character,
-                },
-            )?,
-            PositionEncoding::Utf32 => self.index.to_utf8(
-                WideEncoding::Utf32,
-                WideLineCol {
-                    line: p.line,
-                    col: p.character,
-                },
-            )?,
+            PositionEncoding::Utf8 => LineCol { line: p.line, col: p.character },
+            PositionEncoding::Utf16 => self
+                .index
+                .to_utf8(WideEncoding::Utf16, WideLineCol { line: p.line, col: p.character })?,
+            PositionEncoding::Utf32 => self
+                .index
+                .to_utf8(WideEncoding::Utf32, WideLineCol { line: p.line, col: p.character })?,
         };
         self.index.offset(line_col)
     }
@@ -90,32 +75,17 @@ impl PositionMap {
     pub fn offset_to_lsp(&self, offset: TextSize) -> LspPosition {
         let line_col = self.index.line_col(offset);
         match self.encoding {
-            PositionEncoding::Utf8 => LspPosition {
-                line: line_col.line,
-                character: line_col.col,
-            },
+            PositionEncoding::Utf8 => LspPosition { line: line_col.line, character: line_col.col },
             PositionEncoding::Utf16 => self
                 .index
                 .to_wide(WideEncoding::Utf16, line_col)
-                .map(|w| LspPosition {
-                    line: w.line,
-                    character: w.col,
-                })
-                .unwrap_or(LspPosition {
-                    line: line_col.line,
-                    character: line_col.col,
-                }),
+                .map(|w| LspPosition { line: w.line, character: w.col })
+                .unwrap_or(LspPosition { line: line_col.line, character: line_col.col }),
             PositionEncoding::Utf32 => self
                 .index
                 .to_wide(WideEncoding::Utf32, line_col)
-                .map(|w| LspPosition {
-                    line: w.line,
-                    character: w.col,
-                })
-                .unwrap_or(LspPosition {
-                    line: line_col.line,
-                    character: line_col.col,
-                }),
+                .map(|w| LspPosition { line: w.line, character: w.col })
+                .unwrap_or(LspPosition { line: line_col.line, character: line_col.col }),
         }
     }
 
@@ -141,18 +111,12 @@ impl PositionMap {
     /// Convert a UTF-8 byte offset to a Flux position.
     pub fn offset_to_flux(&self, offset: TextSize) -> FluxPosition {
         let line_col = self.index.line_col(offset);
-        let line_start = self
-            .index
-            .line(line_col.line)
-            .map(|r| u32::from(r.start()) as usize)
-            .unwrap_or(0);
+        let line_start =
+            self.index.line(line_col.line).map(|r| u32::from(r.start()) as usize).unwrap_or(0);
         let target_byte = u32::from(offset) as usize;
         let prefix = self.text.get(line_start..target_byte).unwrap_or("");
         let codepoint_col = prefix.chars().count();
-        FluxPosition {
-            line: line_col.line as usize + 1,
-            column: codepoint_col,
-        }
+        FluxPosition { line: line_col.line as usize + 1, column: codepoint_col }
     }
 
     // ── Composed conversions ──────────────────────────────────────────────
@@ -160,10 +124,9 @@ impl PositionMap {
     pub fn flux_to_lsp(&self, p: FluxPosition) -> LspPosition {
         match self.flux_to_offset(p) {
             Some(off) => self.offset_to_lsp(off),
-            None => LspPosition {
-                line: p.line.saturating_sub(1) as u32,
-                character: p.column as u32,
-            },
+            None => {
+                LspPosition { line: p.line.saturating_sub(1) as u32, character: p.column as u32 }
+            }
         }
     }
 
@@ -173,21 +136,12 @@ impl PositionMap {
     }
 
     pub fn flux_span_to_range(&self, s: FluxSpan) -> Range {
-        Range {
-            start: self.flux_to_lsp(s.start),
-            end: self.flux_to_lsp(s.end),
-        }
+        Range { start: self.flux_to_lsp(s.start), end: self.flux_to_lsp(s.end) }
     }
 
     pub fn full_document_range(&self) -> Range {
         let end = self.offset_to_lsp(self.index.len());
-        Range {
-            start: LspPosition {
-                line: 0,
-                character: 0,
-            },
-            end,
-        }
+        Range { start: LspPosition { line: 0, character: 0 }, end }
     }
 }
 
@@ -219,10 +173,7 @@ mod tests {
         let text: Arc<str> = "let x = 1\nlet y = 2\n".into();
         let m = PositionMap::new(text, PositionEncoding::Utf8);
         // `1` is at line 0, column 8 in LSP (and Flux line 1, col 8).
-        let lsp = LspPosition {
-            line: 0,
-            character: 8,
-        };
+        let lsp = LspPosition { line: 0, character: 8 };
         let off = m.lsp_to_offset(lsp).unwrap();
         assert_eq!(m.offset_to_lsp(off), lsp);
         let flux = m.offset_to_flux(off);
@@ -236,10 +187,7 @@ mod tests {
         let text: Arc<str> = "// é\nlet x = 1\n".into();
         let m = PositionMap::new(text.clone(), PositionEncoding::Utf16);
         // Cursor on the `1` on line 1.
-        let lsp = LspPosition {
-            line: 1,
-            character: 8,
-        };
+        let lsp = LspPosition { line: 1, character: 8 };
         let flux = m.lsp_to_flux(lsp).unwrap();
         assert_eq!(flux.line, 2);
         assert_eq!(flux.column, 8);
@@ -250,12 +198,6 @@ mod tests {
         let text: Arc<str> = "abc\nde".into();
         let m = PositionMap::new(text, PositionEncoding::Utf16);
         let r = m.full_document_range();
-        assert_eq!(
-            r.end,
-            LspPosition {
-                line: 1,
-                character: 2
-            }
-        );
+        assert_eq!(r.end, LspPosition { line: 1, character: 2 });
     }
 }

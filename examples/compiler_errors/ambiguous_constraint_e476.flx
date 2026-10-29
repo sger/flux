@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E476
 // Expected: E476 Ambiguous Type Variable
 //   "Type argument 2 of `Convert` is not determined by this signature, so no
 //    call can select an instance for it."
@@ -28,7 +27,7 @@ instance Convert<Int, String> {
     fn convert(x) { to_string(x) }
 }
 
-fn describe<a, b>(x: a) -> Int where Convert<a, b> {
+fn describe<a, b>(x: a) -> Int where Convert<a, b> { //~ E476
     1
 }
 

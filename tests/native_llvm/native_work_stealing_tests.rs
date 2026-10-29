@@ -15,29 +15,18 @@
 
 #![cfg(feature = "llvm")]
 
-use std::path::Path;
 use std::process::Command;
 
-#[path = "../support/scratch.rs"]
-mod scratch;
+use crate::support::scratch;
 use scratch::Scratch;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+use scratch::workspace_root;
 
 fn run_source_with_env(source: &str, tag: &str, env: &[(&str, &str)]) -> (String, String, bool) {
-    let dir = workspace_root()
-        .join("target")
-        .join("test-scratch")
-        .join(format!("flux-load-balance-{}-{}", std::process::id(), tag,));
-    std::fs::create_dir_all(&dir).expect("create temp dir");
-    let path = dir.join("fixture.flx");
-    std::fs::write(&path, source).expect("write fixture");
-
     // Private cache root: `--no-cache` does not isolate native
     // builds, which write shared artifacts regardless (KI-010).
-    let scratch = Scratch::new("native-llvm");
+    let scratch = Scratch::new(&format!("flux-load-balance-{tag}"));
+    let path = scratch.write("fixture.flx", source);
+
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_flux"));
     cmd.current_dir(workspace_root())
         .args([path.to_str().unwrap(), "--native", "--no-cache"])
@@ -113,11 +102,8 @@ fn main() with IO {
     print(run_async(body))
 }
 "#;
-    let (stdout, stderr, ok) = run_source_with_env(
-        source,
-        "race_fifo_round_robin",
-        &[("FLUX_WORK_STEALING", "0")],
-    );
+    let (stdout, stderr, ok) =
+        run_source_with_env(source, "race_fifo_round_robin", &[("FLUX_WORK_STEALING", "0")]);
     assert!(
         ok,
         "race must succeed under round-robin fallback:\nstdout:\n{stdout}\nstderr:\n{stderr}"
@@ -157,10 +143,7 @@ fn main() with IO {
 }
 "#;
     let (stdout, stderr, ok) = run_source_with_env(source, "many_fibers", &[]);
-    assert!(
-        ok,
-        "many concurrent fibers must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(ok, "many concurrent fibers must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert_eq!(stdout.trim(), "16");
 }
 

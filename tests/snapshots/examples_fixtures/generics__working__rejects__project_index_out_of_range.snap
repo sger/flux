@@ -9,9 +9,9 @@ error[E492]: Tuple Index Out Of Range
 
 This tuple has 2 elements, so there is no `.2` to project. Valid indices are 0 to 1.
 
-  examples/generics/working/rejects/project_index_out_of_range.flx:14:15
+  examples/generics/working/rejects/project_index_out_of_range.flx:13:15
    |
-14 | fn third(p) { p.2 }
+13 | fn third(p) { p.2 }
    |               ^^^
 == stdout ==
 <not executed>

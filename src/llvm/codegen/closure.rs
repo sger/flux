@@ -57,11 +57,7 @@ pub fn boxed_nanbox_tag_bits() -> i64 {
 }
 
 fn emit_closure_type(module: &mut LlvmModule) {
-    if module
-        .type_defs
-        .iter()
-        .any(|def| def.name == FLUX_CLOSURE_TYPE_NAME)
-    {
+    if module.type_defs.iter().any(|def| def.name == FLUX_CLOSURE_TYPE_NAME) {
         return;
     }
     module.type_defs.push(LlvmTypeDef {
@@ -152,11 +148,7 @@ fn emit_copy_helper(module: &mut LlvmModule) {
             varargs: false,
             call_conv: CallConv::Fastcc,
         },
-        params: vec![
-            LlvmLocal("dst".into()),
-            LlvmLocal("src".into()),
-            LlvmLocal("count".into()),
-        ],
+        params: vec![LlvmLocal("dst".into()), LlvmLocal("src".into()), LlvmLocal("count".into())],
         attrs: vec![],
         blocks: vec![
             LlvmBlock {
@@ -372,10 +364,7 @@ fn emit_tag_boxed_ptr(module: &mut LlvmModule) {
                 operand: local("ptr"),
                 to_ty: LlvmType::i64(),
             }],
-            term: LlvmTerminator::Ret {
-                ty: LlvmType::i64(),
-                value: local("tagged"),
-            },
+            term: LlvmTerminator::Ret { ty: LlvmType::i64(), value: local("tagged") },
         }],
     });
 }
@@ -406,10 +395,7 @@ fn emit_untag_boxed_ptr(module: &mut LlvmModule) {
                 operand: local("value"),
                 to_ty: LlvmType::ptr(),
             }],
-            term: LlvmTerminator::Ret {
-                ty: LlvmType::ptr(),
-                value: local("ptr"),
-            },
+            term: LlvmTerminator::Ret { ty: LlvmType::ptr(), value: local("ptr") },
         }],
     });
 }
@@ -488,10 +474,7 @@ fn emit_make_closure(module: &mut LlvmModule) {
                     base: local("mem"),
                     indices: vec![
                         (LlvmType::i32(), const_i32_operand(0)),
-                        (
-                            LlvmType::i32(),
-                            const_i32_operand(FLUX_CLOSURE_FN_FIELD as i32),
-                        ),
+                        (LlvmType::i32(), const_i32_operand(FLUX_CLOSURE_FN_FIELD as i32)),
                     ],
                 },
                 LlvmInstr::Store {
@@ -564,10 +547,7 @@ fn emit_make_closure(module: &mut LlvmModule) {
                     base: local("mem"),
                     indices: vec![
                         (LlvmType::i32(), const_i32_operand(0)),
-                        (
-                            LlvmType::i32(),
-                            const_i32_operand(FLUX_CLOSURE_PAYLOAD_FIELD as i32),
-                        ),
+                        (LlvmType::i32(), const_i32_operand(FLUX_CLOSURE_PAYLOAD_FIELD as i32)),
                         (LlvmType::i32(), const_i32_operand(0)),
                     ],
                 },
@@ -638,10 +618,7 @@ fn emit_make_closure(module: &mut LlvmModule) {
                     attrs: vec![],
                 },
             ],
-            term: LlvmTerminator::Ret {
-                ty: LlvmType::i64(),
-                value: local("tagged"),
-            },
+            term: LlvmTerminator::Ret { ty: LlvmType::i64(), value: local("tagged") },
         }],
     });
 }
@@ -705,10 +682,7 @@ fn emit_call_closure(module: &mut LlvmModule) {
                     ],
                     attrs: vec![],
                 }],
-                term: LlvmTerminator::Ret {
-                    ty: LlvmType::i64(),
-                    value: local("exact.result"),
-                },
+                term: LlvmTerminator::Ret { ty: LlvmType::i64(), value: local("exact.result") },
             },
             LlvmBlock {
                 label: LabelId("under".into()),
@@ -790,10 +764,7 @@ fn emit_call_closure(module: &mut LlvmModule) {
                         attrs: vec![],
                     },
                 ],
-                term: LlvmTerminator::Ret {
-                    ty: LlvmType::i64(),
-                    value: local("under.result"),
-                },
+                term: LlvmTerminator::Ret { ty: LlvmType::i64(), value: local("under.result") },
             },
             LlvmBlock {
                 label: LabelId("over".into()),
@@ -840,10 +811,7 @@ fn emit_call_closure(module: &mut LlvmModule) {
                         attrs: vec![],
                     },
                 ],
-                term: LlvmTerminator::Ret {
-                    ty: LlvmType::i64(),
-                    value: local("over.result"),
-                },
+                term: LlvmTerminator::Ret { ty: LlvmType::i64(), value: local("over.result") },
             },
         ],
     });
@@ -886,10 +854,7 @@ fn emit_call_closure_c(module: &mut LlvmModule) {
                 ],
                 attrs: vec![],
             }],
-            term: LlvmTerminator::Ret {
-                ty: LlvmType::i64(),
-                value: local("result"),
-            },
+            term: LlvmTerminator::Ret { ty: LlvmType::i64(), value: local("result") },
         }],
     });
 }
@@ -912,10 +877,7 @@ pub(super) fn common_closure_load_instrs(closure_value: LlvmOperand) -> Vec<Llvm
             base: local("closure"),
             indices: vec![
                 (LlvmType::i32(), const_i32_operand(0)),
-                (
-                    LlvmType::i32(),
-                    const_i32_operand(FLUX_CLOSURE_FN_FIELD as i32),
-                ),
+                (LlvmType::i32(), const_i32_operand(FLUX_CLOSURE_FN_FIELD as i32)),
             ],
         },
         LlvmInstr::Load {
@@ -931,10 +893,7 @@ pub(super) fn common_closure_load_instrs(closure_value: LlvmOperand) -> Vec<Llvm
             base: local("closure"),
             indices: vec![
                 (LlvmType::i32(), const_i32_operand(0)),
-                (
-                    LlvmType::i32(),
-                    const_i32_operand(FLUX_CLOSURE_REMAINING_ARITY_FIELD as i32),
-                ),
+                (LlvmType::i32(), const_i32_operand(FLUX_CLOSURE_REMAINING_ARITY_FIELD as i32)),
             ],
         },
         LlvmInstr::Load {
@@ -950,10 +909,7 @@ pub(super) fn common_closure_load_instrs(closure_value: LlvmOperand) -> Vec<Llvm
             base: local("closure"),
             indices: vec![
                 (LlvmType::i32(), const_i32_operand(0)),
-                (
-                    LlvmType::i32(),
-                    const_i32_operand(FLUX_CLOSURE_CAPTURE_COUNT_FIELD as i32),
-                ),
+                (LlvmType::i32(), const_i32_operand(FLUX_CLOSURE_CAPTURE_COUNT_FIELD as i32)),
             ],
         },
         LlvmInstr::Load {
@@ -969,10 +925,7 @@ pub(super) fn common_closure_load_instrs(closure_value: LlvmOperand) -> Vec<Llvm
             base: local("closure"),
             indices: vec![
                 (LlvmType::i32(), const_i32_operand(0)),
-                (
-                    LlvmType::i32(),
-                    const_i32_operand(FLUX_CLOSURE_APPLIED_COUNT_FIELD as i32),
-                ),
+                (LlvmType::i32(), const_i32_operand(FLUX_CLOSURE_APPLIED_COUNT_FIELD as i32)),
             ],
         },
         LlvmInstr::Load {
@@ -988,10 +941,7 @@ pub(super) fn common_closure_load_instrs(closure_value: LlvmOperand) -> Vec<Llvm
             base: local("closure"),
             indices: vec![
                 (LlvmType::i32(), const_i32_operand(0)),
-                (
-                    LlvmType::i32(),
-                    const_i32_operand(FLUX_CLOSURE_PAYLOAD_FIELD as i32),
-                ),
+                (LlvmType::i32(), const_i32_operand(FLUX_CLOSURE_PAYLOAD_FIELD as i32)),
                 (LlvmType::i32(), const_i32_operand(0)),
             ],
         },
@@ -1017,18 +967,12 @@ pub(super) fn local(name: &str) -> LlvmOperand {
 }
 
 pub(super) fn const_i32_operand(value: i32) -> LlvmOperand {
-    LlvmOperand::Const(LlvmConst::Int {
-        bits: 32,
-        value: value.into(),
-    })
+    LlvmOperand::Const(LlvmConst::Int { bits: 32, value: value.into() })
 }
 
 #[allow(dead_code)]
 pub(super) fn const_i64_operand(value: i64) -> LlvmOperand {
-    LlvmOperand::Const(LlvmConst::Int {
-        bits: 64,
-        value: value.into(),
-    })
+    LlvmOperand::Const(LlvmConst::Int { bits: 64, value: value.into() })
 }
 
 #[cfg(test)]

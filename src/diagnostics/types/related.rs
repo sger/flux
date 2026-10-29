@@ -25,32 +25,17 @@ pub struct RelatedDiagnostic {
 impl RelatedDiagnostic {
     /// Create a note-style related diagnostic
     pub fn note(message: impl Into<String>) -> Self {
-        Self {
-            kind: RelatedKind::Note,
-            message: message.into(),
-            span: None,
-            file: None,
-        }
+        Self { kind: RelatedKind::Note, message: message.into(), span: None, file: None }
     }
 
     /// Create a help-style related diagnostic
     pub fn help(message: impl Into<String>) -> Self {
-        Self {
-            kind: RelatedKind::Help,
-            message: message.into(),
-            span: None,
-            file: None,
-        }
+        Self { kind: RelatedKind::Help, message: message.into(), span: None, file: None }
     }
 
     /// Create a general related diagnostic
     pub fn related(message: impl Into<String>) -> Self {
-        Self {
-            kind: RelatedKind::Related,
-            message: message.into(),
-            span: None,
-            file: None,
-        }
+        Self { kind: RelatedKind::Related, message: message.into(), span: None, file: None }
     }
 
     /// Add a source span to this related diagnostic

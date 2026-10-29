@@ -9,10 +9,10 @@ error[E034]: Missing Effect Operation Separator
 
 This `perform` expression needs `.` between the effect and operation.
 
-  examples/type_system/failing/173_perform_missing_dot.flx:20:20
-   |
-20 | let x = perform IO print("hi")
-   |                    ^^^^^
+  examples/type_system/failing/173_perform_missing_dot.flx:5:20
+  |
+5 | let x = perform IO print("hi")
+  |                    ^^^^^
 
 Hint:
   Perform expressions use `perform Effect.op(args...)`.

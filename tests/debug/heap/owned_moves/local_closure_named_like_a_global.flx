@@ -1,0 +1,22 @@
+// PA R1: a parameter holding a closure has the name of a top-level function
+// that only reads its argument. The closure releases its own parameter, so a
+// call through the parameter must hand over a reference, not lend the
+// caller's.
+
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn go(xs) {
+    len(xs)
+}
+
+fn apply(go, xs, n) {
+    if n == 0 { go(xs) } else { apply(go, xs, n - 1) }
+}
+
+fn main() {
+    let xs = numbers(1)
+    print(apply(\ys -> 0, xs, 2))
+    print(xs)
+}

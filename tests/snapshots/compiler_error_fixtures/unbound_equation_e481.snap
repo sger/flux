@@ -9,9 +9,9 @@ error[E481]: Unbound Associated Type Variable
 
 `b` appears in the body of `Element` but is not bound by its head.
 
-  examples/compiler_errors/unbound_equation_e481.flx:18:5
+  examples/compiler_errors/unbound_equation_e481.flx:17:5
    |
-18 |     type Element<List<a>> = b
+17 |     type Element<List<a>> = b
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^
 == stdout ==
 <not executed>

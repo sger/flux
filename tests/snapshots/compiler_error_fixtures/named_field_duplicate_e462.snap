@@ -9,9 +9,9 @@ error[E462]: Duplicate Named Field
 
 Field `x` is listed more than once.
 
-  examples/compiler_errors/named_field_duplicate_e462.flx:12:27
+  examples/compiler_errors/named_field_duplicate_e462.flx:11:27
    |
-12 |     let p = Point { x: 1, x: 2, y: 3 }
+11 |     let p = Point { x: 1, x: 2, y: 3 }
    |                           ^^^^
 == stdout ==
 <not executed>

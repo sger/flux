@@ -53,9 +53,7 @@ pub fn goto_definition(
     // `import Flow.Array as A` alias). Look up the member in the prelude's
     // cached program for that module and jump to its definition there.
     if let NodeRef::MemberAccessMember { object, member, .. } = &node {
-        if let Expression::Identifier {
-            name: object_id, ..
-        } = object
+        if let Expression::Identifier { name: object_id, .. } = object
             && let Some(module_short) = resolve_module_short_name(snapshot, *object_id)
             && let Some((mod_program, mod_source, mod_path)) =
                 snapshot.module_programs.get(&module_short)
@@ -98,11 +96,7 @@ pub fn goto_definition(
             && let Some((variant_span, field_span)) =
                 find_data_field_spans(&snapshot.program, &snapshot.interner, adt_sym, *member)
         {
-            let name = snapshot
-                .interner
-                .try_resolve(*member)
-                .unwrap_or("")
-                .to_string();
+            let name = snapshot.interner.try_resolve(*member).unwrap_or("").to_string();
             return Some(NavigationTarget {
                 uri: uri.clone(),
                 full_range: snapshot.position_map.flux_span_to_range(variant_span),
@@ -120,11 +114,7 @@ pub fn goto_definition(
         && let Some((stmt_span, alias_span)) =
             find_import_alias_spans(&snapshot.program, &snapshot.interner, *name)
     {
-        let alias_text = snapshot
-            .interner
-            .try_resolve(*name)
-            .unwrap_or("")
-            .to_string();
+        let alias_text = snapshot.interner.try_resolve(*name).unwrap_or("").to_string();
         return Some(NavigationTarget {
             uri: uri.clone(),
             full_range: snapshot.position_map.flux_span_to_range(stmt_span),
@@ -136,21 +126,12 @@ pub fn goto_definition(
     // Jump into the imported module's file (to its `module` declaration)
     // when the module is loaded; otherwise fall back to the import
     // statement itself, the locator's precise sub-position as the focus.
-    if let NodeRef::ImportAlias {
-        alias,
-        qualified,
-        span,
-    } = &node
-    {
+    if let NodeRef::ImportAlias { alias, qualified, span } = &node {
         if let Some(target) = import_module_target(snapshot, *qualified) {
             return Some(target);
         }
         let stmt_span = find_import_stmt_span_by_alias(&snapshot.program, *alias).unwrap_or(*span);
-        let name = snapshot
-            .interner
-            .try_resolve(*qualified)
-            .unwrap_or("")
-            .to_string();
+        let name = snapshot.interner.try_resolve(*qualified).unwrap_or("").to_string();
         return Some(NavigationTarget {
             uri: uri.clone(),
             full_range: snapshot.position_map.flux_span_to_range(stmt_span),
@@ -158,20 +139,13 @@ pub fn goto_definition(
             name,
         });
     }
-    if let NodeRef::ImportName {
-        qualified, span, ..
-    } = &node
-    {
+    if let NodeRef::ImportName { qualified, span, .. } = &node {
         if let Some(target) = import_module_target(snapshot, *qualified) {
             return Some(target);
         }
         let stmt_span =
             find_import_stmt_span_by_qualified(&snapshot.program, *qualified).unwrap_or(*span);
-        let name = snapshot
-            .interner
-            .try_resolve(*qualified)
-            .unwrap_or("")
-            .to_string();
+        let name = snapshot.interner.try_resolve(*qualified).unwrap_or("").to_string();
         return Some(NavigationTarget {
             uri: uri.clone(),
             full_range: snapshot.position_map.flux_span_to_range(stmt_span),
@@ -184,11 +158,7 @@ pub fn goto_definition(
     // or in a `handle` clause). Jump to the binding occurrence. Focus =
     // the row var token; full = the enclosing function signature.
     if let NodeRef::EffectRowVar { name, span } = &node {
-        let name_text = snapshot
-            .interner
-            .try_resolve(*name)
-            .unwrap_or("")
-            .to_string();
+        let name_text = snapshot.interner.try_resolve(*name).unwrap_or("").to_string();
         if let Some((fn_span, binding_span)) =
             find_row_var_binding_with_fn(&snapshot.program, *name)
         {
@@ -222,11 +192,7 @@ pub fn goto_definition(
             dispatch.method_name,
         )
     {
-        let method_name = snapshot
-            .interner
-            .try_resolve(*name)
-            .unwrap_or("")
-            .to_string();
+        let method_name = snapshot.interner.try_resolve(*name).unwrap_or("").to_string();
         return Some(NavigationTarget {
             uri: uri.clone(),
             full_range: snapshot.position_map.flux_span_to_range(entry.full_span),
@@ -240,22 +206,14 @@ pub fn goto_definition(
     // Extended index covers top-level names + effect ops + data variants.
     let extended_index = SymbolIndex::build_extended(&snapshot.program, &snapshot.interner);
     if let Some(entry) = extended_index.lookup_id(def_name) {
-        return Some(target_from_entry(
-            uri.clone(),
-            &snapshot.position_map,
-            entry,
-        ));
+        return Some(target_from_entry(uri.clone(), &snapshot.position_map, entry));
     }
 
     // Local binding walk (let/fn/parameter inside a function body).
     if let Some((full_span, focus_span)) =
         find_local_definition(&snapshot.program, &snapshot.interner, def_name)
     {
-        let name = snapshot
-            .interner
-            .try_resolve(def_name)
-            .unwrap_or("")
-            .to_string();
+        let name = snapshot.interner.try_resolve(def_name).unwrap_or("").to_string();
         return Some(NavigationTarget {
             uri: uri.clone(),
             full_range: snapshot.position_map.flux_span_to_range(full_span),
@@ -287,11 +245,7 @@ pub fn goto_type_definition(
 
     let extended_index = SymbolIndex::build_extended(&snapshot.program, &snapshot.interner);
     if let Some(entry) = extended_index.lookup_id(adt_sym) {
-        return Some(target_from_entry(
-            uri.clone(),
-            &snapshot.position_map,
-            entry,
-        ));
+        return Some(target_from_entry(uri.clone(), &snapshot.position_map, entry));
     }
     module_member_target(snapshot, adt_sym)
 }
@@ -300,7 +254,7 @@ pub fn goto_type_definition(
 /// type, or a `let`/pattern binding's scheme. `None` when the node has no
 /// resolvable type or its type isn't a user ADT (a function, a built-in like
 /// `Int`, or a bare type variable).
-fn node_type_adt_symbol(snapshot: &Snapshot, node: &NodeRef) -> Option<Identifier> {
+fn node_type_adt_symbol(snapshot: &Snapshot, node: &NodeRef<'_>) -> Option<Identifier> {
     let infer = snapshot.infer.as_ref()?;
     let ty = match node {
         NodeRef::Expr(expr) => infer.expr_types.get(&expr.expr_id())?,
@@ -411,10 +365,7 @@ fn enclosing_function_span(program: &Program, target: FluxPosition) -> Option<Fl
             // inside the body — so the cursor will be in the body's
             // statement spans, not in `span`. Walk both.
             if position_in_span(target, *span)
-                || body
-                    .statements
-                    .iter()
-                    .any(|s| position_in_span(target, s.span()))
+                || body.statements.iter().any(|s| position_in_span(target, s.span()))
             {
                 return Some(*span);
             }
@@ -452,22 +403,12 @@ fn enclosing_if_in_stmt(stmt: &Statement, target: FluxPosition) -> Option<FluxSp
 }
 
 fn enclosing_if_in_expr(expr: &Expression, target: FluxPosition) -> Option<FluxSpan> {
-    if let Expression::If {
-        condition,
-        consequence,
-        alternative,
-        span,
-        ..
-    } = expr
-    {
+    if let Expression::If { condition, consequence, alternative, span, .. } = expr {
         // If the cursor is anywhere inside the alternative block, this
         // is the matching `if`. Return the if-expression's overall span
         // (start of `if`, just before the `else` keyword position).
         if let Some(alt) = alternative
-            && alt
-                .statements
-                .iter()
-                .any(|s| position_in_span(target, s.span()))
+            && alt.statements.iter().any(|s| position_in_span(target, s.span()))
         {
             return Some(*span);
         }
@@ -569,12 +510,7 @@ fn find_data_field_spans(
     field: Identifier,
 ) -> Option<(FluxSpan, FluxSpan)> {
     for stmt in &program.statements {
-        let Statement::Data {
-            name: data_name,
-            variants,
-            ..
-        } = stmt
-        else {
+        let Statement::Data { name: data_name, variants, .. } = stmt else {
             continue;
         };
         for variant in variants {
@@ -595,10 +531,7 @@ fn find_data_field_spans(
                 // (the `+ 2` accounts for `: ` between name and type).
                 let start_col = ty_span.start.column.saturating_sub(name_text.len() + 2);
                 let focus = FluxSpan {
-                    start: FluxPosition {
-                        line: ty_span.start.line,
-                        column: start_col,
-                    },
+                    start: FluxPosition { line: ty_span.start.line, column: start_col },
                     end: FluxPosition {
                         line: ty_span.start.line,
                         column: start_col + name_text.len(),
@@ -669,11 +602,7 @@ fn resolve_module_short_name(snapshot: &Snapshot, object_id: Identifier) -> Opti
         return Some(direct.to_string());
     }
     for stmt in &snapshot.program.statements {
-        if let Statement::Import {
-            name,
-            alias: Some(a),
-            ..
-        } = stmt
+        if let Statement::Import { name, alias: Some(a), .. } = stmt
             && *a == object_id
         {
             let qualified = snapshot.interner.try_resolve(*name)?;
@@ -748,11 +677,7 @@ fn find_import_alias_spans(
     target: Identifier,
 ) -> Option<(FluxSpan, FluxSpan)> {
     for stmt in &program.statements {
-        if let Statement::Import {
-            alias: Some(a),
-            span,
-            ..
-        } = stmt
+        if let Statement::Import { alias: Some(a), span, .. } = stmt
             && *a == target
         {
             let alias_text = interner.try_resolve(*a)?;
@@ -761,10 +686,7 @@ fn find_import_alias_spans(
                 line: span.end.line,
                 column: span.end.column.saturating_sub(alias_len),
             };
-            let alias_span = FluxSpan {
-                start: alias_start,
-                end: span.end,
-            };
+            let alias_span = FluxSpan { start: alias_start, end: span.end };
             return Some((*span, alias_span));
         }
     }
@@ -776,11 +698,7 @@ fn find_import_alias_spans(
 /// branch to compute the `full_range`.
 fn find_import_stmt_span_by_alias(program: &Program, target: Identifier) -> Option<FluxSpan> {
     for stmt in &program.statements {
-        if let Statement::Import {
-            alias: Some(a),
-            span,
-            ..
-        } = stmt
+        if let Statement::Import { alias: Some(a), span, .. } = stmt
             && *a == target
         {
             return Some(*span);
@@ -827,26 +745,14 @@ fn find_in_stmt(
     target: Identifier,
 ) -> Option<(FluxSpan, FluxSpan)> {
     match stmt {
-        Statement::Let {
-            is_public,
-            name,
-            span,
-            ..
-        } if *name == target => {
+        Statement::Let { is_public, name, span, .. } if *name == target => {
             let focus = name_span_after_keyword(*span, *is_public, "let", interner, *name);
             Some((*span, focus))
         }
         Statement::LetDestructure { pattern, span, .. } => {
             find_in_pattern(pattern, target, *span).map(|focus| (*span, focus))
         }
-        Statement::Function {
-            is_public,
-            name,
-            span,
-            parameters,
-            body,
-            ..
-        } => {
+        Statement::Function { is_public, name, span, parameters, body, .. } => {
             if *name == target {
                 let focus = name_span_after_keyword(*span, *is_public, "fn", interner, *name);
                 return Some((*span, focus));
@@ -876,28 +782,20 @@ fn name_span_after_keyword(
 ) -> FluxSpan {
     let start = crate::locator::decl_name_start(stmt_span.start, is_public, keyword);
     let len = interner.try_resolve(name).map(str::len).unwrap_or(0);
-    FluxSpan {
-        start,
-        end: FluxPosition {
-            line: start.line,
-            column: start.column + len,
-        },
-    }
+    FluxSpan { start, end: FluxPosition { line: start.line, column: start.column + len } }
 }
 
 fn find_in_pattern(pat: &Pattern, target: Identifier, binding_span: FluxSpan) -> Option<FluxSpan> {
     match pat {
         Pattern::Identifier { name, .. } if *name == target => Some(binding_span),
-        Pattern::Tuple { elements, .. } => elements
-            .iter()
-            .find_map(|e| find_in_pattern(e, target, binding_span)),
-        Pattern::Constructor { fields, .. } => fields
-            .iter()
-            .find_map(|f| find_in_pattern(f, target, binding_span)),
+        Pattern::Tuple { elements, .. } => {
+            elements.iter().find_map(|e| find_in_pattern(e, target, binding_span))
+        }
+        Pattern::Constructor { fields, .. } => {
+            fields.iter().find_map(|f| find_in_pattern(f, target, binding_span))
+        }
         Pattern::NamedConstructor { fields, .. } => fields.iter().find_map(|f| {
-            f.pattern
-                .as_ref()
-                .and_then(|p| find_in_pattern(p, target, binding_span))
+            f.pattern.as_ref().and_then(|p| find_in_pattern(p, target, binding_span))
         }),
         Pattern::Some { pattern, .. }
         | Pattern::Left { pattern, .. }
@@ -923,7 +821,7 @@ fn find_in_block(
 
 /// Map a `NodeRef` to the identifier whose definition F12 should jump to.
 /// Returns `None` for nodes that don't represent a navigable reference.
-fn definition_name(node: &NodeRef) -> Option<Identifier> {
+fn definition_name(node: &NodeRef<'_>) -> Option<Identifier> {
     match node {
         NodeRef::Expr(Expression::Identifier { name, .. }) => Some(*name),
         NodeRef::Pattern(Pattern::Identifier { name, .. }) => Some(*name),

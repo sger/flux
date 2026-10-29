@@ -13,6 +13,15 @@
 // no element evidence at all. Both shapes in one file.
 //
 // Expected: true false Some("ab") None Some(4) Some(7) Some(20)
+// parity-expected-stdout-begin
+// true
+// false
+// Some("ab")
+// None
+// Some(4)
+// Some(7)
+// Some(20)
+// parity-expected-stdout-end
 
 import Flow.Monad
 

@@ -6,16 +6,16 @@
 //
 // The value of `x` does not match its type annotation.
 //
-//   examples/type_system/failing/87_hm_pattern_binding_constrained_mismatch.flx:86:21
+//   examples/type_system/failing/87_hm_pattern_binding_constrained_mismatch.flx:88:21
 //    |
-// 86 |     let x: String = match Some(1) {
-//    |                     ^^^^^^^^^^^^^^^
+// 88 |     let x: String = match Some(1) { //~ E300
+//    |                     ^^^^^^^^^^^^^^^^^^^^^^^^
 //    |            ------ but `x` was annotated as `String`
-// 87 |         Some(v) -> v,
-//    | ^^^^^^^^^^^^^^^^^^^^^
-// 88 |         None -> 0,
+// 89 |         Some(v) -> v, //~ E300
+//    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+// 90 |         None -> 0,
 //    | ^^^^^^^^^^^^^^^^^^
-// 89 |     }
+// 91 |     }
 //    | ^^^^^
 //
 // Note:
@@ -30,9 +30,9 @@
 //
 // The arms of this `match` expression do not agree on a type.
 //
-//   examples/type_system/failing/87_hm_pattern_binding_constrained_mismatch.flx:87:20
+//   examples/type_system/failing/87_hm_pattern_binding_constrained_mismatch.flx:89:20
 //    |
-// 87 |         Some(v) -> v,
+// 89 |         Some(v) -> v,
 //    |                    ^
 //    |                    - arm 1 has type `Int`
 //
@@ -56,17 +56,22 @@
 //
 // The body of `main` does not match its declared return type.
 //
-//   examples/type_system/failing/87_hm_pattern_binding_constrained_mismatch.flx:90:5
+//   examples/type_system/failing/87_hm_pattern_binding_constrained_mismatch.flx:92:5
 //    |
-// 85 | fn main() -> Unit {
+// 87 | fn main() -> Unit {
 //    |              ---- `main` was declared to return `Unit`
-// 86 |     let x: String = match Some(1) {
-// 87 |         Some(v) -> v,
-// 88 |         None -> 0,
-// 89 |     }
-// 90 |     x
+// 88 |     let x: String = match Some(1) {
+// 89 |         Some(v) -> v,
+// 90 |         None -> 0,
+// 91 |     }
+// 92 |     x
 //    |     ^
 //    |     - this expression has type `String`
+//    |
+// help: Change return type to `String`
+//    |
+// 87 | fn main() -> String {
+//    |              ~~~~~~
 //
 // Note:
 //   declared return type: Unit
@@ -78,14 +83,11 @@
 // Found 3 errors.
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E300
-// expect-error: E300
-// expect-error: E300
 
 fn main() -> Unit {
-    let x: String = match Some(1) {
-        Some(v) -> v,
+    let x: String = match Some(1) { //~ E300
+        Some(v) -> v, //~ E300
         None -> 0,
     }
-    x
+    x //~ E300
 }

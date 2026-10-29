@@ -1,0 +1,19 @@
+// PA R1: an arm names the whole matched list and gives it away. The arm's
+// name is the list itself, so giving it away is the list's one release.
+
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn discard(xs, keep) {
+    if keep { xs } else { [] }
+}
+
+fn main() {
+    let xs = numbers(1)
+    let d = match xs {
+        [] -> [0],
+        ys -> discard(ys, false),
+    }
+    print(d)
+}

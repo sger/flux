@@ -1,12 +1,11 @@
 // expect: compile_error
-// expect-error: E404
 
 effect Console {
     print: String -> ()
 }
 
 fn bad() -> Unit with Console {
-    perform Console.read("x")
+    perform Console.read("x") //~ E404
 }
 
 fn main() -> Unit with IO {

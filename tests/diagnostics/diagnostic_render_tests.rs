@@ -4,8 +4,7 @@ use flux::diagnostics::{
     render_diagnostics_json, render_runtime_diagnostic,
 };
 
-#[path = "../support/diagnostics_env.rs"]
-mod diagnostics_env;
+use crate::support::diagnostics_env;
 
 #[test]
 fn render_uses_span_for_caret() {
@@ -66,10 +65,8 @@ fn json_render_contains_required_fields() {
     let out = render_diagnostics_json(&[diag], Some("test.flx"), Some(50), true, true);
     let parsed: serde_json::Value =
         serde_json::from_str(&out).expect("expected valid JSON diagnostics output");
-    let first = parsed
-        .as_array()
-        .and_then(|arr| arr.first())
-        .expect("expected at least one diagnostic");
+    let first =
+        parsed.as_array().and_then(|arr| arr.first()).expect("expected at least one diagnostic");
     for key in [
         "severity",
         "category",
@@ -103,14 +100,9 @@ fn json_render_includes_phase_when_tagged() {
     let out = render_diagnostics_json(&[diag], Some("test.flx"), Some(50), true, true);
     let parsed: serde_json::Value =
         serde_json::from_str(&out).expect("expected valid JSON diagnostics output");
-    let first = parsed
-        .as_array()
-        .and_then(|arr| arr.first())
-        .expect("expected at least one diagnostic");
-    assert_eq!(
-        first.get("phase").and_then(|v| v.as_str()),
-        Some("type_inference")
-    );
+    let first =
+        parsed.as_array().and_then(|arr| arr.first()).expect("expected at least one diagnostic");
+    assert_eq!(first.get("phase").and_then(|v| v.as_str()), Some("type_inference"));
 }
 
 #[test]
@@ -127,14 +119,9 @@ fn json_render_includes_category_when_present() {
     let out = render_diagnostics_json(&[diag], Some("test.flx"), Some(50), true, true);
     let parsed: serde_json::Value =
         serde_json::from_str(&out).expect("expected valid JSON diagnostics output");
-    let first = parsed
-        .as_array()
-        .and_then(|arr| arr.first())
-        .expect("expected at least one diagnostic");
-    assert_eq!(
-        first.get("category").and_then(|v| v.as_str()),
-        Some("type_inference")
-    );
+    let first =
+        parsed.as_array().and_then(|arr| arr.first()).expect("expected at least one diagnostic");
+    assert_eq!(first.get("category").and_then(|v| v.as_str()), Some("type_inference"));
 }
 
 #[test]
@@ -156,34 +143,24 @@ fn json_render_preserves_label_and_hint_payloads() {
     let out = render_diagnostics_json(&[diag], Some("test.flx"), Some(50), true, true);
     let parsed: serde_json::Value =
         serde_json::from_str(&out).expect("expected valid JSON diagnostics output");
-    let first = parsed
-        .as_array()
-        .and_then(|arr| arr.first())
-        .expect("expected at least one diagnostic");
-    let labels = first
-        .get("labels")
-        .and_then(|v| v.as_array())
-        .expect("labels should be an array");
+    let first =
+        parsed.as_array().and_then(|arr| arr.first()).expect("expected at least one diagnostic");
+    let labels = first.get("labels").and_then(|v| v.as_array()).expect("labels should be an array");
+    assert!(
+        labels.iter().any(|l| {
+            l.get("text").and_then(|v| v.as_str()).is_some_and(|t| t == "primary label")
+        })
+    );
     assert!(labels.iter().any(|l| {
-        l.get("text")
-            .and_then(|v| v.as_str())
-            .is_some_and(|t| t == "primary label")
-    }));
-    assert!(labels.iter().any(|l| {
-        l.get("text")
-            .and_then(|v| v.as_str())
-            .is_some_and(|t| t == "secondary label")
+        l.get("text").and_then(|v| v.as_str()).is_some_and(|t| t == "secondary label")
     }));
 
-    let hints = first
-        .get("hints")
-        .and_then(|v| v.as_array())
-        .expect("hints should be an array");
-    assert!(hints.iter().any(|h| {
-        h.get("text")
-            .and_then(|v| v.as_str())
-            .is_some_and(|t| t == "example hint")
-    }));
+    let hints = first.get("hints").and_then(|v| v.as_array()).expect("hints should be an array");
+    assert!(
+        hints.iter().any(|h| {
+            h.get("text").and_then(|v| v.as_str()).is_some_and(|t| t == "example hint")
+        })
+    );
 }
 
 #[test]
@@ -199,19 +176,11 @@ fn json_render_respects_max_errors_filter() {
             Span::new(Position::new(line, 1), Position::new(line, 2)),
         )
     };
-    let out = render_diagnostics_json(
-        &[mk(1), mk(2), mk(3)],
-        Some("test.flx"),
-        Some(2),
-        true,
-        true,
-    );
+    let out =
+        render_diagnostics_json(&[mk(1), mk(2), mk(3)], Some("test.flx"), Some(2), true, true);
     let parsed: serde_json::Value =
         serde_json::from_str(&out).expect("expected valid JSON diagnostics output");
-    let len = parsed
-        .as_array()
-        .map(|arr| arr.len())
-        .expect("expected array diagnostics output");
+    let len = parsed.as_array().map(|arr| arr.len()).expect("expected array diagnostics output");
     assert_eq!(len, 2, "expected max-errors filtering to cap JSON output");
 }
 
@@ -257,19 +226,14 @@ fn json_render_includes_structured_stack_trace_payload() {
     let out = render_diagnostics_json(&[diag], Some("test.flx"), Some(50), true, true);
     let parsed: serde_json::Value =
         serde_json::from_str(&out).expect("expected valid JSON diagnostics output");
-    let first = parsed
-        .as_array()
-        .and_then(|arr| arr.first())
-        .expect("expected at least one diagnostic");
+    let first =
+        parsed.as_array().and_then(|arr| arr.first()).expect("expected at least one diagnostic");
     let stack_trace = first
         .get("stack_trace")
         .and_then(|v| v.as_array())
         .expect("stack_trace should be an array");
     assert_eq!(stack_trace.len(), 1);
-    assert_eq!(
-        stack_trace[0].get("text").and_then(|v| v.as_str()),
-        Some("test.flx:3:1 in inner")
-    );
+    assert_eq!(stack_trace[0].get("text").and_then(|v| v.as_str()), Some("test.flx:3:1 in inner"));
 }
 
 #[test]
@@ -288,10 +252,7 @@ fn runtime_render_includes_file_header_for_real_source_files() {
     .with_phase(DiagnosticPhase::Runtime);
 
     let out = render_runtime_diagnostic(&diag, "test.flx", Some("foo\nbar\nbaz\n"), &[]);
-    assert!(
-        out.starts_with("• 1 error • test.flx\n"),
-        "expected file header, got:\n{out}"
-    );
+    assert!(out.starts_with("• 1 error • test.flx\n"), "expected file header, got:\n{out}");
     assert!(out.contains("error[E1004]: Runtime Type Error"));
 }
 

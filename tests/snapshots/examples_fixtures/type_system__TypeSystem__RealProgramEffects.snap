@@ -3,18 +3,8 @@ source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/TypeSystem/RealProgramEffects.flx
 == compile ==
-failed (module)
+ok
 == diagnostics ==
-error[E024]: Module Path Mismatch
-
-Module name `TypeSystem.RealProgramEffects` doesn't match file path `examples/type_system/TypeSystem/RealProgramEffects.flx`.
-
-  examples/type_system/TypeSystem/RealProgramEffects.flx:5:1
-  |
-5 | module TypeSystem.RealProgramEffects {
-  | ^
-
-Hint:
-  Rename the module or move the file to match.
+<none>
 == stdout ==
 <not executed>

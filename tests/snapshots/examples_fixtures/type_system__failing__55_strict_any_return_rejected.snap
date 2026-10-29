@@ -9,9 +9,9 @@ error[E423]: Unknown Type
 
 I can't find a type named `Any`.
 
-  examples/type_system/failing/55_strict_any_return_rejected.flx:44:25
+  examples/type_system/failing/55_strict_any_return_rejected.flx:47:25
    |
-44 | public fn id(x: Int) -> Any {
+47 | public fn id(x: Int) -> Any {
    |                         ^^^
    |                         --- unknown type used here
 
@@ -23,17 +23,17 @@ error[E300]: Return Type Mismatch
 
 The body of `id` does not match its declared return type.
 
-  examples/type_system/failing/55_strict_any_return_rejected.flx:45:5
+  examples/type_system/failing/55_strict_any_return_rejected.flx:48:5
    |
-44 | public fn id(x: Int) -> Any {
+47 | public fn id(x: Int) -> Any {
    |                         --- `id` was declared to return `Any`
-45 |     x
+48 |     x
    |     ^
    |     - this expression has type `Int`
    |
 help: Change return type to `Int`
    |
-44 | public fn id(x: Int) -> Int {
+47 | public fn id(x: Int) -> Int { //~ E423
    |                         ~~~
 
 Note:

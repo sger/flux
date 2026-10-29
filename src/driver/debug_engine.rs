@@ -68,20 +68,12 @@ impl EngineObserver {
             let _ = sender.send(None);
             request_interrupt();
         });
-        Ok(Self {
-            out,
-            requests,
-            breakpoints: HashMap::new(),
-            entry: false,
-        })
+        Ok(Self { out, requests, breakpoints: HashMap::new(), entry: false })
     }
 
     fn send(&mut self, message: &EngineMessage) {
         let line = serde_json::to_string(message).expect("engine messages serialize");
-        if writeln!(self.out, "{line}")
-            .and_then(|_| self.out.flush())
-            .is_err()
-        {
+        if writeln!(self.out, "{line}").and_then(|_| self.out.flush()).is_err() {
             // The adapter has gone: nobody is debugging this run any more.
             leave();
         }
@@ -122,12 +114,9 @@ impl EngineObserver {
                 for old in self.breakpoints.remove(&file).unwrap_or_default() {
                     inspector.clear_breakpoint(&file, old);
                 }
-                let set: Vec<Option<usize>> = lines
-                    .iter()
-                    .map(|line| inspector.set_breakpoint(&file, *line).ok())
-                    .collect();
-                self.breakpoints
-                    .insert(file, set.iter().flatten().copied().collect());
+                let set: Vec<Option<usize>> =
+                    lines.iter().map(|line| inspector.set_breakpoint(&file, *line).ok()).collect();
+                self.breakpoints.insert(file, set.iter().flatten().copied().collect());
                 self.reply(id, Ok(Reply::Breakpoints { lines: set }));
             }
             Request::Start { stop_on_entry } => {
@@ -206,32 +195,19 @@ impl EngineObserver {
             {
                 self.reply(id, running())
             }
-            Request::Variables {
-                frame,
-                scope,
-                path,
-                thread,
-            } => {
+            Request::Variables { frame, scope, path, thread } => {
                 let result = look_at(inspector, thread)
                     .and_then(|()| variables(inspector, frame, scope, &path))
                     .map(|variables| Reply::Variables { variables });
                 self.reply(id, result);
             }
-            Request::Evaluate {
-                frame,
-                expression,
-                thread,
-            } => {
+            Request::Evaluate { frame, expression, thread } => {
                 let result = look_at(inspector, thread)
                     .and_then(|()| evaluate(inspector, frame, &expression))
                     .map(|variable| Reply::Value { variable });
                 self.reply(id, result);
             }
-            Request::Refs {
-                frame,
-                expression,
-                thread,
-            } => {
+            Request::Refs { frame, expression, thread } => {
                 let result = look_at(inspector, thread)
                     .and_then(|()| inspector.refs(frame, expression.trim()))
                     .map(|refs| Reply::Refs {
@@ -263,11 +239,7 @@ impl EngineObserver {
             Request::Events => {
                 let events = replay::event_list()
                     .into_iter()
-                    .map(|(index, text, position)| TapeEvent {
-                        index,
-                        text,
-                        position,
-                    })
+                    .map(|(index, text, position)| TapeEvent { index, text, position })
                     .collect();
                 self.reply(id, Ok(Reply::Events { events }));
             }
@@ -286,9 +258,7 @@ impl EngineObserver {
 
 impl VmObserver for EngineObserver {
     fn on_start(&mut self, inspector: &mut Inspector<'_>) -> Resume {
-        self.send(&EngineMessage::Event {
-            event: Event::Ready,
-        });
+        self.send(&EngineMessage::Event { event: Event::Ready });
         self.serve(inspector, false)
     }
 
@@ -297,31 +267,23 @@ impl VmObserver for EngineObserver {
         let (reason, description) = match reason {
             StopReason::Exception(_) => {
                 self.entry = false;
-                exception = inspector.exception().map(|(kind, message)| ExceptionInfo {
-                    kind: kind.id().to_string(),
-                    message,
-                });
+                exception = inspector
+                    .exception()
+                    .map(|(kind, message)| ExceptionInfo { kind: kind.id().to_string(), message });
                 (StopKind::Exception, None)
             }
             _ if std::mem::take(&mut self.entry) => (StopKind::Entry, None),
             StopReason::Breakpoint => (StopKind::Breakpoint, None),
             StopReason::Step => (StopKind::Step, None),
             StopReason::Pause => (StopKind::Pause, None),
-            StopReason::StartOfRecording => (
-                StopKind::Step,
-                Some("the start of the recording".to_string()),
-            ),
+            StopReason::StartOfRecording => {
+                (StopKind::Step, Some("the start of the recording".to_string()))
+            }
         };
         let position = inspector.position();
         let thread = inspector.stopped_thread();
         self.send(&EngineMessage::Event {
-            event: Event::Stopped {
-                reason,
-                position,
-                description,
-                exception,
-                thread,
-            },
+            event: Event::Stopped { reason, position, description, exception, thread },
         });
         self.serve(inspector, true)
     }
@@ -414,10 +376,7 @@ fn variables(
     };
     let found = match scope {
         Scope::Any => inspector.lookup(frame, name),
-        _ => in_scope
-            .into_iter()
-            .find(|var| &var.name == name)
-            .map(|var| var.value),
+        _ => in_scope.into_iter().find(|var| &var.name == name).map(|var| var.value),
     }
     .ok_or_else(|| format!("no variable `{name}` here"))?;
     let value = descend(found, name, parts)?;
@@ -436,10 +395,8 @@ fn handler_variables(inspector: &Inspector<'_>, path: &[String]) -> Result<Vec<V
         return Ok(handlers
             .into_iter()
             .map(|handler| {
-                let site = handler
-                    .handled_in
-                    .map(|name| format!("handled in {name}"))
-                    .unwrap_or_default();
+                let site =
+                    handler.handled_in.map(|name| format!("handled in {name}")).unwrap_or_default();
                 match &handler.state {
                     Some(state) => {
                         let mut var = variable(handler.effect, state, handler.internal);
@@ -484,9 +441,8 @@ fn evaluate(
         .next()
         .filter(|name| !name.is_empty())
         .ok_or_else(|| "write a variable, or a part of one such as `pair.0`".to_string())?;
-    let value = inspector
-        .lookup(frame, name)
-        .ok_or_else(|| format!("no variable `{name}` here"))?;
+    let value =
+        inspector.lookup(frame, name).ok_or_else(|| format!("no variable `{name}` here"))?;
     let parts: Vec<String> = parts.map(str::to_string).collect();
     let value = descend(value, name, &parts)?;
     Ok(variable(expression.to_string(), &value, false))
@@ -494,9 +450,7 @@ fn evaluate(
 
 fn descend(mut value: ValueView, name: &str, parts: &[String]) -> Result<ValueView, String> {
     for part in parts {
-        value = value
-            .child(part)
-            .ok_or_else(|| format!("`{name}` has no part `{part}`"))?;
+        value = value.child(part).ok_or_else(|| format!("`{name}` has no part `{part}`"))?;
     }
     Ok(value)
 }

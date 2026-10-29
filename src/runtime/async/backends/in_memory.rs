@@ -33,10 +33,7 @@ impl InMemoryBackend {
     /// Queue a completion to be delivered on the next `tick`. Test-only API
     /// — `mio` synthesises completions itself from readiness events.
     pub fn enqueue(&self, request_id: RequestId, payload: CompletionPayload) {
-        self.pending.borrow_mut().push_back(Completion {
-            request_id,
-            payload,
-        });
+        self.pending.borrow_mut().push_back(Completion { request_id, payload });
     }
 
     /// Pop the next pending completion, or `None` if the queue is empty.

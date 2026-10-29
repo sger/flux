@@ -72,10 +72,7 @@ pub fn goto_implementation(bundle: &ImplBundle) -> Option<GotoDefinitionResponse
     // The locator emits `DataName` for `data`, `class`, and `instance` names
     // alike — only proceed when the identifier actually names a `class`
     // somewhere in the component.
-    let names_a_class = bundle
-        .files
-        .iter()
-        .any(|f| declares_class(&f.snapshot.program, class_id));
+    let names_a_class = bundle.files.iter().any(|f| declares_class(&f.snapshot.program, class_id));
     if !names_a_class {
         return None;
     }
@@ -125,9 +122,7 @@ fn push_if_instance(
     class_id: Identifier,
     out: &mut Vec<Location>,
 ) {
-    if let Statement::Instance {
-        class_name, span, ..
-    } = stmt
+    if let Statement::Instance { class_name, span, .. } = stmt
         && *class_name == class_id
     {
         out.push(Location {

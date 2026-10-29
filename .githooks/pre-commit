@@ -1,0 +1,17 @@
+#!/bin/sh
+# Runs tidy before a commit that changes Rust code, tests/ or Cargo.toml:
+# formatting, then the test layout. Clippy takes minutes, so it runs before a
+# push instead (pre-push).
+# Enable once per clone with: git config core.hooksPath .githooks
+
+staged=$(git diff --cached --name-only --diff-filter=ACMRD)
+[ -z "$staged" ] && exit 0
+
+if printf '%s\n' "$staged" | grep -Eq '(\.rs$|^tests/|^Cargo\.toml$|^rustfmt\.toml$)'; then
+    if ! cargo xtask tidy >&2; then
+        echo "pre-commit: tidy found problems (above); fix them or skip once with --no-verify." >&2
+        exit 1
+    fi
+fi
+
+exit 0

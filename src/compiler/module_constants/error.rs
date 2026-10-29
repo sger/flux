@@ -14,11 +14,7 @@ pub struct ConstEvalError {
 impl ConstEvalError {
     /// Create a new constant evaluation error.
     pub fn new(code: &'static str, message: impl Into<String>) -> Self {
-        Self {
-            code,
-            message: message.into(),
-            hint: None,
-        }
+        Self { code, message: message.into(), hint: None }
     }
 
     /// Add a hint to the error.

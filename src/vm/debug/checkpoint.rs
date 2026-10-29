@@ -183,10 +183,7 @@ pub(super) struct Checkpoints {
 impl Checkpoints {
     /// How many slots of all the checkpoints are copies of `slot`'s box.
     pub(super) fn copies_of(&self, slot: &Slot) -> usize {
-        self.list
-            .iter()
-            .map(|checkpoint| checkpoint.copies_of(slot))
-            .sum()
+        self.list.iter().map(|checkpoint| checkpoint.copies_of(slot)).sum()
     }
 
     pub(super) fn new() -> Self {
@@ -208,15 +205,7 @@ impl Checkpoints {
     }
 
     fn with_limits(every: u64, fixed: bool, max_count: usize, max_bytes: usize) -> Self {
-        Self {
-            list: Vec::new(),
-            bytes: 0,
-            every,
-            fixed,
-            last_taken: None,
-            max_count,
-            max_bytes,
-        }
+        Self { list: Vec::new(), bytes: 0, every, fixed, last_taken: None, max_count, max_bytes }
     }
 
     pub(super) fn len(&self) -> usize {

@@ -18,39 +18,20 @@ pub const NATIVE_WIRE_PREFIX: &str = "flux-tape-error: ";
 #[serde(tag = "error", rename_all = "snake_case")]
 pub enum TapeError {
     /// E1022: the program performed a different kind of effect.
-    KindMismatch {
-        index: u64,
-        expected: String,
-        actual: String,
-    },
+    KindMismatch { index: u64, expected: String, actual: String },
     /// E1023: the same kind of effect, with different details.
-    PayloadMismatch {
-        index: u64,
-        what: String,
-        tape: String,
-        program: String,
-    },
+    PayloadMismatch { index: u64, what: String, tape: String, program: String },
     /// E1024: the program performed an effect after the tape ended.
     Exhausted { count: u64, actual: String },
     /// E1025: the program finished with events still unreplayed.
-    Leftover {
-        count: u64,
-        first_index: u64,
-        first: String,
-    },
+    Leftover { count: u64, first_index: u64, first: String },
     /// E1026: the tape cannot be read, written, or used for this program.
     BadTape { path: String, reason: String },
     /// E1027: an effect that cannot be recorded yet.
     Unsupported { what: String },
     /// E1022: a replay with tasks where one thread waited for its turn while
     /// the tape's next event, another thread's, never came (0188 S8c).
-    Stalled {
-        index: u64,
-        expected: String,
-        owner: String,
-        waiting: String,
-        actual: String,
-    },
+    Stalled { index: u64, expected: String, owner: String, waiting: String, actual: String },
 }
 
 impl TapeError {
@@ -67,42 +48,23 @@ impl TapeError {
 
     pub fn message(&self) -> String {
         match self {
-            TapeError::KindMismatch {
-                index,
-                expected,
-                actual,
-            } => format!(
+            TapeError::KindMismatch { index, expected, actual } => format!(
                 "Replay diverged at event #{index}: the tape expected {expected}, but the program performed {actual}."
             ),
-            TapeError::PayloadMismatch {
-                index,
-                what,
-                tape,
-                program,
-            } => format!(
+            TapeError::PayloadMismatch { index, what, tape, program } => format!(
                 "Replay diverged at event #{index}: {what} differs. The tape has {tape}, the program has {program}."
             ),
             TapeError::Exhausted { count, actual } => format!(
                 "The tape ended after {count} events, but the program then performed {actual}."
             ),
-            TapeError::Leftover {
-                count,
-                first_index,
-                first,
-            } => format!(
+            TapeError::Leftover { count, first_index, first } => format!(
                 "The program finished, but {count} recorded events were never replayed, starting at #{first_index}: {first}."
             ),
             TapeError::BadTape { path, reason } => format!("Cannot use tape `{path}`: {reason}."),
             TapeError::Unsupported { what } => {
                 format!("`{what}` cannot be recorded or replayed yet.")
             }
-            TapeError::Stalled {
-                index,
-                expected,
-                owner,
-                waiting,
-                actual,
-            } => format!(
+            TapeError::Stalled { index, expected, owner, waiting, actual } => format!(
                 "Replay diverged at event #{index}: the tape expected {expected} from {owner}, \
                  which never came, while {waiting} waited to perform {actual}."
             ),

@@ -1,6 +1,3 @@
 // expect: compile_error
-// expect-error: E413
-// expect-error: E414
-// expect-error: E013
 
-print(Modules.Data.MyFile.value());
+print(Modules.Data.MyFile.value()); //~ E013 E413 E414

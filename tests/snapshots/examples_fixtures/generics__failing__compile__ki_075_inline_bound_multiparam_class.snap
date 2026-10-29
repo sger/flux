@@ -9,9 +9,9 @@ error[E489]: Could Not Deduce
 
 Could not deduce `Convert<a, String>` from the context `Convert<a>`.
 
-  examples/generics/failing/compile/ki_075_inline_bound_multiparam_class.flx:34:5
+  examples/generics/failing/compile/ki_075_inline_bound_multiparam_class.flx:32:5
    |
-34 |     convert(x)
+32 |     convert(x)
    |     ^^^^^^^^^^
 
 Hint:
@@ -22,9 +22,9 @@ error[E444]: No Type Class Instance
 
 No instance for `Convert<Int>`.
 
-  examples/generics/failing/compile/ki_075_inline_bound_multiparam_class.flx:38:11
+  examples/generics/failing/compile/ki_075_inline_bound_multiparam_class.flx:36:11
    |
-38 |     print(via(42))
+36 |     print(via(42))
    |           ^^^
 
 Hint:

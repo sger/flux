@@ -22,19 +22,10 @@ impl<'a> InferCtx<'a> {
     /// Solve a single constraint by dispatching to the appropriate handler.
     fn solve_one(&mut self, constraint: Constraint) {
         match constraint {
-            Constraint::Unify {
-                t1,
-                t2,
-                span,
-                context,
-            } => {
+            Constraint::Unify { t1, t2, span, context } => {
                 self.unify_with_context(&t1, &t2, span, context);
             }
-            Constraint::EffectSubset {
-                required,
-                available,
-                span,
-            } => {
+            Constraint::EffectSubset { required, available, span } => {
                 self.constrain_call_effects(&required, &available, span);
             }
             Constraint::Class { .. } => {

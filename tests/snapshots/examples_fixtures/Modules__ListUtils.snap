@@ -9,9 +9,9 @@ error[E024]: Module Path Mismatch
 
 Module name `Modules.ListUtils` doesn't match file path `examples/Modules/ListUtils.flx`.
 
-  examples/Modules/ListUtils.flx:7:1
+  examples/Modules/ListUtils.flx:6:1
   |
-7 | module Modules.ListUtils {
+6 | module Modules.ListUtils {
   | ^
 
 Hint:

@@ -58,17 +58,12 @@ pub fn resolve(mut hint: InlayHint) -> InlayHint {
         return hint;
     }
     let data = hint.data.as_ref();
-    let Some(ty_text) = data
-        .and_then(|d| d.get("type"))
-        .and_then(|v| v.as_str())
-        .map(str::to_string)
+    let Some(ty_text) =
+        data.and_then(|d| d.get("type")).and_then(|v| v.as_str()).map(str::to_string)
     else {
         return hint;
     };
-    let editable = data
-        .and_then(|d| d.get("editable"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let editable = data.and_then(|d| d.get("editable")).and_then(|v| v.as_bool()).unwrap_or(false);
 
     let note = if editable {
         "Inferred type — accept the hint to insert this annotation."
@@ -81,10 +76,7 @@ pub fn resolve(mut hint: InlayHint) -> InlayHint {
     }));
     if editable {
         hint.text_edits = Some(vec![TextEdit {
-            range: Range {
-                start: hint.position,
-                end: hint.position,
-            },
+            range: Range { start: hint.position, end: hint.position },
             new_text: format!(": {ty_text}"),
         }]);
     }
@@ -99,24 +91,13 @@ fn collect_from_stmts(
 ) {
     for stmt in stmts {
         match stmt {
-            Statement::Let {
-                name,
-                value,
-                type_annotation,
-                span,
-                is_public,
-                ..
-            } => {
+            Statement::Let { name, value, type_annotation, span, is_public, .. } => {
                 if type_annotation.is_none()
                     && let Some(ty) = infer.expr_types.get(&value.expr_id())
                 {
                     let ty_text = display_infer_type(ty, &snapshot.interner);
                     let name_text = snapshot.interner.try_resolve(*name).unwrap_or("");
-                    let keyword_len = if *is_public {
-                        "public let ".len()
-                    } else {
-                        "let ".len()
-                    };
+                    let keyword_len = if *is_public { "public let ".len() } else { "let ".len() };
                     let name_end = FluxPosition {
                         line: span.start.line,
                         column: span.start.column + keyword_len + name_text.len(),
@@ -125,21 +106,10 @@ fn collect_from_stmts(
                     out.push(type_hint(position, ty_text, true));
                 }
             }
-            Statement::Function {
-                span,
-                parameters,
-                parameter_types,
-                body,
-                ..
-            } => {
+            Statement::Function { span, parameters, parameter_types, body, .. } => {
                 collect_from_block(body, snapshot, infer, out);
 
-                let key = (
-                    span.start.line,
-                    span.start.column,
-                    span.end.line,
-                    span.end.column,
-                );
+                let key = (span.start.line, span.start.column, span.end.line, span.end.column);
                 if let Some(scheme) = infer.resolved_binding_schemes_by_span.get(&key)
                     && let InferType::Fun(param_infer_types, _, _) = &scheme.infer_type
                 {
@@ -238,16 +208,11 @@ fn find_param_hint_position(
     param: Identifier,
 ) -> Option<lsp_types::Position> {
     let param_name = snapshot.interner.try_resolve(param)?;
-    let fn_start_offset = snapshot
-        .position_map
-        .flux_to_offset(fn_span.start)
-        .map(usize::from)?;
+    let fn_start_offset = snapshot.position_map.flux_to_offset(fn_span.start).map(usize::from)?;
     let text = snapshot.text.as_ref();
     let after_fn = text.get(fn_start_offset..)?;
     let paren_pos = after_fn.find('(')?;
-    let close_paren = after_fn[paren_pos..]
-        .find(')')
-        .unwrap_or(after_fn.len() - paren_pos);
+    let close_paren = after_fn[paren_pos..].find(')').unwrap_or(after_fn.len() - paren_pos);
     let params_region = after_fn.get(paren_pos..paren_pos + close_paren)?;
     let rel = find_word_end(params_region, param_name)?;
     let byte_offset = fn_start_offset + paren_pos + rel;
@@ -280,10 +245,7 @@ mod tests {
 
     #[test]
     fn resolve_editable_hint_adds_tooltip_and_annotation_edit() {
-        let pos = Position {
-            line: 0,
-            character: 5,
-        };
+        let pos = Position { line: 0, character: 5 };
         let resolved = resolve(type_hint(pos, "Int".to_string(), true));
 
         match resolved.tooltip {
@@ -303,10 +265,7 @@ mod tests {
 
     #[test]
     fn resolve_non_editable_hint_has_tooltip_but_no_edit() {
-        let pos = Position {
-            line: 1,
-            character: 3,
-        };
+        let pos = Position { line: 1, character: 3 };
         let resolved = resolve(type_hint(pos, "String".to_string(), false));
 
         assert!(resolved.tooltip.is_some(), "tooltip is always filled in");
@@ -318,10 +277,7 @@ mod tests {
 
     #[test]
     fn resolve_is_idempotent() {
-        let pos = Position {
-            line: 0,
-            character: 0,
-        };
+        let pos = Position { line: 0, character: 0 };
         let once = resolve(type_hint(pos, "Bool".to_string(), true));
         let twice = resolve(once.clone());
         // `InlayHintTooltip` has no `PartialEq`; compare the markdown bodies.

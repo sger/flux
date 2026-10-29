@@ -1,0 +1,46 @@
+// 0189 F3-4: on drop_spec's unique path, the matched cell hands over one
+// reference to each of its own fields. drop_spec keeps the planner's copy of a
+// nested field and of each use after the first, since no match-time copy makes
+// up for them.
+
+data Tree {
+    Leaf,
+    Node(Tree, List<Int>, Tree),
+}
+
+fn twice_left(t: Tree) -> Tree {
+    match t {
+        Node(l, k, _) -> Node(l, k, l),
+        _ -> t,
+    }
+}
+
+fn nested(t: Tree) -> Tree {
+    match t {
+        Node(Node(a, k, b), j, c) -> Node(a, k, Node(b, j, c)),
+        _ -> t,
+    }
+}
+
+fn leaf_node(n) {
+    Node(Leaf, [n], Leaf)
+}
+
+fn tree(n) {
+    Node(leaf_node(n), [n + 1], leaf_node(n + 2))
+}
+
+fn discard(t, keep) {
+    if keep { t } else { Leaf }
+}
+
+fn main() {
+    let a = twice_left(tree(1))
+    print(a)
+    let d = discard(a, false)
+    print(d)
+    let b = nested(tree(10))
+    print(b)
+    let e = discard(b, false)
+    print(e)
+}

@@ -17,14 +17,13 @@ fn make_infer_stress_source(depth: usize) -> String {
     for index in 1..=depth {
         source.push_str(&format!("fn f{index}(x) {{ f{}(x) }}\n", index - 1));
     }
-    source.push_str(&format!(
-        "fn main() -> Unit {{ let _v = f{depth}(1); let _w = f{depth}(2); }}"
-    ));
+    source
+        .push_str(&format!("fn main() -> Unit {{ let _v = f{depth}(1); let _w = f{depth}(2); }}"));
     source
 }
 
 #[test]
-#[ignore = "perf guard; run with `cargo test --test perf_type_infer -- --ignored --nocapture`"]
+#[ignore = "perf guard; run with `cargo test --test type_inference perf_type_infer:: -- --ignored --nocapture`"]
 fn infer_program_perf_guard() {
     let source = make_infer_stress_source(300);
     let iterations = 30usize;
@@ -64,10 +63,7 @@ fn infer_program_perf_guard() {
     }
 
     let elapsed = start.elapsed();
-    eprintln!(
-        "inferred call-chain depth {} x {} iterations in {:?}",
-        300, iterations, elapsed
-    );
+    eprintln!("inferred call-chain depth {} x {} iterations in {:?}", 300, iterations, elapsed);
 }
 
 /// Micro-benchmark: compose() cost with growing substitution size.
@@ -76,7 +72,7 @@ fn infer_program_perf_guard() {
 /// substitution that is composed into the accumulator. With lazy normalization,
 /// compose() should be O(|other|) instead of O(|self| * |other|).
 #[test]
-#[ignore = "perf guard; run with `cargo test --test perf_type_infer -- --ignored --nocapture`"]
+#[ignore = "perf guard; run with `cargo test --test type_inference perf_type_infer:: -- --ignored --nocapture`"]
 fn compose_scaling_perf_guard() {
     let var_count = 2000usize;
     let iterations = 10usize;

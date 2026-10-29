@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E442
 // Instance that doesn't implement all required class methods.
 //
 // Expected: E442 Missing Instance Method
@@ -11,7 +10,7 @@ class Describable<a> {
     fn value(x: a) -> Int
 }
 
-instance Describable<Int> {
+instance Describable<Int> { //~ E442
     fn name(x) { x }
 }
 

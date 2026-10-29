@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E444
 // Expected: E444 No Type Class Instance
 //   "No instance for `Sizeable<String>`."
 //   Hint: "Add an instance: `instance Sizeable<String> { ... }`"
@@ -19,5 +18,5 @@ instance Sizeable<Int> {
 }
 
 fn main() with IO {
-    print(size("hello"))
+    print(size("hello")) //~ E444
 }

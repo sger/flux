@@ -441,15 +441,7 @@ impl fmt::Display for EffectRequest {
             FsRename { from, to } => write!(f, "{kind}({}, {})", quoted(from), quoted(to)),
             Stdout { text } | Stderr { text } => write!(f, "{kind}({})", quoted(&text.lossy())),
             Exit { failed, .. } => {
-                write!(
-                    f,
-                    "{}",
-                    if *failed {
-                        "a failed exit"
-                    } else {
-                        "a normal exit"
-                    }
-                )
+                write!(f, "{}", if *failed { "a failed exit" } else { "a normal exit" })
             }
             ReadStdin | EnvArgs | EnvCwd | EnvHomeDir | ClockNow | Time | EventClock => {
                 write!(f, "{kind}()")
@@ -463,11 +455,9 @@ impl fmt::Display for EffectRequest {
             TcpRead { req, handle, max } => {
                 write!(f, "{kind}(#{req}, handle {handle}, max {max})")
             }
-            TcpWrite { req, handle, bytes } => write!(
-                f,
-                "{kind}(#{req}, handle {handle}, {})",
-                quoted(&bytes.lossy())
-            ),
+            TcpWrite { req, handle, bytes } => {
+                write!(f, "{kind}(#{req}, handle {handle}, {})", quoted(&bytes.lossy()))
+            }
             TcpClose { handle } => write!(f, "{kind}(handle {handle})"),
             AsyncComplete { req } => write!(f, "the completion of async request #{req}"),
             TaskSpawn { id }
@@ -477,11 +467,9 @@ impl fmt::Display for EffectRequest {
             | TaskAwait { id } => {
                 write!(f, "{kind}(task {id})")
             }
-            TaskEnd { id, failed } => write!(
-                f,
-                "{kind}(task {id}, {})",
-                if *failed { "failed" } else { "done" }
-            ),
+            TaskEnd { id, failed } => {
+                write!(f, "{kind}(task {id}, {})", if *failed { "failed" } else { "done" })
+            }
             Wake { waiter } => write!(f, "the hand-over fiber {waiter} waits for"),
             Channel { chan, op } => write!(f, "{kind}(#{chan}, {op})"),
         }
@@ -595,10 +583,7 @@ impl IoKind {
     }
 
     pub fn from_constructor(name: &str) -> IoKind {
-        IoKind::ALL
-            .into_iter()
-            .find(|kind| kind.constructor() == name)
-            .unwrap_or(IoKind::Other)
+        IoKind::ALL.into_iter().find(|kind| kind.constructor() == name).unwrap_or(IoKind::Other)
     }
 }
 
@@ -653,10 +638,9 @@ impl Serialize for TapeBytes {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match std::str::from_utf8(&self.0) {
             Ok(text) => BytesRepr::Text(text.to_string()).serialize(serializer),
-            Err(_) => BytesRepr::Hex {
-                hex: crate::shared::hex::encode(&self.0),
+            Err(_) => {
+                BytesRepr::Hex { hex: crate::shared::hex::encode(&self.0) }.serialize(serializer)
             }
-            .serialize(serializer),
         }
     }
 }
@@ -676,10 +660,7 @@ fn decode_hex(hex: &str) -> Option<Vec<u8>> {
     if !hex.len().is_multiple_of(2) {
         return None;
     }
-    (0..hex.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(hex.get(i..i + 2)?, 16).ok())
-        .collect()
+    (0..hex.len()).step_by(2).map(|i| u8::from_str_radix(hex.get(i..i + 2)?, 16).ok()).collect()
 }
 
 /// A tape read from disk and checked, ready to replay.
@@ -696,10 +677,7 @@ impl LoadedTape {
     /// A tape that fails any check is rejected before the program starts.
     pub fn load(path: &Path) -> Result<LoadedTape, TapeError> {
         let shown = path.display().to_string();
-        let bad = |reason: String| TapeError::BadTape {
-            path: shown.clone(),
-            reason,
-        };
+        let bad = |reason: String| TapeError::BadTape { path: shown.clone(), reason };
         let file =
             std::fs::File::open(path).map_err(|err| bad(format!("cannot read it ({err})")))?;
         let mut lines = BufReader::new(file).lines();
@@ -740,29 +718,18 @@ impl LoadedTape {
                 return Err(bad(format!(
                     "line {line_number} ({}) {} a result",
                     event.request.kind_name(),
-                    if event.result.is_some() {
-                        "should not have"
-                    } else {
-                        "is missing"
-                    }
+                    if event.result.is_some() { "should not have" } else { "is missing" }
                 )));
             }
             events.push(event);
         }
-        Ok(LoadedTape {
-            path: shown,
-            header,
-            events,
-        })
+        Ok(LoadedTape { path: shown, header, events })
     }
 
     /// True when the recorded run did not reach its end, for example because
     /// it crashed; replaying it stops with "tape exhausted".
     pub fn is_truncated(&self) -> bool {
-        !matches!(
-            self.events.last().map(|event| &event.request),
-            Some(EffectRequest::Exit { .. })
-        )
+        !matches!(self.events.last().map(|event| &event.request), Some(EffectRequest::Exit { .. }))
     }
 
     /// Checks that this tape can be replayed by the program `program_hash`

@@ -9,9 +9,9 @@ error[E300]: Annotation Type Mismatch
 
 The value of `x` does not match its type annotation.
 
-  examples/type_system/failing/171_self_recursive_refinement_concrete_chain_e300.flx:36:21
+  examples/type_system/failing/171_self_recursive_refinement_concrete_chain_e300.flx:14:21
    |
-36 |     let x: String = sum_down(3)
+14 |     let x: String = sum_down(3)
    |                     ^^^^^^^^^^^
    |                     ----------- this value has type `Int`
 

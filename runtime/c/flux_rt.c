@@ -21,6 +21,9 @@
 #include <math.h>
 #include <time.h>
 #include <setjmp.h>
+#if !defined(_MSC_VER) && !defined(_WIN32)
+#include <unwind.h>
+#endif
 #include <sys/stat.h>
 #if defined(_MSC_VER) || defined(_WIN32)
 #include <windows.h>
@@ -183,6 +186,11 @@ void flux_rt_shutdown(void) {
     /* Skip GC shutdown — the OS reclaims all memory at process exit.
      * Walking millions of malloc'd objects is slower than just exiting. */
     fflush(stdout);
+#ifdef FLUX_DEBUG_HEAP
+    /* Before the leak report, which exits when anything is left. */
+    flux_debug_heap_report_stats();
+    flux_debug_heap_report_leaks();
+#endif
 }
 
 /* ── Printing ───────────────────────────────────────────────────────── */
@@ -699,6 +707,8 @@ static int64_t flux_try_read_file_sync(FLUX_IO_TAGS_DECL, int64_t path) {
             int64_t err_fields[3];                                                 \
             err_fields[0] = kind_val;                                              \
             err_fields[1] = flux_string_new(msg_buf, (uint32_t)mlen);              \
+            /* Lent, as to flux_io_fail: the error counts its own. */          \
+            flux_dup(path);                                                        \
             err_fields[2] = path;                                                  \
             int64_t io_err = flux_io_make_adt(io_error_tag, err_fields, 3);        \
             return flux_io_make_adt(err_tag, &io_err, 1);                          \
@@ -826,6 +836,9 @@ int64_t flux_io_fail(FluxIoTags tags, int errnum, int64_t path) {
     int64_t fields[3];
     fields[0] = flux_io_make_adt(kind_tag, NULL, 0);
     fields[1] = flux_string_new(msg_buf, (uint32_t)mlen);
+    /* The operation was only lent `path`; the error keeps a reference of
+     * its own. */
+    flux_dup(path);
     fields[2] = path;
     int64_t io_err = flux_io_make_adt(tags.io_error_tag, fields, 3);
     return flux_io_make_adt(tags.err_tag, &io_err, 1);
@@ -2216,6 +2229,8 @@ int64_t flux_hamt_get_option(int64_t map, int64_t key) {
     if (result == FLUX_NONE) {
         return flux_make_none();
     }
+    /* The map was only lent, and may be released right after. */
+    flux_dup(result);
     return flux_wrap_some(result);
 }
 
@@ -2373,12 +2388,12 @@ int64_t flux_rt_index(int64_t collection, int64_t key) {
         int64_t idx = flux_untag_int(key);
         if (idx < 0 || (uint32_t)idx >= arity) return flux_make_none();
         int64_t *elems = (int64_t *)((char *)ptr + 8);
+        flux_dup(elems[idx]);
         return flux_wrap_some(elems[idx]);
     }
+    case FLUX_OBJ_MAP:
+        return flux_hamt_get_option(collection, key);
     case FLUX_OBJ_ADT: {
-        if (flux_is_hamt(ptr)) {
-            return flux_hamt_get_option(collection, key);
-        }
         /* Cons list: ctor_tag=4, traverse to nth element. */
         int32_t ctor_tag = *(int32_t *)ptr;
         if (ctor_tag == 4) {
@@ -2390,6 +2405,7 @@ int64_t flux_rt_index(int64_t collection, int64_t key) {
                 if (*(int32_t *)cp != 4) break;
                 if (idx == 0) {
                     int64_t *fields = (int64_t *)((char *)cp + 8);
+                    flux_dup(fields[0]);
                     return flux_wrap_some(fields[0]);
                 }
                 idx--;
@@ -2400,12 +2416,8 @@ int64_t flux_rt_index(int64_t collection, int64_t key) {
         }
         return flux_index_unsupported(collection);
     }
-    default: {
-        if (flux_is_hamt(ptr)) {
-            return flux_hamt_get_option(collection, key);
-        }
+    default:
         return flux_index_unsupported(collection);
-    }
     }
 }
 
@@ -2426,11 +2438,8 @@ int64_t flux_type_of(int64_t val) {
         case FLUX_OBJ_ARRAY:   return flux_string_new("Array", 5);
         case FLUX_OBJ_TUPLE:   return flux_string_new("Tuple", 5);
         case FLUX_OBJ_CLOSURE: return flux_string_new("Function", 8);
+        case FLUX_OBJ_MAP:     return flux_string_new("Map", 3);
         case FLUX_OBJ_ADT: {
-            /* Check HAMT first — HAMT kind values collide with ADT ctor_tags. */
-            if (flux_is_hamt(ptr)) {
-                return flux_string_new("Map", 3);
-            }
             int32_t first_i32 = *(int32_t *)ptr;
             int32_t second_i32 = *((int32_t *)ptr + 1);
             if (first_i32 >= 0 && first_i32 <= 255 && second_i32 >= 0 && second_i32 <= 100) {
@@ -2445,12 +2454,8 @@ int64_t flux_type_of(int64_t val) {
             }
             return flux_string_new("Adt", 3);
         }
-        default: {
-            if (flux_is_hamt(ptr)) {
-                return flux_string_new("Map", 3);
-            }
+        default:
             return flux_string_new("Object", 6);
-        }
         }
     }
 
@@ -2560,10 +2565,40 @@ void flux_panic_unhooked(int64_t msg) {
 static __thread jmp_buf *flux_try_jmp = NULL;
 static __thread int64_t  flux_try_error_msg = 0; /* FLUX_NONE */
 
+/*
+ * A caught panic unwinds to its try rather than jumping there, so each Flux
+ * frame on the way runs its landing pad, which releases what the frame held
+ * across the call that panicked (KI-126). The try's `jmp_buf` lives in the
+ * try's own frame: the first frame whose CFA lies above it is the try's,
+ * and the unwind stops there and jumps.
+ */
+static __thread struct _Unwind_Exception flux_panic_exception;
+
+static _Unwind_Reason_Code flux_panic_stop(int version, _Unwind_Action actions,
+                                           _Unwind_Exception_Class exception_class,
+                                           struct _Unwind_Exception *exception,
+                                           struct _Unwind_Context *context,
+                                           void *param) {
+    (void)version;
+    (void)exception_class;
+    (void)exception;
+    (void)param;
+    if ((actions & _UA_END_OF_STACK) ||
+        (char *)_Unwind_GetCFA(context) > (char *)flux_try_jmp) {
+        longjmp(*flux_try_jmp, 1);
+    }
+    return _URC_NO_REASON;
+}
+
 void flux_panic_unhooked(int64_t msg) {
-    /* If a try handler is active, longjmp instead of aborting. */
+    /* If a try handler is active, unwind to it instead of aborting. */
     if (flux_try_jmp) {
         flux_try_error_msg = msg;
+        memset(&flux_panic_exception, 0, sizeof(flux_panic_exception));
+        memcpy(&flux_panic_exception.exception_class, "FLUXPANC",
+               sizeof(flux_panic_exception.exception_class));
+        _Unwind_ForcedUnwind(&flux_panic_exception, flux_panic_stop, NULL);
+        /* The unwinder could not start: jump, as before. */
         longjmp(*flux_try_jmp, 1);
     }
     flux_panic_exit(msg);
@@ -2586,6 +2621,7 @@ static int64_t make_tuple(int64_t *fields, uint32_t arity) {
 /* flux_try(thunk): call thunk(), return ("ok", result) or ("error", message). */
 #if defined(_MSC_VER) || defined(_WIN32)
 int64_t flux_try(int64_t thunk) {
+    int64_t evv = flux_effect_catch_point();
     flux_try_depth++;
     int64_t saved_msg = flux_try_error_msg;
     flux_try_error_msg = 0;
@@ -2609,6 +2645,7 @@ int64_t flux_try(int64_t thunk) {
         flux_try_error_msg = saved_msg;
         return make_tuple(fields, 2);
     }
+    flux_effect_unwound(evv);
     int64_t err_str = flux_string_new("error", 5);
     int64_t msg = flux_try_error_msg;
     if (msg == 0) {
@@ -2624,6 +2661,7 @@ int64_t flux_try(int64_t thunk) {
 }
 
 int32_t flux_try_call0_raw(int64_t closure, int64_t *out) {
+    int64_t evv = flux_effect_catch_point();
     flux_try_depth++;
     int64_t saved_msg = flux_try_error_msg;
     flux_try_error_msg = 0;
@@ -2643,6 +2681,7 @@ int32_t flux_try_call0_raw(int64_t closure, int64_t *out) {
         flux_try_error_msg = saved_msg;
         return 1;
     }
+    flux_effect_unwound(evv);
     int64_t msg = flux_try_error_msg;
     if (msg == 0) {
         msg = flux_string_new("unknown error", 13);
@@ -2654,6 +2693,7 @@ int32_t flux_try_call0_raw(int64_t closure, int64_t *out) {
 
 int32_t flux_try_resume1_raw(int64_t continuation, int64_t value, int64_t *out) {
     int64_t args[1] = { value };
+    int64_t evv = flux_effect_catch_point();
     flux_try_depth++;
     int64_t saved_msg = flux_try_error_msg;
     flux_try_error_msg = 0;
@@ -2673,6 +2713,7 @@ int32_t flux_try_resume1_raw(int64_t continuation, int64_t value, int64_t *out) 
         flux_try_error_msg = saved_msg;
         return 1;
     }
+    flux_effect_unwound(evv);
     int64_t msg = flux_try_error_msg;
     if (msg == 0) {
         msg = flux_string_new("unknown error", 13);
@@ -2685,6 +2726,7 @@ int32_t flux_try_resume1_raw(int64_t continuation, int64_t value, int64_t *out) 
 int64_t flux_try(int64_t thunk) {
     jmp_buf buf;
     jmp_buf *prev = flux_try_jmp;
+    int64_t evv = flux_effect_catch_point();
     flux_try_jmp = &buf;
     flux_try_error_msg = 0;
 
@@ -2702,6 +2744,7 @@ int64_t flux_try(int64_t thunk) {
     } else {
         /* Error path: flux_panic called longjmp. */
         flux_try_jmp = prev;
+        flux_effect_unwound(evv);
         int64_t err_str = flux_string_new("error", 5);
         int64_t msg = flux_try_error_msg;
         if (msg == 0) {
@@ -2720,6 +2763,7 @@ int64_t flux_try(int64_t thunk) {
 int32_t flux_try_call0_raw(int64_t closure, int64_t *out) {
     jmp_buf buf;
     jmp_buf *prev = flux_try_jmp;
+    int64_t evv = flux_effect_catch_point();
     flux_try_jmp = &buf;
     flux_try_error_msg = 0;
 
@@ -2730,6 +2774,7 @@ int32_t flux_try_call0_raw(int64_t closure, int64_t *out) {
     }
 
     flux_try_jmp = prev;
+    flux_effect_unwound(evv);
     int64_t msg = flux_try_error_msg;
     if (msg == 0) {
         msg = flux_string_new("unknown error", 13);
@@ -2742,6 +2787,7 @@ int32_t flux_try_resume1_raw(int64_t continuation, int64_t value, int64_t *out) 
     int64_t args[1] = { value };
     jmp_buf buf;
     jmp_buf *prev = flux_try_jmp;
+    int64_t evv = flux_effect_catch_point();
     flux_try_jmp = &buf;
     flux_try_error_msg = 0;
 
@@ -2752,6 +2798,7 @@ int32_t flux_try_resume1_raw(int64_t continuation, int64_t value, int64_t *out) 
     }
 
     flux_try_jmp = prev;
+    flux_effect_unwound(evv);
     int64_t msg = flux_try_error_msg;
     if (msg == 0) {
         msg = flux_string_new("unknown error", 13);
@@ -2860,6 +2907,7 @@ int64_t flux_assert_throws(int64_t thunk, int64_t expected_msg) {
 int64_t flux_assert_throws(int64_t thunk, int64_t expected_msg) {
     jmp_buf buf;
     jmp_buf *prev = flux_try_jmp;
+    int64_t evv = flux_effect_catch_point();
     flux_try_jmp = &buf;
     flux_try_error_msg = 0;
 
@@ -2872,6 +2920,7 @@ int64_t flux_assert_throws(int64_t thunk, int64_t expected_msg) {
     } else {
         /* Thunk panicked — check message if expected_msg is provided. */
         flux_try_jmp = prev;
+        flux_effect_unwound(evv);
         if (expected_msg != 0 && flux_is_ptr(expected_msg)) {
             int64_t actual = flux_try_error_msg;
             if (actual != 0 && flux_is_ptr(actual)) {
@@ -2974,7 +3023,12 @@ int64_t flux_replace(int64_t s, int64_t from, int64_t to) {
     const char *to_str = flux_string_data(to);
     uint32_t to_len = flux_string_len(to);
 
-    if (from_len == 0) return s;
+    /* Nothing to replace gives `s` back, counted once more for the caller,
+     * which was only lending it. */
+    if (from_len == 0) {
+        flux_dup(s);
+        return s;
+    }
 
     /* Count occurrences to pre-allocate. */
     uint32_t count = 0;
@@ -2984,7 +3038,10 @@ int64_t flux_replace(int64_t s, int64_t from, int64_t to) {
         if (memcmp(p, from_str, from_len) == 0) { count++; p += from_len; }
         else { p++; }
     }
-    if (count == 0) return s;
+    if (count == 0) {
+        flux_dup(s);
+        return s;
+    }
 
     uint32_t new_len = src_len + count * (to_len - from_len);
     char *buf = (char *)malloc(new_len + 1);
@@ -3346,14 +3403,11 @@ int64_t flux_is_array(int64_t val) {
     return flux_make_bool(flux_obj_tag(ptr) == FLUX_OBJ_ARRAY);
 }
 
-/* is_map(val) → bool (true if val is a HAMT map).
- * HAMTs don't have a FLUX_OBJ_* tag, so we check if it's a boxed pointer
- * that is NOT any of the known object types. */
+/* is_map(val) → bool (true if val is a HAMT map). */
 int64_t flux_is_map(int64_t val) {
     if (!flux_is_ptr(val)) return flux_make_bool(0);
     void *ptr = flux_untag_ptr(val);
     if (!ptr) return flux_make_bool(0);
-    /* HAMT nodes have no FluxHeader — identify by structural checks only. */
     return flux_make_bool(flux_is_hamt(ptr));
 }
 
@@ -3446,6 +3500,8 @@ int64_t flux_unwrap(int64_t val) {
             int32_t ct = *(int32_t *)ptr;
             if (ct == 1) { /* Some */
                 int64_t *fields = (int64_t *)((char *)ptr + 8);
+                /* The option was only lent, and may be released right after. */
+                flux_dup(fields[0]);
                 return fields[0];
             }
         }
@@ -4322,8 +4378,11 @@ static int64_t flux_env_cwd_untaped(FLUX_IO_TAGS_DECL) {
     if (!getcwd(buf, sizeof(buf))) {
         /* The path is "" because the failure is not about a path the caller
          * named — matches the VM. */
+        int saved = errno;
         int64_t empty = flux_string_new("", 0);
-        return flux_io_fail(tags, errno, empty);
+        int64_t err = flux_io_fail(tags, saved, empty);
+        flux_drop(empty);
+        return err;
     }
     int64_t dir = flux_string_new(buf, (uint32_t)strlen(buf));
     return flux_io_make_adt(tags.ok_tag, &dir, 1);

@@ -48,9 +48,7 @@ fn uri(s: &str) -> Uri {
 /// `module_members`, e.g. expanding `exposing (..)`). `CARGO_MANIFEST_DIR` is
 /// `.../flux/crates/flux-lsp`; the repo root is two levels up.
 fn repo_uri(name: &str) -> Uri {
-    let manifest = std::env::var("CARGO_MANIFEST_DIR")
-        .map(std::path::PathBuf::from)
-        .unwrap();
+    let manifest = std::env::var("CARGO_MANIFEST_DIR").map(std::path::PathBuf::from).unwrap();
     let root = manifest.parent().and_then(|p| p.parent()).unwrap();
     let path = root.join(name).display().to_string().replace('\\', "/");
     uri(&format!("file:///{path}"))
@@ -72,9 +70,7 @@ fn ident(uri: &Uri) -> TextDocumentIdentifier {
 }
 
 fn close(state: &mut GlobalState, uri: &Uri) {
-    state.handle_did_close(DidCloseTextDocumentParams {
-        text_document: ident(uri),
-    });
+    state.handle_did_close(DidCloseTextDocumentParams { text_document: ident(uri) });
 }
 
 /// Lower a `GotoDefinitionResponse` to a single `Location` for tests
@@ -89,10 +85,7 @@ fn expect_location(resp: lsp_types::GotoDefinitionResponse) -> lsp_types::Locati
         GotoDefinitionResponse::Scalar(loc) => loc,
         GotoDefinitionResponse::Link(mut links) => {
             let link = links.pop().expect("at least one LocationLink");
-            Location {
-                uri: link.target_uri,
-                range: link.target_selection_range,
-            }
+            Location { uri: link.target_uri, range: link.target_selection_range }
         }
         other => panic!("unexpected definition response: {other:?}"),
     }
@@ -218,15 +211,9 @@ fn warm_prelude_loads_the_standard_library() {
         .join("type_classes");
     state.set_workspace_folders(vec![root]);
 
-    assert!(
-        !state.workspace.prelude_loaded(),
-        "prelude should not be loaded before warm-up"
-    );
+    assert!(!state.workspace.prelude_loaded(), "prelude should not be loaded before warm-up");
     state.workspace.warm_prelude();
-    assert!(
-        state.workspace.prelude_loaded(),
-        "warm_prelude should have loaded the Flow stdlib"
-    );
+    assert!(state.workspace.prelude_loaded(), "warm_prelude should have loaded the Flow stdlib");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -286,11 +273,7 @@ fn did_open_clean_source_publishes_no_diagnostics() {
         .into_iter()
         .next()
         .expect("publishDiagnostics returned");
-    assert!(
-        diags.diagnostics.is_empty(),
-        "expected zero diagnostics, got {:?}",
-        diags.diagnostics
-    );
+    assert!(diags.diagnostics.is_empty(), "expected zero diagnostics, got {:?}", diags.diagnostics);
 }
 
 #[test]
@@ -300,29 +283,20 @@ fn staged_change_defers_analysis_until_flush() {
 
     // Opening a clean buffer analyzes immediately.
     let opened = diags_for(&mut state, &u, "fn main() -> Int { 1 }\n");
-    assert!(
-        opened.is_empty(),
-        "clean file should open clean: {opened:?}"
-    );
+    assert!(opened.is_empty(), "clean file should open clean: {opened:?}");
 
     // Stage an edit that introduces an undefined name. `stage_did_change`
     // publishes nothing — the (potentially expensive) re-analysis is deferred —
     // but it marks the file pending.
     state.stage_did_change(DidChangeTextDocumentParams {
-        text_document: lsp_types::VersionedTextDocumentIdentifier {
-            uri: u.clone(),
-            version: 2,
-        },
+        text_document: lsp_types::VersionedTextDocumentIdentifier { uri: u.clone(), version: 2 },
         content_changes: vec![lsp_types::TextDocumentContentChangeEvent {
             range: None,
             range_length: None,
             text: "fn main() -> Int { mystery }\n".to_string(),
         }],
     });
-    assert!(
-        state.has_pending_analysis(),
-        "a staged edit should leave analysis pending"
-    );
+    assert!(state.has_pending_analysis(), "a staged edit should leave analysis pending");
 
     // A read request arriving before the flush still sees the new text: the
     // stale snapshot was invalidated, so `ensure_snapshot` rebuilds lazily from
@@ -332,32 +306,20 @@ fn staged_change_defers_analysis_until_flush() {
         work_done_progress_params: WorkDoneProgressParams::default(),
         partial_result_params: PartialResultParams::default(),
     });
-    assert!(
-        symbols.is_some(),
-        "document symbols should still resolve mid-debounce"
-    );
+    assert!(symbols.is_some(), "document symbols should still resolve mid-debounce");
 
     // Flushing runs the deferred analysis and surfaces the error once.
     let published = state.flush_analysis();
-    assert!(
-        !state.has_pending_analysis(),
-        "flush should clear the pending set"
-    );
-    let diags = published
-        .into_iter()
-        .find(|d| d.uri == u)
-        .map(|d| d.diagnostics)
-        .unwrap_or_default();
+    assert!(!state.has_pending_analysis(), "flush should clear the pending set");
+    let diags =
+        published.into_iter().find(|d| d.uri == u).map(|d| d.diagnostics).unwrap_or_default();
     assert!(
         diags.iter().any(|d| d.message.contains("mystery")),
         "the deferred edit's undefined-name error should appear on flush: {diags:?}"
     );
 
     // Nothing pending now — a spurious flush (e.g. a late timer tick) is a no-op.
-    assert!(
-        state.flush_analysis().is_empty(),
-        "flush with nothing pending should publish nothing"
-    );
+    assert!(state.flush_analysis().is_empty(), "flush with nothing pending should publish nothing");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -374,10 +336,7 @@ fn hover_on_integer_literal_returns_type() {
         .handle_hover(HoverParams {
             text_document_position_params: TextDocumentPositionParams {
                 text_document: ident(&u),
-                position: Position {
-                    line: 0,
-                    character: 8,
-                },
+                position: Position { line: 0, character: 8 },
             },
             work_done_progress_params: WorkDoneProgressParams::default(),
         })
@@ -386,10 +345,7 @@ fn hover_on_integer_literal_returns_type() {
         lsp_types::HoverContents::Markup(m) => m.value,
         other => panic!("expected markup contents, got {other:?}"),
     };
-    assert!(
-        value.to_lowercase().contains("int"),
-        "expected int type in hover, got: {value}"
-    );
+    assert!(value.to_lowercase().contains("int"), "expected int type in hover, got: {value}");
 }
 
 #[test]
@@ -403,10 +359,7 @@ fn hover_on_builtin_effect_returns_doc_card() {
         .handle_hover(HoverParams {
             text_document_position_params: TextDocumentPositionParams {
                 text_document: ident(&u),
-                position: Position {
-                    line: 0,
-                    character: 16,
-                },
+                position: Position { line: 0, character: 16 },
             },
             work_done_progress_params: WorkDoneProgressParams::default(),
         })
@@ -426,21 +379,14 @@ fn hover_on_user_effect_keeps_the_plain_label() {
     let mut state = GlobalState::default();
     let u = uri("file:///user_eff.flx");
     // A user-declared effect has no built-in doc — hover stays a plain label.
-    open(
-        &mut state,
-        &u,
-        "effect Logger { log: String -> Unit }\nfn run() with Logger {}\n",
-    );
+    open(&mut state, &u, "effect Logger { log: String -> Unit }\nfn run() with Logger {}\n");
 
     // `Logger` in the `with` clause on line 1 (starts at column 13).
     let hover = state
         .handle_hover(HoverParams {
             text_document_position_params: TextDocumentPositionParams {
                 text_document: ident(&u),
-                position: Position {
-                    line: 1,
-                    character: 15,
-                },
+                position: Position { line: 1, character: 15 },
             },
             work_done_progress_params: WorkDoneProgressParams::default(),
         })
@@ -465,10 +411,7 @@ fn hover_on_function_decl_returns_scheme_or_label() {
         .handle_hover(HoverParams {
             text_document_position_params: TextDocumentPositionParams {
                 text_document: ident(&u),
-                position: Position {
-                    line: 0,
-                    character: 4,
-                },
+                position: Position { line: 0, character: 4 },
             },
             work_done_progress_params: WorkDoneProgressParams::default(),
         })
@@ -487,21 +430,14 @@ fn hover_on_function_decl_returns_scheme_or_label() {
 fn hover_on_main_notes_the_entry_point() {
     let mut state = GlobalState::default();
     let u = uri("file:///entry.flx");
-    open(
-        &mut state,
-        &u,
-        "fn helper() { 1 }\nfn main() with IO { print(\"hi\") }\n",
-    );
+    open(&mut state, &u, "fn helper() { 1 }\nfn main() with IO { print(\"hi\") }\n");
 
     // Hover `main` on line 1 — the entry-point note must be present.
     let hover = state
         .handle_hover(HoverParams {
             text_document_position_params: TextDocumentPositionParams {
                 text_document: ident(&u),
-                position: Position {
-                    line: 1,
-                    character: 4,
-                },
+                position: Position { line: 1, character: 4 },
             },
             work_done_progress_params: WorkDoneProgressParams::default(),
         })
@@ -525,10 +461,7 @@ fn hover_on_main_notes_the_entry_point() {
         .handle_hover(HoverParams {
             text_document_position_params: TextDocumentPositionParams {
                 text_document: ident(&u),
-                position: Position {
-                    line: 0,
-                    character: 4,
-                },
+                position: Position { line: 0, character: 4 },
             },
             work_done_progress_params: WorkDoneProgressParams::default(),
         })
@@ -553,10 +486,7 @@ fn hover_on_type_annotation_returns_type_label() {
         .handle_hover(HoverParams {
             text_document_position_params: TextDocumentPositionParams {
                 text_document: ident(&u),
-                position: Position {
-                    line: 0,
-                    character: 7,
-                },
+                position: Position { line: 0, character: 7 },
             },
             work_done_progress_params: WorkDoneProgressParams::default(),
         })
@@ -565,10 +495,7 @@ fn hover_on_type_annotation_returns_type_label() {
         lsp_types::HoverContents::Markup(m) => m.value,
         other => panic!("expected markup, got {other:?}"),
     };
-    assert!(
-        value.contains("type: Int"),
-        "expected type label, got: {value}"
-    );
+    assert!(value.contains("type: Int"), "expected type label, got: {value}");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -594,14 +521,8 @@ fn document_symbol_lists_top_level_items() {
         }
         other => panic!("expected nested response, got {other:?}"),
     };
-    assert!(
-        names.iter().any(|n| n == "greet"),
-        "expected `greet`, got: {names:?}"
-    );
-    assert!(
-        names.iter().any(|n| n == "answer"),
-        "expected `answer`, got: {names:?}"
-    );
+    assert!(names.iter().any(|n| n == "greet"), "expected `greet`, got: {names:?}");
+    assert!(names.iter().any(|n| n == "answer"), "expected `answer`, got: {names:?}");
 }
 
 #[test]
@@ -622,10 +543,7 @@ fn document_symbol_selection_range_is_the_name() {
         other => panic!("expected nested response, got {other:?}"),
     };
 
-    let greet = syms
-        .iter()
-        .find(|s| s.name == "greet")
-        .expect("greet symbol");
+    let greet = syms.iter().find(|s| s.name == "greet").expect("greet symbol");
     // selection_range is just `greet` (cols 3..8), a strict sub-range of the
     // whole-declaration range (`fn greet(name) { name }`).
     assert_eq!(greet.selection_range.start, Position::new(0, 3));
@@ -633,10 +551,7 @@ fn document_symbol_selection_range_is_the_name() {
     assert_eq!(greet.range.start, Position::new(0, 0));
     assert!(greet.range.end.character > greet.selection_range.end.character);
 
-    let answer = syms
-        .iter()
-        .find(|s| s.name == "answer")
-        .expect("answer symbol");
+    let answer = syms.iter().find(|s| s.name == "answer").expect("answer symbol");
     assert_eq!(answer.selection_range.start, Position::new(1, 4));
     assert_eq!(answer.selection_range.end, Position::new(1, 10));
 }
@@ -705,10 +620,7 @@ fn goto_type_definition_jumps_to_adt_declaration() {
         .handle_type_definition(GotoDefinitionParams {
             text_document_position_params: TextDocumentPositionParams {
                 text_document: ident(&u),
-                position: Position {
-                    line: 1,
-                    character: 33,
-                },
+                position: Position { line: 1, character: 33 },
             },
             work_done_progress_params: WorkDoneProgressParams::default(),
             partial_result_params: PartialResultParams::default(),
@@ -716,10 +628,7 @@ fn goto_type_definition_jumps_to_adt_declaration() {
         .expect("type definition result");
     let link = expect_single_link(resp);
     assert_eq!(link.target_uri, u);
-    assert_eq!(
-        link.target_range.start.line, 0,
-        "should point at the `Shape` declaration line"
-    );
+    assert_eq!(link.target_range.start.line, 0, "should point at the `Shape` declaration line");
     // Focus covers the `Shape` name (`type ` is 5 chars).
     assert_eq!(link.target_selection_range.start.character, 5);
 }
@@ -754,11 +663,7 @@ fn goto_definition_origin_selection_covers_cursor_word() {
     assert_eq!(origin.start.line, 1);
     assert_eq!(origin.end.line, 1);
     let width = origin.end.character - origin.start.character;
-    assert_eq!(
-        width,
-        "bar".len() as u32,
-        "origin_selection_range width should match `bar`.len()"
-    );
+    assert_eq!(width, "bar".len() as u32, "origin_selection_range width should match `bar`.len()");
 }
 
 #[test]
@@ -771,10 +676,7 @@ fn goto_definition_resolves_local_let() {
         .handle_definition(GotoDefinitionParams {
             text_document_position_params: TextDocumentPositionParams {
                 text_document: ident(&u),
-                position: Position {
-                    line: 1,
-                    character: 15,
-                },
+                position: Position { line: 1, character: 15 },
             },
             work_done_progress_params: WorkDoneProgressParams::default(),
             partial_result_params: PartialResultParams::default(),
@@ -804,10 +706,7 @@ fn goto_definition_on_constrained_instance_head_jumps_to_class() {
         .handle_definition(GotoDefinitionParams {
             text_document_position_params: TextDocumentPositionParams {
                 text_document: ident(&u),
-                position: Position {
-                    line: 1,
-                    character: 18,
-                },
+                position: Position { line: 1, character: 18 },
             },
             work_done_progress_params: WorkDoneProgressParams::default(),
             partial_result_params: PartialResultParams::default(),
@@ -843,10 +742,7 @@ fn goto_definition_resolves_import_alias_use_site() {
         .expect("definition result");
     let loc = expect_location(resp);
     assert_eq!(loc.uri, u);
-    assert_eq!(
-        loc.range.start.line, 0,
-        "alias goto-def should land on the import line"
-    );
+    assert_eq!(loc.range.start.line, 0, "alias goto-def should land on the import line");
 }
 
 #[test]
@@ -878,10 +774,7 @@ fn goto_definition_resolves_aliased_module_member() {
         return;
     };
     let loc = expect_location(resp);
-    assert_ne!(
-        loc.uri, u,
-        "aliased member goto-def should leave the current buffer"
-    );
+    assert_ne!(loc.uri, u, "aliased member goto-def should leave the current buffer");
 }
 
 #[test]
@@ -890,11 +783,7 @@ fn goto_definition_on_return_keyword_jumps_to_enclosing_fn() {
     // the enclosing `fn` signature span (line 0 here).
     let mut state = GlobalState::default();
     let u = uri("file:///ret.flx");
-    open(
-        &mut state,
-        &u,
-        "fn first_positive(x) {\n    if x > 0 { return x }\n    -1\n}\n",
-    );
+    open(&mut state, &u, "fn first_positive(x) {\n    if x > 0 { return x }\n    -1\n}\n");
 
     let resp = state.handle_definition(GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
@@ -910,10 +799,7 @@ fn goto_definition_on_return_keyword_jumps_to_enclosing_fn() {
     if let Some(resp) = resp {
         let loc = expect_location(resp);
         assert_eq!(loc.uri, u);
-        assert_eq!(
-            loc.range.start.line, 0,
-            "return goto-def should land on the fn signature"
-        );
+        assert_eq!(loc.range.start.line, 0, "return goto-def should land on the fn signature");
     }
 }
 
@@ -1117,10 +1003,7 @@ fn goto_definition_resolves_record_field_use() {
     };
     let loc = expect_location(resp);
     assert_eq!(loc.uri, u);
-    assert_eq!(
-        loc.range.start.line, 0,
-        "field goto-def should land on the data decl line"
-    );
+    assert_eq!(loc.range.start.line, 0, "field goto-def should land on the data decl line");
 }
 
 #[test]
@@ -1133,10 +1016,7 @@ fn completion_returns_top_level_symbols_and_keywords() {
         .handle_completion(CompletionParams {
             text_document_position: TextDocumentPositionParams {
                 text_document: ident(&u),
-                position: Position {
-                    line: 2,
-                    character: 0,
-                },
+                position: Position { line: 2, character: 0 },
             },
             work_done_progress_params: WorkDoneProgressParams::default(),
             partial_result_params: PartialResultParams::default(),
@@ -1168,10 +1048,7 @@ fn hover_on_literal_with_non_ascii_prefix_utf16() {
         .handle_hover(HoverParams {
             text_document_position_params: TextDocumentPositionParams {
                 text_document: ident(&u),
-                position: Position {
-                    line: 1,
-                    character: 8,
-                },
+                position: Position { line: 1, character: 8 },
             },
             work_done_progress_params: WorkDoneProgressParams::default(),
         })
@@ -1180,10 +1057,7 @@ fn hover_on_literal_with_non_ascii_prefix_utf16() {
         lsp_types::HoverContents::Markup(m) => m.value,
         other => panic!("expected markup, got {other:?}"),
     };
-    assert!(
-        value.to_lowercase().contains("int"),
-        "expected int type in hover, got: {value}"
-    );
+    assert!(value.to_lowercase().contains("int"), "expected int type in hover, got: {value}");
 }
 
 #[test]
@@ -1196,30 +1070,17 @@ fn formatting_range_covers_actual_buffer_end() {
     let edits = state
         .handle_formatting(DocumentFormattingParams {
             text_document: ident(&u),
-            options: FormattingOptions {
-                tab_size: 4,
-                insert_spaces: true,
-                ..Default::default()
-            },
+            options: FormattingOptions { tab_size: 4, insert_spaces: true, ..Default::default() },
             work_done_progress_params: WorkDoneProgressParams::default(),
         })
         .expect("formatting result");
     assert_eq!(edits.len(), 1);
     let r = edits[0].range;
-    assert_eq!(
-        r.start,
-        Position {
-            line: 0,
-            character: 0
-        }
-    );
+    assert_eq!(r.start, Position { line: 0, character: 0 });
     // Two newlines → end on line 2, character 0 (after final \n).
     assert_eq!(
         r.end,
-        Position {
-            line: 2,
-            character: 0
-        },
+        Position { line: 2, character: 0 },
         "end should match real buffer end, not a fake sentinel"
     );
 }
@@ -1244,20 +1105,11 @@ fn hover_on_main_with_print_resolves_unit_return() {
     // so the prelude loader can find and infer Flow.Primops. Without Phase 2
     // prelude loading, main's return type comes back as `forall a. () -> a`.
     let mut state = GlobalState::default();
-    let workspace_root = std::env::var("CARGO_MANIFEST_DIR")
-        .map(std::path::PathBuf::from)
-        .unwrap();
+    let workspace_root = std::env::var("CARGO_MANIFEST_DIR").map(std::path::PathBuf::from).unwrap();
     // CARGO_MANIFEST_DIR is .../flux/crates/flux-lsp; lib/Flow/ lives two up.
-    let workspace = workspace_root
-        .parent()
-        .and_then(|p| p.parent())
-        .unwrap()
-        .to_path_buf();
+    let workspace = workspace_root.parent().and_then(|p| p.parent()).unwrap().to_path_buf();
     let buf_path = workspace.join("hover-fixture.flx");
-    let uri_str = format!(
-        "file:///{}",
-        buf_path.display().to_string().replace('\\', "/")
-    );
+    let uri_str = format!("file:///{}", buf_path.display().to_string().replace('\\', "/"));
     let u = uri(&uri_str);
     open(&mut state, &u, "fn main() with IO { print(1) }\n");
 
@@ -1265,10 +1117,7 @@ fn hover_on_main_with_print_resolves_unit_return() {
         .handle_hover(HoverParams {
             text_document_position_params: TextDocumentPositionParams {
                 text_document: ident(&u),
-                position: Position {
-                    line: 0,
-                    character: 3,
-                },
+                position: Position { line: 0, character: 3 },
             },
             work_done_progress_params: WorkDoneProgressParams::default(),
         })
@@ -1283,10 +1132,7 @@ fn hover_on_main_with_print_resolves_unit_return() {
         value.contains("Unit") || value.contains("()"),
         "expected Unit return for main, got: {value}"
     );
-    assert!(
-        !value.contains("forall a"),
-        "main return shouldn't be polymorphic, got: {value}"
-    );
+    assert!(!value.contains("forall a"), "main return shouldn't be polymorphic, got: {value}");
 }
 
 #[test]
@@ -1295,19 +1141,10 @@ fn hover_on_imported_async_sleep_resolves_unit_return() {
     // follow the import and load Flow.Async's schemes so `sleep`'s return type
     // resolves to Unit instead of a free type variable rendered as `_`.
     let mut state = GlobalState::default();
-    let workspace_root = std::env::var("CARGO_MANIFEST_DIR")
-        .map(std::path::PathBuf::from)
-        .unwrap();
-    let workspace = workspace_root
-        .parent()
-        .and_then(|p| p.parent())
-        .unwrap()
-        .to_path_buf();
+    let workspace_root = std::env::var("CARGO_MANIFEST_DIR").map(std::path::PathBuf::from).unwrap();
+    let workspace = workspace_root.parent().and_then(|p| p.parent()).unwrap().to_path_buf();
     let buf_path = workspace.join("async-import-fixture.flx");
-    let uri_str = format!(
-        "file:///{}",
-        buf_path.display().to_string().replace('\\', "/")
-    );
+    let uri_str = format!("file:///{}", buf_path.display().to_string().replace('\\', "/"));
     let u = uri(&uri_str);
     // `sleep` is at column 36 on line 2 (0-based: line 1, char 35..40).
     let source = "import Flow.Async exposing (..)\nfn body() with Async { sleep(10) }\n";
@@ -1317,10 +1154,7 @@ fn hover_on_imported_async_sleep_resolves_unit_return() {
         .handle_hover(HoverParams {
             text_document_position_params: TextDocumentPositionParams {
                 text_document: ident(&u),
-                position: Position {
-                    line: 1,
-                    character: 25,
-                },
+                position: Position { line: 1, character: 25 },
             },
             work_done_progress_params: WorkDoneProgressParams::default(),
         })
@@ -1345,14 +1179,8 @@ fn hover_on_sleep_in_full_async_example_resolves_unit() {
     // catch any regression where the larger buffer's inference cascade
     // perturbs `sleep`'s return type.
     let mut state = GlobalState::default();
-    let workspace_root = std::env::var("CARGO_MANIFEST_DIR")
-        .map(std::path::PathBuf::from)
-        .unwrap();
-    let workspace = workspace_root
-        .parent()
-        .and_then(|p| p.parent())
-        .unwrap()
-        .to_path_buf();
+    let workspace_root = std::env::var("CARGO_MANIFEST_DIR").map(std::path::PathBuf::from).unwrap();
+    let workspace = workspace_root.parent().and_then(|p| p.parent()).unwrap().to_path_buf();
     let buf_path = workspace.join("examples/async/02_sleep_yield.flx");
     // Emulate VS Code's URI format: percent-encoded colon after the drive
     // letter (e.g. `file:///e%3A/Github/...`), exactly what the extension
@@ -1373,10 +1201,7 @@ fn hover_on_sleep_in_full_async_example_resolves_unit() {
         .handle_hover(HoverParams {
             text_document_position_params: TextDocumentPositionParams {
                 text_document: ident(&u),
-                position: Position {
-                    line: 20,
-                    character: 6,
-                },
+                position: Position { line: 20, character: 6 },
             },
             work_done_progress_params: WorkDoneProgressParams::default(),
         })
@@ -1397,19 +1222,10 @@ fn hover_on_unimported_async_sleep_stays_unresolved() {
     // every Flow module on every snapshot — only buffer-imported ones should
     // be preloaded.
     let mut state = GlobalState::default();
-    let workspace_root = std::env::var("CARGO_MANIFEST_DIR")
-        .map(std::path::PathBuf::from)
-        .unwrap();
-    let workspace = workspace_root
-        .parent()
-        .and_then(|p| p.parent())
-        .unwrap()
-        .to_path_buf();
+    let workspace_root = std::env::var("CARGO_MANIFEST_DIR").map(std::path::PathBuf::from).unwrap();
+    let workspace = workspace_root.parent().and_then(|p| p.parent()).unwrap().to_path_buf();
     let buf_path = workspace.join("async-noimport-fixture.flx");
-    let uri_str = format!(
-        "file:///{}",
-        buf_path.display().to_string().replace('\\', "/")
-    );
+    let uri_str = format!("file:///{}", buf_path.display().to_string().replace('\\', "/"));
     let u = uri(&uri_str);
     let source = "fn body() with Async { sleep(10) }\n";
     open(&mut state, &u, source);
@@ -1417,10 +1233,7 @@ fn hover_on_unimported_async_sleep_stays_unresolved() {
     let hover = state.handle_hover(HoverParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: ident(&u),
-            position: Position {
-                line: 0,
-                character: 25,
-            },
+            position: Position { line: 0, character: 25 },
         },
         work_done_progress_params: WorkDoneProgressParams::default(),
     });
@@ -1448,19 +1261,12 @@ fn formatting_request_returns_text_edits_for_messy_source() {
     let edits = state
         .handle_formatting(DocumentFormattingParams {
             text_document: ident(&u),
-            options: FormattingOptions {
-                tab_size: 4,
-                insert_spaces: true,
-                ..Default::default()
-            },
+            options: FormattingOptions { tab_size: 4, insert_spaces: true, ..Default::default() },
             work_done_progress_params: WorkDoneProgressParams::default(),
         })
         .expect("formatting result");
     assert!(!edits.is_empty(), "expected at least one edit");
-    assert_ne!(
-        edits[0].new_text, original,
-        "formatter should produce different text"
-    );
+    assert_ne!(edits[0].new_text, original, "formatter should produce different text");
 }
 
 fn format_range(state: &mut GlobalState, u: &Uri, range: Range) -> Vec<TextEdit> {
@@ -1468,11 +1274,7 @@ fn format_range(state: &mut GlobalState, u: &Uri, range: Range) -> Vec<TextEdit>
         .handle_formatting_range(lsp_types::DocumentRangeFormattingParams {
             text_document: ident(u),
             range,
-            options: FormattingOptions {
-                tab_size: 4,
-                insert_spaces: true,
-                ..Default::default()
-            },
+            options: FormattingOptions { tab_size: 4, insert_spaces: true, ..Default::default() },
             work_done_progress_params: WorkDoneProgressParams::default(),
         })
         .unwrap_or_default()
@@ -1493,14 +1295,8 @@ fn range_formatting_touches_only_selected_hunk() {
         &mut state,
         &u,
         Range {
-            start: Position {
-                line: 1,
-                character: 0,
-            },
-            end: Position {
-                line: 1,
-                character: 9,
-            },
+            start: Position { line: 1, character: 0 },
+            end: Position { line: 1, character: 9 },
         },
     );
     assert_eq!(edits.len(), 1, "only the selected hunk, got {edits:?}");
@@ -1522,20 +1318,11 @@ fn range_formatting_leaves_unselected_changes_alone() {
         &mut state,
         &u,
         Range {
-            start: Position {
-                line: 0,
-                character: 0,
-            },
-            end: Position {
-                line: 0,
-                character: 8,
-            },
+            start: Position { line: 0, character: 0 },
+            end: Position { line: 0, character: 8 },
         },
     );
-    assert!(
-        edits.is_empty(),
-        "formatting a clean selection should change nothing, got {edits:?}"
-    );
+    assert!(edits.is_empty(), "formatting a clean selection should change nothing, got {edits:?}");
 }
 
 fn on_type_format(
@@ -1552,11 +1339,7 @@ fn on_type_format(
                 position: Position { line, character },
             },
             ch: ch.to_string(),
-            options: FormattingOptions {
-                tab_size: 4,
-                insert_spaces: true,
-                ..Default::default()
-            },
+            options: FormattingOptions { tab_size: 4, insert_spaces: true, ..Default::default() },
         })
         .unwrap_or_default()
 }
@@ -1585,24 +1368,9 @@ fn on_type_formatting_dedents_close_brace() {
     // `}` typed at line 2; cursor sits just after it (column 5).
     let edits = on_type_format(&mut state, &u, 2, 5, "}");
     assert_eq!(edits.len(), 1, "expected one dedent edit, got {edits:?}");
-    assert_eq!(
-        edits[0].new_text, "",
-        "the `}}` should align with the opener"
-    );
-    assert_eq!(
-        edits[0].range.start,
-        Position {
-            line: 2,
-            character: 0
-        }
-    );
-    assert_eq!(
-        edits[0].range.end,
-        Position {
-            line: 2,
-            character: 4
-        }
-    );
+    assert_eq!(edits[0].new_text, "", "the `}}` should align with the opener");
+    assert_eq!(edits[0].range.start, Position { line: 2, character: 0 });
+    assert_eq!(edits[0].range.end, Position { line: 2, character: 4 });
 }
 
 #[test]
@@ -1613,10 +1381,7 @@ fn on_type_formatting_leaves_correct_line_alone() {
     open(&mut state, &u, "fn f() {\n    let a = 1\n}\n");
 
     let edits = on_type_format(&mut state, &u, 2, 1, "}");
-    assert!(
-        edits.is_empty(),
-        "an already-correct `}}` needs no edit, got {edits:?}"
-    );
+    assert!(edits.is_empty(), "an already-correct `}}` needs no edit, got {edits:?}");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1644,22 +1409,12 @@ fn hover_on_function_decl_shows_doc_comment() {
     // drops doc comments, so this is scanned from the buffer source).
     let mut state = GlobalState::default();
     let u = uri("file:///doc.flx");
-    open(
-        &mut state,
-        &u,
-        "/// Doubles its argument.\nfn twice(x: Int) -> Int { x * 2 }\n",
-    );
+    open(&mut state, &u, "/// Doubles its argument.\nfn twice(x: Int) -> Int { x * 2 }\n");
 
     // Hover on `twice` (line 1, char 5).
     let md = hover_markup(&mut state, &u, 1, 5).expect("hover on `twice`");
-    assert!(
-        md.contains("Doubles its argument."),
-        "expected the doc comment in hover, got: {md}"
-    );
-    assert!(
-        md.contains("```flux"),
-        "expected the signature block alongside the doc, got: {md}"
-    );
+    assert!(md.contains("Doubles its argument."), "expected the doc comment in hover, got: {md}");
+    assert!(md.contains("```flux"), "expected the signature block alongside the doc, got: {md}");
 }
 
 #[test]
@@ -1713,10 +1468,7 @@ fn hover_on_perform_op_shows_signature_and_doc() {
         md.contains("String -> Int") || md.contains("(String) -> Int"),
         "expected the op's declared signature, got: {md}"
     );
-    assert!(
-        md.contains("Records a message"),
-        "expected the op's doc comment, got: {md}"
-    );
+    assert!(md.contains("Records a message"), "expected the op's doc comment, got: {md}");
 }
 
 #[test]
@@ -1772,14 +1524,8 @@ fn hover_on_constructor_pattern_shows_variant_and_doc() {
 
     // Hover on `Circle` in the pattern `Circle(r)` (line 4, char 10).
     let md = hover_markup(&mut state, &u, 4, 10).expect("hover on `Circle` pattern");
-    assert!(
-        md.contains("Circle(Float)"),
-        "expected the variant's declared shape, got: {md}"
-    );
-    assert!(
-        md.contains("A 2D shape."),
-        "expected the data declaration's doc, got: {md}"
-    );
+    assert!(md.contains("Circle(Float)"), "expected the variant's declared shape, got: {md}");
+    assert!(md.contains("A 2D shape."), "expected the data declaration's doc, got: {md}");
 }
 
 #[test]
@@ -1834,14 +1580,8 @@ fn hover_on_class_method_shows_doc_and_signature() {
 
     // Hover on `eq` (line 2, char 7 — after "    fn ").
     let md = hover_markup(&mut state, &u, 2, 7).expect("hover on class method `eq`");
-    assert!(
-        md.contains("Structural equality."),
-        "expected the method doc comment, got: {md}"
-    );
-    assert!(
-        md.contains("fn eq(x: a, y: a) -> Bool"),
-        "expected the declared signature, got: {md}"
-    );
+    assert!(md.contains("Structural equality."), "expected the method doc comment, got: {md}");
+    assert!(md.contains("fn eq(x: a, y: a) -> Bool"), "expected the declared signature, got: {md}");
 }
 
 #[test]
@@ -1857,10 +1597,7 @@ fn hover_on_instance_method_shows_doc_and_class_signature() {
 
     // Hover on `eq` in the instance method (line 5, char 7).
     let md = hover_markup(&mut state, &u, 5, 7).expect("hover on instance method `eq`");
-    assert!(
-        md.contains("Int equality."),
-        "expected the instance method doc comment, got: {md}"
-    );
+    assert!(md.contains("Int equality."), "expected the instance method doc comment, got: {md}");
     // An instance method has no annotations of its own — hover renders the
     // class's declared signature.
     assert!(
@@ -1899,21 +1636,14 @@ fn hover_on_member_access_member_returns_field_label() {
     // Line 3 (0-indexed 2): `let n = p.name`. `name` starts after `p.` at
     // column 11 (0-indexed character 11).
     let value = hover_markup(&mut state, &u, 2, 11).expect("hover on .name");
-    assert!(
-        value.contains("name"),
-        "expected member name in hover, got: {value}"
-    );
+    assert!(value.contains("name"), "expected member name in hover, got: {value}");
 }
 
 #[test]
 fn hover_on_data_declaration_shows_definition() {
     let mut state = GlobalState::default();
     let u = uri("file:///data.flx");
-    open(
-        &mut state,
-        &u,
-        "data Person { Person { name: String, age: Int } }\n",
-    );
+    open(&mut state, &u, "data Person { Person { name: String, age: Int } }\n");
     // `Person` (data name) starts at column 6 (character 5 zero-indexed).
     let value = hover_markup(&mut state, &u, 0, 6).expect("hover on data name");
     assert!(
@@ -1953,21 +1683,14 @@ fn hover_on_type_alias_shows_body() {
 
     // Hover on `Name` at its declaration (line 0). `alias ` is 6 chars.
     let value = hover_markup(&mut state, &u, 0, 7).expect("hover on alias name");
-    assert!(
-        value.contains("alias Name = String"),
-        "expected the alias body, got: {value}"
-    );
+    assert!(value.contains("alias Name = String"), "expected the alias body, got: {value}");
 }
 
 #[test]
 fn hover_on_import_name_returns_module_label() {
     let mut state = GlobalState::default();
     let u = uri("file:///imp.flx");
-    open(
-        &mut state,
-        &u,
-        "import Flow.Async exposing (..)\nfn body() with Async { 1 }\n",
-    );
+    open(&mut state, &u, "import Flow.Async exposing (..)\nfn body() with Async { 1 }\n");
     // Cursor on `Async` in `Flow.Async` — column 13 (character 12).
     let value = hover_markup(&mut state, &u, 0, 12).expect("hover on import name");
     assert!(
@@ -2020,11 +1743,7 @@ fn hover_on_data_field_decl_returns_declared_type() {
     // field at the declaration site should show its type.
     let mut state = GlobalState::default();
     let u = uri("file:///dfn.flx");
-    open(
-        &mut state,
-        &u,
-        "data Person { Person { name: String, age: Int } }\n",
-    );
+    open(&mut state, &u, "data Person { Person { name: String, age: Int } }\n");
     // `name` field name at the decl site sits around column 24 (character 23).
     let value = hover_markup(&mut state, &u, 0, 24).expect("hover on data field decl");
     assert!(
@@ -2040,10 +1759,7 @@ fn hover_on_keyword_returns_keyword_doc() {
     open(&mut state, &u, "let x = 1\n");
     // Cursor on `let` (col 0).
     let value = hover_markup(&mut state, &u, 0, 1).expect("keyword hover");
-    assert!(
-        value.contains("Bind a value to a name"),
-        "expected let keyword doc, got: {value}"
-    );
+    assert!(value.contains("Bind a value to a name"), "expected let keyword doc, got: {value}");
 }
 
 #[test]
@@ -2055,45 +1771,17 @@ fn hover_on_new_keywords_returns_specific_docs() {
     // — they now route through the AST path and surface the inferred
     // type (see `hover_on_builtin_constructor_returns_inferred_type`).
     let cases: &[(&str, &str, &str)] = &[
-        (
-            "deriving",
-            "data X { A, B } deriving (Eq)\n",
-            "Auto-generate",
-        ),
+        ("deriving", "data X { A, B } deriving (Eq)\n", "Auto-generate"),
         ("type", "type T = Int\n", "transparent type alias"),
         ("where", "let x = a where a = 1\n", "let-binding"),
-        (
-            "select",
-            "fn f() with Async { select { x -> 1 } }\n",
-            "first ready",
-        ),
+        ("select", "fn f() with Async { select { x -> 1 } }\n", "first ready"),
         ("sealing", "fn f() { x sealing { Console } }\n", "Restrict"),
-        (
-            "primop",
-            "intrinsic fn p() = primop X\n",
-            "compiler primitive",
-        ),
+        ("primop", "intrinsic fn p() = primop X\n", "compiler primitive"),
         // Newly added contextual keywords.
-        (
-            "ambient",
-            "fn f() { x sealing (ambient - Console) }\n",
-            "enclosing effect row",
-        ),
-        (
-            "except",
-            "import Flow.Math exposing (..) except (sqrt)\n",
-            "Exclude members",
-        ),
-        (
-            "end",
-            "module M\n    public fn f() { 1 }\nend\n",
-            "terminator",
-        ),
-        (
-            "resume",
-            "handle counter() with { get() -> resume(0) }\n",
-            "Continue an effect handler",
-        ),
+        ("ambient", "fn f() { x sealing (ambient - Console) }\n", "enclosing effect row"),
+        ("except", "import Flow.Math exposing (..) except (sqrt)\n", "Exclude members"),
+        ("end", "module M\n    public fn f() { 1 }\nend\n", "terminator"),
+        ("resume", "handle counter() with { get() -> resume(0) }\n", "Continue an effect handler"),
     ];
 
     for (kw, source, expected_substring) in cases {
@@ -2163,10 +1851,7 @@ fn hover_on_keyword_inside_comment_does_not_return_doc() {
     let hover = state.handle_hover(HoverParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: ident(&u),
-            position: Position {
-                line: 0,
-                character: 8,
-            },
+            position: Position { line: 0, character: 8 },
         },
         work_done_progress_params: WorkDoneProgressParams::default(),
     });
@@ -2192,10 +1877,7 @@ fn completion_in_with_clause_lists_effect_labels() {
         .handle_completion(CompletionParams {
             text_document_position: TextDocumentPositionParams {
                 text_document: ident(&u),
-                position: Position {
-                    line: 0,
-                    character: 15,
-                },
+                position: Position { line: 0, character: 15 },
             },
             work_done_progress_params: WorkDoneProgressParams::default(),
             partial_result_params: PartialResultParams::default(),
@@ -2206,14 +1888,8 @@ fn completion_in_with_clause_lists_effect_labels() {
         CompletionResponse::Array(items) => items.into_iter().map(|i| i.label).collect(),
         CompletionResponse::List(list) => list.items.into_iter().map(|i| i.label).collect(),
     };
-    assert!(
-        labels.iter().any(|l| l == "IO"),
-        "expected IO in {labels:?}"
-    );
-    assert!(
-        labels.iter().any(|l| l == "Async"),
-        "expected Async in {labels:?}"
-    );
+    assert!(labels.iter().any(|l| l == "IO"), "expected IO in {labels:?}");
+    assert!(labels.iter().any(|l| l == "Async"), "expected Async in {labels:?}");
     assert!(
         !labels.iter().any(|l| l == "let"),
         "got default keyword list in with-clause context: {labels:?}"
@@ -2234,10 +1910,7 @@ fn completion_after_record_dot_lists_fields() {
         .handle_completion(CompletionParams {
             text_document_position: TextDocumentPositionParams {
                 text_document: ident(&u),
-                position: Position {
-                    line: 2,
-                    character: 14,
-                },
+                position: Position { line: 2, character: 14 },
             },
             work_done_progress_params: WorkDoneProgressParams::default(),
             partial_result_params: PartialResultParams::default(),
@@ -2248,34 +1921,21 @@ fn completion_after_record_dot_lists_fields() {
         CompletionResponse::Array(items) => items.into_iter().map(|i| i.label).collect(),
         CompletionResponse::List(list) => list.items.into_iter().map(|i| i.label).collect(),
     };
-    assert!(
-        labels.iter().any(|l| l == "name"),
-        "expected `name` field in {labels:?}"
-    );
-    assert!(
-        labels.iter().any(|l| l == "age"),
-        "expected `age` field in {labels:?}"
-    );
+    assert!(labels.iter().any(|l| l == "name"), "expected `name` field in {labels:?}");
+    assert!(labels.iter().any(|l| l == "age"), "expected `age` field in {labels:?}");
 }
 
 #[test]
 fn completion_in_named_constructor_lists_fields() {
     let mut state = GlobalState::default();
     let u = uri("file:///cnc.flx");
-    open(
-        &mut state,
-        &u,
-        "data Person { Person { name: String, age: Int } }\nlet p = Person { \n",
-    );
+    open(&mut state, &u, "data Person { Person { name: String, age: Int } }\nlet p = Person { \n");
     // Cursor inside the `{ ` on line 2, position right after `{ `.
     let response = state
         .handle_completion(CompletionParams {
             text_document_position: TextDocumentPositionParams {
                 text_document: ident(&u),
-                position: Position {
-                    line: 1,
-                    character: 17,
-                },
+                position: Position { line: 1, character: 17 },
             },
             work_done_progress_params: WorkDoneProgressParams::default(),
             partial_result_params: PartialResultParams::default(),
@@ -2286,14 +1946,8 @@ fn completion_in_named_constructor_lists_fields() {
         CompletionResponse::Array(items) => items.into_iter().map(|i| i.label).collect(),
         CompletionResponse::List(list) => list.items.into_iter().map(|i| i.label).collect(),
     };
-    assert!(
-        labels.iter().any(|l| l == "name"),
-        "expected `name` field in {labels:?}"
-    );
-    assert!(
-        labels.iter().any(|l| l == "age"),
-        "expected `age` field in {labels:?}"
-    );
+    assert!(labels.iter().any(|l| l == "name"), "expected `name` field in {labels:?}");
+    assert!(labels.iter().any(|l| l == "age"), "expected `age` field in {labels:?}");
 }
 
 #[test]
@@ -2301,19 +1955,10 @@ fn completion_after_module_dot_lists_module_members() {
     // Type `String.` and expect Flow.String members in the completion list.
     // The workspace is the flux repo root so prelude loads from lib/Flow/.
     let mut state = GlobalState::default();
-    let workspace_root = std::env::var("CARGO_MANIFEST_DIR")
-        .map(std::path::PathBuf::from)
-        .unwrap();
-    let workspace = workspace_root
-        .parent()
-        .and_then(|p| p.parent())
-        .unwrap()
-        .to_path_buf();
+    let workspace_root = std::env::var("CARGO_MANIFEST_DIR").map(std::path::PathBuf::from).unwrap();
+    let workspace = workspace_root.parent().and_then(|p| p.parent()).unwrap().to_path_buf();
     let buf_path = workspace.join("completion-fixture.flx");
-    let uri_str = format!(
-        "file:///{}",
-        buf_path.display().to_string().replace('\\', "/")
-    );
+    let uri_str = format!("file:///{}", buf_path.display().to_string().replace('\\', "/"));
     let u = uri(&uri_str);
     // `String.` — cursor right after the dot.
     let source = "fn main() with IO { String. }\n";
@@ -2323,10 +1968,7 @@ fn completion_after_module_dot_lists_module_members() {
         .handle_completion(CompletionParams {
             text_document_position: TextDocumentPositionParams {
                 text_document: ident(&u),
-                position: Position {
-                    line: 0,
-                    character: 27,
-                },
+                position: Position { line: 0, character: 27 },
             },
             work_done_progress_params: WorkDoneProgressParams::default(),
             partial_result_params: PartialResultParams::default(),
@@ -2340,10 +1982,7 @@ fn completion_after_module_dot_lists_module_members() {
     };
     // Don't pin the exact set of String module members (subject to change);
     // just assert we got SOMETHING that looks like a Flow.String member.
-    assert!(
-        !labels.is_empty(),
-        "expected non-empty completion list after `String.`"
-    );
+    assert!(!labels.is_empty(), "expected non-empty completion list after `String.`");
     // And confirm it's not the default keyword-only list (which would
     // include `let`/`fn`/etc. — none of those should be in a member list).
     assert!(
@@ -2357,19 +1996,10 @@ fn completion_after_non_prelude_flow_module_dot_lists_members() {
     // `Http` is not part of the auto-prelude — completion must still work,
     // because every `lib/Flow/*.flx` module is eagerly indexed for it.
     let mut state = GlobalState::default();
-    let workspace_root = std::env::var("CARGO_MANIFEST_DIR")
-        .map(std::path::PathBuf::from)
-        .unwrap();
-    let workspace = workspace_root
-        .parent()
-        .and_then(|p| p.parent())
-        .unwrap()
-        .to_path_buf();
+    let workspace_root = std::env::var("CARGO_MANIFEST_DIR").map(std::path::PathBuf::from).unwrap();
+    let workspace = workspace_root.parent().and_then(|p| p.parent()).unwrap().to_path_buf();
     let buf_path = workspace.join("completion-fixture.flx");
-    let uri_str = format!(
-        "file:///{}",
-        buf_path.display().to_string().replace('\\', "/")
-    );
+    let uri_str = format!("file:///{}", buf_path.display().to_string().replace('\\', "/"));
     let u = uri(&uri_str);
     // `Http.` — `Http` starts at char 20, the dot at 24, cursor at 25.
     let source = "fn main() with IO { Http. }\n";
@@ -2448,18 +2078,12 @@ fn goto_def_on_named_constructor_jumps_to_data_decl() {
     let location = state.handle_definition(GotoDefinitionParams {
         text_document_position_params: TextDocumentPositionParams {
             text_document: ident(&u),
-            position: Position {
-                line: 1,
-                character: 9,
-            },
+            position: Position { line: 1, character: 9 },
         },
         work_done_progress_params: WorkDoneProgressParams::default(),
         partial_result_params: PartialResultParams::default(),
     });
-    assert!(
-        location.is_some(),
-        "expected a definition Location for Person reference"
-    );
+    assert!(location.is_some(), "expected a definition Location for Person reference");
 }
 
 #[test]
@@ -2469,10 +2093,8 @@ fn cross_file_goto_definition_resolves_modules_in_a_subdirectory_project() {
     // against `proj/` — an ancestor of the entry — not the root itself.
     let main_mod = "module Lib.App.Main {\n    public fn run() with IO { print(\"hi\") }\n}\n";
     let entry = "import Lib.App.Main\n\nfn main() with IO {\n    Lib.App.Main.run()\n}\n";
-    let (_dir, mut state, uris) = workspace_fixture(&[
-        ("proj/Lib/App/Main.flx", main_mod),
-        ("proj/main.flx", entry),
-    ]);
+    let (_dir, mut state, uris) =
+        workspace_fixture(&[("proj/Lib/App/Main.flx", main_mod), ("proj/main.flx", entry)]);
     open(&mut state, &uris[1], entry);
 
     // Cursor on `run` in `Lib.App.Main.run()` (line 3, char 18).
@@ -2530,11 +2152,7 @@ fn goto_definition_on_import_jumps_into_the_module_file() {
 fn document_highlight_marks_all_occurrences() {
     let mut state = GlobalState::default();
     let u = uri("file:///hl.flx");
-    open(
-        &mut state,
-        &u,
-        "fn main() {\n    let total = 1\n    let next = total + total\n}\n",
-    );
+    open(&mut state, &u, "fn main() {\n    let total = 1\n    let next = total + total\n}\n");
 
     // Cursor on the `total` declaration (line 1, char 9) — the binding plus
     // its two uses in `total + total` should all be highlighted.
@@ -2546,22 +2164,14 @@ fn document_highlight_marks_all_occurrences() {
         work_done_progress_params: WorkDoneProgressParams::default(),
         partial_result_params: PartialResultParams::default(),
     });
-    assert_eq!(
-        highlights.len(),
-        3,
-        "expected 3 highlights for `total`, got {highlights:?}"
-    );
+    assert_eq!(highlights.len(), 3, "expected 3 highlights for `total`, got {highlights:?}");
 }
 
 #[test]
 fn document_highlight_tags_read_and_write() {
     let mut state = GlobalState::default();
     let u = uri("file:///hl-rw.flx");
-    open(
-        &mut state,
-        &u,
-        "fn main() {\n    let total = 1\n    let next = total + total\n}\n",
-    );
+    open(&mut state, &u, "fn main() {\n    let total = 1\n    let next = total + total\n}\n");
 
     let highlights = state.handle_document_highlight(DocumentHighlightParams {
         text_document_position_params: TextDocumentPositionParams {
@@ -2602,11 +2212,7 @@ fn document_highlight_marks_function_exit_points() {
         work_done_progress_params: WorkDoneProgressParams::default(),
         partial_result_params: PartialResultParams::default(),
     });
-    assert_eq!(
-        highlights.len(),
-        2,
-        "both `return`s should be highlighted, got {highlights:?}"
-    );
+    assert_eq!(highlights.len(), 2, "both `return`s should be highlighted, got {highlights:?}");
 }
 
 #[test]
@@ -2697,9 +2303,7 @@ fn workspace_symbol_index_updates_on_edit() {
     let (_dir, mut state, uris) = workspace_fixture(&[("main.flx", main_src)]);
     open(&mut state, &uris[0], main_src);
     assert!(
-        workspace_symbol_names(&mut state, "alpha")
-            .iter()
-            .any(|n| n == "alpha"),
+        workspace_symbol_names(&mut state, "alpha").iter().any(|n| n == "alpha"),
         "expected to find `alpha` before the edit"
     );
 
@@ -2717,15 +2321,11 @@ fn workspace_symbol_index_updates_on_edit() {
     });
 
     assert!(
-        workspace_symbol_names(&mut state, "beta")
-            .iter()
-            .any(|n| n == "beta"),
+        workspace_symbol_names(&mut state, "beta").iter().any(|n| n == "beta"),
         "expected the renamed `beta` after the edit"
     );
     assert!(
-        !workspace_symbol_names(&mut state, "alpha")
-            .iter()
-            .any(|n| n == "alpha"),
+        !workspace_symbol_names(&mut state, "alpha").iter().any(|n| n == "alpha"),
         "the stale `alpha` must be gone from the index after the edit"
     );
 }
@@ -2780,11 +2380,7 @@ fn folding_range_covers_multiline_declarations() {
     });
 
     // `fn helper` spans lines 0–2; `let x = 2` is single-line → one fold.
-    assert_eq!(
-        folds.len(),
-        1,
-        "expected one fold for the multi-line function, got {folds:?}"
-    );
+    assert_eq!(folds.len(), 1, "expected one fold for the multi-line function, got {folds:?}");
     assert_eq!(folds[0].start_line, 0);
     assert_eq!(folds[0].end_line, 2);
 }
@@ -2858,11 +2454,9 @@ fn implementation_lists_class_instances() {
         .expect("implementation response");
 
     match resp {
-        lsp_types::GotoDefinitionResponse::Array(locations) => assert_eq!(
-            locations.len(),
-            2,
-            "expected both `Show` instances, got {locations:?}"
-        ),
+        lsp_types::GotoDefinitionResponse::Array(locations) => {
+            assert_eq!(locations.len(), 2, "expected both `Show` instances, got {locations:?}")
+        }
         other => panic!("expected an array of instance locations, got {other:?}"),
     }
 }
@@ -2882,10 +2476,7 @@ fn implementation_is_empty_off_a_class_name() {
         work_done_progress_params: WorkDoneProgressParams::default(),
         partial_result_params: PartialResultParams::default(),
     });
-    assert!(
-        resp.is_none(),
-        "expected no implementations off a non-class"
-    );
+    assert!(resp.is_none(), "expected no implementations off a non-class");
 }
 
 #[test]
@@ -2898,11 +2489,8 @@ fn implementation_finds_instances_across_modules() {
     let shapes = "module Shapes {\n    public class Show<a> {\n        fn show(x: a) -> String\n    }\n    instance Show<Int> {\n        fn show(x) { \"int\" }\n    }\n}\n";
     let extra = "import Shapes\n\nmodule Extra {\n    instance Show<Bool> {\n        fn show(x) { \"bool\" }\n    }\n}\n";
     let main = "import Shapes\nimport Extra\n\nfn run() { 0 }\n";
-    let (_dir, mut state, uris) = workspace_fixture(&[
-        ("Shapes.flx", shapes),
-        ("Extra.flx", extra),
-        ("main.flx", main),
-    ]);
+    let (_dir, mut state, uris) =
+        workspace_fixture(&[("Shapes.flx", shapes), ("Extra.flx", extra), ("main.flx", main)]);
     // Open the importer entry that ties the three files into one component.
     open(&mut state, &uris[2], main);
 
@@ -2962,11 +2550,7 @@ fn implementation_resolves_public_class_name() {
         .expect("implementation response on a public class");
     match resp {
         lsp_types::GotoDefinitionResponse::Array(locations) => {
-            assert_eq!(
-                locations.len(),
-                1,
-                "expected the one instance, got {locations:?}"
-            )
+            assert_eq!(locations.len(), 1, "expected the one instance, got {locations:?}")
         }
         other => panic!("expected an array of instance locations, got {other:?}"),
     }
@@ -3070,10 +2654,7 @@ fn diagnostics_carry_code_description_link() {
         .iter()
         .find(|d| matches!(&d.code, Some(NumberOrString::String(c)) if c == "E015"))
         .expect("an E015 diagnostic");
-    let href = e015
-        .code_description
-        .as_ref()
-        .expect("code_description on E015");
+    let href = e015.code_description.as_ref().expect("code_description on E015");
     assert!(
         href.href.as_str().ends_with("error_codes.md#e015"),
         "unexpected href: {}",
@@ -3085,15 +2666,9 @@ fn diagnostics_carry_code_description_link() {
 fn code_lens_offers_run_above_main() {
     let mut state = GlobalState::default();
     let u = uri("file:///run.flx");
-    open(
-        &mut state,
-        &u,
-        "fn main() with IO {\n    print(\"hi\")\n}\n",
-    );
+    open(&mut state, &u, "fn main() with IO {\n    print(\"hi\")\n}\n");
 
-    let lenses = state
-        .handle_code_lens(code_lens_params(&u))
-        .expect("code lenses");
+    let lenses = state.handle_code_lens(code_lens_params(&u)).expect("code lenses");
     assert_eq!(lenses.len(), 1, "expected exactly one Run lens on `main`");
     let cmd = lenses[0].command.as_ref().expect("lens command");
     assert_eq!(cmd.command, "flux.run");
@@ -3102,11 +2677,7 @@ fn code_lens_offers_run_above_main() {
 
 /// All commands of `name` carried by `lenses`.
 fn lens_cmds<'a>(lenses: &'a [lsp_types::CodeLens], name: &str) -> Vec<&'a lsp_types::Command> {
-    lenses
-        .iter()
-        .filter_map(|l| l.command.as_ref())
-        .filter(|c| c.command == name)
-        .collect()
+    lenses.iter().filter_map(|l| l.command.as_ref()).filter(|c| c.command == name).collect()
 }
 
 #[test]
@@ -3119,9 +2690,7 @@ fn code_lens_offers_run_test_per_test_function() {
         "fn test_a() { assert_true(true) }\nfn test_b() { assert_true(true) }\nfn helper() { 1 }\n",
     );
 
-    let lenses = state
-        .handle_code_lens(code_lens_params(&u))
-        .expect("code lenses");
+    let lenses = state.handle_code_lens(code_lens_params(&u)).expect("code lenses");
     let per_test = lens_cmds(&lenses, "flux.runTest");
     assert_eq!(per_test.len(), 2, "a lens per test fn, none for `helper`");
     let args = per_test[0].arguments.as_ref().expect("lens arguments");
@@ -3136,26 +2705,12 @@ fn code_lens_offers_run_test_per_test_function() {
 fn code_lens_offers_run_all_tests_for_multiple_tests() {
     let mut state = GlobalState::default();
     let u = uri("file:///run-all.flx");
-    open(
-        &mut state,
-        &u,
-        "fn test_a() { assert_true(true) }\nfn test_b() { assert_true(true) }\n",
-    );
+    open(&mut state, &u, "fn test_a() { assert_true(true) }\nfn test_b() { assert_true(true) }\n");
 
-    let lenses = state
-        .handle_code_lens(code_lens_params(&u))
-        .expect("code lenses");
+    let lenses = state.handle_code_lens(code_lens_params(&u)).expect("code lenses");
     let run_all = lens_cmds(&lenses, "flux.runTests");
-    assert_eq!(
-        run_all.len(),
-        1,
-        "exactly one file-level run-all-tests lens, got {lenses:?}"
-    );
-    assert!(
-        run_all[0].title.contains("all"),
-        "title was {:?}",
-        run_all[0].title
-    );
+    assert_eq!(run_all.len(), 1, "exactly one file-level run-all-tests lens, got {lenses:?}");
+    assert!(run_all[0].title.contains("all"), "title was {:?}", run_all[0].title);
     // It carries only the file URI — no per-test filter.
     assert_eq!(
         run_all[0].arguments.as_ref().map(Vec::len),
@@ -3165,17 +2720,10 @@ fn code_lens_offers_run_all_tests_for_multiple_tests() {
     // It sits on the first test's line (above `test_a`).
     let run_all_range = lenses
         .iter()
-        .find(|l| {
-            l.command
-                .as_ref()
-                .is_some_and(|c| c.command == "flux.runTests")
-        })
+        .find(|l| l.command.as_ref().is_some_and(|c| c.command == "flux.runTests"))
         .map(|l| l.range)
         .unwrap();
-    assert_eq!(
-        run_all_range.start.line, 0,
-        "run-all should be above test_a"
-    );
+    assert_eq!(run_all_range.start.line, 0, "run-all should be above test_a");
 }
 
 #[test]
@@ -3184,9 +2732,7 @@ fn code_lens_no_run_all_for_single_test() {
     let u = uri("file:///single-test.flx");
     open(&mut state, &u, "fn test_only() { assert_true(true) }\n");
 
-    let lenses = state
-        .handle_code_lens(code_lens_params(&u))
-        .expect("code lenses");
+    let lenses = state.handle_code_lens(code_lens_params(&u)).expect("code lenses");
     assert!(
         lens_cmds(&lenses, "flux.runTests").is_empty(),
         "a lone test needs no run-all lens, got {lenses:?}"
@@ -3198,21 +2744,11 @@ fn code_lens_no_run_all_for_single_test() {
 fn code_lens_offers_eval_on_doc_comment_snippet() {
     let mut state = GlobalState::default();
     let u = uri("file:///eval-lens.flx");
-    open(
-        &mut state,
-        &u,
-        "/// >>> 2 + 2\nfn main() with IO {\n    print(\"hi\")\n}\n",
-    );
+    open(&mut state, &u, "/// >>> 2 + 2\nfn main() with IO {\n    print(\"hi\")\n}\n");
 
-    let lenses = state
-        .handle_code_lens(code_lens_params(&u))
-        .expect("code lenses");
+    let lenses = state.handle_code_lens(code_lens_params(&u)).expect("code lenses");
     let evals = lens_cmds(&lenses, "flux.evalComment");
-    assert_eq!(
-        evals.len(),
-        1,
-        "one eval lens on the >>> line, got {lenses:?}"
-    );
+    assert_eq!(evals.len(), 1, "one eval lens on the >>> line, got {lenses:?}");
     // Arguments are [uri, expr, line, indent].
     let args = evals[0].arguments.as_ref().expect("eval lens arguments");
     assert_eq!(
@@ -3220,11 +2756,7 @@ fn code_lens_offers_eval_on_doc_comment_snippet() {
         serde_json::json!("2 + 2"),
         "the expression travels as the second argument"
     );
-    assert_eq!(
-        args[2],
-        serde_json::json!(0),
-        "the >>> line number travels as the third argument"
-    );
+    assert_eq!(args[2], serde_json::json!(0), "the >>> line number travels as the third argument");
 }
 
 #[test]
@@ -3239,9 +2771,7 @@ fn code_lens_no_eval_for_plain_doc_or_non_doc_comment() {
         "/// just docs\n/// => stale\n// >>> 1 + 1\nfn main() with IO {\n    print(\"hi\")\n}\n",
     );
 
-    let lenses = state
-        .handle_code_lens(code_lens_params(&u))
-        .expect("code lenses");
+    let lenses = state.handle_code_lens(code_lens_params(&u)).expect("code lenses");
     assert!(
         lens_cmds(&lenses, "flux.evalComment").is_empty(),
         "no eval lens for plain docs, `=>` result lines, or `//` comments, got {lenses:?}"
@@ -3276,10 +2806,7 @@ fn code_action_changes_return_type_to_inferred() {
     );
     // The edit rewrites the `Bool` annotation on line 0, not the body on line 1.
     let range = action_edit_range(fix).expect("edit range");
-    assert_eq!(
-        range.start.line, 0,
-        "the edit targets the return annotation, got {range:?}"
-    );
+    assert_eq!(range.start.line, 0, "the edit targets the return annotation, got {range:?}");
 }
 
 #[test]
@@ -3295,9 +2822,7 @@ fn code_action_no_change_return_type_when_signature_matches() {
         ))
         .expect("code action response");
     assert!(
-        !actions
-            .iter()
-            .any(|a| action_title(a).contains("Change return type")),
+        !actions.iter().any(|a| action_title(a).contains("Change return type")),
         "a correctly-typed function offers no change-return-type fix, got {actions:?}"
     );
 }
@@ -3443,18 +2968,12 @@ fn code_lens_offers_make_imports_explicit() {
          }\n",
     );
 
-    let lenses = state
-        .handle_code_lens(code_lens_params(&u))
-        .expect("code lenses");
+    let lenses = state.handle_code_lens(code_lens_params(&u)).expect("code lenses");
     let cmds = lens_cmds(&lenses, "flux.makeImportsExplicit");
     assert_eq!(cmds.len(), 1, "one make-explicit lens, got {lenses:?}");
     // Arguments are [uri, clauseRange, newText].
     let args = cmds[0].arguments.as_ref().expect("lens arguments");
-    assert_eq!(
-        args[2],
-        serde_json::json!("(map)"),
-        "the lens carries the rewritten clause text"
-    );
+    assert_eq!(args[2], serde_json::json!("(map)"), "the lens carries the rewritten clause text");
 }
 
 // ── Item 5: prefix unused `let` with `_` (linter W001 quick-fix) ─────────────
@@ -3485,11 +3004,7 @@ fn code_action_prefixes_unused_let_with_underscore() {
         .iter()
         .find(|a| action_title(a).contains("Prefix `x` with `_`"))
         .expect("expected a prefix-with-underscore quick fix");
-    assert_eq!(
-        action_edit_text(fix).as_deref(),
-        Some("_"),
-        "the fix inserts a single `_`"
-    );
+    assert_eq!(action_edit_text(fix).as_deref(), Some("_"), "the fix inserts a single `_`");
     // A zero-width insert right before the name.
     let range = action_edit_range(fix).expect("edit range");
     assert_eq!((range.start.line, range.start.character), (1, 8));
@@ -3517,9 +3032,7 @@ fn code_action_no_prefix_for_used_let() {
         ))
         .expect("code action response");
     assert!(
-        !actions
-            .iter()
-            .any(|a| action_title(a).contains("Prefix `x`")),
+        !actions.iter().any(|a| action_title(a).contains("Prefix `x`")),
         "a used binding offers no prefix-with-underscore fix, got {actions:?}"
     );
 }
@@ -3577,9 +3090,7 @@ fn code_action_converts_decimal_to_hex_and_binary() {
     assert_eq!(action_edit_text(bin).as_deref(), Some("0b11111111"));
     // The form already in use (decimal) is not offered.
     assert!(
-        !actions
-            .iter()
-            .any(|a| action_title(a).contains("Convert to decimal (")),
+        !actions.iter().any(|a| action_title(a).contains("Convert to decimal (")),
         "the current decimal form should not be offered, got {actions:?}"
     );
 }
@@ -3603,9 +3114,7 @@ fn code_action_converts_hex_to_decimal() {
         .expect("expected a decimal conversion");
     assert_eq!(action_edit_text(dec).as_deref(), Some("255"));
     assert!(
-        !actions
-            .iter()
-            .any(|a| action_title(a).contains("hexadecimal")),
+        !actions.iter().any(|a| action_title(a).contains("hexadecimal")),
         "the current hex form should not be offered, got {actions:?}"
     );
 }
@@ -3643,9 +3152,7 @@ fn code_action_no_number_format_off_literal() {
         ))
         .expect("code action response");
     assert!(
-        !actions
-            .iter()
-            .any(|a| action_title(a).contains("Convert to")),
+        !actions.iter().any(|a| action_title(a).contains("Convert to")),
         "no number-format action when the cursor isn't on a literal, got {actions:?}"
     );
 }
@@ -3661,10 +3168,7 @@ fn hover_on_infix_operator_shows_fixity_and_type() {
     // Hover on the `+` (col 10).
     let md = hover_markup(&mut state, &u, 0, 10).expect("hover on `+`");
     assert!(md.contains("infixl"), "expected fixity keyword, got: {md}");
-    assert!(
-        md.contains("Sum"),
-        "expected the precedence level name, got: {md}"
-    );
+    assert!(md.contains("Sum"), "expected the precedence level name, got: {md}");
     assert!(
         md.to_lowercase().contains("int"),
         "expected the inferred type alongside fixity, got: {md}"
@@ -3681,10 +3185,7 @@ fn hover_on_comparison_operator_shows_equals_precedence() {
     // `|>` is desugared to a call at parse time, so it has no operator node.)
     let md = hover_markup(&mut state, &u, 0, 10).expect("hover on `==`");
     assert!(md.contains("infixl"), "expected fixity keyword, got: {md}");
-    assert!(
-        md.contains("Equals"),
-        "expected the Equals precedence level, got: {md}"
-    );
+    assert!(md.contains("Equals"), "expected the Equals precedence level, got: {md}");
 }
 
 #[test]
@@ -3695,10 +3196,7 @@ fn hover_on_prefix_operator_shows_prefix_fixity() {
 
     // Hover on the `!` (col 8).
     let md = hover_markup(&mut state, &u, 0, 8).expect("hover on `!`");
-    assert!(
-        md.contains("prefix operator"),
-        "expected prefix-operator hover, got: {md}"
-    );
+    assert!(md.contains("prefix operator"), "expected prefix-operator hover, got: {md}");
 }
 
 #[test]
@@ -3709,14 +3207,8 @@ fn hover_on_operand_shows_type_not_fixity() {
 
     // Hover on the `1` operand (col 8), not the operator.
     let md = hover_markup(&mut state, &u, 0, 8).expect("hover on `1`");
-    assert!(
-        md.to_lowercase().contains("int"),
-        "an operand still shows its type, got: {md}"
-    );
-    assert!(
-        !md.contains("infixl"),
-        "an operand should not show operator fixity, got: {md}"
-    );
+    assert!(md.to_lowercase().contains("int"), "an operand still shows its type, got: {md}");
+    assert!(!md.contains("infixl"), "an operand should not show operator fixity, got: {md}");
 }
 
 #[test]
@@ -3779,9 +3271,7 @@ fn code_action_fills_missing_match_arms_for_adt() {
     );
     // The plain catch-all is still offered alongside.
     assert!(
-        actions
-            .iter()
-            .any(|a| action_title(a).contains("catch-all")),
+        actions.iter().any(|a| action_title(a).contains("catch-all")),
         "the bare catch-all should also be available"
     );
 }
@@ -3853,11 +3343,7 @@ fn code_action_adds_with_effect_for_e400() {
     let u = uri("file:///e400.flx");
     // `f` declares `with FileSystem` but calls `print` (needs `Console`) → E400.
     // The quick fix appends `Console` to the existing effect row.
-    open(
-        &mut state,
-        &u,
-        "fn f() -> Int with FileSystem {\n    print(\"x\")\n    1\n}\n",
-    );
+    open(&mut state, &u, "fn f() -> Int with FileSystem {\n    print(\"x\")\n    1\n}\n");
 
     let actions = state
         .handle_code_action(code_action_params(
@@ -3885,11 +3371,7 @@ fn code_action_removes_unused_import() {
     let u = uri("file:///unused-import.flx");
     // `Array` is imported but never used → the linter's W003; the quick fix
     // deletes the whole import line.
-    open(
-        &mut state,
-        &u,
-        "import Flow.Array as Array\nfn main() with IO {\n    print(\"hi\")\n}\n",
-    );
+    open(&mut state, &u, "import Flow.Array as Array\nfn main() with IO {\n    print(\"hi\")\n}\n");
 
     let actions = state
         .handle_code_action(code_action_params(
@@ -3909,21 +3391,14 @@ fn code_action_removes_unused_import() {
     );
     let range = action_edit_range(fix).expect("edit range");
     assert_eq!(range.start.line, 0);
-    assert_eq!(
-        range.end.line, 1,
-        "should delete through the start of the next line"
-    );
+    assert_eq!(range.end.line, 1, "should delete through the start of the next line");
 }
 
 #[test]
 fn code_action_adds_type_annotation_to_let() {
     let mut state = GlobalState::default();
     let u = uri("file:///annotate.flx");
-    open(
-        &mut state,
-        &u,
-        "fn main() with IO {\n    let n = 41 + 1\n    print(to_string(n))\n}\n",
-    );
+    open(&mut state, &u, "fn main() with IO {\n    let n = 41 + 1\n    print(to_string(n))\n}\n");
 
     // Cursor on `n` in `let n = …` (line 1, char 8).
     let actions = state
@@ -3951,11 +3426,7 @@ fn code_action_adds_type_annotation_to_let() {
 fn code_action_introduces_variable_for_selection() {
     let mut state = GlobalState::default();
     let u = uri("file:///introduce.flx");
-    open(
-        &mut state,
-        &u,
-        "fn main() with IO {\n    print(to_string(1 + 2))\n}\n",
-    );
+    open(&mut state, &u, "fn main() with IO {\n    print(to_string(1 + 2))\n}\n");
 
     // Select `1 + 2` (line 1, chars 20..25).
     let actions = state
@@ -3972,9 +3443,7 @@ fn code_action_introduces_variable_for_selection() {
     let edits = action_edits(assist);
     assert_eq!(edits.len(), 2, "a `let` insert plus the selection rewrite");
     assert!(
-        edits
-            .iter()
-            .any(|(_, t)| t.contains("let extracted = 1 + 2")),
+        edits.iter().any(|(_, t)| t.contains("let extracted = 1 + 2")),
         "should hoist the selection into a `let`, got {edits:?}"
     );
     assert!(
@@ -4008,9 +3477,7 @@ fn code_action_inlines_single_use_let() {
     let edits = action_edits(assist);
     // One edit deletes the `let` line; one replaces the use with the value.
     assert!(
-        edits
-            .iter()
-            .any(|(r, t)| t.is_empty() && r.start.line == 1 && r.end.line == 2),
+        edits.iter().any(|(r, t)| t.is_empty() && r.start.line == 1 && r.end.line == 2),
         "should delete the `let` line, got {edits:?}"
     );
     assert!(
@@ -4148,9 +3615,7 @@ fn code_action_no_add_methods_for_complete_instance() {
         ))
         .expect("code action response");
     assert!(
-        !actions
-            .iter()
-            .any(|a| action_title(a).contains("Add missing method")),
+        !actions.iter().any(|a| action_title(a).contains("Add missing method")),
         "a complete instance should offer no add-missing-methods fix"
     );
 }
@@ -4159,11 +3624,7 @@ fn code_action_no_add_methods_for_complete_instance() {
 fn code_action_returns_nothing_for_a_clean_range() {
     let mut state = GlobalState::default();
     let u = uri("file:///clean.flx");
-    open(
-        &mut state,
-        &u,
-        "fn main() with IO {\n    print(\"ok\")\n}\n",
-    );
+    open(&mut state, &u, "fn main() with IO {\n    print(\"ok\")\n}\n");
 
     let actions = state
         .handle_code_action(code_action_params(
@@ -4226,9 +3687,7 @@ fn code_action_skips_import_when_module_already_bound() {
         ))
         .expect("code action response");
     assert!(
-        !actions
-            .iter()
-            .any(|a| action_title(a).starts_with("Import")),
+        !actions.iter().any(|a| action_title(a).starts_with("Import")),
         "no import fix expected when the module is already imported, got {:?}",
         actions.iter().map(action_title).collect::<Vec<_>>()
     );
@@ -4240,19 +3699,10 @@ fn code_action_offers_aliased_import_for_flow_stdlib_module() {
     // Json` so the typed name resolves. Anchored at the real repo root so the
     // Flow prelude loads and indexes every `lib/Flow/*.flx`.
     let mut state = GlobalState::default();
-    let workspace_root = std::env::var("CARGO_MANIFEST_DIR")
-        .map(std::path::PathBuf::from)
-        .unwrap();
-    let repo = workspace_root
-        .parent()
-        .and_then(|p| p.parent())
-        .unwrap()
-        .to_path_buf();
+    let workspace_root = std::env::var("CARGO_MANIFEST_DIR").map(std::path::PathBuf::from).unwrap();
+    let repo = workspace_root.parent().and_then(|p| p.parent()).unwrap().to_path_buf();
     let buf_path = repo.join("auto-import-json-fixture.flx");
-    let uri_str = format!(
-        "file:///{}",
-        buf_path.display().to_string().replace('\\', "/")
-    );
+    let uri_str = format!("file:///{}", buf_path.display().to_string().replace('\\', "/"));
     let u = uri(&uri_str);
     let source = "fn main() with IO {\n    Json.stringify(1)\n}\n";
     open(&mut state, &u, source);
@@ -4270,10 +3720,7 @@ fn code_action_offers_aliased_import_for_flow_stdlib_module() {
         .find(|a| action_title(a).starts_with("Import"))
         .expect("expected a Flow stdlib auto-import quick fix");
     assert_eq!(action_title(import), "Import `Flow.Json as Json`");
-    assert_eq!(
-        action_edit_text(import).as_deref(),
-        Some("import Flow.Json as Json\n"),
-    );
+    assert_eq!(action_edit_text(import).as_deref(), Some("import Flow.Json as Json\n"),);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -4310,10 +3757,8 @@ fn completion_keyword_items_defer_docs_to_resolve() {
         CompletionResponse::List(list) => list.items,
     };
 
-    let kw = items
-        .into_iter()
-        .find(|i| i.label == "match")
-        .expect("`match` keyword completion item");
+    let kw =
+        items.into_iter().find(|i| i.label == "match").expect("`match` keyword completion item");
     // Docs are deferred: the initial item carries resolve data but no
     // documentation (so the per-keystroke list stays small).
     assert!(
@@ -4324,10 +3769,7 @@ fn completion_keyword_items_defer_docs_to_resolve() {
 
     let resolved = state.handle_completion_resolve(kw);
     let doc = item_doc(&resolved).expect("resolved keyword documentation");
-    assert!(
-        doc.contains("**`match`**"),
-        "expected the `match` keyword card, got: {doc}"
-    );
+    assert!(doc.contains("**`match`**"), "expected the `match` keyword card, got: {doc}");
 }
 
 #[test]
@@ -4355,19 +3797,10 @@ fn completion_resolve_fills_effect_and_type_docs() {
 /// makes the LSP load the Flow prelude (which anchors on the project root) and
 /// index every `lib/Flow/*.flx`.
 fn repo_root_uri(filename: &str) -> Uri {
-    let manifest = std::env::var("CARGO_MANIFEST_DIR")
-        .map(std::path::PathBuf::from)
-        .unwrap();
-    let repo = manifest
-        .parent()
-        .and_then(|p| p.parent())
-        .unwrap()
-        .to_path_buf();
+    let manifest = std::env::var("CARGO_MANIFEST_DIR").map(std::path::PathBuf::from).unwrap();
+    let repo = manifest.parent().and_then(|p| p.parent()).unwrap().to_path_buf();
     let path = repo.join(filename);
-    uri(&format!(
-        "file:///{}",
-        path.display().to_string().replace('\\', "/")
-    ))
+    uri(&format!("file:///{}", path.display().to_string().replace('\\', "/")))
 }
 
 /// All completion items at `(line, ch)` for the document at `u`.
@@ -4401,10 +3834,8 @@ fn completion_in_expression_offers_module_names() {
     open(&mut state, &u, "fn main() with IO {\n    \n}\n");
 
     // Cursor on the blank line inside `main` (line 1, char 4).
-    let labels: Vec<String> = completion_items(&mut state, &u, 1, 4)
-        .into_iter()
-        .map(|i| i.label)
-        .collect();
+    let labels: Vec<String> =
+        completion_items(&mut state, &u, 1, 4).into_iter().map(|i| i.label).collect();
     assert!(
         labels.contains(&"Array".to_string()),
         "expected `Array` among expression completions, got {labels:?}"
@@ -4420,10 +3851,7 @@ fn completion_module_name_carries_auto_import_edit() {
     open(&mut state, &u, "fn main() with IO {\n    \n}\n");
 
     let items = completion_items(&mut state, &u, 1, 4);
-    let array = items
-        .iter()
-        .find(|i| i.label == "Array")
-        .expect("`Array` module completion item");
+    let array = items.iter().find(|i| i.label == "Array").expect("`Array` module completion item");
     let edits = array
         .additional_text_edits
         .as_ref()
@@ -4451,10 +3879,7 @@ fn completion_member_after_module_dot_auto_imports() {
                 .is_some_and(|e| e[0].new_text == "import Flow.Array as Array\n")
         }),
         "every member should carry the auto-import edit, got {:?}",
-        items
-            .iter()
-            .map(|i| (&i.label, &i.additional_text_edits))
-            .collect::<Vec<_>>()
+        items.iter().map(|i| (&i.label, &i.additional_text_edits)).collect::<Vec<_>>()
     );
 }
 
@@ -4463,11 +3888,7 @@ fn completion_member_no_import_edit_when_imported() {
     // With `Array` already imported, member items carry no auto-import edit.
     let mut state = GlobalState::default();
     let u = repo_root_uri("member-imported-fixture.flx");
-    open(
-        &mut state,
-        &u,
-        "import Flow.Array as Array\n\nfn main() with IO {\n    Array.\n}\n",
-    );
+    open(&mut state, &u, "import Flow.Array as Array\n\nfn main() with IO {\n    Array.\n}\n");
 
     // Cursor right after `Array.` (line 3, char 10).
     let items = completion_items(&mut state, &u, 3, 10);
@@ -4484,17 +3905,10 @@ fn completion_module_name_no_edit_when_already_imported() {
     // additionalTextEdits — nothing to add.
     let mut state = GlobalState::default();
     let u = repo_root_uri("module-name-imported-fixture.flx");
-    open(
-        &mut state,
-        &u,
-        "import Flow.Array as Array\n\nfn main() with IO {\n    \n}\n",
-    );
+    open(&mut state, &u, "import Flow.Array as Array\n\nfn main() with IO {\n    \n}\n");
 
     let items = completion_items(&mut state, &u, 3, 4);
-    let array = items
-        .iter()
-        .find(|i| i.label == "Array")
-        .expect("`Array` module completion item");
+    let array = items.iter().find(|i| i.label == "Array").expect("`Array` module completion item");
     assert!(
         array.additional_text_edits.is_none(),
         "an already-imported module should carry no auto-import edit"
@@ -4511,14 +3925,9 @@ fn completion_resolve_fills_member_doc_comment() {
 
     // Cursor right after `Either.` (line 1, char 11).
     let items = completion_items(&mut state, &u, 1, 11);
-    let either = items
-        .into_iter()
-        .find(|i| i.label == "either")
-        .expect("`either` member completion item");
-    assert!(
-        either.documentation.is_none(),
-        "member docs should be deferred to resolve"
-    );
+    let either =
+        items.into_iter().find(|i| i.label == "either").expect("`either` member completion item");
+    assert!(either.documentation.is_none(), "member docs should be deferred to resolve");
 
     let doc = item_doc(&state.handle_completion_resolve(either)).expect("resolved member doc");
     assert!(
@@ -4540,10 +3949,8 @@ fn completion_resolve_fills_user_module_member_doc() {
 
     // Complete after `Math.` (line 3, char 9).
     let items = completion_items(&mut state, &uris[1], 3, 9);
-    let twice = items
-        .into_iter()
-        .find(|i| i.label == "twice")
-        .expect("`twice` member completion item");
+    let twice =
+        items.into_iter().find(|i| i.label == "twice").expect("`twice` member completion item");
     let doc = item_doc(&state.handle_completion_resolve(twice)).expect("resolved member doc");
     assert!(
         doc.contains("Doubles its argument"),
@@ -4555,16 +3962,8 @@ fn completion_resolve_fills_user_module_member_doc() {
 fn completion_resolve_passes_through_items_without_data() {
     let mut state = GlobalState::default();
     // No `data`, and `Result` is not a universal built-in type even if asked.
-    let plain = CompletionItem {
-        label: "foo".to_string(),
-        ..Default::default()
-    };
-    assert!(
-        state
-            .handle_completion_resolve(plain)
-            .documentation
-            .is_none()
-    );
+    let plain = CompletionItem { label: "foo".to_string(), ..Default::default() };
+    assert!(state.handle_completion_resolve(plain).documentation.is_none());
 
     let result_ty = CompletionItem {
         label: "Result".to_string(),
@@ -4572,10 +3971,7 @@ fn completion_resolve_passes_through_items_without_data() {
         ..Default::default()
     };
     assert!(
-        state
-            .handle_completion_resolve(result_ty)
-            .documentation
-            .is_none(),
+        state.handle_completion_resolve(result_ty).documentation.is_none(),
         "`Result` is a module type, not a universal built-in — no doc expected"
     );
 }
@@ -4615,10 +4011,7 @@ fn workspace_fixture(files: &[(&str, &str)]) -> (tempfile::TempDir, GlobalState,
 #[test]
 fn workspace_module_names_cache_refreshes_after_an_edit() {
     let (_dir, mut state, uris) = workspace_fixture(&[
-        (
-            "Math.flx",
-            "module Math {\n    public fn twice(x) { x * 2 }\n}\n",
-        ),
+        ("Math.flx", "module Math {\n    public fn twice(x) { x * 2 }\n}\n"),
         ("main.flx", "fn main() -> Int { 1 }\n"),
     ]);
 
@@ -4630,11 +4023,7 @@ fn workspace_module_names_cache_refreshes_after_an_edit() {
     );
 
     // Renaming the module via an edit must invalidate the memoized list.
-    open(
-        &mut state,
-        &uris[0],
-        "module Geometry {\n    public fn twice(x) { x * 2 }\n}\n",
-    );
+    open(&mut state, &uris[0], "module Geometry {\n    public fn twice(x) { x * 2 }\n}\n");
     let names = state.workspace.workspace_module_full_names();
     assert!(
         names.contains(&"Geometry".to_string()),
@@ -4663,21 +4052,11 @@ fn cross_file_inference_publishes_diagnostics_for_each_module() {
     });
 
     // Cross-file analysis rebuilt both the entry and its imported module.
-    assert_eq!(
-        diags.len(),
-        2,
-        "expected diagnostics for Math + main, got {diags:?}"
-    );
+    assert_eq!(diags.len(), 2, "expected diagnostics for Math + main, got {diags:?}");
     // The cross-module call `M.twice` must resolve — no unresolved-name error.
-    let main_diags = diags
-        .iter()
-        .find(|d| d.uri == uris[1])
-        .expect("diagnostics for main.flx");
+    let main_diags = diags.iter().find(|d| d.uri == uris[1]).expect("diagnostics for main.flx");
     assert!(
-        main_diags
-            .diagnostics
-            .iter()
-            .all(|d| !d.message.contains("twice")),
+        main_diags.diagnostics.iter().all(|d| !d.message.contains("twice")),
         "unexpected diagnostic mentioning `twice`: {:?}",
         main_diags.diagnostics
     );
@@ -4703,10 +4082,7 @@ fn cross_file_goto_definition_jumps_into_user_module() {
         })
         .expect("goto-definition response");
     let location = expect_location(resp);
-    assert_eq!(
-        location.uri, uris[0],
-        "expected goto-definition to land in Math.flx"
-    );
+    assert_eq!(location.uri, uris[0], "expected goto-definition to land in Math.flx");
 }
 
 #[test]
@@ -4905,19 +4281,14 @@ fn cross_file_references_span_the_component() {
         },
         work_done_progress_params: WorkDoneProgressParams::default(),
         partial_result_params: PartialResultParams::default(),
-        context: ReferenceContext {
-            include_declaration: true,
-        },
+        context: ReferenceContext { include_declaration: true },
     });
     assert!(
         refs.iter().any(|r| r.uri == uris[1]),
         "expected a reference to `twice` in main.flx, got {refs:?}"
     );
     let distinct: std::collections::HashSet<_> = refs.iter().map(|r| r.uri.as_str()).collect();
-    assert!(
-        distinct.len() >= 2,
-        "expected references across both files, got {refs:?}"
-    );
+    assert!(distinct.len() >= 2, "expected references across both files, got {refs:?}");
 }
 
 #[test]
@@ -4942,10 +4313,7 @@ fn cross_file_rename_edits_every_affected_file() {
         Some(DocumentChanges::Edits(edits)) => edits,
         other => panic!("expected DocumentChanges::Edits, got {other:?}"),
     };
-    assert!(
-        edits.len() >= 2,
-        "expected a TextDocumentEdit per affected file, got {edits:?}"
-    );
+    assert!(edits.len() >= 2, "expected a TextDocumentEdit per affected file, got {edits:?}");
 }
 
 #[test]
@@ -4982,11 +4350,7 @@ fn rename_declaration_edits_only_the_name() {
     let u = uri("file:///rename-decl.flx");
     // `fn twice(n)` is one statement; its recorded span covers the whole
     // signature, so the rename edit must be narrowed to just `twice`.
-    open(
-        &mut state,
-        &u,
-        "fn twice(n) { n + n }\n\nfn main() {\n    twice(1)\n}\n",
-    );
+    open(&mut state, &u, "fn twice(n) { n + n }\n\nfn main() {\n    twice(1)\n}\n");
 
     let edit = state
         .handle_rename(RenameParams {
@@ -5023,9 +4387,7 @@ fn rename_declaration_edits_only_the_name() {
     // The declaration name starts after `fn ` (char 3), not at the statement
     // start (char 0).
     assert!(
-        ranges
-            .iter()
-            .any(|r| r.start.line == 0 && r.start.character == 3),
+        ranges.iter().any(|r| r.start.line == 0 && r.start.character == 3),
         "declaration edit should start at the name, got {ranges:?}"
     );
 }
@@ -5046,10 +4408,7 @@ fn watched_file_change_refreshes_dependent() {
     )
     .unwrap();
     let diags = state.handle_did_change_watched_files(DidChangeWatchedFilesParams {
-        changes: vec![FileEvent {
-            uri: uris[0].clone(),
-            typ: FileChangeType::CHANGED,
-        }],
+        changes: vec![FileEvent { uri: uris[0].clone(), typ: FileChangeType::CHANGED }],
     });
     assert!(
         diags.iter().any(|d| d.uri == uris[1]),
@@ -5081,15 +4440,10 @@ fn closed_file_still_answers_references() {
         },
         work_done_progress_params: WorkDoneProgressParams::default(),
         partial_result_params: PartialResultParams::default(),
-        context: ReferenceContext {
-            include_declaration: true,
-        },
+        context: ReferenceContext { include_declaration: true },
     });
     let distinct: std::collections::HashSet<_> = refs.iter().map(|r| r.uri.as_str()).collect();
-    assert!(
-        distinct.len() >= 2,
-        "references should still span the closed Math.flx, got {refs:?}"
-    );
+    assert!(distinct.len() >= 2, "references should still span the closed Math.flx, got {refs:?}");
 }
 
 #[test]
@@ -5127,15 +4481,10 @@ fn references_reach_never_opened_file() {
         },
         work_done_progress_params: WorkDoneProgressParams::default(),
         partial_result_params: PartialResultParams::default(),
-        context: ReferenceContext {
-            include_declaration: true,
-        },
+        context: ReferenceContext { include_declaration: true },
     });
     let distinct: std::collections::HashSet<_> = refs.iter().map(|r| r.uri.as_str()).collect();
-    assert!(
-        distinct.len() >= 2,
-        "references should reach the never-opened Math.flx, got {refs:?}"
-    );
+    assert!(distinct.len() >= 2, "references should reach the never-opened Math.flx, got {refs:?}");
 }
 
 #[test]
@@ -5389,11 +4738,7 @@ fn bound_names_and_builtins_are_not_flagged() {
              print(f(xs))\n\
          }\n",
     );
-    assert!(
-        e004(&diags).is_empty(),
-        "no name should be flagged, got {:?}",
-        e004(&diags)
-    );
+    assert!(e004(&diags).is_empty(), "no name should be flagged, got {:?}", e004(&diags));
 }
 
 #[test]
@@ -5413,11 +4758,7 @@ fn uppercase_constructors_and_module_paths_are_not_flagged() {
              }\n\
          }\n",
     );
-    assert!(
-        e004(&diags).is_empty(),
-        "constructors must not be flagged, got {:?}",
-        e004(&diags)
-    );
+    assert!(e004(&diags).is_empty(), "constructors must not be flagged, got {:?}", e004(&diags));
 }
 
 #[test]
@@ -5497,9 +4838,7 @@ fn unimported_module_squiggle_offers_import_fix() {
         })
         .collect();
     assert!(
-        titles
-            .iter()
-            .any(|t| t.contains("Import") && t.contains("Array")),
+        titles.iter().any(|t| t.contains("Import") && t.contains("Array")),
         "expected an import fix for `Array` at the squiggle, got {titles:?}"
     );
 }
@@ -5513,11 +4852,7 @@ fn known_aliased_module_member_is_not_flagged() {
         &u,
         "import Flow.Array as Array\n\nfn run(xs) {\n    Array.map(xs, run)\n}\n",
     );
-    assert!(
-        e004(&diags).is_empty(),
-        "a real member must not be flagged, got {:?}",
-        e004(&diags)
-    );
+    assert!(e004(&diags).is_empty(), "a real member must not be flagged, got {:?}", e004(&diags));
 }
 
 #[test]
@@ -5559,11 +4894,7 @@ fn imported_sibling_module_path_is_not_flagged() {
 #[test]
 fn shipped_sources_have_no_undefined_names() {
     let manifest = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-    let repo = manifest
-        .parent()
-        .and_then(|p| p.parent())
-        .unwrap()
-        .to_path_buf();
+    let repo = manifest.parent().and_then(|p| p.parent()).unwrap().to_path_buf();
 
     let mut files: Vec<std::path::PathBuf> = Vec::new();
     for dir in ["examples/guide", "lib/Flow"] {
@@ -5591,10 +4922,7 @@ fn shipped_sources_have_no_undefined_names() {
             continue;
         };
         let rel = path.strip_prefix(&repo).unwrap_or(&path);
-        let u = uri(&format!(
-            "file:///{}",
-            path.display().to_string().replace('\\', "/")
-        ));
+        let u = uri(&format!("file:///{}", path.display().to_string().replace('\\', "/")));
         // Fresh state per file so one buffer's analysis can't bleed into another.
         let mut state = GlobalState::default();
         let diags = diags_for(&mut state, &u, &text);
@@ -5633,16 +4961,9 @@ struct DecodedToken {
 /// resolved through the advertised legend.
 fn semantic_tokens(state: &mut GlobalState, u: &Uri) -> Vec<DecodedToken> {
     let legend = flux_lsp::handlers::semantic_tokens::semantic_tokens_legend();
-    let types: Vec<String> = legend
-        .token_types
-        .iter()
-        .map(|t| t.as_str().to_string())
-        .collect();
-    let mod_names: Vec<String> = legend
-        .token_modifiers
-        .iter()
-        .map(|m| m.as_str().to_string())
-        .collect();
+    let types: Vec<String> = legend.token_types.iter().map(|t| t.as_str().to_string()).collect();
+    let mod_names: Vec<String> =
+        legend.token_modifiers.iter().map(|m| m.as_str().to_string()).collect();
 
     let result = state.handle_semantic_tokens_full(SemanticTokensParams {
         text_document: ident(u),
@@ -5687,11 +5008,7 @@ fn token_at(toks: &[DecodedToken], line: u32, start: u32) -> &DecodedToken {
 fn semantic_tokens_classify_declarations_and_references() {
     let mut state = GlobalState::default();
     let u = uri("file:///sem-decls.flx");
-    open(
-        &mut state,
-        &u,
-        "fn double(x) {\n    x * 2\n}\n\nfn main() {\n    double(21)\n}\n",
-    );
+    open(&mut state, &u, "fn double(x) {\n    x * 2\n}\n\nfn main() {\n    double(21)\n}\n");
     let toks = semantic_tokens(&mut state, &u);
 
     // `fn` keyword, `double` a function declaration, `x` a parameter.
@@ -5742,11 +5059,7 @@ fn semantic_tokens_mark_stdlib_with_default_library() {
     // stdlib module and `map` to one of its members.
     let mut state = GlobalState::default();
     let u = repo_root_uri("sem-stdlib-fixture.flx");
-    open(
-        &mut state,
-        &u,
-        "import Flow.Array as Array\n\nfn run(xs) {\n    Array.map(xs, run)\n}\n",
-    );
+    open(&mut state, &u, "import Flow.Array as Array\n\nfn run(xs) {\n    Array.map(xs, run)\n}\n");
     let toks = semantic_tokens(&mut state, &u);
 
     // The `Array` qualifier on the call line reads as a default-library namespace
@@ -5770,11 +5083,8 @@ fn semantic_tokens_split_multiline_strings() {
     open(&mut state, &u, "let s = \"\"\"\nhello\nworld\n\"\"\"\n");
     let toks = semantic_tokens(&mut state, &u);
 
-    let string_lines: Vec<u32> = toks
-        .iter()
-        .filter(|t| t.ttype == "string")
-        .map(|t| t.line)
-        .collect();
+    let string_lines: Vec<u32> =
+        toks.iter().filter(|t| t.ttype == "string").map(|t| t.line).collect();
     // The literal opens on line 0 and closes on line 3; the interior lines are
     // covered too. No token may straddle a newline.
     assert!(
@@ -5990,10 +5300,7 @@ fn type_hierarchy_subtypes_lists_subclasses_and_instances() {
     );
 
     // Subtypes of `Ord`: the implementing type `Int` from `instance Ord<Int>`.
-    let ord = eq_subs
-        .into_iter()
-        .find(|i| i.name == "Ord")
-        .expect("the Ord subtype item");
+    let ord = eq_subs.into_iter().find(|i| i.name == "Ord").expect("the Ord subtype item");
     let ord_subs = type_subtypes(&mut state, ord);
     assert!(
         ord_subs.iter().any(|i| i.name == "Int"),
@@ -6073,14 +5380,9 @@ fn document_diagnostic_full_report_carries_diagnostics() {
     open(&mut state, &u, "fn main() {\n    let y = mystery + 1\n}\n");
 
     let (result_id, items) = expect_full(diagnostic_report(&mut state, &u, None));
+    assert!(result_id.is_some(), "a Full report should carry a result id");
     assert!(
-        result_id.is_some(),
-        "a Full report should carry a result id"
-    );
-    assert!(
-        items
-            .iter()
-            .any(|d| matches!(&d.code, Some(NumberOrString::String(c)) if c == "E004")),
+        items.iter().any(|d| matches!(&d.code, Some(NumberOrString::String(c)) if c == "E004")),
         "expected the E004 squiggle in the pull report, got {items:?}"
     );
 }
@@ -6116,9 +5418,7 @@ fn document_diagnostic_full_when_result_id_is_stale() {
         expect_full(diagnostic_report(&mut state, &u, Some("stale".to_string())));
     assert!(result_id.is_some());
     assert!(
-        items
-            .iter()
-            .any(|d| matches!(&d.code, Some(NumberOrString::String(c)) if c == "E004")),
+        items.iter().any(|d| matches!(&d.code, Some(NumberOrString::String(c)) if c == "E004")),
         "a stale id should still return the diagnostics, got {items:?}"
     );
 }
@@ -6131,10 +5431,7 @@ fn document_diagnostic_unknown_document_is_empty_full() {
     // No snapshot for the document — a pull result can't be null, so the server
     // answers with an empty Full report.
     let (_id, items) = expect_full(diagnostic_report(&mut state, &u, None));
-    assert!(
-        items.is_empty(),
-        "an unknown document should report no diagnostics, got {items:?}"
-    );
+    assert!(items.is_empty(), "an unknown document should report no diagnostics, got {items:?}");
 }
 
 #[test]
@@ -6145,10 +5442,7 @@ fn document_diagnostic_clean_file_has_no_items() {
 
     let (result_id, items) = expect_full(diagnostic_report(&mut state, &u, None));
     assert!(result_id.is_some());
-    assert!(
-        items.is_empty(),
-        "a well-formed file should pull no diagnostics, got {items:?}"
-    );
+    assert!(items.is_empty(), "a well-formed file should pull no diagnostics, got {items:?}");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -6186,11 +5480,8 @@ fn workspace_diagnostic_reports_analyzed_files_only() {
     // A module nobody opens or imports — must stay out of the sweep so the
     // project's long tail of files doesn't flood the report.
     let unrelated = "module Unrelated {\n    public fn noop() { 0 }\n}\n";
-    let (_dir, mut state, uris) = workspace_fixture(&[
-        ("Math.flx", math),
-        ("main.flx", main),
-        ("Unrelated.flx", unrelated),
-    ]);
+    let (_dir, mut state, uris) =
+        workspace_fixture(&[("Math.flx", math), ("main.flx", main), ("Unrelated.flx", unrelated)]);
 
     // Opening main pulls Math into its component — both get analyzed, even
     // though only main was opened. `Unrelated` is never analyzed.
@@ -6292,10 +5583,7 @@ fn workspace_diagnostic_unchanged_on_second_pull() {
                 .full_document_diagnostic_report
                 .result_id
                 .clone()
-                .map(|value| PreviousResultId {
-                    uri: f.uri.clone(),
-                    value,
-                }),
+                .map(|value| PreviousResultId { uri: f.uri.clone(), value }),
             _ => None,
         })
         .collect();
@@ -6304,9 +5592,7 @@ fn workspace_diagnostic_unchanged_on_second_pull() {
     // Nothing changed, so re-pulling with those ids yields all Unchanged.
     let second = workspace_diagnostic(&mut state, previous);
     assert!(
-        second
-            .iter()
-            .all(|it| matches!(it, WorkspaceDocumentDiagnosticReport::Unchanged(_))),
+        second.iter().all(|it| matches!(it, WorkspaceDocumentDiagnosticReport::Unchanged(_))),
         "expected every report Unchanged on the second pull, got {second:?}"
     );
 }
@@ -6334,14 +5620,11 @@ fn edits_for(edit: &WorkspaceEdit, uri: &Uri) -> Vec<TextEdit> {
 
 /// Apply non-overlapping LSP `TextEdit`s to an ASCII source (line/char == byte).
 fn apply_edits(src: &str, edits: &[TextEdit]) -> String {
-    let line_starts: Vec<usize> = std::iter::once(0)
-        .chain(src.match_indices('\n').map(|(i, _)| i + 1))
-        .collect();
+    let line_starts: Vec<usize> =
+        std::iter::once(0).chain(src.match_indices('\n').map(|(i, _)| i + 1)).collect();
     let off = |p: Position| line_starts[p.line as usize] + p.character as usize;
-    let mut spans: Vec<(usize, usize, &str)> = edits
-        .iter()
-        .map(|e| (off(e.range.start), off(e.range.end), e.new_text.as_str()))
-        .collect();
+    let mut spans: Vec<(usize, usize, &str)> =
+        edits.iter().map(|e| (off(e.range.start), off(e.range.end), e.new_text.as_str())).collect();
     spans.sort_by_key(|(s, _, _)| *s);
     let mut out = String::new();
     let mut cursor = 0;
@@ -6402,15 +5685,8 @@ fn will_rename_leaves_aliased_uses_alone() {
 
     // Only the import path changes; the alias `M` (and `M.twice`) stay put.
     let main_edits = edits_for(&edit, &uris[1]);
-    assert_eq!(
-        main_edits.len(),
-        1,
-        "only the import path, got {main_edits:?}"
-    );
-    assert_eq!(
-        apply_edits(main, &main_edits),
-        "import Calc as M\n\nfn run() { M.twice(21) }\n"
-    );
+    assert_eq!(main_edits.len(), 1, "only the import path, got {main_edits:?}");
+    assert_eq!(apply_edits(main, &main_edits), "import Calc as M\n\nfn run() { M.twice(21) }\n");
 }
 
 #[test]
@@ -6421,9 +5697,7 @@ fn will_rename_entry_script_makes_no_edits() {
     let (dir, mut state, uris) = workspace_fixture(&[("main.flx", main)]);
 
     assert!(
-        state
-            .handle_will_rename_files(rename_to(dir.path(), &uris[0], "app.flx"))
-            .is_none(),
+        state.handle_will_rename_files(rename_to(dir.path(), &uris[0], "app.flx")).is_none(),
         "renaming an entry script should produce no edit"
     );
 }
@@ -6464,11 +5738,7 @@ fn document_link_points_import_to_sibling_module() {
 fn document_link_points_import_to_flow_stdlib() {
     let mut state = GlobalState::default();
     let u = repo_root_uri("doclink-flow.flx");
-    open(
-        &mut state,
-        &u,
-        "import Flow.List as L\n\nfn main() with IO {\n    print(1)\n}\n",
-    );
+    open(&mut state, &u, "import Flow.List as L\n\nfn main() with IO {\n    print(1)\n}\n");
 
     let links = document_links(&mut state, &u);
     let link = links
@@ -6507,14 +5777,8 @@ fn inlay_hints(state: &mut GlobalState, u: &Uri) -> Vec<lsp_types::InlayHint> {
         text_document: ident(u),
         // The handler collects every hint in the file; the range is ignored.
         range: Range {
-            start: Position {
-                line: 0,
-                character: 0,
-            },
-            end: Position {
-                line: 10_000,
-                character: 0,
-            },
+            start: Position { line: 0, character: 0 },
+            end: Position { line: 10_000, character: 0 },
         },
         work_done_progress_params: WorkDoneProgressParams::default(),
     })
@@ -6524,11 +5788,7 @@ fn inlay_hints(state: &mut GlobalState, u: &Uri) -> Vec<lsp_types::InlayHint> {
 fn inlay_hint_resolve_adds_tooltip_and_annotation_edit() {
     let mut state = GlobalState::default();
     let u = uri("file:///inlay.flx");
-    open(
-        &mut state,
-        &u,
-        "fn main() with IO {\n    let x = 41 + 1\n    print(x)\n}\n",
-    );
+    open(&mut state, &u, "fn main() with IO {\n    let x = 41 + 1\n    print(x)\n}\n");
 
     let hints = inlay_hints(&mut state, &u);
     let hint = hints.first().cloned().expect("a type hint for `let x`");
@@ -6542,9 +5802,7 @@ fn inlay_hint_resolve_adds_tooltip_and_annotation_edit() {
 
     let resolved = state.handle_inlay_hint_resolve(hint.clone());
     assert!(resolved.tooltip.is_some(), "resolve fills in the tooltip");
-    let edits = resolved
-        .text_edits
-        .expect("a `let` hint resolves to an insert-annotation edit");
+    let edits = resolved.text_edits.expect("a `let` hint resolves to an insert-annotation edit");
     assert_eq!(edits.len(), 1);
     assert!(
         edits[0].new_text.starts_with(": "),
@@ -6562,10 +5820,7 @@ fn inlay_hint_resolve_ignores_hint_without_data() {
     // A hint with no `data` (e.g. one this server didn't produce) round-trips
     // through resolve unchanged rather than fabricating a tooltip/edit.
     let hint = lsp_types::InlayHint {
-        position: Position {
-            line: 0,
-            character: 0,
-        },
+        position: Position { line: 0, character: 0 },
         label: lsp_types::InlayHintLabel::String(": Int".into()),
         kind: Some(lsp_types::InlayHintKind::TYPE),
         text_edits: None,
@@ -6594,10 +5849,7 @@ fn semantic_tokens_full_raw(state: &mut GlobalState, u: &Uri) -> lsp_types::Sema
 
 fn replace_buffer(state: &mut GlobalState, u: &Uri, version: i32, text: &str) {
     state.handle_did_change(DidChangeTextDocumentParams {
-        text_document: lsp_types::VersionedTextDocumentIdentifier {
-            uri: u.clone(),
-            version,
-        },
+        text_document: lsp_types::VersionedTextDocumentIdentifier { uri: u.clone(), version },
         content_changes: vec![lsp_types::TextDocumentContentChangeEvent {
             range: None,
             range_length: None,
@@ -6642,11 +5894,7 @@ fn semantic_tokens_full_carries_result_id() {
 fn semantic_tokens_delta_splices_after_edit() {
     let mut state = GlobalState::default();
     let u = uri("file:///sem-delta.flx");
-    open(
-        &mut state,
-        &u,
-        "fn alpha(x) {\n    x\n}\n\nfn main() {\n    alpha(1)\n}\n",
-    );
+    open(&mut state, &u, "fn alpha(x) {\n    x\n}\n\nfn main() {\n    alpha(1)\n}\n");
 
     let before = semantic_tokens_full_raw(&mut state, &u);
     let prev_id = before.result_id.clone().expect("result id");
@@ -6705,10 +5953,7 @@ fn semantic_tokens_delta_unknown_previous_id_returns_full() {
     match delta {
         lsp_types::SemanticTokensFullDeltaResult::Tokens(t) => {
             assert!(t.result_id.is_some());
-            assert!(
-                !t.data.is_empty(),
-                "a stale baseline falls back to a full set"
-            );
+            assert!(!t.data.is_empty(), "a stale baseline falls back to a full set");
         }
         other => panic!("expected a full token set, got {other:?}"),
     }
@@ -6719,11 +5964,7 @@ fn semantic_tokens_range_limits_to_requested_lines() {
     let mut state = GlobalState::default();
     let u = uri("file:///sem-range.flx");
     // Three separate declarations on distinct lines.
-    open(
-        &mut state,
-        &u,
-        "fn one() { 1 }\nfn two() { 2 }\nfn three() { 3 }\n",
-    );
+    open(&mut state, &u, "fn one() { 1 }\nfn two() { 2 }\nfn three() { 3 }\n");
 
     let full = semantic_tokens_full_raw(&mut state, &u);
 
@@ -6733,14 +5974,8 @@ fn semantic_tokens_range_limits_to_requested_lines() {
         work_done_progress_params: WorkDoneProgressParams::default(),
         partial_result_params: PartialResultParams::default(),
         range: Range {
-            start: Position {
-                line: 1,
-                character: 0,
-            },
-            end: Position {
-                line: 2,
-                character: 0,
-            },
+            start: Position { line: 1, character: 0 },
+            end: Position { line: 2, character: 0 },
         },
     });
 
@@ -6751,10 +5986,7 @@ fn semantic_tokens_range_limits_to_requested_lines() {
     assert!(!ranged.data.is_empty(), "line 1 has tokens");
     // The first token's absolute line is the delta_line (baseline 0); every
     // token in a single-line range sits on that one line.
-    assert_eq!(
-        ranged.data[0].delta_line, 1,
-        "the only line touched is line 1"
-    );
+    assert_eq!(ranged.data[0].delta_line, 1, "the only line touched is line 1");
     assert!(
         ranged.data[1..].iter().all(|t| t.delta_line == 0),
         "all range tokens are on the same line"
@@ -6835,11 +6067,7 @@ fn signature_help_tracks_active_parameter() {
 fn signature_help_no_arg_function_has_no_active_parameter() {
     let mut state = GlobalState::default();
     let u = uri("file:///sig-noarg.flx");
-    open(
-        &mut state,
-        &u,
-        "fn ping() { 1 }\n\nfn main() {\n    ping()\n}\n",
-    );
+    open(&mut state, &u, "fn ping() { 1 }\n\nfn main() {\n    ping()\n}\n");
 
     // Cursor between the empty parens (line 3, char 9).
     let help = signature_help(&mut state, &u, 3, 9).expect("signature help in empty parens");
@@ -6997,10 +6225,7 @@ fn linked_editing_none_off_identifier() {
 fn organize_imports_edit(state: &mut GlobalState, u: &Uri) -> Option<TextEdit> {
     let params = CodeActionParams {
         text_document: ident(u),
-        range: Range {
-            start: Position::new(0, 0),
-            end: Position::new(0, 0),
-        },
+        range: Range { start: Position::new(0, 0), end: Position::new(0, 0) },
         context: CodeActionContext {
             diagnostics: vec![],
             only: Some(vec![lsp_types::CodeActionKind::SOURCE_ORGANIZE_IMPORTS]),
@@ -7032,11 +6257,7 @@ fn organize_imports_sorts_and_drops_unused() {
     let mut state = GlobalState::default();
     let u = uri("file:///org-imports.flx");
     // `Zebra` is unused; `Apple` is used qualified. Out of alphabetical order.
-    open(
-        &mut state,
-        &u,
-        "import Zebra\nimport Apple\n\nfn main() with IO {\n    Apple.go()\n}\n",
-    );
+    open(&mut state, &u, "import Zebra\nimport Apple\n\nfn main() with IO {\n    Apple.go()\n}\n");
 
     let edit = organize_imports_edit(&mut state, &u).expect("organize action");
     // Unused `Zebra` dropped, leaving only the used import.
@@ -7052,11 +6273,7 @@ fn organize_imports_keeps_exposing_imports() {
     let u = uri("file:///org-exposing.flx");
     // `Helpers` is never used *qualified*, but it exposes `go` unqualified —
     // so it must not be dropped (the unused check can't see the `go` binding).
-    open(
-        &mut state,
-        &u,
-        "import Helpers exposing (go)\n\nfn main() with IO {\n    go()\n}\n",
-    );
+    open(&mut state, &u, "import Helpers exposing (go)\n\nfn main() with IO {\n    go()\n}\n");
 
     // Already sorted + nothing safely removable → no edit offered.
     assert!(organize_imports_edit(&mut state, &u).is_none());
@@ -7066,21 +6283,14 @@ fn organize_imports_keeps_exposing_imports() {
 fn organize_imports_not_offered_without_source_request() {
     let mut state = GlobalState::default();
     let u = uri("file:///org-noreq.flx");
-    open(
-        &mut state,
-        &u,
-        "import Zebra\nimport Apple\n\nfn main() with IO {\n    Apple.go()\n}\n",
-    );
+    open(&mut state, &u, "import Zebra\nimport Apple\n\nfn main() with IO {\n    Apple.go()\n}\n");
 
     // A normal (cursor) code-action request carries no `only` filter, so the
     // source action must not appear.
     let resp = state
         .handle_code_action(code_action_params(
             &u,
-            Range {
-                start: Position::new(0, 0),
-                end: Position::new(0, 0),
-            },
+            Range { start: Position::new(0, 0), end: Position::new(0, 0) },
         ))
         .unwrap_or_default();
     assert!(
@@ -7219,9 +6429,7 @@ fn add_missing_methods_quick_fix_resolves_e442() {
     };
     let attached = ca.diagnostics.as_ref().expect("attached diagnostics");
     assert!(
-        attached
-            .iter()
-            .any(|d| matches!(&d.code, Some(NumberOrString::String(c)) if c == "E442")),
+        attached.iter().any(|d| matches!(&d.code, Some(NumberOrString::String(c)) if c == "E442")),
         "the fix should carry the E442 it resolves, got {:?}",
         attached.iter().map(|d| &d.code).collect::<Vec<_>>()
     );

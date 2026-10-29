@@ -6,9 +6,9 @@
 //
 // Strict mode cannot enforce runtime boundary check for unresolved expression type in function return expression.
 //
-//   examples/type_system/failing/192_perform_arg_unresolved_strict_e425.flx:35:5
+//   examples/type_system/failing/192_perform_arg_unresolved_strict_e425.flx:34:5
 //    |
-// 35 |     None
+// 34 |     None
 //    |     ^^^^
 //    |     ---- expression type is unresolved in strict mode
 //
@@ -17,7 +17,6 @@
 // parity-expected-stderr-end
 // parity: vm_strict, llvm_strict
 // expect: compile_error
-// expect-error: E425
 
 // E425: strict mode rejects unresolved perform argument types.
 // When a perform argument's type cannot be resolved by HM, strict mode
@@ -32,5 +31,5 @@ fn wrap(transform) -> Int with Foo {
 }
 
 fn main() -> Unit {
-    None
+    None //~ E425
 }

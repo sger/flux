@@ -1,6 +1,9 @@
 // parity: vm, llvm
 // expect: success
 // bug: try(body) must return Ok(body()) when no async error is raised.
+// parity-expected-stdout-begin
+// Ok(42)
+// parity-expected-stdout-end
 
 import Flow.Async exposing (..)
 

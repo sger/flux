@@ -253,7 +253,147 @@ use sha2::{Digest, Sha256};
 /// Epoch 78: a parameter a function may release (reuse in place, or keep in
 /// a collection) is inferred Owned, and a Borrowed one is never released, so
 /// an epoch-77 unit's borrow signatures and code disagree with its callers'.
-pub const CACHE_EPOCH: u16 = 80;
+/// Epoch 79: a line-tables-only unit asks for profiling debug info, so
+/// outside Darwin a trace names a function's frame by its Flux name, where an
+/// epoch-78 object had dropped it.
+/// Epoch 80: a literal takes the location of the expression using it on its
+/// line, so a debugger stops at the call, where an epoch-79 object stopped at
+/// the literal.
+/// Epoch 81: the C runtime counts the values it hands out, shares and stores
+/// (0189 F3-1); a cached binary linked against the epoch-80 runtime freed a
+/// value an array, map or option still held.
+/// Epoch 82: a pattern or tuple field given away is copied first (0189
+/// F3-2a); an epoch-81 unit moved it out of the cell that still held it.
+/// Epoch 83: a capture inside its lambda, and a handler clause's `resume`,
+/// arguments and state, are lent and copied when given away (0189 F3-2b);
+/// an epoch-82 unit gave away the closure's or the runtime's reference.
+/// Epoch 84: only the value an arm matched is reused for the constructor it
+/// matched (Perceus audit M1); an epoch-83 unit could write a larger
+/// constructor into any cell dropped in the arm.
+/// Epoch 85: a match guard copies what it gives away (Perceus audit M2); an
+/// epoch-84 unit could free a value a later arm still used.
+/// Epoch 86: each use of a top-level function's closure in a block takes its
+/// own reference (0189 F3-2c, audit M3); an epoch-85 unit could release one
+/// closure twice.
+/// Epoch 87: a continuation takes a reference to each capture on entry (0189
+/// F3-2d, audit M4); an epoch-86 unit gave a capture away on every resume.
+/// Epoch 88: an arm copies the fields it keeps before releasing the matched
+/// cell, and a unique cell hands over one reference per direct field (audit
+/// L1, L2); an epoch-87 unit relied on the match-time copy to keep them.
+/// Epoch 89: a constructor match no longer copies the fields it binds (0189
+/// F3-4); an epoch-88 unit leaked one reference per field per match.
+/// Epoch 90: a call to a closure bound in the calling function hands over
+/// its arguments; an epoch-89 unit lent them when a global of the same name
+/// borrowed them, and the closure released them (PA R1).
+/// Epoch 91: a wrapped event no longer releases the value its closure was
+/// given; an epoch-90 runtime released it a second time (PA R1).
+/// Epoch 92: a move primop takes the value it is given and the caller hands
+/// it over; an epoch-91 unit lent it, and the runtime took the lender's
+/// reference when it was the only one (PA L3).
+/// Epoch 93: a value is released after its last use; an epoch-92 unit
+/// leaked every value its owner only read (PA R1, KI-121).
+/// Epoch 94: a cons forwarded into its matched cell is built once; an
+/// epoch-93 unit built a second, unused copy that gave its fields away again.
+/// Epoch 95: a match arm that gives the matched value away copies the
+/// fields it still uses first; an epoch-94 unit read them after the cell
+/// could be freed (PA L9).
+/// Epoch 96: a value given away on one path is released on the others; an
+/// epoch-95 unit kept it on every path once any path gave it away (PA R1,
+/// KI-121).
+/// Epoch 97: a field copied before its cell is released, then only read, is
+/// released after its last read, and a value read by a length or a
+/// comparison is released after that read; an epoch-96 unit kept both (PA
+/// R1, KI-121).
+/// Epoch 98: specialized drops retain the shared release and fall back to
+/// plain copies and a release when any unique path cannot reuse the shell.
+/// Epoch 99: owners lent to calls inside another binding's right-hand side
+/// are released after the call; only actual function-tail calls defer cleanup.
+/// Epoch 100: cleanup preserves the ownership of a held call result, and
+/// plain reuse walks through intervening copies and unrelated releases.
+/// Epoch 101: a view copied above a release that balances another arm is
+/// moved at its last use, and that release is split where it is, so a
+/// unique cell hands its fields over; an epoch-100 unit copied the view
+/// twice (PA R1, KI-121).
+/// Epoch 102: the `resume` a clause gets handles what it runs with the same
+/// handler again; a binary linked against the epoch-101 runtime let a perform
+/// inside a resume escape to the outer prompt, losing the clause's later work
+/// (PA C2).
+/// Epoch 103: an evidence entry records whether its clause only resumes as
+/// its last act (six words, was five), and such a clause's resume stays flat
+/// instead of delimiting (PA C2).
+/// Epoch 104: a perform gives its argument to the runtime, which releases it
+/// after the clause; a binary linked against the epoch-103 runtime copied it
+/// and kept every argument it was given (PA R2).
+/// Epoch 105: the prompt releases the resume it lends a clause, and the
+/// frames a resume pushes back on a second perform are counted; a binary
+/// linked against the epoch-104 runtime kept every continuation (PA R4, L4).
+/// Epoch 106: a frame that suspends hands its own references to the
+/// continuation, which copies only those on each resume; an epoch-105 unit
+/// kept them in the frame and copied every capture (PA).
+/// Epoch 107: a value live across a perform is released after its last use,
+/// in the continuation; an epoch-106 unit kept it, and copied a borrowed one
+/// to keep it too (PA R1, KI-121).
+/// Epoch 108: a handle gives its clause and state to the evidence, the prompt
+/// releases that evidence when the body is done (a fourth argument), and a
+/// clause holds its own reference to the state; an epoch-107 unit leaked all
+/// three (PA R3, L5).
+/// Epoch 109: a panic caught by a try puts back the evidence the try started
+/// under; a binary linked against the epoch-108 runtime kept the handlers the
+/// panic skipped installed (PA C1).
+/// Epoch 110: a local function builds a closure of itself, or of a sibling,
+/// only when it reads one, and a group of local functions releases each
+/// member after its last use; an epoch-109 unit built them on every entry
+/// and released none (PA R5).
+/// Epoch 111: a cell reused in place releases each old field nothing took
+/// over, and a match on a nested pattern keeps its plain release; an
+/// epoch-110 unit wrote over those fields and leaked them (PA R6).
+/// Epoch 112: an early return releases what the function holds; an epoch-111
+/// unit released it only on the paths that did not return (PA R7).
+/// Epoch 113: string literals and the closures of functions that capture
+/// nothing are static objects with a sticky count; an epoch-112 unit
+/// allocated one per use, against a runtime that has no sticky range.
+/// Epoch 114: a module unit names its own source file by a marker the loader
+/// replaces with the module's current path; an epoch-113 unit kept the path it
+/// was built at, which a unit shared through the store from another copy of
+/// the program left the debugger unable to read.
+/// Epoch 115: a constructor, tuple or closure with more than 255 fields or
+/// captures is an error (E087); an epoch-114 unit built one, and natively
+/// leaked every field past the 255th.
+/// Epoch 116: a local slot, capture or argument count above 255 uses a
+/// two-byte operand; epoch-115 bytecode wrapped it and computed a wrong
+/// result (KI-127).
+/// Epoch 117: a value lent to a call in tail position is released, before
+/// the call when it takes only copies and after it otherwise, and a
+/// parameter a recursive tail call passes a fresh value to is owned; an
+/// epoch-116 unit kept the value and leaked it (KI-128).
+/// Epoch 118: a block that copies its result before a release, and a string
+/// built with `+` or `to_string`, are not views of what they were computed
+/// from; an epoch-117 unit took them for views and never released the value
+/// (KI-129).
+/// Epoch 119: the C runtime releases and promotes an array's elements by its
+/// length; a binary linked at epoch 118 stopped at the 255th (KI-123).
+/// Epoch 120: a map node is a counted block, a map literal lets go of the
+/// maps it builds on the way, and Aether releases a map an update was lent;
+/// an epoch-119 unit never released a map (KI-124).
+/// Epoch 121: a call through a module alias stays a call of that module's
+/// member, so Aether passes arguments as the member takes them; an
+/// epoch-120 unit gave them away to a function that only borrowed them
+/// (KI-130).
+/// Epoch 122: a failed file operation's error counts the path it holds; a
+/// binary linked at epoch 121 freed it twice (KI-131).
+/// Epoch 123: a call copied into a continuation shares the continuation
+/// of the call it copies; an epoch-122 unit made a new one for each copy
+/// (KI-132).
+/// Epoch 124: a failed `read_file`'s error counts the path it holds too
+/// (KI-131).
+/// Epoch 125: a call whose frame holds references is an `invoke` whose
+/// landing pad releases them when a caught panic unwinds through it; an
+/// epoch-124 unit skipped them (KI-126).
+/// Epoch 126: a nested handle's prompt names the enclosing handles'
+/// evidence, which its landing pad releases (KI-133).
+/// Epoch 127: on Windows, a caught panic puts back the handlers its try
+/// started under (PA C1).
+pub const CACHE_EPOCH: u16 = 127;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
@@ -291,11 +431,7 @@ pub fn compiler_build_id() -> &'static str {
 fn current_exe_fingerprint() -> Option<String> {
     let exe = std::env::current_exe().ok()?;
     let metadata = fs::metadata(&exe).ok()?;
-    let modified = metadata
-        .modified()
-        .ok()?
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()?;
+    let modified = metadata.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?;
     let mut hasher = Sha256::new();
     hasher.update(exe.to_string_lossy().as_bytes());
     hasher.update([0]);
@@ -328,9 +464,7 @@ impl CacheLayout {
 }
 
 pub fn resolve_cache_layout(entry_file: &Path, cache_dir: Option<&Path>) -> CacheLayout {
-    CacheLayout {
-        root: resolve_cache_root(entry_file, cache_dir),
-    }
+    CacheLayout { root: resolve_cache_root(entry_file, cache_dir) }
 }
 
 pub fn resolve_cache_root(entry_file: &Path, cache_dir: Option<&Path>) -> PathBuf {
@@ -435,18 +569,11 @@ fn find_marker_upwards(entry_file: &Path, marker: &str) -> Option<PathBuf> {
 }
 
 pub fn interface_cache_path(cache_root: &Path, source_path: &Path) -> PathBuf {
-    cache_root
-        .join("interfaces")
-        .join(format!("{}.flxi", artifact_stem(source_path)))
+    cache_root.join("interfaces").join(format!("{}.flxi", artifact_stem(source_path)))
 }
 
 pub fn cache_key_filename(source_path: &Path, cache_key: &[u8; 32], ext: &str) -> String {
-    format!(
-        "{}-{}.{}",
-        artifact_stem(source_path),
-        hex_prefix(cache_key, 16),
-        ext
-    )
+    format!("{}-{}.{}", artifact_stem(source_path), hex_prefix(cache_key, 16), ext)
 }
 
 pub fn artifact_stem(source_path: &Path) -> String {
@@ -465,10 +592,7 @@ fn entry_directory(entry_file: &Path) -> PathBuf {
     if absolute.is_dir() {
         absolute
     } else {
-        absolute
-            .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| PathBuf::from("."))
+        absolute.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."))
     }
 }
 
@@ -509,13 +633,7 @@ fn normalize_for_hash(path: &Path) -> String {
 fn sanitize_component(input: &str) -> String {
     input
         .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
-                ch
-            } else {
-                '-'
-            }
-        })
+        .map(|ch| if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' { ch } else { '-' })
         .collect()
 }
 
@@ -573,16 +691,8 @@ mod tests {
     fn interface_paths_live_under_interfaces_dir() {
         let root = Path::new("/tmp/flux-cache");
         let path = interface_cache_path(root, Path::new("examples/aoc/2024/day06.flx"));
-        assert_eq!(
-            path.parent().unwrap(),
-            Path::new("/tmp/flux-cache/interfaces")
-        );
-        assert!(
-            path.file_name()
-                .unwrap()
-                .to_string_lossy()
-                .ends_with(".flxi")
-        );
+        assert_eq!(path.parent().unwrap(), Path::new("/tmp/flux-cache/interfaces"));
+        assert!(path.file_name().unwrap().to_string_lossy().ends_with(".flxi"));
     }
 
     #[test]

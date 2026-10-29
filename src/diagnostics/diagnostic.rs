@@ -360,8 +360,7 @@ impl DiagnosticBuilder for Diagnostic {
 
     /// Add an inline suggestion with replacement text (convenience method)
     fn with_suggestion_replace(mut self, span: Span, replacement: impl Into<String>) -> Self {
-        self.suggestions
-            .push(InlineSuggestion::new(span, replacement));
+        self.suggestions.push(InlineSuggestion::new(span, replacement));
         self
     }
 
@@ -372,8 +371,7 @@ impl DiagnosticBuilder for Diagnostic {
         replacement: impl Into<String>,
         message: impl Into<String>,
     ) -> Self {
-        self.suggestions
-            .push(InlineSuggestion::new(span, replacement).with_message(message));
+        self.suggestions.push(InlineSuggestion::new(span, replacement).with_message(message));
         self
     }
 
@@ -414,8 +412,7 @@ impl DiagnosticBuilder for Diagnostic {
         steps: impl IntoIterator<Item = S>,
         conclusion: impl Into<String>,
     ) -> Self {
-        self.hint_chains
-            .push(HintChain::from_steps(steps).with_conclusion(conclusion));
+        self.hint_chains.push(HintChain::from_steps(steps).with_conclusion(conclusion));
         self
     }
 }
@@ -433,11 +430,8 @@ impl Diagnostic {
         let hint = err_spec.hint.map(|h| format_message(h, values));
         let file = file.into();
 
-        let hints = if let Some(hint_text) = hint {
-            vec![Hint::text(hint_text)]
-        } else {
-            Vec::new()
-        };
+        let hints =
+            if let Some(hint_text) = hint { vec![Hint::text(hint_text)] } else { Vec::new() };
 
         Self {
             severity: Severity::Error,
@@ -500,11 +494,8 @@ impl Diagnostic {
         let message = message.into();
         let file = file.into();
 
-        let hints = if let Some(hint_text) = hint {
-            vec![Hint::text(hint_text)]
-        } else {
-            Vec::new()
-        };
+        let hints =
+            if let Some(hint_text) = hint { vec![Hint::text(hint_text)] } else { Vec::new() };
 
         Self {
             severity: Severity::Error,
@@ -627,11 +618,7 @@ impl Diagnostic {
         let source = match source {
             Some(source) => Some(source),
             None => {
-                let file = self
-                    .file
-                    .as_deref()
-                    .filter(|f| !f.is_empty())
-                    .or(default_file);
+                let file = self.file.as_deref().filter(|f| !f.is_empty()).or(default_file);
                 if let Some(file) = file {
                     fallback_source = fs::read_to_string(file).ok();
                 }

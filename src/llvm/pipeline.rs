@@ -23,11 +23,7 @@ pub enum PipelineError {
     /// An external tool was not found on PATH.
     ToolNotFound { tool: &'static str, detail: String },
     /// An external tool exited with a non-zero status.
-    ToolFailed {
-        tool: &'static str,
-        exit_code: Option<i32>,
-        stderr: String,
-    },
+    ToolFailed { tool: &'static str, exit_code: Option<i32>, stderr: String },
     /// I/O error (e.g., writing the `.ll` file).
     Io(std::io::Error),
 }
@@ -38,17 +34,11 @@ impl fmt::Display for PipelineError {
             PipelineError::ToolNotFound { tool, detail } => {
                 write!(f, "{tool} not found: {detail}")
             }
-            PipelineError::ToolFailed {
-                tool,
-                exit_code,
-                stderr,
-            } => {
+            PipelineError::ToolFailed { tool, exit_code, stderr } => {
                 write!(
                     f,
                     "{tool} failed (exit {}): {}",
-                    exit_code
-                        .map(|c| c.to_string())
-                        .unwrap_or_else(|| "signal".into()),
+                    exit_code.map(|c| c.to_string()).unwrap_or_else(|| "signal".into()),
                     stderr.trim()
                 )
             }
@@ -184,10 +174,7 @@ pub fn compile_ir_to_object(
         fs::create_dir_all(parent)?;
     }
     let work_dir = unique_native_work_dir()?;
-    let stem = obj_path
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .unwrap_or("module");
+    let stem = obj_path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("module");
     let ll_path = work_dir.join(format!("{stem}.ll"));
     let bc_path = work_dir.join(format!("{stem}.bc"));
 
@@ -281,6 +268,16 @@ pub enum RuntimeVariant {
     /// kept and poisoned, and the next dup or drop of one stops the program
     /// with where it was allocated and freed (`flux --debug-heap`, 0188 S10c).
     DebugHeap,
+    /// `libflux_rt_sanitize.a`, built with AddressSanitizer and
+    /// UndefinedBehaviorSanitizer, for `cargo xtask sanitize` (0190 S15).
+    /// Chosen by `FLUX_RT_SANITIZE=1`, so parity's runs inherit it. Not on
+    /// MSVC.
+    Sanitize,
+    /// `libflux_rt_tsan.a`, built with ThreadSanitizer, for
+    /// `cargo xtask sanitize --thread`: a count two threads update without
+    /// atomics is a data race it reports. Chosen by `FLUX_RT_SANITIZE=thread`;
+    /// it cannot share a build with AddressSanitizer. Not on MSVC.
+    Tsan,
 }
 
 impl RuntimeVariant {
@@ -289,24 +286,57 @@ impl RuntimeVariant {
         match self {
             RuntimeVariant::Plain => "flux_rt",
             RuntimeVariant::DebugHeap => "flux_rt_debug",
+            RuntimeVariant::Sanitize => "flux_rt_sanitize",
+            RuntimeVariant::Tsan => "flux_rt_tsan",
         }
     }
 
     /// The library's file name in `runtime/c`.
     pub fn file_name(self) -> String {
-        if cfg!(windows) {
-            format!("{}.lib", self.stem())
-        } else {
-            format!("lib{}.a", self.stem())
+        if cfg!(windows) { format!("{}.lib", self.stem()) } else { format!("lib{}.a", self.stem()) }
+    }
+
+    /// The compile flags this build adds: definitions, or sanitizers.
+    fn defines(self, msvc: bool) -> &'static [&'static str] {
+        match (self, msvc) {
+            (RuntimeVariant::Plain, _)
+            | (RuntimeVariant::Sanitize, true)
+            | (RuntimeVariant::Tsan, true) => &[],
+            (RuntimeVariant::DebugHeap, false) => &["-DFLUX_DEBUG_HEAP"],
+            (RuntimeVariant::DebugHeap, true) => &["/DFLUX_DEBUG_HEAP"],
+            // A report stops the program, so a parity run sees it fail.
+            (RuntimeVariant::Sanitize, false) => &[
+                "-fsanitize=address,undefined",
+                "-fno-sanitize-recover=undefined",
+                "-fno-omit-frame-pointer",
+            ],
+            (RuntimeVariant::Tsan, false) => {
+                &["-fsanitize=thread", "-fno-omit-frame-pointer", "-DFLUX_TSAN_COUNTS"]
+            }
         }
     }
 
-    /// The preprocessor definitions this build adds.
-    fn defines(self, msvc: bool) -> &'static [&'static str] {
-        match (self, msvc) {
-            (RuntimeVariant::Plain, _) => &[],
-            (RuntimeVariant::DebugHeap, false) => &["-DFLUX_DEBUG_HEAP"],
-            (RuntimeVariant::DebugHeap, true) => &["/DFLUX_DEBUG_HEAP"],
+    /// What linking a program against this build adds: the sanitizers'
+    /// own runtimes.
+    fn link_flags(self) -> &'static [&'static str] {
+        match self {
+            RuntimeVariant::Sanitize => &["-fsanitize=address,undefined"],
+            RuntimeVariant::Tsan => &["-fsanitize=thread"],
+            RuntimeVariant::Plain | RuntimeVariant::DebugHeap => &[],
+        }
+    }
+
+    /// The variant `FLUX_RT_SANITIZE` asks for, when the debug heap is not:
+    /// `thread` for ThreadSanitizer, any other value but `0` for
+    /// AddressSanitizer and UndefinedBehaviorSanitizer.
+    pub fn from_env(debug_heap: bool) -> Self {
+        if debug_heap {
+            return RuntimeVariant::DebugHeap;
+        }
+        match std::env::var_os("FLUX_RT_SANITIZE") {
+            Some(v) if v == "thread" => RuntimeVariant::Tsan,
+            Some(v) if !v.is_empty() && v != "0" => RuntimeVariant::Sanitize,
+            _ => RuntimeVariant::Plain,
         }
     }
 
@@ -316,6 +346,8 @@ impl RuntimeVariant {
         match self {
             RuntimeVariant::Plain => "",
             RuntimeVariant::DebugHeap => ".debug",
+            RuntimeVariant::Sanitize => ".sanitize",
+            RuntimeVariant::Tsan => ".tsan",
         }
     }
 }
@@ -401,6 +433,7 @@ fn run_linker(
                 cmd.arg(format!("-L{}", dir.display()));
                 cmd.arg(format!("-l{}", runtime.stem()));
             }
+            cmd.args(runtime.link_flags());
             // libflux.a defines the Rust async bridge symbols referenced by
             // libflux_rt.a. Unix archive linkers extract members left-to-right,
             // so the provider archive must follow the C runtime archive.
@@ -422,6 +455,14 @@ fn run_linker(
             // Set large stack size for deeply recursive programs.
             #[cfg(target_os = "macos")]
             cmd.args(["-Wl,-stack_size,0x4000000"]); // 64 MB stack
+            // Drop the unused parts of the Rust staticlib, as `/OPT:REF` does
+            // on Windows: without this a program carries all of it, ten times
+            // the size, and `dsymutil` copies all its DWARF into the dSYM.
+            // Nothing in the program calls the `flux_debug_*` functions or
+            // reads the `flux_debug_types_*` globals: `flux_lldb.py` does.
+            // Exporting them keeps them.
+            #[cfg(target_os = "macos")]
+            cmd.args(["-Wl,-dead_strip", "-Wl,-exported_symbol,_flux_debug_*"]);
             // Link math library on Linux.
             #[cfg(target_os = "linux")]
             cmd.arg("-lm");
@@ -496,9 +537,7 @@ fn discover_rust_staticlib() -> Option<PathBuf> {
         })
         .collect();
     candidates.sort_by_key(|p| {
-        fs::metadata(p)
-            .and_then(|m| m.modified())
-            .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+        fs::metadata(p).and_then(|m| m.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH)
     });
     candidates.reverse(); // newest first
     let found = candidates.into_iter().find(|p| has_sentinel(p))?;
@@ -539,10 +578,7 @@ pub fn write_debug_symbols(binary: &Path) {
     // builds at once (a test suite's) exhausted a 24 GB machine. Take one
     // of a few machine-wide slots first.
     let slot = DsymutilSlot::acquire();
-    let status = Command::new("dsymutil")
-        .arg(binary)
-        .stdout(std::process::Stdio::null())
-        .status();
+    let status = Command::new("dsymutil").arg(binary).stdout(std::process::Stdio::null()).status();
     drop(slot);
     match status {
         Ok(status) if status.success() => write_dsym_script(binary),
@@ -612,19 +648,13 @@ fn write_dsym_script(binary: &Path) {
     let Some(name) = binary.file_name().map(|name| name.to_string_lossy()) else {
         return;
     };
-    let module: String = name
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-        .collect();
+    let module: String =
+        name.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
     let mut dsym = binary.as_os_str().to_owned();
     dsym.push(".dSYM");
     let dir = PathBuf::from(dsym).join("Contents/Resources/Python");
-    let written = fs::create_dir_all(&dir).and_then(|()| {
-        fs::write(
-            dir.join(format!("{module}.py")),
-            crate::debuginfo::LLDB_SCRIPT,
-        )
-    });
+    let written = fs::create_dir_all(&dir)
+        .and_then(|()| fs::write(dir.join(format!("{module}.py")), crate::debuginfo::LLDB_SCRIPT));
     if let Err(err) = written {
         eprintln!("warning: cannot add flux_lldb.py to the dSYM: {err}");
     }
@@ -663,8 +693,7 @@ pub fn create_archive(obj_paths: &[PathBuf], archive_path: &Path) -> Result<(), 
         }
         CToolchain::Msvc { lib_tool, .. } => {
             let mut cmd = Command::new(lib_tool);
-            cmd.args(["/nologo"])
-                .arg(format!("/OUT:{}", archive_path.display()));
+            cmd.args(["/nologo"]).arg(format!("/OUT:{}", archive_path.display()));
             for obj in obj_paths {
                 cmd.arg(obj);
             }
@@ -684,30 +713,43 @@ pub fn archive_is_up_to_date(obj_paths: &[PathBuf], archive_path: &Path) -> bool
     // (e.g. Flow.Channel added after the archive was built) would pass the mtime
     // check if its .o happens to share a timestamp with the archive, but would
     // silently be missing from the archive, causing undefined symbol errors.
-    let archive_members: std::collections::HashSet<String> = match std::process::Command::new("ar")
-        .arg("t")
-        .arg(archive_path)
-        .output()
-    {
-        Ok(out) => String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .map(|l| l.trim().to_owned())
-            .collect(),
-        Err(_) => return false,
+    let Some(archive_members) = archive_members(archive_path) else {
+        return false;
     };
     obj_paths.iter().all(|obj| {
-        let name = obj
-            .file_name()
-            .and_then(|f| f.to_str())
-            .unwrap_or("")
-            .to_owned();
+        let name = obj.file_name().and_then(|f| f.to_str()).unwrap_or("").to_owned();
         if !archive_members.contains(&name) {
             return false;
         }
-        fs::metadata(obj)
-            .and_then(|m| m.modified())
-            .is_ok_and(|t| t <= archive_mtime)
+        fs::metadata(obj).and_then(|m| m.modified()).is_ok_and(|t| t <= archive_mtime)
     })
+}
+
+/// The file names of the members of `archive_path`, listed by the archiver
+/// `create_archive` built it with. A bare `ar` does not exist beside
+/// `llvm-ar` on Windows, so asking it made every archive look stale.
+fn archive_members(archive_path: &Path) -> Option<std::collections::HashSet<String>> {
+    let output = match detect_c_toolchain().ok()? {
+        CToolchain::Gcc { ar, .. } => Command::new(ar).arg("t").arg(archive_path).output(),
+        CToolchain::Msvc { lib_tool, .. } => {
+            Command::new(lib_tool).args(["/nologo", "/list"]).arg(archive_path).output()
+        }
+    }
+    .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    // `lib /list` prints each member's path as it was added; `ar t` prints
+    // its name. Either way the name is what an object is matched by.
+    let members = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| {
+            Path::new(line).file_name().map_or(line, |n| n.to_str().unwrap_or(line)).to_owned()
+        })
+        .collect();
+    Some(members)
 }
 
 /// Compile LLVM IR to a native binary.
@@ -724,11 +766,7 @@ pub fn compile_to_binary(config: &PipelineConfig) -> Result<PipelineResult, Pipe
 
     let ll_path = dir.join("program.ll");
     let bc_path = dir.join("program.bc");
-    let obj_path = dir.join(if cfg!(windows) {
-        "program.obj"
-    } else {
-        "program.o"
-    });
+    let obj_path = dir.join(if cfg!(windows) { "program.obj" } else { "program.o" });
 
     emit_llvm_ir(&config.ll_text, &ll_path)?;
 
@@ -740,10 +778,7 @@ pub fn compile_to_binary(config: &PipelineConfig) -> Result<PipelineResult, Pipe
         run_llc(&ll_path, &obj_path, 0)?;
     }
 
-    let exe_path = config
-        .output_path
-        .clone()
-        .unwrap_or_else(|| dir.join("program"));
+    let exe_path = config.output_path.clone().unwrap_or_else(|| dir.join("program"));
 
     run_linker(
         std::slice::from_ref(&obj_path),
@@ -764,9 +799,7 @@ pub fn compile_to_binary(config: &PipelineConfig) -> Result<PipelineResult, Pipe
 /// Compile LLVM IR and execute the resulting binary immediately.
 pub fn compile_and_run(config: &PipelineConfig) -> Result<PipelineResult, PipelineError> {
     let result = compile_to_binary(config)?;
-    let PipelineResult::EmittedBinary { ref path } = result else {
-        unreachable!()
-    };
+    let PipelineResult::EmittedBinary { ref path } = result else { unreachable!() };
 
     let output = Command::new(path).status()?;
     let exit_code = output.code().unwrap_or(1);
@@ -809,11 +842,7 @@ pub fn toolchain_info() -> &'static str {
             CToolchain::Msvc { cc, .. } => (format!("msvc ({cc})"), false),
         };
         let target = super::target::host_triple();
-        let pipeline = if is_clang {
-            "clang -x ir (single-pass)"
-        } else {
-            "opt + llc (two-pass)"
-        };
+        let pipeline = if is_clang { "clang -x ir (single-pass)" } else { "opt + llc (two-pass)" };
         format!("{version_line}, target: {target}, pipeline: {pipeline}")
     })
 }
@@ -824,6 +853,16 @@ enum CToolchain {
     Gcc { cc: String, ar: String },
     /// MSVC: `cl.exe` + `lib.exe` (MSVC flags, Developer Command Prompt).
     Msvc { cc: String, lib_tool: String },
+}
+
+/// Whether `cc` is clang: by its name, or, for a plain `cc` as on macOS, by
+/// what `--version` says.
+fn cc_is_clang(cc: &str) -> bool {
+    cc.contains("clang")
+        || Command::new(cc)
+            .arg("--version")
+            .output()
+            .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains("clang"))
 }
 
 /// Detect the available C toolchain.
@@ -848,22 +887,12 @@ fn detect_c_toolchain() -> Result<CToolchain, PipelineError> {
     if cfg!(windows) {
         // 2. Try clang + llvm-ar (winget LLVM, any terminal).
         if which("clang").is_some() {
-            let ar = if which("llvm-ar").is_some() {
-                "llvm-ar".into()
-            } else {
-                "ar".into()
-            };
-            return Ok(CToolchain::Gcc {
-                cc: "clang".into(),
-                ar,
-            });
+            let ar = if which("llvm-ar").is_some() { "llvm-ar".into() } else { "ar".into() };
+            return Ok(CToolchain::Gcc { cc: "clang".into(), ar });
         }
         // 3. Try MSVC cl.exe (Developer Command Prompt).
         if which("cl").is_some() {
-            return Ok(CToolchain::Msvc {
-                cc: "cl".into(),
-                lib_tool: "lib".into(),
-            });
+            return Ok(CToolchain::Msvc { cc: "cl".into(), lib_tool: "lib".into() });
         }
         return Err(PipelineError::ToolNotFound {
             tool: "cc",
@@ -874,10 +903,7 @@ fn detect_c_toolchain() -> Result<CToolchain, PipelineError> {
     }
 
     // 4. Unix: cc + ar.
-    Ok(CToolchain::Gcc {
-        cc: "cc".into(),
-        ar: "ar".into(),
-    })
+    Ok(CToolchain::Gcc { cc: "cc".into(), ar: "ar".into() })
 }
 
 /// Build the Flux C runtime as a static library if it doesn't exist.
@@ -914,6 +940,25 @@ pub fn ensure_runtime_lib(
         CToolchain::Msvc { .. } => vec!["/nologo", "/c", "/O2", "/W3", "/Z7"],
         CToolchain::Gcc { .. } => vec!["-std=c11", "-Wall", "-O2", "-g", "-c"],
     };
+    // A caught panic unwinds through the runtime's own frames between a try
+    // and the Flux code it calls (KI-126), which needs their unwind tables.
+    // `-fexceptions` makes that unwind release what an effect prompt holds
+    // (KI-133).
+    if matches!(toolchain, CToolchain::Gcc { .. }) && !cfg!(windows) {
+        flags.push("-funwind-tables");
+        flags.push("-fexceptions");
+    }
+    // GCC moves a function's cold blocks to a `.cold` part away from it.
+    // lldb-18 takes the function to span everything from its start to that
+    // part's end, so a runtime function laid out between them, such as the
+    // compose trampoline, unwinds with the split function's rules and the
+    // backtrace stops there (KI-136). Clang does not split by default and
+    // rejects the flag.
+    if let CToolchain::Gcc { cc, .. } = &toolchain
+        && !cc_is_clang(cc)
+    {
+        flags.push("-fno-reorder-blocks-and-partition");
+    }
     // On Windows, the C runtime uses MS SEH (`__try` / `__except` /
     // `RaiseException`) to unwind across LLVM-emitted Flux frames
     // — Windows `longjmp` walks the SEH chain and trips on
@@ -990,8 +1035,7 @@ pub fn ensure_runtime_lib(
             }
 
             let mut cmd = Command::new(lib_tool);
-            cmd.args(["/nologo"])
-                .arg(format!("/OUT:{}", lib_path.display()));
+            cmd.args(["/nologo"]).arg(format!("/OUT:{}", lib_path.display()));
             for obj in &obj_files {
                 cmd.arg(obj);
             }
@@ -1050,11 +1094,7 @@ impl RuntimeBuildLock {
     fn acquire(runtime_c_dir: &Path) -> Result<Self, PipelineError> {
         let path = runtime_c_dir.join(".flux_rt.lock");
         loop {
-            match fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&path)
-            {
+            match fs::OpenOptions::new().write(true).create_new(true).open(&path) {
                 Ok(mut file) => {
                     writeln!(file, "pid={}", std::process::id())?;
                     return Ok(Self { path });
@@ -1162,22 +1202,66 @@ fn check_output(tool: &'static str, output: &std::process::Output) -> Result<(),
         // MSVC tools (cl, link, lib) write diagnostics to stdout, not stderr.
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let combined = if stderr.trim().is_empty() {
-            stdout.into_owned()
-        } else {
-            stderr.into_owned()
-        };
-        Err(PipelineError::ToolFailed {
-            tool,
-            exit_code: output.status.code(),
-            stderr: combined,
-        })
+        let combined =
+            if stderr.trim().is_empty() { stdout.into_owned() } else { stderr.into_owned() };
+        Err(PipelineError::ToolFailed { tool, exit_code: output.status.code(), stderr: combined })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::RuntimeVariant;
+    use super::{
+        CToolchain, RuntimeVariant, archive_is_up_to_date, create_archive, detect_c_toolchain,
+        native_build_base_dir,
+    };
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+
+    /// Compiles a one-function C file to `<dir>/<stem>.o` (`.obj` for `cl`).
+    fn compile_member(toolchain: &CToolchain, dir: &Path, stem: &str) -> Option<PathBuf> {
+        let src = dir.join(format!("{stem}.c"));
+        std::fs::write(&src, format!("int flux_archive_check_{stem}(void) {{ return 1; }}\n"))
+            .ok()?;
+        let (obj, mut cmd) = match toolchain {
+            CToolchain::Gcc { cc, .. } => {
+                let obj = dir.join(format!("{stem}.o"));
+                let mut cmd = Command::new(cc);
+                cmd.arg("-c").arg(&src).arg("-o").arg(&obj);
+                (obj, cmd)
+            }
+            CToolchain::Msvc { cc, .. } => {
+                let obj = dir.join(format!("{stem}.obj"));
+                let mut cmd = Command::new(cc);
+                cmd.args(["/nologo", "/c"]).arg(&src).arg(format!("/Fo{}", obj.display()));
+                (obj, cmd)
+            }
+        };
+        cmd.output().ok()?.status.success().then_some(obj)
+    }
+
+    #[test]
+    fn an_archive_just_built_is_up_to_date() {
+        let dir = native_build_base_dir().join(format!("archive_check_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("create scratch dir");
+        // Real objects, because Apple's ranlib drops members that are not
+        // Mach-O and the archive would list none of them. No C toolchain:
+        // nothing to check here.
+        let members: Option<Vec<_>> = detect_c_toolchain().ok().and_then(|toolchain| {
+            ["a", "b"].iter().map(|stem| compile_member(&toolchain, &dir, stem)).collect()
+        });
+        let Some(members) = members else {
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        };
+        let archive = dir.join("libmembers.a");
+        if create_archive(&members, &archive).is_err() {
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
+        let fresh = archive_is_up_to_date(&members, &archive);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(fresh, "an archive built from these members just now reads as stale");
+    }
 
     #[test]
     fn the_debug_heap_runtime_is_its_own_library() {
@@ -1193,5 +1277,26 @@ mod tests {
         assert_eq!(debug.defines(false), ["-DFLUX_DEBUG_HEAP"]);
         assert_eq!(debug.defines(true), ["/DFLUX_DEBUG_HEAP"]);
         assert_ne!(plain.object_suffix(), debug.object_suffix());
+    }
+
+    #[test]
+    fn the_sanitized_runtime_is_its_own_library_and_links_its_sanitizers() {
+        let sanitize = RuntimeVariant::Sanitize;
+        assert_eq!(sanitize.stem(), "flux_rt_sanitize");
+        assert!(sanitize.defines(false).contains(&"-fsanitize=address,undefined"));
+        assert!(sanitize.defines(true).is_empty());
+        assert_eq!(sanitize.link_flags(), ["-fsanitize=address,undefined"]);
+        assert!(RuntimeVariant::Plain.link_flags().is_empty());
+        assert_ne!(sanitize.object_suffix(), RuntimeVariant::DebugHeap.object_suffix());
+    }
+
+    #[test]
+    fn the_thread_sanitized_runtime_is_a_library_of_its_own() {
+        let tsan = RuntimeVariant::Tsan;
+        assert_eq!(tsan.stem(), "flux_rt_tsan");
+        assert!(tsan.defines(false).contains(&"-fsanitize=thread"));
+        assert!(tsan.defines(true).is_empty());
+        assert_eq!(tsan.link_flags(), ["-fsanitize=thread"]);
+        assert_ne!(tsan.object_suffix(), RuntimeVariant::Sanitize.object_suffix());
     }
 }

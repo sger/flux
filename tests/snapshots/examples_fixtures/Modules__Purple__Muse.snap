@@ -9,9 +9,9 @@ error[E024]: Module Path Mismatch
 
 Module name `Modules.Purple.Muse` doesn't match file path `examples/Modules/Purple/Muse.flx`.
 
-  examples/Modules/Purple/Muse.flx:4:1
+  examples/Modules/Purple/Muse.flx:3:1
   |
-4 | module Modules.Purple.Muse {
+3 | module Modules.Purple.Muse {
   | ^
 
 Hint:

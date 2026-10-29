@@ -6,9 +6,9 @@
 //
 // This import needs a module path after `import`.
 //
-//   examples/parser_errors/MultiImportKeywordErrors.flx:125:5
+//   examples/parser_errors/MultiImportKeywordErrors.flx:118:5
 //     |
-// 125 |     import
+// 118 |     import
 //     |     ^^^^^^
 //
 // Hint:
@@ -22,9 +22,9 @@
 //
 // This import alias needs a name after `as`.
 //
-//   examples/parser_errors/MultiImportKeywordErrors.flx:126:17
+//   examples/parser_errors/MultiImportKeywordErrors.flx:119:17
 //     |
-// 126 |     import Demo as
+// 119 |     import Demo as
 //     |                 ^^
 //
 // Hint:
@@ -38,9 +38,9 @@
 //
 // Expected `[` after `except` in import.
 //
-//   examples/parser_errors/MultiImportKeywordErrors.flx:127:27
+//   examples/parser_errors/MultiImportKeywordErrors.flx:120:27
 //     |
-// 127 |     import Foo.Bar except x, y ]
+// 120 |     import Foo.Bar except x, y ]
 //     |                           ^
 //
 // Hint:
@@ -54,9 +54,9 @@
 //
 // Unknown keyword `def`. Flux uses `fn` for function declarations.
 //
-//   examples/parser_errors/MultiImportKeywordErrors.flx:129:5
+//   examples/parser_errors/MultiImportKeywordErrors.flx:122:5
 //     |
-// 129 |     def greet(name) { name }
+// 122 |     def greet(name) { name }
 //     |     ^^^
 //
 // Hint:
@@ -70,9 +70,9 @@
 //
 // This hash entry needs `:` between the key and value.
 //
-//   examples/parser_errors/MultiImportKeywordErrors.flx:129:28
+//   examples/parser_errors/MultiImportKeywordErrors.flx:122:28
 //     |
-// 129 |     def greet(name) { name }
+// 122 |     def greet(name) { name }
 //     |                            ^
 //
 // Hint:
@@ -86,9 +86,9 @@
 //
 // Unknown keyword `var`. Flux uses `let` for bindings.
 //
-//   examples/parser_errors/MultiImportKeywordErrors.flx:130:5
+//   examples/parser_errors/MultiImportKeywordErrors.flx:123:5
 //     |
-// 130 |     var count = 1
+// 123 |     var count = 1
 //     |     ^^^
 //
 // Hint:
@@ -102,9 +102,9 @@
 //
 // `end` is not a keyword in Flux. Use `}` to close blocks.
 //
-//   examples/parser_errors/MultiImportKeywordErrors.flx:132:5
+//   examples/parser_errors/MultiImportKeywordErrors.flx:125:5
 //     |
-// 132 |     end
+// 125 |     end
 //     |     ^^^
 //
 // Hint:
@@ -113,22 +113,15 @@
 // Found 7 errors.
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E034
-// expect-error: E034
-// expect-error: E034
-// expect-error: E030
-// expect-error: E034
-// expect-error: E030
-// expect-error: E034
 
 module MultiImportKeywordErrors {
-    import
-    import Demo as
-    import Foo.Bar except x, y ]
+    import //~ E034
+    import Demo as //~ E034
+    import Foo.Bar except x, y ] //~ E034
 
-    def greet(name) { name }
-    var count = 1
+    def greet(name) { name } //~ E030 E034
+    var count = 1 //~ E030
     switch count { 0 -> 1 }
-    end
+    end //~ E034
 }
 

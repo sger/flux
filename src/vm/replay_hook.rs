@@ -35,13 +35,9 @@ impl VM {
                 let text = render_console(op, &args);
                 let to_stderr = op == CorePrimOp::DebugTrace;
                 let request = if to_stderr {
-                    EffectRequest::Stderr {
-                        text: TapeBytes::from(text.as_str()),
-                    }
+                    EffectRequest::Stderr { text: TapeBytes::from(text.as_str()) }
                 } else {
-                    EffectRequest::Stdout {
-                        text: TapeBytes::from(text.as_str()),
-                    }
+                    EffectRequest::Stdout { text: TapeBytes::from(text.as_str()) }
                 };
                 // Printed in every mode, so a replay shows the recorded
                 // output, but only once when a debugger runs it again; and
@@ -97,33 +93,25 @@ impl VM {
     /// function with a source position. Effects run inside generated code
     /// (the `Flow.Primops` wrapper, `main`'s default handlers) that has none.
     fn effect_site(&self) -> Option<(String, Span)> {
-        self.frames[..=self.frame_index]
-            .iter()
-            .rev()
-            .find_map(|frame| {
-                let info = frame.closure.function.debug_info.as_ref()?;
-                info.name.as_ref()?;
-                let location = info.location_at(frame.ip)?;
-                if location.span.start.line == 0 {
-                    return None;
-                }
-                let file = info.file_for(location.file_id)?;
-                Some((file.to_string(), location.span))
-            })
+        self.frames[..=self.frame_index].iter().rev().find_map(|frame| {
+            let info = frame.closure.function.debug_info.as_ref()?;
+            info.name.as_ref()?;
+            let location = info.location_at(frame.ip)?;
+            if location.span.start.line == 0 {
+                return None;
+            }
+            let file = info.file_for(location.file_id)?;
+            Some((file.to_string(), location.span))
+        })
     }
 
     /// Stops the run on a tape error. A diverged replay no longer reproduces
     /// the recorded run, so this is not an error the program may catch: it is
     /// reported where the effect happened and the process exits.
     fn tape_fail(&self, err: TapeError) -> ! {
-        let (file, span) = self
-            .effect_site()
-            .or_else(|| self.current_location())
-            .unwrap_or_else(|| {
-                (
-                    String::from("<unknown>"),
-                    Span::new(Position::default(), Position::default()),
-                )
+        let (file, span) =
+            self.effect_site().or_else(|| self.current_location()).unwrap_or_else(|| {
+                (String::from("<unknown>"), Span::new(Position::default(), Position::default()))
             });
         let rendered = self.render_runtime_diagnostic(&err.to_diagnostic(&file, Some(span)), &file);
         // A recording that stops here still ends with how it ended.

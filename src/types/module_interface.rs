@@ -151,8 +151,10 @@ pub struct ModuleInterface {
     /// Hash of the exported semantic interface.
     pub interface_fingerprint: String,
     /// Exported type schemes keyed by unqualified function name.
+    #[serde(serialize_with = "in_key_order")]
     pub schemes: HashMap<String, Scheme>,
     /// Exported borrow signatures keyed by unqualified function name.
+    #[serde(serialize_with = "in_key_order")]
     pub borrow_signatures: HashMap<String, BorrowSignature>,
     /// Exported runtime contracts keyed by unqualified function name.
     ///
@@ -164,6 +166,7 @@ pub struct ModuleInterface {
     /// qualified key (e.g. `(origin_module, name)`) here and in the sibling
     /// maps above.
     #[serde(default)]
+    #[serde(serialize_with = "in_key_order")]
     pub runtime_contracts: HashMap<String, FunctionContract>,
     /// Exported member kind keyed by unqualified member name.
     ///
@@ -171,6 +174,7 @@ pub struct ModuleInterface {
     /// means it is a function. This lets the native backend distinguish
     /// imported zero-arg functions from imported exported values.
     #[serde(default)]
+    #[serde(serialize_with = "in_key_order")]
     pub member_is_value: HashMap<String, bool>,
     /// Fingerprints of direct imported module interfaces used to compile this module.
     pub dependency_fingerprints: Vec<DependencyFingerprint>,
@@ -180,6 +184,7 @@ pub struct ModuleInterface {
     /// the mapping so that consumers can re-intern the strings and remap Symbol IDs
     /// when loading the interface in a different compilation session.
     #[serde(default)]
+    #[serde(serialize_with = "in_key_order")]
     pub symbol_table: HashMap<u32, String>,
     /// Proposal 0151, Phase 2: `public class` entries owned by this module.
     ///
@@ -290,7 +295,11 @@ impl ModuleInterface {
         interner: &mut crate::syntax::interner::Interner,
     ) -> HashMap<Symbol, Symbol> {
         let mut remap = HashMap::new();
-        for (&old_id, name) in &self.symbol_table {
+        // In id order: a name new to the session gets the next free id, so a
+        // hash order would number the same program differently on each run.
+        let mut table: Vec<(&u32, &String)> = self.symbol_table.iter().collect();
+        table.sort_unstable_by_key(|&(id, _)| *id);
+        for (&old_id, name) in table {
             let old_sym = Symbol::new(old_id);
             let new_sym = interner.intern(name);
             if old_sym != new_sym {
@@ -327,6 +336,18 @@ impl ModuleInterface {
     }
 }
 
+/// Writes `map` in key order: a `HashMap`'s own order differs from one
+/// instance to the next, and the cache must write the same interface as the
+/// same bytes.
+fn in_key_order<K, V, S>(map: &HashMap<K, V>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    K: Ord + serde::Serialize,
+    V: serde::Serialize,
+    S: serde::Serializer,
+{
+    serializer.collect_map(map.iter().collect::<BTreeMap<_, _>>())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{DependencyFingerprint, MODULE_INTERFACE_FORMAT_VERSION, ModuleInterface};
@@ -337,6 +358,45 @@ mod tests {
             type_constructor::TypeConstructor,
         },
     };
+
+    #[test]
+    fn the_same_interface_serializes_to_the_same_bytes() {
+        // Its maps once serialized in each HashMap's own hash order, so two
+        // compilations of one module wrote different cache files (0190 S6).
+        let build = || {
+            let mut interface = ModuleInterface::new("Test", "hash", "cfg");
+            for n in 0..32 {
+                interface.symbol_table.insert(n, format!("name{n}"));
+                interface.member_is_value.insert(format!("member{n}"), n % 2 == 0);
+            }
+            serde_json::to_string(&interface).expect("serialize")
+        };
+        let first = build();
+        for _ in 0..8 {
+            assert_eq!(build(), first);
+        }
+    }
+
+    #[test]
+    fn loading_an_interface_interns_its_new_names_in_one_order() {
+        // Names new to the session once got their ids in the symbol table's
+        // hash order, so the same program numbered its symbols differently
+        // from one run to the next (0190 S6).
+        use crate::syntax::interner::Interner;
+        let load = || {
+            let mut interface = ModuleInterface::new("Test", "hash", "cfg");
+            for n in 0..32 {
+                interface.symbol_table.insert(1000 + n, format!("fresh{n}"));
+            }
+            let mut interner = Interner::new();
+            interface.build_symbol_remap(&mut interner);
+            (0..32).map(|n| interner.lookup(&format!("fresh{n}"))).collect::<Vec<_>>()
+        };
+        let first = load();
+        for _ in 0..8 {
+            assert_eq!(load(), first);
+        }
+    }
 
     #[test]
     fn build_symbol_remap_translates_stale_ids() {
@@ -371,9 +431,7 @@ mod tests {
         let sym = crate::syntax::builtin_effects::io_effect_symbol(&mut interner);
 
         let mut interface = ModuleInterface::new("Test", "hash", "cfg");
-        interface
-            .symbol_table
-            .insert(sym.as_u32(), "IO".to_string());
+        interface.symbol_table.insert(sym.as_u32(), "IO".to_string());
 
         let remap = interface.build_symbol_remap(&mut interner);
         assert!(remap.is_empty());
@@ -440,10 +498,7 @@ mod tests {
                             InferEffectRow::closed_empty(),
                         ),
                     ],
-                    Box::new(InferType::App(
-                        TypeConstructor::List,
-                        vec![InferType::Var(1)],
-                    )),
+                    Box::new(InferType::App(TypeConstructor::List, vec![InferType::Var(1)])),
                     InferEffectRow::closed_empty(),
                 ),
             },
@@ -458,22 +513,17 @@ mod tests {
         interface.member_is_value.insert("map".to_string(), false);
         interface.member_is_value.insert("answer".to_string(), true);
         interface.interface_fingerprint = "f00d".to_string();
-        interface
-            .dependency_fingerprints
-            .push(DependencyFingerprint {
-                module_name: "Flow.List".to_string(),
-                source_path: "lib/Flow/List.flx".to_string(),
-                interface_fingerprint: "beef".to_string(),
-            });
+        interface.dependency_fingerprints.push(DependencyFingerprint {
+            module_name: "Flow.List".to_string(),
+            source_path: "lib/Flow/List.flx".to_string(),
+            interface_fingerprint: "beef".to_string(),
+        });
 
         let json = serde_json::to_string(&interface).expect("module interface should serialize");
         let decoded: ModuleInterface =
             serde_json::from_str(&json).expect("module interface should deserialize");
 
         assert_eq!(decoded, interface);
-        assert_eq!(
-            decoded.cache_format_version,
-            MODULE_INTERFACE_FORMAT_VERSION
-        );
+        assert_eq!(decoded.cache_format_version, MODULE_INTERFACE_FORMAT_VERSION);
     }
 }

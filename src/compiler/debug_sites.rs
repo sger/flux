@@ -56,11 +56,7 @@ impl Compiler {
         // Parameters are defined after the entry site is emitted, but hold
         // their values from the start.
         let only_sites = scope.instructions.len() == scope.sites.len() * 3;
-        let start_ip = if only_sites {
-            0
-        } else {
-            scope.instructions.len()
-        };
+        let start_ip = if only_sites { 0 } else { scope.instructions.len() };
         for binding in defined {
             let temp = binding.name == Symbol::new(u32::MAX);
             let name = if temp {
@@ -100,10 +96,8 @@ impl Compiler {
         self.drain_def_log();
         self.close_locals_from(0);
         let scope = &mut self.scopes[self.scope_index];
-        self.left_debug_tables = Some((
-            std::mem::take(&mut scope.sites),
-            std::mem::take(&mut scope.locals),
-        ));
+        self.left_debug_tables =
+            Some((std::mem::take(&mut scope.sites), std::mem::take(&mut scope.locals)));
     }
 
     /// The tables of the scope `leave_scope` just closed.
@@ -124,10 +118,7 @@ impl Compiler {
             return info;
         }
         let (sites, locals) = self.take_debug_tables();
-        let free_names = free_symbols
-            .iter()
-            .map(|free| self.sym(free.name).to_string())
-            .collect();
+        let free_names = free_symbols.iter().map(|free| self.sym(free.name).to_string()).collect();
         // Named after where the lambda starts: its entry site, else its body.
         let start = sites
             .first()
@@ -169,10 +160,7 @@ impl Compiler {
     pub(super) fn emit_statement_site(&mut self, statement: &crate::syntax::statement::Statement) {
         if self.scope_index == 0
             || !self.debug_tables_enabled()
-            || matches!(
-                statement,
-                crate::syntax::statement::Statement::Function { .. }
-            )
+            || matches!(statement, crate::syntax::statement::Statement::Function { .. })
         {
             return;
         }
@@ -186,10 +174,7 @@ impl Compiler {
         expression: &crate::syntax::expression::Expression,
     ) -> super::CompileResult<()> {
         use crate::syntax::expression::{ExprId, Expression};
-        let Expression::Call {
-            id, function, span, ..
-        } = expression
-        else {
+        let Expression::Call { id, function, span, .. } = expression else {
             return self.compile_expression_untracked(expression);
         };
         if self.pipe_sites.calls.is_empty() || *id == ExprId::UNSET {
@@ -255,8 +240,6 @@ impl Compiler {
             .find(|entry| entry.offset == ip)
             .and_then(|entry| entry.location.clone())
             .or(Some(Location { file_id: 0, span }));
-        self.scopes[self.scope_index]
-            .sites
-            .push(BreakSite { kind, ip, location });
+        self.scopes[self.scope_index].sites.push(BreakSite { kind, ip, location });
     }
 }

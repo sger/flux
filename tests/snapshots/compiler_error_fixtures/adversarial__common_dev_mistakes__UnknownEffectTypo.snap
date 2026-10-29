@@ -9,9 +9,9 @@ error[E407]: Unknown Effect
 
 Function effect annotation references unknown effect `I`.
 
-  examples/compiler_errors/adversarial/common_dev_mistakes/UnknownEffectTypo.flx:5:27
+  examples/compiler_errors/adversarial/common_dev_mistakes/UnknownEffectTypo.flx:4:27
   |
-5 |     fn bad() -> Unit with I {
+4 |     fn bad() -> Unit with I {
   |                           ^
   |                           - unknown effect in function annotation
 

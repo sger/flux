@@ -9,9 +9,9 @@ error[E300]: Annotation Type Mismatch
 
 The value of `value` does not match its type annotation.
 
-  examples/compiler_errors/adversarial/type_and_effect_modules/TypeBroken.flx:6:26
+  examples/compiler_errors/adversarial/type_and_effect_modules/TypeBroken.flx:5:26
   |
-6 |         let value: Int = "oops"
+5 |         let value: Int = "oops"
   |                          ^^^^^^
   |                          ------ this value has type `String`
 

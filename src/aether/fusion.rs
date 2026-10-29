@@ -19,6 +19,7 @@ use crate::aether::AetherExpr;
 use crate::aether::analysis::use_counts_aether;
 use crate::core::{CoreBinder, CoreVarRef};
 use crate::diagnostics::position::Span;
+use crate::shared::opt_bisect;
 
 type CoreExpr = AetherExpr;
 
@@ -50,11 +51,7 @@ enum RcOp {
 #[derive(Clone)]
 enum PrefixElem {
     Rc(RcOp),
-    Let {
-        var: CoreBinder,
-        rhs: CoreExpr,
-        span: Span,
-    },
+    Let { var: CoreBinder, rhs: CoreExpr, span: Span },
 }
 
 fn fuse(expr: CoreExpr) -> CoreExpr {
@@ -64,53 +61,20 @@ fn fuse(expr: CoreExpr) -> CoreExpr {
         CoreExpr::Dup { .. } | CoreExpr::Drop { .. } => fuse_prefix(expr),
 
         // Recurse into all other forms
-        CoreExpr::Let {
-            var,
-            rhs,
-            body,
-            span,
-        } => CoreExpr::Let {
-            var,
-            rhs: Box::new(fuse(*rhs)),
+        CoreExpr::Let { var, rhs, body, span } => {
+            CoreExpr::Let { var, rhs: Box::new(fuse(*rhs)), body: Box::new(fuse(*body)), span }
+        }
+        CoreExpr::LetRec { var, rhs, body, span } => {
+            CoreExpr::LetRec { var, rhs: Box::new(fuse(*rhs)), body: Box::new(fuse(*body)), span }
+        }
+        CoreExpr::LetRecGroup { bindings, body, span } => CoreExpr::LetRecGroup {
+            bindings: bindings.into_iter().map(|(var, rhs)| (var, Box::new(fuse(*rhs)))).collect(),
             body: Box::new(fuse(*body)),
             span,
         },
-        CoreExpr::LetRec {
-            var,
-            rhs,
-            body,
-            span,
-        } => CoreExpr::LetRec {
-            var,
-            rhs: Box::new(fuse(*rhs)),
-            body: Box::new(fuse(*body)),
-            span,
-        },
-        CoreExpr::LetRecGroup {
-            bindings,
-            body,
-            span,
-        } => CoreExpr::LetRecGroup {
-            bindings: bindings
-                .into_iter()
-                .map(|(var, rhs)| (var, Box::new(fuse(*rhs))))
-                .collect(),
-            body: Box::new(fuse(*body)),
-            span,
-        },
-        CoreExpr::Lam {
-            params,
-            param_types,
-            result_ty,
-            body,
-            span,
-        } => CoreExpr::Lam {
-            params,
-            param_types,
-            result_ty,
-            body: Box::new(fuse(*body)),
-            span,
-        },
+        CoreExpr::Lam { params, param_types, result_ty, body, span } => {
+            CoreExpr::Lam { params, param_types, result_ty, body: Box::new(fuse(*body)), span }
+        }
         CoreExpr::App { func, args, span } => CoreExpr::App {
             func: Box::new(fuse(*func)),
             args: args.into_iter().map(fuse).collect(),
@@ -121,20 +85,17 @@ fn fuse(expr: CoreExpr) -> CoreExpr {
             args,
             arg_modes,
             guarded_borrowed_args,
+            owned_after,
             span,
         } => CoreExpr::AetherCall {
             func: Box::new(fuse(*func)),
             args: args.into_iter().map(fuse).collect(),
             arg_modes,
             guarded_borrowed_args,
+            owned_after,
             span,
         },
-        CoreExpr::Case {
-            scrutinee,
-            alts,
-            join_ty,
-            span,
-        } => CoreExpr::Case {
+        CoreExpr::Case { scrutinee, alts, join_ty, span } => CoreExpr::Case {
             scrutinee: Box::new(fuse(*scrutinee)),
             alts: alts
                 .into_iter()
@@ -147,38 +108,23 @@ fn fuse(expr: CoreExpr) -> CoreExpr {
             join_ty,
             span,
         },
-        CoreExpr::Con { tag, fields, span } => CoreExpr::Con {
-            tag,
-            fields: fields.into_iter().map(fuse).collect(),
-            span,
-        },
-        CoreExpr::PrimOp { op, args, span } => CoreExpr::PrimOp {
-            op,
-            args: args.into_iter().map(fuse).collect(),
-            span,
-        },
-        CoreExpr::Return { value, span } => CoreExpr::Return {
-            value: Box::new(fuse(*value)),
-            span,
-        },
-        CoreExpr::Perform {
-            effect,
-            operation,
-            args,
-            span,
-        } => CoreExpr::Perform {
+        CoreExpr::Con { tag, fields, span } => {
+            CoreExpr::Con { tag, fields: fields.into_iter().map(fuse).collect(), span }
+        }
+        CoreExpr::PrimOp { op, args, span } => {
+            CoreExpr::PrimOp { op, args: args.into_iter().map(fuse).collect(), span }
+        }
+        CoreExpr::Return { value, span } => {
+            CoreExpr::Return { value: Box::new(fuse(*value)), span }
+        }
+        CoreExpr::Perform { effect, operation, args, owned_after, span } => CoreExpr::Perform {
             effect,
             operation,
             args: args.into_iter().map(fuse).collect(),
+            owned_after,
             span,
         },
-        CoreExpr::Handle {
-            body,
-            effect,
-            parameter,
-            handlers,
-            span,
-        } => CoreExpr::Handle {
+        CoreExpr::Handle { body, effect, parameter, handlers, span } => CoreExpr::Handle {
             body: Box::new(fuse(*body)),
             effect,
             parameter: parameter.map(|p| Box::new(fuse(*p))),
@@ -191,48 +137,27 @@ fn fuse(expr: CoreExpr) -> CoreExpr {
                 .collect(),
             span,
         },
-        CoreExpr::Reuse {
-            token,
-            tag,
-            fields,
-            field_mask,
-            span,
-        } => CoreExpr::Reuse {
+        CoreExpr::Reuse { token, tag, fields, field_mask, span } => CoreExpr::Reuse {
             token,
             tag,
             fields: fields.into_iter().map(fuse).collect(),
             field_mask,
             span,
         },
-        CoreExpr::DropSpecialized {
-            scrutinee,
-            unique_body,
-            shared_body,
-            span,
-        } => CoreExpr::DropSpecialized {
-            scrutinee,
-            unique_body: Box::new(fuse(*unique_body)),
-            shared_body: Box::new(fuse(*shared_body)),
-            span,
-        },
-        CoreExpr::MemberAccess {
-            object,
-            member,
-            span,
-        } => CoreExpr::MemberAccess {
-            object: Box::new(fuse(*object)),
-            member,
-            span,
-        },
-        CoreExpr::TupleField {
-            object,
-            index,
-            span,
-        } => CoreExpr::TupleField {
-            object: Box::new(fuse(*object)),
-            index,
-            span,
-        },
+        CoreExpr::DropSpecialized { scrutinee, unique_body, shared_body, span } => {
+            CoreExpr::DropSpecialized {
+                scrutinee,
+                unique_body: Box::new(fuse(*unique_body)),
+                shared_body: Box::new(fuse(*shared_body)),
+                span,
+            }
+        }
+        CoreExpr::MemberAccess { object, member, span } => {
+            CoreExpr::MemberAccess { object: Box::new(fuse(*object)), member, span }
+        }
+        CoreExpr::TupleField { object, index, span } => {
+            CoreExpr::TupleField { object: Box::new(fuse(*object)), index, span }
+        }
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => expr,
     }
 }
@@ -259,17 +184,8 @@ fn fuse_prefix(expr: CoreExpr) -> CoreExpr {
                 elems.push(PrefixElem::Rc(RcOp::Drop(var, span)));
                 cursor = *body;
             }
-            CoreExpr::Let {
-                var,
-                rhs,
-                body,
-                span,
-            } if is_safe_fusion_wrapper_rhs(&rhs) => {
-                elems.push(PrefixElem::Let {
-                    var,
-                    rhs: fuse(*rhs),
-                    span,
-                });
+            CoreExpr::Let { var, rhs, body, span } if is_safe_fusion_wrapper_rhs(&rhs) => {
+                elems.push(PrefixElem::Let { var, rhs: fuse(*rhs), span });
                 cursor = *body;
             }
             _ => break,
@@ -291,6 +207,7 @@ fn fuse_prefix(expr: CoreExpr) -> CoreExpr {
             if let PrefixElem::Rc(RcOp::Dup(ref dup_var, _)) = elems[j]
                 && same_var(dup_var, drop_var)
                 && can_cross_pure_wrappers(drop_var, &elems[j + 1..i])
+                && opt_bisect::allow("fusion", || "cancel a dup against a drop".to_string())
             {
                 cancelled[i] = true;
                 cancelled[j] = true;
@@ -313,6 +230,7 @@ fn fuse_prefix(expr: CoreExpr) -> CoreExpr {
             if let PrefixElem::Rc(RcOp::Drop(ref drop_var, _)) = elems[j]
                 && same_var(dup_var, drop_var)
                 && can_cross_pure_wrappers(dup_var, &elems[j + 1..i])
+                && opt_bisect::allow("fusion", || "cancel a dup against a drop".to_string())
             {
                 cancelled[i] = true;
                 cancelled[j] = true;
@@ -330,26 +248,13 @@ fn fuse_prefix(expr: CoreExpr) -> CoreExpr {
         }
         match elem {
             PrefixElem::Rc(RcOp::Dup(var, span)) => {
-                result = CoreExpr::Dup {
-                    var,
-                    body: Box::new(result),
-                    span,
-                };
+                result = CoreExpr::Dup { var, body: Box::new(result), span };
             }
             PrefixElem::Rc(RcOp::Drop(var, span)) => {
-                result = CoreExpr::Drop {
-                    var,
-                    body: Box::new(result),
-                    span,
-                };
+                result = CoreExpr::Drop { var, body: Box::new(result), span };
             }
             PrefixElem::Let { var, rhs, span } => {
-                result = CoreExpr::Let {
-                    var,
-                    rhs: Box::new(rhs),
-                    body: Box::new(result),
-                    span,
-                };
+                result = CoreExpr::Let { var, rhs: Box::new(rhs), body: Box::new(result), span };
             }
         }
     }
@@ -420,10 +325,7 @@ mod tests {
     }
 
     fn var_expr<B: Borrow<CoreBinder>>(binder: B) -> CoreExpr {
-        CoreExpr::Var {
-            var: CoreVarRef::resolved(binder.borrow()),
-            span: Span::default(),
-        }
+        CoreExpr::Var { var: CoreVarRef::resolved(binder.borrow()), span: Span::default() }
     }
 
     fn count_matching<F>(expr: &CoreExpr, predicate: &F) -> usize
@@ -435,24 +337,16 @@ mod tests {
             CoreExpr::Lam { body, .. } => here + count_matching(body, predicate),
             CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
                 here + count_matching(func, predicate)
-                    + args
-                        .iter()
-                        .map(|arg| count_matching(arg, predicate))
-                        .sum::<usize>()
+                    + args.iter().map(|arg| count_matching(arg, predicate)).sum::<usize>()
             }
             CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
                 here + count_matching(rhs, predicate) + count_matching(body, predicate)
             }
             CoreExpr::LetRecGroup { bindings, body, .. } => {
-                here + bindings
-                    .iter()
-                    .map(|(_, rhs)| count_matching(rhs, predicate))
-                    .sum::<usize>()
+                here + bindings.iter().map(|(_, rhs)| count_matching(rhs, predicate)).sum::<usize>()
                     + count_matching(body, predicate)
             }
-            CoreExpr::Case {
-                scrutinee, alts, ..
-            } => {
+            CoreExpr::Case { scrutinee, alts, .. } => {
                 here + count_matching(scrutinee, predicate)
                     + alts
                         .iter()
@@ -467,24 +361,13 @@ mod tests {
                         .sum::<usize>()
             }
             CoreExpr::Con { fields, .. } | CoreExpr::Reuse { fields, .. } => {
-                here + fields
-                    .iter()
-                    .map(|field| count_matching(field, predicate))
-                    .sum::<usize>()
+                here + fields.iter().map(|field| count_matching(field, predicate)).sum::<usize>()
             }
             CoreExpr::PrimOp { args, .. } | CoreExpr::Perform { args, .. } => {
-                here + args
-                    .iter()
-                    .map(|arg| count_matching(arg, predicate))
-                    .sum::<usize>()
+                here + args.iter().map(|arg| count_matching(arg, predicate)).sum::<usize>()
             }
             CoreExpr::Return { value, .. } => here + count_matching(value, predicate),
-            CoreExpr::Handle {
-                body,
-                parameter,
-                handlers,
-                ..
-            } => {
+            CoreExpr::Handle { body, parameter, handlers, .. } => {
                 here + parameter
                     .as_ref()
                     .map_or(0, |parameter| count_matching(parameter, predicate))
@@ -497,11 +380,7 @@ mod tests {
             CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => {
                 here + count_matching(body, predicate)
             }
-            CoreExpr::DropSpecialized {
-                unique_body,
-                shared_body,
-                ..
-            } => {
+            CoreExpr::DropSpecialized { unique_body, shared_body, .. } => {
                 here + count_matching(unique_body, predicate)
                     + count_matching(shared_body, predicate)
             }
@@ -534,14 +413,8 @@ mod tests {
         };
 
         let fused = fuse_dup_drop(expr);
-        assert_eq!(
-            count_matching(&fused, &|expr| matches!(expr, CoreExpr::Dup { .. })),
-            0
-        );
-        assert_eq!(
-            count_matching(&fused, &|expr| matches!(expr, CoreExpr::Drop { .. })),
-            0
-        );
+        assert_eq!(count_matching(&fused, &|expr| matches!(expr, CoreExpr::Dup { .. })), 0);
+        assert_eq!(count_matching(&fused, &|expr| matches!(expr, CoreExpr::Drop { .. })), 0);
     }
 
     #[test]
@@ -566,13 +439,7 @@ mod tests {
         };
 
         let fused = fuse_dup_drop(expr);
-        assert_eq!(
-            count_matching(&fused, &|expr| matches!(expr, CoreExpr::Dup { .. })),
-            1
-        );
-        assert_eq!(
-            count_matching(&fused, &|expr| matches!(expr, CoreExpr::Drop { .. })),
-            1
-        );
+        assert_eq!(count_matching(&fused, &|expr| matches!(expr, CoreExpr::Dup { .. })), 1);
+        assert_eq!(count_matching(&fused, &|expr| matches!(expr, CoreExpr::Drop { .. })), 1);
     }
 }

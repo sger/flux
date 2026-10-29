@@ -13,11 +13,7 @@ struct NodeCounter {
 
 impl NodeCounter {
     fn new() -> Self {
-        Self {
-            exprs: 0,
-            stmts: 0,
-            idents: 0,
-        }
+        Self { exprs: 0, stmts: 0, idents: 0 }
     }
 }
 
@@ -41,11 +37,7 @@ fn parse(input: &str) -> Program {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "Parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "Parser errors: {:?}", parser.errors);
     program
 }
 

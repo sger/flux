@@ -1,7 +1,6 @@
 // expect: compile_error
-// expect-error: E024
 
-module Modules.Math {
+module Modules.Math { //~ E024
   // Forward reference: quadruple uses double which is defined below
   public fn quadruple(x) {
     double(double(x))

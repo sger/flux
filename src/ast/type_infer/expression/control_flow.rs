@@ -35,12 +35,7 @@ impl<'a> AdtResolver for InferAdtResolver<'a> {
             .adt_constructor_types
             .iter()
             .filter(|(_, info)| info.adt_name == adt)
-            .map(|(name, info)| {
-                (
-                    self.interner.resolve(*name).to_string(),
-                    info.fields.clone(),
-                )
-            })
+            .map(|(name, info)| (self.interner.resolve(*name).to_string(), info.fields.clone()))
             .collect();
         ctors.sort_by(|a, b| a.0.cmp(&b.0));
         Some(ctors)
@@ -171,10 +166,7 @@ impl<'a> InferCtx<'a> {
         if std::env::var("FLUX_COVERAGE_WARN").ok().as_deref() == Some("0") {
             return true;
         }
-        matches!(
-            scrutinee_ty.apply_type_subst(&self.subst),
-            InferType::Var(_)
-        )
+        matches!(scrutinee_ty.apply_type_subst(&self.subst), InferType::Var(_))
     }
 
     /// Push an `E015: Non-Exhaustive Match` error at `span`.
@@ -224,10 +216,7 @@ impl<'a> InferCtx<'a> {
         // bindings attached to a variable no call site can reach
         // (`docs/known_issues.md#ki-095`).
         if has_nonconstraining_arm
-            && !matches!(
-                scrutinee_ty.apply_type_subst(&self.subst),
-                InferType::Var(_)
-            )
+            && !matches!(scrutinee_ty.apply_type_subst(&self.subst), InferType::Var(_))
         {
             return scrutinee_ty.clone();
         }
@@ -283,11 +272,7 @@ impl<'a> InferCtx<'a> {
                 first_ty,
                 &arm_ty,
                 arm.span,
-                ReportContext::MatchArm {
-                    first_span,
-                    arm_span: arm.body.span(),
-                    arm_index: i + 2,
-                },
+                ReportContext::MatchArm { first_span, arm_span: arm.body.span(), arm_index: i + 2 },
             );
             arm_types.push((arm_ty, arm.body.span(), i + 1));
         }
@@ -306,11 +291,7 @@ impl<'a> InferCtx<'a> {
         scrutinee_ty: &InferType,
         isolate_arm_scrutinees: bool,
     ) -> InferType {
-        if isolate_arm_scrutinees {
-            self.alloc_fallback_var()
-        } else {
-            scrutinee_ty.clone()
-        }
+        if isolate_arm_scrutinees { self.alloc_fallback_var() } else { scrutinee_ty.clone() }
     }
 
     /// Decide whether mixed match arms should bind against isolated scrutinee variables.
@@ -336,9 +317,7 @@ impl<'a> InferCtx<'a> {
         // one declaration, so matching it against a different type is always an
         // error and must keep the shared scrutinee to be reported (KI-072).
         !constraining_families.is_empty()
-            && !constraining_families
-                .iter()
-                .all(|family| matches!(family, PatternFamily::Adt(_)))
+            && !constraining_families.iter().all(|family| matches!(family, PatternFamily::Adt(_)))
     }
 
     /// Whether the arms already settle the scrutinee's family, so isolating
@@ -407,12 +386,8 @@ impl<'a> InferCtx<'a> {
 
     /// Return whether a match includes any arm that does not constrain the scrutinee family.
     fn match_has_nonconstraining_arm(&self, arms: &[MatchArm]) -> bool {
-        arms.iter().any(|arm| {
-            matches!(
-                self.pattern_family(&arm.pattern),
-                PatternFamily::NonConstraining
-            )
-        })
+        arms.iter()
+            .any(|arm| matches!(self.pattern_family(&arm.pattern), PatternFamily::NonConstraining))
     }
 
     /// Emit additional conflicts between concrete match arms when first arm is unresolved.
@@ -424,10 +399,7 @@ impl<'a> InferCtx<'a> {
         if Self::is_fully_concrete(first_ty) {
             return;
         }
-        let pivot = arm_types
-            .iter()
-            .find(|(ty, _, _)| Self::is_fully_concrete(ty))
-            .cloned();
+        let pivot = arm_types.iter().find(|(ty, _, _)| Self::is_fully_concrete(ty)).cloned();
         let Some((pivot_ty, pivot_span, pivot_index)) = pivot else {
             return;
         };

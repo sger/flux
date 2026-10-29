@@ -87,20 +87,12 @@ pub(crate) fn build_program_context_from_source(
 
     let mut all_diagnostics: Vec<Diagnostic> = Vec::new();
     let mut parse_warnings = parser.take_warnings();
-    tag_and_attach_file(
-        &mut parse_warnings,
-        flux::diagnostics::DiagnosticPhase::Parse,
-        path,
-    );
+    tag_and_attach_file(&mut parse_warnings, flux::diagnostics::DiagnosticPhase::Parse, path);
     all_diagnostics.append(&mut parse_warnings);
 
     let entry_has_errors = !parser.errors.is_empty();
     if entry_has_errors {
-        tag_and_attach_file(
-            &mut parser.errors,
-            flux::diagnostics::DiagnosticPhase::Parse,
-            path,
-        );
+        tag_and_attach_file(&mut parser.errors, flux::diagnostics::DiagnosticPhase::Parse, path);
         all_diagnostics.append(&mut parser.errors);
     }
 
@@ -115,12 +107,7 @@ pub(crate) fn build_program_context_from_source(
         all_diagnostics.append(&mut primops_import_diags);
     }
     if !trace_aether {
-        inject_flow_prelude(
-            &mut program,
-            &mut parser,
-            use_native_backend,
-            Path::new(path),
-        );
+        inject_flow_prelude(&mut program, &mut parser, use_native_backend, Path::new(path));
     }
 
     let interner = parser.take_interner();
@@ -145,11 +132,7 @@ pub(crate) fn build_program_context_from_source(
         ModuleGraph::build_with_entry_and_module_roots(&entry_path, &program, interner, &roots);
     let parse_ms = parse_start.elapsed().as_secs_f64() * 1000.0;
     let mut graph_diags = std::mem::take(&mut graph_result.diagnostics);
-    tag_and_attach_file(
-        &mut graph_diags,
-        flux::diagnostics::DiagnosticPhase::ModuleGraph,
-        path,
-    );
+    tag_and_attach_file(&mut graph_diags, flux::diagnostics::DiagnosticPhase::ModuleGraph, path);
     all_diagnostics.extend(graph_diags);
 
     Ok(ProgramContext {

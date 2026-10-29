@@ -42,13 +42,7 @@ pub fn on_type_format(
         "}" => depth,
         _ => return Vec::new(),
     };
-    set_line_indent(
-        snapshot,
-        position.line,
-        units.max(0) as u32,
-        tab_size,
-        insert_spaces,
-    )
+    set_line_indent(snapshot, position.line, units.max(0) as u32, tab_size, insert_spaces)
 }
 
 /// Net `{` minus `}` among the tokens that start before `position`. Clamped at
@@ -74,10 +68,7 @@ fn brace_depth_before(snapshot: &Snapshot, position: Position) -> i32 {
 
 /// Whether line `line`'s first non-whitespace character is `}`.
 fn line_leads_with_close_brace(snapshot: &Snapshot, line: u32) -> bool {
-    let Some(start) = snapshot
-        .position_map
-        .lsp_to_offset(Position { line, character: 0 })
-    else {
+    let Some(start) = snapshot.position_map.lsp_to_offset(Position { line, character: 0 }) else {
         return false;
     };
     let bytes = snapshot.text.as_bytes();
@@ -117,14 +108,6 @@ fn set_line_indent(
     if text[start..end] == desired {
         return Vec::new();
     }
-    let end_pos = snapshot
-        .position_map
-        .offset_to_lsp(TextSize::from(end as u32));
-    vec![TextEdit {
-        range: Range {
-            start: line_start,
-            end: end_pos,
-        },
-        new_text: desired,
-    }]
+    let end_pos = snapshot.position_map.offset_to_lsp(TextSize::from(end as u32));
+    vec![TextEdit { range: Range { start: line_start, end: end_pos }, new_text: desired }]
 }

@@ -1,4 +1,5 @@
 use crate::core::{CoreExpr, CoreLit, CorePrimOp};
+use crate::shared::opt_bisect;
 
 /// Apply small backend-neutral algebraic rewrites over Core expressions.
 ///
@@ -17,7 +18,7 @@ pub fn algebraic_simplify(expr: CoreExpr) -> CoreExpr {
     match expr {
         CoreExpr::PrimOp { op, args, span } => {
             let args: Vec<CoreExpr> = args.into_iter().map(algebraic_simplify).collect();
-            match (op, args.as_slice()) {
+            let simplified = match (op, args.as_slice()) {
                 (CorePrimOp::IAdd, [lhs, CoreExpr::Lit(CoreLit::Int(0), _)])
                 | (CorePrimOp::ISub, [lhs, CoreExpr::Lit(CoreLit::Int(0), _)])
                 | (CorePrimOp::IMul, [lhs, CoreExpr::Lit(CoreLit::Int(1), _)])
@@ -57,16 +58,11 @@ pub fn algebraic_simplify(expr: CoreExpr) -> CoreExpr {
                     CoreExpr::Lit(CoreLit::Float(0.0), span)
                 }
 
-                (
-                    CorePrimOp::Not,
-                    [
-                        CoreExpr::PrimOp {
-                            op: CorePrimOp::Not,
-                            args: inner,
-                            ..
-                        },
-                    ],
-                ) if inner.len() == 1 && expr_is_known_bool(&inner[0]) => inner[0].clone(),
+                (CorePrimOp::Not, [CoreExpr::PrimOp { op: CorePrimOp::Not, args: inner, .. }])
+                    if inner.len() == 1 && expr_is_known_bool(&inner[0]) =>
+                {
+                    inner[0].clone()
+                }
                 (CorePrimOp::And, [lhs, CoreExpr::Lit(CoreLit::Bool(true), _)])
                     if expr_is_known_bool(lhs) =>
                 {
@@ -95,7 +91,13 @@ pub fn algebraic_simplify(expr: CoreExpr) -> CoreExpr {
                 | (CorePrimOp::Or, [CoreExpr::Lit(CoreLit::Bool(true), _), _]) => {
                     CoreExpr::Lit(CoreLit::Bool(true), span)
                 }
-                _ => CoreExpr::PrimOp { op, args, span },
+                _ => return CoreExpr::PrimOp { op, args, span },
+            };
+            // A bisected run past its limit (0190 §13) keeps the operation.
+            if opt_bisect::allow("algebraic_simplify", || format!("simplify {op:?}")) {
+                simplified
+            } else {
+                CoreExpr::PrimOp { op, args, span }
             }
         }
         other => super::helpers::map_children(other, algebraic_simplify),

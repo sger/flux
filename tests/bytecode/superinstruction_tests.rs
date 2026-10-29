@@ -9,11 +9,7 @@ fn compile_bytecode(input: &str) -> flux::bytecode::bytecode::Bytecode {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler
@@ -28,10 +24,7 @@ fn all_functions_asm(input: &str) -> String {
     let mut out = disassemble(&bytecode.instructions);
     for value in &bytecode.constants {
         if let Value::Function(f) = value {
-            out.push_str(&format!(
-                "\n--- function ({} params) ---\n",
-                f.num_parameters
-            ));
+            out.push_str(&format!("\n--- function ({} params) ---\n", f.num_parameters));
             out.push_str(&disassemble(&f.instructions));
         }
     }
@@ -43,11 +36,7 @@ fn run(input: &str) -> Value {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     compiler
@@ -121,10 +110,7 @@ fn constant_add_fuses_constant_and_add() {
         count(0)
     "#,
     );
-    assert!(
-        asm.contains("OpConstantAdd"),
-        "expected OpConstantAdd:\n{asm}"
-    );
+    assert!(asm.contains("OpConstantAdd"), "expected OpConstantAdd:\n{asm}");
 }
 
 #[test]
@@ -165,10 +151,7 @@ fn get_local_get_local_fuses_consecutive_getlocals() {
         f(1, 2, 3)
     "#,
     );
-    assert!(
-        asm.contains("OpGetLocalGetLocal"),
-        "expected OpGetLocalGetLocal:\n{asm}"
-    );
+    assert!(asm.contains("OpGetLocalGetLocal"), "expected OpGetLocalGetLocal:\n{asm}");
 }
 
 // ── Peephole fusion: OpSetLocalPop ──────────────────────────────────────
@@ -294,10 +277,7 @@ fn get_local_index_fuses_getlocal_and_index() {
         first([|1, 2, 3|])
     "#,
     );
-    assert!(
-        asm.contains("OpGetLocalIndex"),
-        "expected OpGetLocalIndex:\n{asm}"
-    );
+    assert!(asm.contains("OpGetLocalIndex"), "expected OpGetLocalIndex:\n{asm}");
 }
 
 // ── Peephole fusion: OpReturnLocal ──────────────────────────────────────

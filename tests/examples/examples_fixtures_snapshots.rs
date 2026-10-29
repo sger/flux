@@ -1,7 +1,5 @@
-#[path = "../support/diagnostics_env.rs"]
-mod diagnostics_env;
-#[path = "../support/examples_snapshot.rs"]
-mod examples_snapshot;
+use crate::support::diagnostics_env;
+use crate::support::examples_snapshot;
 
 use std::path::Path;
 
@@ -19,17 +17,12 @@ fn snapshot_dir(
 
 fn is_excluded(name: &str) -> bool {
     name.contains("max_errors")
-        || name.starts_with("parser_errors__")
-        || name.starts_with("compiler_errors__")
-        || name.starts_with("runtime_errors__")
-        || name.starts_with("module_scoped_type_classes__")
 }
 
 fn run_subdir(workspace_root: &Path, subdir: &str) {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
-    for case in snapshot_dir(workspace_root, subdir)
-        .into_iter()
-        .filter(|c| !is_excluded(&c.snapshot_name))
+    for case in
+        snapshot_dir(workspace_root, subdir).into_iter().filter(|c| !is_excluded(&c.snapshot_name))
     {
         insta::with_settings!({
             snapshot_path => "../snapshots/examples_fixtures",
@@ -69,11 +62,6 @@ fn examples_async() {
 #[test]
 fn examples_benchmarks() {
     run_subdir(Path::new(env!("CARGO_MANIFEST_DIR")), "benchmarks");
-}
-
-#[test]
-fn examples_compiler_errors() {
-    run_subdir(Path::new(env!("CARGO_MANIFEST_DIR")), "compiler_errors");
 }
 
 #[test]
@@ -142,11 +130,6 @@ fn examples_optimizations() {
 }
 
 #[test]
-fn examples_parser_errors() {
-    run_subdir(Path::new(env!("CARGO_MANIFEST_DIR")), "parser_errors");
-}
-
-#[test]
 fn examples_patterns() {
     run_subdir(Path::new(env!("CARGO_MANIFEST_DIR")), "patterns");
 }
@@ -169,11 +152,6 @@ fn examples_roots() {
 #[test]
 fn examples_runtime_boundaries() {
     run_subdir(Path::new(env!("CARGO_MANIFEST_DIR")), "runtime_boundaries");
-}
-
-#[test]
-fn examples_runtime_errors() {
-    run_subdir(Path::new(env!("CARGO_MANIFEST_DIR")), "runtime_errors");
 }
 
 #[test]

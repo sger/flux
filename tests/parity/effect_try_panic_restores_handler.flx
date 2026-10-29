@@ -1,0 +1,39 @@
+// parity: vm, llvm
+// expect: success
+// bug: A handle's body panics inside `try_catch`. The catch leaves the
+//      handle without running the code that uninstalls it, so a later
+//      perform reached its dead clause (`1 + 3 * 1000`) instead of the
+//      outer one (`1 + 7`). Only the tag of the caught result is printed:
+//      the panic message differs between backends.
+// parity-expected-stdout-begin
+// "error"
+// "8"
+// parity-expected-stdout-end
+
+effect Ask {
+    ask : (Int) -> Int
+}
+
+fn boom() -> Int with Ask {
+    panic("boom")
+}
+
+fn inner() -> Int {
+    let xs = [1, 2, 3]
+    boom() handle Ask {
+        ask(resume, v) -> resume(v + len(xs) * 1000)
+    }
+}
+
+fn outer() -> Int with Ask, IO {
+    let caught = try_catch(\() -> inner())
+    print(caught.0)
+    perform Ask.ask(1)
+}
+
+fn main() with IO {
+    let result = outer() handle Ask {
+        ask(resume, v) -> resume(v + 7)
+    }
+    print(to_string(result))
+}

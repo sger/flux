@@ -9,10 +9,10 @@ error[E034]: Unexpected Token
 
 `end` is not a keyword in Flux. Use `}` to close blocks.
 
-  examples/type_system/failing/116_keyword_alias_end.flx:22:1
-   |
-22 | end
-   | ^^^
+  examples/type_system/failing/116_keyword_alias_end.flx:7:1
+  |
+7 | end
+  | ^^^
 
 Hint:
   Replace `end` with `}`.

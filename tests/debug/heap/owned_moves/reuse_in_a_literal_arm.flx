@@ -1,0 +1,26 @@
+// An arm with no constructor pattern says nothing about the dead `o`: its
+// one-field Some cell must not be reused for a two-field cons (Perceus audit
+// M1). The overrun lands in malloc slack, so the output is the same with or
+// without the fix; `an_arm_with_no_constructor_pattern_reuses_nothing` in
+// reuse.rs is what catches a regression.
+
+fn keep(o) {
+    o
+}
+
+fn grow(o, n, rest) {
+    match n {
+        0 -> match keep(o) {
+            Some(k) -> [k | rest],
+            None -> rest,
+        },
+        _ -> [n | rest],
+    }
+}
+
+fn main() {
+    let a = grow(Some(7), 5, [1, 2])
+    let b = Some(9)
+    print(a)
+    print(b)
+}

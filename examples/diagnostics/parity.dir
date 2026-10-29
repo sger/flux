@@ -1,0 +1,4 @@
+# Diagnostic demos (proposal 0190 §16). Each shows an error message, or the
+# program a hint fixes; the messages are pinned by snapshots. The parity check
+# and the census hold the ways to agree with each other, and none may crash.
+expect: any

@@ -59,20 +59,11 @@ pub fn index_file(uri: &Uri, text: &Arc<str>, encoding: PositionEncoding) -> Fil
         if let Statement::Module { name, body, .. } = stmt {
             let container = interner.try_resolve(*name).map(str::to_string);
             for inner in &body.statements {
-                push_entry(
-                    inner,
-                    &interner,
-                    &position_map,
-                    container.as_deref(),
-                    &mut entries,
-                );
+                push_entry(inner, &interner, &position_map, container.as_deref(), &mut entries);
             }
         }
     }
-    FileSymbols {
-        uri: uri.clone(),
-        entries,
-    }
+    FileSymbols { uri: uri.clone(), entries }
 }
 
 /// Filter the cached declarations across `files` by `query` (case-insensitive
@@ -90,10 +81,7 @@ pub fn query(files: &[Arc<FileSymbols>], query: &str) -> Vec<WorkspaceSymbol> {
                 kind: entry.kind,
                 tags: None,
                 container_name: entry.container.clone(),
-                location: OneOf::Left(Location {
-                    uri: file.uri.clone(),
-                    range: entry.range,
-                }),
+                location: OneOf::Left(Location { uri: file.uri.clone(), range: entry.range }),
                 data: None,
             });
             if out.len() >= MAX_RESULTS {
@@ -145,9 +133,7 @@ fn symbol_of(stmt: &Statement) -> Option<(Identifier, SymbolKind, FluxSpan)> {
         }
         Statement::TypeAlias(alias) => (alias.name, SymbolKind::TYPE_PARAMETER, alias.span),
         Statement::Class { name, span, .. } => (*name, SymbolKind::CLASS, *span),
-        Statement::Instance {
-            class_name, span, ..
-        } => (*class_name, SymbolKind::CLASS, *span),
+        Statement::Instance { class_name, span, .. } => (*class_name, SymbolKind::CLASS, *span),
         _ => return None,
     })
 }

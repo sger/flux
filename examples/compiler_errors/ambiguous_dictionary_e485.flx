@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E485
 // Expected: E485 Ambiguous Dictionary Selection
 //   "This call to `mk` does not say which `Mk` instance it needs."
 //   Hint: "Annotate the call, or pass a value whose type names the instance,
@@ -27,7 +26,7 @@ instance Mk<String> {
 }
 
 fn pick<a: Mk, b: Mk>(x: a, y: b) -> Int {
-    mk(1)
+    mk(1) //~ E485
 }
 
 fn main() with IO {

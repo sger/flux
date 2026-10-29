@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E300
 
 module CollectionsConfusion {
     fn sum(xs: List<Int>) -> Int {
@@ -7,6 +6,6 @@ module CollectionsConfusion {
     }
 
     fn bad() -> Int {
-        sum([|1, 2, 3|])
+        sum([|1, 2, 3|]) //~ E300
     }
 }

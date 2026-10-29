@@ -3,8 +3,7 @@
 //!   (`Result`, `AsyncError`, `Scope`, ...) and their constructors
 //!   (`Ok`, `Err`, `Canceled`, ...) into scope without qualification.
 
-#[path = "../support/flux_runner.rs"]
-mod flux_runner;
+use crate::support::flux_runner;
 
 fn run_flux_source(source: &str, tag: &str) -> (String, String, bool) {
     flux_runner::run_flux(source, tag)
@@ -73,9 +72,6 @@ fn main() with IO {
 }
 "#;
     let (stdout, stderr, ok) = run_flux_source(source, "try_basic");
-    assert!(
-        ok,
-        "try must compile and recover from fail:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(ok, "try must compile and recover from fail:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert_eq!(stdout.trim(), "9");
 }

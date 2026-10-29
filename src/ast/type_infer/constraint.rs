@@ -24,18 +24,9 @@ use crate::{
 #[derive(Debug, Clone)]
 pub enum Constraint {
     /// `t1 = t2` — two types must unify at the given span.
-    Unify {
-        t1: InferType,
-        t2: InferType,
-        span: Span,
-        context: ReportContext,
-    },
+    Unify { t1: InferType, t2: InferType, span: Span, context: ReportContext },
     /// Callee effect row must be a subset of the ambient effect row.
-    EffectSubset {
-        required: InferEffectRow,
-        available: InferEffectRow,
-        span: Span,
-    },
+    EffectSubset { required: InferEffectRow, available: InferEffectRow, span: Span },
     /// A type must implement a type class (e.g., `Num<a>` from `x + y`).
     ///
     /// Generated when:
@@ -191,10 +182,7 @@ impl WantedConstraints {
 
     /// Open a capture window at the current position.
     pub fn open_window(&self) -> CaptureWindow {
-        CaptureWindow {
-            simple: self.simple.len(),
-            implications: self.implications.len(),
-        }
+        CaptureWindow { simple: self.simple.len(), implications: self.implications.len() }
     }
 
     /// The predicates emitted since `window` opened, without consuming them.
@@ -271,20 +259,12 @@ mod tests {
         let eq = interner.intern("Eq");
         let f = interner.intern("f");
 
-        let inner = WantedConstraints {
-            simple: vec![wanted(eq)],
-            implications: Vec::new(),
-        };
-        let tree = WantedConstraints {
-            simple: Vec::new(),
-            implications: vec![implication(f, inner)],
-        };
+        let inner = WantedConstraints { simple: vec![wanted(eq)], implications: Vec::new() };
+        let tree =
+            WantedConstraints { simple: Vec::new(), implications: vec![implication(f, inner)] };
 
         assert!(tree.simple.is_empty());
-        assert!(
-            !tree.is_solved(),
-            "an obligation inside an implication is still an obligation"
-        );
+        assert!(!tree.is_solved(), "an obligation inside an implication is still an obligation");
         assert!(WantedConstraints::default().is_solved());
     }
 
@@ -322,19 +302,12 @@ mod tests {
         tree.simple.push(wanted(ord));
         tree.implications.push(implication(
             f,
-            WantedConstraints {
-                simple: vec![wanted(show)],
-                implications: Vec::new(),
-            },
+            WantedConstraints { simple: vec![wanted(show)], implications: Vec::new() },
         ));
 
         let scope = tree.close_window(window);
 
-        assert_eq!(
-            tree.simple.len(),
-            1,
-            "only the pre-window predicate remains"
-        );
+        assert_eq!(tree.simple.len(), 1, "only the pre-window predicate remains");
         assert_eq!(tree.simple[0].class_name, eq);
         assert!(tree.implications.is_empty(), "the nested scope moved too");
         assert_eq!(scope.simple.len(), 1);

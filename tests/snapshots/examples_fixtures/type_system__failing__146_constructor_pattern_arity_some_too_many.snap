@@ -9,15 +9,15 @@ error[E015]: Non-Exhaustive Match
 
 Match is not exhaustive: 1 missing pattern.
 
-  examples/type_system/failing/146_constructor_pattern_arity_some_too_many.flx:48:14
+  examples/type_system/failing/146_constructor_pattern_arity_some_too_many.flx:11:14
    |
-48 |     let _y = match x {
-   |              ^^^^^^^^^
-49 |         BoxI(a, b) -> a,
-   | ^^^^^^^^^^^^^^^^^^^^^^^^
-50 |         EmptyI -> 0,
+11 |     let _y = match x { //~ E015
+   |              ^^^^^^^^^^^^^^^^^^
+12 |         BoxI(a, b) -> a, //~ E085
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+13 |         EmptyI -> 0,
    | ^^^^^^^^^^^^^^^^^^^^
-51 |     }
+14 |     }
    | ^^^^^
 
 Hint:
@@ -28,9 +28,9 @@ error[E085]: Constructor Pattern Arity Mismatch
 
 Constructor pattern `BoxI` expects 1 argument(s) but got 2.
 
-  examples/type_system/failing/146_constructor_pattern_arity_some_too_many.flx:49:9
+  examples/type_system/failing/146_constructor_pattern_arity_some_too_many.flx:12:9
    |
-49 |         BoxI(a, b) -> a,
+12 |         BoxI(a, b) -> a,
    |         ^^^^^^^^^^
 
 Hint:

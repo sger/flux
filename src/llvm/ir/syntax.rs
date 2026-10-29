@@ -82,11 +82,7 @@ pub struct BlockDebug {
 impl BlockDebug {
     /// The location node of instruction `index`, if a mark covers it.
     pub fn loc_of(&self, index: usize) -> Option<u32> {
-        self.marks
-            .iter()
-            .take_while(|(from, _)| *from <= index)
-            .last()
-            .map(|(_, loc)| *loc)
+        self.marks.iter().take_while(|(from, _)| *from <= index).last().map(|(_, loc)| *loc)
     }
 }
 
@@ -163,21 +159,12 @@ pub struct LlvmBlock {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum LlvmConst {
-    Int {
-        bits: u32,
-        value: i128,
-    },
+    Int { bits: u32, value: i128 },
     Float(f64),
     Null,
     Undef,
-    Array {
-        element_ty: LlvmType,
-        elements: Vec<LlvmConst>,
-    },
-    Struct {
-        packed: bool,
-        fields: Vec<(LlvmType, LlvmConst)>,
-    },
+    Array { element_ty: LlvmType, elements: Vec<LlvmConst> },
+    Struct { packed: bool, fields: Vec<(LlvmType, LlvmConst)> },
     GlobalRef(GlobalId),
     ZeroInit,
 }
@@ -309,6 +296,10 @@ pub enum LlvmInstr {
         then_value: LlvmOperand,
         else_value: LlvmOperand,
     },
+    /// The `{ ptr, i32 }` an unwind arrives with; a cleanup pad only.
+    LandingPad {
+        dst: LlvmLocal,
+    },
     Call {
         dst: Option<LlvmLocal>,
         tail: bool,
@@ -362,6 +353,21 @@ pub enum LlvmTerminator {
         scrutinee: LlvmOperand,
         default: LabelId,
         cases: Vec<(LlvmConst, LabelId)>,
+    },
+    /// A call that continues at `normal`, or at `unwind` when the callee
+    /// unwinds.
+    Invoke {
+        dst: Option<LlvmLocal>,
+        call_conv: Option<CallConv>,
+        ret_ty: LlvmType,
+        callee: LlvmOperand,
+        args: Vec<(LlvmType, LlvmOperand)>,
+        normal: LabelId,
+        unwind: LabelId,
+    },
+    /// Continues the unwind a landing pad stopped, with its `{ ptr, i32 }`.
+    Resume {
+        value: LlvmLocal,
     },
     Unreachable,
 }

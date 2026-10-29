@@ -1,4 +1,5 @@
 use crate::core::{CoreAlt, CoreBinder, CoreExpr, CoreLit, CorePat, CorePrimOp, CoreTag};
+use crate::shared::opt_bisect;
 
 use super::helpers::bind_pattern;
 
@@ -18,14 +19,12 @@ pub fn constant_fold(expr: CoreExpr) -> CoreExpr {
     match expr {
         CoreExpr::PrimOp { op, args, span } => {
             let args: Vec<CoreExpr> = args.into_iter().map(constant_fold).collect();
-            fold_primop(op, &args, span).unwrap_or(CoreExpr::PrimOp { op, args, span })
+            // A bisected run past its limit (0190 §13) keeps the operation.
+            fold_primop(op, &args, span)
+                .filter(|_| opt_bisect::allow("constant_fold", || format!("fold {op:?}")))
+                .unwrap_or(CoreExpr::PrimOp { op, args, span })
         }
-        CoreExpr::Case {
-            scrutinee,
-            alts,
-            join_ty,
-            span,
-        } => {
+        CoreExpr::Case { scrutinee, alts, join_ty, span } => {
             let scrutinee = constant_fold(*scrutinee);
             let alts: Vec<CoreAlt> = alts
                 .into_iter()
@@ -35,12 +34,13 @@ pub fn constant_fold(expr: CoreExpr) -> CoreExpr {
                     alt
                 })
                 .collect();
-            fold_case(&scrutinee, &alts).unwrap_or(CoreExpr::Case {
-                scrutinee: Box::new(scrutinee),
-                alts,
-                join_ty,
-                span,
-            })
+            fold_case(&scrutinee, &alts)
+                .filter(|_| {
+                    opt_bisect::allow("constant_fold", || {
+                        "select the arm a known value matches".to_string()
+                    })
+                })
+                .unwrap_or(CoreExpr::Case { scrutinee: Box::new(scrutinee), alts, join_ty, span })
         }
         other => super::helpers::map_children(other, constant_fold),
     }
@@ -212,18 +212,12 @@ fn match_con_pat(
 ) -> Option<Vec<(CoreBinder, CoreExpr)>> {
     match pat {
         CorePat::Wildcard => Some(Vec::new()),
-        CorePat::Var(binder) => Some(vec![(
-            *binder,
-            CoreExpr::Con {
-                tag: tag.clone(),
-                fields: fields.to_vec(),
-                span,
-            },
-        )]),
-        CorePat::Con {
-            tag: pat_tag,
-            fields: pat_fields,
-        } if pat_tag == tag && pat_fields.len() == fields.len() => {
+        CorePat::Var(binder) => {
+            Some(vec![(*binder, CoreExpr::Con { tag: tag.clone(), fields: fields.to_vec(), span })])
+        }
+        CorePat::Con { tag: pat_tag, fields: pat_fields }
+            if pat_tag == tag && pat_fields.len() == fields.len() =>
+        {
             let mut bindings = Vec::new();
             for (pat_field, field) in pat_fields.iter().zip(fields.iter()) {
                 match pat_field {

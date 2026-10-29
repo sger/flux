@@ -1,6 +1,5 @@
 ---
 source: tests/examples/examples_fixtures_snapshots.rs
-assertion_line: 39
 ---
 Fixture: examples/type_system/failing/45_effect_row_subtract_missing_io.flx
 == compile ==
@@ -10,30 +9,30 @@ error[E300]: Parameter Type Mismatch
 
 Parameter 1 has the wrong type.
 
-  examples/type_system/failing/45_effect_row_subtract_missing_io.flx:66:5
+  examples/type_system/failing/45_effect_row_subtract_missing_io.flx:21:5
    |
-66 |     run_with_row(io_only)
+21 |     run_with_row(io_only)
    |     ^^^^^^^^^^^^^^^^^^^^^
-   |     --------------------- parameter 1 has type `() -> Unit with Console, FileSystem, Stdin, Env, Process`
+   |     --------------------- parameter 1 has type `() -> Int with Console, FileSystem, Stdin, Env, Process`
 
    |     --------------------- this type mismatch is reported here
 
 Note:
-  expected parameter type: () -> Unit with FileSystem, Stdin, Env, Process
-  found parameter type: () -> Unit with Console, FileSystem, Stdin, Env, Process
+  expected parameter type: () -> Int with FileSystem, Stdin, Env, Process
+  found parameter type: () -> Int with Console, FileSystem, Stdin, Env, Process
   the conflicting types meet at this expression
 
 Help:
-  Change parameter 1 to use `() -> Unit with FileSystem, Stdin, Env, Process` consistently.
+  Change parameter 1 to use `() -> Int with FileSystem, Stdin, Env, Process` consistently.
 
 
 error[E400]: Missing Effect
 
 requires effect `FileSystem` but the enclosing context does not provide it
 
-  examples/type_system/failing/45_effect_row_subtract_missing_io.flx:66:5
+  examples/type_system/failing/45_effect_row_subtract_missing_io.flx:21:5
    |
-66 |     run_with_row(io_only)
+21 |     run_with_row(io_only)
    |     ^^^^^^^^^^^^^^^^^^^^^
    |     --------------------- requires `FileSystem`
 

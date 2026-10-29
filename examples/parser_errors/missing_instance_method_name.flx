@@ -6,9 +6,9 @@
 //
 // Expected method name after `fn` in instance declaration.
 //
-//   examples/parser_errors/missing_instance_method_name.flx:34:8
+//   examples/parser_errors/missing_instance_method_name.flx:33:8
 //    |
-// 34 |     fn (x) { x }
+// 33 |     fn (x) { x }
 //    |        ^
 //
 // Hint:
@@ -18,7 +18,6 @@
 //   Suppressed 1 cascading parser diagnostic(s) likely caused by an earlier syntax error.
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E034
 
 // Missing method name after `fn` in instance declaration.
 //
@@ -31,7 +30,7 @@ class Sizeable<a> {
 }
 
 instance Sizeable<Int> {
-    fn (x) { x }
+    fn (x) { x } //~ E034
 }
 
 fn main() {

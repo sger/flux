@@ -1,0 +1,28 @@
+// parity: vm, llvm
+// expect: success
+// bug: KI-117. `count` is written after `main`, its caller, and is
+//      rejected with E400 "requires effect `Console`". Written before
+//      `main`, it compiles. Found by `cargo xtask rewrite --kind reorder`
+//      on effect_tr_loop.flx (0190 S7).
+// skip: KI-117 a function written after its caller is typed from the call
+// parity-expected-stdout-begin
+// "done"
+// parity-expected-stdout-end
+
+effect Acc {
+    add : (Int) -> ()
+}
+
+fn main() with IO {
+    let _ = count(3) handle Acc {
+        add(resume, _n) -> resume(())
+    }
+    print("done")
+}
+
+fn count(n: Int) with Acc {
+    if n == 0 { () } else {
+        perform Acc.add(n)
+        count(n - 1)
+    }
+}

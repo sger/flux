@@ -233,11 +233,8 @@ impl Statement {
                 if tp.constraints.is_empty() {
                     render_ident(tp.name)
                 } else {
-                    let constraints: Vec<String> = tp
-                        .constraints
-                        .iter()
-                        .map(|c| render_ident(c.class_name))
-                        .collect();
+                    let constraints: Vec<String> =
+                        tp.constraints.iter().map(|c| render_ident(c.class_name)).collect();
                     format!("{}: {}", render_ident(tp.name), constraints.join(" + "))
                 }
             })
@@ -287,13 +284,7 @@ impl Statement {
 impl fmt::Display for Statement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Statement::Let {
-                is_public,
-                name,
-                type_annotation,
-                value,
-                ..
-            } => {
+            Statement::Let { is_public, name, type_annotation, value, .. } => {
                 let prefix = if *is_public { "public " } else { "" };
                 if let Some(ta) = type_annotation {
                     write!(f, "{}let {}: {} = {};", prefix, name, ta, value)
@@ -301,12 +292,7 @@ impl fmt::Display for Statement {
                     write!(f, "{}let {} = {};", prefix, name, value)
                 }
             }
-            Statement::LetDestructure {
-                is_public,
-                pattern,
-                value,
-                ..
-            } => {
+            Statement::LetDestructure { is_public, pattern, value, .. } => {
                 let prefix = if *is_public { "public " } else { "" };
                 write!(f, "{}let {} = {};", prefix, pattern, value)
             }
@@ -316,11 +302,7 @@ impl fmt::Display for Statement {
             Statement::Return { value: None, .. } => {
                 write!(f, "return;")
             }
-            Statement::Expression {
-                expression,
-                has_semicolon,
-                ..
-            } => {
+            Statement::Expression { expression, has_semicolon, .. } => {
                 if *has_semicolon {
                     write!(f, "{};", expression)
                 } else {
@@ -342,12 +324,10 @@ impl fmt::Display for Statement {
                 let params: Vec<String> = parameters
                     .iter()
                     .enumerate()
-                    .map(
-                        |(idx, param)| match parameter_types.get(idx).and_then(|ty| ty.as_ref()) {
-                            Some(ty) => format!("{param}: {ty}"),
-                            None => param.to_string(),
-                        },
-                    )
+                    .map(|(idx, param)| match parameter_types.get(idx).and_then(|ty| ty.as_ref()) {
+                        Some(ty) => format!("{param}: {ty}"),
+                        None => param.to_string(),
+                    })
                     .collect();
                 let fn_kw = match (*is_public, intrinsic.is_some()) {
                     (true, true) => "public intrinsic fn",
@@ -467,12 +447,7 @@ impl fmt::Display for Statement {
             Statement::Module { name, body, .. } => {
                 write!(f, "module {} {}", name, body)
             }
-            Statement::Import {
-                name,
-                except,
-                exposing,
-                ..
-            } => {
+            Statement::Import { name, except, exposing, .. } => {
                 let mut s = String::from("import ");
                 s.push_str(&name.to_string());
                 if let Some(alias) = &self.get_import_alias() {
@@ -514,9 +489,7 @@ impl fmt::Display for Statement {
                 }
                 write!(f, " }}")
             }
-            Statement::EffectAlias {
-                name, expansion, ..
-            } => {
+            Statement::EffectAlias { name, expansion, .. } => {
                 write!(f, "alias {} = <{}>", name, expansion)
             }
             Statement::TypeAlias(alias) => {
@@ -536,41 +509,24 @@ impl fmt::Display for Statement {
                     )
                 }
             }
-            Statement::Class {
-                name,
-                type_params,
-                methods,
-                ..
-            } => {
+            Statement::Class { name, type_params, methods, .. } => {
                 write!(f, "class {}", name)?;
                 if !type_params.is_empty() {
                     write!(
                         f,
                         "<{}>",
-                        type_params
-                            .iter()
-                            .map(|p| p.to_string())
-                            .collect::<Vec<_>>()
-                            .join(", ")
+                        type_params.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(", ")
                     )?;
                 }
                 write!(f, " {{ {} methods }}", methods.len())
             }
-            Statement::Instance {
-                class_name,
-                type_args,
-                ..
-            } => {
+            Statement::Instance { class_name, type_args, .. } => {
                 write!(f, "instance {}", class_name)?;
                 if !type_args.is_empty() {
                     write!(
                         f,
                         "<{}>",
-                        type_args
-                            .iter()
-                            .map(|t| t.to_string())
-                            .collect::<Vec<_>>()
-                            .join(", ")
+                        type_args.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", ")
                     )?;
                 }
                 write!(f, " {{ ... }}")
@@ -590,12 +546,7 @@ impl Statement {
     /// Formats this statement using the interner to resolve identifier names.
     pub fn display_with(&self, interner: &Interner) -> String {
         match self {
-            Statement::Let {
-                name,
-                type_annotation,
-                value,
-                ..
-            } => {
+            Statement::Let { name, type_annotation, value, .. } => {
                 if let Some(ta) = type_annotation {
                     format!(
                         "let {}: {} = {};",
@@ -604,11 +555,7 @@ impl Statement {
                         value.display_with(interner)
                     )
                 } else {
-                    format!(
-                        "let {} = {};",
-                        interner.resolve(*name),
-                        value.display_with(interner)
-                    )
+                    format!("let {} = {};", interner.resolve(*name), value.display_with(interner))
                 }
             }
             Statement::LetDestructure { pattern, value, .. } => {
@@ -622,11 +569,7 @@ impl Statement {
                 format!("return {};", v.display_with(interner))
             }
             Statement::Return { value: None, .. } => "return;".to_string(),
-            Statement::Expression {
-                expression,
-                has_semicolon,
-                ..
-            } => {
+            Statement::Expression { expression, has_semicolon, .. } => {
                 if *has_semicolon {
                     format!("{};", expression.display_with(interner))
                 } else {
@@ -762,22 +705,12 @@ impl Statement {
                 }
             }
             Statement::Assign { name, value, .. } => {
-                format!(
-                    "{} = {};",
-                    interner.resolve(*name),
-                    value.display_with(interner)
-                )
+                format!("{} = {};", interner.resolve(*name), value.display_with(interner))
             }
             Statement::Module { name, body, .. } => {
                 format!("module {} {}", interner.resolve(*name), body)
             }
-            Statement::Import {
-                name,
-                alias,
-                except,
-                exposing,
-                ..
-            } => {
+            Statement::Import { name, alias, except, exposing, .. } => {
                 let mut text = format!("import {}", interner.resolve(*name));
                 if let Some(alias) = alias {
                     text.push_str(&format!(" as {}", interner.resolve(*alias)));
@@ -826,9 +759,7 @@ impl Statement {
                 text.push_str(" }");
                 text
             }
-            Statement::EffectAlias {
-                name, expansion, ..
-            } => {
+            Statement::EffectAlias { name, expansion, .. } => {
                 format!(
                     "alias {} = <{}>",
                     interner.resolve(*name),
@@ -839,18 +770,10 @@ impl Statement {
                 let prefix = if alias.is_public { "public " } else { "" };
                 let name = interner.resolve(alias.name);
                 if alias.params.is_empty() {
-                    format!(
-                        "{}alias {} = {}",
-                        prefix,
-                        name,
-                        alias.body.display_with(interner)
-                    )
+                    format!("{}alias {} = {}", prefix, name, alias.body.display_with(interner))
                 } else {
-                    let params: Vec<&str> = alias
-                        .params
-                        .iter()
-                        .map(|param| interner.resolve(*param))
-                        .collect();
+                    let params: Vec<&str> =
+                        alias.params.iter().map(|param| interner.resolve(*param)).collect();
                     format!(
                         "{}alias {}<{}> = {}",
                         prefix,
@@ -860,12 +783,7 @@ impl Statement {
                     )
                 }
             }
-            Statement::Class {
-                name,
-                type_params,
-                methods,
-                ..
-            } => {
+            Statement::Class { name, type_params, methods, .. } => {
                 let params: Vec<&str> = type_params.iter().map(|p| interner.resolve(*p)).collect();
                 format!(
                     "class {}<{}> {{ {} methods }}",
@@ -874,12 +792,7 @@ impl Statement {
                     methods.len()
                 )
             }
-            Statement::Instance {
-                class_name,
-                type_args,
-                methods,
-                ..
-            } => {
+            Statement::Instance { class_name, type_args, methods, .. } => {
                 let args: Vec<String> =
                     type_args.iter().map(|t| t.display_with(interner)).collect();
                 format!(

@@ -6,9 +6,9 @@
 //
 // This `if` branch needs to start with `{`.
 //
-//   examples/parser_errors/missing_if_brace.flx:31:12
+//   examples/parser_errors/missing_if_brace.flx:30:12
 //    |
-// 31 |     if x > 3
+// 30 |     if x > 3
 //    |            ^
 //    |            - this `if` branch starts here
 //
@@ -19,7 +19,6 @@
 //   Try adding `{` after the `if` condition.
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E034
 
 // Missing `{` in if body.
 //
@@ -28,7 +27,7 @@
 
 fn main() -> Unit {
     let x = 5
-    if x > 3
+    if x > 3 //~ E034
         print("big")
 }
 

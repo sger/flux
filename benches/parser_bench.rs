@@ -24,10 +24,8 @@ fn build_expression_heavy_corpus() -> String {
             src,
             "let out_{i} = (a_{i} + b_{i} * c_{i}) |> normalize_{i}(1, 2) |> clamp_{i}(0, 10);"
         );
-        let _ = writeln!(
-            src,
-            "if out_{i} > 10 && out_{i} != 42 {{ out_{i} }} else {{ out_{i} + 1 }};"
-        );
+        let _ =
+            writeln!(src, "if out_{i} > 10 && out_{i} != 42 {{ out_{i} }} else {{ out_{i} + 1 }};");
     }
     src
 }
@@ -36,10 +34,8 @@ fn build_string_interp_comment_corpus() -> String {
     let mut src = String::with_capacity(256_000);
     for i in 0..2000usize {
         let _ = writeln!(src, "/// parser bench doc comment {i}");
-        let _ = writeln!(
-            src,
-            "let s_{i} = \"prefix #{{name_{i}}} middle #{{count_{i} + 1}} suffix\";"
-        );
+        let _ =
+            writeln!(src, "let s_{i} = \"prefix #{{name_{i}}} middle #{{count_{i} + 1}} suffix\";");
         let _ = writeln!(src, "let t_{i} = \"line\\nquote:\\\" hash:\\#{{ok}}\";");
         let _ = writeln!(src, "/* block parser bench {i} */");
     }
@@ -58,22 +54,13 @@ fn build_malformed_recovery_corpus() -> String {
 
 fn build_corpora() -> Vec<Corpus> {
     vec![
-        Corpus {
-            name: "declaration_heavy",
-            source: build_declaration_heavy_corpus(),
-        },
-        Corpus {
-            name: "expression_operator_heavy",
-            source: build_expression_heavy_corpus(),
-        },
+        Corpus { name: "declaration_heavy", source: build_declaration_heavy_corpus() },
+        Corpus { name: "expression_operator_heavy", source: build_expression_heavy_corpus() },
         Corpus {
             name: "string_interp_comment_heavy",
             source: build_string_interp_comment_corpus(),
         },
-        Corpus {
-            name: "malformed_recovery_heavy",
-            source: build_malformed_recovery_corpus(),
-        },
+        Corpus { name: "malformed_recovery_heavy", source: build_malformed_recovery_corpus() },
     ]
 }
 
@@ -92,16 +79,12 @@ fn bench_parser(c: &mut Criterion) {
     for corpus in &corpora {
         let input = corpus.source.as_str();
         group.throughput(Throughput::Bytes(input.as_bytes().len() as u64));
-        group.bench_with_input(
-            BenchmarkId::from_parameter(corpus.name),
-            input,
-            |b, input| {
-                b.iter(|| {
-                    let stats = parse_program_stats(black_box(input));
-                    black_box(stats);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(corpus.name), input, |b, input| {
+            b.iter(|| {
+                let stats = parse_program_stats(black_box(input));
+                black_box(stats);
+            });
+        });
     }
 
     group.finish();

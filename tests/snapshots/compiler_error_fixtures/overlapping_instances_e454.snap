@@ -9,9 +9,9 @@ error[E454]: Overlapping Instances
 
 Multiple instances match `Sizeable<List<Int>>`; instance selection would depend on declaration order.
 
-  examples/compiler_errors/overlapping_instances_e454.flx:27:11
+  examples/compiler_errors/overlapping_instances_e454.flx:26:11
    |
-27 |     print(size([1, 2, 3]))
+26 |     print(size([1, 2, 3]))
    |           ^^^^^^^^^^^^^^^
 == stdout ==
 <not executed>

@@ -75,21 +75,14 @@ pub fn show_native_cache_info(flags: &DriverFlags) -> bool {
 /// Removes the resolved driver cache directory, and with `--deps` the
 /// downloaded git dependencies too.
 pub fn clean(flags: &DriverFlags) {
-    let entry = flags
-        .input
-        .input_path
-        .as_deref()
-        .map_or(Path::new("."), Path::new);
+    let entry = flags.input.input_path.as_deref().map_or(Path::new("."), Path::new);
     let layout = cache_paths::resolve_cache_layout(entry, flags.cache.cache_dir.as_deref());
     remove_tree(layout.root(), "cache");
     if flags.cache.clean_deps {
         remove_tree(&git_checkouts_dir(), "git checkouts");
     }
     if flags.cache.clean_store {
-        remove_tree(
-            &crate::driver::artifact_store::store_root(),
-            "artifact store",
-        );
+        remove_tree(&crate::driver::artifact_store::store_root(), "artifact store");
     }
 }
 
@@ -144,11 +137,7 @@ pub(crate) fn show_cache_info_for_path(
         eprintln!("Error: file not found: {}", path);
         return false;
     }
-    let input = CacheCommandInput {
-        path,
-        extra_roots,
-        cache_dir,
-    };
+    let input = CacheCommandInput { path, extra_roots, cache_dir };
     let (entry_path, cache_layout) = resolve_cache_layout_for_input(input);
 
     println!("cache root: {}", cache_layout.root().display());
@@ -183,11 +172,7 @@ pub(crate) fn show_cache_info_for_path(
                 println!(
                     "support artifact: {} ({})",
                     support_path.display(),
-                    if support_path.exists() {
-                        "present"
-                    } else {
-                        "missing"
-                    }
+                    if support_path.exists() { "present" } else { "missing" }
                 );
             }
         }
@@ -214,11 +199,7 @@ pub(crate) fn show_module_cache_info_for_path(
         eprintln!("Error: file not found: {}", path);
         return false;
     }
-    let input = CacheCommandInput {
-        path,
-        extra_roots,
-        cache_dir,
-    };
+    let input = CacheCommandInput { path, extra_roots, cache_dir };
     let (entry_path, cache_layout) = resolve_cache_layout_for_input(input);
     match load_cache_graph(input) {
         Ok(graph) => {
@@ -246,11 +227,7 @@ pub(crate) fn show_native_cache_info_for_path(
         eprintln!("Error: file not found: {}", path);
         return false;
     }
-    let input = CacheCommandInput {
-        path,
-        extra_roots,
-        cache_dir,
-    };
+    let input = CacheCommandInput { path, extra_roots, cache_dir };
     let (entry_path, cache_layout) = resolve_cache_layout_for_input(input);
     if !native_cache_available() {
         println!("{}", native_cache_unavailable_message());
@@ -268,11 +245,7 @@ pub(crate) fn show_native_cache_info_for_path(
                 println!(
                     "support artifact: {} ({})",
                     support_path.display(),
-                    if support_path.exists() {
-                        "present"
-                    } else {
-                        "missing"
-                    }
+                    if support_path.exists() { "present" } else { "missing" }
                 );
             }
         }
@@ -302,10 +275,7 @@ pub(crate) fn show_interface_info_file(path: &str) {
     println!("interface fingerprint: {}", interface.interface_fingerprint);
     println!("schemes: {}", interface.schemes.len());
     println!("borrow signatures: {}", interface.borrow_signatures.len());
-    println!(
-        "dependency fingerprints: {}",
-        interface.dependency_fingerprints.len()
-    );
+    println!("dependency fingerprints: {}", interface.dependency_fingerprints.len());
 
     if interface.dependency_fingerprints.is_empty() {
         println!("dependencies: none");
@@ -321,12 +291,8 @@ pub(crate) fn show_interface_info_file(path: &str) {
         }
     }
 
-    let mut members: Vec<_> = interface
-        .schemes
-        .keys()
-        .chain(interface.borrow_signatures.keys())
-        .cloned()
-        .collect();
+    let mut members: Vec<_> =
+        interface.schemes.keys().chain(interface.borrow_signatures.keys()).cloned().collect();
     members.sort();
     members.dedup();
 
@@ -349,12 +315,7 @@ pub(crate) fn show_interface_info_file(path: &str) {
         if let Some(signature) = interface.borrow_signatures.get(&member) {
             println!(
                 "    borrow: [{}] ({})",
-                signature
-                    .params
-                    .iter()
-                    .map(format_borrow_mode)
-                    .collect::<Vec<_>>()
-                    .join(", "),
+                signature.params.iter().map(format_borrow_mode).collect::<Vec<_>>().join(", "),
                 format_borrow_provenance(signature.provenance)
             );
         }
@@ -383,12 +344,7 @@ fn print_module_cache_summary(
     let interface_path = interface_path(cache_layout.root(), module_path);
 
     println!("module: {}", module_path.display());
-    match load_valid_interface(
-        cache_layout.root(),
-        module_path,
-        &source,
-        &semantic_config_hash,
-    ) {
+    match load_valid_interface(cache_layout.root(), module_path, &source, &semantic_config_hash) {
         Ok(interface) => {
             println!(
                 "  interface: valid [{}] {}",
@@ -398,10 +354,7 @@ fn print_module_cache_summary(
             if verbose {
                 println!("    compiler version: {}", interface.compiler_version);
                 println!("    format version: {}", interface.cache_format_version);
-                println!(
-                    "    semantic config hash: {}",
-                    interface.semantic_config_hash
-                );
+                println!("    semantic config hash: {}", interface.semantic_config_hash);
                 if interface.dependency_fingerprints.is_empty() {
                     println!("    dependency fingerprints: none");
                 } else {
@@ -431,11 +384,7 @@ fn print_module_cache_summary(
             }
         }
         Err(err) => {
-            println!(
-                "  interface: invalid ({}) {}",
-                err.message(),
-                interface_path.display()
-            );
+            println!("  interface: invalid ({}) {}", err.message(), interface_path.display());
         }
     }
 
@@ -465,10 +414,7 @@ fn print_module_cache_summary(
                             "      - {} [{} -> {}] ({})",
                             dep.source_path,
                             short_hash(&dep.expected_fingerprint),
-                            dep.current_fingerprint
-                                .as_deref()
-                                .map(short_hash)
-                                .unwrap_or("missing"),
+                            dep.current_fingerprint.as_deref().map(short_hash).unwrap_or("missing"),
                             match dep.status {
                                 ModuleDependencyStatus::Ok => "ok",
                                 ModuleDependencyStatus::Missing => "missing",
@@ -479,11 +425,9 @@ fn print_module_cache_summary(
                 }
             }
         }
-        Err(err) => println!(
-            "  {}: invalid ({})",
-            cache_artifact_prefix(Backend::Vm),
-            err.message()
-        ),
+        Err(err) => {
+            println!("  {}: invalid ({})", cache_artifact_prefix(Backend::Vm), err.message())
+        }
     }
 }
 
@@ -500,10 +444,7 @@ fn print_native_cache_summary(
         Ok(source) => source,
         Err(err) => {
             println!("module: {}", module_path.display());
-            println!(
-                "  {}: unreadable source ({err})",
-                cache_artifact_prefix(Backend::Native)
-            );
+            println!("  {}: unreadable source ({err})", cache_artifact_prefix(Backend::Native));
             return;
         }
     };
@@ -535,10 +476,7 @@ fn print_native_cache_summary(
                             "      - {} [{} -> {}] ({})",
                             dep.source_path,
                             short_hash(&dep.expected_fingerprint),
-                            dep.current_fingerprint
-                                .as_deref()
-                                .map(short_hash)
-                                .unwrap_or("missing"),
+                            dep.current_fingerprint.as_deref().map(short_hash).unwrap_or("missing"),
                             match dep.status {
                                 DependencyStatus::Ok => "ok",
                                 DependencyStatus::Missing => "missing",
@@ -549,11 +487,9 @@ fn print_native_cache_summary(
                 }
             }
         }
-        Err(err) => println!(
-            "  {}: invalid ({})",
-            cache_artifact_prefix(Backend::Native),
-            err.message()
-        ),
+        Err(err) => {
+            println!("  {}: invalid ({})", cache_artifact_prefix(Backend::Native), err.message())
+        }
     }
 }
 
@@ -581,10 +517,7 @@ mod tests {
             "definitely-missing.flx",
             &[],
             None,
-            CacheDisplaySelection {
-                show_vm: true,
-                show_native: false,
-            },
+            CacheDisplaySelection { show_vm: true, show_native: false },
             false,
         );
         assert!(!ok, "a missing input must report failure");

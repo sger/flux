@@ -1,14 +1,13 @@
 //! Integration driver for the `tests/flux/stdlib_either.flx` fixture.
 //!
 //! The behavioural coverage lives in the Flux fixture; this target runs it
-//! through `flux --test` and requires every case to pass.
+//! through `flux --test` on the VM and, with the `llvm` feature, natively,
+//! and requires every case to pass on both.
 
-#[path = "../support/stdlib_fixture.rs"]
-mod stdlib_fixture;
-
-use stdlib_fixture::assert_fixture_passes;
+use crate::support::stdlib_fixture;
+use stdlib_fixture::assert_backends_agree;
 
 #[test]
-fn stdlib_either_fixture_passes_on_the_vm() {
-    assert_fixture_passes("stdlib_either.flx");
+fn stdlib_either_passes_on_the_vm_and_natively() {
+    assert_backends_agree("stdlib_either.flx");
 }

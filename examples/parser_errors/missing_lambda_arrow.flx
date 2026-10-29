@@ -6,9 +6,9 @@
 //
 // I was expecting `->` after the lambda parameters, but I found an identifier.
 //
-//   examples/parser_errors/missing_lambda_arrow.flx:30:14
+//   examples/parser_errors/missing_lambda_arrow.flx:29:14
 //    |
-// 30 |     let f = \x x + 1
+// 29 |     let f = \x x + 1
 //    |              ^
 //    |              - this lambda parameter list ends here
 //
@@ -19,7 +19,6 @@
 //   Use `\x -> expr` or `\(x, y) -> expr`.
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E034
 
 // Missing `->` in lambda expression.
 //
@@ -27,7 +26,7 @@
 //   Points to where the arrow should be.
 
 fn main() -> Unit {
-    let f = \x x + 1
+    let f = \x x + 1 //~ E034
     print(f(5))
 }
 

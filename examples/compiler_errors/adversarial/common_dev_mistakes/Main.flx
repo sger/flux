@@ -1,12 +1,12 @@
 // expect: compile_error
-// expect-error: E300
-// expect-error: E011
-// expect-error: E011
-// expect-error: E013
-// expect-error: E407
-// expect-error: E004
-// expect-error: E056
 
+//~ CollectionsConfusion.flx:9 E300
+//~ MissingPublicAccess.flx:7 E011
+//~ PrivateMemberAccess.flx:7 E011
+//~ UnknownBaseMemberTypo.flx:5 E013
+//~ UnknownEffectTypo.flx:4 E407
+//~ UnknownIdentifierTypo.flx:5 E004
+//~ WrongArity.flx:9 E056
 import MissingPublicAccess
 import PrivateMemberAccess
 import CollectionsConfusion

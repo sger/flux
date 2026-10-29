@@ -9,13 +9,13 @@ error[E300]: Type Mismatch
 
 I found a type mismatch.
 
-  examples/type_system/failing/167_tuple_destructure_ordered_concrete_conflict_e300.flx:29:21
-   |
-29 |     let (a, b, c) = (1, 2)
-   |                     ^^^^^^
-   |                     ------ this expression has type `(Int, Int)`
+  examples/type_system/failing/167_tuple_destructure_ordered_concrete_conflict_e300.flx:6:21
+  |
+6 |     let (a, b, c) = (1, 2)
+  |                     ^^^^^^
+  |                     ------ this expression has type `(Int, Int)`
 
-   |                     ------ destructure source type is known at compile time
+  |                     ------ destructure source type is known at compile time
 
 Note:
   expected type: (_, _, _)

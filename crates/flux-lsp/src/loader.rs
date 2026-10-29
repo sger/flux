@@ -89,10 +89,7 @@ pub struct ClientHandle {
 
 impl ClientHandle {
     pub fn new(sender: Sender<LspMessage>, loader_tx: Sender<Message>) -> Self {
-        Self {
-            sender,
-            _loader_tx: loader_tx,
-        }
+        Self { sender, _loader_tx: loader_tx }
     }
 }
 
@@ -112,15 +109,14 @@ impl Handle for ClientHandle {
             method: DidChangeWatchedFiles::METHOD.to_string(),
             register_options: serde_json::to_value(options).ok(),
         };
-        let params = match serde_json::to_value(RegistrationParams {
-            registrations: vec![registration],
-        }) {
-            Ok(params) => params,
-            Err(err) => {
-                tracing::warn!(%err, "failed to encode watcher registration");
-                return;
-            }
-        };
+        let params =
+            match serde_json::to_value(RegistrationParams { registrations: vec![registration] }) {
+                Ok(params) => params,
+                Err(err) => {
+                    tracing::warn!(%err, "failed to encode watcher registration");
+                    return;
+                }
+            };
         let _ = self.sender.send(LspMessage::Request(Request {
             id: RequestId::from("flux-lsp-register-watchers".to_string()),
             method: RegisterCapability::METHOD.to_string(),
@@ -140,10 +136,7 @@ pub struct NotifyHandle {
 
 impl NotifyHandle {
     pub fn new(loader_tx: Sender<Message>) -> Self {
-        Self {
-            loader_tx,
-            watcher: None,
-        }
+        Self { loader_tx, watcher: None }
     }
 }
 
@@ -184,12 +177,7 @@ pub fn flx_paths_of_event(event: &notify::Event) -> Vec<PathBuf> {
     if matches!(event.kind, EventKind::Access(_)) {
         return Vec::new();
     }
-    event
-        .paths
-        .iter()
-        .filter(|p| is_watchable_flx(p))
-        .cloned()
-        .collect()
+    event.paths.iter().filter(|p| is_watchable_flx(p)).cloned().collect()
 }
 
 /// Whether `path` is a `.flx` file outside a skipped (build/VCS) directory.
@@ -228,19 +216,11 @@ mod tests {
 
     #[test]
     fn capability_detection() {
-        assert!(client_supports_dynamic_watchers(
-            &params_with_dynamic_registration(Some(true))
-        ));
-        assert!(!client_supports_dynamic_watchers(
-            &params_with_dynamic_registration(Some(false))
-        ));
-        assert!(!client_supports_dynamic_watchers(
-            &params_with_dynamic_registration(None)
-        ));
+        assert!(client_supports_dynamic_watchers(&params_with_dynamic_registration(Some(true))));
+        assert!(!client_supports_dynamic_watchers(&params_with_dynamic_registration(Some(false))));
+        assert!(!client_supports_dynamic_watchers(&params_with_dynamic_registration(None)));
         // No `workspace` capabilities at all.
-        assert!(!client_supports_dynamic_watchers(
-            &InitializeParams::default()
-        ));
+        assert!(!client_supports_dynamic_watchers(&InitializeParams::default()));
     }
 
     #[test]
@@ -249,10 +229,7 @@ mod tests {
             WatcherKind::for_client(&params_with_dynamic_registration(Some(true))),
             WatcherKind::Client
         );
-        assert_eq!(
-            WatcherKind::for_client(&InitializeParams::default()),
-            WatcherKind::Notify
-        );
+        assert_eq!(WatcherKind::for_client(&InitializeParams::default()), WatcherKind::Notify);
     }
 
     /// Build a `notify::Event` over `paths` with a `Modify` kind.
@@ -268,13 +245,7 @@ mod tests {
     fn event_keeps_only_flx_files() {
         let event = modify_event(&["/proj/a.flx", "/proj/b.txt", "/proj/sub/c.flx"]);
         let files = flx_paths_of_event(&event);
-        assert_eq!(
-            files,
-            vec![
-                PathBuf::from("/proj/a.flx"),
-                PathBuf::from("/proj/sub/c.flx")
-            ]
-        );
+        assert_eq!(files, vec![PathBuf::from("/proj/a.flx"), PathBuf::from("/proj/sub/c.flx")]);
     }
 
     #[test]
@@ -285,10 +256,7 @@ mod tests {
             "/proj/.git/x.flx",
             "/proj/keep.flx",
         ]);
-        assert_eq!(
-            flx_paths_of_event(&event),
-            vec![PathBuf::from("/proj/keep.flx")]
-        );
+        assert_eq!(flx_paths_of_event(&event), vec![PathBuf::from("/proj/keep.flx")]);
     }
 
     #[test]
@@ -318,16 +286,12 @@ mod tests {
         let mut handle = NotifyHandle::new(tx);
         handle.watch(&[dir.path().to_path_buf()]);
 
-        let mut f = std::fs::OpenOptions::new()
-            .append(true)
-            .open(&file)
-            .unwrap();
+        let mut f = std::fs::OpenOptions::new().append(true).open(&file).unwrap();
         writeln!(f, "y = 2").unwrap();
         f.sync_all().unwrap();
 
-        let Message::Changed { files } = rx
-            .recv_timeout(Duration::from_secs(10))
-            .expect("expected a Changed message");
+        let Message::Changed { files } =
+            rx.recv_timeout(Duration::from_secs(10)).expect("expected a Changed message");
         assert!(files.iter().any(|p| p.ends_with("watched.flx")));
     }
 }

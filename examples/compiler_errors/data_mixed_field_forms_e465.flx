@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E465
 
 // A `data` type that mixes positional and named-field variants.
 //
@@ -8,7 +7,7 @@
 
 data Shape {
     Circle(Float)
-    Rect { width: Float, height: Float }
+    Rect { width: Float, height: Float } //~ E465
 }
 
 fn main() {

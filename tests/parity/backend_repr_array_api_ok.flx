@@ -1,6 +1,11 @@
 // parity: vm, llvm
 // expect: success
 // bug: array APIs must operate on arrays without list fallback
+// parity-expected-stdout-begin
+// Some(10)
+// 3
+// 60
+// parity-expected-stdout-end
 
 import Flow.Array as Array
 

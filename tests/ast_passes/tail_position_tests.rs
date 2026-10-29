@@ -7,11 +7,7 @@ fn parse(input: &str) -> Program {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "Parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "Parser errors: {:?}", parser.errors);
     program
 }
 
@@ -27,11 +23,7 @@ fn non_tail_call_in_infix() {
     // f(n-1) + 1 — the call result is used in addition, not in tail position
     let program = parse("fn f(n) { f(n - 1) + 1; }");
     let tail_calls = find_tail_calls(&program);
-    assert!(
-        tail_calls.is_empty(),
-        "Expected no tail calls, got: {}",
-        tail_calls.len()
-    );
+    assert!(tail_calls.is_empty(), "Expected no tail calls, got: {}", tail_calls.len());
 }
 
 #[test]
@@ -93,11 +85,7 @@ fn non_tail_call_in_let_binding() {
     "#,
     );
     let tail_calls = find_tail_calls(&program);
-    assert!(
-        tail_calls.is_empty(),
-        "Expected no tail calls, got: {}",
-        tail_calls.len()
-    );
+    assert!(tail_calls.is_empty(), "Expected no tail calls, got: {}", tail_calls.len());
 }
 
 #[test]
@@ -154,11 +142,7 @@ fn call_in_condition_not_tail() {
     "#,
     );
     let tail_calls = find_tail_calls(&program);
-    assert!(
-        tail_calls.is_empty(),
-        "Expected no tail calls, got: {}",
-        tail_calls.len()
-    );
+    assert!(tail_calls.is_empty(), "Expected no tail calls, got: {}", tail_calls.len());
 }
 
 #[test]
@@ -185,11 +169,7 @@ fn non_last_statement_not_tail() {
     "#,
     );
     let tail_calls = find_tail_calls(&program);
-    assert!(
-        tail_calls.is_empty(),
-        "Expected no tail calls, got: {}",
-        tail_calls.len()
-    );
+    assert!(tail_calls.is_empty(), "Expected no tail calls, got: {}", tail_calls.len());
 }
 
 #[test]

@@ -2,6 +2,9 @@
 // expect: success
 // bug: recursive flux_drop stack-overflows on deeply nested ADTs.
 //      stackless drop uses tail-call optimization for single-field chains.
+// parity-expected-stdout-begin
+// 150000
+// parity-expected-stdout-end
 
 fn nest(n, acc) {
     if n <= 0 { acc }

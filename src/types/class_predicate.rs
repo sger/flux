@@ -86,13 +86,8 @@ pub fn class_param_bindings(
     interner: &Interner,
     mut fresh_var: impl FnMut() -> InferType,
 ) -> Vec<ClassParamBinding> {
-    let unmentioned = || {
-        class_def
-            .type_params
-            .iter()
-            .map(|_| ClassParamBinding::Unmentioned)
-            .collect::<Vec<_>>()
-    };
+    let unmentioned =
+        || class_def.type_params.iter().map(|_| ClassParamBinding::Unmentioned).collect::<Vec<_>>();
 
     let Some(declared) = method_fun_type(class_def, method, interner) else {
         return unmentioned();
@@ -231,10 +226,7 @@ fn match_infer(
         subst: &mut HashMap<TypeVarId, InferType>,
     ) -> bool {
         patterns.len() == actuals.len()
-            && patterns
-                .iter()
-                .zip(actuals)
-                .all(|(p, a)| match_infer(p, a, var_count, subst))
+            && patterns.iter().zip(actuals).all(|(p, a)| match_infer(p, a, var_count, subst))
     }
 
     match pattern {
@@ -336,11 +328,7 @@ mod tests {
     use crate::types::type_constructor::TypeConstructor;
 
     fn named(interner: &mut Interner, name: &str, args: Vec<TypeExpr>) -> TypeExpr {
-        TypeExpr::Named {
-            name: interner.intern(name),
-            args,
-            span: Span::default(),
-        }
+        TypeExpr::Named { name: interner.intern(name), args, span: Span::default() }
     }
 
     fn class(interner: &mut Interner, name: &str, params: &[&str], method: MethodSig) -> ClassDef {
@@ -400,10 +388,7 @@ mod tests {
         let bindings = class_param_bindings(
             &def,
             &sig,
-            &[
-                InferType::Con(TypeConstructor::Int),
-                InferType::Con(TypeConstructor::Bool),
-            ],
+            &[InferType::Con(TypeConstructor::Int), InferType::Con(TypeConstructor::Bool)],
             &InferType::Con(TypeConstructor::Int),
             &interner,
             no_fresh,
@@ -411,9 +396,7 @@ mod tests {
 
         assert_eq!(
             bindings,
-            vec![ClassParamBinding::Determined(InferType::Con(
-                TypeConstructor::Bool
-            ))]
+            vec![ClassParamBinding::Determined(InferType::Con(TypeConstructor::Bool))]
         );
     }
 
@@ -440,9 +423,7 @@ mod tests {
 
         assert_eq!(
             bindings,
-            vec![ClassParamBinding::Determined(InferType::Con(
-                TypeConstructor::Int
-            ))]
+            vec![ClassParamBinding::Determined(InferType::Con(TypeConstructor::Int))]
         );
     }
 
@@ -545,10 +526,7 @@ mod tests {
         let bindings = class_param_bindings(
             &def,
             &sig,
-            &[InferType::App(
-                TypeConstructor::List,
-                vec![InferType::Con(TypeConstructor::Int)],
-            )],
+            &[InferType::App(TypeConstructor::List, vec![InferType::Con(TypeConstructor::Int)])],
             &InferType::Con(TypeConstructor::Int),
             &interner,
             no_fresh,
@@ -556,9 +534,7 @@ mod tests {
 
         assert_eq!(
             bindings,
-            vec![ClassParamBinding::Determined(InferType::Con(
-                TypeConstructor::Int
-            ))]
+            vec![ClassParamBinding::Determined(InferType::Con(TypeConstructor::Int))]
         );
     }
 
@@ -578,10 +554,7 @@ mod tests {
         let bindings = class_param_bindings(
             &def,
             &sig,
-            &[
-                InferType::Con(TypeConstructor::Int),
-                InferType::Con(TypeConstructor::Bool),
-            ],
+            &[InferType::Con(TypeConstructor::Int), InferType::Con(TypeConstructor::Bool)],
             &InferType::Con(TypeConstructor::String),
             &interner,
             no_fresh,

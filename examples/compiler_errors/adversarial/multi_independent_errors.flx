@@ -1,14 +1,12 @@
 // expect: compile_error
-// expect-error: E300
-// expect-error: E056
 
 fn add(a: Int, b: Int) -> Int {
     a + b
 }
 
 fn bad() -> Unit {
-    let first: Int = "oops"
-    let second = add(1)
+    let first: Int = "oops" //~ E300
+    let second = add(1) //~ E056
     print("still effectful")
 }
 

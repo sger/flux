@@ -9,11 +9,11 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `sum`.
 
-  examples/compiler_errors/adversarial/common_dev_mistakes/CollectionsConfusion.flx:10:13
-   |
-10 |         sum([|1, 2, 3|])
-   |             ^^^^^^^^^^^
-   |             ----------- this argument has type `Array<Int>`
+  examples/compiler_errors/adversarial/common_dev_mistakes/CollectionsConfusion.flx:9:13
+  |
+9 |         sum([|1, 2, 3|])
+  |             ^^^^^^^^^^^
+  |             ----------- this argument has type `Array<Int>`
 
 Note:
   expected argument type: List<Int>

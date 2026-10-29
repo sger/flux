@@ -9,39 +9,15 @@
 //! `route_effectful_primops` (bare call → `perform`) and identifier
 //! compilation falling through to `exposed_bindings`.
 
-use std::path::Path;
 use std::process::Command;
 
-#[path = "../support/scratch.rs"]
-mod scratch;
-use scratch::Scratch;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+use crate::support::flux_runner;
+use flux_runner::scratch::Scratch;
+use flux_runner::workspace_root;
 
 fn run_flux_test(fixture: &str) -> (String, bool) {
     let dir = workspace_root().join("tests").join("flux");
-    let path = dir.join(fixture);
-    let scratch = Scratch::new("module-local-shadowing-suite");
-    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(workspace_root())
-        .args([
-            "--test",
-            path.to_str().unwrap(),
-            "--root",
-            dir.to_str().unwrap(),
-            "--no-cache",
-        ])
-        .args(scratch.cache_args())
-        .output()
-        .unwrap_or_else(|e| panic!("failed to run flux --test on {fixture}: {e}"));
-
-    let stdout = String::from_utf8_lossy(&output.stdout)
-        .replace("\r\n", "\n")
-        .trim()
-        .to_string();
-    (stdout, output.status.success())
+    flux_runner::run_flux_test_with(fixture, &["--root", dir.to_str().unwrap()], &[])
 }
 
 /// Compile and run a two-file program in an isolated scratch directory.
@@ -60,13 +36,7 @@ fn run_program(case: &str, module_name: &str, module_src: &str, main_src: &str) 
 
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
-        .args([
-            "run",
-            main_file.to_str().unwrap(),
-            "--root",
-            dir.to_str().unwrap(),
-            "--no-cache",
-        ])
+        .args(["run", main_file.to_str().unwrap(), "--root", dir.to_str().unwrap(), "--no-cache"])
         .args(scratch.cache_args())
         .output()
         .unwrap_or_else(|e| panic!("failed to run flux for {case}: {e}"));
@@ -123,26 +93,15 @@ fn main() -> Unit with Console {
 }
 "#,
     );
-    assert!(
-        run.success,
-        "shadowing program failed to run:\n{}",
-        run.output()
-    );
+    assert!(run.success, "shadowing program failed to run:\n{}", run.output());
     let stdout = run.stdout.clone();
     let lines: Vec<&str> = stdout.lines().filter(|l| !l.trim().is_empty()).collect();
-    assert_eq!(
-        lines.len(),
-        2,
-        "expected two lines of output, got:\n{stdout}"
-    );
+    assert_eq!(lines.len(), 2, "expected two lines of output, got:\n{stdout}");
     assert_eq!(
         lines[0], lines[1],
         "bare and qualified calls disagreed — the local was shadowed by a builtin:\n{stdout}"
     );
-    assert!(
-        lines[1].contains("LOCAL"),
-        "bare call did not reach the local definition:\n{stdout}"
-    );
+    assert!(lines[1].contains("LOCAL"), "bare call did not reach the local definition:\n{stdout}");
 }
 
 #[test]
@@ -166,11 +125,7 @@ fn main() -> Unit with Console {
 }
 "#,
     );
-    assert!(
-        run.success,
-        "pure caller of a shadowed effectful builtin failed:\n{}",
-        run.output()
-    );
+    assert!(run.success, "pure caller of a shadowed effectful builtin failed:\n{}", run.output());
     assert!(
         run.stdout.contains("LOCAL"),
         "expected the local definition to run, got:\n{}",
@@ -201,11 +156,7 @@ fn main() -> Unit with Console {
 }
 "#,
     );
-    assert!(
-        run.success,
-        "unshadowed builtin call failed:\n{}",
-        run.output()
-    );
+    assert!(run.success, "unshadowed builtin call failed:\n{}", run.output());
     assert!(
         run.stdout.contains("padded") && !run.stdout.contains("  padded  "),
         "expected the builtin trim to run, got:\n{}",

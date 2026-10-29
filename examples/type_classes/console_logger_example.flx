@@ -1,3 +1,4 @@
+// skip-way: vm, vm_strict, vm_opt: KI-102 the example's own effect Console suppresses the default Console handler under --no-cache
 import ConsoleLoggerExample.App.Main as Main
 
 fn main() with IO {

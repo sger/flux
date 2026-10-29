@@ -6,11 +6,151 @@
 //
 // Call to `print` requires effect `Console` in this function signature.
 //
-//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:766:5
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:716:5
 //     |
-// 766 |     print(0)
+// 716 |     print(0)
 //     |     ^^^^^^^^
 //     |     -------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:721:5
+//     |
+// 721 |     print(1)
+//     |     ^^^^^^^^
+//     |     -------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:726:5
+//     |
+// 726 |     print(2)
+//     |     ^^^^^^^^
+//     |     -------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:731:5
+//     |
+// 731 |     print(3)
+//     |     ^^^^^^^^
+//     |     -------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:736:5
+//     |
+// 736 |     print(4)
+//     |     ^^^^^^^^
+//     |     -------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:741:5
+//     |
+// 741 |     print(5)
+//     |     ^^^^^^^^
+//     |     -------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:746:5
+//     |
+// 746 |     print(6)
+//     |     ^^^^^^^^
+//     |     -------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:751:5
+//     |
+// 751 |     print(7)
+//     |     ^^^^^^^^
+//     |     -------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:756:5
+//     |
+// 756 |     print(8)
+//     |     ^^^^^^^^
+//     |     -------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:761:5
+//     |
+// 761 |     print(9)
+//     |     ^^^^^^^^
+//     |     -------- effectful call occurs here
+//
+// Hint:
+//   Add `with Console` to the enclosing function.
+//
+//
+// error[E400]: Missing Ambient Effect
+//
+// Call to `print` requires effect `Console` in this function signature.
+//
+//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:766:5
+//     |
+// 766 |     print(10)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
 //
 // Hint:
 //   Add `with Console` to the enclosing function.
@@ -22,9 +162,9 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:771:5
 //     |
-// 771 |     print(1)
-//     |     ^^^^^^^^
-//     |     -------- effectful call occurs here
+// 771 |     print(11)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
 //
 // Hint:
 //   Add `with Console` to the enclosing function.
@@ -36,9 +176,9 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:776:5
 //     |
-// 776 |     print(2)
-//     |     ^^^^^^^^
-//     |     -------- effectful call occurs here
+// 776 |     print(12)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
 //
 // Hint:
 //   Add `with Console` to the enclosing function.
@@ -50,9 +190,9 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:781:5
 //     |
-// 781 |     print(3)
-//     |     ^^^^^^^^
-//     |     -------- effectful call occurs here
+// 781 |     print(13)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
 //
 // Hint:
 //   Add `with Console` to the enclosing function.
@@ -64,9 +204,9 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:786:5
 //     |
-// 786 |     print(4)
-//     |     ^^^^^^^^
-//     |     -------- effectful call occurs here
+// 786 |     print(14)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
 //
 // Hint:
 //   Add `with Console` to the enclosing function.
@@ -78,9 +218,9 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:791:5
 //     |
-// 791 |     print(5)
-//     |     ^^^^^^^^
-//     |     -------- effectful call occurs here
+// 791 |     print(15)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
 //
 // Hint:
 //   Add `with Console` to the enclosing function.
@@ -92,9 +232,9 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:796:5
 //     |
-// 796 |     print(6)
-//     |     ^^^^^^^^
-//     |     -------- effectful call occurs here
+// 796 |     print(16)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
 //
 // Hint:
 //   Add `with Console` to the enclosing function.
@@ -106,9 +246,9 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:801:5
 //     |
-// 801 |     print(7)
-//     |     ^^^^^^^^
-//     |     -------- effectful call occurs here
+// 801 |     print(17)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
 //
 // Hint:
 //   Add `with Console` to the enclosing function.
@@ -120,9 +260,9 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:806:5
 //     |
-// 806 |     print(8)
-//     |     ^^^^^^^^
-//     |     -------- effectful call occurs here
+// 806 |     print(18)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
 //
 // Hint:
 //   Add `with Console` to the enclosing function.
@@ -134,9 +274,9 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:811:5
 //     |
-// 811 |     print(9)
-//     |     ^^^^^^^^
-//     |     -------- effectful call occurs here
+// 811 |     print(19)
+//     |     ^^^^^^^^^
+//     |     --------- effectful call occurs here
 //
 // Hint:
 //   Add `with Console` to the enclosing function.
@@ -148,7 +288,7 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:816:5
 //     |
-// 816 |     print(10)
+// 816 |     print(20)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
 //
@@ -162,7 +302,7 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:821:5
 //     |
-// 821 |     print(11)
+// 821 |     print(21)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
 //
@@ -176,7 +316,7 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:826:5
 //     |
-// 826 |     print(12)
+// 826 |     print(22)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
 //
@@ -190,7 +330,7 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:831:5
 //     |
-// 831 |     print(13)
+// 831 |     print(23)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
 //
@@ -204,7 +344,7 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:836:5
 //     |
-// 836 |     print(14)
+// 836 |     print(24)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
 //
@@ -218,7 +358,7 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:841:5
 //     |
-// 841 |     print(15)
+// 841 |     print(25)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
 //
@@ -232,7 +372,7 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:846:5
 //     |
-// 846 |     print(16)
+// 846 |     print(26)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
 //
@@ -246,7 +386,7 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:851:5
 //     |
-// 851 |     print(17)
+// 851 |     print(27)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
 //
@@ -260,7 +400,7 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:856:5
 //     |
-// 856 |     print(18)
+// 856 |     print(28)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
 //
@@ -274,7 +414,7 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:861:5
 //     |
-// 861 |     print(19)
+// 861 |     print(29)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
 //
@@ -288,7 +428,7 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:866:5
 //     |
-// 866 |     print(20)
+// 866 |     print(30)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
 //
@@ -302,7 +442,7 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:871:5
 //     |
-// 871 |     print(21)
+// 871 |     print(31)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
 //
@@ -316,7 +456,7 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:876:5
 //     |
-// 876 |     print(22)
+// 876 |     print(32)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
 //
@@ -330,7 +470,7 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:881:5
 //     |
-// 881 |     print(23)
+// 881 |     print(33)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
 //
@@ -344,7 +484,7 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:886:5
 //     |
-// 886 |     print(24)
+// 886 |     print(34)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
 //
@@ -358,7 +498,7 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:891:5
 //     |
-// 891 |     print(25)
+// 891 |     print(35)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
 //
@@ -372,7 +512,7 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:896:5
 //     |
-// 896 |     print(26)
+// 896 |     print(36)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
 //
@@ -386,7 +526,7 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:901:5
 //     |
-// 901 |     print(27)
+// 901 |     print(37)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
 //
@@ -400,7 +540,7 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:906:5
 //     |
-// 906 |     print(28)
+// 906 |     print(38)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
 //
@@ -414,7 +554,7 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:911:5
 //     |
-// 911 |     print(29)
+// 911 |     print(39)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
 //
@@ -428,7 +568,7 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:916:5
 //     |
-// 916 |     print(30)
+// 916 |     print(40)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
 //
@@ -442,7 +582,7 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:921:5
 //     |
-// 921 |     print(31)
+// 921 |     print(41)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
 //
@@ -456,7 +596,7 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:926:5
 //     |
-// 926 |     print(32)
+// 926 |     print(42)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
 //
@@ -470,7 +610,7 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:931:5
 //     |
-// 931 |     print(33)
+// 931 |     print(43)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
 //
@@ -484,7 +624,7 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:936:5
 //     |
-// 936 |     print(34)
+// 936 |     print(44)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
 //
@@ -498,7 +638,7 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:941:5
 //     |
-// 941 |     print(35)
+// 941 |     print(45)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
 //
@@ -512,7 +652,7 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:946:5
 //     |
-// 946 |     print(36)
+// 946 |     print(46)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
 //
@@ -526,7 +666,7 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:951:5
 //     |
-// 951 |     print(37)
+// 951 |     print(47)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
 //
@@ -540,7 +680,7 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:956:5
 //     |
-// 956 |     print(38)
+// 956 |     print(48)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
 //
@@ -554,149 +694,9 @@
 //
 //   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:961:5
 //     |
-// 961 |     print(39)
+// 961 |     print(49)
 //     |     ^^^^^^^^^
 //     |     --------- effectful call occurs here
-//
-// Hint:
-//   Add `with Console` to the enclosing function.
-//
-//
-// error[E400]: Missing Ambient Effect
-//
-// Call to `print` requires effect `Console` in this function signature.
-//
-//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:966:5
-//     |
-// 966 |     print(40)
-//     |     ^^^^^^^^^
-//     |     --------- effectful call occurs here
-//
-// Hint:
-//   Add `with Console` to the enclosing function.
-//
-//
-// error[E400]: Missing Ambient Effect
-//
-// Call to `print` requires effect `Console` in this function signature.
-//
-//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:971:5
-//     |
-// 971 |     print(41)
-//     |     ^^^^^^^^^
-//     |     --------- effectful call occurs here
-//
-// Hint:
-//   Add `with Console` to the enclosing function.
-//
-//
-// error[E400]: Missing Ambient Effect
-//
-// Call to `print` requires effect `Console` in this function signature.
-//
-//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:976:5
-//     |
-// 976 |     print(42)
-//     |     ^^^^^^^^^
-//     |     --------- effectful call occurs here
-//
-// Hint:
-//   Add `with Console` to the enclosing function.
-//
-//
-// error[E400]: Missing Ambient Effect
-//
-// Call to `print` requires effect `Console` in this function signature.
-//
-//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:981:5
-//     |
-// 981 |     print(43)
-//     |     ^^^^^^^^^
-//     |     --------- effectful call occurs here
-//
-// Hint:
-//   Add `with Console` to the enclosing function.
-//
-//
-// error[E400]: Missing Ambient Effect
-//
-// Call to `print` requires effect `Console` in this function signature.
-//
-//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:986:5
-//     |
-// 986 |     print(44)
-//     |     ^^^^^^^^^
-//     |     --------- effectful call occurs here
-//
-// Hint:
-//   Add `with Console` to the enclosing function.
-//
-//
-// error[E400]: Missing Ambient Effect
-//
-// Call to `print` requires effect `Console` in this function signature.
-//
-//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:991:5
-//     |
-// 991 |     print(45)
-//     |     ^^^^^^^^^
-//     |     --------- effectful call occurs here
-//
-// Hint:
-//   Add `with Console` to the enclosing function.
-//
-//
-// error[E400]: Missing Ambient Effect
-//
-// Call to `print` requires effect `Console` in this function signature.
-//
-//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:996:5
-//     |
-// 996 |     print(46)
-//     |     ^^^^^^^^^
-//     |     --------- effectful call occurs here
-//
-// Hint:
-//   Add `with Console` to the enclosing function.
-//
-//
-// error[E400]: Missing Ambient Effect
-//
-// Call to `print` requires effect `Console` in this function signature.
-//
-//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:1001:5
-//      |
-// 1001 |     print(47)
-//      |     ^^^^^^^^^
-//      |     --------- effectful call occurs here
-//
-// Hint:
-//   Add `with Console` to the enclosing function.
-//
-//
-// error[E400]: Missing Ambient Effect
-//
-// Call to `print` requires effect `Console` in this function signature.
-//
-//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:1006:5
-//      |
-// 1006 |     print(48)
-//      |     ^^^^^^^^^
-//      |     --------- effectful call occurs here
-//
-// Hint:
-//   Add `with Console` to the enclosing function.
-//
-//
-// error[E400]: Missing Ambient Effect
-//
-// Call to `print` requires effect `Console` in this function signature.
-//
-//   examples/type_system/failing/205_effect_max_errors_many_missing_io.flx:1011:5
-//      |
-// 1011 |     print(49)
-//      |     ^^^^^^^^^
-//      |     --------- effectful call occurs here
 //
 // Hint:
 //   Add `with Console` to the enclosing function.
@@ -705,56 +705,6 @@
 // Found 60 errors.
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
-// expect-error: E400
 
 // More than 50 independent effect diagnostics in one file.
 //
@@ -763,252 +713,252 @@
 // max-error-cap tests rather than ordinary snapshots.
 
 fn bad00() -> Int with Time {
-    print(0)
+    print(0) //~ E400
     0
 }
 
 fn bad01() -> Int with Time {
-    print(1)
+    print(1) //~ E400
     1
 }
 
 fn bad02() -> Int with Time {
-    print(2)
+    print(2) //~ E400
     2
 }
 
 fn bad03() -> Int with Time {
-    print(3)
+    print(3) //~ E400
     3
 }
 
 fn bad04() -> Int with Time {
-    print(4)
+    print(4) //~ E400
     4
 }
 
 fn bad05() -> Int with Time {
-    print(5)
+    print(5) //~ E400
     5
 }
 
 fn bad06() -> Int with Time {
-    print(6)
+    print(6) //~ E400
     6
 }
 
 fn bad07() -> Int with Time {
-    print(7)
+    print(7) //~ E400
     7
 }
 
 fn bad08() -> Int with Time {
-    print(8)
+    print(8) //~ E400
     8
 }
 
 fn bad09() -> Int with Time {
-    print(9)
+    print(9) //~ E400
     9
 }
 
 fn bad10() -> Int with Time {
-    print(10)
+    print(10) //~ E400
     10
 }
 
 fn bad11() -> Int with Time {
-    print(11)
+    print(11) //~ E400
     11
 }
 
 fn bad12() -> Int with Time {
-    print(12)
+    print(12) //~ E400
     12
 }
 
 fn bad13() -> Int with Time {
-    print(13)
+    print(13) //~ E400
     13
 }
 
 fn bad14() -> Int with Time {
-    print(14)
+    print(14) //~ E400
     14
 }
 
 fn bad15() -> Int with Time {
-    print(15)
+    print(15) //~ E400
     15
 }
 
 fn bad16() -> Int with Time {
-    print(16)
+    print(16) //~ E400
     16
 }
 
 fn bad17() -> Int with Time {
-    print(17)
+    print(17) //~ E400
     17
 }
 
 fn bad18() -> Int with Time {
-    print(18)
+    print(18) //~ E400
     18
 }
 
 fn bad19() -> Int with Time {
-    print(19)
+    print(19) //~ E400
     19
 }
 
 fn bad20() -> Int with Time {
-    print(20)
+    print(20) //~ E400
     20
 }
 
 fn bad21() -> Int with Time {
-    print(21)
+    print(21) //~ E400
     21
 }
 
 fn bad22() -> Int with Time {
-    print(22)
+    print(22) //~ E400
     22
 }
 
 fn bad23() -> Int with Time {
-    print(23)
+    print(23) //~ E400
     23
 }
 
 fn bad24() -> Int with Time {
-    print(24)
+    print(24) //~ E400
     24
 }
 
 fn bad25() -> Int with Time {
-    print(25)
+    print(25) //~ E400
     25
 }
 
 fn bad26() -> Int with Time {
-    print(26)
+    print(26) //~ E400
     26
 }
 
 fn bad27() -> Int with Time {
-    print(27)
+    print(27) //~ E400
     27
 }
 
 fn bad28() -> Int with Time {
-    print(28)
+    print(28) //~ E400
     28
 }
 
 fn bad29() -> Int with Time {
-    print(29)
+    print(29) //~ E400
     29
 }
 
 fn bad30() -> Int with Time {
-    print(30)
+    print(30) //~ E400
     30
 }
 
 fn bad31() -> Int with Time {
-    print(31)
+    print(31) //~ E400
     31
 }
 
 fn bad32() -> Int with Time {
-    print(32)
+    print(32) //~ E400
     32
 }
 
 fn bad33() -> Int with Time {
-    print(33)
+    print(33) //~ E400
     33
 }
 
 fn bad34() -> Int with Time {
-    print(34)
+    print(34) //~ E400
     34
 }
 
 fn bad35() -> Int with Time {
-    print(35)
+    print(35) //~ E400
     35
 }
 
 fn bad36() -> Int with Time {
-    print(36)
+    print(36) //~ E400
     36
 }
 
 fn bad37() -> Int with Time {
-    print(37)
+    print(37) //~ E400
     37
 }
 
 fn bad38() -> Int with Time {
-    print(38)
+    print(38) //~ E400
     38
 }
 
 fn bad39() -> Int with Time {
-    print(39)
+    print(39) //~ E400
     39
 }
 
 fn bad40() -> Int with Time {
-    print(40)
+    print(40) //~ E400
     40
 }
 
 fn bad41() -> Int with Time {
-    print(41)
+    print(41) //~ E400
     41
 }
 
 fn bad42() -> Int with Time {
-    print(42)
+    print(42) //~ E400
     42
 }
 
 fn bad43() -> Int with Time {
-    print(43)
+    print(43) //~ E400
     43
 }
 
 fn bad44() -> Int with Time {
-    print(44)
+    print(44) //~ E400
     44
 }
 
 fn bad45() -> Int with Time {
-    print(45)
+    print(45) //~ E400
     45
 }
 
 fn bad46() -> Int with Time {
-    print(46)
+    print(46) //~ E400
     46
 }
 
 fn bad47() -> Int with Time {
-    print(47)
+    print(47) //~ E400
     47
 }
 
 fn bad48() -> Int with Time {
-    print(48)
+    print(48) //~ E400
     48
 }
 
 fn bad49() -> Int with Time {
-    print(49)
+    print(49) //~ E400
     49
 }
 

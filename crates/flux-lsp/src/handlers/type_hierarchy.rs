@@ -59,10 +59,7 @@ pub fn prepare_gather(
         let id = node_identifier(&node)?;
         snapshot.interner.try_resolve(id)?.to_string()
     };
-    Some(TypeHierarchyBundle {
-        target,
-        files: scope_files(workspace, file),
-    })
+    Some(TypeHierarchyBundle { target, files: scope_files(workspace, file) })
 }
 
 /// Collect the component scope for a supertypes/subtypes request, keyed off the
@@ -72,10 +69,7 @@ pub fn item_gather(
     item: &TypeHierarchyItem,
 ) -> Option<TypeHierarchyBundle> {
     let file = workspace.file_id(&item.uri)?;
-    Some(TypeHierarchyBundle {
-        target: item.name.clone(),
-        files: scope_files(workspace, file),
-    })
+    Some(TypeHierarchyBundle { target: item.name.clone(), files: scope_files(workspace, file) })
 }
 
 fn scope_files(workspace: &mut Workspace, file: FileId) -> Vec<ScopeFile> {
@@ -100,21 +94,10 @@ pub fn prepare_items(bundle: &TypeHierarchyBundle) -> Vec<TypeHierarchyItem> {
     let mut out = Vec::new();
     for f in &bundle.files {
         for stmt in decls(&f.snapshot.program) {
-            if let Statement::Class {
-                name,
-                span,
-                name_span,
-                ..
-            } = stmt
+            if let Statement::Class { name, span, name_span, .. } = stmt
                 && f.snapshot.interner.try_resolve(*name) == Some(bundle.target.as_str())
             {
-                out.push(class_item(
-                    &f.uri,
-                    &f.snapshot,
-                    &bundle.target,
-                    *span,
-                    *name_span,
-                ));
+                out.push(class_item(&f.uri, &f.snapshot, &bundle.target, *span, *name_span));
             }
         }
     }
@@ -126,9 +109,7 @@ pub fn supertypes(bundle: &TypeHierarchyBundle) -> Vec<TypeHierarchyItem> {
     let mut super_names: Vec<String> = Vec::new();
     for f in &bundle.files {
         for stmt in decls(&f.snapshot.program) {
-            if let Statement::Class {
-                name, superclasses, ..
-            } = stmt
+            if let Statement::Class { name, superclasses, .. } = stmt
                 && f.snapshot.interner.try_resolve(*name) == Some(bundle.target.as_str())
             {
                 for constraint in superclasses {
@@ -141,10 +122,7 @@ pub fn supertypes(bundle: &TypeHierarchyBundle) -> Vec<TypeHierarchyItem> {
     }
     super_names.sort();
     super_names.dedup();
-    super_names
-        .iter()
-        .filter_map(|name| find_class_item(bundle, name))
-        .collect()
+    super_names.iter().filter_map(|name| find_class_item(bundle, name)).collect()
 }
 
 /// `bundle.target`'s subtypes: classes that name it as a superclass, plus every
@@ -155,15 +133,11 @@ pub fn subtypes(bundle: &TypeHierarchyBundle) -> Vec<TypeHierarchyItem> {
         for stmt in decls(&f.snapshot.program) {
             match stmt {
                 // A subclass: lists the target among its superclasses.
-                Statement::Class {
-                    name,
-                    superclasses,
-                    span,
-                    name_span,
-                    ..
-                } if superclasses.iter().any(|c| {
-                    f.snapshot.interner.try_resolve(c.class_name) == Some(bundle.target.as_str())
-                }) =>
+                Statement::Class { name, superclasses, span, name_span, .. }
+                    if superclasses.iter().any(|c| {
+                        f.snapshot.interner.try_resolve(c.class_name)
+                            == Some(bundle.target.as_str())
+                    }) =>
                 {
                     if let Some(nm) = f.snapshot.interner.try_resolve(*name) {
                         let nm = nm.to_string();
@@ -171,14 +145,9 @@ pub fn subtypes(bundle: &TypeHierarchyBundle) -> Vec<TypeHierarchyItem> {
                     }
                 }
                 // An instance: the type implementing the target class.
-                Statement::Instance {
-                    class_name,
-                    type_args,
-                    span,
-                    name_span,
-                    ..
-                } if f.snapshot.interner.try_resolve(*class_name)
-                    == Some(bundle.target.as_str()) =>
+                Statement::Instance { class_name, type_args, span, name_span, .. }
+                    if f.snapshot.interner.try_resolve(*class_name)
+                        == Some(bundle.target.as_str()) =>
                 {
                     out.push(instance_item(
                         &f.uri,
@@ -202,12 +171,7 @@ pub fn subtypes(bundle: &TypeHierarchyBundle) -> Vec<TypeHierarchyItem> {
 fn find_class_item(bundle: &TypeHierarchyBundle, name: &str) -> Option<TypeHierarchyItem> {
     for f in &bundle.files {
         for stmt in decls(&f.snapshot.program) {
-            if let Statement::Class {
-                name: id,
-                span,
-                name_span,
-                ..
-            } = stmt
+            if let Statement::Class { name: id, span, name_span, .. } = stmt
                 && f.snapshot.interner.try_resolve(*id) == Some(name)
             {
                 return Some(class_item(&f.uri, &f.snapshot, name, *span, *name_span));

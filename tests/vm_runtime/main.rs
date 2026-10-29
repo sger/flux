@@ -1,0 +1,49 @@
+//! The tests in `tests/vm_runtime/`, built as one binary: each file is a module.
+
+#[path = "../support/mod.rs"]
+mod support;
+
+mod aether_collection_ownership_tests;
+mod contextual_instance_runtime_tests;
+mod fn_shadowing_tests;
+mod generics_tests;
+mod map_contract_tests;
+mod match_arm_outer_binding_tests;
+mod program_tests;
+mod runtime_list_index_tests;
+mod stdlib_array_tests;
+mod stdlib_crypto_tests;
+mod stdlib_either_tests;
+mod stdlib_env_tests;
+mod stdlib_fs_tests;
+mod stdlib_io_tests;
+mod stdlib_list_tail_recursive;
+mod stdlib_list_tests;
+mod stdlib_map_tests;
+mod stdlib_option_tests;
+mod stdlib_path_tests;
+mod stdlib_process_tests;
+mod stdlib_result_tests;
+mod stdlib_stream_tests;
+mod stdlib_string_numeric_math_tests;
+mod vm_channel_tests;
+mod vm_fiber_bracket_cancel;
+mod vm_fiber_cancel_loser;
+mod vm_fiber_cancel_timeout;
+mod vm_fiber_check_cancelled;
+mod vm_fiber_first_of;
+mod vm_fiber_migration;
+mod vm_fiber_multiworker;
+mod vm_fiber_overlap;
+mod vm_fiber_registry;
+mod vm_fiber_scope_cancel;
+mod vm_fiber_sleep;
+mod vm_fiber_timeout;
+mod vm_http_client;
+mod vm_http_server;
+mod vm_json;
+mod vm_local_slots_tests;
+mod vm_runtime_config;
+mod vm_stream;
+mod vm_tcp_echo;
+mod vm_tests;

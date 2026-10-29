@@ -1,0 +1,33 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/185_runtime_boundary_arg_e300.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E300]: Argument Type Mismatch
+
+I found the wrong type in the 1st argument to `typed_add`.
+
+  examples/type_system/failing/185_runtime_boundary_arg_e300.flx:13:11
+   |
+ 8 | fn typed_add(a: Int, b: Int) -> Int {
+   | ----------------------------------- `typed_add` expects `Int` as the 1st parameter
+ 9 |     a + b
+10 | }
+11 | 
+12 | let dynamic = TypeSystem.BoundaryUnknown.dynamic_string()
+13 | typed_add(dynamic, 1)
+   |           ^^^^^^^
+   |           ------- this argument has type `String`
+
+Note:
+  expected argument type: Int
+  found argument type: String
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  Pass a `Int` value as the 1st argument.
+== stdout ==
+<not executed>

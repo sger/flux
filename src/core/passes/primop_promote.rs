@@ -285,9 +285,8 @@ fn promote_expr(
                         span,
                     };
                 }
-                let name_matches_primop = name_str
-                    .and_then(|resolved| table.get(&(resolved, args.len())))
-                    .is_some();
+                let name_matches_primop =
+                    name_str.and_then(|resolved| table.get(&(resolved, args.len()))).is_some();
                 // Promote if:
                 // 1. No binder (truly unbound — classic case), OR
                 // 2. Binder exists but points to a top-level def with a
@@ -303,9 +302,7 @@ fn promote_expr(
                 let is_promotable = name_matches_primop
                     && (var.binder.is_none()
                         || var.binder.is_some_and(|bid| {
-                            def_arities
-                                .get(&bid)
-                                .is_some_and(|&def_arity| def_arity != args.len())
+                            def_arities.get(&bid).is_some_and(|&def_arity| def_arity != args.len())
                                 || is_conflicting_prelude_binding(
                                     name_str.unwrap_or_default(),
                                     args.len(),
@@ -321,11 +318,7 @@ fn promote_expr(
                             promote_expr(a, table, interner, def_arities, binder_qualified_names)
                         })
                         .collect();
-                    return CoreExpr::PrimOp {
-                        op,
-                        args: promoted_args,
-                        span,
-                    };
+                    return CoreExpr::PrimOp { op, args: promoted_args, span };
                 }
             }
             CoreExpr::App {
@@ -343,13 +336,7 @@ fn promote_expr(
                 span,
             }
         }
-        CoreExpr::Lam {
-            params,
-            param_types,
-            result_ty,
-            body,
-            span,
-        } => CoreExpr::Lam {
+        CoreExpr::Lam { params, param_types, result_ty, body, span } => CoreExpr::Lam {
             params,
             param_types,
             result_ty,
@@ -362,20 +349,9 @@ fn promote_expr(
             )),
             span,
         },
-        CoreExpr::Let {
+        CoreExpr::Let { var, rhs, body, span } => CoreExpr::Let {
             var,
-            rhs,
-            body,
-            span,
-        } => CoreExpr::Let {
-            var,
-            rhs: Box::new(promote_expr(
-                *rhs,
-                table,
-                interner,
-                def_arities,
-                binder_qualified_names,
-            )),
+            rhs: Box::new(promote_expr(*rhs, table, interner, def_arities, binder_qualified_names)),
             body: Box::new(promote_expr(
                 *body,
                 table,
@@ -385,20 +361,9 @@ fn promote_expr(
             )),
             span,
         },
-        CoreExpr::LetRec {
+        CoreExpr::LetRec { var, rhs, body, span } => CoreExpr::LetRec {
             var,
-            rhs,
-            body,
-            span,
-        } => CoreExpr::LetRec {
-            var,
-            rhs: Box::new(promote_expr(
-                *rhs,
-                table,
-                interner,
-                def_arities,
-                binder_qualified_names,
-            )),
+            rhs: Box::new(promote_expr(*rhs, table, interner, def_arities, binder_qualified_names)),
             body: Box::new(promote_expr(
                 *body,
                 table,
@@ -408,11 +373,7 @@ fn promote_expr(
             )),
             span,
         },
-        CoreExpr::LetRecGroup {
-            bindings,
-            body,
-            span,
-        } => CoreExpr::LetRecGroup {
+        CoreExpr::LetRecGroup { bindings, body, span } => CoreExpr::LetRecGroup {
             bindings: bindings
                 .into_iter()
                 .map(|(b, rhs)| {
@@ -437,12 +398,7 @@ fn promote_expr(
             )),
             span,
         },
-        CoreExpr::Case {
-            scrutinee,
-            alts,
-            join_ty,
-            span,
-        } => CoreExpr::Case {
+        CoreExpr::Case { scrutinee, alts, join_ty, span } => CoreExpr::Case {
             scrutinee: Box::new(promote_expr(
                 *scrutinee,
                 table,
@@ -495,12 +451,7 @@ fn promote_expr(
             )),
             span,
         },
-        CoreExpr::Perform {
-            effect,
-            operation,
-            args,
-            span,
-        } => CoreExpr::Perform {
+        CoreExpr::Perform { effect, operation, args, span } => CoreExpr::Perform {
             effect,
             operation,
             args: args
@@ -509,13 +460,7 @@ fn promote_expr(
                 .collect(),
             span,
         },
-        CoreExpr::Handle {
-            body,
-            effect,
-            parameter,
-            handlers,
-            span,
-        } => CoreExpr::Handle {
+        CoreExpr::Handle { body, effect, parameter, handlers, span } => CoreExpr::Handle {
             body: Box::new(promote_expr(
                 *body,
                 table,
@@ -525,13 +470,7 @@ fn promote_expr(
             )),
             effect,
             parameter: parameter.map(|p| {
-                Box::new(promote_expr(
-                    *p,
-                    table,
-                    interner,
-                    def_arities,
-                    binder_qualified_names,
-                ))
+                Box::new(promote_expr(*p, table, interner, def_arities, binder_qualified_names))
             }),
             handlers: handlers
                 .into_iter()
@@ -550,11 +489,7 @@ fn promote_expr(
         },
         // Leaf nodes
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => expr,
-        CoreExpr::MemberAccess {
-            object,
-            member,
-            span,
-        } => CoreExpr::MemberAccess {
+        CoreExpr::MemberAccess { object, member, span } => CoreExpr::MemberAccess {
             object: Box::new(promote_expr(
                 *object,
                 table,
@@ -565,11 +500,7 @@ fn promote_expr(
             member,
             span,
         },
-        CoreExpr::TupleField {
-            object,
-            index,
-            span,
-        } => CoreExpr::TupleField {
+        CoreExpr::TupleField { object, index, span } => CoreExpr::TupleField {
             object: Box::new(promote_expr(
                 *object,
                 table,

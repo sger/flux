@@ -50,21 +50,9 @@ len(build({}, []));
 
 fn build_scenarios() -> Vec<Scenario> {
     vec![
-        Scenario {
-            name: "build_1k",
-            source: build_tail_accumulator_program(1_000),
-            n: 1_000,
-        },
-        Scenario {
-            name: "build_5k",
-            source: build_tail_accumulator_program(5_000),
-            n: 5_000,
-        },
-        Scenario {
-            name: "build_10k",
-            source: build_tail_accumulator_program(10_000),
-            n: 10_000,
-        },
+        Scenario { name: "build_1k", source: build_tail_accumulator_program(1_000), n: 1_000 },
+        Scenario { name: "build_5k", source: build_tail_accumulator_program(5_000), n: 5_000 },
+        Scenario { name: "build_10k", source: build_tail_accumulator_program(10_000), n: 10_000 },
     ]
 }
 

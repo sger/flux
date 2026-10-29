@@ -1,9 +1,7 @@
 // root: examples
 // expect: compile_error
-// expect-error: E017
-// expect-error: E012
 
   fn main() {
-    import Modules.Math
-    print(Math.square(5));
+    import Modules.Math //~ E017
+    print(Math.square(5)); //~ E012
   }

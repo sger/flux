@@ -3,19 +3,18 @@ source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/149_cross_module_constructor_access_strict.flx
 == compile ==
-failed (module)
+failed (compile)
 == diagnostics ==
-error[E018]: Import Not Found
+error[E086]: Cross-Module Constructor Access
 
-Cannot find module `TypeSystem.BoundaryCtor` to import.
+Direct constructor access `SomeInt` from module `TypeSystem.BoundaryCtor` is not allowed in strict mode.
 
-  examples/type_system/failing/149_cross_module_constructor_access_strict.flx:54:1
+  examples/type_system/failing/149_cross_module_constructor_access_strict.flx:12:14
    |
-54 | import TypeSystem.BoundaryCtor
-   | ^
+12 |     let _x = TypeSystem.BoundaryCtor.SomeInt(1)
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Hint:
-  Check that: 1) The module file exists (e.g., `TypeSystem.BoundaryCtor.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `TypeSystem.BoundaryCtor` under roots: examples/type_system/failing, src, lib (imported from examples/type_system/failing/149_cross_module_constructor_access_strict.flx).
+  Use the module's public factory/accessor functions instead.
 == stdout ==
 <not executed>

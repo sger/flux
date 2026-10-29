@@ -2,6 +2,9 @@
 // expect: success
 // bug: sleep(ms) must complete without error on the VM path; it blocks the
 //      OS thread for the given duration and then continues normally.
+// parity-expected-stdout-begin
+// 99
+// parity-expected-stdout-end
 
 import Flow.Async exposing (..)
 

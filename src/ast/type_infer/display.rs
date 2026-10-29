@@ -30,10 +30,7 @@ pub fn display_infer_type(ty: &InferType, interner: &Interner) -> String {
 
 /// Format each type in `types`, in order.
 fn display_list(types: &[InferType], interner: &Interner) -> Vec<String> {
-    types
-        .iter()
-        .map(|ty| display_infer_type(ty, interner))
-        .collect()
+    types.iter().map(|ty| display_infer_type(ty, interner)).collect()
 }
 
 /// Format `base<arg, ...>` — the shape shared by constructor applications,
@@ -56,10 +53,8 @@ fn display_fun(
     }
     let mut concrete: Vec<_> = effects.concrete().iter().copied().collect();
     concrete.sort_by_key(|s| s.as_u32());
-    let mut eff_str: Vec<String> = concrete
-        .into_iter()
-        .map(|e| interner.resolve(e).to_string())
-        .collect();
+    let mut eff_str: Vec<String> =
+        concrete.into_iter().map(|e| interner.resolve(e).to_string()).collect();
     if effects.tail().is_some() {
         // User-facing diagnostics should not leak unstable solver ids like
         // `|?10256`; render unresolved effect tails the same way we render
@@ -73,11 +68,7 @@ fn display_fun(
 fn alpha_name(index: usize) -> String {
     let letter = ((index % 26) as u8 + b'a') as char;
     let suffix = index / 26;
-    if suffix == 0 {
-        letter.to_string()
-    } else {
-        format!("{letter}{suffix}")
-    }
+    if suffix == 0 { letter.to_string() } else { format!("{letter}{suffix}") }
 }
 
 struct CanonicalSchemeFormatter<'a> {
@@ -89,11 +80,7 @@ struct CanonicalSchemeFormatter<'a> {
 impl<'a> CanonicalSchemeFormatter<'a> {
     /// Create a formatter that canonicalizes type-variable names through `interner`.
     fn new(interner: &'a Interner) -> Self {
-        Self {
-            interner,
-            names: HashMap::new(),
-            next: 0,
-        }
+        Self { interner, names: HashMap::new(), next: 0 }
     }
 
     /// Intern a stable display name for a type or effect-row tail variable id.
@@ -109,10 +96,7 @@ impl<'a> CanonicalSchemeFormatter<'a> {
 
     /// Resolve an identifier into a readable class or ADT name for display.
     fn identifier_name(&self, sym: Identifier) -> String {
-        self.interner
-            .try_resolve(sym)
-            .map(str::to_string)
-            .unwrap_or_else(|| format!("{sym}"))
+        self.interner.try_resolve(sym).map(str::to_string).unwrap_or_else(|| format!("{sym}"))
     }
 
     /// Render a constructor name, resolving ADT symbols through the interner.
@@ -171,11 +155,8 @@ impl<'a> CanonicalSchemeFormatter<'a> {
 
     /// Render an effect row using the formatter's canonical variable names.
     fn format_effects(&mut self, effects: &InferEffectRow) -> String {
-        let mut concrete: Vec<_> = effects
-            .concrete()
-            .iter()
-            .map(|effect| self.identifier_name(*effect))
-            .collect();
+        let mut concrete: Vec<_> =
+            effects.concrete().iter().map(|effect| self.identifier_name(*effect)).collect();
         concrete.sort();
         match effects.tail() {
             Some(tail) if concrete.is_empty() => format!("|{}", self.intern_var_name(tail)),
@@ -192,18 +173,12 @@ impl<'a> CanonicalSchemeFormatter<'a> {
             InferType::App(constructor, args) => format!(
                 "{}<{}>",
                 self.format_constructor(constructor),
-                args.iter()
-                    .map(|arg| self.format_type(arg))
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                args.iter().map(|arg| self.format_type(arg)).collect::<Vec<_>>().join(", ")
             ),
             InferType::Assoc(_, name, args) => format!(
                 "{}<{}>",
                 self.interner.resolve(*name),
-                args.iter()
-                    .map(|arg| self.format_type(arg))
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                args.iter().map(|arg| self.format_type(arg)).collect::<Vec<_>>().join(", ")
             ),
             InferType::Fun(params, ret, effects) => {
                 let params = params
@@ -229,10 +204,7 @@ impl<'a> CanonicalSchemeFormatter<'a> {
             InferType::HktApp(head, args) => format!(
                 "{}<{}>",
                 self.format_type(head),
-                args.iter()
-                    .map(|arg| self.format_type(arg))
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                args.iter().map(|arg| self.format_type(arg)).collect::<Vec<_>>().join(", ")
             ),
         }
     }
@@ -282,10 +254,7 @@ pub fn render_scheme_canonical(interner: &Interner, scheme: &Scheme) -> String {
     if forall.is_empty() {
         format!("{constraints}{ty}")
     } else {
-        let mut vars = forall
-            .iter()
-            .map(|var| formatter.intern_var_name(*var))
-            .collect::<Vec<_>>();
+        let mut vars = forall.iter().map(|var| formatter.intern_var_name(*var)).collect::<Vec<_>>();
         vars.sort();
         let vars = vars.join(", ");
         format!("forall {vars}. {constraints}{ty}")
@@ -301,9 +270,8 @@ pub(super) fn display_type_constructor(c: &TypeConstructor, interner: &Interner)
 }
 
 /// Built-in type names used for "did you mean?" suggestions.
-pub(super) const KNOWN_TYPE_NAMES: &[&str] = &[
-    "Int", "Float", "Bool", "String", "Unit", "List", "Map", "Array", "Option", "Either",
-];
+pub(super) const KNOWN_TYPE_NAMES: &[&str] =
+    &["Int", "Float", "Bool", "String", "Unit", "List", "Map", "Array", "Option", "Either"];
 
 /// If a type name looks like a typo of a known built-in type, return a
 /// suggestion string like `did you mean \`String\`?`.
@@ -363,10 +331,7 @@ mod tests {
             ),
         };
 
-        assert_eq!(
-            render_scheme_canonical(&interner, &first),
-            "forall a, b. (a, b) -> a"
-        );
+        assert_eq!(render_scheme_canonical(&interner, &first), "forall a, b. (a, b) -> a");
         assert_eq!(
             render_scheme_canonical(&interner, &first),
             render_scheme_canonical(&interner, &second)

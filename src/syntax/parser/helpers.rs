@@ -97,10 +97,8 @@ impl Parser {
         // program's doc-comment index, so all advancement funnels through it
         // rather than re-skipping here (which would drop them uncollected).
         let next = self.next_non_doc_token();
-        self.current_token = std::mem::replace(
-            &mut self.peek_token,
-            std::mem::replace(&mut self.peek2_token, next),
-        );
+        self.current_token =
+            std::mem::replace(&mut self.peek_token, std::mem::replace(&mut self.peek2_token, next));
     }
 
     /// Returns `true` when `current_token` matches `token_type`.
@@ -327,20 +325,14 @@ impl Parser {
 
     /// Returns whether `token_type` can begin a type expression.
     pub(super) fn token_starts_type(&self, token_type: TokenType) -> bool {
-        matches!(
-            token_type,
-            TokenType::Ident | TokenType::LParen | TokenType::None
-        )
+        matches!(token_type, TokenType::Ident | TokenType::LParen | TokenType::None)
     }
 
     fn looks_like_type_annotation_start(&self) -> bool {
         match self.peek_token.token_type {
-            TokenType::Ident => self
-                .peek_token
-                .literal
-                .chars()
-                .next()
-                .is_some_and(|c| c.is_ascii_uppercase()),
+            TokenType::Ident => {
+                self.peek_token.literal.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+            }
             TokenType::LParen | TokenType::None => true,
             _ => false,
         }
@@ -501,10 +493,7 @@ impl Parser {
     // Complex parsing helpers
     /// Parses either a simple identifier or a dotted qualified identifier.
     pub(super) fn parse_qualified_name(&mut self) -> Option<Identifier> {
-        let first_sym = self
-            .current_token
-            .symbol
-            .expect("ident token should have symbol");
+        let first_sym = self.current_token.symbol.expect("ident token should have symbol");
         if !self.is_peek_token(TokenType::Dot) {
             return Some(first_sym);
         }
@@ -686,8 +675,7 @@ impl Parser {
                     if context == ParameterListContext::Lambda
                         && self.current_token.token_type == TokenType::Arrow
                     {
-                        self.errors
-                            .push(missing_lambda_close_paren(self.current_token.span()));
+                        self.errors.push(missing_lambda_close_paren(self.current_token.span()));
                     } else {
                         let followup = unexpected_token(
                             self.current_token.span(),
@@ -800,15 +788,9 @@ impl Parser {
         }
 
         let message = if let Some(name) = binding_name {
-            format!(
-                "Missing `:` in {} type annotation. Write it as `{name}: Type`.",
-                context
-            )
+            format!("Missing `:` in {} type annotation. Write it as `{name}: Type`.", context)
         } else {
-            format!(
-                "Missing `:` in {} type annotation. Write it as `name: Type`.",
-                context
-            )
+            format!("Missing `:` in {} type annotation. Write it as `name: Type`.", context)
         };
         self.errors.push(
             unexpected_token_with_details(
@@ -876,12 +858,8 @@ impl Parser {
     /// Lowercase identifiers are rejected unless introduced by `|`; implicit row variables
     /// are intentionally disallowed.
     pub(super) fn parse_effect_expr(&mut self) -> Option<EffectExpr> {
-        let is_lowercase_ident = |literal: &str| {
-            literal
-                .chars()
-                .next()
-                .is_some_and(|ch| ch.is_ascii_lowercase())
-        };
+        let is_lowercase_ident =
+            |literal: &str| literal.chars().next().is_some_and(|ch| ch.is_ascii_lowercase());
 
         let mut saw_row_tail;
         let mut expr = if self.is_peek_token(TokenType::Bar) {
@@ -907,10 +885,7 @@ impl Parser {
             saw_row_tail = true;
 
             EffectExpr::RowVar {
-                name: self
-                    .current_token
-                    .symbol
-                    .expect("ident token should have symbol"),
+                name: self.current_token.symbol.expect("ident token should have symbol"),
                 span: self.current_token.span(),
             }
         } else {
@@ -936,15 +911,9 @@ impl Parser {
 
             saw_row_tail = false;
 
-            let name = self
-                .current_token
-                .symbol
-                .expect("ident token should have symbol");
+            let name = self.current_token.symbol.expect("ident token should have symbol");
 
-            EffectExpr::Named {
-                name,
-                span: self.current_token.span(),
-            }
+            EffectExpr::Named { name, span: self.current_token.span() }
         };
 
         loop {
@@ -985,19 +954,12 @@ impl Parser {
                 }
 
                 let tail = EffectExpr::RowVar {
-                    name: self
-                        .current_token
-                        .symbol
-                        .expect("ident token should have symbol"),
+                    name: self.current_token.symbol.expect("ident token should have symbol"),
                     span: self.current_token.span(),
                 };
 
                 let span = Span::new(expr.span().start, tail.span().end);
-                expr = EffectExpr::Add {
-                    left: Box::new(expr),
-                    right: Box::new(tail),
-                    span,
-                };
+                expr = EffectExpr::Add { left: Box::new(expr), right: Box::new(tail), span };
                 continue;
             }
 
@@ -1036,29 +998,19 @@ impl Parser {
                 return None;
             }
 
-            let rhs_name = self
-                .current_token
-                .symbol
-                .expect("ident token should have symbol");
+            let rhs_name = self.current_token.symbol.expect("ident token should have symbol");
 
-            let rhs = EffectExpr::Named {
-                name: rhs_name,
-                span: self.current_token.span(),
-            };
+            let rhs = EffectExpr::Named { name: rhs_name, span: self.current_token.span() };
 
             let span = Span::new(expr.span().start, rhs.span().end);
 
             expr = match operator {
-                TokenType::Plus => EffectExpr::Add {
-                    left: Box::new(expr),
-                    right: Box::new(rhs),
-                    span,
-                },
-                TokenType::Minus => EffectExpr::Subtract {
-                    left: Box::new(expr),
-                    right: Box::new(rhs),
-                    span,
-                },
+                TokenType::Plus => {
+                    EffectExpr::Add { left: Box::new(expr), right: Box::new(rhs), span }
+                }
+                TokenType::Minus => {
+                    EffectExpr::Subtract { left: Box::new(expr), right: Box::new(rhs), span }
+                }
                 _ => unreachable!("only + or - are parsed here"),
             };
         }
@@ -1106,11 +1058,7 @@ impl Parser {
                 let start = self.current_token.position;
                 let name = self.lexer.interner_mut().intern("None");
                 let end = self.current_token.end_position;
-                Some(TypeExpr::Named {
-                    name,
-                    args: vec![],
-                    span: Span::new(start, end),
-                })
+                Some(TypeExpr::Named { name, args: vec![], span: Span::new(start, end) })
             }
             _ => {
                 self.emit_parser_diagnostic(unexpected_token(
@@ -1146,10 +1094,7 @@ impl Parser {
     /// Parses a named type, including optional generic arguments (`Name<T, U>`).
     fn parse_named_type_expr(&mut self) -> Option<TypeExpr> {
         let start = self.current_token.position;
-        let name = self
-            .current_token
-            .symbol
-            .expect("ident token should have symbol");
+        let name = self.current_token.symbol.expect("ident token should have symbol");
 
         let mut args = Vec::new();
 
@@ -1239,10 +1184,7 @@ impl Parser {
             return None;
         }
 
-        Some(TypeExpr::Tuple {
-            elements,
-            span: Span::new(start, self.current_token.end_position),
-        })
+        Some(TypeExpr::Tuple { elements, span: Span::new(start, self.current_token.end_position) })
     }
 
     /// Parses a block body until `}`/`EOF`, including post-expression `where` clauses.
@@ -1303,19 +1245,15 @@ impl Parser {
             let mut diag = unclosed_delimiter(open_span, "{", "}", None);
             diag.set_message(msg);
             if let Some(name) = context {
-                diag.hints_mut()
-                    .push(crate::diagnostics::types::Hint::help(format!(
-                        "Add `}}` to close the body of function `{}`.",
-                        name
-                    )));
+                diag.hints_mut().push(crate::diagnostics::types::Hint::help(format!(
+                    "Add `}}` to close the body of function `{}`.",
+                    name
+                )));
             }
             self.emit_parser_diagnostic(diag);
         }
 
-        Block {
-            statements,
-            span: Span::new(start, self.current_token.end_position),
-        }
+        Block { statements, span: Span::new(start, self.current_token.end_position) }
     }
 
     /// Parse one or more `where ident = expr` clauses, returning them as `Let` statements.
@@ -1335,10 +1273,7 @@ impl Parser {
                 break;
             }
 
-            let name: Identifier = self
-                .current_token
-                .symbol
-                .expect("ident token must have symbol");
+            let name: Identifier = self.current_token.symbol.expect("ident token must have symbol");
             self.next_token(); // consume identifier
 
             if !self.is_current_token(TokenType::Assign) {
@@ -1821,11 +1756,7 @@ For lambdas, write `\\x -> { let y = ...; y }`. Match arms require an expression
     /// Validates that `current_token` is an identifier parameter and returns its symbol.
     pub(super) fn validate_parameter_identifier(&mut self) -> Option<Identifier> {
         if self.current_token.token_type == TokenType::Ident {
-            Some(
-                self.current_token
-                    .symbol
-                    .expect("ident token should have symbol"),
-            )
+            Some(self.current_token.symbol.expect("ident token should have symbol"))
         } else {
             self.emit_parser_diagnostic(unexpected_token(
                 self.current_token.span(),

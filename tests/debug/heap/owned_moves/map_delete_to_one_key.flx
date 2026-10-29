@@ -1,0 +1,13 @@
+// A map deleted down to one key keeps that key's value, and the map it was
+// made from keeps both.
+
+fn map_of(n) {
+    map_set(map_set({}, "a", [n]), "b", [n + 1])
+}
+
+fn main() {
+    let m = map_of(1)
+    let m2 = map_delete(m, "a")
+    print(map_get(m2, "b"))
+    print(map_get(m, "a"))
+}

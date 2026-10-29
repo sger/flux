@@ -1,7 +1,6 @@
 //! VM/native parity and fake-interpreter coverage for Flume.Build.Plan.
 
-#[path = "../support/stdlib_fixture.rs"]
-mod stdlib_fixture;
+use crate::support::stdlib_fixture;
 
 use stdlib_fixture::assert_backends_agree;
 

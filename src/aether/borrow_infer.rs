@@ -49,10 +49,7 @@ impl BorrowSignature {
     }
 
     pub fn all(mode: BorrowMode, arity: usize, provenance: BorrowProvenance) -> Self {
-        Self {
-            params: vec![mode; arity],
-            provenance,
-        }
+        Self { params: vec![mode; arity], provenance }
     }
 
     pub fn is_borrowed(&self, param_index: usize) -> bool {
@@ -67,10 +64,7 @@ pub enum BorrowCallee {
     Global(Identifier),
     BaseRuntime(Identifier),
     Imported(Identifier),
-    ImportedMember {
-        module_binding: Identifier,
-        member: Identifier,
-    },
+    ImportedMember { module_binding: Identifier, member: Identifier },
     Unknown,
 }
 
@@ -113,18 +107,15 @@ impl BorrowRegistry {
 
     pub fn signature_for_callee(&self, callee: BorrowCallee) -> &BorrowSignature {
         match callee {
-            BorrowCallee::Local(binder) => self
-                .lookup_binder(binder)
-                .unwrap_or(&self.unknown_callee_signature),
+            BorrowCallee::Local(binder) => {
+                self.lookup_binder(binder).unwrap_or(&self.unknown_callee_signature)
+            }
             BorrowCallee::Global(name)
             | BorrowCallee::BaseRuntime(name)
-            | BorrowCallee::Imported(name) => self
-                .lookup_name(name)
-                .unwrap_or(&self.unknown_callee_signature),
-            BorrowCallee::ImportedMember {
-                module_binding,
-                member,
-            } => self
+            | BorrowCallee::Imported(name) => {
+                self.lookup_name(name).unwrap_or(&self.unknown_callee_signature)
+            }
+            BorrowCallee::ImportedMember { module_binding, member } => self
                 .lookup_member_access(module_binding, member)
                 .unwrap_or(&self.unknown_callee_signature),
             BorrowCallee::Unknown => &self.unknown_callee_signature,
@@ -145,10 +136,7 @@ impl BorrowRegistry {
         member: Identifier,
     ) -> BorrowCallee {
         if self.lookup_member_access(module_binding, member).is_some() {
-            BorrowCallee::ImportedMember {
-                module_binding,
-                member,
-            }
+            BorrowCallee::ImportedMember { module_binding, member }
         } else {
             BorrowCallee::Unknown
         }
@@ -199,11 +187,8 @@ pub fn infer_borrow_modes_with_preloaded(
         }
     }
 
-    let defs_by_binder: HashMap<CoreBinderId, &CoreDef> = program
-        .defs
-        .iter()
-        .map(|def| (def.binder.id, def))
-        .collect();
+    let defs_by_binder: HashMap<CoreBinderId, &CoreDef> =
+        program.defs.iter().map(|def| (def.binder.id, def)).collect();
     let recursive_groups = compute_recursive_groups(program);
 
     const MAX_BORROW_INFERENCE_ROUNDS: usize = 10;
@@ -269,17 +254,16 @@ fn register_explicit_named_fallbacks(
 
     for (name, arity) in unresolved_callees {
         if let Some(interner) = interner
-            && let Some((primop_arity, borrows)) =
+            && let Some(borrows) =
                 crate::core::CorePrimOp::resolve_borrow_info(interner.resolve(name))
         {
-            let mode = if borrows {
-                BorrowMode::Borrowed
-            } else {
-                BorrowMode::Owned
-            };
+            let modes = borrows
+                .into_iter()
+                .map(|borrowed| if borrowed { BorrowMode::Borrowed } else { BorrowMode::Owned })
+                .collect();
             registry.insert_named_if_absent(
                 name,
-                BorrowSignature::all(mode, primop_arity, BorrowProvenance::BaseRuntime),
+                BorrowSignature::new(modes, BorrowProvenance::BaseRuntime),
             );
             continue;
         }
@@ -328,12 +312,7 @@ fn compute_recursive_groups(program: &CoreProgram) -> Vec<Vec<CoreBinderId>> {
 
     let nodes: Vec<CoreBinderId> = program.defs.iter().map(|def| def.binder.id).collect();
     crate::shared::scc::strongly_connected_components(&nodes, |id| {
-        adjacency
-            .get(&id)
-            .into_iter()
-            .flatten()
-            .copied()
-            .collect::<Vec<_>>()
+        adjacency.get(&id).into_iter().flatten().copied().collect::<Vec<_>>()
     })
 }
 
@@ -367,9 +346,7 @@ fn collect_local_callees(
             }
             collect_local_callees(body, def_ids, out);
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             collect_local_callees(scrutinee, def_ids, out);
             for alt in alts {
                 if let Some(guard) = &alt.guard {
@@ -389,12 +366,7 @@ fn collect_local_callees(
                 collect_local_callees(arg, def_ids, out);
             }
         }
-        CoreExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        CoreExpr::Handle { body, parameter, handlers, .. } => {
             if let Some(parameter) = parameter {
                 collect_local_callees(parameter, def_ids, out);
             }
@@ -431,7 +403,125 @@ fn infer_group_constraints(
         }
     }
 
+    for binder in group {
+        let Some((params, body)) =
+            defs_by_binder.get(binder).and_then(|def| extract_lam(&def.expr))
+        else {
+            continue;
+        };
+        let caller = TailCaller { binder: *binder, params, defs_by_binder, registry, group_set };
+        caller.collect(body, &mut HashSet::new(), &mut constraints);
+    }
+
     constraints
+}
+
+/// A function of the group whose tail calls to the group are being read.
+///
+/// A tail call that lends a value its caller owns leaves the caller holding
+/// it across a call it never comes back from, so the value is released only
+/// if the call stops being a tail call. As in Lean's borrow inference, a
+/// parameter a recursive tail call passes an owned value to is owned
+/// instead: the call gives the value away and stays a jump. A fresh value
+/// makes it owned, and a parameter of the caller makes it owned when that
+/// parameter is. A pattern variable is a view of its scrutinee, which may
+/// be borrowed, so it changes nothing.
+struct TailCaller<'a> {
+    binder: CoreBinderId,
+    params: &'a [CoreBinder],
+    defs_by_binder: &'a HashMap<CoreBinderId, &'a CoreDef>,
+    registry: &'a BorrowRegistry,
+    group_set: &'a HashSet<CoreBinderId>,
+}
+
+impl TailCaller<'_> {
+    /// Reads the tail calls of `expr`, an expression in tail position.
+    /// `fresh` holds the `let`s in scope whose value is fresh.
+    fn collect(
+        &self,
+        expr: &CoreExpr,
+        fresh: &mut HashSet<CoreBinderId>,
+        constraints: &mut HashMap<(CoreBinderId, usize), ParamConstraint>,
+    ) {
+        match expr {
+            CoreExpr::Let { var, rhs, body, .. } => {
+                let inserted = makes_fresh_value(rhs, self.registry) && fresh.insert(var.id);
+                self.collect(body, fresh, constraints);
+                if inserted {
+                    fresh.remove(&var.id);
+                }
+            }
+            CoreExpr::LetRec { body, .. } | CoreExpr::LetRecGroup { body, .. } => {
+                self.collect(body, fresh, constraints);
+            }
+            CoreExpr::Case { alts, .. } => {
+                for alt in alts {
+                    self.collect(&alt.rhs, fresh, constraints);
+                }
+            }
+            CoreExpr::Return { value, .. } => self.collect(value, fresh, constraints),
+            CoreExpr::App { func, args, .. } => {
+                let CoreExpr::Var { var, .. } = func.as_ref() else {
+                    return;
+                };
+                let Some(callee) = var.binder.filter(|id| self.group_set.contains(id)) else {
+                    return;
+                };
+                let Some((callee_params, _)) =
+                    self.defs_by_binder.get(&callee).and_then(|def| extract_lam(&def.expr))
+                else {
+                    return;
+                };
+                for (index, (arg, param)) in args.iter().zip(callee_params).enumerate() {
+                    if !param.rep.needs_rc() {
+                        continue;
+                    }
+                    let Some(constraint) = constraints.get_mut(&(callee, index)) else {
+                        continue;
+                    };
+                    let named = match arg {
+                        CoreExpr::Var { var, .. } => var.binder,
+                        _ => None,
+                    };
+                    if let Some(position) =
+                        named.and_then(|id| self.params.iter().position(|p| p.id == id))
+                    {
+                        constraint.deps.push((self.binder, position));
+                    } else if named.is_some_and(|id| fresh.contains(&id))
+                        || makes_fresh_value(arg, self.registry)
+                    {
+                        constraint.force_owned = true;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Whether evaluating `expr` makes a value with a reference of its own: a
+/// constructor, a closure, a collection literal, or what a Flux function
+/// returns. A runtime function's result can be a view of an argument.
+fn makes_fresh_value(expr: &CoreExpr, registry: &BorrowRegistry) -> bool {
+    match expr {
+        CoreExpr::Con { .. } | CoreExpr::Lam { .. } => true,
+        CoreExpr::PrimOp { op, .. } => matches!(
+            op,
+            crate::core::CorePrimOp::MakeList
+                | crate::core::CorePrimOp::MakeArray
+                | crate::core::CorePrimOp::MakeTuple
+                | crate::core::CorePrimOp::MakeHash
+                | crate::core::CorePrimOp::Interpolate
+        ),
+        CoreExpr::App { func, .. } => match func.as_ref() {
+            CoreExpr::Var { var, .. } => !matches!(
+                registry.resolve_var_ref(var),
+                BorrowCallee::BaseRuntime(_) | BorrowCallee::Unknown
+            ),
+            _ => false,
+        },
+        _ => false,
+    }
 }
 
 fn solve_group_modes(
@@ -505,17 +595,10 @@ fn collect_param_constraints(
         }
         CoreExpr::Lit(_, _) => {}
         CoreExpr::PrimOp { op, args, .. } => {
-            // A collection constructor keeps its elements: the planner hands
-            // them over (`insert.rs`), so a parameter put into one is owned.
-            let keeps = matches!(
-                op,
-                crate::core::CorePrimOp::MakeTuple
-                    | crate::core::CorePrimOp::MakeList
-                    | crate::core::CorePrimOp::MakeArray
-                    | crate::core::CorePrimOp::MakeHash
-            );
-            for arg in args {
-                if keeps {
+            // An argument the primop keeps is handed over by the planner
+            // (`insert.rs`), so a parameter given there is owned.
+            for (index, arg) in args.iter().enumerate() {
+                if op.takes_arg(index) {
                     collect_param_constraints(target, arg, registry, group_set, constraint);
                 } else {
                     collect_param_constraints_skip_direct(
@@ -524,9 +607,7 @@ fn collect_param_constraints(
                 }
             }
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             // A parameter matched by an arm that rebuilds its shape may be
             // reused in place, which releases it: it is owned. (Over-
             // approximating: whether the reuse happens is decided later.)
@@ -591,12 +672,7 @@ fn collect_param_constraints(
                 collect_param_constraints(target, body, registry, group_set, constraint);
             }
         }
-        CoreExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        CoreExpr::Handle { body, parameter, handlers, .. } => {
             if let Some(parameter) = parameter {
                 collect_param_constraints(target, parameter, registry, group_set, constraint);
             }
@@ -643,17 +719,12 @@ fn collect_call_param_constraints(
 
         let borrowed = if let Some(modes) = explicit_modes {
             modes.get(index).cloned() == Some(BorrowMode::Borrowed)
-        } else if let CoreExpr::Var {
-            var: callee_var, ..
-        } = func
-        {
+        } else if let CoreExpr::Var { var: callee_var, .. } = func {
             registry.is_borrowed(registry.resolve_var_ref(callee_var), index)
         } else if let CoreExpr::MemberAccess { object, member, .. } = func {
             if let CoreExpr::Var { var, .. } = object.as_ref() {
-                registry.is_borrowed(
-                    registry.resolve_member_access_callee(var.name, *member),
-                    index,
-                )
+                registry
+                    .is_borrowed(registry.resolve_member_access_callee(var.name, *member), index)
             } else {
                 false
             }
@@ -745,9 +816,7 @@ fn collect_unresolved_callees(expr: &CoreExpr, unresolved: &mut HashMap<Identifi
             }
             collect_unresolved_callees(body, unresolved);
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             collect_unresolved_callees(scrutinee, unresolved);
             for alt in alts {
                 if let Some(guard) = &alt.guard {
@@ -767,12 +836,7 @@ fn collect_unresolved_callees(expr: &CoreExpr, unresolved: &mut HashMap<Identifi
                 collect_unresolved_callees(arg, unresolved);
             }
         }
-        CoreExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        CoreExpr::Handle { body, parameter, handlers, .. } => {
             if let Some(parameter) = parameter {
                 collect_unresolved_callees(parameter, unresolved);
             }
@@ -807,17 +871,11 @@ mod tests {
     }
 
     fn var_ref<B: Borrow<CoreBinder>>(binder: B) -> CoreExpr {
-        CoreExpr::Var {
-            var: CoreVarRef::resolved(binder.borrow()),
-            span: span(),
-        }
+        CoreExpr::Var { var: CoreVarRef::resolved(binder.borrow()), span: span() }
     }
 
     fn ext_var(name: crate::syntax::Identifier) -> CoreExpr {
-        CoreExpr::Var {
-            var: CoreVarRef::unresolved(name),
-            span: span(),
-        }
+        CoreExpr::Var { var: CoreVarRef::unresolved(name), span: span() }
     }
 
     fn def(
@@ -826,12 +884,7 @@ mod tests {
         body: CoreExpr,
         is_recursive: bool,
     ) -> CoreDef {
-        CoreDef::new(
-            binder,
-            CoreExpr::lambda(params, body, span()),
-            is_recursive,
-            span(),
-        )
+        CoreDef::new(binder, CoreExpr::lambda(params, body, span()), is_recursive, span())
     }
 
     #[test]
@@ -866,15 +919,11 @@ mod tests {
             false,
         );
 
-        let mut program = CoreProgram {
-            defs: vec![read_def, main_def],
-            top_level_items: Vec::new(),
-        };
+        let mut program =
+            CoreProgram { defs: vec![read_def, main_def], top_level_items: Vec::new() };
 
         let registry = infer_borrow_modes(&mut program, Some(&interner));
-        let sig = registry
-            .lookup_binder(read_binder.id)
-            .expect("read signature should exist");
+        let sig = registry.lookup_binder(read_binder.id).expect("read signature should exist");
         assert_eq!(sig.params, vec![BorrowMode::Borrowed]);
         assert_eq!(program.defs[0].borrow_signature.as_ref(), Some(sig));
     }
@@ -897,16 +946,10 @@ mod tests {
             true,
         );
 
-        let mut program = CoreProgram {
-            defs: vec![loop_def],
-            top_level_items: Vec::new(),
-        };
+        let mut program = CoreProgram { defs: vec![loop_def], top_level_items: Vec::new() };
         let registry = infer_borrow_modes(&mut program, Some(&interner));
         assert_eq!(
-            registry
-                .lookup_binder(loop_binder.id)
-                .expect("loop signature")
-                .params,
+            registry.lookup_binder(loop_binder.id).expect("loop signature").params,
             vec![BorrowMode::Borrowed]
         );
     }
@@ -926,10 +969,7 @@ mod tests {
             CoreExpr::Case {
                 scrutinee: Box::new(CoreExpr::PrimOp {
                     op: crate::core::CorePrimOp::Eq,
-                    args: vec![
-                        var_ref(n),
-                        CoreExpr::Lit(crate::core::CoreLit::Int(0), span()),
-                    ],
+                    args: vec![var_ref(n), CoreExpr::Lit(crate::core::CoreLit::Int(0), span())],
                     span: span(),
                 }),
                 alts: vec![
@@ -970,16 +1010,10 @@ mod tests {
             true,
         );
 
-        let mut program = CoreProgram {
-            defs: vec![loop_def],
-            top_level_items: Vec::new(),
-        };
+        let mut program = CoreProgram { defs: vec![loop_def], top_level_items: Vec::new() };
         let registry = infer_borrow_modes(&mut program, Some(&interner));
         assert_eq!(
-            registry
-                .lookup_binder(loop_binder.id)
-                .expect("loop signature")
-                .params,
+            registry.lookup_binder(loop_binder.id).expect("loop signature").params,
             vec![BorrowMode::Borrowed, BorrowMode::Borrowed]
         );
     }
@@ -997,10 +1031,7 @@ mod tests {
             CoreExpr::Case {
                 scrutinee: Box::new(CoreExpr::PrimOp {
                     op: crate::core::CorePrimOp::Eq,
-                    args: vec![
-                        var_ref(n),
-                        CoreExpr::Lit(crate::core::CoreLit::Int(0), span()),
-                    ],
+                    args: vec![var_ref(n), CoreExpr::Lit(crate::core::CoreLit::Int(0), span())],
                     span: span(),
                 }),
                 alts: vec![
@@ -1037,16 +1068,10 @@ mod tests {
             true,
         );
 
-        let mut program = CoreProgram {
-            defs: vec![loop_def],
-            top_level_items: Vec::new(),
-        };
+        let mut program = CoreProgram { defs: vec![loop_def], top_level_items: Vec::new() };
         let registry = infer_borrow_modes(&mut program, Some(&interner));
         assert_eq!(
-            registry
-                .lookup_binder(loop_binder.id)
-                .expect("loop signature")
-                .params,
+            registry.lookup_binder(loop_binder.id).expect("loop signature").params,
             vec![BorrowMode::Borrowed, BorrowMode::Borrowed]
         );
     }
@@ -1118,10 +1143,7 @@ mod tests {
             CoreExpr::Case {
                 scrutinee: Box::new(CoreExpr::PrimOp {
                     op: crate::core::CorePrimOp::Eq,
-                    args: vec![
-                        var_ref(n_odd),
-                        CoreExpr::Lit(crate::core::CoreLit::Int(0), span()),
-                    ],
+                    args: vec![var_ref(n_odd), CoreExpr::Lit(crate::core::CoreLit::Int(0), span())],
                     span: span(),
                 }),
                 alts: vec![
@@ -1162,23 +1184,15 @@ mod tests {
             true,
         );
 
-        let mut program = CoreProgram {
-            defs: vec![even_def, odd_def],
-            top_level_items: Vec::new(),
-        };
+        let mut program =
+            CoreProgram { defs: vec![even_def, odd_def], top_level_items: Vec::new() };
         let registry = infer_borrow_modes(&mut program, Some(&interner));
         assert_eq!(
-            registry
-                .lookup_binder(even_binder.id)
-                .expect("even signature")
-                .params,
+            registry.lookup_binder(even_binder.id).expect("even signature").params,
             vec![BorrowMode::Borrowed, BorrowMode::Borrowed]
         );
         assert_eq!(
-            registry
-                .lookup_binder(odd_binder.id)
-                .expect("odd signature")
-                .params,
+            registry.lookup_binder(odd_binder.id).expect("odd signature").params,
             vec![BorrowMode::Borrowed, BorrowMode::Borrowed]
         );
     }
@@ -1217,16 +1231,10 @@ mod tests {
             false,
         );
 
-        let mut program = CoreProgram {
-            defs: vec![outer_def],
-            top_level_items: Vec::new(),
-        };
+        let mut program = CoreProgram { defs: vec![outer_def], top_level_items: Vec::new() };
         let registry = infer_borrow_modes(&mut program, Some(&interner));
         assert_eq!(
-            registry
-                .lookup_binder(outer_binder.id)
-                .expect("outer signature")
-                .params,
+            registry.lookup_binder(outer_binder.id).expect("outer signature").params,
             vec![BorrowMode::Borrowed]
         );
     }
@@ -1250,16 +1258,10 @@ mod tests {
             false,
         );
 
-        let mut program = CoreProgram {
-            defs: vec![make_def],
-            top_level_items: Vec::new(),
-        };
+        let mut program = CoreProgram { defs: vec![make_def], top_level_items: Vec::new() };
         let registry = infer_borrow_modes(&mut program, Some(&interner));
         assert_eq!(
-            registry
-                .lookup_binder(make_binder.id)
-                .expect("make signature")
-                .params,
+            registry.lookup_binder(make_binder.id).expect("make signature").params,
             vec![BorrowMode::Owned]
         );
     }
@@ -1271,16 +1273,101 @@ mod tests {
         body: CoreExpr,
     ) -> Vec<BorrowMode> {
         let f = binder(100, interner.intern("f"));
+        let mut program =
+            CoreProgram { defs: vec![def(f, params, body, false)], top_level_items: Vec::new() };
+        let registry = infer_borrow_modes(&mut program, Some(interner));
+        registry.lookup_binder(f.id).expect("f's signature").params.clone()
+    }
+
+    /// `walk(n, prev) = if n == 0 { len(prev) } else { walk(n - 1, next) }`,
+    /// where `next` is built from `prev`, and `prev`'s mode.
+    fn lending_loop_mode(
+        next: impl Fn(CoreBinder, CoreBinder, CoreBinder) -> CoreExpr,
+    ) -> BorrowMode {
+        let mut interner = Interner::new();
+        let walk = binder(1, interner.intern("walk"));
+        let n = binder(2, interner.intern("n"));
+        let prev = binder(3, interner.intern("prev"));
+        let t = binder(4, interner.intern("t"));
+        let len = interner.intern("len");
+        let recurse = CoreExpr::App {
+            func: Box::new(var_ref(walk)),
+            args: vec![
+                CoreExpr::PrimOp {
+                    op: crate::core::CorePrimOp::Sub,
+                    args: vec![var_ref(n), CoreExpr::Lit(crate::core::CoreLit::Int(1), span())],
+                    span: span(),
+                },
+                next(n, prev, t),
+            ],
+            span: span(),
+        };
+        let body = CoreExpr::Case {
+            scrutinee: Box::new(CoreExpr::PrimOp {
+                op: crate::core::CorePrimOp::Eq,
+                args: vec![var_ref(n), CoreExpr::Lit(crate::core::CoreLit::Int(0), span())],
+                span: span(),
+            }),
+            alts: vec![
+                crate::core::CoreAlt {
+                    pat: crate::core::CorePat::Lit(crate::core::CoreLit::Bool(true)),
+                    guard: None,
+                    rhs: CoreExpr::App {
+                        func: Box::new(ext_var(len)),
+                        args: vec![var_ref(prev)],
+                        span: span(),
+                    },
+                    span: span(),
+                },
+                crate::core::CoreAlt {
+                    pat: crate::core::CorePat::Wildcard,
+                    guard: None,
+                    rhs: CoreExpr::Case {
+                        scrutinee: Box::new(var_ref(prev)),
+                        alts: vec![crate::core::CoreAlt {
+                            pat: crate::core::CorePat::Con {
+                                tag: crate::core::CoreTag::Cons,
+                                fields: vec![
+                                    crate::core::CorePat::Wildcard,
+                                    crate::core::CorePat::Var(t),
+                                ],
+                            },
+                            guard: None,
+                            rhs: recurse,
+                            span: span(),
+                        }],
+                        join_ty: None,
+                        span: span(),
+                    },
+                    span: span(),
+                },
+            ],
+            join_ty: None,
+            span: span(),
+        };
         let mut program = CoreProgram {
-            defs: vec![def(f, params, body, false)],
+            defs: vec![def(walk, vec![n, prev], body, true)],
             top_level_items: Vec::new(),
         };
-        let registry = infer_borrow_modes(&mut program, Some(interner));
-        registry
-            .lookup_binder(f.id)
-            .expect("f's signature")
-            .params
-            .clone()
+        let registry = infer_borrow_modes(&mut program, Some(&interner));
+        registry.lookup_binder(walk.id).expect("walk's signature").params[1]
+    }
+
+    /// KI-128: a recursive tail call that lends a fresh value to a borrowed
+    /// parameter leaves the caller holding it across a call it never comes
+    /// back from. The parameter is owned instead, so the call gives the value
+    /// away. The parameter passed back, or a pattern variable taken from it,
+    /// is a value the caller does not own, and changes nothing.
+    #[test]
+    fn a_recursive_tail_call_lending_a_fresh_value_makes_the_parameter_owned() {
+        let fresh = lending_loop_mode(|n, _, _| CoreExpr::PrimOp {
+            op: crate::core::CorePrimOp::MakeList,
+            args: vec![var_ref(n)],
+            span: span(),
+        });
+        assert_eq!(fresh, BorrowMode::Owned);
+        assert_eq!(lending_loop_mode(|_, prev, _| var_ref(prev)), BorrowMode::Borrowed);
+        assert_eq!(lending_loop_mode(|_, _, t| var_ref(t)), BorrowMode::Borrowed);
     }
 
     #[test]
@@ -1321,10 +1408,7 @@ mod tests {
             span: span(),
         };
         // Reusing `xs`'s cell releases it, so its caller cannot lend it.
-        assert_eq!(
-            modes_of(&mut interner, vec![xs], body),
-            vec![BorrowMode::Owned]
-        );
+        assert_eq!(modes_of(&mut interner, vec![xs], body), vec![BorrowMode::Owned]);
     }
 
     #[test]
@@ -1335,10 +1419,7 @@ mod tests {
         let y = binder(2, interner.intern("y"));
         let body = CoreExpr::PrimOp {
             op: crate::core::CorePrimOp::MakeTuple,
-            args: vec![
-                var_ref(x),
-                CoreExpr::Lit(crate::core::CoreLit::Int(1), span()),
-            ],
+            args: vec![var_ref(x), CoreExpr::Lit(crate::core::CoreLit::Int(1), span())],
             span: span(),
         };
         assert_eq!(
@@ -1366,17 +1447,57 @@ mod tests {
             false,
         );
 
+        let mut program = CoreProgram { defs: vec![push_def], top_level_items: Vec::new() };
+        let registry = infer_borrow_modes(&mut program, Some(&interner));
+        assert_eq!(
+            registry.lookup_binder(push_binder.id).expect("push signature").params,
+            vec![BorrowMode::Owned, BorrowMode::Owned]
+        );
+    }
+
+    /// The move primops take over the value they send (`transfer_value`,
+    /// `runtime/c/channel.c`), so a parameter given to one is owned (PA L3).
+    #[test]
+    fn a_parameter_given_to_a_move_primop_is_owned() {
+        let mut interner = Interner::new();
+        let ch = binder(1, interner.intern("ch"));
+        let value = binder(2, interner.intern("value"));
+        let body = CoreExpr::PrimOp {
+            op: crate::core::CorePrimOp::ChanTrySendMove,
+            args: vec![var_ref(ch), var_ref(value)],
+            span: span(),
+        };
+        assert_eq!(
+            modes_of(&mut interner, vec![ch, value], body),
+            vec![BorrowMode::Borrowed, BorrowMode::Owned]
+        );
+    }
+
+    /// A move primop called by name takes its value too (PA L3).
+    #[test]
+    fn a_move_primop_called_by_name_owns_its_value() {
+        let mut interner = Interner::new();
+        let send = interner.intern("chan_try_send_move");
+        let main = binder(1, interner.intern("main"));
+        let ch = binder(2, interner.intern("ch"));
+        let value = binder(3, interner.intern("value"));
         let mut program = CoreProgram {
-            defs: vec![push_def],
+            defs: vec![def(
+                main,
+                vec![ch, value],
+                CoreExpr::App {
+                    func: Box::new(ext_var(send)),
+                    args: vec![var_ref(ch), var_ref(value)],
+                    span: span(),
+                },
+                false,
+            )],
             top_level_items: Vec::new(),
         };
         let registry = infer_borrow_modes(&mut program, Some(&interner));
         assert_eq!(
-            registry
-                .lookup_binder(push_binder.id)
-                .expect("push signature")
-                .params,
-            vec![BorrowMode::Owned, BorrowMode::Owned]
+            registry.lookup_name(send).expect("send signature").params,
+            vec![BorrowMode::Borrowed, BorrowMode::Owned]
         );
     }
 
@@ -1422,10 +1543,7 @@ mod tests {
             BorrowProvenance::BaseRuntime
         );
         assert_eq!(
-            registry
-                .lookup_name(array_push)
-                .expect("array_push signature")
-                .provenance,
+            registry.lookup_name(array_push).expect("array_push signature").provenance,
             BorrowProvenance::BaseRuntime
         );
         assert!(
@@ -1461,9 +1579,8 @@ mod tests {
         };
 
         let registry = infer_borrow_modes(&mut program, Some(&interner));
-        let sig = registry
-            .lookup_name(ext_name)
-            .expect("explicit imported fallback should be recorded");
+        let sig =
+            registry.lookup_name(ext_name).expect("explicit imported fallback should be recorded");
         assert_eq!(sig.provenance, BorrowProvenance::Imported);
         assert_eq!(sig.params, vec![BorrowMode::Owned]);
         let classified = registry.classify_var_ref(&CoreVarRef::unresolved(ext_name));
@@ -1480,9 +1597,7 @@ mod tests {
             "unknown callees must default to owned arguments"
         );
         assert_eq!(
-            registry
-                .signature_for_callee(BorrowCallee::Unknown)
-                .provenance,
+            registry.signature_for_callee(BorrowCallee::Unknown).provenance,
             BorrowProvenance::Unknown
         );
         let unknown_name = interner.intern("totally_unknown");

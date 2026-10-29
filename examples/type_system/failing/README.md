@@ -113,21 +113,21 @@ These fixtures are expected to fail and are useful for validating diagnostics.
 - `61_strict_generic_unresolved_boundary.flx`
   - Expected: compile-time failure (`E425`) in `--strict` when runtime boundary type resolution is generic/unresolved
 - `62_list_boundary_runtime_violation.flx`
-  - Expected: runtime failure (`E1004`) because `List<Int>` boundary receives a non-list dynamic value from module boundary
+  - Expected: compile-time failure (`E300`): the type checker catches the mismatch before the runtime boundary check (`E1004`) would; `List<Int>` receives a non-list value
 - `63_either_boundary_runtime_violation.flx`
-  - Expected: runtime failure (`E1004`) because `Either<String, Int>` boundary receives a non-Either dynamic value from module boundary
-- `185_runtime_boundary_arg_e1004.flx`
-  - Expected: runtime failure (`E1004`) for typed argument boundary from module-qualified dynamic source
-- `186_runtime_boundary_return_e1004.flx`
-  - Expected: runtime failure (`E1004`) for typed return boundary from module-qualified dynamic source
-- `187_runtime_list_boundary_e1004.flx`
-  - Expected: runtime failure (`E1004`) because `List<Int>` boundary receives a `String` from module boundary
-- `188_runtime_either_boundary_e1004.flx`
-  - Expected: runtime failure (`E1004`) because `Either<String, Int>` boundary receives a `String` from module boundary
+  - Expected: compile-time failure (`E300`): the type checker catches the mismatch before the runtime boundary check (`E1004`) would; `Either<String, Int>` receives a non-Either value
+- `185_runtime_boundary_arg_e300.flx`
+  - Expected: compile-time failure (`E300`): the type checker catches the mismatch before the runtime boundary check (`E1004`) would; typed argument from a module-qualified dynamic source
+- `186_runtime_boundary_return_e300.flx`
+  - Expected: compile-time failure (`E300`): the type checker catches the mismatch before the runtime boundary check (`E1004`) would; typed return from a module-qualified dynamic source
+- `187_runtime_list_boundary_e300.flx`
+  - Expected: compile-time failure (`E300`): the type checker catches the mismatch before the runtime boundary check (`E1004`) would; `List<Int>` receives a `String`
+- `188_runtime_either_boundary_e300.flx`
+  - Expected: compile-time failure (`E300`): the type checker catches the mismatch before the runtime boundary check (`E1004`) would; `Either<String, Int>` receives a `String`
 - `189_contextual_boundary_unresolved_strict_e425.flx`
   - Expected: compile-time failure (`E425`) in `--strict` for unresolved generic boundary checks on module-qualified calls
-- `190_contextual_boundary_arg_runtime_e1004.flx`
-  - Expected: runtime failure (`E1004`) for typed argument boundary mismatch from module-qualified dynamic source
+- `190_contextual_boundary_arg_runtime_e300.flx`
+  - Expected: compile-time failure (`E300`): the type checker catches the mismatch before the runtime boundary check (`E1004`) would; typed argument from a module-qualified dynamic source
 - `191_contextual_effect_missing_module_call_e400.flx`
   - Expected: compile-time failure (`E400`) when module-qualified call requires `IO` inside a `with Time` function
 - `64_hm_inferred_call_mismatch.flx`
@@ -309,15 +309,15 @@ These fixtures are expected to fail and are useful for validating diagnostics.
   - Expected: compile-time failure (`E300`) for concrete heterogeneous array argument conflict at call boundary
 - `153_match_branch_conflict_prefers_e300.flx`
   - Expected: compile-time failure (`E300`) for concrete `match` arm type disagreement in typed let path
-- `154_unresolved_projection_strict_e425.flx`
-  - Expected: strict-mode compile-time failure (`E425`) for genuinely unresolved tuple projection source
-  - Note: non-strict runs may surface baseline unresolved symbol diagnostics (`E004`) before strict-boundary checks.
-- `155_unresolved_member_access_strict_e425.flx`
-  - Expected: strict-mode compile-time failure (`E425`) for genuinely unresolved member access source
-  - Note: non-strict runs may surface baseline unresolved symbol diagnostics (`E004`) before strict-boundary checks.
-- `156_unresolved_call_arg_strict_e425.flx`
-  - Expected: strict-mode compile-time failure (`E425`) for genuinely unresolved call argument source
-  - Note: non-strict runs may surface baseline unresolved symbol diagnostics (`E004`) before strict-boundary checks.
+- `154_unresolved_projection_e004.flx`
+  - Expected: compile-time failure (`E004`) for genuinely unresolved tuple projection source
+  - Note: with `--strict`, the strict-boundary check (`E425`) is what these were written for; `compiler_rules_tests` covers it in process.
+- `155_unresolved_member_access_e004.flx`
+  - Expected: compile-time failure (`E004`) for genuinely unresolved member access source
+  - Note: with `--strict`, the strict-boundary check (`E425`) is what these were written for; `compiler_rules_tests` covers it in process.
+- `156_unresolved_call_arg_e004.flx`
+  - Expected: compile-time failure (`E004`) for genuinely unresolved call argument source
+  - Note: with `--strict`, the strict-boundary check (`E425`) is what these were written for; `compiler_rules_tests` covers it in process.
 - `157_match_tuple_missing_catchall_general.flx`
   - Expected: compile-time failure (`E015`) with tuple-conservative non-exhaustive message (unguarded catch-all required)
 - `158_match_tuple_guarded_only_non_exhaustive.flx`
@@ -326,9 +326,9 @@ These fixtures are expected to fail and are useful for validating diagnostics.
   - Expected: compile-time failure (`E083`) for nested tuple mixed-shape conservative non-exhaustiveness in ADT nested checking
 - `161_tuple_destructure_concrete_mismatch_prefers_e300.flx`
   - Expected: strict-mode compile-time failure (`E300`) for concrete tuple-destructure shape mismatch
-- `162_tuple_destructure_unresolved_strict_e425.flx`
-  - Expected: strict-mode compile-time failure (`E425`) when tuple-destructure source is genuinely unresolved
-  - Note: non-strict runs may surface baseline unresolved symbol diagnostics (`E004`) before strict-boundary checks.
+- `162_tuple_destructure_unresolved_e004.flx`
+  - Expected: compile-time failure (`E004`) when tuple-destructure source is genuinely unresolved
+  - Note: with `--strict`, the strict-boundary check (`E425`) is what these were written for; `compiler_rules_tests` covers it in process.
 - `163_match_concrete_disagreement_prefers_e300.flx`
   - Expected: strict-mode compile-time failure (`E300`) for concrete `match` arm disagreement
 - `164_match_unresolved_arm_stays_suppressed.flx`
@@ -339,9 +339,9 @@ These fixtures are expected to fail and are useful for validating diagnostics.
   - Expected: compile-time failure (`E004`) from unresolved symbol baseline, without recursion-specific false-positive mismatch diagnostics
 - `167_tuple_destructure_ordered_concrete_conflict_e300.flx`
   - Expected: strict-mode compile-time failure (`E300`) for concrete tuple-destructure conflict (arity/shape mismatch)
-- `168_tuple_destructure_unresolved_guard_strict_e425.flx`
-  - Expected: strict-mode compile-time failure (`E425`) when tuple-destructure source remains genuinely unresolved
-  - Note: non-strict runs may surface baseline unresolved symbol diagnostics (`E004`) before strict-boundary checks.
+- `168_tuple_destructure_unresolved_guard_e004.flx`
+  - Expected: compile-time failure (`E004`) when tuple-destructure source remains genuinely unresolved
+  - Note: with `--strict`, the strict-boundary check (`E425`) is what these were written for; `compiler_rules_tests` covers it in process.
 - `169_match_disagreement_first_arm_unresolved_still_e300.flx`
   - Expected: strict-mode compile-time failure (`E300`) for concrete `match` arm disagreement even when first arm is unresolved
 - `170_match_disagreement_all_concrete_ordering_invariant_e300.flx`
@@ -728,39 +728,39 @@ Policy note for parser-context fixtures (`173..184`):
 - When parser wording improves, snapshot transcript updates are expected and should be accepted as the new baseline.
 - `examples_fixtures_snapshots` remains a mixed harness; unrelated churn must be explicitly attributed by path and owning task.
 
-Strict-only focused commands (`154/155/156/162/168`):
+Strict-mode commands (`154/155/156/162/168`; without `--strict` they report `E004`):
 - VM:
-  - `cargo run -- --no-cache --strict --root examples/type_system examples/type_system/failing/154_unresolved_projection_strict_e425.flx`
-  - `cargo run -- --no-cache --strict --root examples/type_system examples/type_system/failing/155_unresolved_member_access_strict_e425.flx`
-  - `cargo run -- --no-cache --strict --root examples/type_system examples/type_system/failing/156_unresolved_call_arg_strict_e425.flx`
-  - `cargo run -- --no-cache --strict --root examples/type_system examples/type_system/failing/162_tuple_destructure_unresolved_strict_e425.flx`
-  - `cargo run -- --no-cache --strict --root examples/type_system examples/type_system/failing/168_tuple_destructure_unresolved_guard_strict_e425.flx`
+  - `cargo run -- --no-cache --strict --root examples/type_system examples/type_system/failing/154_unresolved_projection_e004.flx`
+  - `cargo run -- --no-cache --strict --root examples/type_system examples/type_system/failing/155_unresolved_member_access_e004.flx`
+  - `cargo run -- --no-cache --strict --root examples/type_system examples/type_system/failing/156_unresolved_call_arg_e004.flx`
+  - `cargo run -- --no-cache --strict --root examples/type_system examples/type_system/failing/162_tuple_destructure_unresolved_e004.flx`
+  - `cargo run -- --no-cache --strict --root examples/type_system examples/type_system/failing/168_tuple_destructure_unresolved_guard_e004.flx`
 - JIT:
-  - `cargo run --features jit -- --no-cache --strict --root examples/type_system examples/type_system/failing/154_unresolved_projection_strict_e425.flx --jit`
-  - `cargo run --features jit -- --no-cache --strict --root examples/type_system examples/type_system/failing/155_unresolved_member_access_strict_e425.flx --jit`
-  - `cargo run --features jit -- --no-cache --strict --root examples/type_system examples/type_system/failing/156_unresolved_call_arg_strict_e425.flx --jit`
-  - `cargo run --features jit -- --no-cache --strict --root examples/type_system examples/type_system/failing/162_tuple_destructure_unresolved_strict_e425.flx --jit`
-  - `cargo run --features jit -- --no-cache --strict --root examples/type_system examples/type_system/failing/168_tuple_destructure_unresolved_guard_strict_e425.flx --jit`
+  - `cargo run --features jit -- --no-cache --strict --root examples/type_system examples/type_system/failing/154_unresolved_projection_e004.flx --jit`
+  - `cargo run --features jit -- --no-cache --strict --root examples/type_system examples/type_system/failing/155_unresolved_member_access_e004.flx --jit`
+  - `cargo run --features jit -- --no-cache --strict --root examples/type_system examples/type_system/failing/156_unresolved_call_arg_e004.flx --jit`
+  - `cargo run --features jit -- --no-cache --strict --root examples/type_system examples/type_system/failing/162_tuple_destructure_unresolved_e004.flx --jit`
+  - `cargo run --features jit -- --no-cache --strict --root examples/type_system examples/type_system/failing/168_tuple_destructure_unresolved_guard_e004.flx --jit`
 
-Runtime E1004 focused commands (`185..188`):
+Runtime-boundary focused commands (`185..188`, all reported as `E300` at compile time):
 - VM:
-  - `cargo run -- --no-cache --root examples/type_system examples/type_system/failing/185_runtime_boundary_arg_e1004.flx`
-  - `cargo run -- --no-cache --root examples/type_system examples/type_system/failing/186_runtime_boundary_return_e1004.flx`
-  - `cargo run -- --no-cache --root examples/type_system examples/type_system/failing/187_runtime_list_boundary_e1004.flx`
-  - `cargo run -- --no-cache --root examples/type_system examples/type_system/failing/188_runtime_either_boundary_e1004.flx`
+  - `cargo run -- --no-cache --root examples/type_system examples/type_system/failing/185_runtime_boundary_arg_e300.flx`
+  - `cargo run -- --no-cache --root examples/type_system examples/type_system/failing/186_runtime_boundary_return_e300.flx`
+  - `cargo run -- --no-cache --root examples/type_system examples/type_system/failing/187_runtime_list_boundary_e300.flx`
+  - `cargo run -- --no-cache --root examples/type_system examples/type_system/failing/188_runtime_either_boundary_e300.flx`
 - JIT:
-  - `cargo run --features jit -- --no-cache --root examples/type_system examples/type_system/failing/185_runtime_boundary_arg_e1004.flx --jit`
-  - `cargo run --features jit -- --no-cache --root examples/type_system examples/type_system/failing/186_runtime_boundary_return_e1004.flx --jit`
-  - `cargo run --features jit -- --no-cache --root examples/type_system examples/type_system/failing/187_runtime_list_boundary_e1004.flx --jit`
-  - `cargo run --features jit -- --no-cache --root examples/type_system examples/type_system/failing/188_runtime_either_boundary_e1004.flx --jit`
+  - `cargo run --features jit -- --no-cache --root examples/type_system examples/type_system/failing/185_runtime_boundary_arg_e300.flx --jit`
+  - `cargo run --features jit -- --no-cache --root examples/type_system examples/type_system/failing/186_runtime_boundary_return_e300.flx --jit`
+  - `cargo run --features jit -- --no-cache --root examples/type_system examples/type_system/failing/187_runtime_list_boundary_e300.flx --jit`
+  - `cargo run --features jit -- --no-cache --root examples/type_system examples/type_system/failing/188_runtime_either_boundary_e300.flx --jit`
   - Note: in `examples_fixtures_snapshots`, these may show `E018` due harness roots; canonical E1004 parity assertions live in `runtime_vm_jit_parity_release`.
 
 0058 follow-up: contextual boundary/effect commands (`189..191`):
 - VM:
   - `cargo run -- --no-cache --strict --root examples/type_system examples/type_system/failing/189_contextual_boundary_unresolved_strict_e425.flx`
-  - `cargo run -- --no-cache --root examples/type_system examples/type_system/failing/190_contextual_boundary_arg_runtime_e1004.flx`
+  - `cargo run -- --no-cache --root examples/type_system examples/type_system/failing/190_contextual_boundary_arg_runtime_e300.flx`
   - `cargo run -- --no-cache --root examples/type_system examples/type_system/failing/191_contextual_effect_missing_module_call_e400.flx`
 - JIT:
   - `cargo run --features jit -- --no-cache --strict --root examples/type_system examples/type_system/failing/189_contextual_boundary_unresolved_strict_e425.flx --jit`
-  - `cargo run --features jit -- --no-cache --root examples/type_system examples/type_system/failing/190_contextual_boundary_arg_runtime_e1004.flx --jit`
+  - `cargo run --features jit -- --no-cache --root examples/type_system examples/type_system/failing/190_contextual_boundary_arg_runtime_e300.flx --jit`
   - `cargo run --features jit -- --no-cache --root examples/type_system examples/type_system/failing/191_contextual_effect_missing_module_call_e400.flx --jit`

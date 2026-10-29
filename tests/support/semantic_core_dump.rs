@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use flux::{
     compiler::Compiler,
@@ -7,9 +7,8 @@ use flux::{
     syntax::{interner::Interner, lexer::Lexer, parser::Parser},
 };
 
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+use super::scratch;
+use scratch::workspace_root;
 
 fn semantic_fixture_root() -> PathBuf {
     workspace_root().join("tests/fixtures/semantic_types")
@@ -43,11 +42,7 @@ fn compile_single_file_fixture(rel: &str) -> Result<CompiledFixture, Vec<Diagnos
     let (program, interner) = parse_source(&source);
     let mut compiler = Compiler::new_with_interner(rel, interner.clone());
     match compiler.compile(&program) {
-        Ok(()) => Ok(CompiledFixture {
-            compiler,
-            program,
-            source,
-        }),
+        Ok(()) => Ok(CompiledFixture { compiler, program, source }),
         Err(diags) => Err(diags),
     }
 }
@@ -56,12 +51,7 @@ pub fn dump_core_debug_fixture(rel: &str) -> String {
     let compiled = compile_single_file_fixture(rel)
         .unwrap_or_else(|diags| panic!("{}", render_diagnostics(&diags, Some(rel), None)));
     let mut compiler = compiled.compiler;
-    compiler
-        .dump_core_with_opts(&compiled.program, false, CoreDisplayMode::Debug)
-        .unwrap_or_else(|diag| {
-            panic!(
-                "{}",
-                render_diagnostics(&[diag], Some(&compiled.source), None)
-            )
-        })
+    compiler.dump_core_with_opts(&compiled.program, false, CoreDisplayMode::Debug).unwrap_or_else(
+        |diag| panic!("{}", render_diagnostics(&[diag], Some(&compiled.source), None)),
+    )
 }

@@ -101,8 +101,7 @@ fn eval_lenses(snapshot: &Snapshot, uri_arg: &Value, lenses: &mut Vec<CodeLens>)
 /// Flux test functions are the top-level `test_*` functions the CLI's `--test`
 /// mode collects. A bare `test_` with no suffix is not a test.
 fn is_test_name(name: &str) -> bool {
-    name.strip_prefix("test_")
-        .is_some_and(|rest| !rest.is_empty())
+    name.strip_prefix("test_").is_some_and(|rest| !rest.is_empty())
 }
 
 fn runnable(range: Range, title: &str, command: &str, arguments: Vec<Value>) -> CodeLens {

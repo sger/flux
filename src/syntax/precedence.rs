@@ -246,10 +246,8 @@ pub static PREFIX_TABLE: LazyLock<[Option<PrefixInfo>; TokenType::COUNT]> = Lazy
                 "duplicate prefix operator table entry for token {:?}",
                 info.token
             );
-            table[index] = Some(PrefixInfo {
-                precedence: info.precedence,
-                associativity: info.associativity,
-            });
+            table[index] =
+                Some(PrefixInfo { precedence: info.precedence, associativity: info.associativity });
         }
     }
     table
@@ -320,10 +318,7 @@ pub fn prefix_op_by_symbol(symbol: &str) -> Option<PrefixInfo> {
     OPERATOR_TABLE
         .iter()
         .find(|op| op.fixity == Fixity::Prefix && op.token.to_string() == symbol)
-        .map(|op| PrefixInfo {
-            precedence: op.precedence,
-            associativity: op.associativity,
-        })
+        .map(|op| PrefixInfo { precedence: op.precedence, associativity: op.associativity })
 }
 
 fn precedence_below(precedence: &Precedence) -> Precedence {

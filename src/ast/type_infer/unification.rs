@@ -3,7 +3,7 @@ use std::hash::{Hash, Hasher};
 use crate::{
     ast::type_infer::constraint::Constraint,
     diagnostics::{
-        Hint, match_arm_type_mismatch,
+        DiagnosticPhase, Hint, match_arm_type_mismatch,
         quality::{TypeOriginNote, with_type_origin_notes},
     },
     types::unify_error::UnifyError,
@@ -48,27 +48,17 @@ impl<'a> InferCtx<'a> {
                 TypeOriginNote::new(span, "this type mismatch is reported here")
                     .with_note("the conflicting types meet at this expression"),
             ],
-            ReportContext::IfBranch {
-                then_span,
-                else_span,
-            } => vec![
+            ReportContext::IfBranch { then_span, else_span } => vec![
                 TypeOriginNote::new(*then_span, "this branch established the expected type")
                     .with_note("the `then` branch fixes the type expected from the whole `if`"),
                 TypeOriginNote::new(*else_span, "this branch conflicts with that type")
                     .with_note("the `else` branch produces the competing type"),
             ],
-            ReportContext::MatchArm {
-                first_span,
-                arm_span,
-                arm_index,
-            } => vec![
+            ReportContext::MatchArm { first_span, arm_span, arm_index } => vec![
                 TypeOriginNote::new(*first_span, "this arm established the expected type")
                     .with_note("the first arm fixes the type expected from the whole `match`"),
-                TypeOriginNote::new(
-                    *arm_span,
-                    format!("arm {arm_index} conflicts with that type"),
-                )
-                .with_note("this arm produces the competing type"),
+                TypeOriginNote::new(*arm_span, format!("arm {arm_index} conflicts with that type"))
+                    .with_note("this arm produces the competing type"),
             ],
             ReportContext::CallArg { fn_def_span, .. } => {
                 let mut notes = Vec::new();
@@ -143,14 +133,8 @@ impl<'a> InferCtx<'a> {
         t2: &InferType,
         span: Span,
     ) -> Result<InferType, UnifyError> {
-        let solved = unify_core(
-            t1,
-            t2,
-            &self.subst,
-            span,
-            &mut self.env.counter,
-            &self.skolem_vars,
-        )?;
+        let solved =
+            unify_core(t1, t2, &self.subst, span, &mut self.env.counter, &self.skolem_vars)?;
         self.subst = std::mem::take(&mut self.subst).compose(&solved);
         Ok(t1.apply_type_subst(&self.subst))
     }
@@ -200,13 +184,7 @@ impl<'a> InferCtx<'a> {
             UnifyErrorDetail::FunParamMismatch { index } => {
                 let exp_param = self.display_type(&error.expected);
                 let act_param = self.display_type(&error.actual);
-                Some(fun_param_type_mismatch(
-                    file,
-                    span,
-                    *index + 1,
-                    &exp_param,
-                    &act_param,
-                ))
+                Some(fun_param_type_mismatch(file, span, *index + 1, &exp_param, &act_param))
             }
             UnifyErrorDetail::FunReturnMismatch => {
                 let exp_ret = self.display_type(&error.expected);
@@ -337,25 +315,20 @@ impl<'a> InferCtx<'a> {
     ) -> Diagnostic {
         let diag = match context {
             ReportContext::Plain => self.build_plain_context_diagnostic(error, span),
-            ReportContext::IfBranch {
-                then_span,
-                else_span,
-            } => self.build_if_branch_context_diagnostic(*then_span, *else_span, error, span),
-            ReportContext::MatchArm {
-                first_span,
-                arm_span,
-                arm_index,
-            } => self.build_match_arm_context_diagnostic(
-                *first_span,
-                *arm_span,
-                *arm_index,
-                error,
-                span,
-            ),
-            ReportContext::CallArg {
-                fn_name,
-                fn_def_span,
-            } => self.build_call_arg_context_diagnostic(fn_name, *fn_def_span, error, span),
+            ReportContext::IfBranch { then_span, else_span } => {
+                self.build_if_branch_context_diagnostic(*then_span, *else_span, error, span)
+            }
+            ReportContext::MatchArm { first_span, arm_span, arm_index } => self
+                .build_match_arm_context_diagnostic(
+                    *first_span,
+                    *arm_span,
+                    *arm_index,
+                    error,
+                    span,
+                ),
+            ReportContext::CallArg { fn_name, fn_def_span } => {
+                self.build_call_arg_context_diagnostic(fn_name, *fn_def_span, error, span)
+            }
         };
         with_type_origin_notes(diag, self.type_origin_notes_for_context(context, span))
     }
@@ -378,9 +351,7 @@ impl<'a> InferCtx<'a> {
         crate::diagnostics::diagnostic_for(&crate::diagnostics::compiler_errors::RIGID_VAR_ESCAPE)
             .with_file(self.file_path.clone())
             .with_span(span)
-            .with_message(format!(
-                "Rigid type variable `{name}` cannot be unified with `{bound}`."
-            ))
+            .with_message(format!("Rigid type variable `{name}` cannot be unified with `{bound}`."))
             .with_primary_label(span, format!("forces `{name}` to become `{bound}`"))
     }
 
@@ -434,17 +405,18 @@ impl<'a> InferCtx<'a> {
                     let mut diagnostic =
                         self.build_diagnostic_for_report_context(&context, &error, span);
                     self.append_type_name_suggestions(&mut diagnostic, &error);
+                    // An effect error found by unification: it must not hide
+                    // the effect-row check, which can name the exact problem.
+                    if error.effect_row {
+                        diagnostic.set_phase(DiagnosticPhase::Effect);
+                    }
                     self.errors.push(diagnostic);
                 }
                 // R13: recover with the expected type (t1) when it is already
                 // concrete so downstream inference keeps useful information
                 // instead of collapsing through a legacy dynamic sink.
                 let t1_resolved = t1.apply_type_subst(&self.subst);
-                if t1_resolved.is_concrete() {
-                    t1_resolved
-                } else {
-                    self.alloc_fallback_var()
-                }
+                if t1_resolved.is_concrete() { t1_resolved } else { self.alloc_fallback_var() }
             }
         }
     }

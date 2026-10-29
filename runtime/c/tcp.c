@@ -418,6 +418,7 @@ int64_t flux_http_write_request(
         http_buf_append_value_string(&buf, value);
         http_buf_append_cstr(&buf, "\r\n");
     }
+    flux_drop(keys);
     if (!has_host) {
         http_buf_append_cstr(&buf, "Host: ");
         http_buf_append_value_string(&buf, host_val);
@@ -523,7 +524,12 @@ int64_t flux_http_parse_response(
         size_t value_len = (size_t)(value_end - value);
         int64_t name_val = flux_string_new(raw + pos, (uint32_t)name_len);
         int64_t header_value_val = flux_string_new(value, (uint32_t)value_len);
-        headers_val = flux_hamt_set(headers_val, name_val, header_value_val);
+        int64_t next = flux_hamt_set(headers_val, name_val, header_value_val);
+        /* The new map counts its own references to all three. */
+        flux_drop(headers_val);
+        flux_drop(name_val);
+        flux_drop(header_value_val);
+        headers_val = next;
         if (http_ascii_eq_ci(raw + pos, name_len, "Content-Length")) {
             char buf_len[32];
             if (value_len >= sizeof(buf_len)) {
@@ -1046,6 +1052,7 @@ int64_t flux_http_write_chunked_head(int64_t response_val) {
             http_buf_append_cstr(&buf, "\r\n");
         }
     }
+    flux_drop(keys);
 
     http_buf_append_cstr(&buf, "Transfer-Encoding: chunked\r\n");
     http_buf_append_cstr(&buf, "Connection: close\r\n\r\n");

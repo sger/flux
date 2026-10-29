@@ -5,6 +5,7 @@
 /// This eliminates the desugaring overhead introduced by lowering
 /// (e.g. `|>` pipe always produces `App(f, x)` which may be immediately applied).
 use crate::core::CoreExpr;
+use crate::shared::opt_bisect;
 
 use super::{
     helpers::{map_children, subst},
@@ -16,19 +17,21 @@ pub fn beta_reduce(expr: CoreExpr) -> CoreExpr {
         CoreExpr::App { func, args, span } => {
             let func = beta_reduce(*func);
             let args: Vec<_> = args.into_iter().map(beta_reduce).collect();
-            if let CoreExpr::Lam {
-                params,
-                param_types,
-                result_ty,
-                body,
-                span: lambda,
-            } = func
-            {
-                if params.iter().any(|param| keep::keeps(param.id)) {
+            if let CoreExpr::Lam { params, param_types, result_ty, body, span: lambda } = func {
+                if params.iter().any(|param| keep::keeps(param.id))
+                    || !opt_bisect::allow("beta", || {
+                        format!(
+                            "apply a lambda of {} parameter(s) to {} argument(s)",
+                            params.len(),
+                            args.len()
+                        )
+                    })
+                {
                     // A debug build keeps a parameter the program named
                     // (0188 S9c): the lambda stays a call, as on the VM, so
                     // the debugger shows its frame, its parameters and each
-                    // of its lines as there.
+                    // of its lines as there. A bisected run past its limit
+                    // (0190 §13) keeps the call the same way.
                     CoreExpr::App {
                         func: Box::new(CoreExpr::Lam {
                             params,
@@ -76,18 +79,10 @@ pub fn beta_reduce(expr: CoreExpr) -> CoreExpr {
                         body = subst(body, p.id, &a);
                     }
                     let body = beta_reduce(body);
-                    beta_reduce(CoreExpr::App {
-                        func: Box::new(body),
-                        args: extra_args,
-                        span,
-                    })
+                    beta_reduce(CoreExpr::App { func: Box::new(body), args: extra_args, span })
                 }
             } else {
-                CoreExpr::App {
-                    func: Box::new(func),
-                    args,
-                    span,
-                }
+                CoreExpr::App { func: Box::new(func), args, span }
             }
         }
         CoreExpr::Lam { .. }

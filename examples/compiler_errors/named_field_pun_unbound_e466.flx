@@ -1,6 +1,4 @@
 // expect: compile_error
-// expect-error: E004
-// expect-error: E466
 
 // Using field punning when no variable with the field's name is in scope.
 //
@@ -11,6 +9,6 @@ data Point { Point { x: Int, y: Int } }
 
 fn main() {
     let y = 42
-    let p = Point { x, y }
+    let p = Point { x, y } //~ E004 E466
     p
 }

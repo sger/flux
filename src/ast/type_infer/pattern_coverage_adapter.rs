@@ -71,10 +71,7 @@ fn ty_shape_of_rec(
             TyShape::List(Box::new(inner))
         }
         InferType::Tuple(fields) => TyShape::Tuple(
-            fields
-                .iter()
-                .map(|t| ty_shape_of_rec(t, adts, interner, visiting))
-                .collect(),
+            fields.iter().map(|t| ty_shape_of_rec(t, adts, interner, visiting)).collect(),
         ),
         InferType::Con(TypeConstructor::Adt(name))
         | InferType::App(TypeConstructor::Adt(name), _) => {
@@ -108,13 +105,7 @@ fn adt_shape(
         ctors: ctors
             .into_iter()
             .map(|(n, fields)| {
-                (
-                    n,
-                    fields
-                        .iter()
-                        .map(|f| type_expr_shape(f, adts, interner, visiting))
-                        .collect(),
-                )
+                (n, fields.iter().map(|f| type_expr_shape(f, adts, interner, visiting)).collect())
             })
             .collect(),
     };
@@ -135,10 +126,7 @@ fn type_expr_shape(
 ) -> TyShape {
     match expr {
         TypeExpr::Tuple { elements, .. } => TyShape::Tuple(
-            elements
-                .iter()
-                .map(|e| type_expr_shape(e, adts, interner, visiting))
-                .collect(),
+            elements.iter().map(|e| type_expr_shape(e, adts, interner, visiting)).collect(),
         ),
         TypeExpr::Function { .. } => TyShape::Opaque,
         TypeExpr::Named { name, args, .. } => {
@@ -194,10 +182,9 @@ pub(super) fn pat_of(p: &Pattern, interner: &Interner) -> Pat {
         Pattern::Left { pattern, .. } => Pat::Ctor(Ctor::Left, vec![pat_of(pattern, interner)]),
         Pattern::Right { pattern, .. } => Pat::Ctor(Ctor::Right, vec![pat_of(pattern, interner)]),
         Pattern::EmptyList { .. } => Pat::nullary(Ctor::Nil),
-        Pattern::Cons { head, tail, .. } => Pat::Ctor(
-            Ctor::Cons,
-            vec![pat_of(head, interner), pat_of(tail, interner)],
-        ),
+        Pattern::Cons { head, tail, .. } => {
+            Pat::Ctor(Ctor::Cons, vec![pat_of(head, interner), pat_of(tail, interner)])
+        }
         Pattern::Tuple { elements, .. } => Pat::Ctor(
             Ctor::Tuple(elements.len()),
             elements.iter().map(|e| pat_of(e, interner)).collect(),
@@ -210,9 +197,9 @@ pub(super) fn pat_of(p: &Pattern, interner: &Interner) -> Pat {
                 fields.iter().map(|f| pat_of(f, interner)).collect(),
             )
         }
-        Pattern::NamedConstructor {
-            name, fields, rest, ..
-        } => named_ctor_pat(*name, fields, *rest, interner),
+        Pattern::NamedConstructor { name, fields, rest, .. } => {
+            named_ctor_pat(*name, fields, *rest, interner)
+        }
     }
 }
 
@@ -232,12 +219,7 @@ fn named_ctor_pat(
     let arity = fields.len();
     let sub: Vec<Pat> = fields
         .iter()
-        .map(|f| {
-            f.pattern
-                .as_ref()
-                .map(|p| pat_of(p, interner))
-                .unwrap_or(Pat::Wild)
-        })
+        .map(|f| f.pattern.as_ref().map(|p| pat_of(p, interner)).unwrap_or(Pat::Wild))
         .collect();
     Pat::Ctor(Ctor::Adt(ctor_name, arity), sub)
 }

@@ -1,11 +1,9 @@
 #![cfg(feature = "llvm")]
 
-use std::{
-    collections::HashMap,
-    fs,
-    process::Command,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use crate::support::scratch;
+use scratch::Scratch;
+
+use std::{collections::HashMap, fs, process::Command};
 
 use flux::{
     compiler::Compiler,
@@ -24,11 +22,7 @@ use flux::{
 fn parse_and_lower_core(src: &str) -> (flux::core::CoreProgram, Interner) {
     let mut parser = Parser::new(Lexer::new(src));
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<test>", interner.clone());
     let hm_expr_types: HashMap<ExprId, InferType> = compiler.infer_expr_types_for_program(&program);
@@ -45,9 +39,7 @@ fn compile_to_llvm_ir(src: &str) -> String {
 
 fn llvm_function_text<'a>(ll: &'a str, name: &str) -> &'a str {
     let marker = format!("@{name}(");
-    let start = ll
-        .find(&marker)
-        .unwrap_or_else(|| panic!("missing function {name}"));
+    let start = ll.find(&marker).unwrap_or_else(|| panic!("missing function {name}"));
     let function_start = ll[..start].rfind("define ").unwrap_or(start);
     let rest = &ll[function_start..];
     let end = rest.find("\ndefine ").unwrap_or(rest.len());
@@ -56,10 +48,9 @@ fn llvm_function_text<'a>(ll: &'a str, name: &str) -> &'a str {
 
 #[test]
 fn optimization_level_changes_native_object_output() {
-    let root = std::env::temp_dir().join(format!("flux-profile-opt-{}", std::process::id()));
-    let _ = fs::create_dir_all(&root);
-    let o0 = root.join("o0.o");
-    let o2 = root.join("o2.o");
+    let scratch = Scratch::new("profile-opt");
+    let o0 = scratch.join("o0.o");
+    let o2 = scratch.join("o2.o");
     let source = r#"
         define i32 @main() {
           %value = add i32 20, 22
@@ -69,7 +60,6 @@ fn optimization_level_changes_native_object_output() {
     compile_ir_to_object(source, &o0, 0).expect("-O0 native compilation should succeed");
     compile_ir_to_object(source, &o2, 2).expect("-O2 native compilation should succeed");
     assert_ne!(fs::read(&o0).unwrap(), fs::read(&o2).unwrap());
-    let _ = fs::remove_dir_all(root);
 }
 
 #[test]
@@ -84,10 +74,7 @@ fn main(x) {
     );
 
     // `main` is renamed to `flux_main` with ccc calling convention.
-    assert!(
-        rendered.contains("@flux_main"),
-        "expected flux_main in output"
-    );
+    assert!(rendered.contains("@flux_main"), "expected flux_main in output");
 }
 
 #[test]
@@ -100,10 +87,7 @@ fn factorial(n, acc) {
 "#,
     );
 
-    assert!(
-        rendered.contains("@flux_factorial"),
-        "expected flux_factorial in output"
-    );
+    assert!(rendered.contains("@flux_factorial"), "expected flux_factorial in output");
     assert!(
         rendered.contains("flux_isub") || rendered.contains("flux_sub"),
         "expected subtraction"
@@ -124,14 +108,8 @@ fn fibonacci(n) {
 "#,
     );
 
-    assert!(
-        rendered.contains("@flux_fibonacci"),
-        "expected flux_fibonacci in output"
-    );
-    assert!(
-        rendered.contains("flux_iadd") || rendered.contains("flux_add"),
-        "expected addition"
-    );
+    assert!(rendered.contains("@flux_fibonacci"), "expected flux_fibonacci in output");
+    assert!(rendered.contains("flux_iadd") || rendered.contains("flux_add"), "expected addition");
 }
 
 #[test]
@@ -144,14 +122,8 @@ fn main(x) {
 }
 "#,
     );
-    assert!(
-        rendered.contains("flux_make_closure"),
-        "expected closure creation"
-    );
-    assert!(
-        rendered.contains("flux_call_closure"),
-        "expected closure call"
-    );
+    assert!(rendered.contains("flux_make_closure"), "expected closure creation");
+    assert!(rendered.contains("flux_call_closure"), "expected closure call");
 }
 
 #[test]
@@ -169,15 +141,9 @@ fn main(x) {
     assert!(rendered.contains("flux_cos"), "expected flux_cos helper");
     assert!(rendered.contains("flux_exp"), "expected flux_exp helper");
     assert!(rendered.contains("flux_log"), "expected flux_log helper");
-    assert!(
-        rendered.contains("flux_floor"),
-        "expected flux_floor helper"
-    );
+    assert!(rendered.contains("flux_floor"), "expected flux_floor helper");
     assert!(rendered.contains("flux_ceil"), "expected flux_ceil helper");
-    assert!(
-        rendered.contains("flux_round"),
-        "expected flux_round helper"
-    );
+    assert!(rendered.contains("flux_round"), "expected flux_round helper");
 }
 
 #[test]
@@ -210,17 +176,8 @@ fn factorial(n, acc) {
 }
 "#,
     );
-    let scratch = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("target")
-        .join("test-scratch");
-    fs::create_dir_all(&scratch).ok();
-    let path = scratch.join(format!(
-        "llvm_codegen_{}.ll",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock after unix epoch")
-            .as_nanos()
-    ));
+    let scratch = Scratch::new("llvm_codegen");
+    let path = scratch.join("module.ll");
     fs::write(&path, &ll).expect("write ll");
     let output = Command::new("opt")
         .arg("--disable-output")
@@ -239,22 +196,10 @@ fn factorial(n, acc) {
 #[test]
 fn outlines_excess_run_async_with_calls_before_llvm_rendering() {
     let mut instrs = vec![
-        LirInstr::Const {
-            dst: LirVar(0),
-            value: LirConst::Tagged(1),
-        },
-        LirInstr::Const {
-            dst: LirVar(1),
-            value: LirConst::Tagged(0),
-        },
-        LirInstr::Const {
-            dst: LirVar(2),
-            value: LirConst::Tagged(0),
-        },
-        LirInstr::Const {
-            dst: LirVar(3),
-            value: LirConst::None,
-        },
+        LirInstr::Const { dst: LirVar(0), value: LirConst::Tagged(1) },
+        LirInstr::Const { dst: LirVar(1), value: LirConst::Tagged(0) },
+        LirInstr::Const { dst: LirVar(2), value: LirConst::Tagged(0) },
+        LirInstr::Const { dst: LirVar(3), value: LirConst::None },
     ];
     for idx in 0..9 {
         instrs.push(LirInstr::PrimCall {
@@ -300,7 +245,9 @@ fn outlines_excess_run_async_with_calls_before_llvm_rendering() {
         .find(|line| line.contains(helper_name) && line.starts_with("define internal fastcc"))
         .unwrap_or_else(|| panic!("missing noinline helper definition:\n{ll}"));
     assert!(helper_line.contains("noinline"));
-    assert!(helper_line.contains("nounwind"));
+    // A caught panic unwinds through Flux functions, which are `nounwind`
+    // only where it does not: on Windows (KI-126).
+    assert_eq!(helper_line.contains("nounwind"), cfg!(windows));
 
     let helper_symbol = helper_line
         .split('@')
@@ -350,17 +297,8 @@ fn emitted_prelude_and_arith_opt_verify_if_available() {
     let mut module = LlvmModule::new();
     emit_prelude_and_arith(&mut module);
     let ll = render_module(&module);
-    let scratch = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("target")
-        .join("test-scratch");
-    fs::create_dir_all(&scratch).ok();
-    let temp = scratch.join(format!(
-        "llvm_phase2_{}.ll",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock should be after unix epoch")
-            .as_nanos()
-    ));
+    let scratch = Scratch::new("llvm_phase2");
+    let temp = scratch.join("module.ll");
 
     fs::write(&temp, ll).expect("write ll file");
     let output = Command::new("opt")
@@ -376,4 +314,17 @@ fn emitted_prelude_and_arith_opt_verify_if_available() {
         "opt verification failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+/// Every program imports the prelude's modules, and `--emit-llvm` lowers them
+/// all as one merged program, so it must not mistake one module's expressions
+/// for another's (KI-053).
+#[test]
+fn emit_llvm_prints_ir_for_a_program_that_imports_the_prelude() {
+    let ran = crate::support::flux_runner::flux_file("examples/guide/arithmetic.flx")
+        .native()
+        .args(&["--emit-llvm"])
+        .run();
+    assert!(ran.success, "--emit-llvm failed:\n{}", ran.stderr);
+    assert!(ran.stdout.contains("define "), "no function in the emitted IR:\n{}", ran.stdout);
 }

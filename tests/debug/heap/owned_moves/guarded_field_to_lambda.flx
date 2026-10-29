@@ -1,0 +1,21 @@
+// PA L2: a guarded arm releases its matched list in the branch that does not
+// rebuild it, where a lambda keeps drop_spec away. The lambda's capture of `h`
+// must be copied before the list is released.
+
+fn lists(n) {
+    [[n], [n + 1], [n + 2]]
+}
+
+fn pick(xs, c) {
+    match xs {
+        [h | t] if len(h) > 0 -> if c { [h | t] } else {
+            let g = fn() { [h] }
+            g()
+        },
+        _ -> xs,
+    }
+}
+
+fn main() {
+    print(pick(lists(1), false))
+}

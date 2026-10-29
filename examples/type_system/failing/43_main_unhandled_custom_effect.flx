@@ -1,7 +1,7 @@
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
 // expect: runtime_error
-// skip: VM currently runs this custom-effect main, while LLVM reports an unhandled effect at runtime
+// skip-way: vm, vm_cached, vm_strict, vm_opt: KI-114 the VM runs the user effect with the builtin Console handler
 
 effect Console {
     print: String -> ()

@@ -34,11 +34,7 @@ static ENABLED: OnceLock<bool> = OnceLock::new();
 static START: OnceLock<Instant> = OnceLock::new();
 
 pub fn is_enabled() -> bool {
-    *ENABLED.get_or_init(|| {
-        std::env::var("FLUX_FIBER_TRACE")
-            .map(|v| v == "1")
-            .unwrap_or(false)
-    })
+    *ENABLED.get_or_init(|| std::env::var("FLUX_FIBER_TRACE").map(|v| v == "1").unwrap_or(false))
 }
 
 fn elapsed_us() -> u128 {
@@ -49,65 +45,23 @@ fn elapsed_us() -> u128 {
 
 pub enum FiberEvent {
     // Fiber lifecycle
-    Spawn {
-        fid: u64,
-        worker: u32,
-    },
-    Suspend {
-        fid: u64,
-        worker: u32,
-        request_id: u64,
-    },
-    Resume {
-        fid: u64,
-        worker: u32,
-        request_id: u64,
-    },
-    Cancel {
-        fid: u64,
-        worker: u32,
-    },
-    Complete {
-        fid: u64,
-        worker: u32,
-    },
+    Spawn { fid: u64, worker: u32 },
+    Suspend { fid: u64, worker: u32, request_id: u64 },
+    Resume { fid: u64, worker: u32, request_id: u64 },
+    Cancel { fid: u64, worker: u32 },
+    Complete { fid: u64, worker: u32 },
     // Task lifecycle
-    TaskSpawn {
-        tid: i64,
-        parent_fid: u64,
-    },
-    TaskAwait {
-        tid: i64,
-        fid: u64,
-    },
-    TaskCancel {
-        tid: i64,
-    },
-    TaskDone {
-        tid: i64,
-    },
+    TaskSpawn { tid: i64, parent_fid: u64 },
+    TaskAwait { tid: i64, fid: u64 },
+    TaskCancel { tid: i64 },
+    TaskDone { tid: i64 },
     // Scope lifecycle
-    ScopeCreate {
-        scope_id: u64,
-        fid: u64,
-    },
-    ScopeCancel {
-        scope_id: u64,
-    },
+    ScopeCreate { scope_id: u64, fid: u64 },
+    ScopeCancel { scope_id: u64 },
     // Channel operations
-    ChanSend {
-        ch: i64,
-        fid: u64,
-        backpressure: bool,
-    },
-    ChanRecv {
-        ch: i64,
-        fid: u64,
-        was_empty: bool,
-    },
-    ChanClose {
-        ch: i64,
-    },
+    ChanSend { ch: i64, fid: u64, backpressure: bool },
+    ChanRecv { ch: i64, fid: u64, was_empty: bool },
+    ChanClose { ch: i64 },
 }
 
 // ── Emit ──────────────────────────────────────────────────────────────────────
@@ -121,16 +75,12 @@ pub fn emit(event: FiberEvent) {
         FiberEvent::Spawn { fid, worker } => {
             eprintln!("[FIBER] spawn    fid={fid}  worker={worker}  t={t}µs")
         }
-        FiberEvent::Suspend {
-            fid,
-            worker,
-            request_id,
-        } => eprintln!("[FIBER] suspend  fid={fid}  worker={worker}  req={request_id}  t={t}µs"),
-        FiberEvent::Resume {
-            fid,
-            worker,
-            request_id,
-        } => eprintln!("[FIBER] resume   fid={fid}  worker={worker}  req={request_id}  t={t}µs"),
+        FiberEvent::Suspend { fid, worker, request_id } => {
+            eprintln!("[FIBER] suspend  fid={fid}  worker={worker}  req={request_id}  t={t}µs")
+        }
+        FiberEvent::Resume { fid, worker, request_id } => {
+            eprintln!("[FIBER] resume   fid={fid}  worker={worker}  req={request_id}  t={t}µs")
+        }
         FiberEvent::Cancel { fid, worker } => {
             eprintln!("[FIBER] cancel   fid={fid}  worker={worker}  t={t}µs")
         }
@@ -151,11 +101,9 @@ pub fn emit(event: FiberEvent) {
         FiberEvent::ScopeCancel { scope_id } => {
             eprintln!("[SCOPE] cancel   scope={scope_id}  t={t}µs")
         }
-        FiberEvent::ChanSend {
-            ch,
-            fid,
-            backpressure,
-        } => eprintln!("[CHAN]  send     ch={ch}  fid={fid}  backpressure={backpressure}  t={t}µs"),
+        FiberEvent::ChanSend { ch, fid, backpressure } => {
+            eprintln!("[CHAN]  send     ch={ch}  fid={fid}  backpressure={backpressure}  t={t}µs")
+        }
         FiberEvent::ChanRecv { ch, fid, was_empty } => {
             eprintln!("[CHAN]  recv     ch={ch}  fid={fid}  was_empty={was_empty}  t={t}µs")
         }

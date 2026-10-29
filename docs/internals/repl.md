@@ -187,7 +187,7 @@ Undefined-Variable error) keeps codegen from also flagging the hole.
 
 ## Testing
 
-- **REPL behavior** — `tests/integration/test_runner_cli.rs` drives the piped path with
+- **REPL behavior** — `tests/integration/test_runner_cli/repl_*.rs` drives the piped path with
   scripted input (`repl_info_*`, `repl_browse_*`, `repl_set_*`, `repl_script_*`, typed-hole
   cases, …).
 - **Completion / formatting** — unit tests in `completion.rs`, `info.rs`, `browse.rs`.

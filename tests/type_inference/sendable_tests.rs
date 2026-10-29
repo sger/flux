@@ -17,11 +17,7 @@ fn compile_source(src: &str) -> Result<(), Vec<String>> {
     let mut parser = Parser::new(Lexer::new(src));
     let program = parser.parse_program();
     if !parser.errors.is_empty() {
-        return Err(parser
-            .errors
-            .iter()
-            .map(|e| format!("{e:?}"))
-            .collect::<Vec<_>>());
+        return Err(parser.errors.iter().map(|e| format!("{e:?}")).collect::<Vec<_>>());
     }
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<test>", interner);

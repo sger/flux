@@ -9,9 +9,9 @@ error[E400]: Missing Ambient Effect
 
 Call to `print` requires effect `Console` in this function signature.
 
-  examples/type_system/failing/13_effect_pure_calls_io.flx:28:5
+  examples/type_system/failing/13_effect_pure_calls_io.flx:12:5
    |
-28 |     print(x)
+12 |     print(x)
    |     ^^^^^^^^
    |     -------- effectful call occurs here
 

@@ -9,9 +9,9 @@ error[E401]: Unknown Effect Operation
 
 Handler for `Console` includes unknown operation `read`.
 
-  examples/type_system/failing/17_handle_unknown_operation.flx:29:9
+  examples/type_system/failing/17_handle_unknown_operation.flx:13:9
    |
-29 |         read(resume) -> resume("x")
+13 |         read(resume) -> resume("x")
    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |         --------------------------- unknown operation arm
 

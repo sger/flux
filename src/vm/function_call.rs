@@ -13,6 +13,14 @@ use super::VM;
 // We don't need it here since the IP is already advanced during capture, but kept for documentation.
 const _OP_PERFORM_SIZE: usize = 3;
 
+/// Where an invocation started, for unwinding it on an error.
+#[derive(Clone, Copy)]
+struct InvokeStart {
+    sp: usize,
+    frame_index: usize,
+    handlers: usize,
+}
+
 impl VM {
     /// Capture a single frame's continuation piece as a freshly allocated
     /// `Value::Continuation`. Only the (effectively inert) `OpReturnCheck`
@@ -26,10 +34,8 @@ impl VM {
         let mut frame = self.frames[self.frame_index].clone();
         frame.ip += advance_ip;
         let entry_sp = frame.base_pointer;
-        let stack: Vec<Value> = self.stack[entry_sp..resume_slot]
-            .iter()
-            .map(super::slot::from_slot_ref)
-            .collect();
+        let stack: Vec<Value> =
+            self.stack[entry_sp..resume_slot].iter().map(super::slot::from_slot_ref).collect();
         Value::Continuation(Rc::new(std::cell::RefCell::new(Continuation {
             frames: vec![frame],
             stack,
@@ -54,11 +60,9 @@ impl VM {
         shell.frames.clear();
         shell.frames.push(frame);
         shell.stack.clear();
-        shell.stack.extend(
-            self.stack[entry_sp..resume_slot]
-                .iter()
-                .map(super::slot::from_slot_ref),
-        );
+        shell
+            .stack
+            .extend(self.stack[entry_sp..resume_slot].iter().map(super::slot::from_slot_ref));
         shell.sp = resume_slot;
         shell.entry_sp = entry_sp;
         shell.entry_frame_index = frame_index.saturating_sub(1);
@@ -108,9 +112,7 @@ impl VM {
         )?;
         self.reset_sp(entry_sp)?;
         self.cont_pieces.clear();
-        Ok(Value::Continuation(Rc::new(std::cell::RefCell::new(
-            composed,
-        ))))
+        Ok(Value::Continuation(Rc::new(std::cell::RefCell::new(composed))))
     }
 
     #[inline]
@@ -123,10 +125,7 @@ impl VM {
             return Ok(());
         };
         let args_start = self.sp - num_args;
-        let hidden_args = closure
-            .function
-            .num_parameters
-            .saturating_sub(contract.params.len());
+        let hidden_args = closure.function.num_parameters.saturating_sub(contract.params.len());
         for (index, maybe_expected) in contract.params.iter().enumerate() {
             let Some(expected) = maybe_expected.as_ref() else {
                 continue;
@@ -159,10 +158,7 @@ impl VM {
         let Some(contract) = closure.function.contract.as_ref() else {
             return Ok(());
         };
-        let hidden_args = closure
-            .function
-            .num_parameters
-            .saturating_sub(contract.params.len());
+        let hidden_args = closure.function.num_parameters.saturating_sub(contract.params.len());
         for (index, maybe_expected) in contract.params.iter().enumerate() {
             let Some(expected) = maybe_expected.as_ref() else {
                 continue;
@@ -184,12 +180,21 @@ impl VM {
         Ok(())
     }
 
-    fn unwind_invoke_error(&mut self, start_sp: usize, start_frame_index: usize) {
-        while self.frame_index > start_frame_index {
+    /// Leaves the frames, stack and handlers an invocation added, as an
+    /// error from it does: a `handle` it entered never reached the code
+    /// that uninstalls it.
+    fn unwind_invoke_error(&mut self, start: InvokeStart) {
+        while self.frame_index > start.frame_index {
             let return_slot = self.pop_frame_return_slot();
             let _ = self.reset_sp(return_slot);
         }
-        let _ = self.reset_sp(start_sp);
+        let _ = self.reset_sp(start.sp);
+        // As `OpEndHandle` does for each: the evidence goes back to what the
+        // outermost of them replaced.
+        if let Some(outermost) = self.handler_stack.get(start.handlers) {
+            self.context.evidence = outermost.saved_evv.clone();
+            self.handler_stack.truncate(start.handlers);
+        }
     }
 
     pub(super) fn execute_call(&mut self, num_args: usize) -> Result<(), String> {
@@ -298,8 +303,7 @@ impl VM {
         self.tail_arg_scratch.clear();
         self.tail_arg_scratch.reserve(num_args);
         for i in 0..num_args {
-            self.tail_arg_scratch
-                .push(self.stack[self.sp - num_args + i].clone());
+            self.tail_arg_scratch.push(self.stack[self.sp - num_args + i].clone());
         }
 
         // Overwrite old locals with new arguments
@@ -359,15 +363,9 @@ impl VM {
         if num_args != 1 && num_args != 2 {
             return Err(format!("resume expects 1 or 2 arguments, got {}", num_args));
         }
-        let return_slot = self
-            .sp
-            .checked_sub(1 + num_args)
-            .ok_or_else(|| "stack underflow".to_string())?;
-        let next_state = if num_args == 2 {
-            Some(self.pop_untracked()?)
-        } else {
-            None
-        };
+        let return_slot =
+            self.sp.checked_sub(1 + num_args).ok_or_else(|| "stack underflow".to_string())?;
+        let next_state = if num_args == 2 { Some(self.pop_untracked()?) } else { None };
         let resume_val = self.pop_untracked()?;
         let cont_val = self.pop_untracked()?; // the callee (Continuation)
         let next_state_for_caller = next_state.clone();
@@ -382,10 +380,8 @@ impl VM {
         let caller = caller_ip_advance.map(|advance| {
             let mut frame = self.current_frame().clone();
             frame.ip += advance;
-            let stack = self.stack[..self.sp]
-                .iter()
-                .map(super::slot::from_slot_ref)
-                .collect::<Vec<_>>();
+            let stack =
+                self.stack[..self.sp].iter().map(super::slot::from_slot_ref).collect::<Vec<_>>();
             (self.frame_index, frame, stack, self.handler_stack.clone())
         });
 
@@ -436,13 +432,10 @@ impl VM {
             let next_state = next_state.ok_or_else(|| {
                 "parameterized handler resume expects next state argument".to_string()
             })?;
-            let handler = self
-                .handler_stack
-                .iter_mut()
-                .rfind(|h| h.marker == state_marker)
-                .ok_or_else(|| {
-                    "parameterized handler resume could not find handler frame".to_string()
-                })?;
+            let handler =
+                self.handler_stack.iter_mut().rfind(|h| h.marker == state_marker).ok_or_else(
+                    || "parameterized handler resume could not find handler frame".to_string(),
+                )?;
             handler.state = Some(next_state);
         } else if next_state.is_some() {
             return Err("non-parameterized resume received next state argument".to_string());
@@ -546,8 +539,11 @@ impl VM {
     pub fn invoke_value(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, String> {
         match callee {
             Value::Closure(closure) => {
-                let start_sp = self.sp;
-                let start_frame_index = self.frame_index;
+                let start = InvokeStart {
+                    sp: self.sp,
+                    frame_index: self.frame_index,
+                    handlers: self.handler_stack.len(),
+                };
                 let num_args = args.len();
                 if num_args != closure.function.num_parameters {
                     return Err(format!(
@@ -585,11 +581,11 @@ impl VM {
                         if vm.frame_index == target_frame_index
                             && vm.current_frame().ip >= vm.current_frame().instructions().len()
                         {
-                            vm.unwind_invoke_error(start_sp, start_frame_index);
+                            vm.unwind_invoke_error(start);
                             return Err("callable exited without return".to_string());
                         }
                         if let Err(err) = vm.execute_current_instruction(Some(target_frame_index)) {
-                            vm.unwind_invoke_error(start_sp, start_frame_index);
+                            vm.unwind_invoke_error(start);
                             return Err(err);
                         }
                     }

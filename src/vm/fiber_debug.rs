@@ -123,14 +123,7 @@ pub(crate) fn note_spawn(fiber: u64, body: &Value) {
         }
         let number = records.next_number.max(1);
         records.next_number = number + 1;
-        records.fibers.insert(
-            fiber,
-            FiberRecord {
-                number,
-                name,
-                blocked: None,
-            },
-        );
+        records.fibers.insert(fiber, FiberRecord { number, name, blocked: None });
     });
 }
 
@@ -151,10 +144,7 @@ pub(crate) fn note_task(id: i64, action: &Value, finished: Box<dyn Fn() -> bool>
     }
     let name = body_name(action);
     RECORDS.with(|records| {
-        records
-            .borrow_mut()
-            .tasks
-            .insert(id, TaskRecord { name, finished });
+        records.borrow_mut().tasks.insert(id, TaskRecord { name, finished });
     });
 }
 
@@ -171,13 +161,7 @@ pub(crate) fn fiber(fiber: u64) -> Option<(u64, String, Option<Blocked>)> {
 
 /// The thread number of fiber `fiber`.
 pub(crate) fn number(fiber: u64) -> Option<u64> {
-    RECORDS.with(|records| {
-        records
-            .borrow()
-            .fibers
-            .get(&fiber)
-            .map(|record| record.number)
-    })
+    RECORDS.with(|records| records.borrow().fibers.get(&fiber).map(|record| record.number))
 }
 
 /// The tasks the program has started, by id, with their names and

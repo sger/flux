@@ -51,10 +51,8 @@ fn run_module(module_source: &str, entry_source: &str) -> Value {
     // Include the process id so concurrent `cargo test` invocations don't
     // clobber each other's fixture files (the per-process counter alone is not
     // unique across processes).
-    let temp_dir = workspace_root.join(format!(
-        "target/tmp/flow_prelude_tests/{}-{id}",
-        std::process::id()
-    ));
+    let temp_dir =
+        workspace_root.join(format!("target/tmp/flow_prelude_tests/{}-{id}", std::process::id()));
     std::fs::create_dir_all(&temp_dir).unwrap();
 
     // Write module file.
@@ -62,11 +60,8 @@ fn run_module(module_source: &str, entry_source: &str) -> Value {
     std::fs::write(&module_path, module_source).unwrap();
 
     // Write entry file with prelude + import of the module.
-    let full_entry = format!(
-        "{}\nimport Solver exposing (..)\n\n{}",
-        flow_prelude_source(),
-        entry_source
-    );
+    let full_entry =
+        format!("{}\nimport Solver exposing (..)\n\n{}", flow_prelude_source(), entry_source);
     let entry_path = temp_dir.join("main.flx");
     std::fs::write(&entry_path, &full_entry).unwrap();
 

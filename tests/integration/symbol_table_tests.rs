@@ -101,36 +101,12 @@ mod tests {
         local.define(sym_d, Span::default());
 
         // locals
-        assert_symbol(
-            &interner,
-            local.resolve(sym_c).unwrap(),
-            "c",
-            SymbolScope::Local,
-            0,
-        );
-        assert_symbol(
-            &interner,
-            local.resolve(sym_d).unwrap(),
-            "d",
-            SymbolScope::Local,
-            1,
-        );
+        assert_symbol(&interner, local.resolve(sym_c).unwrap(), "c", SymbolScope::Local, 0);
+        assert_symbol(&interner, local.resolve(sym_d).unwrap(), "d", SymbolScope::Local, 1);
 
         // globals should still resolve as globals
-        assert_symbol(
-            &interner,
-            local.resolve(sym_a).unwrap(),
-            "a",
-            SymbolScope::Global,
-            0,
-        );
-        assert_symbol(
-            &interner,
-            local.resolve(sym_b).unwrap(),
-            "b",
-            SymbolScope::Global,
-            1,
-        );
+        assert_symbol(&interner, local.resolve(sym_a).unwrap(), "a", SymbolScope::Global, 0);
+        assert_symbol(&interner, local.resolve(sym_b).unwrap(), "b", SymbolScope::Global, 1);
     }
 
     #[test]
@@ -184,52 +160,16 @@ mod tests {
         inner.define(sym_f, Span::default());
 
         // locals
-        assert_symbol(
-            &interner,
-            inner.resolve(sym_e).unwrap(),
-            "e",
-            SymbolScope::Local,
-            0,
-        );
-        assert_symbol(
-            &interner,
-            inner.resolve(sym_f).unwrap(),
-            "f",
-            SymbolScope::Local,
-            1,
-        );
+        assert_symbol(&interner, inner.resolve(sym_e).unwrap(), "e", SymbolScope::Local, 0);
+        assert_symbol(&interner, inner.resolve(sym_f).unwrap(), "f", SymbolScope::Local, 1);
 
         // globals
-        assert_symbol(
-            &interner,
-            inner.resolve(sym_a).unwrap(),
-            "a",
-            SymbolScope::Global,
-            0,
-        );
-        assert_symbol(
-            &interner,
-            inner.resolve(sym_b).unwrap(),
-            "b",
-            SymbolScope::Global,
-            1,
-        );
+        assert_symbol(&interner, inner.resolve(sym_a).unwrap(), "a", SymbolScope::Global, 0);
+        assert_symbol(&interner, inner.resolve(sym_b).unwrap(), "b", SymbolScope::Global, 1);
 
         // frees (captured from outer scope)
-        assert_symbol(
-            &interner,
-            inner.resolve(sym_c).unwrap(),
-            "c",
-            SymbolScope::Free,
-            0,
-        );
-        assert_symbol(
-            &interner,
-            inner.resolve(sym_d).unwrap(),
-            "d",
-            SymbolScope::Free,
-            1,
-        );
+        assert_symbol(&interner, inner.resolve(sym_c).unwrap(), "c", SymbolScope::Free, 0);
+        assert_symbol(&interner, inner.resolve(sym_d).unwrap(), "d", SymbolScope::Free, 1);
 
         assert_eq!(inner.free_symbols.len(), 2);
         assert_eq!(interner.resolve(inner.free_symbols[0].name), "c");
@@ -268,29 +208,11 @@ mod tests {
         let mut second = SymbolTable::new_enclosed(first);
         second.define(sym_c, Span::default());
 
-        assert_symbol(
-            &interner,
-            second.resolve(sym_a).unwrap(),
-            "a",
-            SymbolScope::Global,
-            0,
-        );
-        assert_symbol(
-            &interner,
-            second.resolve(sym_c).unwrap(),
-            "c",
-            SymbolScope::Local,
-            0,
-        );
+        assert_symbol(&interner, second.resolve(sym_a).unwrap(), "a", SymbolScope::Global, 0);
+        assert_symbol(&interner, second.resolve(sym_c).unwrap(), "c", SymbolScope::Local, 0);
 
         // b becomes free in second
-        assert_symbol(
-            &interner,
-            second.resolve(sym_b).unwrap(),
-            "b",
-            SymbolScope::Free,
-            0,
-        );
+        assert_symbol(&interner, second.resolve(sym_b).unwrap(), "b", SymbolScope::Free, 0);
         assert_eq!(second.free_symbols.len(), 1);
         assert_eq!(interner.resolve(second.free_symbols[0].name), "b");
         assert_eq!(second.free_symbols[0].symbol_scope, SymbolScope::Local);

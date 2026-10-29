@@ -3,6 +3,14 @@
 // Tests that user-defined functions named the same as C runtime primops
 // (sum, product, min, max, reverse, etc.) don't cause linker collisions.
 // The native backend qualifies entry-file functions with the filename.
+// parity-expected-stdout-begin
+// 7
+// 30
+// 10
+// 20
+// "hello"
+// 3
+// parity-expected-stdout-end
 
 fn sum(a, b) { a + b }
 fn product(a, b) { a * b }

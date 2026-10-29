@@ -20,10 +20,7 @@ pub fn format(snapshot: &Snapshot) -> Vec<TextEdit> {
     if formatted == snapshot.text.as_ref() {
         return Vec::new();
     }
-    vec![TextEdit {
-        range: snapshot.position_map.full_document_range(),
-        new_text: formatted,
-    }]
+    vec![TextEdit { range: snapshot.position_map.full_document_range(), new_text: formatted }]
 }
 
 /// Beyond this many lines on either side we skip the O(n·m) line diff and just
@@ -69,16 +66,12 @@ pub fn format_range(snapshot: &Snapshot, range: Range) -> Vec<TextEdit> {
         if !hunk_intersects(&hunk.old, req_first, req_last) {
             continue;
         }
-        let start = snapshot
-            .position_map
-            .offset_to_lsp(TextSize::from(line_start[hunk.old.start] as u32));
-        let end = snapshot
-            .position_map
-            .offset_to_lsp(TextSize::from(line_start[hunk.old.end] as u32));
-        edits.push(TextEdit {
-            range: Range { start, end },
-            new_text: new_lines[hunk.new].concat(),
-        });
+        let start =
+            snapshot.position_map.offset_to_lsp(TextSize::from(line_start[hunk.old.start] as u32));
+        let end =
+            snapshot.position_map.offset_to_lsp(TextSize::from(line_start[hunk.old.end] as u32));
+        edits
+            .push(TextEdit { range: Range { start, end }, new_text: new_lines[hunk.new].concat() });
     }
     edits
 }
@@ -109,11 +102,8 @@ fn line_diff(a: &[&str], b: &[&str]) -> Vec<Hunk> {
     let mut lcs = vec![vec![0u32; m + 1]; n + 1];
     for i in (0..n).rev() {
         for j in (0..m).rev() {
-            lcs[i][j] = if a[i] == b[j] {
-                lcs[i + 1][j + 1] + 1
-            } else {
-                lcs[i + 1][j].max(lcs[i][j + 1])
-            };
+            lcs[i][j] =
+                if a[i] == b[j] { lcs[i + 1][j + 1] + 1 } else { lcs[i + 1][j].max(lcs[i][j + 1]) };
         }
     }
 
@@ -134,16 +124,10 @@ fn line_diff(a: &[&str], b: &[&str]) -> Vec<Hunk> {
                 j += 1;
             }
         }
-        hunks.push(Hunk {
-            old: si..i,
-            new: sj..j,
-        });
+        hunks.push(Hunk { old: si..i, new: sj..j });
     }
     if i < n || j < m {
-        hunks.push(Hunk {
-            old: i..n,
-            new: j..m,
-        });
+        hunks.push(Hunk { old: i..n, new: j..m });
     }
     hunks
 }

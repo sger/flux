@@ -28,6 +28,9 @@ pub(crate) struct ParsedCliBackendFlags {
     pub(crate) emit_binary: bool,
     /// `--debug-heap`: link the debug-heap runtime (0188 S10c).
     pub(crate) debug_heap: bool,
+    /// `--leak-check`: the debug heap, reporting blocks live at exit
+    /// (0190 S15).
+    pub(crate) leak_check: bool,
 }
 
 /// Parsed runtime-related CLI flags that affect execution-time reporting or tracing.
@@ -136,15 +139,16 @@ pub(crate) struct CliCommandValueOptions {
     pub(crate) debug_script: Option<PathBuf>,
     /// `flux debug --engine <address>`.
     pub(crate) debug_engine: Option<String>,
+    /// `--opt-bisect-limit <n>` (hidden; proposal 0190 §13).
+    pub(crate) opt_bisect_limit: Option<i64>,
+    /// `--metrics <file>` (hidden; proposal 0190 §15).
+    pub(crate) metrics_path: Option<PathBuf>,
 }
 
 impl Default for CliDiagnosticOptions {
     /// Returns diagnostic option defaults used by the CLI parser.
     fn default() -> Self {
-        Self {
-            diagnostics_format: DiagnosticOutputFormat::Text,
-            max_errors: DEFAULT_MAX_ERRORS,
-        }
+        Self { diagnostics_format: DiagnosticOutputFormat::Text, max_errors: DEFAULT_MAX_ERRORS }
     }
 }
 
@@ -158,6 +162,8 @@ impl Default for CliCommandValueOptions {
             tape: None,
             debug_script: None,
             debug_engine: None,
+            opt_bisect_limit: None,
+            metrics_path: None,
         }
     }
 }
@@ -221,6 +227,7 @@ pub(crate) fn extract_cli_flag_groups(args: &mut Vec<String>) -> ParsedCliFlags 
             "--emit-llvm" => flags.backend.emit_llvm = remove_bool_flag(args, i),
             "--emit-binary" => flags.backend.emit_binary = remove_bool_flag(args, i),
             "--debug-heap" => flags.backend.debug_heap = remove_bool_flag(args, i),
+            "--leak-check" => flags.backend.leak_check = remove_bool_flag(args, i),
             "--no-cache" => flags.execution.no_cache = remove_bool_flag(args, i),
             "--deps" => flags.execution.clean_deps = remove_bool_flag(args, i),
             "--store" => flags.execution.clean_store = remove_bool_flag(args, i),
@@ -344,6 +351,26 @@ pub(crate) fn extract_cli_value_options(args: &mut Vec<String>) -> Result<CliVal
             values.diagnostics.max_errors = max_errors;
             continue;
         }
+        if let Some(limit) = consume_named_value_option(
+            args,
+            &mut i,
+            "--opt-bisect-limit",
+            "Usage: flux <file.flx> --opt-bisect-limit <n>",
+            parse_opt_bisect_limit,
+        )? {
+            values.command.opt_bisect_limit = Some(limit);
+            continue;
+        }
+        if let Some(path) = consume_named_value_option(
+            args,
+            &mut i,
+            "--metrics",
+            "Usage: flux <file.flx> --metrics <file>",
+            |value| Ok(PathBuf::from(value)),
+        )? {
+            values.command.metrics_path = Some(path);
+            continue;
+        }
         if let Some(filter) = take_required_long_option(
             args,
             &mut i,
@@ -376,13 +403,15 @@ pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions
         parsed.execution.offline,
         parsed.execution.locked,
     );
+    crate::shared::opt_bisect::configure(values.command.opt_bisect_limit);
     DriverFlags {
         backend: DriverBackendFlags {
             selected: Backend::Vm,
             use_llvm: parsed.backend.use_llvm.unwrap_or(false),
             emit_llvm: parsed.backend.emit_llvm,
             emit_binary: parsed.backend.emit_binary,
-            debug_heap: parsed.backend.debug_heap,
+            debug_heap: parsed.backend.debug_heap || parsed.backend.leak_check,
+            leak_check: parsed.backend.leak_check,
             output_path: values.paths.output_path,
         },
         input: DriverInputFlags {
@@ -401,6 +430,7 @@ pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions
             quiet: parsed.runtime.quiet,
             check_only: false,
             tape: values.command.tape,
+            metrics_path: values.command.metrics_path,
             // `flux debug` turns the debugger on; `--script` and `--engine`
             // only say where its commands come from.
             debugger: (values.command.debug_script.is_some()
@@ -493,9 +523,7 @@ fn consume_named_value_option<T>(
     missing_value: &str,
     parse: impl FnOnce(String) -> Result<T, String>,
 ) -> Result<Option<T>, String> {
-    take_required_long_option(args, index, flag, missing_value)?
-        .map(parse)
-        .transpose()
+    take_required_long_option(args, index, flag, missing_value)?.map(parse).transpose()
 }
 
 /// Consumes a short option like `-o value` and returns the provided value.
@@ -589,6 +617,13 @@ fn parse_max_errors(value: String) -> Result<usize, String> {
         .map_err(|_| "Error: --max-errors expects a non-negative integer.".to_string())
 }
 
+/// Parses the `--opt-bisect-limit` payload: a rewrite count, or -1.
+fn parse_opt_bisect_limit(value: String) -> Result<i64, String> {
+    i64::from_str(&value).ok().filter(|n| *n >= -1).ok_or_else(|| {
+        "Error: --opt-bisect-limit expects -1 or a non-negative integer.".to_string()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -629,12 +664,8 @@ mod tests {
 
     #[test]
     fn extract_flags_preserves_native_backend_requests_for_later_validation() {
-        let mut args = vec![
-            "flux".into(),
-            "file.flx".into(),
-            "--native".into(),
-            "--dump-lir-llvm".into(),
-        ];
+        let mut args =
+            vec!["flux".into(), "file.flx".into(), "--native".into(), "--dump-lir-llvm".into()];
 
         let parsed = extract_cli_flag_groups(&mut args);
 
@@ -665,27 +696,14 @@ mod tests {
 
         let values = extract_cli_value_options(&mut args).unwrap();
 
-        assert_eq!(
-            values.paths.cache_dir.as_deref(),
-            Some(Path::new(".flux-cache"))
-        );
-        assert_eq!(
-            values.diagnostics.diagnostics_format,
-            DiagnosticOutputFormat::JsonCompact
-        );
+        assert_eq!(values.paths.cache_dir.as_deref(), Some(Path::new(".flux-cache")));
+        assert_eq!(values.diagnostics.diagnostics_format, DiagnosticOutputFormat::JsonCompact);
         assert_eq!(values.diagnostics.max_errors, 12);
         assert_eq!(values.command.test_filter.as_deref(), Some("arith"));
         assert_eq!(values.command.dump_core, CoreDumpMode::Debug);
         assert_eq!(values.paths.output_path.as_deref(), Some("out.ll"));
         assert_eq!(values.paths.roots.len(), 2);
-        assert_eq!(
-            args,
-            vec![
-                "flux".to_string(),
-                "run".to_string(),
-                "file.flx".to_string()
-            ]
-        );
+        assert_eq!(args, vec!["flux".to_string(), "run".to_string(), "file.flx".to_string()]);
     }
 
     #[test]
@@ -744,11 +762,8 @@ mod tests {
     fn dump_debug_info_implies_full_debug_information() {
         use crate::debuginfo::DebugLevel;
         let build = |extra: &[&str]| {
-            let mut args: Vec<String> = ["flux", "file.flx"]
-                .iter()
-                .chain(extra)
-                .map(|arg| arg.to_string())
-                .collect();
+            let mut args: Vec<String> =
+                ["flux", "file.flx"].iter().chain(extra).map(|arg| arg.to_string()).collect();
             let parsed = extract_cli_flag_groups(&mut args);
             let values = extract_cli_value_options(&mut args).unwrap();
             build_driver_flags(parsed, values)
@@ -762,6 +777,25 @@ mod tests {
         assert_eq!(lines.language.debug_level, DebugLevel::Lines);
 
         assert_eq!(build(&[]).language.debug_level, DebugLevel::None);
+    }
+
+    #[test]
+    fn leak_check_implies_the_debug_heap() {
+        let build = |extra: &[&str]| {
+            let mut args: Vec<String> =
+                ["flux", "file.flx"].iter().chain(extra).map(|arg| arg.to_string()).collect();
+            let parsed = extract_cli_flag_groups(&mut args);
+            let values = extract_cli_value_options(&mut args).unwrap();
+            build_driver_flags(parsed, values)
+        };
+
+        let leak = build(&["--leak-check"]);
+        assert!(leak.backend.leak_check);
+        assert!(leak.backend.debug_heap);
+
+        let heap = build(&["--debug-heap"]);
+        assert!(heap.backend.debug_heap);
+        assert!(!heap.backend.leak_check);
     }
 
     #[test]
@@ -813,10 +847,7 @@ mod tests {
                     enable_optimize: Some(true),
                     ..ParsedCliLanguageFlags::default()
                 },
-                dumps: ParsedCliDumpFlags {
-                    dump_cfg: true,
-                    ..ParsedCliDumpFlags::default()
-                },
+                dumps: ParsedCliDumpFlags { dump_cfg: true, ..ParsedCliDumpFlags::default() },
                 backend: ParsedCliBackendFlags {
                     emit_llvm: true,
                     ..ParsedCliBackendFlags::default()

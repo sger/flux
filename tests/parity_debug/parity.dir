@@ -1,0 +1,4 @@
+# Debug parity fixtures; their `// dbg:` scripts name line numbers, so these
+# two fail on purpose without a header line.
+exception_division.flx: census-skip: stops the debugger on a division by zero; checked by debug parity
+exception_panic.flx: census-skip: stops the debugger on a panic; checked by debug parity

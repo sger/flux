@@ -55,11 +55,7 @@ pub enum NodeRef<'a> {
     EffectRowVar { name: Identifier, span: FluxSpan },
     /// `.member` of `obj.member`. `object` lets the renderer look up the
     /// object's inferred type to find the field's declared type.
-    MemberAccessMember {
-        object: &'a Expression,
-        member: Identifier,
-        span: FluxSpan,
-    },
+    MemberAccessMember { object: &'a Expression, member: Identifier, span: FluxSpan },
     /// Field name in `Person { name: ..., age: ... }`. `parent_constructor`
     /// is the constructor identifier whose `data` variant this field
     /// belongs to; `None` for spread expressions where the constructor
@@ -70,88 +66,40 @@ pub enum NodeRef<'a> {
         span: FluxSpan,
     },
     /// Constructor name `Person` in `Person { ... }`.
-    NamedConstructorName {
-        name: Identifier,
-        expr_id: ExprId,
-        span: FluxSpan,
-    },
+    NamedConstructorName { name: Identifier, expr_id: ExprId, span: FluxSpan },
     /// Operation name in `perform Effect.op(x)`. `parent_effect` is the effect
     /// the operation belongs to, used to render its declared signature.
-    PerformOpName {
-        name: Identifier,
-        parent_effect: Identifier,
-        span: FluxSpan,
-    },
+    PerformOpName { name: Identifier, parent_effect: Identifier, span: FluxSpan },
     /// Operation name in a `handle Effect { op(...) -> ... }` arm.
     /// `parent_effect` is the handled effect, used to render the op's signature.
-    HandleArmOpName {
-        name: Identifier,
-        parent_effect: Identifier,
-        span: FluxSpan,
-    },
+    HandleArmOpName { name: Identifier, parent_effect: Identifier, span: FluxSpan },
     /// Imported module name (`Flow.Array` in `import Flow.Array as A`).
-    ImportName {
-        qualified: Identifier,
-        alias: Option<Identifier>,
-        span: FluxSpan,
-    },
+    ImportName { qualified: Identifier, alias: Option<Identifier>, span: FluxSpan },
     /// Local alias of an `import ... as X` (`X`).
-    ImportAlias {
-        alias: Identifier,
-        qualified: Identifier,
-        span: FluxSpan,
-    },
+    ImportAlias { alias: Identifier, qualified: Identifier, span: FluxSpan },
     /// `data` declaration name at the definition site.
     DataName { name: Identifier, span: FluxSpan },
     /// Variant name inside a `data` declaration.
-    DataVariantName {
-        name: Identifier,
-        parent_data: Identifier,
-        span: FluxSpan,
-    },
+    DataVariantName { name: Identifier, parent_data: Identifier, span: FluxSpan },
     /// Named field inside a `data` variant declaration.
-    DataFieldName {
-        name: Identifier,
-        ty_index: usize,
-        parent_variant: Identifier,
-        span: FluxSpan,
-    },
+    DataFieldName { name: Identifier, ty_index: usize, parent_variant: Identifier, span: FluxSpan },
     /// `effect` declaration name at the definition site.
     EffectDeclName { name: Identifier, span: FluxSpan },
     /// Operation declared inside an `effect` block.
-    EffectOpName {
-        name: Identifier,
-        parent_effect: Identifier,
-        span: FluxSpan,
-    },
+    EffectOpName { name: Identifier, parent_effect: Identifier, span: FluxSpan },
     /// `let`/`fn` declaration name at the definition site. Renderer keys
     /// `resolved_binding_schemes_by_span` by `binding_span` to fetch the
     /// scheme.
-    DeclName {
-        name: Identifier,
-        binding_span: FluxSpan,
-    },
+    DeclName { name: Identifier, binding_span: FluxSpan },
     /// Function parameter at its declaration site (in the `fn f(x, y)`
     /// signature).
-    FunctionParameter {
-        name: Identifier,
-        function_span: FluxSpan,
-        span: FluxSpan,
-    },
+    FunctionParameter { name: Identifier, function_span: FluxSpan, span: FluxSpan },
     /// Method declared inside a `class { … }` block. `parent_class` is the
     /// class it belongs to, used to render the declared signature.
-    ClassMethodName {
-        name: Identifier,
-        parent_class: Identifier,
-        span: FluxSpan,
-    },
+    ClassMethodName { name: Identifier, parent_class: Identifier, span: FluxSpan },
     /// Method declared inside an `instance { … }` block. `parent_class` is the
     /// class being implemented, used to render the class's declared signature.
-    InstanceMethodName {
-        name: Identifier,
-        parent_class: Identifier,
-        span: FluxSpan,
-    },
+    InstanceMethodName { name: Identifier, parent_class: Identifier, span: FluxSpan },
 }
 
 impl NodeRef<'_> {
@@ -177,9 +125,7 @@ impl NodeRef<'_> {
             | NodeRef::DataFieldName { span, .. }
             | NodeRef::EffectDeclName { span, .. }
             | NodeRef::EffectOpName { span, .. }
-            | NodeRef::DeclName {
-                binding_span: span, ..
-            }
+            | NodeRef::DeclName { binding_span: span, .. }
             | NodeRef::FunctionParameter { span, .. }
             | NodeRef::ClassMethodName { span, .. }
             | NodeRef::InstanceMethodName { span, .. } => *span,
@@ -194,12 +140,7 @@ pub fn find_at<'a>(
     interner: &Interner,
     target: FluxPosition,
 ) -> Option<NodeRef<'a>> {
-    let mut finder = Finder {
-        target,
-        interner,
-        best: None,
-        best_extent: u64::MAX,
-    };
+    let mut finder = Finder { target, interner, best: None, best_extent: u64::MAX };
     for stmt in &program.statements {
         finder.visit_stmt(stmt);
     }
@@ -249,13 +190,7 @@ fn enclosing_call_expr<'a>(
     target: FluxPosition,
     best: &mut Option<(&'a Expression, usize, u64)>,
 ) {
-    if let Expression::Call {
-        function,
-        arguments,
-        span,
-        ..
-    } = expr
-    {
+    if let Expression::Call { function, arguments, span, .. } = expr {
         // Cursor must be inside the call span but outside the function sub-expression.
         if position_in_span(target, *span) && !position_in_span(target, function.span()) {
             // Determine which argument slot the cursor is in.
@@ -289,12 +224,7 @@ fn enclosing_call_expr<'a>(
                 enclosing_call_expr(right, target, best);
             }
             Expression::Prefix { right, .. } => enclosing_call_expr(right, target, best),
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-                ..
-            } => {
+            Expression::If { condition, consequence, alternative, .. } => {
                 enclosing_call_expr(condition, target, best);
                 for s in &consequence.statements {
                     enclosing_call_stmt(s, target, best);
@@ -305,9 +235,7 @@ fn enclosing_call_expr<'a>(
                     }
                 }
             }
-            Expression::Match {
-                scrutinee, arms, ..
-            } => {
+            Expression::Match { scrutinee, arms, .. } => {
                 enclosing_call_expr(scrutinee, target, best);
                 for arm in arms {
                     enclosing_call_expr(&arm.body, target, best);
@@ -365,10 +293,7 @@ impl<'ast> Finder<'ast, '_> {
         if let Some(text) = self.interner.try_resolve(name) {
             let span = FluxSpan {
                 start,
-                end: FluxPosition {
-                    line: start.line,
-                    column: start.column + text.len(),
-                },
+                end: FluxPosition { line: start.line, column: start.column + text.len() },
             };
             self.record(span, build(span));
         }
@@ -376,20 +301,8 @@ impl<'ast> Finder<'ast, '_> {
 
     fn visit_stmt(&mut self, stmt: &'ast Statement) {
         match stmt {
-            Statement::Let {
-                name,
-                type_annotation,
-                value,
-                span,
-                ..
-            } => {
-                self.record(
-                    *span,
-                    NodeRef::DeclName {
-                        name: *name,
-                        binding_span: *span,
-                    },
-                );
+            Statement::Let { name, type_annotation, value, span, .. } => {
+                self.record(*span, NodeRef::DeclName { name: *name, binding_span: *span });
                 if let Some(t) = type_annotation {
                     self.visit_type(t);
                 }
@@ -415,13 +328,7 @@ impl<'ast> Finder<'ast, '_> {
                 span,
                 ..
             } => {
-                self.record(
-                    *span,
-                    NodeRef::DeclName {
-                        name: *name,
-                        binding_span: *span,
-                    },
-                );
+                self.record(*span, NodeRef::DeclName { name: *name, binding_span: *span });
                 // Parameter names live as bare `Identifier`s on the function
                 // statement. The parser doesn't store per-parameter name
                 // spans, so we approximate from the function span start —
@@ -447,13 +354,7 @@ impl<'ast> Finder<'ast, '_> {
             }
             Statement::Assign { value, .. } => self.visit_expr(value),
             Statement::Module { body, .. } => self.visit_block(body),
-            Statement::Import {
-                name,
-                alias,
-                span,
-                exposing: _,
-                except: _,
-            } => {
+            Statement::Import { name, alias, span, exposing: _, except: _ } => {
                 // `import <Name>` — name starts after the `import ` keyword
                 // (7 chars). The parser doesn't record a separate name span.
                 let name_start = FluxPosition {
@@ -473,21 +374,11 @@ impl<'ast> Finder<'ast, '_> {
                     // follow-up.
                     self.record(
                         *span,
-                        NodeRef::ImportAlias {
-                            alias: *a,
-                            qualified: *name,
-                            span: *span,
-                        },
+                        NodeRef::ImportAlias { alias: *a, qualified: *name, span: *span },
                     );
                 }
             }
-            Statement::Data {
-                is_public,
-                name,
-                variants,
-                span,
-                ..
-            } => {
+            Statement::Data { is_public, name, variants, span, .. } => {
                 let name_start = decl_name_start(span.start, *is_public, "data");
                 self.record_name_at(name_start, *name, |s| NodeRef::DataName {
                     name: *name,
@@ -507,11 +398,7 @@ impl<'ast> Finder<'ast, '_> {
                     self.visit_effect_op(op, *name);
                 }
             }
-            Statement::EffectAlias {
-                name,
-                expansion,
-                span,
-            } => {
+            Statement::EffectAlias { name, expansion, span } => {
                 let name_start = decl_name_start(span.start, false, "alias");
                 self.record_name_at(name_start, *name, |s| NodeRef::EffectDeclName {
                     name: *name,
@@ -527,12 +414,7 @@ impl<'ast> Finder<'ast, '_> {
                 });
                 self.visit_type(&alias.body);
             }
-            Statement::Class {
-                name,
-                name_span,
-                methods,
-                ..
-            } => {
+            Statement::Class { name, name_span, methods, .. } => {
                 // The parser records the class name's own span — correct even
                 // with a superclass constraint (`class Eq<a> => Ord<a>`), where
                 // the name sits after `=>`, not right after the keyword.
@@ -544,12 +426,7 @@ impl<'ast> Finder<'ast, '_> {
                     self.visit_class_method(m, *name);
                 }
             }
-            Statement::Instance {
-                class_name,
-                methods,
-                name_span,
-                ..
-            } => {
+            Statement::Instance { class_name, methods, name_span, .. } => {
                 // The parser records the head class name's own span — correct
                 // even with a context constraint (`instance Eq<a> => Eq<List<a>>`),
                 // where the head sits after `=>`, not right after the keyword.
@@ -568,11 +445,7 @@ impl<'ast> Finder<'ast, '_> {
     /// types and any default body so hover works throughout the block.
     fn visit_class_method(&mut self, m: &'ast ClassMethod, parent_class: Identifier) {
         self.record_name_at(decl_name_start(m.span.start, false, "fn"), m.name, |s| {
-            NodeRef::ClassMethodName {
-                name: m.name,
-                parent_class,
-                span: s,
-            }
+            NodeRef::ClassMethodName { name: m.name, parent_class, span: s }
         });
         for pt in &m.param_types {
             self.visit_type(pt);
@@ -591,11 +464,7 @@ impl<'ast> Finder<'ast, '_> {
     /// the class's declared signature instead.
     fn visit_instance_method(&mut self, m: &'ast InstanceMethod, parent_class: Identifier) {
         self.record_name_at(decl_name_start(m.span.start, false, "fn"), m.name, |s| {
-            NodeRef::InstanceMethodName {
-                name: m.name,
-                parent_class,
-                span: s,
-            }
+            NodeRef::InstanceMethodName { name: m.name, parent_class, span: s }
         });
         for e in &m.effects {
             self.visit_effect(e);
@@ -604,12 +473,10 @@ impl<'ast> Finder<'ast, '_> {
     }
 
     fn visit_data_variant(&mut self, variant: &'ast DataVariant, parent_data: Identifier) {
-        self.record_name_at(variant.span.start, variant.name, |s| {
-            NodeRef::DataVariantName {
-                name: variant.name,
-                parent_data,
-                span: s,
-            }
+        self.record_name_at(variant.span.start, variant.name, |s| NodeRef::DataVariantName {
+            name: variant.name,
+            parent_data,
+            span: s,
         });
         // Field names (when present) sit at the start of each field's
         // type span — the parser doesn't record per-field-name spans,
@@ -685,12 +552,7 @@ impl<'ast> Finder<'ast, '_> {
                 self.visit_expr(left);
                 self.visit_expr(right);
             }
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-                ..
-            } => {
+            Expression::If { condition, consequence, alternative, .. } => {
                 self.visit_expr(condition);
                 self.visit_block(consequence);
                 if let Some(b) = alternative {
@@ -698,13 +560,7 @@ impl<'ast> Finder<'ast, '_> {
                 }
             }
             Expression::DoBlock { block, .. } => self.visit_block(block),
-            Expression::Function {
-                parameter_types,
-                return_type,
-                effects,
-                body,
-                ..
-            } => {
+            Expression::Function { parameter_types, return_type, effects, body, .. } => {
                 for pt in parameter_types.iter().flatten() {
                     self.visit_type(pt);
                 }
@@ -716,11 +572,7 @@ impl<'ast> Finder<'ast, '_> {
                 }
                 self.visit_block(body);
             }
-            Expression::Call {
-                function,
-                arguments,
-                ..
-            } => {
+            Expression::Call { function, arguments, .. } => {
                 self.visit_expr(function);
                 for a in arguments {
                     self.visit_expr(a);
@@ -743,12 +595,7 @@ impl<'ast> Finder<'ast, '_> {
                     self.visit_expr(v);
                 }
             }
-            Expression::MemberAccess {
-                object,
-                member,
-                span,
-                ..
-            } => {
+            Expression::MemberAccess { object, member, span, .. } => {
                 // The member name sits at the end of the access span. We
                 // approximate its span as the trailing `name.len()` chars
                 // of the access span (since `.member` is always at the
@@ -758,25 +605,16 @@ impl<'ast> Finder<'ast, '_> {
                         line: span.end.line,
                         column: span.end.column.saturating_sub(text.len()),
                     };
-                    let member_span = FluxSpan {
-                        start: member_start,
-                        end: span.end,
-                    };
+                    let member_span = FluxSpan { start: member_start, end: span.end };
                     self.record(
                         member_span,
-                        NodeRef::MemberAccessMember {
-                            object,
-                            member: *member,
-                            span: member_span,
-                        },
+                        NodeRef::MemberAccessMember { object, member: *member, span: member_span },
                     );
                 }
                 self.visit_expr(object);
             }
             Expression::TupleFieldAccess { object, .. } => self.visit_expr(object),
-            Expression::Match {
-                scrutinee, arms, ..
-            } => {
+            Expression::Match { scrutinee, arms, .. } => {
                 self.visit_expr(scrutinee);
                 for arm in arms {
                     self.visit_match_arm(arm);
@@ -789,23 +627,13 @@ impl<'ast> Finder<'ast, '_> {
                 self.visit_expr(head);
                 self.visit_expr(tail);
             }
-            Expression::Perform {
-                effect,
-                operation,
-                args,
-                span,
-                ..
-            } => {
+            Expression::Perform { effect, operation, args, span, .. } => {
                 // The parser doesn't record the op name's own span, so
                 // synthesize it: in `perform Effect.op(...)` the op sits after
                 // `perform `, the effect name, and the `.`. Best-effort for the
                 // canonical single-line form (consistent with the other
                 // synthesized name spans here).
-                let effect_len = self
-                    .interner
-                    .try_resolve(*effect)
-                    .map(str::len)
-                    .unwrap_or(0);
+                let effect_len = self.interner.try_resolve(*effect).map(str::len).unwrap_or(0);
                 let op_start = FluxPosition {
                     line: span.start.line,
                     column: span.start.column + "perform ".len() + effect_len + 1,
@@ -819,13 +647,7 @@ impl<'ast> Finder<'ast, '_> {
                     self.visit_expr(a);
                 }
             }
-            Expression::Handle {
-                expr,
-                effect,
-                parameter,
-                arms,
-                ..
-            } => {
+            Expression::Handle { expr, effect, parameter, arms, .. } => {
                 self.visit_expr(expr);
                 if let Some(p) = parameter {
                     self.visit_expr(p);
@@ -840,12 +662,7 @@ impl<'ast> Finder<'ast, '_> {
                     self.visit_effect(e);
                 }
             }
-            Expression::NamedConstructor {
-                name,
-                fields,
-                span,
-                id,
-            } => {
+            Expression::NamedConstructor { name, fields, span, id } => {
                 self.record_name_at(span.start, *name, |s| NodeRef::NamedConstructorName {
                     name: *name,
                     expr_id: *id,
@@ -855,9 +672,7 @@ impl<'ast> Finder<'ast, '_> {
                     self.visit_named_field_init(field, Some(*name));
                 }
             }
-            Expression::Spread {
-                base, overrides, ..
-            } => {
+            Expression::Spread { base, overrides, .. } => {
                 self.visit_expr(base);
                 for field in overrides {
                     self.visit_named_field_init(field, None);
@@ -871,12 +686,10 @@ impl<'ast> Finder<'ast, '_> {
         field: &'ast NamedFieldInit,
         parent_constructor: Option<Identifier>,
     ) {
-        self.record_name_at(field.span.start, field.name, |s| {
-            NodeRef::NamedFieldInitName {
-                field_name: field.name,
-                parent_constructor,
-                span: s,
-            }
+        self.record_name_at(field.span.start, field.name, |s| NodeRef::NamedFieldInitName {
+            field_name: field.name,
+            parent_constructor,
+            span: s,
         });
         if let Some(v) = &field.value {
             self.visit_expr(v);
@@ -894,12 +707,10 @@ impl<'ast> Finder<'ast, '_> {
     fn visit_handle_arm(&mut self, arm: &'ast HandleArm, parent_effect: Identifier) {
         // `arm.span` starts at the operation name (`op` in `op(resume, …) ->
         // body`), so the synthesized name span lands on the op itself.
-        self.record_name_at(arm.span.start, arm.operation_name, |s| {
-            NodeRef::HandleArmOpName {
-                name: arm.operation_name,
-                parent_effect,
-                span: s,
-            }
+        self.record_name_at(arm.span.start, arm.operation_name, |s| NodeRef::HandleArmOpName {
+            name: arm.operation_name,
+            parent_effect,
+            span: s,
         });
         self.visit_expr(&arm.body);
     }
@@ -938,13 +749,7 @@ impl<'ast> Finder<'ast, '_> {
     fn visit_type(&mut self, ty: &'ast TypeExpr) {
         match ty {
             TypeExpr::Named { name, args, span } => {
-                self.record(
-                    *span,
-                    NodeRef::TypeExprNamed {
-                        name: *name,
-                        span: *span,
-                    },
-                );
+                self.record(*span, NodeRef::TypeExprNamed { name: *name, span: *span });
                 for a in args {
                     self.visit_type(a);
                 }
@@ -954,12 +759,7 @@ impl<'ast> Finder<'ast, '_> {
                     self.visit_type(e);
                 }
             }
-            TypeExpr::Function {
-                params,
-                ret,
-                effects,
-                ..
-            } => {
+            TypeExpr::Function { params, ret, effects, .. } => {
                 for p in params {
                     self.visit_type(p);
                 }
@@ -973,20 +773,12 @@ impl<'ast> Finder<'ast, '_> {
 
     fn visit_effect(&mut self, eff: &'ast EffectExpr) {
         match eff {
-            EffectExpr::Named { name, span } => self.record(
-                *span,
-                NodeRef::EffectName {
-                    name: *name,
-                    span: *span,
-                },
-            ),
-            EffectExpr::RowVar { name, span } => self.record(
-                *span,
-                NodeRef::EffectRowVar {
-                    name: *name,
-                    span: *span,
-                },
-            ),
+            EffectExpr::Named { name, span } => {
+                self.record(*span, NodeRef::EffectName { name: *name, span: *span })
+            }
+            EffectExpr::RowVar { name, span } => {
+                self.record(*span, NodeRef::EffectRowVar { name: *name, span: *span })
+            }
             EffectExpr::Add { left, right, .. } | EffectExpr::Subtract { left, right, .. } => {
                 self.visit_effect(left);
                 self.visit_effect(right);
@@ -1009,10 +801,7 @@ pub(crate) fn decl_name_start(
     _is_public: bool,
     keyword: &str,
 ) -> FluxPosition {
-    FluxPosition {
-        line: stmt_start.line,
-        column: stmt_start.column + keyword.len() + 1,
-    }
+    FluxPosition { line: stmt_start.line, column: stmt_start.column + keyword.len() + 1 }
 }
 
 pub(crate) fn position_in_span(target: FluxPosition, span: FluxSpan) -> bool {
@@ -1032,9 +821,7 @@ fn span_extent(span: FluxSpan) -> u64 {
         // line-delta count; this is a stable tiebreaker.
         u64::from(u32::MAX)
     };
-    line_delta
-        .saturating_mul(1_000_000)
-        .saturating_add(col_delta)
+    line_delta.saturating_mul(1_000_000).saturating_add(col_delta)
 }
 
 fn type_span(ty: &TypeExpr) -> FluxSpan {
@@ -1174,10 +961,7 @@ mod tests {
         // The old (buggy) position — the context constraint — no longer carries
         // the instance head node.
         assert!(
-            !matches!(
-                find_at(&program, &interner, pos(2, 9)),
-                Some(NodeRef::DataName { .. })
-            ),
+            !matches!(find_at(&program, &interner, pos(2, 9)), Some(NodeRef::DataName { .. })),
             "the context constraint position must not resolve to the head name"
         );
     }

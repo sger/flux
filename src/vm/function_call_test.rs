@@ -7,11 +7,7 @@ use crate::{
 };
 
 fn new_vm() -> VM {
-    VM::new(Bytecode {
-        instructions: vec![],
-        constants: vec![],
-        debug_info: None,
-    })
+    VM::new(Bytecode { instructions: vec![], constants: vec![], debug_info: None })
 }
 
 #[test]

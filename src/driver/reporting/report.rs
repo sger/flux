@@ -118,10 +118,7 @@ pub(crate) fn print_aether_trace(context: AetherTraceContext<'_>, report: &str) 
 /// Counts the number of compiled function constants in a bytecode constant table.
 pub(crate) fn count_bytecode_functions(constants: &[flux::runtime::value::Value]) -> usize {
     use flux::runtime::value::Value;
-    constants
-        .iter()
-        .filter(|v| matches!(v, Value::Function(_)))
-        .count()
+    constants.iter().filter(|v| matches!(v, Value::Function(_))).count()
 }
 
 /// Prints execution analytics collected by the driver.
@@ -157,10 +154,7 @@ pub(crate) fn print_stats(stats: &RunStats) {
     eprintln!();
 
     if let Some(n) = stats.compile.module_count {
-        match (
-            stats.compile.cached_module_count,
-            stats.compile.compiled_module_count,
-        ) {
+        match (stats.compile.cached_module_count, stats.compile.compiled_module_count) {
             (Some(cached), Some(compiled)) if cached > 0 => {
                 eprintln!(
                     "  {:<20} {:>8}  ({} cached, {} compiled)",
@@ -170,10 +164,7 @@ pub(crate) fn print_stats(stats: &RunStats) {
             _ => eprintln!("  {:<20} {:>8}", "modules", n),
         }
     }
-    eprintln!(
-        "  {:<20} {:>8}",
-        "source lines", stats.artifacts.source_lines
-    );
+    eprintln!("  {:<20} {:>8}", "source lines", stats.artifacts.source_lines);
     if let Some(n) = stats.artifacts.globals_count {
         eprintln!("  {:<20} {:>8}", "globals", n);
     }
@@ -213,10 +204,7 @@ mod tests {
                 cached_module_count: None,
                 compiled_module_count: Some(1),
             },
-            execute: ExecuteStats {
-                execute_ms: 3.0,
-                execute_backend: "vm",
-            },
+            execute: ExecuteStats { execute_ms: 3.0, execute_backend: "vm" },
             artifacts: ArtifactStats {
                 source_lines: 10,
                 globals_count: Some(1),

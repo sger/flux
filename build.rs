@@ -35,9 +35,7 @@ fn main() {
 
         // Sort newest first.
         archives.sort_by_key(|p| {
-            fs::metadata(p)
-                .and_then(|m| m.modified())
-                .unwrap_or(SystemTime::UNIX_EPOCH)
+            fs::metadata(p).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH)
         });
         archives.reverse();
 
@@ -45,14 +43,25 @@ fn main() {
         // If the sidecar pointed at a pruned archive, remove it so the linker
         // falls back to a fresh scan rather than reading a deleted path.
         let sidecar = profile_dir.join("flux-staticlib.path");
-        let sidecar_target = fs::read_to_string(&sidecar)
-            .map(|s| PathBuf::from(s.trim().to_owned()))
-            .ok();
+        let sidecar_target =
+            fs::read_to_string(&sidecar).map(|s| PathBuf::from(s.trim().to_owned())).ok();
         for stale in archives.iter().skip(2) {
             if sidecar_target.as_deref() == Some(stale.as_path()) {
                 let _ = fs::remove_file(&sidecar);
             }
             let _ = fs::remove_file(stale);
+        }
+    }
+
+    // The compiler recurses once per nested `let` and per field, and Windows
+    // gives the main thread 1 MB, where macOS and Linux give 8: a program
+    // with a few hundred `let`s overflowed it. The programs flux builds get
+    // 64 MB the same way (`src/llvm/pipeline.rs`).
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+            println!("cargo:rustc-link-arg-bins=/STACK:67108864");
+        } else {
+            println!("cargo:rustc-link-arg-bins=-Wl,--stack,67108864");
         }
     }
 

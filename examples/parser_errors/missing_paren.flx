@@ -6,22 +6,21 @@
 //
 // Expected a closing `)` to match this opening `(`.
 //
-//   examples/parser_errors/missing_paren.flx:32:13
+//   examples/parser_errors/missing_paren.flx:31:13
 //    |
-// 32 |     let x = (1 + 2
+// 31 |     let x = (1 + 2
 //    |             ^
 //
 // Note:
 //   while parsing function `main`
 //
 // note: Expected `)` before this token.
-//   examples/parser_errors/missing_paren.flx:33:5
+//   examples/parser_errors/missing_paren.flx:32:5
 //    |
-// 33 |     print(x)
+// 32 |     print(x)
 //    |     ^^^^^
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E076
 
 // Missing `)` in grouped expression.
 //
@@ -29,7 +28,7 @@
 //   "Expected a closing `)` to match this opening `(`."
 
 fn main() -> Unit {
-    let x = (1 + 2
+    let x = (1 + 2 //~ E076
     print(x)
 }
 

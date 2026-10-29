@@ -4,6 +4,10 @@
 //      Phase 1b-vi-b₂.2: VM now overlaps the two branches via the fiber
 //      scheduler. The returned tuple still preserves source order regardless
 //      of which branch finishes first.
+// parity-expected-stdout-begin
+// 3
+// 4
+// parity-expected-stdout-end
 
 import Flow.Async exposing (..)
 

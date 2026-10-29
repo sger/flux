@@ -6,16 +6,15 @@
 //
 // Expected `{` for method body.
 //
-//   examples/parser_errors/missing_instance_method_body.flx:31:16
+//   examples/parser_errors/missing_instance_method_body.flx:30:16
 //    |
-// 31 |     fn size(x) x
+// 30 |     fn size(x) x
 //    |                ^
 //
 // Hint:
 //   Instance methods require a body: `fn name(x, y) { ... }`.
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E034
 
 // Missing `{` for method body in instance declaration.
 //
@@ -28,7 +27,7 @@ class Sizeable<a> {
 }
 
 instance Sizeable<Int> {
-    fn size(x) x
+    fn size(x) x //~ E034
 }
 
 fn main() {

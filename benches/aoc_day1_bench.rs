@@ -35,34 +35,24 @@ fn run_program(bytecode: Bytecode) {
 
 fn bench_aoc_day1(c: &mut Criterion) {
     let source = fs::read_to_string(DAY1_SOURCE_PATH).expect("read aoc day1 source");
-    let input_size = fs::metadata(DAY1_INPUT_PATH)
-        .map(|m| m.len())
-        .unwrap_or(source.len() as u64);
+    let input_size = fs::metadata(DAY1_INPUT_PATH).map(|m| m.len()).unwrap_or(source.len() as u64);
     let bytecode = compile_program(&source);
 
     let mut group = c.benchmark_group("aoc/day1");
     group.throughput(Throughput::Bytes(input_size));
 
-    group.bench_with_input(
-        BenchmarkId::new("compile_execute", "day1"),
-        &source,
-        |b, src| {
-            b.iter(|| {
-                let bytecode = compile_program(black_box(src));
-                run_program(bytecode);
-            });
-        },
-    );
+    group.bench_with_input(BenchmarkId::new("compile_execute", "day1"), &source, |b, src| {
+        b.iter(|| {
+            let bytecode = compile_program(black_box(src));
+            run_program(bytecode);
+        });
+    });
 
-    group.bench_with_input(
-        BenchmarkId::new("execute_only", "day1"),
-        &bytecode,
-        |b, bc| {
-            b.iter(|| {
-                run_program(black_box(bc.clone()));
-            });
-        },
-    );
+    group.bench_with_input(BenchmarkId::new("execute_only", "day1"), &bytecode, |b, bc| {
+        b.iter(|| {
+            run_program(black_box(bc.clone()));
+        });
+    });
 
     group.finish();
 }

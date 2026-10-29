@@ -1,5 +1,8 @@
 // parity: vm, llvm
 // expect: success
+// parity-expected-stdout-begin
+// 42
+// parity-expected-stdout-end
 
 fn wrap_some(x) {
     Some(x)

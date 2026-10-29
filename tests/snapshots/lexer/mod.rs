@@ -1,5 +1,5 @@
+use crate::support::assert_snapshot;
 use flux::syntax::lexer::Lexer;
-use insta::assert_snapshot;
 
 fn tokenize_to_string(input: &str) -> String {
     let mut lexer = Lexer::new(input);

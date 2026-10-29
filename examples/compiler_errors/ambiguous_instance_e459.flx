@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E459
 // Expected: E459 Undetermined Class Parameter
 //   "Cannot determine `b` in `Convert<Int, _>`; several instances are
 //    compatible with what this call fixes."
@@ -35,6 +34,6 @@ instance Convert<Int, Bool> {
 }
 
 fn main() with IO {
-    let ignored = convert(42)
+    let ignored = convert(42) //~ E459
     print(1)
 }

@@ -1,0 +1,16 @@
+// 0189 V1: a field taken from a cell another holder still sees, given to a
+// function that rebuilds it. The original list must be unchanged.
+
+fn bump(xs) {
+    match xs {
+        [h | t] -> [h + 1 | bump(t)],
+        _ -> [],
+    }
+}
+
+fn main() {
+    let xs = [1, 2, 3]
+    let ys = match xs { [_ | t] -> bump(t), _ -> [] }
+    print(ys)
+    print(xs)
+}

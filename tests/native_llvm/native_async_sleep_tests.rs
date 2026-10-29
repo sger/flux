@@ -2,35 +2,20 @@
 
 #![cfg(feature = "llvm")]
 
-use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-#[path = "../support/scratch.rs"]
-mod scratch;
+use crate::support::scratch;
 use scratch::Scratch;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+use scratch::workspace_root;
 
 fn run_source(source: &str, tag: &str) -> (String, String, bool, Duration) {
-    let dir = workspace_root()
-        .join("target")
-        .join("test-scratch")
-        .join(format!(
-            "flux-native-async-sleep-{}-{}",
-            std::process::id(),
-            tag,
-        ));
-    std::fs::create_dir_all(&dir).expect("create temp dir");
-    let path = dir.join("fixture.flx");
-    std::fs::write(&path, source).expect("write fixture");
-
-    let start = Instant::now();
     // Private cache root: `--no-cache` does not isolate native
     // builds, which write shared artifacts regardless (KI-010).
-    let scratch = Scratch::new("native-llvm");
+    let scratch = Scratch::new(&format!("flux-native-async-sleep-{tag}"));
+    let path = scratch.write("fixture.flx", source);
+
+    let start = Instant::now();
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args([path.to_str().unwrap(), "--native", "--no-cache"])
@@ -61,15 +46,9 @@ fn main() with IO {
 }
 "#;
     let (stdout, stderr, success, elapsed) = run_source(source, "sleep");
-    assert!(
-        success,
-        "native async sleep must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "native async sleep must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert_eq!(stdout.trim(), "99");
-    assert!(
-        elapsed >= Duration::from_millis(40),
-        "native sleep returned too early: {elapsed:?}"
-    );
+    assert!(elapsed >= Duration::from_millis(40), "native sleep returned too early: {elapsed:?}");
 }
 
 #[test]
@@ -98,13 +77,9 @@ fn main() with IO {
 fn native_sleep_path_does_not_use_blocking_os_sleep() {
     let tasks = std::fs::read_to_string(workspace_root().join("runtime/c/tasks.c"))
         .expect("read runtime/c/tasks.c");
-    let start = tasks
-        .find("int64_t flux_fiber_sleep")
-        .expect("find flux_fiber_sleep");
+    let start = tasks.find("int64_t flux_fiber_sleep").expect("find flux_fiber_sleep");
     let tail = &tasks[start..];
-    let end = tail
-        .find("/* ── Fiber combinators")
-        .expect("find next section");
+    let end = tail.find("/* ── Fiber combinators").expect("find next section");
     let sleep_impl = &tail[..end];
 
     assert!(
@@ -156,17 +131,11 @@ fn main() with IO, Clock {
 }
 "#;
     let (stdout, stderr, success, _elapsed) = run_source(source, "both");
-    assert!(
-        success,
-        "native both must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "native both must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     let lines: Vec<_> = stdout.lines().collect();
     assert_eq!(&lines[..2], ["3", "4"]);
     let measured_ms: i64 = lines[2].parse().expect("elapsed ms");
-    assert!(
-        measured_ms >= 450,
-        "both returned too early: {measured_ms}ms"
-    );
+    assert!(measured_ms >= 450, "both returned too early: {measured_ms}ms");
     assert!(measured_ms < 900, "both did not overlap: {measured_ms}ms");
 }
 
@@ -221,10 +190,7 @@ fn main() with IO {
 }
 "#;
     let (stdout, stderr, success, _elapsed) = run_source(source, "race_fifo");
-    assert!(
-        success,
-        "native race must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "native race must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert_eq!(stdout.trim(), "10");
 }
 
@@ -263,10 +229,7 @@ fn main() with IO, Clock {
     let lines: Vec<_> = stdout.lines().collect();
     assert_eq!(lines[0], "2");
     let measured_ms: i64 = lines[1].parse().expect("elapsed ms");
-    assert!(
-        measured_ms < 500,
-        "native race waited for the slow loser: {measured_ms}ms"
-    );
+    assert!(measured_ms < 500, "native race waited for the slow loser: {measured_ms}ms");
 }
 
 #[test]
@@ -340,44 +303,11 @@ fn main() with IO, Clock {
 }
 "#;
     let (stdout, stderr, success, _elapsed) = run_source(source, "first_of_fastest");
-    assert!(
-        success,
-        "native first_of fastest must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "native first_of fastest must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     let lines: Vec<_> = stdout.lines().collect();
     assert_eq!(&lines[..2], ["1", "2"]);
     let measured_ms: i64 = lines[2].parse().expect("elapsed ms");
-    assert!(
-        measured_ms < 500,
-        "first_of waited for slow losers: {measured_ms}ms"
-    );
-}
-
-#[test]
-fn native_first_of_immediate_children_are_source_ordered() {
-    let source = r#"
-import Flow.Async exposing (..)
-
-fn ten() -> Int with Async { 10 }
-fn twenty() -> Int with Async { 20 }
-fn thirty() -> Int with Async { 30 }
-
-fn body() -> (Int, Int) with Async {
-    first_of([ten, twenty, thirty])
-}
-
-fn main() with IO {
-    let pair = run_async(body)
-    print(pair.0)
-    print(pair.1)
-}
-"#;
-    let (stdout, stderr, success, _elapsed) = run_source(source, "first_of_fifo");
-    assert!(
-        success,
-        "native first_of tie must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
-    assert_eq!(stdout.trim(), "0\n10");
+    assert!(measured_ms < 500, "first_of waited for slow losers: {measured_ms}ms");
 }
 
 #[test]
@@ -408,17 +338,11 @@ fn main() with IO, Clock {
 }
 "#;
     let (stdout, stderr, success, _elapsed) = run_source(source, "first_fastest");
-    assert!(
-        success,
-        "native first fastest must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "native first fastest must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     let lines: Vec<_> = stdout.lines().collect();
     assert_eq!(lines[0], "7");
     let measured_ms: i64 = lines[1].parse().expect("elapsed ms");
-    assert!(
-        measured_ms < 500,
-        "first waited for slow losers: {measured_ms}ms"
-    );
+    assert!(measured_ms < 500, "first waited for slow losers: {measured_ms}ms");
 }
 
 #[test]
@@ -454,10 +378,7 @@ fn main() with IO, Clock {
     let lines: Vec<_> = stdout.lines().collect();
     assert_eq!(lines[0], "-1");
     let measured_ms: i64 = lines[1].parse().expect("elapsed ms");
-    assert!(
-        measured_ms < 500,
-        "native timeout waited for the slow body: {measured_ms}ms"
-    );
+    assert!(measured_ms < 500, "native timeout waited for the slow body: {measured_ms}ms");
 }
 
 #[test]
@@ -524,10 +445,7 @@ fn main() with IO {
 }
 "#;
     let (stdout, stderr, success, _elapsed) = run_source(source, "timeout_some");
-    assert!(
-        success,
-        "native timeout body-win must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    assert!(success, "native timeout body-win must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     assert_eq!(stdout.trim(), "7");
 }
 

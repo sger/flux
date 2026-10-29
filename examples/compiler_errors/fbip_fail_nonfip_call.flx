@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E999
 
 // parity-expected-stdout-begin
 // parity-expected-stdout-end
@@ -10,7 +9,7 @@ fn alloc(x) {
     Some(x)
 }
 
-@fbip fn bounded(f, x) {
+@fbip fn bounded(f, x) { //~ E999
     f(x)
 }
 

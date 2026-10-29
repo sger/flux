@@ -1,9 +1,8 @@
 // expect: compile_error
-// expect-error: E024
 
 import Modules.Data.MyFile
 
-module Modules.Main {
+module Modules.Main { //~ E024
   fn main() {
     Modules.Data.MyFile.value();
   }

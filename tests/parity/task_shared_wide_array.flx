@@ -1,0 +1,50 @@
+// parity: vm, llvm
+// parity-expected-stdout-begin
+// 1794000
+// parity-expected-stdout-end
+// An array of 300 lists that worker tasks share while `main` keeps it. Each
+// worker reads the 300th element, so its count changes on several threads at
+// once: promotion must reach past the 255th element. With
+// `cargo xtask sanitize --thread`, a count it missed is a data race
+// ThreadSanitizer reports.
+import Flow.Task exposing (..)
+import Flow.Array exposing (concat)
+
+fn build(lo, hi) {
+    if hi - lo == 1 { [| [lo] |] } else {
+        let mid = (lo + hi) / 2
+        concat(build(lo, mid), build(mid, hi))
+    }
+}
+
+fn head(xs) {
+    match xs {
+        [h | _] -> h,
+        _ -> 0,
+    }
+}
+
+fn read(arr, k, acc) {
+    if k == 0 { acc } else {
+        let got = match arr[299] {
+            Some(xs) -> head(xs),
+            None -> 0,
+        }
+        read(arr, k - 1, acc + got)
+    }
+}
+
+fn round(k, arr, acc) {
+    if k == 0 { acc } else {
+        let a = spawn(\() -> read(arr, 100, 0))
+        let b = spawn(\() -> read(arr, 100, 0))
+        let c = spawn(\() -> read(arr, 100, 0))
+        let got = blocking_join(a) + blocking_join(b) + blocking_join(c)
+        round(k - 1, arr, acc + got)
+    }
+}
+
+fn main() with IO {
+    let arr = build(0, 300)
+    print(round(20, arr, 0))
+}

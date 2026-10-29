@@ -9,9 +9,9 @@ error[E024]: Module Path Mismatch
 
 Module name `Modules.Math` doesn't match file path `examples/Modules/Math.flx`.
 
-  examples/Modules/Math.flx:4:1
+  examples/Modules/Math.flx:3:1
   |
-4 | module Modules.Math {
+3 | module Modules.Math {
   | ^
 
 Hint:

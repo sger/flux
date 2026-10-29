@@ -6,14 +6,13 @@
 //
 // Expected expression, found `->`.
 //
-//   examples/parser_errors/stray_top_level_arrow.flx:17:1
+//   examples/parser_errors/stray_top_level_arrow.flx:16:1
 //    |
-// 17 | ->
+// 16 | ->
 //    | ^^
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E031
 
-->
+-> //~ E031
 fn main() -> Unit {}
 

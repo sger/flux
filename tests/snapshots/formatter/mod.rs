@@ -1,5 +1,5 @@
+use crate::support::assert_snapshot;
 use flux::syntax::formatter::format_source;
-use insta::assert_snapshot;
 
 #[test]
 fn snapshot_format_simple_let() {

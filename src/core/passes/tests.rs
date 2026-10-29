@@ -39,10 +39,7 @@ fn cokc_reduces_some_constructor() {
         }),
         alts: vec![
             CoreAlt {
-                pat: CorePat::Con {
-                    tag: CoreTag::Some,
-                    fields: vec![CorePat::Var(x_binder)],
-                },
+                pat: CorePat::Con { tag: CoreTag::Some, fields: vec![CorePat::Var(x_binder)] },
                 guard: None,
                 rhs: var_ref(x_binder),
                 span: s(),
@@ -89,10 +86,7 @@ fn cokc_reduces_bool_literal() {
     };
 
     let result = case_of_known_constructor(expr);
-    assert!(
-        matches!(result, CoreExpr::Lit(CoreLit::Int(1), _)),
-        "expected Lit(1), got {result:?}"
-    );
+    assert!(matches!(result, CoreExpr::Lit(CoreLit::Int(1), _)), "expected Lit(1), got {result:?}");
 }
 
 #[test]
@@ -112,10 +106,7 @@ fn cokc_skips_guarded_arm() {
         }),
         alts: vec![
             CoreAlt {
-                pat: CorePat::Con {
-                    tag: CoreTag::Some,
-                    fields: vec![CorePat::Var(x_binder)],
-                },
+                pat: CorePat::Con { tag: CoreTag::Some, fields: vec![CorePat::Var(x_binder)] },
                 guard: Some(guard),
                 rhs: CoreExpr::Lit(CoreLit::Int(99), s()),
                 span: s(),
@@ -159,10 +150,7 @@ fn cokc_leaves_unknown_scrutinee_alone() {
     };
 
     let result = case_of_known_constructor(expr);
-    assert!(
-        matches!(result, CoreExpr::Case { .. }),
-        "should remain a Case"
-    );
+    assert!(matches!(result, CoreExpr::Case { .. }), "should remain a Case");
 }
 
 // ── inline_trivial_lets ───────────────────────────────────────────────────
@@ -182,10 +170,7 @@ fn inline_trivial_substitutes_literal() {
     };
 
     let result = inline_trivial_lets(expr);
-    assert!(
-        matches!(result, CoreExpr::Lit(CoreLit::Int(5), _)),
-        "expected Lit(5), got {result:?}"
-    );
+    assert!(matches!(result, CoreExpr::Lit(CoreLit::Int(5), _)), "expected Lit(5), got {result:?}");
 }
 
 #[test]
@@ -306,16 +291,10 @@ fn primop_promote_keeps_bare_delete_bound_to_flow_list_delete() {
         binder: main_binder,
         expr: CoreExpr::App {
             func: Box::new(CoreExpr::Var {
-                var: CoreVarRef {
-                    name: delete,
-                    binder: Some(delete_binder.id),
-                },
+                var: CoreVarRef { name: delete, binder: Some(delete_binder.id) },
                 span: s(),
             }),
-            args: vec![
-                CoreExpr::Lit(CoreLit::Int(1), s()),
-                CoreExpr::Lit(CoreLit::Int(2), s()),
-            ],
+            args: vec![CoreExpr::Lit(CoreLit::Int(1), s()), CoreExpr::Lit(CoreLit::Int(2), s())],
             span: s(),
         },
         is_dict_def: false,
@@ -382,16 +361,10 @@ fn primop_promote_promotes_explicit_map_delete_name() {
         binder: main_binder,
         expr: CoreExpr::App {
             func: Box::new(CoreExpr::Var {
-                var: CoreVarRef {
-                    name: map_delete,
-                    binder: None,
-                },
+                var: CoreVarRef { name: map_delete, binder: None },
                 span: s(),
             }),
-            args: vec![
-                CoreExpr::Lit(CoreLit::Int(1), s()),
-                CoreExpr::Lit(CoreLit::Int(2), s()),
-            ],
+            args: vec![CoreExpr::Lit(CoreLit::Int(1), s()), CoreExpr::Lit(CoreLit::Int(2), s())],
             span: s(),
         },
         is_dict_def: false,
@@ -448,10 +421,7 @@ fn inline_trivial_does_not_inline_non_trivial() {
     };
 
     let result = inline_trivial_lets(expr);
-    assert!(
-        matches!(result, CoreExpr::Let { .. }),
-        "non-trivial rhs must keep the Let"
-    );
+    assert!(matches!(result, CoreExpr::Let { .. }), "non-trivial rhs must keep the Let");
 }
 
 #[test]
@@ -490,10 +460,7 @@ fn inline_trivial_substitutes_inside_handler_body() {
     let result = inline_trivial_lets(expr);
     match result {
         CoreExpr::Handle { handlers, .. } => {
-            assert!(matches!(
-                handlers[0].body,
-                CoreExpr::Lit(CoreLit::Int(5), _)
-            ));
+            assert!(matches!(handlers[0].body, CoreExpr::Lit(CoreLit::Int(5), _)));
         }
         other => panic!("expected Handle, got {other:?}"),
     }
@@ -566,10 +533,7 @@ fn cokc_then_inline_collapses_field_binding() {
             span: s(),
         }),
         alts: vec![CoreAlt {
-            pat: CorePat::Con {
-                tag: CoreTag::Some,
-                fields: vec![CorePat::Var(x_binder)],
-            },
+            pat: CorePat::Con { tag: CoreTag::Some, fields: vec![CorePat::Var(x_binder)] },
             guard: None,
             rhs: var_ref(x_binder),
             span: s(),
@@ -582,10 +546,7 @@ fn cokc_then_inline_collapses_field_binding() {
     // since the field count is one and the pattern is Var).
     let result = case_of_known_constructor(expr);
     let result = inline_trivial_lets(result);
-    assert!(
-        matches!(result, CoreExpr::Lit(CoreLit::Int(7), _)),
-        "expected Lit(7), got {result:?}"
-    );
+    assert!(matches!(result, CoreExpr::Lit(CoreLit::Int(7), _)), "expected Lit(7), got {result:?}");
 }
 
 // ── case_of_case ─────────────────────────────────────────────────────────
@@ -622,11 +583,7 @@ fn case_of_case_pushes_outer_into_inner_arms() {
             CoreAlt {
                 pat: CorePat::Lit(CoreLit::Bool(false)),
                 guard: None,
-                rhs: CoreExpr::Con {
-                    tag: CoreTag::None,
-                    fields: vec![],
-                    span: s(),
-                },
+                rhs: CoreExpr::Con { tag: CoreTag::None, fields: vec![], span: s() },
                 span: s(),
             },
         ],
@@ -638,19 +595,13 @@ fn case_of_case_pushes_outer_into_inner_arms() {
         scrutinee: Box::new(inner_case),
         alts: vec![
             CoreAlt {
-                pat: CorePat::Con {
-                    tag: CoreTag::Some,
-                    fields: vec![CorePat::Var(y_binder)],
-                },
+                pat: CorePat::Con { tag: CoreTag::Some, fields: vec![CorePat::Var(y_binder)] },
                 guard: None,
                 rhs: var_ref(y_binder),
                 span: s(),
             },
             CoreAlt {
-                pat: CorePat::Con {
-                    tag: CoreTag::None,
-                    fields: vec![],
-                },
+                pat: CorePat::Con { tag: CoreTag::None, fields: vec![] },
                 guard: None,
                 rhs: CoreExpr::Lit(CoreLit::Int(0), s()),
                 span: s(),
@@ -665,9 +616,7 @@ fn case_of_case_pushes_outer_into_inner_arms() {
     // The result should be: case x of { True -> ...; False -> ... }
     // where the inner cases have been pushed down.
     match &result {
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             // Scrutinee should be Var(x), not another Case.
             assert!(
                 matches!(**scrutinee, CoreExpr::Var { .. }),
@@ -729,10 +678,7 @@ fn case_of_case_leaves_non_case_scrutinee_alone() {
     let result = case_of_case(expr);
     match &result {
         CoreExpr::Case { scrutinee, .. } => {
-            assert!(
-                matches!(**scrutinee, CoreExpr::Var { .. }),
-                "scrutinee should remain Var"
-            );
+            assert!(matches!(**scrutinee, CoreExpr::Var { .. }), "scrutinee should remain Var");
         }
         other => panic!("expected Case, got {other:?}"),
     }
@@ -784,10 +730,7 @@ fn case_of_case_preserves_inner_guards() {
     match &result {
         CoreExpr::Case { alts, .. } => {
             // First inner alt should still have its guard.
-            assert!(
-                alts[0].guard.is_some(),
-                "guard on first inner alt must be preserved"
-            );
+            assert!(alts[0].guard.is_some(), "guard on first inner alt must be preserved");
         }
         other => panic!("expected Case, got {other:?}"),
     }
@@ -826,10 +769,7 @@ fn inliner_inlines_single_use() {
 
     let rhs = CoreExpr::PrimOp {
         op: CorePrimOp::IAdd,
-        args: vec![
-            CoreExpr::Lit(CoreLit::Int(1), s()),
-            CoreExpr::Lit(CoreLit::Int(2), s()),
-        ],
+        args: vec![CoreExpr::Lit(CoreLit::Int(1), s()), CoreExpr::Lit(CoreLit::Int(2), s())],
         span: s(),
     };
     let body = CoreExpr::PrimOp {
@@ -837,23 +777,12 @@ fn inliner_inlines_single_use() {
         args: vec![var_ref(x_binder), CoreExpr::Lit(CoreLit::Int(3), s())],
         span: s(),
     };
-    let expr = CoreExpr::Let {
-        var: x_binder,
-        rhs: Box::new(rhs),
-        body: Box::new(body),
-        span: s(),
-    };
+    let expr = CoreExpr::Let { var: x_binder, rhs: Box::new(rhs), body: Box::new(body), span: s() };
 
     let result = inline_lets(expr);
     // Should be a PrimOp(IMul, ...) not a Let.
     assert!(
-        matches!(
-            result,
-            CoreExpr::PrimOp {
-                op: CorePrimOp::IMul,
-                ..
-            }
-        ),
+        matches!(result, CoreExpr::PrimOp { op: CorePrimOp::IMul, .. }),
         "single-use binding should be inlined, got {result:?}"
     );
 }
@@ -911,10 +840,7 @@ fn inliner_preserves_letrec() {
     };
 
     let result = inline_lets(expr);
-    assert!(
-        matches!(result, CoreExpr::LetRec { .. }),
-        "letrec must be preserved, got {result:?}"
-    );
+    assert!(matches!(result, CoreExpr::LetRec { .. }), "letrec must be preserved, got {result:?}");
 }
 
 // ── anf_normalize ─────────────────────────────────────────────────────────
@@ -947,23 +873,11 @@ fn anf_flattens_nested_primop_args() {
     match &result {
         CoreExpr::Let { rhs, body, .. } => {
             assert!(
-                matches!(
-                    **rhs,
-                    CoreExpr::PrimOp {
-                        op: CorePrimOp::IMul,
-                        ..
-                    }
-                ),
+                matches!(**rhs, CoreExpr::PrimOp { op: CorePrimOp::IMul, .. }),
                 "rhs should be IMul, got {rhs:?}"
             );
             assert!(
-                matches!(
-                    **body,
-                    CoreExpr::PrimOp {
-                        op: CorePrimOp::IAdd,
-                        ..
-                    }
-                ),
+                matches!(**body, CoreExpr::PrimOp { op: CorePrimOp::IAdd, .. }),
                 "body should be IAdd, got {body:?}"
             );
             // The IAdd args should be trivial (Var, Lit).
@@ -1011,18 +925,12 @@ fn anf_normalizes_app_func_and_args() {
     let expr = CoreExpr::App {
         func: Box::new(CoreExpr::PrimOp {
             op: CorePrimOp::IAdd,
-            args: vec![
-                CoreExpr::Lit(CoreLit::Int(1), s()),
-                CoreExpr::Lit(CoreLit::Int(2), s()),
-            ],
+            args: vec![CoreExpr::Lit(CoreLit::Int(1), s()), CoreExpr::Lit(CoreLit::Int(2), s())],
             span: s(),
         }),
         args: vec![CoreExpr::PrimOp {
             op: CorePrimOp::IMul,
-            args: vec![
-                CoreExpr::Lit(CoreLit::Int(3), s()),
-                CoreExpr::Lit(CoreLit::Int(4), s()),
-            ],
+            args: vec![CoreExpr::Lit(CoreLit::Int(3), s()), CoreExpr::Lit(CoreLit::Int(4), s())],
             span: s(),
         }],
         span: s(),
@@ -1061,8 +969,7 @@ fn run_core_passes_rejects_malformed_aether_before_lowering() {
     let err = crate::aether::verify::verify_contract_aether(&expr)
         .expect_err("expected malformed Aether to fail");
     assert!(
-        err.iter()
-            .any(|e| matches!(e.kind, crate::aether::verify::AetherErrorKind::UnsafeDrop)),
+        err.iter().any(|e| matches!(e.kind, crate::aether::verify::AetherErrorKind::UnsafeDrop)),
         "unexpected Aether verification errors: {err:?}"
     );
 }
@@ -1118,10 +1025,7 @@ fn algebraic_simplify_removes_int_identity() {
 
 #[test]
 fn primop_effect_class_distinguishes_pure_can_fail_and_has_effect() {
-    assert_eq!(
-        helpers::primop_effect_class(&CorePrimOp::IAdd),
-        helpers::PrimOpEffectClass::Pure
-    );
+    assert_eq!(helpers::primop_effect_class(&CorePrimOp::IAdd), helpers::PrimOpEffectClass::Pure);
     assert_eq!(
         helpers::primop_effect_class(&CorePrimOp::IDiv),
         helpers::PrimOpEffectClass::CanFail
@@ -1263,11 +1167,7 @@ fn int(n: i64) -> CoreExpr {
 }
 
 fn add_one(x: CoreBinder) -> CoreExpr {
-    CoreExpr::PrimOp {
-        op: CorePrimOp::IAdd,
-        args: vec![var_ref(x), int(1)],
-        span: s(),
-    }
+    CoreExpr::PrimOp { op: CorePrimOp::IAdd, args: vec![var_ref(x), int(1)], span: s() }
 }
 
 /// Runs `pass` on `expr` keeping `kept`, as a debug build does.
@@ -1319,10 +1219,7 @@ fn beta_records_a_lambda_it_inlines_in_a_debug_build() {
         span: call,
     };
     let (inlined, sites) = keeping(&[], beta_reduce, applied);
-    assert!(
-        matches!(inlined, CoreExpr::Lit(CoreLit::Int(41), _)),
-        "{inlined:?}"
-    );
+    assert!(matches!(inlined, CoreExpr::Lit(CoreLit::Int(41), _)), "{inlined:?}");
     assert_eq!(sites, vec![crate::core::InlineSite { lambda, call }]);
 }
 
@@ -1331,16 +1228,9 @@ fn a_known_constructor_binds_a_kept_pattern_variable() {
     let mut interner = Interner::new();
     let x = binder(0, interner.intern("x"));
     let expr = CoreExpr::Case {
-        scrutinee: Box::new(CoreExpr::Con {
-            tag: CoreTag::Some,
-            fields: vec![int(42)],
-            span: s(),
-        }),
+        scrutinee: Box::new(CoreExpr::Con { tag: CoreTag::Some, fields: vec![int(42)], span: s() }),
         alts: vec![CoreAlt {
-            pat: CorePat::Con {
-                tag: CoreTag::Some,
-                fields: vec![CorePat::Var(x)],
-            },
+            pat: CorePat::Con { tag: CoreTag::Some, fields: vec![CorePat::Var(x)] },
             guard: None,
             rhs: var_ref(x),
             span: at(3, 8, 20),
@@ -1349,10 +1239,7 @@ fn a_known_constructor_binds_a_kept_pattern_variable() {
         span: s(),
     };
     let (kept, _) = keeping(&[x], case_of_known_constructor, expr);
-    assert!(
-        matches!(&kept, CoreExpr::Let { var, .. } if var.id == x.id),
-        "{kept:?}"
-    );
+    assert!(matches!(&kept, CoreExpr::Let { var, .. } if var.id == x.id), "{kept:?}");
 }
 
 #[test]
@@ -1378,26 +1265,15 @@ fn the_inliners_keep_a_kept_let_even_when_dead() {
     };
     for pass in [inline_lets, disciplined_inline, elim_dead_let] {
         let (kept, _) = keeping(&[y], pass, expr());
-        assert!(
-            matches!(&kept, CoreExpr::Let { var, .. } if var.id == y.id),
-            "{kept:?}"
-        );
+        assert!(matches!(&kept, CoreExpr::Let { var, .. } if var.id == y.id), "{kept:?}");
     }
     // `__t` is the compiler's: it goes.
     let (kept, _) = keeping(&[y], inline_lets, expr());
-    let CoreExpr::Let { body, .. } = &kept else {
-        unreachable!()
-    };
-    assert!(
-        matches!(**body, CoreExpr::Lit(CoreLit::Int(2), _)),
-        "{body:?}"
-    );
+    let CoreExpr::Let { body, .. } = &kept else { unreachable!() };
+    assert!(matches!(**body, CoreExpr::Lit(CoreLit::Int(2), _)), "{body:?}");
     // A plain build drops `y` too.
     let plain = inline_lets(expr());
-    assert!(
-        matches!(plain, CoreExpr::Lit(CoreLit::Int(2), _)),
-        "{plain:?}"
-    );
+    assert!(matches!(plain, CoreExpr::Lit(CoreLit::Int(2), _)), "{plain:?}");
 }
 
 #[test]
@@ -1430,4 +1306,78 @@ fn the_program_s_own_binders_are_kept_not_the_compiler_s() {
     };
     let kept = keep::source_binders(&program, &interner);
     assert_eq!(kept, [y.id].into_iter().collect());
+}
+
+// ── Optimization bisection (0190 §13) ─────────────────────────────────────
+
+/// Whether `pass` leaves `expr` exactly as it was with every rewrite skipped,
+/// and changes it with every rewrite allowed.
+fn bisect_gates(pass: fn(CoreExpr) -> CoreExpr, expr: &CoreExpr) {
+    use crate::shared::opt_bisect::with_test_limit;
+    let before = format!("{expr:?}");
+    let skipped = with_test_limit(0, || pass(expr.clone()));
+    assert_eq!(format!("{skipped:?}"), before, "limit 0 rewrote it");
+    let allowed = with_test_limit(-1, || pass(expr.clone()));
+    assert_ne!(format!("{allowed:?}"), before, "limit -1 left it alone");
+}
+
+fn let_one_in(var: CoreBinder, body: CoreExpr) -> CoreExpr {
+    CoreExpr::Let { var, rhs: Box::new(int(1)), body: Box::new(body), span: s() }
+}
+
+#[test]
+fn bisect_gates_beta() {
+    let mut interner = Interner::new();
+    let x = binder(0, interner.intern("x"));
+    let applied = CoreExpr::App {
+        func: Box::new(CoreExpr::Lam {
+            params: vec![x],
+            param_types: vec![None],
+            result_ty: None,
+            body: Box::new(add_one(x)),
+            span: s(),
+        }),
+        args: vec![int(20)],
+        span: s(),
+    };
+    bisect_gates(beta_reduce, &applied);
+}
+
+#[test]
+fn bisect_gates_case_of_known_constructor_and_constant_fold() {
+    let known = CoreExpr::Case {
+        scrutinee: Box::new(CoreExpr::Lit(CoreLit::Bool(true), s())),
+        alts: vec![
+            CoreAlt { pat: CorePat::Lit(CoreLit::Bool(true)), guard: None, rhs: int(1), span: s() },
+            CoreAlt { pat: CorePat::Wildcard, guard: None, rhs: int(0), span: s() },
+        ],
+        join_ty: None,
+        span: s(),
+    };
+    bisect_gates(case_of_known_constructor, &known);
+    bisect_gates(constant_fold, &known);
+    let sum = CoreExpr::PrimOp { op: CorePrimOp::IAdd, args: vec![int(1), int(2)], span: s() };
+    bisect_gates(constant_fold, &sum);
+}
+
+#[test]
+fn bisect_gates_algebraic_simplify() {
+    let mut interner = Interner::new();
+    let y = binder(0, interner.intern("y"));
+    let plus_zero =
+        CoreExpr::PrimOp { op: CorePrimOp::IAdd, args: vec![var_ref(y), int(0)], span: s() };
+    bisect_gates(algebraic_simplify, &plus_zero);
+}
+
+#[test]
+fn bisect_gates_the_let_inliners() {
+    let mut interner = Interner::new();
+    let x = binder(0, interner.intern("x"));
+    let used_once = let_one_in(x, add_one(x));
+    bisect_gates(inline_lets, &used_once);
+    bisect_gates(disciplined_inline, &used_once);
+    let unused = let_one_in(x, int(2));
+    bisect_gates(inline_lets, &unused);
+    bisect_gates(disciplined_inline, &unused);
+    bisect_gates(elim_dead_let, &unused);
 }

@@ -9,9 +9,9 @@ error[E024]: Module Path Mismatch
 
 Module name `Modules.UserUtils` doesn't match file path `examples/Modules/UserUtils.flx`.
 
-  examples/Modules/UserUtils.flx:4:1
+  examples/Modules/UserUtils.flx:3:1
   |
-4 | module Modules.UserUtils {
+3 | module Modules.UserUtils {
   | ^
 
 Hint:

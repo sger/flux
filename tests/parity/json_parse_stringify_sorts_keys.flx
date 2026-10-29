@@ -1,0 +1,16 @@
+// parity: vm, llvm
+// expect: success
+// Stringifying parsed JSON sorts object keys, so both backends print the
+// same text whatever order the input used.
+// parity-expected-stdout-begin
+// "{"a":[true,null,"x"],"b":2}"
+// "{"a":[1,true],"z":null}"
+// parity-expected-stdout-end
+
+import Flow.Json as Json
+import Flow.Json exposing (..)
+
+fn main() with IO {
+    print(Json.encode_json(Json.parse("{\"b\":2,\"a\":[true,null,\"x\"]}")))
+    print(Json.encode_json(Json.parse("{\"z\":null,\"a\":[1,true]}")))
+}

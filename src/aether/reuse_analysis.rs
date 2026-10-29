@@ -10,16 +10,8 @@ type CoreExpr = AetherExpr;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReuseOrigin {
     Scrutinee(CoreBinderId, CoreTag),
-    Field {
-        token_binder: CoreBinderId,
-        tag: CoreTag,
-        field_index: usize,
-        binder_id: CoreBinderId,
-    },
-    Forwarded {
-        tag: CoreTag,
-        fields: Vec<ForwardedFieldOrigin>,
-    },
+    Field { token_binder: CoreBinderId, tag: CoreTag, field_index: usize, binder_id: CoreBinderId },
+    Forwarded { tag: CoreTag, fields: Vec<ForwardedFieldOrigin> },
     Unknown,
 }
 
@@ -33,10 +25,7 @@ pub enum ForwardedFieldOrigin {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExprProvenance {
     Exact(ReuseOrigin),
-    Forwarded {
-        tag: CoreTag,
-        fields: Vec<ForwardedFieldOrigin>,
-    },
+    Forwarded { tag: CoreTag, fields: Vec<ForwardedFieldOrigin> },
     Ambiguous,
     Unknown,
 }
@@ -58,10 +47,7 @@ impl ReuseEnv {
             return env;
         };
         if let Some(tag) = pat_tag.cloned() {
-            env.origins.insert(
-                token_binder,
-                ReuseOrigin::Scrutinee(token_binder, tag.clone()),
-            );
+            env.origins.insert(token_binder, ReuseOrigin::Scrutinee(token_binder, tag.clone()));
             if let Some(fields) = pat_binders {
                 for (field_index, binder_id) in fields.iter().enumerate() {
                     if let Some(binder_id) = binder_id {
@@ -83,10 +69,8 @@ impl ReuseEnv {
 
     pub fn with_alias(&self, binder: CoreBinderId, rhs: &CoreExpr) -> Self {
         let mut next = self.clone();
-        let origin = self
-            .provenance_of_expr(rhs)
-            .into_exact_origin()
-            .unwrap_or(ReuseOrigin::Unknown);
+        let origin =
+            self.provenance_of_expr(rhs).into_exact_origin().unwrap_or(ReuseOrigin::Unknown);
         next.origins.insert(binder, origin);
         next.aliases.insert(binder, rhs.clone());
         next
@@ -119,15 +103,10 @@ impl ReuseEnv {
                         }
                     }
                 }
-                next.origins.insert(
-                    *token_binder,
-                    ReuseOrigin::Scrutinee(*token_binder, tag.clone()),
-                );
+                next.origins
+                    .insert(*token_binder, ReuseOrigin::Scrutinee(*token_binder, tag.clone()));
             }
-            ReuseOrigin::Field {
-                binder_id: field_token_binder,
-                ..
-            } => {
+            ReuseOrigin::Field { binder_id: field_token_binder, .. } => {
                 let Some(pat_tag) = pat_tag.cloned() else {
                     return next;
                 };
@@ -211,8 +190,7 @@ impl ReuseEnv {
             .iter()
             .enumerate()
             .filter_map(|(field_index, field)| {
-                self.unchanged_field_index(token_binder, field_index, field)
-                    .then_some(field_index)
+                self.unchanged_field_index(token_binder, field_index, field).then_some(field_index)
             })
             .collect()
     }
@@ -256,10 +234,7 @@ impl ReuseEnv {
                 if has_duplicate_exact_origins(&field_origins) {
                     return ExprProvenance::Ambiguous;
                 }
-                ExprProvenance::Forwarded {
-                    tag: tag.clone(),
-                    fields: field_origins,
-                }
+                ExprProvenance::Forwarded { tag: tag.clone(), fields: field_origins }
             }
             CoreExpr::Reuse { tag, fields, .. } => {
                 let field_origins = fields
@@ -277,10 +252,7 @@ impl ReuseEnv {
                 if has_duplicate_exact_origins(&field_origins) {
                     return ExprProvenance::Ambiguous;
                 }
-                ExprProvenance::Forwarded {
-                    tag: tag.clone(),
-                    fields: field_origins,
-                }
+                ExprProvenance::Forwarded { tag: tag.clone(), fields: field_origins }
             }
             CoreExpr::Let { var, rhs, body, .. } => {
                 if !is_alias_preserving_rhs(rhs) {
@@ -292,9 +264,7 @@ impl ReuseEnv {
             CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => {
                 self.provenance_of_expr(body)
             }
-            CoreExpr::Case {
-                scrutinee, alts, ..
-            } => {
+            CoreExpr::Case { scrutinee, alts, .. } => {
                 let scrutinee_origin = self.origin_of_expr(scrutinee);
                 let mut branch_origin: Option<ExprProvenance> = None;
                 for alt in alts {
@@ -364,22 +334,15 @@ fn join_expr_provenance(lhs: &ExprProvenance, rhs: &ExprProvenance) -> ExprProve
             join_exact_origins(lhs_origin, rhs_origin)
         }
         (
-            ExprProvenance::Forwarded {
-                tag: lhs_tag,
-                fields: lhs_fields,
-            },
-            ExprProvenance::Forwarded {
-                tag: rhs_tag,
-                fields: rhs_fields,
-            },
+            ExprProvenance::Forwarded { tag: lhs_tag, fields: lhs_fields },
+            ExprProvenance::Forwarded { tag: rhs_tag, fields: rhs_fields },
         ) => join_forwarded_shapes(lhs_tag, lhs_fields, rhs_tag, rhs_fields),
         (ExprProvenance::Exact(lhs_origin), ExprProvenance::Forwarded { tag, fields })
         | (ExprProvenance::Forwarded { tag, fields }, ExprProvenance::Exact(lhs_origin)) => {
             match lhs_origin {
-                ReuseOrigin::Forwarded {
-                    tag: lhs_tag,
-                    fields: lhs_fields,
-                } => join_forwarded_shapes(lhs_tag, lhs_fields, tag, fields),
+                ReuseOrigin::Forwarded { tag: lhs_tag, fields: lhs_fields } => {
+                    join_forwarded_shapes(lhs_tag, lhs_fields, tag, fields)
+                }
                 _ => ExprProvenance::Ambiguous,
             }
         }
@@ -393,14 +356,8 @@ fn join_exact_origins(lhs: &ReuseOrigin, rhs: &ReuseOrigin) -> ExprProvenance {
     } else {
         match (lhs, rhs) {
             (
-                ReuseOrigin::Forwarded {
-                    tag: lhs_tag,
-                    fields: lhs_fields,
-                },
-                ReuseOrigin::Forwarded {
-                    tag: rhs_tag,
-                    fields: rhs_fields,
-                },
+                ReuseOrigin::Forwarded { tag: lhs_tag, fields: lhs_fields },
+                ReuseOrigin::Forwarded { tag: rhs_tag, fields: rhs_fields },
             ) => join_forwarded_shapes(lhs_tag, lhs_fields, rhs_tag, rhs_fields),
             _ => ExprProvenance::Ambiguous,
         }
@@ -472,14 +429,8 @@ fn origins_equivalent(lhs: &ReuseOrigin, rhs: &ReuseOrigin) -> bool {
             },
         ) => lhs_token == rhs_token && lhs_tag == rhs_tag && lhs_field == rhs_field,
         (
-            ReuseOrigin::Forwarded {
-                tag: lhs_tag,
-                fields: lhs_fields,
-            },
-            ReuseOrigin::Forwarded {
-                tag: rhs_tag,
-                fields: rhs_fields,
-            },
+            ReuseOrigin::Forwarded { tag: lhs_tag, fields: lhs_fields },
+            ReuseOrigin::Forwarded { tag: rhs_tag, fields: rhs_fields },
         ) => {
             lhs_tag == rhs_tag
                 && lhs_fields.len() == rhs_fields.len()
@@ -592,10 +543,44 @@ pub fn diagnose_drop_body(
         pat_tag,
         blocked_outer_token,
     );
-    if rewritten.reused {
-        None
-    } else {
-        rewritten.reason
+    if rewritten.reused { None } else { rewritten.reason }
+}
+
+/// How a rewrite of `original`, with `var` an alias of `rhs`, used the
+/// binding. Fewer uses afterwards means some were replaced by a copy of
+/// `rhs`. `None`: none was. `Some(true)`: nothing names `var` any more, a
+/// release included, so the binding must go; kept, it builds the value a
+/// second time and gives its fields away twice. `Some(false)`: something
+/// still names it, or `rhs` can't move to where the copy runs, so the
+/// rewrite must be undone.
+fn inlined_binding(
+    var: CoreBinderId,
+    rhs: &CoreExpr,
+    original: &CoreExpr,
+    rewritten: &CoreExpr,
+) -> Option<bool> {
+    let uses =
+        |expr: &CoreExpr| super::analysis::use_counts_aether(expr).get(&var).copied().unwrap_or(0);
+    if uses(rewritten) >= uses(original) {
+        return None;
+    }
+    Some(moves_freely(rhs) && !super::free_vars::collect_free_vars_aether(rewritten).contains(&var))
+}
+
+/// Whether evaluating `expr` later, where its copy is used, does the same as
+/// evaluating it at its binding: it only builds values, with no call and no
+/// effect to move past the bindings between.
+fn moves_freely(expr: &CoreExpr) -> bool {
+    match expr {
+        CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => true,
+        CoreExpr::Con { fields, .. } => fields.iter().all(moves_freely),
+        CoreExpr::Dup { body, .. } => moves_freely(body),
+        CoreExpr::Let { rhs, body, .. } => moves_freely(rhs) && moves_freely(body),
+        CoreExpr::Case { scrutinee, alts, .. } => {
+            moves_freely(scrutinee)
+                && alts.iter().all(|alt| alt.guard.is_none() && moves_freely(&alt.rhs))
+        }
+        _ => false,
     }
 }
 
@@ -615,35 +600,48 @@ fn rewrite_drop_body_with_env(
     };
 
     match body {
-        CoreExpr::Let {
-            var,
-            rhs,
-            body,
-            span,
-        } => {
+        // A field's last read and scalar branch temporaries can be released
+        // before the rebuild. Keep those operations in order while looking
+        // for the constructor that consumes this token.
+        CoreExpr::Drop { var, body, span } if var.binder != Some(token_binder) => {
+            let mut rewritten = rewrite_drop_body_with_env(
+                token,
+                *body,
+                drop_span,
+                pat_tag,
+                blocked_outer_token,
+                env,
+            );
+            rewritten.expr = CoreExpr::Drop { var, body: Box::new(rewritten.expr), span };
+            rewritten
+        }
+        CoreExpr::Dup { var, body, span } if var.binder != Some(token_binder) => {
+            let mut rewritten = rewrite_drop_body_with_env(
+                token,
+                *body,
+                drop_span,
+                pat_tag,
+                blocked_outer_token,
+                env,
+            );
+            rewritten.expr = CoreExpr::Dup { var, body: Box::new(rewritten.expr), span };
+            rewritten
+        }
+        CoreExpr::Let { var, rhs, body, span } => {
             if token_appears_in_expr(token_binder, &rhs) {
                 return no_rewrite(
-                    CoreExpr::Let {
-                        var,
-                        rhs,
-                        body,
-                        span,
-                    },
+                    CoreExpr::Let { var, rhs, body, span },
                     ReuseFailureReason::TokenEscapesIntoFields,
                 );
             }
             if !is_safe_precompute_rhs(token_binder, &rhs) {
                 return no_rewrite(
-                    CoreExpr::Let {
-                        var,
-                        rhs,
-                        body,
-                        span,
-                    },
+                    CoreExpr::Let { var, rhs, body, span },
                     ReuseFailureReason::EffectfulBoundary,
                 );
             }
             let child_env = env.with_alias(var.id, &rhs);
+            let original_body = (*body).clone();
             let inner = rewrite_drop_body_with_env(
                 token,
                 *body,
@@ -653,34 +651,35 @@ fn rewrite_drop_body_with_env(
                 &child_env,
             );
             if inner.reused {
+                match inlined_binding(var.id, &rhs, &original_body, &inner.expr) {
+                    Some(true) => return inner,
+                    Some(false) => {
+                        return no_rewrite(
+                            CoreExpr::Let { var, rhs, body: Box::new(original_body), span },
+                            ReuseFailureReason::ProvenanceLost,
+                        );
+                    }
+                    None => {}
+                }
+            }
+            if inner.reused {
                 ReuseRewrite {
-                    expr: CoreExpr::Let {
-                        var,
-                        rhs,
-                        body: Box::new(inner.expr),
-                        span,
-                    },
+                    expr: CoreExpr::Let { var, rhs, body: Box::new(inner.expr), span },
                     reused: true,
                     reason: None,
                 }
             } else {
                 no_rewrite(
-                    CoreExpr::Let {
-                        var,
-                        rhs,
-                        body: Box::new(inner.expr),
-                        span,
-                    },
+                    CoreExpr::Let { var, rhs, body: Box::new(inner.expr), span },
                     inner.reason.unwrap_or(ReuseFailureReason::ProvenanceLost),
                 )
             }
         }
         CoreExpr::Var { var, .. } => {
-            if let Some(alias) = var
-                .binder
-                .and_then(|binder_id| env.aliases.get(&binder_id).cloned())
+            if let Some(alias) =
+                var.binder.and_then(|binder_id| env.aliases.get(&binder_id).cloned())
             {
-                return rewrite_drop_body_with_env(
+                let inner = rewrite_drop_body_with_env(
                     token,
                     alias,
                     drop_span,
@@ -688,29 +687,20 @@ fn rewrite_drop_body_with_env(
                     blocked_outer_token,
                     env,
                 );
+                // Not reused, the alias stays a read of its binding: a copy of
+                // the value here would build it a second time.
+                if inner.reused {
+                    return inner;
+                }
+                return no_rewrite(body, inner.reason.unwrap_or(ReuseFailureReason::ShapeMismatch));
             }
             no_rewrite(body, ReuseFailureReason::ShapeMismatch)
         }
-        CoreExpr::LetRec {
-            var,
-            rhs,
-            body,
-            span,
-        } => no_rewrite(
-            CoreExpr::LetRec {
-                var,
-                rhs,
-                body,
-                span,
-            },
+        CoreExpr::LetRec { var, rhs, body, span } => no_rewrite(
+            CoreExpr::LetRec { var, rhs, body, span },
             ReuseFailureReason::EffectfulBoundary,
         ),
-        CoreExpr::Case {
-            scrutinee,
-            alts,
-            join_ty,
-            span,
-        } => {
+        CoreExpr::Case { scrutinee, alts, join_ty, span } => {
             let scrutinee_origin = env.origin_of_expr(&scrutinee);
             let scrutinee_is_plain_token = match scrutinee.as_ref() {
                 CoreExpr::Var { var, .. } => match var.binder {
@@ -731,12 +721,7 @@ fn rewrite_drop_body_with_env(
                 })
             {
                 return no_rewrite(
-                    CoreExpr::Case {
-                        scrutinee,
-                        alts,
-                        join_ty: join_ty.clone(),
-                        span,
-                    },
+                    CoreExpr::Case { scrutinee, alts, join_ty: join_ty.clone(), span },
                     ReuseFailureReason::BranchAmbiguity,
                 );
             }
@@ -777,13 +762,7 @@ fn rewrite_drop_body_with_env(
                     } else if let Some(reason) = inner.reason {
                         reasons.push(reason);
                     }
-                    (
-                        CoreAlt {
-                            rhs: inner.expr,
-                            ..alt
-                        },
-                        Some(inner.reused),
-                    )
+                    (CoreAlt { rhs: inner.expr, ..alt }, Some(inner.reused))
                 })
                 .collect();
             // Only when some arm reuses the token does each other arm drop
@@ -816,22 +795,56 @@ fn rewrite_drop_body_with_env(
                 }
             } else {
                 no_rewrite(
-                    CoreExpr::Case {
-                        scrutinee,
-                        alts: new_alts,
-                        join_ty,
-                        span,
-                    },
+                    CoreExpr::Case { scrutinee, alts: new_alts, join_ty, span },
                     choose_reason(&reasons),
                 )
             }
         }
+        // Another value released with a check of its own count, as a field
+        // copied before the token's release is once its last read is done:
+        // each path of it may still build a cell in the token's, as each arm
+        // of a match may.
+        CoreExpr::DropSpecialized { scrutinee, unique_body, shared_body, span }
+            if scrutinee.binder != Some(token_binder)
+                && !token_appears_in_expr(token_binder, &unique_body)
+                && !token_appears_in_expr(token_binder, &shared_body) =>
+        {
+            let rewrite = |body: AetherExpr| {
+                rewrite_drop_body_with_env(
+                    token,
+                    body,
+                    drop_span,
+                    pat_tag,
+                    blocked_outer_token,
+                    env,
+                )
+            };
+            let (unique, shared) = (rewrite(*unique_body), rewrite(*shared_body));
+            let reused = unique.reused || shared.reused;
+            // A path that reuses nothing drops the token itself once the
+            // other path took it.
+            let own_drop = |path: ReuseRewrite| {
+                if reused && !path.reused {
+                    CoreExpr::Drop { var: *token, body: Box::new(path.expr), span: drop_span }
+                } else {
+                    path.expr
+                }
+            };
+            let reason = unique.reason.or(shared.reason);
+            let expr = CoreExpr::DropSpecialized {
+                scrutinee,
+                unique_body: Box::new(own_drop(unique)),
+                shared_body: Box::new(own_drop(shared)),
+                span,
+            };
+            if reused {
+                ReuseRewrite { expr, reused: true, reason: None }
+            } else {
+                no_rewrite(expr, reason.unwrap_or(ReuseFailureReason::ShapeMismatch))
+            }
+        }
         other => match build_reuse_expr(token, other.clone(), env, pat_tag, blocked_outer_token) {
-            Ok(expr) => ReuseRewrite {
-                expr,
-                reused: true,
-                reason: None,
-            },
+            Ok(expr) => ReuseRewrite { expr, reused: true, reason: None },
             Err(ReuseFailureReason::ShapeMismatch) => {
                 let forwarded = rewrite_forwarded_wrapper_body(
                     token,
@@ -843,12 +856,7 @@ fn rewrite_drop_body_with_env(
                 if forwarded.reused {
                     forwarded
                 } else {
-                    no_rewrite(
-                        other,
-                        forwarded
-                            .reason
-                            .unwrap_or(ReuseFailureReason::ShapeMismatch),
-                    )
+                    no_rewrite(other, forwarded.reason.unwrap_or(ReuseFailureReason::ShapeMismatch))
                 }
             }
             Err(reason) => no_rewrite(other, reason),
@@ -864,10 +872,8 @@ fn rewrite_nested_drop_sites(
 ) -> ReuseRewrite {
     match expr {
         CoreExpr::Drop { var, body, span } => {
-            let pat_tag = var
-                .binder
-                .and_then(|binder_id| env.origins.get(&binder_id))
-                .and_then(origin_tag);
+            let pat_tag =
+                var.binder.and_then(|binder_id| env.origins.get(&binder_id)).and_then(origin_tag);
             rewrite_drop_body_with_env(
                 &var,
                 *body,
@@ -877,29 +883,16 @@ fn rewrite_nested_drop_sites(
                 env,
             )
         }
-        CoreExpr::Let {
-            var,
-            rhs,
-            body,
-            span,
-        } => {
+        CoreExpr::Let { var, rhs, body, span } => {
             let rhs_inner = rewrite_nested_drop_sites(*rhs, env, blocked_outer_token);
             let rhs = rhs_inner.expr;
             let child_env = env.with_alias(var.id, &rhs);
             let body_inner = rewrite_nested_drop_sites(*body, &child_env, blocked_outer_token);
             let reused = rhs_inner.reused || body_inner.reused;
-            let expr = CoreExpr::Let {
-                var,
-                rhs: Box::new(rhs),
-                body: Box::new(body_inner.expr),
-                span,
-            };
+            let expr =
+                CoreExpr::Let { var, rhs: Box::new(rhs), body: Box::new(body_inner.expr), span };
             if reused {
-                ReuseRewrite {
-                    expr,
-                    reused: true,
-                    reason: None,
-                }
+                ReuseRewrite { expr, reused: true, reason: None }
             } else {
                 no_rewrite(
                     expr,
@@ -910,12 +903,7 @@ fn rewrite_nested_drop_sites(
                 )
             }
         }
-        CoreExpr::Case {
-            scrutinee,
-            alts,
-            join_ty,
-            span,
-        } => {
+        CoreExpr::Case { scrutinee, alts, join_ty, span } => {
             let scrutinee_origin = env.origin_of_expr(&scrutinee);
             let mut reused = false;
             let mut reasons = Vec::new();
@@ -950,23 +938,13 @@ fn rewrite_nested_drop_sites(
                 .collect();
             if reused {
                 ReuseRewrite {
-                    expr: CoreExpr::Case {
-                        scrutinee,
-                        alts,
-                        join_ty: join_ty.clone(),
-                        span,
-                    },
+                    expr: CoreExpr::Case { scrutinee, alts, join_ty: join_ty.clone(), span },
                     reused: true,
                     reason: None,
                 }
             } else {
                 no_rewrite(
-                    CoreExpr::Case {
-                        scrutinee,
-                        alts,
-                        join_ty,
-                        span,
-                    },
+                    CoreExpr::Case { scrutinee, alts, join_ty, span },
                     choose_reason(&reasons),
                 )
             }
@@ -978,19 +956,15 @@ fn rewrite_nested_drop_sites(
                 span,
             })
         }
-        CoreExpr::Reuse {
-            token,
-            tag,
-            fields,
-            field_mask,
-            span,
-        } => rewrite_nested_children(fields, env, blocked_outer_token, |fields| CoreExpr::Reuse {
-            token,
-            tag,
-            fields,
-            field_mask,
-            span,
-        }),
+        CoreExpr::Reuse { token, tag, fields, field_mask, span } => {
+            rewrite_nested_children(fields, env, blocked_outer_token, |fields| CoreExpr::Reuse {
+                token,
+                tag,
+                fields,
+                field_mask,
+                span,
+            })
+        }
         CoreExpr::App { func, args, span } => {
             let func_inner = rewrite_nested_drop_sites(*func, env, blocked_outer_token);
             let args_inner = args
@@ -999,24 +973,11 @@ fn rewrite_nested_drop_sites(
                 .collect::<Vec<_>>();
             let reused = func_inner.reused || args_inner.iter().any(|arg| arg.reused);
             let args = args_inner.into_iter().map(|arg| arg.expr).collect();
-            let expr = CoreExpr::App {
-                func: Box::new(func_inner.expr),
-                args,
-                span,
-            };
+            let expr = CoreExpr::App { func: Box::new(func_inner.expr), args, span };
             if reused {
-                ReuseRewrite {
-                    expr,
-                    reused: true,
-                    reason: None,
-                }
+                ReuseRewrite { expr, reused: true, reason: None }
             } else {
-                no_rewrite(
-                    expr,
-                    func_inner
-                        .reason
-                        .unwrap_or(ReuseFailureReason::ShapeMismatch),
-                )
+                no_rewrite(expr, func_inner.reason.unwrap_or(ReuseFailureReason::ShapeMismatch))
             }
         }
         CoreExpr::AetherCall {
@@ -1024,6 +985,7 @@ fn rewrite_nested_drop_sites(
             args,
             arg_modes,
             guarded_borrowed_args,
+            owned_after,
             span,
         } => {
             let func_inner = rewrite_nested_drop_sites(*func, env, blocked_outer_token);
@@ -1038,21 +1000,13 @@ fn rewrite_nested_drop_sites(
                 args,
                 arg_modes,
                 guarded_borrowed_args,
+                owned_after,
                 span,
             };
             if reused {
-                ReuseRewrite {
-                    expr,
-                    reused: true,
-                    reason: None,
-                }
+                ReuseRewrite { expr, reused: true, reason: None }
             } else {
-                no_rewrite(
-                    expr,
-                    func_inner
-                        .reason
-                        .unwrap_or(ReuseFailureReason::ShapeMismatch),
-                )
+                no_rewrite(expr, func_inner.reason.unwrap_or(ReuseFailureReason::ShapeMismatch))
             }
         }
         CoreExpr::PrimOp { op, args, span } => {
@@ -1064,41 +1018,23 @@ fn rewrite_nested_drop_sites(
         }
         CoreExpr::Return { value, span } => {
             let inner = rewrite_nested_drop_sites(*value, env, blocked_outer_token);
-            let expr = CoreExpr::Return {
-                value: Box::new(inner.expr),
-                span,
-            };
+            let expr = CoreExpr::Return { value: Box::new(inner.expr), span };
             if inner.reused {
-                ReuseRewrite {
-                    expr,
-                    reused: true,
-                    reason: None,
-                }
+                ReuseRewrite { expr, reused: true, reason: None }
             } else {
-                no_rewrite(
-                    expr,
-                    inner.reason.unwrap_or(ReuseFailureReason::ShapeMismatch),
-                )
+                no_rewrite(expr, inner.reason.unwrap_or(ReuseFailureReason::ShapeMismatch))
             }
         }
-        CoreExpr::Perform {
-            effect,
-            operation,
-            args,
-            span,
-        } => rewrite_nested_children(args, env, blocked_outer_token, |args| CoreExpr::Perform {
-            effect,
-            operation,
-            args,
-            span,
-        }),
-        CoreExpr::Handle {
-            body,
-            effect,
-            parameter,
-            handlers,
-            span,
-        } => {
+        CoreExpr::Perform { effect, operation, args, owned_after, span } => {
+            rewrite_nested_children(args, env, blocked_outer_token, |args| CoreExpr::Perform {
+                effect,
+                operation,
+                args,
+                owned_after,
+                span,
+            })
+        }
+        CoreExpr::Handle { body, effect, parameter, handlers, span } => {
             let body_inner = rewrite_nested_drop_sites(*body, env, blocked_outer_token);
             let parameter = parameter
                 .map(|p| Box::new(rewrite_nested_drop_sites(*p, env, blocked_outer_token).expr));
@@ -1122,26 +1058,12 @@ fn rewrite_nested_drop_sites(
                 span,
             };
             if body_inner.reused {
-                ReuseRewrite {
-                    expr,
-                    reused: true,
-                    reason: None,
-                }
+                ReuseRewrite { expr, reused: true, reason: None }
             } else {
-                no_rewrite(
-                    expr,
-                    body_inner
-                        .reason
-                        .unwrap_or(ReuseFailureReason::ShapeMismatch),
-                )
+                no_rewrite(expr, body_inner.reason.unwrap_or(ReuseFailureReason::ShapeMismatch))
             }
         }
-        CoreExpr::DropSpecialized {
-            scrutinee,
-            unique_body,
-            shared_body,
-            span,
-        } => {
+        CoreExpr::DropSpecialized { scrutinee, unique_body, shared_body, span } => {
             let unique = rewrite_nested_drop_sites(*unique_body, env, blocked_outer_token);
             let shared = rewrite_nested_drop_sites(*shared_body, env, blocked_outer_token);
             let expr = CoreExpr::DropSpecialized {
@@ -1151,47 +1073,22 @@ fn rewrite_nested_drop_sites(
                 span,
             };
             if unique.reused || shared.reused {
-                ReuseRewrite {
-                    expr,
-                    reused: true,
-                    reason: None,
-                }
+                ReuseRewrite { expr, reused: true, reason: None }
             } else {
                 no_rewrite(
                     expr,
-                    unique
-                        .reason
-                        .or(shared.reason)
-                        .unwrap_or(ReuseFailureReason::ShapeMismatch),
+                    unique.reason.or(shared.reason).unwrap_or(ReuseFailureReason::ShapeMismatch),
                 )
             }
         }
-        CoreExpr::Lam {
-            params,
-            param_types,
-            result_ty,
-            body,
-            span,
-        } => {
+        CoreExpr::Lam { params, param_types, result_ty, body, span } => {
             let inner = rewrite_nested_drop_sites(*body, &ReuseEnv::default(), blocked_outer_token);
-            let expr = CoreExpr::Lam {
-                params,
-                param_types,
-                result_ty,
-                body: Box::new(inner.expr),
-                span,
-            };
+            let expr =
+                CoreExpr::Lam { params, param_types, result_ty, body: Box::new(inner.expr), span };
             if inner.reused {
-                ReuseRewrite {
-                    expr,
-                    reused: true,
-                    reason: None,
-                }
+                ReuseRewrite { expr, reused: true, reason: None }
             } else {
-                no_rewrite(
-                    expr,
-                    inner.reason.unwrap_or(ReuseFailureReason::ShapeMismatch),
-                )
+                no_rewrite(expr, inner.reason.unwrap_or(ReuseFailureReason::ShapeMismatch))
             }
         }
         other => no_rewrite(other, ReuseFailureReason::ShapeMismatch),
@@ -1219,11 +1116,7 @@ where
         .unwrap_or(ReuseFailureReason::ShapeMismatch);
     let expr = rebuild(rewritten.into_iter().map(|child| child.expr).collect());
     if reused {
-        ReuseRewrite {
-            expr,
-            reused: true,
-            reason: None,
-        }
+        ReuseRewrite { expr, reused: true, reason: None }
     } else {
         no_rewrite(expr, reason)
     }
@@ -1240,41 +1133,34 @@ fn build_reuse_expr(
         return Err(ReuseFailureReason::ProvenanceLost);
     };
     if blocked_outer_token.is_some()
-        && matches!(
-            env.origins.get(&token_binder),
-            Some(ReuseOrigin::Field { .. })
-        )
+        && matches!(env.origins.get(&token_binder), Some(ReuseOrigin::Field { .. }))
     {
         return Err(ReuseFailureReason::BorrowedFieldToken);
     }
     if blocked_outer_token.is_some() {
         return Err(ReuseFailureReason::SharedBranchOnly);
     }
-    let (tag, fields, span) = into_constructor_shape_for_tag_aether(body, pat_tag)
+    // Without a matched pattern the token's cell size is unknown, and Reuse
+    // writes the new fields into it unchecked.
+    let Some(expected) = pat_tag else {
+        return Err(ReuseFailureReason::ShapeMismatch);
+    };
+    let (tag, fields, span) = into_constructor_shape_for_tag_aether(body, Some(expected))
         .ok_or(ReuseFailureReason::ShapeMismatch)?;
-    if pat_tag.is_some_and(|expected| expected != &tag) {
+    if tag != *expected {
         return Err(ReuseFailureReason::ShapeMismatch);
     }
     if !is_heap_tag(&tag) {
         return Err(ReuseFailureReason::ShapeMismatch);
     }
-    if fields
-        .iter()
-        .any(|field| token_appears_in_expr(token_binder, field))
-    {
+    if fields.iter().any(|field| token_appears_in_expr(token_binder, field)) {
         return Err(ReuseFailureReason::TokenEscapesIntoFields);
     }
     if blocked_outer_token == Some(token_binder) {
         return Err(ReuseFailureReason::SharedBranchOnly);
     }
 
-    Ok(CoreExpr::Reuse {
-        token: *token,
-        tag,
-        fields,
-        field_mask: None,
-        span,
-    })
+    Ok(CoreExpr::Reuse { token: *token, tag, fields, field_mask: None, span })
 }
 
 fn rewrite_forwarded_wrapper_body(
@@ -1290,50 +1176,41 @@ fn rewrite_forwarded_wrapper_body(
 
     match expr {
         CoreExpr::Var { var, .. } => {
-            if let Some(alias) = var
-                .binder
-                .and_then(|binder_id| env.aliases.get(&binder_id).cloned())
+            if let Some(alias) =
+                var.binder.and_then(|binder_id| env.aliases.get(&binder_id).cloned())
             {
-                return rewrite_forwarded_wrapper_body(
+                let inner = rewrite_forwarded_wrapper_body(
                     outer_token,
                     alias,
                     pat_tag,
                     env,
                     blocked_outer_token,
                 );
+                // Not reused, the alias stays a read of its binding, as in
+                // `rewrite_drop_body_with_env`.
+                if inner.reused {
+                    return inner;
+                }
+                return no_rewrite(expr, inner.reason.unwrap_or(ReuseFailureReason::ShapeMismatch));
             }
             no_rewrite(expr, ReuseFailureReason::ShapeMismatch)
         }
-        CoreExpr::Let {
-            var,
-            rhs,
-            body,
-            span,
-        } => {
+        CoreExpr::Let { var, rhs, body, span } => {
             if token_appears_in_expr(outer_token_binder, &rhs) {
                 return no_rewrite(
-                    CoreExpr::Let {
-                        var,
-                        rhs,
-                        body,
-                        span,
-                    },
+                    CoreExpr::Let { var, rhs, body, span },
                     ReuseFailureReason::TokenEscapesIntoFields,
                 );
             }
             if !is_safe_precompute_rhs(outer_token_binder, &rhs) {
                 return no_rewrite(
-                    CoreExpr::Let {
-                        var,
-                        rhs,
-                        body,
-                        span,
-                    },
+                    CoreExpr::Let { var, rhs, body, span },
                     ReuseFailureReason::EffectfulBoundary,
                 );
             }
             let rhs = *rhs;
             let child_env = env.with_alias(var.id, &rhs);
+            let original_body = (*body).clone();
             let body_inner = rewrite_forwarded_wrapper_body(
                 outer_token,
                 *body,
@@ -1341,6 +1218,23 @@ fn rewrite_forwarded_wrapper_body(
                 &child_env,
                 blocked_outer_token,
             );
+            if body_inner.reused {
+                match inlined_binding(var.id, &rhs, &original_body, &body_inner.expr) {
+                    Some(true) => return body_inner,
+                    Some(false) => {
+                        return no_rewrite(
+                            CoreExpr::Let {
+                                var,
+                                rhs: Box::new(rhs),
+                                body: Box::new(original_body),
+                                span,
+                            },
+                            ReuseFailureReason::ProvenanceLost,
+                        );
+                    }
+                    None => {}
+                }
+            }
             if body_inner.reused {
                 ReuseRewrite {
                     expr: CoreExpr::Let {
@@ -1360,18 +1254,11 @@ fn rewrite_forwarded_wrapper_body(
                         body: Box::new(body_inner.expr),
                         span,
                     },
-                    body_inner
-                        .reason
-                        .unwrap_or(ReuseFailureReason::ShapeMismatch),
+                    body_inner.reason.unwrap_or(ReuseFailureReason::ShapeMismatch),
                 )
             }
         }
-        CoreExpr::Case {
-            scrutinee,
-            alts,
-            join_ty,
-            span,
-        } => {
+        CoreExpr::Case { scrutinee, alts, join_ty, span } => {
             let scrutinee_origin = env.origin_of_expr(&scrutinee);
             let mut any_reused = false;
             let mut reasons = Vec::new();
@@ -1409,13 +1296,7 @@ fn rewrite_forwarded_wrapper_body(
                     } else if let Some(reason) = inner.reason {
                         reasons.push(reason);
                     }
-                    (
-                        CoreAlt {
-                            rhs: inner.expr,
-                            ..alt
-                        },
-                        inner.reused,
-                    )
+                    (CoreAlt { rhs: inner.expr, ..alt }, inner.reused)
                 })
                 .collect();
             // When some arm reuses the token, the caller drops nothing, so
@@ -1427,34 +1308,20 @@ fn rewrite_forwarded_wrapper_body(
                         return alt;
                     }
                     CoreAlt {
-                        rhs: CoreExpr::Drop {
-                            var: *outer_token,
-                            body: Box::new(alt.rhs),
-                            span,
-                        },
+                        rhs: CoreExpr::Drop { var: *outer_token, body: Box::new(alt.rhs), span },
                         ..alt
                     }
                 })
                 .collect();
             if any_reused {
                 ReuseRewrite {
-                    expr: CoreExpr::Case {
-                        scrutinee,
-                        alts,
-                        join_ty,
-                        span,
-                    },
+                    expr: CoreExpr::Case { scrutinee, alts, join_ty, span },
                     reused: true,
                     reason: None,
                 }
             } else {
                 no_rewrite(
-                    CoreExpr::Case {
-                        scrutinee,
-                        alts,
-                        join_ty,
-                        span,
-                    },
+                    CoreExpr::Case { scrutinee, alts, join_ty, span },
                     choose_reason(&reasons),
                 )
             }
@@ -1482,7 +1349,12 @@ fn try_rewrite_forwarded_wrapper_constructor(
     let Some((tag, fields, span)) = constructor_shape_for_expr(&body, None) else {
         return no_rewrite(body, ReuseFailureReason::ShapeMismatch);
     };
-    if pat_tag.is_some_and(|expected| expected == &tag) {
+    // The child is rebuilt in the token's cell, so it must be the matched
+    // constructor. A wrapper of that constructor is build_reuse_expr's case.
+    let Some(matched) = pat_tag else {
+        return no_rewrite(body, ReuseFailureReason::ShapeMismatch);
+    };
+    if *matched == tag {
         return no_rewrite(body, ReuseFailureReason::ShapeMismatch);
     }
 
@@ -1493,6 +1365,7 @@ fn try_rewrite_forwarded_wrapper_constructor(
             && let Some(field_expr) = try_rewrite_forwarded_child_field(
                 outer_token_binder,
                 field.clone(),
+                matched,
                 env,
                 blocked_outer_token,
             )
@@ -1526,16 +1399,15 @@ fn try_rewrite_forwarded_wrapper_constructor(
 fn try_rewrite_forwarded_child_field(
     child_token_binder: CoreBinderId,
     expr: CoreExpr,
+    matched: &CoreTag,
     env: &ReuseEnv,
     blocked_outer_token: Option<CoreBinderId>,
 ) -> Option<CoreExpr> {
     let resolved = expand_alias_expr(&expr, env);
     build_child_reuse_expr(
-        &CoreVarRef {
-            name: crate::syntax::Identifier::new(0),
-            binder: Some(child_token_binder),
-        },
+        &CoreVarRef { name: crate::syntax::Identifier::new(0), binder: Some(child_token_binder) },
         resolved,
+        matched,
         blocked_outer_token,
     )
 }
@@ -1543,15 +1415,11 @@ fn try_rewrite_forwarded_child_field(
 fn build_child_reuse_expr(
     token: &CoreVarRef,
     expr: CoreExpr,
+    matched: &CoreTag,
     blocked_outer_token: Option<CoreBinderId>,
 ) -> Option<CoreExpr> {
     match expr {
-        CoreExpr::Let {
-            var,
-            rhs,
-            body,
-            span,
-        } => {
+        CoreExpr::Let { var, rhs, body, span } => {
             let token_binder = token.binder?;
             if token_appears_in_expr(token_binder, &rhs)
                 || !is_safe_precompute_rhs(token_binder, &rhs)
@@ -1561,28 +1429,21 @@ fn build_child_reuse_expr(
             Some(CoreExpr::Let {
                 var,
                 rhs,
-                body: Box::new(build_child_reuse_expr(token, *body, blocked_outer_token)?),
+                body: Box::new(build_child_reuse_expr(token, *body, matched, blocked_outer_token)?),
                 span,
             })
         }
         other => {
             let token_binder = token.binder?;
             let (tag, fields, span) = into_constructor_shape_for_tag_aether(other, None)?;
-            if !is_heap_tag(&tag)
+            if &tag != matched
+                || !is_heap_tag(&tag)
                 || blocked_outer_token == Some(token_binder)
-                || fields
-                    .iter()
-                    .any(|field| token_appears_in_expr(token_binder, field))
+                || fields.iter().any(|field| token_appears_in_expr(token_binder, field))
             {
                 return None;
             }
-            Some(CoreExpr::Reuse {
-                token: *token,
-                tag,
-                fields,
-                field_mask: None,
-                span,
-            })
+            Some(CoreExpr::Reuse { token: *token, tag, fields, field_mask: None, span })
         }
     }
 }
@@ -1602,10 +1463,7 @@ fn constructor_shape_for_expr(
     expected_tag: Option<&CoreTag>,
 ) -> Option<(CoreTag, Vec<CoreExpr>, Span)> {
     into_constructor_shape_for_tag_aether(expr.clone(), expected_tag).or_else(|| match expr {
-        CoreExpr::App { func, args, span }
-        | CoreExpr::AetherCall {
-            func, args, span, ..
-        } => {
+        CoreExpr::App { func, args, span } | CoreExpr::AetherCall { func, args, span, .. } => {
             let CoreExpr::Var { var, .. } = func.as_ref() else {
                 return None;
             };
@@ -1623,23 +1481,17 @@ fn rebuild_constructor_shape(
 ) -> CoreExpr {
     match original {
         CoreExpr::Con { .. } => CoreExpr::Con { tag, fields, span },
-        CoreExpr::App { func, .. } => CoreExpr::App {
-            func,
-            args: fields,
-            span,
-        },
-        CoreExpr::AetherCall {
-            func,
-            arg_modes,
-            guarded_borrowed_args,
-            ..
-        } => CoreExpr::AetherCall {
-            func,
-            args: fields,
-            arg_modes,
-            guarded_borrowed_args,
-            span,
-        },
+        CoreExpr::App { func, .. } => CoreExpr::App { func, args: fields, span },
+        CoreExpr::AetherCall { func, arg_modes, guarded_borrowed_args, owned_after, .. } => {
+            CoreExpr::AetherCall {
+                func,
+                args: fields,
+                arg_modes,
+                guarded_borrowed_args,
+                owned_after,
+                span,
+            }
+        }
         other => other,
     }
 }
@@ -1653,14 +1505,9 @@ fn field_has_token_provenance(env: &ReuseEnv, token_binder: CoreBinderId, expr: 
 fn origin_mentions_token(origin: &ReuseOrigin, token_binder: CoreBinderId) -> bool {
     match origin {
         ReuseOrigin::Scrutinee(origin_token, _) => *origin_token == token_binder,
-        ReuseOrigin::Field {
-            token_binder: origin_token,
-            ..
-        } => *origin_token == token_binder,
+        ReuseOrigin::Field { token_binder: origin_token, .. } => *origin_token == token_binder,
         ReuseOrigin::Forwarded { fields, .. } => fields.iter().any(|field| {
-            field
-                .exact()
-                .is_some_and(|origin| origin_mentions_token(origin, token_binder))
+            field.exact().is_some_and(|origin| origin_mentions_token(origin, token_binder))
         }),
         ReuseOrigin::Unknown => false,
     }
@@ -1712,11 +1559,7 @@ impl ForwardedFieldOrigin {
 }
 
 fn no_rewrite(body: CoreExpr, reason: ReuseFailureReason) -> ReuseRewrite {
-    ReuseRewrite {
-        expr: body,
-        reused: false,
-        reason: Some(reason),
-    }
+    ReuseRewrite { expr: body, reused: false, reason: Some(reason) }
 }
 
 fn choose_reason(reasons: &[ReuseFailureReason]) -> ReuseFailureReason {
@@ -1764,17 +1607,15 @@ fn is_safe_precompute_rhs(token_binder: CoreBinderId, expr: &CoreExpr) -> bool {
 
     match expr {
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => true,
-        CoreExpr::Con { fields, .. } | CoreExpr::Reuse { fields, .. } => fields
-            .iter()
-            .all(|field| is_safe_precompute_rhs(token_binder, field)),
-        CoreExpr::PrimOp { args, .. } => args
-            .iter()
-            .all(|arg| is_safe_precompute_rhs(token_binder, arg)),
+        CoreExpr::Con { fields, .. } | CoreExpr::Reuse { fields, .. } => {
+            fields.iter().all(|field| is_safe_precompute_rhs(token_binder, field))
+        }
+        CoreExpr::PrimOp { args, .. } => {
+            args.iter().all(|arg| is_safe_precompute_rhs(token_binder, arg))
+        }
         CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
             is_safe_precompute_rhs(token_binder, func)
-                && args
-                    .iter()
-                    .all(|arg| is_safe_precompute_rhs(token_binder, arg))
+                && args.iter().all(|arg| is_safe_precompute_rhs(token_binder, arg))
         }
         CoreExpr::Dup { body, .. }
         | CoreExpr::Drop { body, .. }
@@ -1782,9 +1623,7 @@ fn is_safe_precompute_rhs(token_binder: CoreBinderId, expr: &CoreExpr) -> bool {
         CoreExpr::Let { rhs, body, .. } => {
             is_safe_precompute_rhs(token_binder, rhs) && is_safe_precompute_rhs(token_binder, body)
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             is_safe_precompute_rhs(token_binder, scrutinee)
                 && alts.iter().all(|alt| {
                     alt.guard
@@ -1845,9 +1684,7 @@ mod tests {
                 }
                 collect_reuses(body, out);
             }
-            CoreExpr::Case {
-                scrutinee, alts, ..
-            } => {
+            CoreExpr::Case { scrutinee, alts, .. } => {
                 collect_reuses(scrutinee, out);
                 for alt in alts {
                     collect_reuses(&alt.rhs, out);
@@ -1881,12 +1718,7 @@ mod tests {
                     collect_reuses(arg, out);
                 }
             }
-            CoreExpr::Handle {
-                body,
-                parameter,
-                handlers,
-                ..
-            } => {
+            CoreExpr::Handle { body, parameter, handlers, .. } => {
                 if let Some(parameter) = parameter {
                     collect_reuses(parameter, out);
                 }
@@ -1895,11 +1727,7 @@ mod tests {
                     collect_reuses(&handler.body, out);
                 }
             }
-            CoreExpr::DropSpecialized {
-                unique_body,
-                shared_body,
-                ..
-            } => {
+            CoreExpr::DropSpecialized { unique_body, shared_body, .. } => {
                 collect_reuses(unique_body, out);
                 collect_reuses(shared_body, out);
             }
@@ -1942,12 +1770,7 @@ mod tests {
         assert!(rewritten.reused);
         match rewritten.expr {
             CoreExpr::Let { body, .. } => match *body {
-                CoreExpr::Reuse {
-                    tag,
-                    field_mask,
-                    token,
-                    ..
-                } => {
+                CoreExpr::Reuse { tag, field_mask, token, .. } => {
                     assert_eq!(tag, CoreTag::Cons);
                     assert_eq!(token.binder, Some(xs.id));
                     assert_eq!(field_mask, None);
@@ -1994,12 +1817,7 @@ mod tests {
         assert!(rewritten.reused);
         match rewritten.expr {
             CoreExpr::Let { body, .. } => match *body {
-                CoreExpr::Reuse {
-                    tag,
-                    field_mask,
-                    token,
-                    ..
-                } => {
+                CoreExpr::Reuse { tag, field_mask, token, .. } => {
                     assert_eq!(tag, pat_tag);
                     assert_eq!(token.binder, Some(t.id));
                     assert_eq!(field_mask, None);
@@ -2021,11 +1839,7 @@ mod tests {
         let body = CoreExpr::Let {
             var: y,
             rhs: Box::new(v(x)),
-            body: Box::new(CoreExpr::Con {
-                tag: CoreTag::Some,
-                fields: vec![v(y)],
-                span: s(),
-            }),
+            body: Box::new(CoreExpr::Con { tag: CoreTag::Some, fields: vec![v(y)], span: s() }),
             span: s(),
         };
 
@@ -2072,6 +1886,7 @@ mod tests {
                 effect: io,
                 operation: print,
                 args: vec![v(key)],
+                owned_after: Vec::new(),
                 span: s(),
             }),
             body: Box::new(CoreExpr::Con {
@@ -2112,6 +1927,7 @@ mod tests {
                 args: vec![v(h)],
                 arg_modes: vec![crate::aether::borrow_infer::BorrowMode::Owned],
                 guarded_borrowed_args: vec![false],
+                owned_after: Vec::new(),
                 span: s(),
             }),
             body: Box::new(CoreExpr::Let {
@@ -2124,6 +1940,7 @@ mod tests {
                         crate::aether::borrow_infer::BorrowMode::Borrowed,
                     ],
                     guarded_borrowed_args: vec![false, false],
+                    owned_after: Vec::new(),
                     span: s(),
                 }),
                 body: Box::new(CoreExpr::Con {
@@ -2177,6 +1994,7 @@ mod tests {
                 args: vec![v(xs)],
                 arg_modes: vec![crate::aether::borrow_infer::BorrowMode::Owned],
                 guarded_borrowed_args: vec![false],
+                owned_after: Vec::new(),
                 span: s(),
             }),
             body: Box::new(CoreExpr::Con {
@@ -2250,11 +2068,7 @@ mod tests {
         );
         let env = env.with_alias(
             tmp.id,
-            &CoreExpr::Con {
-                tag: CoreTag::Cons,
-                fields: vec![v(xs), v(acc)],
-                span: s(),
-            },
+            &CoreExpr::Con { tag: CoreTag::Cons, fields: vec![v(xs), v(acc)], span: s() },
         );
 
         let origin = env
@@ -2287,9 +2101,7 @@ mod tests {
             Some(&CoreTag::Named(pair2)),
         );
         let child_env = env.with_pattern_origin(
-            env.origin_of_expr(&v(xs))
-                .as_ref()
-                .expect("xs field origin"),
+            env.origin_of_expr(&v(xs)).as_ref().expect("xs field origin"),
             Some(&[Some(y.id), Some(ys.id)]),
             Some(&CoreTag::Cons),
         );
@@ -2317,11 +2129,7 @@ mod tests {
         let body = CoreExpr::Con {
             tag: CoreTag::Named(pair2),
             fields: vec![
-                CoreExpr::Con {
-                    tag: CoreTag::Cons,
-                    fields: vec![v(y), v(acc)],
-                    span: s(),
-                },
+                CoreExpr::Con { tag: CoreTag::Cons, fields: vec![v(y), v(acc)], span: s() },
                 v(ys),
             ],
             span: s(),
@@ -2342,12 +2150,7 @@ mod tests {
                 assert_eq!(tag, CoreTag::Named(pair2));
                 assert_eq!(fields.len(), 2);
                 match &fields[0] {
-                    CoreExpr::Reuse {
-                        token,
-                        tag,
-                        field_mask,
-                        ..
-                    } => {
+                    CoreExpr::Reuse { token, tag, field_mask, .. } => {
                         assert_eq!(token.binder, Some(xs.id));
                         assert_eq!(*tag, CoreTag::Cons);
                         assert_eq!(*field_mask, None);
@@ -2376,16 +2179,8 @@ mod tests {
         let body = CoreExpr::Con {
             tag: CoreTag::Named(pair2),
             fields: vec![
-                CoreExpr::Con {
-                    tag: CoreTag::Cons,
-                    fields: vec![v(y), v(acc)],
-                    span: s(),
-                },
-                CoreExpr::Con {
-                    tag: CoreTag::Cons,
-                    fields: vec![v(y), v(acc)],
-                    span: s(),
-                },
+                CoreExpr::Con { tag: CoreTag::Cons, fields: vec![v(y), v(acc)], span: s() },
+                CoreExpr::Con { tag: CoreTag::Cons, fields: vec![v(y), v(acc)], span: s() },
             ],
             span: s(),
         };
@@ -2399,17 +2194,11 @@ mod tests {
             None,
         );
 
-        assert!(
-            !rewritten.reused,
-            "multiple forwarded-child candidates must stay fresh"
-        );
+        assert!(!rewritten.reused, "multiple forwarded-child candidates must stay fresh");
         assert_eq!(rewritten.reason, Some(ReuseFailureReason::BranchAmbiguity));
         let mut reuses = Vec::new();
         collect_reuses(&rewritten.expr, &mut reuses);
-        assert!(
-            reuses.is_empty(),
-            "negative twin should not synthesize Reuse"
-        );
+        assert!(reuses.is_empty(), "negative twin should not synthesize Reuse");
     }
 
     #[test]
@@ -2480,14 +2269,9 @@ mod tests {
                 usize::from(var.binder == Some(binder)) + drops_of(body, binder)
             }
             CoreExpr::Let { rhs, body, .. } => drops_of(rhs, binder) + drops_of(body, binder),
-            CoreExpr::Case {
-                scrutinee, alts, ..
-            } => {
+            CoreExpr::Case { scrutinee, alts, .. } => {
                 drops_of(scrutinee, binder)
-                    + alts
-                        .iter()
-                        .map(|alt| drops_of(&alt.rhs, binder))
-                        .sum::<usize>()
+                    + alts.iter().map(|alt| drops_of(&alt.rhs, binder)).sum::<usize>()
             }
             CoreExpr::Con { fields, .. } | CoreExpr::Reuse { fields, .. } => {
                 fields.iter().map(|field| drops_of(field, binder)).sum()
@@ -2508,12 +2292,7 @@ mod tests {
                     rhs: cons_arm.unwrap_or_else(|| other.clone()),
                     span: s(),
                 },
-                CoreAlt {
-                    pat: crate::core::CorePat::Wildcard,
-                    guard: None,
-                    rhs: other,
-                    span: s(),
-                },
+                CoreAlt { pat: crate::core::CorePat::Wildcard, guard: None, rhs: other, span: s() },
             ],
             join_ty: None,
             span: s(),
@@ -2551,11 +2330,7 @@ mod tests {
         let t = binder(3, interner.intern("t"));
         let flag = binder(4, interner.intern("flag"));
 
-        let cons = CoreExpr::Con {
-            tag: CoreTag::Cons,
-            fields: vec![v(h), v(t)],
-            span: s(),
-        };
+        let cons = CoreExpr::Con { tag: CoreTag::Cons, fields: vec![v(h), v(t)], span: s() };
         let rewritten = rewrite_drop_body(
             &CoreVarRef::resolved(&xs),
             flag_case(flag, Some(cons)),
@@ -2632,32 +2407,144 @@ mod tests {
             None,
         );
 
-        assert!(
-            rewritten.reused,
-            "alias-preserving case result should be reusable"
-        );
+        assert!(rewritten.reused, "alias-preserving case result should be reusable");
+        // The case is `out`'s value rebuilt with reuses, so `out` goes: kept,
+        // it would build the cons a second time.
         match rewritten.expr {
-            CoreExpr::Let { body, .. } => match *body {
-                CoreExpr::Case { alts, .. } => {
-                    assert_eq!(alts.len(), 2);
-                    assert!(alts.iter().all(|alt| match &alt.rhs {
-                        CoreExpr::Reuse {
-                            tag: CoreTag::Cons, ..
-                        } => true,
-                        CoreExpr::Let { body, .. } => matches!(
-                            body.as_ref(),
-                            CoreExpr::Reuse {
-                                tag: CoreTag::Cons,
-                                ..
-                            }
-                        ),
-                        _ => false,
-                    }));
-                }
-                other => panic!("expected case body under preserved let, got {other:?}"),
-            },
-            other => panic!("expected let spine to be preserved, got {other:?}"),
+            CoreExpr::Case { alts, .. } => {
+                assert_eq!(alts.len(), 2);
+                assert!(alts.iter().all(|alt| match &alt.rhs {
+                    CoreExpr::Reuse { tag: CoreTag::Cons, .. } => true,
+                    CoreExpr::Let { body, .. } =>
+                        matches!(body.as_ref(), CoreExpr::Reuse { tag: CoreTag::Cons, .. }),
+                    _ => false,
+                }));
+            }
+            other => panic!("expected the rebuilt case in place of `out`, got {other:?}"),
         }
+    }
+
+    /// The binders of [`rewrite_out_on_flag`]'s shape.
+    struct OnFlag {
+        xs: CoreBinder,
+        h: CoreBinder,
+        t: CoreBinder,
+        flag: CoreBinder,
+        out: CoreBinder,
+        f: CoreBinder,
+        pair: CoreTag,
+    }
+
+    fn on_flag_binders() -> OnFlag {
+        let mut interner = Interner::new();
+        OnFlag {
+            xs: binder(1, interner.intern("xs")),
+            h: binder(2, interner.intern("h")),
+            t: binder(3, interner.intern("t")),
+            flag: binder(4, interner.intern("flag")),
+            out: binder(5, interner.intern("out")),
+            f: binder(6, interner.intern("f")),
+            pair: CoreTag::Named(interner.intern("Pair2")),
+        }
+    }
+
+    /// `let out = <value> in case flag of true -> out, _ -> <other>`, rewritten
+    /// for a reuse of `xs`, matched as `Cons(h, t)`.
+    fn rewrite_out_on_flag(b: &OnFlag, value: CoreExpr, other: CoreExpr) -> super::ReuseRewrite {
+        let body = CoreExpr::Let {
+            var: b.out,
+            rhs: Box::new(value),
+            body: Box::new(CoreExpr::Case {
+                scrutinee: Box::new(v(b.flag)),
+                alts: vec![
+                    CoreAlt {
+                        pat: crate::core::CorePat::Lit(crate::core::CoreLit::Bool(true)),
+                        guard: None,
+                        rhs: v(b.out),
+                        span: s(),
+                    },
+                    CoreAlt {
+                        pat: crate::core::CorePat::Wildcard,
+                        guard: None,
+                        rhs: other,
+                        span: s(),
+                    },
+                ],
+                join_ty: None,
+                span: s(),
+            }),
+            span: s(),
+        };
+        rewrite_drop_body(
+            &CoreVarRef::resolved(&b.xs),
+            body,
+            s(),
+            Some(&[Some(b.h.id), Some(b.t.id)]),
+            Some(&CoreTag::Cons),
+            None,
+        )
+    }
+
+    fn con(tag: CoreTag, fields: Vec<CoreExpr>) -> CoreExpr {
+        CoreExpr::Con { tag, fields, span: s() }
+    }
+
+    /// The first arm of the rewritten `case`, under the binding of `out` when
+    /// it is kept.
+    fn first_arm(expr: &CoreExpr) -> &CoreExpr {
+        let case = match expr {
+            CoreExpr::Let { body, .. } => body.as_ref(),
+            other => other,
+        };
+        match case {
+            CoreExpr::Case { alts, .. } => &alts[0].rhs,
+            other => panic!("expected the case: {other:?}"),
+        }
+    }
+
+    /// `out` is inlined into the reuse on one arm but still read on the
+    /// other, so the binding can't go: the rewrite is refused.
+    #[test]
+    fn a_binding_inlined_on_one_arm_and_read_on_another_is_not_forwarded() {
+        let b = on_flag_binders();
+        let read = CoreExpr::App { func: Box::new(v(b.f)), args: vec![v(b.out)], span: s() };
+        let rewritten = rewrite_out_on_flag(&b, con(CoreTag::Cons, vec![v(b.h), v(b.t)]), read);
+        assert!(!rewritten.reused, "{:?}", rewritten.expr);
+        assert!(
+            matches!(first_arm(&rewritten.expr), CoreExpr::Var { var, .. } if var.binder == Some(b.out.id)),
+            "{:?}",
+            rewritten.expr
+        );
+    }
+
+    /// `out` is inlined into the reuse on one arm and released on the other.
+    /// The release still names it, so the binding stays.
+    #[test]
+    fn a_binding_inlined_on_one_arm_and_released_on_another_stays_bound() {
+        let b = on_flag_binders();
+        let release = CoreExpr::Drop {
+            var: CoreVarRef::resolved(&b.out),
+            body: Box::new(CoreExpr::Lit(crate::core::CoreLit::Int(0), s())),
+            span: s(),
+        };
+        let rewritten = rewrite_out_on_flag(&b, con(CoreTag::Cons, vec![v(b.h), v(b.t)]), release);
+        let free = crate::aether::free_vars::collect_free_vars_aether(&rewritten.expr);
+        assert!(!free.contains(&b.out.id), "{:?}", rewritten.expr);
+    }
+
+    /// `out` is a pair the matched cons can't hold, so nothing is reused: the
+    /// arm keeps reading `out`, rather than building a second pair.
+    #[test]
+    fn a_binding_not_reused_is_not_built_again() {
+        let b = on_flag_binders();
+        let pair = con(b.pair.clone(), vec![v(b.h), v(b.h)]);
+        let rewritten =
+            rewrite_out_on_flag(&b, pair, CoreExpr::Lit(crate::core::CoreLit::Int(0), s()));
+        assert!(
+            matches!(first_arm(&rewritten.expr), CoreExpr::Var { var, .. } if var.binder == Some(b.out.id)),
+            "{:?}",
+            rewritten.expr
+        );
     }
 
     #[test]
@@ -2722,10 +2609,7 @@ mod tests {
             None,
         );
 
-        assert!(
-            rewritten.reused,
-            "forwarded wrapper case should preserve inner child reuse"
-        );
+        assert!(rewritten.reused, "forwarded wrapper case should preserve inner child reuse");
         let mut reuses = Vec::new();
         collect_reuses(&rewritten.expr, &mut reuses);
         assert_eq!(reuses, vec![CoreTag::Cons, CoreTag::Cons]);

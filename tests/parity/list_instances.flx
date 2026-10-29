@@ -12,6 +12,15 @@
 // constructor.
 //
 // Expected: true false [1, 2, 3] [2, 4] [7] [1, 1, 2, 2] []
+// parity-expected-stdout-begin
+// true
+// false
+// [1, 2, 3]
+// [2, 4]
+// [7]
+// [1, 1, 2, 2]
+// []
+// parity-expected-stdout-end
 import Flow.Monad
 import Flow.Monoid
 

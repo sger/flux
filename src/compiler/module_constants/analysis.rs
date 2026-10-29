@@ -30,10 +30,7 @@ pub fn analyze_module_constants(body: &Block) -> Result<ModuleConstantAnalysis<'
     let mut names: HashSet<Symbol> = HashSet::new();
 
     for statement in &body.statements {
-        if let Statement::Let {
-            name, value, span, ..
-        } = statement
-        {
+        if let Statement::Let { name, value, span, .. } = statement {
             names.insert(*name);
             expressions.insert(*name, (value, span.start));
         }
@@ -50,8 +47,5 @@ pub fn analyze_module_constants(body: &Block) -> Result<ModuleConstantAnalysis<'
     // Step 3: Topological sort with cycle detection
     let eval_order = topological_sort_constants(&dependencies)?;
 
-    Ok(ModuleConstantAnalysis {
-        eval_order,
-        expressions,
-    })
+    Ok(ModuleConstantAnalysis { eval_order, expressions })
 }

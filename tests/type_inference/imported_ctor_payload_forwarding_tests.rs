@@ -25,12 +25,11 @@
 //! The three constructor shapes take different inference paths and are covered
 //! separately: positional, generic (`Box<a>`), and named-field.
 
-use std::path::Path;
 use std::process::Command;
 
-#[path = "../support/scratch.rs"]
-mod scratch;
+use crate::support::scratch;
 use scratch::Scratch;
+use scratch::workspace_root;
 
 /// The ADT whose constructors are imported. Deliberately in a module of its
 /// own: the bug does not reproduce when the matched type is declared in the
@@ -100,10 +99,6 @@ fn test_forwarded_payloads() with IO {
 /// What the fixture prints, in order: one line per constructor shape.
 const EXPECTED: &[&str] = &["hi", "7", "boxed", "L"];
 
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
-
 /// Run the three-module program under `flux --test`.
 ///
 /// `--test` is the trigger: strict types run for an imported module only in
@@ -118,13 +113,7 @@ fn run_under_test_mode() -> (String, bool) {
 
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
-        .args([
-            "--test",
-            entry.to_str().unwrap(),
-            "--root",
-            dir.as_str(),
-            "--no-cache",
-        ])
+        .args(["--test", entry.to_str().unwrap(), "--root", dir.as_str(), "--no-cache"])
         .args(scratch.cache_args())
         .output()
         .expect("failed to run flux --test");
@@ -152,10 +141,7 @@ fn an_imported_constructors_payload_can_be_forwarded_unchanged() {
         .filter(|line| !line.is_empty())
         .collect();
     for expected in EXPECTED {
-        assert!(
-            printed.contains(expected),
-            "expected `{expected}` in the output:\n{output}"
-        );
+        assert!(printed.contains(expected), "expected `{expected}` in the output:\n{output}");
     }
     assert!(
         output.contains("1 tests: 1 passed, 0 failed"),

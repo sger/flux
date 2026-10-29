@@ -12,11 +12,7 @@ fn parse_ok(input: &str) -> (Program, Interner) {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
 
     let interner = parser.take_interner();
     (program, interner)
@@ -64,10 +60,7 @@ fn requested_recovery_boundary_is_consumed_once() {
     let mut parser = Parser::new(lexer);
 
     parser.request_recovery_boundary(RecoveryBoundary::Statement);
-    assert_eq!(
-        parser.take_requested_recovery_boundary(),
-        Some(RecoveryBoundary::Statement)
-    );
+    assert_eq!(parser.take_requested_recovery_boundary(), Some(RecoveryBoundary::Statement));
     assert_eq!(parser.take_requested_recovery_boundary(), None);
 }
 
@@ -118,10 +111,7 @@ fn single_parser_context_keeps_single_breadcrumb() {
     let mut parser = Parser::new(lexer);
     let _context = parser.enter_parser_context(super::ParserContext::Function("main".to_string()));
 
-    assert_eq!(
-        parser.current_parser_breadcrumb().as_deref(),
-        Some("function `main`")
-    );
+    assert_eq!(parser.current_parser_breadcrumb().as_deref(), Some("function `main`"));
 }
 
 #[test]
@@ -176,12 +166,7 @@ fn parses_import_with_alias() {
     assert_eq!(program.statements.len(), 1);
 
     match &program.statements[0] {
-        Statement::Import {
-            name,
-            alias,
-            except,
-            ..
-        } => {
+        Statement::Import { name, alias, except, .. } => {
             assert_eq!(interner.resolve(*name), "Foo.Bar");
             assert_eq!(alias.map(|a| interner.resolve(a)), Some("Baz"));
             assert!(except.is_empty());
@@ -196,12 +181,7 @@ fn parses_import_without_alias() {
     assert_eq!(program.statements.len(), 1);
 
     match &program.statements[0] {
-        Statement::Import {
-            name,
-            alias,
-            except,
-            ..
-        } => {
+        Statement::Import { name, alias, except, .. } => {
             assert_eq!(interner.resolve(*name), "Foo");
             assert!(alias.is_none());
             assert!(except.is_empty());
@@ -216,12 +196,7 @@ fn parses_import_flow_with_except() {
     assert_eq!(program.statements.len(), 1);
 
     match &program.statements[0] {
-        Statement::Import {
-            name,
-            alias,
-            except,
-            ..
-        } => {
+        Statement::Import { name, alias, except, .. } => {
             assert_eq!(interner.resolve(*name), "Flow");
             assert!(alias.is_none());
             let names: Vec<&str> = except.iter().map(|sym| interner.resolve(*sym)).collect();
@@ -237,12 +212,7 @@ fn parses_import_non_base_with_except() {
     assert_eq!(program.statements.len(), 1);
 
     match &program.statements[0] {
-        Statement::Import {
-            name,
-            alias,
-            except,
-            ..
-        } => {
+        Statement::Import { name, alias, except, .. } => {
             assert_eq!(interner.resolve(*name), "Foo");
             assert!(alias.is_none());
             let names: Vec<&str> = except.iter().map(|sym| interner.resolve(*sym)).collect();
@@ -258,13 +228,7 @@ fn parses_import_exposing_all() {
     assert_eq!(program.statements.len(), 1);
 
     match &program.statements[0] {
-        Statement::Import {
-            name,
-            alias,
-            except,
-            exposing,
-            ..
-        } => {
+        Statement::Import { name, alias, except, exposing, .. } => {
             assert_eq!(interner.resolve(*name), "Math");
             assert!(alias.is_none());
             assert!(except.is_empty());
@@ -300,12 +264,7 @@ fn parses_import_alias_with_exposing() {
     assert_eq!(program.statements.len(), 1);
 
     match &program.statements[0] {
-        Statement::Import {
-            name,
-            alias,
-            exposing,
-            ..
-        } => {
+        Statement::Import { name, alias, exposing, .. } => {
             assert_eq!(interner.resolve(*name), "Math");
             assert_eq!(alias.map(|a| interner.resolve(a)), Some("M"));
             match exposing {
@@ -327,10 +286,7 @@ fn parses_import_exposing_empty_list() {
 
     match &program.statements[0] {
         Statement::Import { exposing, .. } => {
-            assert_eq!(
-                *exposing,
-                crate::syntax::statement::ImportExposing::Names(vec![])
-            );
+            assert_eq!(*exposing, crate::syntax::statement::ImportExposing::Names(vec![]));
         }
         _ => panic!("expected import statement"),
     }
@@ -353,10 +309,7 @@ fn invalid_function_keyword_mentions_fn() {
     let _ = parser.parse_program();
     assert!(!parser.errors.is_empty(), "expected parser error");
     let err = &parser.errors[0];
-    assert!(
-        err.message()
-            .is_some_and(|m| m.contains("Flux uses `fn` for function declarations"))
-    );
+    assert!(err.message().is_some_and(|m| m.contains("Flux uses `fn` for function declarations")));
 }
 
 #[test]
@@ -390,11 +343,7 @@ fn parses_typed_let_statement() {
     assert_eq!(program.statements.len(), 1);
 
     match &program.statements[0] {
-        Statement::Let {
-            name,
-            type_annotation: Some(ty),
-            ..
-        } => {
+        Statement::Let { name, type_annotation: Some(ty), .. } => {
             assert_eq!(interner.resolve(*name), "x");
             assert_eq!(ty.display_with(&interner), "Int");
         }
@@ -408,14 +357,7 @@ fn parses_typed_function_signature_with_effects() {
     assert_eq!(program.statements.len(), 1);
 
     match &program.statements[0] {
-        Statement::Function {
-            name,
-            parameters,
-            parameter_types,
-            return_type,
-            effects,
-            ..
-        } => {
+        Statement::Function { name, parameters, parameter_types, return_type, effects, .. } => {
             assert_eq!(interner.resolve(*name), "add");
             assert_eq!(parameters.len(), 2);
             assert_eq!(
@@ -426,17 +368,11 @@ fn parses_typed_function_signature_with_effects() {
                 vec![Some("Int".to_string()), Some("Int".to_string())]
             );
             assert_eq!(
-                return_type
-                    .as_ref()
-                    .map(|ty| ty.display_with(&interner))
-                    .as_deref(),
+                return_type.as_ref().map(|ty| ty.display_with(&interner)).as_deref(),
                 Some("Int")
             );
             assert_eq!(
-                effects
-                    .iter()
-                    .map(|e| e.display_with(&interner))
-                    .collect::<Vec<_>>(),
+                effects.iter().map(|e| e.display_with(&interner)).collect::<Vec<_>>(),
                 vec!["IO".to_string(), "Time".to_string()]
             );
         }
@@ -449,9 +385,7 @@ fn parses_public_function_statement() {
     let (program, interner) = parse_ok("public fn add(a: Int, b: Int) -> Int { a + b }");
     assert_eq!(program.statements.len(), 1);
     match &program.statements[0] {
-        Statement::Function {
-            is_public, name, ..
-        } => {
+        Statement::Function { is_public, name, .. } => {
             assert!(*is_public);
             assert_eq!(interner.resolve(*name), "add");
         }
@@ -465,31 +399,17 @@ fn parses_public_intrinsic_function_statement() {
         parse_ok("public intrinsic fn length<a>(arr: Array<a>) -> Int = primop ArrayLen");
     assert_eq!(program.statements.len(), 1);
     match &program.statements[0] {
-        Statement::Function {
-            is_public,
-            name,
-            parameters,
-            return_type,
-            body,
-            ..
-        } => {
+        Statement::Function { is_public, name, parameters, return_type, body, .. } => {
             assert!(*is_public);
             assert_eq!(interner.resolve(*name), "length");
             assert_eq!(parameters.len(), 1);
             assert_eq!(
-                return_type
-                    .as_ref()
-                    .map(|ty| ty.display_with(&interner))
-                    .as_deref(),
+                return_type.as_ref().map(|ty| ty.display_with(&interner)).as_deref(),
                 Some("Int")
             );
             match &body.statements[0] {
                 Statement::Expression { expression, .. } => match expression {
-                    Expression::Call {
-                        function,
-                        arguments,
-                        ..
-                    } => {
+                    Expression::Call { function, arguments, .. } => {
                         match function.as_ref() {
                             Expression::Identifier { name, .. } => {
                                 assert_eq!(interner.resolve(*name), "array_len");
@@ -512,9 +432,7 @@ fn parses_private_function_statement_by_default() {
     let (program, interner) = parse_ok("fn helper(x: Int) -> Int { x }");
     assert_eq!(program.statements.len(), 1);
     match &program.statements[0] {
-        Statement::Function {
-            is_public, name, ..
-        } => {
+        Statement::Function { is_public, name, .. } => {
             assert!(!*is_public);
             assert_eq!(interner.resolve(*name), "helper");
         }
@@ -552,10 +470,7 @@ fn parses_typed_function_signature_with_effect_row_ops() {
     match &program.statements[0] {
         Statement::Function { effects, .. } => {
             assert_eq!(
-                effects
-                    .iter()
-                    .map(|e| e.display_with(&interner))
-                    .collect::<Vec<_>>(),
+                effects.iter().map(|e| e.display_with(&interner)).collect::<Vec<_>>(),
                 vec!["IO + Console - Console".to_string(), "Time".to_string()]
             );
         }
@@ -571,10 +486,7 @@ fn parses_open_row_tail_only_effect() {
     match &program.statements[0] {
         Statement::Function { effects, .. } => {
             assert_eq!(
-                effects
-                    .iter()
-                    .map(|e| e.display_with(&interner))
-                    .collect::<Vec<_>>(),
+                effects.iter().map(|e| e.display_with(&interner)).collect::<Vec<_>>(),
                 vec!["|e".to_string()]
             );
         }
@@ -589,14 +501,8 @@ fn parses_function_type_annotation_with_effect_row_ops() {
     assert_eq!(program.statements.len(), 1);
 
     match &program.statements[0] {
-        Statement::Let {
-            type_annotation: Some(ty),
-            ..
-        } => {
-            assert_eq!(
-                ty.display_with(&interner),
-                "Int -> Int with IO + |e - Console"
-            );
+        Statement::Let { type_annotation: Some(ty), .. } => {
+            assert_eq!(ty.display_with(&interner), "Int -> Int with IO + |e - Console");
         }
         _ => panic!("expected typed let statement"),
     }
@@ -605,10 +511,7 @@ fn parses_function_type_annotation_with_effect_row_ops() {
 #[test]
 fn rejects_implicit_row_variable_syntax() {
     let (_program, parser) = parse_with_errors("fn f() -> Int with e + IO { 1 }");
-    assert!(
-        !parser.errors.is_empty(),
-        "expected parser error for implicit row variable syntax"
-    );
+    assert!(!parser.errors.is_empty(), "expected parser error for implicit row variable syntax");
 
     let renderer = parser
         .errors
@@ -625,10 +528,7 @@ fn rejects_implicit_row_variable_syntax() {
 #[test]
 fn rejects_uppercase_row_tail_variable() {
     let (_program, parser) = parse_with_errors("fn f() -> Int with IO | E { 1 }");
-    assert!(
-        !parser.errors.is_empty(),
-        "expected parser error for upppercase row tail variable"
-    );
+    assert!(!parser.errors.is_empty(), "expected parser error for upppercase row tail variable");
 
     let renderer = parser
         .errors
@@ -645,10 +545,7 @@ fn rejects_uppercase_row_tail_variable() {
 #[test]
 fn rejects_missing_row_tail_variable() {
     let (_program, parser) = parse_with_errors("fn f() -> Int with IO | { 1 }");
-    assert!(
-        !parser.errors.is_empty(),
-        "expected parser error for missing row tail variable"
-    );
+    assert!(!parser.errors.is_empty(), "expected parser error for missing row tail variable");
 
     let renderer = parser
         .errors
@@ -669,15 +566,10 @@ fn parses_lambda_parameter_annotation() {
 
     match &program.statements[0] {
         Statement::Let { value, .. } => match value {
-            Expression::Function {
-                parameter_types, ..
-            } => {
+            Expression::Function { parameter_types, .. } => {
                 assert_eq!(parameter_types.len(), 1);
                 assert_eq!(
-                    parameter_types[0]
-                        .as_ref()
-                        .map(|t| t.display_with(&interner))
-                        .as_deref(),
+                    parameter_types[0].as_ref().map(|t| t.display_with(&interner)).as_deref(),
                     Some("Int")
                 );
             }
@@ -692,12 +584,7 @@ fn parses_generic_function_one_type_param() {
     let (program, interner) = parse_ok("fn identity<T>(x: T) -> T { x }");
     match &program.statements[0] {
         Statement::Function {
-            name,
-            type_params,
-            parameters,
-            parameter_types,
-            return_type,
-            ..
+            name, type_params, parameters, parameter_types, return_type, ..
         } => {
             assert_eq!(interner.resolve(*name), "identity");
             assert_eq!(type_params.len(), 1);
@@ -705,17 +592,11 @@ fn parses_generic_function_one_type_param() {
             assert!(type_params[0].constraints.is_empty());
             assert_eq!(parameters.len(), 1);
             assert_eq!(
-                parameter_types[0]
-                    .as_ref()
-                    .map(|t| t.display_with(&interner))
-                    .as_deref(),
+                parameter_types[0].as_ref().map(|t| t.display_with(&interner)).as_deref(),
                 Some("T")
             );
             assert_eq!(
-                return_type
-                    .as_ref()
-                    .map(|t| t.display_with(&interner))
-                    .as_deref(),
+                return_type.as_ref().map(|t| t.display_with(&interner)).as_deref(),
                 Some("T")
             );
         }
@@ -727,11 +608,7 @@ fn parses_generic_function_one_type_param() {
 fn parses_generic_function_two_type_params() {
     let (program, interner) = parse_ok("fn pair<A, B>(a: A, b: B) -> (A, B) { (a, b) }");
     match &program.statements[0] {
-        Statement::Function {
-            type_params,
-            parameters,
-            ..
-        } => {
+        Statement::Function { type_params, parameters, .. } => {
             assert_eq!(type_params.len(), 2);
             assert_eq!(interner.resolve(type_params[0].name), "A");
             assert_eq!(interner.resolve(type_params[1].name), "B");
@@ -749,10 +626,7 @@ fn parses_generic_function_single_constraint() {
             assert_eq!(type_params.len(), 1);
             assert_eq!(interner.resolve(type_params[0].name), "A");
             assert_eq!(type_params[0].constraints.len(), 1);
-            assert_eq!(
-                interner.resolve(type_params[0].constraints[0].class_name),
-                "Eq"
-            );
+            assert_eq!(interner.resolve(type_params[0].constraints[0].class_name), "Eq");
         }
         _ => panic!("expected generic function"),
     }
@@ -766,14 +640,8 @@ fn parses_generic_function_multiple_constraints() {
             assert_eq!(type_params.len(), 1);
             assert_eq!(interner.resolve(type_params[0].name), "A");
             assert_eq!(type_params[0].constraints.len(), 2);
-            assert_eq!(
-                interner.resolve(type_params[0].constraints[0].class_name),
-                "Ord"
-            );
-            assert_eq!(
-                interner.resolve(type_params[0].constraints[1].class_name),
-                "Show"
-            );
+            assert_eq!(interner.resolve(type_params[0].constraints[0].class_name), "Ord");
+            assert_eq!(interner.resolve(type_params[0].constraints[1].class_name), "Show");
         }
         _ => panic!("expected generic function"),
     }
@@ -786,15 +654,9 @@ fn parses_generic_function_multiple_constrained_params() {
         Statement::Function { type_params, .. } => {
             assert_eq!(type_params.len(), 2);
             assert_eq!(interner.resolve(type_params[0].name), "A");
-            assert_eq!(
-                interner.resolve(type_params[0].constraints[0].class_name),
-                "Eq"
-            );
+            assert_eq!(interner.resolve(type_params[0].constraints[0].class_name), "Eq");
             assert_eq!(interner.resolve(type_params[1].name), "B");
-            assert_eq!(
-                interner.resolve(type_params[1].constraints[0].class_name),
-                "Show"
-            );
+            assert_eq!(interner.resolve(type_params[1].constraints[0].class_name), "Show");
         }
         _ => panic!("expected generic function"),
     }
@@ -804,10 +666,7 @@ fn parses_generic_function_multiple_constrained_params() {
 fn rejects_generic_constraint_missing_name() {
     let (_program, parser) = parse_with_errors("fn f<A:>(x: A) -> A { x }");
     assert!(
-        parser
-            .errors
-            .iter()
-            .any(|d| d.display_title() == Some("Missing Generic Constraint")),
+        parser.errors.iter().any(|d| d.display_title() == Some("Missing Generic Constraint")),
         "expected Missing Generic Constraint diagnostic, got: {:?}",
         parser.errors
     );
@@ -817,10 +676,7 @@ fn rejects_generic_constraint_missing_name() {
 fn rejects_generic_constraint_trailing_plus() {
     let (_program, parser) = parse_with_errors("fn f<A: Eq +>(x: A) -> A { x }");
     assert!(
-        parser
-            .errors
-            .iter()
-            .any(|d| d.display_title() == Some("Missing Generic Constraint")),
+        parser.errors.iter().any(|d| d.display_title() == Some("Missing Generic Constraint")),
         "expected Missing Generic Constraint diagnostic, got: {:?}",
         parser.errors
     );
@@ -877,26 +733,20 @@ fn parses_fbip_annotated_function() {
 fn rejects_unknown_function_annotation() {
     let (program, parser) = parse_with_errors("@fi fn bad() { 1 }\nlet ok = 1;");
     assert!(
-        parser.errors.iter().any(|d| d
-            .message()
-            .unwrap_or("")
-            .contains("Unknown annotation `@fi`")),
+        parser
+            .errors
+            .iter()
+            .any(|d| d.message().unwrap_or("").contains("Unknown annotation `@fi`")),
         "expected unknown function annotation diagnostic, got: {:?}",
         parser.errors
     );
     assert!(
-        parser
-            .errors
-            .iter()
-            .any(|d| d.display_title() == Some("Unknown Function Annotation")),
+        parser.errors.iter().any(|d| d.display_title() == Some("Unknown Function Annotation")),
         "expected Unknown Function Annotation title, got: {:?}",
         parser.errors
     );
     assert!(
-        program
-            .statements
-            .iter()
-            .any(|stmt| matches!(stmt, Statement::Let { .. })),
+        program.statements.iter().any(|stmt| matches!(stmt, Statement::Let { .. })),
         "expected recovery to keep parsing follow-up statements"
     );
 }
@@ -905,10 +755,10 @@ fn rejects_unknown_function_annotation() {
 fn rejects_unknown_function_annotation_generically() {
     let (_program, parser) = parse_with_errors("@foo fn bad() { 1 }");
     assert!(
-        parser.errors.iter().any(|d| d
-            .message()
-            .unwrap_or("")
-            .contains("Unknown annotation `@foo`")),
+        parser
+            .errors
+            .iter()
+            .any(|d| d.message().unwrap_or("").contains("Unknown annotation `@foo`")),
         "expected unknown function annotation diagnostic, got: {:?}",
         parser.errors
     );
@@ -920,9 +770,7 @@ fn rejects_malformed_annotated_function_declaration() {
     assert!(
         parser.errors.iter().any(|d| {
             d.display_title() == Some("Malformed Annotated Function")
-                && d.message()
-                    .unwrap_or("")
-                    .contains("must be followed by `fn`")
+                && d.message().unwrap_or("").contains("must be followed by `fn`")
         }),
         "expected malformed annotated function diagnostic, got: {:?}",
         parser.errors
@@ -934,12 +782,7 @@ fn parses_type_adt_sugar_simple() {
     let (program, interner) = parse_ok("type Shape = Circle(Float) | Rect(Float, Float)");
     assert_eq!(program.statements.len(), 1);
     match &program.statements[0] {
-        Statement::Data {
-            name,
-            type_params,
-            variants,
-            ..
-        } => {
+        Statement::Data { name, type_params, variants, .. } => {
             assert_eq!(interner.resolve(*name), "Shape");
             assert!(type_params.is_empty());
             assert_eq!(variants.len(), 2);
@@ -957,12 +800,7 @@ fn parses_type_adt_sugar_generic() {
     let (program, interner) = parse_ok("type Result<T, E> = Ok(T) | Err(E)");
     assert_eq!(program.statements.len(), 1);
     match &program.statements[0] {
-        Statement::Data {
-            name,
-            type_params,
-            variants,
-            ..
-        } => {
+        Statement::Data { name, type_params, variants, .. } => {
             assert_eq!(interner.resolve(*name), "Result");
             assert_eq!(type_params.len(), 2);
             assert_eq!(interner.resolve(type_params[0]), "T");
@@ -978,12 +816,7 @@ fn parses_type_adt_sugar_with_deriving_clause() {
     let (program, interner) = parse_ok("type Result<T, E> = Ok(T) | Err(E) deriving (Eq, Show)");
     assert_eq!(program.statements.len(), 1);
     match &program.statements[0] {
-        Statement::Data {
-            name,
-            type_params,
-            deriving,
-            ..
-        } => {
+        Statement::Data { name, type_params, deriving, .. } => {
             assert_eq!(interner.resolve(*name), "Result");
             assert_eq!(type_params.len(), 2);
             assert_eq!(deriving.len(), 2);
@@ -1018,26 +851,14 @@ fn data_and_type_adt_reuse_constrained_type_param_parser() {
 #[test]
 fn deriving_list_reports_trailing_comma_missing_close_and_non_identifier() {
     let cases = [
-        (
-            "data Color { Red } deriving (Eq,)",
-            "Trailing Deriving Comma",
-        ),
-        (
-            "data Color { Red } deriving (Eq",
-            "Missing Deriving Close Paren",
-        ),
-        (
-            "data Color { Red } deriving (123)",
-            "Invalid Deriving Class",
-        ),
+        ("data Color { Red } deriving (Eq,)", "Trailing Deriving Comma"),
+        ("data Color { Red } deriving (Eq", "Missing Deriving Close Paren"),
+        ("data Color { Red } deriving (123)", "Invalid Deriving Class"),
     ];
     for (source, title) in cases {
         let (_program, parser) = parse_with_errors(source);
         assert!(
-            parser
-                .errors
-                .iter()
-                .any(|d| d.display_title() == Some(title)),
+            parser.errors.iter().any(|d| d.display_title() == Some(title)),
             "expected {title} diagnostic for {source:?}, got: {:?}",
             parser.errors
         );
@@ -1048,20 +869,14 @@ fn deriving_list_reports_trailing_comma_missing_close_and_non_identifier() {
 fn alias_effect_body_reports_generic_and_fn_keyword_errors() {
     let (_program, parser) = parse_with_errors("alias Async<a> = <Suspend | Fork>");
     assert!(
-        parser
-            .errors
-            .iter()
-            .any(|d| d.display_title() == Some("Invalid Generic Effect Alias")),
+        parser.errors.iter().any(|d| d.display_title() == Some("Invalid Generic Effect Alias")),
         "expected generic effect alias diagnostic, got: {:?}",
         parser.errors
     );
 
     let (_program, parser) = parse_with_errors("alias Async = <Suspend | fn bar>");
     assert!(
-        parser
-            .errors
-            .iter()
-            .any(|d| d.display_title() == Some("Missing Effect Name After `|`")),
+        parser.errors.iter().any(|d| d.display_title() == Some("Missing Effect Name After `|`")),
         "expected effect alias body diagnostic, got: {:?}",
         parser.errors
     );
@@ -1091,28 +906,19 @@ fn parses_type_adt_sugar_inside_module() {
 #[test]
 fn type_adt_sugar_missing_assign_reports_error() {
     let (_program, parser) = parse_with_errors("type Shape Circle(Float) | Rect(Float, Float)");
-    assert!(
-        !parser.errors.is_empty(),
-        "expected parser errors for missing '='"
-    );
+    assert!(!parser.errors.is_empty(), "expected parser errors for missing '='");
 }
 
 #[test]
 fn type_adt_sugar_trailing_bar_reports_error() {
     let (_program, parser) = parse_with_errors("type Shape = Circle(Float) |");
-    assert!(
-        !parser.errors.is_empty(),
-        "expected parser errors for trailing '|'"
-    );
+    assert!(!parser.errors.is_empty(), "expected parser errors for trailing '|'");
 }
 
 #[test]
 fn missing_open_brace_reports_contextual_error() {
     let (_program, parser) = parse_with_errors("fn add(a: Int, b: Int) -> Int\n    a + b\n");
-    assert!(
-        !parser.errors.is_empty(),
-        "expected parser error for missing opening brace"
-    );
+    assert!(!parser.errors.is_empty(), "expected parser error for missing opening brace");
     let msg = parser.errors[0].message().unwrap_or("");
     assert!(
         msg.contains("This function body needs to start with `{`."),
@@ -1125,20 +931,14 @@ fn missing_open_brace_mentions_function_name() {
     let (_program, parser) = parse_with_errors("fn distance_tag(p: Int) -> String\n    p\n");
     assert!(!parser.errors.is_empty());
     // The diagnostic should reference the function name in a label
-    let has_fn_name = parser.errors[0]
-        .labels()
-        .iter()
-        .any(|l| l.text.contains("distance_tag"));
+    let has_fn_name = parser.errors[0].labels().iter().any(|l| l.text.contains("distance_tag"));
     assert!(has_fn_name, "expected label mentioning function name");
 }
 
 #[test]
 fn missing_close_brace_reports_unclosed_delimiter() {
     let (_program, parser) = parse_with_errors("fn foo() {\n    1 + 2\n");
-    assert!(
-        !parser.errors.is_empty(),
-        "expected parser error for missing closing brace"
-    );
+    assert!(!parser.errors.is_empty(), "expected parser error for missing closing brace");
     let code = parser.errors[0].code().unwrap_or("");
     assert_eq!(code, "E076", "expected UNCLOSED_DELIMITER error code");
 }

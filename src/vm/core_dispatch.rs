@@ -61,15 +61,10 @@ mod vm_tcp {
             let mut map = h.borrow_mut();
             match map.get_mut(&handle) {
                 Some(TcpHandle::Stream(stream)) => {
-                    let cap = if max > 0 && max <= (1 << 24) {
-                        max as usize
-                    } else {
-                        4096
-                    };
+                    let cap = if max > 0 && max <= (1 << 24) { max as usize } else { 4096 };
                     let mut buf = vec![0u8; cap];
-                    let n = stream
-                        .read(&mut buf)
-                        .map_err(|e| format!("tcp_read {}: {}", handle, e))?;
+                    let n =
+                        stream.read(&mut buf).map_err(|e| format!("tcp_read {}: {}", handle, e))?;
                     Ok(String::from_utf8_lossy(&buf[..n]).into_owned())
                 }
                 _ => Err(format!("tcp_read: invalid handle {}", handle)),
@@ -109,9 +104,8 @@ mod vm_tcp {
             let mut map = h.borrow_mut();
             match map.get_mut(&listener) {
                 Some(TcpHandle::Listener(l)) => {
-                    let (stream, _) = l
-                        .accept()
-                        .map_err(|e| format!("tcp_accept {}: {}", listener, e))?;
+                    let (stream, _) =
+                        l.accept().map_err(|e| format!("tcp_accept {}: {}", listener, e))?;
                     let id = NEXT_ID.with(|n| {
                         let id = *n.borrow();
                         *n.borrow_mut() = id + 1;
@@ -201,11 +195,7 @@ mod vm_http {
 
     pub fn active_count(server: i64) -> usize {
         SERVERS.with(|servers| {
-            servers
-                .borrow()
-                .get(&server)
-                .map(|state| state.active.len())
-                .unwrap_or(0)
+            servers.borrow().get(&server).map(|state| state.active.len()).unwrap_or(0)
         })
     }
 
@@ -215,11 +205,7 @@ mod vm_http {
 
     pub fn is_shutting_down(server: i64) -> bool {
         SERVERS.with(|servers| {
-            servers
-                .borrow()
-                .get(&server)
-                .map(|state| state.shutting_down)
-                .unwrap_or(true)
+            servers.borrow().get(&server).map(|state| state.shutting_down).unwrap_or(true)
         })
     }
 
@@ -233,11 +219,7 @@ mod vm_http {
 
     pub fn is_stopped(server: i64) -> bool {
         SERVERS.with(|servers| {
-            servers
-                .borrow()
-                .get(&server)
-                .map(|state| state.stopped)
-                .unwrap_or(true)
+            servers.borrow().get(&server).map(|state| state.stopped).unwrap_or(true)
         })
     }
 
@@ -253,11 +235,7 @@ mod vm_http {
             if force {
                 state.active.clear();
             }
-            ShutdownSnapshot {
-                listener: Some(state.listener),
-                scope: Some(state.scope),
-                active,
-            }
+            ShutdownSnapshot { listener: Some(state.listener), scope: Some(state.scope), active }
         })
     }
 }
@@ -293,9 +271,7 @@ pub(super) mod vm_async {
             return Ok(*b);
         }
         let owned = Box::leak(Box::new(MioBackend::new().use_effect_tape()));
-        owned
-            .start()
-            .map_err(|e| format!("MioBackend::start failed: {e}"))?;
+        owned.start().map_err(|e| format!("MioBackend::start failed: {e}"))?;
         // Race-tolerant: if another thread set this first, our leaked box
         // is harmlessly orphaned (process-lifetime anyway).
         Ok(*BACKEND.get_or_init(|| owned))
@@ -504,9 +480,7 @@ mod vm_fibers {
     }
 
     fn isolate_for_worker(value: &Value) -> Value {
-        promote_value(value)
-            .map(demote_value)
-            .unwrap_or_else(|_| value.clone())
+        promote_value(value).map(demote_value).unwrap_or_else(|_| value.clone())
     }
 
     fn isolate_outcome_for_worker(outcome: &FiberOutcome) -> FiberOutcome {
@@ -612,11 +586,7 @@ mod vm_fibers {
     /// at park time due to cancellation.
     pub fn deregister_await(parent_req: u64) {
         if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
-            shared
-                .awaits
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .remove(parent_req);
+            shared.awaits.lock().unwrap_or_else(|e| e.into_inner()).remove(parent_req);
         } else {
             AWAITS.with(|a| a.borrow_mut().remove(parent_req));
         }
@@ -875,11 +845,7 @@ mod vm_fibers {
     /// called inside an active `enter_run_async` / `exit_run_async` window.
     pub fn spawn_child() -> FiberId {
         if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
-            return shared
-                .sched
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .spawn_child();
+            return shared.sched.lock().unwrap_or_else(|e| e.into_inner()).spawn_child();
         }
         SCHED.with(|s| {
             s.borrow_mut()
@@ -1043,9 +1009,7 @@ mod vm_fibers {
     pub fn debug_current() -> Option<(u64, Option<usize>)> {
         let id = CURRENT.with(|c| c.get())?;
         let child = ROOT.with(|r| r.get()) != Some(id);
-        let above = child
-            .then(|| BOUNDARY.with(|b| b.get()).map(|(frame, _)| frame))
-            .flatten();
+        let above = child.then(|| BOUNDARY.with(|b| b.get()).map(|(frame, _)| frame)).flatten();
         Some((id.0, above))
     }
 
@@ -1100,9 +1064,8 @@ mod vm_fibers {
     fn deliver_local_wakes(parking: Option<u64>) {
         let wakes = LOCAL_WAKES.with(|wakes| {
             let mut wakes = wakes.borrow_mut();
-            let (kept, ready): (Vec<_>, Vec<_>) = std::mem::take(&mut *wakes)
-                .into_iter()
-                .partition(|(req, _)| Some(*req) == parking);
+            let (kept, ready): (Vec<_>, Vec<_>) =
+                std::mem::take(&mut *wakes).into_iter().partition(|(req, _)| Some(*req) == parking);
             *wakes = kept;
             ready
         });
@@ -1188,11 +1151,7 @@ mod vm_fibers {
     /// `set_root_with_body` but for child fibers.
     pub fn spawn_child_with_body(body: Value) -> FiberId {
         let id = if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
-            shared
-                .sched
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .spawn_child()
+            shared.sched.lock().unwrap_or_else(|e| e.into_inner()).spawn_child()
         } else {
             SCHED.with(|s| {
                 s.borrow_mut()
@@ -1213,11 +1172,7 @@ mod vm_fibers {
     pub fn spawn_ordered_child_with_body(body: Value) -> FiberId {
         let worker = current_worker().unwrap_or(WorkerId(0));
         let id = if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
-            shared
-                .sched
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .spawn(worker)
+            shared.sched.lock().unwrap_or_else(|e| e.into_inner()).spawn(worker)
         } else {
             SCHED.with(|s| {
                 s.borrow_mut()
@@ -1245,11 +1200,11 @@ mod vm_fibers {
 
     pub fn register_try_await(parent_req: u64, child: FiberId) {
         if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
-            shared
-                .awaits
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .register_try(parent_req, child, ());
+            shared.awaits.lock().unwrap_or_else(|e| e.into_inner()).register_try(
+                parent_req,
+                child,
+                (),
+            );
         } else {
             AWAITS.with(|a| a.borrow_mut().register_try(parent_req, child, ()));
         }
@@ -1279,11 +1234,7 @@ mod vm_fibers {
     /// completions (caller may still call `scheduler.complete`).
     pub fn try_route_timer_for_timeout(req: u64) -> Option<FiberId> {
         let event = if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
-            shared
-                .awaits
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .route_timeout_timer(req)
+            shared.awaits.lock().unwrap_or_else(|e| e.into_inner()).route_timeout_timer(req)
         } else {
             AWAITS.with(|a| a.borrow_mut().route_timeout_timer(req))
         };
@@ -1325,11 +1276,7 @@ mod vm_fibers {
 
     pub fn set_resume_outcome(req: u64, outcome: FiberOutcome) {
         if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
-            shared
-                .resume_outcomes
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .insert(req, outcome);
+            shared.resume_outcomes.lock().unwrap_or_else(|e| e.into_inner()).insert(req, outcome);
         } else {
             RESUME_OUTCOMES.with(|r| r.borrow_mut().insert(req, outcome));
         }
@@ -1337,11 +1284,7 @@ mod vm_fibers {
 
     pub fn take_resume_outcome(req: u64) -> Option<FiberOutcome> {
         if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
-            shared
-                .resume_outcomes
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .remove(&req)
+            shared.resume_outcomes.lock().unwrap_or_else(|e| e.into_inner()).remove(&req)
         } else {
             RESUME_OUTCOMES.with(|r| r.borrow_mut().remove(&req))
         }
@@ -1374,10 +1317,9 @@ mod vm_fibers {
 
     fn on_fiber_done_outcome(id: FiberId, outcome: FiberOutcome) -> FiberDoneOutcome {
         let events = AWAITS.with(|a| {
-            a.borrow_mut()
-                .record_completed(id, outcome, is_ready, |outcome| {
-                    matches!(outcome, FiberOutcome::Error(_))
-                })
+            a.borrow_mut().record_completed(id, outcome, is_ready, |outcome| {
+                matches!(outcome, FiberOutcome::Error(_))
+            })
         });
         events_to_done_outcome(events)
     }
@@ -1391,12 +1333,7 @@ mod vm_fibers {
     }
 
     fn is_ready(id: FiberId) -> bool {
-        SCHED.with(|s| {
-            s.borrow()
-                .as_ref()
-                .map(|sched| sched.is_ready(id))
-                .unwrap_or(false)
-        })
+        SCHED.with(|s| s.borrow().as_ref().map(|sched| sched.is_ready(id)).unwrap_or(false))
     }
 
     fn events_to_done_outcome(
@@ -1407,11 +1344,7 @@ mod vm_fibers {
 
         for event in events {
             match event {
-                AwaitEvent::BothReady {
-                    request,
-                    left,
-                    right,
-                } => match (left, right) {
+                AwaitEvent::BothReady { request, left, right } => match (left, right) {
                     (FiberOutcome::Value(left), FiberOutcome::Value(right)) => {
                         let tuple = Value::Tuple(Rc::new(vec![left, right]));
                         completions.push((request, FiberOutcome::Value(tuple)));
@@ -1421,33 +1354,21 @@ mod vm_fibers {
                         completions.push((request, FiberOutcome::Error(err)));
                     }
                 },
-                AwaitEvent::BothError {
-                    request,
-                    error,
-                    loser,
-                    discarded,
-                } => {
+                AwaitEvent::BothError { request, error, loser, discarded } => {
                     for value in discarded {
                         drop(value);
                     }
                     completions.push((request, error));
                     losers.push(loser);
                 }
-                AwaitEvent::TryReady {
-                    request, outcome, ..
-                } => {
+                AwaitEvent::TryReady { request, outcome, .. } => {
                     let result = match outcome {
                         FiberOutcome::Value(v) => result_ok(v),
                         FiberOutcome::Error(err) => result_err(err),
                     };
                     completions.push((request, FiberOutcome::Value(result)));
                 }
-                AwaitEvent::RaceReady {
-                    request,
-                    outcome,
-                    losers: event_losers,
-                    discarded,
-                } => {
+                AwaitEvent::RaceReady { request, outcome, losers: event_losers, discarded } => {
                     for value in discarded {
                         drop(value);
                     }
@@ -1496,10 +1417,7 @@ mod vm_fibers {
             }
         }
 
-        FiberDoneOutcome {
-            completions,
-            losers,
-        }
+        FiberDoneOutcome { completions, losers }
     }
 
     /// Cancel a set of fibers: look up each fiber's pending backend request,
@@ -1520,10 +1438,7 @@ mod vm_fibers {
             s.borrow()
                 .as_ref()
                 .map(|sc| {
-                    loser_ids
-                        .iter()
-                        .filter_map(|id| sc.find_request_for_fiber(*id))
-                        .collect()
+                    loser_ids.iter().filter_map(|id| sc.find_request_for_fiber(*id)).collect()
                 })
                 .unwrap_or_default()
         });
@@ -1541,11 +1456,7 @@ mod vm_fibers {
     /// A cancelled fiber the scheduler dropped: nothing awaits it any more.
     fn forget_cancelled(id: FiberId) {
         if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
-            shared
-                .awaits
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .remove_child(id);
+            shared.awaits.lock().unwrap_or_else(|e| e.into_inner()).remove_child(id);
         } else {
             AWAITS.with(|a| a.borrow_mut().remove_child(id));
         }
@@ -1559,10 +1470,7 @@ mod vm_fibers {
             return;
         }
         if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
-            let mut set = shared
-                .cancelled_ids
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
+            let mut set = shared.cancelled_ids.lock().unwrap_or_else(|e| e.into_inner());
             for id in ids {
                 set.insert(*id);
             }
@@ -1584,11 +1492,7 @@ mod vm_fibers {
             None => return false,
         };
         if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
-            return shared
-                .cancelled_ids
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .contains(&id);
+            return shared.cancelled_ids.lock().unwrap_or_else(|e| e.into_inner()).contains(&id);
         }
         CANCELLED_IDS.with(|c| c.borrow().contains(&id))
     }
@@ -1605,11 +1509,7 @@ mod vm_fibers {
     /// `FiberCurrentWorkerCount` primop.
     pub fn current_num_workers() -> usize {
         if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
-            return shared
-                .sched
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .num_workers();
+            return shared.sched.lock().unwrap_or_else(|e| e.into_inner()).num_workers();
         }
         SCHED.with(|s| s.borrow().as_ref().map(|sc| sc.num_workers()).unwrap_or(0))
     }
@@ -1620,11 +1520,7 @@ mod vm_fibers {
     pub fn new_scope() -> u64 {
         let id = NEXT_SCOPE_ID.fetch_add(1, Ordering::Relaxed);
         if let Some(shared) = ACTIVE_SHARED.with(|s| s.borrow().clone()) {
-            shared
-                .scope_registry
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .insert(id, Vec::new());
+            shared.scope_registry.lock().unwrap_or_else(|e| e.into_inner()).insert(id, Vec::new());
         } else {
             SCOPE_REGISTRY.with(|r| r.borrow_mut().insert(id, Vec::new()));
         }
@@ -1854,10 +1750,11 @@ mod vm_fibers {
                         request_id: req,
                     });
                     SCHED.with(|s| {
-                        s.borrow_mut()
-                            .as_mut()
-                            .expect("scheduler missing")
-                            .insert_suspended(home_worker, req, fiber);
+                        s.borrow_mut().as_mut().expect("scheduler missing").insert_suspended(
+                            home_worker,
+                            req,
+                            fiber,
+                        );
                     });
                     deliver_local_wakes(None);
                     let done = on_fiber_suspended(fiber_id);
@@ -1899,10 +1796,7 @@ mod vm_fibers {
                     fiber.mark_parked();
                     fiber.state = FiberState::Ready;
                     SCHED.with(|s| {
-                        s.borrow_mut()
-                            .as_mut()
-                            .expect("scheduler missing")
-                            .spawn_existing(fiber);
+                        s.borrow_mut().as_mut().expect("scheduler missing").spawn_existing(fiber);
                     });
                     // The Err that surfaced was the yield-unwind signal.
                     let _ = outcome;
@@ -1969,10 +1863,7 @@ mod vm_fibers {
             }
             // No more ready fibers.  If nothing is suspended either, we're done.
             let suspended = SCHED.with(|s| {
-                s.borrow()
-                    .as_ref()
-                    .map(|sched| sched.total_suspended_count())
-                    .unwrap_or(0)
+                s.borrow().as_ref().map(|sched| sched.total_suspended_count()).unwrap_or(0)
             });
             if suspended == 0 {
                 break;
@@ -2093,10 +1984,7 @@ mod vm_fibers {
 
     impl WorkerWakeup {
         pub fn new() -> Arc<Self> {
-            Arc::new(WorkerWakeup {
-                has_work: Mutex::new(false),
-                cv: Condvar::new(),
-            })
+            Arc::new(WorkerWakeup { has_work: Mutex::new(false), cv: Condvar::new() })
         }
 
         /// Wake this worker: set the flag and notify one waiter.
@@ -2109,10 +1997,8 @@ mod vm_fibers {
         /// Park until work arrives or `timeout` elapses.
         pub fn park_timeout(&self, timeout: std::time::Duration) {
             let guard = self.has_work.lock().unwrap_or_else(|e| e.into_inner());
-            let (mut guard, _) = self
-                .cv
-                .wait_timeout(guard, timeout)
-                .unwrap_or_else(|e| e.into_inner());
+            let (mut guard, _) =
+                self.cv.wait_timeout(guard, timeout).unwrap_or_else(|e| e.into_inner());
             *guard = false;
         }
     }
@@ -2123,18 +2009,9 @@ mod vm_fibers {
         /// Fiber completed normally with a value.
         Done { fiber_id: FiberId, value: Value },
         /// Fiber parked: captured continuation + request id.
-        Parked {
-            fiber_id: FiberId,
-            request_id: u64,
-            cont: Value,
-            home_worker: WorkerId,
-        },
+        Parked { fiber_id: FiberId, request_id: u64, cont: Value, home_worker: WorkerId },
         /// Fiber yielded cooperatively.
-        Yielded {
-            fiber_id: FiberId,
-            cont: Value,
-            home_worker: WorkerId,
-        },
+        Yielded { fiber_id: FiberId, cont: Value, home_worker: WorkerId },
         /// Fiber errored.
         Error { fiber_id: FiberId, err_value: Value },
     }
@@ -2292,10 +2169,7 @@ mod vm_fibers {
             }
             CURRENT_WORKER.with(|w| w.set(prev_worker));
             CURRENT.with(|c| c.set(prev_current));
-            return WorkerFiberResult::Done {
-                fiber_id,
-                value: Value::None,
-            };
+            return WorkerFiberResult::Done { fiber_id, value: Value::None };
         };
 
         // Restore the previous current fiber and boundary.
@@ -2317,21 +2191,14 @@ mod vm_fibers {
 
         // Check for yield signal.
         if let Some(cont_val) = take_yield() {
-            return WorkerFiberResult::Yielded {
-                fiber_id,
-                cont: cont_val,
-                home_worker,
-            };
+            return WorkerFiberResult::Yielded { fiber_id, cont: cont_val, home_worker };
         }
 
         match outcome {
             Ok(v) => WorkerFiberResult::Done { fiber_id, value: v },
             Err(_e) => {
                 let err = take_fiber_error().unwrap_or_else(|| async_panicked(_e));
-                WorkerFiberResult::Error {
-                    fiber_id,
-                    err_value: err,
-                }
+                WorkerFiberResult::Error { fiber_id, err_value: err }
             }
         }
     }
@@ -2362,19 +2229,12 @@ mod vm_fibers {
                 }
                 // Compute synthetic-await completions.
                 let (completions, losers) = {
-                    let events = shared
-                        .awaits
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .record_completed(
+                    let events =
+                        shared.awaits.lock().unwrap_or_else(|e| e.into_inner()).record_completed(
                             fiber_id,
                             FiberOutcome::Value(value),
                             |id| {
-                                shared
-                                    .sched
-                                    .lock()
-                                    .unwrap_or_else(|e| e.into_inner())
-                                    .is_ready(id)
+                                shared.sched.lock().unwrap_or_else(|e| e.into_inner()).is_ready(id)
                             },
                             |o| matches!(o, FiberOutcome::Error(_)),
                         );
@@ -2388,10 +2248,7 @@ mod vm_fibers {
                 }
                 false
             }
-            WorkerFiberResult::Error {
-                fiber_id,
-                err_value,
-            } => {
+            WorkerFiberResult::Error { fiber_id, err_value } => {
                 if fiber_id == shared.root_id {
                     // Store error string so worker 0 can return it.
                     *shared.root_error.lock().unwrap_or_else(|e| e.into_inner()) =
@@ -2400,19 +2257,12 @@ mod vm_fibers {
                     return true;
                 }
                 let (completions, losers) = {
-                    let events = shared
-                        .awaits
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .record_completed(
+                    let events =
+                        shared.awaits.lock().unwrap_or_else(|e| e.into_inner()).record_completed(
                             fiber_id,
                             FiberOutcome::Error(err_value),
                             |id| {
-                                shared
-                                    .sched
-                                    .lock()
-                                    .unwrap_or_else(|e| e.into_inner())
-                                    .is_ready(id)
+                                shared.sched.lock().unwrap_or_else(|e| e.into_inner()).is_ready(id)
                             },
                             |o| matches!(o, FiberOutcome::Error(_)),
                         );
@@ -2424,12 +2274,7 @@ mod vm_fibers {
                 }
                 false
             }
-            WorkerFiberResult::Parked {
-                fiber_id,
-                request_id,
-                cont,
-                home_worker,
-            } => {
+            WorkerFiberResult::Parked { fiber_id, request_id, cont, home_worker } => {
                 let cont_rc = match cont {
                     Value::Continuation(rc) => rc,
                     _ => {
@@ -2446,11 +2291,11 @@ mod vm_fibers {
                     worker: home_worker.0,
                     request_id,
                 });
-                shared
-                    .sched
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .insert_suspended(home_worker, request_id, f);
+                shared.sched.lock().unwrap_or_else(|e| e.into_inner()).insert_suspended(
+                    home_worker,
+                    request_id,
+                    f,
+                );
                 // Re-evaluate suspended-fiber awaits for first_of.
                 let (completions, losers) = {
                     let events = shared
@@ -2458,11 +2303,7 @@ mod vm_fibers {
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
                         .record_suspended(fiber_id, |id| {
-                            shared
-                                .sched
-                                .lock()
-                                .unwrap_or_else(|e| e.into_inner())
-                                .is_ready(id)
+                            shared.sched.lock().unwrap_or_else(|e| e.into_inner()).is_ready(id)
                         });
                     events_to_completions_and_losers(events)
                 };
@@ -2472,11 +2313,7 @@ mod vm_fibers {
                 }
                 false
             }
-            WorkerFiberResult::Yielded {
-                fiber_id,
-                cont,
-                home_worker,
-            } => {
+            WorkerFiberResult::Yielded { fiber_id, cont, home_worker } => {
                 let cont_rc = match cont {
                     Value::Continuation(rc) => rc,
                     _ => return false,
@@ -2494,11 +2331,7 @@ mod vm_fibers {
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .contains(&fiber_id);
-                f.state = if is_cancelled {
-                    FiberState::Cancelled
-                } else {
-                    FiberState::Ready
-                };
+                f.state = if is_cancelled { FiberState::Cancelled } else { FiberState::Ready };
                 let mut sched = shared.sched.lock().unwrap_or_else(|e| e.into_inner());
                 sched.spawn_existing(f);
                 drop(sched);
@@ -2531,10 +2364,7 @@ mod vm_fibers {
         }
         let reqs: Vec<u64> = {
             let sched = shared.sched.lock().unwrap_or_else(|e| e.into_inner());
-            loser_ids
-                .iter()
-                .filter_map(|id| sched.find_request_for_fiber(*id))
-                .collect()
+            loser_ids.iter().filter_map(|id| sched.find_request_for_fiber(*id)).collect()
         };
         for req in reqs {
             backend.cancel(RequestId(req));
@@ -2542,10 +2372,7 @@ mod vm_fibers {
         let mut sched = shared.sched.lock().unwrap_or_else(|e| e.into_inner());
         sched.cancel_fibers(loser_ids);
         drop(sched);
-        let mut cancelled = shared
-            .cancelled_ids
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut cancelled = shared.cancelled_ids.lock().unwrap_or_else(|e| e.into_inner());
         for id in loser_ids {
             cancelled.insert(*id);
         }
@@ -2557,11 +2384,7 @@ mod vm_fibers {
         worker_id: WorkerId,
     ) -> Option<Fiber> {
         if worker_id.0 == 0 {
-            return shared
-                .sched
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .next_ready(worker_id);
+            return shared.sched.lock().unwrap_or_else(|e| e.into_inner()).next_ready(worker_id);
         }
         match shared
             .sched
@@ -2828,12 +2651,7 @@ mod vm_fibers {
         }
 
         // Check if a background worker set root_error.
-        if let Some(err) = shared
-            .root_error
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .take()
-        {
+        if let Some(err) = shared.root_error.lock().unwrap_or_else(|e| e.into_inner()).take() {
             return Err(err);
         }
         Ok(Value::None)
@@ -2912,12 +2730,7 @@ mod vm_fibers {
         shared: &Arc<SharedDispatchState>,
     ) -> Option<FiberId> {
         use crate::runtime::r#async::await_coordinator::AwaitEvent;
-        match shared
-            .awaits
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .route_timeout_timer(req)
-        {
+        match shared.awaits.lock().unwrap_or_else(|e| e.into_inner()).route_timeout_timer(req) {
             Some(AwaitEvent::TimeoutTimerReady { body, .. }) => {
                 shared
                     .resume_outcomes
@@ -2955,21 +2768,17 @@ mod vm_fibers {
         // The scheduler and root fiber were already set up by `enter_run_async`.
         let shared = SCHED.with(|s| {
             let mut borrow = s.borrow_mut();
-            let sched = borrow
-                .take()
-                .expect("scheduler not initialised before enter_run_async_multi");
-            let root_id = ROOT
-                .with(|r| r.get())
-                .expect("ROOT not set before enter_run_async_multi");
+            let sched =
+                borrow.take().expect("scheduler not initialised before enter_run_async_multi");
+            let root_id =
+                ROOT.with(|r| r.get()).expect("ROOT not set before enter_run_async_multi");
             SharedDispatchState::new(sched, root_id, n_workers)
         });
 
         let worker_vm_state: Arc<WorkerSharedState> = ctx
             .vm_worker_shared_state()
             .and_then(|any| {
-                any.downcast::<Arc<super::super::task::WorkerSharedState>>()
-                    .ok()
-                    .map(|b| *b)
+                any.downcast::<Arc<super::super::task::WorkerSharedState>>().ok().map(|b| *b)
             })
             .unwrap_or_else(|| {
                 Arc::new(super::super::task::WorkerSharedState {
@@ -3037,9 +2846,7 @@ fn park_fs_op(
             return Err("__fiber_error__".to_string());
         }
         let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
-        vm_fibers::debug_block(|| Blocked::Io {
-            what: "file system",
-        });
+        vm_fibers::debug_block(|| Blocked::Io { what: "file system" });
         vm_fibers::signal_park(req, cont);
         if let Err(e) = propagate_if_park_cancelled() {
             if let Ok(backend) = vm_async::backend() {
@@ -3107,9 +2914,9 @@ fn park_tcp_op(
                 use crate::runtime::r#async::backend::CompletionPayload;
                 return match c.payload {
                     CompletionPayload::TcpHandle(h) => Ok(Value::Integer(h.0 as i64)),
-                    CompletionPayload::Bytes(buf) => Ok(Value::String(Rc::new(
-                        String::from_utf8_lossy(&buf).into_owned(),
-                    ))),
+                    CompletionPayload::Bytes(buf) => {
+                        Ok(Value::String(Rc::new(String::from_utf8_lossy(&buf).into_owned())))
+                    }
                     CompletionPayload::Unit => Ok(Value::None),
                     CompletionPayload::Error(e) => Err(e),
                     CompletionPayload::AddressList(addrs) => {
@@ -3157,10 +2964,7 @@ fn taped_channel<T>(
     if !async_tape::has_tasks() {
         return run();
     }
-    let hint = EffectRequest::Channel {
-        chan: 0,
-        op: op.to_string(),
-    };
+    let hint = EffectRequest::Channel { chan: 0, op: op.to_string() };
     let began = replay::ordered_begin(&hint, || EffectRequest::Channel {
         chan: async_tape::logical_channel(id as u64),
         op: op.to_string(),
@@ -3199,22 +3003,14 @@ pub fn execute_core_primop(
         IDiv => int2_result(
             &args,
             |a, b| {
-                if b == 0 {
-                    Err("division by zero".into())
-                } else {
-                    Ok(Value::Integer(a / b))
-                }
+                if b == 0 { Err("division by zero".into()) } else { Ok(Value::Integer(a / b)) }
             },
             "idiv",
         ),
         IMod => int2_result(
             &args,
             |a, b| {
-                if b == 0 {
-                    Err("modulo by zero".into())
-                } else {
-                    Ok(Value::Integer(a % b))
-                }
+                if b == 0 { Err("modulo by zero".into()) } else { Ok(Value::Integer(a % b)) }
             },
             "imod",
         ),
@@ -3247,16 +3043,12 @@ pub fn execute_core_primop(
         BitAnd => int2(&args, |a, b| Value::Integer(a & b), "bit_and"),
         BitOr => int2(&args, |a, b| Value::Integer(a | b), "bit_or"),
         BitXor => int2(&args, |a, b| Value::Integer(a ^ b), "bit_xor"),
-        BitShl => int2(
-            &args,
-            |a, b| Value::Integer(a.wrapping_shl(masked_shift_amount(b))),
-            "bit_shl",
-        ),
-        BitShr => int2(
-            &args,
-            |a, b| Value::Integer(a.wrapping_shr(masked_shift_amount(b))),
-            "bit_shr",
-        ),
+        BitShl => {
+            int2(&args, |a, b| Value::Integer(a.wrapping_shl(masked_shift_amount(b))), "bit_shl")
+        }
+        BitShr => {
+            int2(&args, |a, b| Value::Integer(a.wrapping_shr(masked_shift_amount(b))), "bit_shr")
+        }
 
         // ── Numeric helpers ───────────────────────────────────────────
         Abs => match &args[0] {
@@ -3356,11 +3148,7 @@ pub fn execute_core_primop(
             let end = eint(&args[2], "slice")?;
             let len = arr.len() as i64;
             let start = if start < 0 { 0 } else { start as usize };
-            let end = if end > len {
-                len as usize
-            } else {
-                end as usize
-            };
+            let end = if end > len { len as usize } else { end as usize };
             if start >= end || start >= arr.len() {
                 Ok(Value::Array(vec![].into()))
             } else {
@@ -3370,9 +3158,7 @@ pub fn execute_core_primop(
 
         // ── HAMT operations ───────────────────────────────────────────
         HamtGet => {
-            let key = args[1]
-                .to_hash_key()
-                .ok_or_else(|| hkey_err("get", &args[1]))?;
+            let key = args[1].to_hash_key().ok_or_else(|| hkey_err("get", &args[1]))?;
             match &args[0] {
                 Value::HashMap(node) => match rc_hamt::hamt_lookup(node, &key) {
                     Some(value) => Ok(Value::Some(Rc::new(value))),
@@ -3382,22 +3168,16 @@ pub fn execute_core_primop(
             }
         }
         HamtSet => {
-            let key = args[1]
-                .to_hash_key()
-                .ok_or_else(|| hkey_err("put", &args[1]))?;
+            let key = args[1].to_hash_key().ok_or_else(|| hkey_err("put", &args[1]))?;
             match &args[0] {
-                Value::HashMap(node) => Ok(Value::HashMap(rc_hamt::hamt_insert(
-                    node,
-                    key,
-                    args[2].clone(),
-                ))),
+                Value::HashMap(node) => {
+                    Ok(Value::HashMap(rc_hamt::hamt_insert(node, key, args[2].clone())))
+                }
                 other => Err(terr("put", "Map", other)),
             }
         }
         HamtContains => {
-            let key = args[1]
-                .to_hash_key()
-                .ok_or_else(|| hkey_err("has_key", &args[1]))?;
+            let key = args[1].to_hash_key().ok_or_else(|| hkey_err("has_key", &args[1]))?;
             match &args[0] {
                 Value::HashMap(node) => {
                     Ok(Value::Boolean(rc_hamt::hamt_lookup(node, &key).is_some()))
@@ -3407,28 +3187,20 @@ pub fn execute_core_primop(
         }
         HamtDelete => {
             let node = ehamt(&args[0], "delete")?;
-            let key = args[1]
-                .to_hash_key()
-                .ok_or_else(|| hkey_err("delete", &args[1]))?;
+            let key = args[1].to_hash_key().ok_or_else(|| hkey_err("delete", &args[1]))?;
             Ok(Value::HashMap(rc_hamt::hamt_delete(node, &key)))
         }
         HamtKeys => {
             let node = ehamt(&args[0], "keys")?;
             let pairs = rc_hamt::hamt_iter(node);
             Ok(Value::Array(
-                pairs
-                    .iter()
-                    .map(|(k, _)| hash_key_to_value(k))
-                    .collect::<Vec<_>>()
-                    .into(),
+                pairs.iter().map(|(k, _)| hash_key_to_value(k)).collect::<Vec<_>>().into(),
             ))
         }
         HamtValues => {
             let node = ehamt(&args[0], "values")?;
             let pairs = rc_hamt::hamt_iter(node);
-            Ok(Value::Array(
-                pairs.into_iter().map(|(_, v)| v).collect::<Vec<_>>().into(),
-            ))
+            Ok(Value::Array(pairs.into_iter().map(|(_, v)| v).collect::<Vec<_>>().into()))
         }
         HamtMerge => {
             let node1 = ehamt(&args[0], "merge")?;
@@ -3475,9 +3247,7 @@ pub fn execute_core_primop(
             if start >= end || start >= chars.len() {
                 Ok(Value::String(String::new().into()))
             } else {
-                Ok(Value::String(
-                    chars[start..end].iter().collect::<String>().into(),
-                ))
+                Ok(Value::String(chars[start..end].iter().collect::<String>().into()))
             }
         }
         ToString => Ok(Value::String(format_value(&args[0]).into())),
@@ -3485,25 +3255,15 @@ pub fn execute_core_primop(
             let s = estr(&args[0], "split")?;
             let delim = estr(&args[1], "split")?;
             let parts: Vec<Value> = if delim.is_empty() {
-                s.chars()
-                    .map(|c| Value::String(c.to_string().into()))
-                    .collect()
+                s.chars().map(|c| Value::String(c.to_string().into())).collect()
             } else {
-                s.split(delim)
-                    .map(|p| Value::String(p.to_string().into()))
-                    .collect()
+                s.split(delim).map(|p| Value::String(p.to_string().into())).collect()
             };
             Ok(Value::Array(parts.into()))
         }
-        Trim => Ok(Value::String(
-            estr(&args[0], "trim")?.trim().to_string().into(),
-        )),
-        Upper => Ok(Value::String(
-            estr(&args[0], "upper")?.to_uppercase().into(),
-        )),
-        Lower => Ok(Value::String(
-            estr(&args[0], "lower")?.to_lowercase().into(),
-        )),
+        Trim => Ok(Value::String(estr(&args[0], "trim")?.trim().to_string().into())),
+        Upper => Ok(Value::String(estr(&args[0], "upper")?.to_uppercase().into())),
+        Lower => Ok(Value::String(estr(&args[0], "lower")?.to_lowercase().into())),
         Replace => Ok(Value::String(
             estr(&args[0], "replace")?
                 .replace(estr(&args[1], "replace")?, estr(&args[2], "replace")?)
@@ -3518,10 +3278,9 @@ pub fn execute_core_primop(
         IsArray => Ok(Value::Boolean(matches!(args[0], Value::Array(_)))),
         IsNone => Ok(Value::Boolean(matches!(args[0], Value::None))),
         IsSome => Ok(Value::Boolean(matches!(args[0], Value::Some(_)))),
-        IsList => Ok(Value::Boolean(matches!(
-            args[0],
-            Value::None | Value::EmptyList | Value::Cons(_)
-        ))),
+        IsList => {
+            Ok(Value::Boolean(matches!(args[0], Value::None | Value::EmptyList | Value::Cons(_))))
+        }
         IsMap => Ok(Value::Boolean(matches!(args[0], Value::HashMap(_)))),
         TypeOf => {
             let name = match &args[0] {
@@ -3554,106 +3313,52 @@ pub fn execute_core_primop(
         }
         TryReadFile => {
             let path = estr(&args[0], "try_read_file")?;
-            dispatch_fs(
-                ctx,
-                FsOperation::ReadFile {
-                    path: path.to_owned(),
-                },
-            )
+            dispatch_fs(ctx, FsOperation::ReadFile { path: path.to_owned() })
         }
         FsExists => {
             let path = estr(&args[0], "fs_exists")?;
-            dispatch_fs(
-                ctx,
-                FsOperation::Exists {
-                    path: path.to_owned(),
-                },
-            )
+            dispatch_fs(ctx, FsOperation::Exists { path: path.to_owned() })
         }
         FsIsDir => {
             let path = estr(&args[0], "fs_is_dir")?;
-            dispatch_fs(
-                ctx,
-                FsOperation::IsDir {
-                    path: path.to_owned(),
-                },
-            )
+            dispatch_fs(ctx, FsOperation::IsDir { path: path.to_owned() })
         }
         FsIsFile => {
             let path = estr(&args[0], "fs_is_file")?;
-            dispatch_fs(
-                ctx,
-                FsOperation::IsFile {
-                    path: path.to_owned(),
-                },
-            )
+            dispatch_fs(ctx, FsOperation::IsFile { path: path.to_owned() })
         }
         FsWriteFile => {
             let path = estr(&args[0], "fs_write_file")?;
             let contents = estr(&args[1], "fs_write_file")?;
             dispatch_fs(
                 ctx,
-                FsOperation::WriteFile {
-                    path: path.to_owned(),
-                    contents: contents.to_owned(),
-                },
+                FsOperation::WriteFile { path: path.to_owned(), contents: contents.to_owned() },
             )
         }
         FsCreateDirAll => {
             let path = estr(&args[0], "fs_create_dir_all")?;
-            dispatch_fs(
-                ctx,
-                FsOperation::CreateDirAll {
-                    path: path.to_owned(),
-                },
-            )
+            dispatch_fs(ctx, FsOperation::CreateDirAll { path: path.to_owned() })
         }
         FsRemoveFile => {
             let path = estr(&args[0], "fs_remove_file")?;
-            dispatch_fs(
-                ctx,
-                FsOperation::RemoveFile {
-                    path: path.to_owned(),
-                },
-            )
+            dispatch_fs(ctx, FsOperation::RemoveFile { path: path.to_owned() })
         }
         FsRemoveDirAll => {
             let path = estr(&args[0], "fs_remove_dir_all")?;
-            dispatch_fs(
-                ctx,
-                FsOperation::RemoveDirAll {
-                    path: path.to_owned(),
-                },
-            )
+            dispatch_fs(ctx, FsOperation::RemoveDirAll { path: path.to_owned() })
         }
         FsRename => {
             let from = estr(&args[0], "fs_rename")?;
             let to = estr(&args[1], "fs_rename")?;
-            dispatch_fs(
-                ctx,
-                FsOperation::Rename {
-                    from: from.to_owned(),
-                    to: to.to_owned(),
-                },
-            )
+            dispatch_fs(ctx, FsOperation::Rename { from: from.to_owned(), to: to.to_owned() })
         }
         FsListDir => {
             let path = estr(&args[0], "fs_list_dir")?;
-            dispatch_fs(
-                ctx,
-                FsOperation::ListDir {
-                    path: path.to_owned(),
-                },
-            )
+            dispatch_fs(ctx, FsOperation::ListDir { path: path.to_owned() })
         }
         FsMetadata => {
             let path = estr(&args[0], "fs_metadata")?;
-            dispatch_fs(
-                ctx,
-                FsOperation::Metadata {
-                    path: path.to_owned(),
-                },
-            )
+            dispatch_fs(ctx, FsOperation::Metadata { path: path.to_owned() })
         }
         Sha256 => {
             let data = estr(&args[0], "sha256")?;
@@ -3753,10 +3458,7 @@ pub fn execute_core_primop(
             Ok(Value::Integer(elapsed_ms.min(i64::MAX as u128) as i64))
         }
         Try => match ctx.invoke_value(args[0].clone(), vec![]) {
-            Ok(val) => Ok(Value::Tuple(Rc::new(vec![
-                Value::String("ok".to_string().into()),
-                val,
-            ]))),
+            Ok(val) => Ok(Value::Tuple(Rc::new(vec![Value::String("ok".to_string().into()), val]))),
             Err(msg) => Ok(Value::Tuple(Rc::new(vec![
                 Value::String("error".to_string().into()),
                 Value::String(Rc::new(msg)),
@@ -3820,10 +3522,9 @@ pub fn execute_core_primop(
 
         // ── Effect handler ops (native-only, Koka-style yield model) ────
         EvvGet | EvvSet | FreshMarker | EvvInsert | YieldTo | YieldExtend | YieldPrompt
-        | IsYielding | PerformDirect => Err(format!(
-            "CorePrimOp {:?} is native-backend only (Koka yield model)",
-            op
-        )),
+        | IsYielding | PerformDirect => {
+            Err(format!("CorePrimOp {:?} is native-backend only (Koka yield model)", op))
+        }
 
         // ── Concurrency (proposal 0174 D5-a) ─────────────────────────
         //
@@ -4102,9 +3803,7 @@ pub fn execute_core_primop(
             let req = vm_async::alloc_request_id();
             vm_fibers::register_both_await(req.0, child_a, child_b);
             let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
-            vm_fibers::debug_block(|| Blocked::Both {
-                fibers: vec![child_a.0, child_b.0],
-            });
+            vm_fibers::debug_block(|| Blocked::Both { fibers: vec![child_a.0, child_b.0] });
             vm_fibers::signal_park(req, cont);
             if let Err(e) = propagate_if_park_cancelled() {
                 vm_fibers::deregister_await(req.0);
@@ -4124,9 +3823,7 @@ pub fn execute_core_primop(
             let req = vm_async::alloc_request_id();
             vm_fibers::register_race_await(req.0, vec![child_a, child_b]);
             let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
-            vm_fibers::debug_block(|| Blocked::Race {
-                fibers: vec![child_a.0, child_b.0],
-            });
+            vm_fibers::debug_block(|| Blocked::Race { fibers: vec![child_a.0, child_b.0] });
             vm_fibers::signal_park(req, cont);
             if let Err(e) = propagate_if_park_cancelled() {
                 vm_fibers::deregister_await(req.0);
@@ -4216,10 +3913,7 @@ pub fn execute_core_primop(
             let backend = vm_async::backend()?;
             backend.timer_start(req, ms);
             let cont = ctx.capture_to_fiber_boundary(boundary_frame, boundary_sp)?;
-            vm_fibers::debug_block(|| Blocked::Timeout {
-                ms,
-                fiber: body_child.0,
-            });
+            vm_fibers::debug_block(|| Blocked::Timeout { ms, fiber: body_child.0 });
             vm_fibers::signal_park(req, cont);
             if let Err(e) = propagate_if_park_cancelled() {
                 vm_fibers::deregister_await(req.0);
@@ -4264,10 +3958,7 @@ pub fn execute_core_primop(
             };
             let child_id = vm_fibers::spawn_child_with_body(args[1].clone());
             vm_fibers::register_fiber_in_scope(scope_id, child_id);
-            fiber_trace::emit(FiberEvent::ScopeCreate {
-                scope_id,
-                fid: child_id.0,
-            });
+            fiber_trace::emit(FiberEvent::ScopeCreate { scope_id, fid: child_id.0 });
             Ok(Value::None)
         }
 
@@ -4562,9 +4253,8 @@ pub fn execute_core_primop(
                 if let Ok(addr) = target.parse::<SocketAddr>() {
                     backend.tcp_connect(req, addr);
                 } else {
-                    let port: u16 = (*port)
-                        .try_into()
-                        .map_err(|_| format!("tcp_connect: bad port: {port}"))?;
+                    let port: u16 =
+                        (*port).try_into().map_err(|_| format!("tcp_connect: bad port: {port}"))?;
                     backend.dns_resolve(req, host.to_string(), port);
                 }
                 park_tcp_op(ctx, req)
@@ -4576,11 +4266,7 @@ pub fn execute_core_primop(
             (Value::Integer(handle), Value::Integer(max)) => {
                 use crate::runtime::r#async::backend::{AsyncBackend, IoHandle};
                 let h = IoHandle(*handle as u64);
-                let max = if *max > 0 && *max <= (1 << 24) {
-                    *max as usize
-                } else {
-                    4096
-                };
+                let max = if *max > 0 && *max <= (1 << 24) { *max as usize } else { 4096 };
                 let backend = vm_async::backend()?;
                 let req = vm_async::alloc_request_id();
                 backend.tcp_read(req, h, max);
@@ -4692,22 +4378,16 @@ pub fn execute_core_primop(
 
         // ── Generic/structural ops (never emitted as OpPrimOp) ───────
         Add | Sub | Mul | Div | Mod | Not | Eq | NEq | Lt | Le | Gt | Ge | And | Or | Concat
-        | Interpolate | MakeList | MakeArray | MakeTuple | MakeHash | Index => Err(format!(
-            "CorePrimOp {:?} should not appear in OpPrimOp bytecode",
-            op
-        )),
+        | Interpolate | MakeList | MakeArray | MakeTuple | MakeHash | Index => {
+            Err(format!("CorePrimOp {:?} should not appear in OpPrimOp bytecode", op))
+        }
     }
 }
 
 // ── Compact helper functions ─────────────────────────────────────────────────
 
 fn terr(op: &str, expected: &str, got: &Value) -> String {
-    format!(
-        "primop {} expected {}, got {}",
-        op,
-        expected,
-        got.type_name()
-    )
+    format!("primop {} expected {}, got {}", op, expected, got.type_name())
 }
 
 fn collect_list_values(value: &Value) -> Result<Vec<Value>, &'static str> {
@@ -4726,11 +4406,7 @@ fn collect_list_values(value: &Value) -> Result<Vec<Value>, &'static str> {
 }
 
 fn hkey_err(op: &str, v: &Value) -> String {
-    format!(
-        "primop {} expects hashable key (String, Int, Bool), got {}",
-        op,
-        v.type_name()
-    )
+    format!("primop {} expects hashable key (String, Int, Bool), got {}", op, v.type_name())
 }
 
 fn estr<'a>(v: &'a Value, op: &str) -> Result<&'a str, String> {
@@ -4797,10 +4473,7 @@ fn int_cmp(args: &[Value], f: impl FnOnce(i64, i64) -> bool, op: &str) -> Result
 }
 
 fn float_cmp(args: &[Value], f: impl FnOnce(f64, f64) -> bool, op: &str) -> Result<Value, String> {
-    Ok(Value::Boolean(f(
-        efloat(&args[0], op)?,
-        efloat(&args[1], op)?,
-    )))
+    Ok(Value::Boolean(f(efloat(&args[0], op)?, efloat(&args[1], op)?)))
 }
 
 fn numeric_min_max(args: &[Value], op: &str, is_min: bool) -> Result<Value, String> {
@@ -4818,11 +4491,7 @@ fn numeric_min_max(args: &[Value], op: &str, is_min: bool) -> Result<Value, Stri
             ));
         }
     };
-    let result = if is_min {
-        a_num.min(b_num)
-    } else {
-        a_num.max(b_num)
-    };
+    let result = if is_min { a_num.min(b_num) } else { a_num.max(b_num) };
     match (&args[0], &args[1]) {
         (Value::Integer(_), Value::Integer(_)) => Ok(Value::Integer(result as i64)),
         _ => Ok(Value::Float(result)),
@@ -4920,11 +4589,7 @@ fn vm_http_serve_config(ctx: &mut dyn RuntimeContext, args: &[Value]) -> Result<
     let listener = eint(&args[0], "http_serve_config(listener)")?;
     let scope = eint(&args[1], "http_serve_config(scope)")?;
     let config = http_server_config(&args[2])?;
-    Ok(Value::Integer(vm_http::register(
-        listener,
-        scope as u64,
-        config,
-    )))
+    Ok(Value::Integer(vm_http::register(listener, scope as u64, config)))
 }
 
 fn http_server_config(value: &Value) -> Result<crate::runtime::http::BlockingServerConfig, String> {
@@ -4957,10 +4622,7 @@ fn http_server_config(value: &Value) -> Result<crate::runtime::http::BlockingSer
 
     Ok(crate::runtime::http::BlockingServerConfig {
         max_connections,
-        limits: crate::runtime::http::ParseLimits {
-            max_header_bytes,
-            max_body_bytes,
-        },
+        limits: crate::runtime::http::ParseLimits { max_header_bytes, max_body_bytes },
         request_timeout_ms,
         worker_count,
     })
@@ -5034,9 +4696,8 @@ fn vm_http_write_response(args: &[Value]) -> Result<Value, String> {
         Value::Boolean(b) => *b,
         other => return Err(terr("http_write_response", "Bool", other)),
     };
-    let status_u16: u16 = status
-        .try_into()
-        .map_err(|_| format!("Response.status out of HTTP range: {status}"))?;
+    let status_u16: u16 =
+        status.try_into().map_err(|_| format!("Response.status out of HTTP range: {status}"))?;
     let wire = write_response(&HttpResponse {
         status: status_u16,
         reason: http_reason(status),
@@ -5046,9 +4707,7 @@ fn vm_http_write_response(args: &[Value]) -> Result<Value, String> {
         )],
         body: body.into_bytes(),
     });
-    Ok(Value::String(
-        String::from_utf8_lossy(&wire).to_string().into(),
-    ))
+    Ok(Value::String(String::from_utf8_lossy(&wire).to_string().into()))
 }
 
 fn vm_http_write_chunked_head(args: &[Value]) -> Result<Value, String> {
@@ -5059,24 +4718,18 @@ fn vm_http_write_chunked_head(args: &[Value]) -> Result<Value, String> {
         .try_into()
         .map_err(|_| format!("StreamResponse.status out of HTTP range: {status}"))?;
     let wire = write_chunked_head(status_u16, &http_reason(status), &headers);
-    Ok(Value::String(
-        String::from_utf8_lossy(&wire).to_string().into(),
-    ))
+    Ok(Value::String(String::from_utf8_lossy(&wire).to_string().into()))
 }
 
 fn vm_http_write_chunk(args: &[Value]) -> Result<Value, String> {
     let chunk = estr(&args[0], "http_write_chunk")?;
     let wire = crate::runtime::http::write_chunk(chunk.as_bytes());
-    Ok(Value::String(
-        String::from_utf8_lossy(&wire).to_string().into(),
-    ))
+    Ok(Value::String(String::from_utf8_lossy(&wire).to_string().into()))
 }
 
 fn vm_http_write_chunked_end(_args: &[Value]) -> Result<Value, String> {
     let wire = crate::runtime::http::write_chunked_end();
-    Ok(Value::String(
-        String::from_utf8_lossy(&wire).to_string().into(),
-    ))
+    Ok(Value::String(String::from_utf8_lossy(&wire).to_string().into()))
 }
 
 fn vm_http_parse_url(args: &[Value]) -> Result<Value, String> {
@@ -5118,9 +4771,7 @@ fn vm_http_write_request(args: &[Value]) -> Result<Value, String> {
     let headers = http_header_pairs(&args[3], "http_write_request(headers)")?;
     let body = estr(&args[4], "http_write_request(body)")?;
     let wire = write_request(method, host, target, &headers, body.as_bytes());
-    Ok(Value::String(
-        String::from_utf8_lossy(&wire).to_string().into(),
-    ))
+    Ok(Value::String(String::from_utf8_lossy(&wire).to_string().into()))
 }
 
 fn vm_http_parse_response(args: &[Value]) -> Result<Value, String> {
@@ -5155,9 +4806,7 @@ fn vm_json_parse(args: &[Value]) -> Result<Value, String> {
 
 fn vm_json_stringify(args: &[Value]) -> Result<Value, String> {
     let value = value_to_json(&args[0])?;
-    Ok(Value::String(
-        crate::runtime::json::stringify(&value).into(),
-    ))
+    Ok(Value::String(crate::runtime::json::stringify(&value).into()))
 }
 
 /// The text a console primop writes, newline included: `print`'s arguments
@@ -5222,9 +4871,9 @@ fn execute_fs_sync(operation: &FsOperation) -> Value {
 fn vm_fs_completion(completion: FsCompletion) -> Value {
     match completion {
         FsCompletion::ReadFile(result) => match result {
-            Ok(bytes) => vm_io_ok(Value::String(
-                String::from_utf8_lossy(&bytes).into_owned().into(),
-            )),
+            Ok(bytes) => {
+                vm_io_ok(Value::String(String::from_utf8_lossy(&bytes).into_owned().into()))
+            }
             Err(err) => vm_fs_error(&err),
         },
         FsCompletion::Predicate(value) => Value::Boolean(value),
@@ -5234,11 +4883,7 @@ fn vm_fs_completion(completion: FsCompletion) -> Value {
         },
         FsCompletion::ListDir(result) => match result {
             Ok(names) => vm_io_ok(Value::Array(
-                names
-                    .into_iter()
-                    .map(|name| Value::String(name.into()))
-                    .collect::<Vec<_>>()
-                    .into(),
+                names.into_iter().map(|name| Value::String(name.into())).collect::<Vec<_>>().into(),
             )),
             Err(err) => vm_fs_error(&err),
         },
@@ -5419,9 +5064,7 @@ fn vm_sha256_file(path: &str) -> Value {
             Err(err) => return vm_io_err(&err, path),
         }
     }
-    vm_io_ok(Value::String(
-        crate::shared::hex::encode(&hasher.finalize()).into(),
-    ))
+    vm_io_ok(Value::String(crate::shared::hex::encode(&hasher.finalize()).into()))
 }
 
 /// List a directory as `Result<Array<String>, IoError>`.
@@ -5442,9 +5085,7 @@ fn vm_fs_list_dir(path: &str) -> Value {
     for entry in entries {
         match entry {
             Ok(entry) => {
-                names.push(Value::String(
-                    entry.file_name().to_string_lossy().into_owned().into(),
-                ));
+                names.push(Value::String(entry.file_name().to_string_lossy().into_owned().into()));
             }
             Err(err) => return vm_io_err(&err, path),
         }
@@ -5629,10 +5270,7 @@ fn value_to_json(value: &Value) -> Result<crate::runtime::json::JsonValue, Strin
             },
             "JsonArray" => match adt.fields.get(0) {
                 Some(Value::Array(items)) => {
-                    let values = items
-                        .iter()
-                        .map(value_to_json)
-                        .collect::<Result<Vec<_>, _>>()?;
+                    let values = items.iter().map(value_to_json).collect::<Result<Vec<_>, _>>()?;
                     Ok(JsonValue::Array(values))
                 }
                 Some(other) => Err(terr("json_stringify(JsonArray)", "Array", other)),
@@ -5731,9 +5369,9 @@ fn config_usize_field(
 ) -> Result<usize, String> {
     match fields.get(index) {
         Some(Value::Integer(n)) if *n >= 0 => Ok(*n as usize),
-        Some(Value::Integer(n)) => Err(format!(
-            "http_serve_config: ServerConfig.{name} must be non-negative, got {n}"
-        )),
+        Some(Value::Integer(n)) => {
+            Err(format!("http_serve_config: ServerConfig.{name} must be non-negative, got {n}"))
+        }
         Some(other) => Err(format!(
             "http_serve_config: ServerConfig.{name} expected Int, got {}",
             other.type_name()
@@ -5751,9 +5389,9 @@ fn config_optional_usize_field(
         Some(Value::None) => Ok(None),
         Some(Value::Some(inner)) => match inner.as_ref() {
             Value::Integer(n) if *n >= 0 => Ok(Some(*n as usize)),
-            Value::Integer(n) => Err(format!(
-                "http_serve_config: ServerConfig.{name} must be non-negative, got {n}"
-            )),
+            Value::Integer(n) => {
+                Err(format!("http_serve_config: ServerConfig.{name} must be non-negative, got {n}"))
+            }
             other => Err(format!(
                 "http_serve_config: ServerConfig.{name} expected Option<Int>, got Some({})",
                 other.type_name()
@@ -5781,34 +5419,22 @@ fn method_constructor(method: &str) -> &'static str {
 
 fn response_parts(value: &Value) -> Result<(i64, String), String> {
     let Value::Adt(adt) = value else {
-        return Err(format!(
-            "http handler returned {}, expected Response",
-            value.type_name()
-        ));
+        return Err(format!("http handler returned {}, expected Response", value.type_name()));
     };
     if adt.constructor.as_ref() != "Response" {
-        return Err(format!(
-            "http handler returned {}, expected Response",
-            adt.constructor
-        ));
+        return Err(format!("http handler returned {}, expected Response", adt.constructor));
     }
     let status = match adt.fields.get(0) {
         Some(Value::Integer(n)) => *n,
         Some(other) => {
-            return Err(format!(
-                "Response.status expected Int, got {}",
-                other.type_name()
-            ));
+            return Err(format!("Response.status expected Int, got {}", other.type_name()));
         }
         None => return Err("Response missing status field".into()),
     };
     let body = match adt.fields.get(2) {
         Some(Value::String(s)) => s.to_string(),
         Some(other) => {
-            return Err(format!(
-                "Response.body expected String, got {}",
-                other.type_name()
-            ));
+            return Err(format!("Response.body expected String, got {}", other.type_name()));
         }
         None => return Err("Response missing body field".into()),
     };
@@ -5831,10 +5457,7 @@ fn stream_response_head_parts(value: &Value) -> Result<(i64, Vec<(String, String
     let status = match adt.fields.get(0) {
         Some(Value::Integer(n)) => *n,
         Some(other) => {
-            return Err(format!(
-                "StreamResponse.status expected Int, got {}",
-                other.type_name()
-            ));
+            return Err(format!("StreamResponse.status expected Int, got {}", other.type_name()));
         }
         None => return Err("StreamResponse missing status field".into()),
     };
@@ -5881,10 +5504,9 @@ mod http_config_tests {
 
     #[test]
     fn http_server_config_parses_worker_count_option() {
-        let parsed = http_server_config(&server_config_value(Value::Some(Rc::new(
-            Value::Integer(3),
-        ))))
-        .expect("parse ServerConfig");
+        let parsed =
+            http_server_config(&server_config_value(Value::Some(Rc::new(Value::Integer(3)))))
+                .expect("parse ServerConfig");
 
         assert_eq!(parsed.max_connections, 11);
         assert_eq!(parsed.limits.max_header_bytes, 22);
@@ -5895,14 +5517,10 @@ mod http_config_tests {
 
     #[test]
     fn http_server_config_rejects_negative_worker_count() {
-        let err = http_server_config(&server_config_value(Value::Some(Rc::new(Value::Integer(
-            -1,
-        )))))
-        .expect_err("negative worker_count should fail");
+        let err =
+            http_server_config(&server_config_value(Value::Some(Rc::new(Value::Integer(-1)))))
+                .expect_err("negative worker_count should fail");
 
-        assert!(
-            err.contains("ServerConfig.worker_count must be non-negative"),
-            "{err}"
-        );
+        assert!(err.contains("ServerConfig.worker_count must be non-negative"), "{err}");
     }
 }

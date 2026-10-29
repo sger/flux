@@ -120,6 +120,7 @@ struct FbipContext<'a> {
     summaries_by_name: &'a HashMap<Identifier, NamedFbipSummary>,
     interner: &'a Interner,
     current_def: Option<CoreBinderId>,
+    shared_tokens: &'a [CoreBinderId],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,23 +139,16 @@ pub fn analyze_program(
     for def in &program.defs {
         let summary = initial_summary(def);
         summaries.insert(def.binder.id, summary.clone());
-        summaries_by_name.insert(
-            def.name,
-            NamedFbipSummary {
-                summary,
-                provenance: BorrowProvenance::Inferred,
-            },
-        );
+        summaries_by_name
+            .insert(def.name, NamedFbipSummary { summary, provenance: BorrowProvenance::Inferred });
     }
 
     register_explicit_imported_fallbacks(program, &mut summaries_by_name, interner);
 
     for def in &program.defs {
         if let Some(entry) = summaries_by_name.get_mut(&def.name) {
-            entry.summary = summaries
-                .get(&def.binder.id)
-                .cloned()
-                .expect("definition summary should exist");
+            entry.summary =
+                summaries.get(&def.binder.id).cloned().expect("definition summary should exist");
             entry.provenance = BorrowProvenance::Inferred;
         }
     }
@@ -169,6 +163,7 @@ pub fn analyze_program(
                 summaries_by_name: &summaries_by_name_snapshot,
                 interner,
                 current_def: Some(def.binder.id),
+                shared_tokens: &[],
             };
             let next = summarize_definition(def, &ctx);
             let prev = summaries.get(&def.binder.id);
@@ -176,10 +171,7 @@ pub fn analyze_program(
                 summaries.insert(def.binder.id, next.clone());
                 summaries_by_name.insert(
                     def.name,
-                    NamedFbipSummary {
-                        summary: next,
-                        provenance: BorrowProvenance::Inferred,
-                    },
+                    NamedFbipSummary { summary: next, provenance: BorrowProvenance::Inferred },
                 );
                 changed = true;
             }
@@ -203,23 +195,16 @@ pub fn analyze_program_aether(
     for def in &program.defs {
         let summary = initial_summary_aether(def);
         summaries.insert(def.binder.id, summary.clone());
-        summaries_by_name.insert(
-            def.name,
-            NamedFbipSummary {
-                summary,
-                provenance: BorrowProvenance::Inferred,
-            },
-        );
+        summaries_by_name
+            .insert(def.name, NamedFbipSummary { summary, provenance: BorrowProvenance::Inferred });
     }
 
     register_explicit_imported_fallbacks(program.as_core(), &mut summaries_by_name, interner);
 
     for def in &program.defs {
         if let Some(entry) = summaries_by_name.get_mut(&def.name) {
-            entry.summary = summaries
-                .get(&def.binder.id)
-                .cloned()
-                .expect("definition summary should exist");
+            entry.summary =
+                summaries.get(&def.binder.id).cloned().expect("definition summary should exist");
             entry.provenance = BorrowProvenance::Inferred;
         }
     }
@@ -234,6 +219,7 @@ pub fn analyze_program_aether(
                 summaries_by_name: &summaries_by_name_snapshot,
                 interner,
                 current_def: Some(def.binder.id),
+                shared_tokens: &[],
             };
             let next = summarize_definition_aether(def, &ctx);
             let prev = summaries.get(&def.binder.id);
@@ -241,10 +227,7 @@ pub fn analyze_program_aether(
                 summaries.insert(def.binder.id, next.clone());
                 summaries_by_name.insert(
                     def.name,
-                    NamedFbipSummary {
-                        summary: next,
-                        provenance: BorrowProvenance::Inferred,
-                    },
+                    NamedFbipSummary { summary: next, provenance: BorrowProvenance::Inferred },
                 );
                 changed = true;
             }
@@ -288,11 +271,7 @@ fn summarize_definition(def: &CoreDef, ctx: &FbipContext<'_>) -> FbipSummary {
     let mut fact = analyze_expr(&def.expr, ctx);
     suppress_redundant_self_recursive_noise(&mut fact);
     let outcome = if fact.provable {
-        if fact.bound == 0 {
-            FbipOutcome::Fip
-        } else {
-            FbipOutcome::Fbip { bound: fact.bound }
-        }
+        if fact.bound == 0 { FbipOutcome::Fip } else { FbipOutcome::Fbip { bound: fact.bound } }
     } else {
         FbipOutcome::NotProvable
     };
@@ -320,11 +299,7 @@ fn summarize_definition_aether(def: &AetherDef, ctx: &FbipContext<'_>) -> FbipSu
     let mut fact = analyze_expr_aether(&def.expr, ctx);
     suppress_redundant_self_recursive_noise(&mut fact);
     let outcome = if fact.provable {
-        if fact.bound == 0 {
-            FbipOutcome::Fip
-        } else {
-            FbipOutcome::Fbip { bound: fact.bound }
-        }
+        if fact.bound == 0 { FbipOutcome::Fip } else { FbipOutcome::Fbip { bound: fact.bound } }
     } else {
         FbipOutcome::NotProvable
     };
@@ -452,10 +427,7 @@ fn analyze_expr(expr: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
         CoreExpr::PrimOp { args, .. } => fold_all(args.iter().map(|arg| analyze_expr(arg, ctx))),
         CoreExpr::App { func, args, .. } => {
             let mut fact = analyze_expr(func, ctx);
-            fact = seq(
-                fact,
-                fold_all(args.iter().map(|arg| analyze_expr(arg, ctx))),
-            );
+            fact = seq(fact, fold_all(args.iter().map(|arg| analyze_expr(arg, ctx))));
             seq(fact, analyze_call(func, ctx))
         }
         CoreExpr::Con { tag, fields, .. } => {
@@ -468,16 +440,11 @@ fn analyze_expr(expr: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
             }
             fact
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             let scrutinee_fact = analyze_expr(scrutinee, ctx);
             let branch_facts = alts.iter().map(|alt| {
-                let guard_fact = alt
-                    .guard
-                    .as_ref()
-                    .map(|guard| analyze_expr(guard, ctx))
-                    .unwrap_or_default();
+                let guard_fact =
+                    alt.guard.as_ref().map(|guard| analyze_expr(guard, ctx)).unwrap_or_default();
                 seq(guard_fact, analyze_expr(&alt.rhs, ctx))
             });
             seq(scrutinee_fact, join(branch_facts))
@@ -489,15 +456,9 @@ fn analyze_expr(expr: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
             fact.reasons.insert(FbipFailureReason::EffectBoundary);
             fact
         }
-        CoreExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
-            let mut fact = parameter
-                .as_ref()
-                .map_or_else(FbipFact::default, |p| analyze_expr(p, ctx));
+        CoreExpr::Handle { body, parameter, handlers, .. } => {
+            let mut fact =
+                parameter.as_ref().map_or_else(FbipFact::default, |p| analyze_expr(p, ctx));
             fact = seq(fact, analyze_expr(body, ctx));
             for handler in handlers {
                 fact = seq(fact, analyze_expr(&handler.body, ctx));
@@ -518,10 +479,9 @@ fn analyze_expr_aether(expr: &AetherExpr, ctx: &FbipContext<'_>) -> FbipFact {
         AetherExpr::Var { .. } | AetherExpr::Lit(_, _) => FbipFact::default(),
         AetherExpr::Lam { body, .. } => analyze_expr_aether(body, ctx),
         AetherExpr::Return { value, .. } => analyze_expr_aether(value, ctx),
-        AetherExpr::Let { rhs, body, .. } | AetherExpr::LetRec { rhs, body, .. } => seq(
-            analyze_expr_aether(rhs, ctx),
-            analyze_expr_aether(body, ctx),
-        ),
+        AetherExpr::Let { rhs, body, .. } | AetherExpr::LetRec { rhs, body, .. } => {
+            seq(analyze_expr_aether(rhs, ctx), analyze_expr_aether(body, ctx))
+        }
         AetherExpr::LetRecGroup { bindings, body, .. } => {
             let mut fact = FbipFact::default();
             for (_, rhs) in bindings {
@@ -534,10 +494,7 @@ fn analyze_expr_aether(expr: &AetherExpr, ctx: &FbipContext<'_>) -> FbipFact {
         }
         AetherExpr::App { func, args, .. } | AetherExpr::AetherCall { func, args, .. } => {
             let mut fact = analyze_expr_aether(func, ctx);
-            fact = seq(
-                fact,
-                fold_all(args.iter().map(|arg| analyze_expr_aether(arg, ctx))),
-            );
+            fact = seq(fact, fold_all(args.iter().map(|arg| analyze_expr_aether(arg, ctx))));
             seq(fact, analyze_call_aether(func, ctx))
         }
         AetherExpr::Con { tag, fields, .. } => {
@@ -557,9 +514,7 @@ fn analyze_expr_aether(expr: &AetherExpr, ctx: &FbipContext<'_>) -> FbipFact {
             }
             fact
         }
-        AetherExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        AetherExpr::Case { scrutinee, alts, .. } => {
             let scrutinee_fact = analyze_expr_aether(scrutinee, ctx);
             let branch_facts = alts.iter().map(|alt| {
                 let guard_fact = alt
@@ -578,15 +533,9 @@ fn analyze_expr_aether(expr: &AetherExpr, ctx: &FbipContext<'_>) -> FbipFact {
             fact.reasons.insert(FbipFailureReason::EffectBoundary);
             fact
         }
-        AetherExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
-            let mut fact = parameter
-                .as_ref()
-                .map_or_else(FbipFact::default, |p| analyze_expr_aether(p, ctx));
+        AetherExpr::Handle { body, parameter, handlers, .. } => {
+            let mut fact =
+                parameter.as_ref().map_or_else(FbipFact::default, |p| analyze_expr_aether(p, ctx));
             fact = seq(fact, analyze_expr_aether(body, ctx));
             for handler in handlers {
                 fact = seq(fact, analyze_expr_aether(&handler.body, ctx));
@@ -600,24 +549,28 @@ fn analyze_expr_aether(expr: &AetherExpr, ctx: &FbipContext<'_>) -> FbipFact {
             analyze_expr_aether(object, ctx)
         }
         AetherExpr::Dup { body, .. } => analyze_expr_aether(body, ctx),
-        AetherExpr::Drop { body, .. } => {
+        AetherExpr::Drop { var, body, .. } => {
             let mut fact = analyze_expr_aether(body, ctx);
-            if fact.has_constructors {
+            if fact.has_constructors
+                && !var.binder.is_some_and(|id| ctx.shared_tokens.contains(&id))
+            {
                 fact.provable = false;
-                fact.capabilities
-                    .insert(FbipCapability::NeedsConstructorToken);
+                fact.capabilities.insert(FbipCapability::NeedsConstructorToken);
                 fact.reasons.insert(FbipFailureReason::TokenUnavailable);
             }
             fact
         }
-        AetherExpr::DropSpecialized {
-            unique_body,
-            shared_body,
-            ..
-        } => join([
-            analyze_expr_aether(unique_body, ctx),
-            analyze_expr_aether(shared_body, ctx),
-        ]),
+        AetherExpr::DropSpecialized { scrutinee, unique_body, shared_body, .. } => {
+            // A shared shell cannot provide a reuse token. Its explicit
+            // decrement does not change the fresh allocation bound.
+            let mut shared_tokens = ctx.shared_tokens.to_vec();
+            shared_tokens.extend(scrutinee.binder);
+            let shared_ctx = FbipContext { shared_tokens: &shared_tokens, ..*ctx };
+            join([
+                analyze_expr_aether(unique_body, ctx),
+                analyze_expr_aether(shared_body, &shared_ctx),
+            ])
+        }
     }
 }
 
@@ -631,18 +584,13 @@ fn analyze_call(func: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
                 |binder| ctx.summaries.contains_key(&binder),
                 |name| match builtin_runtime_provenance(ctx.interner, name) {
                     Some(provenance) => Some(provenance),
-                    None => ctx
-                        .summaries_by_name
-                        .get(&name)
-                        .map(|entry| entry.provenance),
+                    None => ctx.summaries_by_name.get(&name).map(|entry| entry.provenance),
                 },
             );
             let self_recursive = classified.binder == ctx.current_def;
             match classified.kind {
                 AetherCalleeKind::DirectLocal => (
-                    classified
-                        .binder
-                        .and_then(|binder| ctx.summaries.get(&binder)),
+                    classified.binder.and_then(|binder| ctx.summaries.get(&binder)),
                     Some(FbipCallDetail {
                         callee: callee_name,
                         kind: FbipCallKind::DirectInternal,
@@ -651,9 +599,7 @@ fn analyze_call(func: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
                     }),
                 ),
                 AetherCalleeKind::DirectInferredGlobal => (
-                    ctx.summaries_by_name
-                        .get(&var.name)
-                        .map(|entry| &entry.summary),
+                    ctx.summaries_by_name.get(&var.name).map(|entry| &entry.summary),
                     Some(FbipCallDetail {
                         callee: callee_name,
                         kind: FbipCallKind::DirectInferredGlobal,
@@ -663,9 +609,7 @@ fn analyze_call(func: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
                 ),
                 AetherCalleeKind::BaseRuntime => (None, builtin_runtime_call_detail(&callee_name)),
                 AetherCalleeKind::Imported => (
-                    ctx.summaries_by_name
-                        .get(&var.name)
-                        .map(|entry| &entry.summary),
+                    ctx.summaries_by_name.get(&var.name).map(|entry| &entry.summary),
                     Some(FbipCallDetail {
                         callee: callee_name,
                         kind: FbipCallKind::DirectImported,
@@ -683,6 +627,9 @@ fn analyze_call(func: &CoreExpr, ctx: &FbipContext<'_>) -> FbipFact {
                     }),
                 ),
             }
+        }
+        CoreExpr::MemberAccess { object, member, .. } => {
+            (None, Some(member_call_detail(ctx.interner, module_name_of(object), *member)))
         }
         _ => (None, None),
     };
@@ -743,18 +690,13 @@ fn analyze_call_aether(func: &AetherExpr, ctx: &FbipContext<'_>) -> FbipFact {
                 |binder| ctx.summaries.contains_key(&binder),
                 |name| match builtin_runtime_provenance(ctx.interner, name) {
                     Some(provenance) => Some(provenance),
-                    None => ctx
-                        .summaries_by_name
-                        .get(&name)
-                        .map(|entry| entry.provenance),
+                    None => ctx.summaries_by_name.get(&name).map(|entry| entry.provenance),
                 },
             );
             let self_recursive = classified.binder == ctx.current_def;
             match classified.kind {
                 AetherCalleeKind::DirectLocal => (
-                    classified
-                        .binder
-                        .and_then(|binder| ctx.summaries.get(&binder)),
+                    classified.binder.and_then(|binder| ctx.summaries.get(&binder)),
                     Some(FbipCallDetail {
                         callee: callee_name,
                         kind: FbipCallKind::DirectInternal,
@@ -763,9 +705,7 @@ fn analyze_call_aether(func: &AetherExpr, ctx: &FbipContext<'_>) -> FbipFact {
                     }),
                 ),
                 AetherCalleeKind::DirectInferredGlobal => (
-                    ctx.summaries_by_name
-                        .get(&var.name)
-                        .map(|entry| &entry.summary),
+                    ctx.summaries_by_name.get(&var.name).map(|entry| &entry.summary),
                     Some(FbipCallDetail {
                         callee: callee_name,
                         kind: FbipCallKind::DirectInferredGlobal,
@@ -775,9 +715,7 @@ fn analyze_call_aether(func: &AetherExpr, ctx: &FbipContext<'_>) -> FbipFact {
                 ),
                 AetherCalleeKind::BaseRuntime => (None, builtin_runtime_call_detail(&callee_name)),
                 AetherCalleeKind::Imported => (
-                    ctx.summaries_by_name
-                        .get(&var.name)
-                        .map(|entry| &entry.summary),
+                    ctx.summaries_by_name.get(&var.name).map(|entry| &entry.summary),
                     Some(FbipCallDetail {
                         callee: callee_name,
                         kind: FbipCallKind::DirectImported,
@@ -795,6 +733,9 @@ fn analyze_call_aether(func: &AetherExpr, ctx: &FbipContext<'_>) -> FbipFact {
                     }),
                 ),
             }
+        }
+        AetherExpr::MemberAccess { object, member, .. } => {
+            (None, Some(member_call_detail(ctx.interner, module_name_of_aether(object), *member)))
         }
         _ => (None, None),
     };
@@ -845,11 +786,41 @@ fn analyze_call_aether(func: &AetherExpr, ctx: &FbipContext<'_>) -> FbipFact {
     fact
 }
 
+/// A call of an imported module's member, named as it is written
+/// (`Module.member`). Its FBIP behavior is not known here.
+fn member_call_detail(
+    interner: &Interner,
+    module: Option<Identifier>,
+    member: Identifier,
+) -> FbipCallDetail {
+    let member = safe_symbol_name(interner, member);
+    FbipCallDetail {
+        callee: match module {
+            Some(module) => format!("{}.{member}", safe_symbol_name(interner, module)),
+            None => member,
+        },
+        kind: FbipCallKind::DirectImported,
+        outcome: FbipCallOutcome::UnknownIndirect,
+        self_recursive: false,
+    }
+}
+
+fn module_name_of(object: &CoreExpr) -> Option<Identifier> {
+    match object {
+        CoreExpr::Var { var, .. } => Some(var.name),
+        _ => None,
+    }
+}
+
+fn module_name_of_aether(object: &AetherExpr) -> Option<Identifier> {
+    match object {
+        AetherExpr::Var { var, .. } => Some(var.name),
+        _ => None,
+    }
+}
+
 fn safe_symbol_name(interner: &Interner, name: Identifier) -> String {
-    interner
-        .try_resolve(name)
-        .map(str::to_string)
-        .unwrap_or_else(|| format!("{name:?}"))
+    interner.try_resolve(name).map(str::to_string).unwrap_or_else(|| format!("{name:?}"))
 }
 
 fn builtin_runtime_provenance(interner: &Interner, name: Identifier) -> Option<BorrowProvenance> {
@@ -941,9 +912,7 @@ fn collect_unresolved_callees(expr: &CoreExpr, unresolved: &mut HashMap<Identifi
             }
             collect_unresolved_callees(body, unresolved);
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             collect_unresolved_callees(scrutinee, unresolved);
             for alt in alts {
                 if let Some(guard) = &alt.guard {
@@ -963,12 +932,7 @@ fn collect_unresolved_callees(expr: &CoreExpr, unresolved: &mut HashMap<Identifi
                 collect_unresolved_callees(arg, unresolved);
             }
         }
-        CoreExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        CoreExpr::Handle { body, parameter, handlers, .. } => {
             if let Some(parameter) = parameter {
                 collect_unresolved_callees(parameter, unresolved);
             }
@@ -1004,10 +968,7 @@ mod tests {
     }
 
     fn var<B: Borrow<CoreBinder>>(binder: B) -> CoreExpr {
-        CoreExpr::Var {
-            var: CoreVarRef::resolved(binder.borrow()),
-            span: Span::default(),
-        }
+        CoreExpr::Var { var: CoreVarRef::resolved(binder.borrow()), span: Span::default() }
     }
 
     fn def(
@@ -1057,10 +1018,7 @@ mod tests {
 
     fn aprogram(defs: Vec<AetherDef>) -> AetherProgram {
         AetherProgram::new(
-            CoreProgram {
-                defs: Vec::new(),
-                top_level_items: Vec::new(),
-            },
+            CoreProgram { defs: Vec::new(), top_level_items: Vec::new() },
             defs,
             Vec::new(),
         )
@@ -1087,11 +1045,7 @@ mod tests {
         let summaries = analyze_program(&program, &interner);
         let summary = summaries.values().next().unwrap();
         assert_eq!(summary.outcome, FbipOutcome::Fbip { bound: 1 });
-        assert!(
-            summary
-                .reasons
-                .contains(&FbipFailureReason::FreshAllocation)
-        );
+        assert!(summary.reasons.contains(&FbipFailureReason::FreshAllocation));
     }
 
     #[test]
@@ -1258,11 +1212,7 @@ mod tests {
             &mut interner,
             1,
             "callee",
-            CoreExpr::Con {
-                tag: CoreTag::Some,
-                fields: vec![var(x)],
-                span: Span::default(),
-            },
+            CoreExpr::Con { tag: CoreTag::Some, fields: vec![var(x)], span: Span::default() },
             Some(FipAnnotation::Fbip),
         );
         let caller_binder = binder(&mut interner, 3, "caller");
@@ -1286,10 +1236,7 @@ mod tests {
             fip: Some(FipAnnotation::Fbip),
             span: Span::default(),
         };
-        let program = CoreProgram {
-            defs: vec![callee, caller],
-            top_level_items: Vec::new(),
-        };
+        let program = CoreProgram { defs: vec![callee, caller], top_level_items: Vec::new() };
         let summaries = analyze_program(&program, &interner);
         let summary = summaries.get(&caller_binder.id).unwrap();
         assert_eq!(summary.outcome, FbipOutcome::Fbip { bound: 1 });
@@ -1542,11 +1489,9 @@ mod tests {
         ]);
 
         let summaries = analyze_program_aether(&program, &interner);
-        for (binder_id, expected) in [
-            (CoreBinderId(1), "IO"),
-            (CoreBinderId(2), "Time"),
-            (CoreBinderId(3), "Panic"),
-        ] {
+        for (binder_id, expected) in
+            [(CoreBinderId(1), "IO"), (CoreBinderId(2), "Time"), (CoreBinderId(3), "Panic")]
+        {
             let summary = summaries.get(&binder_id).unwrap();
             assert_eq!(summary.outcome, FbipOutcome::Fip);
             assert!(!summary.reasons.contains(&FbipFailureReason::UnknownCall));
@@ -1635,7 +1580,7 @@ mod tests {
     }
 
     #[test]
-    fn drop_specialized_joins_conservatively() {
+    fn a_shared_scrutinee_release_does_not_claim_a_missing_reuse_token() {
         let mut interner = Interner::new();
         let x = binder(&mut interner, 2, "x");
         let token = binder(&mut interner, 3, "token");
@@ -1652,9 +1597,13 @@ mod tests {
                     field_mask: None,
                     span: Span::default(),
                 }),
-                shared_body: Box::new(AetherExpr::Con {
-                    tag: CoreTag::Some,
-                    fields: vec![AetherExpr::bound_var(x, Span::default())],
+                shared_body: Box::new(AetherExpr::Drop {
+                    var: CoreVarRef::resolved(&token),
+                    body: Box::new(AetherExpr::Con {
+                        tag: CoreTag::Some,
+                        fields: vec![AetherExpr::bound_var(x, Span::default())],
+                        span: Span::default(),
+                    }),
                     span: Span::default(),
                 }),
                 span: Span::default(),
@@ -1706,27 +1655,15 @@ mod tests {
                 &mut interner,
                 1,
                 "plain_alloc",
-                CoreExpr::Con {
-                    tag: CoreTag::Some,
-                    fields: vec![var(x)],
-                    span: Span::default(),
-                },
+                CoreExpr::Con { tag: CoreTag::Some, fields: vec![var(x)], span: Span::default() },
                 Some(FipAnnotation::Fbip),
             )],
             top_level_items: Vec::new(),
         };
         let summaries = analyze_program(&alloc_program, &interner);
         let summary = summaries.values().next().unwrap();
-        assert!(
-            summary
-                .reasons
-                .contains(&FbipFailureReason::FreshAllocation)
-        );
-        assert!(
-            !summary
-                .reasons
-                .contains(&FbipFailureReason::TokenUnavailable)
-        );
+        assert!(summary.reasons.contains(&FbipFailureReason::FreshAllocation));
+        assert!(!summary.reasons.contains(&FbipFailureReason::TokenUnavailable));
 
         let token = binder(&mut interner, 3, "token");
         let dropped_program = aprogram(vec![adef(
@@ -1746,10 +1683,6 @@ mod tests {
         )]);
         let dropped_summaries = analyze_program_aether(&dropped_program, &interner);
         let dropped_summary = dropped_summaries.values().next().unwrap();
-        assert!(
-            dropped_summary
-                .reasons
-                .contains(&FbipFailureReason::TokenUnavailable)
-        );
+        assert!(dropped_summary.reasons.contains(&FbipFailureReason::TokenUnavailable));
     }
 }

@@ -4,6 +4,15 @@
 # so generated executables carry no Win32 clipboard imports for Windows Defender to
 # flag. `llvm` re-enables the native backend (`llvm = ["native"]`).
 native = ["run", "--no-default-features", "--features", "llvm", "--", "--native"]
-# Repository tasks: `cargo xtask verify <tag>`, `sweep`, `compare` (xtask/src/main.rs).
+# Repository tasks: `cargo xtask verify <tag> [--base <tag> --cmp]`, `sweep [--determinism]`,
+# `compare [--content]`, `prune` (xtask/src/main.rs).
 # Its own target dir, so the cargo commands it runs never relink the running xtask.
 xtask = ["run", "--package", "xtask", "--quiet", "--target-dir", "target/xtask", "--"]
+# Test tiers (TESTING.md). `test-fast` tests only the root package with default features,
+# like `cargo build`. With `--workspace`, flux-lsp's dependencies would change the
+# features of crates `flux` uses and force a second build of `flux`.
+test-fast = ["nextest", "run"]
+test-all = ["nextest", "run", "--workspace", "--all-features", "--profile", "ci"]
+# Tests for what changed, and tests for one compiler phase (TESTING.md).
+test-changed = ["xtask", "affected"]
+test-phase = ["xtask", "phase"]

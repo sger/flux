@@ -19,11 +19,7 @@ pub struct Colors {
 impl Colors {
     /// Get colors based on NO_COLOR environment variable
     pub fn new() -> Self {
-        if env::var("NO_COLOR").is_ok() {
-            Self::no_color()
-        } else {
-            Self::with_color()
-        }
+        if env::var("NO_COLOR").is_ok() { Self::no_color() } else { Self::with_color() }
     }
 
     /// Get colored output (default)
@@ -42,16 +38,7 @@ impl Colors {
 
     /// Get no-color output (when NO_COLOR is set)
     pub fn no_color() -> Self {
-        Self {
-            bold: "",
-            dim: "",
-            red: "",
-            blue: "",
-            cyan: "",
-            green: "",
-            yellow: "",
-            reset: "",
-        }
+        Self { bold: "", dim: "", red: "", blue: "", cyan: "", green: "", yellow: "", reset: "" }
     }
 }
 

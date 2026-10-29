@@ -22,11 +22,7 @@ use flux::{
 fn parse(source: &str) -> (flux::syntax::program::Program, Interner) {
     let mut parser = Parser::new(Lexer::new(source));
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     (program, parser.take_interner())
 }
 
@@ -41,25 +37,15 @@ fn compile_ok(source: &str) {
 fn first_error_code(source: &str) -> String {
     let (program, interner) = parse(source);
     let mut compiler = Compiler::new_with_interner("<closure>", interner);
-    let diags = compiler
-        .compile(&program)
-        .expect_err("expected compile error");
-    diags
-        .first()
-        .and_then(|d| d.code().map(str::to_string))
-        .unwrap_or_default()
+    let diags = compiler.compile(&program).expect_err("expected compile error");
+    diags.first().and_then(|d| d.code().map(str::to_string)).unwrap_or_default()
 }
 
 fn all_error_codes(source: &str) -> Vec<String> {
     let (program, interner) = parse(source);
     let mut compiler = Compiler::new_with_interner("<closure>", interner);
-    let diags = compiler
-        .compile(&program)
-        .expect_err("expected compile error");
-    diags
-        .iter()
-        .filter_map(|d| d.code().map(str::to_string))
-        .collect()
+    let diags = compiler.compile(&program).expect_err("expected compile error");
+    diags.iter().filter_map(|d| d.code().map(str::to_string)).collect()
 }
 
 fn infer_scheme(source: &str, name: &str) -> (String, String) {
@@ -88,9 +74,7 @@ fn infer_scheme(source: &str, name: &str) -> (String, String) {
             preloaded_adt_data: Vec::new(),
         },
     );
-    let sym = interner
-        .lookup(name)
-        .unwrap_or_else(|| panic!("name `{name}` was never interned"));
+    let sym = interner.lookup(name).unwrap_or_else(|| panic!("name `{name}` was never interned"));
     let scheme: &Scheme = result
         .type_env
         .visible_bindings()
@@ -221,10 +205,7 @@ fn pair(x, y) { (x, y) }
     );
     assert!(diag_a.is_empty(), "unexpected diagnostics (a):\n{diag_a}");
     assert!(diag_b.is_empty(), "unexpected diagnostics (b):\n{diag_b}");
-    assert_eq!(
-        a, b,
-        "scheme rendering is not stable across allocation orders"
-    );
+    assert_eq!(a, b, "scheme rendering is not stable across allocation orders");
     assert!(
         a.starts_with("forall a") && a.contains("(a, b)"),
         "expected canonical `forall a, b. (a, b) -> (a, b)` shape, got: {a}"

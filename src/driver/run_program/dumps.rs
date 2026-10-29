@@ -76,9 +76,7 @@ pub(crate) fn handle_dumps(request: DumpRequest<'_>) -> bool {
     }
 
     if request.dump_lir {
-        let dumped = request
-            .compiler
-            .dump_lir(request.merged_program, request.enable_optimize);
+        let dumped = request.compiler.dump_lir(request.merged_program, request.enable_optimize);
         match dumped {
             Ok(dumped) => println!("{dumped}"),
             Err(diag) => {
@@ -99,9 +97,7 @@ pub(crate) fn handle_dumps(request: DumpRequest<'_>) -> bool {
     }
 
     if request.dump_cfg {
-        let dumped = request
-            .compiler
-            .dump_cfg(request.merged_program, request.enable_optimize);
+        let dumped = request.compiler.dump_cfg(request.merged_program, request.enable_optimize);
         match dumped {
             Ok(dumped) => println!("{dumped}"),
             Err(diag) => {
@@ -123,10 +119,7 @@ pub(crate) fn handle_dumps(request: DumpRequest<'_>) -> bool {
 
     #[cfg(feature = "llvm")]
     if request.dump_lir_llvm {
-        match request
-            .compiler
-            .dump_lir_llvm(request.merged_program, request.enable_optimize)
-        {
+        match request.compiler.dump_lir_llvm(request.merged_program, request.enable_optimize) {
             Ok(ir_text) => println!("{ir_text}"),
             Err(diag) => {
                 emit_diagnostics(DiagnosticRenderRequest {

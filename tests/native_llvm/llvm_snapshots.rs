@@ -21,10 +21,7 @@ fn hand_written_module_snapshot() {
                     LlvmType::ptr(),
                     LlvmType::i32(),
                     LlvmType::i32(),
-                    LlvmType::Array {
-                        len: 0,
-                        element: Box::new(LlvmType::i64()),
-                    },
+                    LlvmType::Array { len: 0, element: Box::new(LlvmType::i64()) },
                 ],
             },
         }],
@@ -115,9 +112,7 @@ fn hand_written_module_snapshot() {
                         )],
                         attrs: vec![],
                     }],
-                    term: LlvmTerminator::Br {
-                        target: LabelId("join".into()),
-                    },
+                    term: LlvmTerminator::Br { target: LabelId("join".into()) },
                 },
                 LlvmBlock {
                     label: LabelId("nonzero".into()),
@@ -128,9 +123,7 @@ fn hand_written_module_snapshot() {
                         lhs: LlvmOperand::Local(LlvmLocal("loaded".into())),
                         rhs: LlvmOperand::Const(LlvmConst::Int { bits: 64, value: 1 }),
                     }],
-                    term: LlvmTerminator::Br {
-                        target: LabelId("join".into()),
-                    },
+                    term: LlvmTerminator::Br { target: LabelId("join".into()) },
                 },
                 LlvmBlock {
                     label: LabelId("join".into()),

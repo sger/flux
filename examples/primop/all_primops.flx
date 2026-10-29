@@ -27,7 +27,7 @@
 // true
 // "-- Arrays/Collections --"
 // 3
-// 20
+// Some(20)
 // [|10, 99, 30|]
 // Some(10)
 // Some(30)

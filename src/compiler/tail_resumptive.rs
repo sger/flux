@@ -11,19 +11,16 @@ use crate::syntax::expression::{Expression, HandleArm};
 
 /// Returns `true` if **all** arms of a handler are tail-resumptive.
 pub fn is_handler_tail_resumptive(arms: &[HandleArm]) -> bool {
-    arms.iter()
-        .all(|arm| is_arm_tail_resumptive(arm.resume_param, &arm.body))
+    arms.iter().all(|arm| is_arm_tail_resumptive(arm.resume_param, &arm.body))
 }
 
 /// Check whether an arm body terminates with `resume(v)` on every path.
 fn is_arm_tail_resumptive(resume: Identifier, body: &Expression) -> bool {
     match body {
         // Direct: `resume(v)` — the ideal case.
-        Expression::Call {
-            function,
-            arguments,
-            ..
-        } => is_resume_call(resume, function) && arguments.len() == 1,
+        Expression::Call { function, arguments, .. } => {
+            is_resume_call(resume, function) && arguments.len() == 1
+        }
 
         // Do-block: `do { stmts; resume(v) }` — last statement must be
         // tail-resumptive.
@@ -40,11 +37,7 @@ fn is_arm_tail_resumptive(resume: Identifier, body: &Expression) -> bool {
         }
 
         // If-else: both branches must be tail-resumptive.
-        Expression::If {
-            consequence,
-            alternative,
-            ..
-        } => {
+        Expression::If { consequence, alternative, .. } => {
             let then_ok = consequence.statements.last().is_some_and(|s| match s {
                 crate::syntax::statement::Statement::Expression { expression, .. } => {
                     is_arm_tail_resumptive(resume, expression)
@@ -63,9 +56,9 @@ fn is_arm_tail_resumptive(resume: Identifier, body: &Expression) -> bool {
         }
 
         // Match: every arm must be tail-resumptive.
-        Expression::Match { arms, .. } => arms
-            .iter()
-            .all(|arm| is_arm_tail_resumptive(resume, &arm.body)),
+        Expression::Match { arms, .. } => {
+            arms.iter().all(|arm| is_arm_tail_resumptive(resume, &arm.body))
+        }
 
         // Anything else is conservatively NOT tail-resumptive.
         _ => false,
@@ -81,8 +74,7 @@ fn is_resume_call(resume: Identifier, expr: &Expression) -> bool {
 /// reference `resume`. These handlers can skip continuation capture entirely.
 /// (Perceus Section 2.7.1: non-linear control flow safety.)
 pub fn is_handler_discard(arms: &[HandleArm]) -> bool {
-    arms.iter()
-        .all(|arm| !identifier_appears_in_expr(arm.resume_param, &arm.body))
+    arms.iter().all(|arm| !identifier_appears_in_expr(arm.resume_param, &arm.body))
 }
 
 /// Check whether an identifier appears anywhere in an expression tree.
@@ -90,15 +82,9 @@ pub fn is_handler_discard(arms: &[HandleArm]) -> bool {
 fn identifier_appears_in_expr(name: Identifier, expr: &Expression) -> bool {
     match expr {
         Expression::Identifier { name: n, .. } => *n == name,
-        Expression::Call {
-            function,
-            arguments,
-            ..
-        } => {
+        Expression::Call { function, arguments, .. } => {
             identifier_appears_in_expr(name, function)
-                || arguments
-                    .iter()
-                    .any(|a| identifier_appears_in_expr(name, a))
+                || arguments.iter().any(|a| identifier_appears_in_expr(name, a))
         }
         Expression::DoBlock { block, .. } => block.statements.iter().any(|s| match s {
             crate::syntax::statement::Statement::Expression { expression, .. } => {
@@ -109,12 +95,7 @@ fn identifier_appears_in_expr(name: Identifier, expr: &Expression) -> bool {
             }
             _ => false,
         }),
-        Expression::If {
-            condition,
-            consequence,
-            alternative,
-            ..
-        } => {
+        Expression::If { condition, consequence, alternative, .. } => {
             identifier_appears_in_expr(name, condition)
                 || consequence.statements.iter().any(|s| match s {
                     crate::syntax::statement::Statement::Expression { expression, .. } => {
@@ -131,9 +112,9 @@ fn identifier_appears_in_expr(name: Identifier, expr: &Expression) -> bool {
                     })
                 })
         }
-        Expression::Match { arms, .. } => arms
-            .iter()
-            .any(|arm| identifier_appears_in_expr(name, &arm.body)),
+        Expression::Match { arms, .. } => {
+            arms.iter().any(|arm| identifier_appears_in_expr(name, &arm.body))
+        }
         Expression::Infix { left, right, .. } => {
             identifier_appears_in_expr(name, left) || identifier_appears_in_expr(name, right)
         }

@@ -1,5 +1,14 @@
 // A constructor imported from another module must infer as its ADT, so
 // anything keyed on that type — class dispatch above all — resolves.
+// parity-expected-stdout-begin
+// "int 7"
+// "shape 12"
+// "shape 0"
+// "rect 12"
+// "5"
+// "tag!"
+// "shape 3"
+// parity-expected-stdout-end
 
 import ImportedCtor.Shapes as Shapes
 import ImportedCtor.Shapes exposing (Shape, Rect, Boxed, Circle, Empty)

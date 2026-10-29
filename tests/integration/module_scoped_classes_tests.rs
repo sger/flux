@@ -59,10 +59,7 @@ fn compile_and_run(source: &str) -> Value {
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("test.flx".to_string(), interner);
     if let Err(diags) = compiler.compile(&program) {
-        panic!(
-            "compile errors:\n{}",
-            render_diagnostics(&diags, Some(source), None)
-        );
+        panic!("compile errors:\n{}", render_diagnostics(&diags, Some(source), None));
     }
 
     let bytecode = compiler.bytecode();

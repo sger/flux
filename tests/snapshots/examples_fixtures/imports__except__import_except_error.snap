@@ -9,9 +9,9 @@ error[E012]: Unknown Module Member
 
 Module `Lib` has no member named `drop`.
 
-  examples/imports/except/import_except_error.flx:12:1
+  examples/imports/except/import_except_error.flx:10:1
    |
-12 | Lib.drop();
+10 | Lib.drop();
    | ^^^^^^^^
 
 Hint:

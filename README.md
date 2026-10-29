@@ -69,7 +69,7 @@ cd flux
 # Run a program on the bytecode VM (default backend)
 cargo run -- examples/guide/01_getting_started.flx
 
-# Run the test blocks in a file
+# Run the test_* functions in a file
 cargo run -- --test examples/tests/array_test.flx
 ```
 
@@ -156,7 +156,7 @@ More to explore in [`examples/`](examples/): [`effects/`](examples/effects/),
 | --- | --- |
 | `flux run <file>` | Compile and run on the VM (the default if you omit `run`) |
 | `flux run --native <file>` | Compile and run via the LLVM backend (needs `--features llvm`) |
-| `flux --test <file>` | Run the `test` blocks in a file |
+| `flux --test <file>` | Run the `test_*` functions in a file |
 | `flux tokens <file>` | Dump the lexer token stream |
 | `flux bytecode <file>` | Dump compiled VM bytecode |
 | `flux fmt <file>` | Format source |
@@ -210,8 +210,22 @@ cargo test --all --all-features
   [`insta`](https://insta.rs/) (`cargo insta review` to accept).
 - [`CHANGELOG.md`](CHANGELOG.md) is written from the merged PRs at release time; a PR's
   description is its changelog entry.
-- Contributor and architecture notes live in [`CLAUDE.md`](CLAUDE.md) and
-  [`docs/internals/`](docs/internals/).
+- Architecture notes live in [`docs/internals/`](docs/internals/); test layout in
+  [`tests/README.md`](tests/README.md).
+- Commit messages follow [`docs/internals/commit_messages.md`](docs/internals/commit_messages.md).
+  Run these once in each clone:
+
+  ```sh
+  git config core.hooksPath .githooks
+  git config blame.ignorerevsfile .git-blame-ignore-revs
+  ```
+
+  The first turns on hooks: before a commit they check the message and run
+  `cargo xtask tidy` (formatting and the test layout); before a push they
+  refuse uncommitted changes and run tidy and clippy. The second makes
+  `git blame` skip commits that only reformat.
+- Using an LLM or coding agent? Read the [LLM usage policy](docs/llm_policy.md).
+  Agents follow [`AGENTS.md`](AGENTS.md).
 
 ## Documentation
 

@@ -17,11 +17,7 @@ static MODULE_AUDIT_COUNTER: AtomicUsize = AtomicUsize::new(0);
 fn parse(input: &str) -> (flux::syntax::program::Program, Interner) {
     let mut parser = Parser::new(Lexer::new(input));
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     (program, interner)
 }
@@ -29,12 +25,8 @@ fn parse(input: &str) -> (flux::syntax::program::Program, Interner) {
 fn compile_err_code(input: &str) -> String {
     let (program, interner) = parse(input);
     let mut compiler = Compiler::new_with_interner("<unknown>", interner);
-    let err = compiler
-        .compile(&program)
-        .expect_err("expected compile error");
-    err.first()
-        .map(|d| d.code().unwrap_or("").to_string())
-        .unwrap_or_default()
+    let err = compiler.compile(&program).expect_err("expected compile error");
+    err.first().map(|d| d.code().unwrap_or("").to_string()).unwrap_or_default()
 }
 
 fn compile_ok_static_typing(input: &str) {
@@ -58,11 +50,7 @@ fn dump_core_debug(input: &str) -> String {
 
 fn parse_and_infer(
     input: &str,
-) -> (
-    flux::syntax::program::Program,
-    HashMap<ExprId, InferType>,
-    Interner,
-) {
+) -> (flux::syntax::program::Program, HashMap<ExprId, InferType>, Interner) {
     let (program, interner) = parse(input);
     let mut compiler = Compiler::new_with_interner("<unknown>", interner.clone());
     let hm_expr_types = compiler.infer_expr_types_for_program(&program);

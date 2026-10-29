@@ -9,9 +9,9 @@ error[E491]: Unresolved Tuple Receiver
 
 Cannot tell which type this is, so the projection `.0` cannot be resolved. Inferred receiver: `_`.
 
-  examples/generics/working/rejects/project_undetermined_receiver.flx:15:13
+  examples/generics/working/rejects/project_undetermined_receiver.flx:14:13
    |
-15 | fn fst(p) { p.0 }
+14 | fn fst(p) { p.0 }
    |             ^^^
 
 Hint:

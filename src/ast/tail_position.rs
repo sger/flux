@@ -23,10 +23,7 @@ struct TailPositionAnalyzer {
 
 impl TailPositionAnalyzer {
     fn new() -> Self {
-        Self {
-            in_tail: false,
-            tail_calls: Vec::new(),
-        }
+        Self { in_tail: false, tail_calls: Vec::new() }
     }
 
     /// Walk a block with tail-position awareness on the last statement.
@@ -37,10 +34,7 @@ impl TailPositionAnalyzer {
             let is_last = i == len - 1;
             let tail_eligible = matches!(
                 stmt,
-                Statement::Expression {
-                    has_semicolon: false,
-                    ..
-                } | Statement::Return { .. }
+                Statement::Expression { has_semicolon: false, .. } | Statement::Return { .. }
             );
 
             if is_last && tail_eligible {
@@ -69,12 +63,7 @@ impl<'ast> Visitor<'ast> for TailPositionAnalyzer {
                     self.in_tail = was_tail;
                 }
             }
-            Statement::Function {
-                name: _,
-                parameters: _,
-                body,
-                ..
-            } => {
+            Statement::Function { name: _, parameters: _, body, .. } => {
                 // Enter a new tail context for the function body
                 let was_tail = self.in_tail;
                 self.in_tail = true;
@@ -89,12 +78,7 @@ impl<'ast> Visitor<'ast> for TailPositionAnalyzer {
 
     fn visit_expr(&mut self, expr: &'ast Expression) {
         match expr {
-            Expression::Call {
-                function,
-                arguments,
-                span,
-                ..
-            } => {
+            Expression::Call { function, arguments, span, .. } => {
                 if self.in_tail {
                     self.tail_calls.push(TailCall { span: *span });
                 }
@@ -107,12 +91,7 @@ impl<'ast> Visitor<'ast> for TailPositionAnalyzer {
                 }
                 self.in_tail = was_tail;
             }
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-                ..
-            } => {
+            Expression::If { condition, consequence, alternative, .. } => {
                 // Condition is NOT in tail position
                 let was_tail = self.in_tail;
                 self.in_tail = false;
@@ -133,9 +112,7 @@ impl<'ast> Visitor<'ast> for TailPositionAnalyzer {
                     }
                 }
             }
-            Expression::Match {
-                scrutinee, arms, ..
-            } => {
+            Expression::Match { scrutinee, arms, .. } => {
                 // Scrutinee is NOT in tail position
                 let was_tail = self.in_tail;
                 self.in_tail = false;
@@ -155,11 +132,7 @@ impl<'ast> Visitor<'ast> for TailPositionAnalyzer {
                     self.visit_expr(&arm.body);
                 }
             }
-            Expression::Function {
-                parameters: _,
-                body,
-                ..
-            } => {
+            Expression::Function { parameters: _, body, .. } => {
                 // Enter a new tail context for the lambda body
                 let was_tail = self.in_tail;
                 self.in_tail = true;

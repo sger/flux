@@ -495,11 +495,36 @@ def _is_flux_frame(frame):
     return name.endswith(".flx") and entry.GetLine() != 0
 
 
+def _is_compiler_made(frame):
+    """A lambda the compiler made, such as the one a handle's body runs in."""
+    return _is_made_lambda(frame.GetFunctionName())
+
+
+def _is_made_lambda(name):
+    return (name or "").startswith("__lambda")
+
+
+def _fold_made_lambdas(shown):
+    """A lambda the compiler made is part of the function below it, which
+    shows where the lambda is."""
+    kept = []
+    made = None
+    for line in shown:
+        if line.kind != "label" and _is_made_lambda(line.name):
+            made = made or line
+            continue
+        if made is not None and line.kind != "label":
+            line.file, line.line, line.column, line.path = made.file, made.line, made.column, made.path
+            made = None
+        kept.append(line)
+    return kept
+
+
 def flux_frames(thread):
     """The thread's Flux frames, newest first, down to the Flux `main`."""
     frames = []
     for frame in thread:
-        if not _is_flux_frame(frame):
+        if not _is_flux_frame(frame) or _is_compiler_made(frame):
             continue
         frames.append(frame)
         if frame.GetFunctionName() == "main":
@@ -717,7 +742,7 @@ def logical_stack(thread):
             )
         if name == "main":
             break
-    return shown
+    return _fold_made_lambdas(shown)
 
 
 def _resuming(shown):
@@ -1056,10 +1081,10 @@ def _command_thread(debugger, args, result):
 # ── Handlers (0188 S7) ──────────────────────────────────────────────────
 #
 # The runtime keeps the active handlers in the thread's evidence vector,
-# `flux_thread_ctx.current_evv` (effects.c): a count, then five words per
+# `flux_thread_ctx.current_evv` (effects.c): a count, then six words per
 # handler, oldest first.
 
-EVV_ENTRY_WORDS = 5
+EVV_ENTRY_WORDS = 6
 # The effects the compiler handles around `main`: internals, as in
 # `flux debug`.
 DEFAULT_HANDLED = {

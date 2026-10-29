@@ -282,11 +282,17 @@ static int poll_event(int64_t id, int64_t *out) {
             *out = FLUX_NONE;
             return 1;
         }
-        if (flux_chan_event_can_send(ev->a) != 0 &&
-            flux_chan_try_send_move(flux_tag_int(ev->a), ev->b) == FLUX_TRUE) {
-            ev->b = FLUX_NONE;
-            *out = FLUX_NONE;
-            return 1;
+        /* The send takes the reference it is given and releases it if it
+         * fails, so it gets its own: the event keeps the value until a send
+         * succeeds. */
+        if (flux_chan_event_can_send(ev->a) != 0) {
+            flux_dup(ev->b);
+            if (flux_chan_try_send_move(flux_tag_int(ev->a), ev->b) == FLUX_TRUE) {
+                flux_drop(ev->b);
+                ev->b = FLUX_NONE;
+                *out = FLUX_NONE;
+                return 1;
+            }
         }
         return 0;
     case EV_AFTER:
@@ -309,8 +315,8 @@ static int poll_event(int64_t id, int64_t *out) {
         int64_t inner = 0;
         if (!poll_event(ev->a, &inner)) return 0;
         int64_t args[1] = { inner };
+        /* The closure owns its argument and may release it, as in `call1`. */
         *out = flux_call_closure_c(ev->b, args, 1);
-        flux_drop(inner);
         return 1;
     }
     }
@@ -506,13 +512,9 @@ int64_t flux_event_send(int64_t ch, int64_t value) {
 }
 
 int64_t flux_event_send_move(int64_t ch, int64_t value) {
-    FluxEvent ev = {
-        EV_SEND_MOVE,
-        flux_untag_int(ch),
-        flux_rc_is_unique(value) ? value : retain_value(value),
-        NULL,
-        0
-    };
+    /* The caller hands over its reference (PA L3). */
+    flux_rc_promote(value);
+    FluxEvent ev = { EV_SEND_MOVE, flux_untag_int(ch), value, NULL, 0 };
     return insert_event(ev);
 }
 

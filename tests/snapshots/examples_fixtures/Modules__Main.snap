@@ -9,9 +9,9 @@ error[E024]: Module Path Mismatch
 
 Module name `Modules.Main` doesn't match file path `examples/Modules/Main.flx`.
 
-  examples/Modules/Main.flx:6:1
+  examples/Modules/Main.flx:5:1
   |
-6 | module Modules.Main {
+5 | module Modules.Main {
   | ^
 
 Hint:

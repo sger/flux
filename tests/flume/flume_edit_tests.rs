@@ -5,18 +5,13 @@
 //! about itself: that the module is **pure**, and that an edit changes only
 //! the line it meant to.
 
-use std::path::Path;
 use std::process::Command;
 
-#[path = "../support/stdlib_fixture.rs"]
-mod stdlib_fixture;
+use crate::support::stdlib_fixture;
+use stdlib_fixture::workspace_root;
 
 use stdlib_fixture::assert_backends_agree;
 use stdlib_fixture::scratch::Scratch;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
 
 #[test]
 fn flume_edit_fixture_passes_on_both_backends() {

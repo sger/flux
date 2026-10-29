@@ -1,0 +1,13 @@
+// PA R1: a second name for a list is read after the first name's last read.
+// Both names are one value, so it must outlive the reads of either.
+
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn main() {
+    let xs = numbers(1)
+    let ys = xs
+    print(len(xs))
+    print(ys)
+}

@@ -1,5 +1,5 @@
 ---
-source: tests/debuginfo/debug_info_tests.rs
+source: tests/debug/debug_info_tests.rs
 ---
 debug info: <root>/examples/type_classes/contextual_dictionary.flx
 __dict_MyEq_List<a> [dictionary, artificial] @?

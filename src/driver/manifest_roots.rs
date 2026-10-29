@@ -98,11 +98,7 @@ fn write_if_changed(path: &Path, source: &str) -> Result<(), String> {
 /// left alone.
 pub(crate) fn flume_path(path: &Path) -> String {
     let text = path.to_string_lossy().into_owned();
-    if cfg!(windows) {
-        text.replace('\\', "/")
-    } else {
-        text
-    }
+    if cfg!(windows) { text.replace('\\', "/") } else { text }
 }
 
 /// Resolve the package roots declared by the `flux.toml` at `project_dir`.
@@ -220,9 +216,7 @@ fn report_progress(line: &str, spinner: &mut Option<Spinner>) -> bool {
 /// Each record arrives as its own `print`, so the quotes wrap the line rather
 /// than the whole stream, and the tab separators survive unescaped.
 fn unquote_line(line: &str) -> &str {
-    line.strip_prefix('"')
-        .and_then(|rest| rest.strip_suffix('"'))
-        .unwrap_or(line)
+    line.strip_prefix('"').and_then(|rest| rest.strip_suffix('"')).unwrap_or(line)
 }
 
 /// Where the resolved roots for `project_dir` are cached.
@@ -231,9 +225,7 @@ fn unquote_line(line: &str) -> &str {
 /// root do not collide.
 fn roots_cache_path(cache_dir: &Path, project_dir: &Path) -> PathBuf {
     let key = hash_bytes(project_dir.to_string_lossy().as_bytes());
-    cache_dir
-        .join("manifest")
-        .join(format!("roots-{}.txt", hex(&key[..8])))
+    cache_dir.join("manifest").join(format!("roots-{}.txt", hex(&key[..8])))
 }
 
 /// A cache entry: the epoch, then one line per manifest fingerprint, then the
@@ -301,10 +293,7 @@ fn write_cached_roots(cache_file: &Path, project_dir: &Path, roots: &[ModuleRoot
     for root in roots {
         // A package root is `<pkg>/src`, so its manifest sits one level up;
         // a package laid out flat roots at the package directory itself.
-        for dir in [root.path.parent(), Some(root.path.as_path())]
-            .into_iter()
-            .flatten()
-        {
+        for dir in [root.path.parent(), Some(root.path.as_path())].into_iter().flatten() {
             let candidate = dir.join("flux.toml");
             if candidate.is_file() && !manifests.contains(&candidate) {
                 manifests.push(candidate);
@@ -388,10 +377,7 @@ fn parse_records(stdout: &str) -> Result<Vec<ModuleRoot>, String> {
 /// text is a literal backslash from a path, so decoding it would corrupt the
 /// record and fabricate an extra field.
 fn unquote(text: &str) -> String {
-    text.strip_prefix('"')
-        .and_then(|rest| rest.strip_suffix('"'))
-        .unwrap_or(text)
-        .to_string()
+    text.strip_prefix('"').and_then(|rest| rest.strip_suffix('"')).unwrap_or(text).to_string()
 }
 
 #[cfg(test)]

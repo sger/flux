@@ -70,22 +70,11 @@ impl EvidenceVector {
         marker: u32,
         arms: Rc<Vec<HandlerArm>>,
     ) -> EvidenceVector {
-        let parent = if self.is_empty() {
-            None
-        } else {
-            Some(self.clone())
-        };
+        let parent = if self.is_empty() { None } else { Some(self.clone()) };
         let mut new_entries = Vec::with_capacity(self.entries.len() + 1);
         new_entries.extend_from_slice(&self.entries);
-        new_entries.push(Evidence {
-            effect,
-            marker,
-            arms,
-            parent,
-        });
-        EvidenceVector {
-            entries: Rc::new(new_entries),
-        }
+        new_entries.push(Evidence { effect, marker, arms, parent });
+        EvidenceVector { entries: Rc::new(new_entries) }
     }
 
     /// Find the most recently installed evidence entry for `effect`, scanning
@@ -93,9 +82,7 @@ impl EvidenceVector {
     ///
     /// Mirrors C `evv_lookup`.
     pub fn lookup(&self, effect: Identifier) -> Option<usize> {
-        self.entries
-            .iter()
-            .rposition(|entry| entry.effect == effect)
+        self.entries.iter().rposition(|entry| entry.effect == effect)
     }
 
     pub fn get(&self, index: usize) -> Option<&Evidence> {
@@ -110,9 +97,7 @@ impl EvidenceVector {
     /// Construct an `EvidenceVector` from a pre-built entry list.
     /// Used by the Arc-promote/demote path when crossing worker boundaries.
     pub fn from_entries(entries: Vec<Evidence>) -> Self {
-        EvidenceVector {
-            entries: Rc::new(entries),
-        }
+        EvidenceVector { entries: Rc::new(entries) }
     }
 }
 

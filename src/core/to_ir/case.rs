@@ -26,9 +26,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
         let result_var = self.ctx.alloc_var();
         self.blocks[join_idx].params.push(IrBlockParam {
             var: result_var,
-            ty: join_ty
-                .map(super::core_type_to_ir_type)
-                .unwrap_or(IrType::Tagged),
+            ty: join_ty.map(super::core_type_to_ir_type).unwrap_or(IrType::Tagged),
             inferred_ty: join_ty.cloned(),
         });
         let join_block_id = self.blocks[join_idx].id;
@@ -115,9 +113,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
         let result_var = self.ctx.alloc_var();
         self.blocks[join_idx].params.push(IrBlockParam {
             var: result_var,
-            ty: join_ty
-                .map(super::core_type_to_ir_type)
-                .unwrap_or(IrType::Tagged),
+            ty: join_ty.map(super::core_type_to_ir_type).unwrap_or(IrType::Tagged),
             inferred_ty: join_ty.cloned(),
         });
         let join_block_id = self.blocks[join_idx].id;
@@ -227,40 +223,15 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
             CorePat::Con { tag, fields } => {
                 let dest = self.ctx.alloc_var();
                 let test_expr = match tag {
-                    CoreTag::None => IrExpr::TagTest {
-                        value: var,
-                        tag: IrTagTest::None,
-                    },
-                    CoreTag::Some => IrExpr::TagTest {
-                        value: var,
-                        tag: IrTagTest::Some,
-                    },
-                    CoreTag::Left => IrExpr::TagTest {
-                        value: var,
-                        tag: IrTagTest::Left,
-                    },
-                    CoreTag::Right => IrExpr::TagTest {
-                        value: var,
-                        tag: IrTagTest::Right,
-                    },
-                    CoreTag::Nil => IrExpr::ListTest {
-                        value: var,
-                        tag: IrListTest::Empty,
-                    },
-                    CoreTag::Cons => IrExpr::ListTest {
-                        value: var,
-                        tag: IrListTest::Cons,
-                    },
-                    CoreTag::Named(name) => IrExpr::AdtTagTest {
-                        value: var,
-                        constructor: *name,
-                    },
+                    CoreTag::None => IrExpr::TagTest { value: var, tag: IrTagTest::None },
+                    CoreTag::Some => IrExpr::TagTest { value: var, tag: IrTagTest::Some },
+                    CoreTag::Left => IrExpr::TagTest { value: var, tag: IrTagTest::Left },
+                    CoreTag::Right => IrExpr::TagTest { value: var, tag: IrTagTest::Right },
+                    CoreTag::Nil => IrExpr::ListTest { value: var, tag: IrListTest::Empty },
+                    CoreTag::Cons => IrExpr::ListTest { value: var, tag: IrListTest::Cons },
+                    CoreTag::Named(name) => IrExpr::AdtTagTest { value: var, constructor: *name },
                 };
-                self.emit(IrInstr::Assign {
-                    dest,
-                    expr: test_expr,
-                    metadata: IrMetadata::empty(),
-                });
+                self.emit(IrInstr::Assign { dest, expr: test_expr, metadata: IrMetadata::empty() });
                 let mut combined = dest;
                 for (i, field_pat) in fields.iter().enumerate() {
                     if matches!(field_pat, CorePat::Wildcard | CorePat::Var(_)) {
@@ -268,24 +239,12 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                     }
                     let field_var = self.ctx.alloc_var();
                     let field_expr = match tag {
-                        CoreTag::Some => IrExpr::TagPayload {
-                            value: var,
-                            tag: IrTagTest::Some,
-                        },
-                        CoreTag::Left => IrExpr::TagPayload {
-                            value: var,
-                            tag: IrTagTest::Left,
-                        },
-                        CoreTag::Right => IrExpr::TagPayload {
-                            value: var,
-                            tag: IrTagTest::Right,
-                        },
+                        CoreTag::Some => IrExpr::TagPayload { value: var, tag: IrTagTest::Some },
+                        CoreTag::Left => IrExpr::TagPayload { value: var, tag: IrTagTest::Left },
+                        CoreTag::Right => IrExpr::TagPayload { value: var, tag: IrTagTest::Right },
                         CoreTag::Cons if i == 0 => IrExpr::ListHead { value: var },
                         CoreTag::Cons => IrExpr::ListTail { value: var },
-                        CoreTag::Named(_) => IrExpr::AdtField {
-                            value: var,
-                            index: i,
-                        },
+                        CoreTag::Named(_) => IrExpr::AdtField { value: var, index: i },
                         CoreTag::None | CoreTag::Nil => continue,
                     };
                     self.emit(IrInstr::Assign {
@@ -308,10 +267,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                 let dest = self.ctx.alloc_var();
                 self.emit(IrInstr::Assign {
                     dest,
-                    expr: IrExpr::TupleArityTest {
-                        value: var,
-                        arity: fields.len(),
-                    },
+                    expr: IrExpr::TupleArityTest { value: var, arity: fields.len() },
                     metadata: IrMetadata::empty(),
                 });
                 let mut combined = dest;
@@ -322,10 +278,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                     let field_var = self.ctx.alloc_var();
                     self.emit(IrInstr::Assign {
                         dest: field_var,
-                        expr: IrExpr::TupleFieldAccess {
-                            object: var,
-                            index: i,
-                        },
+                        expr: IrExpr::TupleFieldAccess { object: var, index: i },
                         metadata: IrMetadata::empty(),
                     });
                     let nested = self.emit_pattern_test(field_var, field_pat);
@@ -343,10 +296,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                 let dest = self.ctx.alloc_var();
                 self.emit(IrInstr::Assign {
                     dest,
-                    expr: IrExpr::ListTest {
-                        value: var,
-                        tag: IrListTest::Empty,
-                    },
+                    expr: IrExpr::ListTest { value: var, tag: IrListTest::Empty },
                     metadata: IrMetadata::empty(),
                 });
                 dest
@@ -369,24 +319,12 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                 for (i, field_pat) in fields.iter().enumerate() {
                     let field_var = self.ctx.alloc_var();
                     let field_expr = match tag {
-                        CoreTag::Some => IrExpr::TagPayload {
-                            value: var,
-                            tag: IrTagTest::Some,
-                        },
-                        CoreTag::Left => IrExpr::TagPayload {
-                            value: var,
-                            tag: IrTagTest::Left,
-                        },
-                        CoreTag::Right => IrExpr::TagPayload {
-                            value: var,
-                            tag: IrTagTest::Right,
-                        },
+                        CoreTag::Some => IrExpr::TagPayload { value: var, tag: IrTagTest::Some },
+                        CoreTag::Left => IrExpr::TagPayload { value: var, tag: IrTagTest::Left },
+                        CoreTag::Right => IrExpr::TagPayload { value: var, tag: IrTagTest::Right },
                         CoreTag::Cons if i == 0 => IrExpr::ListHead { value: var },
                         CoreTag::Cons => IrExpr::ListTail { value: var },
-                        CoreTag::Named(_) => IrExpr::AdtField {
-                            value: var,
-                            index: i,
-                        },
+                        CoreTag::Named(_) => IrExpr::AdtField { value: var, index: i },
                         CoreTag::None | CoreTag::Nil => return,
                     };
                     self.emit(IrInstr::Assign {
@@ -402,10 +340,7 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                     let field_var = self.ctx.alloc_var();
                     self.emit(IrInstr::Assign {
                         dest: field_var,
-                        expr: IrExpr::TupleFieldAccess {
-                            object: var,
-                            index: i,
-                        },
+                        expr: IrExpr::TupleFieldAccess { object: var, index: i },
                         metadata: IrMetadata::empty(),
                     });
                     self.bind_pattern(field_var, field_pat);

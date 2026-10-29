@@ -2,6 +2,9 @@
 // expect: success
 // Transparent type aliases that carry no effects. Aliases whose expansion has
 // an effect row, or that take an effect-row parameter, are KI-094.
+// parity-expected-stdout-begin
+// 52
+// parity-expected-stdout-end
 
 alias IntPair = (Int, Int)
 alias Mapper<a, b> = (a) -> b

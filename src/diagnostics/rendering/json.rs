@@ -108,21 +108,9 @@ impl JsonDiagnostic {
             span: diag.span().map(JsonSpan::from_span),
             labels: diag.labels().iter().map(JsonLabel::from_label).collect(),
             hints: diag.hints().iter().map(JsonHint::from_hint).collect(),
-            suggestions: diag
-                .suggestions()
-                .iter()
-                .map(JsonSuggestion::from_suggestion)
-                .collect(),
-            related: diag
-                .related()
-                .iter()
-                .map(JsonRelated::from_related)
-                .collect(),
-            stack_trace: diag
-                .stack_trace()
-                .iter()
-                .map(JsonStackTraceFrame::from_frame)
-                .collect(),
+            suggestions: diag.suggestions().iter().map(JsonSuggestion::from_suggestion).collect(),
+            related: diag.related().iter().map(JsonRelated::from_related).collect(),
+            stack_trace: diag.stack_trace().iter().map(JsonStackTraceFrame::from_frame).collect(),
         }
     }
 }
@@ -145,10 +133,7 @@ fn phase_str(phase: DiagnosticPhase) -> &'static str {
 
 impl JsonPosition {
     fn from_position(pos: Position) -> Self {
-        Self {
-            line: pos.line,
-            column: pos.column,
-        }
+        Self { line: pos.line, column: pos.column }
     }
 }
 
@@ -206,9 +191,7 @@ impl JsonRelated {
 
 impl JsonStackTraceFrame {
     fn from_frame(frame: &StackTraceFrame) -> Self {
-        Self {
-            text: frame.text.clone(),
-        }
+        Self { text: frame.text.clone() }
     }
 }
 

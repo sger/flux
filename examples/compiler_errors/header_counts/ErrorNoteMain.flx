@@ -1,10 +1,9 @@
 // expect: compile_error
-// expect-error: E300
 
 import ErrorNoteBroken
 
 fn main() -> Unit {
     let _x = ErrorNoteBroken.one()
-    let value: Int = "oops"
+    let value: Int = "oops" //~ E300
     print("hi")
 }

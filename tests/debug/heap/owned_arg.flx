@@ -1,0 +1,15 @@
+// KI-120: a list passed by ownership to a function that drops it. The
+// callee's Drop is the list's last reference, so nothing should be live at
+// exit.
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn discard(xs, keep) {
+    if keep { xs } else { [] }
+}
+
+fn main() {
+    let a = discard(numbers(1), false)
+    0
+}

@@ -67,9 +67,7 @@ impl<'a> InferCtx<'a> {
     pub(super) fn infer_function_call(&mut self, input: CallInferInput<'_>) -> InferType {
         let fn_ty = self.infer_expression(input.function);
         let fn_ty_resolved = fn_ty.apply_type_subst(&self.subst);
-        let ambient_effect_row = self
-            .current_ambient_effect_row()
-            .apply_row_subst(&self.subst);
+        let ambient_effect_row = self.current_ambient_effect_row().apply_row_subst(&self.subst);
 
         let (fn_name, fn_def_span) = match input.function {
             Expression::Identifier { name, .. } => {
@@ -186,17 +184,12 @@ impl<'a> InferCtx<'a> {
         let (class_def, method) = {
             let class_env = self.class_env.as_ref()?;
             let class_def = class_env.lookup_class_by_id(info.class_id)?;
-            let method = class_def
-                .methods
-                .iter()
-                .find(|m| m.name == info.method_name)?;
+            let method = class_def.methods.iter().find(|m| m.name == info.method_name)?;
             (class_def.clone(), method.clone())
         };
 
-        let actual_args: Vec<InferType> = param_tys
-            .iter()
-            .map(|t| t.apply_type_subst(&self.subst))
-            .collect();
+        let actual_args: Vec<InferType> =
+            param_tys.iter().map(|t| t.apply_type_subst(&self.subst)).collect();
         let actual_result = result.apply_type_subst(&self.subst);
 
         let bindings = class_param_bindings(
@@ -211,10 +204,7 @@ impl<'a> InferCtx<'a> {
         // A parameter no call can determine leaves the predicate ill-formed;
         // emitting a partial one would silently constrain the wrong arity.
         // Stage 4's ambiguity check reports this at the class declaration.
-        bindings
-            .iter()
-            .map(|b| b.type_arg().cloned())
-            .collect::<Option<Vec<_>>>()
+        bindings.iter().map(|b| b.type_arg().cloned()).collect::<Option<Vec<_>>>()
     }
 
     /// Infer calls where callee type resolves to `Fun`.
@@ -260,9 +250,7 @@ impl<'a> InferCtx<'a> {
                     .with_primary_label(spec.input.span, "wrong resume arity in handler arm"),
                 );
             }
-            self.body_facts
-                .arity_mismatches
-                .push(self.class_constraints.open_window().simple);
+            self.body_facts.arity_mismatches.push(self.class_constraints.open_window().simple);
             return spec.ret_ty.apply_type_subst(&self.subst);
         }
 
@@ -317,10 +305,7 @@ impl<'a> InferCtx<'a> {
         if !self.is_task_spawn_callee(function, param_tys) {
             return;
         }
-        let Some(Expression::Function {
-            parameters, body, ..
-        }) = arguments.first()
-        else {
+        let Some(Expression::Function { parameters, body, .. }) = arguments.first() else {
             return;
         };
         let Some(sendable) = self.interner.lookup("Sendable") else {
@@ -343,9 +328,7 @@ impl<'a> InferCtx<'a> {
                 sendable,
                 capture_ty,
                 span,
-                constraint::WantedClassConstraintOrigin::TaskSpawnCapture {
-                    capture_name: capture,
-                },
+                constraint::WantedClassConstraintOrigin::TaskSpawnCapture { capture_name: capture },
             );
         }
     }
@@ -526,11 +509,8 @@ impl<'a> InferCtx<'a> {
         fn_def_span: Option<Span>,
         ambient_effect_row: InferEffectRow,
     ) -> InferType {
-        let arg_tys: Vec<InferType> = input
-            .arguments
-            .iter()
-            .map(|arg| self.infer_expression(arg))
-            .collect();
+        let arg_tys: Vec<InferType> =
+            input.arguments.iter().map(|arg| self.infer_expression(arg)).collect();
 
         let ret_var = self.env.alloc_infer_type_var();
         let expected_fn_ty = InferType::Fun(arg_tys, Box::new(ret_var.clone()), ambient_effect_row);
@@ -538,10 +518,7 @@ impl<'a> InferCtx<'a> {
             fn_ty,
             &expected_fn_ty,
             input.span,
-            ReportContext::CallArg {
-                fn_name,
-                fn_def_span,
-            },
+            ReportContext::CallArg { fn_name, fn_def_span },
         );
         ret_var.apply_type_subst(&self.subst)
     }
@@ -561,11 +538,7 @@ impl<'a> InferCtx<'a> {
         let first_arg_id = arguments.first().map(Expression::expr_id);
         match function {
             Expression::Identifier { name, .. } => {
-                if self
-                    .env
-                    .lookup_span(*name)
-                    .is_some_and(|def_span| def_span != Span::default())
-                {
+                if self.env.lookup_span(*name).is_some_and(|def_span| def_span != Span::default()) {
                     return None;
                 }
                 let class_id = match self.lookup_class_method(*name) {
@@ -625,17 +598,10 @@ impl<'a> InferCtx<'a> {
                 method_binding && self.lookup_class_method(*name).is_some()
             }
             Expression::MemberAccess { object, member, .. } => {
-                let Expression::Identifier {
-                    name: qualifier, ..
-                } = object.as_ref()
-                else {
+                let Expression::Identifier { name: qualifier, .. } = object.as_ref() else {
                     return false;
                 };
-                let target = self
-                    .module_aliases
-                    .get(qualifier)
-                    .copied()
-                    .unwrap_or(*qualifier);
+                let target = self.module_aliases.get(qualifier).copied().unwrap_or(*qualifier);
                 self.class_env.as_ref().is_some_and(|class_env| {
                     class_env
                         .resolve_qualified_method_class_id(target, *member, self.interner)
@@ -709,17 +675,10 @@ impl<'a> InferCtx<'a> {
         first_arg_id: Option<ExprId>,
         span: Span,
     ) -> Option<ResolvedClassMethodCall> {
-        let Expression::Identifier {
-            name: module_name, ..
-        } = object
-        else {
+        let Expression::Identifier { name: module_name, .. } = object else {
             return None;
         };
-        let target_module = self
-            .module_aliases
-            .get(module_name)
-            .copied()
-            .unwrap_or(*module_name);
+        let target_module = self.module_aliases.get(module_name).copied().unwrap_or(*module_name);
         let declared = self.class_env.as_ref()?.resolve_qualified_method_class_id(
             target_module,
             member,
@@ -801,10 +760,8 @@ impl<'a> InferCtx<'a> {
         &mut self,
         info: ResolvedClassMethodCall,
     ) -> Option<Vec<InferType>> {
-        let first_arg_ty = self
-            .expr_types
-            .get(&info.first_arg_id?)
-            .map(|ty| ty.apply_type_subst(&self.subst))?;
+        let first_arg_ty =
+            self.expr_types.get(&info.first_arg_id?).map(|ty| ty.apply_type_subst(&self.subst))?;
 
         let (resolved_type_args, scheme) =
             self.resolve_class_method_instance(info, &first_arg_ty)?;
@@ -832,9 +789,7 @@ impl<'a> InferCtx<'a> {
         self.record_instantiated_expr_vars(fresh_vars);
 
         if let InferType::Fun(_, _, effect_row) = resolved_fn_ty.apply_type_subst(&self.subst) {
-            let ambient_effect_row = self
-                .current_ambient_effect_row()
-                .apply_row_subst(&self.subst);
+            let ambient_effect_row = self.current_ambient_effect_row().apply_row_subst(&self.subst);
             self.constrain_call_effects(&effect_row, &ambient_effect_row, info.span);
         }
         Some(resolved_type_args)

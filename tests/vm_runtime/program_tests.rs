@@ -15,11 +15,7 @@ mod tests {
                 name: x,
                 is_public: false,
                 type_annotation: None,
-                value: Expression::Integer {
-                    value: 5,
-                    span: Span::default(),
-                    id: ExprId::UNSET,
-                },
+                value: Expression::Integer { value: 5, span: Span::default(), id: ExprId::UNSET },
                 span: Span::default(),
             }],
             span: Span::default(),
@@ -55,21 +51,9 @@ mod tests {
         let interner = Interner::new();
         let expr = Expression::ListLiteral {
             elements: vec![
-                Expression::Integer {
-                    value: 1,
-                    span: Span::default(),
-                    id: ExprId::UNSET,
-                },
-                Expression::Integer {
-                    value: 2,
-                    span: Span::default(),
-                    id: ExprId::UNSET,
-                },
-                Expression::Integer {
-                    value: 3,
-                    span: Span::default(),
-                    id: ExprId::UNSET,
-                },
+                Expression::Integer { value: 1, span: Span::default(), id: ExprId::UNSET },
+                Expression::Integer { value: 2, span: Span::default(), id: ExprId::UNSET },
+                Expression::Integer { value: 3, span: Span::default(), id: ExprId::UNSET },
             ],
             span: Span::default(),
             id: ExprId::UNSET,
@@ -87,11 +71,7 @@ mod tests {
                     span: Span::default(),
                     id: ExprId::UNSET,
                 },
-                Expression::Integer {
-                    value: 1,
-                    span: Span::default(),
-                    id: ExprId::UNSET,
-                },
+                Expression::Integer { value: 1, span: Span::default(), id: ExprId::UNSET },
             )],
             span: Span::default(),
             id: ExprId::UNSET,

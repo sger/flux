@@ -58,19 +58,12 @@ fn render_function(out: &mut String, info: &ProgramDebugInfo, function: &DebugFu
     let kind = match function.kind {
         FnKind::User => "fn".to_string(),
         FnKind::Lambda { parent } => {
-            format!(
-                "lambda in {}",
-                info.functions[parent.0 as usize].source_name
-            )
+            format!("lambda in {}", info.functions[parent.0 as usize].source_name)
         }
         FnKind::DictDef => "dictionary".to_string(),
         FnKind::DictMethod => "instance method".to_string(),
     };
-    let artificial = if function.artificial {
-        ", artificial"
-    } else {
-        ""
-    };
+    let artificial = if function.artificial { ", artificial" } else { "" };
     let _ = writeln!(
         out,
         "{} [{kind}{artificial}] @{}",
@@ -107,10 +100,7 @@ fn position(span: Span) -> String {
 
 fn render_type(info: &ProgramDebugInfo, id: DebugTypeId) -> String {
     let list = |ids: &[DebugTypeId]| {
-        ids.iter()
-            .map(|id| render_type(info, *id))
-            .collect::<Vec<_>>()
-            .join(", ")
+        ids.iter().map(|id| render_type(info, *id)).collect::<Vec<_>>().join(", ")
     };
     match info.ty(id) {
         DebugType::Int => "Int".into(),
@@ -122,16 +112,12 @@ fn render_type(info: &ProgramDebugInfo, id: DebugTypeId) -> String {
         DebugType::List(elem) => format!("List<{}>", render_type(info, *elem)),
         DebugType::Array(elem) => format!("Array<{}>", render_type(info, *elem)),
         DebugType::Option(inner) => format!("Option<{}>", render_type(info, *inner)),
-        DebugType::Either(left, right) => format!(
-            "Either<{}, {}>",
-            render_type(info, *left),
-            render_type(info, *right)
-        ),
-        DebugType::Map(key, value) => format!(
-            "Map<{}, {}>",
-            render_type(info, *key),
-            render_type(info, *value)
-        ),
+        DebugType::Either(left, right) => {
+            format!("Either<{}, {}>", render_type(info, *left), render_type(info, *right))
+        }
+        DebugType::Map(key, value) => {
+            format!("Map<{}, {}>", render_type(info, *key), render_type(info, *value))
+        }
         DebugType::Tuple(elems) => format!("({})", list(elems)),
         DebugType::Function(params, result) => {
             format!("({}) -> {}", list(params), render_type(info, *result))

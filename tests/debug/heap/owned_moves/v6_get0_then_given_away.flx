@@ -1,0 +1,22 @@
+// 0189 V6: an array element returned by a Flux function, read after the
+// array is given to a call that releases it.
+
+fn arr(n) {
+    [|[n, n + 1], [n + 2]|]
+}
+
+fn get0(a) {
+    a[0]
+}
+
+fn discard(xs, keep) {
+    if keep { xs } else { [||] }
+}
+
+fn main() {
+    let a = arr(1)
+    let g = get0(a)
+    let d = discard(a, false)
+    print(g)
+    print(d)
+}

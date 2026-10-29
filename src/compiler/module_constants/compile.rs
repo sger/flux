@@ -16,11 +16,7 @@ pub enum ConstCompileError {
     /// Circular dependency detected among constants.
     CircularDependency(Vec<String>),
     /// Error evaluating a constant expression.
-    EvalError {
-        const_name: String,
-        position: Position,
-        error: ConstEvalError,
-    },
+    EvalError { const_name: String, position: Position, error: ConstEvalError },
 }
 
 /// Compile module constants by analyzing dependencies and evaluating in order.
@@ -39,10 +35,7 @@ pub fn compile_module_constants(
     // Step 1: Analyze constants and resolve dependencies
     let analysis = analyze_module_constants(body).map_err(|cycle| {
         ConstCompileError::CircularDependency(
-            cycle
-                .iter()
-                .map(|s| interner.resolve(*s).to_string())
-                .collect(),
+            cycle.iter().map(|s| interner.resolve(*s).to_string()).collect(),
         )
     })?;
 

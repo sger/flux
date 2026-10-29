@@ -84,10 +84,7 @@ impl TaskManager {
     /// already-spawned workers are joined by the subsequent `shutdown`.
     /// Calling `start` while running is a no-op.
     pub fn start(&self, n_workers: usize) -> io::Result<()> {
-        assert!(
-            n_workers > 0,
-            "TaskManager::start needs at least one worker"
-        );
+        assert!(n_workers > 0, "TaskManager::start needs at least one worker");
         let mut slot = self.inner.lock().expect("TaskManager mutex poisoned");
         if slot.is_some() {
             return Ok(());
@@ -117,10 +114,7 @@ impl TaskManager {
     /// (`0` is highest). Submissions after `shutdown` are dropped silently —
     /// the manager is a fire-and-forget surface, not a result channel.
     pub fn submit(&self, prio: usize, job: Job) {
-        assert!(
-            prio <= MAX_PRIO,
-            "priority {prio} exceeds MAX_PRIO={MAX_PRIO}"
-        );
+        assert!(prio <= MAX_PRIO, "priority {prio} exceeds MAX_PRIO={MAX_PRIO}");
         let slot = self.inner.lock().expect("TaskManager mutex poisoned");
         let Some(inner) = slot.as_ref() else {
             return;
@@ -134,12 +128,7 @@ impl TaskManager {
 
     /// Flip the shutdown flag, wake every worker, and join them. Idempotent.
     pub fn shutdown(&self) {
-        let mut inner = match self
-            .inner
-            .lock()
-            .expect("TaskManager mutex poisoned")
-            .take()
-        {
+        let mut inner = match self.inner.lock().expect("TaskManager mutex poisoned").take() {
             Some(inner) => inner,
             None => return,
         };

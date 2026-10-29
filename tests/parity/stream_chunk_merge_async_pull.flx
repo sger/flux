@@ -1,0 +1,28 @@
+// parity: vm, llvm
+// expect: success
+// chunk and merge, and a stream whose next step sleeps before it yields.
+// parity-expected-stdout-begin
+// [[1, 2], [3, 4], [5]]
+// [|1, 2, 3, 4, 5|]
+// [|7|]
+// parity-expected-stdout-end
+
+import Flow.Async exposing (..)
+import Flow.Stream as Stream
+
+fn delayed_once(value) {
+    Stream.make(fn() {
+        sleep(5)
+        Some((value, Stream.empty()))
+    })
+}
+
+fn body() -> Unit with Async, Console {
+    print(Stream.to_list(Stream.chunk(Stream.from_array([|1, 2, 3, 4, 5|]), 2)))
+    print(Stream.to_array(Stream.merge(Stream.from_array([|1, 3, 5|]), Stream.from_array([|2, 4|]))))
+    print(Stream.to_array(delayed_once(7)))
+}
+
+fn main() with IO {
+    run_async(body)
+}

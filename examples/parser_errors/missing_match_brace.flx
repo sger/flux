@@ -6,9 +6,9 @@
 //
 // Expected `{` to begin match arms.
 //
-//   examples/parser_errors/missing_match_brace.flx:30:9
+//   examples/parser_errors/missing_match_brace.flx:29:9
 //    |
-// 30 |         1 -> "one",
+// 29 |         1 -> "one",
 //    |         ^
 //
 // Hint:
@@ -18,7 +18,6 @@
 //   while parsing function `main` > `match` expression
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E034
 
 // Missing `{` in match expression.
 //
@@ -27,7 +26,7 @@
 fn main() -> Unit {
     let x = 5
     let _r = match x
-        1 -> "one",
+        1 -> "one", //~ E034
         _ -> "other",
     }
 }

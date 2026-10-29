@@ -5,33 +5,12 @@
 //! message. The behavioural coverage lives in the Flux fixture; asserted here
 //! are the properties that cannot be checked from inside Flux.
 
-use std::path::Path;
 use std::process::Command;
 
-#[path = "../support/scratch.rs"]
-mod scratch;
-use scratch::Scratch;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
-
-fn run_flux_test(fixture: &str) -> (String, bool) {
-    let path = workspace_root().join("tests").join("flux").join(fixture);
-    let scratch = Scratch::new("io-suite");
-    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(workspace_root())
-        .args(["--test", path.to_str().unwrap(), "--no-cache"])
-        .args(scratch.cache_args())
-        .output()
-        .unwrap_or_else(|e| panic!("failed to run flux --test on {fixture}: {e}"));
-
-    let stdout = String::from_utf8_lossy(&output.stdout)
-        .replace("\r\n", "\n")
-        .trim()
-        .to_string();
-    (stdout, output.status.success())
-}
+use crate::support::flux_runner;
+use flux_runner::run_flux_test;
+use flux_runner::scratch::Scratch;
+use flux_runner::workspace_root;
 
 fn run_source(name: &str, source: &str) -> (String, String, bool) {
     // Own scratch dir per run: a literal filename in one shared directory let
@@ -117,10 +96,7 @@ fn main() -> Unit {
 }
 "#,
     );
-    assert!(
-        success,
-        "named-field pattern on Flow.IoError's IoError failed:\n{stdout}\n{stderr}"
-    );
+    assert!(success, "named-field pattern on Flow.IoError's IoError failed:\n{stdout}\n{stderr}");
     assert!(
         stdout.contains("AlreadyExists|exists|/d"),
         "expected AlreadyExists|exists|/d:\n{stdout}"
@@ -146,10 +122,7 @@ fn main() -> Unit {
         success,
         "Flow.Async's IoError must not collide with Flow.IoError's:\n{stdout}\n{stderr}"
     );
-    assert!(
-        stdout.contains("NotFound: m (/p)"),
-        "expected NotFound: m (/p):\n{stdout}"
-    );
+    assert!(stdout.contains("NotFound: m (/p)"), "expected NotFound: m (/p):\n{stdout}");
 }
 
 /// `Flow.IoError` is pure — declaring and inspecting an error touches nothing, so a
@@ -198,11 +171,7 @@ fn main() with IO {
     );
     assert!(success, "run failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
 
-    let printed: Vec<&str> = stdout
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .collect();
+    let printed: Vec<&str> = stdout.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
     assert_eq!(
         printed,
         vec!["[1, 2, 3]", "[|1, 2, 3|]", "[]", r#"["a", "b"]"#],
@@ -219,11 +188,9 @@ fn main() with IO {
 /// `not_elem` reported a present element as absent.
 #[test]
 fn a_constrained_stdlib_function_rejects_the_wrong_container() {
-    for (call, func) in [
-        ("contains(arr, 1)", "contains"),
-        ("not_elem(arr, 1)", "not_elem"),
-        ("nub(arr)", "nub"),
-    ] {
+    for (call, func) in
+        [("contains(arr, 1)", "contains"), ("not_elem(arr, 1)", "not_elem"), ("nub(arr)", "nub")]
+    {
         let source = format!(
             r#"
 fn main() with IO {{
@@ -234,14 +201,8 @@ fn main() with IO {{
         );
         let (stdout, stderr, success) = run_source("wrong_container.flx", &source);
         let combined = format!("{stdout}{stderr}");
-        assert!(
-            !success,
-            "`{func}` must reject an Array where List<a> is declared:\n{combined}"
-        );
-        assert!(
-            combined.contains("E300"),
-            "expected E300 for `{func}`, got:\n{combined}"
-        );
+        assert!(!success, "`{func}` must reject an Array where List<a> is declared:\n{combined}");
+        assert!(combined.contains("E300"), "expected E300 for `{func}`, got:\n{combined}");
     }
 }
 

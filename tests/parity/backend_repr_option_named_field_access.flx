@@ -1,3 +1,6 @@
+// parity-expected-stdout-begin
+// "Alice"
+// parity-expected-stdout-end
 data Contact {
     Contact { name: String }
 }

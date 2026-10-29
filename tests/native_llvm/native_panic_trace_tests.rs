@@ -4,16 +4,12 @@
 
 #![cfg(feature = "llvm")]
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
-#[path = "../support/scratch.rs"]
-mod scratch;
+use crate::support::scratch;
 use scratch::Scratch;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+use scratch::workspace_root;
 
 fn fixture(name: &str) -> String {
     format!("tests/native_llvm/panic_trace/{name}")
@@ -32,24 +28,13 @@ fn run_native(scratch: &Scratch, name: &str, extra: &[&str]) -> (String, i32) {
         .unwrap_or_else(|e| panic!("failed to run flux --native on {name}: {e}"));
     let mut text = String::from_utf8_lossy(&output.stdout).to_string();
     text.push_str(&String::from_utf8_lossy(&output.stderr));
-    (
-        text.replace("\r\n", "\n"),
-        output.status.code().unwrap_or(-1),
-    )
+    (text.replace("\r\n", "\n"), output.status.code().unwrap_or(-1))
 }
 
 /// Builds `name` into the scratch directory, without running it.
 fn build_binary(scratch: &Scratch, name: &str) -> PathBuf {
-    let binary = scratch.join(if cfg!(windows) {
-        "program.exe"
-    } else {
-        "program"
-    });
-    let (output, _) = run_native(
-        scratch,
-        name,
-        &["--emit-binary", "-o", binary.to_str().unwrap()],
-    );
+    let binary = scratch.join(if cfg!(windows) { "program.exe" } else { "program" });
+    let (output, _) = run_native(scratch, name, &["--emit-binary", "-o", binary.to_str().unwrap()]);
     assert!(binary.exists(), "no binary built:\n{output}");
     binary
 }
@@ -80,10 +65,7 @@ fn a_native_panic_names_its_frames() {
     assert_eq!(code, 1, "{output}");
     assert!(output.contains("error[E1009]: too big"), "{output}");
     // The error points where the panic was, from the innermost frame.
-    assert!(
-        output.contains("tests/native_llvm/panic_trace/calls.flx:3:16"),
-        "{output}"
-    );
+    assert!(output.contains("tests/native_llvm/panic_trace/calls.flx:3:16"), "{output}");
     assert_eq!(trace(&output), CALLS, "{output}");
 }
 
@@ -124,15 +106,9 @@ fn a_deep_trace_keeps_both_ends() {
     // 101 frames of `down`, `main` and `<main>`: the first 20 and the last
     // 10, as the VM keeps them.
     assert_eq!(frames.len(), 31, "{output}");
-    assert_eq!(
-        frames[0],
-        "at down (tests/native_llvm/panic_trace/recursion.flx:3:17)"
-    );
+    assert_eq!(frames[0], "at down (tests/native_llvm/panic_trace/recursion.flx:3:17)");
     assert_eq!(frames[20], "... 73 more frames ...");
-    assert_eq!(
-        frames[29],
-        "at main (tests/native_llvm/panic_trace/recursion.flx:7:21)"
-    );
+    assert_eq!(frames[29], "at main (tests/native_llvm/panic_trace/recursion.flx:7:21)");
     assert_eq!(frames[30], "at <main>");
 }
 

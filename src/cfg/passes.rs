@@ -85,12 +85,7 @@ fn tail_call_introduction(program: &mut IrProgram) {
             // Pattern 1: Call; Return(v)
             if let IrTerminator::Return(return_var, _) = &block.terminator
                 && let return_var = *return_var
-                && let Some(IrInstr::Call {
-                    dest,
-                    target,
-                    args,
-                    metadata,
-                }) = block.instrs.last()
+                && let Some(IrInstr::Call { dest, target, args, metadata }) = block.instrs.last()
                 && *dest == return_var
             {
                 let tc = IrTerminator::TailCall {
@@ -106,12 +101,7 @@ fn tail_call_introduction(program: &mut IrProgram) {
             if let IrTerminator::Jump(target, jump_args, _) = &block.terminator
                 && jump_args.len() == 1
                 && resolves_to_single_param_return_block(&block_map, *target)
-                && let Some(IrInstr::Call {
-                    dest,
-                    target,
-                    args,
-                    metadata,
-                }) = block.instrs.last()
+                && let Some(IrInstr::Call { dest, target, args, metadata }) = block.instrs.last()
                 && *dest == jump_args[0]
             {
                 let tc = IrTerminator::TailCall {
@@ -179,12 +169,8 @@ fn constant_fold(program: &mut IrProgram) {
                     }
                 }
             }
-            if let IrTerminator::Branch {
-                cond,
-                then_block,
-                else_block,
-                metadata,
-            } = &block.terminator
+            if let IrTerminator::Branch { cond, then_block, else_block, metadata } =
+                &block.terminator
                 && let Some(IrConst::Bool(value)) = consts.get(cond)
             {
                 block.terminator = IrTerminator::Jump(
@@ -238,9 +224,7 @@ fn dead_block_elimination(program: &mut IrProgram) {
     for function in &mut program.functions {
         let mut reachable = HashSet::new();
         mark_reachable(function.entry, function, &mut reachable);
-        function
-            .blocks
-            .retain(|block| reachable.contains(&block.id));
+        function.blocks.retain(|block| reachable.contains(&block.id));
     }
 }
 
@@ -253,11 +237,7 @@ fn mark_reachable(block_id: BlockId, function: &IrFunction, reachable: &mut Hash
     };
     match &block.terminator {
         IrTerminator::Jump(target, _, _) => mark_reachable(*target, function, reachable),
-        IrTerminator::Branch {
-            then_block,
-            else_block,
-            ..
-        } => {
+        IrTerminator::Branch { then_block, else_block, .. } => {
             mark_reachable(*then_block, function, reachable);
             mark_reachable(*else_block, function, reachable);
         }
@@ -272,12 +252,7 @@ fn local_cse(program: &mut IrProgram) {
         for block in &mut function.blocks {
             let mut seen: HashMap<String, IrVar> = HashMap::new();
             for instr in &mut block.instrs {
-                if let IrInstr::Assign {
-                    dest,
-                    expr,
-                    metadata,
-                } = instr
-                {
+                if let IrInstr::Assign { dest, expr, metadata } = instr {
                     let key = cse_key(expr);
                     if let Some(existing) = key.as_ref().and_then(|key| seen.get(key)).copied() {
                         *expr = IrExpr::Var(existing);
@@ -438,13 +413,7 @@ mod tests {
 
         run_ir_pass_pipeline(&mut program, &IrPassContext).unwrap();
         let instrs = &program.functions[0].blocks[0].instrs;
-        assert!(matches!(
-            instrs[2],
-            IrInstr::Assign {
-                expr: IrExpr::Const(IrConst::Int(5)),
-                ..
-            }
-        ));
+        assert!(matches!(instrs[2], IrInstr::Assign { expr: IrExpr::Const(IrConst::Int(5)), .. }));
     }
 
     #[test]
@@ -459,10 +428,7 @@ mod tests {
         run_ir_pass_pipeline(&mut program, &IrPassContext).unwrap();
         assert!(matches!(
             program.functions[0].blocks[0].instrs[0],
-            IrInstr::Assign {
-                expr: IrExpr::LoadName(_),
-                ..
-            }
+            IrInstr::Assign { expr: IrExpr::LoadName(_), .. }
         ));
     }
 
@@ -473,11 +439,7 @@ mod tests {
         let function = IrFunction {
             id: FunctionId(0),
             name: Some(interner.intern("loop_")),
-            params: vec![IrParam {
-                name: interner.intern("n"),
-                var: IrVar(0),
-                ty: IrType::Int,
-            }],
+            params: vec![IrParam { name: interner.intern("n"), var: IrVar(0), ty: IrType::Int }],
             parameter_types: vec![None],
             return_type_annotation: None,
             effects: Vec::new(),
@@ -535,10 +497,7 @@ mod tests {
 
         run_ir_pass_pipeline(&mut program, &IrPassContext).unwrap();
 
-        assert!(matches!(
-            program.functions[0].blocks[0].terminator,
-            IrTerminator::TailCall { .. }
-        ));
+        assert!(matches!(program.functions[0].blocks[0].terminator, IrTerminator::TailCall { .. }));
         assert!(program.functions[0].blocks[0].instrs.is_empty());
     }
 }

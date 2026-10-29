@@ -92,12 +92,7 @@ fn fmt_expr(expr: &AetherExpr, interner: &Interner, indent: usize, out: &mut Str
             }
             out.push(')');
         }
-        AetherExpr::AetherCall {
-            func,
-            args,
-            arg_modes,
-            ..
-        } => {
+        AetherExpr::AetherCall { func, args, arg_modes, .. } => {
             out.push_str(&pad);
             out.push_str("aether_call[");
             out.push_str(
@@ -150,9 +145,7 @@ fn fmt_expr(expr: &AetherExpr, interner: &Interner, indent: usize, out: &mut Str
             out.push('\n');
             fmt_expr(body, interner, indent, out);
         }
-        AetherExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        AetherExpr::Case { scrutinee, alts, .. } => {
             out.push_str(&pad);
             out.push_str("case ");
             out.push_str(&single_line_expr(scrutinee, interner));
@@ -207,12 +200,7 @@ fn fmt_expr(expr: &AetherExpr, interner: &Interner, indent: usize, out: &mut Str
             out.push_str("return ");
             out.push_str(&single_line_expr(value, interner));
         }
-        AetherExpr::Perform {
-            effect,
-            operation,
-            args,
-            ..
-        } => {
+        AetherExpr::Perform { effect, operation, args, .. } => {
             out.push_str(&pad);
             // Annotate with the Phase 3 runtime lowering (yield_to) so the
             // dump makes the evidence-passing vocabulary explicit.
@@ -230,13 +218,7 @@ fn fmt_expr(expr: &AetherExpr, interner: &Interner, indent: usize, out: &mut Str
             );
             out.push(')');
         }
-        AetherExpr::Handle {
-            body,
-            effect,
-            parameter,
-            handlers,
-            ..
-        } => {
+        AetherExpr::Handle { body, effect, parameter, handlers, .. } => {
             out.push_str(&pad);
             // Annotate with the Phase 3 lowering shape:
             //   evv_insert + fresh_marker → body → yield_prompt
@@ -276,13 +258,7 @@ fn fmt_expr(expr: &AetherExpr, interner: &Interner, indent: usize, out: &mut Str
             }
             fmt_expr(tail, interner, indent + vars.len() * 2, out);
         }
-        AetherExpr::Reuse {
-            token,
-            tag,
-            fields,
-            field_mask,
-            ..
-        } => {
+        AetherExpr::Reuse { token, tag, fields, field_mask, .. } => {
             out.push_str(&pad);
             out.push_str("reuse ");
             out.push_str(&format_var_ref(token, interner));
@@ -303,12 +279,7 @@ fn fmt_expr(expr: &AetherExpr, interner: &Interner, indent: usize, out: &mut Str
                 out.push(')');
             }
         }
-        AetherExpr::DropSpecialized {
-            scrutinee,
-            unique_body,
-            shared_body,
-            ..
-        } => {
+        AetherExpr::DropSpecialized { scrutinee, unique_body, shared_body, .. } => {
             out.push_str(&pad);
             out.push_str("drop_specialized ");
             out.push_str(&format_var_ref(scrutinee, interner));
@@ -399,11 +370,7 @@ fn fmt_pat(pat: &CorePat, interner: &Interner) -> String {
         }
         CorePat::Tuple(fields) => format!(
             "({})",
-            fields
-                .iter()
-                .map(|field| fmt_pat(field, interner))
-                .collect::<Vec<_>>()
-                .join(", ")
+            fields.iter().map(|field| fmt_pat(field, interner)).collect::<Vec<_>>().join(", ")
         ),
         CorePat::EmptyList => "[]".to_string(),
     }

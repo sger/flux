@@ -26,18 +26,12 @@ use flux::{
 fn compile_per_module_llvm_ir_with_classes(src: &str) -> String {
     let mut parser = Parser::new(Lexer::new(src));
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<test>", interner);
 
     // compile_with_opts populates class_env and hm_expr_types
-    compiler
-        .compile_with_opts(&program, false, false)
-        .expect("compilation should succeed");
+    compiler.compile_with_opts(&program, false, false).expect("compilation should succeed");
 
     let llvm = compiler
         .lower_to_lir_llvm_module_per_module(&program, false, false, true)
@@ -54,11 +48,7 @@ fn compile_per_module_llvm_ir_with_preloaded_interfaces(
 ) -> String {
     let mut parser = Parser::new(Lexer::new(src));
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let mut interner = parser.take_interner();
     let interfaces = build_interfaces(&mut interner);
     let mut compiler = Compiler::new_with_interner("<test>", interner);
@@ -67,9 +57,7 @@ fn compile_per_module_llvm_ir_with_preloaded_interfaces(
         compiler.preload_module_interface(interface);
     }
 
-    compiler
-        .compile_with_opts(&program, false, false)
-        .expect("compilation should succeed");
+    compiler.compile_with_opts(&program, false, false).expect("compilation should succeed");
 
     let llvm = compiler
         .lower_to_lir_llvm_module_per_module(&program, false, false, true)
@@ -102,10 +90,7 @@ fn main() {
         "expected mangled instance function __tc_Sizeable_Int_size in LLVM IR"
     );
     // main should exist
-    assert!(
-        rendered.contains("@flux_main"),
-        "expected flux_main entry point"
-    );
+    assert!(rendered.contains("@flux_main"), "expected flux_main entry point");
 }
 
 /// Multiple instances of the same class with different types: both mangled
@@ -226,10 +211,7 @@ fn main() {
 "#,
     );
 
-    assert!(
-        rendered.contains("tc_MyEq_List"),
-        "expected contextual mangled method in LLVM IR"
-    );
+    assert!(rendered.contains("tc_MyEq_List"), "expected contextual mangled method in LLVM IR");
 }
 
 #[test]

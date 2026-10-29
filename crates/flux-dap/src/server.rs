@@ -27,10 +27,7 @@ pub enum Input {
     /// A reply or event from the engine.
     Engine(EngineMessage),
     /// Output from the program, or the compiler before it.
-    Output {
-        category: &'static str,
-        text: String,
-    },
+    Output { category: &'static str, text: String },
     /// The program has ended, with this exit code.
     Exited(Option<i32>),
     /// A message from `lldb-dap`, in a native session.
@@ -49,12 +46,17 @@ const LABEL_FRAMES: i64 = 1_000_000;
 const OTHER_FRAMES: i64 = 3_000_000;
 /// In a native session, frame ids at or above this are lines the session
 /// adds to lldb-dap's stack: `⟂ handling …` labels and the frames an effect
-/// handler holds (0188 S7). They have no variables.
-const SPLICED_FRAMES: i64 = 2_000_000;
+/// handler holds (0188 S7). They have no variables. lldb-dap's own frame ids
+/// are `(thread index << 19) + frame`, past two million from the fourth
+/// thread on, so the session's start far above them and still well inside
+/// what a JSON number holds exactly (2^53).
+const SPLICED_FRAMES: i64 = 1 << 48;
 /// In a native session, thread ids at or above this are fibers that wait:
 /// `FIBER_THREADS + n` is thread `n` of `flux threads` (0188 S8). A running
-/// fiber is the OS thread lldb-dap knows it by.
-const FIBER_THREADS: i64 = 5_000_000;
+/// fiber is the OS thread lldb-dap knows it by. On macOS that id counts the
+/// threads made since boot, millions after a day or two, so fibers start
+/// above anything it reaches.
+const FIBER_THREADS: i64 = 1 << 49;
 
 /// A `variablesReference`: a frame's scope, or a value in it.
 #[derive(Debug, Clone)]
@@ -166,14 +168,7 @@ impl<W: FnMut(Value)> Session<W> {
                 self.done = true;
             }
             Input::Engine(EngineMessage::Event {
-                event:
-                    Event::Stopped {
-                        reason,
-                        position,
-                        description,
-                        exception,
-                        thread,
-                    },
+                event: Event::Stopped { reason, position, description, exception, thread },
             }) => {
                 self.refs.clear();
                 self.other_frames.clear();
@@ -243,17 +238,16 @@ impl<W: FnMut(Value)> Session<W> {
             "setFunctionBreakpoints" => Ok(json!({ "breakpoints": [] })),
             "configurationDone" => {
                 let stop_on_entry = self.stop_on_entry;
-                self.call(Request::Start { stop_on_entry })
-                    .map(|_| json!({}))
+                self.call(Request::Start { stop_on_entry }).map(|_| json!({}))
             }
             "threads" => self.threads(),
             "stackTrace" => self.stack_trace(args),
             "scopes" => self.scopes(args),
             "variables" => self.variables(args),
             "evaluate" => self.evaluate(args),
-            "continue" => self
-                .resume(ResumeKind::Continue)
-                .map(|_| json!({ "allThreadsContinued": true })),
+            "continue" => {
+                self.resume(ResumeKind::Continue).map(|_| json!({ "allThreadsContinued": true }))
+            }
             "next" => self.resume(ResumeKind::StepOver),
             "stepIn" => self.resume(ResumeKind::StepIn),
             "stepOut" => self.resume(ResumeKind::StepOut),
@@ -387,9 +381,7 @@ impl<W: FnMut(Value)> Session<W> {
         if (1..LABEL_FRAMES).contains(&id) {
             return Some((None, id as usize - 1));
         }
-        let (thread, index) = *self
-            .other_frames
-            .get(id.checked_sub(OTHER_FRAMES)? as usize)?;
+        let (thread, index) = *self.other_frames.get(id.checked_sub(OTHER_FRAMES)? as usize)?;
         Some((Some(thread), index))
     }
 
@@ -403,10 +395,8 @@ impl<W: FnMut(Value)> Session<W> {
         let spec = launch_spec(args)?;
         self.stop_on_entry = args["stopOnEntry"].as_bool().unwrap_or(false);
         let Some(engine) = VmEngine::launch(&spec, self.sender.clone())? else {
-            return Err(
-                "the program ended before the debugger could start; see the Debug Console"
-                    .to_string(),
-            );
+            return Err("the program ended before the debugger could start; see the Debug Console"
+                .to_string());
         };
         self.engine = Some(engine);
         self.await_ready()?;
@@ -467,8 +457,7 @@ impl<W: FnMut(Value)> Session<W> {
         let arguments = native::launch_arguments(&spec, &build, args);
         let engine = self.native.as_mut().expect("just started");
         let seq = engine.request("launch", arguments);
-        self.pending
-            .insert(seq, (message["seq"].clone(), "launch".to_string()));
+        self.pending.insert(seq, (message["seq"].clone(), "launch".to_string()));
         Ok(())
     }
 
@@ -525,7 +514,7 @@ impl<W: FnMut(Value)> Session<W> {
         let mut message = message;
         // A fiber that waits is no thread of lldb-dap's: run requests go
         // to the thread the program stopped in.
-        if message["arguments"]["threadId"].as_i64() >= Some(FIBER_THREADS)
+        if is_fiber_thread(&message)
             && command != "stackTrace"
             && let Some(stopped) = self.native_stopped
         {
@@ -543,7 +532,7 @@ impl<W: FnMut(Value)> Session<W> {
                 }
                 return;
             }
-            "stackTrace" if message["arguments"]["threadId"].as_i64() >= Some(FIBER_THREADS) => {
+            "stackTrace" if is_fiber_thread(&message) => {
                 let arguments = &message["arguments"];
                 let number = arguments["threadId"].as_i64().unwrap_or(0) - FIBER_THREADS;
                 let held = json!({
@@ -585,11 +574,9 @@ impl<W: FnMut(Value)> Session<W> {
             "stepBack" | "reverseContinue" => {
                 self.respond(
                     &message,
-                    Err(
-                        "going back needs the VM backend: native programs do not record their \
+                    Err("going back needs the VM backend: native programs do not record their \
                          run"
-                        .to_string(),
-                    ),
+                    .to_string()),
                 );
                 return;
             }
@@ -613,11 +600,7 @@ impl<W: FnMut(Value)> Session<W> {
             }
             "setExceptionBreakpoints" => {
                 let filters = strings(&message["arguments"]["filters"]);
-                let kinds = if filters.is_empty() {
-                    "none".to_string()
-                } else {
-                    filters.join(" ")
-                };
+                let kinds = if filters.is_empty() { "none".to_string() } else { filters.join(" ") };
                 if let Some(engine) = self.native.as_mut() {
                     let seq = engine.request(
                         "evaluate",
@@ -655,11 +638,11 @@ impl<W: FnMut(Value)> Session<W> {
                 }
                 return;
             }
-            "scopes" if message["arguments"]["frameId"].as_i64() >= Some(SPLICED_FRAMES) => {
+            "scopes" if is_spliced_frame(&message) => {
                 self.respond(&message, Ok(json!({ "scopes": [] })));
                 return;
             }
-            "evaluate" if message["arguments"]["frameId"].as_i64() >= Some(SPLICED_FRAMES) => {
+            "evaluate" if is_spliced_frame(&message) => {
                 if let Some(arguments) = message["arguments"].as_object_mut() {
                     arguments.remove("frameId");
                 }
@@ -857,8 +840,7 @@ impl<W: FnMut(Value)> Session<W> {
                     return;
                 };
                 let seq = engine.send(request);
-                self.pending
-                    .insert(seq, (editor_seq, "threads".to_string()));
+                self.pending.insert(seq, (editor_seq, "threads".to_string()));
             }
         }
     }
@@ -904,11 +886,8 @@ impl<W: FnMut(Value)> Session<W> {
             self.respond(request, Err(said));
             return;
         }
-        let body = if console {
-            json!({ "result": said, "variablesReference": 0 })
-        } else {
-            json!({})
-        };
+        let body =
+            if console { json!({ "result": said, "variablesReference": 0 }) } else { json!({}) };
         self.respond(request, Ok(body));
         self.after_step(evaluated);
     }
@@ -937,9 +916,7 @@ impl<W: FnMut(Value)> Session<W> {
                 return Err("the debugger has gone".to_string());
             };
             match input {
-                Input::Engine(EngineMessage::Event {
-                    event: Event::Ready,
-                }) => return Ok(()),
+                Input::Engine(EngineMessage::Event { event: Event::Ready }) => return Ok(()),
                 Input::Output { category, text } => self.output(category, &text),
                 Input::Exited(code) => {
                     self.engine = None;
@@ -971,10 +948,8 @@ impl<W: FnMut(Value)> Session<W> {
                     .collect()
             })
             .unwrap_or_default();
-        let Reply::Breakpoints { lines: set } = self.call(Request::SetBreakpoints {
-            file,
-            lines: lines.clone(),
-        })?
+        let Reply::Breakpoints { lines: set } =
+            self.call(Request::SetBreakpoints { file, lines: lines.clone() })?
         else {
             return Err("unexpected reply to setBreakpoints".to_string());
         };
@@ -1132,10 +1107,8 @@ impl<W: FnMut(Value)> Session<W> {
 
     fn variables(&mut self, args: &Value) -> Result<Value, String> {
         let reference = args["variablesReference"].as_u64().unwrap_or(0) as usize;
-        let Some(var_ref) = reference
-            .checked_sub(1)
-            .and_then(|index| self.refs.get(index))
-            .cloned()
+        let Some(var_ref) =
+            reference.checked_sub(1).and_then(|index| self.refs.get(index)).cloned()
         else {
             return Ok(json!({ "variables": [] }));
         };
@@ -1167,11 +1140,8 @@ impl<W: FnMut(Value)> Session<W> {
         path: Vec<String>,
         variable: Variable,
     ) -> Value {
-        let reference = if variable.has_children {
-            self.reference(thread, frame, scope, path)
-        } else {
-            0
-        };
+        let reference =
+            if variable.has_children { self.reference(thread, frame, scope, path) } else { 0 };
         let mut shown = json!({
             "name": variable.name,
             "value": variable.value,
@@ -1191,12 +1161,7 @@ impl<W: FnMut(Value)> Session<W> {
         scope: Scope,
         path: Vec<String>,
     ) -> usize {
-        self.refs.push(VarRef {
-            thread,
-            frame,
-            scope,
-            path,
-        });
+        self.refs.push(VarRef { thread, frame, scope, path });
         self.refs.len()
     }
 
@@ -1222,18 +1187,12 @@ impl<W: FnMut(Value)> Session<W> {
                 .map(|text| json!({ "result": text, "variablesReference": 0 }));
         }
         let (thread, frame) = self.frame_for(args)?;
-        let Reply::Value { variable } = self.call(Request::Evaluate {
-            frame,
-            thread,
-            expression: expression.to_string(),
-        })?
+        let Reply::Value { variable } =
+            self.call(Request::Evaluate { frame, thread, expression: expression.to_string() })?
         else {
             return Err("unexpected reply to evaluate".to_string());
         };
-        let path = expression
-            .split('.')
-            .map(|part| part.trim().to_string())
-            .collect();
+        let path = expression.split('.').map(|part| part.trim().to_string()).collect();
         let shown = self.variable_json(thread, frame, Scope::Any, path, variable);
         Ok(json!({
             "result": shown["value"],
@@ -1249,10 +1208,8 @@ impl<W: FnMut(Value)> Session<W> {
             .split_once(char::is_whitespace)
             .map(|(name, rest)| (name, rest.trim()))
             .unwrap_or((command, ""));
-        let number = |rest: &str| {
-            rest.parse::<u64>()
-                .map_err(|_| format!("usage: .{name} <number>"))
-        };
+        let number =
+            |rest: &str| rest.parse::<u64>().map_err(|_| format!("usage: .{name} <number>"));
         match name {
             "help" => Ok(CONSOLE_HELP.to_string()),
             // In the frame the console reads (0188 S10b).
@@ -1261,11 +1218,7 @@ impl<W: FnMut(Value)> Session<W> {
                     return Err("usage: .refs <name>[.<n>...]".to_string());
                 }
                 let (thread, frame) = self.frame_for(args)?;
-                match self.call(Request::Refs {
-                    frame,
-                    expression: rest.to_string(),
-                    thread,
-                })? {
+                match self.call(Request::Refs { frame, expression: rest.to_string(), thread })? {
                     Reply::Refs { count, type_name } => {
                         Ok(describe_refs(rest, count, false, &type_name))
                     }
@@ -1316,20 +1269,12 @@ impl<W: FnMut(Value)> Session<W> {
                     .join("\n")),
                 _ => Err("unexpected reply to .events".to_string()),
             },
-            "goto" => self
-                .resume(ResumeKind::Goto(number(rest)?))
-                .map(|_| String::new()),
-            "event" => self
-                .resume(ResumeKind::Event(number(rest)?))
-                .map(|_| String::new()),
+            "goto" => self.resume(ResumeKind::Goto(number(rest)?)).map(|_| String::new()),
+            "event" => self.resume(ResumeKind::Event(number(rest)?)).map(|_| String::new()),
             "rs" => self.resume(ResumeKind::ReverseStep).map(|_| String::new()),
             "rn" => self.resume(ResumeKind::ReverseNext).map(|_| String::new()),
-            "rf" => self
-                .resume(ResumeKind::ReverseFinish)
-                .map(|_| String::new()),
-            "rc" => self
-                .resume(ResumeKind::ReverseContinue)
-                .map(|_| String::new()),
+            "rf" => self.resume(ResumeKind::ReverseFinish).map(|_| String::new()),
+            "rc" => self.resume(ResumeKind::ReverseContinue).map(|_| String::new()),
             "internals" => {
                 let show = match rest {
                     "on" => true,
@@ -1411,10 +1356,9 @@ fn launch_spec(args: &Value) -> Result<LaunchSpec, String> {
         .ok_or_else(|| "the launch configuration needs a `program`".to_string())?;
     let program = PathBuf::from(program);
     let flux_command = match &args["fluxCommand"] {
-        Value::Array(parts) => parts
-            .iter()
-            .filter_map(|part| part.as_str().map(str::to_string))
-            .collect(),
+        Value::Array(parts) => {
+            parts.iter().filter_map(|part| part.as_str().map(str::to_string)).collect()
+        }
         Value::String(command) => command.split_whitespace().map(str::to_string).collect(),
         _ => vec!["flux".to_string()],
     };
@@ -1436,12 +1380,7 @@ fn launch_spec(args: &Value) -> Result<LaunchSpec, String> {
 fn strings(value: &Value) -> Vec<String> {
     value
         .as_array()
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|item| item.as_str().map(str::to_string))
-                .collect()
-        })
+        .map(|items| items.iter().filter_map(|item| item.as_str().map(str::to_string)).collect())
         .unwrap_or_default()
 }
 
@@ -1488,6 +1427,18 @@ fn exception_label(kind: &str) -> &str {
     }
 }
 
+/// Whether a native request names a fiber that waits, not a thread of
+/// lldb-dap's.
+fn is_fiber_thread(request: &Value) -> bool {
+    request["arguments"]["threadId"].as_i64() >= Some(FIBER_THREADS)
+}
+
+/// Whether a native request names a frame the session added to lldb-dap's
+/// stack.
+fn is_spliced_frame(request: &Value) -> bool {
+    request["arguments"]["frameId"].as_i64() >= Some(SPLICED_FRAMES)
+}
+
 fn capabilities() -> Value {
     json!({
         "supportsConfigurationDoneRequest": true,
@@ -1499,4 +1450,26 @@ fn capabilities() -> Value {
         "supportsLoadedSourcesRequest": false,
         "supportsSetVariable": false,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// On macOS a thread id counts every thread since boot: this one is from
+    /// a Mac up for 40 hours, where the program's own thread was taken for a
+    /// waiting fiber and its stack came back empty.
+    #[test]
+    fn a_thread_lldb_dap_names_is_not_a_fiber() {
+        let request = json!({ "arguments": { "threadId": 7_175_886 } });
+        assert!(!is_fiber_thread(&request));
+    }
+
+    /// lldb-dap numbers a frame `(thread index << 19) + frame`, so the frames
+    /// of the fourth thread are past two million.
+    #[test]
+    fn a_frame_lldb_dap_names_is_not_one_the_session_added() {
+        let request = json!({ "arguments": { "frameId": (4 << 19) + 2 } });
+        assert!(!is_spliced_frame(&request));
+    }
 }

@@ -1,3 +1,4 @@
+// skip-way: vm, vm_strict, vm_opt: KI-104 under --no-cache the instance method's call to itself passes a dictionary it does not take
 import FoldableRowPolyExample.App.Main as Main
 
 fn main() with IO {

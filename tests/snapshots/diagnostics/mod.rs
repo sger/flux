@@ -1,19 +1,15 @@
-#[path = "../../support/diagnostics_env.rs"]
-mod diagnostics_env;
+use crate::support::diagnostics_env;
 
+use crate::support::assert_snapshot;
 use flux::compiler::Compiler;
 use flux::diagnostics::{
     Diagnostic, DiagnosticBuilder, DiagnosticsAggregator, ErrorType,
     position::{Position, Span},
 };
 use flux::syntax::{lexer::Lexer, parser::Parser};
-use insta::assert_snapshot;
 
 fn span(line: usize, column: usize, end_line: usize, end_column: usize) -> Span {
-    Span::new(
-        Position::new(line, column),
-        Position::new(end_line, end_column),
-    )
+    Span::new(Position::new(line, column), Position::new(end_line, end_column))
 }
 
 fn compile_fixture_diagnostics(file_path: &str, source: &str) -> Vec<Diagnostic> {
@@ -28,9 +24,7 @@ fn compile_fixture_diagnostics(file_path: &str, source: &str) -> Vec<Diagnostic>
 
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner(file_path, interner);
-    compiler
-        .compile(&program)
-        .expect_err("expected compile diagnostics for snapshot fixture")
+    compiler.compile(&program).expect_err("expected compile diagnostics for snapshot fixture")
 }
 
 fn render_fixture_diagnostic(
@@ -99,10 +93,8 @@ fn snapshot_multi_line_span_output() {
         .with_file("multi.flx")
         .with_span(span(1, 4, 2, 5));
 
-    let output = DiagnosticsAggregator::new(&[diag])
-        .with_source("multi.flx", source)
-        .report()
-        .rendered;
+    let output =
+        DiagnosticsAggregator::new(&[diag]).with_source("multi.flx", source).report().rendered;
 
     assert_snapshot!(output);
 }
@@ -149,12 +141,8 @@ fn snapshot_0058_let_annotation_dual_span_full_rendered() {
     let source =
         include_str!("../../../examples/type_system/failing/106_let_annotation_int_string.flx");
 
-    let output = render_fixture_diagnostic(
-        file_path,
-        source,
-        "E300",
-        "does not match its type annotation",
-    );
+    let output =
+        render_fixture_diagnostic(file_path, source, "E300", "does not match its type annotation");
 
     assert_snapshot!(output);
 }

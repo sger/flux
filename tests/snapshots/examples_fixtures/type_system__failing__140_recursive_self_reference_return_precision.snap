@@ -9,9 +9,9 @@ error[E300]: Annotation Type Mismatch
 
 The value of `value` does not match its type annotation.
 
-  examples/type_system/failing/140_recursive_self_reference_return_precision.flx:36:25
+  examples/type_system/failing/140_recursive_self_reference_return_precision.flx:14:25
    |
-36 |     let value: String = countdown(2)
+14 |     let value: String = countdown(2)
    |                         ^^^^^^^^^^^^
    |                         ------------ this value has type `Int`
 

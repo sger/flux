@@ -69,10 +69,7 @@ impl Compiler {
         actual: &InferType,
     ) -> Option<(InferType, InferType)> {
         let subst = unify(expected, actual).ok()?;
-        Some((
-            expected.apply_type_subst(&subst),
-            actual.apply_type_subst(&subst),
-        ))
+        Some((expected.apply_type_subst(&subst), actual.apply_type_subst(&subst)))
     }
 
     fn ensure_unify(
@@ -105,10 +102,9 @@ impl Compiler {
         // Add "did you mean?" hint for likely type name typos
         for name in [expected, actual] {
             if let Some(suggestion) = suggest_type_name(name) {
-                diag.hints_mut()
-                    .push(crate::diagnostics::types::Hint::help(format!(
-                        "Unknown type `{name}` — {suggestion}"
-                    )));
+                diag.hints_mut().push(crate::diagnostics::types::Hint::help(format!(
+                    "Unknown type `{name}` — {suggestion}"
+                )));
             }
         }
         diag
@@ -161,9 +157,7 @@ impl Compiler {
             return Ok(());
         }
         self.check_private_module_member_access_for_expr(expression)?;
-        Err(Box::new(
-            self.unresolved_boundary_error(expression, unresolved_context),
-        ))
+        Err(Box::new(self.unresolved_boundary_error(expression, unresolved_context)))
     }
 
     fn is_concrete_array_literal_conflict(&self, expression: &Expression) -> bool {

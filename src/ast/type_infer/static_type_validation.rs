@@ -119,9 +119,7 @@ impl<'a> StrictTypeValidator<'a> {
             Statement::LetDestructure { value, .. } | Statement::Assign { value, .. } => {
                 self.validate_expression(value);
             }
-            Statement::Return {
-                value: Some(value), ..
-            } => {
+            Statement::Return { value: Some(value), .. } => {
                 self.with_boundary(BoundaryKind::AnnotatedReturn, |v| {
                     v.validate_expression(value);
                 });
@@ -154,15 +152,7 @@ impl<'a> StrictTypeValidator<'a> {
     /// statement's outward-facing boundary (public signature or annotated
     /// return) so E430 messages surface the right label.
     fn validate_function_statement(&mut self, stmt: &Statement) {
-        let Statement::Function {
-            name,
-            body,
-            span,
-            is_public,
-            intrinsic,
-            return_type,
-            ..
-        } = stmt
+        let Statement::Function { name, body, span, is_public, intrinsic, return_type, .. } = stmt
         else {
             return;
         };
@@ -181,14 +171,7 @@ impl<'a> StrictTypeValidator<'a> {
     /// when the binding carries an explicit type annotation and otherwise
     /// inheriting the enclosing boundary.
     fn validate_let_statement(&mut self, stmt: &Statement) {
-        let Statement::Let {
-            name,
-            value,
-            span,
-            type_annotation,
-            ..
-        } = stmt
-        else {
+        let Statement::Let { name, value, span, type_annotation, .. } = stmt else {
             return;
         };
         let kind = if type_annotation.is_some() {
@@ -274,13 +257,11 @@ impl<'a> StrictTypeValidator<'a> {
 
     /// Resolve the current binding scheme from either top-level or module-member maps.
     fn lookup_binding_scheme(&self, span: Span, name: Identifier) -> Option<&Scheme> {
-        self.resolved_binding_schemes_by_span
-            .get(&super::binding_span_key(span))
-            .or_else(|| {
-                self.current_module
-                    .and_then(|module_name| self.module_member_schemes.get(&(module_name, name)))
-                    .or_else(|| self.resolved_schemes.get(&name))
-            })
+        self.resolved_binding_schemes_by_span.get(&super::binding_span_key(span)).or_else(|| {
+            self.current_module
+                .and_then(|module_name| self.module_member_schemes.get(&(module_name, name)))
+                .or_else(|| self.resolved_schemes.get(&name))
+        })
     }
 
     /// Validate one expression and return whether it or any child has unresolved type variables.
@@ -301,24 +282,16 @@ impl<'a> StrictTypeValidator<'a> {
             | Expression::None { .. }
             | Expression::EmptyList { .. } => false,
             Expression::InterpolatedString { parts, .. } => self.parts_have_unresolved(parts),
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-                ..
-            } => self.validate_if_expression(condition, consequence, alternative.as_ref()),
+            Expression::If { condition, consequence, alternative, .. } => {
+                self.validate_if_expression(condition, consequence, alternative.as_ref())
+            }
             Expression::DoBlock { block, .. } | Expression::Function { body: block, .. } => {
                 self.block_has_unresolved(block)
             }
-            Expression::Match {
-                scrutinee, arms, ..
-            } => self.validate_expression(scrutinee) || self.match_arms_have_unresolved(arms),
-            Expression::Handle {
-                expr,
-                parameter,
-                arms,
-                ..
-            } => {
+            Expression::Match { scrutinee, arms, .. } => {
+                self.validate_expression(scrutinee) || self.match_arms_have_unresolved(arms)
+            }
+            Expression::Handle { expr, parameter, arms, .. } => {
                 self.validate_expression(expr)
                     || parameter
                         .as_ref()
@@ -338,19 +311,13 @@ impl<'a> StrictTypeValidator<'a> {
             | Expression::Left { value: right, .. }
             | Expression::Right { value: right, .. } => self.validate_expression(right),
             Expression::Infix { left, right, .. }
-            | Expression::Cons {
-                head: left,
-                tail: right,
-                ..
+            | Expression::Cons { head: left, tail: right, .. }
+            | Expression::Index { left, index: right, .. } => {
+                self.validate_expression(left) || self.validate_expression(right)
             }
-            | Expression::Index {
-                left, index: right, ..
-            } => self.validate_expression(left) || self.validate_expression(right),
-            Expression::Call {
-                function,
-                arguments,
-                ..
-            } => self.validate_expression(function) || self.expressions_have_unresolved(arguments),
+            Expression::Call { function, arguments, .. } => {
+                self.validate_expression(function) || self.expressions_have_unresolved(arguments)
+            }
             Expression::TupleLiteral { elements, .. }
             | Expression::ListLiteral { elements, .. }
             | Expression::ArrayLiteral { elements, .. } => {
@@ -473,9 +440,7 @@ impl<'a> StrictTypeValidator<'a> {
         let Some(ty) = self.expr_types.get(&expr.expr_id()) else {
             return false;
         };
-        ty.free_type_vars()
-            .into_iter()
-            .any(|var| self.is_illegal_residue(var))
+        ty.free_type_vars().into_iter().any(|var| self.is_illegal_residue(var))
     }
 
     /// The boundary contract. See [`Self::expression_has_unresolved_var`]
@@ -542,21 +507,13 @@ impl<'a> StrictTypeValidator<'a> {
 
     /// Return whether any statement in a block has unresolved type variables.
     fn block_has_unresolved(&mut self, block: &Block) -> bool {
-        block
-            .statements
-            .iter()
-            .any(|statement| self.statement_has_unresolved(statement))
+        block.statements.iter().any(|statement| self.statement_has_unresolved(statement))
     }
 
     /// Return whether a statement contains nested expressions with unresolved type variables.
     fn statement_has_unresolved(&mut self, statement: &Statement) -> bool {
         match statement {
-            Statement::Let {
-                name,
-                value,
-                type_annotation,
-                ..
-            } => {
+            Statement::Let { name, value, type_annotation, .. } => {
                 let kind = if type_annotation.is_some() {
                     BoundaryKind::AnnotatedLet
                 } else {
@@ -570,18 +527,10 @@ impl<'a> StrictTypeValidator<'a> {
                 self.validate_expression(value)
             }
             Statement::Return { value, .. } => value.as_ref().is_some_and(|value| {
-                self.with_boundary(BoundaryKind::AnnotatedReturn, |v| {
-                    v.validate_expression(value)
-                })
+                self.with_boundary(BoundaryKind::AnnotatedReturn, |v| v.validate_expression(value))
             }),
             Statement::Expression { expression, .. } => self.validate_expression(expression),
-            Statement::Function {
-                name,
-                body,
-                is_public,
-                return_type,
-                ..
-            } => {
+            Statement::Function { name, body, is_public, return_type, .. } => {
                 let kind = function_boundary_kind(*is_public, return_type.is_some());
                 self.with_binding_allowance(statement.span(), *name, |validator| {
                     validator.with_boundary(kind, |v| v.block_has_unresolved(body))
@@ -591,14 +540,11 @@ impl<'a> StrictTypeValidator<'a> {
                 self.with_module(*name, |validator| validator.block_has_unresolved(body))
             }
             Statement::Class { methods, .. } => methods.iter().any(|method| {
-                method
-                    .default_body
-                    .as_ref()
-                    .is_some_and(|body| self.block_has_unresolved(body))
+                method.default_body.as_ref().is_some_and(|body| self.block_has_unresolved(body))
             }),
-            Statement::Instance { methods, .. } => methods
-                .iter()
-                .any(|method| self.block_has_unresolved(&method.body)),
+            Statement::Instance { methods, .. } => {
+                methods.iter().any(|method| self.block_has_unresolved(&method.body))
+            }
             _ => false,
         }
     }
@@ -611,10 +557,7 @@ impl<'a> StrictTypeValidator<'a> {
     /// Return whether one match arm has unresolved type variables.
     fn match_arm_has_unresolved(&mut self, arm: &MatchArm) -> bool {
         self.pattern_has_unresolved(&arm.pattern)
-            || arm
-                .guard
-                .as_ref()
-                .is_some_and(|guard| self.validate_expression(guard))
+            || arm.guard.as_ref().is_some_and(|guard| self.validate_expression(guard))
             || self.validate_expression(&arm.body)
     }
 
@@ -635,12 +578,9 @@ impl<'a> StrictTypeValidator<'a> {
             Pattern::Some { pattern, .. }
             | Pattern::Left { pattern, .. }
             | Pattern::Right { pattern, .. } => self.pattern_has_unresolved(pattern),
-            Pattern::Tuple { elements, .. }
-            | Pattern::Constructor {
-                fields: elements, ..
-            } => elements
-                .iter()
-                .any(|element| self.pattern_has_unresolved(element)),
+            Pattern::Tuple { elements, .. } | Pattern::Constructor { fields: elements, .. } => {
+                elements.iter().any(|element| self.pattern_has_unresolved(element))
+            }
             Pattern::Cons { head, tail, .. } => {
                 self.pattern_has_unresolved(head) || self.pattern_has_unresolved(tail)
             }

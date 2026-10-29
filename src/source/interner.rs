@@ -146,8 +146,7 @@ impl Interner {
     /// This is a programming error that should never occur in correct code.
     #[inline]
     pub fn resolve(&self, sym: Symbol) -> &str {
-        self.try_resolve(sym)
-            .unwrap_or_else(|| panic!("invalid symbol: {:?}", sym))
+        self.try_resolve(sym).unwrap_or_else(|| panic!("invalid symbol: {:?}", sym))
     }
 
     /// Attempts to resolve a symbol to its string value.
@@ -308,13 +307,8 @@ mod tests {
     #[test]
     fn strings_with_special_characters() {
         let mut interner = Interner::new();
-        let strings = vec![
-            "hello\nworld",
-            "tab\there",
-            "quote\"inside",
-            "slash\\back",
-            "null\0byte",
-        ];
+        let strings =
+            vec!["hello\nworld", "tab\there", "quote\"inside", "slash\\back", "null\0byte"];
 
         for s in &strings {
             let sym = interner.intern(s);
