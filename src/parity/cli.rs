@@ -192,6 +192,8 @@ fn cached_equivalent_ways(ways: &[Way]) -> Vec<Way> {
         .collect()
 }
 
+const CHECK_FIXTURE_TIMEOUT_SECS: u64 = 60;
+
 /// The fixtures `flux parity-check <dir>` would check, in the same order.
 pub fn fixtures_in(dir: &Path) -> Vec<PathBuf> {
     collect_fixtures(dir, false)
@@ -200,6 +202,11 @@ pub fn fixtures_in(dir: &Path) -> Vec<PathBuf> {
 /// Checks one fixture as `flux parity-check <file>` would, with the ways its
 /// header names, running every way on `flux`. Unlike the command it never
 /// rebuilds a binary, so a test can pass the `flux` cargo just built.
+///
+/// Each way gets `CHECK_FIXTURE_TIMEOUT_SECS` rather than the command's 20:
+/// a native way compiles, links and runs in that time, which a loaded
+/// Windows CI runner took longer than 20 s to do for a program that
+/// finishes in 2 s on a laptop. A program that hangs still fails.
 pub fn check_fixture(file: &Path, flux: &Path) -> ParityResult {
     let flux = flux.display().to_string();
     let args = [
@@ -208,6 +215,8 @@ pub fn check_fixture(file: &Path, flux: &Path) -> ParityResult {
         flux.clone(),
         "--llvm-binary".to_string(),
         flux,
+        "--timeout".to_string(),
+        CHECK_FIXTURE_TIMEOUT_SECS.to_string(),
     ];
     let config = parse_args(&args).expect("parity-check arguments");
     check_one(file, &config).result
