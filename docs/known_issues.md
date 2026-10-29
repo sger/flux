@@ -2129,23 +2129,40 @@ was running, and `flux bt` showed `decide` alone, where the VM shows
 
 **The cause.** lldb's raw backtrace went on past the continuation, through
 `flux_call_closure` and `flux_call_closure_c`, and stopped at
-`flux_compose_trampoline.closure_entry`. Ubuntu's GCC builds with
-`-fomit-frame-pointer`, `-fstack-protector-strong` and `-fcf-protection` by
-default, and the runtime's flags did not override the first. In that frame
-lldb-18 used its eh_frame plan "plus augmentation from assembly parsing", whose
-row gave CFA=rsp+128 where the compiler's CFI says rsp+96. It read a return
-address from the wrong slot, found no code there, and with `rbp` used as a
-general register it had no frame-pointer chain to fall back on. macOS arm64
-always keeps frame pointers, and Windows unwinds with `.pdata`.
+`flux_compose_trampoline.closure_entry`. GCC at `-O2` moves a function's cold
+blocks to a separate `.cold` part (`-freorder-blocks-and-partition`).
+`flux_yield_prompt` had one, laid out just after the trampoline, so its DWARF
+ranges were `[flux_yield_prompt, …)` and `[flux_yield_prompt.cold, …)` with the
+trampoline between them. lldb-18 takes a function to span from the start of its
+first range to the end of its last, so it took `flux_yield_prompt` to contain
+the trampoline.
 
-**The fix.** On non-Windows GCC and clang toolchains the runtime is built with
-`-fno-omit-frame-pointer` (`ensure_runtime_lib`, `src/llvm/pipeline.rs`), as
-the sanitizer builds already were. Flux functions already get
-`"frame-pointer"="all"` under `-g`.
+Once lldb had unwound through `flux_yield_prompt`, which `flux step` does on its
+way into the handler, it kept that function's unwind rules for every address in
+the span. In the trampoline it found no call-site plan for the pc and used
+`flux_yield_prompt`'s rows instead. On Ubuntu 24.04 (GCC 13.3, lldb 18.1.3)
+that row was an epilogue's, CFA=rsp+8, and the walk read `0x7` as the return
+address. A fresh `bt` at the same pc, with no step before it, reached the
+trampoline first and showed all 20 frames.
+
+How much a build showed depended on the layout. Building the runtime with
+`-fno-omit-frame-pointer` made the three tests pass on GCC 15.2 only because
+the row lldb borrowed there happened to be CFA=rbp+16, which is right for any
+frame with a frame pointer. CI still failed. clang does not split functions by
+default, and on Windows the runtime unwinds with `.pdata`, so macOS and Windows
+passed.
+
+**The fix.** When the runtime's C compiler is GCC, the runtime is built with
+`-fno-reorder-blocks-and-partition` (`ensure_runtime_lib`,
+`src/llvm/pipeline.rs`), so no runtime function has a part away from it.
+clang rejects the flag and does not need it, so `cc_is_clang` keeps it from
+clang, by the compiler's name or its `--version`. The frame-pointer flag was
+removed.
 
 **What it does not cover:**
-- Checked on x86_64 (Ubuntu GCC 15.2, lldb-18). Not checked on arm64 Linux,
-  where the same tests failed too.
+- Checked on x86_64: Ubuntu 24.04 in Docker (GCC 13.3, lldb 18.1.3), where the
+  `debug` and `dap_tests` suites pass, and Ubuntu with GCC 15.2 and lldb 18.1.8.
+  Not checked on arm64 Linux, where the same tests failed too.
 - CI still runs Linux on `ubuntu-24.04` (`ci.yml`).
 
 ### KI-053 — `--dump-core` and the other whole-program dumps report types from the wrong module — FIXED 2026-10-29

@@ -855,6 +855,16 @@ enum CToolchain {
     Msvc { cc: String, lib_tool: String },
 }
 
+/// Whether `cc` is clang: by its name, or, for a plain `cc` as on macOS, by
+/// what `--version` says.
+fn cc_is_clang(cc: &str) -> bool {
+    cc.contains("clang")
+        || Command::new(cc)
+            .arg("--version")
+            .output()
+            .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains("clang"))
+}
+
 /// Detect the available C toolchain.
 ///
 /// Priority:
@@ -934,13 +944,20 @@ pub fn ensure_runtime_lib(
     // and the Flux code it calls (KI-126), which needs their unwind tables.
     // `-fexceptions` makes that unwind release what an effect prompt holds
     // (KI-133).
-    // A debugger walks through the runtime's frames between a `resume` and
-    // the continuations it runs. lldb-18 can misread the CFA of a frame
-    // with no frame pointer and stop the walk there (KI-136).
     if matches!(toolchain, CToolchain::Gcc { .. }) && !cfg!(windows) {
         flags.push("-funwind-tables");
         flags.push("-fexceptions");
-        flags.push("-fno-omit-frame-pointer");
+    }
+    // GCC moves a function's cold blocks to a `.cold` part away from it.
+    // lldb-18 takes the function to span everything from its start to that
+    // part's end, so a runtime function laid out between them, such as the
+    // compose trampoline, unwinds with the split function's rules and the
+    // backtrace stops there (KI-136). Clang does not split by default and
+    // rejects the flag.
+    if let CToolchain::Gcc { cc, .. } = &toolchain
+        && !cc_is_clang(cc)
+    {
+        flags.push("-fno-reorder-blocks-and-partition");
     }
     // On Windows, the C runtime uses MS SEH (`__try` / `__except` /
     // `RaiseException`) to unwind across LLVM-emitted Flux frames
