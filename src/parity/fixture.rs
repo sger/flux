@@ -584,6 +584,14 @@ pub fn annotations_inside_tokens(source: &str) -> Vec<usize> {
     let mut lines = Vec::new();
     for (index, line) in source.lines().enumerate() {
         let Some(comment) = comment_of(line).filter(|c| c.starts_with("//~")) else {
+            // After a `"` that never closes, `comment_of` sees no comment at
+            // all, yet a matcher-blind `//~` may sit in the open string.
+            let in_open_string = line.match_indices("//~").any(|(at, _)| {
+                inside_unterminated_string(&tokens, index + 1, line[..at].chars().count())
+            });
+            if in_open_string {
+                lines.push(index + 1);
+            }
             continue;
         };
         let column = line[..line.len() - comment.len()].chars().count();
@@ -592,6 +600,21 @@ pub fn annotations_inside_tokens(source: &str) -> Vec<usize> {
         }
     }
     lines
+}
+
+/// Whether `line`:`column` falls inside a string the lexer found no end for.
+fn inside_unterminated_string(
+    tokens: &[crate::syntax::token::Token],
+    line: usize,
+    column: usize,
+) -> bool {
+    tokens.iter().any(|token| {
+        let start = (token.position.line, token.position.column);
+        let end = (token.end_position.line, token.end_position.column);
+        token.token_type == crate::syntax::token_type::TokenType::UnterminatedString
+            && start <= (line, column)
+            && (line, column) < end
+    })
 }
 
 /// Whether `line`:`column` falls inside one of `tokens`. Lines count from 1
