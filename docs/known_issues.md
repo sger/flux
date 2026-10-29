@@ -44,7 +44,7 @@ Severity is about consequence, not effort:
 
 ### KI-138 — Natively, malformed JSON reports a different error from the VM
 
-**Severity:** Low · **Area:** native runtime, Flow.Json · **Verified:** 2026-10-28 · **From:** merging the VM and native JSON tests into one parity fixture
+**Severity:** Low · **Area:** native runtime, Flow.Json · **Verified:** 2026-10-28 · **From:** merging the VM and native JSON tests into one parity fixture · **Issue:** [#38](https://forgejo.spirosgerokostas.com/sger/flux/issues/38)
 
 The VM parses JSON in `src/runtime/json.rs` and native code in
 `runtime/c/json.c`. On malformed input they report different messages,
@@ -66,7 +66,7 @@ test for a fix.
 
 ### KI-125 — `make -C runtime/c test` does not build
 
-**Severity:** Low · **Area:** native runtime, tests · **Verified:** 2026-10-21 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-0
+**Severity:** Low · **Area:** native runtime, tests · **Verified:** 2026-10-21 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-0 · **Issue:** [#25](https://forgejo.spirosgerokostas.com/sger/flux/issues/25)
 
 `runtime/c/smoke_test.c` still uses the NaN-boxing API that c493978a replaced
 with pointer tagging (`flux_is_nanbox`, `flux_nanbox_tag`, `FLUX_TAG_*`,
@@ -2069,7 +2069,7 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 ### KI-141 — A test's port could be taken between `free_port()` and the bind — FIXED 2026-10-29
 
-**Severity:** Medium · **Area:** tests, networking · **Verified fixed:** 2026-10-29, by reading the code and a test of the range; neither failure was reproduced locally · **From:** a one-off failure of `vm_http_server::shutdown_now_cancels_active_connection` in a full `cargo test-all`
+**Severity:** Medium · **Area:** tests, networking · **Verified fixed:** 2026-10-29, by reading the code and a test of the range; neither failure was reproduced locally · **From:** a one-off failure of `vm_http_server::shutdown_now_cancels_active_connection` in a full `cargo test-all` · **Issue:** [#41](https://forgejo.spirosgerokostas.com/sger/flux/issues/41)
 
 `free_port()` (`tests/support/scratch.rs`) bound port 0, read the port the
 OS chose, and closed the listener. The test's Flux program bound that port
@@ -2114,7 +2114,7 @@ the tests no longer need it.
 
 ### KI-136 — On Linux, lldb lost the frames a `resume` runs on top of — FIXED 2026-10-29
 
-**Severity:** Medium · **Area:** native debugging, native runtime, CI · **Verified fixed:** 2026-10-29 · **From:** the CI run of the verification-toolkit PR
+**Severity:** Medium · **Area:** native debugging, native runtime, CI · **Verified fixed:** 2026-10-29 · **From:** the CI run of the verification-toolkit PR · **Issue:** [#36](https://forgejo.spirosgerokostas.com/sger/flux/issues/36)
 
 Three debugger tests failed on Linux and passed on macOS and Windows:
 
@@ -2239,7 +2239,7 @@ Test: `emit_llvm_prints_ir_for_a_program_that_imports_the_prelude` in
 
 ### KI-135 — A handle's value was wrong when its body did work of its own in the handle's frame — FIXED 2026-10-28
 
-**Severity:** High · **Area:** effects, native backend, VM · **Verified fixed:** 2026-10-28 · **From:** KI-133
+**Severity:** High · **Area:** effects, native backend, VM · **Verified fixed:** 2026-10-28 · **From:** KI-133 · **Issue:** [#35](https://forgejo.spirosgerokostas.com/sger/flux/issues/35)
 
 Filed as "natively, a panic in a handler clause is caught, then reported again
 at exit":
@@ -2292,7 +2292,7 @@ hung on it and native printed wrong values).
 
 ### KI-134 — Natively, an effect context snapshot shared values between threads uncounted — FIXED 2026-10-28
 
-**Severity:** High · **Area:** native runtime, async scheduler, effects · **Verified fixed:** 2026-10-28 · **From:** `cargo xtask sanitize --thread`
+**Severity:** High · **Area:** native runtime, async scheduler, effects · **Verified fixed:** 2026-10-28 · **From:** `cargo xtask sanitize --thread` · **Issue:** [#34](https://forgejo.spirosgerokostas.com/sger/flux/issues/34)
 
 ```
 $ FLUX_RT_SANITIZE=thread flux --native tests/parity/async_observable_ordering.flx
@@ -2331,7 +2331,7 @@ Test: `native_debug_heap_tests::effects::an_effect_context_crossing_threads_is_s
 
 ### KI-143 — A duplicate instance also reported a duplicate internal name, with no location — FIXED 2026-10-28
 
-**Severity:** Low · **Area:** diagnostics, type classes · **Verified fixed:** 2026-10-28 · **From:** moving `examples/compiler_errors` to `//~` annotations (proposal 0191)
+**Severity:** Low · **Area:** diagnostics, type classes · **Verified fixed:** 2026-10-28 · **From:** moving `examples/compiler_errors` to `//~` annotations (proposal 0191) · **Issue:** [#43](https://forgejo.spirosgerokostas.com/sger/flux/issues/43)
 
 ```flux
 class Sizeable<a> {
@@ -2370,7 +2370,7 @@ Test: `compiler_rules_tests::modules_and_matches::a_duplicate_instance_reports_n
 
 ### KI-142 — An error inside a lambda reported a false duplicate name in a later function — FIXED 2026-10-28
 
-**Severity:** Medium · **Area:** compiler, diagnostics · **Verified fixed:** 2026-10-28 · **From:** rewriting the HTTP server tests (KI-141)
+**Severity:** Medium · **Area:** compiler, diagnostics · **Verified fixed:** 2026-10-28 · **From:** rewriting the HTTP server tests (KI-141) · **Issue:** [#42](https://forgejo.spirosgerokostas.com/sger/flux/issues/42)
 
 ```flux
 fn apply(f: () -> Int) -> Int { f() }
@@ -2409,7 +2409,7 @@ Test: `compiler_rules_tests::modules_and_matches::an_error_inside_a_lambda_does_
 
 ### KI-140 — The CLI hid a specific effect-row error behind a generic E300 — FIXED 2026-10-28
 
-**Severity:** Low · **Area:** diagnostics, effect rows · **Verified fixed:** 2026-10-28 · **From:** KI-137
+**Severity:** Low · **Area:** diagnostics, effect rows · **Verified fixed:** 2026-10-28 · **From:** KI-137 · **Issue:** [#40](https://forgejo.spirosgerokostas.com/sger/flux/issues/40)
 
 ```flux
 fn run_filtered(f: (() -> Int with IO - Console)) -> Int with IO - Console { f() }
@@ -2442,7 +2442,7 @@ Tests: `test_runner_cli::examples_manifest::*_ki140`; the fixtures are now
 
 ### KI-137 — Twenty failing fixtures were named for an error code the CLI does not report — FIXED 2026-10-28
 
-**Severity:** Low · **Area:** diagnostics, test fixtures · **Verified fixed:** 2026-10-28, by `cargo xtask tidy` · **From:** the test-suite review
+**Severity:** Low · **Area:** diagnostics, test fixtures · **Verified fixed:** 2026-10-28, by `cargo xtask tidy` · **From:** the test-suite review · **Issue:** [#37](https://forgejo.spirosgerokostas.com/sger/flux/issues/37)
 
 In 20 fixtures under `examples/`, the error code in the file name differed
 from the one the `expect-error:` header pinned and the CLI printed. A 21st,
@@ -2467,7 +2467,7 @@ no `// expect-error:` line lists.
 
 ### KI-139 — A failing `assert_eq` reported an unhandled Console effect instead of its message — FIXED 2026-10-28
 
-**Severity:** Medium · **Area:** effects, default handlers · **Verified fixed:** 2026-10-28, VM and native · **From:** checking `docs/guide/08_testing.md` against the runner
+**Severity:** Medium · **Area:** effects, default handlers · **Verified fixed:** 2026-10-28, VM and native · **From:** checking `docs/guide/08_testing.md` against the runner · **Issue:** [#39](https://forgejo.spirosgerokostas.com/sger/flux/issues/39)
 
 ```flux
 fn test_fails() {
@@ -2505,7 +2505,7 @@ Tests: `test_runner_cli::test_mode::*_ki139`, on the VM, natively, and for
 
 ### KI-133 — Natively, a caught panic leaked what a `handle` it skipped built — FIXED 2026-10-27
 
-**Severity:** Low · **Area:** native runtime, effects, LLVM emission · **Verified fixed:** 2026-10-27 · **From:** KI-126
+**Severity:** Low · **Area:** native runtime, effects, LLVM emission · **Verified fixed:** 2026-10-27 · **From:** KI-126 · **Issue:** [#33](https://forgejo.spirosgerokostas.com/sger/flux/issues/33)
 
 ```flux
 effect Ask { ask : (Int) -> Int }
@@ -2554,7 +2554,7 @@ turn).
 
 ### KI-126 — Natively, a caught panic leaked what the frames it skipped held — FIXED 2026-10-27
 
-**Severity:** Low · **Area:** native runtime, panics, LLVM emission · **Verified fixed:** 2026-10-27 · **From:** the Perceus audit, R7 and C1
+**Severity:** Low · **Area:** native runtime, panics, LLVM emission · **Verified fixed:** 2026-10-27 · **From:** the Perceus audit, R7 and C1 · **Issue:** [#26](https://forgejo.spirosgerokostas.com/sger/flux/issues/26)
 
 ```flux
 fn numbers(n) { [n, n + 1, n + 2] }
@@ -2604,7 +2604,7 @@ holding a list, none leaving a block per turn).
 
 ### KI-132 — Natively, a chain of calls that can suspend grew the program exponentially — FIXED 2026-10-27
 
-**Severity:** Medium · **Area:** LIR, continuation splitting · **Verified fixed:** 2026-10-27 · **From:** KI-130
+**Severity:** Medium · **Area:** LIR, continuation splitting · **Verified fixed:** 2026-10-27 · **From:** KI-130 · **Issue:** [#32](https://forgejo.spirosgerokostas.com/sger/flux/issues/32)
 
 ```flux
 import Flow.Fs exposing (create_dir_all)
@@ -2641,7 +2641,7 @@ the first continuation's copy of call 2 uses call 2's continuation).
 
 ### KI-131 — Natively, a failed file operation's error freed the path it held twice — FIXED 2026-10-27
 
-**Severity:** High · **Area:** native runtime, file system · **Verified fixed:** 2026-10-27 · **From:** KI-130
+**Severity:** High · **Area:** native runtime, file system · **Verified fixed:** 2026-10-27 · **From:** KI-130 · **Issue:** [#31](https://forgejo.spirosgerokostas.com/sger/flux/issues/31)
 
 ```flux
 import Flow.Fs exposing (remove_file)
@@ -2678,7 +2678,7 @@ the end with nothing left live).
 
 ### KI-130 — A call through a module alias was not seen as the call it is, and leaked natively — FIXED 2026-10-26
 
-**Severity:** Medium · **Area:** Core ANF, Aether, LIR lowering · **Verified fixed:** 2026-10-26 · **From:** KI-124
+**Severity:** Medium · **Area:** Core ANF, Aether, LIR lowering · **Verified fixed:** 2026-10-26 · **From:** KI-124 · **Issue:** [#30](https://forgejo.spirosgerokostas.com/sger/flux/issues/30)
 
 ```flux
 import Flow.Map as Map
@@ -2720,7 +2720,7 @@ turn).
 
 ### KI-124 — Natively, a map's release freed its root and nothing under it — FIXED 2026-10-26
 
-**Severity:** Low · **Area:** native runtime, maps, Aether · **Verified fixed:** 2026-10-26 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-1
+**Severity:** Low · **Area:** native runtime, maps, Aether · **Verified fixed:** 2026-10-26 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-1 · **Issue:** [#24](https://forgejo.spirosgerokostas.com/sger/flux/issues/24)
 
 ```flux
 fn turn(n) {
@@ -2770,7 +2770,7 @@ map functions by name, because of KI-130 (since fixed).
 
 ### KI-123 — Natively, an array released and promoted at most its first 255 elements — FIXED 2026-10-26
 
-**Severity:** Low · **Area:** native runtime, arrays · **Verified fixed:** 2026-10-26 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-1
+**Severity:** Low · **Area:** native runtime, arrays · **Verified fixed:** 2026-10-26 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-1 · **Issue:** [#23](https://forgejo.spirosgerokostas.com/sger/flux/issues/23)
 
 An array of 256 lists, released natively, left the last list live; an array
 of 70000 left 69745. Sharing an array across threads stopped at the same
@@ -2799,7 +2799,7 @@ leaves what an array of one leaves), and
 
 ### KI-129 — Natively, a value was never released when a result computed from it was given away — FIXED 2026-10-26
 
-**Severity:** Medium · **Area:** Aether, drop insertion · **Verified fixed:** 2026-10-26 · **From:** KI-128, the stress fixture's leak
+**Severity:** Medium · **Area:** Aether, drop insertion · **Verified fixed:** 2026-10-26 · **From:** KI-128, the stress fixture's leak · **Issue:** [#29](https://forgejo.spirosgerokostas.com/sger/flux/issues/29)
 
 ```flux
 fn go(n) with IO {
@@ -2842,7 +2842,7 @@ program that prints leaves (KI-119).
 
 ### KI-128 — Natively, a value only lent to a call in tail position was never released — FIXED 2026-10-26
 
-**Severity:** Medium · **Area:** Aether, drop insertion, borrow inference · **Verified fixed:** 2026-10-26 · **From:** the Perceus audit, R5 and step 10
+**Severity:** Medium · **Area:** Aether, drop insertion, borrow inference · **Verified fixed:** 2026-10-26 · **From:** the Perceus audit, R5 and step 10 · **Issue:** [#28](https://forgejo.spirosgerokostas.com/sger/flux/issues/28)
 
 Aether kept a value whose last use was a call in tail position, so that the
 call could stay a tail call. When the call only borrowed the value, nothing
@@ -2888,7 +2888,7 @@ Unit tests cover each shape in `insert.rs` and the inference rule in
 
 ### KI-127 — On the VM, a function with about a hundred `let`s computed a wrong result — FIXED 2026-10-26
 
-**Severity:** High · **Area:** VM, bytecode · **Verified fixed:** 2026-10-26 · **From:** the Perceus audit, step 10
+**Severity:** High · **Area:** VM, bytecode · **Verified fixed:** 2026-10-26 · **From:** the Perceus audit, step 10 · **Issue:** [#27](https://forgejo.spirosgerokostas.com/sger/flux/issues/27)
 
 A function that binds many values with `let` gave a wrong answer on the
 VM, with no error, while native gave the right one:
