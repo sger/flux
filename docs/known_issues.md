@@ -42,6 +42,61 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-144 — On the VM, a fiber on a second worker cannot perform a builtin effect
+
+**Severity:** High · **Area:** VM runtime, async scheduler, effect handlers · **Verified:** 2026-10-29 · **From:** rewriting the flaky `multiworker_sleep_both_overlaps` test
+
+With `run_async_with_workers(n)` for `n > 1`, the VM runs fibers on `n - 1`
+extra OS threads (`flux-fiber-worker-{w}`, `src/vm/core_dispatch.rs`). A
+fiber that runs on one of them and performs `Console` or `Clock` stops the
+whole run:
+
+```flux
+import Flow.Async exposing (..)
+
+fn left() -> Int with Async, IO {
+    print("left")
+    1
+}
+
+fn right() -> Int with Async, IO {
+    print("right")
+    2
+}
+
+fn body() -> (Int, Int) with Async, IO {
+    both(left, right)
+}
+
+fn main() with IO {
+    let pair = run_async_with_workers(2, body)
+    print(pair.0 + pair.1)
+}
+```
+
+```
+"left"
+error[E1009]: AsyncError: Adt(AdtValue { constructor: "Panicked", fields:
+One(String("unhandled effect: Console (no matching handle block)")) })
+```
+
+The fiber on worker 0, the caller's thread, prints. The one placed on
+worker 1 does not find the builtin handler, so the handlers `main` runs
+under look to be installed only on the caller's thread. With one worker
+the program prints `left`, `right`, `3`. It type-checks, and native code
+runs it correctly. None of the other multiworker tests notice, because
+their fibers only return constants or `sleep`, which goes through the
+async backend rather than a handler.
+
+Repro: `vm_fiber_multiworker::multiworker_both_runs_on_two_workers_at_once`
+(`tests/vm_runtime/vm_fiber_multiworker.rs`) is ignored for this issue. Its
+fibers read `now_ms()` and fail on `Clock` the same way. Run it with
+`--run-ignored only`; un-ignoring it is the failing test for a fix.
+
+Not yet known: whether user-defined handlers outside `run_async` are lost
+the same way, and whether a fiber that steals or migrates between workers
+(`FLUX_FIBER_MIGRATION`) loses them mid-run.
+
 ### KI-138 — Natively, malformed JSON reports a different error from the VM
 
 **Severity:** Low · **Area:** native runtime, Flow.Json · **Verified:** 2026-10-28 · **From:** merging the VM and native JSON tests into one parity fixture · **Issue:** [#38](https://forgejo.spirosgerokostas.com/sger/flux/issues/38)
