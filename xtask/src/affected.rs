@@ -148,6 +148,12 @@ pub struct Repo {
     sources: Vec<(String, String)>,
 }
 
+/// `path`, a path cargo metadata reports, relative to `workspace_root`.
+fn relative_to(workspace_root: &str, path: &str) -> String {
+    let prefix = format!("{workspace_root}/");
+    path.strip_prefix(&prefix).unwrap_or(path).to_string()
+}
+
 impl Repo {
     pub fn load(root: &Path) -> Result<Repo, String> {
         let output = cargo()
@@ -169,8 +175,7 @@ impl Repo {
             .get("workspace_root")
             .and_then(Value::as_str)
             .ok_or("cargo metadata has no workspace_root")?;
-        let prefix = format!("{workspace_root}/");
-        let relative = |path: &str| path.strip_prefix(&prefix).unwrap_or(path).to_string();
+        let relative = |path: &str| relative_to(workspace_root, path);
         let mut repo = Repo::default();
         for package in
             metadata.get("packages").and_then(Value::as_array).map_or(&[][..], Vec::as_slice)
@@ -813,6 +818,16 @@ mod tests {
         let text =
             "#[path = \"x\"]\nmod a;\n#[cfg(unix)]\npub mod b;\nmod c {\n}\npub(crate) mod d;";
         assert_eq!(declared_modules(text).collect::<Vec<_>>(), ["a", "b", "d"]);
+    }
+
+    #[test]
+    fn relative_to_strips_a_unix_workspace_root() {
+        assert_eq!(relative_to("/a/flux", "/a/flux/tests/x/main.rs"), "tests/x/main.rs");
+    }
+
+    #[test]
+    fn relative_to_strips_a_windows_workspace_root() {
+        assert_eq!(relative_to(r"E:\a\flux", r"E:\a\flux\tests\x\main.rs"), "tests/x/main.rs");
     }
 
     #[test]
