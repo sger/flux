@@ -13,7 +13,9 @@ use std::time::Duration;
 // binds, but this is acceptable for integration tests and avoids hardcoded
 // port collisions when multiple CI jobs run in parallel.
 fn run_source(source: &str, tag: &str) -> (String, String, bool, Duration) {
-    flux_runner::run_flux_timed(source, tag)
+    let ran = flux_runner::flux_source(source, tag).timeout(Duration::from_secs(60)).run();
+    assert!(!ran.timed_out, "{}", flux_runner::timed_out_message(&ran.stdout, &ran.stderr));
+    (ran.stdout, ran.stderr, ran.success, ran.elapsed)
 }
 
 #[test]

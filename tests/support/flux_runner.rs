@@ -164,6 +164,16 @@ fn run_with_timeout(
     (stdout.join().unwrap(), stderr.join().unwrap(), success, timed_out)
 }
 
+/// What a networking test says when its program was killed for running too
+/// long. A program that binds a port `free_port()` chose can end up talking
+/// to someone else's socket and wait forever (KI-141).
+pub fn timed_out_message(stdout: &str, stderr: &str) -> String {
+    format!(
+        "the program did not finish in time; a port taken between `free_port()` and the \
+         bind can do this (KI-141)\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    )
+}
+
 /// Run `source` on the VM and return `(stdout, stderr, success)`. `tag`
 /// tells runs apart when several tests in one binary run at once.
 pub fn run_flux(source: &str, tag: &str) -> (String, String, bool) {
