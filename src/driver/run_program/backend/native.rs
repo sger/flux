@@ -15,6 +15,7 @@ use crate::driver::{
         NativeParallelCompileRequest, compile_native_modules_parallel,
         compile_native_support_object, compile_program_hash_object, locate_runtime_lib_dir,
     },
+    pipeline::program::merge_programs,
     reporting::{
         report::{
             AetherTraceContext, ArtifactStats, CompileStats, ExecuteStats, RunStats, TraceBackend,
@@ -42,16 +43,6 @@ fn should_skip_native_relink(
     binary_exists: bool,
 ) -> bool {
     !no_cache && !emit_binary && !any_native_recompiled && binary_exists
-}
-
-#[cfg(feature = "llvm")]
-/// Builds a merged program view for native-only report and LLVM emission surfaces.
-fn merged_native_program(graph: &ModuleGraph) -> Program {
-    let mut program = Program::new();
-    for node in graph.topo_order() {
-        program.statements.extend(node.program.statements.clone());
-    }
-    program
 }
 
 #[cfg(feature = "llvm")]
@@ -214,7 +205,9 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
     {
         let mut request = request;
         let native_program = if request.runtime.trace_aether || request.output.emit_llvm {
-            Some(merged_native_program(request.program.graph))
+            Some(merge_programs(
+                request.program.graph.topo_order().into_iter().map(|node| &node.program),
+            ))
         } else {
             None
         };
