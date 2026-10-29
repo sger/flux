@@ -6,7 +6,7 @@
 use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
 
-use crate::affected::{Repo, declared_modules};
+use crate::affected::{Repo, declared_modules, relative_to};
 use crate::verify::cargo;
 
 pub fn run(root: &Path) -> Result<bool, String> {
@@ -48,10 +48,10 @@ fn unformatted(root: &Path) -> Result<Vec<String>, String> {
         .args(["fmt", "--all", "--", "--check", "--files-with-diff"])
         .output()
         .map_err(|e| format!("cargo fmt: {e}"))?;
-    let prefix = format!("{}/", root.display());
+    let root = root.display().to_string();
     let files: Vec<String> = String::from_utf8_lossy(&output.stdout)
         .lines()
-        .map(|file| file.strip_prefix(&prefix).unwrap_or(file).to_string())
+        .map(|file| relative_to(&root, file))
         .collect();
     if !output.status.success() && files.is_empty() {
         return Err(format!("cargo fmt failed:\n{}", String::from_utf8_lossy(&output.stderr)));

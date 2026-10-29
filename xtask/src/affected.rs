@@ -148,10 +148,13 @@ pub struct Repo {
     sources: Vec<(String, String)>,
 }
 
-/// `path`, a path cargo metadata reports, relative to `workspace_root`.
-fn relative_to(workspace_root: &str, path: &str) -> String {
-    let prefix = format!("{workspace_root}/");
-    path.strip_prefix(&prefix).unwrap_or(path).to_string()
+/// `path`, a path cargo metadata reports, relative to `workspace_root`, with
+/// `/` separators: on Windows cargo reports `\`, and every comparison here is
+/// against `tests/…`.
+pub fn relative_to(workspace_root: &str, path: &str) -> String {
+    let prefix = format!("{}/", workspace_root.replace('\\', "/"));
+    let path = path.replace('\\', "/");
+    path.strip_prefix(&prefix).unwrap_or(&path).to_string()
 }
 
 impl Repo {
