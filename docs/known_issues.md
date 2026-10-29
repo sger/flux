@@ -88,32 +88,6 @@ Repro: `tests/parity/json_escapes_and_malformed_input.flx` skips its
 `llvm` way for this issue. Deleting that `skip-way:` line is the failing
 test for a fix.
 
-### KI-136 — On newer Linux, lldb loses the frames a `resume` runs on top of
-
-**Severity:** Medium · **Area:** native debugging, CI · **Verified:** 2026-10-27 · **From:** the CI run of the verification-toolkit PR
-
-Three debugger tests fail on GitHub's `ubuntu-26.04` image (lldb-18
-18.1.8, with the image's own C toolchain). Main's nightly runs passed them on
-`ubuntu-latest` before the image changed:
-
-- `native_debug_tests::stepping_across_a_perform_follows_the_handler`
-- `parity_debug_tests::the_vm_and_native_debuggers_agree` (the `effect_steps`
-  and `effect_yield` fixtures)
-- `dap_tests::native_handler_arms_show_the_frames_they_suspended`
-
-In each, the program is stopped in a continuation that a handler's `resume`
-is running, and lldb finds no frame above it: `flux bt` shows `decide` alone,
-where the VM shows `decide`, `twice`, `<handler Flip.flip>` and `main`.
-
-What is known:
-- CI runs Linux on `ubuntu-24.04` until this is fixed (`ci.yml`).
-- On arm64 Linux (Ubuntu 24.04, lldb-18 18.1.3, in podman), the same three
-  tests fail on main too, so the problem is older than the image change.
-- Undoing KI-126's unwinding changes (Flux functions `nounwind` again, the
-  runtime without `-funwind-tables` and `-fexceptions`) did not help on
-  arm64. That says nothing yet about x86_64.
-- macOS passes all three.
-
 ### KI-125 — `make -C runtime/c test` does not build
 
 **Severity:** Low · **Area:** native runtime, tests · **Verified:** 2026-10-21 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-0
@@ -2116,6 +2090,42 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-136 — On Linux, lldb lost the frames a `resume` runs on top of — FIXED 2026-10-29
+
+**Severity:** Medium · **Area:** native debugging, native runtime, CI · **Verified fixed:** 2026-10-29 · **From:** the CI run of the verification-toolkit PR
+
+Three debugger tests failed on Linux and passed on macOS and Windows:
+
+- `native_debug_tests::stepping_across_a_perform_follows_the_handler`
+- `parity_debug_tests::the_vm_and_native_debuggers_agree` (the `effect_steps`
+  and `effect_yield` fixtures)
+- `dap_tests::native_handler_arms_show_the_frames_they_suspended`
+
+In each, the program was stopped in a continuation that a handler's `resume`
+was running, and `flux bt` showed `decide` alone, where the VM shows
+`decide`, `twice`, `<handler Flip.flip>` and `main`.
+
+**The cause.** lldb's raw backtrace went on past the continuation, through
+`flux_call_closure` and `flux_call_closure_c`, and stopped at
+`flux_compose_trampoline.closure_entry`. Ubuntu's GCC builds with
+`-fomit-frame-pointer`, `-fstack-protector-strong` and `-fcf-protection` by
+default, and the runtime's flags did not override the first. In that frame
+lldb-18 used its eh_frame plan "plus augmentation from assembly parsing", whose
+row gave CFA=rsp+128 where the compiler's CFI says rsp+96. It read a return
+address from the wrong slot, found no code there, and with `rbp` used as a
+general register it had no frame-pointer chain to fall back on. macOS arm64
+always keeps frame pointers, and Windows unwinds with `.pdata`.
+
+**The fix.** On non-Windows GCC and clang toolchains the runtime is built with
+`-fno-omit-frame-pointer` (`ensure_runtime_lib`, `src/llvm/pipeline.rs`), as
+the sanitizer builds already were. Flux functions already get
+`"frame-pointer"="all"` under `-g`.
+
+**What it does not cover:**
+- Checked on x86_64 (Ubuntu GCC 15.2, lldb-18). Not checked on arm64 Linux,
+  where the same tests failed too.
+- CI still runs Linux on `ubuntu-24.04` (`ci.yml`).
 
 ### KI-053 — `--dump-core` and the other whole-program dumps report types from the wrong module — FIXED 2026-10-29
 
