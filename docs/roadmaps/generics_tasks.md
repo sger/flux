@@ -989,9 +989,11 @@ Ranked by severity; complete as of this writing.
       Its "no workaround" line was the misleading part and is retracted.
 
 
-- [ ] **D10. [KI-053](../known_issues.md#ki-053)** — the whole-program dumps
+- [x] **D10. [KI-053](../known_issues.md#ki-053)** — the whole-program dumps
       report types from the wrong module. Not generics; it is the instrument
       used to *read* generics dumps, which is why it is on this list.
+      **Fixed**: every merged view shifts each module's expression ids
+      (`2d1a7203` for the dumps; `--emit-llvm` and `--trace-aether` since).
 
 ### Low
 
