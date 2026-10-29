@@ -12,8 +12,7 @@
 use std::path::Path;
 use std::process::Command;
 
-#[path = "../support/scratch.rs"]
-mod scratch;
+use crate::support::scratch;
 use scratch::Scratch;
 
 fn compile_output(label: &str, source: &str) -> String {
@@ -39,10 +38,7 @@ fn an_undetermined_tuple_receiver_is_reported() {
         "e491-undetermined",
         "fn fst(t) { t.0 }\n\nfn main() with IO { print(\"unused helper\") }\n",
     );
-    assert!(
-        out.contains("E491"),
-        "expected E491 for a receiver nothing determines, got:\n{out}"
-    );
+    assert!(out.contains("E491"), "expected E491 for a receiver nothing determines, got:\n{out}");
 }
 
 /// A projection on an *undefined* name reports only that the name is undefined.
@@ -51,14 +47,9 @@ fn an_undetermined_tuple_receiver_is_reported() {
 /// the field predicate already had, and the tuple predicate initially lacked.
 #[test]
 fn a_projection_on_an_undefined_name_does_not_cascade() {
-    let out = compile_output(
-        "e491-cascade",
-        "fn main() -> Unit {\n    let value: Int = mystery.0\n}\n",
-    );
-    assert!(
-        out.contains("E004"),
-        "expected E004 for the undefined name, got:\n{out}"
-    );
+    let out =
+        compile_output("e491-cascade", "fn main() -> Unit {\n    let value: Int = mystery.0\n}\n");
+    assert!(out.contains("E004"), "expected E004 for the undefined name, got:\n{out}");
     assert!(
         !out.contains("E491"),
         "an undefined receiver is already reported as E004, got:\n{out}"

@@ -242,27 +242,17 @@ fn const_float_divide_by_zero() {
 fn const_undefined_identifier_uses_resolved_name() {
     let mut interner = Interner::new();
     let missing = interner.intern("missing_const");
-    let expr = Expression::Identifier {
-        name: missing,
-        span: Default::default(),
-        id: ExprId::UNSET,
-    };
+    let expr =
+        Expression::Identifier { name: missing, span: Default::default(), id: ExprId::UNSET };
 
     let err = eval_const_expr(&expr, &HashMap::new(), &interner).unwrap_err();
     assert_eq!(err.code, "E041");
-    assert!(
-        err.message
-            .contains("'missing_const' is not a module constant.")
-    );
+    assert!(err.message.contains("'missing_const' is not a module constant."));
 }
 
 #[test]
 fn const_deep_recursion() {
-    let mut expr = Expression::Integer {
-        value: 1,
-        span: Default::default(),
-        id: ExprId::UNSET,
-    };
+    let mut expr = Expression::Integer { value: 1, span: Default::default(), id: ExprId::UNSET };
 
     for _ in 0..50 {
         expr = Expression::Infix {
@@ -285,18 +275,10 @@ fn const_deep_recursion() {
 #[test]
 fn const_large_array() {
     let elements: Vec<Expression> = (0..100)
-        .map(|i| Expression::Integer {
-            value: i,
-            span: Default::default(),
-            id: ExprId::UNSET,
-        })
+        .map(|i| Expression::Integer { value: i, span: Default::default(), id: ExprId::UNSET })
         .collect();
 
-    let expr = Expression::ArrayLiteral {
-        elements,
-        span: Default::default(),
-        id: ExprId::UNSET,
-    };
+    let expr = Expression::ArrayLiteral { elements, span: Default::default(), id: ExprId::UNSET };
 
     let result = eval(&expr).unwrap();
     match result {
@@ -314,25 +296,13 @@ fn const_hash_not_supported() {
     let pairs: Vec<(Expression, Expression)> = (0..3)
         .map(|i| {
             (
-                Expression::Integer {
-                    value: i,
-                    span: Default::default(),
-                    id: ExprId::UNSET,
-                },
-                Expression::Integer {
-                    value: i * 2,
-                    span: Default::default(),
-                    id: ExprId::UNSET,
-                },
+                Expression::Integer { value: i, span: Default::default(), id: ExprId::UNSET },
+                Expression::Integer { value: i * 2, span: Default::default(), id: ExprId::UNSET },
             )
         })
         .collect();
 
-    let expr = Expression::Hash {
-        pairs,
-        span: Default::default(),
-        id: ExprId::UNSET,
-    };
+    let expr = Expression::Hash { pairs, span: Default::default(), id: ExprId::UNSET };
 
     // Hash literals are not supported in module constants (require runtime GC heap)
     let result = eval(&expr);
@@ -360,9 +330,5 @@ fn const_error_with_hint() {
     let err = eval(&expr).unwrap_err();
     assert_eq!(err.code, "E042");
     assert!(err.hint.is_some());
-    assert!(
-        err.hint
-            .unwrap()
-            .contains("Module constants must be evaluable at compile time")
-    );
+    assert!(err.hint.unwrap().contains("Module constants must be evaluable at compile time"));
 }

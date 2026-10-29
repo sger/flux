@@ -1,0 +1,23 @@
+// PA L9: an arm gives the matched list away, then reads one of its fields.
+// The field is a view of the list, so the arm must take its own reference to
+// it before the call that may free the list.
+
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+// Owns its token, and releases it on the branch that runs.
+fn keep(token, v) {
+    if len(token) < 0 { match [token] { _ -> v } } else { v }
+}
+
+fn walk(xs) {
+    match xs {
+        [h | t] -> [keep(xs, h) | walk(t)],
+        _ -> [],
+    }
+}
+
+fn main() {
+    print(walk(numbers(1)))
+}

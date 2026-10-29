@@ -28,13 +28,10 @@ fn span(line: usize, column: usize) -> Span {
 }
 
 fn temp_dir(name: &str) -> PathBuf {
-    let mut path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("target")
-        .join("test-scratch");
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let mut path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join("test-scratch");
+    let nanos =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let pid = std::process::id();
     path.push(format!("flux_module_graph_{}_{}_{}", name, pid, nanos));
     std::fs::create_dir_all(&path).unwrap();
@@ -59,10 +56,8 @@ fn module_binding_helpers() {
 #[test]
 fn normalize_roots_dedups() {
     let root = temp_dir("roots");
-    let roots = normalize_roots(&[
-        ModuleRoot::unscoped(root.clone()),
-        ModuleRoot::unscoped(root.clone()),
-    ]);
+    let roots =
+        normalize_roots(&[ModuleRoot::unscoped(root.clone()), ModuleRoot::unscoped(root.clone())]);
     assert_eq!(roots.len(), 1);
 }
 
@@ -76,18 +71,12 @@ fn validate_file_kind_multiple_modules() {
         statements: vec![
             Statement::Module {
                 name: foo_sym,
-                body: Block {
-                    statements: vec![],
-                    span: Span::default(),
-                },
+                body: Block { statements: vec![], span: Span::default() },
                 span: span(1, 0),
             },
             Statement::Module {
                 name: bar_sym,
-                body: Block {
-                    statements: vec![],
-                    span: Span::default(),
-                },
+                body: Block { statements: vec![], span: Span::default() },
                 span: span(2, 0),
             },
         ],
@@ -117,10 +106,7 @@ fn validate_file_kind_script_not_importable() {
 fn validate_file_kind_module_path_mismatch_uses_stable_display_path() {
     let mut interner = Interner::new();
     let diagnostics_sym = interner.intern("Diagnostics.IceDemo");
-    let cwd = std::env::current_dir()
-        .unwrap()
-        .to_string_lossy()
-        .replace('\\', "/");
+    let cwd = std::env::current_dir().unwrap().to_string_lossy().replace('\\', "/");
     let path_str =
         if let Some(rest) = format!("{cwd}/examples/diagnostics/ice_demo.flx").strip_prefix('/') {
             format!("//?/{rest}")
@@ -132,10 +118,7 @@ fn validate_file_kind_module_path_mismatch_uses_stable_display_path() {
     let program = Program {
         statements: vec![Statement::Module {
             name: diagnostics_sym,
-            body: Block {
-                statements: vec![],
-                span: Span::default(),
-            },
+            body: Block { statements: vec![], span: Span::default() },
             span: span(1, 0),
         }],
         span: Span::default(),
@@ -308,10 +291,7 @@ fn topo_levels_group_independent_dependencies() {
 
 #[test]
 fn import_cycle_diagnostic_uses_stable_paths_and_import_span() {
-    let cwd = std::env::current_dir()
-        .unwrap()
-        .to_string_lossy()
-        .replace('\\', "/");
+    let cwd = std::env::current_dir().unwrap().to_string_lossy().replace('\\', "/");
     let make_verbatim = |suffix: &str| {
         let joined = format!("{cwd}/{suffix}");
         if let Some(rest) = joined.strip_prefix('/') {
@@ -405,10 +385,7 @@ fn build_graph_marks_flow_modules_as_stdlib() {
     let program = Program {
         statements: vec![Statement::Module {
             name: module_sym,
-            body: Block {
-                statements: vec![],
-                span: Span::default(),
-            },
+            body: Block { statements: vec![], span: Span::default() },
             span: span(1, 0),
         }],
         span: Span::default(),
@@ -436,10 +413,7 @@ fn build_graph_marks_non_flow_modules_as_user() {
     let program = Program {
         statements: vec![Statement::Module {
             name: module_sym,
-            body: Block {
-                statements: vec![],
-                span: Span::default(),
-            },
+            body: Block { statements: vec![], span: Span::default() },
             span: span(1, 0),
         }],
         span: Span::default(),
@@ -470,10 +444,7 @@ fn resolve_imports_missing_module_hint_uses_stable_display_paths() {
         ..Default::default()
     };
 
-    let cwd = std::env::current_dir()
-        .unwrap()
-        .to_string_lossy()
-        .replace('\\', "/");
+    let cwd = std::env::current_dir().unwrap().to_string_lossy().replace('\\', "/");
     let make_verbatim = |suffix: &str| {
         let joined = format!("{cwd}/{suffix}");
         if let Some(rest) = joined.strip_prefix('/') {
@@ -503,11 +474,7 @@ fn resolve_imports_no_imports_returns_empty() {
 
     let program = Program {
         statements: vec![Statement::Expression {
-            expression: Expression::Integer {
-                value: 1,
-                span: span(1, 0),
-                id: ExprId::UNSET,
-            },
+            expression: Expression::Integer { value: 1, span: span(1, 0), id: ExprId::UNSET },
             has_semicolon: false,
             span: span(1, 0),
         }],
@@ -574,10 +541,7 @@ fn a_scoped_root_serves_only_its_own_namespace() {
     assert!(root.serves("Json"), "the namespace itself must resolve");
     assert!(root.serves("Json.Parse"), "modules beneath it must resolve");
     assert!(!root.serves("Toml"), "an unrelated import must not resolve");
-    assert!(
-        !root.serves("Jsonic"),
-        "a namespace is a whole segment, not a prefix"
-    );
+    assert!(!root.serves("Jsonic"), "a namespace is a whole segment, not a prefix");
 }
 
 #[test]
@@ -622,10 +586,7 @@ fn two_packages_may_each_ship_a_json_module() {
 
     // Only package `a` is scoped to `Json`, so the import is unambiguous even
     // though `b` ships a file at the identical relative path.
-    let roots = vec![
-        ModuleRoot::scoped(a_root, "Json"),
-        ModuleRoot::scoped(b_root, "Toml"),
-    ];
+    let roots = vec![ModuleRoot::scoped(a_root, "Json"), ModuleRoot::scoped(b_root, "Toml")];
     let result =
         ModuleGraph::build_with_entry_and_module_roots(&entry_path, &program, interner, &roots);
     assert!(
@@ -661,10 +622,7 @@ fn colliding_namespaces_report_the_packages() {
         ..Default::default()
     };
 
-    let roots = vec![
-        ModuleRoot::scoped(a_root, "Json"),
-        ModuleRoot::scoped(b_root, "Json"),
-    ];
+    let roots = vec![ModuleRoot::scoped(a_root, "Json"), ModuleRoot::scoped(b_root, "Json")];
     let result =
         ModuleGraph::build_with_entry_and_module_roots(&entry_path, &program, interner, &roots);
     let codes: Vec<&str> = result.diagnostics.iter().filter_map(|d| d.code()).collect();

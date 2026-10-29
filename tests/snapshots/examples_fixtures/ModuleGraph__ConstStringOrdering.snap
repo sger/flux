@@ -9,9 +9,9 @@ error[E024]: Module Path Mismatch
 
 Module name `ModuleGraph.ConstStringOrdering` doesn't match file path `examples/ModuleGraph/ConstStringOrdering.flx`.
 
-  examples/ModuleGraph/ConstStringOrdering.flx:6:1
+  examples/ModuleGraph/ConstStringOrdering.flx:5:1
   |
-6 | module ModuleGraph.ConstStringOrdering {
+5 | module ModuleGraph.ConstStringOrdering {
   | ^
 
 Hint:

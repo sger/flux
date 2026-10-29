@@ -9,9 +9,9 @@ error[E419]: Unresolved Effect Row
 
 I cannot resolve the effect variable `e` introduced by this call.
 
-  examples/generics/failing/compile/ki_032_unannotated_row_poly_wrapper.flx:25:22
+  examples/generics/failing/compile/ki_032_unannotated_row_poly_wrapper.flx:24:22
    |
-25 | fn map_wrap(xs, f) { L.map(xs, f) }
+24 | fn map_wrap(xs, f) { L.map(xs, f) }
    |                      ^^^^^
    |                      ----- this call leaves an effect variable unconstrained
 

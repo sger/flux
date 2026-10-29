@@ -49,10 +49,8 @@ impl VmEngine {
         let address = listener
             .local_addr()
             .map_err(|err| format!("cannot open a port for the debugger: {err}"))?;
-        let (program, base) = spec
-            .flux_command
-            .split_first()
-            .ok_or_else(|| "`fluxCommand` is empty".to_string())?;
+        let (program, base) =
+            spec.flux_command.split_first().ok_or_else(|| "`fluxCommand` is empty".to_string())?;
         let mut command = Command::new(program);
         command
             .args(base)
@@ -78,16 +76,13 @@ impl VmEngine {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let mut child = command
-            .spawn()
-            .map_err(|err| format!("cannot start `{program}`: {err}"))?;
+        let mut child =
+            command.spawn().map_err(|err| format!("cannot start `{program}`: {err}"))?;
 
         let stdout = child.stdout.take().expect("piped stdout");
         let stderr = child.stderr.take().expect("piped stderr");
-        let readers = vec![
-            forward_stdout(stdout, inputs.clone()),
-            forward_stderr(stderr, inputs.clone()),
-        ];
+        let readers =
+            vec![forward_stdout(stdout, inputs.clone()), forward_stderr(stderr, inputs.clone())];
         let child = Arc::new(Mutex::new(child));
         watch_exit(child.clone(), readers, inputs.clone());
 
@@ -115,16 +110,10 @@ impl VmEngine {
             .set_nonblocking(false)
             .map_err(|err| format!("cannot talk to the debugger: {err}"))?;
         read_engine(
-            stream
-                .try_clone()
-                .map_err(|err| format!("cannot talk to the debugger: {err}"))?,
+            stream.try_clone().map_err(|err| format!("cannot talk to the debugger: {err}"))?,
             inputs,
         );
-        Ok(Some(Self {
-            stream,
-            child,
-            next_id: 1,
-        }))
+        Ok(Some(Self { stream, child, next_id: 1 }))
     }
 
     /// Sends a request; the answer comes back as an [`Input::Engine`] with
@@ -177,13 +166,7 @@ fn forward_stdout(
                 Ok(0) | Err(_) => break,
                 Ok(read) => {
                     let text = String::from_utf8_lossy(&buffer[..read]).into_owned();
-                    if inputs
-                        .send(Input::Output {
-                            category: "stdout",
-                            text,
-                        })
-                        .is_err()
-                    {
+                    if inputs.send(Input::Output { category: "stdout", text }).is_err() {
                         break;
                     }
                 }
@@ -209,10 +192,7 @@ fn forward_stderr(
                         continue;
                     }
                     if inputs
-                        .send(Input::Output {
-                            category: "stderr",
-                            text: line.clone(),
-                        })
+                        .send(Input::Output { category: "stderr", text: line.clone() })
                         .is_err()
                     {
                         break;
@@ -227,9 +207,7 @@ fn forward_stderr(
 pub fn is_progress_line(line: &str) -> bool {
     let line = line.trim_start();
     line.starts_with('[')
-        && ["Compiling", "Cached", "Linking", "Running via"]
-            .iter()
-            .any(|word| line.contains(word))
+        && ["Compiling", "Cached", "Linking", "Running via"].iter().any(|word| line.contains(word))
 }
 
 /// Reports the child's exit once all its output has been read.
@@ -240,10 +218,7 @@ fn watch_exit(
 ) {
     std::thread::spawn(move || {
         let code = loop {
-            let status = child
-                .lock()
-                .ok()
-                .and_then(|mut child| child.try_wait().ok());
+            let status = child.lock().ok().and_then(|mut child| child.try_wait().ok());
             match status {
                 Some(Some(status)) => break status.code(),
                 Some(None) => std::thread::sleep(Duration::from_millis(20)),

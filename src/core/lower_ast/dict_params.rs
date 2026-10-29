@@ -92,10 +92,8 @@ impl AstLowerer<'_> {
     /// Record that the definition `name` at `span` cannot be lowered from
     /// its evidence.
     fn internal_error(&mut self, name: Identifier, span: Span, problem: &str) {
-        let name = self
-            .interner
-            .and_then(|interner| interner.try_resolve(name))
-            .unwrap_or("<unnamed>");
+        let name =
+            self.interner.and_then(|interner| interner.try_resolve(name)).unwrap_or("<unnamed>");
         self.site_error(span, &format!("the definition `{name}`: {problem}"));
     }
 
@@ -113,15 +111,11 @@ impl AstLowerer<'_> {
     /// never returns one.
     pub(super) fn render_dict_arg(&self, arg: &DictArg, span: Span) -> Option<CoreExpr> {
         match arg {
-            DictArg::Global { instance } => Some(CoreExpr::external_var(
-                instance.dict_name(self.interner?)?,
-                span,
-            )),
+            DictArg::Global { instance } => {
+                Some(CoreExpr::external_var(instance.dict_name(self.interner?)?, span))
+            }
             DictArg::Applied { instance, context } => Some(CoreExpr::App {
-                func: Box::new(CoreExpr::external_var(
-                    instance.dict_name(self.interner?)?,
-                    span,
-                )),
+                func: Box::new(CoreExpr::external_var(instance.dict_name(self.interner?)?, span)),
                 args: context
                     .iter()
                     .map(|arg| self.render_dict_arg(arg, span))
@@ -129,19 +123,10 @@ impl AstLowerer<'_> {
                 span,
             }),
             DictArg::Param { owner, index, path } => {
-                let binder = self
-                    .dict_param_binders
-                    .get(&(*owner, u16::try_from(*index).ok()?))?;
-                Some(
-                    path.iter()
-                        .fold(CoreExpr::bound_var(binder, span), |object, &index| {
-                            CoreExpr::TupleField {
-                                object: Box::new(object),
-                                index,
-                                span,
-                            }
-                        }),
-                )
+                let binder = self.dict_param_binders.get(&(*owner, u16::try_from(*index).ok()?))?;
+                Some(path.iter().fold(CoreExpr::bound_var(binder, span), |object, &index| {
+                    CoreExpr::TupleField { object: Box::new(object), index, span }
+                }))
             }
             DictArg::None => None,
         }
@@ -168,11 +153,7 @@ fn canonical_param_names(
         .iter()
         .map(|param| {
             let occurrence = occurrences.entry(param.class_id).or_insert(0);
-            let suffix = if *occurrence == 0 {
-                String::new()
-            } else {
-                format!("_{occurrence}")
-            };
+            let suffix = if *occurrence == 0 { String::new() } else { format!("_{occurrence}") };
             *occurrence += 1;
             let prefix = crate::types::class_env::dictionary_prefix(param.class_id, interner);
             interner.lookup(&format!("{prefix}{suffix}"))

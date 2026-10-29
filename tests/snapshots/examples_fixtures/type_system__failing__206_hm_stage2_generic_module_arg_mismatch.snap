@@ -3,19 +3,51 @@ source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/type_system/failing/206_hm_stage2_generic_module_arg_mismatch.flx
 == compile ==
-failed (module)
+failed (compile)
 == diagnostics ==
-error[E018]: Import Not Found
+error[E300]: Argument Type Mismatch
 
-Cannot find module `TypeSystem.HmGenericModule` to import.
+I found the wrong type in the 2nd argument to `prepend`.
 
-  examples/type_system/failing/206_hm_stage2_generic_module_arg_mismatch.flx:59:1
+  examples/type_system/failing/206_hm_stage2_generic_module_arg_mismatch.flx:16:34
    |
-59 | import TypeSystem.HmGenericModule as M
-   | ^
+14 | 
+   | - `prepend` expects `Array<String>` as the 2nd parameter
+15 | fn main() -> Unit {
+16 |     let _xs = M.prepend("hello", [|1, 2, 3|])
+   |                                  ^^^^^^^^^^^
+   |                                  ----------- this argument has type `Array<Int>`
 
-Hint:
-  Check that: 1) The module file exists (e.g., `TypeSystem.HmGenericModule.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `TypeSystem.HmGenericModule` under roots: examples/type_system/failing, src, lib (imported from examples/type_system/failing/206_hm_stage2_generic_module_arg_mismatch.flx).
+Note:
+  expected argument type: Array<String>
+  found argument type: Array<Int>
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  Pass a `Array<String>` value as the 2nd argument.
+
+
+error[E300]: Type Mismatch
+
+I found a type mismatch.
+
+  examples/type_system/failing/206_hm_stage2_generic_module_arg_mismatch.flx:16:36
+   |
+16 |     let _xs = M.prepend("hello", [|1, 2, 3|])
+   |                                    ^
+   |                                    - this expression has type `Int`
+
+   |                                    - this type mismatch is reported here
+
+Note:
+  expected type: String
+  found type: Int
+  the conflicting types meet at this expression
+
+Help:
+  Try `to_string(...)` to convert a `Int` into a `String`.
+
+Found 2 errors.
 == stdout ==
 <not executed>

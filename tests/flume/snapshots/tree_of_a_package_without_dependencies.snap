@@ -1,0 +1,5 @@
+---
+source: tests/flume/package_tree_tests.rs
+expression: text(&out)
+---
+app v0.1.0

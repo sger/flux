@@ -301,10 +301,7 @@ pub fn invalid_operation(
 ) -> Diagnostic {
     diagnostic_for(&INVALID_OPERATION)
         .with_phase(DiagnosticPhase::Runtime)
-        .with_message(format!(
-            "Cannot {} {} and {} values.",
-            op_name, left_type, right_type
-        ))
+        .with_message(format!("Cannot {} {} and {} values.", op_name, left_type, right_type))
         .with_file(file)
         .with_span(span)
 }

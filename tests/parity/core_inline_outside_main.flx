@@ -1,0 +1,19 @@
+// parity: vm, llvm
+// expect: success
+// bug: The Core simplifier's beta reduction and constant folding run on a
+//      function other than `main`, so `vm_opt` checks them too: on the VM,
+//      `main`'s own body does not go through them (KI-118), which is why
+//      core_disciplined_inline.flx alone cannot catch a wrong fold there.
+//      The 0190 S13 exit check planted a wrong `IAdd` fold here.
+// parity-expected-stdout-begin
+// 42
+// parity-expected-stdout-end
+
+fn f() -> Int {
+    let add_one = \x -> x + 1
+    add_one(41)
+}
+
+fn main() with IO {
+    print(f())
+}

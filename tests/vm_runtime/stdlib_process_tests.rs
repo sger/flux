@@ -9,16 +9,12 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-#[path = "../support/stdlib_fixture.rs"]
-mod stdlib_fixture;
+use crate::support::stdlib_fixture;
+use stdlib_fixture::workspace_root;
 
 use stdlib_fixture::scratch::Scratch;
 
 use stdlib_fixture::assert_backends_agree;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
 
 /// Write a fixture into a scratch dir unique to this process, and return both
 /// the path and the guard that removes the dir on drop. The name alone is not
@@ -77,10 +73,7 @@ fn main() -> Unit with Console {
 "#,
     );
     let (stdout, stderr, success) = compile(&file, &guard);
-    assert!(
-        !success,
-        "an undeclared Process effect must be rejected:\n{stdout}"
-    );
+    assert!(!success, "an undeclared Process effect must be rejected:\n{stdout}");
     assert!(
         format!("{stdout}{stderr}").contains("Process"),
         "the diagnostic should name the Process effect:\n{stdout}{stderr}"
@@ -111,10 +104,7 @@ fn main() -> Unit with IO {
 "#,
     );
     let (stdout, stderr, success) = compile(&file, &guard);
-    assert!(
-        !success,
-        "FileSystem must not cover Process:\n{stdout}{stderr}"
-    );
+    assert!(!success, "FileSystem must not cover Process:\n{stdout}{stderr}");
     assert!(
         format!("{stdout}{stderr}").contains("Process"),
         "the diagnostic should name the Process effect:\n{stdout}{stderr}"

@@ -6,9 +6,9 @@
 //
 // I was expecting `->` after the lambda parameters, but I found an identifier.
 //
-//   examples/type_system/failing/128_lambda_missing_arrow.flx:24:10
+//   examples/type_system/failing/128_lambda_missing_arrow.flx:23:10
 //    |
-// 24 | let f = \x x + 1
+// 23 | let f = \x x + 1
 //    |          ^
 //    |          - this lambda parameter list ends here
 //
@@ -19,7 +19,6 @@
 //   Use `\x -> expr` or `\(x, y) -> expr`.
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E034
 
-let f = \x x + 1
+let f = \x x + 1 //~ E034
 let after = 7

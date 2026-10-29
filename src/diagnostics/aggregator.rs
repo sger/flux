@@ -136,47 +136,26 @@ struct DiagnosticKey {
 
 impl DiagnosticKey {
     fn from_diagnostic(diag: &Diagnostic, default_file: Option<&str>) -> Self {
-        let mut labels = diag
-            .labels()
-            .iter()
-            .map(LabelKey::from_label)
-            .collect::<Vec<_>>();
+        let mut labels = diag.labels().iter().map(LabelKey::from_label).collect::<Vec<_>>();
         labels.sort_by(label_sort);
 
-        let mut hints = diag
-            .hints()
-            .iter()
-            .map(HintKey::from_hint)
-            .collect::<Vec<_>>();
+        let mut hints = diag.hints().iter().map(HintKey::from_hint).collect::<Vec<_>>();
         hints.sort_by(hint_sort);
 
-        let mut suggestions = diag
-            .suggestions()
-            .iter()
-            .map(SuggestionKey::from_suggestion)
-            .collect::<Vec<_>>();
+        let mut suggestions =
+            diag.suggestions().iter().map(SuggestionKey::from_suggestion).collect::<Vec<_>>();
         suggestions.sort_by(suggestion_sort);
 
-        let mut hint_chains = diag
-            .hint_chains()
-            .iter()
-            .map(HintChainKey::from_chain)
-            .collect::<Vec<_>>();
+        let mut hint_chains =
+            diag.hint_chains().iter().map(HintChainKey::from_chain).collect::<Vec<_>>();
         hint_chains.sort_by(chain_sort);
 
-        let mut related = diag
-            .related()
-            .iter()
-            .map(RelatedKey::from_related)
-            .collect::<Vec<_>>();
+        let mut related = diag.related().iter().map(RelatedKey::from_related).collect::<Vec<_>>();
         related.sort_by(related_sort);
         // Stack trace text participates in diagnostic identity so runtime
         // diagnostics with different call stacks are intentionally kept distinct.
-        let stack_trace = diag
-            .stack_trace()
-            .iter()
-            .map(StackTraceKey::from_frame)
-            .collect::<Vec<_>>();
+        let stack_trace =
+            diag.stack_trace().iter().map(StackTraceKey::from_frame).collect::<Vec<_>>();
         Self {
             file: effective_file(diag, default_file).map(|f| f.to_string()),
             span: diag.span().map(SpanKey::from_span),
@@ -196,9 +175,7 @@ impl DiagnosticKey {
 
 impl StackTraceKey {
     fn from_frame(frame: &super::StackTraceFrame) -> Self {
-        Self {
-            text: frame.text.clone(),
-        }
+        Self { text: frame.text.clone() }
     }
 }
 
@@ -357,6 +334,10 @@ impl<'a> DiagnosticsAggregator<'a> {
                 Some(DiagnosticPhase::TypeInference | DiagnosticPhase::TypeCheck) => {
                     has_parse_errors
                 }
+                // Type inference's effect-row mismatches are tagged Effect so
+                // they don't hide the effect-row check, but they are as
+                // reliable as its other errors.
+                Some(DiagnosticPhase::Effect) if diag.code() == Some("E300") => has_parse_errors,
                 Some(DiagnosticPhase::Effect) => has_parse_errors || has_type_errors,
             };
 
@@ -400,10 +381,7 @@ impl<'a> DiagnosticsAggregator<'a> {
         };
 
         let mut out = Vec::with_capacity(diagnostics.len());
-        let mut root_line = diagnostics[first_idx]
-            .span()
-            .map(|s| s.start.line)
-            .unwrap_or(0);
+        let mut root_line = diagnostics[first_idx].span().map(|s| s.start.line).unwrap_or(0);
         let mut root_code = diagnostics[first_idx].code().map(ToString::to_string);
         let mut seen_parse_error = false;
         let mut suppressed_cascades = 0usize;
@@ -491,10 +469,7 @@ impl<'a> DiagnosticsAggregator<'a> {
             .unwrap_or("<unknown>")
             .to_string();
         for fingerprint in summary_order {
-            let suppressed = suppressed_counts
-                .get(&fingerprint)
-                .copied()
-                .unwrap_or_default();
+            let suppressed = suppressed_counts.get(&fingerprint).copied().unwrap_or_default();
             if suppressed == 0 {
                 continue;
             }
@@ -530,6 +505,7 @@ impl<'a> DiagnosticsAggregator<'a> {
                 .collect::<Vec<_>>();
             let suppressed = suppress_nearby_duplicate_e300(indexed, default_file);
             let (filtered, group_stats) = self.apply_stage_filtering(suppressed);
+            let filtered = prefer_effect_row_errors(filtered);
             let collapsed = self.collapse_parser_cascades(filtered);
             let (compressed, suppressed_repeated_parse_count) =
                 self.compress_repeated_parser_errors(collapsed);
@@ -598,11 +574,7 @@ impl<'a> DiagnosticsAggregator<'a> {
         }
 
         if buckets.is_empty() && counts.total() > 0 {
-            buckets.push(RenderBucket {
-                file: None,
-                diagnostics: Vec::new(),
-                counts,
-            });
+            buckets.push(RenderBucket { file: None, diagnostics: Vec::new(), counts });
         }
 
         buckets
@@ -648,9 +620,8 @@ impl<'a> DiagnosticsAggregator<'a> {
         let suppressed_effect_count = stage_stats.suppressed_effect_count;
         let suppressed_total = suppressed_type_count + suppressed_effect_count;
         if suppressed_total > 0 {
-            let suppression_file = single_effective_file(&shown, default_file)
-                .or(default_file)
-                .unwrap_or("<unknown>");
+            let suppression_file =
+                single_effective_file(&shown, default_file).or(default_file).unwrap_or("<unknown>");
             let mut suppression_note = downstream_errors_suppressed_note(
                 suppression_file,
                 suppressed_type_count,
@@ -756,9 +727,7 @@ impl RepeatedParserFingerprint {
 
 /// Render multiple diagnostics with the default text pipeline and optional error cap.
 pub fn render_diagnostics_multi(diagnostics: &[Diagnostic], max_errors: Option<usize>) -> String {
-    DiagnosticsAggregator::new(diagnostics)
-        .with_max_errors(max_errors)
-        .render()
+    DiagnosticsAggregator::new(diagnostics).with_max_errors(max_errors).render()
 }
 
 fn normalize_file(file: Option<&str>) -> Option<&str> {
@@ -797,11 +766,7 @@ fn format_file_header(file: Option<&str>, counts: DiagnosticCounts, use_color: b
     let display = file_display(file);
     let summary = format_group_header_counts(&counts);
     let header = format!("• {summary} • {display}");
-    let colors = if use_color {
-        Colors::with_color()
-    } else {
-        Colors::no_color()
-    };
+    let colors = if use_color { Colors::with_color() } else { Colors::no_color() };
     if !use_color {
         header
     } else {
@@ -869,11 +834,7 @@ fn format_group_header_counts(counts: &DiagnosticCounts) -> String {
         parts.push(format!("{} error{}", counts.errors, plural(counts.errors)));
     }
     if counts.warnings > 0 {
-        parts.push(format!(
-            "{} warning{}",
-            counts.warnings,
-            plural(counts.warnings)
-        ));
+        parts.push(format!("{} warning{}", counts.warnings, plural(counts.warnings)));
     }
     if counts.notes > 0 {
         parts.push(format!("{} note{}", counts.notes, plural(counts.notes)));
@@ -889,11 +850,7 @@ fn is_repeat_compressible_parser_error(diag: &Diagnostic) -> bool {
 }
 
 fn humanize_title(title: &str) -> String {
-    title
-        .split_whitespace()
-        .map(humanize_word)
-        .collect::<Vec<_>>()
-        .join(" ")
+    title.split_whitespace().map(humanize_word).collect::<Vec<_>>().join(" ")
 }
 
 fn humanize_word(word: &str) -> String {
@@ -917,11 +874,7 @@ fn format_summary(counts: &DiagnosticCounts, file_count: usize) -> Option<String
         parts.push(format!("{} error{}", counts.errors, plural(counts.errors)));
     }
     if counts.warnings > 0 {
-        parts.push(format!(
-            "{} warning{}",
-            counts.warnings,
-            plural(counts.warnings)
-        ));
+        parts.push(format!("{} warning{}", counts.warnings, plural(counts.warnings)));
     }
     if counts.notes > 0 {
         parts.push(format!("{} note{}", counts.notes, plural(counts.notes)));
@@ -932,10 +885,7 @@ fn format_summary(counts: &DiagnosticCounts, file_count: usize) -> Option<String
 
     let parts_str = join_parts(&parts);
     if file_count > 1 {
-        Some(format!(
-            "Found {} across {} modules.",
-            parts_str, file_count
-        ))
+        Some(format!("Found {} across {} modules.", parts_str, file_count))
     } else {
         Some(format!("Found {}.", parts_str))
     }
@@ -990,9 +940,7 @@ fn parser_effective_title(diag: &Diagnostic) -> &str {
 }
 
 fn parser_facing_title(diag: &Diagnostic) -> String {
-    diag.display_title()
-        .map(ToString::to_string)
-        .unwrap_or_else(|| humanize_title(diag.title()))
+    diag.display_title().map(ToString::to_string).unwrap_or_else(|| humanize_title(diag.title()))
 }
 
 fn is_structural_parse_root(code: Option<&str>) -> bool {
@@ -1021,6 +969,39 @@ fn is_generic_parser_cascade(diag: &Diagnostic) -> bool {
                 | "Expected Expression"
                 | "EXPECTED EXPRESSION"
         )
+}
+
+/// Drops an E300 that unification reported for an effect-row mismatch when
+/// the effect-row check (E419–E422) reports the same call: that one names the
+/// effect at fault, where the E300 only shows two rows that differ.
+fn prefer_effect_row_errors(diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
+    let is_effect = |diag: &Diagnostic| diag.phase() == Some(DiagnosticPhase::Effect);
+    let row_errors: Vec<Diagnostic> = diagnostics
+        .iter()
+        .filter(|diag| {
+            is_effect(diag) && matches!(diag.code(), Some("E419" | "E420" | "E421" | "E422"))
+        })
+        .cloned()
+        .collect();
+    if row_errors.is_empty() {
+        return diagnostics;
+    }
+    diagnostics
+        .into_iter()
+        .filter(|diag| {
+            let superseded = is_effect(diag)
+                && diag.code() == Some("E300")
+                && diag.span().is_some_and(|span| {
+                    super::ranking::is_suppressed_by(
+                        &row_errors,
+                        diag.file().unwrap_or_default(),
+                        span,
+                        |_| true,
+                    )
+                });
+            !superseded
+        })
+        .collect()
 }
 
 fn suppress_nearby_duplicate_e300(
@@ -1119,11 +1100,7 @@ fn line_gap(a: Span, b: Span) -> usize {
 
 impl LabelKey {
     fn from_label(label: &Label) -> Self {
-        Self {
-            span: SpanKey::from_span(label.span),
-            text: label.text.clone(),
-            style: label.style,
-        }
+        Self { span: SpanKey::from_span(label.span), text: label.text.clone(), style: label.style }
     }
 }
 
@@ -1151,10 +1128,7 @@ impl SuggestionKey {
 
 impl HintChainKey {
     fn from_chain(chain: &HintChain) -> Self {
-        Self {
-            steps: chain.steps.clone(),
-            conclusion: chain.conclusion.clone(),
-        }
+        Self { steps: chain.steps.clone(), conclusion: chain.conclusion.clone() }
     }
 }
 
@@ -1182,9 +1156,7 @@ fn suggestion_sort(a: &SuggestionKey, b: &SuggestionKey) -> std::cmp::Ordering {
 }
 
 fn chain_sort(a: &HintChainKey, b: &HintChainKey) -> std::cmp::Ordering {
-    a.steps
-        .cmp(&b.steps)
-        .then_with(|| a.conclusion.cmp(&b.conclusion))
+    a.steps.cmp(&b.steps).then_with(|| a.conclusion.cmp(&b.conclusion))
 }
 
 fn related_sort(a: &RelatedKey, b: &RelatedKey) -> std::cmp::Ordering {
@@ -1197,13 +1169,7 @@ fn related_sort(a: &RelatedKey, b: &RelatedKey) -> std::cmp::Ordering {
 
 fn span_sort_key(span: Option<&SpanKey>) -> (u8, usize, usize, usize, usize) {
     match span {
-        Some(span) => (
-            0,
-            span.start_line,
-            span.start_col,
-            span.end_line,
-            span.end_col,
-        ),
+        Some(span) => (0, span.start_line, span.start_col, span.end_line, span.end_col),
         None => (1, 0, 0, 0, 0),
     }
 }

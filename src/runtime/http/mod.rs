@@ -47,10 +47,7 @@ pub struct ParseLimits {
 
 impl Default for ParseLimits {
     fn default() -> Self {
-        Self {
-            max_header_bytes: 65_536,
-            max_body_bytes: 8_388_608,
-        }
+        Self { max_header_bytes: 65_536, max_body_bytes: 8_388_608 }
     }
 }
 
@@ -90,9 +87,8 @@ where
         .map_err(|e| format!("http_serve_config: bind failed: {e}"))?;
     let mut accepted = 0usize;
     while accepted < config.max_connections {
-        let (mut stream, _) = listener
-            .accept()
-            .map_err(|e| format!("http_serve_config: accept failed: {e}"))?;
+        let (mut stream, _) =
+            listener.accept().map_err(|e| format!("http_serve_config: accept failed: {e}"))?;
         accepted += 1;
         handle_connection(&mut stream, config.limits, &mut handler)?;
     }
@@ -139,9 +135,7 @@ where
         let mut response = handler(req)?;
         ensure_connection_header(&mut response, keep_alive);
         let wire = write_response(&response);
-        stream
-            .write_all(&wire)
-            .map_err(|e| format!("http_serve_config: write failed: {e}"))?;
+        stream.write_all(&wire).map_err(|e| format!("http_serve_config: write failed: {e}"))?;
         if !keep_alive {
             return Ok(());
         }
@@ -161,23 +155,16 @@ fn write_error_response(
         body: message.into_bytes(),
     };
     let wire = write_response(&response);
-    stream
-        .write_all(&wire)
-        .map_err(|e| format!("http_serve_config: write failed: {e}"))
+    stream.write_all(&wire).map_err(|e| format!("http_serve_config: write failed: {e}"))
 }
 
 fn ensure_connection_header(response: &mut HttpResponse, keep_alive: bool) {
-    if response
-        .headers
-        .iter()
-        .any(|(name, _)| name.eq_ignore_ascii_case("connection"))
-    {
+    if response.headers.iter().any(|(name, _)| name.eq_ignore_ascii_case("connection")) {
         return;
     }
-    response.headers.push((
-        "Connection".into(),
-        if keep_alive { "keep-alive" } else { "close" }.into(),
-    ));
+    response
+        .headers
+        .push(("Connection".into(), if keep_alive { "keep-alive" } else { "close" }.into()));
 }
 
 pub fn parse_request(input: &[u8], limits: ParseLimits) -> Result<(HttpRequest, usize), HttpError> {
@@ -197,14 +184,11 @@ pub fn parse_request(input: &[u8], limits: ParseLimits) -> Result<(HttpRequest, 
     let head = std::str::from_utf8(&input[..header_end])
         .map_err(|_| HttpError::BadRequest("HTTP header block is not valid UTF-8".into()))?;
     let mut lines = head.split("\r\n");
-    let request_line = lines
-        .next()
-        .ok_or_else(|| HttpError::BadRequest("missing request line".into()))?;
+    let request_line =
+        lines.next().ok_or_else(|| HttpError::BadRequest("missing request line".into()))?;
     let (method, target, version) = parse_request_line(request_line)?;
     if version != "HTTP/1.1" {
-        return Err(HttpError::BadRequest(format!(
-            "unsupported HTTP version {version}"
-        )));
+        return Err(HttpError::BadRequest(format!("unsupported HTTP version {version}")));
     }
 
     let mut headers = Vec::new();
@@ -214,15 +198,10 @@ pub fn parse_request(input: &[u8], limits: ParseLimits) -> Result<(HttpRequest, 
             continue;
         }
         if line.starts_with(' ') || line.starts_with('\t') {
-            return Err(HttpError::BadRequest(
-                "obsolete folded HTTP headers are rejected".into(),
-            ));
+            return Err(HttpError::BadRequest("obsolete folded HTTP headers are rejected".into()));
         }
         let (name, value) = parse_header_line(line)?;
-        normalized
-            .entry(name.to_ascii_lowercase())
-            .or_default()
-            .push(value.clone());
+        normalized.entry(name.to_ascii_lowercase()).or_default().push(value.clone());
         headers.push((name, value));
     }
 
@@ -243,9 +222,7 @@ pub fn parse_request(input: &[u8], limits: ParseLimits) -> Result<(HttpRequest, 
         (Some(values), _) => {
             let len = parse_content_length(values)?;
             if len > limits.max_body_bytes {
-                return Err(HttpError::PayloadTooLarge(
-                    "HTTP body exceeds max_body_bytes".into(),
-                ));
+                return Err(HttpError::PayloadTooLarge("HTTP body exceeds max_body_bytes".into()));
             }
             if input.len() < body_start + len {
                 return Err(HttpError::NeedMore);
@@ -330,18 +307,12 @@ pub fn write_chunked_end() -> Vec<u8> {
 
 pub fn parse_url(url: &str) -> Result<HttpUrl, HttpError> {
     let Some(rest) = url.strip_prefix("http://") else {
-        return Err(HttpError::BadRequest(
-            "only http:// URLs are supported in this phase".into(),
-        ));
+        return Err(HttpError::BadRequest("only http:// URLs are supported in this phase".into()));
     };
     let (authority, target) = match rest.find(['/', '?']) {
         Some(idx) => {
             let path = &rest[idx..];
-            let target = if path.starts_with('?') {
-                format!("/{path}")
-            } else {
-                path.to_string()
-            };
+            let target = if path.starts_with('?') { format!("/{path}") } else { path.to_string() };
             (&rest[..idx], target)
         }
         None => (rest, "/".to_string()),
@@ -363,11 +334,7 @@ pub fn parse_url(url: &str) -> Result<HttpUrl, HttpError> {
     Ok(HttpUrl {
         host: host.to_string(),
         port,
-        target: if target.is_empty() {
-            "/".into()
-        } else {
-            target
-        },
+        target: if target.is_empty() { "/".into() } else { target },
     })
 }
 
@@ -430,9 +397,8 @@ pub fn parse_response(
         HttpError::BadRequest("HTTP response header block is not valid UTF-8".into())
     })?;
     let mut lines = head.split("\r\n");
-    let status_line = lines
-        .next()
-        .ok_or_else(|| HttpError::BadRequest("missing status line".into()))?;
+    let status_line =
+        lines.next().ok_or_else(|| HttpError::BadRequest("missing status line".into()))?;
     let (status, reason) = parse_status_line(status_line)?;
     let mut headers = Vec::new();
     let mut normalized: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -441,15 +407,10 @@ pub fn parse_response(
             continue;
         }
         if line.starts_with(' ') || line.starts_with('\t') {
-            return Err(HttpError::BadRequest(
-                "obsolete folded HTTP headers are rejected".into(),
-            ));
+            return Err(HttpError::BadRequest("obsolete folded HTTP headers are rejected".into()));
         }
         let (name, value) = parse_header_line(line)?;
-        normalized
-            .entry(name.to_ascii_lowercase())
-            .or_default()
-            .push(value.clone());
+        normalized.entry(name.to_ascii_lowercase()).or_default().push(value.clone());
         headers.push((name, value));
     }
     let content_lengths = normalized.get("content-length");
@@ -479,22 +440,12 @@ pub fn parse_response(
         }
         _ => (Vec::new(), 0),
     };
-    Ok((
-        HttpResponse {
-            status,
-            reason: reason.to_string(),
-            headers,
-            body,
-        },
-        body_start + consumed,
-    ))
+    Ok((HttpResponse { status, reason: reason.to_string(), headers, body }, body_start + consumed))
 }
 
 fn parse_status_line(line: &str) -> Result<(u16, &str), HttpError> {
     let Some(rest) = line.strip_prefix("HTTP/1.1 ") else {
-        return Err(HttpError::BadRequest(
-            "unsupported HTTP response version".into(),
-        ));
+        return Err(HttpError::BadRequest("unsupported HTTP response version".into()));
     };
     let (status_raw, reason) = rest.split_once(' ').unwrap_or((rest, ""));
     let status = status_raw
@@ -505,15 +456,11 @@ fn parse_status_line(line: &str) -> Result<(u16, &str), HttpError> {
 
 fn parse_request_line(line: &str) -> Result<(&str, &str, &str), HttpError> {
     let mut parts = line.split_ascii_whitespace();
-    let method = parts
-        .next()
-        .ok_or_else(|| HttpError::BadRequest("missing HTTP method".into()))?;
-    let target = parts
-        .next()
-        .ok_or_else(|| HttpError::BadRequest("missing request target".into()))?;
-    let version = parts
-        .next()
-        .ok_or_else(|| HttpError::BadRequest("missing HTTP version".into()))?;
+    let method = parts.next().ok_or_else(|| HttpError::BadRequest("missing HTTP method".into()))?;
+    let target =
+        parts.next().ok_or_else(|| HttpError::BadRequest("missing request target".into()))?;
+    let version =
+        parts.next().ok_or_else(|| HttpError::BadRequest("missing HTTP version".into()))?;
     if parts.next().is_some() {
         return Err(HttpError::BadRequest("too many request-line fields".into()));
     }
@@ -551,24 +498,16 @@ fn parse_header_line(line: &str) -> Result<(String, String), HttpError> {
     {
         return Err(HttpError::BadRequest("invalid HTTP header name".into()));
     }
-    Ok((
-        name.to_string(),
-        value.trim_matches([' ', '\t']).to_string(),
-    ))
+    Ok((name.to_string(), value.trim_matches([' ', '\t']).to_string()))
 }
 
 fn parse_content_length(values: &[String]) -> Result<usize, HttpError> {
-    let first = values
-        .first()
-        .ok_or_else(|| HttpError::BadRequest("empty Content-Length".into()))?;
+    let first =
+        values.first().ok_or_else(|| HttpError::BadRequest("empty Content-Length".into()))?;
     if values.iter().any(|v| v != first) {
-        return Err(HttpError::BadRequest(
-            "conflicting Content-Length headers".into(),
-        ));
+        return Err(HttpError::BadRequest("conflicting Content-Length headers".into()));
     }
-    first
-        .parse::<usize>()
-        .map_err(|_| HttpError::BadRequest("invalid Content-Length".into()))
+    first.parse::<usize>().map_err(|_| HttpError::BadRequest("invalid Content-Length".into()))
 }
 
 fn decode_chunked(input: &[u8], limits: ParseLimits) -> Result<(Vec<u8>, usize), HttpError> {
@@ -694,20 +633,14 @@ mod tests {
 
     #[test]
     fn enforces_limits() {
-        let limits = ParseLimits {
-            max_header_bytes: 8,
-            max_body_bytes: 4,
-        };
+        let limits = ParseLimits { max_header_bytes: 8, max_body_bytes: 4 };
         assert!(matches!(
             parse_request(b"GET / HTTP/1.1\r\n\r\n", limits),
             Err(HttpError::PayloadTooLarge(_))
         ));
 
         let raw = b"POST / HTTP/1.1\r\nContent-Length: 5\r\n\r\nhello";
-        assert!(matches!(
-            parse_request(raw, limits),
-            Err(HttpError::PayloadTooLarge(_))
-        ));
+        assert!(matches!(parse_request(raw, limits), Err(HttpError::PayloadTooLarge(_))));
     }
 
     #[test]

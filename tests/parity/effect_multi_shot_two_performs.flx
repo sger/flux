@@ -1,0 +1,28 @@
+// parity: vm, llvm
+// expect: success
+// bug: A multi-shot clause whose resumed code performs again. Each resume
+//      of the first perform runs the second perform's clause in full:
+//      `(3 + 21) + (12 + 30) = 66`.
+// parity-expected-stdout-begin
+// "66"
+// parity-expected-stdout-end
+
+effect Ask {
+    ask : (Int) -> Int
+}
+
+fn calc() -> Int with Ask {
+    let a = perform Ask.ask(1)
+    let b = perform Ask.ask(2)
+    a + b
+}
+
+fn run() -> Int {
+    calc() handle Ask {
+        ask(resume, v) -> resume(v) + resume(v * 10)
+    }
+}
+
+fn main() with IO {
+    print(to_string(run()))
+}

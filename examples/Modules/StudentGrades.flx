@@ -1,12 +1,11 @@
 // expect: compile_error
-// expect-error: E024
 
 // Module: StudentGrades
 // Student grade analysis using MapUtils for map operations
 
 import Modules.MapUtils as M
 
-module Modules.StudentGrades {
+module Modules.StudentGrades { //~ E024
     // Create a student record as a map with name and scores
     fn make_student(name, scores) {
         let m = put({}, "name", name)

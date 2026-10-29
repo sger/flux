@@ -15,31 +15,21 @@
 //! schemes are built after expansion — so an unexpanded export made an importer
 //! see `Bytes` where inference produced `String`, breaking `Flow.Http`.
 
-use std::path::Path;
 use std::process::Command;
 
-#[path = "../support/scratch.rs"]
-mod scratch;
+use crate::support::scratch;
 use scratch::Scratch;
+use scratch::workspace_root;
 
 const FIXTURE: &str = "imported_constructor_types.flx";
 
 /// What the fixture must print, in order. Before the fix the run aborted at the
 /// first imported-constructor dispatch, having printed only the local one.
-const EXPECTED: &[&str] = &[
-    "int 7", "shape 12", "shape 0", "rect 12", "5", "tag!", "shape 3",
-];
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+const EXPECTED: &[&str] = &["int 7", "shape 12", "shape 0", "rect 12", "5", "tag!", "shape 3"];
 
 fn run(native: bool) -> (String, bool) {
     let path = workspace_root().join("tests").join("parity").join(FIXTURE);
-    let mut args: Vec<String> = vec![
-        path.to_string_lossy().into_owned(),
-        "--no-cache".to_string(),
-    ];
+    let mut args: Vec<String> = vec![path.to_string_lossy().into_owned(), "--no-cache".to_string()];
     if native {
         args.push("--native".to_string());
     }
@@ -55,17 +45,11 @@ fn run(native: bool) -> (String, bool) {
 
     // Stderr is folded in on failure so an abort shows its diagnostic rather
     // than surfacing as unexplained empty output.
-    let stdout = String::from_utf8_lossy(&output.stdout)
-        .replace("\r\n", "\n")
-        .trim()
-        .to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n").trim().to_string();
     if output.status.success() {
         return (stdout, true);
     }
-    let stderr = String::from_utf8_lossy(&output.stderr)
-        .replace("\r\n", "\n")
-        .trim()
-        .to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n").trim().to_string();
     (format!("{stdout}\n── stderr ──\n{stderr}"), false)
 }
 
@@ -82,11 +66,7 @@ fn printed_values(output: &str) -> Vec<String> {
 fn an_imported_constructor_dispatches_on_its_own_type() {
     let (stdout, success) = run(false);
     assert!(success, "the fixture must run to completion:\n{stdout}");
-    assert_eq!(
-        printed_values(&stdout),
-        EXPECTED,
-        "unexpected output:\n{stdout}"
-    );
+    assert_eq!(printed_values(&stdout), EXPECTED, "unexpected output:\n{stdout}");
 }
 
 #[cfg(feature = "llvm")]

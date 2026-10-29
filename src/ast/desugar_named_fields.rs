@@ -88,30 +88,15 @@ fn desugar_expr(expr: &mut Expression, ctx: &mut NamedFieldDesugarCtx<'_>) {
     walk_children(expr, ctx);
 
     match expr {
-        Expression::NamedConstructor {
-            name,
-            fields,
-            span,
-            id,
-        } => {
+        Expression::NamedConstructor { name, fields, span, id } => {
             let rewritten = rewrite_named_constructor(*name, fields, *span, *id, ctx);
             *expr = rewritten;
         }
-        Expression::Spread {
-            base,
-            overrides,
-            span,
-            ..
-        } => {
+        Expression::Spread { base, overrides, span, .. } => {
             let rewritten = rewrite_spread(base, overrides, *span, ctx);
             *expr = rewritten;
         }
-        Expression::MemberAccess {
-            object,
-            member,
-            span,
-            id,
-        } => {
+        Expression::MemberAccess { object, member, span, id } => {
             if let Some(rewritten) = try_rewrite_adt_field_access(object, *member, *span, *id, ctx)
             {
                 *expr = rewritten;
@@ -128,12 +113,7 @@ fn walk_children(expr: &mut Expression, ctx: &mut NamedFieldDesugarCtx<'_>) {
             desugar_expr(left, ctx);
             desugar_expr(right, ctx);
         }
-        Expression::If {
-            condition,
-            consequence,
-            alternative,
-            ..
-        } => {
+        Expression::If { condition, consequence, alternative, .. } => {
             desugar_expr(condition, ctx);
             desugar_block(consequence, ctx);
             if let Some(alt) = alternative {
@@ -142,11 +122,7 @@ fn walk_children(expr: &mut Expression, ctx: &mut NamedFieldDesugarCtx<'_>) {
         }
         Expression::DoBlock { block, .. } => desugar_block(block, ctx),
         Expression::Function { body, .. } => desugar_block(body, ctx),
-        Expression::Call {
-            function,
-            arguments,
-            ..
-        } => {
+        Expression::Call { function, arguments, .. } => {
             desugar_expr(function, ctx);
             for a in arguments {
                 desugar_expr(a, ctx);
@@ -171,9 +147,7 @@ fn walk_children(expr: &mut Expression, ctx: &mut NamedFieldDesugarCtx<'_>) {
         }
         Expression::MemberAccess { object, .. } => desugar_expr(object, ctx),
         Expression::TupleFieldAccess { object, .. } => desugar_expr(object, ctx),
-        Expression::Match {
-            scrutinee, arms, ..
-        } => {
+        Expression::Match { scrutinee, arms, .. } => {
             desugar_expr(scrutinee, ctx);
             for arm in arms {
                 desugar_pattern(&mut arm.pattern, ctx);
@@ -195,12 +169,7 @@ fn walk_children(expr: &mut Expression, ctx: &mut NamedFieldDesugarCtx<'_>) {
                 desugar_expr(a, ctx);
             }
         }
-        Expression::Handle {
-            expr: inner,
-            parameter,
-            arms,
-            ..
-        } => {
+        Expression::Handle { expr: inner, parameter, arms, .. } => {
             desugar_expr(inner, ctx);
             if let Some(parameter) = parameter {
                 desugar_expr(parameter, ctx);
@@ -219,9 +188,7 @@ fn walk_children(expr: &mut Expression, ctx: &mut NamedFieldDesugarCtx<'_>) {
                 }
             }
         }
-        Expression::Spread {
-            base, overrides, ..
-        } => {
+        Expression::Spread { base, overrides, .. } => {
             desugar_expr(base, ctx);
             for f in overrides {
                 if let Some(v) = &mut f.value {
@@ -259,13 +226,10 @@ fn desugar_pattern(pat: &mut Pattern, ctx: &mut NamedFieldDesugarCtx<'_>) {
                 desugar_pattern(f, ctx);
             }
         }
-        Pattern::NamedConstructor {
-            name, fields, span, ..
-        } => {
+        Pattern::NamedConstructor { name, fields, span, .. } => {
             let declared = ctx.ctor_field_names.get(name).cloned().unwrap_or_default();
-            let mut positional: Vec<Pattern> = (0..declared.len())
-                .map(|_| Pattern::Wildcard { span: *span })
-                .collect();
+            let mut positional: Vec<Pattern> =
+                (0..declared.len()).map(|_| Pattern::Wildcard { span: *span }).collect();
             for f in fields.iter_mut() {
                 if let Some(sub) = &mut f.pattern {
                     desugar_pattern(sub, ctx);
@@ -273,18 +237,11 @@ fn desugar_pattern(pat: &mut Pattern, ctx: &mut NamedFieldDesugarCtx<'_>) {
                 if let Some(index) = declared.iter().position(|n| *n == f.name) {
                     positional[index] = match f.pattern.take() {
                         Some(p) => p,
-                        None => Pattern::Identifier {
-                            name: f.name,
-                            span: f.span,
-                        },
+                        None => Pattern::Identifier { name: f.name, span: f.span },
                     };
                 }
             }
-            *pat = Pattern::Constructor {
-                name: *name,
-                fields: positional,
-                span: *span,
-            };
+            *pat = Pattern::Constructor { name: *name, fields: positional, span: *span };
         }
         _ => {}
     }
@@ -313,15 +270,9 @@ fn rewrite_named_constructor(
         };
         arg_slots[index] = Some(value);
     }
-    let arguments: Vec<Expression> = arg_slots
-        .into_iter()
-        .map(|slot| slot.unwrap_or_else(|| placeholder(span)))
-        .collect();
-    let func = Expression::Identifier {
-        name,
-        span,
-        id: crate::syntax::expression::ExprId::UNSET,
-    };
+    let arguments: Vec<Expression> =
+        arg_slots.into_iter().map(|slot| slot.unwrap_or_else(|| placeholder(span))).collect();
+    let func = Expression::Identifier { name, span, id: crate::syntax::expression::ExprId::UNSET };
     // Carry the original `NamedConstructor`'s id onto the synthesized call.
     //
     // This pass runs *after* inference, so `hm_expr_types` already holds the
@@ -330,12 +281,7 @@ fn rewrite_named_constructor(
     // by id — class-method dispatch in Core lowering above all — would see
     // nothing and fall back. That is how `describe(Red { on: true })` came to
     // miss its instance and reach the no-instance panic stub (KI-012).
-    Expression::Call {
-        function: Box::new(func),
-        arguments,
-        span,
-        id: ctor_id,
-    }
+    Expression::Call { function: Box::new(func), arguments, span, id: ctor_id }
 }
 
 fn rewrite_spread(
@@ -348,20 +294,14 @@ fn rewrite_spread(
         Some(v) => v,
         None => return std::mem::replace(base, placeholder(span)),
     };
-    let declared = ctx
-        .ctor_field_names
-        .get(&variant)
-        .cloned()
-        .unwrap_or_default();
+    let declared = ctx.ctor_field_names.get(&variant).cloned().unwrap_or_default();
     let override_map: HashMap<Identifier, &NamedFieldInit> =
         overrides.iter().map(|o| (o.name, o)).collect();
 
     // Synthesize a single-arm match: match base { Variant(b0, b1, ...) -> Variant(effective0, effective1, ...) }
     let binder_names: Vec<Identifier> = declared.clone();
-    let pattern_fields: Vec<Pattern> = binder_names
-        .iter()
-        .map(|name| Pattern::Identifier { name: *name, span })
-        .collect();
+    let pattern_fields: Vec<Pattern> =
+        binder_names.iter().map(|name| Pattern::Identifier { name: *name, span }).collect();
 
     let args: Vec<Expression> = declared
         .iter()
@@ -397,11 +337,7 @@ fn rewrite_spread(
     };
 
     let arm = MatchArm {
-        pattern: Pattern::Constructor {
-            name: variant,
-            fields: pattern_fields,
-            span,
-        },
+        pattern: Pattern::Constructor { name: variant, fields: pattern_fields, span },
         guard: None,
         body: ctor_call,
         span,
@@ -429,11 +365,8 @@ fn try_rewrite_adt_field_access(
         _ => return None,
     };
     let variants = ctx.adt_variants.get(&adt_name)?.clone();
-    let named_variants: Vec<Identifier> = variants
-        .iter()
-        .copied()
-        .filter(|v| ctx.ctor_field_names.contains_key(v))
-        .collect();
+    let named_variants: Vec<Identifier> =
+        variants.iter().copied().filter(|v| ctx.ctor_field_names.contains_key(v)).collect();
     if named_variants.is_empty() {
         return None;
     }
@@ -460,11 +393,7 @@ fn try_rewrite_adt_field_access(
                 .collect();
             let target_name = field_names[target_index];
             MatchArm {
-                pattern: Pattern::Constructor {
-                    name: variant,
-                    fields: pattern_fields,
-                    span,
-                },
+                pattern: Pattern::Constructor { name: variant, fields: pattern_fields, span },
                 guard: None,
                 body: Expression::Identifier {
                     name: target_name,
@@ -503,34 +432,20 @@ fn resolve_spread_variant(base: &Expression, ctx: &NamedFieldDesugarCtx<'_>) -> 
         _ => return None,
     };
     let variants = ctx.adt_variants.get(&adt_name)?;
-    let named_variants: Vec<Identifier> = variants
-        .iter()
-        .copied()
-        .filter(|v| ctx.ctor_field_names.contains_key(v))
-        .collect();
-    if named_variants.len() == 1 {
-        Some(named_variants[0])
-    } else {
-        None
-    }
+    let named_variants: Vec<Identifier> =
+        variants.iter().copied().filter(|v| ctx.ctor_field_names.contains_key(v)).collect();
+    if named_variants.len() == 1 { Some(named_variants[0]) } else { None }
 }
 
 fn placeholder(span: crate::diagnostics::position::Span) -> Expression {
-    Expression::Integer {
-        value: 0,
-        span,
-        id: crate::syntax::expression::ExprId::UNSET,
-    }
+    Expression::Integer { value: 0, span, id: crate::syntax::expression::ExprId::UNSET }
 }
 
 /// Collect (variant → declared field names) and (adt → variant list) from a
 /// program's `data` declarations.
 pub fn collect_named_field_metadata(
     program: &Program,
-) -> (
-    HashMap<Identifier, Vec<Identifier>>,
-    HashMap<Identifier, Vec<Identifier>>,
-) {
+) -> (HashMap<Identifier, Vec<Identifier>>, HashMap<Identifier, Vec<Identifier>>) {
     collect_named_field_metadata_in_statements(&program.statements)
 }
 
@@ -538,10 +453,7 @@ pub fn collect_named_field_metadata(
 /// earlier REPL lines' accumulated `data` declarations, proposal 0176).
 pub fn collect_named_field_metadata_in_statements(
     statements: &[Statement],
-) -> (
-    HashMap<Identifier, Vec<Identifier>>,
-    HashMap<Identifier, Vec<Identifier>>,
-) {
+) -> (HashMap<Identifier, Vec<Identifier>>, HashMap<Identifier, Vec<Identifier>>) {
     fn walk(
         stmts: &[Statement],
         field_names: &mut HashMap<Identifier, Vec<Identifier>>,

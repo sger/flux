@@ -104,10 +104,7 @@ impl ClassId {
 
     /// Construct a `ClassId` for a legacy top-level or prelude class.
     pub const fn from_local_name(name: Identifier) -> Self {
-        Self {
-            module: ModulePath::EMPTY,
-            name,
-        }
+        Self { module: ModulePath::EMPTY, name }
     }
 
     /// Returns true if this class identity has no owning module (the legacy
@@ -134,10 +131,7 @@ impl ClassId {
             .map(|id| remap.get(&id).copied().unwrap_or(id))
             .map(ModulePath::from_identifier)
             .unwrap_or(ModulePath::EMPTY);
-        Self {
-            module,
-            name: remap.get(&self.name).copied().unwrap_or(self.name),
-        }
+        Self { module, name: remap.get(&self.name).copied().unwrap_or(self.name) }
     }
 }
 

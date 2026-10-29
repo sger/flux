@@ -2,6 +2,10 @@
 // expect: success
 // bug: match on Bool with exhaustive {true, false} arms may cause
 //       duplicate function definition in LLVM IR.
+// parity-expected-stdout-begin
+// "yes"
+// "no"
+// parity-expected-stdout-end
 
 fn check(b) {
     match b {

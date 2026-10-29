@@ -1,0 +1,22 @@
+// 0189 V6: a list element read by index, read after the list is given to a
+// call that releases it.
+
+fn lists(n) {
+    [[n], [n + 1, n + 2]]
+}
+
+fn second(xs) {
+    xs[1]
+}
+
+fn discard(xs, keep) {
+    if keep { xs } else { [] }
+}
+
+fn main() {
+    let xs = lists(1)
+    let e = second(xs)
+    let d = discard(xs, false)
+    print(e)
+    print(d)
+}

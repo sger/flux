@@ -9,9 +9,9 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to this function.
 
-  examples/type_system/failing/111_call_arg_anonymous_fn.flx:31:49
+  examples/type_system/failing/111_call_arg_anonymous_fn.flx:10:49
    |
-31 |     let _x = (if true { greet } else { greet })(42)
+10 |     let _x = (if true { greet } else { greet })(42)
    |                                                 ^^
    |                                                 -- this argument has type `Int`
 

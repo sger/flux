@@ -9,9 +9,9 @@ error[E018]: Import Not Found
 
 Cannot find module `ModuleGraph.ModuleGraphA` to import.
 
-  examples/ModuleGraph/module_graph_main.flx:5:1
+  examples/ModuleGraph/module_graph_main.flx:3:1
   |
-5 | import ModuleGraph.ModuleGraphA
+3 | import ModuleGraph.ModuleGraphA
   | ^
 
 Hint:
@@ -23,9 +23,9 @@ error[E018]: Import Not Found
 
 Cannot find module `ModuleGraph.ModuleGraphB` to import.
 
-  examples/ModuleGraph/module_graph_main.flx:6:1
+  examples/ModuleGraph/module_graph_main.flx:4:1
   |
-6 | import ModuleGraph.ModuleGraphB
+4 | import ModuleGraph.ModuleGraphB
   | ^
 
 Hint:

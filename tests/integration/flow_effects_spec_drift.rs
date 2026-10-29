@@ -30,10 +30,7 @@ use flux::syntax::{lexer::Lexer, parser::Parser, statement::Statement};
 fn authoritative_labels() -> BTreeMap<&'static str, BTreeSet<&'static str>> {
     let mut out = BTreeMap::new();
     out.insert("Console", BTreeSet::from(["print", "println"]));
-    out.insert(
-        "FileSystem",
-        BTreeSet::from(["read_file", "read_lines", "write_file"]),
-    );
+    out.insert("FileSystem", BTreeSet::from(["read_file", "read_lines", "write_file"]));
     out.insert("Stdin", BTreeSet::from(["read_stdin"]));
     out.insert("Clock", BTreeSet::from(["clock_now", "now_ms"]));
     // Reserved / phantom labels — no operations yet. Seeded by the compiler
@@ -62,19 +59,13 @@ fn authoritative_aliases() -> BTreeMap<&'static str, BTreeSet<&'static str>> {
     out.insert("IO", BTreeSet::from(["Console", "FileSystem", "Stdin"]));
     out.insert("Time", BTreeSet::from(["Clock"]));
     // Async alias (Proposal 0174 Phase 1b).
-    out.insert(
-        "Async",
-        BTreeSet::from(["Suspend", "Fork", "GetContext", "AsyncFail"]),
-    );
+    out.insert("Async", BTreeSet::from(["Suspend", "Fork", "GetContext", "AsyncFail"]));
     out
 }
 
 /// Parse `lib/Flow/Effects.flx` and extract its declared labels + ops and
 /// aliases.
-fn parse_spec_file() -> (
-    BTreeMap<String, BTreeSet<String>>,
-    BTreeMap<String, BTreeSet<String>>,
-) {
+fn parse_spec_file() -> (BTreeMap<String, BTreeSet<String>>, BTreeMap<String, BTreeSet<String>>) {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let spec_path = workspace_root.join("lib").join("Flow").join("Effects.flx");
     let source = std::fs::read_to_string(&spec_path)
@@ -83,11 +74,7 @@ fn parse_spec_file() -> (
     let lexer = Lexer::new(&source);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser rejected lib/Flow/Effects.flx: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser rejected lib/Flow/Effects.flx: {:?}", parser.errors);
 
     let interner = parser.take_interner();
     let mut labels: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
@@ -106,15 +93,11 @@ fn parse_spec_file() -> (
                 }
                 Statement::EffectDecl { name, ops, .. } => {
                     let label_name = interner.resolve(*name).to_string();
-                    let op_names: BTreeSet<String> = ops
-                        .iter()
-                        .map(|op| interner.resolve(op.name).to_string())
-                        .collect();
+                    let op_names: BTreeSet<String> =
+                        ops.iter().map(|op| interner.resolve(op.name).to_string()).collect();
                     labels.insert(label_name, op_names);
                 }
-                Statement::EffectAlias {
-                    name, expansion, ..
-                } => {
+                Statement::EffectAlias { name, expansion, .. } => {
                     let alias_name = interner.resolve(*name).to_string();
                     let atoms: BTreeSet<String> = expansion
                         .normalized_concrete_names()
@@ -136,12 +119,7 @@ fn to_owned(
     src: &BTreeMap<&'static str, BTreeSet<&'static str>>,
 ) -> BTreeMap<String, BTreeSet<String>> {
     src.iter()
-        .map(|(k, v)| {
-            (
-                (*k).to_string(),
-                v.iter().map(|s| (*s).to_string()).collect(),
-            )
-        })
+        .map(|(k, v)| ((*k).to_string(), v.iter().map(|s| (*s).to_string()).collect()))
         .collect()
 }
 
@@ -170,9 +148,7 @@ fn flow_effects_spec_labels_match_seed() {
     );
 
     for (label, expected_ops) in &expected {
-        let spec_ops = spec_labels
-            .get(label)
-            .expect("label presence was checked above");
+        let spec_ops = spec_labels.get(label).expect("label presence was checked above");
         let missing_ops: Vec<_> = expected_ops.difference(spec_ops).cloned().collect();
         let extra_ops: Vec<_> = spec_ops.difference(expected_ops).cloned().collect();
         assert!(
@@ -215,9 +191,7 @@ fn flow_effects_spec_aliases_match_seed() {
     );
 
     for (alias, expected_atoms) in &expected {
-        let spec_atoms = spec_aliases
-            .get(alias)
-            .expect("alias presence was checked above");
+        let spec_atoms = spec_aliases.get(alias).expect("alias presence was checked above");
         let missing_atoms: Vec<_> = expected_atoms.difference(spec_atoms).cloned().collect();
         let extra_atoms: Vec<_> = spec_atoms.difference(expected_atoms).cloned().collect();
         assert!(

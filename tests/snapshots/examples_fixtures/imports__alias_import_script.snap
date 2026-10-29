@@ -3,19 +3,18 @@ source: tests/examples/examples_fixtures_snapshots.rs
 ---
 Fixture: examples/imports/alias_import_script.flx
 == compile ==
-failed (module)
+failed (compile)
 == diagnostics ==
-error[E018]: Import Not Found
+error[E011]: Private Member
 
-Cannot find module `Modules.Data.MyFile` to import.
+Cannot access private member `value`.
 
   examples/imports/alias_import_script.flx:6:1
   |
-6 | import Modules.Data.MyFile as MyAlias
-  | ^
+6 | MyAlias.value();
+  | ^^^^^^^^^^^^^
 
 Hint:
-  Check that: 1) The module file exists (e.g., `Modules.Data.MyFile.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
-  Looked for module `Modules.Data.MyFile` under roots: examples/imports, src, lib (imported from examples/imports/alias_import_script.flx).
+  Private members can only be accessed within the same module. Use `public fn` to export a function.
 == stdout ==
 <not executed>

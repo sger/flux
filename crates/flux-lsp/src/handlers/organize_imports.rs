@@ -81,12 +81,8 @@ pub fn organize_imports_action(snapshot: &Snapshot, uri: &Uri) -> Option<CodeAct
     }
 
     let range = Range {
-        start: snapshot
-            .position_map
-            .offset_to_lsp(TextSize::from(block_start as u32)),
-        end: snapshot
-            .position_map
-            .offset_to_lsp(TextSize::from(block_end as u32)),
+        start: snapshot.position_map.offset_to_lsp(TextSize::from(block_start as u32)),
+        end: snapshot.position_map.offset_to_lsp(TextSize::from(block_end as u32)),
     };
     let edit = WorkspaceEdit {
         document_changes: Some(DocumentChanges::Edits(vec![TextDocumentEdit {
@@ -114,13 +110,7 @@ fn leading_import_block(snapshot: &Snapshot) -> Vec<ImportEntry> {
     let mut out = Vec::new();
     let mut started = false;
     for stmt in &snapshot.program.statements {
-        let Statement::Import {
-            name,
-            exposing,
-            span,
-            ..
-        } = stmt
-        else {
+        let Statement::Import { name, exposing, span, .. } = stmt else {
             if started {
                 break;
             }
@@ -137,11 +127,7 @@ fn leading_import_block(snapshot: &Snapshot) -> Vec<ImportEntry> {
             continue;
         };
         out.push(ImportEntry {
-            module_name: snapshot
-                .interner
-                .try_resolve(*name)
-                .unwrap_or("")
-                .to_string(),
+            module_name: snapshot.interner.try_resolve(*name).unwrap_or("").to_string(),
             text: text.to_string(),
             start_key: (span.start.line, span.start.column),
             start_off,

@@ -12,6 +12,13 @@
 // to pure functions the way a monomorphic signature would make it.
 //
 // Expected: 1 2 [10, 20] 5 Some(50)
+// parity-expected-stdout-begin
+// 1
+// 2
+// [10, 20]
+// 5
+// Some(50)
+// parity-expected-stdout-end
 
 import Flow.Functor
 

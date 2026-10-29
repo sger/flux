@@ -7,6 +7,10 @@
 //
 // The nested-`fn` form of this shadow was broken at codegen until 2026-09-11,
 // and is covered end-to-end on both backends by `tests/flux/fn_shadowing.flx`.
+// parity-expected-stdout-begin
+// "shadowed"
+// 41
+// parity-expected-stdout-end
 
 fn helper(x: Int) -> Int { x }
 

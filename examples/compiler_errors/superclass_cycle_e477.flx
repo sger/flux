@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E477
 // Expected: E477 Superclass Cycle
 //   "Class `Alpha` is reachable from its own superclasses: Alpha -> Beta -> Alpha."
 //   Hint: "Break the cycle by removing one of the superclass constraints;
@@ -13,7 +12,7 @@
 // One diagnostic per cycle, anchored at the first-declared class in it —
 // every other member reports the same loop from a different starting point.
 
-class Beta<a> => Alpha<a> {
+class Beta<a> => Alpha<a> { //~ E477
     fn alpha(x: a) -> Int
 }
 

@@ -106,8 +106,7 @@ impl VmAssemblyContext {
             binding.span,
             binding.is_assigned,
         );
-        self.global_indices
-            .insert(binding.name.clone(), defined.index);
+        self.global_indices.insert(binding.name.clone(), defined.index);
         defined.index
     }
 }
@@ -127,11 +126,7 @@ fn patch_value(
         Value::HandlerDescriptor(desc) => {
             let mut remapped = (**desc).clone();
             remapped.effect = interner.intern(&remapped.effect_name);
-            remapped.ops = remapped
-                .op_names
-                .iter()
-                .map(|name| interner.intern(name))
-                .collect();
+            remapped.ops = remapped.op_names.iter().map(|name| interner.intern(name)).collect();
             *value = Value::HandlerDescriptor(std::rc::Rc::new(remapped));
         }
         Value::PerformDescriptor(desc) => {
@@ -192,6 +187,7 @@ fn patch_instructions(
             | OpCode::OpConstantLong
             | OpCode::OpClosure
             | OpCode::OpClosureLong
+            | OpCode::OpClosureWide
             | OpCode::OpMakeAdt
             | OpCode::OpIsAdt
             | OpCode::OpIsAdtJump
@@ -235,17 +231,18 @@ fn patch_constant_operand(
             let num_free = instructions[ip + 3] as usize;
             let _ = u16::try_from(idx)
                 .map_err(|_| format!("constant index overflow for {op:?}: {idx}"))?;
-            replace_instruction(
-                instructions,
-                ip,
-                op,
-                &make(OpCode::OpClosure, &[idx, num_free]),
-            );
+            replace_instruction(instructions, ip, op, &make(OpCode::OpClosure, &[idx, num_free]));
         }
         OpCode::OpClosureLong => {
             let idx = read_u32(instructions, ip + 1) as usize + constant_base;
             let num_free = instructions[ip + 5] as usize;
             let replacement = make(OpCode::OpClosureLong, &[idx, num_free]);
+            replace_instruction(instructions, ip, op, &replacement);
+        }
+        OpCode::OpClosureWide => {
+            let idx = read_u32(instructions, ip + 1) as usize + constant_base;
+            let num_free = read_u16(instructions, ip + 5) as usize;
+            let replacement = make(OpCode::OpClosureWide, &[idx, num_free]);
             replace_instruction(instructions, ip, op, &replacement);
         }
         OpCode::OpMakeAdt => {
@@ -336,10 +333,7 @@ fn merge_debug_info(
 
     for location in &debug_info.locations {
         let remapped = location.location.as_ref().map(|entry| Location {
-            file_id: file_id_map
-                .get(&entry.file_id)
-                .copied()
-                .unwrap_or(entry.file_id),
+            file_id: file_id_map.get(&entry.file_id).copied().unwrap_or(entry.file_id),
             span: entry.span,
         });
         target.locations.push(InstructionLocation {
@@ -355,11 +349,8 @@ fn merge_debug_info(
 }
 
 fn ensure_file(debug_info: &mut FunctionDebugInfo, file: &str) -> usize {
-    if let Some((index, _)) = debug_info
-        .files
-        .iter()
-        .enumerate()
-        .find(|(_, existing)| existing.as_str() == file)
+    if let Some((index, _)) =
+        debug_info.files.iter().enumerate().find(|(_, existing)| existing.as_str() == file)
     {
         index
     } else {
@@ -424,9 +415,7 @@ mod tests {
         let mut interner = Interner::new();
         let dep = interner.intern("Dep.value");
         let mut linker = VmAssemblyContext::new(interner.clone());
-        linker
-            .symbol_table
-            .define_global_with_index(dep, 0, Span::default(), true);
+        linker.symbol_table.define_global_with_index(dep, 0, Span::default(), true);
         linker.global_indices.insert("Dep.value".to_string(), 0);
 
         let artifact = CachedModuleBytecode {
@@ -481,10 +470,7 @@ mod tests {
         let b_instructions = &linked.instructions[3..]; // skip A's 3-byte OpConstant
         assert_eq!(b_instructions[0], OpCode::OpConstantAdd as u8);
         let rebased_idx = read_u16(b_instructions, 1) as usize;
-        assert_eq!(
-            rebased_idx, 2,
-            "OpConstantAdd index should be rebased from 0 to 2"
-        );
+        assert_eq!(rebased_idx, 2, "OpConstantAdd index should be rebased from 0 to 2");
     }
 
     #[test]
@@ -507,10 +493,7 @@ mod tests {
         assert_eq!(b_instructions[0], OpCode::OpGetLocalIsAdt as u8);
         assert_eq!(b_instructions[1], 5, "local index should be unchanged");
         let rebased_idx = read_u16(b_instructions, 2) as usize;
-        assert_eq!(
-            rebased_idx, 3,
-            "OpGetLocalIsAdt const index should be rebased from 0 to 3"
-        );
+        assert_eq!(rebased_idx, 3, "OpGetLocalIsAdt const index should be rebased from 0 to 3");
     }
 
     #[test]
@@ -532,10 +515,7 @@ mod tests {
         let b_instructions = &linked.instructions[3..];
         assert_eq!(b_instructions[0], OpCode::OpReuseAdt as u8);
         let rebased_idx = read_u16(b_instructions, 1) as usize;
-        assert_eq!(
-            rebased_idx, 1,
-            "OpReuseAdt const index should be rebased from 0 to 1"
-        );
+        assert_eq!(rebased_idx, 1, "OpReuseAdt const index should be rebased from 0 to 1");
         assert_eq!(b_instructions[3], 2, "arity should be unchanged");
         assert_eq!(b_instructions[4], 0xFF, "field_mask should be unchanged");
     }

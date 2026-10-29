@@ -143,21 +143,10 @@ impl<'a> InferCtx<'a> {
             return;
         }
         match stmt {
-            Statement::Let {
-                name,
-                type_annotation,
-                value,
-                span,
-                ..
-            } => {
+            Statement::Let { name, type_annotation, value, span, .. } => {
                 self.infer_let_binding(*name, *span, type_annotation.as_ref(), value);
             }
-            Statement::LetDestructure {
-                pattern,
-                value,
-                span,
-                ..
-            } => {
+            Statement::LetDestructure { pattern, value, span, .. } => {
                 let val_ty = self.infer_expression(value);
                 self.bind_pattern_variables(pattern, &val_ty, *span);
             }
@@ -169,12 +158,7 @@ impl<'a> InferCtx<'a> {
                 self.infer_expression(value);
             }
             Statement::Module { name, body, .. } => self.infer_module(*name, body),
-            Statement::Data {
-                name,
-                type_params,
-                variants,
-                ..
-            } => {
+            Statement::Data { name, type_params, variants, .. } => {
                 self.register_data_constructors(*name, type_params, variants);
             }
             // Import, Return at top-level: no HM inference needed.
@@ -256,8 +240,7 @@ impl<'a> InferCtx<'a> {
             span: let_span,
             definition: None,
         });
-        self.binding_schemes_by_span
-            .insert(binding_span_key(let_span), scheme.clone());
+        self.binding_schemes_by_span.insert(binding_span_key(let_span), scheme.clone());
         self.env.bind(name, scheme);
     }
 
@@ -274,11 +257,7 @@ impl<'a> InferCtx<'a> {
         // one of them resolves to that rigid variable rather than to a nominal
         // type of the same name (KI-058). Cloned because the conversion needs
         // `&mut self`; the map holds one entry per declared parameter.
-        let type_params = self
-            .signature_type_params
-            .last()
-            .cloned()
-            .unwrap_or_default();
+        let type_params = self.signature_type_params.last().cloned().unwrap_or_default();
         let Some(ann_ty) = self.infer_type_from_annotation(ann, &type_params, &mut row_var_env)
         else {
             return self.infer_expression(value).apply_type_subst(&self.subst);
@@ -382,13 +361,7 @@ impl<'a> InferCtx<'a> {
     /// unannotated lets receive a fresh inference variable to be refined once
     /// the initializer is visited.
     fn predeclare_module_let(&mut self, stmt: &Statement) {
-        let Statement::Let {
-            name,
-            type_annotation,
-            span,
-            ..
-        } = stmt
-        else {
+        let Statement::Let { name, type_annotation, span, .. } = stmt else {
             return;
         };
 
@@ -448,39 +421,28 @@ impl<'a> InferCtx<'a> {
     /// cross-module typechecking. A private member's scheme stays with the
     /// unit: the VM compiler reads a member's dictionary layout from it.
     fn capture_public_module_member_scheme(&mut self, module_name: Identifier, stmt: &Statement) {
-        if let Statement::Function {
-            is_public: false,
-            name,
-            ..
-        } = stmt
+        if let Statement::Function { is_public: false, name, .. } = stmt
             && !crate::types::class_env::is_generated_instance_method(self.interner.resolve(*name))
             && let Some(scheme) = self.env.lookup(*name).cloned()
         {
-            self.private_member_schemes
-                .insert((module_name, *name), scheme);
+            self.private_member_schemes.insert((module_name, *name), scheme);
             return;
         }
         let name = match stmt {
-            Statement::Function {
-                is_public, name, ..
-            } if *is_public
-                || crate::types::class_env::is_generated_instance_method(
-                    self.interner.resolve(*name),
-                ) =>
+            Statement::Function { is_public, name, .. }
+                if *is_public
+                    || crate::types::class_env::is_generated_instance_method(
+                        self.interner.resolve(*name),
+                    ) =>
             {
                 *name
             }
-            Statement::Let {
-                is_public: true,
-                name,
-                ..
-            } => *name,
+            Statement::Let { is_public: true, name, .. } => *name,
             _ => return,
         };
 
         if let Some(scheme) = self.env.lookup(name).cloned() {
-            self.module_member_schemes
-                .insert((module_name, name), scheme);
+            self.module_member_schemes.insert((module_name, name), scheme);
         }
     }
 
@@ -490,16 +452,10 @@ impl<'a> InferCtx<'a> {
         let mut value_span = block.span;
         for stmt in &block.statements {
             match stmt {
-                Statement::Expression {
-                    expression,
-                    has_semicolon: false,
-                    ..
-                } => {
+                Statement::Expression { expression, has_semicolon: false, .. } => {
                     value_span = expression.span();
                 }
-                Statement::Return {
-                    value: Some(expr), ..
-                } => {
+                Statement::Return { value: Some(expr), .. } => {
                     value_span = expr.span();
                 }
                 _ => {
@@ -559,17 +515,11 @@ impl<'a> InferCtx<'a> {
             }
             match stmt {
                 // The last no-semicolon expression is the block's value.
-                Statement::Expression {
-                    expression,
-                    has_semicolon: false,
-                    ..
-                } => {
+                Statement::Expression { expression, has_semicolon: false, .. } => {
                     last_ty = self.infer_expression(expression);
                 }
                 // An explicit `return expr` also gives the block's type.
-                Statement::Return {
-                    value: Some(expr), ..
-                } => {
+                Statement::Return { value: Some(expr), .. } => {
                     last_ty = self.infer_expression(expr);
                     if let Some(frame) = self.body_facts.return_frames.last_mut() {
                         frame.push((last_ty.clone(), expr.span()));

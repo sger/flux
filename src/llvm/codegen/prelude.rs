@@ -33,10 +33,7 @@ const PTRTAG_CONSTANTS: [(&str, i64); 6] = [
     ("flux.ptrtag.true", FluxPtrTagLayout::FLUX_TRUE),
     ("flux.ptrtag.empty_list", FluxPtrTagLayout::FLUX_EMPTY_LIST),
     ("flux.ptrtag.uninit", FluxPtrTagLayout::FLUX_UNINIT),
-    (
-        "flux.ptrtag.yield_sentinel",
-        FluxPtrTagLayout::FLUX_YIELD_SENTINEL,
-    ),
+    ("flux.ptrtag.yield_sentinel", FluxPtrTagLayout::FLUX_YIELD_SENTINEL),
 ];
 
 pub fn flux_prelude_symbol(name: &str) -> GlobalId {
@@ -109,10 +106,7 @@ fn emit_tag_int(module: &mut LlvmModule) {
                     rhs: const_i64_operand(1),
                 },
             ],
-            term: LlvmTerminator::Ret {
-                ty: LlvmType::i64(),
-                value: local("tagged"),
-            },
+            term: LlvmTerminator::Ret { ty: LlvmType::i64(), value: local("tagged") },
         }],
     });
 }
@@ -138,10 +132,7 @@ fn emit_untag_int(module: &mut LlvmModule) {
                 lhs: local("val"),
                 rhs: const_i64_operand(1),
             }],
-            term: LlvmTerminator::Ret {
-                ty: LlvmType::i64(),
-                value: local("raw"),
-            },
+            term: LlvmTerminator::Ret { ty: LlvmType::i64(), value: local("raw") },
         }],
     });
 }
@@ -200,10 +191,7 @@ fn emit_is_ptr(module: &mut LlvmModule) {
                     rhs: local("above_sentinel"),
                 },
             ],
-            term: LlvmTerminator::Ret {
-                ty: LlvmType::i1(),
-                value: local("result"),
-            },
+            term: LlvmTerminator::Ret { ty: LlvmType::i1(), value: local("result") },
         }],
     });
 }
@@ -330,10 +318,7 @@ fn emit_drop_reuse(module: &mut LlvmModule) {
             LlvmBlock {
                 label: LabelId("reuse".into()),
                 instrs: vec![],
-                term: LlvmTerminator::Ret {
-                    ty: LlvmType::ptr(),
-                    value: local("ptr"),
-                },
+                term: LlvmTerminator::Ret { ty: LlvmType::ptr(), value: local("ptr") },
             },
             // fresh: RC>1, drop (decrement) and allocate fresh memory.
             LlvmBlock {
@@ -368,10 +353,7 @@ fn emit_drop_reuse(module: &mut LlvmModule) {
                         attrs: vec![],
                     },
                 ],
-                term: LlvmTerminator::Ret {
-                    ty: LlvmType::ptr(),
-                    value: local("new_mem"),
-                },
+                term: LlvmTerminator::Ret { ty: LlvmType::ptr(), value: local("new_mem") },
             },
         ],
     });
@@ -434,18 +416,12 @@ pub fn emit_rc_is_unique(module: &mut LlvmModule) {
                     });
                     instrs
                 },
-                term: LlvmTerminator::Ret {
-                    ty: LlvmType::i1(),
-                    value: local("is_one"),
-                },
+                term: LlvmTerminator::Ret { ty: LlvmType::i1(), value: local("is_one") },
             },
             LlvmBlock {
                 label: LabelId("not_unique".into()),
                 instrs: vec![],
-                term: LlvmTerminator::Ret {
-                    ty: LlvmType::i1(),
-                    value: const_i1_operand(false),
-                },
+                term: LlvmTerminator::Ret { ty: LlvmType::i1(), value: const_i1_operand(false) },
             },
         ],
     });
@@ -490,10 +466,7 @@ fn emit_gc_free_decl(module: &mut LlvmModule) {
     // flux_gc_alloc_header(i32 size, i32 scan_fsize, i32 obj_tag) → ptr
     let alloc_hdr_name = "flux_gc_alloc_header";
     if !has_function(module, alloc_hdr_name)
-        && !module
-            .declarations
-            .iter()
-            .any(|d| d.name.0 == alloc_hdr_name)
+        && !module.declarations.iter().any(|d| d.name.0 == alloc_hdr_name)
     {
         module.declarations.push(crate::llvm::LlvmDecl {
             linkage: Linkage::External,
@@ -558,11 +531,7 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
 
     // ── Declare @flux_can_use_bump_arena (C runtime TLS check) ─────
     let can_bump_name = "flux_can_use_bump_arena";
-    if !module
-        .declarations
-        .iter()
-        .any(|d| d.name.0 == can_bump_name)
-    {
+    if !module.declarations.iter().any(|d| d.name.0 == can_bump_name) {
         module.declarations.push(crate::llvm::LlvmDecl {
             linkage: Linkage::External,
             name: GlobalId(can_bump_name.into()),
@@ -657,11 +626,7 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
             varargs: false,
             call_conv: CallConv::Fastcc,
         },
-        params: vec![
-            LlvmLocal("size".into()),
-            LlvmLocal("scan".into()),
-            LlvmLocal("tag".into()),
-        ],
+        params: vec![LlvmLocal("size".into()), LlvmLocal("scan".into()), LlvmLocal("tag".into())],
         attrs: helper_attrs(),
         blocks: vec![
             // ── entry: compute aligned total, check thread-local bump eligibility ──
@@ -682,10 +647,7 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
                         op: LlvmValueKind::And,
                         ty: i32_ty.clone(),
                         lhs: local("aligned"),
-                        rhs: LlvmOperand::Const(LlvmConst::Int {
-                            bits: 32,
-                            value: -8i32 as i128,
-                        }),
+                        rhs: LlvmOperand::Const(LlvmConst::Int { bits: 32, value: -8i32 as i128 }),
                     },
                     // %total_i32 = add i32 %masked, 8  (FLUX_HEADER_SIZE)
                     LlvmInstr::Binary {
@@ -891,10 +853,7 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
                         attrs: vec![],
                     },
                 ],
-                term: LlvmTerminator::Ret {
-                    ty: ptr_ty.clone(),
-                    value: local("payload"),
-                },
+                term: LlvmTerminator::Ret { ty: ptr_ty.clone(), value: local("payload") },
             },
             // ── slow: fall back to C runtime malloc path ──
             LlvmBlock {
@@ -912,10 +871,7 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
                     ],
                     attrs: vec![],
                 }],
-                term: LlvmTerminator::Ret {
-                    ty: ptr_ty.clone(),
-                    value: local("slow_ptr"),
-                },
+                term: LlvmTerminator::Ret { ty: ptr_ty.clone(), value: local("slow_ptr") },
             },
         ],
     });
@@ -1038,18 +994,12 @@ fn emit_is_thunk(module: &mut LlvmModule) {
                         }),
                     },
                 ],
-                term: LlvmTerminator::Ret {
-                    ty: LlvmType::i1(),
-                    value: local("is_thunk_tag"),
-                },
+                term: LlvmTerminator::Ret { ty: LlvmType::i1(), value: local("is_thunk_tag") },
             },
             LlvmBlock {
                 label: LabelId("not_thunk".into()),
                 instrs: vec![],
-                term: LlvmTerminator::Ret {
-                    ty: LlvmType::i1(),
-                    value: const_i1_operand(false),
-                },
+                term: LlvmTerminator::Ret { ty: LlvmType::i1(), value: const_i1_operand(false) },
             },
         ],
     });
@@ -1082,10 +1032,7 @@ fn emit_tag_thunk(module: &mut LlvmModule) {
                 operand: local("ptr"),
                 to_ty: LlvmType::i64(),
             }],
-            term: LlvmTerminator::Ret {
-                ty: LlvmType::i64(),
-                value: local("tagged"),
-            },
+            term: LlvmTerminator::Ret { ty: LlvmType::i64(), value: local("tagged") },
         }],
     });
 }
@@ -1117,10 +1064,7 @@ fn emit_untag_thunk_ptr(module: &mut LlvmModule) {
                 operand: local("val"),
                 to_ty: LlvmType::ptr(),
             }],
-            term: LlvmTerminator::Ret {
-                ty: LlvmType::ptr(),
-                value: local("ptr"),
-            },
+            term: LlvmTerminator::Ret { ty: LlvmType::ptr(), value: local("ptr") },
         }],
     });
 }
@@ -1142,10 +1086,7 @@ fn local(name: &str) -> LlvmOperand {
 }
 
 fn const_i64(value: i64) -> LlvmConst {
-    LlvmConst::Int {
-        bits: 64,
-        value: value.into(),
-    }
+    LlvmConst::Int { bits: 64, value: value.into() }
 }
 
 fn const_i64_operand(value: i64) -> LlvmOperand {
@@ -1153,10 +1094,7 @@ fn const_i64_operand(value: i64) -> LlvmOperand {
 }
 
 fn const_i1_operand(value: bool) -> LlvmOperand {
-    LlvmOperand::Const(LlvmConst::Int {
-        bits: 1,
-        value: i128::from(value as i8),
-    })
+    LlvmOperand::Const(LlvmConst::Int { bits: 1, value: i128::from(value as i8) })
 }
 
 #[cfg(test)]

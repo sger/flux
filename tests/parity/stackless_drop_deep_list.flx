@@ -2,6 +2,10 @@
 // expect: success
 // bug: recursive flux_drop stack-overflows on deep lists.
 //      stackless drop traversal uses parent chain in header._reserved field.
+// parity-expected-stdout-begin
+// 1
+// "ok"
+// parity-expected-stdout-end
 
 fn build_list(n, acc) {
     if n <= 0 { acc }

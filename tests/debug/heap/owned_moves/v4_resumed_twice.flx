@@ -1,0 +1,45 @@
+// 0189 V4: a list read after a perform whose handler resumes twice, or
+// never.
+
+effect Ask {
+    ask: Int -> Int
+}
+
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn body(n) -> Int with Ask {
+    let xs = numbers(n)
+    let k = perform Ask.ask(len(xs))
+    k + len(xs)
+}
+
+fn body2(n) -> Int with Ask {
+    let xs = numbers(n)
+    perform Ask.ask(len(xs))
+}
+
+fn twice(n) -> Int {
+    body(n) handle Ask {
+        ask(resume, v) -> resume(v * 10) + resume(v)
+    }
+}
+
+fn twice2(n) -> Int {
+    body2(n) handle Ask {
+        ask(resume, v) -> resume(v * 10) + resume(v)
+    }
+}
+
+fn never(n) -> Int {
+    body(n) handle Ask {
+        ask(resume, v) -> v
+    }
+}
+
+fn main() {
+    print(twice(1))
+    print(twice2(1))
+    print(never(1))
+}

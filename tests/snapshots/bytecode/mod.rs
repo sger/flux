@@ -1,7 +1,7 @@
+use crate::support::assert_snapshot;
 use flux::bytecode::op_code::disassemble;
 use flux::compiler::Compiler;
 use flux::syntax::{lexer::Lexer, parser::Parser};
-use insta::assert_snapshot;
 
 fn compile_to_string(input: &str) -> String {
     let lexer = Lexer::new(input);

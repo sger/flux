@@ -97,10 +97,9 @@ impl Server {
         );
         let (loader_tx, loader_rx) = crossbeam_channel::unbounded::<loader::Message>();
         let loader: Box<dyn loader::Handle> = match watcher {
-            loader::WatcherKind::Client => Box::new(loader::ClientHandle::new(
-                connection.sender.clone(),
-                loader_tx,
-            )),
+            loader::WatcherKind::Client => {
+                Box::new(loader::ClientHandle::new(connection.sender.clone(), loader_tx))
+            }
             loader::WatcherKind::Notify => Box::new(loader::NotifyHandle::new(loader_tx)),
         };
         Self {
@@ -233,114 +232,114 @@ impl Server {
     fn on_request(&mut self, req: Request) -> Result<()> {
         let id = req.id.clone();
         let job: Option<Job> = match req.method.as_str() {
-            m if m == HoverRequest::METHOD => self
-                .state
-                .dispatch_hover(serde_json::from_value(req.params)?),
-            m if m == DocumentSymbolRequest::METHOD => self
-                .state
-                .dispatch_document_symbol(serde_json::from_value(req.params)?),
-            m if m == GotoDefinition::METHOD => self
-                .state
-                .dispatch_definition(serde_json::from_value(req.params)?),
-            m if m == GotoImplementation::METHOD => self
-                .state
-                .dispatch_implementation(serde_json::from_value(req.params)?),
-            m if m == GotoTypeDefinition::METHOD => self
-                .state
-                .dispatch_type_definition(serde_json::from_value(req.params)?),
-            m if m == CallHierarchyPrepare::METHOD => self
-                .state
-                .dispatch_prepare_call_hierarchy(serde_json::from_value(req.params)?),
-            m if m == CallHierarchyIncomingCalls::METHOD => self
-                .state
-                .dispatch_incoming_calls(serde_json::from_value(req.params)?),
-            m if m == CallHierarchyOutgoingCalls::METHOD => self
-                .state
-                .dispatch_outgoing_calls(serde_json::from_value(req.params)?),
-            m if m == TypeHierarchyPrepare::METHOD => self
-                .state
-                .dispatch_prepare_type_hierarchy(serde_json::from_value(req.params)?),
-            m if m == TypeHierarchySupertypes::METHOD => self
-                .state
-                .dispatch_supertypes(serde_json::from_value(req.params)?),
-            m if m == TypeHierarchySubtypes::METHOD => self
-                .state
-                .dispatch_subtypes(serde_json::from_value(req.params)?),
-            m if m == Completion::METHOD => self
-                .state
-                .dispatch_completion(serde_json::from_value(req.params)?),
-            m if m == ResolveCompletionItem::METHOD => self
-                .state
-                .dispatch_completion_resolve(serde_json::from_value(req.params)?),
-            m if m == CodeActionRequest::METHOD => self
-                .state
-                .dispatch_code_action(serde_json::from_value(req.params)?),
-            m if m == CodeLensRequest::METHOD => self
-                .state
-                .dispatch_code_lens(serde_json::from_value(req.params)?),
-            m if m == DocumentLinkRequest::METHOD => self
-                .state
-                .dispatch_document_link(serde_json::from_value(req.params)?),
-            m if m == Formatting::METHOD => self
-                .state
-                .dispatch_formatting(serde_json::from_value(req.params)?),
-            m if m == RangeFormatting::METHOD => self
-                .state
-                .dispatch_formatting_range(serde_json::from_value(req.params)?),
-            m if m == OnTypeFormatting::METHOD => self
-                .state
-                .dispatch_on_type_formatting(serde_json::from_value(req.params)?),
-            m if m == InlayHintRequest::METHOD => self
-                .state
-                .dispatch_inlay_hints(serde_json::from_value(req.params)?),
-            m if m == InlayHintResolveRequest::METHOD => self
-                .state
-                .dispatch_inlay_hint_resolve(serde_json::from_value(req.params)?),
-            m if m == SignatureHelpRequest::METHOD => self
-                .state
-                .dispatch_signature_help(serde_json::from_value(req.params)?),
-            m if m == References::METHOD => self
-                .state
-                .dispatch_references(serde_json::from_value(req.params)?),
-            m if m == DocumentHighlightRequest::METHOD => self
-                .state
-                .dispatch_document_highlight(serde_json::from_value(req.params)?),
-            m if m == LinkedEditingRange::METHOD => self
-                .state
-                .dispatch_linked_editing_range(serde_json::from_value(req.params)?),
-            m if m == Rename::METHOD => self
-                .state
-                .dispatch_rename(serde_json::from_value(req.params)?),
-            m if m == PrepareRenameRequest::METHOD => self
-                .state
-                .dispatch_prepare_rename(serde_json::from_value(req.params)?),
-            m if m == FoldingRangeRequest::METHOD => self
-                .state
-                .dispatch_folding_range(serde_json::from_value(req.params)?),
-            m if m == SelectionRangeRequest::METHOD => self
-                .state
-                .dispatch_selection_range(serde_json::from_value(req.params)?),
-            m if m == SemanticTokensFullRequest::METHOD => self
-                .state
-                .dispatch_semantic_tokens_full(serde_json::from_value(req.params)?),
-            m if m == SemanticTokensFullDeltaRequest::METHOD => self
-                .state
-                .dispatch_semantic_tokens_full_delta(serde_json::from_value(req.params)?),
-            m if m == SemanticTokensRangeRequest::METHOD => self
-                .state
-                .dispatch_semantic_tokens_range(serde_json::from_value(req.params)?),
-            m if m == WorkspaceSymbolRequest::METHOD => self
-                .state
-                .dispatch_workspace_symbol(serde_json::from_value(req.params)?),
-            m if m == DocumentDiagnosticRequest::METHOD => self
-                .state
-                .dispatch_document_diagnostic(serde_json::from_value(req.params)?),
-            m if m == WorkspaceDiagnosticRequest::METHOD => self
-                .state
-                .dispatch_workspace_diagnostic(serde_json::from_value(req.params)?),
-            m if m == WillRenameFiles::METHOD => self
-                .state
-                .dispatch_will_rename_files(serde_json::from_value(req.params)?),
+            m if m == HoverRequest::METHOD => {
+                self.state.dispatch_hover(serde_json::from_value(req.params)?)
+            }
+            m if m == DocumentSymbolRequest::METHOD => {
+                self.state.dispatch_document_symbol(serde_json::from_value(req.params)?)
+            }
+            m if m == GotoDefinition::METHOD => {
+                self.state.dispatch_definition(serde_json::from_value(req.params)?)
+            }
+            m if m == GotoImplementation::METHOD => {
+                self.state.dispatch_implementation(serde_json::from_value(req.params)?)
+            }
+            m if m == GotoTypeDefinition::METHOD => {
+                self.state.dispatch_type_definition(serde_json::from_value(req.params)?)
+            }
+            m if m == CallHierarchyPrepare::METHOD => {
+                self.state.dispatch_prepare_call_hierarchy(serde_json::from_value(req.params)?)
+            }
+            m if m == CallHierarchyIncomingCalls::METHOD => {
+                self.state.dispatch_incoming_calls(serde_json::from_value(req.params)?)
+            }
+            m if m == CallHierarchyOutgoingCalls::METHOD => {
+                self.state.dispatch_outgoing_calls(serde_json::from_value(req.params)?)
+            }
+            m if m == TypeHierarchyPrepare::METHOD => {
+                self.state.dispatch_prepare_type_hierarchy(serde_json::from_value(req.params)?)
+            }
+            m if m == TypeHierarchySupertypes::METHOD => {
+                self.state.dispatch_supertypes(serde_json::from_value(req.params)?)
+            }
+            m if m == TypeHierarchySubtypes::METHOD => {
+                self.state.dispatch_subtypes(serde_json::from_value(req.params)?)
+            }
+            m if m == Completion::METHOD => {
+                self.state.dispatch_completion(serde_json::from_value(req.params)?)
+            }
+            m if m == ResolveCompletionItem::METHOD => {
+                self.state.dispatch_completion_resolve(serde_json::from_value(req.params)?)
+            }
+            m if m == CodeActionRequest::METHOD => {
+                self.state.dispatch_code_action(serde_json::from_value(req.params)?)
+            }
+            m if m == CodeLensRequest::METHOD => {
+                self.state.dispatch_code_lens(serde_json::from_value(req.params)?)
+            }
+            m if m == DocumentLinkRequest::METHOD => {
+                self.state.dispatch_document_link(serde_json::from_value(req.params)?)
+            }
+            m if m == Formatting::METHOD => {
+                self.state.dispatch_formatting(serde_json::from_value(req.params)?)
+            }
+            m if m == RangeFormatting::METHOD => {
+                self.state.dispatch_formatting_range(serde_json::from_value(req.params)?)
+            }
+            m if m == OnTypeFormatting::METHOD => {
+                self.state.dispatch_on_type_formatting(serde_json::from_value(req.params)?)
+            }
+            m if m == InlayHintRequest::METHOD => {
+                self.state.dispatch_inlay_hints(serde_json::from_value(req.params)?)
+            }
+            m if m == InlayHintResolveRequest::METHOD => {
+                self.state.dispatch_inlay_hint_resolve(serde_json::from_value(req.params)?)
+            }
+            m if m == SignatureHelpRequest::METHOD => {
+                self.state.dispatch_signature_help(serde_json::from_value(req.params)?)
+            }
+            m if m == References::METHOD => {
+                self.state.dispatch_references(serde_json::from_value(req.params)?)
+            }
+            m if m == DocumentHighlightRequest::METHOD => {
+                self.state.dispatch_document_highlight(serde_json::from_value(req.params)?)
+            }
+            m if m == LinkedEditingRange::METHOD => {
+                self.state.dispatch_linked_editing_range(serde_json::from_value(req.params)?)
+            }
+            m if m == Rename::METHOD => {
+                self.state.dispatch_rename(serde_json::from_value(req.params)?)
+            }
+            m if m == PrepareRenameRequest::METHOD => {
+                self.state.dispatch_prepare_rename(serde_json::from_value(req.params)?)
+            }
+            m if m == FoldingRangeRequest::METHOD => {
+                self.state.dispatch_folding_range(serde_json::from_value(req.params)?)
+            }
+            m if m == SelectionRangeRequest::METHOD => {
+                self.state.dispatch_selection_range(serde_json::from_value(req.params)?)
+            }
+            m if m == SemanticTokensFullRequest::METHOD => {
+                self.state.dispatch_semantic_tokens_full(serde_json::from_value(req.params)?)
+            }
+            m if m == SemanticTokensFullDeltaRequest::METHOD => {
+                self.state.dispatch_semantic_tokens_full_delta(serde_json::from_value(req.params)?)
+            }
+            m if m == SemanticTokensRangeRequest::METHOD => {
+                self.state.dispatch_semantic_tokens_range(serde_json::from_value(req.params)?)
+            }
+            m if m == WorkspaceSymbolRequest::METHOD => {
+                self.state.dispatch_workspace_symbol(serde_json::from_value(req.params)?)
+            }
+            m if m == DocumentDiagnosticRequest::METHOD => {
+                self.state.dispatch_document_diagnostic(serde_json::from_value(req.params)?)
+            }
+            m if m == WorkspaceDiagnosticRequest::METHOD => {
+                self.state.dispatch_workspace_diagnostic(serde_json::from_value(req.params)?)
+            }
+            m if m == WillRenameFiles::METHOD => {
+                self.state.dispatch_will_rename_files(serde_json::from_value(req.params)?)
+            }
             // Custom requests: render a compiler-stage dump for a document.
             "flux/viewTokens" => self.state.dispatch_view(
                 serde_json::from_value(req.params)?,
@@ -367,11 +366,7 @@ impl Server {
         };
         match job {
             Some(compute) => {
-                let item = WorkItem {
-                    id,
-                    generation: self.cancel.generation(),
-                    compute,
-                };
+                let item = WorkItem { id, generation: self.cancel.generation(), compute };
                 if let Some(tx) = &self.work_tx {
                     let _ = tx.send(item);
                 }
@@ -401,8 +396,7 @@ impl Server {
         let diagnostics = match method.as_str() {
             m if m == DidOpenTextDocument::METHOD => {
                 content_changed = true;
-                self.state
-                    .handle_did_open(serde_json::from_value(note.params)?)
+                self.state.handle_did_open(serde_json::from_value(note.params)?)
             }
             m if m == DidChangeTextDocument::METHOD => {
                 content_changed = true;
@@ -411,22 +405,19 @@ impl Server {
                 // snapshots invalidated); the heavy component re-analysis is
                 // deferred to the debounce timer so a keystroke burst collapses
                 // into a single inference pass.
-                self.state
-                    .stage_did_change(serde_json::from_value(note.params)?);
+                self.state.stage_did_change(serde_json::from_value(note.params)?);
                 Vec::new()
             }
-            m if m == DidSaveTextDocument::METHOD => self
-                .state
-                .handle_did_save(serde_json::from_value(note.params)?),
+            m if m == DidSaveTextDocument::METHOD => {
+                self.state.handle_did_save(serde_json::from_value(note.params)?)
+            }
             m if m == DidCloseTextDocument::METHOD => {
                 content_changed = true;
-                self.state
-                    .handle_did_close(serde_json::from_value(note.params)?)
+                self.state.handle_did_close(serde_json::from_value(note.params)?)
             }
             m if m == DidChangeWatchedFiles::METHOD => {
                 content_changed = true;
-                self.state
-                    .handle_did_change_watched_files(serde_json::from_value(note.params)?)
+                self.state.handle_did_change_watched_files(serde_json::from_value(note.params)?)
             }
             m if m == Initialized::METHOD => {
                 // The client is ready — start watching `.flx` files so on-disk
@@ -499,9 +490,7 @@ impl Server {
         self.connection.sender.send(Message::Request(Request {
             id: RequestId::from(format!("flux-progress/{title}")),
             method: WorkDoneProgressCreate::METHOD.to_string(),
-            params: serde_json::to_value(WorkDoneProgressCreateParams {
-                token: token.clone(),
-            })?,
+            params: serde_json::to_value(WorkDoneProgressCreateParams { token: token.clone() })?,
         }))?;
         self.send_progress(
             token,
@@ -517,22 +506,18 @@ impl Server {
     fn progress_end(&self, token: &str, message: &str) -> Result<()> {
         self.send_progress(
             ProgressToken::String(token.to_string()),
-            WorkDoneProgress::End(WorkDoneProgressEnd {
-                message: Some(message.to_string()),
-            }),
+            WorkDoneProgress::End(WorkDoneProgressEnd { message: Some(message.to_string()) }),
         )
     }
 
     fn send_progress(&self, token: ProgressToken, value: WorkDoneProgress) -> Result<()> {
-        self.connection
-            .sender
-            .send(Message::Notification(Notification {
-                method: Progress::METHOD.to_string(),
-                params: serde_json::to_value(ProgressParams {
-                    token,
-                    value: ProgressParamsValue::WorkDone(value),
-                })?,
-            }))?;
+        self.connection.sender.send(Message::Notification(Notification {
+            method: Progress::METHOD.to_string(),
+            params: serde_json::to_value(ProgressParams {
+                token,
+                value: ProgressParamsValue::WorkDone(value),
+            })?,
+        }))?;
         Ok(())
     }
 
@@ -571,12 +556,10 @@ impl Server {
     }
 
     fn publish_diagnostics(&self, params: lsp_types::PublishDiagnosticsParams) -> Result<()> {
-        self.connection
-            .sender
-            .send(Message::Notification(Notification {
-                method: lsp_types::notification::PublishDiagnostics::METHOD.to_string(),
-                params: serde_json::to_value(params)?,
-            }))?;
+        self.connection.sender.send(Message::Notification(Notification {
+            method: lsp_types::notification::PublishDiagnostics::METHOD.to_string(),
+            params: serde_json::to_value(params)?,
+        }))?;
         Ok(())
     }
 }
@@ -586,9 +569,7 @@ impl Server {
 /// the goal is just to keep one slow request from blocking the interactive
 /// ones, not to saturate every core. Falls back to 4 if the count is unknown.
 fn worker_pool_size() -> usize {
-    std::thread::available_parallelism()
-        .map(|n| n.get().clamp(2, 8))
-        .unwrap_or(4)
+    std::thread::available_parallelism().map(|n| n.get().clamp(2, 8)).unwrap_or(4)
 }
 
 /// Whether `method` is a document-content notification — the events that

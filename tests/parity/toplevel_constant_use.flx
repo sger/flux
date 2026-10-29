@@ -2,6 +2,10 @@
 // expect: success
 // bug: top-level numeric constant referenced in function body may produce
 //       undefined %v0 in LLVM IR when the binding is not lowered before use.
+// parity-expected-stdout-begin
+// 42
+// 84
+// parity-expected-stdout-end
 
 let answer = 40 + 2
 

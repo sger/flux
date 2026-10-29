@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E300
 
 // GAP — owner: B2, scoped to 0.0.8.
 // Measured 2026-09-11: error[E300] Argument Type Mismatch at the second call.
@@ -22,5 +21,5 @@ fn forward(x) { dbl(x) }
 
 fn main() with IO {
     print(forward(2))
-    print(forward(2.5))
+    print(forward(2.5)) //~ E300
 }

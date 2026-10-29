@@ -9,14 +9,14 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `forward`.
 
-  examples/generics/failing/compile/b2_forwarding_over_constrained_callee.flx:25:19
+  examples/generics/failing/compile/b2_forwarding_over_constrained_callee.flx:24:19
    |
-21 | fn forward(x) { dbl(x) }
+20 | fn forward(x) { dbl(x) }
    | ------------- `forward` expects `Int` as the 1st parameter
-22 | 
-23 | fn main() with IO {
-24 |     print(forward(2))
-25 |     print(forward(2.5))
+21 | 
+22 | fn main() with IO {
+23 |     print(forward(2))
+24 |     print(forward(2.5))
    |                   ^^^
    |                   --- this argument has type `Float`
 

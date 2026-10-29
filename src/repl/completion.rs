@@ -51,10 +51,7 @@ pub(super) struct ReplHelper {
 
 impl ReplHelper {
     pub(super) fn new(names: Rc<RefCell<Vec<String>>>) -> Self {
-        Self {
-            names,
-            filenames: FilenameCompleter::new(),
-        }
+        Self { names, filenames: FilenameCompleter::new() }
     }
 
     /// Complete the identifier word ending at `pos` against the in-scope names.
@@ -70,10 +67,7 @@ impl ReplHelper {
             .borrow()
             .iter()
             .filter(|name| name.starts_with(word))
-            .map(|name| Pair {
-                display: name.clone(),
-                replacement: name.clone(),
-            })
+            .map(|name| Pair { display: name.clone(), replacement: name.clone() })
             .collect();
         (start, candidates)
     }
@@ -133,9 +127,7 @@ mod tests {
     use rustyline::history::MemHistory;
 
     fn helper(names: &[&str]) -> ReplHelper {
-        ReplHelper::new(Rc::new(RefCell::new(
-            names.iter().map(|s| s.to_string()).collect(),
-        )))
+        ReplHelper::new(Rc::new(RefCell::new(names.iter().map(|s| s.to_string()).collect())))
     }
 
     fn displays(pairs: &[Pair]) -> Vec<String> {

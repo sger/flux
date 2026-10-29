@@ -1,7 +1,6 @@
 // expect: compile_error
-// expect-error: E018
 
-import Modules.Data.MyFile
+import Modules.Data.MyFile //~ E018
 
 fn main() with IO, Time {
     print(Modules.Data.MyFile.value());

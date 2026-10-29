@@ -9,9 +9,9 @@ error[E024]: Module Path Mismatch
 
 Module name `Modules.Analytics.Rules` doesn't match file path `examples/Modules/Analytics/Rules.flx`.
 
-  examples/Modules/Analytics/Rules.flx:4:1
+  examples/Modules/Analytics/Rules.flx:3:1
   |
-4 | module Modules.Analytics.Rules {
+3 | module Modules.Analytics.Rules {
   | ^
 
 Hint:

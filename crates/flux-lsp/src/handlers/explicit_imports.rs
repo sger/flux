@@ -60,9 +60,7 @@ impl<'ast> Visitor<'ast> for UseCollector {
 }
 
 fn collect_unqualified_use_names(snapshot: &Snapshot) -> HashSet<String> {
-    let mut collector = UseCollector {
-        used: HashSet::new(),
-    };
+    let mut collector = UseCollector { used: HashSet::new() };
     collector.visit_program(&snapshot.program);
     collector
         .used
@@ -78,13 +76,7 @@ fn compute_rewrite(
     stmt: &Statement,
     used_names: &HashSet<String>,
 ) -> Option<ExposingRewrite> {
-    let Statement::Import {
-        name,
-        exposing,
-        span,
-        ..
-    } = stmt
-    else {
+    let Statement::Import { name, exposing, span, .. } = stmt else {
         return None;
     };
     let module_full = snapshot.interner.try_resolve(*name)?;
@@ -114,11 +106,8 @@ fn compute_rewrite(
         return None;
     }
 
-    let mut used: Vec<String> = distinct
-        .iter()
-        .filter(|n| used_names.contains(n.as_str()))
-        .map(|n| (*n).clone())
-        .collect();
+    let mut used: Vec<String> =
+        distinct.iter().filter(|n| used_names.contains(n.as_str())).map(|n| (*n).clone()).collect();
     used.sort();
 
     // Nothing used unqualified → that's remove-unused / drop-the-clause
@@ -154,22 +143,9 @@ fn module_public_exports(snapshot: &Snapshot, short: &str) -> Option<Vec<String>
 fn collect_public_exports(stmts: &[Statement], interner: &Interner, out: &mut Vec<String>) {
     for stmt in stmts {
         match stmt {
-            Statement::Function {
-                is_public: true,
-                name,
-                ..
-            }
-            | Statement::Let {
-                is_public: true,
-                name,
-                ..
-            } => push_name(*name, interner, out),
-            Statement::Data {
-                is_public: true,
-                name,
-                variants,
-                ..
-            } => {
+            Statement::Function { is_public: true, name, .. }
+            | Statement::Let { is_public: true, name, .. } => push_name(*name, interner, out),
+            Statement::Data { is_public: true, name, variants, .. } => {
                 push_name(*name, interner, out);
                 for variant in variants {
                     push_name(variant.name, interner, out);
@@ -206,16 +182,9 @@ fn exposing_clause_range(snapshot: &Snapshot, span: FluxSpan) -> Option<Range> {
     let close_rel = after[open_rel..].find(')')? + open_rel;
     let open_abs = start + kw + open_rel;
     let close_abs = start + kw + close_rel;
-    let start_pos = snapshot
-        .position_map
-        .offset_to_lsp(TextSize::try_from(open_abs).ok()?);
-    let end_pos = snapshot
-        .position_map
-        .offset_to_lsp(TextSize::try_from(close_abs + 1).ok()?);
-    Some(Range {
-        start: start_pos,
-        end: end_pos,
-    })
+    let start_pos = snapshot.position_map.offset_to_lsp(TextSize::try_from(open_abs).ok()?);
+    let end_pos = snapshot.position_map.offset_to_lsp(TextSize::try_from(close_abs + 1).ok()?);
+    Some(Range { start: start_pos, end: end_pos })
 }
 
 /// Cursor-driven code action: for each import overlapping `range`, offer the
@@ -246,11 +215,7 @@ pub fn lenses(snapshot: &Snapshot, uri_arg: &Value, out: &mut Vec<CodeLens>) {
         let Some(rewrite) = compute_rewrite(snapshot, stmt, &used_names) else {
             continue;
         };
-        let title = if rewrite.was_wildcard {
-            "▶ Make explicit"
-        } else {
-            "▶ Refine imports"
-        };
+        let title = if rewrite.was_wildcard { "▶ Make explicit" } else { "▶ Refine imports" };
         out.push(CodeLens {
             range: snapshot.position_map.flux_span_to_range(*span),
             command: Some(Command {

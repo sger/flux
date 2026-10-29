@@ -9,19 +9,19 @@ error[E300]: Parameter Type Mismatch
 
 Parameter 1 has the wrong type.
 
-  examples/type_system/failing/96_hm_fun_param_mismatch_contextual.flx:46:14
+  examples/type_system/failing/96_hm_fun_param_mismatch_contextual.flx:15:14
    |
-46 |     let _f = if true {
-   |              ^^^^^^^^^
-47 |         takes_int
+15 |     let _f = if true { //~ E300
+   |              ^^^^^^^^^^^^^^^^^^
+16 |         takes_int
    | ^^^^^^^^^^^^^^^^^
    |         --------- this branch established the expected type
-48 |     } else {
+17 |     } else {
    | ^^^^^^^^^^^^
-49 |         takes_string
+18 |         takes_string
    | ^^^^^^^^^^^^^^^^^^^^
    |         ------------ this branch conflicts with that type
-50 |     }
+19 |     }
    | ^^^^^
 
 Note:

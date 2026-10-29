@@ -91,16 +91,9 @@ fn update_block_comment_depth(current: usize, line: &str) -> usize {
 }
 
 fn next_nonempty_is_closer(lines: &[&str], start: usize) -> bool {
-    lines[start..]
-        .iter()
-        .map(|line| line.trim())
-        .find(|trimmed| !trimmed.is_empty())
-        .is_some_and(|trimmed| {
-            trimmed
-                .chars()
-                .next()
-                .is_some_and(|ch| ch == '}' || ch == ')' || ch == ']')
-        })
+    lines[start..].iter().map(|line| line.trim()).find(|trimmed| !trimmed.is_empty()).is_some_and(
+        |trimmed| trimmed.chars().next().is_some_and(|ch| ch == '}' || ch == ')' || ch == ']'),
+    )
 }
 
 fn leading_close_count(line: &str) -> usize {
@@ -177,9 +170,6 @@ mod tests {
     fn preserves_indentation_inside_block_comments() {
         let source = "fn main() {\n/**\n * hello\n * world\n */\nprint(1)\n}\n";
         let formatted = format_source(source);
-        assert_eq!(
-            formatted,
-            "fn main() {\n/**\n * hello\n * world\n */\n    print(1)\n}"
-        );
+        assert_eq!(formatted, "fn main() {\n/**\n * hello\n * world\n */\n    print(1)\n}");
     }
 }

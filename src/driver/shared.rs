@@ -39,10 +39,7 @@ pub(crate) struct DriverCacheConfig<'a> {
 
 impl<'a> DriverCacheConfig<'a> {
     pub(crate) fn new(cache_layout: &'a CacheLayout, no_cache: bool) -> Self {
-        Self {
-            cache_layout,
-            no_cache,
-        }
+        Self { cache_layout, no_cache }
     }
 }
 
@@ -137,13 +134,7 @@ pub(crate) fn emit_diagnostics_or_exit(
 
 /// Keeps stdlib modules ahead of user modules in deterministic driver traversals.
 pub(crate) fn sort_stdlib_first<T>(items: &mut [T], kind_of: impl Fn(&T) -> ModuleKind) {
-    items.sort_by_key(|item| {
-        if kind_of(item) == ModuleKind::FlowStdlib {
-            0
-        } else {
-            1
-        }
-    });
+    items.sort_by_key(|item| if kind_of(item) == ModuleKind::FlowStdlib { 0 } else { 1 });
 }
 
 #[cfg(test)]
@@ -183,10 +174,7 @@ mod tests {
         let config = DriverDiagnosticConfig::from(&session);
 
         assert_eq!(config.max_errors, 42);
-        assert_eq!(
-            config.diagnostics_format,
-            DiagnosticOutputFormat::JsonCompact
-        );
+        assert_eq!(config.diagnostics_format, DiagnosticOutputFormat::JsonCompact);
         assert!(config.all_errors);
     }
 
@@ -223,14 +211,8 @@ mod tests {
         struct TestNode {
             kind: ModuleKind,
         }
-        let mut nodes = vec![
-            TestNode {
-                kind: ModuleKind::User,
-            },
-            TestNode {
-                kind: ModuleKind::FlowStdlib,
-            },
-        ];
+        let mut nodes =
+            vec![TestNode { kind: ModuleKind::User }, TestNode { kind: ModuleKind::FlowStdlib }];
 
         sort_stdlib_first(&mut nodes, |node| node.kind);
 

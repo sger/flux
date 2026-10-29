@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E468
 
 // Spread on a multi-variant ADT where the concrete variant is not known
 // at the spread site.
@@ -13,7 +12,7 @@ data Item {
 }
 
 fn bump_id(it: Item) -> Item {
-    { ...it, id: 99 }
+    { ...it, id: 99 } //~ E468
 }
 
 fn main() {

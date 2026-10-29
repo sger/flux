@@ -9,15 +9,15 @@ error[E015]: Non-Exhaustive Match
 
 Match is not exhaustive: 1 missing pattern.
 
-  examples/type_system/failing/68_adt_nested_list_non_exhaustive.flx:34:5
+  examples/type_system/failing/68_adt_nested_list_non_exhaustive.flx:13:5
    |
-34 |     match w {
-   |     ^^^^^^^^^
-35 |         Boxed([]) -> 0,
+13 |     match w { //~ E015
+   |     ^^^^^^^^^^^^^^^^^^
+14 |         Boxed([]) -> 0,
    | ^^^^^^^^^^^^^^^^^^^^^^^
-36 |         Empty -> 0,
+15 |         Empty -> 0,
    | ^^^^^^^^^^^^^^^^^^^
-37 |     }
+16 |     }
    | ^^^^^
 
 Hint:

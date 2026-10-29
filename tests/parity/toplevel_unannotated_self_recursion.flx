@@ -6,6 +6,13 @@
 //       binding slot is now unified with the type the body produced, so the
 //       self-call and the definition are one variable. A regression shows up
 //       as an unresolved return type or a wrong one, not as a crash.
+// parity-expected-stdout-begin
+// 120
+// 10
+// "done"
+// true
+// false
+// parity-expected-stdout-end
 
 fn fact(n) {
     if n <= 1 { 1 } else { n * fact(n - 1) }

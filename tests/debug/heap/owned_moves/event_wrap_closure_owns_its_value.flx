@@ -1,0 +1,22 @@
+// PA R1: a wrapped event hands the value it received to its closure, which
+// owns it and may release it. Releasing it again after the closure returns
+// frees it twice.
+
+import Flow.Async as Async
+import Flow.Channel as Channel
+import Flow.Event as Event
+
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn body() -> Int with Async {
+    let ch = Channel.make(1)
+    Channel.send(ch, numbers(1))
+    Event.sync(Event.wrap(Event.recv(ch), fn(_) { 7 }))
+}
+
+fn main() with IO {
+    print(Async.run_async(body))
+    print(numbers(2))
+}

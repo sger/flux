@@ -1,16 +1,12 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-#[path = "../support/scratch.rs"]
-mod scratch;
+use crate::support::scratch;
 use scratch::Scratch;
+use scratch::workspace_root;
 
 static MAP_CONTRACT_TEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
 
 fn write_test_program(source: &str) -> PathBuf {
     let temp_root = workspace_root().join("target/tmp/map_contract_tests");
@@ -66,10 +62,8 @@ fn main() with IO {
         "Map API should not produce unresolved strict boundary diagnostics:\n{out}"
     );
 
-    let lines: Vec<&str> = out
-        .lines()
-        .filter(|line| !line.starts_with('[') || line.starts_with("[|"))
-        .collect();
+    let lines: Vec<&str> =
+        out.lines().filter(|line| !line.starts_with('[') || line.starts_with("[|")).collect();
     assert_eq!(
         lines,
         vec![

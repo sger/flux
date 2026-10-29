@@ -189,7 +189,7 @@ p = Point(1, 2)
 
   ```text
   (lldb) flux refs xs
-  xs: 3 references (shared)
+  xs: 2 references (shared)
   (lldb) flux refs pair
   pair: 1 reference (unique: can be reused in place)
   (lldb) flux refs n

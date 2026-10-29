@@ -6,11 +6,12 @@
 //! synthesized function is then packaged as a closure and passed to
 //! `flux_yield_extend` on the yield path (slice 3b-ii handles the LLVM wiring).
 //!
-//! The synthesized function's body is a slice of the parent: its entry block
-//! copies the resume value and captured live vars into the parent's own
-//! variables, then jumps to the `cont` block. All CFG-reachable blocks from
-//! `cont` are copied in verbatim (SSA ids stay unique because they were
-//! unique in the parent).
+//! The synthesized function's body is a slice of the parent. The resume
+//! value arrives as its one param, named after the call's dst, and the
+//! closure-entry wrapper loads the captures under their parent names. The
+//! entry block takes a reference to each capture, then jumps to the `cont`
+//! block. All CFG-reachable blocks from `cont` are copied in verbatim (SSA
+//! ids stay unique because they were unique in the parent).
 //!
 //! Scope notes
 //! -----------
@@ -18,16 +19,16 @@
 //!   gate as slice 3a's emission).
 //! - Leaves `Call.yield_cont = None` when the cont block has no successors
 //!   reachable from entry — nothing to continue.
-//! - Nested yield checks inside the synthesized function itself are left for
-//!   a follow-up. The first-level split is the interesting case.
+//! - Synthesized functions are queued again, so the calls copied into them
+//!   are pointed at a continuation too: the one made for the call they copy.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::core::FluxRep;
 use crate::lir::liveness::{self, FunctionLiveness};
 use crate::lir::{
-    BlockId, CtorArm, LirBlock, LirFnDebug, LirFnKind, LirFuncId, LirFunction, LirLoc, LirProgram,
-    LirTerminator, LirVar,
+    BlockId, CtorArm, HeldAcross, LirBlock, LirFnDebug, LirFnKind, LirFuncId, LirFunction,
+    LirInstr, LirLoc, LirProgram, LirTerminator, LirVar, YieldCont,
 };
 
 /// The parent a lambda's continuation names: the debug information writes
@@ -68,12 +69,18 @@ pub fn split_continuations_with_options(mut program: LirProgram, force: bool) ->
     let suspending_externs = program.suspending_extern_symbols.clone();
     let mut queue: std::collections::VecDeque<usize> = (0..program.functions.len()).collect();
 
+    // A continuation is a copy of the blocks after its call, with the same
+    // variables and the same plan, so a call copied into another continuation
+    // continues exactly as the call it copies. Each call site of a function
+    // the pass started with gets one continuation, shared by all its copies:
+    // making new ones for every copy grew a chain of n calls to 2^n
+    // functions (KI-132). A copy's blocks map back to that site by `origins`.
+    let mut origins: HashMap<usize, Origin> = HashMap::new();
+    let mut made: HashMap<(usize, BlockId), Option<YieldCont>> = HashMap::new();
+
     while let Some(func_idx) = queue.pop_front() {
-        let sites = collect_call_sites(
-            &program.functions[func_idx],
-            &async_funcs,
-            &suspending_externs,
-        );
+        let sites =
+            collect_call_sites(&program.functions[func_idx], &async_funcs, &suspending_externs);
         if sites.is_empty() {
             continue;
         }
@@ -82,27 +89,49 @@ pub fn split_continuations_with_options(mut program: LirProgram, force: bool) ->
         let live = liveness::compute(&program.functions[func_idx]);
 
         for mut site in sites {
-            // Attempt synthesis first so we only burn a synthetic id when the
-            // synthesis actually produces a function.
-            let (mut synthesized, live_captures) =
-                match synthesize_continuation(&program, func_idx, &site, &live) {
-                    Some(x) => x,
-                    None => continue,
-                };
+            let key = match origins.get(&func_idx) {
+                Some(origin) => (origin.func, origin.blocks[&site.block_id]),
+                None => (func_idx, site.block_id),
+            };
+            let cont = match made.get(&key) {
+                Some(cont) => cont.clone(),
+                None => {
+                    // Attempt synthesis first so we only burn a synthetic id
+                    // when the synthesis actually produces a function.
+                    let cont = synthesize_continuation(&program, func_idx, &site, &live).map(
+                        |(mut synthesized, captures, moved, blocks)| {
+                            let synth_id = program.alloc_synthetic_func_id();
+                            site.synth_id = synth_id;
+                            synthesized.id = synth_id;
 
-            // Allocate a real synth id now and stamp it on the synthesized fn.
-            let synth_id = program.alloc_synthetic_func_id();
-            site.synth_id = synth_id;
-            synthesized.id = synth_id;
+                            // Its own call sites are copies: queue it, so
+                            // they are pointed at the continuations above.
+                            let new_idx = program.functions.len();
+                            program.push_function(synthesized);
+                            queue.push_back(new_idx);
+                            let blocks = blocks
+                                .into_iter()
+                                .map(|(new, old)| {
+                                    let old = match origins.get(&func_idx) {
+                                        Some(origin) => origin.blocks[&old],
+                                        None => old,
+                                    };
+                                    (new, old)
+                                })
+                                .collect();
+                            origins.insert(new_idx, Origin { func: key.0, blocks });
+                            YieldCont { func: synth_id, captures, moved }
+                        },
+                    );
+                    made.insert(key, cont.clone());
+                    cont
+                }
+            };
+            let Some(cont) = cont else {
+                continue;
+            };
 
-            // Register the synthesized function and queue it for its own
-            // call-site scan (nested yields inside the synthesized cont need
-            // their own post-perform continuations).
-            let new_idx = program.functions.len();
-            program.push_function(synthesized);
-            queue.push_back(new_idx);
-
-            // Populate the original Call's yield_cont pointer.
+            // Populate the Call's yield_cont pointer.
             let func = &mut program.functions[func_idx];
             let block = func
                 .blocks
@@ -110,12 +139,19 @@ pub fn split_continuations_with_options(mut program: LirProgram, force: bool) ->
                 .find(|b| b.id == site.block_id)
                 .expect("call site block disappeared");
             if let LirTerminator::Call { yield_cont, .. } = &mut block.terminator {
-                *yield_cont = Some((site.synth_id, live_captures));
+                *yield_cont = Some(cont);
             }
         }
     }
 
     program
+}
+
+/// Where a synthesized continuation's blocks came from: the function the
+/// pass started with, and each copied block's id there.
+struct Origin {
+    func: usize,
+    blocks: HashMap<BlockId, BlockId>,
 }
 
 /// True when the yield-based runtime is active (default). Mirrors
@@ -135,6 +171,8 @@ struct CallSite {
     cont: BlockId,
     /// Fresh LirFuncId reserved for the synthesized continuation.
     synth_id: LirFuncId,
+    /// What the frame holds across the call, when Aether planned it.
+    held: Option<HeldAcross>,
 }
 
 fn collect_call_sites(
@@ -145,12 +183,7 @@ fn collect_call_sites(
     let mut sites = Vec::new();
     for block in &func.blocks {
         if let LirTerminator::Call {
-            dst,
-            cont,
-            kind,
-            suppress_yield_check,
-            yield_cont,
-            ..
+            dst, cont, kind, suppress_yield_check, yield_cont, held, ..
         } = &block.terminator
         {
             if *suppress_yield_check || yield_cont.is_some() {
@@ -167,27 +200,33 @@ fn collect_call_sites(
                 dst: *dst,
                 cont: *cont,
                 synth_id: LirFuncId(u32::MAX), // placeholder, filled in below
+                held: held.as_deref().cloned(),
             });
         }
     }
     sites
 }
 
+/// A synthesized continuation: `(function, live_capture_vars, moved, blocks)`.
+type Synthesized = (LirFunction, Vec<LirVar>, Vec<LirVar>, HashMap<BlockId, BlockId>);
+
 /// Synthesize a continuation LirFunction for one call site. Returns
-/// `(function, live_capture_vars)` or `None` if the cont subgraph is trivial
-/// enough that no synthesis is required.
+/// `(function, live_capture_vars, moved, blocks)`, where `moved` are the
+/// frame's own references among the captures and `blocks` maps each copied
+/// block's new id to its id in the parent, or `None` if the cont subgraph is
+/// trivial enough that no synthesis is required.
 fn synthesize_continuation(
     program: &LirProgram,
     func_idx: usize,
     site: &CallSite,
     live: &FunctionLiveness,
-) -> Option<(LirFunction, Vec<LirVar>)> {
+) -> Option<Synthesized> {
     let parent = &program.functions[func_idx];
 
     // The closure's capture set: live_in(cont) ∪ {dst}. `dst` is the Call's
-    // result, which the cont block expects to have been bound. Including it
-    // in the capture set lets the synthesized function's entry block copy it
-    // into position from the resume value.
+    // result, which the cont block expects to have been bound. It becomes the
+    // synthesized function's param, so the resume value arrives under its
+    // name.
     let mut live_capture_set: Vec<LirVar> = live.live_in(site.cont).iter().copied().collect();
     if !live_capture_set.contains(&site.dst) {
         live_capture_set.push(site.dst);
@@ -216,11 +255,8 @@ fn synthesize_continuation(
     // uses of `dst` refer to the param directly — no Copy needed. Captures
     // retain their original LirVar ids, and the closure-entry wrapper
     // auto-loads them from the payload into those names.
-    let capture_vars: Vec<LirVar> = live_capture_set
-        .iter()
-        .copied()
-        .filter(|v| *v != site.dst)
-        .collect();
+    let capture_vars: Vec<LirVar> =
+        live_capture_set.iter().copied().filter(|v| *v != site.dst).collect();
 
     // The native emitter relies on the invariant `blocks[i].id == BlockId(i)`
     // — its per-function reachability walk indexes `blocks` by `BlockId.0`.
@@ -242,13 +278,18 @@ fn synthesize_continuation(
         }
     }
 
-    // Trivial entry block (id=0) that jumps to the remapped cont.
+    // Entry block (id=0): take the references the frame held, then jump to
+    // the remapped cont. The copied blocks follow the parent's plan for one
+    // run, which releases them, and a multi-shot handler runs them once per
+    // resume (0189 V4, audit M4). The closure keeps its own references.
+    let (moved, copies) = frame_references(site.held.as_ref(), &capture_vars);
+    let entry_instrs: Vec<LirInstr> = copies.into_iter().map(|val| LirInstr::Dup { val }).collect();
     let entry_block = LirBlock {
         locs: Vec::new(),
         term_loc: Default::default(),
         id: BlockId(0),
         params: Vec::new(),
-        instrs: Vec::new(),
+        instrs: entry_instrs,
         terminator: LirTerminator::Jump(id_remap[&site.cont]),
     };
 
@@ -283,10 +324,7 @@ fn synthesize_continuation(
             .find(|block| block.id == site.block_id)
             .map_or(LirLoc::NONE, |block| block.term_loc);
         LirFnDebug {
-            kind: LirFnKind::Resumed {
-                parent: parent_name,
-                after,
-            },
+            kind: LirFnKind::Resumed { parent: parent_name, after },
             loc: debug.loc,
             artificial: debug.artificial,
             // Its blocks keep the parent's variable ids, and their
@@ -315,7 +353,31 @@ fn synthesize_continuation(
     // storing it into the payload would also require it to be live at the
     // call site, which isn't guaranteed (dst is only bound on the non-yield
     // return path).
-    Some((synthesized, capture_vars))
+    let blocks = id_remap
+        .into_iter()
+        .filter(|(old, _)| *old != BlockId(u32::MAX))
+        .map(|(old, new)| (new, old))
+        .collect();
+    Some((synthesized, capture_vars, moved, blocks))
+}
+
+/// The frame's own references among `captures`, once per reference, and
+/// what each resume copies: those again, as the rest of the frame releases
+/// them. A value the frame only reads is read from the closure. Without
+/// Aether's word on a capture, a resume copies it and the frame keeps its
+/// own, which may leak but never releases a reference nobody holds.
+fn frame_references(held: Option<&HeldAcross>, captures: &[LirVar]) -> (Vec<LirVar>, Vec<LirVar>) {
+    let Some(held) = held else {
+        return (Vec::new(), captures.to_vec());
+    };
+    let moved: Vec<LirVar> =
+        held.owned.iter().copied().filter(|var| captures.contains(var)).collect();
+    let unknown = captures
+        .iter()
+        .copied()
+        .filter(|var| !held.owned.contains(var) && !held.lent.contains(var));
+    let copies = moved.iter().copied().chain(unknown).collect();
+    (moved, copies)
 }
 
 /// Rewrite a terminator's block-id references using `id_remap`. All
@@ -329,11 +391,7 @@ fn remap_terminator(
     match term {
         LirTerminator::Return(_) | LirTerminator::TailCall { .. } | LirTerminator::Unreachable => {}
         LirTerminator::Jump(b) => *b = remap(*b),
-        LirTerminator::Branch {
-            then_block,
-            else_block,
-            ..
-        } => {
+        LirTerminator::Branch { then_block, else_block, .. } => {
             *then_block = remap(*then_block);
             *else_block = remap(*else_block);
         }
@@ -378,11 +436,7 @@ fn terminator_successors(term: &LirTerminator) -> Vec<BlockId> {
             Vec::new()
         }
         LirTerminator::Jump(b) => vec![*b],
-        LirTerminator::Branch {
-            then_block,
-            else_block,
-            ..
-        } => vec![*then_block, *else_block],
+        LirTerminator::Branch { then_block, else_block, .. } => vec![*then_block, *else_block],
         LirTerminator::Switch { cases, default, .. } => {
             let mut v: Vec<BlockId> = cases.iter().map(|(_, b)| *b).collect();
             v.push(*default);
@@ -439,11 +493,10 @@ mod tests {
                 func: v_func,
                 args: Vec::new(),
                 cont: BlockId(1),
-                kind: CallKind::Indirect {
-                    async_capable: false,
-                },
+                kind: CallKind::Indirect { async_capable: false },
                 suppress_yield_check: false,
                 yield_cont: None,
+                held: None,
             },
         });
         f.blocks.push(LirBlock {
@@ -466,8 +519,9 @@ mod tests {
             dst: v_dst,
             cont: BlockId(1),
             synth_id: LirFuncId(100),
+            held: None,
         };
-        let (synth, captures) = synthesize_continuation(&program, 0, &site, &live)
+        let (synth, captures, _, _) = synthesize_continuation(&program, 0, &site, &live)
             .expect("synthesize should produce a function");
 
         // Capture set excludes dst (dst reaches the synth fn via its resume
@@ -513,8 +567,8 @@ mod tests {
         assert_eq!(program.functions.len(), before);
     }
 
-    /// When a live var (other than dst) is live at cont, it should appear as
-    /// a capture param and get a Copy in the synthesized entry.
+    /// A var other than dst that is live at cont becomes a capture, and the
+    /// entry block takes a reference to it.
     #[test]
     fn extra_live_var_becomes_capture() {
         let mut program = LirProgram::new();
@@ -534,11 +588,10 @@ mod tests {
                 func: v_func,
                 args: Vec::new(),
                 cont: BlockId(1),
-                kind: CallKind::Indirect {
-                    async_capable: false,
-                },
+                kind: CallKind::Indirect { async_capable: false },
                 suppress_yield_check: false,
                 yield_cont: None,
+                held: None,
             },
         });
         // bb1: uses v_arg (keeping it live through the call) + v_dst.
@@ -547,11 +600,7 @@ mod tests {
             term_loc: Default::default(),
             id: BlockId(1),
             params: Vec::new(),
-            instrs: vec![LirInstr::IAdd {
-                dst: LirVar(3),
-                a: v_arg,
-                b: v_dst,
-            }],
+            instrs: vec![LirInstr::IAdd { dst: LirVar(3), a: v_arg, b: v_dst }],
             terminator: LirTerminator::Return(LirVar(3)),
         });
         f.next_var = 4;
@@ -563,8 +612,12 @@ mod tests {
             dst: v_dst,
             cont: BlockId(1),
             synth_id: LirFuncId(100),
+            held: None,
         };
-        let (synth, captures) = synthesize_continuation(&program, 0, &site, &live).unwrap();
+        let (synth, captures, moved, _) =
+            synthesize_continuation(&program, 0, &site, &live).unwrap();
+        // Lowering said nothing about what the frame holds: it keeps it all.
+        assert!(moved.is_empty());
 
         // Closure captures exclude dst — only v_arg is live at the call site
         // (dst is defined by the Call, not used across it).
@@ -573,10 +626,77 @@ mod tests {
         // closure payload at entry by the wrapper).
         assert_eq!(synth.params, vec![v_dst]);
         assert_eq!(synth.capture_vars, vec![v_arg]);
-        // Entry is still empty (no Copies needed — closure wrapper loads
-        // captures automatically).
+        // Each resume takes its own reference to each capture (0189 V4, audit M4).
         let entry = &synth.blocks[0];
-        assert!(entry.instrs.is_empty());
+        assert!(
+            matches!(entry.instrs.as_slice(), [LirInstr::Dup { val }] if *val == v_arg),
+            "{:?}",
+            entry.instrs
+        );
+    }
+
+    /// A capture the frame owns moves into the continuation, and each resume
+    /// copies it; one it only reads is read from the closure. A capture
+    /// lowering made on its own is copied and kept, as before.
+    #[test]
+    fn a_resume_copies_what_the_frame_owned() {
+        let mut program = LirProgram::new();
+        let mut f = empty_function(0, "f");
+        let [v_func, v_own, v_lent, v_tmp, v_dst] = [0, 1, 2, 3, 4].map(LirVar);
+        f.params = vec![v_func, v_own, v_lent, v_tmp];
+        f.blocks.push(LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
+            id: BlockId(0),
+            params: Vec::new(),
+            instrs: Vec::new(),
+            terminator: LirTerminator::Call {
+                dst: v_dst,
+                func: v_func,
+                args: Vec::new(),
+                cont: BlockId(1),
+                kind: CallKind::Indirect { async_capable: true },
+                suppress_yield_check: false,
+                yield_cont: None,
+                held: None,
+            },
+        });
+        f.blocks.push(LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
+            id: BlockId(1),
+            params: Vec::new(),
+            instrs: vec![
+                LirInstr::IAdd { dst: LirVar(5), a: v_own, b: v_lent },
+                LirInstr::IAdd { dst: LirVar(6), a: v_tmp, b: v_dst },
+            ],
+            terminator: LirTerminator::Return(LirVar(6)),
+        });
+        f.next_var = 7;
+        program.push_function(f);
+
+        let live = liveness::compute(&program.functions[0]);
+        let site = CallSite {
+            block_id: BlockId(0),
+            dst: v_dst,
+            cont: BlockId(1),
+            synth_id: LirFuncId(100),
+            held: Some(HeldAcross { owned: vec![v_own], lent: vec![v_lent], scoped: Vec::new() }),
+        };
+        let (synth, captures, moved, _) =
+            synthesize_continuation(&program, 0, &site, &live).unwrap();
+
+        assert_eq!(captures, vec![v_own, v_lent, v_tmp]);
+        assert_eq!(moved, vec![v_own]);
+        let copied: Vec<LirVar> = synth.blocks[0]
+            .instrs
+            .iter()
+            .map(|instr| match instr {
+                LirInstr::Dup { val } => *val,
+                other => panic!("entry block: {other:?}"),
+            })
+            .collect();
+        assert_eq!(copied, vec![v_own, v_tmp]);
     }
 
     #[test]
@@ -596,11 +716,10 @@ mod tests {
                 func: v_func,
                 args: Vec::new(),
                 cont: BlockId(1),
-                kind: CallKind::Indirect {
-                    async_capable: false,
-                },
+                kind: CallKind::Indirect { async_capable: false },
                 suppress_yield_check: true,
                 yield_cont: None,
+                held: None,
             },
         });
         f.blocks.push(LirBlock {
@@ -613,6 +732,68 @@ mod tests {
         });
 
         assert!(collect_call_sites(&f, &HashSet::new(), &HashSet::new()).is_empty());
+    }
+
+    /// Each call's continuation copies the calls after it. A copy of a call
+    /// site shares the continuation made for the site it copies: making new
+    /// ones for every copy grew a chain of n calls to 2^n functions (KI-132).
+    #[test]
+    fn a_chain_of_suspending_calls_makes_one_continuation_per_call() {
+        let n = 10u32;
+        let mut program = LirProgram::new();
+        program.suspending_extern_symbols.insert("s".to_string());
+        let mut f = empty_function(0, "f");
+        let v_func = LirVar(0);
+        f.params = vec![v_func];
+        for i in 0..n {
+            f.blocks.push(LirBlock {
+                locs: Vec::new(),
+                term_loc: Default::default(),
+                id: BlockId(i),
+                params: Vec::new(),
+                instrs: Vec::new(),
+                terminator: LirTerminator::Call {
+                    dst: LirVar(i + 1),
+                    func: v_func,
+                    args: Vec::new(),
+                    cont: BlockId(i + 1),
+                    kind: CallKind::DirectExtern { symbol: "s".to_string() },
+                    suppress_yield_check: false,
+                    yield_cont: None,
+                    held: None,
+                },
+            });
+        }
+        f.blocks.push(LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
+            id: BlockId(n),
+            params: Vec::new(),
+            instrs: Vec::new(),
+            terminator: LirTerminator::Return(LirVar(n)),
+        });
+        f.next_var = n + 1;
+        program.push_function(f);
+
+        let program = split_continuations_with_options(program, true);
+        assert_eq!(program.functions.len(), 1 + n as usize);
+
+        let cont_of = |func: &LirFunction, dst: LirVar| {
+            func.blocks.iter().find_map(|block| match &block.terminator {
+                LirTerminator::Call { dst: d, yield_cont, .. } if *d == dst => {
+                    yield_cont.as_ref().map(|cont| cont.func)
+                }
+                _ => None,
+            })
+        };
+        let parent = &program.functions[0];
+        let after_first = cont_of(parent, LirVar(1)).expect("first call is split");
+        let first_cont = program
+            .functions
+            .iter()
+            .find(|func| func.id == after_first)
+            .expect("first call's continuation");
+        assert_eq!(cont_of(first_cont, LirVar(2)), cont_of(parent, LirVar(2)));
     }
 
     #[test]
@@ -632,11 +813,10 @@ mod tests {
                 func: v_func,
                 args: Vec::new(),
                 cont: BlockId(1),
-                kind: CallKind::Indirect {
-                    async_capable: false,
-                },
+                kind: CallKind::Indirect { async_capable: false },
                 suppress_yield_check: false,
                 yield_cont: None,
+                held: None,
             },
         });
         f.blocks.push(LirBlock {

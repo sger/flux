@@ -187,11 +187,7 @@ pub fn generate_dispatch_functions(
     // dead code for monomorphic call sites.
     let mut sorted_keys: Vec<_> = dispatch_table.iter().copied().collect::<Vec<_>>();
     sorted_keys.sort_by_key(|(c, m)| {
-        (
-            c.module.as_identifier().map_or(0, |id| id.as_u32()),
-            c.name.as_u32(),
-            m.as_u32(),
-        )
+        (c.module.as_identifier().map_or(0, |id| id.as_u32()), c.name.as_u32(), m.as_u32())
     });
     for (class_id, method_name) in &sorted_keys {
         if let Some(class_def) = class_env.lookup_class_by_id(*class_id)
@@ -242,9 +238,7 @@ pub fn generate_dispatch_functions(
 /// not stand in for it.
 fn collect_existing_function_names(statements: &[Statement]) -> HashSet<Identifier> {
     let only_module = {
-        let mut modules = statements
-            .iter()
-            .filter(|stmt| matches!(stmt, Statement::Module { .. }));
+        let mut modules = statements.iter().filter(|stmt| matches!(stmt, Statement::Module { .. }));
         match (modules.next(), modules.next()) {
             (Some(module), None) => Some(module),
             _ => None,
@@ -271,9 +265,7 @@ fn needs_builtin_dispatch_support(statements: &[Statement]) -> bool {
     statements.iter().any(|stmt| match stmt {
         Statement::Class { .. } | Statement::Instance { .. } => true,
         Statement::Data { deriving, .. } => !deriving.is_empty(),
-        Statement::Function {
-            type_params, body, ..
-        } => {
+        Statement::Function { type_params, body, .. } => {
             type_params.iter().any(|tp| !tp.constraints.is_empty())
                 || needs_builtin_dispatch_support(&body.statements)
         }
@@ -300,11 +292,7 @@ fn seed_dispatch_table_from_class_env(
     dispatch_table: &mut HashSet<(crate::types::class_id::ClassId, Identifier)>,
 ) {
     for (class_id, class_def) in &class_env.classes {
-        if !class_env
-            .instances
-            .iter()
-            .any(|instance| instance.class_id == *class_id)
-        {
+        if !class_env.instances.iter().any(|instance| instance.class_id == *class_id) {
             continue;
         }
         for method in &class_def.methods {
@@ -452,9 +440,7 @@ fn collect_data_declarations_into(
             Statement::Data { name, variants, .. } => {
                 out.insert(
                     interner.resolve(*name).to_string(),
-                    DeriveAdtInfo {
-                        variants: variants.clone(),
-                    },
+                    DeriveAdtInfo { variants: variants.clone() },
                 );
             }
             Statement::Module { body, .. } => {
@@ -477,10 +463,7 @@ fn find_adt_info_for_instance<'a>(
 }
 
 fn is_json_codec_class(class_name: &str) -> bool {
-    matches!(
-        class_name,
-        "Encode" | "Decode" | "Json.Encode" | "Json.Decode"
-    )
+    matches!(class_name, "Encode" | "Decode" | "Json.Encode" | "Json.Decode")
 }
 
 /// The `(class, type, method)` triples [`builtin_method_body`] knows how to
@@ -557,10 +540,7 @@ fn parse_generated_body_with_params(
     arity: usize,
     interner: &mut Interner,
 ) -> Option<Block> {
-    let params = (0..arity)
-        .map(|idx| format!("__x{idx}"))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let params = (0..arity).map(|idx| format!("__x{idx}")).collect::<Vec<_>>().join(", ");
     let source = format!("fn __generated_body_dummy({params}) {{ {body_expr} }}");
     let mut parser = Parser::new(Lexer::new_with_interner(source.clone(), interner.clone()));
     let program = parser.parse_program();
@@ -587,28 +567,17 @@ fn refresh_block_expr_ids(block: Block, id_gen: &mut ExprIdGen) -> Block {
 
 fn refresh_stmt_expr_ids(stmt: Statement, id_gen: &mut ExprIdGen) -> Statement {
     match stmt {
-        Statement::Let {
-            is_public,
-            name,
-            type_annotation,
-            value,
-            span,
-        } => Statement::Let {
+        Statement::Let { is_public, name, type_annotation, value, span } => Statement::Let {
             is_public,
             name,
             type_annotation,
             value: refresh_expr_ids(value, id_gen),
             span,
         },
-        Statement::Return { value, span } => Statement::Return {
-            value: value.map(|value| refresh_expr_ids(value, id_gen)),
-            span,
-        },
-        Statement::Expression {
-            expression,
-            has_semicolon,
-            span,
-        } => Statement::Expression {
+        Statement::Return { value, span } => {
+            Statement::Return { value: value.map(|value| refresh_expr_ids(value, id_gen)), span }
+        }
+        Statement::Expression { expression, has_semicolon, span } => Statement::Expression {
             expression: refresh_expr_ids(expression, id_gen),
             has_semicolon,
             span,
@@ -648,26 +617,18 @@ fn refresh_stmt_expr_ids(stmt: Statement, id_gen: &mut ExprIdGen) -> Statement {
 
 fn refresh_expr_ids(expr: Expression, id_gen: &mut ExprIdGen) -> Expression {
     match expr {
-        Expression::Identifier { name, span, .. } => Expression::Identifier {
-            name,
-            span,
-            id: id_gen.next_id(),
-        },
-        Expression::Integer { value, span, .. } => Expression::Integer {
-            value,
-            span,
-            id: id_gen.next_id(),
-        },
-        Expression::Float { value, span, .. } => Expression::Float {
-            value,
-            span,
-            id: id_gen.next_id(),
-        },
-        Expression::String { value, span, .. } => Expression::String {
-            value,
-            span,
-            id: id_gen.next_id(),
-        },
+        Expression::Identifier { name, span, .. } => {
+            Expression::Identifier { name, span, id: id_gen.next_id() }
+        }
+        Expression::Integer { value, span, .. } => {
+            Expression::Integer { value, span, id: id_gen.next_id() }
+        }
+        Expression::Float { value, span, .. } => {
+            Expression::Float { value, span, id: id_gen.next_id() }
+        }
+        Expression::String { value, span, .. } => {
+            Expression::String { value, span, id: id_gen.next_id() }
+        }
         Expression::InterpolatedString { parts, span, .. } => Expression::InterpolatedString {
             parts: parts
                 .into_iter()
@@ -685,42 +646,23 @@ fn refresh_expr_ids(expr: Expression, id_gen: &mut ExprIdGen) -> Expression {
             span,
             id: id_gen.next_id(),
         },
-        Expression::Boolean { value, span, .. } => Expression::Boolean {
-            value,
-            span,
-            id: id_gen.next_id(),
-        },
-        Expression::Prefix {
-            operator,
-            right,
-            span,
-            ..
-        } => Expression::Prefix {
+        Expression::Boolean { value, span, .. } => {
+            Expression::Boolean { value, span, id: id_gen.next_id() }
+        }
+        Expression::Prefix { operator, right, span, .. } => Expression::Prefix {
             operator,
             right: Box::new(refresh_expr_ids(*right, id_gen)),
             span,
             id: id_gen.next_id(),
         },
-        Expression::Infix {
-            left,
-            operator,
-            right,
-            span,
-            ..
-        } => Expression::Infix {
+        Expression::Infix { left, operator, right, span, .. } => Expression::Infix {
             left: Box::new(refresh_expr_ids(*left, id_gen)),
             operator,
             right: Box::new(refresh_expr_ids(*right, id_gen)),
             span,
             id: id_gen.next_id(),
         },
-        Expression::If {
-            condition,
-            consequence,
-            alternative,
-            span,
-            ..
-        } => Expression::If {
+        Expression::If { condition, consequence, alternative, span, .. } => Expression::If {
             condition: Box::new(refresh_expr_ids(*condition, id_gen)),
             consequence: refresh_block_expr_ids(consequence, id_gen),
             alternative: alternative.map(|block| refresh_block_expr_ids(block, id_gen)),
@@ -749,51 +691,29 @@ fn refresh_expr_ids(expr: Expression, id_gen: &mut ExprIdGen) -> Expression {
             span,
             id: id_gen.next_id(),
         },
-        Expression::Call {
-            function,
-            arguments,
-            span,
-            ..
-        } => Expression::Call {
+        Expression::Call { function, arguments, span, .. } => Expression::Call {
             function: Box::new(refresh_expr_ids(*function, id_gen)),
-            arguments: arguments
-                .into_iter()
-                .map(|arg| refresh_expr_ids(arg, id_gen))
-                .collect(),
+            arguments: arguments.into_iter().map(|arg| refresh_expr_ids(arg, id_gen)).collect(),
             span,
             id: id_gen.next_id(),
         },
         Expression::ListLiteral { elements, span, .. } => Expression::ListLiteral {
-            elements: elements
-                .into_iter()
-                .map(|elem| refresh_expr_ids(elem, id_gen))
-                .collect(),
+            elements: elements.into_iter().map(|elem| refresh_expr_ids(elem, id_gen)).collect(),
             span,
             id: id_gen.next_id(),
         },
         Expression::ArrayLiteral { elements, span, .. } => Expression::ArrayLiteral {
-            elements: elements
-                .into_iter()
-                .map(|elem| refresh_expr_ids(elem, id_gen))
-                .collect(),
+            elements: elements.into_iter().map(|elem| refresh_expr_ids(elem, id_gen)).collect(),
             span,
             id: id_gen.next_id(),
         },
         Expression::TupleLiteral { elements, span, .. } => Expression::TupleLiteral {
-            elements: elements
-                .into_iter()
-                .map(|elem| refresh_expr_ids(elem, id_gen))
-                .collect(),
+            elements: elements.into_iter().map(|elem| refresh_expr_ids(elem, id_gen)).collect(),
             span,
             id: id_gen.next_id(),
         },
-        Expression::EmptyList { span, .. } => Expression::EmptyList {
-            span,
-            id: id_gen.next_id(),
-        },
-        Expression::Index {
-            left, index, span, ..
-        } => Expression::Index {
+        Expression::EmptyList { span, .. } => Expression::EmptyList { span, id: id_gen.next_id() },
+        Expression::Index { left, index, span, .. } => Expression::Index {
             left: Box::new(refresh_expr_ids(*left, id_gen)),
             index: Box::new(refresh_expr_ids(*index, id_gen)),
             span,
@@ -803,43 +723,25 @@ fn refresh_expr_ids(expr: Expression, id_gen: &mut ExprIdGen) -> Expression {
             pairs: pairs
                 .into_iter()
                 .map(|(key, value)| {
-                    (
-                        refresh_expr_ids(key, id_gen),
-                        refresh_expr_ids(value, id_gen),
-                    )
+                    (refresh_expr_ids(key, id_gen), refresh_expr_ids(value, id_gen))
                 })
                 .collect(),
             span,
             id: id_gen.next_id(),
         },
-        Expression::MemberAccess {
-            object,
-            member,
-            span,
-            ..
-        } => Expression::MemberAccess {
+        Expression::MemberAccess { object, member, span, .. } => Expression::MemberAccess {
             object: Box::new(refresh_expr_ids(*object, id_gen)),
             member,
             span,
             id: id_gen.next_id(),
         },
-        Expression::TupleFieldAccess {
-            object,
-            index,
-            span,
-            ..
-        } => Expression::TupleFieldAccess {
+        Expression::TupleFieldAccess { object, index, span, .. } => Expression::TupleFieldAccess {
             object: Box::new(refresh_expr_ids(*object, id_gen)),
             index,
             span,
             id: id_gen.next_id(),
         },
-        Expression::Match {
-            scrutinee,
-            arms,
-            span,
-            ..
-        } => Expression::Match {
+        Expression::Match { scrutinee, arms, span, .. } => Expression::Match {
             scrutinee: Box::new(refresh_expr_ids(*scrutinee, id_gen)),
             arms: arms
                 .into_iter()
@@ -853,10 +755,7 @@ fn refresh_expr_ids(expr: Expression, id_gen: &mut ExprIdGen) -> Expression {
             span,
             id: id_gen.next_id(),
         },
-        Expression::None { span, .. } => Expression::None {
-            span,
-            id: id_gen.next_id(),
-        },
+        Expression::None { span, .. } => Expression::None { span, id: id_gen.next_id() },
         Expression::Some { value, span, .. } => Expression::Some {
             value: Box::new(refresh_expr_ids(*value, id_gen)),
             span,
@@ -872,38 +771,20 @@ fn refresh_expr_ids(expr: Expression, id_gen: &mut ExprIdGen) -> Expression {
             span,
             id: id_gen.next_id(),
         },
-        Expression::Cons {
-            head, tail, span, ..
-        } => Expression::Cons {
+        Expression::Cons { head, tail, span, .. } => Expression::Cons {
             head: Box::new(refresh_expr_ids(*head, id_gen)),
             tail: Box::new(refresh_expr_ids(*tail, id_gen)),
             span,
             id: id_gen.next_id(),
         },
-        Expression::Perform {
+        Expression::Perform { effect, operation, args, span, .. } => Expression::Perform {
             effect,
             operation,
-            args,
-            span,
-            ..
-        } => Expression::Perform {
-            effect,
-            operation,
-            args: args
-                .into_iter()
-                .map(|arg| refresh_expr_ids(arg, id_gen))
-                .collect(),
+            args: args.into_iter().map(|arg| refresh_expr_ids(arg, id_gen)).collect(),
             span,
             id: id_gen.next_id(),
         },
-        Expression::Handle {
-            expr,
-            effect,
-            parameter,
-            arms,
-            span,
-            ..
-        } => Expression::Handle {
+        Expression::Handle { expr, effect, parameter, arms, span, .. } => Expression::Handle {
             expr: Box::new(refresh_expr_ids(*expr, id_gen)),
             effect,
             parameter: parameter.map(|param| Box::new(refresh_expr_ids(*param, id_gen))),
@@ -920,48 +801,32 @@ fn refresh_expr_ids(expr: Expression, id_gen: &mut ExprIdGen) -> Expression {
             span,
             id: id_gen.next_id(),
         },
-        Expression::Sealing {
-            expr,
-            allowed,
-            span,
-            ..
-        } => Expression::Sealing {
+        Expression::Sealing { expr, allowed, span, .. } => Expression::Sealing {
             expr: Box::new(refresh_expr_ids(*expr, id_gen)),
             allowed,
             span,
             id: id_gen.next_id(),
         },
-        Expression::NamedConstructor {
-            name, fields, span, ..
-        } => Expression::NamedConstructor {
+        Expression::NamedConstructor { name, fields, span, .. } => Expression::NamedConstructor {
             name,
             fields: fields
                 .into_iter()
                 .map(|field| crate::syntax::expression::NamedFieldInit {
                     name: field.name,
-                    value: field
-                        .value
-                        .map(|value| Box::new(refresh_expr_ids(*value, id_gen))),
+                    value: field.value.map(|value| Box::new(refresh_expr_ids(*value, id_gen))),
                     span: field.span,
                 })
                 .collect(),
             span,
             id: id_gen.next_id(),
         },
-        Expression::Spread {
-            base,
-            overrides,
-            span,
-            ..
-        } => Expression::Spread {
+        Expression::Spread { base, overrides, span, .. } => Expression::Spread {
             base: Box::new(refresh_expr_ids(*base, id_gen)),
             overrides: overrides
                 .into_iter()
                 .map(|field| crate::syntax::expression::NamedFieldInit {
                     name: field.name,
-                    value: field
-                        .value
-                        .map(|value| Box::new(refresh_expr_ids(*value, id_gen))),
+                    value: field.value.map(|value| Box::new(refresh_expr_ids(*value, id_gen))),
                     span: field.span,
                 })
                 .collect(),
@@ -1033,9 +898,7 @@ fn derived_json_decode_expr(adt: &DeriveAdtInfo, interner: &Interner) -> String 
             let ctor = interner.resolve(variant.name);
             format!("\"{ctor}\" -> {}", decode_variant_expr(variant, interner))
         })
-        .chain(std::iter::once(
-            "_ -> Json.err(\"$.tag\", \"unknown constructor tag\")".to_string(),
-        ))
+        .chain(std::iter::once("_ -> Json.err(\"$.tag\", \"unknown constructor tag\")".to_string()))
         .collect::<Vec<_>>()
         .join(", ");
 
@@ -1146,10 +1009,7 @@ fn positional_constructor_ok_expr(
     if arity == 0 {
         format!("Json.ok({ctor})")
     } else {
-        let args = (0..arity)
-            .map(|idx| format!("__v{idx}"))
-            .collect::<Vec<_>>()
-            .join(", ");
+        let args = (0..arity).map(|idx| format!("__v{idx}")).collect::<Vec<_>>().join(", ");
         format!("Json.ok({ctor}({args}))")
     }
 }
@@ -1191,11 +1051,7 @@ fn pre_intern_dict_names(class_env: &ClassEnv, interner: &mut Interner) {
     // collide — that was KI-052. A function needing more than a few
     // dictionaries for a single class is pathological, so a small fixed range
     // covers every realistic signature.
-    let class_ids: Vec<_> = class_env
-        .classes
-        .values()
-        .map(|class| class.class_id())
-        .collect();
+    let class_ids: Vec<_> = class_env.classes.values().map(|class| class.class_id()).collect();
     for class_id in class_ids {
         let class_str = crate::types::class_env::dictionary_prefix(class_id, interner);
         interner.intern(&class_str);
@@ -1223,12 +1079,7 @@ fn generate_default_method_functions(
 ) {
     for stmt in statements {
         match stmt {
-            Statement::Class {
-                name,
-                methods,
-                span,
-                ..
-            } => {
+            Statement::Class { name, methods, span, .. } => {
                 for method in methods {
                     // Only generate for methods with a default body that have NO instance overrides.
                     if let Some(ref default_body) = method.default_body {
@@ -1318,15 +1169,13 @@ fn generate_from_statements(
         })
     }
 
+    // Collected instances already matched to a declaration. A duplicate
+    // declaration has the same class and head as the first, so without this it
+    // would match the first one's instance and define its methods again.
+    let mut claimed: HashSet<usize> = HashSet::new();
     for stmt in statements {
         match stmt {
-            Statement::Instance {
-                class_name,
-                type_args,
-                context,
-                methods,
-                ..
-            } => {
+            Statement::Instance { class_name, type_args, context, methods, .. } => {
                 let Some(class_def) = class_env
                     .resolve_class_id(current_module, *class_name)
                     .and_then(|id| class_env.lookup_class_by_id(id))
@@ -1348,8 +1197,10 @@ fn generate_from_statements(
                 let Some(type_name) = class_env
                     .instances
                     .iter()
-                    .find(|instance| {
-                        instance.class_id == class_def.class_id()
+                    .enumerate()
+                    .find(|(index, instance)| {
+                        !claimed.contains(index)
+                            && instance.class_id == class_def.class_id()
                             && instance.instance_module == current_module
                             && instance.type_args.len() == type_args.len()
                             && instance
@@ -1358,7 +1209,10 @@ fn generate_from_statements(
                                 .zip(type_args)
                                 .all(|(collected, declared)| collected.structural_eq(declared))
                     })
-                    .map(|instance| instance.type_key.clone())
+                    .map(|(index, instance)| {
+                        claimed.insert(index);
+                        instance.type_key.clone()
+                    })
                 else {
                     let declared: HashSet<Identifier> = methods.iter().map(|m| m.name).collect();
                     for method_sig in &class_def.methods {
@@ -1390,9 +1244,8 @@ fn generate_from_statements(
                         // `encode(value)` was lowered as a recursive container
                         // call in Flow.Json (KI-051).
                         refresh_block_expr_ids(method.body.clone(), id_gen)
-                    } else if let Some(default_body) = classes
-                        .surface
-                        .default_body(class_def.class_id(), method_sig.name)
+                    } else if let Some(default_body) =
+                        classes.surface.default_body(class_def.class_id(), method_sig.name)
                     {
                         // A default body is cloned into every instance, so each
                         // copy needs its own ExprIds: typed dispatch keys on
@@ -1504,9 +1357,7 @@ fn generate_from_statements(
 }
 
 fn builtin_param_names(arity: usize, interner: &mut Interner) -> Vec<Identifier> {
-    (0..arity)
-        .map(|idx| interner.intern(&format!("__x{idx}")))
-        .collect()
+    (0..arity).map(|idx| interner.intern(&format!("__x{idx}"))).collect()
 }
 
 fn context_dict_param_names(
@@ -1523,11 +1374,7 @@ fn context_dict_param_names(
                 crate::types::class_id::ClassId::from_local_name(constraint.class_name)
             });
             let count = seen.entry(class_id).or_insert(0);
-            let suffix = if *count == 0 {
-                String::new()
-            } else {
-                format!("_{}", *count)
-            };
+            let suffix = if *count == 0 { String::new() } else { format!("_{}", *count) };
             *count += 1;
             let prefix = crate::types::class_env::dictionary_prefix(class_id, interner);
             interner.intern(&format!("{prefix}{suffix}"))
@@ -1585,9 +1432,8 @@ fn derived_structural_eq_body(
 
     let pattern = |variant: &DataVariant, prefix: &str| -> String {
         let ctor = interner.resolve(variant.name);
-        let binders = (0..variant.fields.len())
-            .map(|idx| format!("{prefix}{idx}"))
-            .collect::<Vec<_>>();
+        let binders =
+            (0..variant.fields.len()).map(|idx| format!("{prefix}{idx}")).collect::<Vec<_>>();
         match &variant.field_names {
             Some(names) => {
                 let fields = names
@@ -1683,19 +1529,11 @@ fn builtin_method_body(
     method_name: &str,
 ) -> Option<Block> {
     fn var(id_gen: &mut ExprIdGen, name: Identifier, span: Span) -> Expression {
-        Expression::Identifier {
-            name,
-            span,
-            id: id_gen.next_id(),
-        }
+        Expression::Identifier { name, span, id: id_gen.next_id() }
     }
 
     fn int(id_gen: &mut ExprIdGen, value: i64, span: Span) -> Expression {
-        Expression::Integer {
-            value,
-            span,
-            id: id_gen.next_id(),
-        }
+        Expression::Integer { value, span, id: id_gen.next_id() }
     }
 
     fn infix(
@@ -1716,11 +1554,7 @@ fn builtin_method_body(
 
     fn ret(expression: Expression, span: Span) -> Block {
         Block {
-            statements: vec![Statement::Expression {
-                expression,
-                has_semicolon: false,
-                span,
-            }],
+            statements: vec![Statement::Expression { expression, has_semicolon: false, span }],
             span,
         }
     }
@@ -1892,17 +1726,13 @@ fn type_expr_mentions_type_param(ty: &TypeExpr, target: Identifier, interner: &I
     match ty {
         TypeExpr::Named { name, args, .. } => {
             (*name == target && is_type_param_name(*name, interner))
-                || args
-                    .iter()
-                    .any(|arg| type_expr_mentions_type_param(arg, target, interner))
+                || args.iter().any(|arg| type_expr_mentions_type_param(arg, target, interner))
         }
-        TypeExpr::Tuple { elements, .. } => elements
-            .iter()
-            .any(|elem| type_expr_mentions_type_param(elem, target, interner)),
+        TypeExpr::Tuple { elements, .. } => {
+            elements.iter().any(|elem| type_expr_mentions_type_param(elem, target, interner))
+        }
         TypeExpr::Function { params, ret, .. } => {
-            params
-                .iter()
-                .any(|param| type_expr_mentions_type_param(param, target, interner))
+            params.iter().any(|param| type_expr_mentions_type_param(param, target, interner))
                 || type_expr_mentions_type_param(ret, target, interner)
         }
     }
@@ -1933,11 +1763,7 @@ fn collect_free_type_params(ty: &TypeExpr, interner: &Interner, out: &mut Vec<Id
 }
 
 fn is_type_param_name(name: Identifier, interner: &Interner) -> bool {
-    interner
-        .resolve(name)
-        .chars()
-        .next()
-        .is_some_and(|c| c.is_ascii_lowercase())
+    interner.resolve(name).chars().next().is_some_and(|c| c.is_ascii_lowercase())
 }
 
 fn specialize_type_expr(
@@ -1946,11 +1772,8 @@ fn specialize_type_expr(
     instance_type_args: &[TypeExpr],
     interner: &Interner,
 ) -> TypeExpr {
-    let subst: HashMap<Identifier, TypeExpr> = class_type_params
-        .iter()
-        .copied()
-        .zip(instance_type_args.iter().cloned())
-        .collect();
+    let subst: HashMap<Identifier, TypeExpr> =
+        class_type_params.iter().copied().zip(instance_type_args.iter().cloned()).collect();
     substitute_type_expr(ty, &subst, interner)
 }
 
@@ -1961,34 +1784,20 @@ fn substitute_type_expr(
 ) -> TypeExpr {
     match ty {
         TypeExpr::Named { name, args, span } => {
-            let substituted_args: Vec<TypeExpr> = args
-                .iter()
-                .map(|arg| substitute_type_expr(arg, subst, interner))
-                .collect();
+            let substituted_args: Vec<TypeExpr> =
+                args.iter().map(|arg| substitute_type_expr(arg, subst, interner)).collect();
             if let Some(replacement) = subst.get(name) {
                 match replacement {
-                    TypeExpr::Named {
-                        name: replacement_name,
-                        args: replacement_args,
-                        ..
-                    } => {
+                    TypeExpr::Named { name: replacement_name, args: replacement_args, .. } => {
                         let mut merged_args: Vec<TypeExpr> = replacement_args.clone();
                         merged_args.extend(substituted_args);
-                        TypeExpr::Named {
-                            name: *replacement_name,
-                            args: merged_args,
-                            span: *span,
-                        }
+                        TypeExpr::Named { name: *replacement_name, args: merged_args, span: *span }
                     }
                     other => other.clone(),
                 }
             } else {
                 let _ = interner;
-                TypeExpr::Named {
-                    name: *name,
-                    args: substituted_args,
-                    span: *span,
-                }
+                TypeExpr::Named { name: *name, args: substituted_args, span: *span }
             }
         }
         TypeExpr::Tuple { elements, span } => TypeExpr::Tuple {
@@ -1998,12 +1807,7 @@ fn substitute_type_expr(
                 .collect(),
             span: *span,
         },
-        TypeExpr::Function {
-            params,
-            ret,
-            effects,
-            span,
-        } => TypeExpr::Function {
+        TypeExpr::Function { params, ret, effects, span } => TypeExpr::Function {
             params: params
                 .iter()
                 .map(|param| substitute_type_expr(param, subst, interner))
@@ -2035,27 +1839,22 @@ fn generate_polymorphic_stub(
     let mut type_params: Vec<FunctionTypeParam> = class_def
         .type_params
         .iter()
-        .map(|name| FunctionTypeParam {
-            name: *name,
-            constraints: vec![],
-        })
+        .map(|name| FunctionTypeParam { name: *name, constraints: vec![] })
         .collect();
-    type_params.extend(method_sig.type_params.iter().map(|name| FunctionTypeParam {
-        name: *name,
-        constraints: vec![],
-    }));
+    type_params.extend(
+        method_sig
+            .type_params
+            .iter()
+            .map(|name| FunctionTypeParam { name: *name, constraints: vec![] }),
+    );
 
     // Generate parameter names: __x0, __x1, ...
-    let params: Vec<Identifier> = (0..method_sig.arity)
-        .map(|i| interner.intern(&format!("__x{i}")))
-        .collect();
+    let params: Vec<Identifier> =
+        (0..method_sig.arity).map(|i| interner.intern(&format!("__x{i}"))).collect();
 
     // Use the method's parameter types from the class definition.
-    let parameter_types: Vec<Option<crate::syntax::type_expr::TypeExpr>> = method_sig
-        .param_types
-        .iter()
-        .map(|t| Some(t.clone()))
-        .collect();
+    let parameter_types: Vec<Option<crate::syntax::type_expr::TypeExpr>> =
+        method_sig.param_types.iter().map(|t| Some(t.clone())).collect();
 
     let return_type = Some(method_sig.return_type.clone());
 
@@ -2095,14 +1894,11 @@ fn generate_polymorphic_stub(
     // `with Audit`) would emit a spurious E400 for the synthesized stub.
     let mut stub_effects = method_sig.effects.clone();
     let panic_effect_sym = interner.intern(crate::syntax::builtin_effects::PANIC);
-    let already_has_panic = stub_effects
-        .iter()
-        .any(|effect| effect.normalized_names().contains(&panic_effect_sym));
+    let already_has_panic =
+        stub_effects.iter().any(|effect| effect.normalized_names().contains(&panic_effect_sym));
     if !already_has_panic {
-        stub_effects.push(crate::syntax::effect_expr::EffectExpr::Named {
-            name: panic_effect_sym,
-            span,
-        });
+        stub_effects
+            .push(crate::syntax::effect_expr::EffectExpr::Named { name: panic_effect_sym, span });
     }
 
     Statement::Function {
@@ -2150,9 +1946,7 @@ mod tests {
             }
         }
 
-        let mut collector = Collector {
-            ids: HashSet::new(),
-        };
+        let mut collector = Collector { ids: HashSet::new() };
         for statement in &block.statements {
             crate::ast::visit::walk_stmt(&mut collector, statement);
         }
@@ -2172,19 +1966,11 @@ instance Renderable<Int> {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let mut interner = parser.take_interner();
         let (class_env, class_surface, diagnostics) =
             ClassEnv::from_statements(&program.statements, &interner);
-        assert!(
-            diagnostics.is_empty(),
-            "class diagnostics: {:?}",
-            diagnostics
-        );
+        assert!(diagnostics.is_empty(), "class diagnostics: {:?}", diagnostics);
 
         let source_body = program
             .statements
@@ -2199,15 +1985,10 @@ instance Renderable<Int> {
 
         let generated = generate_dispatch_functions(
             &program.statements,
-            DispatchClasses {
-                env: &class_env,
-                surface: &class_surface,
-            },
+            DispatchClasses { env: &class_env, surface: &class_surface },
             &mut interner,
             &HashSet::new(),
-            DispatchGenerationOptions {
-                include_builtin_instances: false,
-            },
+            DispatchGenerationOptions { include_builtin_instances: false },
         );
         let generated_body = generated
             .iter()
@@ -2253,11 +2034,7 @@ fn other(n) { n }
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let mut interner = parser.take_interner();
         let (class_env, class_surface, diagnostics) =
             ClassEnv::from_statements(&program.statements, &interner);
@@ -2283,15 +2060,10 @@ fn other(n) { n }
         let past_parser = ExprIdGen::resuming_past_program(&program).counter();
         let generated = generate_dispatch_functions(
             &program.statements,
-            DispatchClasses {
-                env: &class_env,
-                surface: &class_surface,
-            },
+            DispatchClasses { env: &class_env, surface: &class_surface },
             &mut interner,
             &HashSet::new(),
-            DispatchGenerationOptions {
-                include_builtin_instances: false,
-            },
+            DispatchGenerationOptions { include_builtin_instances: false },
         );
         let mut synthesized = Vec::new();
         definition_ids(&generated, &mut synthesized);
@@ -2304,11 +2076,7 @@ fn other(n) { n }
         let mut all = parsed;
         all.extend(synthesized);
         let distinct: HashSet<_> = all.iter().copied().collect();
-        assert_eq!(
-            distinct.len(),
-            all.len(),
-            "duplicate definition ids: {all:?}"
-        );
+        assert_eq!(distinct.len(), all.len(), "duplicate definition ids: {all:?}");
     }
 
     /// A function of a method's name stands in for its dispatch stub only in
@@ -2320,26 +2088,17 @@ fn other(n) { n }
         let stub_generated = |source: &str| {
             let mut parser = Parser::new(Lexer::new(source));
             let program = parser.parse_program();
-            assert!(
-                parser.errors.is_empty(),
-                "parser errors: {:?}",
-                parser.errors
-            );
+            assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
             let mut interner = parser.take_interner();
             let (class_env, class_surface, diagnostics) =
                 ClassEnv::from_statements(&program.statements, &interner);
             assert!(diagnostics.is_empty(), "class diagnostics: {diagnostics:?}");
             generate_dispatch_functions(
                 &program.statements,
-                DispatchClasses {
-                    env: &class_env,
-                    surface: &class_surface,
-                },
+                DispatchClasses { env: &class_env, surface: &class_surface },
                 &mut interner,
                 &HashSet::new(),
-                DispatchGenerationOptions {
-                    include_builtin_instances: false,
-                },
+                DispatchGenerationOptions { include_builtin_instances: false },
             )
             .iter()
             .any(|statement| {
@@ -2362,9 +2121,7 @@ instance Counted<Int> {
         assert!(stub_generated(&format!("{seq}{other}{class}")));
         // A module compiled alone: the stub goes inside it, beside `count`.
         assert!(!stub_generated(&format!("{seq}{class}")));
-        assert!(!stub_generated(&format!(
-            "fn count(n: Int) -> Int {{ n }}\n{class}"
-        )));
+        assert!(!stub_generated(&format!("fn count(n: Int) -> Int {{ n }}\n{class}")));
     }
 
     /// An instance declaration that collection rejected (E447 here) has no
@@ -2384,11 +2141,7 @@ instance Shape<Int, Int> {
 "#;
         let mut parser = Parser::new(Lexer::new(source));
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
         let mut interner = parser.take_interner();
         let (class_env, class_surface, diagnostics) =
             ClassEnv::from_statements(&program.statements, &interner);
@@ -2397,15 +2150,10 @@ instance Shape<Int, Int> {
 
         let generated = generate_dispatch_functions(
             &program.statements,
-            DispatchClasses {
-                env: &class_env,
-                surface: &class_surface,
-            },
+            DispatchClasses { env: &class_env, surface: &class_surface },
             &mut interner,
             &HashSet::new(),
-            DispatchGenerationOptions {
-                include_builtin_instances: false,
-            },
+            DispatchGenerationOptions { include_builtin_instances: false },
         );
         let names: Vec<_> = generated
             .iter()

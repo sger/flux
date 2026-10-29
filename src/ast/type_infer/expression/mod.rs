@@ -14,11 +14,8 @@ mod patterns;
 impl<'a> InferCtx<'a> {
     /// Infer an identifier use, instantiating its scheme or reporting a strict-mode hole.
     fn infer_identifier_expression(&mut self, expr: &Expression, name: Identifier) -> InferType {
-        if let Some(scheme) = self
-            .env
-            .lookup(name)
-            .cloned()
-            .or_else(|| self.unbound_class_method_scheme(name))
+        if let Some(scheme) =
+            self.env.lookup(name).cloned().or_else(|| self.unbound_class_method_scheme(name))
         {
             let (ty, mapping, constraints) = scheme.instantiate(&mut self.env.counter);
             let fresh_vars = mapping.values().copied().collect::<Vec<_>>();
@@ -78,10 +75,9 @@ impl<'a> InferCtx<'a> {
             Expression::String { .. } | Expression::InterpolatedString { .. } => {
                 InferType::Con(TypeConstructor::String)
             }
-            Expression::None { .. } => InferType::App(
-                TypeConstructor::Option,
-                vec![self.env.alloc_infer_type_var()],
-            ),
+            Expression::None { .. } => {
+                InferType::App(TypeConstructor::Option, vec![self.env.alloc_infer_type_var()])
+            }
             // Wrappers
             Expression::Some { value, .. } => {
                 let inner = self.infer_expression(value);
@@ -101,32 +97,17 @@ impl<'a> InferCtx<'a> {
             Expression::Identifier { name, .. } => self.infer_identifier_expression(expr, *name),
             // Operators
             Expression::Prefix { right, .. } => self.infer_expression(right),
-            Expression::Infix {
-                left,
-                operator,
-                right,
-                span,
-                ..
-            } => self.infer_infix_expression(left, operator, right, *span),
+            Expression::Infix { left, operator, right, span, .. } => {
+                self.infer_infix_expression(left, operator, right, *span)
+            }
             // Control flow
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-                span,
-                ..
-            } => self.infer_if_expression(condition, consequence, alternative, *span),
+            Expression::If { condition, consequence, alternative, span, .. } => {
+                self.infer_if_expression(condition, consequence, alternative, *span)
+            }
             Expression::DoBlock { block, .. } => self.infer_block(block),
-            Expression::Match {
-                scrutinee,
-                arms,
-                span,
-                ..
-            } => self.infer_match_expression(MatchInferInput {
-                scrutinee,
-                arms,
-                span: *span,
-            }),
+            Expression::Match { scrutinee, arms, span, .. } => {
+                self.infer_match_expression(MatchInferInput { scrutinee, arms, span: *span })
+            }
             // Functions
             Expression::Function {
                 parameters,
@@ -142,16 +123,9 @@ impl<'a> InferCtx<'a> {
                 effects,
                 body,
             }),
-            Expression::Call {
-                function,
-                arguments,
-                span,
-                ..
-            } => self.infer_call_expression(CallInferInput {
-                function,
-                arguments,
-                span: *span,
-            }),
+            Expression::Call { function, arguments, span, .. } => {
+                self.infer_call_expression(CallInferInput { function, arguments, span: *span })
+            }
             // Collections
             Expression::TupleLiteral { elements, .. } => {
                 self.infer_tuple_literal_expression(elements)
@@ -166,46 +140,32 @@ impl<'a> InferCtx<'a> {
                 InferType::App(TypeConstructor::List, vec![self.env.alloc_infer_type_var()])
             }
             Expression::Hash { pairs, .. } => self.infer_hash_literal_expression(pairs),
-            Expression::Cons {
-                head, tail, span, ..
-            } => self.infer_cons_expression(head, tail, *span),
+            Expression::Cons { head, tail, span, .. } => {
+                self.infer_cons_expression(head, tail, *span)
+            }
             // Access
             Expression::Index { left, index, .. } => self.infer_index_expression(left, index),
             Expression::MemberAccess { object, member, .. } => {
                 self.infer_member_access_expression(expr, object, *member)
             }
-            Expression::TupleFieldAccess {
-                object,
-                index,
-                span,
-                ..
-            } => self.infer_tuple_field_access_expression(object, *index, *span),
+            Expression::TupleFieldAccess { object, index, span, .. } => {
+                self.infer_tuple_field_access_expression(object, *index, *span)
+            }
             // Effects
-            Expression::Perform {
-                effect,
-                operation,
-                args,
-                span,
-                ..
-            } => self.infer_perform_expression(*effect, *operation, args, *span),
-            Expression::Handle {
-                expr: handled,
-                effect,
-                parameter,
-                arms,
-                ..
-            } => self.infer_handle_expression(handled, *effect, parameter.as_deref(), arms),
+            Expression::Perform { effect, operation, args, span, .. } => {
+                self.infer_perform_expression(*effect, *operation, args, *span)
+            }
+            Expression::Handle { expr: handled, effect, parameter, arms, .. } => {
+                self.infer_handle_expression(handled, *effect, parameter.as_deref(), arms)
+            }
             Expression::Sealing { expr, .. } => self.infer_expression(expr),
             // Named-field construction & spread (Proposal 0152)
-            Expression::NamedConstructor {
-                name, fields, span, ..
-            } => self.infer_named_constructor_call(*name, fields, *span),
-            Expression::Spread {
-                base,
-                overrides,
-                span,
-                ..
-            } => self.infer_spread_expression(base, overrides, *span),
+            Expression::NamedConstructor { name, fields, span, .. } => {
+                self.infer_named_constructor_call(*name, fields, *span)
+            }
+            Expression::Spread { base, overrides, span, .. } => {
+                self.infer_spread_expression(base, overrides, *span)
+            }
             // Fallback guards against future Expression variants
             #[allow(unreachable_patterns)]
             _ => self.infer_unsupported_expression(expr),

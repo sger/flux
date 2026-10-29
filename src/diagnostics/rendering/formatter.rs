@@ -23,10 +23,7 @@ fn strip_windows_verbatim_prefix(path: &str) -> Cow<'_, str> {
     }
     if let Some(rest) = path.strip_prefix("//?/") {
         let is_drive_path = rest.as_bytes().get(1) == Some(&b':')
-            && rest
-                .as_bytes()
-                .first()
-                .is_some_and(|b| b.is_ascii_alphabetic());
+            && rest.as_bytes().first().is_some_and(|b| b.is_ascii_alphabetic());
         if is_drive_path {
             return Cow::Owned(rest.to_string());
         }

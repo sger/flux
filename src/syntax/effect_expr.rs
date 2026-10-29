@@ -10,9 +10,15 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EffectExpr {
     /// A concrete effect atom, such as `IO` or `Time`.
-    Named { name: Identifier, span: Span },
+    Named {
+        name: Identifier,
+        span: Span,
+    },
     /// An open row variable, rendered as `|e`.
-    RowVar { name: Identifier, span: Span },
+    RowVar {
+        name: Identifier,
+        span: Span,
+    },
     Add {
         left: Box<EffectExpr>,
         right: Box<EffectExpr>,
@@ -42,18 +48,10 @@ impl EffectExpr {
             EffectExpr::Named { name, .. } => interner.resolve(*name).to_string(),
             EffectExpr::RowVar { name, .. } => format!("|{}", interner.resolve(*name)),
             EffectExpr::Add { left, right, .. } => {
-                format!(
-                    "{} + {}",
-                    left.display_with(interner),
-                    right.display_with(interner)
-                )
+                format!("{} + {}", left.display_with(interner), right.display_with(interner))
             }
             EffectExpr::Subtract { left, right, .. } => {
-                format!(
-                    "{} - {}",
-                    left.display_with(interner),
-                    right.display_with(interner)
-                )
+                format!("{} - {}", left.display_with(interner), right.display_with(interner))
             }
         }
     }
@@ -124,6 +122,16 @@ impl EffectExpr {
     /// Normalizes effect atoms using `+`/`-` semantics.
     ///
     /// Row variables are intentionally excluded from the result.
+    /// The effect names `effects` require together, each once, in symbol
+    /// order: the names come out of hash sets, and contracts built from them
+    /// are written into cached interfaces, which must not change between runs.
+    pub fn sorted_names(effects: &[EffectExpr]) -> Vec<Identifier> {
+        let mut names: Vec<Identifier> = effects.iter().flat_map(Self::normalized_names).collect();
+        names.sort_unstable_by_key(|name| name.as_u32());
+        names.dedup();
+        names
+    }
+
     pub fn normalized_names(&self) -> HashSet<Identifier> {
         match self {
             EffectExpr::Named { name, .. } => HashSet::from([*name]),
@@ -241,19 +249,13 @@ mod tests {
             left: Box::new(EffectExpr::Add {
                 left: Box::new(EffectExpr::Add {
                     left: Box::new(EffectExpr::Named { name: io, span }),
-                    right: Box::new(EffectExpr::Named {
-                        name: console,
-                        span,
-                    }),
+                    right: Box::new(EffectExpr::Named { name: console, span }),
                     span,
                 }),
                 right: Box::new(EffectExpr::Named { name: time, span }),
                 span,
             }),
-            right: Box::new(EffectExpr::Named {
-                name: console,
-                span,
-            }),
+            right: Box::new(EffectExpr::Named { name: console, span }),
             span,
         };
 
@@ -270,18 +272,12 @@ mod tests {
         let clock = interner.intern("Clock");
         let span = Span::default();
 
-        let atom = EffectExpr::Named {
-            name: console,
-            span,
-        };
+        let atom = EffectExpr::Named { name: console, span };
         assert!(!atom.contains_add());
         assert!(!atom.contains_subtract());
 
         let add = EffectExpr::Add {
-            left: Box::new(EffectExpr::Named {
-                name: console,
-                span,
-            }),
+            left: Box::new(EffectExpr::Named { name: console, span }),
             right: Box::new(EffectExpr::Named { name: clock, span }),
             span,
         };

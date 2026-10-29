@@ -20,35 +20,19 @@ fn use_color() -> bool {
 // ── ANSI helpers ───────────────────────────────────────────────────────────
 
 fn green(s: &str) -> String {
-    if use_color() {
-        format!("\x1b[0;32m{s}\x1b[0m")
-    } else {
-        s.to_string()
-    }
+    if use_color() { format!("\x1b[0;32m{s}\x1b[0m") } else { s.to_string() }
 }
 
 fn red(s: &str) -> String {
-    if use_color() {
-        format!("\x1b[0;31m{s}\x1b[0m")
-    } else {
-        s.to_string()
-    }
+    if use_color() { format!("\x1b[0;31m{s}\x1b[0m") } else { s.to_string() }
 }
 
 fn yellow(s: &str) -> String {
-    if use_color() {
-        format!("\x1b[0;33m{s}\x1b[0m")
-    } else {
-        s.to_string()
-    }
+    if use_color() { format!("\x1b[0;33m{s}\x1b[0m") } else { s.to_string() }
 }
 
 fn cyan(s: &str) -> String {
-    if use_color() {
-        format!("\x1b[0;36m{s}\x1b[0m")
-    } else {
-        s.to_string()
-    }
+    if use_color() { format!("\x1b[0;36m{s}\x1b[0m") } else { s.to_string() }
 }
 
 // ── Per-file reporting ─────────────────────────────────────────────────────
@@ -59,10 +43,7 @@ pub fn print_result(result: &ParityResult, filter: DisplayFilter, explain: bool)
         (&result.verdict, filter),
         (Verdict::Pass, DisplayFilter::FailOnly)
             | (Verdict::Mismatch { .. }, DisplayFilter::PassOnly)
-            | (
-                Verdict::ExpectedOutputMismatch { .. },
-                DisplayFilter::PassOnly
-            )
+            | (Verdict::ExpectedOutputMismatch { .. }, DisplayFilter::PassOnly)
             | (Verdict::Skip { .. }, DisplayFilter::PassOnly)
     );
     if dominated {
@@ -76,6 +57,28 @@ pub fn print_result(result: &ParityResult, filter: DisplayFilter, explain: bool)
         let label = cyan(&format!("{}:", run.way));
         let cmd = cargo_run_for_way(run.way, &result.file.to_string_lossy());
         println!("{label:>14} {cmd}");
+    }
+    for skip in &result.skipped_ways {
+        println!("{} {name} {}: {}", yellow("SKIP_WAY"), skip.way, skip.reason);
+    }
+    for skip in &result.unexpected_passes {
+        let issue = super::known_issues::cited(&skip.reason)
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| "its known issue".to_string());
+        println!("{} {name} {}: {issue} may be fixed", yellow("UNEXPECTED_PASS"), skip.way,);
+    }
+    for run in &result.results {
+        if let Some(leak) = &run.leak {
+            println!(
+                "{} {name} {}: {} block{} live at exit, first {}",
+                yellow("LEAK"),
+                run.way,
+                leak.blocks,
+                if leak.blocks == 1 { "" } else { "s" },
+                leak.first_site,
+            );
+        }
     }
 
     match &result.verdict {
@@ -102,17 +105,9 @@ pub fn print_result(result: &ParityResult, filter: DisplayFilter, explain: bool)
         }
         Verdict::ExpectedOutputMismatch { expected, actual } => {
             println!("{} {name}", red("EXPECTED_OUTPUT_MISMATCH"));
-            println!(
-                "  {} the run disagrees with what the fixture declares",
-                cyan("diagnosis:")
-            );
+            println!("  {} the run disagrees with what the fixture declares", cyan("diagnosis:"));
             println!("  {}", cyan("declared vs actual:"));
-            print_inline_diff(
-                "expected".to_string(),
-                expected,
-                "actual".to_string(),
-                actual,
-            );
+            print_inline_diff("expected".to_string(), expected, "actual".to_string(), actual);
             print_cache_summary(result);
         }
     }
@@ -129,17 +124,9 @@ pub fn print_debug_first_failure(result: &ParityResult) {
         }
         Verdict::ExpectedOutputMismatch { expected, actual } => {
             println!("{} {}", cyan("debug:"), result.file.display());
-            println!(
-                "  {} the run disagrees with what the fixture declares",
-                cyan("diagnosis:")
-            );
+            println!("  {} the run disagrees with what the fixture declares", cyan("diagnosis:"));
             println!("  {}", cyan("declared vs actual:"));
-            print_inline_diff(
-                "expected".to_string(),
-                expected,
-                "actual".to_string(),
-                actual,
-            );
+            print_inline_diff("expected".to_string(), expected, "actual".to_string(), actual);
             for run in &result.results {
                 println!(
                     "  {} {} exit={} code={}",
@@ -157,21 +144,11 @@ pub fn print_debug_first_failure(result: &ParityResult) {
             }
             for detail in details {
                 match detail {
-                    MismatchDetail::CoreMismatch {
-                        left_way,
-                        left,
-                        right_way,
-                        right,
-                    } => {
+                    MismatchDetail::CoreMismatch { left_way, left, right_way, right } => {
                         println!("  {}", cyan("core_mismatch_summary:"));
                         print_inline_diff(left_way.to_string(), left, right_way.to_string(), right);
                     }
-                    MismatchDetail::RepresentationMismatch {
-                        left_way,
-                        left,
-                        right_way,
-                        right,
-                    } => {
+                    MismatchDetail::RepresentationMismatch { left_way, left, right_way, right } => {
                         println!("  {}", cyan("representation_mismatch_summary:"));
                         print_inline_diff(left_way.to_string(), left, right_way.to_string(), right);
                     }
@@ -197,21 +174,12 @@ pub fn print_debug_first_failure(result: &ParityResult) {
             }
             if !result.artifacts.is_empty() {
                 for (way, arts) in &result.artifacts {
-                    let core_state = if arts.core.normalized.is_some() {
-                        "captured"
-                    } else {
-                        "none"
-                    };
-                    let aether_state = if arts.aether.normalized.is_some() {
-                        "captured"
-                    } else {
-                        "none"
-                    };
-                    let repr_state = if arts.repr.normalized.is_some() {
-                        "captured"
-                    } else {
-                        "none"
-                    };
+                    let core_state =
+                        if arts.core.normalized.is_some() { "captured" } else { "none" };
+                    let aether_state =
+                        if arts.aether.normalized.is_some() { "captured" } else { "none" };
+                    let repr_state =
+                        if arts.repr.normalized.is_some() { "captured" } else { "none" };
                     println!(
                         "  {} {} core={} aether={} repr={} backend_ir={}",
                         cyan("artifacts:"),
@@ -229,21 +197,14 @@ pub fn print_debug_first_failure(result: &ParityResult) {
 }
 
 pub fn diagnose_mismatch(details: &[MismatchDetail]) -> Option<&'static str> {
-    let has_core = details
-        .iter()
-        .any(|d| matches!(d, MismatchDetail::CoreMismatch { .. }));
-    let has_aether = details
-        .iter()
-        .any(|d| matches!(d, MismatchDetail::AetherMismatch { .. }));
-    let has_repr = details
-        .iter()
-        .any(|d| matches!(d, MismatchDetail::RepresentationMismatch { .. }));
-    let has_backend_ir = details
-        .iter()
-        .any(|d| matches!(d, MismatchDetail::BackendIrMismatch { .. }));
-    let has_backend_runtime = details
-        .iter()
-        .any(|d| matches!(d, MismatchDetail::BackendRuntimeMismatch { .. }));
+    let has_core = details.iter().any(|d| matches!(d, MismatchDetail::CoreMismatch { .. }));
+    let has_aether = details.iter().any(|d| matches!(d, MismatchDetail::AetherMismatch { .. }));
+    let has_repr =
+        details.iter().any(|d| matches!(d, MismatchDetail::RepresentationMismatch { .. }));
+    let has_backend_ir =
+        details.iter().any(|d| matches!(d, MismatchDetail::BackendIrMismatch { .. }));
+    let has_backend_runtime =
+        details.iter().any(|d| matches!(d, MismatchDetail::BackendRuntimeMismatch { .. }));
     let has_backend_surface = details.iter().any(|d| {
         matches!(
             d,
@@ -252,12 +213,24 @@ pub fn diagnose_mismatch(details: &[MismatchDetail]) -> Option<&'static str> {
                 | MismatchDetail::Stderr { .. }
         )
     });
-    let has_cache = details
-        .iter()
-        .any(|d| matches!(d, MismatchDetail::CacheMismatch { .. }));
-    let has_strict = details
-        .iter()
-        .any(|d| matches!(d, MismatchDetail::StrictModeMismatch { .. }));
+    let has_cache = details.iter().any(|d| matches!(d, MismatchDetail::CacheMismatch { .. }));
+    let has_strict = details.iter().any(|d| matches!(d, MismatchDetail::StrictModeMismatch { .. }));
+    let has_opt = details.iter().any(|d| matches!(d, MismatchDetail::OptModeMismatch { .. }));
+
+    // An optimized way that disagrees with its own unoptimized run is a
+    // miscompile, whatever else differs alongside it.
+    if has_opt {
+        return Some("the optimizer changed what the program does");
+    }
+
+    // The debug heap saw a dup or drop of freed memory: an ownership bug,
+    // whatever the output says.
+    if details.iter().any(|d| matches!(d, MismatchDetail::HeapFault { .. })) {
+        return Some("a value was used after it was freed (rerun with --debug-heap)");
+    }
+    if details.iter().any(|d| matches!(d, MismatchDetail::HeapModeMismatch { .. })) {
+        return Some("the program behaves differently on the debug heap");
+    }
 
     if has_cache {
         if details.iter().any(
@@ -334,45 +307,30 @@ pub fn cargo_run_for_way(way: Way, file: &str) -> String {
             "cargo run --features llvm -- {file} --native -g -o app && lldb ./app \
              (with `flux debug --lldb-script` imported)"
         ),
+        Way::VmOpt => format!("cargo run -- {file} --optimize --no-cache"),
+        Way::LlvmOpt => {
+            format!("cargo run --features llvm -- {file} --native --optimize --no-cache")
+        }
+        Way::LlvmHeap => {
+            format!("cargo run --features llvm -- {file} --native --leak-check --no-cache")
+        }
     }
 }
 
 fn print_mismatch_detail(detail: &MismatchDetail) {
     match detail {
-        MismatchDetail::ExitKind {
-            left_way,
-            left,
-            right_way,
-            right,
-        } => {
-            println!(
-                "  {} {left_way}={left}, {right_way}={right}",
-                cyan("exit_kind:")
-            );
+        MismatchDetail::ExitKind { left_way, left, right_way, right } => {
+            println!("  {} {left_way}={left}, {right_way}={right}", cyan("exit_kind:"));
         }
-        MismatchDetail::Stdout {
-            left_way,
-            left,
-            right_way,
-            right,
-        } => {
+        MismatchDetail::Stdout { left_way, left, right_way, right } => {
             println!("  {}", cyan("stdout differs:"));
             print_inline_diff(left_way.to_string(), left, right_way.to_string(), right);
         }
-        MismatchDetail::Stderr {
-            left_way,
-            left,
-            right_way,
-            right,
-        } => {
+        MismatchDetail::Stderr { left_way, left, right_way, right } => {
             println!("  {}", cyan("stderr differs:"));
             print_inline_diff(left_way.to_string(), left, right_way.to_string(), right);
         }
-        MismatchDetail::DiagnosticCodes {
-            way,
-            expected,
-            actual,
-        } => {
+        MismatchDetail::DiagnosticCodes { way, expected, actual } => {
             println!(
                 "  {} {way}: expected {:?}, actual {:?}",
                 cyan("diagnostic_codes:"),
@@ -380,56 +338,38 @@ fn print_mismatch_detail(detail: &MismatchDetail) {
                 actual
             );
         }
-        MismatchDetail::ExpectedStderr {
-            way,
-            expected,
-            actual,
-        } => {
+        MismatchDetail::DiagnosticLocations { way, missing, unexpected } => {
+            println!("  {} {way}", cyan("diagnostic_locations:"));
+            for entry in missing {
+                println!("    missing:    {entry}");
+            }
+            for entry in unexpected {
+                println!("    unexpected: {entry}");
+            }
+        }
+        MismatchDetail::ExpectedStderr { way, expected, actual } => {
             println!("  {} {way}", cyan("expected_stderr differs:"));
             print_inline_diff("expected".to_string(), expected, way.to_string(), actual);
         }
-        MismatchDetail::CoreMismatch {
-            left_way,
-            left,
-            right_way,
-            right,
-        } => {
-            println!(
-                "  {} Core IR differs (semantic IR divergence)",
-                cyan("core_mismatch:")
-            );
+        MismatchDetail::CoreMismatch { left_way, left, right_way, right } => {
+            println!("  {} Core IR differs (semantic IR divergence)", cyan("core_mismatch:"));
             print_inline_diff(left_way.to_string(), left, right_way.to_string(), right);
         }
-        MismatchDetail::AetherMismatch {
-            left_way,
-            left,
-            right_way,
-            right,
-        } => {
+        MismatchDetail::AetherMismatch { left_way, left, right_way, right } => {
             println!(
                 "  {} Aether ownership differs (dup/drop/reuse divergence)",
                 cyan("aether_mismatch:")
             );
             print_inline_diff(left_way.to_string(), left, right_way.to_string(), right);
         }
-        MismatchDetail::RepresentationMismatch {
-            left_way,
-            left,
-            right_way,
-            right,
-        } => {
+        MismatchDetail::RepresentationMismatch { left_way, left, right_way, right } => {
             println!(
                 "  {} backend representation contract differs",
                 cyan("representation_mismatch:")
             );
             print_inline_diff(left_way.to_string(), left, right_way.to_string(), right);
         }
-        MismatchDetail::BackendIrMismatch {
-            baseline_way,
-            backend,
-            surface,
-            summary,
-        } => {
+        MismatchDetail::BackendIrMismatch { baseline_way, backend, surface, summary } => {
             println!(
                 "  {} baseline {} vs backend {}.ir({})",
                 cyan("backend_ir_mismatch:"),
@@ -439,11 +379,7 @@ fn print_mismatch_detail(detail: &MismatchDetail) {
             );
             println!("    {summary}");
         }
-        MismatchDetail::BackendRuntimeMismatch {
-            baseline_way,
-            backend,
-            summary,
-        } => {
+        MismatchDetail::BackendRuntimeMismatch { baseline_way, backend, summary } => {
             println!(
                 "  {} baseline {} vs backend {}",
                 cyan("backend_runtime_mismatch:"),
@@ -452,13 +388,7 @@ fn print_mismatch_detail(detail: &MismatchDetail) {
             );
             println!("    {summary}");
         }
-        MismatchDetail::CacheMismatch {
-            fresh_way,
-            cached_way,
-            field,
-            fresh,
-            cached,
-        } => {
+        MismatchDetail::CacheMismatch { fresh_way, cached_way, field, fresh, cached } => {
             println!(
                 "  {} fresh {} vs cached {} differ on {field}",
                 cyan("cache_mismatch:"),
@@ -472,13 +402,7 @@ fn print_mismatch_detail(detail: &MismatchDetail) {
                 cached,
             );
         }
-        MismatchDetail::StrictModeMismatch {
-            normal_way,
-            strict_way,
-            field,
-            normal,
-            strict,
-        } => {
+        MismatchDetail::StrictModeMismatch { normal_way, strict_way, field, normal, strict } => {
             println!(
                 "  {} {normal_way} vs {strict_way} differ on {field}",
                 cyan("strict_mode_mismatch:")
@@ -489,6 +413,30 @@ fn print_mismatch_detail(detail: &MismatchDetail) {
                 format!("{strict_way} (strict)"),
                 strict,
             );
+        }
+        MismatchDetail::OptModeMismatch { unopt_way, opt_way, field, unopt, opt } => {
+            println!("  {} {unopt_way} vs {opt_way} differ on {field}", cyan("opt_mode_mismatch:"));
+            print_inline_diff(
+                format!("{unopt_way}"),
+                unopt,
+                format!("{opt_way} (--optimize)"),
+                opt,
+            );
+        }
+        MismatchDetail::HeapModeMismatch { plain_way, heap_way, field, plain, heap } => {
+            println!(
+                "  {} {plain_way} vs {heap_way} differ on {field}",
+                cyan("heap_mode_mismatch:")
+            );
+            print_inline_diff(
+                format!("{plain_way}"),
+                plain,
+                format!("{heap_way} (--leak-check)"),
+                heap,
+            );
+        }
+        MismatchDetail::HeapFault { way, message } => {
+            println!("  {} {way}: {message}", cyan("heap_fault:"));
         }
     }
 }
@@ -503,36 +451,25 @@ fn print_explain_block(result: &ParityResult) {
     println!("    aether: {}", layer_status(details, "aether"));
     println!("    repr: {}", layer_status(details, "repr"));
     let baseline_spec = backend_spec(baseline_way.backend_id());
-    println!(
-        "    {}.ir({}): match",
-        baseline_way.backend_id(),
-        baseline_spec.ir_surface
-    );
+    println!("    {}.ir({}): match", baseline_way.backend_id(), baseline_spec.ir_surface);
     for run in result.results.iter().skip(1) {
         let backend = run.way.backend_id();
         let spec = backend_spec(backend);
         let status = details.iter().find_map(|detail| match detail {
-            MismatchDetail::BackendIrMismatch {
-                backend: detail_backend,
-                ..
-            } if *detail_backend == backend => Some("suspect divergence"),
-            MismatchDetail::BackendRuntimeMismatch {
-                backend: detail_backend,
-                ..
-            } if *detail_backend == backend => Some("runtime diverged"),
+            MismatchDetail::BackendIrMismatch { backend: detail_backend, .. }
+                if *detail_backend == backend =>
+            {
+                Some("suspect divergence")
+            }
+            MismatchDetail::BackendRuntimeMismatch { backend: detail_backend, .. }
+                if *detail_backend == backend =>
+            {
+                Some("runtime diverged")
+            }
             _ => None,
         });
-        let fallback = if backend == baseline_way.backend_id() {
-            "match"
-        } else {
-            "captured"
-        };
-        println!(
-            "    {}.ir({}): {}",
-            backend,
-            spec.ir_surface,
-            status.unwrap_or(fallback)
-        );
+        let fallback = if backend == baseline_way.backend_id() { "match" } else { "captured" };
+        println!("    {}.ir({}): {}", backend, spec.ir_surface, status.unwrap_or(fallback));
     }
 
     let likely_source = likely_source_expressions(result);
@@ -579,8 +516,7 @@ fn likely_source_expressions(result: &ParityResult) -> Vec<String> {
         .lines()
         .enumerate()
         .filter_map(|(idx, line)| {
-            line.contains("print(")
-                .then_some((idx + 1, line.trim().to_string()))
+            line.contains("print(").then_some((idx + 1, line.trim().to_string()))
         })
         .collect::<Vec<_>>();
     let mut candidates = BTreeSet::new();
@@ -647,10 +583,7 @@ fn likely_rust_files(details: &[MismatchDetail], symbols: &[String]) -> Vec<Stri
             _ => {}
         }
     }
-    if symbols
-        .iter()
-        .any(|s| matches!(s.as_str(), "reverse" | "contains" | "slice"))
-    {
+    if symbols.iter().any(|s| matches!(s.as_str(), "reverse" | "contains" | "slice")) {
         files.insert("src/bytecode/vm/core_dispatch.rs".to_string());
         files.insert("src/lir/emit_llvm.rs".to_string());
         files.insert("runtime/c/flux_rt.c".to_string());
@@ -693,11 +626,7 @@ fn print_inline_diff(left_label: String, left: &str, right_label: String, right:
     println!("    +++ {right_label}");
 
     // A debug session's transcript is read whole, a program's output in part.
-    let limit = if left_label.ends_with("_debug") {
-        80
-    } else {
-        12
-    };
+    let limit = if left_label.ends_with("_debug") { 80 } else { 12 };
     let max_lines = left_lines.len().max(right_lines.len()).min(limit);
 
     for i in 0..max_lines {
@@ -742,33 +671,34 @@ fn print_block_limited(text: &str, max_lines: usize) {
 /// Print the aggregate summary across all fixtures.
 pub fn print_summary(results: &[ParityResult]) {
     let total = results.len();
-    let pass = results
-        .iter()
-        .filter(|r| matches!(r.verdict, Verdict::Pass))
-        .count();
-    let mismatch = results
-        .iter()
-        .filter(|r| matches!(r.verdict, Verdict::Mismatch { .. }))
-        .count();
+    let pass = results.iter().filter(|r| matches!(r.verdict, Verdict::Pass)).count();
+    let mismatch = results.iter().filter(|r| matches!(r.verdict, Verdict::Mismatch { .. })).count();
     let expected_output_mismatch = results
         .iter()
         .filter(|r| matches!(r.verdict, Verdict::ExpectedOutputMismatch { .. }))
         .count();
-    let skip = results
-        .iter()
-        .filter(|r| matches!(r.verdict, Verdict::Skip { .. }))
-        .count();
+    let skip = results.iter().filter(|r| matches!(r.verdict, Verdict::Skip { .. })).count();
+    let skipped_ways: usize = results.iter().map(|r| r.skipped_ways.len()).sum();
+    let unexpected_passes: usize = results.iter().map(|r| r.unexpected_passes.len()).sum();
+    let heap_ran = results.iter().any(|r| r.results.iter().any(|run| run.way.is_heap()));
+    let leaks = results.iter().filter(|r| r.results.iter().any(|run| run.leak.is_some())).count();
 
     println!();
     println!("=== Parity Results ===");
     println!("Total:    {total}");
     println!("Pass:     {}", green(&pass.to_string()));
     println!("Mismatch: {}", red(&mismatch.to_string()));
-    println!(
-        "ExpectedMismatch: {}",
-        red(&expected_output_mismatch.to_string())
-    );
+    println!("ExpectedMismatch: {}", red(&expected_output_mismatch.to_string()));
     println!("Skip:     {}", yellow(&skip.to_string()));
+    println!("SkippedWays: {}", yellow(&skipped_ways.to_string()));
+    // Only `--check-skips` runs skipped ways, so a zero says nothing.
+    if unexpected_passes > 0 {
+        println!("UnexpectedPass: {}", yellow(&unexpected_passes.to_string()));
+    }
+    // Files that leak on a heap way; counted, not failed (KI-119, KI-121).
+    if heap_ran {
+        println!("Leaks: {}", yellow(&leaks.to_string()));
+    }
 
     if mismatch == 0 && expected_output_mismatch == 0 && pass > 0 {
         println!();

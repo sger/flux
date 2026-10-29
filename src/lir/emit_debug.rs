@@ -82,18 +82,13 @@ impl DebugBuilder {
         let absolute = if path.is_absolute() {
             path.to_path_buf()
         } else {
-            std::env::current_dir()
-                .map(|dir| dir.join(path))
-                .unwrap_or_else(|_| path.to_path_buf())
+            std::env::current_dir().map(|dir| dir.join(path)).unwrap_or_else(|_| path.to_path_buf())
         };
         let file_name = absolute
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| native.file.clone());
-        let directory = absolute
-            .parent()
-            .map(|dir| dir.display().to_string())
-            .unwrap_or_default();
+        let directory = absolute.parent().map(|dir| dir.display().to_string()).unwrap_or_default();
 
         let mut debug = ModuleDebug::default();
         let unit = debug.node(String::new());
@@ -164,10 +159,16 @@ impl DebugBuilder {
         };
         let name = match &debug.kind {
             LirFnKind::Named(name) => name.clone(),
-            LirFnKind::Lambda => format!(
-                "<lambda {}:{}:{}>",
-                self.file_name, debug.loc.line, debug.loc.col
-            ),
+            // A `__` name is one the debugger hides, as the VM's.
+            LirFnKind::Lambda if debug.artificial => "__lambda".to_string(),
+            LirFnKind::Lambda => {
+                format!("<lambda {}:{}:{}>", self.file_name, debug.loc.line, debug.loc.col)
+            }
+            LirFnKind::Resumed { parent, after }
+                if parent == super::cont_split::LAMBDA_PARENT && debug.artificial =>
+            {
+                format!("__lambda (resumed after {}:{})", after.line, after.col)
+            }
             LirFnKind::Resumed { parent, after } if parent == super::cont_split::LAMBDA_PARENT => {
                 format!(
                     "<lambda {}:{}:{}> (resumed after {}:{})",
@@ -229,14 +230,9 @@ impl DebugBuilder {
                 term: Some(self.place(shown(*term), subprogram, sites)),
             })
             .collect();
-        self.debug.functions.insert(
-            emitted.name.0.clone(),
-            FunctionDebug {
-                subprogram,
-                line_zero,
-                blocks,
-            },
-        );
+        self.debug
+            .functions
+            .insert(emitted.name.0.clone(), FunctionDebug { subprogram, line_zero, blocks });
     }
 
     /// Gives each source variable of `func` defined in `emitted` a debug
@@ -297,16 +293,8 @@ impl DebugBuilder {
                 (LirVarKind::Param, Some(position)) => format!("arg: {}, ", position + 1),
                 _ => String::new(),
             };
-            let flags = if var.name.starts_with("__") {
-                ", flags: DIFlagArtificial"
-            } else {
-                ""
-            };
-            let line = if var.loc.is_none() {
-                debug.loc.line
-            } else {
-                var.loc.line
-            };
+            let flags = if var.name.starts_with("__") { ", flags: DIFlagArtificial" } else { "" };
+            let line = if var.loc.is_none() { debug.loc.line } else { var.loc.line };
             let scope = match self.inlined_scope(var.loc, subprogram, &debug.inline_sites) {
                 Some((scope, _)) => {
                     inlined_declares.push((declares.len(), var.loc));
@@ -335,18 +323,9 @@ impl DebugBuilder {
                 ret_ty: LlvmType::Void,
                 callee: LlvmOperand::Global(GlobalId("llvm.dbg.declare".to_string())),
                 args: vec![
-                    (
-                        LlvmType::Metadata,
-                        LlvmOperand::Metadata(format!("ptr %{}", slot.0)),
-                    ),
-                    (
-                        LlvmType::Metadata,
-                        LlvmOperand::Metadata(format!("!{variable}")),
-                    ),
-                    (
-                        LlvmType::Metadata,
-                        LlvmOperand::Metadata("!DIExpression()".to_string()),
-                    ),
+                    (LlvmType::Metadata, LlvmOperand::Metadata(format!("ptr %{}", slot.0))),
+                    (LlvmType::Metadata, LlvmOperand::Metadata(format!("!{variable}"))),
+                    (LlvmType::Metadata, LlvmOperand::Metadata("!DIExpression()".to_string())),
                 ],
                 attrs: Vec::new(),
             });
@@ -373,10 +352,8 @@ impl DebugBuilder {
             if position == 0 {
                 instrs.extend(prologue.iter().cloned());
             }
-            let phis = old
-                .iter()
-                .take_while(|instr| matches!(instr, LlvmInstr::Phi { .. }))
-                .count();
+            let phis =
+                old.iter().take_while(|instr| matches!(instr, LlvmInstr::Phi { .. })).count();
             for (index, instr) in old.into_iter().enumerate() {
                 moved.push(instrs.len());
                 let mut after = Vec::new();
@@ -484,22 +461,16 @@ impl DebugBuilder {
         }
         let mut tags: Vec<(i32, &str)> = [(1, "Some"), (2, "Left"), (3, "Right"), (4, "Cons")]
             .into_iter()
-            .chain(
-                program
-                    .constructor_tags
-                    .iter()
-                    .map(|(name, tag)| (*tag, name.as_str())),
-            )
+            .chain(program.constructor_tags.iter().map(|(name, tag)| (*tag, name.as_str())))
             .collect();
         tags.sort();
         tags.dedup_by_key(|(tag, _)| *tag);
         let enumerators: Vec<String> = tags
             .iter()
             .map(|(tag, name)| {
-                let node = self.debug.node(format!(
-                    "!DIEnumerator(name: \"{}\", value: {tag})",
-                    escape(name)
-                ));
+                let node = self
+                    .debug
+                    .node(format!("!DIEnumerator(name: \"{}\", value: {tag})", escape(name)));
                 format!("!{node}")
             })
             .collect();
@@ -532,11 +503,7 @@ impl DebugBuilder {
             }
             let elements = self.debug.node(format!(
                 "!{{{}}}",
-                members
-                    .iter()
-                    .map(|member| format!("!{member}"))
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                members.iter().map(|member| format!("!{member}")).collect::<Vec<_>>().join(", ")
             ));
             retained.push(self.debug.node(format!(
                 "!DICompositeType(tag: DW_TAG_structure_type, name: \"FluxCtor.{}\", \
@@ -564,9 +531,9 @@ impl DebugBuilder {
              isLocal: false, isDefinition: true)",
             self.types_symbol, self.unit, self.file
         ));
-        let expression = self.debug.node(format!(
-            "!DIGlobalVariableExpression(var: !{variable}, expr: !DIExpression())"
-        ));
+        let expression = self
+            .debug
+            .node(format!("!DIGlobalVariableExpression(var: !{variable}, expr: !DIExpression())"));
         self.types_global = Some(expression);
 
         let retained = self.list(&retained);
@@ -581,11 +548,7 @@ impl DebugBuilder {
     fn list(&mut self, nodes: &[u32]) -> u32 {
         self.debug.node(format!(
             "!{{{}}}",
-            nodes
-                .iter()
-                .map(|node| format!("!{node}"))
-                .collect::<Vec<_>>()
-                .join(", ")
+            nodes.iter().map(|node| format!("!{node}")).collect::<Vec<_>>().join(", ")
         ))
     }
 
@@ -631,11 +594,8 @@ impl DebugBuilder {
         if let Some(node) = self.locations.get(&key) {
             return *node;
         }
-        let inlined = if inlined_at == 0 {
-            String::new()
-        } else {
-            format!(", inlinedAt: !{inlined_at}")
-        };
+        let inlined =
+            if inlined_at == 0 { String::new() } else { format!(", inlinedAt: !{inlined_at}") };
         let node = self.debug.node(format!(
             "!DILocation(line: {}, column: {}, scope: !{scope}{inlined})",
             loc.line, loc.col
@@ -710,12 +670,9 @@ fn stored_result(instr: &LlvmInstr) -> Option<&LlvmLocal> {
         }
         LlvmInstr::Cast { dst, to_ty, .. } if *to_ty == i64_ty => Some(dst),
         LlvmInstr::Select { dst, value_ty, .. } if *value_ty == i64_ty => Some(dst),
-        LlvmInstr::Call {
-            dst: Some(dst),
-            ret_ty,
-            tail: false,
-            ..
-        } if *ret_ty == i64_ty => Some(dst),
+        LlvmInstr::Call { dst: Some(dst), ret_ty, tail: false, .. } if *ret_ty == i64_ty => {
+            Some(dst)
+        }
         _ => None,
     }
 }
@@ -784,10 +741,7 @@ fn kept_after_drop(value: &LlvmLocal, kept: &LlvmLocal) -> Vec<LlvmInstr> {
 }
 
 fn marker(value: i64) -> LlvmOperand {
-    LlvmOperand::Const(LlvmConst::Int {
-        bits: 64,
-        value: value as i128,
-    })
+    LlvmOperand::Const(LlvmConst::Int { bits: 64, value: value as i128 })
 }
 
 fn store(value: LlvmOperand, slot: &LlvmLocal) -> LlvmInstr {
@@ -849,10 +803,7 @@ mod tests {
             .iter()
             .find(|(name, _)| name == "llvm.module.flags")
             .expect("module flags");
-        flags
-            .iter()
-            .map(|node| builder.debug.nodes[*node as usize].clone())
-            .collect()
+        flags.iter().map(|node| builder.debug.nodes[*node as usize].clone()).collect()
     }
 
     #[test]

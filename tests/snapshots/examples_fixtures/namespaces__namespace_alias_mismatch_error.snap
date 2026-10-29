@@ -9,9 +9,9 @@ error[E018]: Import Not Found
 
 Cannot find module `Modules.Data.MyFile` to import.
 
-  examples/namespaces/namespace_alias_mismatch_error.flx:4:1
+  examples/namespaces/namespace_alias_mismatch_error.flx:3:1
   |
-4 | import Modules.Data.MyFile as MyFile
+3 | import Modules.Data.MyFile as MyFile
   | ^
 
 Hint:

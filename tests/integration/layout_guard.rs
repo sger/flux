@@ -1,9 +1,8 @@
 //! Enforces the phase-subdirectory layout defined in proposal 0169.
 //!
 //! New integration tests must live under a phase subdirectory
-//! (`tests/lexer/`, `tests/parser/`, …); dropping a bare `tests/foo.rs`
-//! bypasses the phase grouping and the `[[test]]`-binary-name discipline
-//! that keeps insta snapshot filenames stable.
+//! (`tests/lexer/`, `tests/parser/`, …), as a module of that folder's test
+//! binary; Cargo would build a bare `tests/foo.rs` as a binary of its own.
 //!
 //! Shared helpers belong in `tests/support/`, snapshots under
 //! `tests/snapshots/<phase>/`, and fixtures under `tests/fixtures/`,
@@ -25,12 +24,8 @@ fn no_new_top_level_rs_tests() {
             continue;
         }
         if path.extension().is_some_and(|ext| ext == "rs") {
-            offenders.push(
-                path.file_name()
-                    .expect("file has a name")
-                    .to_string_lossy()
-                    .into_owned(),
-            );
+            offenders
+                .push(path.file_name().expect("file has a name").to_string_lossy().into_owned());
         }
     }
 

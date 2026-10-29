@@ -16,6 +16,7 @@ pub(crate) fn base_flags() -> DriverFlags {
             emit_llvm: false,
             emit_binary: false,
             debug_heap: false,
+            leak_check: false,
             output_path: None,
         },
         input: DriverInputFlags {
@@ -34,6 +35,7 @@ pub(crate) fn base_flags() -> DriverFlags {
             quiet: false,
             check_only: false,
             tape: None,
+            metrics_path: None,
             debugger: None,
         },
         dumps: DriverDumpFlags {

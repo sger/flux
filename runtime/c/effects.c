@@ -38,19 +38,16 @@
  *
  *   - Producer: the LIR continuation lowering writes into the context's
  *     yield slots via flux_yield_to / OpYield-equivalent paths just before
- *     unwinding to the prompt. The values written are tagged Flux values
- *     borrowed from the producing frame's locals.
+ *     unwinding to the prompt. The perform gives its argument to the
+ *     context, and the prompt releases it after the clause; the clause and
+ *     state are borrowed from the evidence entry.
  *   - Consumer: flux_yield_prompt reads each slot into a local and clears
  *     it before invoking the handler clause or rethreading the
  *     continuation. After clearing, the slot no longer aliases the
  *     borrowed value.
- *   - Lifetime: the LIR lowering must keep the source value alive across
- *     the unwind window (no flux_drop between the write and the prompt
- *     consume). This is not enforced by the runtime — it is a directed
- *     invariant on the LIR generator. Switching these to explicit RC roots
- *     would require flux_dup on every yield write and flux_drop on the
- *     consume; deferred until the cost/benefit shifts (typically when
- *     concurrency lands).
+ *   - Lifetime: the borrowed slots stay alive only while the evidence
+ *     vector does, across the unwind window. This is not enforced by the
+ *     runtime.
  */
 
 #if defined(_MSC_VER)
@@ -69,6 +66,7 @@ typedef struct FluxEffectContext {
     int64_t  op_arg;               /* performed argument (unused for 0-arity) */
     int64_t  op_state;             /* current handler parameter, or 0 when absent */
     int32_t  op_arity;             /* user-visible arity of the op (0 or 1) */
+    int32_t  clause_tail_resumptive; /* the clause only resumes as its last act */
     int64_t  conts[FLUX_EFFECT_CONTS_MAX]; /* accumulated continuation closures */
     int32_t  conts_count;
     int64_t  yield_evv;            /* current_evv at yield time (slice 5-tr-fix) */
@@ -87,7 +85,42 @@ static FLUX_TLS int flux_thread_ctx_capture_transferred;
 
 typedef struct FluxEffectContextSnapshot {
     FluxEffectContext ctx;
+#ifdef FLUX_DEBUG_HEAP
+    const void *thread; /* the capturing thread's flux_snapshot_thread */
+#endif
 } FluxEffectContextSnapshot;
+
+#ifdef FLUX_DEBUG_HEAP
+/* Its address tells threads apart. */
+static FLUX_TLS char flux_snapshot_thread;
+
+/* A snapshot is restored and released on whichever worker runs its fiber.
+ * On a thread other than the one that captured it, a field still counted
+ * by that thread alone would have its count changed on two threads. */
+static void flux_effect_context_check_crossing(const FluxEffectContextSnapshot *snapshot,
+                                               const char *operation) {
+    if (snapshot->thread == &flux_snapshot_thread) return;
+    const FluxEffectContext *ctx = &snapshot->ctx;
+    const char *field = NULL;
+    if (flux_rc_is_thread_local(ctx->current_evv)) field = "evidence vector";
+    else if (flux_rc_is_thread_local(ctx->yield_evv)) field = "yield evidence";
+    else if (flux_rc_is_thread_local(ctx->clause)) field = "clause";
+    else if (flux_rc_is_thread_local(ctx->op_arg)) field = "operation argument";
+    else if (flux_rc_is_thread_local(ctx->op_state)) field = "handler state";
+    for (int32_t i = 0; !field && i < ctx->conts_count && i < FLUX_EFFECT_CONTS_MAX; i++) {
+        if (flux_rc_is_thread_local(ctx->conts[i])) field = "continuation";
+    }
+    if (!field) return;
+    char message[200];
+    int len = snprintf(message, sizeof message,
+                       "an effect context captured on one thread was %s on another "
+                       "while its %s was counted by the first thread alone",
+                       operation, field);
+    if (len < 0) len = 0;
+    if ((size_t)len >= sizeof message) len = (int)sizeof message - 1;
+    flux_heap_fault(message, (uint32_t)len);
+}
+#endif
 
 void flux_effect_context_reset(void);
 
@@ -100,6 +133,17 @@ static void flux_effect_context_dup_fields(const FluxEffectContext *ctx) {
     }
     flux_dup(ctx->yield_evv);
     flux_dup(ctx->current_evv);
+}
+
+static void flux_effect_context_promote_fields(const FluxEffectContext *ctx) {
+    flux_rc_promote(ctx->clause);
+    flux_rc_promote(ctx->op_arg);
+    flux_rc_promote(ctx->op_state);
+    for (int32_t i = 0; i < ctx->conts_count && i < FLUX_EFFECT_CONTS_MAX; i++) {
+        flux_rc_promote(ctx->conts[i]);
+    }
+    flux_rc_promote(ctx->yield_evv);
+    flux_rc_promote(ctx->current_evv);
 }
 
 static void flux_effect_context_drop_fields(const FluxEffectContext *ctx) {
@@ -131,7 +175,13 @@ void *flux_effect_context_capture(void) {
         (FluxEffectContextSnapshot *)malloc(sizeof(FluxEffectContextSnapshot));
     if (!snapshot) return NULL;
     snapshot->ctx = flux_thread_ctx;
+    /* The scheduler restores and releases a snapshot on whichever worker
+     * runs its fiber, while this thread keeps using the same values. */
+    flux_effect_context_promote_fields(&snapshot->ctx);
     flux_effect_context_dup_fields(&snapshot->ctx);
+#ifdef FLUX_DEBUG_HEAP
+    snapshot->thread = &flux_snapshot_thread;
+#endif
 #ifdef FLUX_DEBUG
     flux_thread_ctx_capture_transferred = 1;
 #endif
@@ -142,6 +192,9 @@ void flux_effect_context_restore(void *snapshot_raw) {
     flux_effect_context_reset();
     if (!snapshot_raw) return;
     FluxEffectContextSnapshot *snapshot = (FluxEffectContextSnapshot *)snapshot_raw;
+#ifdef FLUX_DEBUG_HEAP
+    flux_effect_context_check_crossing(snapshot, "restored");
+#endif
     flux_thread_ctx = snapshot->ctx;
 }
 
@@ -167,6 +220,9 @@ void flux_effect_context_reset(void) {
 void flux_effect_context_release(void *snapshot_raw) {
     if (!snapshot_raw) return;
     FluxEffectContextSnapshot *snapshot = (FluxEffectContextSnapshot *)snapshot_raw;
+#ifdef FLUX_DEBUG_HEAP
+    flux_effect_context_check_crossing(snapshot, "released");
+#endif
     flux_effect_context_drop_fields(&snapshot->ctx);
     free(snapshot);
 }
@@ -186,12 +242,13 @@ void flux_effect_context_release(void *snapshot_raw) {
  * with length = number of entries * 4 words.
  */
 
-#define EVV_ENTRY_WORDS  5
+#define EVV_ENTRY_WORDS  6
 #define EVV_HTAG_OFF     0
 #define EVV_MARKER_OFF   1
 #define EVV_HANDLER_OFF  2
 #define EVV_PARENT_OFF   3
 #define EVV_STATE_OFF    4
+#define EVV_TAIL_OFF     5  /* tagged int: the clause is tail-resumptive */
 
 /* Layout: { int32_t count; int64_t entries[]; } where entries are packed. */
 typedef struct {
@@ -245,6 +302,37 @@ void flux_evv_set(int64_t evv) {
     flux_thread_ctx.current_evv = evv;
 }
 
+/*
+ * A panic caught by a try leaves through no prompt: each handle it skipped
+ * never put back the evidence it replaced. A catch point saves the evidence
+ * it starts under, and puts it back when a panic reaches it, with no yield
+ * left in flight. The evidence of the skipped handles is not released.
+ */
+int64_t flux_effect_catch_point(void) {
+    return flux_thread_ctx.current_evv;
+}
+
+void flux_effect_unwound(int64_t evv) {
+    flux_thread_ctx.current_evv = evv;
+    if (flux_thread_ctx.yielding == 0) {
+        return;
+    }
+    flux_drop(flux_thread_ctx.op_arg);
+    flux_drop(flux_thread_ctx.op_state);
+    for (int32_t i = 0; i < flux_thread_ctx.conts_count; i++) {
+        flux_drop(flux_thread_ctx.conts[i]);
+    }
+    flux_thread_ctx.yielding    = 0;
+    flux_thread_ctx.marker      = 0;
+    flux_thread_ctx.clause      = 0;
+    flux_thread_ctx.op_arg      = 0;
+    flux_thread_ctx.op_state    = 0;
+    flux_thread_ctx.op_arity    = 0;
+    flux_thread_ctx.clause_tail_resumptive = 0;
+    flux_thread_ctx.conts_count = 0;
+    flux_thread_ctx.yield_evv   = 0;
+}
+
 int64_t flux_fresh_marker(void) {
     flux_thread_ctx.marker_counter++;
     return flux_tag_int((int64_t)flux_thread_ctx.marker_counter);
@@ -255,7 +343,8 @@ int64_t flux_fresh_marker(void) {
  * Returns a new evidence vector with the entry added.
  * Entries are appended (not sorted) for simplicity — linear lookup by htag.
  */
-int64_t flux_evv_insert(int64_t evv, int64_t htag, int64_t marker, int64_t handler, int64_t state) {
+int64_t flux_evv_insert(int64_t evv, int64_t htag, int64_t marker, int64_t handler, int64_t state,
+                        int64_t tail_resumptive) {
     EvvArray *old = evv_unbox(evv);
     int32_t old_count = old ? old->count : 0;
     int32_t new_count = old_count + 1;
@@ -278,7 +367,10 @@ int64_t flux_evv_insert(int64_t evv, int64_t htag, int64_t marker, int64_t handl
     entry[EVV_HANDLER_OFF] = handler;
     entry[EVV_PARENT_OFF]  = evv;  /* save parent evv for restoration */
     entry[EVV_STATE_OFF]   = state;
-    evv_dup_owned_fields(entry);
+    entry[EVV_TAIL_OFF]    = tail_resumptive;
+    /* The handle gives the clause and the state; the parent stays the
+     * caller's, so the entry takes a reference of its own. */
+    flux_dup(evv);
 
     return evv_box(arr);
 }
@@ -343,20 +435,20 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
     int32_t m = (int32_t)flux_untag_int(entry[EVV_MARKER_OFF]);
     int64_t clause = entry[EVV_HANDLER_OFF];
 
-    /* Take an RC root on the payload so the invariant described at the top of
-     * this file is self-enforcing: any code between flux_yield_to and the
-     * flux_yield_prompt consume that drops the last caller-side reference
-     * will NOT free the value — the context holds its own owned reference.
-     * The matching flux_drop lives in flux_yield_prompt after the clause
-     * call (see below). */
-    flux_dup(arg);
-
+    /* The perform gives `arg` to the context: the caller holds no reference
+     * of its own afterwards, so the context's is the only one, released by
+     * flux_yield_prompt after the clause call. */
     flux_thread_ctx.yielding    = 1;
     flux_thread_ctx.marker      = m;
     flux_thread_ctx.clause      = clause;
     flux_thread_ctx.op_arg      = arg;
+    /* The clause gets a reference of its own to the state: a resume with a
+     * new one releases the entry's while the clause may still read it. */
     flux_thread_ctx.op_state    = entry[EVV_STATE_OFF];
+    flux_dup(flux_thread_ctx.op_state);
     flux_thread_ctx.op_arity    = (int32_t)flux_untag_int(arity);
+    flux_thread_ctx.clause_tail_resumptive =
+        flux_untag_int(entry[EVV_TAIL_OFF]) != 0;
     flux_thread_ctx.conts_count = 0;
     /* Slice 5-tr-fix: capture the evv at yield time so the composed
      * continuation can re-install it on resume. Nested handlers rely on
@@ -412,23 +504,21 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
  */
 /*
  * Replace the parameterized handler state stored against `marker` in the
- * current evidence vector. Both the previous state and the new state are
- * RC-managed.
- *
- * Ordering matters (proposal 0171 Track 5b, item 2). We dup the new value
- * before dropping the old one so the operation is safe even when
- * next_state aliases *slot — i.e. resume(value, current_state). Reordering
- * to drop-then-dup would risk freeing the new value before the dup if the
- * caller happened to pass the same tagged pointer.
+ * current evidence vector. `resume(value, next_state)` gives `next_state`,
+ * and the slot takes that reference over. A clause that passes the state it
+ * was called with gave a copy, so releasing the old one leaves it alive; so
+ * does the clause's own reference, for a clause that reads it afterwards.
  */
 static void flux_update_state_for_marker(int32_t marker, int64_t next_state) {
     EvvArray *arr = evv_unbox(flux_thread_ctx.current_evv);
     int idx = evv_lookup_by_marker(arr, marker);
     if (idx >= 0) {
         int64_t *slot = &arr->data[idx * EVV_ENTRY_WORDS + EVV_STATE_OFF];
-        flux_dup(next_state);
-        flux_drop(*slot);
+        int64_t previous = *slot;
         *slot = next_state;
+        flux_drop(previous);
+    } else {
+        flux_drop(next_state);
     }
 }
 
@@ -492,6 +582,8 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
     int32_t marker = (int32_t)flux_untag_int(entry[EVV_MARKER_OFF]);
     int64_t clause = entry[EVV_HANDLER_OFF];
     int64_t state = entry[EVV_STATE_OFF];
+    /* As in flux_yield_to: the clause's own reference to the state. */
+    flux_dup(state);
 
     /* Save & reset the counter so nested performs don't confuse the detector. */
     int32_t saved_count = flux_thread_ctx.resume_called;
@@ -573,6 +665,11 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
     flux_thread_ctx.resume_called = saved_count;
     flux_thread_ctx.direct_resume_marker = saved_direct_marker;
 
+    /* The clause only borrowed the argument the perform gave us, and the
+     * state it was called with. */
+    flux_drop(arg);
+    flux_drop(state);
+
     return result;
 }
 
@@ -632,6 +729,8 @@ int64_t flux_compose_trampoline_closure_entry(int64_t closure_raw, int64_t *args
     int64_t *payload = (int64_t *)((char *)clo_ptr + 24);
     int64_t conts_arr = payload[0];
     int32_t marker = (int32_t)flux_untag_int(payload[1]);
+    int delimits = flux_untag_int(payload[2]) != 0;
+    int64_t entry_evv = flux_thread_ctx.current_evv;
 
     if (nargs >= 2) {
         flux_update_state_for_marker(marker, args_ptr[1]);
@@ -646,10 +745,20 @@ int64_t flux_compose_trampoline_closure_entry(int64_t closure_raw, int64_t *args
         if (flux_thread_ctx.yielding != 0) {
             for (int64_t j = i + 1; j < count; j++) {
                 int64_t outer = flux_array_at(conts_arr, flux_tag_int(j));
+                /* The array keeps its own reference, for another resume of
+                 * this closure; the context needs one to give away. */
+                flux_dup(outer);
                 (void)flux_yield_extend(outer);
             }
-            return FLUX_YIELD_SENTINEL;
+            result = FLUX_YIELD_SENTINEL;
+            break;
         }
+    }
+    /* A deep handler is installed again around what `resume` runs: a perform
+     * there is handled at this resume, and its clause's result is the value
+     * `resume` returns, so the clause that called it goes on with that. */
+    if (delimits) {
+        return flux_yield_prompt(flux_tag_int((int64_t)marker), entry_evv, result, 0);
     }
     return result;
 }
@@ -666,6 +775,8 @@ int64_t flux_compose_trampoline_closure_entry(int64_t closure_raw, int64_t *args
  * Single cont: returns it directly — no trampoline overhead.
  * Multiple conts: packages into an array and wraps in a trampoline closure.
  */
+static int64_t compose_into_closure(int delimits);
+
 int64_t flux_compose_conts(void) {
     if (flux_thread_ctx.conts_count == 0) {
         return flux_make_none();
@@ -675,7 +786,22 @@ int64_t flux_compose_conts(void) {
         flux_thread_ctx.conts_count = 0;
         return result;
     }
+    return compose_into_closure(0);
+}
 
+/*
+ * The `resume` a prompt hands its clause. Unlike a fold of pending frames
+ * (flux_compose_conts), it delimits: what it runs is handled by this handler
+ * again, so even a single continuation goes through the trampoline.
+ */
+int64_t flux_compose_resume(void) {
+    if (flux_thread_ctx.conts_count == 0) {
+        return flux_make_none();
+    }
+    return compose_into_closure(1);
+}
+
+static int64_t compose_into_closure(int delimits) {
     /* Package continuations into an array. */
     int64_t *elems = flux_thread_ctx.conts;
     int32_t count = flux_thread_ctx.conts_count;
@@ -689,7 +815,8 @@ int64_t flux_compose_conts(void) {
      * Header size = 24 bytes; payload is i64-aligned. We stash the conts
      * array (tagged pointer) as the single capture. */
     int64_t marker = flux_tag_int((int64_t)flux_thread_ctx.marker);
-    uint32_t payload_bytes = (uint32_t)(2 * sizeof(int64_t)); /* conts + marker */
+    /* conts + marker + delimits; only the first two are scanned. */
+    uint32_t payload_bytes = (uint32_t)(3 * sizeof(int64_t));
     uint32_t size = 24 + payload_bytes;
     void *mem = flux_gc_alloc_header(size, 2 /* scan_fsize = 2 captures */,
                                      FLUX_OBJ_CLOSURE);
@@ -709,6 +836,7 @@ int64_t flux_compose_conts(void) {
     clo->_pad            = 0;
     clo->payload[0]      = arr;
     clo->payload[1]      = marker;
+    clo->payload[2]      = flux_tag_int(delimits);
 
     return flux_tag_ptr(mem);
 }
@@ -732,6 +860,7 @@ int64_t flux_async_suspend(int64_t request_id, int64_t resume_value) {
     flux_thread_ctx.op_arg      = request_id;
     flux_thread_ctx.op_state    = resume_value;
     flux_thread_ctx.op_arity    = 1;
+    flux_thread_ctx.clause_tail_resumptive = 0;
     flux_thread_ctx.conts_count = 0;
     flux_thread_ctx.yield_evv   = flux_thread_ctx.current_evv;
     return FLUX_YIELD_SENTINEL;
@@ -758,9 +887,22 @@ void flux_async_clear_suspend(void) {
     flux_thread_ctx.op_arg      = 0;
     flux_thread_ctx.op_state    = 0;
     flux_thread_ctx.op_arity    = 0;
+    flux_thread_ctx.clause_tail_resumptive = 0;
     flux_thread_ctx.conts_count = 0;
     flux_thread_ctx.yield_evv   = 0;
 }
+
+/* A prompt's references released when their scope ends, which a caught
+ * panic unwinding through the prompt reaches too (KI-133). The runtime is
+ * built with `-fexceptions` on POSIX so the unwind runs the cleanup. Windows
+ * unwinds with SEH, which does not, so there the prompt releases them by
+ * hand on the normal path only. */
+#ifdef _WIN32
+#define FLUX_RELEASED
+#else
+static void flux_release_local(int64_t *val) { flux_drop(*val); }
+#define FLUX_RELEASED __attribute__((cleanup(flux_release_local)))
+#endif
 
 /*
  * Prompt loop: check if a yield is targeted at this handler.
@@ -774,9 +916,11 @@ void flux_async_clear_suspend(void) {
  *   - the handler clause result if this marker matches
  *   - FLUX_YIELD_SENTINEL if yielding but marker doesn't match (propagate)
  */
-int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result) {
+int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result,
+                          int64_t own_evv) {
     int32_t m = (int32_t)flux_untag_int(marker);
     int64_t result = body_result;
+    int64_t own FLUX_RELEASED = own_evv;
 
     /* Prompt loop: handle re-yields that occur while invoking the clause.
      * A clause that calls `resume(v)` may trigger a nested perform inside
@@ -796,6 +940,7 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
             int idx = evv_lookup_by_marker(arr, flux_thread_ctx.marker);
             if (idx < 0) {
                 flux_thread_ctx.current_evv = saved_evv;
+                own = 0;
                 return FLUX_YIELD_SENTINEL;
             }
             /* Service inline. The clause + evv come from the yield state
@@ -809,13 +954,18 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
          * finds the full installed handler chain (slice 5-tr-fix). */
 
         int64_t clause   = flux_thread_ctx.clause;
-        int64_t op_arg   = flux_thread_ctx.op_arg;
-        int64_t op_state = flux_thread_ctx.op_state;
+        int64_t op_arg FLUX_RELEASED   = flux_thread_ctx.op_arg;
+        int64_t op_state FLUX_RELEASED = flux_thread_ctx.op_state;
         int32_t op_arity = flux_thread_ctx.op_arity;
+        int32_t tail_resumptive = flux_thread_ctx.clause_tail_resumptive;
         int64_t yield_evv = yield_evv_local;
 
-        /* Build the resume closure from accumulated continuations. */
-        int64_t resume_cont = flux_compose_conts();
+        /* Build the resume closure from accumulated continuations. A clause
+         * that only resumes as its last act has nothing to come back to, so
+         * a perform inside its resume can go on to this loop instead of a
+         * prompt of its own: a loop of such performs keeps a flat stack. */
+        int64_t resume_cont FLUX_RELEASED =
+            tail_resumptive ? flux_compose_conts() : flux_compose_resume();
 
         /* Clear yield state so the clause sees a clean slate (it may re-yield). */
         flux_thread_ctx.yielding    = 0;
@@ -824,6 +974,7 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
         flux_thread_ctx.op_arg      = 0;
         flux_thread_ctx.op_state    = 0;
         flux_thread_ctx.op_arity    = 0;
+        flux_thread_ctx.clause_tail_resumptive = 0;
         flux_thread_ctx.conts_count = 0;
         flux_thread_ctx.yield_evv         = 0;
 
@@ -835,7 +986,7 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
         flux_thread_ctx.current_evv = yield_evv;
 
         /* Call the handler clause: clause(resume, [arg], [state]).
-         * op_arg carries the owned RC reference taken by flux_yield_to.
+         * op_arg carries the reference the perform gave flux_yield_to.
          * The clause receives it as a borrowed argument and will flux_dup
          * it if it needs to store it. We drop our owned reference after
          * the clause returns (regardless of which branch ran). */
@@ -852,13 +1003,26 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
             int64_t args[2] = { resume_cont, op_arg };
             result = flux_call_closure_c(clause, args, 2);
         }
-        /* Release the RC root taken in flux_yield_to. */
+        /* Release the reference the perform gave flux_yield_to, and the
+         * resume: the clause only borrowed it, and a later step of the
+         * clause that still needs it holds a reference of its own. The same
+         * for the clause's reference to the state. */
+#ifdef _WIN32
         flux_drop(op_arg);
+        flux_drop(resume_cont);
+        flux_drop(op_state);
+#endif
         /* Loop: if the clause re-yielded (resume inside triggered a nested
          * perform targeting this same handler), iterate. Otherwise exit. */
     }
 
-    /* No more yields — restore parent evv and return the final value. */
+    /* No more yields — restore parent evv and return the final value. The
+     * handle's own evidence goes with it. On the way out with a yield for
+     * another handler it stays: a continuation may still run under it, and
+     * yield_evv names it. */
     flux_thread_ctx.current_evv = saved_evv;
+#ifdef _WIN32
+    flux_drop(own);
+#endif
     return result;
 }

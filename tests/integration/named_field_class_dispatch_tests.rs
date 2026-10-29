@@ -14,16 +14,11 @@
 //! which is what made one arm appear to work. Both spellings are covered here
 //! so a future change cannot fix one and regress the other.
 
-use std::path::Path;
 use std::process::Command;
 
-#[path = "../support/scratch.rs"]
-mod scratch;
+use crate::support::scratch;
 use scratch::Scratch;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+use scratch::workspace_root;
 
 fn run_source(name: &str, source: &str) -> (String, String, bool) {
     // Own scratch dir per run: a literal filename in one shared directory let
@@ -75,10 +70,7 @@ fn main() with IO {
 "#,
     );
 
-    assert!(
-        success,
-        "named-field constructors must dispatch to their instance:\n{stdout}{stderr}"
-    );
+    assert!(success, "named-field constructors must dispatch to their instance:\n{stdout}{stderr}");
     assert!(
         stdout.contains("red") && stdout.contains("blue") && stdout.contains("tagged"),
         "every instance should have been selected, got:\n{stdout}{stderr}"
@@ -114,10 +106,7 @@ fn main() with IO {
 "#,
     );
 
-    assert!(
-        success,
-        "positional constructors must dispatch to their instance:\n{stdout}{stderr}"
-    );
+    assert!(success, "positional constructors must dispatch to their instance:\n{stdout}{stderr}");
     assert!(
         stdout.contains("circle") && stdout.contains("labelled"),
         "every instance should have been selected, got:\n{stdout}{stderr}"
@@ -152,12 +141,6 @@ fn main() with IO {
 "#,
     );
 
-    assert!(
-        success,
-        "a bound named-field value must still dispatch:\n{stdout}{stderr}"
-    );
-    assert!(
-        stdout.contains("1,2"),
-        "expected the instance's rendering, got:\n{stdout}{stderr}"
-    );
+    assert!(success, "a bound named-field value must still dispatch:\n{stdout}{stderr}");
+    assert!(stdout.contains("1,2"), "expected the instance's rendering, got:\n{stdout}{stderr}");
 }

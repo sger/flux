@@ -131,11 +131,7 @@ fn max_span_col_on_line(line_no: usize, span: Span, labels: &[Label]) -> usize {
 }
 
 fn span_column(column: usize, line_len: usize) -> usize {
-    if column >= END_OF_LINE_SENTINEL {
-        line_len
-    } else {
-        column.min(line_len)
-    }
+    if column >= END_OF_LINE_SENTINEL { line_len } else { column.min(line_len) }
 }
 
 fn compute_caret_range(line_no: usize, span: Span, line_len: usize) -> (usize, usize) {
@@ -177,26 +173,14 @@ pub fn render_source_snippet(
     labels: &[Label],
     use_color: bool,
 ) {
-    let colors = if use_color {
-        Colors::with_color()
-    } else {
-        Colors::no_color()
-    };
+    let colors = if use_color { Colors::with_color() } else { Colors::no_color() };
 
     let start_line = span.start.line;
     let end_line = span.end.line.max(start_line);
 
     // Expand range to include all label lines
-    let label_start = labels
-        .iter()
-        .map(|l| l.span.start.line)
-        .min()
-        .unwrap_or(start_line);
-    let label_end = labels
-        .iter()
-        .map(|l| l.span.end.line)
-        .max()
-        .unwrap_or(end_line);
+    let label_start = labels.iter().map(|l| l.span.start.line).min().unwrap_or(start_line);
+    let label_end = labels.iter().map(|l| l.span.end.line).max().unwrap_or(end_line);
     let actual_start = start_line.min(label_start);
     let actual_end = end_line.max(label_end);
 
@@ -249,12 +233,7 @@ pub fn render_source_snippet(
             let line_len = display_line.len();
 
             // Print the (possibly trimmed) source line
-            out.push_str(&format!(
-                "{:>width$} | {}\n",
-                line_no,
-                display_line,
-                width = line_width
-            ));
+            out.push_str(&format!("{:>width$} | {}\n", line_no, display_line, width = line_width));
 
             // Only render primary caret if this line is in the primary span
             let render_primary = line_no >= start_line && line_no <= end_line;
@@ -340,11 +319,7 @@ pub fn render_source_snippet(
 /// - `span`: The span to highlight
 /// - `use_color`: Whether to use ANSI color codes
 pub fn render_hint_snippet(out: &mut String, source: Option<&str>, span: Span, use_color: bool) {
-    let colors = if use_color {
-        Colors::with_color()
-    } else {
-        Colors::no_color()
-    };
+    let colors = if use_color { Colors::with_color() } else { Colors::no_color() };
 
     let start_line = span.start.line;
     let end_line = span.end.line.max(start_line);
@@ -362,12 +337,7 @@ pub fn render_hint_snippet(out: &mut String, source: Option<&str>, span: Span, u
 
             let (caret_start, caret_end) = compute_caret_range(line_no, span, line_len);
 
-            out.push_str(&format!(
-                "{:>width$} | {}\n",
-                line_no,
-                display_line,
-                width = line_width
-            ));
+            out.push_str(&format!("{:>width$} | {}\n", line_no, display_line, width = line_width));
             out.push_str(&format!(
                 "{:>width$} | {}",
                 "",
@@ -432,10 +402,7 @@ mod tests {
     #[test]
     fn unterminated_string_no_comment() {
         // Opening quote never closed – the // is inside the string.
-        assert_eq!(
-            find_comment_start(r#"let greeting = "hello  // No semicolon needed"#),
-            None
-        );
+        assert_eq!(find_comment_start(r#"let greeting = "hello  // No semicolon needed"#), None);
     }
 
     // ── render_diagnostic_line ──────────────────────────────────────

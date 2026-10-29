@@ -1,5 +1,12 @@
 // parity: vm, llvm
 // expect: success
+// parity-expected-stdout-begin
+// Ok(10)
+// Err(Panicked("boom"))
+// Err(Canceled)
+// Err(TimedOut)
+// Err(Panicked("timeout-boom"))
+// parity-expected-stdout-end
 
 import Flow.Async exposing (..)
 

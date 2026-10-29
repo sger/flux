@@ -6,9 +6,9 @@
 //
 // Expected `,` in tuple pattern.
 //
-//   examples/parser_errors/missing_tuple_pattern_comma.flx:26:12
+//   examples/parser_errors/missing_tuple_pattern_comma.flx:25:12
 //    |
-// 26 |         (a b) -> a,
+// 25 |         (a b) -> a,
 //    |            ^
 //
 // Hint:
@@ -19,11 +19,10 @@
 //   Suppressed 2 cascading parser diagnostic(s) likely caused by an earlier syntax error.
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E034
 
 fn main() -> Int {
     match (1, 2) {
-        (a b) -> a,
+        (a b) -> a, //~ E034
         _ -> 0
     }
 }

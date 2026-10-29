@@ -24,12 +24,7 @@ pub(super) fn bind_pattern(
         }
     }
     for (binder, value) in kept.into_iter().rev() {
-        body = CoreExpr::Let {
-            var: binder,
-            rhs: Box::new(value),
-            body: Box::new(body),
-            span: arm,
-        };
+        body = CoreExpr::Let { var: binder, rhs: Box::new(value), body: Box::new(body), span: arm };
     }
     body
 }
@@ -46,22 +41,10 @@ pub(super) fn subst(expr: CoreExpr, var: CoreBinderId, replacement: &CoreExpr) -
                 CoreExpr::Var { var: ref_var, span }
             }
         }
-        CoreExpr::Lam {
-            params,
-            param_types,
-            result_ty,
-            body,
-            span,
-        } => {
+        CoreExpr::Lam { params, param_types, result_ty, body, span } => {
             if params.iter().any(|p| p.id == var) {
                 // Shadowed — don't substitute inside.
-                CoreExpr::Lam {
-                    params,
-                    param_types,
-                    result_ty,
-                    body,
-                    span,
-                }
+                CoreExpr::Lam { params, param_types, result_ty, body, span }
             } else {
                 CoreExpr::Lam {
                     params,
@@ -72,20 +55,10 @@ pub(super) fn subst(expr: CoreExpr, var: CoreBinderId, replacement: &CoreExpr) -
                 }
             }
         }
-        CoreExpr::Let {
-            var: binding,
-            rhs,
-            body,
-            span,
-        } => {
+        CoreExpr::Let { var: binding, rhs, body, span } => {
             let rhs = subst(*rhs, var, replacement);
             if binding.id == var {
-                CoreExpr::Let {
-                    var: binding,
-                    rhs: Box::new(rhs),
-                    body,
-                    span,
-                }
+                CoreExpr::Let { var: binding, rhs: Box::new(rhs), body, span }
             } else {
                 CoreExpr::Let {
                     var: binding,
@@ -97,18 +70,10 @@ pub(super) fn subst(expr: CoreExpr, var: CoreBinderId, replacement: &CoreExpr) -
         }
         CoreExpr::App { func, args, span } => CoreExpr::App {
             func: Box::new(subst(*func, var, replacement)),
-            args: args
-                .into_iter()
-                .map(|a| subst(a, var, replacement))
-                .collect(),
+            args: args.into_iter().map(|a| subst(a, var, replacement)).collect(),
             span,
         },
-        CoreExpr::Case {
-            scrutinee,
-            alts,
-            join_ty,
-            span,
-        } => {
+        CoreExpr::Case { scrutinee, alts, join_ty, span } => {
             let scrutinee = subst(*scrutinee, var, replacement);
             let alts = alts
                 .into_iter()
@@ -120,60 +85,30 @@ pub(super) fn subst(expr: CoreExpr, var: CoreBinderId, replacement: &CoreExpr) -
                     alt
                 })
                 .collect();
-            CoreExpr::Case {
-                scrutinee: Box::new(scrutinee),
-                alts,
-                join_ty,
-                span,
-            }
+            CoreExpr::Case { scrutinee: Box::new(scrutinee), alts, join_ty, span }
         }
         CoreExpr::Con { tag, fields, span } => CoreExpr::Con {
             tag,
-            fields: fields
-                .into_iter()
-                .map(|f| subst(f, var, replacement))
-                .collect(),
+            fields: fields.into_iter().map(|f| subst(f, var, replacement)).collect(),
             span,
         },
         CoreExpr::PrimOp { op, args, span } => CoreExpr::PrimOp {
             op,
-            args: args
-                .into_iter()
-                .map(|a| subst(a, var, replacement))
-                .collect(),
+            args: args.into_iter().map(|a| subst(a, var, replacement)).collect(),
             span,
         },
-        CoreExpr::Return { value, span } => CoreExpr::Return {
-            value: Box::new(subst(*value, var, replacement)),
-            span,
-        },
-        CoreExpr::Perform {
+        CoreExpr::Return { value, span } => {
+            CoreExpr::Return { value: Box::new(subst(*value, var, replacement)), span }
+        }
+        CoreExpr::Perform { effect, operation, args, span } => CoreExpr::Perform {
             effect,
             operation,
-            args,
-            span,
-        } => CoreExpr::Perform {
-            effect,
-            operation,
-            args: args
-                .into_iter()
-                .map(|a| subst(a, var, replacement))
-                .collect(),
+            args: args.into_iter().map(|a| subst(a, var, replacement)).collect(),
             span,
         },
-        CoreExpr::LetRec {
-            var: binding,
-            rhs,
-            body,
-            span,
-        } => {
+        CoreExpr::LetRec { var: binding, rhs, body, span } => {
             if binding.id == var {
-                CoreExpr::LetRec {
-                    var: binding,
-                    rhs,
-                    body,
-                    span,
-                }
+                CoreExpr::LetRec { var: binding, rhs, body, span }
             } else {
                 CoreExpr::LetRec {
                     var: binding,
@@ -183,17 +118,9 @@ pub(super) fn subst(expr: CoreExpr, var: CoreBinderId, replacement: &CoreExpr) -
                 }
             }
         }
-        CoreExpr::LetRecGroup {
-            bindings,
-            body,
-            span,
-        } => {
+        CoreExpr::LetRecGroup { bindings, body, span } => {
             if bindings.iter().any(|(b, _)| b.id == var) {
-                CoreExpr::LetRecGroup {
-                    bindings,
-                    body,
-                    span,
-                }
+                CoreExpr::LetRecGroup { bindings, body, span }
             } else {
                 CoreExpr::LetRecGroup {
                     bindings: bindings
@@ -205,13 +132,7 @@ pub(super) fn subst(expr: CoreExpr, var: CoreBinderId, replacement: &CoreExpr) -
                 }
             }
         }
-        CoreExpr::Handle {
-            body,
-            effect,
-            parameter,
-            handlers,
-            span,
-        } => CoreExpr::Handle {
+        CoreExpr::Handle { body, effect, parameter, handlers, span } => CoreExpr::Handle {
             body: Box::new(subst(*body, var, replacement)),
             effect,
             parameter: parameter.map(|p| Box::new(subst(*p, var, replacement))),
@@ -221,24 +142,14 @@ pub(super) fn subst(expr: CoreExpr, var: CoreBinderId, replacement: &CoreExpr) -
                 .collect(),
             span,
         },
-        CoreExpr::MemberAccess {
-            object,
-            member,
-            span,
-        } => CoreExpr::MemberAccess {
+        CoreExpr::MemberAccess { object, member, span } => CoreExpr::MemberAccess {
             object: Box::new(subst(*object, var, replacement)),
             member,
             span,
         },
-        CoreExpr::TupleField {
-            object,
-            index,
-            span,
-        } => CoreExpr::TupleField {
-            object: Box::new(subst(*object, var, replacement)),
-            index,
-            span,
-        },
+        CoreExpr::TupleField { object, index, span } => {
+            CoreExpr::TupleField { object: Box::new(subst(*object, var, replacement)), index, span }
+        }
         other => other,
     }
 }
@@ -254,10 +165,7 @@ pub(super) fn subst_handler(
     {
         handler
     } else {
-        CoreHandler {
-            body: subst(handler.body, var, replacement),
-            ..handler
-        }
+        CoreHandler { body: subst(handler.body, var, replacement), ..handler }
     }
 }
 
@@ -265,64 +173,26 @@ pub(super) fn subst_handler(
 
 pub(super) fn map_children(expr: CoreExpr, f: fn(CoreExpr) -> CoreExpr) -> CoreExpr {
     match expr {
-        CoreExpr::Lam {
-            params,
-            param_types,
-            result_ty,
-            body,
-            span,
-        } => CoreExpr::Lam {
-            params,
-            param_types,
-            result_ty,
-            body: Box::new(f(*body)),
-            span,
-        },
+        CoreExpr::Lam { params, param_types, result_ty, body, span } => {
+            CoreExpr::Lam { params, param_types, result_ty, body: Box::new(f(*body)), span }
+        }
         CoreExpr::App { func, args, span } => CoreExpr::App {
             func: Box::new(f(*func)),
             args: args.into_iter().map(f).collect(),
             span,
         },
-        CoreExpr::Let {
-            var,
-            rhs,
-            body,
-            span,
-        } => CoreExpr::Let {
-            var,
-            rhs: Box::new(f(*rhs)),
+        CoreExpr::Let { var, rhs, body, span } => {
+            CoreExpr::Let { var, rhs: Box::new(f(*rhs)), body: Box::new(f(*body)), span }
+        }
+        CoreExpr::LetRec { var, rhs, body, span } => {
+            CoreExpr::LetRec { var, rhs: Box::new(f(*rhs)), body: Box::new(f(*body)), span }
+        }
+        CoreExpr::LetRecGroup { bindings, body, span } => CoreExpr::LetRecGroup {
+            bindings: bindings.into_iter().map(|(b, rhs)| (b, Box::new(f(*rhs)))).collect(),
             body: Box::new(f(*body)),
             span,
         },
-        CoreExpr::LetRec {
-            var,
-            rhs,
-            body,
-            span,
-        } => CoreExpr::LetRec {
-            var,
-            rhs: Box::new(f(*rhs)),
-            body: Box::new(f(*body)),
-            span,
-        },
-        CoreExpr::LetRecGroup {
-            bindings,
-            body,
-            span,
-        } => CoreExpr::LetRecGroup {
-            bindings: bindings
-                .into_iter()
-                .map(|(b, rhs)| (b, Box::new(f(*rhs))))
-                .collect(),
-            body: Box::new(f(*body)),
-            span,
-        },
-        CoreExpr::Case {
-            scrutinee,
-            alts,
-            join_ty,
-            span,
-        } => CoreExpr::Case {
+        CoreExpr::Case { scrutinee, alts, join_ty, span } => CoreExpr::Case {
             scrutinee: Box::new(f(*scrutinee)),
             alts: alts
                 .into_iter()
@@ -335,38 +205,17 @@ pub(super) fn map_children(expr: CoreExpr, f: fn(CoreExpr) -> CoreExpr) -> CoreE
             join_ty,
             span,
         },
-        CoreExpr::Con { tag, fields, span } => CoreExpr::Con {
-            tag,
-            fields: fields.into_iter().map(f).collect(),
-            span,
-        },
-        CoreExpr::PrimOp { op, args, span } => CoreExpr::PrimOp {
-            op,
-            args: args.into_iter().map(f).collect(),
-            span,
-        },
-        CoreExpr::Return { value, span } => CoreExpr::Return {
-            value: Box::new(f(*value)),
-            span,
-        },
-        CoreExpr::Perform {
-            effect,
-            operation,
-            args,
-            span,
-        } => CoreExpr::Perform {
-            effect,
-            operation,
-            args: args.into_iter().map(f).collect(),
-            span,
-        },
-        CoreExpr::Handle {
-            body,
-            effect,
-            parameter,
-            handlers,
-            span,
-        } => CoreExpr::Handle {
+        CoreExpr::Con { tag, fields, span } => {
+            CoreExpr::Con { tag, fields: fields.into_iter().map(f).collect(), span }
+        }
+        CoreExpr::PrimOp { op, args, span } => {
+            CoreExpr::PrimOp { op, args: args.into_iter().map(f).collect(), span }
+        }
+        CoreExpr::Return { value, span } => CoreExpr::Return { value: Box::new(f(*value)), span },
+        CoreExpr::Perform { effect, operation, args, span } => {
+            CoreExpr::Perform { effect, operation, args: args.into_iter().map(f).collect(), span }
+        }
+        CoreExpr::Handle { body, effect, parameter, handlers, span } => CoreExpr::Handle {
             body: Box::new(f(*body)),
             effect,
             parameter: parameter.map(|p| Box::new(f(*p))),
@@ -379,24 +228,12 @@ pub(super) fn map_children(expr: CoreExpr, f: fn(CoreExpr) -> CoreExpr) -> CoreE
                 .collect(),
             span,
         },
-        CoreExpr::MemberAccess {
-            object,
-            member,
-            span,
-        } => CoreExpr::MemberAccess {
-            object: Box::new(f(*object)),
-            member,
-            span,
-        },
-        CoreExpr::TupleField {
-            object,
-            index,
-            span,
-        } => CoreExpr::TupleField {
-            object: Box::new(f(*object)),
-            index,
-            span,
-        },
+        CoreExpr::MemberAccess { object, member, span } => {
+            CoreExpr::MemberAccess { object: Box::new(f(*object)), member, span }
+        }
+        CoreExpr::TupleField { object, index, span } => {
+            CoreExpr::TupleField { object: Box::new(f(*object)), index, span }
+        }
         other => other,
     }
 }
@@ -726,26 +563,18 @@ pub(super) fn appears_free(var: CoreBinderId, expr: &CoreExpr) -> bool {
         CoreExpr::App { func, args, .. } => {
             appears_free(var, func) || args.iter().any(|a| appears_free(var, a))
         }
-        CoreExpr::Let {
-            var: binding,
-            rhs,
-            body,
-            ..
-        } => appears_free(var, rhs) || (binding.id != var && appears_free(var, body)),
-        CoreExpr::LetRec {
-            var: binding,
-            rhs,
-            body,
-            ..
-        } => binding.id != var && (appears_free(var, rhs) || appears_free(var, body)),
+        CoreExpr::Let { var: binding, rhs, body, .. } => {
+            appears_free(var, rhs) || (binding.id != var && appears_free(var, body))
+        }
+        CoreExpr::LetRec { var: binding, rhs, body, .. } => {
+            binding.id != var && (appears_free(var, rhs) || appears_free(var, body))
+        }
         CoreExpr::LetRecGroup { bindings, body, .. } => {
             !bindings.iter().any(|(b, _)| b.id == var)
                 && (bindings.iter().any(|(_, rhs)| appears_free(var, rhs))
                     || appears_free(var, body))
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             appears_free(var, scrutinee)
                 || alts.iter().any(|alt| {
                     !pat_binds(&alt.pat, var)
@@ -757,12 +586,7 @@ pub(super) fn appears_free(var: CoreBinderId, expr: &CoreExpr) -> bool {
         CoreExpr::PrimOp { args, .. } => args.iter().any(|a| appears_free(var, a)),
         CoreExpr::Return { value, .. } => appears_free(var, value),
         CoreExpr::Perform { args, .. } => args.iter().any(|a| appears_free(var, a)),
-        CoreExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        CoreExpr::Handle { body, parameter, handlers, .. } => {
             parameter.as_ref().is_some_and(|p| appears_free(var, p))
                 || appears_free(var, body)
                 || handlers.iter().any(|h| {
@@ -790,15 +614,9 @@ pub(super) fn expr_size(expr: &CoreExpr) -> usize {
             1 + expr_size(rhs) + expr_size(body)
         }
         CoreExpr::LetRecGroup { bindings, body, .. } => {
-            1 + bindings
-                .iter()
-                .map(|(_, rhs)| expr_size(rhs))
-                .sum::<usize>()
-                + expr_size(body)
+            1 + bindings.iter().map(|(_, rhs)| expr_size(rhs)).sum::<usize>() + expr_size(body)
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             1 + expr_size(scrutinee)
                 + alts
                     .iter()
@@ -809,12 +627,7 @@ pub(super) fn expr_size(expr: &CoreExpr) -> usize {
         CoreExpr::PrimOp { args, .. } => 1 + args.iter().map(expr_size).sum::<usize>(),
         CoreExpr::Return { value, .. } => 1 + expr_size(value),
         CoreExpr::Perform { args, .. } => 1 + args.iter().map(expr_size).sum::<usize>(),
-        CoreExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        CoreExpr::Handle { body, parameter, handlers, .. } => {
             1 + expr_size(body)
                 + parameter.as_ref().map_or(0, |p| expr_size(p))
                 + handlers.iter().map(|h| expr_size(&h.body)).sum::<usize>()

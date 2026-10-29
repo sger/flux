@@ -2,6 +2,10 @@
 // expect: success
 // bug: a derived Show instance must render the constructor name both directly
 //      and through a `Show`-constrained function (Proposal 0179 Stage 7).
+// parity-expected-stdout-begin
+// "Red"
+// "Green"
+// parity-expected-stdout-end
 
 data Color { Red, Green, Blue } deriving (Show)
 

@@ -1,5 +1,9 @@
 // parity: vm, llvm
 // expect: success
+// parity-expected-stdout-begin
+// true
+// false
+// parity-expected-stdout-end
 
 class MyEq<a> {
     fn my_eq(x: a, y: a) -> Bool

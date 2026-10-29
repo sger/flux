@@ -1,6 +1,9 @@
 // parity: vm, llvm
 // expect: success
 // bug: Tcp.connect accepts hostnames by resolving through the async DNS pool.
+// parity-expected-stdout-begin
+// "hello-dns"
+// parity-expected-stdout-end
 
 import Flow.Async exposing (..)
 import Flow.Tcp exposing (..)

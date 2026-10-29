@@ -2,6 +2,18 @@
 // expect: success
 // Tests safe_div and safe_mod (Proposal 0135 Phase 1).
 // These are total functions: return Some(result) on success, None on zero divisor.
+// parity-expected-stdout-begin
+// Some(3)
+// None
+// Some(0)
+// Some(-5)
+// Some(1)
+// None
+// Some(0)
+// Some(0)
+// "100/4 = 25"
+// "division by zero handled"
+// parity-expected-stdout-end
 
 fn main() with IO {
     // ── safe_div ─────────────────────────────────────────────────────

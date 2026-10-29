@@ -6,9 +6,9 @@
 //
 // Effect expressions can contain only one row variable tail.
 //
-//   examples/parser_errors/multiple_row_tails_in_with_clause.flx:23:28
+//   examples/parser_errors/multiple_row_tails_in_with_clause.flx:22:28
 //    |
-// 23 | fn main() -> Int with IO | e | t {
+// 22 | fn main() -> Int with IO | e | t {
 //    |                            ^
 //
 // Hint:
@@ -18,9 +18,8 @@
 //   while parsing function `main`
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E034
 
-fn main() -> Int with IO | e | t {
+fn main() -> Int with IO | e | t { //~ E034
     1
 }
 

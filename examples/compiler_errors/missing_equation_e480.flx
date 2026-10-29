@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E480
 // Expected: E480 Missing Associated Type
 //   "Instance does not define associated type `Element`, which `Collection`
 //    declares."
@@ -15,7 +14,7 @@ class Collection<c> {
     fn size_of(xs: c) -> Int
 }
 
-instance Collection<List<a>> {
+instance Collection<List<a>> { //~ E480
     fn size_of(xs) { 1 }
 }
 

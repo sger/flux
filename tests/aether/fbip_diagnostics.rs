@@ -7,11 +7,7 @@ fn compile_ok_with_warnings(input: &str) -> Vec<Diagnostic> {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<aether-fbip>", interner);
     compiler.compile(&program).expect("expected compile ok");
@@ -25,11 +21,7 @@ fn compile_fixture_warnings(rel: &str) -> Vec<Diagnostic> {
     let lexer = Lexer::new(&source);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
 
     let mut roots = Vec::new();
     if let Some(parent) = fixture.parent() {
@@ -42,19 +34,13 @@ fn compile_fixture_warnings(rel: &str) -> Vec<Diagnostic> {
 
     let graph =
         ModuleGraph::build_with_entry_and_roots(&fixture, &program, parser.take_interner(), &roots);
-    assert!(
-        graph.diagnostics.is_empty(),
-        "module diagnostics: {:?}",
-        graph.diagnostics
-    );
+    assert!(graph.diagnostics.is_empty(), "module diagnostics: {:?}", graph.diagnostics);
 
     let mut compiler = Compiler::new_with_interner(rel, graph.interner);
     for node in graph.graph.topo_order() {
         compiler.set_file_path(node.path.to_string_lossy().to_string());
         compiler.set_current_module_kind(node.kind);
-        compiler
-            .compile(&node.program)
-            .expect("expected compile ok");
+        compiler.compile(&node.program).expect("expected compile ok");
     }
     compiler.take_warnings()
 }
@@ -63,16 +49,10 @@ fn compile_err_diagnostics(input: &str) -> Vec<Diagnostic> {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<aether-fbip>", interner);
-    compiler
-        .compile(&program)
-        .expect_err("expected compile error")
+    compiler.compile(&program).expect_err("expected compile error")
 }
 
 #[test]
@@ -81,10 +61,11 @@ fn fip_warning_reports_fresh_allocation_cause() {
         .expect("fixture should exist")
         .replace("@fbip fn bounded(f, x) {", "@fip fn bounded(f, x) {");
     let warnings = compile_ok_with_warnings(&src);
-    assert!(warnings.iter().any(|d| {
-        d.message()
-            .is_some_and(|m| m.contains("indirect or opaque callee `f`"))
-    }));
+    assert!(
+        warnings
+            .iter()
+            .any(|d| { d.message().is_some_and(|m| m.contains("indirect or opaque callee `f`")) })
+    );
 }
 
 #[test]
@@ -92,10 +73,11 @@ fn fbip_failure_is_hard_error() {
     let src = std::fs::read_to_string("examples/compiler_errors/fbip_fail_nonfip_call.flx")
         .expect("fixture should exist");
     let diagnostics = compile_err_diagnostics(&src);
-    assert!(diagnostics.iter().any(|d| {
-        d.message()
-            .is_some_and(|m| m.contains("indirect or opaque callee `f`"))
-    }));
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| { d.message().is_some_and(|m| m.contains("indirect or opaque callee `f`")) })
+    );
 }
 
 #[test]
@@ -105,8 +87,7 @@ fn vacuous_annotation_is_advisory_warning() {
     let warnings = compile_ok_with_warnings(&src);
     assert!(warnings.iter().any(|d| {
         d.title() == "FBIP Annotation Has No Effect"
-            && d.message()
-                .is_some_and(|m| m.contains("no heap constructor sites"))
+            && d.message().is_some_and(|m| m.contains("no heap constructor sites"))
     }));
 }
 
@@ -132,10 +113,9 @@ fn fbip_failure_cases_cover_current_warning_categories() {
     let warnings = compile_fixture_warnings("examples/aether/fbip_failure_cases.flx");
 
     assert!(
-        warnings.iter().any(|d| {
-            d.message()
-                .is_some_and(|m| m.contains("indirect or opaque callee `f`"))
-        }),
+        warnings
+            .iter()
+            .any(|d| { d.message().is_some_and(|m| m.contains("indirect or opaque callee `f`")) }),
         "expected indirect higher-order warning"
     );
     assert!(
@@ -149,10 +129,9 @@ fn fbip_failure_cases_cover_current_warning_categories() {
         "expected imported/name-only warning"
     );
     assert!(
-        warnings.iter().any(|d| {
-            d.message()
-                .is_some_and(|m| m.contains("fresh heap allocation remains"))
-        }),
+        warnings
+            .iter()
+            .any(|d| { d.message().is_some_and(|m| m.contains("fresh heap allocation remains")) }),
         "expected fresh-allocation warning"
     );
 }

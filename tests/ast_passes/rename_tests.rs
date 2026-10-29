@@ -10,11 +10,7 @@ fn parse(input: &str) -> (Program, Interner) {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "Parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "Parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     (program, interner)
 }
@@ -107,14 +103,10 @@ fn rename_in_function_params_and_body() {
     let rewritten = rename(program, map);
 
     match &rewritten.statements[0] {
-        Statement::Function {
-            parameters, body, ..
-        } => {
+        Statement::Function { parameters, body, .. } => {
             assert_eq!(parameters[0], sym_b);
             match &body.statements[0] {
-                Statement::Return {
-                    value: Some(expr), ..
-                } => match expr {
+                Statement::Return { value: Some(expr), .. } => match expr {
                     Expression::Identifier { name, .. } => assert_eq!(*name, sym_b),
                     other => panic!("expected Identifier, got {:?}", other),
                 },

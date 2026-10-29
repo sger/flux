@@ -101,9 +101,7 @@ fn resolve_expr_binders(
             resolve_expr_binders(body, scopes, is_dict);
             scopes.pop();
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             resolve_expr_binders(scrutinee, scopes, is_dict);
             for alt in alts {
                 let mut pattern_scope = BinderScope::new();
@@ -127,12 +125,7 @@ fn resolve_expr_binders(
                 resolve_expr_binders(arg, scopes, is_dict);
             }
         }
-        CoreExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        CoreExpr::Handle { body, parameter, handlers, .. } => {
             if let Some(parameter) = parameter {
                 resolve_expr_binders(parameter, scopes, is_dict);
             }
@@ -176,9 +169,7 @@ fn validate_expr_binders(
         }
         CoreExpr::App { func, args, .. } => {
             validate_expr_binders(func, scopes, is_dict)
-                && args
-                    .iter()
-                    .all(|arg| validate_expr_binders(arg, scopes, is_dict))
+                && args.iter().all(|arg| validate_expr_binders(arg, scopes, is_dict))
         }
         CoreExpr::Let { var, rhs, body, .. } => {
             if !validate_expr_binders(rhs, scopes, is_dict) {
@@ -199,16 +190,12 @@ fn validate_expr_binders(
         CoreExpr::LetRecGroup { bindings, body, .. } => {
             let binder_scope: BinderScope = bindings.iter().map(|(b, _)| (b.name, b.id)).collect();
             scopes.push(binder_scope);
-            let ok = bindings
-                .iter()
-                .all(|(_, rhs)| validate_expr_binders(rhs, scopes, is_dict))
+            let ok = bindings.iter().all(|(_, rhs)| validate_expr_binders(rhs, scopes, is_dict))
                 && validate_expr_binders(body, scopes, is_dict);
             scopes.pop();
             ok
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             if !validate_expr_binders(scrutinee, scopes, is_dict) {
                 return false;
             }
@@ -225,19 +212,14 @@ fn validate_expr_binders(
                 guard_ok && rhs_ok
             })
         }
-        CoreExpr::Con { fields, .. } => fields
-            .iter()
-            .all(|field| validate_expr_binders(field, scopes, is_dict)),
+        CoreExpr::Con { fields, .. } => {
+            fields.iter().all(|field| validate_expr_binders(field, scopes, is_dict))
+        }
         CoreExpr::Return { value, .. } => validate_expr_binders(value, scopes, is_dict),
-        CoreExpr::PrimOp { args, .. } | CoreExpr::Perform { args, .. } => args
-            .iter()
-            .all(|arg| validate_expr_binders(arg, scopes, is_dict)),
-        CoreExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        CoreExpr::PrimOp { args, .. } | CoreExpr::Perform { args, .. } => {
+            args.iter().all(|arg| validate_expr_binders(arg, scopes, is_dict))
+        }
+        CoreExpr::Handle { body, parameter, handlers, .. } => {
             if parameter
                 .as_ref()
                 .is_some_and(|parameter| !validate_expr_binders(parameter, scopes, is_dict))
@@ -293,10 +275,7 @@ fn in_scope(scopes: &[BinderScope], name: Identifier, id: CoreBinderId) -> bool 
 }
 
 fn lookup_binder(scopes: &[BinderScope], name: Identifier) -> Option<CoreBinderId> {
-    scopes
-        .iter()
-        .rev()
-        .find_map(|scope| scope.get(&name).copied())
+    scopes.iter().rev().find_map(|scope| scope.get(&name).copied())
 }
 
 #[cfg(test)]
@@ -325,13 +304,7 @@ mod tests {
             false,
             span,
         );
-        (
-            CoreProgram {
-                defs: vec![def],
-                top_level_items: Vec::new(),
-            },
-            outer.id,
-        )
+        (CoreProgram { defs: vec![def], top_level_items: Vec::new() }, outer.id)
     }
 
     fn referenced_binder(program: &CoreProgram) -> Option<CoreBinderId> {
@@ -354,9 +327,7 @@ mod tests {
         let mut interner = Interner::new();
         let (mut program, outer) = program_referencing_the_outer_binder(&mut interner, "__dict_Eq");
         let is_dict = |name| {
-            interner
-                .try_resolve(name)
-                .is_some_and(crate::types::class_env::is_dictionary_name)
+            interner.try_resolve(name).is_some_and(crate::types::class_env::is_dictionary_name)
         };
         resolve_program_binders(&mut program, &is_dict);
         assert_eq!(referenced_binder(&program), Some(outer));
@@ -370,9 +341,7 @@ mod tests {
         let mut interner = Interner::new();
         let (mut program, outer) = program_referencing_the_outer_binder(&mut interner, "y");
         let is_dict = |name| {
-            interner
-                .try_resolve(name)
-                .is_some_and(crate::types::class_env::is_dictionary_name)
+            interner.try_resolve(name).is_some_and(crate::types::class_env::is_dictionary_name)
         };
         assert!(!validate_program_binders(&program, &is_dict));
         resolve_program_binders(&mut program, &is_dict);

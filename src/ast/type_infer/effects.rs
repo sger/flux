@@ -47,10 +47,8 @@ impl<'a> InferCtx<'a> {
         row_var_env: &mut HashMap<Identifier, TypeVarId>,
     ) -> InferEffectRow {
         let mut row_var_counter = self.env.counter;
-        let expanded_effects: Vec<EffectExpr> = effects
-            .iter()
-            .map(|effect| effect.expand_aliases(&self.effect_row_aliases))
-            .collect();
+        let expanded_effects: Vec<EffectExpr> =
+            effects.iter().map(|effect| effect.expand_aliases(&self.effect_row_aliases)).collect();
         let result =
             InferEffectRow::from_effect_exprs(&expanded_effects, row_var_env, &mut row_var_counter);
         self.env.counter = row_var_counter;
@@ -120,13 +118,9 @@ impl<'a> InferCtx<'a> {
     /// assert!(row.concrete().contains(&time_symbol));
     /// ```
     pub(super) fn current_ambient_effect_row(&self) -> InferEffectRow {
-        let mut row = self
-            .ambient_effect_rows
-            .last()
-            .cloned()
-            .unwrap_or_else(InferEffectRow::closed_empty);
-        row.concrete_mut()
-            .extend(self.handled_effects.iter().copied());
+        let mut row =
+            self.ambient_effect_rows.last().cloned().unwrap_or_else(InferEffectRow::closed_empty);
+        row.concrete_mut().extend(self.handled_effects.iter().copied());
         row
     }
 
@@ -299,9 +293,7 @@ impl<'a> InferCtx<'a> {
         for effect in row.concrete() {
             if let Some(expansion) = self.effect_row_aliases.get(effect) {
                 concrete.extend(
-                    expansion
-                        .expand_aliases(&self.effect_row_aliases)
-                        .normalized_concrete_names(),
+                    expansion.expand_aliases(&self.effect_row_aliases).normalized_concrete_names(),
                 );
             } else {
                 concrete.insert(*effect);

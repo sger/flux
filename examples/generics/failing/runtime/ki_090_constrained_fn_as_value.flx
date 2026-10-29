@@ -1,6 +1,5 @@
 // expect: runtime_error
-// expect-error: E1000
-
+// skip-way: vm_strict: KI-090 strict rejects the unresolved boundary (E425) that the normal run reaches at run time
 // GAP — owner: KI-090, High, 0.0.8 (item C7 / D5).
 // Measured 2026-09-11 on the VM: error[E1000] wrong number of arguments:
 // want=2, got=1.
@@ -29,7 +28,7 @@
 // what breaks is the evidence reaching the value.
 
 fn twice<a>(f: (a) -> a, x: a) -> a {
-    f(f(x))
+    f(f(x)) //~ E1000
 }
 
 fn dbl<a: Num>(x: a) -> a {

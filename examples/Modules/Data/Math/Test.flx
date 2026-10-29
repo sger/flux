@@ -1,7 +1,6 @@
 // expect: compile_error
-// expect-error: E024
 
-module Modules.Data.Math.Test {
+module Modules.Data.Math.Test { //~ E024
   fn value() {
     7;
   }

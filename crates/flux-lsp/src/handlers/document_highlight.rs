@@ -105,10 +105,7 @@ fn enclosing_fn_body(stmts: &[Statement], pos: FluxPosition) -> Option<&Block> {
         match stmt {
             Statement::Function { span, body, .. } => {
                 let here = position_in_span(pos, *span)
-                    || body
-                        .statements
-                        .iter()
-                        .any(|s| position_in_span(pos, s.span()));
+                    || body.statements.iter().any(|s| position_in_span(pos, s.span()));
                 if here {
                     // Prefer a nested function whose body also contains `pos`.
                     return enclosing_fn_body(&body.statements, pos).or(Some(body));
@@ -162,21 +159,14 @@ fn collect_returns_in_expr(
     out: &mut Vec<DocumentHighlight>,
 ) {
     match expr {
-        Expression::If {
-            condition,
-            consequence,
-            alternative,
-            ..
-        } => {
+        Expression::If { condition, consequence, alternative, .. } => {
             collect_returns_in_expr(condition, snapshot, out);
             collect_returns_in_block(consequence, snapshot, out);
             if let Some(b) = alternative {
                 collect_returns_in_block(b, snapshot, out);
             }
         }
-        Expression::Match {
-            scrutinee, arms, ..
-        } => {
+        Expression::Match { scrutinee, arms, .. } => {
             collect_returns_in_expr(scrutinee, snapshot, out);
             for arm in arms {
                 collect_returns_in_expr(&arm.body, snapshot, out);
@@ -189,11 +179,7 @@ fn collect_returns_in_expr(
                 collect_returns_in_expr(&arm.body, snapshot, out);
             }
         }
-        Expression::Call {
-            function,
-            arguments,
-            ..
-        } => {
+        Expression::Call { function, arguments, .. } => {
             collect_returns_in_expr(function, snapshot, out);
             for a in arguments {
                 collect_returns_in_expr(a, snapshot, out);
@@ -216,23 +202,11 @@ fn collect_returns_in_expr(
 /// When `node` is an effect operation (a `perform` site, a `handle` arm, or the
 /// `effect` declaration), highlight every `perform` of that `(effect, op)` pair
 /// and every matching `handle` arm in the file.
-fn effect_op_highlights(snapshot: &Snapshot, node: &NodeRef) -> Option<Vec<DocumentHighlight>> {
+fn effect_op_highlights(snapshot: &Snapshot, node: &NodeRef<'_>) -> Option<Vec<DocumentHighlight>> {
     let (op, effect) = match node {
-        NodeRef::PerformOpName {
-            name,
-            parent_effect,
-            ..
-        }
-        | NodeRef::HandleArmOpName {
-            name,
-            parent_effect,
-            ..
-        }
-        | NodeRef::EffectOpName {
-            name,
-            parent_effect,
-            ..
-        } => (*name, *parent_effect),
+        NodeRef::PerformOpName { name, parent_effect, .. }
+        | NodeRef::HandleArmOpName { name, parent_effect, .. }
+        | NodeRef::EffectOpName { name, parent_effect, .. } => (*name, *parent_effect),
         _ => return None,
     };
     let op_len = snapshot.interner.try_resolve(op)?.len();
@@ -245,12 +219,7 @@ fn effect_op_highlights(snapshot: &Snapshot, node: &NodeRef) -> Option<Vec<Docum
     if spans.is_empty() {
         return None;
     }
-    Some(
-        spans
-            .into_iter()
-            .map(|span| text_highlight(snapshot, span))
-            .collect(),
-    )
+    Some(spans.into_iter().map(|span| text_highlight(snapshot, span)).collect())
 }
 
 fn collect_effect_sites_in_stmt(
@@ -294,13 +263,7 @@ fn collect_effect_sites_in_expr(
         collect_effect_sites_in_expr(e, effect, op, effect_len, op_len, out)
     };
     match expr {
-        Expression::Perform {
-            effect: e,
-            operation,
-            span,
-            args,
-            ..
-        } => {
+        Expression::Perform { effect: e, operation, span, args, .. } => {
             if *e == effect && *operation == op {
                 out.push(perform_op_span(*span, effect_len, op_len));
             }
@@ -308,12 +271,7 @@ fn collect_effect_sites_in_expr(
                 recur(a, out);
             }
         }
-        Expression::Handle {
-            effect: e,
-            expr,
-            arms,
-            ..
-        } => {
+        Expression::Handle { effect: e, expr, arms, .. } => {
             recur(expr, out);
             if *e == effect {
                 for arm in arms {
@@ -328,11 +286,7 @@ fn collect_effect_sites_in_expr(
                 }
             }
         }
-        Expression::Call {
-            function,
-            arguments,
-            ..
-        } => {
+        Expression::Call { function, arguments, .. } => {
             recur(function, out);
             for a in arguments {
                 recur(a, out);
@@ -343,12 +297,7 @@ fn collect_effect_sites_in_expr(
             recur(right, out);
         }
         Expression::Prefix { right, .. } => recur(right, out),
-        Expression::If {
-            condition,
-            consequence,
-            alternative,
-            ..
-        } => {
+        Expression::If { condition, consequence, alternative, .. } => {
             recur(condition, out);
             for s in &consequence.statements {
                 collect_effect_sites_in_stmt(s, effect, op, effect_len, op_len, out);
@@ -359,9 +308,7 @@ fn collect_effect_sites_in_expr(
                 }
             }
         }
-        Expression::Match {
-            scrutinee, arms, ..
-        } => {
+        Expression::Match { scrutinee, arms, .. } => {
             recur(scrutinee, out);
             for arm in arms {
                 recur(&arm.body, out);
@@ -399,14 +346,8 @@ fn collect_effect_sites_in_expr(
 fn perform_op_span(perform_span: FluxSpan, effect_len: usize, op_len: usize) -> FluxSpan {
     let col = perform_span.start.column + "perform ".len() + effect_len + 1;
     FluxSpan {
-        start: FluxPosition {
-            line: perform_span.start.line,
-            column: col,
-        },
-        end: FluxPosition {
-            line: perform_span.start.line,
-            column: col + op_len,
-        },
+        start: FluxPosition { line: perform_span.start.line, column: col },
+        end: FluxPosition { line: perform_span.start.line, column: col + op_len },
     }
 }
 
@@ -414,10 +355,7 @@ fn perform_op_span(perform_span: FluxSpan, effect_len: usize, op_len: usize) -> 
 fn arm_op_span(arm_span: FluxSpan, op_len: usize) -> FluxSpan {
     FluxSpan {
         start: arm_span.start,
-        end: FluxPosition {
-            line: arm_span.start.line,
-            column: arm_span.start.column + op_len,
-        },
+        end: FluxPosition { line: arm_span.start.line, column: arm_span.start.column + op_len },
     }
 }
 

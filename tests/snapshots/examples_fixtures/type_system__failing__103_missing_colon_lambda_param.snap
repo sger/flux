@@ -9,9 +9,9 @@ error[E034]: Missing Type Annotation Colon
 
 Missing `:` in lambda parameter type annotation. Write it as `x: Type`.
 
-  examples/type_system/failing/103_missing_colon_lambda_param.flx:40:12
+  examples/type_system/failing/103_missing_colon_lambda_param.flx:38:12
    |
-40 | let f = /x Int -> x
+38 | let f = /x Int -> x
    |            ^^^
 
 Hint:
@@ -22,9 +22,9 @@ error[E034]: Missing Lambda Arrow
 
 I was expecting `->` after the lambda parameters, but I found the end of the file.
 
-  examples/type_system/failing/103_missing_colon_lambda_param.flx:40:19
+  examples/type_system/failing/103_missing_colon_lambda_param.flx:38:19
    |
-40 | let f = /x Int -> x
+38 | let f = /x Int -> x
    |                   ^
    |                   - this lambda parameter list ends here
 

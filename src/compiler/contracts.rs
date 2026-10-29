@@ -60,11 +60,7 @@ impl<'a> ContractLoweringEnv<'a> {
         generic_params: impl IntoIterator<Item = Identifier>,
         adts: &'a HashMap<Identifier, AdtContractSpec>,
     ) -> Self {
-        Self {
-            interner,
-            generic_params: generic_params.into_iter().collect(),
-            adts,
-        }
+        Self { interner, generic_params: generic_params.into_iter().collect(), adts }
     }
 }
 
@@ -86,9 +82,7 @@ pub fn convert_type_expr_checked(
 }
 
 pub fn to_runtime_contract(contract: &FnContract, interner: &Interner) -> Option<FunctionContract> {
-    to_runtime_contract_checked(contract, interner, &HashMap::new())
-        .ok()
-        .flatten()
+    to_runtime_contract_checked(contract, interner, &HashMap::new()).ok().flatten()
 }
 
 pub fn to_runtime_contract_checked(
@@ -121,17 +115,9 @@ pub fn to_runtime_contract_checked(
         return Ok(None);
     }
 
-    let effects = contract
-        .effects
-        .iter()
-        .flat_map(EffectExpr::normalized_names)
-        .collect::<Vec<_>>();
+    let effects = EffectExpr::sorted_names(&contract.effects);
 
-    Ok(Some(FunctionContract {
-        params,
-        ret,
-        effects,
-    }))
+    Ok(Some(FunctionContract { params, ret, effects }))
 }
 
 fn convert_type_expr_rec(
@@ -200,12 +186,7 @@ fn convert_type_expr_rec(
                     .collect::<Result<Vec<_>, _>>()?,
             ))
         }
-        TypeExpr::Function {
-            params,
-            ret,
-            effects,
-            ..
-        } => {
+        TypeExpr::Function { params, ret, effects, .. } => {
             if effects.iter().any(|effect| effect.row_var().is_some()) {
                 return Err(ContractLoweringIssue::UnsupportedBoundaryType);
             }
@@ -214,16 +195,10 @@ fn convert_type_expr_rec(
                 .map(|param| convert_type_expr_rec(param, env, bindings, active_adts))
                 .collect::<Result<Vec<_>, _>>()?;
             let ret = convert_type_expr_rec(ret, env, bindings, active_adts)?;
-            let mut effect_set = effects
-                .iter()
-                .flat_map(EffectExpr::normalized_names)
-                .collect::<Vec<_>>();
-            effect_set.sort_by_key(|sym| sym.as_u32());
-            effect_set.dedup();
             Ok(RuntimeType::Function {
                 params,
                 ret: Box::new(ret),
-                effects: effect_set,
+                effects: EffectExpr::sorted_names(effects),
             })
         }
     }
@@ -356,26 +331,14 @@ mod tests {
 
         let list_int = TypeExpr::Named {
             name: list_sym,
-            args: vec![TypeExpr::Named {
-                name: int_sym,
-                args: vec![],
-                span: Default::default(),
-            }],
+            args: vec![TypeExpr::Named { name: int_sym, args: vec![], span: Default::default() }],
             span: Default::default(),
         };
         let either_string_int = TypeExpr::Named {
             name: either_sym,
             args: vec![
-                TypeExpr::Named {
-                    name: string_sym,
-                    args: vec![],
-                    span: Default::default(),
-                },
-                TypeExpr::Named {
-                    name: int_sym,
-                    args: vec![],
-                    span: Default::default(),
-                },
+                TypeExpr::Named { name: string_sym, args: vec![], span: Default::default() },
+                TypeExpr::Named { name: int_sym, args: vec![], span: Default::default() },
             ],
             span: Default::default(),
         };
@@ -386,20 +349,14 @@ mod tests {
         );
         assert_eq!(
             convert_type_expr(&either_string_int, &interner),
-            Some(RuntimeType::Either(
-                Box::new(RuntimeType::String),
-                Box::new(RuntimeType::Int)
-            ))
+            Some(RuntimeType::Either(Box::new(RuntimeType::String), Box::new(RuntimeType::Int)))
         );
     }
 
     #[test]
     fn empty_tuple_annotation_lowers_to_unit_contract() {
         let interner = Interner::new();
-        let unit = TypeExpr::Tuple {
-            elements: vec![],
-            span: Default::default(),
-        };
+        let unit = TypeExpr::Tuple { elements: vec![], span: Default::default() };
 
         assert_eq!(convert_type_expr(&unit, &interner), Some(RuntimeType::Unit));
     }
@@ -412,11 +369,7 @@ mod tests {
         let none = interner.intern("Nope");
         let int = interner.intern("Int");
 
-        let ty = TypeExpr::Named {
-            name: maybe,
-            args: vec![],
-            span: Default::default(),
-        };
+        let ty = TypeExpr::Named { name: maybe, args: vec![], span: Default::default() };
         let adts = HashMap::from([(
             maybe,
             AdtContractSpec {
@@ -432,10 +385,7 @@ mod tests {
                             span: Default::default(),
                         }],
                     },
-                    AdtConstructorContractSpec {
-                        name: none,
-                        fields: vec![],
-                    },
+                    AdtConstructorContractSpec { name: none, fields: vec![] },
                 ],
             },
         )]);
@@ -476,11 +426,7 @@ mod tests {
 
         let ty = TypeExpr::Named {
             name: channel,
-            args: vec![TypeExpr::Named {
-                name: t,
-                args: vec![],
-                span: Default::default(),
-            }],
+            args: vec![TypeExpr::Named { name: t, args: vec![], span: Default::default() }],
             span: Default::default(),
         };
         let adts = HashMap::from([(
@@ -524,11 +470,7 @@ mod tests {
     fn generic_parameter_boundary_is_rejected() {
         let mut interner = Interner::new();
         let t = interner.intern("T");
-        let ty = TypeExpr::Named {
-            name: t,
-            args: vec![],
-            span: Default::default(),
-        };
+        let ty = TypeExpr::Named { name: t, args: vec![], span: Default::default() };
 
         let err = convert_type_expr_checked(&ty, &interner, &[t], &HashMap::new())
             .expect_err("generic parameter should be rejected");

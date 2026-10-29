@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E300
 
 fn run_needs_io_time(f: (() -> Int with IO, Time)) -> Int with IO, Time {
     f()
@@ -11,6 +10,6 @@ fn only_io() -> Int with IO {
 }
 
 fn main() with IO, Time {
-    run_needs_io_time(only_io)
+    run_needs_io_time(only_io) //~ E422
     None
 }

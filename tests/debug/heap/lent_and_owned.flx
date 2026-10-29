@@ -1,0 +1,20 @@
+// One list passed twice in a call, lent to `a` and given to `b`. `b`'s
+// callee frees what it is given, so `a` must still hold a reference of its
+// own when `len` walks it; on the debug heap a freed list reads as poison.
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn keep_if(xs, flag) {
+    if flag { xs } else { [] }
+}
+
+fn both(a, b) {
+    let k = keep_if(b, false)
+    len(k) + len(a)
+}
+
+fn main() {
+    let xs = numbers(1)
+    print(both(xs, xs))
+}

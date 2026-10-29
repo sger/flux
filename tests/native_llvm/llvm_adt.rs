@@ -1,11 +1,9 @@
 #![cfg(feature = "llvm")]
 
-use std::{
-    collections::HashMap,
-    fs,
-    process::Command,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use crate::support::scratch;
+use scratch::Scratch;
+
+use std::{collections::HashMap, fs, process::Command};
 
 use flux::{
     compiler::Compiler,
@@ -19,11 +17,7 @@ use flux::{
 fn parse_and_lower_core(src: &str) -> (flux::core::CoreProgram, Interner) {
     let mut parser = Parser::new(Lexer::new(src));
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<test>", interner.clone());
     let hm_expr_types: HashMap<ExprId, InferType> = compiler.infer_expr_types_for_program(&program);
@@ -41,11 +35,7 @@ fn compile_to_llvm_ir(src: &str) -> String {
 fn compile_per_module_llvm_ir(src: &str, export_user_ctor_name_helper: bool) -> String {
     let mut parser = Parser::new(Lexer::new(src));
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<test>", interner);
     let llvm = compiler
@@ -96,10 +86,7 @@ fn main() {
 "#,
     );
 
-    assert!(
-        rendered.contains("flux_make_cons"),
-        "expected cons construction"
-    );
+    assert!(rendered.contains("flux_make_cons"), "expected cons construction");
 }
 
 #[test]
@@ -120,10 +107,7 @@ fn main() {
 "#,
     );
 
-    assert!(
-        rendered.contains("flux_make_tuple"),
-        "expected tuple construction"
-    );
+    assert!(rendered.contains("flux_make_tuple"), "expected tuple construction");
 }
 
 #[test]
@@ -147,10 +131,7 @@ fn main() {
         rendered.contains("icmp ule i64 12"),
         "tuple dispatch must guard pointer-tagged sentinels before dereference"
     );
-    assert!(
-        rendered.contains("match.ptrck"),
-        "expected a dedicated tuple pointer-check block"
-    );
+    assert!(rendered.contains("match.ptrck"), "expected a dedicated tuple pointer-check block");
 }
 
 #[test]
@@ -281,17 +262,8 @@ fn main() {
 }
 "#,
     );
-    let scratch = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("target")
-        .join("test-scratch");
-    fs::create_dir_all(&scratch).ok();
-    let path = scratch.join(format!(
-        "llvm_phase5_{}.ll",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock after unix epoch")
-            .as_nanos()
-    ));
+    let scratch = Scratch::new("llvm_phase5");
+    let path = scratch.join("module.ll");
     fs::write(&path, &ll).expect("write ll");
     let output = Command::new("opt")
         .arg("--disable-output")
@@ -319,6 +291,10 @@ fn parse_and_lower_to_llvm_module(src: &str) -> (flux::llvm::LlvmModule, Interne
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "the snapshot records POSIX function attributes; Windows keeps Flux functions nounwind"
+)]
 fn snapshot_for_adt_list_and_tuple_lowering() {
     let src = r#"
 data Wrap {

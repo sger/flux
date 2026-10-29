@@ -24,28 +24,16 @@ pub struct Label {
 impl Label {
     /// Create a primary label (main error location)
     pub fn primary(span: Span, text: impl Into<String>) -> Self {
-        Self {
-            span,
-            text: text.into(),
-            style: LabelStyle::Primary,
-        }
+        Self { span, text: text.into(), style: LabelStyle::Primary }
     }
 
     /// Create a secondary label (additional context)
     pub fn secondary(span: Span, text: impl Into<String>) -> Self {
-        Self {
-            span,
-            text: text.into(),
-            style: LabelStyle::Secondary,
-        }
+        Self { span, text: text.into(), style: LabelStyle::Secondary }
     }
 
     /// Create a note label (informational)
     pub fn note(span: Span, text: impl Into<String>) -> Self {
-        Self {
-            span,
-            text: text.into(),
-            style: LabelStyle::Note,
-        }
+        Self { span, text: text.into(), style: LabelStyle::Note }
     }
 }

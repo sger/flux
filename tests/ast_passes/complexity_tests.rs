@@ -5,11 +5,7 @@ fn parse(input: &str) -> (Program, flux::syntax::interner::Interner) {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "Parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "Parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     (program, interner)
 }
@@ -112,10 +108,7 @@ fn nested_functions_measured_independently() {
     assert_eq!(outer.cyclomatic_complexity, 2);
 
     // Find the anonymous lambda
-    let lambda = metrics
-        .iter()
-        .find(|m| m.name.is_none())
-        .expect("should find lambda");
+    let lambda = metrics.iter().find(|m| m.name.is_none()).expect("should find lambda");
     assert_eq!(lambda.cyclomatic_complexity, 2); // 1 if + 1
     assert_eq!(lambda.parameter_count, 1);
 }

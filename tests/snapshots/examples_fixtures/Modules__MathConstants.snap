@@ -9,9 +9,9 @@ error[E024]: Module Path Mismatch
 
 Module name `Modules.MathConstants` doesn't match file path `examples/Modules/MathConstants.flx`.
 
-  examples/Modules/MathConstants.flx:7:1
+  examples/Modules/MathConstants.flx:6:1
   |
-7 | module Modules.MathConstants {
+6 | module Modules.MathConstants {
   | ^
 
 Hint:

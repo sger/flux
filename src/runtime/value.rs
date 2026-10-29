@@ -90,10 +90,7 @@ impl AdtFields {
     }
 
     pub fn iter(&self) -> AdtFieldsIter<'_> {
-        AdtFieldsIter {
-            fields: self,
-            idx: 0,
-        }
+        AdtFieldsIter { fields: self, idx: 0 }
     }
 
     /// Consume into an iterator that yields owned values without heap allocation
@@ -101,21 +98,15 @@ impl AdtFields {
     #[allow(clippy::should_implement_trait)]
     pub fn into_iter(self) -> AdtFieldsIntoIter {
         match self {
-            AdtFields::One(a) => AdtFieldsIntoIter::Inline {
-                values: [Some(a), None, None],
-                pos: 0,
-                len: 1,
-            },
-            AdtFields::Two(a, b) => AdtFieldsIntoIter::Inline {
-                values: [Some(a), Some(b), None],
-                pos: 0,
-                len: 2,
-            },
-            AdtFields::Three(a, b, c) => AdtFieldsIntoIter::Inline {
-                values: [Some(a), Some(b), Some(c)],
-                pos: 0,
-                len: 3,
-            },
+            AdtFields::One(a) => {
+                AdtFieldsIntoIter::Inline { values: [Some(a), None, None], pos: 0, len: 1 }
+            }
+            AdtFields::Two(a, b) => {
+                AdtFieldsIntoIter::Inline { values: [Some(a), Some(b), None], pos: 0, len: 2 }
+            }
+            AdtFields::Three(a, b, c) => {
+                AdtFieldsIntoIter::Inline { values: [Some(a), Some(b), Some(c)], pos: 0, len: 3 }
+            }
             AdtFields::Many(v) => AdtFieldsIntoIter::Vec(v.into_iter()),
         }
     }
@@ -186,9 +177,7 @@ impl Iterator for AdtFieldsIntoIter {
                 if *pos >= *len {
                     return None;
                 }
-                let val = values[*pos]
-                    .take()
-                    .expect("inline iterator slot already consumed");
+                let val = values[*pos].take().expect("inline iterator slot already consumed");
                 *pos += 1;
                 Some(val)
             }
@@ -413,10 +402,7 @@ impl Value {
     }
 
     pub fn is_truthy(&self) -> bool {
-        !matches!(
-            self,
-            Value::Uninit | Value::Boolean(false) | Value::None | Value::EmptyList
-        )
+        !matches!(self, Value::Uninit | Value::Boolean(false) | Value::None | Value::EmptyList)
     }
 
     /// Converts this value into a hash-map key if the value is hashable.
@@ -657,10 +643,7 @@ mod tests {
     #[test]
     fn test_hash_key() {
         assert_eq!(Value::Integer(1).to_hash_key(), Some(HashKey::Integer(1)));
-        assert_eq!(
-            Value::Boolean(false).to_hash_key(),
-            Some(HashKey::Boolean(false))
-        );
+        assert_eq!(Value::Boolean(false).to_hash_key(), Some(HashKey::Boolean(false)));
         assert_eq!(
             Value::String("a".to_string().into()).to_hash_key(),
             Some(HashKey::String("a".to_string()))
@@ -676,18 +659,9 @@ mod tests {
         assert_eq!(Value::String("x".to_string().into()).type_name(), "String");
         assert_eq!(Value::None.type_name(), "None");
         assert_eq!(Value::EmptyList.type_name(), "List");
-        assert_eq!(
-            Value::Some(std::rc::Rc::new(Value::Integer(1))).type_name(),
-            "Some"
-        );
-        assert_eq!(
-            Value::Left(std::rc::Rc::new(Value::Integer(1))).type_name(),
-            "Left"
-        );
-        assert_eq!(
-            Value::Right(std::rc::Rc::new(Value::Integer(1))).type_name(),
-            "Right"
-        );
+        assert_eq!(Value::Some(std::rc::Rc::new(Value::Integer(1))).type_name(), "Some");
+        assert_eq!(Value::Left(std::rc::Rc::new(Value::Integer(1))).type_name(), "Left");
+        assert_eq!(Value::Right(std::rc::Rc::new(Value::Integer(1))).type_name(), "Right");
         assert_eq!(
             Value::ReturnValue(std::rc::Rc::new(Value::Integer(1))).type_name(),
             "ReturnValue"
@@ -697,24 +671,15 @@ mod tests {
 
     #[test]
     fn test_to_string_value() {
-        assert_eq!(
-            Value::String("hello".to_string().into()).to_string_value(),
-            "hello"
-        );
+        assert_eq!(Value::String("hello".to_string().into()).to_string_value(), "hello");
         assert_eq!(
             Value::Some(std::rc::Rc::new(Value::String("x".to_string().into()))).to_string_value(),
             "Some(x)"
         );
+        assert_eq!(Value::ReturnValue(std::rc::Rc::new(Value::Integer(7))).to_string_value(), "7");
         assert_eq!(
-            Value::ReturnValue(std::rc::Rc::new(Value::Integer(7))).to_string_value(),
-            "7"
-        );
-        assert_eq!(
-            Value::Array(Rc::new(vec![
-                Value::String("a".to_string().into()),
-                Value::Integer(2)
-            ]))
-            .to_string_value(),
+            Value::Array(Rc::new(vec![Value::String("a".to_string().into()), Value::Integer(2)]))
+                .to_string_value(),
             "[|\"a\", 2|]"
         );
     }
@@ -792,10 +757,7 @@ mod tests {
     #[test]
     fn closure_promote_demote_preserves_function_arc_identity() {
         let function = Arc::new(CompiledFunction::new(vec![1, 2, 3], 1, 0, None));
-        let closure = Closure {
-            function: Arc::clone(&function),
-            free: vec![Value::Integer(42)],
-        };
+        let closure = Closure { function: Arc::clone(&function), free: vec![Value::Integer(42)] };
 
         let promoted = promote_value(&Value::Closure(Rc::new(closure))).expect("promote");
         let demoted = demote_value(promoted);
@@ -980,26 +942,20 @@ pub fn promote_value(value: &Value) -> Result<ArcValue, String> {
         }
         Value::Function(f) => ArcValue::Function(Arc::clone(f)),
         Value::Closure(c) => ArcValue::Closure(Arc::new(promote_closure(c)?)),
-        Value::Array(v) => ArcValue::Array(Arc::new(
-            v.iter().map(promote_value).collect::<Result<Vec<_>, _>>()?,
-        )),
-        Value::Tuple(v) => ArcValue::Tuple(Arc::new(
-            v.iter().map(promote_value).collect::<Result<Vec<_>, _>>()?,
-        )),
+        Value::Array(v) => {
+            ArcValue::Array(Arc::new(v.iter().map(promote_value).collect::<Result<Vec<_>, _>>()?))
+        }
+        Value::Tuple(v) => {
+            ArcValue::Tuple(Arc::new(v.iter().map(promote_value).collect::<Result<Vec<_>, _>>()?))
+        }
         Value::Adt(adt) => ArcValue::Adt(Arc::new(ArcAdtValue {
             constructor: Arc::new((*adt.constructor).clone()),
-            fields: adt
-                .fields
-                .iter()
-                .map(promote_value)
-                .collect::<Result<Vec<_>, _>>()?,
+            fields: adt.fields.iter().map(promote_value).collect::<Result<Vec<_>, _>>()?,
         })),
         Value::AdtUnit(name) => ArcValue::AdtUnit(Arc::new((**name).clone())),
         Value::Continuation(cont) => {
             let cont = cont.borrow();
-            ArcValue::Continuation(Arc::new(std::sync::Mutex::new(promote_continuation(
-                &cont,
-            )?)))
+            ArcValue::Continuation(Arc::new(std::sync::Mutex::new(promote_continuation(&cont)?)))
         }
         Value::HandlerDescriptor(hd) => ArcValue::HandlerDescriptor(Arc::new((**hd).clone())),
         Value::PerformDescriptor(pd) => ArcValue::PerformDescriptor(Arc::new((**pd).clone())),
@@ -1014,26 +970,14 @@ pub fn promote_value(value: &Value) -> Result<ArcValue, String> {
 fn promote_closure(c: &Closure) -> Result<ArcClosure, String> {
     Ok(ArcClosure {
         function: Arc::clone(&c.function),
-        free: c
-            .free
-            .iter()
-            .map(promote_value)
-            .collect::<Result<Vec<_>, _>>()?,
+        free: c.free.iter().map(promote_value).collect::<Result<Vec<_>, _>>()?,
     })
 }
 
 fn promote_continuation(c: &Continuation) -> Result<ArcContinuation, String> {
     Ok(ArcContinuation {
-        frames: c
-            .frames
-            .iter()
-            .map(promote_frame)
-            .collect::<Result<Vec<_>, _>>()?,
-        stack: c
-            .stack
-            .iter()
-            .map(promote_value)
-            .collect::<Result<Vec<_>, _>>()?,
+        frames: c.frames.iter().map(promote_frame).collect::<Result<Vec<_>, _>>()?,
+        stack: c.stack.iter().map(promote_value).collect::<Result<Vec<_>, _>>()?,
         sp: c.sp,
         entry_sp: c.entry_sp,
         entry_frame_index: c.entry_frame_index,
@@ -1058,10 +1002,7 @@ fn promote_frame(f: &crate::runtime::frame::Frame) -> Result<ArcFrame, String> {
 fn promote_handler_arm(
     arm: &crate::runtime::handler_arm::HandlerArm,
 ) -> Result<ArcHandlerArm, String> {
-    Ok(ArcHandlerArm {
-        op: arm.op,
-        closure: Arc::new(promote_closure(&arm.closure)?),
-    })
+    Ok(ArcHandlerArm { op: arm.op, closure: Arc::new(promote_closure(&arm.closure)?) })
 }
 
 fn promote_evv_entries(
@@ -1075,10 +1016,7 @@ fn promote_evv_entries(
                 effect: e.effect,
                 marker: e.marker,
                 arms: Arc::new(
-                    e.arms
-                        .iter()
-                        .map(promote_handler_arm)
-                        .collect::<Result<Vec<_>, _>>()?,
+                    e.arms.iter().map(promote_handler_arm).collect::<Result<Vec<_>, _>>()?,
                 ),
                 parent: match &e.parent {
                     Some(parent_evv) => Some(promote_evv_entries(parent_evv)?),
@@ -1095,12 +1033,7 @@ fn promote_handler_frame(
 ) -> Result<ArcHandlerFrame, String> {
     Ok(ArcHandlerFrame {
         effect: hf.effect,
-        arms: Arc::new(
-            hf.arms
-                .iter()
-                .map(promote_handler_arm)
-                .collect::<Result<Vec<_>, _>>()?,
-        ),
+        arms: Arc::new(hf.arms.iter().map(promote_handler_arm).collect::<Result<Vec<_>, _>>()?),
         marker: hf.marker,
         saved_evv: promote_evv_entries(&hf.saved_evv)?,
         state: match &hf.state {
@@ -1118,11 +1051,7 @@ fn promote_handler_frame(
 fn promote_hamt_node(node: &HamtNode) -> Result<ArcHamtNode, String> {
     Ok(ArcHamtNode {
         bitmap: node.bitmap,
-        children: node
-            .children
-            .iter()
-            .map(promote_hamt_entry)
-            .collect::<Result<Vec<_>, _>>()?,
+        children: node.children.iter().map(promote_hamt_entry).collect::<Result<Vec<_>, _>>()?,
     })
 }
 
@@ -1205,11 +1134,7 @@ fn demote_continuation(c: ArcContinuation) -> Continuation {
         sp: c.sp,
         entry_sp: c.entry_sp,
         entry_frame_index: c.entry_frame_index,
-        inner_handlers: c
-            .inner_handlers
-            .into_iter()
-            .map(demote_handler_frame)
-            .collect(),
+        inner_handlers: c.inner_handlers.into_iter().map(demote_handler_frame).collect(),
         state_marker: c.state_marker,
         debug_serials: Vec::new(),
     }
@@ -1227,10 +1152,7 @@ fn demote_frame(f: ArcFrame) -> crate::runtime::frame::Frame {
 
 fn demote_handler_arm(arm: ArcHandlerArm) -> crate::runtime::handler_arm::HandlerArm {
     use crate::runtime::handler_arm::HandlerArm;
-    HandlerArm {
-        op: arm.op,
-        closure: Rc::new(demote_closure((*arm.closure).clone())),
-    }
+    HandlerArm { op: arm.op, closure: Rc::new(demote_closure((*arm.closure).clone())) }
 }
 
 fn demote_evv_entries(entries: &[ArcEvidence]) -> crate::runtime::evidence::EvidenceVector {
@@ -1244,12 +1166,7 @@ fn demote_evv_entries(entries: &[ArcEvidence]) -> crate::runtime::evidence::Evid
         .map(|e| {
             let arms: Vec<_> = e.arms.iter().cloned().map(demote_handler_arm).collect();
             let parent_evv = e.parent.as_deref().map(|v| demote_evv_entries(v));
-            Evidence {
-                effect: e.effect,
-                marker: e.marker,
-                arms: Rc::new(arms),
-                parent: parent_evv,
-            }
+            Evidence { effect: e.effect, marker: e.marker, arms: Rc::new(arms), parent: parent_evv }
         })
         .collect();
     EvidenceVector::from_entries(reconstructed)
@@ -1288,11 +1205,7 @@ fn demote_hamt_entry(entry: ArcHamtEntry) -> crate::runtime::hamt::HamtEntry {
             let c = (*c).clone();
             HamtEntry::Collision(Rc::new(HamtCollision {
                 hash: c.hash,
-                entries: c
-                    .entries
-                    .into_iter()
-                    .map(|(k, v)| (k, demote_value(v)))
-                    .collect(),
+                entries: c.entries.into_iter().map(|(k, v)| (k, demote_value(v))).collect(),
             }))
         }
     }
@@ -1350,12 +1263,7 @@ pub fn promote_effect_context(cx: &EffectContext) -> Result<ArcEffectContext, St
                 Some(v) => Some(promote_value(v)?),
                 None => None,
             },
-            conts: cx
-                .yield_state
-                .conts
-                .iter()
-                .map(promote_value)
-                .collect::<Result<Vec<_>, _>>()?,
+            conts: cx.yield_state.conts.iter().map(promote_value).collect::<Result<Vec<_>, _>>()?,
             marker_counter: cx.yield_state.marker_counter,
         },
         evidence: promote_evv_entries(&cx.evidence)?,
@@ -1373,10 +1281,7 @@ pub fn demote_effect_context(cx: ArcEffectContext) -> EffectContext {
         yield_state: YieldState {
             yielding: cx.yield_state.yielding,
             marker: cx.yield_state.marker,
-            clause: cx
-                .yield_state
-                .clause
-                .map(|a| Rc::new(demote_handler_arm((*a).clone()))),
+            clause: cx.yield_state.clause.map(|a| Rc::new(demote_handler_arm((*a).clone()))),
             op_arg: cx.yield_state.op_arg.map(demote_value),
             conts: cx.yield_state.conts.into_iter().map(demote_value).collect(),
             marker_counter: cx.yield_state.marker_counter,

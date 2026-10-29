@@ -75,19 +75,14 @@ impl<'a> InferCtx<'a> {
             Pattern::Constructor { fields, .. } => {
                 self.bind_constructor_pattern_variables(pattern, fields, &resolved_scrutinee, span)
             }
-            Pattern::NamedConstructor {
-                name,
-                fields,
-                rest,
-                span: pat_span,
-                ..
-            } => self.bind_named_constructor_pattern(
-                *name,
-                fields,
-                *rest,
-                &resolved_scrutinee,
-                *pat_span,
-            ),
+            Pattern::NamedConstructor { name, fields, rest, span: pat_span, .. } => self
+                .bind_named_constructor_pattern(
+                    *name,
+                    fields,
+                    *rest,
+                    &resolved_scrutinee,
+                    *pat_span,
+                ),
         }
     }
 
@@ -184,12 +179,8 @@ impl<'a> InferCtx<'a> {
         resolved_scrutinee: &InferType,
         span: Span,
     ) {
-        let tuple_shape = InferType::Tuple(
-            elements
-                .iter()
-                .map(|_| self.env.alloc_infer_type_var())
-                .collect(),
-        );
+        let tuple_shape =
+            InferType::Tuple(elements.iter().map(|_| self.env.alloc_infer_type_var()).collect());
         let unified = self.unify_reporting(resolved_scrutinee, &tuple_shape, span);
         if let InferType::Tuple(component_types) = unified.apply_type_subst(&self.subst) {
             for (elem, elem_ty) in elements.iter().zip(component_types.iter()) {
@@ -336,10 +327,7 @@ impl<'a> InferCtx<'a> {
                 self.emit_field_diag(
                     &NAMED_FIELD_DUPLICATE,
                     f.span,
-                    format!(
-                        "Field `{}` is listed more than once.",
-                        self.interner.resolve(f.name)
-                    ),
+                    format!("Field `{}` is listed more than once.", self.interner.resolve(f.name)),
                 );
                 continue;
             }
@@ -414,25 +402,18 @@ impl<'a> InferCtx<'a> {
         family: &PatternFamily,
     ) -> Option<InferType> {
         match family {
-            PatternFamily::Option => Some(InferType::App(
-                TypeConstructor::Option,
-                vec![self.env.alloc_infer_type_var()],
-            )),
+            PatternFamily::Option => {
+                Some(InferType::App(TypeConstructor::Option, vec![self.env.alloc_infer_type_var()]))
+            }
             PatternFamily::Either => Some(InferType::App(
                 TypeConstructor::Either,
-                vec![
-                    self.env.alloc_infer_type_var(),
-                    self.env.alloc_infer_type_var(),
-                ],
+                vec![self.env.alloc_infer_type_var(), self.env.alloc_infer_type_var()],
             )),
-            PatternFamily::List => Some(InferType::App(
-                TypeConstructor::List,
-                vec![self.env.alloc_infer_type_var()],
-            )),
+            PatternFamily::List => {
+                Some(InferType::App(TypeConstructor::List, vec![self.env.alloc_infer_type_var()]))
+            }
             PatternFamily::Tuple(arity) => Some(InferType::Tuple(
-                (0..*arity)
-                    .map(|_| self.env.alloc_infer_type_var())
-                    .collect(),
+                (0..*arity).map(|_| self.env.alloc_infer_type_var()).collect(),
             )),
             PatternFamily::Adt(adt_name) => {
                 let type_params = self.adt_type_params.get(adt_name)?;
@@ -441,10 +422,7 @@ impl<'a> InferCtx<'a> {
                 } else {
                     Some(InferType::App(
                         TypeConstructor::Adt(*adt_name),
-                        type_params
-                            .iter()
-                            .map(|_| self.env.alloc_infer_type_var())
-                            .collect(),
+                        type_params.iter().map(|_| self.env.alloc_infer_type_var()).collect(),
                     ))
                 }
             }

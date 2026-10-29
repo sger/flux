@@ -101,11 +101,8 @@ pub fn show_bytecode(flags: &DriverFlags) {
     print!("{}", disassemble(&bytecode.instructions));
     for (i, c) in bytecode.constants.iter().enumerate() {
         if let Value::Function(f) = c {
-            let name = f
-                .debug_info
-                .as_ref()
-                .and_then(|d| d.name.as_deref())
-                .unwrap_or("<anonymous>");
+            let name =
+                f.debug_info.as_ref().and_then(|d| d.name.as_deref()).unwrap_or("<anonymous>");
             println!("\nFunction <{}> (constant {}):", name, i);
             print!("{}", disassemble(&f.instructions));
         }
@@ -253,11 +250,7 @@ fn analyze_ast_command<F>(
         path,
         &source,
         &mut parser,
-        ParseCommandConfig {
-            max_errors,
-            diagnostics_format,
-            show_file_headers,
-        },
+        ParseCommandConfig { max_errors, diagnostics_format, show_file_headers },
     );
     on_success(&source, parser, program);
 }

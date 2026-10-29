@@ -1,0 +1,22 @@
+// 0189 V6: replace with no match returns its argument, read after that is
+// given to a call that releases it.
+
+fn text(n) {
+    "ab" + to_string(n)
+}
+
+fn discard(s, keep) {
+    if keep { s } else { "" }
+}
+
+fn swap(s) {
+    replace(s, "zz", "y")
+}
+
+fn main() {
+    let s = text(1)
+    let r = swap(s)
+    let d = discard(s, false)
+    print(r)
+    print(d)
+}

@@ -1,9 +1,8 @@
 // expect: compile_error
-// expect-error: E024
 
 import Modules.Day12Parser as P
 
-module Modules.Day12Solver {
+module Modules.Day12Solver { //~ E024
     fn int_at(arr, idx) {
         match arr[idx] {
             Some(v) -> v,

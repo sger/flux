@@ -1,5 +1,4 @@
-#[path = "../support/semantic_infer.rs"]
-mod semantic_infer;
+use crate::support::semantic_infer;
 
 use flux::diagnostics::render_diagnostics;
 use semantic_infer::{
@@ -12,11 +11,7 @@ fn semantic_matrix_infers_expected_named_schemes_across_categories() {
     let cases: &[(&str, &[(&str, &str)])] = &[
         (
             "primitives/integer_arithmetic.flx",
-            &[
-                ("add1", "(Int) -> Int"),
-                ("choose", "(Bool) -> Int"),
-                ("do_result", "() -> Int"),
-            ],
+            &[("add1", "(Int) -> Int"), ("choose", "(Bool) -> Int"), ("do_result", "() -> Int")],
         ),
         (
             "primitives/float_string_pipeline.flx",
@@ -31,10 +26,7 @@ fn semantic_matrix_infers_expected_named_schemes_across_categories() {
             &[
                 ("id", "forall a, b. (a) -> a with |b"),
                 ("const_", "forall a, b, c. (a, b) -> a with |c"),
-                (
-                    "apply",
-                    "forall a, b, c. ((a) -> b with |c, a) -> b with |c",
-                ),
+                ("apply", "forall a, b, c. ((a) -> b with |c, a) -> b with |c"),
             ],
         ),
         (
@@ -66,15 +58,9 @@ fn semantic_matrix_infers_expected_named_schemes_across_categories() {
         ),
         (
             "patterns/option_tuple_patterns.flx",
-            &[
-                ("option_to_int", "(Option<Int>) -> Int"),
-                ("tuple_sum", "forall a. ((a, a)) -> a"),
-            ],
+            &[("option_to_int", "(Option<Int>) -> Int"), ("tuple_sum", "forall a. ((a, a)) -> a")],
         ),
-        (
-            "runtime_boundaries/typed_boundary.flx",
-            &[("inc", "(Int) -> Int")],
-        ),
+        ("runtime_boundaries/typed_boundary.flx", &[("inc", "(Int) -> Int")]),
     ];
 
     for (fixture, expected) in cases {
@@ -86,10 +72,7 @@ fn semantic_matrix_infers_expected_named_schemes_across_categories() {
 fn semantic_matrix_tracks_exported_module_member_schemes() {
     assert_module_member_schemes(
         "modules/public_api/main.flx",
-        &[
-            ("Math", "id", "forall a. (a) -> a"),
-            ("Math", "inc", "(Int) -> Int"),
-        ],
+        &[("Math", "id", "forall a. (a) -> a"), ("Math", "inc", "(Int) -> Int")],
     );
     assert_module_member_schemes(
         "modules/alias_access/main.flx",

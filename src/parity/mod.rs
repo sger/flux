@@ -30,11 +30,14 @@
 //! cargo run -- parity-check examples/guide --ways vm,llvm
 //! cargo run -- parity-check examples/effects --ways vm,llvm
 //! cargo run -- parity-check tests/parity --ways vm,llvm,vm_cached,vm_strict,llvm_strict
+//! cargo run -- parity-check tests/parity --ways llvm,llvm_heap
 //! ```
 
+pub mod census;
 pub mod cli;
 pub mod debug;
 pub mod fixture;
+pub mod known_issues;
 pub mod normalize;
 pub mod report;
 pub mod runner;
@@ -53,6 +56,11 @@ pub enum ExitKind {
     RuntimeError,
     Timeout,
     ToolFailure,
+    /// The compiler itself failed: a panic, an internal compiler error, a
+    /// failed IR check, a native lowering or link failure, or a signal. Never
+    /// equal to an ordinary error, so a crash on one way and a diagnostic on
+    /// another is a mismatch.
+    Crash,
 }
 
 impl fmt::Display for ExitKind {
@@ -63,6 +71,7 @@ impl fmt::Display for ExitKind {
             Self::RuntimeError => write!(f, "RuntimeError"),
             Self::Timeout => write!(f, "Timeout"),
             Self::ToolFailure => write!(f, "ToolFailure"),
+            Self::Crash => write!(f, "Crash"),
         }
     }
 }
@@ -85,6 +94,14 @@ pub enum Way {
     /// The program built natively with `-g`: a debug build runs as a plain
     /// one does (0188 S9c).
     LlvmG,
+    /// The VM with `--optimize`: the optimizer must not change what a
+    /// program does (0190 S3).
+    VmOpt,
+    /// The native backend with `--optimize`.
+    LlvmOpt,
+    /// The native backend on the debug heap with `--leak-check`: a use after
+    /// free fails, and blocks still live at exit are counted (0190 S15).
+    LlvmHeap,
 }
 
 impl fmt::Display for Way {
@@ -99,11 +116,30 @@ impl fmt::Display for Way {
             Self::VmDebug => write!(f, "vm_debug"),
             Self::LlvmDebug => write!(f, "llvm_debug"),
             Self::LlvmG => write!(f, "llvm_g"),
+            Self::VmOpt => write!(f, "vm_opt"),
+            Self::LlvmOpt => write!(f, "llvm_opt"),
+            Self::LlvmHeap => write!(f, "llvm_heap"),
         }
     }
 }
 
 impl Way {
+    /// Every way, in the order a run reports them.
+    pub const ALL: [Self; 12] = [
+        Self::Vm,
+        Self::Llvm,
+        Self::VmCached,
+        Self::LlvmCached,
+        Self::VmStrict,
+        Self::LlvmStrict,
+        Self::VmDebug,
+        Self::LlvmDebug,
+        Self::LlvmG,
+        Self::VmOpt,
+        Self::LlvmOpt,
+        Self::LlvmHeap,
+    ];
+
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "vm" => Some(Self::Vm),
@@ -115,6 +151,9 @@ impl Way {
             "vm_debug" => Some(Self::VmDebug),
             "llvm_debug" => Some(Self::LlvmDebug),
             "llvm_g" => Some(Self::LlvmG),
+            "vm_opt" => Some(Self::VmOpt),
+            "llvm_opt" => Some(Self::LlvmOpt),
+            "llvm_heap" => Some(Self::LlvmHeap),
             _ => None,
         }
     }
@@ -153,12 +192,45 @@ impl Way {
         }
     }
 
+    /// Whether this way enables `--optimize`.
+    pub fn is_opt(self) -> bool {
+        matches!(self, Self::VmOpt | Self::LlvmOpt)
+    }
+
+    /// The unoptimized counterpart of an optimized way.
+    pub fn non_opt(self) -> Self {
+        match self {
+            Self::VmOpt => Self::Vm,
+            Self::LlvmOpt => Self::Llvm,
+            other => other,
+        }
+    }
+
+    /// Whether this way runs on the debug heap with `--leak-check`.
+    pub fn is_heap(self) -> bool {
+        self == Self::LlvmHeap
+    }
+
+    /// The way a heap way must behave like: the same build on the plain heap.
+    pub fn non_heap(self) -> Self {
+        match self {
+            Self::LlvmHeap => Self::Llvm,
+            other => other,
+        }
+    }
+
     pub fn backend_id(self) -> BackendId {
         match self {
-            Self::Vm | Self::VmCached | Self::VmStrict | Self::VmDebug => BackendId::Vm,
-            Self::Llvm | Self::LlvmCached | Self::LlvmStrict | Self::LlvmDebug | Self::LlvmG => {
-                BackendId::Llvm
+            Self::Vm | Self::VmCached | Self::VmStrict | Self::VmDebug | Self::VmOpt => {
+                BackendId::Vm
             }
+            Self::Llvm
+            | Self::LlvmCached
+            | Self::LlvmStrict
+            | Self::LlvmDebug
+            | Self::LlvmG
+            | Self::LlvmOpt
+            | Self::LlvmHeap => BackendId::Llvm,
         }
     }
 }
@@ -216,21 +288,14 @@ pub fn backend_spec(id: BackendId) -> BackendSpec {
             display_label: "CFG -> bytecode -> VM",
             ir_surface: "cfg",
             lowering_files: &["src/cfg/", "src/bytecode/compiler/"],
-            runtime_files: &[
-                "src/bytecode/vm/core_dispatch.rs",
-                "src/bytecode/vm/dispatch.rs",
-            ],
+            runtime_files: &["src/bytecode/vm/core_dispatch.rs", "src/bytecode/vm/dispatch.rs"],
         },
         BackendId::Llvm => BackendSpec {
             id,
             display_label: "LIR -> LLVM -> native",
             ir_surface: "lir",
             lowering_files: &["src/lir/lower.rs", "src/lir/emit_llvm.rs"],
-            runtime_files: &[
-                "runtime/c/flux_rt.c",
-                "runtime/c/array.c",
-                "runtime/c/hamt.c",
-            ],
+            runtime_files: &["runtime/c/flux_rt.c", "runtime/c/array.c", "runtime/c/hamt.c"],
         },
     }
 }
@@ -272,6 +337,18 @@ pub struct RunResult {
     pub normalized_stderr: String,
     /// Cache files observed after execution (for cached ways).
     pub cache_observations: Vec<CacheObservation>,
+    /// The debug heap's report of blocks live at exit, taken out of
+    /// `stderr` (heap ways only).
+    pub leak: Option<LeakReport>,
+}
+
+/// What `--leak-check` reported at the end of a run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LeakReport {
+    pub blocks: usize,
+    /// The first site line, as the runtime printed it (`a String (8 bytes)
+    /// allocated at f (file.flx:2:5)`).
+    pub first_site: String,
 }
 
 /// A cache file that was created or found during execution.
@@ -337,6 +414,13 @@ pub struct ParityResult {
     pub results: Vec<RunResult>,
     pub artifacts: Vec<(Way, DebugArtifacts)>,
     pub verdict: Verdict,
+    /// Requested ways the fixture's `// skip-way:` lines removed.
+    pub skipped_ways: Vec<fixture::SkipWay>,
+    /// How long each way that ran took, in run order.
+    pub elapsed: Vec<(Way, std::time::Duration)>,
+    /// Skipped ways that `--check-skips` ran and found passing: their skip
+    /// may no longer be needed.
+    pub unexpected_passes: Vec<fixture::SkipWay>,
 }
 
 #[derive(Debug)]
@@ -410,14 +494,77 @@ pub enum MismatchDetail {
         normal: String,
         strict: String,
     },
+    /// An optimized way disagreed with its unoptimized counterpart.
+    OptModeMismatch {
+        unopt_way: Way,
+        opt_way: Way,
+        field: String,
+        unopt: String,
+        opt: String,
+    },
+    /// A heap way disagreed with the same build on the plain heap.
+    HeapModeMismatch {
+        plain_way: Way,
+        heap_way: Way,
+        field: String,
+        plain: String,
+        heap: String,
+    },
+    /// The debug heap stopped the program at a use after free.
+    HeapFault {
+        way: Way,
+        message: String,
+    },
     DiagnosticCodes {
         way: Way,
         expected: Vec<String>,
         actual: Vec<String>,
+    },
+    /// An annotated fixture's errors, compared by line and code: each entry
+    /// reads `line 38: E300`, or names the file when it is not the fixture.
+    DiagnosticLocations {
+        way: Way,
+        missing: Vec<String>,
+        unexpected: Vec<String>,
     },
     ExpectedStderr {
         way: Way,
         expected: String,
         actual: String,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_way_parses_back_from_its_name() {
+        for way in Way::ALL {
+            assert_eq!(Way::parse(&way.to_string()), Some(way), "{way}");
+        }
+    }
+
+    #[test]
+    fn opt_ways_pair_with_their_plain_way_on_the_same_backend() {
+        for (opt, plain, backend) in
+            [(Way::VmOpt, Way::Vm, BackendId::Vm), (Way::LlvmOpt, Way::Llvm, BackendId::Llvm)]
+        {
+            assert!(opt.is_opt() && !plain.is_opt());
+            assert_eq!(opt.non_opt(), plain);
+            assert_eq!(opt.backend_id(), backend);
+        }
+        assert_eq!(Way::Vm.non_opt(), Way::Vm);
+    }
+
+    #[test]
+    fn the_heap_way_pairs_with_plain_llvm() {
+        assert!(Way::LlvmHeap.is_heap());
+        assert_eq!(Way::LlvmHeap.non_heap(), Way::Llvm);
+        assert_eq!(Way::LlvmHeap.backend_id(), BackendId::Llvm);
+        assert!(!Way::LlvmHeap.is_opt() && !Way::LlvmHeap.is_cached());
+        for way in Way::ALL.into_iter().filter(|way| !way.is_heap()) {
+            assert_eq!(way.non_heap(), way, "{way}");
+        }
+    }
 }

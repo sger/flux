@@ -9,9 +9,9 @@ error[E024]: Module Path Mismatch
 
 Module name `Modules.Amber.Ink` doesn't match file path `examples/Modules/Amber/Ink.flx`.
 
-  examples/Modules/Amber/Ink.flx:7:1
+  examples/Modules/Amber/Ink.flx:6:1
   |
-7 | module Modules.Amber.Ink {
+6 | module Modules.Amber.Ink {
   | ^
 
 Hint:

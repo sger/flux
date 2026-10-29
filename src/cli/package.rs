@@ -101,17 +101,9 @@ fn parse_reply(stdout: &str) -> Result<Reply, String> {
         return Err(format!("unexpected reply from the package manager: {last}"));
     };
     match record.split_once('\t') {
-        Some(("ok", message)) => Ok(Reply {
-            failed: false,
-            message: message.to_string(),
-        }),
-        Some(("err", message)) => Ok(Reply {
-            failed: true,
-            message: message.to_string(),
-        }),
-        _ => Err(format!(
-            "unexpected reply from the package manager: {record}"
-        )),
+        Some(("ok", message)) => Ok(Reply { failed: false, message: message.to_string() }),
+        Some(("err", message)) => Ok(Reply { failed: true, message: message.to_string() }),
+        _ => Err(format!("unexpected reply from the package manager: {record}")),
     }
 }
 
@@ -158,30 +150,18 @@ pub fn init(name: Option<&str>, is_lib: bool) -> ExitCode {
         .unwrap_or_else(|| "package".to_string());
     let name = name.unwrap_or(&derived);
     let dir = flume_path(&cwd);
-    report(call_flume(&[
-        "init",
-        &dir,
-        name,
-        if is_lib { "--lib" } else { "" },
-    ]))
+    report(call_flume(&["init", &dir, name, if is_lib { "--lib" } else { "" }]))
 }
 
 /// `flux new <name> [--lib]` — scaffold a package into a new directory.
 pub fn new(name: &str, is_lib: bool) -> ExitCode {
-    let dir = std::env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join(name);
+    let dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")).join(name);
     if let Err(err) = std::fs::create_dir_all(&dir) {
         eprintln!("error: could not create {}: {err}", dir.display());
         return ExitCode::FAILURE;
     }
     let dir = flume_path(&dir);
-    report(call_flume(&[
-        "new",
-        &dir,
-        name,
-        if is_lib { "--lib" } else { "" },
-    ]))
+    report(call_flume(&["new", &dir, name, if is_lib { "--lib" } else { "" }]))
 }
 
 /// Ask the package manager which file this project builds.
@@ -306,11 +286,7 @@ pub fn package_command(
 
     crate::driver::pipeline::run_pipeline(
         flags,
-        RunTarget {
-            path: entry.to_string_lossy().into_owned(),
-            mode,
-            program_args,
-        },
+        RunTarget { path: entry.to_string_lossy().into_owned(), mode, program_args },
     );
     ExitCode::SUCCESS
 }
@@ -323,11 +299,7 @@ fn apply_package_profile(
     action: PackageAction,
     validate_backend: bool,
 ) -> Result<(), String> {
-    let name = flags
-        .profile
-        .name
-        .clone()
-        .unwrap_or_else(|| "dev".to_string());
+    let name = flags.profile.name.clone().unwrap_or_else(|| "dev".to_string());
     let dir = flume_path(project);
     let reply = call_flume(&["profile", &dir, &name])?;
     if reply.failed {
@@ -352,10 +324,8 @@ fn apply_package_profile(
 
     let profile = Profile { backend, optimize };
     flags.profile.resolved = Some(profile);
-    flags.backend.use_llvm = flags
-        .profile
-        .cli_use_llvm
-        .unwrap_or(profile.backend == Backend::Native);
+    flags.backend.use_llvm =
+        flags.profile.cli_use_llvm.unwrap_or(profile.backend == Backend::Native);
     flags.language.enable_optimize = flags.profile.cli_optimize.unwrap_or(profile.optimize);
     *flags = flags.clone().finalize_backend();
 
@@ -402,11 +372,7 @@ fn emit_package_metadata(
     }
     let members = workspace_members(project);
     let profile_name = flags.profile.name.as_deref().unwrap_or("dev");
-    let backend = if flags.is_native_backend() {
-        "native"
-    } else {
-        "vm"
-    };
+    let backend = if flags.is_native_backend() { "native" } else { "vm" };
     let value = serde_json::json!({
         "format_version": PACKAGE_FORMAT_VERSION,
         "workspace": { "root": project, "members": members },
@@ -445,11 +411,7 @@ fn emit_package_build_plan(project: &Path, flags: &DriverFlags) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let backend = if flags.is_native_backend() {
-        "native"
-    } else {
-        "vm"
-    };
+    let backend = if flags.is_native_backend() { "native" } else { "vm" };
     let records = graph_records(&reply);
     if records.is_empty() {
         eprintln!(
@@ -469,10 +431,8 @@ fn emit_package_build_plan(project: &Path, flags: &DriverFlags) -> ExitCode {
                 .and_then(serde_json::Value::as_str)
                 .map(PathBuf::from)
                 .unwrap_or_else(|| project.join("src"));
-            let namespace = package
-                .get("namespace")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("main");
+            let namespace =
+                package.get("namespace").and_then(serde_json::Value::as_str).unwrap_or("main");
             let source = [root.join("main.flx"), root.join(format!("{namespace}.flx"))]
                 .into_iter()
                 .find(|candidate| candidate.is_file())
@@ -513,10 +473,7 @@ fn emit_package_build_plan(project: &Path, flags: &DriverFlags) -> ExitCode {
             "units": units,
         }))
         .unwrap_or_else(|_| {
-            format!(
-                "{{\"format_version\":{},\"units\":[]}}",
-                PACKAGE_FORMAT_VERSION
-            )
+            format!("{{\"format_version\":{},\"units\":[]}}", PACKAGE_FORMAT_VERSION)
         })
     );
     ExitCode::SUCCESS
@@ -620,22 +577,14 @@ fn publish_package(project: &Path, dry_run: bool) -> ExitCode {
             return ExitCode::FAILURE;
         }
     }
-    let verify = std::env::temp_dir().join(format!(
-        "flux-publish-{}-{}",
-        std::process::id(),
-        now_nanos()
-    ));
+    let verify =
+        std::env::temp_dir().join(format!("flux-publish-{}-{}", std::process::id(), now_nanos()));
     if let Err(error) = std::fs::create_dir_all(&verify) {
         eprintln!("error: could not create verification directory: {error}");
         return ExitCode::FAILURE;
     }
     let unpack = Command::new("tar")
-        .args([
-            "-xf",
-            &archive.to_string_lossy(),
-            "-C",
-            &verify.to_string_lossy(),
-        ])
+        .args(["-xf", &archive.to_string_lossy(), "-C", &verify.to_string_lossy()])
         .output();
     if !matches!(unpack, Ok(ref output) if output.status.success()) {
         eprintln!("error: could not unpack package for verification");
@@ -741,10 +690,7 @@ fn workspace_members(project: &Path) -> Vec<String> {
 }
 
 fn now_nanos() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or_default()
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -755,10 +701,7 @@ mod tests {
 
     #[test]
     fn finds_the_project_directory_in_graph_style_arguments() {
-        assert_eq!(
-            module_cache_dir(&[".", "--update"]),
-            Some(PathBuf::from("./target/flux"))
-        );
+        assert_eq!(module_cache_dir(&[".", "--update"]), Some(PathBuf::from("./target/flux")));
     }
 
     #[test]
@@ -817,10 +760,6 @@ mod tests {
     fn a_multiline_error_is_not_flipped_by_quoted_content() {
         let reply = parse_reply("\"err\tcannot parse manifest:\nok\tvalue\"")
             .expect("err record with quoted content");
-        assert!(
-            reply.failed,
-            "an err reply was reported as success: {:?}",
-            reply.message
-        );
+        assert!(reply.failed, "an err reply was reported as success: {:?}", reply.message);
     }
 }

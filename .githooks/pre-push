@@ -1,0 +1,47 @@
+#!/bin/sh
+# Checks what is about to be pushed, as rust-lang/rust's src/etc/pre-push.sh
+# does: refuses uncommitted changes, then runs tidy (formatting and the test
+# layout). Unlike rust's, it also runs clippy as CI does when the push changes
+# Rust code, so a lint failure stops here instead of on every CI runner.
+# Enable once per clone with: git config core.hooksPath .githooks
+
+zero=0000000000000000000000000000000000000000
+skip=yes
+lint=no
+
+# Git passes one line per ref: <local ref> <local sha> <remote ref> <remote sha>.
+while read -r _ local_sha _ remote_sha; do
+    # A push that only deletes branches has nothing to check.
+    [ "$local_sha" = "$zero" ] && continue
+    skip=no
+    if [ "$remote_sha" = "$zero" ]; then
+        # A new branch: lint, since there is nothing to compare with.
+        lint=yes
+    elif git diff --name-only "$remote_sha" "$local_sha" | grep -Eq '(\.rs|Cargo\.toml|Cargo\.lock|rustfmt\.toml)$'; then
+        lint=yes
+    fi
+done
+
+[ "$skip" = yes ] && exit 0
+
+# The checks below read the files on disk; with uncommitted changes those are
+# not what is being pushed.
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+    echo "pre-push: the working tree has uncommitted changes, refusing to push." >&2
+    echo "Commit, stash or discard them first, or skip once with --no-verify." >&2
+    exit 1
+fi
+
+if ! cargo xtask tidy >&2; then
+    echo "pre-push: tidy found problems (above); fix them or skip once with --no-verify." >&2
+    exit 1
+fi
+
+[ "$lint" = no ] && exit 0
+
+if ! cargo clippy --workspace --all-targets --all-features -- -D warnings; then
+    echo "pre-push: clippy found problems (above); fix them or skip once with --no-verify." >&2
+    exit 1
+fi
+
+exit 0

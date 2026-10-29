@@ -1,13 +1,11 @@
 // expect: compile_error
-// expect-error: E018
-// expect-error: E018
 
 // Advanced example: modules + map/filter/fold + lambdas
 // Run with:
 // cargo run -- --root examples examples/Modules/advanced_map_filter_fold_pipeline.flx
 
-import Modules.Analytics.Transforms as T
-import Modules.Math as Math
+import Modules.Analytics.Transforms as T //~ E018
+import Modules.Math as Math //~ E018
 import Flow.Array as Array
 import Flow.String as Strings
 

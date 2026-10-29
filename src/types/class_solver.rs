@@ -93,14 +93,7 @@ pub fn solve_wanted_tree(
     interner: &Interner,
 ) -> SolveOutcome {
     let mut dispositions = Vec::new();
-    solve_scope(
-        wanted,
-        &Enclosing::default(),
-        scope,
-        class_env,
-        interner,
-        &mut dispositions,
-    );
+    solve_scope(wanted, &Enclosing::default(), scope, class_env, interner, &mut dispositions);
     SolveOutcome { dispositions }
 }
 
@@ -120,31 +113,15 @@ fn solve_scope(
     }
     for implication in &wanted.implications {
         let mut givens = enclosing.givens.to_vec();
-        givens.extend(
-            implication
-                .givens
-                .iter()
-                .enumerate()
-                .map(|(index, constraint)| Given {
-                    constraint: constraint.clone(),
-                    owner: crate::types::class_disposition::GivenRef {
-                        definition: implication.definition,
-                        index: u16::try_from(index).expect("a definition holds under 2^16 givens"),
-                    },
-                }),
-        );
-        let nested = Enclosing {
-            givens: &givens,
-            quantified: &implication.quantified,
-        };
-        solve_scope(
-            &implication.wanted,
-            &nested,
-            scope,
-            class_env,
-            interner,
-            out,
-        );
+        givens.extend(implication.givens.iter().enumerate().map(|(index, constraint)| Given {
+            constraint: constraint.clone(),
+            owner: crate::types::class_disposition::GivenRef {
+                definition: implication.definition,
+                index: u16::try_from(index).expect("a definition holds under 2^16 givens"),
+            },
+        }));
+        let nested = Enclosing { givens: &givens, quantified: &implication.quantified };
+        solve_scope(&implication.wanted, &nested, scope, class_env, interner, out);
     }
 }
 
@@ -183,10 +160,9 @@ fn display_type_named(
     interner: &Interner,
 ) -> String {
     match ty {
-        InferType::Var(var) => names
-            .get(var)
-            .cloned()
-            .unwrap_or_else(|| display_type(ty, interner)),
+        InferType::Var(var) => {
+            names.get(var).cloned().unwrap_or_else(|| display_type(ty, interner))
+        }
         InferType::App(constructor, args) if !args.is_empty() => format!(
             "{}<{}>",
             display_type(&InferType::App(constructor.clone(), Vec::new()), interner)
@@ -204,11 +180,7 @@ fn display_type_named(
 fn alpha_name(index: usize) -> String {
     let letter = ((index % 26) as u8 + b'a') as char;
     let suffix = index / 26;
-    if suffix == 0 {
-        letter.to_string()
-    } else {
-        format!("{letter}{suffix}")
-    }
+    if suffix == 0 { letter.to_string() } else { format!("{letter}{suffix}") }
 }
 
 /// Report a predicate the enclosing signature does not promise.
@@ -231,25 +203,17 @@ fn could_not_deduce(
         .map(|(index, var)| (*var, alpha_name(index)))
         .collect();
 
-    let wanted = display_predicate_named(
-        constraint.class_name,
-        &constraint.type_args,
-        &names,
-        interner,
-    );
+    let wanted =
+        display_predicate_named(constraint.class_name, &constraint.type_args, &names, interner);
     let context = if enclosing.givens.is_empty() {
         "no constraints".to_string()
     } else {
         enclosing
             .givens
             .iter()
-            .map(
-                |Given {
-                     constraint: given, ..
-                 }| {
-                    display_predicate_named(given.class_name, &given.type_args, &names, interner)
-                },
-            )
+            .map(|Given { constraint: given, .. }| {
+                display_predicate_named(given.class_name, &given.type_args, &names, interner)
+            })
             .collect::<Vec<_>>()
             .join(", ")
     };
@@ -258,9 +222,7 @@ fn could_not_deduce(
         diagnostic: Box::new(
             diagnostic_for(&COULD_NOT_DEDUCE)
                 .with_span(constraint.span)
-                .with_message(format!(
-                    "Could not deduce `{wanted}` from the context `{context}`."
-                ))
+                .with_message(format!("Could not deduce `{wanted}` from the context `{context}`."))
                 .with_hint_text(format!(
                     "Add `{}` to the bounds this signature declares.",
                     interner.resolve(constraint.class_name)
@@ -284,26 +246,16 @@ fn entailed_by_givens(
     givens: &[Given],
     class_env: &ClassEnv,
 ) -> Option<Evidence> {
-    givens
-        .iter()
-        .filter(|given| given.constraint.type_args == type_args)
-        .find_map(
-            |Given {
-                 constraint: given,
-                 owner,
-             }| {
-                let path = if given.class_id == class_id {
-                    Vec::new()
-                } else {
-                    class_env.superclass_path(given.class_id, class_id)?
-                };
-                Some(Evidence::FromGiven {
-                    given: given.clone(),
-                    owner: *owner,
-                    superclass_path: path,
-                })
-            },
-        )
+    givens.iter().filter(|given| given.constraint.type_args == type_args).find_map(
+        |Given { constraint: given, owner }| {
+            let path = if given.class_id == class_id {
+                Vec::new()
+            } else {
+                class_env.superclass_path(given.class_id, class_id)?
+            };
+            Some(Evidence::FromGiven { given: given.clone(), owner: *owner, superclass_path: path })
+        },
+    )
 }
 
 /// A predicate in scope as a given, and which definition's given it is.
@@ -373,12 +325,9 @@ fn classify_constraint(
     // concreteness first would misfile it. `Num<a>` inside `fn f<a: Num>` is
     // the case that matters — no instance matches a rigid variable, so before
     // this it could only be recorded as undecided.
-    if let Some(evidence) = entailed_by_givens(
-        constraint.class_id,
-        &constraint.type_args,
-        enclosing.givens,
-        class_env,
-    ) {
+    if let Some(evidence) =
+        entailed_by_givens(constraint.class_id, &constraint.type_args, enclosing.givens, class_env)
+    {
         return Disposition::Solved { evidence };
     }
 
@@ -396,9 +345,7 @@ fn classify_constraint(
         && constraint.span != Span::default()
         && let Some(diagnostic) = undetermined_parameter_diagnostic(constraint, class_env, interner)
     {
-        return Disposition::Diagnosed {
-            diagnostic: Box::new(diagnostic),
-        };
+        return Disposition::Diagnosed { diagnostic: Box::new(diagnostic) };
     }
 
     // A predicate whose variables the enclosing binding all *quantified* has
@@ -447,23 +394,16 @@ fn classify_constraint(
     // Skip constraints from compiler-generated code (e.g., dispatch functions).
     // These have default spans (line 0, col 0).
     if constraint.span == Span::default() {
-        return Disposition::Stuck {
-            reason: StuckReason::SyntheticOrigin,
-        };
+        return Disposition::Stuck { reason: StuckReason::SyntheticOrigin };
     }
 
     // Skip if the class doesn't exist in the environment (already
     // reported by ClassEnv validation as E441).
     if class_env.lookup_class_by_id(constraint.class_id).is_none() {
-        return Disposition::Stuck {
-            reason: StuckReason::UnknownClass,
-        };
+        return Disposition::Stuck { reason: StuckReason::UnknownClass };
     }
 
-    let mut search = InstanceSearch {
-        givens: enclosing.givens,
-        ..InstanceSearch::default()
-    };
+    let mut search = InstanceSearch { givens: enclosing.givens, ..InstanceSearch::default() };
     let evidence = solve_instance_evidence(
         constraint.class_id,
         &constraint.type_args,
@@ -482,12 +422,12 @@ fn classify_constraint(
         let predicate = display_predicate(constraint, interner);
         return Disposition::Diagnosed {
             diagnostic: Box::new(
-                diagnostic_for(&INSTANCE_SEARCH_EXHAUSTED)
-                    .with_span(constraint.span)
-                    .with_message(format!(
+                diagnostic_for(&INSTANCE_SEARCH_EXHAUSTED).with_span(constraint.span).with_message(
+                    format!(
                         "Resolving `{predicate}` exceeded the instance-context depth limit \
                          ({MAX_DICTIONARY_RESOLUTION_DEPTH})."
-                    )),
+                    ),
+                ),
             ),
         };
     }
@@ -547,9 +487,7 @@ fn classify_constraint(
         diagnostic: Box::new(
             diagnostic_for(&NO_INSTANCE)
                 .with_span(constraint.span)
-                .with_message(format!(
-                    "No instance for `{class_display}<{type_display}>`."
-                ))
+                .with_message(format!("No instance for `{class_display}<{type_display}>`."))
                 .with_hint_text(format!(
                     "Add an instance: `instance {class_display}<{type_display}> {{ ... }}`"
                 )),
@@ -602,11 +540,7 @@ fn solve_instance_evidence(
     let key = format!(
         "{class_module}.{}<{}>",
         interner.resolve(class_id.name),
-        type_args
-            .iter()
-            .map(|ty| display_type(ty, interner))
-            .collect::<Vec<_>>()
-            .join(", ")
+        type_args.iter().map(|ty| display_type(ty, interner)).collect::<Vec<_>>().join(", ")
     );
     if !search.seen.insert(key.clone()) {
         // A cycle in the instance-context graph. The predicate is assumed
@@ -638,9 +572,8 @@ fn solve_instance_evidence(
     // The instance search is a closure so that its `?` and early `return`
     // leave *it* rather than this function — falling through to the structural
     // rule below, and still reaching the `seen.remove` at the end.
-    let is_marker = class_env
-        .lookup_class_by_id(class_id)
-        .is_some_and(|class| class.methods.is_empty());
+    let is_marker =
+        class_env.lookup_class_by_id(class_id).is_some_and(|class| class.methods.is_empty());
     let from_instance = (|| {
         let (instance, subst) =
             class_env.resolve_instance_with_subst_by_id(class_id, type_args, interner)?;
@@ -702,11 +635,7 @@ fn solve_instance_evidence(
     let evidence = from_instance.or_else(|| {
         structural_builtin_evidence(class_id, type_args, class_env, interner, search).map(
             |components| {
-                if is_marker {
-                    Evidence::Marker
-                } else {
-                    Evidence::Structural { components }
-                }
+                if is_marker { Evidence::Marker } else { Evidence::Structural { components } }
             },
         )
     });
@@ -725,10 +654,7 @@ fn structural_builtin_evidence(
     search: &mut InstanceSearch<'_>,
 ) -> Option<Vec<Evidence>> {
     let class_name = interner.resolve(class_id.name);
-    if !class_env
-        .lookup_class_by_id(class_id)
-        .is_some_and(|class| class.is_builtin)
-    {
+    if !class_env.lookup_class_by_id(class_id).is_some_and(|class| class.is_builtin) {
         return None;
     }
     if !matches!(class_name, "Eq" | "Ord" | "Sendable") || type_args.len() != 1 {
@@ -773,13 +699,7 @@ fn single_evidence(
         .values()
         .find(|class| class.is_builtin && interner.resolve(class.name) == class_name)
         .map(|class| class.class_id())?;
-    solve_instance_evidence(
-        class_id,
-        std::slice::from_ref(ty),
-        class_env,
-        interner,
-        search,
-    )
+    solve_instance_evidence(class_id, std::slice::from_ref(ty), class_env, interner, search)
 }
 
 fn instantiate_context_type_expr(
@@ -790,11 +710,7 @@ fn instantiate_context_type_expr(
     match expr {
         TypeExpr::Named { name, args, .. } => {
             if args.is_empty()
-                && interner
-                    .resolve(*name)
-                    .chars()
-                    .next()
-                    .is_some_and(|c| c.is_ascii_lowercase())
+                && interner.resolve(*name).chars().next().is_some_and(|c| c.is_ascii_lowercase())
             {
                 return subst.get(name).cloned();
             }
@@ -869,11 +785,7 @@ fn is_solvable_type_arg(ty: &InferType) -> bool {
 
 /// Render a predicate's type arguments as a comma-separated list.
 fn display_type_args(type_args: &[InferType], interner: &Interner) -> String {
-    type_args
-        .iter()
-        .map(|ty| display_type(ty, interner))
-        .collect::<Vec<_>>()
-        .join(", ")
+    type_args.iter().map(|ty| display_type(ty, interner)).collect::<Vec<_>>().join(", ")
 }
 
 /// Render a whole predicate, e.g. `Eq<List<Int>>`.
@@ -931,14 +843,12 @@ fn undetermined_parameter_diagnostic(
         .unwrap_or_else(|| format!("argument {}", first_undetermined + 1));
     let predicate = display_predicate(constraint, interner);
 
-    Some(
-        diagnostic_for(&UNDETERMINED_CLASS_PARAMETER)
-            .with_span(constraint.span)
-            .with_message(format!(
-                "Cannot determine `{param}` in `{predicate}`; \
+    Some(diagnostic_for(&UNDETERMINED_CLASS_PARAMETER).with_span(constraint.span).with_message(
+        format!(
+            "Cannot determine `{param}` in `{predicate}`; \
                  several instances are compatible with what this call fixes."
-            )),
-    )
+        ),
+    ))
 }
 
 fn display_predicate(constraint: &WantedClassConstraint, interner: &Interner) -> String {
@@ -998,15 +908,10 @@ pub fn split(
     constraints.iter().cloned().partition(|constraint| {
         // A predicate whose variables are all fixed by the environment
         // belongs to an enclosing binding, not this one.
-        let vars: HashSet<TypeVarId> = constraint
-            .type_args
-            .iter()
-            .flat_map(InferType::free_vars)
-            .collect();
+        let vars: HashSet<TypeVarId> =
+            constraint.type_args.iter().flat_map(InferType::free_vars).collect();
         !vars.is_empty()
-            && vars
-                .iter()
-                .all(|var| env_free_vars.contains(var) && !quantified_vars.contains(var))
+            && vars.iter().all(|var| env_free_vars.contains(var) && !quantified_vars.contains(var))
     })
 }
 
@@ -1019,11 +924,7 @@ mod tests {
     use crate::types::class_id::{ClassId, ModulePath};
 
     fn named(interner: &mut Interner, name: &str, args: Vec<TypeExpr>) -> TypeExpr {
-        TypeExpr::Named {
-            name: interner.intern(name),
-            args,
-            span: Span::default(),
-        }
+        TypeExpr::Named { name: interner.intern(name), args, span: Span::default() }
     }
 
     /// `class Sizeable<a> { fn size(x: a) -> Int }` plus the given instance
@@ -1114,10 +1015,7 @@ mod tests {
         match &outcome.dispositions[..] {
             [
                 DispositionedConstraint {
-                    disposition:
-                        Disposition::Solved {
-                            evidence: Evidence::FromGiven { owner, .. },
-                        },
+                    disposition: Disposition::Solved { evidence: Evidence::FromGiven { owner, .. } },
                     ..
                 },
             ] => *owner,
@@ -1178,10 +1076,7 @@ mod tests {
                 7,
                 vec![given_on(sizeable, 0)],
                 vec![0],
-                WantedConstraints {
-                    simple: vec![],
-                    implications: vec![inner],
-                },
+                WantedConstraints { simple: vec![], implications: vec![inner] },
             )],
         };
 
@@ -1214,8 +1109,7 @@ mod tests {
             def.methods.clear();
             def
         };
-        env.classes
-            .insert(ClassId::from_local_name(marker), marker_def);
+        env.classes.insert(ClassId::from_local_name(marker), marker_def);
         let site = crate::syntax::expression::ExprId(50);
         let tree = WantedConstraints {
             simple: vec![],
@@ -1271,8 +1165,7 @@ mod tests {
             def.methods.clear();
             def
         };
-        env.classes
-            .insert(ClassId::from_local_name(marker), marker_def);
+        env.classes.insert(ClassId::from_local_name(marker), marker_def);
         let tree = WantedConstraints {
             simple: vec![],
             implications: vec![scope(
@@ -1319,10 +1212,7 @@ mod tests {
         let class_name = interner.intern("Sizeable");
 
         let outcome = solve_class_constraints_dispositioned(
-            &[wanted(
-                class_name,
-                vec![InferType::Con(TypeConstructor::Int)],
-            )],
+            &[wanted(class_name, vec![InferType::Con(TypeConstructor::Int)])],
             SolveScope::WholeProgram,
             &class_env,
             &interner,
@@ -1332,14 +1222,9 @@ mod tests {
             panic!("expected exactly one disposition");
         };
         match &entry.disposition {
-            Disposition::Solved {
-                evidence: Evidence::FromInstance { instance, .. },
-            } => {
+            Disposition::Solved { evidence: Evidence::FromInstance { instance, .. } } => {
                 assert_eq!(instance.class_id.name, class_name);
-                assert_eq!(
-                    instance.head_type_args,
-                    vec![InferType::Con(TypeConstructor::Int)]
-                );
+                assert_eq!(instance.head_type_args, vec![InferType::Con(TypeConstructor::Int)]);
             }
             other => panic!("expected FromInstance evidence, got {other:?}"),
         }
@@ -1356,10 +1241,7 @@ mod tests {
         let sendable = interner.intern("Sendable");
         let pair = InferType::Tuple(vec![
             InferType::Con(TypeConstructor::Int),
-            InferType::App(
-                TypeConstructor::List,
-                vec![InferType::Con(TypeConstructor::Int)],
-            ),
+            InferType::App(TypeConstructor::List, vec![InferType::Con(TypeConstructor::Int)]),
         ]);
 
         let outcome = solve_class_constraints_dispositioned(
@@ -1373,12 +1255,7 @@ mod tests {
             panic!("expected exactly one disposition");
         };
         assert!(
-            matches!(
-                entry.disposition,
-                Disposition::Solved {
-                    evidence: Evidence::Marker
-                }
-            ),
+            matches!(entry.disposition, Disposition::Solved { evidence: Evidence::Marker }),
             "got {:?}",
             entry.disposition
         );
@@ -1419,10 +1296,7 @@ mod tests {
                 &class_env,
                 &interner,
             );
-            matches!(
-                outcome.dispositions[0].disposition,
-                Disposition::Diagnosed { .. }
-            )
+            matches!(outcome.dispositions[0].disposition, Disposition::Diagnosed { .. })
         };
 
         assert!(verdict(false), "overlap should be reported");

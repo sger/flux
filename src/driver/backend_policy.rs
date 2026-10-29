@@ -69,7 +69,17 @@ pub fn validate_flags(flags: &DriverFlags, is_test_mode: bool) -> Result<(), &'s
     // The debug heap is a build of the C runtime: only a native program
     // links one, and the native test runner does not pass it on.
     if flags.backend.debug_heap && (flags.backend.selected != Backend::Native || is_test_mode) {
-        return Err("Error: --debug-heap applies to a program run or built with --native.");
+        return Err(if flags.backend.leak_check {
+            "Error: --leak-check applies to a program run or built with --native."
+        } else {
+            "Error: --debug-heap applies to a program run or built with --native."
+        });
+    }
+
+    // Aether's counts come from the program the VM compiles; a native run
+    // would leave the file unwritten.
+    if flags.runtime.metrics_path.is_some() && flags.backend.selected == Backend::Native {
+        return Err("Error: --metrics applies to a program run on the VM.");
     }
 
     validate_dump_flags(flags)?;
@@ -97,19 +107,11 @@ pub fn should_render_native_runtime_error(flags: &DriverFlags) -> bool {
 }
 
 pub fn compile_backend_label(flags: &DriverFlags) -> &'static str {
-    if flags.is_native_backend() {
-        "llvm"
-    } else {
-        "bytecode"
-    }
+    if flags.is_native_backend() { "llvm" } else { "bytecode" }
 }
 
 pub fn execute_backend_label(flags: &DriverFlags) -> &'static str {
-    if flags.is_native_backend() {
-        "native"
-    } else {
-        "vm"
-    }
+    if flags.is_native_backend() { "native" } else { "vm" }
 }
 
 pub fn should_show_native_cache(flags: &DriverFlags) -> bool {
@@ -188,6 +190,30 @@ mod tests {
         let flags = flags.finalize_backend();
         assert!(validate_flags(&flags, false).is_ok());
         assert!(validate_flags(&flags, true).is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "llvm")]
+    fn validate_flags_keeps_metrics_on_the_vm() {
+        let mut flags = base_flags();
+        flags.runtime.metrics_path = Some("m.tsv".into());
+        assert!(validate_flags(&flags.clone().finalize_backend(), false).is_ok());
+        flags.backend.use_llvm = true;
+        assert_eq!(
+            validate_flags(&flags.finalize_backend(), false),
+            Err("Error: --metrics applies to a program run on the VM.")
+        );
+    }
+
+    #[test]
+    fn validate_flags_names_the_leak_check_it_refuses() {
+        let mut flags = base_flags();
+        flags.backend.debug_heap = true;
+        flags.backend.leak_check = true;
+        assert_eq!(
+            validate_flags(&flags.finalize_backend(), false),
+            Err("Error: --leak-check applies to a program run or built with --native.")
+        );
     }
 
     #[test]

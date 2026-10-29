@@ -40,10 +40,7 @@ impl InferCtx<'_> {
     /// an empty tuple. Effect operation signatures normally spell that return
     /// as `Unit`, so resume parameter checking accepts the source value shape.
     fn resume_argument_type_for_operation_return(ret_ty: &InferType) -> InferType {
-        if matches!(
-            ret_ty,
-            InferType::Con(crate::types::type_constructor::TypeConstructor::Unit)
-        ) {
+        if matches!(ret_ty, InferType::Con(crate::types::type_constructor::TypeConstructor::Unit)) {
             InferType::Tuple(Vec::new())
         } else {
             ret_ty.clone()
@@ -77,8 +74,7 @@ impl InferCtx<'_> {
         if let Some(parameter_ty) = parameter_ty
             && let Some(state_name) = arm.params.get(param_tys.len())
         {
-            self.env
-                .bind(*state_name, Scheme::mono(parameter_ty.clone()));
+            self.env.bind(*state_name, Scheme::mono(parameter_ty.clone()));
         }
     }
 

@@ -1,3 +1,4 @@
+use crate::core::{CoreAlt, CoreExpr};
 /// Case-of-case transformation.
 ///
 /// When the scrutinee of a `Case` is itself a `Case`, push the outer
@@ -14,7 +15,7 @@
 /// Guards in the **inner** case are preserved. The outer alternatives are
 /// cloned into each inner arm. A size limit prevents code explosion when
 /// the outer alternatives are large.
-use crate::core::{CoreAlt, CoreExpr};
+use crate::shared::opt_bisect;
 
 use super::helpers::{expr_size, map_children};
 
@@ -51,7 +52,16 @@ pub fn case_of_case(expr: CoreExpr) -> CoreExpr {
             {
                 // Skip if outer alternatives are too large (prevents code explosion).
                 let outer_size: usize = outer_alts.iter().map(|a| expr_size(&a.rhs)).sum();
-                if outer_size > MAX_OUTER_ALTS_SIZE {
+                // A bisected run past its limit (0190 §13) keeps it too.
+                if outer_size > MAX_OUTER_ALTS_SIZE
+                    || !opt_bisect::allow("case_of_case", || {
+                        format!(
+                            "push {} outer arm(s) into {} inner arm(s)",
+                            outer_alts.len(),
+                            inner_alts.len()
+                        )
+                    })
+                {
                     return CoreExpr::Case {
                         scrutinee: Box::new(CoreExpr::Case {
                             scrutinee: inner_scrutinee,

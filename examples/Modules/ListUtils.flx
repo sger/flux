@@ -1,10 +1,9 @@
 // expect: compile_error
-// expect-error: E024
 
 // Module: ListUtils
 // Utilities for working with persistent linked lists
 
-module Modules.ListUtils {
+module Modules.ListUtils { //~ E024
     // Create a range list: range(1, 5) → [|1, 2, 3, 4, 5|]
     fn list_range(start, stop) {
         if start > stop {

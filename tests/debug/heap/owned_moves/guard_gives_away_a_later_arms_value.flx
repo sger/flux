@@ -1,0 +1,21 @@
+// The guard gives `x` away, fails, and falls through to `_ -> x`, which still
+// returns it. The guard must give away a copy (Perceus audit M2).
+
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn discard(xs, keep) {
+    if keep { xs } else { [] }
+}
+
+fn test(x, junk) {
+    match junk {
+        [_ | _] if len(discard(x, false)) > 5 -> [],
+        _ -> x,
+    }
+}
+
+fn main() {
+    print(test(numbers(1), [0]))
+}

@@ -6,16 +6,14 @@
 //! every combinator behaves at the edges — the empty list, the single
 //! element, predicates matching all or nothing — which the fixture asserts.
 //!
-//! Native parity for the same fixture is covered by
-//! `tests/native_llvm/stdlib_list_native_tests.rs`, which is gated on the
-//! `llvm` feature.
+//! `Flow.List` compiles to entirely different code on the two backends, and a
+//! divergence in something as ordinary as `fold` would be a silent wrong
+//! answer rather than a crash, so the fixture runs natively as well.
 
-#[path = "../support/stdlib_fixture.rs"]
-mod stdlib_fixture;
-
-use stdlib_fixture::assert_fixture_passes;
+use crate::support::stdlib_fixture;
+use stdlib_fixture::assert_backends_agree;
 
 #[test]
-fn stdlib_list_fixture_passes_on_the_vm() {
-    assert_fixture_passes("stdlib_list.flx");
+fn stdlib_list_passes_on_the_vm_and_natively() {
+    assert_backends_agree("stdlib_list.flx");
 }

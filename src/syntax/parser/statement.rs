@@ -157,10 +157,7 @@ impl Parser {
                 None
             }
             TokenType::Ident
-                if matches!(
-                    self.current_token.literal.as_ref(),
-                    "case" | "switch" | "when"
-                ) =>
+                if matches!(self.current_token.literal.as_ref(), "case" | "switch" | "when") =>
             {
                 self.emit_parser_diagnostic(unknown_keyword_alias(
                     self.current_token.span(),
@@ -206,8 +203,7 @@ impl Parser {
     pub(super) fn parse_expression_statement(&mut self) -> Option<Statement> {
         if self.current_token.token_type == TokenType::Ident && self.current_token.literal == "end"
         {
-            self.errors
-                .push(unexpected_end_keyword(self.current_token.span()));
+            self.errors.push(unexpected_end_keyword(self.current_token.span()));
             return None;
         }
 
@@ -251,8 +247,7 @@ impl Parser {
                 });
             }
             if ident_name == "end" {
-                self.errors
-                    .push(unexpected_end_keyword(self.peek_token.span()));
+                self.errors.push(unexpected_end_keyword(self.peek_token.span()));
                 while !self.is_peek_token(TokenType::Eof)
                     && self.peek_token.position.line == self.current_token.end_position.line
                 {
@@ -265,8 +260,7 @@ impl Parser {
                 });
             }
             let error_span = self.span_from(start);
-            self.errors
-                .push(self.build_juxtaposed_identifier_error(&ident_name, error_span));
+            self.errors.push(self.build_juxtaposed_identifier_error(&ident_name, error_span));
             // Skip the current line AND any subsequent lines that also consist of
             // bare identifier sequences (e.g. lines of prose inside a `""` that should
             // have been `"""`). This emits a single error for the whole group instead
@@ -321,15 +315,10 @@ impl Parser {
                 crate::syntax::expression::Expression::Right { .. } => "Right",
                 _ => unreachable!(),
             };
-            self.errors
-                .push(orphan_constructor_pattern(expression.span(), name));
+            self.errors.push(orphan_constructor_pattern(expression.span(), name));
         }
 
-        Some(Statement::Expression {
-            expression,
-            has_semicolon,
-            span: self.span_from(start),
-        })
+        Some(Statement::Expression { expression, has_semicolon, span: self.span_from(start) })
     }
 
     /// Parse `@fip fn ...` or `@fbip fn ...`.
@@ -409,10 +398,7 @@ impl Parser {
             return None;
         }
 
-        let name = self
-            .current_token
-            .symbol
-            .expect("ident token should have symbol");
+        let name = self.current_token.symbol.expect("ident token should have symbol");
 
         let type_params = self.parse_function_type_params_angle_bracket()?;
 
@@ -529,19 +515,12 @@ impl Parser {
                 ) {
                     return type_params;
                 }
-                let class_name = self
-                    .current_token
-                    .symbol
-                    .expect("ident token should have symbol");
+                let class_name = self.current_token.symbol.expect("ident token should have symbol");
                 let constraint_start = self.current_token.position;
                 let type_args = self.parse_instance_type_args();
                 let span = self.span_from(constraint_start);
 
-                let constraint = ClassConstraint {
-                    class_name,
-                    type_args,
-                    span,
-                };
+                let constraint = ClassConstraint { class_name, type_args, span };
 
                 // Attach to the parameter the constraint mentions, so the
                 // existing bound machinery applies unchanged. A constraint
@@ -551,9 +530,7 @@ impl Parser {
                     .type_args
                     .iter()
                     .find_map(|arg| {
-                        type_params
-                            .iter()
-                            .position(|tp| type_expr_names_param(arg, tp.name))
+                        type_params.iter().position(|tp| type_expr_names_param(arg, tp.name))
                     })
                     .unwrap_or(0);
                 if let Some(param) = type_params.get_mut(target) {
@@ -579,12 +556,7 @@ impl Parser {
     /// guards against a signature-position `where` that is not a constraint.
     fn peek_starts_class_constraint(&self) -> bool {
         self.peek2_token.token_type == TokenType::Ident
-            && self
-                .peek2_token
-                .literal
-                .chars()
-                .next()
-                .is_some_and(char::is_uppercase)
+            && self.peek2_token.literal.chars().next().is_some_and(char::is_uppercase)
     }
 
     fn parse_intrinsic_function_statement(&mut self, is_public: bool) -> Option<Statement> {
@@ -687,18 +659,11 @@ impl Parser {
         // first intrinsic's call expression could be unified with the
         // second's body type. This is the structural fix referenced by
         // Proposal 0167 Part 6.
-        let helper_expr = Expression::Identifier {
-            name: helper_symbol,
-            span,
-            id: self.next_expr_id(),
-        };
+        let helper_expr =
+            Expression::Identifier { name: helper_symbol, span, id: self.next_expr_id() };
         let args = parameters
             .iter()
-            .map(|param| Expression::Identifier {
-                name: *param,
-                span,
-                id: self.next_expr_id(),
-            })
+            .map(|param| Expression::Identifier { name: *param, span, id: self.next_expr_id() })
             .collect();
         let call = Expression::Call {
             function: Box::new(helper_expr),
@@ -808,10 +773,7 @@ impl Parser {
             self.next_token();
         }
 
-        Some(Statement::Return {
-            value,
-            span: self.span_from(start),
-        })
+        Some(Statement::Return { value, span: self.span_from(start) })
     }
 
     pub(super) fn parse_let_statement(&mut self, is_public: bool) -> Option<Statement> {
@@ -855,19 +817,11 @@ impl Parser {
             return None;
         }
 
-        let name = self
-            .current_token
-            .symbol
-            .expect("ident token should have symbol");
+        let name = self.current_token.symbol.expect("ident token should have symbol");
 
         let binding_name = self.lexer.interner().resolve(name).to_string();
         let type_annotation = self.parse_type_annotation_opt_with_missing_colon(
-            &[
-                TokenType::Assign,
-                TokenType::Semicolon,
-                TokenType::RBrace,
-                TokenType::Eof,
-            ],
+            &[TokenType::Assign, TokenType::Semicolon, TokenType::RBrace, TokenType::Eof],
             "let binding",
             Some(binding_name.as_str()),
         );
@@ -876,18 +830,15 @@ impl Parser {
             if self.is_peek_token(TokenType::Assign) {
                 self.next_token();
             } else {
-                self.errors
-                    .push(missing_let_assign(self.peek_token.span(), &binding_name));
+                self.errors.push(missing_let_assign(self.peek_token.span(), &binding_name));
                 return None;
             }
         }
 
         self.next_token();
 
-        let value = self.parse_required(
-            |parser| parser.parse_expression(Precedence::Lowest),
-            SyncMode::Stmt,
-        )?;
+        let value = self
+            .parse_required(|parser| parser.parse_expression(Precedence::Lowest), SyncMode::Stmt)?;
 
         if self.is_peek_token(TokenType::Semicolon) {
             self.next_token();
@@ -904,10 +855,7 @@ impl Parser {
 
     pub(super) fn parse_assignment_statement(&mut self) -> Option<Statement> {
         let start = self.current_token.position;
-        let name = self
-            .current_token
-            .symbol
-            .expect("ident token should have symbol");
+        let name = self.current_token.symbol.expect("ident token should have symbol");
 
         if !self.expect_peek_context(
             TokenType::Assign,
@@ -931,11 +879,7 @@ impl Parser {
             self.next_token();
         }
 
-        Some(Statement::Assign {
-            name,
-            value,
-            span: self.span_from(start),
-        })
+        Some(Statement::Assign { name, value, span: self.span_from(start) })
     }
 
     pub(super) fn parse_module_statement(&mut self) -> Option<Statement> {
@@ -944,9 +888,8 @@ impl Parser {
         } else {
             None
         };
-        let _module_context = context_name
-            .clone()
-            .map(|name| self.enter_parser_context(ParserContext::Module(name)));
+        let _module_context =
+            context_name.clone().map(|name| self.enter_parser_context(ParserContext::Module(name)));
         let start = self.current_token.position;
 
         if !self.expect_peek_context(
@@ -973,11 +916,7 @@ impl Parser {
 
         let body = self.parse_block();
 
-        Some(Statement::Module {
-            name,
-            body,
-            span: self.span_from(start),
-        })
+        Some(Statement::Module { name, body, span: self.span_from(start) })
     }
 
     pub(super) fn parse_import_statement(&mut self) -> Option<Statement> {
@@ -1036,11 +975,7 @@ impl Parser {
                 return None;
             }
             self.next_token();
-            alias = Some(
-                self.current_token
-                    .symbol
-                    .expect("ident token should have symbol"),
-            );
+            alias = Some(self.current_token.symbol.expect("ident token should have symbol"));
         }
 
         if self.peek_token.token_type == TokenType::Ident && self.peek_token.literal == "except" {
@@ -1077,13 +1012,7 @@ impl Parser {
 
         // No semicolon required for import statements
 
-        Some(Statement::Import {
-            name,
-            alias,
-            except,
-            exposing,
-            span: self.span_from(start),
-        })
+        Some(Statement::Import { name, alias, except, exposing, span: self.span_from(start) })
     }
 
     fn parse_import_except_list(&mut self) -> Option<Vec<crate::syntax::Identifier>> {
@@ -1114,11 +1043,7 @@ impl Parser {
             ) {
                 return None;
             }
-            names.push(
-                self.current_token
-                    .symbol
-                    .expect("ident token should have symbol"),
-            );
+            names.push(self.current_token.symbol.expect("ident token should have symbol"));
 
             if self.is_peek_token(TokenType::Comma) {
                 self.next_token(); // consume comma
@@ -1204,11 +1129,7 @@ impl Parser {
             ) {
                 return None;
             }
-            names.push(
-                self.current_token
-                    .symbol
-                    .expect("ident token should have symbol"),
-            );
+            names.push(self.current_token.symbol.expect("ident token should have symbol"));
 
             if self.is_peek_token(TokenType::Comma) {
                 self.next_token(); // consume comma
@@ -1246,9 +1167,8 @@ impl Parser {
         } else {
             None
         };
-        let _data_context = context_name
-            .clone()
-            .map(|name| self.enter_parser_context(ParserContext::Data(name)));
+        let _data_context =
+            context_name.clone().map(|name| self.enter_parser_context(ParserContext::Data(name)));
         let start = self.current_token.position;
 
         // current: 'data' — advance to type name
@@ -1261,10 +1181,7 @@ impl Parser {
         ) {
             return None;
         }
-        let name = self
-            .current_token
-            .symbol
-            .expect("ident token should have symbol");
+        let name = self.current_token.symbol.expect("ident token should have symbol");
 
         // Optional generic type parameters. Reuse the function parser so
         // constrained params (`data Box<a: Sendable>`) get the same recovery
@@ -1306,10 +1223,7 @@ impl Parser {
                 return None;
             }
 
-            let var_name = self
-                .current_token
-                .symbol
-                .expect("ident token should have symbol");
+            let var_name = self.current_token.symbol.expect("ident token should have symbol");
 
             // Optional field types:
             //   Positional: VariantName(Type1, Type2, ...)
@@ -1401,10 +1315,8 @@ impl Parser {
                             );
                             break;
                         }
-                        let field_name = self
-                            .current_token
-                            .symbol
-                            .expect("ident token should have symbol");
+                        let field_name =
+                            self.current_token.symbol.expect("ident token should have symbol");
                         let field_name_span = self.current_token.span();
                         // Reject duplicate field names within the same variant (E462).
                         if names.contains(&field_name) {
@@ -1604,10 +1516,7 @@ impl Parser {
         ) {
             return None;
         }
-        let name = self
-            .current_token
-            .symbol
-            .expect("ident token should have symbol");
+        let name = self.current_token.symbol.expect("ident token should have symbol");
 
         // Optional generic type parameters. Reuse the function parser for
         // constrained syntax and keep only the names in today's AST shape.
@@ -1640,10 +1549,7 @@ impl Parser {
                 ));
                 return None;
             }
-            let var_name = self
-                .current_token
-                .symbol
-                .expect("ident token should have symbol");
+            let var_name = self.current_token.symbol.expect("ident token should have symbol");
 
             let mut fields = Vec::new();
             if self.is_peek_token(TokenType::LParen) {
@@ -1759,45 +1665,37 @@ impl Parser {
         // Disambiguation: `class Eq<a> => Ord<a> { ... }`
         //   first_name = Eq, first_args = [a] → superclass constraint
         //   then parse Ord<a> as the actual class name
-        let (superclasses, class_name, type_params, name_span) =
-            if self.is_peek_token(TokenType::FatArrow) {
-                let constraint_span = self.span_from(start);
-                let superclass = ClassConstraint {
-                    class_name: first_name,
-                    type_args: first_args
-                        .iter()
-                        .map(|&id| TypeExpr::Named {
-                            name: id,
-                            args: vec![],
-                            span: constraint_span,
-                        })
-                        .collect(),
-                    span: constraint_span,
-                };
-                self.next_token(); // consume `=>`
-
-                // Parse the actual class name and type params.
-                if !self.expect_peek_context_with_details(
-                    TokenType::Ident,
-                    "Missing Class Name",
-                    DiagnosticCategory::ParserDeclaration,
-                    "Expected class name after `=>`.".to_string(),
-                    "Superclass syntax: `class Eq<a> => Ord<a> { ... }`.".to_string(),
-                ) {
-                    return None;
-                }
-                let actual_name = self.current_token.symbol.expect("ident should have symbol");
-                let actual_name_span = self.current_token.span();
-                let actual_params = self.parse_type_params_angle_bracket();
-                (
-                    vec![superclass],
-                    actual_name,
-                    actual_params,
-                    actual_name_span,
-                )
-            } else {
-                (vec![], first_name, first_args, first_name_span)
+        let (superclasses, class_name, type_params, name_span) = if self
+            .is_peek_token(TokenType::FatArrow)
+        {
+            let constraint_span = self.span_from(start);
+            let superclass = ClassConstraint {
+                class_name: first_name,
+                type_args: first_args
+                    .iter()
+                    .map(|&id| TypeExpr::Named { name: id, args: vec![], span: constraint_span })
+                    .collect(),
+                span: constraint_span,
             };
+            self.next_token(); // consume `=>`
+
+            // Parse the actual class name and type params.
+            if !self.expect_peek_context_with_details(
+                TokenType::Ident,
+                "Missing Class Name",
+                DiagnosticCategory::ParserDeclaration,
+                "Expected class name after `=>`.".to_string(),
+                "Superclass syntax: `class Eq<a> => Ord<a> { ... }`.".to_string(),
+            ) {
+                return None;
+            }
+            let actual_name = self.current_token.symbol.expect("ident should have symbol");
+            let actual_name_span = self.current_token.span();
+            let actual_params = self.parse_type_params_angle_bracket();
+            (vec![superclass], actual_name, actual_params, actual_name_span)
+        } else {
+            (vec![], first_name, first_args, first_name_span)
+        };
 
         // Expect `{`
         if !self.expect_peek_context_with_details(
@@ -2015,12 +1913,7 @@ impl Parser {
             let actual_name = self.current_token.symbol.expect("ident should have symbol");
             let actual_name_span = self.current_token.span();
             let actual_type_args = self.parse_instance_type_args();
-            (
-                vec![ctx_constraint],
-                actual_name,
-                actual_type_args,
-                actual_name_span,
-            )
+            (vec![ctx_constraint], actual_name, actual_type_args, actual_name_span)
         } else {
             (vec![], first_name, first_type_args, first_name_span)
         };
@@ -2109,17 +2002,10 @@ impl Parser {
         ) {
             return None;
         }
-        let name = self
-            .current_token
-            .symbol
-            .expect("ident token should have symbol");
+        let name = self.current_token.symbol.expect("ident token should have symbol");
         let params = self.parse_instance_type_args();
 
-        Some(AssociatedTypeDecl {
-            name,
-            params,
-            span: self.span_from(start),
-        })
+        Some(AssociatedTypeDecl { name, params, span: self.span_from(start) })
     }
 
     /// Parse `type Element<List<a>> = a` inside an instance body
@@ -2138,10 +2024,7 @@ impl Parser {
         ) {
             return None;
         }
-        let name = self
-            .current_token
-            .symbol
-            .expect("ident token should have symbol");
+        let name = self.current_token.symbol.expect("ident token should have symbol");
         let head = self.parse_instance_type_args();
 
         if !self.expect_peek_context_with_details(
@@ -2156,12 +2039,7 @@ impl Parser {
         self.next_token(); // move to the body type expression
         let body = self.parse_type_expr()?;
 
-        Some(AssociatedTypeEquation {
-            name,
-            head,
-            body,
-            span: self.span_from(start),
-        })
+        Some(AssociatedTypeEquation { name, head, body, span: self.span_from(start) })
     }
 
     /// Parse a single method inside an instance declaration.
@@ -2240,13 +2118,7 @@ impl Parser {
         // so the instance loop can see the next `fn` or closing `}`.
         self.next_token();
 
-        Some(InstanceMethod {
-            name,
-            params,
-            effects,
-            body,
-            span: self.span_from(start),
-        })
+        Some(InstanceMethod { name, params, effects, body, span: self.span_from(start) })
     }
 
     /// Parse optional type parameters in angle brackets: `<a, b>`.
@@ -2297,10 +2169,7 @@ impl Parser {
                 return None;
             }
 
-            let name = self
-                .current_token
-                .symbol
-                .expect("ident token should have symbol");
+            let name = self.current_token.symbol.expect("ident token should have symbol");
             let mut constraints = Vec::new();
 
             if self.is_peek_token(TokenType::Colon) {
@@ -2319,10 +2188,8 @@ impl Parser {
                     // underline `Eq` in `<a: Eq>` rather than the whole
                     // signature (Proposal 0179 Stage 3).
                     let constraint_span = self.current_token.span();
-                    let class_name = self
-                        .current_token
-                        .symbol
-                        .expect("ident token should have symbol");
+                    let class_name =
+                        self.current_token.symbol.expect("ident token should have symbol");
                     constraints.push(ClassConstraint {
                         class_name,
                         // `<a: Eq>` constrains the parameter itself. The
@@ -2373,9 +2240,8 @@ impl Parser {
         } else {
             None
         };
-        let _effect_context = context_name
-            .clone()
-            .map(|name| self.enter_parser_context(ParserContext::Effect(name)));
+        let _effect_context =
+            context_name.clone().map(|name| self.enter_parser_context(ParserContext::Effect(name)));
         let start = self.current_token.position;
 
         // Effect name
@@ -2388,21 +2254,14 @@ impl Parser {
         ) {
             return None;
         }
-        let name = self
-            .current_token
-            .symbol
-            .expect("ident token should have symbol");
+        let name = self.current_token.symbol.expect("ident token should have symbol");
 
         let mut ops: Vec<EffectOp> = Vec::new();
 
         // Proposal 0161: bodiless `effect Name` declares a phantom label —
         // no operations, tracked via effect rows only (e.g. Console, FileSystem).
         if !self.is_peek_token(TokenType::LBrace) {
-            return Some(Statement::EffectDecl {
-                name,
-                ops,
-                span: self.span_from(start),
-            });
+            return Some(Statement::EffectDecl { name, ops, span: self.span_from(start) });
         }
 
         // `{`
@@ -2436,10 +2295,7 @@ impl Parser {
                 return None;
             }
             let op_start = self.current_token.position;
-            let op_name = self
-                .current_token
-                .symbol
-                .expect("ident token should have symbol");
+            let op_name = self.current_token.symbol.expect("ident token should have symbol");
 
             // `:` before the type expression
             if self.is_peek_token(TokenType::Colon) {
@@ -2479,11 +2335,7 @@ impl Parser {
             self.next_token(); // advance to next op or `}`
         }
 
-        Some(Statement::EffectDecl {
-            name,
-            ops,
-            span: self.span_from(start),
-        })
+        Some(Statement::EffectDecl { name, ops, span: self.span_from(start) })
     }
 
     /// Parses `alias Name = <E1 | E2 | ...>` effect aliases and
@@ -2503,10 +2355,7 @@ impl Parser {
         ) {
             return None;
         }
-        let name = self
-            .current_token
-            .symbol
-            .expect("ident token should have symbol");
+        let name = self.current_token.symbol.expect("ident token should have symbol");
 
         let params = self.parse_type_params_angle_bracket();
 
@@ -2534,11 +2383,7 @@ impl Parser {
             self.next_token(); // consume `<`
             let expansion = self.parse_effect_alias_body()?;
 
-            return Some(Statement::EffectAlias {
-                name,
-                expansion,
-                span: self.span_from(start),
-            });
+            return Some(Statement::EffectAlias { name, expansion, span: self.span_from(start) });
         }
 
         self.next_token(); // move to type expression start
@@ -2572,15 +2417,9 @@ impl Parser {
         ) {
             return None;
         }
-        let first_name = self
-            .current_token
-            .symbol
-            .expect("ident token should have symbol");
+        let first_name = self.current_token.symbol.expect("ident token should have symbol");
         let first_span = self.current_token.span();
-        let mut expr = EffectExpr::Named {
-            name: first_name,
-            span: first_span,
-        };
+        let mut expr = EffectExpr::Named { name: first_name, span: first_span };
 
         while self.is_peek_token(TokenType::Bar) {
             self.next_token(); // consume `|`
@@ -2593,15 +2432,9 @@ impl Parser {
             ) {
                 return None;
             }
-            let atom_name = self
-                .current_token
-                .symbol
-                .expect("ident token should have symbol");
+            let atom_name = self.current_token.symbol.expect("ident token should have symbol");
             let atom_span = self.current_token.span();
-            let atom = EffectExpr::Named {
-                name: atom_name,
-                span: atom_span,
-            };
+            let atom = EffectExpr::Named { name: atom_name, span: atom_span };
             let combined_span = Span::new(expr.span().start, atom_span.end);
             expr = EffectExpr::Add {
                 left: Box::new(expr),

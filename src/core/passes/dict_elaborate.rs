@@ -97,17 +97,13 @@ fn referenced_dictionary_defs(
         referenced.extend(reached);
     }
 
-    let mut pending: Vec<CoreDef> = all
-        .into_iter()
-        .filter(|def| referenced.contains(&def.name))
-        .collect();
+    let mut pending: Vec<CoreDef> =
+        all.into_iter().filter(|def| referenced.contains(&def.name)).collect();
     let mut ordered = Vec::with_capacity(pending.len());
     while !pending.is_empty() {
         let unplaced: HashSet<_> = pending.iter().map(|def| def.name).collect();
         let (ready, waiting): (Vec<_>, Vec<_>) = pending.into_iter().partition(|def| {
-            names_in(def)
-                .iter()
-                .all(|name| *name == def.name || !unplaced.contains(name))
+            names_in(def).iter().all(|name| *name == def.name || !unplaced.contains(name))
         });
         if ready.is_empty() {
             // A cycle between dictionaries: keep the build order for the rest.
@@ -141,10 +137,7 @@ fn collect_referenced_dictionary_names_expr(
             // This scan runs for every program, including ones whose Core
             // still carries placeholder identifiers from a failed HM pass,
             // so an unknown symbol must be skipped rather than resolved.
-            if interner
-                .try_resolve(var.name)
-                .is_some_and(|name| name.starts_with("__dict_"))
-            {
+            if interner.try_resolve(var.name).is_some_and(|name| name.starts_with("__dict_")) {
                 refs.insert(var.name);
             }
         }
@@ -168,9 +161,7 @@ fn collect_referenced_dictionary_names_expr(
             }
             collect_referenced_dictionary_names_expr(body, interner, refs);
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             collect_referenced_dictionary_names_expr(scrutinee, interner, refs);
             for alt in alts {
                 if let Some(guard) = &alt.guard {
@@ -192,12 +183,7 @@ fn collect_referenced_dictionary_names_expr(
                 collect_referenced_dictionary_names_expr(arg, interner, refs);
             }
         }
-        CoreExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        CoreExpr::Handle { body, parameter, handlers, .. } => {
             collect_referenced_dictionary_names_expr(body, interner, refs);
             if let Some(parameter) = parameter {
                 collect_referenced_dictionary_names_expr(parameter, interner, refs);
@@ -264,11 +250,7 @@ fn build_instance_dictionaries(
                 continue;
             };
 
-            CoreExpr::PrimOp {
-                op: CorePrimOp::MakeTuple,
-                args: tuple_fields,
-                span,
-            }
+            CoreExpr::PrimOp { op: CorePrimOp::MakeTuple, args: tuple_fields, span }
         } else {
             match build_contextual_dictionary_expr(class_env, instance, interner, next_id) {
                 Some(expr) => expr,
@@ -325,13 +307,9 @@ fn build_contextual_dictionary_expr(
         .iter()
         .enumerate()
         .map(|(idx, constraint)| {
-            let class_id = instance
-                .context_class_ids
-                .get(idx)
-                .copied()
-                .unwrap_or_else(|| {
-                    crate::types::class_id::ClassId::from_local_name(constraint.class_name)
-                });
+            let class_id = instance.context_class_ids.get(idx).copied().unwrap_or_else(|| {
+                crate::types::class_id::ClassId::from_local_name(constraint.class_name)
+            });
             let occurrence = context_occurrences.entry(class_id).or_insert(0);
             let label = if *occurrence == 0 {
                 crate::types::class_env::dictionary_prefix(class_id, interner)
@@ -381,11 +359,7 @@ fn build_contextual_dictionary_expr(
         })
         .collect::<Option<Vec<_>>>()?;
 
-    let tuple = CoreExpr::PrimOp {
-        op: CorePrimOp::MakeTuple,
-        args: tuple_fields,
-        span,
-    };
+    let tuple = CoreExpr::PrimOp { op: CorePrimOp::MakeTuple, args: tuple_fields, span };
 
     Some(prepend_lam_params(tuple, context_binders))
 }
@@ -428,10 +402,7 @@ fn superclass_evidence_expr(
         &evidence.type_key,
         interner,
     ))?;
-    evidence
-        .context
-        .is_empty()
-        .then(|| CoreExpr::external_var(dict_sym, span))
+    evidence.context.is_empty().then(|| CoreExpr::external_var(dict_sym, span))
 }
 
 fn build_contextual_dictionary_method_closure(
@@ -453,15 +424,9 @@ fn build_contextual_dictionary_method_closure(
             )
         })
         .collect();
-    let mut args: Vec<CoreExpr> = context_binders
-        .iter()
-        .map(|binder| CoreExpr::bound_var(binder, span))
-        .collect();
-    args.extend(
-        user_params
-            .iter()
-            .map(|binder| CoreExpr::bound_var(binder, span)),
-    );
+    let mut args: Vec<CoreExpr> =
+        context_binders.iter().map(|binder| CoreExpr::bound_var(binder, span)).collect();
+    args.extend(user_params.iter().map(|binder| CoreExpr::bound_var(binder, span)));
     CoreExpr::Lam {
         params: user_params,
         param_types: Vec::new(),
@@ -479,13 +444,7 @@ fn build_contextual_dictionary_method_closure(
 /// If the expression is not a `Lam`, wrap it in one.
 fn prepend_lam_params(expr: CoreExpr, extra_params: Vec<CoreBinder>) -> CoreExpr {
     match expr {
-        CoreExpr::Lam {
-            mut params,
-            mut param_types,
-            result_ty,
-            body,
-            span,
-        } => {
+        CoreExpr::Lam { mut params, mut param_types, result_ty, body, span } => {
             let mut new_params = extra_params;
             let mut new_param_types = vec![None; new_params.len()];
             new_params.append(&mut params);
@@ -517,13 +476,7 @@ fn normalize_existing_dict_param_types(expr: CoreExpr, dict_param_count: usize) 
     }
 
     match expr {
-        CoreExpr::Lam {
-            params,
-            mut param_types,
-            result_ty,
-            body,
-            span,
-        } => {
+        CoreExpr::Lam { params, mut param_types, result_ty, body, span } => {
             if !param_types.is_empty() && param_types.len() + dict_param_count == params.len() {
                 let mut normalized = vec![None; dict_param_count];
                 normalized.append(&mut param_types);
@@ -532,13 +485,7 @@ fn normalize_existing_dict_param_types(expr: CoreExpr, dict_param_count: usize) 
                 param_types.clear();
             }
 
-            CoreExpr::Lam {
-                params,
-                param_types,
-                result_ty,
-                body,
-                span,
-            }
+            CoreExpr::Lam { params, param_types, result_ty, body, span }
         }
         other => other,
     }
@@ -547,11 +494,9 @@ fn normalize_existing_dict_param_types(expr: CoreExpr, dict_param_count: usize) 
 fn normalize_all_existing_dict_param_types(program: &mut CoreProgram, interner: &Interner) {
     for def in &mut program.defs {
         let dict_param_count = match &def.expr {
-            CoreExpr::Lam {
-                params,
-                param_types,
-                ..
-            } if !param_types.is_empty() && param_types.len() < params.len() => {
+            CoreExpr::Lam { params, param_types, .. }
+                if !param_types.is_empty() && param_types.len() < params.len() =>
+            {
                 let named_dict_params = params
                     .iter()
                     .take_while(|param| interner.resolve(param.name).starts_with("__dict_"))
@@ -594,11 +539,8 @@ pub(crate) fn reachable_methods(
     let mut queue = std::collections::VecDeque::from([(class_id, Vec::new())]);
 
     while let Some((current, prefix)) = queue.pop_front() {
-        for (idx, slot) in class_env
-            .dictionary_layout(current)
-            .unwrap_or_default()
-            .into_iter()
-            .enumerate()
+        for (idx, slot) in
+            class_env.dictionary_layout(current).unwrap_or_default().into_iter().enumerate()
         {
             let mut path = prefix.clone();
             path.push(idx);
@@ -655,16 +597,8 @@ mod tests {
         interner.intern("__tc_Eq_Int_neq");
         interner.intern("__dict_Eq_Int");
 
-        let bool_type = TypeExpr::Named {
-            name: interner.intern("Bool"),
-            args: vec![],
-            span: s(),
-        };
-        let a_type = TypeExpr::Named {
-            name: a_sym,
-            args: vec![],
-            span: s(),
-        };
+        let bool_type = TypeExpr::Named { name: interner.intern("Bool"), args: vec![], span: s() };
+        let a_type = TypeExpr::Named { name: a_sym, args: vec![], span: s() };
 
         let class_def = ClassDef {
             name: eq_sym,
@@ -710,11 +644,7 @@ mod tests {
             is_public: false,
             type_key: "Int".to_string(),
             head_modules: Vec::new(),
-            type_args: vec![TypeExpr::Named {
-                name: int_sym,
-                args: vec![],
-                span: s(),
-            }],
+            type_args: vec![TypeExpr::Named { name: int_sym, args: vec![], span: s() }],
             context: vec![],
             context_class_ids: vec![],
             method_names: vec![eq_method, neq_method],
@@ -724,10 +654,7 @@ mod tests {
         };
 
         let mut env = ClassEnv::new();
-        env.classes.insert(
-            crate::types::class_id::ClassId::from_local_name(eq_sym),
-            class_def,
-        );
+        env.classes.insert(crate::types::class_id::ClassId::from_local_name(eq_sym), class_def);
         env.instances.push(instance_def);
         env
     }
@@ -821,11 +748,7 @@ mod tests {
                 type_params: vec![],
                 param_names: vec![interner.intern("__x0")],
                 param_types: vec![],
-                return_type: TypeExpr::Named {
-                    name: a_sym,
-                    args: vec![],
-                    span: s(),
-                },
+                return_type: TypeExpr::Named { name: a_sym, args: vec![], span: s() },
                 arity: 1,
                 effects: vec![],
                 infer_type: None,
@@ -842,11 +765,7 @@ mod tests {
             is_public: false,
             type_key: "Int".to_string(),
             head_modules: Vec::new(),
-            type_args: vec![TypeExpr::Named {
-                name: float_sym,
-                args: vec![],
-                span: s(),
-            }],
+            type_args: vec![TypeExpr::Named { name: float_sym, args: vec![], span: s() }],
             context: vec![],
             context_class_ids: vec![],
             method_names: vec![eq_method],
@@ -856,18 +775,12 @@ mod tests {
         };
 
         let mut env = ClassEnv::new();
-        env.classes.insert(
-            crate::types::class_id::ClassId::from_local_name(eq_sym),
-            class_def,
-        );
+        env.classes.insert(crate::types::class_id::ClassId::from_local_name(eq_sym), class_def);
         env.instances.push(instance_def);
 
         let mut next_id = 0;
         let defs = build_instance_dictionaries(&env, &interner, &mut next_id);
-        assert!(
-            defs.is_empty(),
-            "should skip when __dict_ name not pre-interned"
-        );
+        assert!(defs.is_empty(), "should skip when __dict_ name not pre-interned");
     }
 
     // ── method_index ─────────────────────────────────────────────────────
@@ -981,9 +894,7 @@ mod tests {
         let mut interner = Interner::new();
         let class_env = build_eq_class_env(&mut interner);
         let eq = interner.lookup("eq").expect("eq interned");
-        let dict = interner
-            .lookup("__dict_Eq_Int")
-            .expect("dictionary interned");
+        let dict = interner.lookup("__dict_Eq_Int").expect("dictionary interned");
         let x = mk_binder(1, interner.intern("x"));
         let body = CoreExpr::lambda(
             vec![x],
@@ -999,10 +910,7 @@ mod tests {
             s(),
         );
         let f = CoreDef::new(mk_binder(0, interner.intern("f")), body.clone(), false, s());
-        let mut program = CoreProgram {
-            defs: vec![f],
-            top_level_items: Vec::new(),
-        };
+        let mut program = CoreProgram { defs: vec![f], top_level_items: Vec::new() };
         let mut next_id = 2;
 
         build_referenced_dictionaries(&mut program, &class_env, &interner, &mut next_id);

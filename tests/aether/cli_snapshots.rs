@@ -1,8 +1,11 @@
+use crate::support::scratch;
+
 use flux::parity::normalize;
-use std::path::{Path, PathBuf};
+use scratch::Scratch;
+use scratch::workspace_root;
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 // Native backend CLI runs share cache and output paths for the same fixture, so serialize command
 // execution ONLY when the invocation uses `--native` (which writes .o / .ll / binary artifacts
@@ -10,45 +13,26 @@ use std::sync::atomic::{AtomicU64, Ordering};
 // read-only from the runtime's perspective and can run in parallel under cargo's default
 // thread pool.
 static CLI_LOCK: Mutex<()> = Mutex::new(());
-static CACHE_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
 
 fn example_path(rel: &str) -> PathBuf {
     workspace_root().join("examples").join(rel)
 }
 
 fn needs_cli_lock(args: &[&str]) -> bool {
-    args.iter()
-        .any(|a| *a == "--native" || *a == "--emit-binary")
-}
-
-fn isolated_cache_dir() -> PathBuf {
-    let id = CACHE_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
-    workspace_root()
-        .join("target")
-        .join("test-caches")
-        .join(format!("aether-cli-snapshots-{}-{id}", std::process::id()))
+    args.iter().any(|a| *a == "--native" || *a == "--emit-binary")
 }
 
 fn run_flux_output(args: &[&str]) -> std::process::Output {
     // Acquire the serialization lock only for commands that share on-disk artifact paths.
     let _lock = if needs_cli_lock(args) {
-        Some(
-            CLI_LOCK
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner()),
-        )
+        Some(CLI_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner()))
     } else {
         None
     };
-    let cache_dir = isolated_cache_dir();
+    let scratch = Scratch::new("aether-cli");
     Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
-        .arg("--cache-dir")
-        .arg(&cache_dir)
+        .args(scratch.cache_args())
         .args(args)
         .env("NO_COLOR", "1")
         .output()
@@ -82,19 +66,14 @@ fn run_flux_trace(args: &[&str]) -> (String, String) {
 
 fn run_flux_trace_snapshot(args: &[&str]) -> String {
     let _lock = if needs_cli_lock(args) {
-        Some(
-            CLI_LOCK
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner()),
-        )
+        Some(CLI_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner()))
     } else {
         None
     };
-    let cache_dir = isolated_cache_dir();
+    let scratch = Scratch::new("aether-cli");
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
-        .arg("--cache-dir")
-        .arg(&cache_dir)
+        .args(scratch.cache_args())
         .args(args)
         .env("NO_COLOR", "1")
         .output()
@@ -147,11 +126,7 @@ fn is_plain_drop_line(line: &str) -> bool {
 }
 
 fn snapshot_name(rel: &str, mode: &str) -> String {
-    format!(
-        "aether__{}__{}",
-        rel.strip_suffix(".flx").unwrap_or(rel).replace('/', "__"),
-        mode
-    )
+    format!("aether__{}__{}", rel.strip_suffix(".flx").unwrap_or(rel).replace('/', "__"), mode)
 }
 
 /// Extract one top-level definition from a `--dump-core=debug` transcript.
@@ -295,20 +270,12 @@ fn snapshot_verify_aether_dump_core() {
 
 #[test]
 fn snapshot_verify_aether_dump_core_debug() {
-    assert_cli_snapshot(
-        "aether/verify_aether.flx",
-        &["--dump-core=debug"],
-        "dump_core_debug",
-    );
+    assert_cli_snapshot("aether/verify_aether.flx", &["--dump-core=debug"], "dump_core_debug");
 }
 
 #[test]
 fn snapshot_verify_aether_dump_aether() {
-    assert_cli_snapshot(
-        "aether/verify_aether.flx",
-        &["--dump-aether"],
-        "dump_aether",
-    );
+    assert_cli_snapshot("aether/verify_aether.flx", &["--dump-aether"], "dump_aether");
 }
 
 #[test]
@@ -318,92 +285,52 @@ fn snapshot_bench_reuse_dump_aether() {
 
 #[test]
 fn snapshot_bench_reuse_enabled_dump_aether() {
-    assert_cli_snapshot(
-        "aether/bench_reuse_enabled.flx",
-        &["--dump-aether"],
-        "dump_aether",
-    );
+    assert_cli_snapshot("aether/bench_reuse_enabled.flx", &["--dump-aether"], "dump_aether");
 }
 
 #[test]
 fn snapshot_bench_reuse_blocked_dump_aether() {
-    assert_cli_snapshot(
-        "aether/bench_reuse_blocked.flx",
-        &["--dump-aether"],
-        "dump_aether",
-    );
+    assert_cli_snapshot("aether/bench_reuse_blocked.flx", &["--dump-aether"], "dump_aether");
 }
 
 #[test]
 fn snapshot_hof_recursive_suite_dump_aether() {
-    assert_cli_snapshot(
-        "aether/hof_recursive_suite.flx",
-        &["--dump-aether"],
-        "dump_aether",
-    );
+    assert_cli_snapshot("aether/hof_recursive_suite.flx", &["--dump-aether"], "dump_aether");
 }
 
 #[test]
 fn snapshot_tree_updates_dump_core_debug() {
-    assert_cli_snapshot(
-        "aether/tree_updates.flx",
-        &["--dump-core=debug"],
-        "dump_core_debug",
-    );
+    assert_cli_snapshot("aether/tree_updates.flx", &["--dump-core=debug"], "dump_core_debug");
 }
 
 #[test]
 fn snapshot_queue_workload_dump_core_debug() {
-    assert_cli_snapshot(
-        "aether/queue_workload.flx",
-        &["--dump-core=debug"],
-        "dump_core_debug",
-    );
+    assert_cli_snapshot("aether/queue_workload.flx", &["--dump-core=debug"], "dump_core_debug");
 }
 
 #[test]
 fn snapshot_forwarded_wrapper_reuse_dump_aether() {
-    assert_cli_snapshot(
-        "aether/forwarded_wrapper_reuse.flx",
-        &["--dump-aether"],
-        "dump_aether",
-    );
+    assert_cli_snapshot("aether/forwarded_wrapper_reuse.flx", &["--dump-aether"], "dump_aether");
 }
 
 #[test]
 fn snapshot_opt_corpus_positive_dump_aether() {
-    assert_cli_snapshot(
-        "aether/opt_corpus_positive.flx",
-        &["--dump-aether"],
-        "dump_aether",
-    );
+    assert_cli_snapshot("aether/opt_corpus_positive.flx", &["--dump-aether"], "dump_aether");
 }
 
 #[test]
 fn snapshot_opt_corpus_negative_dump_aether() {
-    assert_cli_snapshot(
-        "aether/opt_corpus_negative.flx",
-        &["--dump-aether"],
-        "dump_aether",
-    );
+    assert_cli_snapshot("aether/opt_corpus_negative.flx", &["--dump-aether"], "dump_aether");
 }
 
 #[test]
 fn snapshot_fbip_success_cases_dump_aether() {
-    assert_cli_snapshot(
-        "aether/fbip_success_cases.flx",
-        &["--dump-aether"],
-        "dump_aether",
-    );
+    assert_cli_snapshot("aether/fbip_success_cases.flx", &["--dump-aether"], "dump_aether");
 }
 
 #[test]
 fn snapshot_fbip_failure_cases_dump_aether() {
-    assert_cli_snapshot(
-        "aether/fbip_failure_cases.flx",
-        &["--dump-aether"],
-        "dump_aether",
-    );
+    assert_cli_snapshot("aether/fbip_failure_cases.flx", &["--dump-aether"], "dump_aether");
 }
 
 #[test]
@@ -413,11 +340,7 @@ fn snapshot_borrow_calls_dump_core() {
 
 #[test]
 fn snapshot_class_borrow_calls_dump_core() {
-    assert_cli_snapshot(
-        "aether/class_borrow_calls.flx",
-        &["--dump-core"],
-        "dump_core",
-    );
+    assert_cli_snapshot("aether/class_borrow_calls.flx", &["--dump-core"], "dump_core");
 }
 
 #[test]
@@ -448,11 +371,7 @@ fn snapshot_polymorphic_core_types_dump_core_debug() {
 
 #[test]
 fn snapshot_class_borrow_calls_dump_aether() {
-    assert_cli_snapshot(
-        "aether/class_borrow_calls.flx",
-        &["--dump-aether"],
-        "dump_aether",
-    );
+    assert_cli_snapshot("aether/class_borrow_calls.flx", &["--dump-aether"], "dump_aether");
 }
 
 #[test]
@@ -466,11 +385,7 @@ fn snapshot_reuse_specialization_dump_core_debug() {
 
 #[test]
 fn snapshot_drop_spec_branchy_dump_core_debug() {
-    assert_cli_snapshot(
-        "aether/drop_spec_branchy.flx",
-        &["--dump-core=debug"],
-        "dump_core_debug",
-    );
+    assert_cli_snapshot("aether/drop_spec_branchy.flx", &["--dump-core=debug"], "dump_core_debug");
 }
 
 #[test]
@@ -494,11 +409,7 @@ fn snapshot_fbip_failure_dump_aether() {
 
 #[test]
 fn snapshot_verify_aether_trace_aether_vm() {
-    assert_trace_snapshot(
-        "aether/verify_aether.flx",
-        &["--trace-aether"],
-        "trace_aether_vm",
-    );
+    assert_trace_snapshot("aether/verify_aether.flx", &["--trace-aether"], "trace_aether_vm");
 }
 
 #[cfg(feature = "llvm")]
@@ -515,14 +426,8 @@ fn snapshot_verify_aether_trace_aether_native() {
 fn trace_aether_emits_report_on_stderr_and_program_output_on_stdout() {
     let file = example_path("aether/verify_aether.flx");
     let (stdout, stderr) = run_flux_trace(&["--trace-aether", file.to_str().unwrap()]);
-    assert!(
-        stderr.contains("── Aether Trace ──"),
-        "stderr was:\n{stderr}"
-    );
-    assert!(
-        stderr.contains("Aether Ownership Report"),
-        "stderr was:\n{stderr}"
-    );
+    assert!(stderr.contains("── Aether Trace ──"), "stderr was:\n{stderr}");
+    assert!(stderr.contains("Aether Ownership Report"), "stderr was:\n{stderr}");
     assert!(stderr.contains("backend: vm"), "stderr was:\n{stderr}");
     assert!(
         stderr.contains("pipeline: AST -> Core -> CFG -> bytecode -> VM"),
@@ -540,14 +445,8 @@ fn trace_aether_emits_report_on_stderr_and_program_output_on_stdout() {
 fn native_trace_aether_emits_report_on_stderr_and_program_output_on_stdout() {
     let file = example_path("aether/verify_aether.flx");
     let (stdout, stderr) = run_flux_trace(&[file.to_str().unwrap(), "--native", "--trace-aether"]);
-    assert!(
-        stderr.contains("── Aether Trace ──"),
-        "stderr was:\n{stderr}"
-    );
-    assert!(
-        stderr.contains("Aether Ownership Report"),
-        "stderr was:\n{stderr}"
-    );
+    assert!(stderr.contains("── Aether Trace ──"), "stderr was:\n{stderr}");
+    assert!(stderr.contains("Aether Ownership Report"), "stderr was:\n{stderr}");
     assert!(stderr.contains("backend: native"), "stderr was:\n{stderr}");
     assert!(
         stderr.contains("pipeline: AST -> Core -> LIR -> LLVM -> native"),
@@ -570,11 +469,7 @@ fn dump_aether_and_trace_aether_share_report_content() {
         .split_once("Aether Ownership Report")
         .map(|(_, rest)| format!("Aether Ownership Report{rest}"))
         .unwrap_or(dump);
-    let report_only = report
-        .split("\nWarning:")
-        .next()
-        .unwrap_or(report.as_str())
-        .trim_end();
+    let report_only = report.split("\nWarning:").next().unwrap_or(report.as_str()).trim_end();
     let shared_report = report_only
         .split_once("\n── fn my_map")
         .map(|(_, rest)| format!("── fn my_map{rest}"))
@@ -588,11 +483,8 @@ fn dump_aether_and_trace_aether_share_report_content() {
     let normalized_report = normalize::normalize_aether_dump(&shared_report);
     let normalized_stderr = normalize::normalize_aether_dump(&stderr);
 
-    for needle in [
-        "── fn my_map @fip ──",
-        "── fn option_map @fip ──",
-        "── fn main [handle×5] ──",
-    ] {
+    for needle in ["── fn my_map @fip ──", "── fn option_map @fip ──", "── fn main [handle×5] ──"]
+    {
         assert!(
             normalized_report.contains(needle) && normalized_stderr.contains(needle),
             "trace stderr should include the fixture-local dump-aether sections\nmissing `{needle}`\n== report ==\n{shared_report}\n== stderr ==\n{stderr}"
@@ -611,11 +503,7 @@ fn dump_aether_and_native_trace_aether_share_report_content() {
         .split_once("Aether Ownership Report")
         .map(|(_, rest)| format!("Aether Ownership Report{rest}"))
         .unwrap_or(dump);
-    let report_only = report
-        .split("\nWarning:")
-        .next()
-        .unwrap_or(report.as_str())
-        .trim_end();
+    let report_only = report.split("\nWarning:").next().unwrap_or(report.as_str()).trim_end();
     let shared_report = report_only
         .split_once("\n── fn my_map")
         .map(|(_, rest)| format!("── fn my_map{rest}"))
@@ -629,11 +517,8 @@ fn dump_aether_and_native_trace_aether_share_report_content() {
     let normalized_report = normalize::normalize_aether_dump(&shared_report);
     let normalized_stderr = normalize::normalize_aether_dump(&stderr);
 
-    for needle in [
-        "── fn my_map @fip ──",
-        "── fn option_map @fip ──",
-        "── fn main [handle×5] ──",
-    ] {
+    for needle in ["── fn my_map @fip ──", "── fn option_map @fip ──", "── fn main [handle×5] ──"]
+    {
         assert!(
             normalized_report.contains(needle) && normalized_stderr.contains(needle),
             "native trace stderr should include the fixture-local dump-aether sections\nmissing `{needle}`\n== report ==\n{shared_report}\n== stderr ==\n{stderr}"

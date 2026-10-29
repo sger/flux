@@ -4,6 +4,9 @@
 // (`Stream`), and one that takes an effect-row parameter (`AsyncFn`). The row
 // parameter is declared the same way any type parameter is — in the function's
 // own `<...>` list — which is what KI-092 unblocked.
+// parity-expected-stdout-begin
+// 67
+// parity-expected-stdout-end
 
 import Flow.Async exposing (..)
 

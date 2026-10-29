@@ -1,4 +1,7 @@
 // parity: vm, llvm
+// parity-expected-stdout-begin
+// 111
+// parity-expected-stdout-end
 
 import Flow.Async exposing (..)
 

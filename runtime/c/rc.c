@@ -4,7 +4,8 @@
  * Inspired by Koka's kklib runtime (Perceus RC). Every heap-allocated
  * object has an 8-byte FluxHeader at ptr - 8 containing:
  *   - _Atomic(int32_t) refcount  (sign-bit-encoded, see below)
- *   - uint8_t scan_fsize  (number of child tagged fields to scan on drop)
+ *   - uint8_t scan_fsize  (number of child tagged fields to scan on drop;
+ *                          arrays and map nodes count theirs in the payload)
  *   - uint8_t obj_tag     (FLUX_OBJ_STRING, FLUX_OBJ_ARRAY, etc.)
  *   - uint16_t reserved
  *
@@ -94,6 +95,34 @@ static inline void rc_store_relaxed(FluxHeader *hdr, int32_t v) {
     atomic_store_explicit(&hdr->refcount, v, memory_order_relaxed);
 }
 
+/*
+ * A thread-local count (rc > 0) is changed only by the thread that owns its
+ * value. ThreadSanitizer treats every atomic access as race-free, so in its
+ * build the change is a plain write: a second thread that changes it without
+ * synchronising with the owner is then a data race it reports (audit L7).
+ */
+static inline void rc_store_local(FluxHeader *hdr, int32_t v) {
+#ifdef FLUX_TSAN_COUNTS
+    *(int32_t *)&hdr->refcount = v;
+#else
+    rc_store_relaxed(hdr, v);
+#endif
+}
+
+/*
+ * A count at or past FLUX_RC_STICKY in either mode never changes again, and
+ * its block is never freed. Static objects the compiler emits (string
+ * literals, closures of top-level functions) start there: they are read-only
+ * and have no debug-heap prefix, so the test comes before anything else
+ * touches the header. A heap count that grows to the boundary sticks too,
+ * instead of overflowing into the other mode (audit L8).
+ */
+#define FLUX_RC_STICKY 0x40000000
+
+static inline int rc_sticky(int32_t rc) {
+    return rc >= FLUX_RC_STICKY || rc <= -FLUX_RC_STICKY;
+}
+
 /* _Static_assert is C11; MSVC uses static_assert in C mode. */
 #if defined(_MSC_VER)
 static_assert(sizeof(FluxHeader) == 8, "FluxHeader must be 8 bytes");
@@ -140,11 +169,14 @@ static inline size_t align_up(size_t n, size_t align) {
 #define FLUX_FREED_MAGIC 0x464c555846524545ull  /* "FLUXFREE" */
 #define FLUX_POISON      0xDEADDEADDEADDEADull
 
-typedef struct {
+typedef struct FluxDebugPrefix {
     uint64_t  magic;
     uint64_t  size;   /* aligned payload bytes */
     uintptr_t alloc_site[FLUX_SITE_DEPTH];
     uintptr_t free_site[FLUX_SITE_DEPTH];
+    /* The live list, in allocation order (0190 S15). */
+    struct FluxDebugPrefix *prev;
+    struct FluxDebugPrefix *next;
 } FluxDebugPrefix;
 
 #if defined(_MSC_VER)
@@ -161,6 +193,61 @@ static inline FluxDebugPrefix *prefix_of(FluxHeader *hdr) {
     return (FluxDebugPrefix *)((char *)hdr - sizeof(FluxDebugPrefix));
 }
 
+/* Every block not yet freed, so that the end of the program can name the
+ * ones nothing dropped (0190 S15). Task workers allocate too, hence the
+ * lock; a spinlock, because MSVC has no pthreads and the sections are a few
+ * pointer writes. */
+static FluxDebugPrefix *live_first = NULL;
+static FluxDebugPrefix *live_last  = NULL;
+static size_t           live_count = 0;
+static atomic_flag      live_lock  = ATOMIC_FLAG_INIT;
+/* Every block allocated and freed so far, for FLUX_HEAP_STATS (0189 F3-0).
+ * In-place reuse goes through neither, so a reused cell counts once. */
+static size_t           heap_allocs = 0;
+static size_t           heap_frees  = 0;
+
+static void live_lock_acquire(void) {
+    while (atomic_flag_test_and_set_explicit(&live_lock, memory_order_acquire)) {
+    }
+}
+
+static void live_lock_release(void) {
+    atomic_flag_clear_explicit(&live_lock, memory_order_release);
+}
+
+static void live_link(FluxDebugPrefix *prefix) {
+    live_lock_acquire();
+    prefix->prev = live_last;
+    prefix->next = NULL;
+    if (live_last) {
+        live_last->next = prefix;
+    } else {
+        live_first = prefix;
+    }
+    live_last = prefix;
+    live_count++;
+    heap_allocs++;
+    live_lock_release();
+}
+
+static void live_unlink(FluxDebugPrefix *prefix) {
+    live_lock_acquire();
+    if (prefix->prev) {
+        prefix->prev->next = prefix->next;
+    } else {
+        live_first = prefix->next;
+    }
+    if (prefix->next) {
+        prefix->next->prev = prefix->prev;
+    } else {
+        live_last = prefix->prev;
+    }
+    prefix->prev = prefix->next = NULL;
+    live_count--;
+    heap_frees++;
+    live_lock_release();
+}
+
 static FluxHeader *debug_alloc(size_t aligned) {
     FluxDebugPrefix *prefix =
         (FluxDebugPrefix *)malloc(sizeof(FluxDebugPrefix) + FLUX_HEADER_SIZE + aligned);
@@ -172,6 +259,7 @@ static FluxHeader *debug_alloc(size_t aligned) {
     prefix->size  = aligned;
     flux_capture_site(prefix->alloc_site, FLUX_SITE_DEPTH);
     memset(prefix->free_site, 0, sizeof prefix->free_site);
+    live_link(prefix);
     return (FluxHeader *)(prefix + 1);
 }
 
@@ -179,6 +267,7 @@ static FluxHeader *debug_alloc(size_t aligned) {
 static void debug_free(FluxHeader *hdr) {
     FluxDebugPrefix *prefix = prefix_of(hdr);
     if (prefix->magic != FLUX_LIVE_MAGIC) return;
+    live_unlink(prefix);
     prefix->magic = FLUX_FREED_MAGIC;
     flux_capture_site(prefix->free_site, FLUX_SITE_DEPTH);
     rc_store_relaxed(hdr, 0);
@@ -200,7 +289,7 @@ static const char *debug_kind(uint8_t obj_tag) {
         case FLUX_OBJ_EVIDENCE: return "an effect handler";
         case FLUX_OBJ_FLOAT:    return "a Float";
         case FLUX_OBJ_THUNK:    return "a thunk";
-        case 0:                 return "a Map node";
+        case FLUX_OBJ_MAP:      return "a Map node";
         default:                return "a value";
     }
 }
@@ -222,6 +311,46 @@ static void debug_check(FluxHeader *hdr, const char *operation) {
 }
 
 #define DEBUG_CHECK(hdr, operation) debug_check((hdr), (operation))
+
+#define FLUX_LEAK_SITES 10
+
+void flux_debug_heap_report_stats(void) {
+    const char *wanted = getenv("FLUX_HEAP_STATS");
+    if (!wanted || !*wanted || strcmp(wanted, "0") == 0) return;
+    live_lock_acquire();
+    size_t allocs = heap_allocs, frees = heap_frees, live = live_count;
+    live_lock_release();
+    fprintf(stderr, "heap: allocs=%zu frees=%zu live=%zu\n", allocs, frees, live);
+    fflush(stderr);
+}
+
+void flux_debug_heap_report_leaks(void) {
+    /* Opt-in while nearly every program still leaks (KI-119, KI-121):
+     * --debug-heap alone stays a use-after-free check. */
+    const char *wanted = getenv("FLUX_LEAK_CHECK");
+    if (!wanted || !*wanted || strcmp(wanted, "0") == 0) return;
+    live_lock_acquire();
+    size_t count = live_count;
+    if (count == 0) {
+        live_lock_release();
+        return;
+    }
+    fprintf(stderr, "leak: %zu block%s still live at exit\n", count, count == 1 ? "" : "s");
+    size_t shown = 0;
+    for (FluxDebugPrefix *p = live_first; p && shown < FLUX_LEAK_SITES; p = p->next, shown++) {
+        FluxHeader *hdr = (FluxHeader *)(p + 1);
+        char allocated[512];
+        flux_describe_site(p->alloc_site, FLUX_SITE_DEPTH, allocated, sizeof allocated);
+        fprintf(stderr, "  %s (%llu bytes) allocated at %s\n",
+                debug_kind(hdr->obj_tag), (unsigned long long)p->size, allocated);
+    }
+    if (count > shown) {
+        fprintf(stderr, "  and %zu more\n", count - shown);
+    }
+    live_lock_release();
+    fflush(stderr);
+    exit(FLUX_EXIT_LEAK);
+}
 
 #else
 
@@ -399,18 +528,58 @@ static int flux_scan_offset(uint8_t obj_tag) {
         case FLUX_OBJ_TUPLE:  return 1;  /* skip tag+pad+arity (8 bytes) */
         case FLUX_OBJ_ADT:    return 1;  /* skip ctor_tag+field_count (8 bytes) */
         case FLUX_OBJ_CLOSURE: return 3; /* skip fn_ptr + arity/count metadata (24 bytes) */
+        case FLUX_OBJ_MAP:    return 2;  /* skip kind+nfields+hash (16 bytes) */
         default:              return 0;
     }
+}
+
+/*
+ * Arrays and map nodes keep their field count in the payload's second word,
+ * since it is known only at run time and can exceed the header's one byte.
+ */
+static inline int counted_in_payload(void *ptr) {
+    uint8_t tag = header_of(ptr)->obj_tag;
+    return tag == FLUX_OBJ_ARRAY || tag == FLUX_OBJ_MAP;
+}
+
+/* How many fields the drop and promotion walks visit. */
+static inline uint32_t scan_count(void *ptr) {
+    if (counted_in_payload(ptr)) {
+        return ((uint32_t *)ptr)[1];
+    }
+    return header_of(ptr)->scan_fsize;
+}
+
+/*
+ * Where the stackless drop keeps a block's next field index while it walks a
+ * child. `_reserved` holds 16 bits, too few for a long array or collision
+ * node; those keep it in their fourth word instead, an array's unused
+ * `_pad2` and half a map node's hash, which a node being freed no longer
+ * needs.
+ */
+static inline void save_progress(void *ptr, uint32_t i) {
+    if (counted_in_payload(ptr)) {
+        ((uint32_t *)ptr)[3] = i;
+    } else {
+        header_of(ptr)->_reserved = (uint16_t)i;
+    }
+}
+
+static inline uint32_t load_progress(void *ptr) {
+    if (counted_in_payload(ptr)) {
+        return ((uint32_t *)ptr)[3];
+    }
+    return header_of(ptr)->_reserved;
 }
 
 static inline void flux_block_free(void *ptr);
 
 /*
  * Evidence vectors are not compatible with the generic scan_fsize scanner:
- * their payload starts with a 32-bit count, followed by packed 5-word entries
+ * their payload starts with a 32-bit count, followed by packed 6-word entries
  * that mix tagged ints and owned references.
  */
-#define FLUX_EVV_ENTRY_WORDS  5
+#define FLUX_EVV_ENTRY_WORDS  6
 #define FLUX_EVV_HANDLER_OFF  2
 #define FLUX_EVV_PARENT_OFF   3
 #define FLUX_EVV_STATE_OFF    4
@@ -431,16 +600,21 @@ static void flux_drop_evidence(void *ptr) {
     flux_block_free(ptr);
 }
 
+void flux_dup_range(const int64_t *vals, uint32_t n) {
+    for (uint32_t i = 0; i < n; i++) flux_dup(vals[i]);
+}
+
 void flux_dup(int64_t val) {
     if (!flux_is_ptr(val)) return;
     void *ptr = flux_untag_ptr(val);
     if (!ptr) return;
     FluxHeader *hdr = header_of(ptr);
-    DEBUG_CHECK(hdr, "copying");
     int32_t rc = rc_load_relaxed(hdr);
+    if (rc_sticky(rc)) return;
+    DEBUG_CHECK(hdr, "copying");
     if (rc > 0) {
         /* ST mode: only the owning thread is here, plain store is fine. */
-        rc_store_relaxed(hdr, rc + 1);
+        rc_store_local(hdr, rc + 1);
     } else {
         /* MT mode: |rc| owners; one more reference makes rc more negative. */
         atomic_fetch_sub_explicit(&hdr->refcount, 1, memory_order_relaxed);
@@ -459,11 +633,12 @@ static inline void *flux_field_should_free(void *ptr, int field_idx) {
     void *child = flux_untag_ptr(val);
     if (!child) return NULL;
     FluxHeader *hdr = header_of(child);
-    DEBUG_CHECK(hdr, "dropping");
     int32_t rc = rc_load_relaxed(hdr);
+    if (rc_sticky(rc)) return NULL;
+    DEBUG_CHECK(hdr, "dropping");
     if (rc > 0) {
         int32_t new_rc = rc - 1;
-        rc_store_relaxed(hdr, new_rc);
+        rc_store_local(hdr, new_rc);
         if (new_rc > 0) return NULL;
     } else {
         /* Last MT drop pairs with all prior releases. */
@@ -488,8 +663,8 @@ static inline void flux_block_free(void *ptr) {
 /*
  * Stackless recursive drop.
  *
- * Uses the _reserved field in FluxHeader to store the current field
- * index during traversal, and overwrites field[0] with the parent
+ * Stores the current field index in the block during traversal (see
+ * save_progress), and overwrites field[0] with the parent
  * pointer to maintain an explicit parent chain — no call stack needed.
  *
  * This prevents stack overflow when freeing deep structures like long
@@ -497,14 +672,14 @@ static inline void flux_block_free(void *ptr) {
  */
 static void flux_drop_free_recx(void *ptr) {
     void *parent = NULL;
-    uint16_t scan_fsize;
-    uint16_t i;
+    uint32_t scan_fsize;
+    uint32_t i;
 
     int offset;
     int64_t *fields;
 
 move_down:
-    scan_fsize = header_of(ptr)->scan_fsize;
+    scan_fsize = scan_count(ptr);
     offset = flux_scan_offset(header_of(ptr)->obj_tag);
     fields = (int64_t *)((char *)ptr + offset * 8);
 
@@ -529,9 +704,9 @@ move_down:
             if (child) {
                 if (i < scan_fsize) {
                     /* Save progress: parent pointer in field[0],
-                     * current index in _reserved. */
+                     * current index in the block. */
                     fields[0] = (int64_t)parent;
-                    header_of(ptr)->_reserved = i;
+                    save_progress(ptr, i);
                     parent = ptr;
                 }
                 else {
@@ -551,8 +726,8 @@ move_down:
         offset = flux_scan_offset(header_of(ptr)->obj_tag);
         fields = (int64_t *)((char *)ptr + offset * 8);
         parent = (void *)fields[0];
-        scan_fsize = header_of(ptr)->scan_fsize;
-        i = (uint16_t)header_of(ptr)->_reserved;
+        scan_fsize = scan_count(ptr);
+        i = load_progress(ptr);
         goto scan_fields;
     }
 }
@@ -562,11 +737,12 @@ void flux_drop(int64_t val) {
     void *ptr = flux_untag_ptr(val);
     if (!ptr) return;
     FluxHeader *hdr = header_of(ptr);
-    DEBUG_CHECK(hdr, "dropping");
     int32_t rc = rc_load_relaxed(hdr);
+    if (rc_sticky(rc)) return;
+    DEBUG_CHECK(hdr, "dropping");
     if (rc > 0) {
         int32_t new_rc = rc - 1;
-        rc_store_relaxed(hdr, new_rc);
+        rc_store_local(hdr, new_rc);
         if (new_rc > 0) return;
     } else {
         int32_t old = atomic_fetch_add_explicit(&hdr->refcount, 1,
@@ -576,7 +752,7 @@ void flux_drop(int64_t val) {
 
     if (hdr->obj_tag == FLUX_OBJ_EVIDENCE) {
         flux_drop_evidence(ptr);
-    } else if (hdr->scan_fsize > 0) {
+    } else if (scan_count(ptr) > 0) {
         flux_drop_free_recx(ptr);
     } else {
         flux_block_free(ptr);
@@ -588,12 +764,14 @@ int flux_rc_is_unique(int64_t val) {
     void *ptr = flux_untag_ptr(val);
     if (!ptr) return 1;
     FluxHeader *hdr = header_of(ptr);
+    int32_t rc = rc_load_relaxed(hdr);
+    if (rc_sticky(rc)) return 0;
     DEBUG_CHECK(hdr, "reusing");
     /* Unique = the caller is the sole ST owner. A shared (rc < 0) object
      * is never reported as unique even if -rc happens to be 1, because
      * other threads may still hold the reference and the inline-reuse
      * fast path is not safe to take. */
-    return rc_load_relaxed(hdr) == 1;
+    return rc == 1;
 }
 
 /*
@@ -606,6 +784,15 @@ int flux_rc_is_shared(int64_t val) {
     void *ptr = flux_untag_ptr(val);
     if (!ptr) return 0;
     return rc_load_relaxed(header_of(ptr)) < 0;
+}
+
+/* True if `val` is counted by one thread only (rc > 0, not sticky). */
+int flux_rc_is_thread_local(int64_t val) {
+    if (!flux_is_ptr(val)) return 0;
+    void *ptr = flux_untag_ptr(val);
+    if (!ptr) return 0;
+    int32_t rc = rc_load_relaxed(header_of(ptr));
+    return rc > 0 && !rc_sticky(rc);
 }
 
 /*
@@ -644,7 +831,8 @@ static void flux_rc_promote_recurse(void *ptr) {
         flux_rc_promote_evidence(ptr);
         return;
     }
-    for (uint8_t i = 0; i < hdr->scan_fsize; i++) {
+    uint32_t count = scan_count(ptr);
+    for (uint32_t i = 0; i < count; i++) {
         flux_rc_promote(fields[i]);
     }
 }
@@ -655,8 +843,9 @@ void flux_rc_promote(int64_t val) {
     if (!ptr) return;
     FluxHeader *hdr = header_of(ptr);
     int32_t rc = rc_load_relaxed(hdr);
-    if (rc <= 0) {
-        /* Already shared (or freed-in-progress) — nothing to do. */
+    if (rc <= 0 || rc_sticky(rc)) {
+        /* Already shared (or freed-in-progress), or never freed: a static
+         * object is read-only and any thread may read it. */
         return;
     }
     /* Negate with release ordering so subsequent acquire loads in

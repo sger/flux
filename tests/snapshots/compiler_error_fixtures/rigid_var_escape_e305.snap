@@ -9,9 +9,9 @@ error[E305]: Rigid Type Variable Escape
 
 Rigid type variable `a` cannot be unified with `Int`.
 
-  examples/compiler_errors/rigid_var_escape_e305.flx:11:5
+  examples/compiler_errors/rigid_var_escape_e305.flx:10:5
    |
-11 |     x + 1
+10 |     x + 1
    |     ^^^^^
    |     ----- forces `a` to become `Int`
 

@@ -25,6 +25,7 @@ pub struct MultipleRowVarError {
 /// - an optional tail row variable for open rows.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InferEffectRow {
+    #[serde(serialize_with = "in_symbol_order")]
     concrete: HashSet<Identifier>,
     tail: Option<TypeVarId>,
 }
@@ -32,10 +33,7 @@ pub struct InferEffectRow {
 impl InferEffectRow {
     /// Create a closed row with no concrete effects.
     pub fn closed_empty() -> Self {
-        Self {
-            concrete: HashSet::new(),
-            tail: None,
-        }
+        Self { concrete: HashSet::new(), tail: None }
     }
 
     /// Create a closed row from concrete effect names.
@@ -43,10 +41,7 @@ impl InferEffectRow {
     where
         I: IntoIterator<Item = Identifier>,
     {
-        Self {
-            concrete: symbols.into_iter().collect(),
-            tail: None,
-        }
+        Self { concrete: symbols.into_iter().collect(), tail: None }
     }
 
     /// Create an open row from concrete effects plus a tail variable.
@@ -54,10 +49,7 @@ impl InferEffectRow {
     where
         I: IntoIterator<Item = Identifier>,
     {
-        Self {
-            concrete: symbols.into_iter().collect(),
-            tail: Some(tail),
-        }
+        Self { concrete: symbols.into_iter().collect(), tail: Some(tail) }
     }
 
     /// Return the concrete effect names in this row.
@@ -94,15 +86,8 @@ impl InferEffectRow {
 
     /// Replace Symbol IDs according to `remap`. Returns a new row.
     pub fn remap_symbols(&self, remap: &std::collections::HashMap<Identifier, Identifier>) -> Self {
-        let concrete = self
-            .concrete
-            .iter()
-            .map(|sym| *remap.get(sym).unwrap_or(sym))
-            .collect();
-        Self {
-            concrete,
-            tail: self.tail,
-        }
+        let concrete = self.concrete.iter().map(|sym| *remap.get(sym).unwrap_or(sym)).collect();
+        Self { concrete, tail: self.tail }
     }
 
     /// Apply row-variable substitution to this row.
@@ -160,10 +145,7 @@ impl InferEffectRow {
                 if let Some(existing_name) = tail_name
                     && existing_name != row_var
                 {
-                    return Err(MultipleRowVarError {
-                        first: existing_name,
-                        second: row_var,
-                    });
+                    return Err(MultipleRowVarError { first: existing_name, second: row_var });
                 }
                 tail_name = Some(row_var);
                 // Row variables are interned through `row_var_env` to keep a stable
@@ -184,6 +166,18 @@ impl InferEffectRow {
     }
 }
 
+/// Writes `set` in symbol order: a `HashSet`'s own order differs from one
+/// instance to the next, and a cached interface must be the same bytes each
+/// time it is written.
+fn in_symbol_order<S: serde::Serializer>(
+    set: &HashSet<Identifier>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    let mut symbols: Vec<Identifier> = set.iter().copied().collect();
+    symbols.sort_unstable_by_key(|symbol| symbol.as_u32());
+    serializer.collect_seq(symbols)
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -196,6 +190,17 @@ mod tests {
 
     fn sym(i: u32) -> Symbol {
         Symbol::new(i)
+    }
+
+    #[test]
+    fn the_same_row_serializes_to_the_same_bytes() {
+        // The concrete set once serialized in its HashSet's hash order, so a
+        // cached interface differed from one compilation to the next.
+        let row = || InferEffectRow::closed_from_symbols((0..32).map(sym));
+        let first = serde_json::to_string(&row()).expect("serialize");
+        for _ in 0..8 {
+            assert_eq!(serde_json::to_string(&row()).expect("serialize"), first);
+        }
     }
 
     #[test]
@@ -214,17 +219,11 @@ mod tests {
     }
 
     fn named(sym: Symbol) -> EffectExpr {
-        EffectExpr::Named {
-            name: sym,
-            span: Default::default(),
-        }
+        EffectExpr::Named { name: sym, span: Default::default() }
     }
 
     fn row_var(sym: Symbol) -> EffectExpr {
-        EffectExpr::RowVar {
-            name: sym,
-            span: Default::default(),
-        }
+        EffectExpr::RowVar { name: sym, span: Default::default() }
     }
 
     #[test]
@@ -265,13 +264,7 @@ mod tests {
         let mut env = HashMap::new();
         let mut counter = 0u32;
         let result = InferEffectRow::from_effect_exprs(&effects, &mut env, &mut counter);
-        assert_eq!(
-            result,
-            Err(MultipleRowVarError {
-                first: sym(1),
-                second: sym(2),
-            })
-        );
+        assert_eq!(result, Err(MultipleRowVarError { first: sym(1), second: sym(2) }));
     }
 
     #[test]

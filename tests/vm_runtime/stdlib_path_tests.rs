@@ -6,33 +6,12 @@
 //! from inside Flux: that the module is *not* auto-injected into the prelude,
 //! and that it stays effect-free.
 
-use std::path::Path;
 use std::process::Command;
 
-#[path = "../support/scratch.rs"]
-mod scratch;
-use scratch::Scratch;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
-
-fn run_flux_test(fixture: &str) -> (String, bool) {
-    let path = workspace_root().join("tests").join("flux").join(fixture);
-    let scratch = Scratch::new("path-suite");
-    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(workspace_root())
-        .args(["--test", path.to_str().unwrap(), "--no-cache"])
-        .args(scratch.cache_args())
-        .output()
-        .unwrap_or_else(|e| panic!("failed to run flux --test on {fixture}: {e}"));
-
-    let stdout = String::from_utf8_lossy(&output.stdout)
-        .replace("\r\n", "\n")
-        .trim()
-        .to_string();
-    (stdout, output.status.success())
-}
+use crate::support::flux_runner;
+use flux_runner::run_flux_test;
+use flux_runner::scratch::Scratch;
+use flux_runner::workspace_root;
 
 /// Run a snippet through the VM and return `(stdout, stderr, success)`.
 fn run_source(name: &str, source: &str) -> (String, String, bool) {
@@ -99,12 +78,6 @@ fn main() -> Unit with Console {
 }
 "#,
     );
-    assert!(
-        success,
-        "Flow.Path is no longer usable from a pure function:\n{stdout}"
-    );
-    assert!(
-        stdout.contains("a/c"),
-        "expected normalized join to print a/c, got:\n{stdout}"
-    );
+    assert!(success, "Flow.Path is no longer usable from a pure function:\n{stdout}");
+    assert!(stdout.contains("a/c"), "expected normalized join to print a/c, got:\n{stdout}");
 }

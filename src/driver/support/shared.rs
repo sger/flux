@@ -108,10 +108,7 @@ pub(crate) fn short_hash(hash: &str) -> &str {
 
 /// Returns the display name used for a module path in progress output.
 pub(crate) fn module_display_name(path: &Path) -> String {
-    path.file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("unknown")
-        .to_string()
+    path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown").to_string()
 }
 
 /// Formats a single build progress line.

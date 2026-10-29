@@ -20,10 +20,7 @@ pub struct TypeSubst {
 impl TypeSubst {
     /// The identity substitution (no mappings).
     pub fn empty() -> Self {
-        TypeSubst {
-            type_bindings: HashMap::new(),
-            row_bindings: HashMap::new(),
-        }
+        TypeSubst { type_bindings: HashMap::new(), row_bindings: HashMap::new() }
     }
 
     /// Look up a type variable.

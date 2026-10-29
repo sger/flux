@@ -13,10 +13,12 @@ mod dead_let;
 pub mod dict_elaborate;
 mod disciplined_inline;
 mod evidence;
+mod handle_frame;
 mod helpers;
 mod inline;
 mod inliner;
 mod keep;
+mod limits;
 pub mod lint;
 mod primop_promote;
 mod specialize;
@@ -35,6 +37,7 @@ pub use dict_elaborate::build_referenced_dictionaries;
 pub(crate) use dict_elaborate::reachable_methods;
 pub use disciplined_inline::disciplined_inline;
 pub use evidence::evidence_pass;
+pub use handle_frame::handle_body_frames;
 pub use inline::inline_trivial_lets;
 pub use inliner::inline_lets;
 pub use primop_promote::promote_builtins;
@@ -45,6 +48,7 @@ use crate::diagnostics::compiler_errors::CORE_LINT_FAILURE;
 use crate::diagnostics::{
     Diagnostic, DiagnosticBuilder, DiagnosticCategory, DiagnosticPhase, ErrorType, diagnostic_for,
 };
+use crate::shared::opt_bisect;
 use crate::syntax::interner::Interner;
 
 // ── Pass pipeline ─────────────────────────────────────────────────────────────
@@ -61,7 +65,8 @@ use crate::syntax::interner::Interner;
 ///
 /// Normalization passes (run once after simplification):
 /// 6. `evidence_pass`            — rewrite TR Handle/Perform into evidence passing
-/// 7. `anf_normalize`            — flatten nested subexpressions into let-chains
+/// 7. `handle_body_frames`       — run a handle's body in a frame of its own
+/// 8. `anf_normalize`            — flatten nested subexpressions into let-chains
 ///
 /// When `optimize` is true, simplification passes run up to 3 rounds (fixed-
 /// point iteration inspired by GHC's Core simplifier).  Each additional round
@@ -158,13 +163,10 @@ fn run_semantic_core_passes_with_optional_interner(
         // practice every simplification pass today either shrinks the tree
         // or exposes a reduction that does. If that ever stops being true,
         // replace this heuristic with a per-pass `changed: bool` flag.
-        let size_before: usize = program
-            .defs
-            .iter()
-            .map(|d| helpers::expr_size(&d.expr))
-            .sum();
+        let size_before: usize = program.defs.iter().map(|d| helpers::expr_size(&d.expr)).sum();
 
         for def in &mut program.defs {
+            opt_bisect::set_def(|| opt_bisect::def_name(def.name, interner));
             let e = std::mem::replace(&mut def.expr, sentinel.clone());
             let e = beta_reduce(e);
             verify_aether_contract_stage(def, &e, "beta_reduce")?;
@@ -197,13 +199,25 @@ fn run_semantic_core_passes_with_optional_interner(
         // After the first round, check whether anything changed.
         // If the total node count is the same, no pass fired — stop early.
         if round > 0 {
-            let size_after: usize = program
-                .defs
-                .iter()
-                .map(|d| helpers::expr_size(&d.expr))
-                .sum();
+            let size_after: usize = program.defs.iter().map(|d| helpers::expr_size(&d.expr)).sum();
             if size_after == size_before {
                 break;
+            }
+        }
+    }
+
+    // `cargo xtask bisect-opt` diffs one definition between two limits
+    // (0190 §13).
+    if let Some(interner) = interner
+        && opt_bisect::is_active()
+    {
+        for def in &program.defs {
+            if opt_bisect::shows(&opt_bisect::def_name(def.name, Some(interner))) {
+                eprintln!(
+                    "opt-bisect-show: core {}\n{}\nopt-bisect-show: end",
+                    opt_bisect::def_name(def.name, Some(interner)),
+                    crate::core::display::display_expr_readable(&def.expr, interner)
+                );
             }
         }
     }
@@ -238,6 +252,8 @@ fn run_semantic_core_passes_with_optional_interner(
         let e = std::mem::replace(&mut def.expr, sentinel.clone());
         let e = evidence_pass(e, &mut next_id);
         verify_aether_contract_stage(def, &e, "evidence_pass")?;
+        let e = handle_body_frames(e);
+        verify_aether_contract_stage(def, &e, "handle_body_frames")?;
         let e = anf_normalize(e, &mut next_id);
         verify_aether_contract_stage(def, &e, "anf_normalize")?;
         def.expr = e;
@@ -245,6 +261,8 @@ fn run_semantic_core_passes_with_optional_interner(
 
     // Verify Core invariants after normalization.
     core_lint_stage(program, "normalization", interner)?;
+
+    limits::check_field_counts(program)?;
 
     Ok(warnings)
 }
@@ -257,12 +275,7 @@ fn normalize_lam_param_type_lengths(program: &mut CoreProgram, _interner: Option
 
 fn normalize_lam_param_type_lengths_expr(expr: &mut CoreExpr) {
     match expr {
-        CoreExpr::Lam {
-            params,
-            param_types,
-            body,
-            ..
-        } => {
+        CoreExpr::Lam { params, param_types, body, .. } => {
             if !param_types.is_empty() && param_types.len() < params.len() {
                 let missing = params.len() - param_types.len();
                 let mut normalized = vec![None; missing];
@@ -287,9 +300,7 @@ fn normalize_lam_param_type_lengths_expr(expr: &mut CoreExpr) {
             }
             normalize_lam_param_type_lengths_expr(body);
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             normalize_lam_param_type_lengths_expr(scrutinee);
             for alt in alts {
                 if let Some(guard) = &mut alt.guard {
@@ -313,12 +324,7 @@ fn normalize_lam_param_type_lengths_expr(expr: &mut CoreExpr) {
                 normalize_lam_param_type_lengths_expr(arg);
             }
         }
-        CoreExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        CoreExpr::Handle { body, parameter, handlers, .. } => {
             normalize_lam_param_type_lengths_expr(body);
             if let Some(parameter) = parameter {
                 normalize_lam_param_type_lengths_expr(parameter);
@@ -357,11 +363,21 @@ fn run_aether_passes_with_optional_interner(
 ) -> Result<Vec<Diagnostic>, Diagnostic> {
     let (aether_program, warnings) =
         crate::aether::lower_core_to_aether_program(program, interner, preloaded_registry)?;
-    for def in aether_program.defs() {
-        verify_aether_contract_stage_aether(def, &def.expr, "lower_core_to_aether_program")?;
-    }
+    verify_aether_program_contract(&aether_program)?;
     *program = aether_program.into_core();
     Ok(warnings)
+}
+
+/// Checks every definition of a lowered program against the fatal Aether
+/// contract.
+#[allow(clippy::result_large_err)]
+pub(crate) fn verify_aether_program_contract(
+    program: &crate::aether::AetherProgram,
+) -> Result<(), Diagnostic> {
+    for def in program.defs() {
+        verify_aether_contract_stage_aether(def, &def.expr, "lower_core_to_aether_program")?;
+    }
+    Ok(())
 }
 
 /// Run semantic FBIP checking on annotated functions after Aether passes.
@@ -410,9 +426,7 @@ fn collect_max_binder_id(expr: &CoreExpr, max: &mut u32) {
             }
             collect_max_binder_id(body, max);
         }
-        Case {
-            scrutinee, alts, ..
-        } => {
+        Case { scrutinee, alts, .. } => {
             collect_max_binder_id(scrutinee, max);
             for alt in alts {
                 collect_max_binder_id(&alt.rhs, max);
@@ -541,16 +555,10 @@ fn aether_contract_error_common(
     stage: &'static str,
     errors: &[crate::aether::verify::AetherError],
 ) -> Diagnostic {
-    let bullet_lines = errors
-        .iter()
-        .map(|error| format!("- {:?}", error.kind))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let details = errors
-        .iter()
-        .map(|error| format!("- {}", error.message))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let bullet_lines =
+        errors.iter().map(|error| format!("- {:?}", error.kind)).collect::<Vec<_>>().join("\n");
+    let details =
+        errors.iter().map(|error| format!("- {}", error.message)).collect::<Vec<_>>().join("\n");
     Diagnostic::make_error_dynamic(
         "E999",
         "AETHER VERIFICATION FAILED",

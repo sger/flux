@@ -12,6 +12,9 @@
 //
 // Expected output:
 // 7
+// parity-expected-stdout-begin
+// 7
+// parity-expected-stdout-end
 
 class Collection<c> {
     type Element<c>

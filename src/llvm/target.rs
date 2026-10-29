@@ -64,19 +64,12 @@ pub fn host_data_layout() -> Option<String> {
 
 #[allow(dead_code)]
 fn llvm_config_triple() -> Option<String> {
-    let output = Command::new("llvm-config")
-        .arg("--host-target")
-        .output()
-        .ok()?;
+    let output = Command::new("llvm-config").arg("--host-target").output().ok()?;
     if !output.status.success() {
         return None;
     }
     let triple = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if triple.is_empty() {
-        None
-    } else {
-        Some(triple)
-    }
+    if triple.is_empty() { None } else { Some(triple) }
 }
 
 fn compile_time_triple() -> String {

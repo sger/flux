@@ -3,6 +3,12 @@
 // bug: string interpolation with computed sub-expressions may evaluate
 //       in the wrong order or produce different string representations
 //       across backends.
+// parity-expected-stdout-begin
+// "value is 42"
+// "3 + 4 = 7"
+// "nested: yes"
+// "len: 5"
+// parity-expected-stdout-end
 
 fn main() with IO {
     let x = 42;

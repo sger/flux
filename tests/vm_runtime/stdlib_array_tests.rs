@@ -1,14 +1,15 @@
 //! Integration driver for the `tests/flux/stdlib_array.flx` fixture.
 //!
-//! The behavioural coverage lives in the Flux fixture; this target runs it
-//! through `flux --test` and requires every case to pass.
+//! The fixture runs on the VM and, with the `llvm` feature, natively. Array
+//! equality used to be broken in opposite ways on the two backends: `==`
+//! raised `E1009` on the VM and answered `false` for identical arrays
+//! natively, so every `assert_eq` over two arrays passed on one and failed on
+//! the other. Running it both ways keeps that from silently returning.
 
-#[path = "../support/stdlib_fixture.rs"]
-mod stdlib_fixture;
-
-use stdlib_fixture::assert_fixture_passes;
+use crate::support::stdlib_fixture;
+use stdlib_fixture::assert_backends_agree;
 
 #[test]
-fn stdlib_array_fixture_passes_on_the_vm() {
-    assert_fixture_passes("stdlib_array.flx");
+fn stdlib_array_passes_on_the_vm_and_natively() {
+    assert_backends_agree("stdlib_array.flx");
 }

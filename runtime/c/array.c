@@ -40,9 +40,9 @@ static int64_t array_tag(FluxArray *arr) {
 
 static FluxArray *alloc_array(uint32_t capacity) {
     uint32_t size = (uint32_t)(sizeof(FluxArray) + capacity * sizeof(int64_t));
-    /* scan_fsize tracks elements for recursive drop (capped at 255). */
-    uint8_t scan = (capacity <= 255) ? (uint8_t)capacity : 255;
-    FluxArray *arr = (FluxArray *)flux_gc_alloc_header(size, scan, FLUX_OBJ_ARRAY);
+    /* No scan_fsize: rc.c walks an array's elements by `len`, which a header
+     * byte could not hold. */
+    FluxArray *arr = (FluxArray *)flux_gc_alloc_header(size, 0, FLUX_OBJ_ARRAY);
     arr->obj_tag = FLUX_OBJ_ARRAY;
     arr->len = 0;
     arr->capacity = capacity;
@@ -113,19 +113,32 @@ int64_t flux_array_get(int64_t arr_val, int64_t index_val) {
     if (!arr) return flux_make_none();
     int64_t idx = flux_untag_int(index_val);
     if (idx < 0 || (uint32_t)idx >= arr->len) return flux_make_none();
+    /* The array was only lent, and may be released right after. */
+    flux_dup(arr->elements[idx]);
     return flux_wrap_some(arr->elements[idx]);
 }
 
+/* The array operations below are lent their arguments: the new array counts
+ * each element it shares with them and the value it stores, and an argument
+ * returned unchanged is counted once more for the caller. */
+
 int64_t flux_array_set(int64_t arr_val, int64_t index_val, int64_t value) {
     FluxArray *arr = array_ptr(arr_val);
-    if (!arr) return arr_val;
+    if (!arr) {
+        flux_dup(arr_val);
+        return arr_val;
+    }
     int64_t idx = flux_untag_int(index_val);
-    if (idx < 0 || (uint32_t)idx >= arr->len) return arr_val;
+    if (idx < 0 || (uint32_t)idx >= arr->len) {
+        flux_dup(arr_val);
+        return arr_val;
+    }
     /* Copy-on-write: create new array with modified element. */
     FluxArray *new_arr = alloc_array(arr->len);
     new_arr->len = arr->len;
     memcpy(new_arr->elements, arr->elements, arr->len * sizeof(int64_t));
     new_arr->elements[idx] = value;
+    flux_dup_range(new_arr->elements, new_arr->len);
     return array_tag(new_arr);
 }
 
@@ -138,6 +151,7 @@ int64_t flux_array_push(int64_t arr_val, int64_t value) {
         memcpy(new_arr->elements, arr->elements, old_len * sizeof(int64_t));
     }
     new_arr->elements[old_len] = value;
+    flux_dup_range(new_arr->elements, new_arr->len);
     return array_tag(new_arr);
 }
 
@@ -154,6 +168,7 @@ int64_t flux_array_concat(int64_t a_val, int64_t b_val) {
     if (b && b_len > 0) {
         memcpy(new_arr->elements + a_len, b->elements, b_len * sizeof(int64_t));
     }
+    flux_dup_range(new_arr->elements, new_arr->len);
     return array_tag(new_arr);
 }
 
@@ -168,17 +183,22 @@ int64_t flux_array_slice(int64_t arr_val, int64_t start_val, int64_t end_val) {
     if ((uint32_t)end > arr->len) end = arr->len;
     if (start >= end) return flux_array_new(NULL, 0);
     uint32_t slice_len = (uint32_t)(end - start);
+    flux_dup_range(arr->elements + start, slice_len);
     return flux_array_new(arr->elements + start, (int32_t)slice_len);
 }
 
 int64_t flux_array_reverse(int64_t arr_val) {
     FluxArray *arr = array_ptr(arr_val);
-    if (!arr || arr->len == 0) return arr_val;
+    if (!arr || arr->len == 0) {
+        flux_dup(arr_val);
+        return arr_val;
+    }
     FluxArray *new_arr = alloc_array(arr->len);
     new_arr->len = arr->len;
     for (uint32_t i = 0; i < arr->len; i++) {
         new_arr->elements[i] = arr->elements[arr->len - 1 - i];
     }
+    flux_dup_range(new_arr->elements, new_arr->len);
     return array_tag(new_arr);
 }
 

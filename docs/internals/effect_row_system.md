@@ -235,7 +235,7 @@ See `docs/internals/base_hm_signatures.md` for the full signature reference.
 - `194_effect_row_multi_missing_deterministic_e400.flx` — E400 deterministic first-missing
 - `195_effect_row_invalid_subtract_e421.flx` — E421 concrete invalid subtraction
 - `196_effect_row_subtract_unresolved_single_e419.flx` — E419 single unresolved var
-- `197_effect_row_subtract_unresolved_multi_e420.flx` — E420 multi ambiguous vars
+- `197_effect_row_subtract_unresolved_multi_e304.flx` — multi ambiguous vars (E304 at the annotation, before E420)
 - `198_effect_row_subset_unsatisfied_e422.flx` — E422 unsatisfied subset
 - `199_effect_row_subset_ordered_missing_e422.flx` — E422 ordered missing
 - `200_effect_row_absent_ordering_linked_violation_e421.flx` — E421 deferred absent violation
@@ -251,8 +251,8 @@ When changing effect row semantics:
 3. If `EffectExpr` or `InferEffectRow` changes, update the constraint solver and `from_effect_expr`.
 4. Run:
    ```bash
-   cargo test --test type_inference_tests
-   cargo test --test compiler_rules_tests
+   cargo test --test type_inference type_inference_tests::
+   cargo test --test integration compiler_rules_tests::
    cargo test --all --all-features purity_vm_jit_parity_snapshots
    ```
 5. Verify VM/JIT parity for any new diagnostic codes.

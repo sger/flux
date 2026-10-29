@@ -189,9 +189,8 @@ mod tests {
         // Forward-compat: Phase 1a stores fibers in a `HashMap<WorkerId, ...>`,
         // and the dispatch loop copies `WorkerId` around freely. Lock both
         // properties in now so a Phase 1a refactor can't quietly break them.
-        let _: std::collections::HashSet<WorkerId> = [WorkerId(0), WorkerId(1), WorkerId(0)]
-            .into_iter()
-            .collect();
+        let _: std::collections::HashSet<WorkerId> =
+            [WorkerId(0), WorkerId(1), WorkerId(0)].into_iter().collect();
         let id = WorkerId(3);
         let copy = id;
         assert_eq!(id, copy);

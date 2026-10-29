@@ -34,11 +34,7 @@ use flux::{
 fn parse(source: &str) -> (Program, Interner) {
     let mut parser = Parser::new(Lexer::new(source));
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     (program, interner)
 }
@@ -55,9 +51,7 @@ fn expression_ids(block: &Block) -> HashSet<flux::syntax::expression::ExprId> {
         }
     }
 
-    let mut collector = Collector {
-        ids: HashSet::new(),
-    };
+    let mut collector = Collector { ids: HashSet::new() };
     collector.visit_block(block);
     collector.ids
 }
@@ -65,11 +59,7 @@ fn expression_ids(block: &Block) -> HashSet<flux::syntax::expression::ExprId> {
 fn infer(source: &str) -> (InferProgramResult, Program, Interner) {
     let mut parser = Parser::new(Lexer::new(source));
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let mut interner = parser.take_interner();
     let flow_sym = interner.intern("Flow");
     let mut effect_op_sigs = HashMap::new();
@@ -110,12 +100,7 @@ fn infer(source: &str) -> (InferProgramResult, Program, Interner) {
                 }
             }
         }
-        let flux::syntax::type_expr::TypeExpr::Function {
-            params,
-            ret,
-            effects,
-            ..
-        } = type_expr
+        let flux::syntax::type_expr::TypeExpr::Function { params, ret, effects, .. } = type_expr
         else {
             panic!("effect operation signature must be function-shaped");
         };
@@ -154,10 +139,7 @@ fn infer(source: &str) -> (InferProgramResult, Program, Interner) {
         let effect_row =
             InferEffectRow::from_effect_exprs(effects, &mut row_var_env, &mut next_var)
                 .expect("effect op effect row should lower");
-        generalize(
-            &InferType::Fun(param_tys, Box::new(ret_ty), effect_row),
-            &HashSet::new(),
-        )
+        generalize(&InferType::Fun(param_tys, Box::new(ret_ty), effect_row), &HashSet::new())
     }
 
     fn collect_effect_sigs(
@@ -212,11 +194,7 @@ fn infer(source: &str) -> (InferProgramResult, Program, Interner) {
 fn build_class_env(source: &str) -> (ClassEnv, Vec<flux::diagnostics::Diagnostic>, Interner) {
     let mut parser = Parser::new(Lexer::new(source));
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let mut interner = parser.take_interner();
     let mut env = ClassEnv::new();
     env.register_builtins(&mut interner);
@@ -239,23 +217,14 @@ fn infer_with_dispatch(source: &str) -> (InferProgramResult, Program, Interner) 
 
     let generated = flux::types::class_dispatch::generate_dispatch_functions(
         &program.statements,
-        flux::types::class_dispatch::DispatchClasses {
-            env: &class_env,
-            surface: &class_surface,
-        },
+        flux::types::class_dispatch::DispatchClasses { env: &class_env, surface: &class_surface },
         &mut interner,
         &std::collections::HashSet::new(),
-        flux::types::class_dispatch::DispatchGenerationOptions {
-            include_builtin_instances: true,
-        },
+        flux::types::class_dispatch::DispatchGenerationOptions { include_builtin_instances: true },
     );
     let mut statements = generated;
     statements.extend(program.statements.iter().cloned());
-    let augmented = Program {
-        statements,
-        span: program.span,
-        ..Default::default()
-    };
+    let augmented = Program { statements, span: program.span, ..Default::default() };
 
     let result = infer_program(
         &augmented,
@@ -298,10 +267,7 @@ fn static_type_validation_accepts_fully_typed_function() {
             interner: &interner,
         },
     );
-    assert!(
-        diags.is_empty(),
-        "expected no strict-type errors, got: {diags:?}"
-    );
+    assert!(diags.is_empty(), "expected no strict-type errors, got: {diags:?}");
 }
 
 #[test]
@@ -320,10 +286,7 @@ fn static_type_validation_accepts_polymorphic_identity() {
             interner: &interner,
         },
     );
-    assert!(
-        diags.is_empty(),
-        "identity should infer as a -> a with no fallback residue"
-    );
+    assert!(diags.is_empty(), "identity should infer as a -> a with no fallback residue");
 }
 
 #[test]
@@ -342,10 +305,7 @@ fn static_type_validation_accepts_polymorphic_arithmetic() {
             interner: &interner,
         },
     );
-    assert!(
-        diags.is_empty(),
-        "add should infer as a -> a -> a with no fallback residue"
-    );
+    assert!(diags.is_empty(), "add should infer as a -> a -> a with no fallback residue");
 }
 
 #[test]
@@ -366,10 +326,7 @@ fn static_type_validation_flags_mono_scheme_with_fallback_var() {
             interner: &interner,
         },
     );
-    assert!(
-        !diags.is_empty(),
-        "mono scheme containing unresolved identifier should emit E430"
-    );
+    assert!(!diags.is_empty(), "mono scheme containing unresolved identifier should emit E430");
     assert!(
         diags.iter().any(|d| d.code() == Some("E430")),
         "expected E430 diagnostic, got: {diags:?}"
@@ -392,10 +349,7 @@ fn static_type_validation_accepts_concrete_annotated_function() {
             interner: &interner,
         },
     );
-    assert!(
-        diags.is_empty(),
-        "concrete annotated function should have no fallback vars"
-    );
+    assert!(diags.is_empty(), "concrete annotated function should have no fallback vars");
 }
 
 #[test]
@@ -436,10 +390,7 @@ fn static_type_validation_flags_unresolved_leaf_expression() {
             interner: &interner,
         },
     );
-    let e430_count = diags
-        .iter()
-        .filter(|diag| diag.code() == Some("E430"))
-        .count();
+    let e430_count = diags.iter().filter(|diag| diag.code() == Some("E430")).count();
     assert!(
         e430_count >= 2,
         "expected both binding and leaf expression E430 diagnostics, got: {diags:?}"
@@ -470,10 +421,7 @@ fn static_type_validation_suppresses_expression_e430_when_primary_error_exists()
             interner: &interner,
         },
     );
-    let e430_count = diags
-        .iter()
-        .filter(|diag| diag.code() == Some("E430"))
-        .count();
+    let e430_count = diags.iter().filter(|diag| diag.code() == Some("E430")).count();
     assert_eq!(
         e430_count, 1,
         "expected only the binding-level E430 after suppressing the leaf noise, got: {diags:?}"
@@ -504,10 +452,7 @@ fn main() {
             interner: &interner,
         },
     );
-    assert!(
-        diags.is_empty(),
-        "bare instantiated identifier should not trigger E430: {diags:?}"
-    );
+    assert!(diags.is_empty(), "bare instantiated identifier should not trigger E430: {diags:?}");
 }
 
 #[test]
@@ -573,10 +518,7 @@ fn outer(x) {
 #[test]
 fn fallback_vars_populated_for_unresolved_identifier() {
     let (result, _program, _interner) = infer("fn f(x) { unknown_thing }");
-    assert!(
-        !result.fallback_vars.is_empty(),
-        "unresolved identifier should produce fallback vars"
-    );
+    assert!(!result.fallback_vars.is_empty(), "unresolved identifier should produce fallback vars");
 }
 
 #[test]
@@ -598,15 +540,9 @@ fn typed_hole_reports_e469_with_the_inferred_type() {
 fn f() -> Int { _ }
 "#,
     );
-    let hole = result
-        .diagnostics
-        .iter()
-        .find(|diag| diag.code() == Some("E469"))
-        .unwrap_or_else(|| {
-            panic!(
-                "expected an E469 typed-hole diagnostic, got: {:#?}",
-                result.diagnostics
-            )
+    let hole =
+        result.diagnostics.iter().find(|diag| diag.code() == Some("E469")).unwrap_or_else(|| {
+            panic!("expected an E469 typed-hole diagnostic, got: {:#?}", result.diagnostics)
         });
     let message = hole.message().unwrap_or("");
     assert!(
@@ -644,10 +580,7 @@ fn f() -> Int {
 "#,
     );
     assert!(
-        !result
-            .diagnostics
-            .iter()
-            .any(|diag| diag.code() == Some("E469")),
+        !result.diagnostics.iter().any(|diag| diag.code() == Some("E469")),
         "a bound `_x` must not be a hole, got: {:#?}",
         result.diagnostics
     );
@@ -664,10 +597,7 @@ fn main() {
 "#,
     );
     assert!(
-        !result
-            .diagnostics
-            .iter()
-            .any(|diag| diag.code() == Some("E430")),
+        !result.diagnostics.iter().any(|diag| diag.code() == Some("E430")),
         "did not expect eager E430 from HM inference, got: {:#?}",
         result.diagnostics
     );
@@ -688,10 +618,7 @@ fn main() {
 "#,
     );
     assert!(
-        !result
-            .diagnostics
-            .iter()
-            .any(|diag| diag.code() == Some("E430")),
+        !result.diagnostics.iter().any(|diag| diag.code() == Some("E430")),
         "did not expect eager E430 from HM inference, got: {:#?}",
         result.diagnostics
     );
@@ -705,16 +632,9 @@ fn contains<A: Eq>(x: A, y: A) -> Bool { eq(x, y) }
 "#,
     );
     let contains = interner.lookup("contains").expect("contains interned");
-    let scheme = result
-        .type_env
-        .lookup(contains)
-        .expect("contains scheme should exist");
+    let scheme = result.type_env.lookup(contains).expect("contains scheme should exist");
     let eq = interner.lookup("Eq").expect("Eq interned");
-    assert_eq!(
-        scheme.constraints.len(),
-        1,
-        "expected one explicit scheme constraint"
-    );
+    assert_eq!(scheme.constraints.len(), 1, "expected one explicit scheme constraint");
     assert_eq!(scheme.constraints[0].class_name, eq);
 }
 
@@ -726,10 +646,7 @@ fn same<A: Eq>(x: A, y: A) -> Bool { x == y }
 "#,
     );
     let same = interner.lookup("same").expect("same interned");
-    let scheme = result
-        .type_env
-        .lookup(same)
-        .expect("same scheme should exist");
+    let scheme = result.type_env.lookup(same).expect("same scheme should exist");
     assert_eq!(
         scheme.constraints.len(),
         1,
@@ -751,10 +668,7 @@ fn main() { same(1, 2) }
     env.register_prelude_classes(&mut class_surface, &mut interner);
     env.collect_from_statements(&program.statements, &mut class_surface, &interner);
     let diags = solve_class_constraint_tree(&result.class_constraints, &env, &interner);
-    assert!(
-        diags.is_empty(),
-        "Int call should satisfy explicit Eq constraint: {diags:?}"
-    );
+    assert!(diags.is_empty(), "Int call should satisfy explicit Eq constraint: {diags:?}");
 }
 
 #[test]
@@ -794,10 +708,7 @@ instance Sizeable<Int> {
 }
 "#,
     );
-    assert!(
-        diags.is_empty(),
-        "valid class+instance should produce no errors: {diags:?}"
-    );
+    assert!(diags.is_empty(), "valid class+instance should produce no errors: {diags:?}");
     assert!(!env.instances.is_empty());
 }
 
@@ -868,10 +779,7 @@ instance MyEq<Int> {
     );
     // my_neq has a default — so not implementing it is fine
     let method_errors: Vec<_> = diags.iter().filter(|d| d.code() == Some("E442")).collect();
-    assert!(
-        method_errors.is_empty(),
-        "default method should not trigger E442: {method_errors:?}"
-    );
+    assert!(method_errors.is_empty(), "default method should not trigger E442: {method_errors:?}");
 }
 
 #[test]
@@ -890,11 +798,7 @@ instance Sizeable<Int> {
 "#,
     );
     let e443: Vec<_> = diags.iter().filter(|d| d.code() == Some("E443")).collect();
-    assert_eq!(
-        e443.len(),
-        1,
-        "expected structural duplicate instance detection: {diags:?}"
-    );
+    assert_eq!(e443.len(), 1, "expected structural duplicate instance detection: {diags:?}");
 }
 
 #[test]
@@ -913,20 +817,15 @@ instance Sizeable<String> {
 "#,
     );
     let e443: Vec<_> = diags.iter().filter(|d| d.code() == Some("E443")).collect();
-    assert!(
-        e443.is_empty(),
-        "different type instances should not conflict: {e443:?}"
-    );
+    assert!(e443.is_empty(), "different type instances should not conflict: {e443:?}");
     // Should have instances for both Int and String
     let sizeable_sym = interner.lookup("Sizeable").expect("Sizeable interned");
     assert!(
-        env.resolve_instance_for_type(sizeable_sym, "Int", &interner)
-            .is_some(),
+        env.resolve_instance_for_type(sizeable_sym, "Int", &interner).is_some(),
         "should have Sizeable<Int>"
     );
     assert!(
-        env.resolve_instance_for_type(sizeable_sym, "String", &interner)
-            .is_some(),
+        env.resolve_instance_for_type(sizeable_sym, "String", &interner).is_some(),
         "should have Sizeable<String>"
     );
 }
@@ -961,9 +860,7 @@ instance Sizeable<Int> {
 }
 "#,
     );
-    let sizeable_sym = interner
-        .lookup("Sizeable")
-        .expect("Sizeable should be interned");
+    let sizeable_sym = interner.lookup("Sizeable").expect("Sizeable should be interned");
     let result = env.resolve_instance_for_type(sizeable_sym, "Int", &interner);
     assert!(result.is_some(), "should resolve Sizeable<Int>");
     let no_result = env.resolve_instance_for_type(sizeable_sym, "String", &interner);
@@ -996,10 +893,7 @@ fn main() { size(42) }
 
     let diags = solve_class_constraint_tree(&result.class_constraints, &env, &interner);
     let e444: Vec<_> = diags.iter().filter(|d| d.code() == Some("E444")).collect();
-    assert!(
-        e444.is_empty(),
-        "satisfied constraint should not produce E444: {e444:?}"
-    );
+    assert!(e444.is_empty(), "satisfied constraint should not produce E444: {e444:?}");
 }
 
 #[test]
@@ -1033,10 +927,7 @@ instance Sizeable<Int> {
         type_args: vec![string_type],
         span: flux::diagnostics::position::Span {
             start: flux::diagnostics::position::Position { line: 1, column: 0 },
-            end: flux::diagnostics::position::Position {
-                line: 1,
-                column: 10,
-            },
+            end: flux::diagnostics::position::Position { line: 1, column: 10 },
         },
         expr: None,
         origin: flux::ast::type_infer::constraint::WantedClassConstraintOrigin::ExplicitBound,
@@ -1074,20 +965,14 @@ class Sizeable<a> {
         type_args: vec![var_type],
         span: flux::diagnostics::position::Span {
             start: flux::diagnostics::position::Position { line: 1, column: 0 },
-            end: flux::diagnostics::position::Position {
-                line: 1,
-                column: 10,
-            },
+            end: flux::diagnostics::position::Position { line: 1, column: 10 },
         },
         expr: None,
         origin: flux::ast::type_infer::constraint::WantedClassConstraintOrigin::ExplicitBound,
     };
 
     let diags = solve_class_constraints(&[constraint], &env, &interner);
-    assert!(
-        diags.is_empty(),
-        "type variable constraints should be skipped: {diags:?}"
-    );
+    assert!(diags.is_empty(), "type variable constraints should be skipped: {diags:?}");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1115,15 +1000,10 @@ instance Sizeable<Int> {
 
     let generated = flux::types::class_dispatch::generate_dispatch_functions(
         &program.statements,
-        flux::types::class_dispatch::DispatchClasses {
-            env: &env,
-            surface: &class_surface,
-        },
+        flux::types::class_dispatch::DispatchClasses { env: &env, surface: &class_surface },
         &mut interner,
         &std::collections::HashSet::new(),
-        flux::types::class_dispatch::DispatchGenerationOptions {
-            include_builtin_instances: true,
-        },
+        flux::types::class_dispatch::DispatchGenerationOptions { include_builtin_instances: true },
     );
 
     // Should generate at least the mangled instance function
@@ -1134,10 +1014,7 @@ instance Sizeable<Int> {
             false
         }
     });
-    assert!(
-        has_mangled,
-        "expected __tc_Sizeable_Int_size in generated functions"
-    );
+    assert!(has_mangled, "expected __tc_Sizeable_Int_size in generated functions");
 }
 
 #[test]
@@ -1176,15 +1053,10 @@ instance Enc<a> => Enc<List<a>> {
 
     let generated = flux::types::class_dispatch::generate_dispatch_functions(
         &program.statements,
-        flux::types::class_dispatch::DispatchClasses {
-            env: &env,
-            surface: &class_surface,
-        },
+        flux::types::class_dispatch::DispatchClasses { env: &env, surface: &class_surface },
         &mut interner,
         &HashSet::new(),
-        flux::types::class_dispatch::DispatchGenerationOptions {
-            include_builtin_instances: true,
-        },
+        flux::types::class_dispatch::DispatchGenerationOptions { include_builtin_instances: true },
     );
     let generated_body = generated
         .iter()
@@ -1225,15 +1097,10 @@ instance Sizeable<Int> {
 
     let generated = flux::types::class_dispatch::generate_dispatch_functions(
         &program.statements,
-        flux::types::class_dispatch::DispatchClasses {
-            env: &env,
-            surface: &class_surface,
-        },
+        flux::types::class_dispatch::DispatchClasses { env: &env, surface: &class_surface },
         &mut interner,
         &std::collections::HashSet::new(),
-        flux::types::class_dispatch::DispatchGenerationOptions {
-            include_builtin_instances: true,
-        },
+        flux::types::class_dispatch::DispatchGenerationOptions { include_builtin_instances: true },
     );
 
     // Should generate a polymorphic stub named `size` (the class method name)
@@ -1244,10 +1111,7 @@ instance Sizeable<Int> {
             false
         }
     });
-    assert!(
-        has_stub,
-        "expected polymorphic stub function `size` in generated functions"
-    );
+    assert!(has_stub, "expected polymorphic stub function `size` in generated functions");
 }
 
 #[test]
@@ -1273,15 +1137,10 @@ instance Sizeable<String> {
 
     let generated = flux::types::class_dispatch::generate_dispatch_functions(
         &program.statements,
-        flux::types::class_dispatch::DispatchClasses {
-            env: &env,
-            surface: &class_surface,
-        },
+        flux::types::class_dispatch::DispatchClasses { env: &env, surface: &class_surface },
         &mut interner,
         &std::collections::HashSet::new(),
-        flux::types::class_dispatch::DispatchGenerationOptions {
-            include_builtin_instances: true,
-        },
+        flux::types::class_dispatch::DispatchGenerationOptions { include_builtin_instances: true },
     );
 
     let mangled_names: Vec<String> = generated
@@ -1289,11 +1148,7 @@ instance Sizeable<String> {
         .filter_map(|stmt| {
             if let Statement::Function { name, .. } = stmt {
                 let n = interner.resolve(*name).to_string();
-                if n.starts_with("__tc_") {
-                    Some(n)
-                } else {
-                    None
-                }
+                if n.starts_with("__tc_") { Some(n) } else { None }
             } else {
                 None
             }
@@ -1383,15 +1238,10 @@ module Local {
 
     let generated = flux::types::class_dispatch::generate_dispatch_functions(
         &program.statements,
-        flux::types::class_dispatch::DispatchClasses {
-            env: &env,
-            surface: &class_surface,
-        },
+        flux::types::class_dispatch::DispatchClasses { env: &env, surface: &class_surface },
         &mut interner,
         &HashSet::new(),
-        flux::types::class_dispatch::DispatchGenerationOptions {
-            include_builtin_instances: true,
-        },
+        flux::types::class_dispatch::DispatchGenerationOptions { include_builtin_instances: true },
     );
 
     let generated_names: Vec<String> = generated
@@ -1421,9 +1271,7 @@ module Local {
                 args: Vec::new(),
                 span: Default::default(),
             }],
-            &[flux::types::class_id::ModulePath::from_identifier(
-                interner.intern("Local"),
-            )],
+            &[flux::types::class_id::ModulePath::from_identifier(interner.intern("Local"))],
             &interner,
         ),
         "log",
@@ -1461,15 +1309,10 @@ instance MyEq<Int> {
 
     let generated = flux::types::class_dispatch::generate_dispatch_functions(
         &program.statements,
-        flux::types::class_dispatch::DispatchClasses {
-            env: &env,
-            surface: &class_surface,
-        },
+        flux::types::class_dispatch::DispatchClasses { env: &env, surface: &class_surface },
         &mut interner,
         &std::collections::HashSet::new(),
-        flux::types::class_dispatch::DispatchGenerationOptions {
-            include_builtin_instances: true,
-        },
+        flux::types::class_dispatch::DispatchGenerationOptions { include_builtin_instances: true },
     );
 
     // Default method `my_neq` should be generated both as a top-level helper
@@ -1481,10 +1324,7 @@ instance MyEq<Int> {
             false
         }
     });
-    assert!(
-        has_default_helper,
-        "expected default method function `my_neq` in generated functions"
-    );
+    assert!(has_default_helper, "expected default method function `my_neq` in generated functions");
     let has_instance_default = generated.iter().any(|stmt| {
         if let Statement::Function { name, .. } = stmt {
             interner.resolve(*name) == "__tc_MyEq_Int_my_neq"
@@ -1514,15 +1354,10 @@ fn needs<A: Eq + Ord + Num>(x: A, y: A) -> A {
 
     let generated = flux::types::class_dispatch::generate_dispatch_functions(
         &program.statements,
-        flux::types::class_dispatch::DispatchClasses {
-            env: &env,
-            surface: &class_surface,
-        },
+        flux::types::class_dispatch::DispatchClasses { env: &env, surface: &class_surface },
         &mut interner,
         &std::collections::HashSet::new(),
-        flux::types::class_dispatch::DispatchGenerationOptions {
-            include_builtin_instances: true,
-        },
+        flux::types::class_dispatch::DispatchGenerationOptions { include_builtin_instances: true },
     );
 
     let generated_names: Vec<String> = generated
@@ -1541,9 +1376,7 @@ fn needs<A: Eq + Ord + Num>(x: A, y: A) -> A {
     // to add. `builtin_method_body` still exists, but only `deriving` reaches
     // it (see `can_derive_method`).
     assert!(
-        !generated_names
-            .iter()
-            .any(|name| name.contains("_Eq_Int_") || name.contains("_Num_Int_")),
+        !generated_names.iter().any(|name| name.contains("_Eq_Int_") || name.contains("_Num_Int_")),
         "prelude instance methods must come from source, not the generator: {generated_names:?}"
     );
 }
@@ -1568,25 +1401,15 @@ instance Eq<a> => MyEq<List<a>> {
 
     let generated = flux::types::class_dispatch::generate_dispatch_functions(
         &program.statements,
-        flux::types::class_dispatch::DispatchClasses {
-            env: &env,
-            surface: &class_surface,
-        },
+        flux::types::class_dispatch::DispatchClasses { env: &env, surface: &class_surface },
         &mut interner,
         &std::collections::HashSet::new(),
-        flux::types::class_dispatch::DispatchGenerationOptions {
-            include_builtin_instances: true,
-        },
+        flux::types::class_dispatch::DispatchGenerationOptions { include_builtin_instances: true },
     );
 
     let mangled = generated.iter().find_map(|stmt| match stmt {
         Statement::Function {
-            name,
-            type_params,
-            parameters,
-            parameter_types,
-            return_type,
-            ..
+            name, type_params, parameters, parameter_types, return_type, ..
         } if interner.resolve(*name).contains("__tc_MyEq_List<a>_my_eq") => Some((
             type_params.clone(),
             parameters.clone(),
@@ -1598,19 +1421,11 @@ instance Eq<a> => MyEq<List<a>> {
 
     let (type_params, parameters, parameter_types, return_type) =
         mangled.expect("expected contextual mangled function");
-    assert_eq!(
-        type_params.len(),
-        1,
-        "expected one quantified instance type param"
-    );
+    assert_eq!(type_params.len(), 1, "expected one quantified instance type param");
     assert_eq!(interner.resolve(type_params[0].name), "a");
     let eq_sym = interner.lookup("Eq").expect("Eq should be interned");
-    let eq_id = env
-        .classes
-        .keys()
-        .find(|id| id.name == eq_sym)
-        .copied()
-        .expect("Eq should be registered");
+    let eq_id =
+        env.classes.keys().find(|id| id.name == eq_sym).copied().expect("Eq should be registered");
     assert_eq!(
         interner.resolve(parameters[0]),
         flux::types::class_env::dictionary_prefix(eq_id, &interner),
@@ -1622,26 +1437,14 @@ instance Eq<a> => MyEq<List<a>> {
     );
     assert_eq!(parameter_types[0].as_ref(), None,);
     assert_eq!(
-        parameter_types[1]
-            .as_ref()
-            .expect("first value param type")
-            .display_with(&interner),
+        parameter_types[1].as_ref().expect("first value param type").display_with(&interner),
         "List<a>"
     );
     assert_eq!(
-        parameter_types[2]
-            .as_ref()
-            .expect("second value param type")
-            .display_with(&interner),
+        parameter_types[2].as_ref().expect("second value param type").display_with(&interner),
         "List<a>"
     );
-    assert_eq!(
-        return_type
-            .as_ref()
-            .expect("return type")
-            .display_with(&interner),
-        "Bool"
-    );
+    assert_eq!(return_type.as_ref().expect("return type").display_with(&interner), "Bool");
 }
 
 #[test]
@@ -1668,17 +1471,12 @@ instance Eq<a> => MyEq<List<a>> {
     let mangled = interner
         .lookup("__tc_MyEq_List<a>_my_eq")
         .expect("contextual mangled method should be interned");
-    let scheme = result
-        .type_env
-        .lookup(mangled)
-        .expect("contextual mangled method should have a scheme");
+    let scheme =
+        result.type_env.lookup(mangled).expect("contextual mangled method should have a scheme");
     let eq = interner.lookup("Eq").expect("Eq interned");
 
     assert!(
-        scheme
-            .constraints
-            .iter()
-            .any(|constraint| constraint.class_name == eq),
+        scheme.constraints.iter().any(|constraint| constraint.class_name == eq),
         "expected contextual mangled method to carry Eq<a> scheme constraint, got: {:?}",
         scheme.constraints
     );
@@ -1700,30 +1498,13 @@ fn builtin_classes_registered() {
     let ord = interner.lookup("Ord").expect("Ord should be interned");
     let num = interner.lookup("Num").expect("Num should be interned");
     let show = interner.lookup("Show").expect("Show should be interned");
-    let semigroup = interner
-        .lookup("Semigroup")
-        .expect("Semigroup should be interned");
+    let semigroup = interner.lookup("Semigroup").expect("Semigroup should be interned");
 
-    assert!(
-        env.lookup_class(eq).is_some(),
-        "Eq class should be registered"
-    );
-    assert!(
-        env.lookup_class(ord).is_some(),
-        "Ord class should be registered"
-    );
-    assert!(
-        env.lookup_class(num).is_some(),
-        "Num class should be registered"
-    );
-    assert!(
-        env.lookup_class(show).is_some(),
-        "Show class should be registered"
-    );
-    assert!(
-        env.lookup_class(semigroup).is_some(),
-        "Semigroup class should be registered"
-    );
+    assert!(env.lookup_class(eq).is_some(), "Eq class should be registered");
+    assert!(env.lookup_class(ord).is_some(), "Ord class should be registered");
+    assert!(env.lookup_class(num).is_some(), "Num class should be registered");
+    assert!(env.lookup_class(show).is_some(), "Show class should be registered");
+    assert!(env.lookup_class(semigroup).is_some(), "Semigroup class should be registered");
 
     for class_name in [eq, ord, num, show, semigroup] {
         let class_def = env.lookup_class(class_name).expect("class should exist");
@@ -1750,36 +1531,15 @@ fn builtin_instances_registered() {
     let num = interner.lookup("Num").expect("Num interned");
 
     // Eq should have instances for Int, Float, String, Bool
-    assert!(
-        env.resolve_instance_for_type(eq, "Int", &interner)
-            .is_some()
-    );
-    assert!(
-        env.resolve_instance_for_type(eq, "Float", &interner)
-            .is_some()
-    );
-    assert!(
-        env.resolve_instance_for_type(eq, "String", &interner)
-            .is_some()
-    );
-    assert!(
-        env.resolve_instance_for_type(eq, "Bool", &interner)
-            .is_some()
-    );
+    assert!(env.resolve_instance_for_type(eq, "Int", &interner).is_some());
+    assert!(env.resolve_instance_for_type(eq, "Float", &interner).is_some());
+    assert!(env.resolve_instance_for_type(eq, "String", &interner).is_some());
+    assert!(env.resolve_instance_for_type(eq, "Bool", &interner).is_some());
 
     // Num should have instances for Int, Float but not String
-    assert!(
-        env.resolve_instance_for_type(num, "Int", &interner)
-            .is_some()
-    );
-    assert!(
-        env.resolve_instance_for_type(num, "Float", &interner)
-            .is_some()
-    );
-    assert!(
-        env.resolve_instance_for_type(num, "String", &interner)
-            .is_none()
-    );
+    assert!(env.resolve_instance_for_type(num, "Int", &interner).is_some());
+    assert!(env.resolve_instance_for_type(num, "Float", &interner).is_some());
+    assert!(env.resolve_instance_for_type(num, "String", &interner).is_none());
 }
 
 /// Proposal 0179 Stage 8 moved `Eq` into `lib/Flow/Eq.flx`, so a program's own
@@ -1806,21 +1566,11 @@ class Eq<a> {
     );
 
     let eq = interner.lookup("Eq").expect("Eq interned");
-    let owners: Vec<_> = env
-        .classes
-        .keys()
-        .filter(|id| id.name == eq)
-        .map(|id| id.module)
-        .collect();
-    assert_eq!(
-        owners.len(),
-        2,
-        "expected the prelude's `Eq` and the program's own to coexist"
-    );
+    let owners: Vec<_> =
+        env.classes.keys().filter(|id| id.name == eq).map(|id| id.module).collect();
+    assert_eq!(owners.len(), 2, "expected the prelude's `Eq` and the program's own to coexist");
     assert!(
-        owners
-            .iter()
-            .any(|module| ClassEnv::is_stdlib_module(*module, &interner)),
+        owners.iter().any(|module| ClassEnv::is_stdlib_module(*module, &interner)),
         "the prelude's `Eq` must survive the program declaring one"
     );
 }
@@ -1855,18 +1605,12 @@ fn main() {
 "#,
     );
     assert!(
-        result
-            .diagnostics
-            .iter()
-            .any(|diag| diag.code() == Some("E300")),
+        result.diagnostics.iter().any(|diag| diag.code() == Some("E300")),
         "expected heterogeneous array mismatch diagnostic, got: {:#?}",
         result.diagnostics
     );
     assert!(
-        !result
-            .diagnostics
-            .iter()
-            .any(|diag| diag.code() == Some("E430")),
+        !result.diagnostics.iter().any(|diag| diag.code() == Some("E430")),
         "did not expect eager E430 from HM inference, got: {:#?}",
         result.diagnostics
     );
@@ -1883,10 +1627,7 @@ fn main() {
 "#,
     );
     assert!(
-        !result
-            .diagnostics
-            .iter()
-            .any(|diag| diag.code() == Some("E430")),
+        !result.diagnostics.iter().any(|diag| diag.code() == Some("E430")),
         "did not expect eager E430 from HM inference, got: {:#?}",
         result.diagnostics
     );
@@ -1902,10 +1643,7 @@ fn main() {
 "#,
     );
     assert!(
-        !result
-            .diagnostics
-            .iter()
-            .any(|diag| diag.code() == Some("E430")),
+        !result.diagnostics.iter().any(|diag| diag.code() == Some("E430")),
         "did not expect eager E430 from HM inference, got: {:#?}",
         result.diagnostics
     );
@@ -1924,10 +1662,7 @@ fn main() {
 "#,
     );
     assert!(
-        !result
-            .diagnostics
-            .iter()
-            .any(|diag| diag.code() == Some("E430")),
+        !result.diagnostics.iter().any(|diag| diag.code() == Some("E430")),
         "did not expect eager E430 from HM inference, got: {:#?}",
         result.diagnostics
     );

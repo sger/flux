@@ -8,16 +8,12 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-#[path = "../support/stdlib_fixture.rs"]
-mod stdlib_fixture;
+use crate::support::stdlib_fixture;
+use stdlib_fixture::workspace_root;
 
 use stdlib_fixture::scratch::Scratch;
 
 use stdlib_fixture::assert_fixture_passes;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
 
 /// Write a fixture into a scratch dir unique to this process, and return both
 /// the path and the guard that removes the dir on drop. The name alone is not
@@ -74,10 +70,7 @@ fn args_contains_only_the_program_path_when_none_are_passed() {
     let (stdout, stderr, success) = run_with_args(&file, &guard, &[]);
     assert!(success, "run failed:\n{stdout}\n{stderr}");
     assert!(stdout.contains("argc=1"), "got:\n{stdout}");
-    assert!(
-        stdout.contains("env_argv_none.flx"),
-        "argv[0] should be the script path:\n{stdout}"
-    );
+    assert!(stdout.contains("env_argv_none.flx"), "argv[0] should be the script path:\n{stdout}");
 }
 
 /// Arguments after `--` reach the program, in order, after the script path.
@@ -96,10 +89,7 @@ fn arguments_after_the_separator_reach_the_program() {
 fn a_program_can_receive_flags_that_flux_would_otherwise_reject() {
     let (guard, file) = scratch_file("env_argv_flags.flx", ARGV_PROGRAM);
     let (stdout, stderr, success) = run_with_args(&file, &guard, &["--native", "--verbose"]);
-    assert!(
-        success,
-        "flags after `--` must not be parsed by flux:\n{stdout}\n{stderr}"
-    );
+    assert!(success, "flags after `--` must not be parsed by flux:\n{stdout}\n{stderr}");
     assert!(stdout.contains("argc=3"), "got:\n{stdout}");
     assert!(stdout.contains("|--native|--verbose"), "got:\n{stdout}");
 }
@@ -122,10 +112,7 @@ fn main() -> Unit with Console {
 "#,
     );
     let (stdout, stderr, success) = run_with_args(&file, &guard, &[]);
-    assert!(
-        !success,
-        "an undeclared Env effect must be rejected:\n{stdout}"
-    );
+    assert!(!success, "an undeclared Env effect must be rejected:\n{stdout}");
     assert!(
         format!("{stdout}{stderr}").contains("Env"),
         "the diagnostic should name the Env effect:\n{stdout}{stderr}"

@@ -14,10 +14,7 @@ pub fn find_constant_refs(
     expression: &Expression,
     known_constants: &HashSet<Symbol>,
 ) -> Vec<Symbol> {
-    let mut collector = ConstRefCollector {
-        known_constants,
-        refs: HashSet::new(),
-    };
+    let mut collector = ConstRefCollector { known_constants, refs: HashSet::new() };
     collector.visit_expr(expression);
     collector.refs.into_iter().collect()
 }
@@ -56,13 +53,7 @@ pub fn topological_sort_constants(
     let mut names: Vec<&Symbol> = dependencies.keys().collect();
     names.sort_by_key(|s| s.as_u32());
     for name in names {
-        visit_constant(
-            *name,
-            dependencies,
-            &mut visited,
-            &mut in_progress,
-            &mut result,
-        )?;
+        visit_constant(*name, dependencies, &mut visited, &mut in_progress, &mut result)?;
     }
 
     Ok(result)

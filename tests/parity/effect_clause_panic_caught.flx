@@ -1,0 +1,20 @@
+// parity: vm, llvm
+// expect: success
+// bug: a panic raised by a handler clause is caught by the try around the
+//      handle, once: natively it was reported again when main ended (KI-135).
+// parity-expected-stdout-begin
+// "caught"
+// "after"
+// parity-expected-stdout-end
+
+import Flow.Assert exposing (try_catch)
+
+effect Ask { ask : (Int) -> Int }
+
+fn explode(n) -> Int { if n >= 0 { panic("boom") } else { n } }
+
+fn main() with IO {
+    let caught = try_catch(\() -> perform Ask.ask(1) handle Ask { ask(resume, x) -> explode(x) })
+    print("caught")
+    print("after")
+}

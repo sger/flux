@@ -1,0 +1,20 @@
+// 0189 V6: the values array map_values returns is given to a call that
+// releases it, and the map, which still holds what it counted, is read
+// afterwards.
+// It calls the primop by its bare name: through the Flow wrapper the
+// argument is never released (KI-121), which hides this.
+
+fn map_of(n) {
+    map_set({}, "k" + to_string(n), [n, n + 1])
+}
+
+fn discard(x, keep) {
+    if keep { x } else { [||] }
+}
+
+fn main() {
+    let m = map_of(1)
+    let d = discard(map_values(m), false)
+    print(d)
+    print(map_get(m, "k1"))
+}

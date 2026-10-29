@@ -13,43 +13,16 @@
 //! effect annotation, while `sha256_file` must be rejected without
 //! `FileSystem`.
 
-use std::path::{Path, PathBuf};
 use std::process::Command;
 
-#[path = "../support/scratch.rs"]
-mod scratch;
-use scratch::Scratch;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
-
-fn scratch_dir() -> PathBuf {
-    let dir = workspace_root().join("target").join("test-scratch");
-    std::fs::create_dir_all(&dir).expect("create scratch dir");
-    dir
-}
-
-fn run_flux_test(fixture: &str) -> (String, bool) {
-    let path = workspace_root().join("tests").join("flux").join(fixture);
-    let scratch = Scratch::new("cache-isolated");
-    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(workspace_root())
-        .args(["--test", path.to_str().unwrap(), "--no-cache"])
-        .args(scratch.cache_args())
-        .output()
-        .unwrap_or_else(|e| panic!("failed to run flux --test on {fixture}: {e}"));
-    let stdout = String::from_utf8_lossy(&output.stdout)
-        .replace("\r\n", "\n")
-        .trim()
-        .to_string();
-    (stdout, output.status.success())
-}
+use crate::support::flux_runner;
+use flux_runner::run_flux_test;
+use flux_runner::scratch::Scratch;
+use flux_runner::workspace_root;
 
 fn run_source(name: &str, source: &str) -> (String, String, bool) {
-    let file = scratch_dir().join(name);
-    std::fs::write(&file, source).expect("write scratch fixture");
-    let scratch = Scratch::new("cache-isolated");
+    let scratch = Scratch::new("stdlib-run");
+    let file = scratch.write(name, source);
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args(["run", file.to_str().unwrap(), "--no-cache"])
@@ -120,7 +93,8 @@ fn main() -> Unit with Console {{
 fn hashing_a_large_file_streams_to_the_same_digest() {
     use sha2::{Digest, Sha256};
 
-    let path = scratch_dir().join("crypto_large.bin");
+    let files = Scratch::new("crypto-large");
+    let path = files.join("crypto_large.bin");
     // Deliberately not a multiple of the 64 KiB chunk size, so the final
     // partial read and the padding path are both exercised.
     let payload = vec![b'a'; 200_003];
@@ -132,23 +106,23 @@ fn hashing_a_large_file_streams_to_the_same_digest() {
 
     let (stdout, stderr, success) = run_source(
         "crypto_large.flx",
-        r#"
+        &format!(
+            r#"
 import Flow.Crypto as Crypto
 
-fn main() -> Unit with FileSystem, Console {
-    match Crypto.sha256_file("target/test-scratch/crypto_large.bin") {
+fn main() -> Unit with FileSystem, Console {{
+    match Crypto.sha256_file("{}") {{
         Ok(h) -> println(h),
         Err(_) -> println("ERR"),
-    }
-}
+    }}
+}}
 "#,
+            // A Windows separator would read as an escape in a Flux string.
+            path.to_str().unwrap().replace('\\', "/")
+        ),
     );
-    let _ = std::fs::remove_file(&path);
     assert!(success, "run failed:\n{stdout}\n{stderr}");
-    assert!(
-        stdout.contains(&expected),
-        "streamed digest should be {expected}, got:\n{stdout}"
-    );
+    assert!(stdout.contains(&expected), "streamed digest should be {expected}, got:\n{stdout}");
 }
 
 /// The headline property of `sha256`: it is pure. A function with no effect
@@ -170,10 +144,7 @@ fn main() -> Unit with Console {
 }
 "#,
     );
-    assert!(
-        success,
-        "sha256 must be callable from a pure function:\n{stdout}\n{stderr}"
-    );
+    assert!(success, "sha256 must be callable from a pure function:\n{stdout}\n{stderr}");
     assert!(
         stdout.contains("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"),
         "got:\n{stdout}"
@@ -198,10 +169,7 @@ fn main() -> Unit with Console {
 }
 "#,
     );
-    assert!(
-        !success,
-        "an undeclared FileSystem effect must be rejected:\n{stdout}"
-    );
+    assert!(!success, "an undeclared FileSystem effect must be rejected:\n{stdout}");
     assert!(
         format!("{stdout}{stderr}").contains("FileSystem"),
         "the diagnostic should name the FileSystem effect"
@@ -232,12 +200,6 @@ fn main() -> Unit with FileSystem, Console {
     );
     assert!(success, "run failed:\n{stdout}\n{stderr}");
     assert!(stdout.contains("kind=NotFound"), "got:\n{stdout}");
-    assert!(
-        stdout.contains("path=/nonexistent/nope.bin"),
-        "got:\n{stdout}"
-    );
-    assert!(
-        stdout.contains("still running"),
-        "a failed hash must not abort:\n{stdout}"
-    );
+    assert!(stdout.contains("path=/nonexistent/nope.bin"), "got:\n{stdout}");
+    assert!(stdout.contains("still running"), "a failed hash must not abort:\n{stdout}");
 }

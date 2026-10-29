@@ -50,8 +50,7 @@ impl Compiler {
         for name in names {
             let symbol = self.interner.intern(&name);
             if !self.symbol_table.exists_in_current_scope(symbol) {
-                self.symbol_table
-                    .define(symbol, crate::diagnostics::position::Span::default());
+                self.symbol_table.define(symbol, crate::diagnostics::position::Span::default());
             }
         }
     }
@@ -123,8 +122,7 @@ impl Compiler {
                 // Check for import collision
                 if self.scope_index == 0 && self.file_scope_symbols.contains(&name) {
                     let name_str = self.sym(name);
-                    self.errors
-                        .push(self.make_import_collision_error(name_str, *span));
+                    self.errors.push(self.make_import_collision_error(name_str, *span));
                     continue;
                 }
                 // Predeclare the function name

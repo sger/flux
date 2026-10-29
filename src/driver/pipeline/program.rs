@@ -91,7 +91,7 @@ fn should_build_merged_program(flags: &DriverFlags, is_multimodule: bool) -> boo
 /// parsed separately and all number their expressions from one, and the merged
 /// program is inferred as a whole, so overlapping ids would share one entry in
 /// the type table.
-fn merge_programs<'a>(programs: impl IntoIterator<Item = &'a Program>) -> Program {
+pub(crate) fn merge_programs<'a>(programs: impl IntoIterator<Item = &'a Program>) -> Program {
     let mut merged = Program::new();
     for program in programs {
         let offset =
@@ -134,9 +134,7 @@ fn should_dispatch_native_backend(flags: &DriverFlags) -> bool {
 }
 
 fn has_error_diagnostics(diagnostics: &[Diagnostic]) -> bool {
-    diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.severity() == Severity::Error)
+    diagnostics.iter().any(|diagnostic| diagnostic.severity() == Severity::Error)
 }
 
 /// Builds the initial run context after frontend parsing and compiler setup.
@@ -196,6 +194,9 @@ fn finish_run_context(request: RunProgramRequest<'_>, context: ProgramContext) -
     let mut compiler = Compiler::new_with_interner(request.path, graph_result.interner);
     compiler.set_strict_mode(request.session.strict_mode);
     compiler.set_debug_level(request.session.debug_level);
+    flux::aether::verify::set_contract_gate(
+        request.flags.backend.debug_heap || request.flags.backend.leak_check,
+    );
     if request.flags.runtime.profiling {
         compiler.set_profiling(true);
     }
@@ -299,11 +300,7 @@ fn print_debug_info_dump(ctx: &RunContext) {
         .collect();
     let mut first = true;
     for info in ctx.compiler.debug_infos() {
-        if info
-            .files
-            .first()
-            .is_some_and(|file| stdlib_paths.contains(&file.path))
-        {
+        if info.files.first().is_some_and(|file| stdlib_paths.contains(&file.path)) {
             continue;
         }
         if !first {
@@ -369,6 +366,7 @@ fn dispatch_backend(ctx: &mut RunContext, request: RunProgramRequest<'_>) {
                 emit_llvm: request.flags.backend.emit_llvm,
                 emit_binary: request.flags.backend.emit_binary,
                 debug_heap: request.flags.backend.debug_heap,
+                leak_check: request.flags.backend.leak_check,
                 output_path: request.flags.backend.output_path.clone(),
             },
             report: NativeReportConfig {
@@ -588,11 +586,8 @@ pub(crate) fn render_repl_diagnostics(
     source: &str,
     config: &DriverDiagnosticConfig,
 ) {
-    let errors: Vec<Diagnostic> = diagnostics
-        .iter()
-        .filter(|diag| diag.severity() == Severity::Error)
-        .cloned()
-        .collect();
+    let errors: Vec<Diagnostic> =
+        diagnostics.iter().filter(|diag| diag.severity() == Severity::Error).cloned().collect();
     if errors.is_empty() {
         return;
     }
@@ -710,12 +705,8 @@ mod tests {
     #[test]
     fn has_error_diagnostics_ignores_non_errors() {
         assert!(!has_error_diagnostics(&[]));
-        assert!(!has_error_diagnostics(&[diagnostic_with_severity(
-            Severity::Warning
-        )]));
-        assert!(has_error_diagnostics(&[diagnostic_with_severity(
-            Severity::Error
-        )]));
+        assert!(!has_error_diagnostics(&[diagnostic_with_severity(Severity::Warning)]));
+        assert!(has_error_diagnostics(&[diagnostic_with_severity(Severity::Error)]));
     }
 
     #[test]

@@ -12,6 +12,9 @@
 //
 // Expected output:
 // 505
+// parity-expected-stdout-begin
+// 505
+// parity-expected-stdout-end
 
 class Sizeable<a> {
     fn size(x: a) -> Int

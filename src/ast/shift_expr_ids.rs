@@ -87,10 +87,7 @@ impl Folder for ShiftExprIds {
                 context,
                 methods: methods
                     .into_iter()
-                    .map(|method| InstanceMethod {
-                        body: self.fold_block(method.body),
-                        ..method
-                    })
+                    .map(|method| InstanceMethod { body: self.fold_block(method.body), ..method })
                     .collect(),
                 associated_types,
                 span,
@@ -122,11 +119,7 @@ impl Folder for ShiftExprIds {
                 effects,
                 body,
                 span,
-                id: if id == ExprId::UNSET {
-                    id
-                } else {
-                    ExprId(id.0 + self.offset)
-                },
+                id: if id == ExprId::UNSET { id } else { ExprId(id.0 + self.offset) },
             },
             other => other,
         }

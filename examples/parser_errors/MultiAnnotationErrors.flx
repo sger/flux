@@ -6,9 +6,9 @@
 //
 // Missing `:` in function parameter type annotation. Write it as `name: Type`.
 //
-//   examples/parser_errors/MultiAnnotationErrors.flx:79:23
+//   examples/parser_errors/MultiAnnotationErrors.flx:74:23
 //    |
-// 79 |     fn bad_param(name String) -> String { name }
+// 74 |     fn bad_param(name String) -> String { name }
 //    |                       ^^^^^^
 //
 // Hint:
@@ -19,9 +19,9 @@
 //
 // Missing `->` before function return type. Write it as `fn name(...) -> Type`.
 //
-//   examples/parser_errors/MultiAnnotationErrors.flx:80:27
+//   examples/parser_errors/MultiAnnotationErrors.flx:75:27
 //    |
-// 80 |     fn bad_return(x: Int) String { x }
+// 75 |     fn bad_return(x: Int) String { x }
 //    |                           ^^^^^^
 //
 // Note:
@@ -32,9 +32,9 @@
 //
 // Missing `:` in let binding type annotation. Write it as `value: Type`.
 //
-//   examples/parser_errors/MultiAnnotationErrors.flx:83:19
+//   examples/parser_errors/MultiAnnotationErrors.flx:78:19
 //    |
-// 83 |         let value Int = 1
+// 78 |         let value Int = 1
 //    |                   ^^^
 //
 // Hint:
@@ -45,9 +45,9 @@
 //
 // Missing `:` in function parameter type annotation. Write it as `x: Type`.
 //
-//   examples/parser_errors/MultiAnnotationErrors.flx:84:21
+//   examples/parser_errors/MultiAnnotationErrors.flx:79:21
 //    |
-// 84 |         let f = \(x Int, y String) -> x
+// 79 |         let f = \(x Int, y String) -> x
 //    |                     ^^^
 //
 // Hint:
@@ -58,9 +58,9 @@
 //
 // Missing `:` in function parameter type annotation. Write it as `y: Type`.
 //
-//   examples/parser_errors/MultiAnnotationErrors.flx:84:28
+//   examples/parser_errors/MultiAnnotationErrors.flx:79:28
 //    |
-// 84 |         let f = \(x Int, y String) -> x
+// 79 |         let f = \(x Int, y String) -> x
 //    |                            ^^^^^^
 //
 // Hint:
@@ -69,19 +69,14 @@
 // Found 5 errors.
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E034
-// expect-error: E034
-// expect-error: E034
-// expect-error: E034
-// expect-error: E034
 
 module MultiAnnotationErrors {
-    fn bad_param(name String) -> String { name }
-    fn bad_return(x: Int) String { x }
+    fn bad_param(name String) -> String { name } //~ E034
+    fn bad_return(x: Int) String { x } //~ E034
 
     fn inside() -> Unit {
-        let value Int = 1
-        let f = \(x Int, y String) -> x
+        let value Int = 1 //~ E034
+        let f = \(x Int, y String) -> x //~ E034 E034
     }
 }
 

@@ -7,6 +7,9 @@
 //! structure) AND verifies the final runtime output. This catches regressions
 //! that integration snapshot tests miss because snapshots only check final output.
 
+use crate::support::scratch;
+use scratch::Scratch;
+
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
@@ -27,11 +30,7 @@ use flux::vm::VM;
 
 fn parse_and_infer(
     src: &str,
-) -> (
-    flux::syntax::program::Program,
-    HashMap<ExprId, InferType>,
-    Interner,
-) {
+) -> (flux::syntax::program::Program, HashMap<ExprId, InferType>, Interner) {
     let mut parser = Parser::new(Lexer::new(src));
     let program = parser.parse_program();
     let interner = parser.take_interner();
@@ -73,33 +72,25 @@ fn dump_core(input: &str) -> String {
         .compile(&program)
         .unwrap_or_else(|diags| panic!("{}", render_diagnostics(&diags, Some(input), None)));
     compiler
-        .dump_core_with_opts(
-            &program,
-            false,
-            flux::core::display::CoreDisplayMode::Readable,
-        )
+        .dump_core_with_opts(&program, false, flux::core::display::CoreDisplayMode::Readable)
         .expect("dump_core should succeed")
 }
 
 /// Dumps Core for `input` by running the real `flux` binary with `--dump-core`.
 ///
 /// Unlike [`dump_core`], this compiles the Flux prelude too, so the standard
-/// classes' instance bodies are available. `scratch` names a per-test directory
-/// under the system temp dir, keeping concurrently running tests off each
-/// other's cache.
+/// classes' instance bodies are available. `scratch` labels the test's own
+/// scratch directory and cache.
 fn dump_core_via_driver(scratch: &str, input: &str) -> String {
-    let dir = std::env::temp_dir().join(format!("flux-ir-pipeline-{scratch}"));
-    std::fs::create_dir_all(&dir).expect("create scratch dir");
-    let source_path = dir.join("main.flx");
-    std::fs::write(&source_path, input).expect("write source");
+    let scratch = Scratch::new(scratch);
+    let source_path = scratch.write("main.flx", input);
 
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")))
         .arg(&source_path)
         .arg("--dump-core")
         .arg("--no-cache")
-        .arg("--cache-dir")
-        .arg(dir.join("cache"))
+        .args(scratch.cache_args())
         .output()
         .expect("run flux");
 
@@ -131,9 +122,7 @@ fn collect_core_exprs(expr: &CoreExpr) -> Vec<&CoreExpr> {
             }
             out.extend(collect_core_exprs(body));
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             out.extend(collect_core_exprs(scrutinee));
             for alt in alts {
                 if let Some(guard) = &alt.guard {
@@ -160,12 +149,7 @@ fn collect_core_exprs(expr: &CoreExpr) -> Vec<&CoreExpr> {
         CoreExpr::Return { value, .. } => {
             out.extend(collect_core_exprs(value));
         }
-        CoreExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        CoreExpr::Handle { body, parameter, handlers, .. } => {
             if let Some(parameter) = parameter {
                 out.extend(collect_core_exprs(parameter));
             }
@@ -207,30 +191,17 @@ fn main() -> Int with State {
     let handles: Vec<_> = collect_core_exprs(&main.expr)
         .into_iter()
         .filter_map(|expr| match expr {
-            CoreExpr::Handle {
-                parameter,
-                handlers,
-                ..
-            } => Some((parameter, handlers)),
+            CoreExpr::Handle { parameter, handlers, .. } => Some((parameter, handlers)),
             _ => None,
         })
         .collect();
 
     assert_eq!(handles.len(), 1);
     let (parameter, handlers) = handles[0];
-    assert!(
-        parameter.is_some(),
-        "parameterized handle should keep initializer"
-    );
+    assert!(parameter.is_some(), "parameterized handle should keep initializer");
     assert_eq!(handlers.len(), 1);
-    assert!(
-        handlers[0].state.is_some(),
-        "parameterized handle should lower trailing state binder"
-    );
-    assert!(
-        handlers[0].state_ty.is_some(),
-        "state binder should carry the initializer Core type"
-    );
+    assert!(handlers[0].state.is_some(), "parameterized handle should lower trailing state binder");
+    assert!(handlers[0].state_ty.is_some(), "state binder should carry the initializer Core type");
 }
 
 #[test]
@@ -321,12 +292,7 @@ fn main() {
     assert_eq!(
         value,
         Value::Tuple(
-            vec![
-                Value::Boolean(true),
-                Value::Boolean(false),
-                Value::Boolean(false),
-            ]
-            .into(),
+            vec![Value::Boolean(true), Value::Boolean(false), Value::Boolean(false),].into(),
         )
     );
 }
@@ -530,8 +496,7 @@ fn main() {
     // `Flow.Eq` / `Flow.Ord` / `Flow.Num`, whose paths are hashed into the name.
     for suffix in ["_Ord_Int =", "_Eq_Int =", "_Num_Int ="] {
         assert!(
-            core.lines()
-                .any(|line| line.starts_with("def __dict_m") && line.ends_with(suffix)),
+            core.lines().any(|line| line.starts_with("def __dict_m") && line.ends_with(suffix)),
             "expected Core dump to define a dictionary ending in `{suffix}`, got:\n{core}"
         );
     }
@@ -570,14 +535,8 @@ fn main() {
     );
 
     let core = lower_program_ast(&program, &hm_expr_types);
-    let has_icmp_gt = core
-        .defs
-        .iter()
-        .any(|def| has_primop(&def.expr, &CorePrimOp::ICmpGt));
-    assert!(
-        has_icmp_gt,
-        "expected concrete Int comparison to lower to ICmpGt, got: {core:#?}"
-    );
+    let has_icmp_gt = core.defs.iter().any(|def| has_primop(&def.expr, &CorePrimOp::ICmpGt));
+    assert!(has_icmp_gt, "expected concrete Int comparison to lower to ICmpGt, got: {core:#?}");
 }
 
 fn has_primop(expr: &CoreExpr, target: &CorePrimOp) -> bool {
@@ -674,10 +633,7 @@ fn main() {
     let (program, types, _interner) = parse_and_infer(src);
     let core = lower_program_ast(&program, &types);
     // The main def should exist
-    assert!(
-        !core.defs.is_empty(),
-        "Core IR should have at least one def"
-    );
+    assert!(!core.defs.is_empty(), "Core IR should have at least one def");
 
     // Final output: rate() should return 42
     assert_eq!(run(src), Value::Integer(42));
@@ -705,10 +661,7 @@ fn main() {
     let main_def = &core.defs[0];
     let exprs = collect_core_exprs(&main_def.expr);
     let has_case = exprs.iter().any(|e| matches!(e, CoreExpr::Case { .. }));
-    assert!(
-        has_case,
-        "Core IR should still contain a Case expression after passes"
-    );
+    assert!(has_case, "Core IR should still contain a Case expression after passes");
 
     // Final output: should return 1 (x=2 > 0)
     assert_eq!(run(src), Value::Integer(1));
@@ -723,10 +676,7 @@ fn main() { sum_ints(3, 4) }
     let (program, types, _interner) = parse_and_infer(src);
     let ir = lower_program_to_ir(&program, &types).expect("backend lowering should succeed");
 
-    let core = ir
-        .core
-        .as_ref()
-        .expect("canonical backend lowering should retain Flux Core");
+    let core = ir.core.as_ref().expect("canonical backend lowering should retain Flux Core");
     assert_eq!(core.defs.len(), 2);
 }
 
@@ -788,15 +738,11 @@ fn main() { choose(5) }
     let ir = lower_core_to_ir(&core);
 
     // The choose function should have a Branch terminator
-    let has_branch = ir.functions.iter().any(|f| {
-        f.blocks
-            .iter()
-            .any(|b| matches!(b.terminator, IrTerminator::Branch { .. }))
-    });
-    assert!(
-        has_branch,
-        "if/else should produce a Branch terminator in CFG IR"
-    );
+    let has_branch = ir
+        .functions
+        .iter()
+        .any(|f| f.blocks.iter().any(|b| matches!(b.terminator, IrTerminator::Branch { .. })));
+    assert!(has_branch, "if/else should produce a Branch terminator in CFG IR");
 
     assert_eq!(run(src), Value::Integer(1));
 }
@@ -827,10 +773,7 @@ fn main() { is_even(4) }
             })
         })
     });
-    assert!(
-        has_mod,
-        "Modulo should produce IrBinaryOp::Mod or IMod in CFG IR"
-    );
+    assert!(has_mod, "Modulo should produce IrBinaryOp::Mod or IMod in CFG IR");
 
     assert_eq!(run(src), Value::Boolean(true));
 }
@@ -914,20 +857,9 @@ fn main() {
     // dead binder must be eliminable.
     let remaining_div = collect_core_exprs(&core.defs[0].expr)
         .iter()
-        .filter(|e| {
-            matches!(
-                e,
-                CoreExpr::PrimOp {
-                    op: CorePrimOp::Div | CorePrimOp::IDiv,
-                    ..
-                }
-            )
-        })
+        .filter(|e| matches!(e, CoreExpr::PrimOp { op: CorePrimOp::Div | CorePrimOp::IDiv, .. }))
         .count();
-    assert_eq!(
-        remaining_div, 0,
-        "dead CanFail division should be eliminated by Phase 3 dead_let"
-    );
+    assert_eq!(remaining_div, 0, "dead CanFail division should be eliminated by Phase 3 dead_let");
 
     assert_eq!(run(src), Value::Integer(42));
 }
@@ -952,20 +884,9 @@ fn main() with IO {
 
     let remaining_println = collect_core_exprs(&core.defs[0].expr)
         .iter()
-        .filter(|e| {
-            matches!(
-                e,
-                CoreExpr::PrimOp {
-                    op: CorePrimOp::Println,
-                    ..
-                }
-            )
-        })
+        .filter(|e| matches!(e, CoreExpr::PrimOp { op: CorePrimOp::Println, .. }))
         .count();
-    assert!(
-        remaining_println >= 1,
-        "HasEffect call must not be discarded by dead_let"
-    );
+    assert!(remaining_println >= 1, "HasEffect call must not be discarded by dead_let");
 }
 
 // ── Test 8d: Dead Panic binding is preserved ────────────────────────────────
@@ -988,20 +909,9 @@ fn main() {
 
     let remaining_panic = collect_core_exprs(&core.defs[0].expr)
         .iter()
-        .filter(|e| {
-            matches!(
-                e,
-                CoreExpr::PrimOp {
-                    op: CorePrimOp::Panic,
-                    ..
-                }
-            )
-        })
+        .filter(|e| matches!(e, CoreExpr::PrimOp { op: CorePrimOp::Panic, .. }))
         .count();
-    assert!(
-        remaining_panic >= 1,
-        "panic must not be discarded by dead_let"
-    );
+    assert!(remaining_panic >= 1, "panic must not be discarded by dead_let");
 }
 
 // ── Test 9: Index type validation catches String index on List ──────────────
@@ -1030,10 +940,7 @@ fn access(x: Int) -> Int {
 }
 fn main() { access(42) }
 "#;
-    assert!(
-        run_produces_error(src),
-        "Indexing an Int should produce a compile error"
-    );
+    assert!(run_produces_error(src), "Indexing an Int should produce a compile error");
 }
 
 // ── Test 11: Explicit typed identity ────────────────────────────────────────
@@ -1065,21 +972,12 @@ fn main() {
     // Should have a MakeClosure instruction
     let has_closure = ir.functions.iter().any(|f| {
         f.blocks.iter().any(|b| {
-            b.instrs.iter().any(|instr| {
-                matches!(
-                    instr,
-                    IrInstr::Assign {
-                        expr: IrExpr::MakeClosure(..),
-                        ..
-                    }
-                )
-            })
+            b.instrs
+                .iter()
+                .any(|instr| matches!(instr, IrInstr::Assign { expr: IrExpr::MakeClosure(..), .. }))
         })
     });
-    assert!(
-        has_closure,
-        "Lambda with captures should produce MakeClosure in CFG IR"
-    );
+    assert!(has_closure, "Lambda with captures should produce MakeClosure in CFG IR");
 
     assert_eq!(run(src), Value::Integer(15));
 }
@@ -1127,9 +1025,7 @@ fn main() {
 
     // After COKC, the Case(Con(Some, [42]), ...) should reduce to just 42
     let main_exprs = collect_core_exprs(&core.defs[0].expr);
-    let still_has_case = main_exprs
-        .iter()
-        .any(|e| matches!(e, CoreExpr::Case { .. }));
+    let still_has_case = main_exprs.iter().any(|e| matches!(e, CoreExpr::Case { .. }));
     // COKC may or may not fully eliminate — but the program should work
     let _ = still_has_case; // diagnostic only, not a hard assertion
 

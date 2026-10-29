@@ -1,11 +1,9 @@
 #![cfg(feature = "llvm")]
 
-use std::{
-    collections::HashMap,
-    fs,
-    process::Command,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use crate::support::scratch;
+use scratch::Scratch;
+
+use std::{collections::HashMap, fs, process::Command};
 
 use flux::{
     compiler::Compiler,
@@ -18,11 +16,7 @@ use flux::{
 fn parse_and_lower_core(src: &str) -> (flux::core::CoreProgram, Interner) {
     let mut parser = Parser::new(Lexer::new(src));
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<test>", interner.clone());
     let hm_expr_types: HashMap<ExprId, InferType> = compiler.infer_expr_types_for_program(&program);
@@ -48,14 +42,8 @@ fn main() {
 "#,
     );
 
-    assert!(
-        rendered.contains("flux_make_closure"),
-        "expected closure creation"
-    );
-    assert!(
-        rendered.contains("flux_call_closure"),
-        "expected closure call"
-    );
+    assert!(rendered.contains("flux_make_closure"), "expected closure creation");
+    assert!(rendered.contains("flux_call_closure"), "expected closure call");
 }
 
 #[test]
@@ -68,14 +56,8 @@ fn main() { apply(add1, 10) }
 "#,
     );
 
-    assert!(
-        rendered.contains("flux_make_closure"),
-        "expected closure creation"
-    );
-    assert!(
-        rendered.contains("flux_call_closure"),
-        "expected closure call"
-    );
+    assert!(rendered.contains("flux_make_closure"), "expected closure creation");
+    assert!(rendered.contains("flux_call_closure"), "expected closure call");
 }
 
 #[test]
@@ -92,14 +74,8 @@ fn main() {
 "#,
     );
 
-    assert!(
-        rendered.contains("flux_make_closure"),
-        "expected closure creation"
-    );
-    assert!(
-        rendered.contains("flux_call_closure"),
-        "expected closure call"
-    );
+    assert!(rendered.contains("flux_make_closure"), "expected closure creation");
+    assert!(rendered.contains("flux_call_closure"), "expected closure call");
 }
 
 #[test]
@@ -114,14 +90,8 @@ fn main() {
 "#,
     );
 
-    assert!(
-        rendered.contains("flux_make_closure"),
-        "expected closure creation"
-    );
-    assert!(
-        rendered.contains("flux_call_closure"),
-        "expected closure call"
-    );
+    assert!(rendered.contains("flux_make_closure"), "expected closure creation");
+    assert!(rendered.contains("flux_call_closure"), "expected closure call");
 }
 
 #[test]
@@ -140,14 +110,8 @@ fn main() {
 "#,
     );
 
-    assert!(
-        rendered.contains("flux_call_closure"),
-        "expected closure call"
-    );
-    assert!(
-        rendered.contains("flux_make_cons"),
-        "expected cons construction"
-    );
+    assert!(rendered.contains("flux_call_closure"), "expected closure call");
+    assert!(rendered.contains("flux_make_cons"), "expected cons construction");
 }
 
 #[test]
@@ -167,17 +131,8 @@ fn main() {
 }
 "#,
     );
-    let scratch = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("target")
-        .join("test-scratch");
-    fs::create_dir_all(&scratch).ok();
-    let path = scratch.join(format!(
-        "llvm_closures_{}.ll",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock after unix epoch")
-            .as_nanos()
-    ));
+    let scratch = Scratch::new("llvm_closures");
+    let path = scratch.join("module.ll");
     fs::write(&path, &ll).expect("write ll");
     let output = Command::new("opt")
         .arg("--disable-output")

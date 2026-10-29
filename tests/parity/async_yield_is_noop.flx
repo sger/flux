@@ -3,6 +3,9 @@
 // bug: a lone yield_now() (no other ready fiber) must round-trip through the
 //      scheduler without disturbing the surrounding computation: the fiber is
 //      re-enqueued, immediately re-popped, and resumed with Unit.
+// parity-expected-stdout-begin
+// 7
+// parity-expected-stdout-end
 
 import Flow.Async exposing (..)
 

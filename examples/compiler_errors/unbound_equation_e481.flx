@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E481
 // Expected: E481 Unbound Associated Type Variable
 //   "`b` appears in the body of `Element` but is not bound by its head."
 //   Hint: "Every type variable in the body must appear in the head, otherwise
@@ -15,7 +14,7 @@ class Collection<c> {
 }
 
 instance Collection<List<a>> {
-    type Element<List<a>> = b
+    type Element<List<a>> = b //~ E481
     fn size_of(xs) { 1 }
 }
 

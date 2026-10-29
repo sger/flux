@@ -3,11 +3,7 @@ use crate::{
 };
 
 fn new_vm() -> VM {
-    VM::new(Bytecode {
-        instructions: vec![],
-        constants: vec![],
-        debug_info: None,
-    })
+    VM::new(Bytecode { instructions: vec![], constants: vec![], debug_info: None })
 }
 
 #[test]
@@ -37,8 +33,7 @@ fn add_mixed_numbers() {
 #[test]
 fn concat_strings() {
     let mut vm = new_vm();
-    vm.push(Value::String("Hello, ".to_string().into()))
-        .unwrap();
+    vm.push(Value::String("Hello, ".to_string().into())).unwrap();
     vm.push(Value::String("world".to_string().into())).unwrap();
 
     vm.execute_binary_operation(OpCode::OpAdd).unwrap();

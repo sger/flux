@@ -69,11 +69,7 @@ pub fn find_similar_names(
     });
 
     // Return top suggestions
-    scored
-        .into_iter()
-        .take(max_suggestions)
-        .map(|(name, _, _)| name)
-        .collect()
+    scored.into_iter().take(max_suggestions).map(|(name, _, _)| name).collect()
 }
 
 const KNOWN_EFFECT_NAMES: &[&str] = &["IO", "Time", "State"];
@@ -84,13 +80,8 @@ pub fn suggest_effect_name(name: &str) -> Option<String> {
         return None;
     }
 
-    let candidates: Vec<String> = KNOWN_EFFECT_NAMES
-        .iter()
-        .map(|s| (*s).to_string())
-        .collect();
-    let suggestion = find_similar_names(name, &candidates, 1)
-        .into_iter()
-        .next()?;
+    let candidates: Vec<String> = KNOWN_EFFECT_NAMES.iter().map(|s| (*s).to_string()).collect();
+    let suggestion = find_similar_names(name, &candidates, 1).into_iter().next()?;
     Some(format!("did you mean `{}`?", suggestion))
 }
 
@@ -100,11 +91,7 @@ mod tests {
 
     #[test]
     fn test_find_similar_names_typo() {
-        let candidates = vec![
-            "count".to_string(),
-            "amount".to_string(),
-            "discount".to_string(),
-        ];
+        let candidates = vec!["count".to_string(), "amount".to_string(), "discount".to_string()];
         let suggestions = find_similar_names("cound", &candidates, 3);
 
         assert!(!suggestions.is_empty());
@@ -113,11 +100,7 @@ mod tests {
 
     #[test]
     fn test_find_similar_names_prefix() {
-        let candidates = vec![
-            "variable".to_string(),
-            "value".to_string(),
-            "var".to_string(),
-        ];
+        let candidates = vec!["variable".to_string(), "value".to_string(), "var".to_string()];
         let suggestions = find_similar_names("val", &candidates, 3);
 
         assert!(!suggestions.is_empty());
@@ -139,12 +122,8 @@ mod tests {
 
     #[test]
     fn test_find_similar_names_limit() {
-        let candidates = vec![
-            "alpha".to_string(),
-            "aleph".to_string(),
-            "alps".to_string(),
-            "alt".to_string(),
-        ];
+        let candidates =
+            vec!["alpha".to_string(), "aleph".to_string(), "alps".to_string(), "alt".to_string()];
         let suggestions = find_similar_names("alp", &candidates, 2);
 
         assert!(suggestions.len() <= 2);

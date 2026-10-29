@@ -142,10 +142,11 @@ static int64_t retain_value(int64_t value) {
 static int64_t flux_chan_try_send_owned(int64_t id_val, int64_t value, const char *which);
 static int64_t flux_chan_send_owned(int64_t id_val, int64_t value, const char *which);
 
+/* A move hands over the sender's reference (PA L3). The value may still be
+ * shared with the sending thread, a unique root's children included, so its
+ * counts go atomic whatever the root's count. */
 static int64_t transfer_value(int64_t value) {
-    if (!flux_rc_is_unique(value)) {
-        return retain_value(value);
-    }
+    flux_rc_promote(value);
     return value;
 }
 

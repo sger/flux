@@ -1,0 +1,32 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/186_runtime_boundary_return_e300.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E300]: Return Type Mismatch
+
+The body of `bad` does not match its declared return type.
+
+  examples/type_system/failing/186_runtime_boundary_return_e300.flx:9:5
+  |
+8 | fn bad() -> Int {
+  |             --- `bad` was declared to return `Int`
+9 |     TypeSystem.BoundaryUnknown.dynamic_string()
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |     ------------------------------------------- this expression has type `String`
+   |
+help: Change return type to `String`
+   |
+8 | fn bad() -> String {
+  |             ~~~~~~
+
+Note:
+  declared return type: Int
+  body type: String
+
+Help:
+  Return a `Int` value from `bad` or change its annotation.
+== stdout ==
+<not executed>

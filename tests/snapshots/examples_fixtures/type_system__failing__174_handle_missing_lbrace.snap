@@ -9,9 +9,9 @@ error[E034]: Unexpected Token
 
 Expected `{` to begin `handle` arms.
 
-  examples/type_system/failing/174_handle_missing_lbrace.flx:24:21
+  examples/type_system/failing/174_handle_missing_lbrace.flx:23:21
    |
-24 | let x = 1 handle IO print(resume, msg) -> resume(msg)
+23 | let x = 1 handle IO print(resume, msg) -> resume(msg)
    |                     ^^^^^
 
 Hint:
@@ -25,9 +25,9 @@ error[E031]: Expected Expression
 
 Expected expression, found `->`.
 
-  examples/type_system/failing/174_handle_missing_lbrace.flx:24:40
+  examples/type_system/failing/174_handle_missing_lbrace.flx:23:40
    |
-24 | let x = 1 handle IO print(resume, msg) -> resume(msg)
+23 | let x = 1 handle IO print(resume, msg) -> resume(msg)
    |                                        ^^
 
 Found 2 errors.

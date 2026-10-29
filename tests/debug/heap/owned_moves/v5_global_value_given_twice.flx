@@ -1,0 +1,16 @@
+// 0189 V5 for a top-level value: `base` given away twice in one function.
+// Native code recomputes a top-level value at each use; this guards against
+// caching it per block the way functions are.
+
+let base = [1, 2, 3]
+
+fn discard(xs, keep) {
+    if keep { xs } else { [] }
+}
+
+fn main() {
+    let a = discard(base, false)
+    let b = discard(base, false)
+    print(len(a) + len(b))
+    print(base)
+}

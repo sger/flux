@@ -1,16 +1,10 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-// Re-exported so a test including this file gets `Scratch` from here rather
-// than declaring its own `mod scratch;` — two `#[path]` declarations of one
-// file in the same crate is a `clippy::duplicate_mod` warning.
-#[path = "scratch.rs"]
-pub mod scratch;
+pub use super::scratch;
 use scratch::Scratch;
 
-pub fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
+pub use scratch::workspace_root;
 
 pub fn semantic_fixture_root() -> PathBuf {
     workspace_root().join("tests/fixtures/semantic_types")
@@ -30,10 +24,8 @@ pub fn combined_output(output: &Output) -> String {
 pub fn run_fixture(rel: &str, native: bool) -> Output {
     let fixture = semantic_fixture_path(rel);
     let fixture_root = semantic_fixture_root();
-    let entry_parent = fixture
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| fixture_root.clone());
+    let entry_parent =
+        fixture.parent().map(Path::to_path_buf).unwrap_or_else(|| fixture_root.clone());
     let lib_root = workspace_root().join("lib");
     let mut args: Vec<String> = Vec::new();
     if native {

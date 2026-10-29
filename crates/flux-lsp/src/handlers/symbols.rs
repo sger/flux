@@ -31,12 +31,7 @@ fn statement_to_symbol(
         Statement::Let { name, span, .. } | Statement::Assign { name, span, .. } => {
             (*name, SymbolKind::VARIABLE, *span, None, None)
         }
-        Statement::Function {
-            name,
-            span,
-            parameters,
-            ..
-        } => {
+        Statement::Function { name, span, parameters, .. } => {
             let detail = if parameters.is_empty() {
                 None
             } else {
@@ -49,38 +44,18 @@ fn statement_to_symbol(
         Statement::EffectDecl { name, span, .. } | Statement::EffectAlias { name, span, .. } => {
             (*name, SymbolKind::INTERFACE, *span, None, None)
         }
-        Statement::TypeAlias(alias) => (
-            alias.name,
-            SymbolKind::TYPE_PARAMETER,
-            alias.span,
-            None,
-            None,
-        ),
-        Statement::Class {
-            name,
-            span,
-            name_span,
-            ..
-        } => (*name, SymbolKind::CLASS, *span, None, Some(*name_span)),
-        Statement::Instance {
-            class_name,
-            span,
-            name_span,
-            ..
-        } => (
-            *class_name,
-            SymbolKind::CLASS,
-            *span,
-            Some("instance".into()),
-            Some(*name_span),
-        ),
-        Statement::Import { name, span, .. } => (
-            *name,
-            SymbolKind::MODULE,
-            *span,
-            Some("import".into()),
-            None,
-        ),
+        Statement::TypeAlias(alias) => {
+            (alias.name, SymbolKind::TYPE_PARAMETER, alias.span, None, None)
+        }
+        Statement::Class { name, span, name_span, .. } => {
+            (*name, SymbolKind::CLASS, *span, None, Some(*name_span))
+        }
+        Statement::Instance { class_name, span, name_span, .. } => {
+            (*class_name, SymbolKind::CLASS, *span, Some("instance".into()), Some(*name_span))
+        }
+        Statement::Import { name, span, .. } => {
+            (*name, SymbolKind::MODULE, *span, Some("import".into()), None)
+        }
         _ => return None,
     };
 

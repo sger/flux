@@ -91,11 +91,7 @@ impl Scheme {
     ///
     /// Use this when a binding should remain monomorphic in the environment.
     pub fn mono(infer_type: InferType) -> Self {
-        Scheme {
-            forall: Vec::new(),
-            constraints: Vec::new(),
-            infer_type,
-        }
+        Scheme { forall: Vec::new(), constraints: Vec::new(), infer_type }
     }
 
     /// Instantiates this scheme into a monotype.
@@ -111,11 +107,7 @@ impl Scheme {
     pub fn instantiate(
         &self,
         counter: &mut u32,
-    ) -> (
-        InferType,
-        HashMap<TypeVarId, TypeVarId>,
-        Vec<SchemeConstraint>,
-    ) {
+    ) -> (InferType, HashMap<TypeVarId, TypeVarId>, Vec<SchemeConstraint>) {
         let mut mapping: HashMap<TypeVarId, TypeVarId> = HashMap::new();
 
         for &v in &self.forall {
@@ -151,19 +143,11 @@ impl Scheme {
             .map(|c| SchemeConstraint {
                 class_name: c.class_name,
                 class_id: c.class_id,
-                type_args: c
-                    .type_args
-                    .iter()
-                    .map(|ty| ty.apply_type_subst(&type_subst))
-                    .collect(),
+                type_args: c.type_args.iter().map(|ty| ty.apply_type_subst(&type_subst)).collect(),
             })
             .collect();
 
-        (
-            self.infer_type.apply_type_subst(&type_subst),
-            mapping,
-            constraints,
-        )
+        (self.infer_type.apply_type_subst(&type_subst), mapping, constraints)
     }
 
     /// Returns free type variables in the body that are not quantified by
@@ -172,11 +156,7 @@ impl Scheme {
     /// This corresponds to `FV(∀a. t) = FV(t) - {a}`.
     pub fn free_vars(&self) -> HashSet<TypeVarId> {
         let forall_set: HashSet<TypeVarId> = self.forall.iter().copied().collect();
-        self.infer_type
-            .free_vars()
-            .difference(&forall_set)
-            .copied()
-            .collect()
+        self.infer_type.free_vars().difference(&forall_set).copied().collect()
     }
 
     /// Returns `true` if the scheme body contains type variables not
@@ -199,18 +179,11 @@ impl Scheme {
 /// are included via `free_vars()` → `collect_row_free_vars`, so they participate
 /// in `forall` quantification alongside regular type variables.
 pub fn generalize(infer_type: &InferType, env_free_vars: &HashSet<TypeVarId>) -> Scheme {
-    let mut free: Vec<TypeVarId> = infer_type
-        .free_vars()
-        .difference(env_free_vars)
-        .copied()
-        .collect();
+    let mut free: Vec<TypeVarId> =
+        infer_type.free_vars().difference(env_free_vars).copied().collect();
     // Keep quantifier order stable for reproducible diagnostics and tests.
     free.sort_unstable();
-    Scheme {
-        forall: free,
-        constraints: Vec::new(),
-        infer_type: infer_type.clone(),
-    }
+    Scheme { forall: free, constraints: Vec::new(), infer_type: infer_type.clone() }
 }
 
 /// Generalize a type with class constraints.
@@ -224,29 +197,19 @@ pub fn generalize_with_constraints(
     env_free_vars: &HashSet<TypeVarId>,
     constraints: Vec<SchemeConstraint>,
 ) -> Scheme {
-    let mut free: Vec<TypeVarId> = infer_type
-        .free_vars()
-        .difference(env_free_vars)
-        .copied()
-        .collect();
+    let mut free: Vec<TypeVarId> =
+        infer_type.free_vars().difference(env_free_vars).copied().collect();
     free.sort_unstable();
     let forall_set: HashSet<TypeVarId> = free.iter().copied().collect();
     let filtered: Vec<SchemeConstraint> = constraints
         .into_iter()
         .filter(|c| {
-            let free_vars = c
-                .type_args
-                .iter()
-                .flat_map(InferType::free_vars)
-                .collect::<HashSet<_>>();
+            let free_vars =
+                c.type_args.iter().flat_map(InferType::free_vars).collect::<HashSet<_>>();
             free_vars.iter().all(|v| forall_set.contains(v))
         })
         .collect();
-    Scheme {
-        forall: free,
-        constraints: filtered,
-        infer_type: infer_type.clone(),
-    }
+    Scheme { forall: free, constraints: filtered, infer_type: infer_type.clone() }
 }
 
 #[cfg(test)]
@@ -270,11 +233,7 @@ mod tests {
     #[test]
     fn generalize_sorts_forall_deterministically() {
         let infer_type = InferType::Fun(
-            vec![
-                infer_var(2),
-                infer_var(0),
-                InferType::Tuple(vec![infer_var(1), infer_var(2)]),
-            ],
+            vec![infer_var(2), infer_var(0), InferType::Tuple(vec![infer_var(1), infer_var(2)])],
             Box::new(infer_var(0)),
             InferEffectRow::closed_empty(),
         );
@@ -393,10 +352,7 @@ mod tests {
             forall: vec![0, 1],
             constraints: vec![],
             infer_type: InferType::Fun(
-                vec![InferType::App(
-                    TypeConstructor::Adt(old_sym),
-                    vec![infer_var(0)],
-                )],
+                vec![InferType::App(TypeConstructor::Adt(old_sym), vec![infer_var(0)])],
                 Box::new(infer_var(1)),
                 InferEffectRow::closed_empty(),
             ),
@@ -407,10 +363,7 @@ mod tests {
 
         assert_eq!(remapped.forall, vec![0, 1]);
         let expected_type = InferType::Fun(
-            vec![InferType::App(
-                TypeConstructor::Adt(new_sym),
-                vec![infer_var(0)],
-            )],
+            vec![InferType::App(TypeConstructor::Adt(new_sym), vec![infer_var(0)])],
             Box::new(infer_var(1)),
             InferEffectRow::closed_empty(),
         );
@@ -478,21 +431,13 @@ mod tests {
 
     #[test]
     fn has_unresolved_vars_mono_concrete() {
-        let scheme = Scheme {
-            forall: vec![],
-            constraints: vec![],
-            infer_type: int(),
-        };
+        let scheme = Scheme { forall: vec![], constraints: vec![], infer_type: int() };
         assert!(!scheme.has_unresolved_vars());
     }
 
     #[test]
     fn has_unresolved_vars_mono_with_var() {
-        let scheme = Scheme {
-            forall: vec![],
-            constraints: vec![],
-            infer_type: infer_var(0),
-        };
+        let scheme = Scheme { forall: vec![], constraints: vec![], infer_type: infer_var(0) };
         assert!(scheme.has_unresolved_vars());
     }
 }

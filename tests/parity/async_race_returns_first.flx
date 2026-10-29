@@ -4,6 +4,9 @@
 //      both branches run concurrently via the fiber scheduler. With both
 //      branches returning immediately (no sleep), the dispatch loop's FIFO
 //      ordering means f's child is popped first, so f's result wins.
+// parity-expected-stdout-begin
+// 10
+// parity-expected-stdout-end
 
 import Flow.Async exposing (..)
 

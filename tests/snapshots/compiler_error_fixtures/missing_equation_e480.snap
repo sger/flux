@@ -9,13 +9,13 @@ error[E480]: Missing Associated Type
 
 Instance does not define associated type `Element`, which `Collection` declares.
 
-  examples/compiler_errors/missing_equation_e480.flx:18:1
+  examples/compiler_errors/missing_equation_e480.flx:17:1
    |
-18 | instance Collection<List<a>> {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-19 |     fn size_of(xs) { 1 }
+17 | instance Collection<List<a>> { //~ E480
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+18 |     fn size_of(xs) { 1 }
    | ^^^^^^^^^^^^^^^^^^^^^^^^
-20 | }
+19 | }
    | ^
 
 Hint:

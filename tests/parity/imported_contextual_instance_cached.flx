@@ -5,6 +5,10 @@
 // `Imported`, so the cached parallel VM linker demanded a global no module
 // defined and failed with `missing imported global` (KI-051). The `--no-cache`
 // path always worked, so only the cached ways caught it.
+// parity-expected-stdout-begin
+// "42"
+// ""hi""
+// parity-expected-stdout-end
 
 import Flow.Json as Json
 import Flow.Json exposing (encode)

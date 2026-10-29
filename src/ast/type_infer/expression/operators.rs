@@ -126,13 +126,12 @@ impl<'a> InferCtx<'a> {
     ) {
         let Some(class_sym) = class_sym else {
             if self.class_env.is_some() {
-                self.errors.push(
-                    diagnostic_for(&OPERATOR_CLASS_NOT_IN_SCOPE)
-                        .with_span(span)
-                        .with_message(format!(
-                            "This operator needs the class `{class_name}`, which is not in scope here."
-                        )),
-                );
+                self.errors
+                    .push(diagnostic_for(&OPERATOR_CLASS_NOT_IN_SCOPE).with_span(span).with_message(
+                    format!(
+                        "This operator needs the class `{class_name}`, which is not in scope here."
+                    ),
+                ));
             }
             return;
         };

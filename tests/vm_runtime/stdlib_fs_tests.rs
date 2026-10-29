@@ -12,43 +12,16 @@
 //!     Rust's `io::ErrorKind`, the C runtime on `errno` — so agreement is a
 //!     real invariant and not a shared code path.
 
-use std::path::{Path, PathBuf};
 use std::process::Command;
 
-#[path = "../support/scratch.rs"]
-mod scratch;
-use scratch::Scratch;
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
-
-fn scratch_dir() -> PathBuf {
-    let dir = workspace_root().join("target").join("test-scratch");
-    std::fs::create_dir_all(&dir).expect("create scratch dir");
-    dir
-}
-
-fn run_flux_test(fixture: &str) -> (String, bool) {
-    let path = workspace_root().join("tests").join("flux").join(fixture);
-    let scratch = Scratch::new("cache-isolated");
-    let output = Command::new(env!("CARGO_BIN_EXE_flux"))
-        .current_dir(workspace_root())
-        .args(["--test", path.to_str().unwrap(), "--no-cache"])
-        .args(scratch.cache_args())
-        .output()
-        .unwrap_or_else(|e| panic!("failed to run flux --test on {fixture}: {e}"));
-    let stdout = String::from_utf8_lossy(&output.stdout)
-        .replace("\r\n", "\n")
-        .trim()
-        .to_string();
-    (stdout, output.status.success())
-}
+use crate::support::flux_runner;
+use flux_runner::run_flux_test;
+use flux_runner::scratch::Scratch;
+use flux_runner::workspace_root;
 
 fn run_source(name: &str, source: &str) -> (String, String, bool) {
-    let file = scratch_dir().join(name);
-    std::fs::write(&file, source).expect("write scratch fixture");
-    let scratch = Scratch::new("cache-isolated");
+    let scratch = Scratch::new("stdlib-run");
+    let file = scratch.write(name, source);
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(workspace_root())
         .args(["run", file.to_str().unwrap(), "--no-cache"])
@@ -93,14 +66,8 @@ fn main() -> Unit with IO {
 }
 "#,
     );
-    assert!(
-        success,
-        "a failed read must not abort:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
-    assert!(
-        stdout.contains("handled NotFound"),
-        "expected handled NotFound:\n{stdout}"
-    );
+    assert!(success, "a failed read must not abort:\nstdout:\n{stdout}\nstderr:\n{stderr}");
+    assert!(stdout.contains("handled NotFound"), "expected handled NotFound:\n{stdout}");
     assert!(
         stdout.contains("still running"),
         "execution should continue after a failed read:\n{stdout}"
@@ -136,8 +103,8 @@ fn main() -> Unit with IO {
 /// success path.
 #[test]
 fn reading_an_existing_file_returns_its_contents() {
-    let fixture = scratch_dir().join("fs_read_me.txt");
-    std::fs::write(&fixture, "hello fs").expect("write fixture");
+    let files = Scratch::new("fs-read-me");
+    let fixture = files.write("fs_read_me.txt", "hello fs");
 
     let (stdout, stderr, success) = run_source(
         "fs_read_ok.flx",
@@ -158,12 +125,8 @@ fn main() -> Unit with IO {{
             fixture.to_str().unwrap().replace('\\', "/")
         ),
     );
-    let _ = std::fs::remove_file(&fixture);
     assert!(success, "run failed:\n{stdout}\n{stderr}");
-    assert!(
-        stdout.contains("got:hello fs"),
-        "expected got:hello fs:\n{stdout}"
-    );
+    assert!(stdout.contains("got:hello fs"), "expected got:hello fs:\n{stdout}");
 }
 
 /// `read_file_or` collapses the `Result` for the "optional config" shape.
@@ -180,10 +143,7 @@ fn main() -> Unit with IO {
 "#,
     );
     assert!(success, "run failed:\n{stdout}\n{stderr}");
-    assert!(
-        stdout.contains("defaulted"),
-        "expected defaulted:\n{stdout}"
-    );
+    assert!(stdout.contains("defaulted"), "expected defaulted:\n{stdout}");
 }
 
 /// `Flow.Fs.read_file` carries `FileSystem`, so a caller that does not declare
@@ -208,10 +168,7 @@ fn main() -> Unit with IO {
 }
 "#,
     );
-    assert!(
-        !success,
-        "an undeclared FileSystem effect must be rejected:\nstdout:\n{stdout}"
-    );
+    assert!(!success, "an undeclared FileSystem effect must be rejected:\nstdout:\n{stdout}");
     let combined = format!("{stdout}{stderr}");
     assert!(
         combined.contains("FileSystem"),
@@ -270,20 +227,12 @@ fn main() -> Unit with IO {{
         ),
     );
     assert!(success, "run failed:\n{stdout}\n{stderr}");
-    for expected in [
-        "mkdir=true",
-        "write=true",
-        "rename=true",
-        "content=v",
-        "rmtree=true",
-        "gone=true",
-    ] {
+    for expected in
+        ["mkdir=true", "write=true", "rename=true", "content=v", "rmtree=true", "gone=true"]
+    {
         assert!(stdout.contains(expected), "missing {expected}:\n{stdout}");
     }
-    assert!(
-        !workspace_root().join(base).exists(),
-        "remove_dir_all left the tree behind"
-    );
+    assert!(!workspace_root().join(base).exists(), "remove_dir_all left the tree behind");
 }
 
 /// Errors are classified the same way on both backends. The VM matches on
@@ -314,12 +263,7 @@ fn main() -> Unit with IO {
 "#,
     );
     assert!(success, "run failed:\n{stdout}\n{stderr}");
-    for expected in [
-        "write=NotFound",
-        "rmfile=NotFound",
-        "rmdir=NotFound",
-        "rename=NotFound",
-    ] {
+    for expected in ["write=NotFound", "rmfile=NotFound", "rmdir=NotFound", "rename=NotFound"] {
         assert!(stdout.contains(expected), "missing {expected}:\n{stdout}");
     }
 }
@@ -343,10 +287,7 @@ fn main() -> Unit with IO {
 }
 "#,
     );
-    assert!(
-        !success,
-        "an undeclared FileSystem effect must be rejected:\n{stdout}"
-    );
+    assert!(!success, "an undeclared FileSystem effect must be rejected:\n{stdout}");
     assert!(
         format!("{stdout}{stderr}").contains("FileSystem"),
         "the diagnostic should name the FileSystem effect"
@@ -388,13 +329,7 @@ fn main() -> Unit with IO {{
     );
     let _ = std::fs::remove_dir_all(workspace_root().join(base));
     assert!(success, "run failed:\n{stdout}\n{stderr}");
-    for expected in [
-        "count=2",
-        "has_a=true",
-        "has_b=true",
-        "no_dot=true",
-        "bare=true",
-    ] {
+    for expected in ["count=2", "has_a=true", "has_b=true", "no_dot=true", "bare=true"] {
         assert!(stdout.contains(expected), "missing {expected}:\n{stdout}");
     }
 }
@@ -469,14 +404,9 @@ fn report_file(path: String) -> Unit with IO {{
     );
     let _ = std::fs::remove_dir_all(workspace_root().join(base));
     assert!(success, "run failed:\n{stdout}\n{stderr}");
-    for expected in [
-        "size=5",
-        "is_file=true",
-        "is_dir=false",
-        "agrees=true",
-        "mtime=true",
-        "dir_is_dir=true",
-    ] {
+    for expected in
+        ["size=5", "is_file=true", "is_dir=false", "agrees=true", "mtime=true", "dir_is_dir=true"]
+    {
         assert!(stdout.contains(expected), "missing {expected}:\n{stdout}");
     }
 }
@@ -504,14 +434,8 @@ fn main() -> Unit with IO {
     );
     assert!(success, "run failed:\n{stdout}\n{stderr}");
     assert!(stdout.contains("kind=NotFound"), "got:\n{stdout}");
-    assert!(
-        stdout.contains("path=/nonexistent/meta.txt"),
-        "got:\n{stdout}"
-    );
-    assert!(
-        stdout.contains("still running"),
-        "a failed stat must not abort:\n{stdout}"
-    );
+    assert!(stdout.contains("path=/nonexistent/meta.txt"), "got:\n{stdout}");
+    assert!(stdout.contains("still running"), "a failed stat must not abort:\n{stdout}");
 }
 
 /// Inspection carries `FileSystem` like every other operation here.
@@ -532,10 +456,7 @@ fn main() -> Unit with IO {
 }
 "#,
     );
-    assert!(
-        !success,
-        "an undeclared FileSystem effect must be rejected:\n{stdout}"
-    );
+    assert!(!success, "an undeclared FileSystem effect must be rejected:\n{stdout}");
     assert!(
         format!("{stdout}{stderr}").contains("FileSystem"),
         "the diagnostic should name the FileSystem effect"

@@ -1,0 +1,24 @@
+// PA L1: a field used twice is stored twice. On the unique path the matched
+// cell hands over one reference to `h`, so the second store needs its own.
+
+fn lists(n) {
+    [[n], [n + 1], [n + 2]]
+}
+
+fn dup_head(xs) {
+    match xs {
+        [h | t] -> [h | [h | t]],
+        _ -> xs,
+    }
+}
+
+fn discard(xs, keep) {
+    if keep { xs } else { [] }
+}
+
+fn main() {
+    let ys = dup_head(lists(1))
+    print(ys)
+    let d = discard(ys, false)
+    print(d)
+}

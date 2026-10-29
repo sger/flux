@@ -429,10 +429,7 @@ fn main() with IO { print(\"hi\") }
 /// Return the hover markdown for a reserved word, or `None` if `word` is not
 /// a recognized Flux keyword.
 pub fn keyword_doc(word: &str) -> Option<&'static str> {
-    KEYWORD_DOCS
-        .iter()
-        .find(|(k, _)| *k == word)
-        .map(|(_, doc)| *doc)
+    KEYWORD_DOCS.iter().find(|(k, _)| *k == word).map(|(_, doc)| *doc)
 }
 
 /// Static `(effect, markdown)` table for built-in effect labels — the
@@ -634,10 +631,7 @@ fn stamp() -> Int with Time { now_ms() }
 /// name that is not a recognized built-in effect (e.g. a user-declared
 /// `effect`).
 pub fn effect_doc(name: &str) -> Option<&'static str> {
-    EFFECT_DOCS
-        .iter()
-        .find(|(e, _)| *e == name)
-        .map(|(_, doc)| *doc)
+    EFFECT_DOCS.iter().find(|(e, _)| *e == name).map(|(_, doc)| *doc)
 }
 
 /// Static `(type, markdown)` table for the universal built-in types — the
@@ -730,10 +724,7 @@ let greeting: String = \"Hello, Flux\"
 /// name that is not one (a user `data`/`alias`, or a module type like
 /// `Result`).
 pub fn builtin_type_doc(name: &str) -> Option<&'static str> {
-    TYPE_DOCS
-        .iter()
-        .find(|(t, _)| *t == name)
-        .map(|(_, doc)| *doc)
+    TYPE_DOCS.iter().find(|(t, _)| *t == name).map(|(_, doc)| *doc)
 }
 
 /// Extract the identifier-shaped word covering byte offset `off` from
@@ -778,11 +769,7 @@ pub fn is_offset_in_comment_or_string(text: &str, off: usize) -> bool {
     let mut state = ScanState::Code;
     while i < limit {
         let b = bytes[i];
-        let next = if i + 1 < bytes.len() {
-            Some(bytes[i + 1])
-        } else {
-            None
-        };
+        let next = if i + 1 < bytes.len() { Some(bytes[i + 1]) } else { None };
         match state {
             ScanState::Code => match (b, next) {
                 (b'/', Some(b'/')) => {
@@ -1024,15 +1011,9 @@ mod tests {
     /// content.
     #[test]
     fn every_contextual_keyword_has_hover_doc() {
-        let missing: Vec<&str> = CONTEXTUAL_KEYWORDS
-            .iter()
-            .copied()
-            .filter(|kw| keyword_doc(kw).is_none())
-            .collect();
-        assert!(
-            missing.is_empty(),
-            "contextual keywords lacking hover docs: {missing:?}"
-        );
+        let missing: Vec<&str> =
+            CONTEXTUAL_KEYWORDS.iter().copied().filter(|kw| keyword_doc(kw).is_none()).collect();
+        assert!(missing.is_empty(), "contextual keywords lacking hover docs: {missing:?}");
     }
 
     /// Catches the inverse: a keyword doc entry exists for a word that is
@@ -1047,9 +1028,6 @@ mod tests {
             .map(|(kw, _)| *kw)
             .filter(|kw| !KEYWORDS.contains(kw) && !CONTEXTUAL_KEYWORDS.contains(kw))
             .collect();
-        assert!(
-            orphans.is_empty(),
-            "KEYWORD_DOCS entries match no known keyword: {orphans:?}"
-        );
+        assert!(orphans.is_empty(), "KEYWORD_DOCS entries match no known keyword: {orphans:?}");
     }
 }

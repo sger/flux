@@ -47,11 +47,7 @@ pub struct CoreVarRef {
 
 impl CoreBinder {
     pub fn new(id: CoreBinderId, name: Identifier) -> Self {
-        Self {
-            id,
-            name,
-            rep: FluxRep::TaggedRep,
-        }
+        Self { id, name, rep: FluxRep::TaggedRep }
     }
 
     /// Create a binder with a known runtime representation.
@@ -62,10 +58,7 @@ impl CoreBinder {
 
 impl CoreVarRef {
     pub fn resolved(binder: &CoreBinder) -> Self {
-        Self {
-            name: binder.name,
-            binder: Some(binder.id),
-        }
+        Self { name: binder.name, binder: Some(binder.id) }
     }
 
     pub fn unresolved(name: Identifier) -> Self {
@@ -136,10 +129,8 @@ impl CoreType {
                 TypeConstructor::Adt(sym) => CoreType::Adt(*sym, Vec::new()),
             },
             InferType::App(tc, args) => {
-                let core_args: Vec<CoreType> = args
-                    .iter()
-                    .map(CoreType::try_from_infer)
-                    .collect::<Option<_>>()?;
+                let core_args: Vec<CoreType> =
+                    args.iter().map(CoreType::try_from_infer).collect::<Option<_>>()?;
                 match tc {
                     TypeConstructor::List if core_args.len() == 1 => {
                         CoreType::List(Box::new(core_args.into_iter().next().unwrap()))
@@ -163,10 +154,8 @@ impl CoreType {
                 }
             }
             InferType::Fun(params, ret, _effects) => {
-                let param_tys: Vec<CoreType> = params
-                    .iter()
-                    .map(CoreType::try_from_infer)
-                    .collect::<Option<_>>()?;
+                let param_tys: Vec<CoreType> =
+                    params.iter().map(CoreType::try_from_infer).collect::<Option<_>>()?;
                 let ret_ty = CoreType::try_from_infer(ret)?;
                 let free_vars: std::collections::BTreeSet<_> = param_tys
                     .iter()
@@ -180,12 +169,9 @@ impl CoreType {
                     CoreType::Forall(free_vars.into_iter().collect(), Box::new(body))
                 }
             }
-            InferType::Tuple(elems) => CoreType::Tuple(
-                elems
-                    .iter()
-                    .map(CoreType::try_from_infer)
-                    .collect::<Option<_>>()?,
-            ),
+            InferType::Tuple(elems) => {
+                CoreType::Tuple(elems.iter().map(CoreType::try_from_infer).collect::<Option<_>>()?)
+            }
             InferType::HktApp(_, _) => CoreType::Abstract(CoreAbstractType::HigherKindedApp),
         })
     }
@@ -1584,11 +1570,7 @@ impl CorePrimOp {
             ("fiber_suspend", 1, CorePrimOp::FiberSuspend),
             ("fiber_yield_now", 0, CorePrimOp::FiberYieldNow),
             ("fiber_check_cancelled", 0, CorePrimOp::FiberCheckCancelled),
-            (
-                "fiber_current_worker_count",
-                0,
-                CorePrimOp::FiberCurrentWorkerCount,
-            ),
+            ("fiber_current_worker_count", 0, CorePrimOp::FiberCurrentWorkerCount),
             ("chan_cap", 1, CorePrimOp::ChanCap),
             ("chan_close", 1, CorePrimOp::ChanClose),
             ("chan_is_closed", 1, CorePrimOp::ChanIsClosed),
@@ -1619,21 +1601,9 @@ impl CorePrimOp {
             ("http_shutdown_now", 1, CorePrimOp::HttpShutdownNow),
             ("http_parse_request", 2, CorePrimOp::HttpParseRequest),
             ("http_write_response", 2, CorePrimOp::HttpWriteResponse),
-            (
-                "http_register_connection",
-                2,
-                CorePrimOp::HttpRegisterConnection,
-            ),
-            (
-                "http_unregister_connection",
-                2,
-                CorePrimOp::HttpUnregisterConnection,
-            ),
-            (
-                "http_active_connection_count",
-                1,
-                CorePrimOp::HttpActiveConnectionCount,
-            ),
+            ("http_register_connection", 2, CorePrimOp::HttpRegisterConnection),
+            ("http_unregister_connection", 2, CorePrimOp::HttpUnregisterConnection),
+            ("http_active_connection_count", 1, CorePrimOp::HttpActiveConnectionCount),
             ("http_is_shutting_down", 1, CorePrimOp::HttpIsShuttingDown),
             ("http_server_stopped", 1, CorePrimOp::HttpServerStopped),
             ("http_is_server_stopped", 1, CorePrimOp::HttpIsServerStopped),
@@ -1642,11 +1612,7 @@ impl CorePrimOp {
             ("http_parse_response", 1, CorePrimOp::HttpParseResponse),
             ("json_parse", 1, CorePrimOp::JsonParse),
             ("json_stringify", 1, CorePrimOp::JsonStringify),
-            (
-                "http_write_chunked_head",
-                1,
-                CorePrimOp::HttpWriteChunkedHead,
-            ),
+            ("http_write_chunked_head", 1, CorePrimOp::HttpWriteChunkedHead),
             ("http_write_chunk", 1, CorePrimOp::HttpWriteChunk),
             ("http_write_chunked_end", 0, CorePrimOp::HttpWriteChunkedEnd),
             ("task_await", 1, CorePrimOp::TaskAwait),
@@ -1671,10 +1637,7 @@ impl CorePrimOp {
             ("upper", 1, CorePrimOp::Upper),
             ("write_file", 2, CorePrimOp::WriteFile),
         ];
-        TABLE
-            .iter()
-            .find(|(n, a, _)| *n == name && *a == arity)
-            .map(|(_, _, op)| *op)
+        TABLE.iter().find(|(n, a, _)| *n == name && *a == arity).map(|(_, _, op)| *op)
     }
 
     /// True when `name` is a globally-available primop spelling — a builtin the
@@ -1898,8 +1861,8 @@ impl CorePrimOp {
             EvvGet | IsYielding => 0,
             EvvSet | YieldExtend | FreshMarker => 1,
             YieldTo => 3,
-            EvvInsert => 5,
-            YieldPrompt => 3,
+            EvvInsert => 6,
+            YieldPrompt => 4,
             PerformDirect => 5,
         }
     }
@@ -1951,20 +1914,42 @@ impl CorePrimOp {
         }
     }
 
-    /// Whether this primop borrows its arguments (no ownership transfer).
-    /// Most primops borrow; only `ArrayPush` and `ArrayConcat` consume args.
+    /// Whether this primop borrows its arguments when called by name, apart
+    /// from the ones it keeps ([`Self::takes_arg`]). `ArrayPush` and
+    /// `ArrayConcat` are recorded as consuming every argument.
     pub fn borrows_args(self) -> bool {
         !matches!(self, Self::ArrayPush | Self::ArrayConcat)
     }
 
-    /// Look up borrow mode for a named function that may be a primop.
-    /// Returns `Some((arity, borrows))` if the name resolves at any arity.
-    /// Used by Aether borrow inference.
-    pub fn resolve_borrow_info(name: &str) -> Option<(usize, bool)> {
+    /// Whether the primop keeps argument `index`: the collection
+    /// constructors store their elements, and the move primops hand the
+    /// value they send to the channel, task or event (`transfer_value`,
+    /// `runtime/c/channel.c`). `panic` and `fiber_fail` hand theirs to the
+    /// catch point, while a caught panic's unwinding releases what the
+    /// frames it leaves held (KI-126). The caller gives that argument away.
+    pub fn takes_arg(self, index: usize) -> bool {
+        match self {
+            Self::MakeTuple | Self::MakeList | Self::MakeArray | Self::MakeHash => true,
+            Self::Panic | Self::FiberFail => index == 0,
+            Self::TaskSpawnMove => index == 0,
+            Self::TaskSpawnScopedMove
+            | Self::ChanSendMove
+            | Self::ChanTrySendMove
+            | Self::EventSendMove => index == 1,
+            _ => false,
+        }
+    }
+
+    /// Look up borrow modes for a named function that may be a primop.
+    /// Returns whether each argument is borrowed if the name resolves at any
+    /// arity. Used by Aether borrow inference.
+    pub fn resolve_borrow_info(name: &str) -> Option<Vec<bool>> {
         // Try arities 0..=3 (covers all primops).
         for arity in 0..=3 {
             if let Some(op) = Self::from_name(name, arity) {
-                return Some((arity, op.borrows_args()));
+                return Some(
+                    (0..arity).map(|index| op.borrows_args() && !op.takes_arg(index)).collect(),
+                );
             }
         }
         None
@@ -2231,17 +2216,11 @@ pub struct CoreProgram {
 
 impl CoreExpr {
     pub fn bound_var(binder: &CoreBinder, span: Span) -> CoreExpr {
-        CoreExpr::Var {
-            var: CoreVarRef::resolved(binder),
-            span,
-        }
+        CoreExpr::Var { var: CoreVarRef::resolved(binder), span }
     }
 
     pub fn external_var(name: Identifier, span: Span) -> CoreExpr {
-        CoreExpr::Var {
-            var: CoreVarRef::unresolved(name),
-            span,
-        }
+        CoreExpr::Var { var: CoreVarRef::unresolved(name), span }
     }
 
     /// The expression yielding the dictionary `dict_ref` names.
@@ -2290,15 +2269,7 @@ impl CoreExpr {
     }
 
     pub fn apply(func: CoreExpr, args: Vec<CoreExpr>, span: Span) -> CoreExpr {
-        if args.is_empty() {
-            func
-        } else {
-            CoreExpr::App {
-                func: Box::new(func),
-                args,
-                span,
-            }
-        }
+        if args.is_empty() { func } else { CoreExpr::App { func: Box::new(func), args, span } }
     }
 
     pub fn lambda(params: Vec<CoreBinder>, body: CoreExpr, span: Span) -> CoreExpr {
@@ -2315,26 +2286,17 @@ impl CoreExpr {
         if params.is_empty() {
             body
         } else {
-            CoreExpr::Lam {
-                params,
-                param_types,
-                result_ty,
-                body: Box::new(body),
-                span,
-            }
+            CoreExpr::Lam { params, param_types, result_ty, body: Box::new(body), span }
         }
     }
 
     pub fn let_seq(bindings: Vec<(CoreBinder, CoreExpr)>, body: CoreExpr, span: Span) -> CoreExpr {
-        bindings
-            .into_iter()
-            .rev()
-            .fold(body, |b, (var, rhs)| CoreExpr::Let {
-                var,
-                rhs: Box::new(rhs),
-                body: Box::new(b),
-                span,
-            })
+        bindings.into_iter().rev().fold(body, |b, (var, rhs)| CoreExpr::Let {
+            var,
+            rhs: Box::new(rhs),
+            body: Box::new(b),
+            span,
+        })
     }
 }
 
@@ -2396,11 +2358,7 @@ fn main() { inc(41) }
         );
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
 
         let core = super::lower_ast::lower_program_ast(&program, &HashMap::new());
         assert_eq!(core.defs.len(), 2);
@@ -2412,11 +2370,7 @@ fn main() { inc(41) }
         let lexer = Lexer::new("fn main() { 40 + 2 }");
         let mut parser = Parser::new(lexer);
         let program = parser.parse_program();
-        assert!(
-            parser.errors.is_empty(),
-            "parser errors: {:?}",
-            parser.errors
-        );
+        assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
 
         let mut core = super::lower_ast::lower_program_ast(&program, &HashMap::new());
         super::passes::run_core_passes(&mut core).expect("core passes should succeed");
@@ -2437,10 +2391,7 @@ fn main() { inc(41) }
     fn try_from_infer_preserves_concrete_map_shape() {
         let inferred = InferType::App(
             TypeConstructor::Map,
-            vec![
-                InferType::Con(TypeConstructor::String),
-                InferType::Con(TypeConstructor::Int),
-            ],
+            vec![InferType::Con(TypeConstructor::String), InferType::Con(TypeConstructor::Int)],
         );
         assert_eq!(
             super::CoreType::try_from_infer(&inferred),
@@ -2487,10 +2438,7 @@ fn main() { inc(41) }
 
     #[test]
     fn primop_surface_kind_keeps_len_and_parse_int_in_core_contract() {
-        assert_eq!(
-            super::CorePrimOp::Len.surface_kind(),
-            super::PrimSurfaceKind::CoreContract
-        );
+        assert_eq!(super::CorePrimOp::Len.surface_kind(), super::PrimSurfaceKind::CoreContract);
         assert_eq!(
             super::CorePrimOp::ParseInt.surface_kind(),
             super::PrimSurfaceKind::CoreContract
@@ -2533,11 +2481,7 @@ fn main() { inc(41) }
             (FTruncate, 153),
         ];
         for (variant, id) in cases {
-            assert_eq!(
-                variant.id(),
-                id,
-                "variant {variant:?} should have discriminant {id}"
-            );
+            assert_eq!(variant.id(), id, "variant {variant:?} should have discriminant {id}");
             assert_eq!(
                 super::CorePrimOp::from_id(id),
                 Some(variant),
@@ -2560,9 +2504,6 @@ fn main() { inc(41) }
             super::CorePrimOp::legacy_surface_replacement("string_len", 1),
             Some("Flow.String.string_len")
         );
-        assert_eq!(
-            super::CorePrimOp::legacy_surface_replacement("len", 1),
-            None
-        );
+        assert_eq!(super::CorePrimOp::legacy_surface_replacement("len", 1), None);
     }
 }

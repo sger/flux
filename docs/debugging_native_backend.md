@@ -21,7 +21,7 @@ invocation. The test crate can have `llvm` enabled while `CARGO_BIN_EXE_flux`
 still points to a stale `target/debug/flux` binary built without it:
 
 ```text
-cargo test --features llvm --test native_json_tests
+cargo test --features llvm --test native_llvm native_json_tests::
 ```
 
 Do not use a preceding plain `cargo build` as the native-binary preparation

@@ -9,9 +9,9 @@ error[E459]: Undetermined Class Parameter
 
 Cannot determine which `Ord` instance this needs: nothing in this definition fixes its type.
 
-  examples/generics/working/rejects/ambiguous_empty_literal.flx:14:11
+  examples/generics/working/rejects/ambiguous_empty_literal.flx:13:11
    |
-14 |     print(sort([]))
+13 |     print(sort([]))
    |           ^^^^
 == stdout ==
 <not executed>

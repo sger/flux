@@ -6,13 +6,18 @@
 //
 // The body of `compute_rate` does not match its declared return type.
 //
-//   examples/type_system/failing/06_runtime_float_string_return.flx:28:5
+//   examples/type_system/failing/06_runtime_float_string_return.flx:32:5
 //    |
-// 27 | fn compute_rate() -> Float {
+// 31 | fn compute_rate() -> Float {
 //    |                      ----- `compute_rate` was declared to return `Float`
-// 28 |     "slow"
+// 32 |     "slow"
 //    |     ^^^^^^
 //    |     ------ this expression has type `String`
+//    |
+// help: Change return type to `String`
+//    |
+// 31 | fn compute_rate() -> String {
+//    |                      ~~~~~~
 //
 // Note:
 //   declared return type: Float
@@ -22,10 +27,9 @@
 //   Return a `Float` value from `compute_rate` or change its annotation.
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E300
 
 fn compute_rate() -> Float {
-    "slow"
+    "slow" //~ E300
 }
 
 // Runtime contract violation on typed Float return boundary.

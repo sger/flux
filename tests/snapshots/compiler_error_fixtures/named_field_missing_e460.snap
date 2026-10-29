@@ -9,9 +9,9 @@ error[E460]: Missing Named Field
 
 Missing field `y` in `Point` constructor.
 
-  examples/compiler_errors/named_field_missing_e460.flx:13:13
+  examples/compiler_errors/named_field_missing_e460.flx:12:13
    |
-13 |     let p = Point { x: 1 }
+12 |     let p = Point { x: 1 }
    |             ^^^^^^^^^^^^^^
 == stdout ==
 <not executed>

@@ -92,10 +92,8 @@ pub(super) fn hole_fits(
     let no_skolems: HashSet<TypeVarId> = HashSet::new();
     // Snapshot the bindings first so the immutable `visible_bindings` borrow is
     // released before we take `&mut env.counter` for instantiation/unification.
-    let bindings: Vec<(Identifier, crate::types::scheme::Scheme)> = env
-        .visible_bindings()
-        .map(|(name, scheme)| (name, scheme.clone()))
-        .collect();
+    let bindings: Vec<(Identifier, crate::types::scheme::Scheme)> =
+        env.visible_bindings().map(|(name, scheme)| (name, scheme.clone())).collect();
 
     let mut fits: Vec<(bool, String)> = Vec::new();
     for (name, scheme) in bindings {
@@ -105,15 +103,8 @@ pub(super) fn hole_fits(
             continue;
         }
         let (inst_ty, _mapping, _constraints) = scheme.instantiate(&mut env.counter);
-        if unify_core(
-            &inst_ty,
-            hole_ty,
-            subst,
-            Span::default(),
-            &mut env.counter,
-            &no_skolems,
-        )
-        .is_ok()
+        if unify_core(&inst_ty, hole_ty, subst, Span::default(), &mut env.counter, &no_skolems)
+            .is_ok()
         {
             let is_polymorphic = !scheme.forall.is_empty();
             let ty = strip_forall(render_scheme_canonical(interner, &scheme));
@@ -171,10 +162,7 @@ mod tests {
     #[test]
     fn strip_forall_drops_quantifier_keeps_constraints() {
         assert_eq!(strip_forall("forall a. (a) -> a".to_string()), "(a) -> a");
-        assert_eq!(
-            strip_forall("forall a. Num<a> => a".to_string()),
-            "Num<a> => a"
-        );
+        assert_eq!(strip_forall("forall a. Num<a> => a".to_string()), "Num<a> => a");
         assert_eq!(strip_forall("(Int) -> Int".to_string()), "(Int) -> Int");
     }
 }

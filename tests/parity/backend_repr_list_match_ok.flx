@@ -1,6 +1,10 @@
 // parity: vm, llvm
 // expect: success
 // bug: real cons lists must still match list constructor patterns
+// parity-expected-stdout-begin
+// 1
+// 2
+// parity-expected-stdout-end
 
 fn main() with IO {
     let xs = [1, 2, 3]

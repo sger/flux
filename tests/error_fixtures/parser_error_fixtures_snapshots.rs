@@ -1,7 +1,5 @@
-#[path = "../support/diagnostics_env.rs"]
-mod diagnostics_env;
-#[path = "../support/examples_snapshot.rs"]
-mod examples_snapshot;
+use crate::support::diagnostics_env;
+use crate::support::examples_snapshot;
 
 use std::path::Path;
 

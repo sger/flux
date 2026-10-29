@@ -26,11 +26,7 @@ thread_local! {
 /// Whether the run in progress keeps this binder: the program wrote it, and
 /// this is a debug build.
 pub(super) fn keeps(binder: CoreBinderId) -> bool {
-    KEPT.with(|kept| {
-        kept.borrow()
-            .as_ref()
-            .is_some_and(|kept| kept.contains(&binder))
-    })
+    KEPT.with(|kept| kept.borrow().as_ref().is_some_and(|kept| kept.contains(&binder)))
 }
 
 /// Whether this run keeps source binders at all.
@@ -99,9 +95,7 @@ fn collect(expr: &CoreExpr, interner: &Interner, kept: &mut HashSet<CoreBinderId
     };
     match expr {
         CoreExpr::Var { .. } | CoreExpr::Lit(..) => {}
-        CoreExpr::Lam {
-            params, body, span, ..
-        } => {
+        CoreExpr::Lam { params, body, span, .. } => {
             for param in params {
                 keep(param, *span, kept);
             }
@@ -113,18 +107,7 @@ fn collect(expr: &CoreExpr, interner: &Interner, kept: &mut HashSet<CoreBinderId
                 collect(arg, interner, kept);
             }
         }
-        CoreExpr::Let {
-            var,
-            rhs,
-            body,
-            span,
-        }
-        | CoreExpr::LetRec {
-            var,
-            rhs,
-            body,
-            span,
-        } => {
+        CoreExpr::Let { var, rhs, body, span } | CoreExpr::LetRec { var, rhs, body, span } => {
             keep(var, *span, kept);
             collect(rhs, interner, kept);
             collect(body, interner, kept);
@@ -135,17 +118,9 @@ fn collect(expr: &CoreExpr, interner: &Interner, kept: &mut HashSet<CoreBinderId
             }
             collect(body, interner, kept);
         }
-        CoreExpr::Case {
-            scrutinee, alts, ..
-        } => {
+        CoreExpr::Case { scrutinee, alts, .. } => {
             collect(scrutinee, interner, kept);
-            for CoreAlt {
-                pat,
-                guard,
-                rhs,
-                span,
-            } in alts
-            {
+            for CoreAlt { pat, guard, rhs, span } in alts {
                 collect_pat(pat, *span, interner, kept);
                 if let Some(guard) = guard {
                     collect(guard, interner, kept);
@@ -164,12 +139,7 @@ fn collect(expr: &CoreExpr, interner: &Interner, kept: &mut HashSet<CoreBinderId
             collect(object, interner, kept);
         }
         CoreExpr::Return { value, .. } => collect(value, interner, kept),
-        CoreExpr::Handle {
-            body,
-            parameter,
-            handlers,
-            ..
-        } => {
+        CoreExpr::Handle { body, parameter, handlers, .. } => {
             collect(body, interner, kept);
             if let Some(parameter) = parameter {
                 collect(parameter, interner, kept);

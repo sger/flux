@@ -1,6 +1,16 @@
 // parity: vm, llvm
 // expect: success
 // Tests I/O primops: print, println, to_string, read_file (skipped), etc.
+// parity-expected-stdout-begin
+// 42
+// 3.14
+// true
+// "hello"
+// None
+// "world"
+// "123"
+// "false"
+// parity-expected-stdout-end
 
 fn main() with IO {
     print(42)

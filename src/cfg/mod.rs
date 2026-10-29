@@ -52,16 +52,7 @@ pub fn lower_program_to_ir_with_interner_and_warnings(
     hm_expr_types: &HashMap<ExprId, InferType>,
     interner: Option<&Interner>,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
-    lower_program_to_ir_impl(
-        program,
-        hm_expr_types,
-        interner,
-        false,
-        None,
-        None,
-        None,
-        None,
-    )
+    lower_program_to_ir_impl(program, hm_expr_types, interner, false, None, None, None, None)
 }
 
 #[allow(clippy::result_large_err)]
@@ -71,16 +62,7 @@ pub fn lower_program_to_ir_with_optimize(
     interner: Option<&Interner>,
     optimize: bool,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
-    lower_program_to_ir_impl(
-        program,
-        hm_expr_types,
-        interner,
-        optimize,
-        None,
-        None,
-        None,
-        None,
-    )
+    lower_program_to_ir_impl(program, hm_expr_types, interner, optimize, None, None, None, None)
 }
 
 /// Lower with TypeEnv for typed parameter binders (Phase 7).
@@ -182,6 +164,9 @@ fn lower_program_to_ir_impl(
         )?
     };
     warnings.append(&mut aether_warnings);
+    if crate::aether::verify::contract_gate() {
+        crate::core::passes::verify_aether_program_contract(&aether)?;
+    }
 
     // Aether diagnostics (works for all backends: VM, JIT, LLVM).
     // Uses a static flag to print only once even if called multiple times.
@@ -206,6 +191,10 @@ fn lower_program_to_ir_impl(
 
                 if aether_verify {
                     all_diags.extend(crate::aether::verify::verify_diagnostics_aether(&def.expr));
+                    all_diags.extend(crate::aether::verify::verify_def_views_aether(
+                        &def.expr,
+                        def.borrow_signature.as_ref(),
+                    ));
                 }
             }
 
@@ -249,12 +238,7 @@ pub fn patch_function_ids_from_core(
     let name_to_id: HashMap<Identifier, FunctionId> = core_items
         .iter()
         .filter_map(|item| {
-            if let IrTopLevelItem::Function {
-                name,
-                function_id: Some(id),
-                ..
-            } = item
-            {
+            if let IrTopLevelItem::Function { name, function_id: Some(id), .. } = item {
                 Some((*name, *id))
             } else {
                 None
@@ -273,9 +257,7 @@ fn patch_function_ids_recursive(
 ) {
     for item in items {
         match item {
-            IrTopLevelItem::Function {
-                name, function_id, ..
-            } => {
+            IrTopLevelItem::Function { name, function_id, .. } => {
                 if let Some(&core_id) = name_to_id.get(name) {
                     // Replace with the Core IR function_id.
                     *function_id = Some(core_id);
@@ -360,20 +342,12 @@ pub struct IrMetadata {
 
 impl IrMetadata {
     pub fn empty() -> Self {
-        Self {
-            span: None,
-            inferred_type: None,
-            expr_id: None,
-        }
+        Self { span: None, inferred_type: None, expr_id: None }
     }
 
     /// Create metadata carrying only a source span.
     pub fn from_span(span: Span) -> Self {
-        Self {
-            span: Some(span),
-            inferred_type: None,
-            expr_id: None,
-        }
+        Self { span: Some(span), inferred_type: None, expr_id: None }
     }
 }
 
@@ -618,24 +592,18 @@ pub enum IrInstr {
     /// last use has passed and its Rc refcount can be decremented now rather
     /// than waiting for scope exit. In the VM this is a no-op (Rc drop is
     /// automatic), but it enables future backends to reclaim memory sooner.
-    AetherDrop { var: IrVar, metadata: IrMetadata },
+    AetherDrop {
+        var: IrVar,
+        metadata: IrMetadata,
+    },
 }
 
 #[derive(Debug, Clone)]
 pub enum IrTerminator {
     Jump(BlockId, Vec<IrVar>, IrMetadata),
-    Branch {
-        cond: IrVar,
-        then_block: BlockId,
-        else_block: BlockId,
-        metadata: IrMetadata,
-    },
+    Branch { cond: IrVar, then_block: BlockId, else_block: BlockId, metadata: IrMetadata },
     Return(IrVar, IrMetadata),
-    TailCall {
-        callee: IrCallTarget,
-        args: Vec<IrVar>,
-        metadata: IrMetadata,
-    },
+    TailCall { callee: IrCallTarget, args: Vec<IrVar>, metadata: IrMetadata },
     Unreachable(IrMetadata),
 }
 
@@ -873,12 +841,7 @@ fn ir_fmt_terminator(t: &IrTerminator) -> String {
             let args_s: Vec<_> = args.iter().map(|v| ir_fmt_var(*v)).collect();
             format!("Jump {}({})", ir_fmt_block(*b), args_s.join(", "))
         }
-        IrTerminator::Branch {
-            cond,
-            then_block,
-            else_block,
-            ..
-        } => format!(
+        IrTerminator::Branch { cond, then_block, else_block, .. } => format!(
             "Branch {} ? {} : {}",
             ir_fmt_var(*cond),
             ir_fmt_block(*then_block),
@@ -886,11 +849,7 @@ fn ir_fmt_terminator(t: &IrTerminator) -> String {
         ),
         IrTerminator::TailCall { callee, args, .. } => {
             let args_s: Vec<_> = args.iter().map(|v| ir_fmt_var(*v)).collect();
-            format!(
-                "TailCall {}({})",
-                ir_fmt_call_target(callee),
-                args_s.join(", ")
-            )
+            format!("TailCall {}({})", ir_fmt_call_target(callee), args_s.join(", "))
         }
         IrTerminator::Unreachable(_) => "Unreachable".to_string(),
     }
@@ -921,12 +880,7 @@ fn ir_fmt_expr(expr: &IrExpr) -> String {
             format!("Prefix({}, {})", operator, ir_fmt_var(*right))
         }
         IrExpr::Binary(op, lhs, rhs) => {
-            format!(
-                "Binary({:?}, {}, {})",
-                op,
-                ir_fmt_var(*lhs),
-                ir_fmt_var(*rhs)
-            )
+            format!("Binary({:?}, {}, {})", op, ir_fmt_var(*lhs), ir_fmt_var(*rhs))
         }
         IrExpr::MakeTuple(vars) => {
             let s: Vec<_> = vars.iter().map(|v| ir_fmt_var(*v)).collect();
@@ -960,11 +914,7 @@ fn ir_fmt_expr(expr: &IrExpr) -> String {
             format!("Index({}, {})", ir_fmt_var(*left), ir_fmt_var(*index))
         }
         IrExpr::MemberAccess { object, member, .. } => {
-            format!(
-                "MemberAccess({}, #{})",
-                ir_fmt_var(*object),
-                member.as_u32()
-            )
+            format!("MemberAccess({}, #{})", ir_fmt_var(*object), member.as_u32())
         }
         IrExpr::TupleFieldAccess { object, index } => {
             format!("TupleFieldAccess({}, {})", ir_fmt_var(*object), index)
@@ -984,11 +934,7 @@ fn ir_fmt_expr(expr: &IrExpr) -> String {
         IrExpr::ListHead { value } => format!("ListHead({})", ir_fmt_var(*value)),
         IrExpr::ListTail { value } => format!("ListTail({})", ir_fmt_var(*value)),
         IrExpr::AdtTagTest { value, constructor } => {
-            format!(
-                "AdtTagTest({}, #{})",
-                ir_fmt_var(*value),
-                constructor.as_u32()
-            )
+            format!("AdtTagTest({}, #{})", ir_fmt_var(*value), constructor.as_u32())
         }
         IrExpr::AdtField { value, index } => {
             format!("AdtField({}, {})", ir_fmt_var(*value), index)
@@ -1000,45 +946,22 @@ fn ir_fmt_expr(expr: &IrExpr) -> String {
         IrExpr::Cons { head, tail } => {
             format!("Cons({}, {})", ir_fmt_var(*head), ir_fmt_var(*tail))
         }
-        IrExpr::Perform {
-            effect,
-            operation,
-            args,
-        } => {
+        IrExpr::Perform { effect, operation, args } => {
             let s: Vec<_> = args.iter().map(|v| ir_fmt_var(*v)).collect();
-            format!(
-                "Perform(#{}.#{}, [{}])",
-                effect.as_u32(),
-                operation.as_u32(),
-                s.join(", ")
-            )
+            format!("Perform(#{}.#{}, [{}])", effect.as_u32(), operation.as_u32(), s.join(", "))
         }
         IrExpr::Handle { expr, effect, arms } => {
-            format!(
-                "Handle(v{}, #{}, {} arms)",
-                expr.0,
-                effect.as_u32(),
-                arms.len()
-            )
+            format!("Handle(v{}, #{}, {} arms)", expr.0, effect.as_u32(), arms.len())
         }
         IrExpr::DropReuse(var) => format!("DropReuse({})", ir_fmt_var(*var)),
-        IrExpr::ReuseCons {
-            token,
-            head,
-            tail,
-            field_mask,
-        } => {
+        IrExpr::ReuseCons { token, head, tail, field_mask } => {
             let base = format!(
                 "ReuseCons({}, {}, {})",
                 ir_fmt_var(*token),
                 ir_fmt_var(*head),
                 ir_fmt_var(*tail)
             );
-            if let Some(mask) = field_mask {
-                format!("{} @mask=0b{:b}", base, mask)
-            } else {
-                base
-            }
+            if let Some(mask) = field_mask { format!("{} @mask=0b{:b}", base, mask) } else { base }
         }
         IrExpr::ReuseSome { token, inner } => {
             format!("ReuseSome({}, {})", ir_fmt_var(*token), ir_fmt_var(*inner))
@@ -1049,12 +972,7 @@ fn ir_fmt_expr(expr: &IrExpr) -> String {
         IrExpr::ReuseRight { token, inner } => {
             format!("ReuseRight({}, {})", ir_fmt_var(*token), ir_fmt_var(*inner))
         }
-        IrExpr::ReuseAdt {
-            token,
-            constructor,
-            fields,
-            field_mask,
-        } => {
+        IrExpr::ReuseAdt { token, constructor, fields, field_mask } => {
             let s: Vec<_> = fields.iter().map(|v| ir_fmt_var(*v)).collect();
             let base = format!(
                 "ReuseAdt({}, #{}, [{}])",
@@ -1062,11 +980,7 @@ fn ir_fmt_expr(expr: &IrExpr) -> String {
                 constructor.as_u32(),
                 s.join(", ")
             );
-            if let Some(mask) = field_mask {
-                format!("{} @mask=0b{:b}", base, mask)
-            } else {
-                base
-            }
+            if let Some(mask) = field_mask { format!("{} @mask=0b{:b}", base, mask) } else { base }
         }
         IrExpr::IsUnique(var) => format!("IsUnique({})", ir_fmt_var(*var)),
     }
@@ -1104,9 +1018,7 @@ impl IrProgram {
                         IrInstr::Assign { dest, expr, .. } => {
                             out.push_str(&format!("    v{} = {}\n", dest.0, ir_fmt_expr(expr)));
                         }
-                        IrInstr::Call {
-                            dest, target, args, ..
-                        } => {
+                        IrInstr::Call { dest, target, args, .. } => {
                             let args_s: Vec<_> = args.iter().map(|v| format!("v{}", v.0)).collect();
                             out.push_str(&format!(
                                 "    v{} = call {}({})\n",
@@ -1115,13 +1027,7 @@ impl IrProgram {
                                 args_s.join(", ")
                             ));
                         }
-                        IrInstr::HandleScope {
-                            effect,
-                            arms,
-                            body_entry,
-                            dest,
-                            ..
-                        } => {
+                        IrInstr::HandleScope { effect, arms, body_entry, dest, .. } => {
                             let arm_s: Vec<_> = arms
                                 .iter()
                                 .map(|a| {
@@ -1176,17 +1082,9 @@ impl IrProgram {
                     let a: Vec<_> = args.iter().map(|v| fv(*v)).collect();
                     format!("Jump {}({})", fb(*b), a.join(", "))
                 }
-                IrTerminator::Branch {
-                    cond,
-                    then_block,
-                    else_block,
-                    ..
-                } => format!(
-                    "Branch {} ? {} : {}",
-                    fv(*cond),
-                    fb(*then_block),
-                    fb(*else_block)
-                ),
+                IrTerminator::Branch { cond, then_block, else_block, .. } => {
+                    format!("Branch {} ? {} : {}", fv(*cond), fb(*then_block), fb(*else_block))
+                }
                 IrTerminator::TailCall { callee, args, .. } => {
                     let a: Vec<_> = args.iter().map(|v| fv(*v)).collect();
                     format!("TailCall {}({})", fmt_target(callee), a.join(", "))
@@ -1217,9 +1115,7 @@ impl IrProgram {
                         IrInstr::Assign { dest, expr, .. } => {
                             out.push_str(&format!("    v{} = {}\n", dest.0, ir_fmt_expr(expr)));
                         }
-                        IrInstr::Call {
-                            dest, target, args, ..
-                        } => {
+                        IrInstr::Call { dest, target, args, .. } => {
                             let a: Vec<_> = args.iter().map(|v| format!("v{}", v.0)).collect();
                             out.push_str(&format!(
                                 "    v{} = call {}({})\n",
@@ -1228,13 +1124,7 @@ impl IrProgram {
                                 a.join(", ")
                             ));
                         }
-                        IrInstr::HandleScope {
-                            effect,
-                            arms,
-                            body_entry,
-                            dest,
-                            ..
-                        } => {
+                        IrInstr::HandleScope { effect, arms, body_entry, dest, .. } => {
                             let arm_s: Vec<_> = arms
                                 .iter()
                                 .map(|a| {

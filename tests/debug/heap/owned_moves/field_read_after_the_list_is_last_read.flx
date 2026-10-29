@@ -1,0 +1,17 @@
+// PA R1: a field taken out of a list is read after the list's own last read.
+// The field has no reference of its own, so releasing the list after its last
+// read would free the field too, unless the field is copied first.
+
+fn lists(n) {
+    [[n], [n + 1]]
+}
+
+fn main() {
+    let xs = lists(1)
+    let first = match xs {
+        [h | _] -> h,
+        _ -> [],
+    }
+    print(len(xs))
+    print(first)
+}

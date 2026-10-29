@@ -6,9 +6,9 @@
 //
 // Expected `}` to close string interpolation.
 //
-//   examples/parser_errors/missing_string_interpolation_close.flx:52:24
+//   examples/parser_errors/missing_string_interpolation_close.flx:49:24
 //    |
-// 52 |     print("Hello #{name")
+// 49 |     print("Hello #{name")
 //    |                        ^^
 //
 // Hint:
@@ -19,9 +19,9 @@
 //
 // String literal is missing closing quote.
 //
-//   examples/parser_errors/missing_string_interpolation_close.flx:52:24
+//   examples/parser_errors/missing_string_interpolation_close.flx:49:24
 //    |
-// 52 |     print("Hello #{name")
+// 49 |     print("Hello #{name")
 //    |                        ^^
 //
 // Hint:
@@ -32,9 +32,9 @@
 //
 // String literal is missing closing quote.
 //
-//   examples/parser_errors/missing_string_interpolation_close.flx:53:2
+//   examples/parser_errors/missing_string_interpolation_close.flx:50:2
 //    |
-// 53 | }
+// 50 | }
 //    |  ^
 //
 // Hint:
@@ -43,12 +43,9 @@
 // Found 3 errors.
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E034
-// expect-error: E071
-// expect-error: E071
 
 fn main() with IO {
-    let name = "Flux"
+    let name = "Flux" //~vv E071
     print("Hello #{name")
 }
-
+//~^^ E034 E071

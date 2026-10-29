@@ -1,5 +1,6 @@
 use crate::ast::fold::{self, Folder};
 use crate::ast::visit::{self, Visitor};
+use crate::shared::opt_bisect;
 use crate::syntax::{expression::Expression, interner::Interner, program::Program};
 use crate::types::{infer_type::InferType, type_constructor::TypeConstructor};
 use std::borrow::Cow;
@@ -30,34 +31,24 @@ impl Folder for DesugarPass {
         }
 
         // Destructure owned expression to avoid cloning sub-trees.
-        let Expression::Prefix {
-            right, span, id, ..
-        } = expr
-        else {
-            unreachable!()
-        };
+        let Expression::Prefix { right, span, id, .. } = expr else { unreachable!() };
 
         match *right {
             // Rule 1: !!x → x
-            Expression::Prefix {
-                ref operator,
-                right: ref inner,
-                ..
-            } if operator == "!" && is_syntactically_bool(inner) => {
-                let Expression::Prefix { right: inner, .. } = *right else {
-                    unreachable!()
-                };
+            Expression::Prefix { ref operator, right: ref inner, .. }
+                if operator == "!"
+                    && is_syntactically_bool(inner)
+                    && opt_bisect::allow("desugar", || "drop a double `!`".to_string()) =>
+            {
+                let Expression::Prefix { right: inner, .. } = *right else { unreachable!() };
                 *inner
             }
 
             // Rule 2: !(a == b) → a != b, !(a != b) → a == b
-            Expression::Infix {
-                left,
-                ref operator,
-                right,
-                span: infix_span,
-                id: infix_id,
-            } if operator == "==" || operator == "!=" => {
+            Expression::Infix { left, ref operator, right, span: infix_span, id: infix_id }
+                if (operator == "==" || operator == "!=")
+                    && opt_bisect::allow("desugar", || format!("flip `!(a {operator} b)`")) =>
+            {
                 let flipped = if operator == "==" { "!=" } else { "==" };
                 Expression::Infix {
                     left,
@@ -69,12 +60,9 @@ impl Folder for DesugarPass {
             }
 
             // No simplification; reconstruct the `!inner` expression.
-            inner => Expression::Prefix {
-                operator: "!".to_string(),
-                right: Box::new(inner),
-                span,
-                id,
-            },
+            inner => {
+                Expression::Prefix { operator: "!".to_string(), right: Box::new(inner), span, id }
+            }
         }
     }
 }
@@ -85,16 +73,17 @@ fn is_syntactically_bool(expr: &Expression) -> bool {
     match expr {
         Expression::Boolean { .. } => true,
         Expression::Prefix { operator, .. } => operator == "!",
-        Expression::Infix { operator, .. } => matches!(
-            operator.as_str(),
-            "==" | "!=" | "<" | "<=" | ">" | ">=" | "&&" | "||"
-        ),
+        Expression::Infix { operator, .. } => {
+            matches!(operator.as_str(), "==" | "!=" | "<" | "<=" | ">" | ">=" | "&&" | "||")
+        }
         _ => false,
     }
 }
 
 /// Apply desugaring rules to a program.
 pub fn desugar(program: Program) -> Program {
+    // Its rewrites belong to no Core definition (0190 §13).
+    opt_bisect::set_def(String::new);
     let mut pass = DesugarPass;
     pass.fold_program(program)
 }
@@ -134,28 +123,18 @@ impl OperatorDesugarPass<'_> {
             && matches!(right_ty, Some(InferType::Con(TypeConstructor::Int)));
         let floats = matches!(left_ty, Some(InferType::Con(TypeConstructor::Float)))
             && matches!(right_ty, Some(InferType::Con(TypeConstructor::Float)));
-        let numeric = matches!(
-            left_ty,
-            Some(InferType::Con(
-                TypeConstructor::Int | TypeConstructor::Float
-            ))
-        ) && matches!(
-            right_ty,
-            Some(InferType::Con(
-                TypeConstructor::Int | TypeConstructor::Float
-            ))
-        );
+        let numeric =
+            matches!(left_ty, Some(InferType::Con(TypeConstructor::Int | TypeConstructor::Float)))
+                && matches!(
+                    right_ty,
+                    Some(InferType::Con(TypeConstructor::Int | TypeConstructor::Float))
+                );
         (ints, floats, numeric)
     }
 
     fn concrete_string_operands(&self, left: &Expression, right: &Expression) -> bool {
-        matches!(
-            self.operand_type(left),
-            Some(InferType::Con(TypeConstructor::String))
-        ) && matches!(
-            self.operand_type(right),
-            Some(InferType::Con(TypeConstructor::String))
-        )
+        matches!(self.operand_type(left), Some(InferType::Con(TypeConstructor::String)))
+            && matches!(self.operand_type(right), Some(InferType::Con(TypeConstructor::String)))
     }
 
     fn operator_method_name(&self, operator: &str) -> Option<&'static str> {
@@ -246,9 +225,8 @@ impl Folder for OperatorDesugarPass<'_> {
                     crate::types::class_env::is_generated_instance_method(
                         self.interner.resolve(name),
                     );
-                self.in_explicit_constraint_context = type_params
-                    .iter()
-                    .any(|param| !param.constraints.is_empty());
+                self.in_explicit_constraint_context =
+                    type_params.iter().any(|param| !param.constraints.is_empty());
                 let body = self.fold_block(body);
                 self.in_generated_instance_method = prev_generated;
                 self.in_explicit_constraint_context = prev_constraint_context;
@@ -276,35 +254,16 @@ impl Folder for OperatorDesugarPass<'_> {
         if self.in_generated_instance_method {
             return expr;
         }
-        let Expression::Infix {
-            left,
-            operator,
-            right,
-            span,
-            id,
-        } = expr
-        else {
+        let Expression::Infix { left, operator, right, span, id } = expr else {
             return expr;
         };
 
         if self.should_keep_infix(&left, &operator, &right) {
-            return Expression::Infix {
-                left,
-                operator,
-                right,
-                span,
-                id,
-            };
+            return Expression::Infix { left, operator, right, span, id };
         }
 
         let Some(method_name) = self.operator_method_name(&operator) else {
-            return Expression::Infix {
-                left,
-                operator,
-                right,
-                span,
-                id,
-            };
+            return Expression::Infix { left, operator, right, span, id };
         };
 
         Expression::Call {
@@ -356,28 +315,18 @@ impl OperatorDesugarDetector<'_> {
             && matches!(right_ty, Some(InferType::Con(TypeConstructor::Int)));
         let floats = matches!(left_ty, Some(InferType::Con(TypeConstructor::Float)))
             && matches!(right_ty, Some(InferType::Con(TypeConstructor::Float)));
-        let numeric = matches!(
-            left_ty,
-            Some(InferType::Con(
-                TypeConstructor::Int | TypeConstructor::Float
-            ))
-        ) && matches!(
-            right_ty,
-            Some(InferType::Con(
-                TypeConstructor::Int | TypeConstructor::Float
-            ))
-        );
+        let numeric =
+            matches!(left_ty, Some(InferType::Con(TypeConstructor::Int | TypeConstructor::Float)))
+                && matches!(
+                    right_ty,
+                    Some(InferType::Con(TypeConstructor::Int | TypeConstructor::Float))
+                );
         (ints, floats, numeric)
     }
 
     fn concrete_string_operands(&self, left: &Expression, right: &Expression) -> bool {
-        matches!(
-            self.operand_type(left),
-            Some(InferType::Con(TypeConstructor::String))
-        ) && matches!(
-            self.operand_type(right),
-            Some(InferType::Con(TypeConstructor::String))
-        )
+        matches!(self.operand_type(left), Some(InferType::Con(TypeConstructor::String)))
+            && matches!(self.operand_type(right), Some(InferType::Con(TypeConstructor::String)))
     }
 
     fn operator_method_name(&self, operator: &str) -> Option<&'static str> {
@@ -437,21 +386,15 @@ impl<'ast> Visitor<'ast> for OperatorDesugarDetector<'_> {
             return;
         }
         match stmt {
-            crate::syntax::statement::Statement::Function {
-                name,
-                type_params,
-                body,
-                ..
-            } => {
+            crate::syntax::statement::Statement::Function { name, type_params, body, .. } => {
                 let prev_generated = self.in_generated_instance_method;
                 let prev_constraint_context = self.in_explicit_constraint_context;
                 self.in_generated_instance_method =
                     crate::types::class_env::is_generated_instance_method(
                         self.interner.resolve(*name),
                     );
-                self.in_explicit_constraint_context = type_params
-                    .iter()
-                    .any(|param| !param.constraints.is_empty());
+                self.in_explicit_constraint_context =
+                    type_params.iter().any(|param| !param.constraints.is_empty());
                 self.visit_block(body);
                 self.in_generated_instance_method = prev_generated;
                 self.in_explicit_constraint_context = prev_constraint_context;
@@ -468,12 +411,7 @@ impl<'ast> Visitor<'ast> for OperatorDesugarDetector<'_> {
             visit::walk_expr(self, expr);
             return;
         }
-        if let Expression::Infix {
-            left,
-            operator,
-            right,
-            ..
-        } = expr
+        if let Expression::Infix { left, operator, right, .. } = expr
             && self.operator_method_name(operator).is_some()
             && !self.should_keep_infix(left, operator, right)
         {
@@ -524,11 +462,7 @@ pub fn desugar_operators_if_needed<'a>(
 ) -> Cow<'a, Program> {
     let needs_desugar = operator_desugaring_needed(program.as_ref(), hm_expr_types, interner);
     if needs_desugar {
-        Cow::Owned(desugar_operators(
-            program.into_owned(),
-            hm_expr_types,
-            interner,
-        ))
+        Cow::Owned(desugar_operators(program.into_owned(), hm_expr_types, interner))
     } else {
         program
     }

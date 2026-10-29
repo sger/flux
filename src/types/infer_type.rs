@@ -221,9 +221,7 @@ impl InferType {
             InferType::Con(_) => self.clone(),
             InferType::App(con, args) => InferType::App(
                 con.clone(),
-                args.iter()
-                    .map(|a| a.apply_type_subst_with_seen(type_subst, seen_vars))
-                    .collect(),
+                args.iter().map(|a| a.apply_type_subst_with_seen(type_subst, seen_vars)).collect(),
             ),
             // Substituting into the arguments may make this reducible, but
             // reducing needs the class environment and this function has none.
@@ -232,9 +230,7 @@ impl InferType {
             InferType::Assoc(class_id, name, args) => InferType::Assoc(
                 *class_id,
                 *name,
-                args.iter()
-                    .map(|a| a.apply_type_subst_with_seen(type_subst, seen_vars))
-                    .collect(),
+                args.iter().map(|a| a.apply_type_subst_with_seen(type_subst, seen_vars)).collect(),
             ),
             InferType::Fun(params, ret, effects) => InferType::Fun(
                 params
@@ -515,10 +511,7 @@ mod tests {
 
         let applied = infer_type.apply_type_subst(&type_subst);
         let expected = InferType::Fun(
-            vec![
-                int(),
-                InferType::Tuple(vec![InferType::Con(TypeConstructor::Bool)]),
-            ],
+            vec![int(), InferType::Tuple(vec![InferType::Con(TypeConstructor::Bool)])],
             Box::new(InferType::App(TypeConstructor::Option, vec![int()])),
             InferEffectRow::closed_empty(),
         );
@@ -530,11 +523,8 @@ mod tests {
         let concrete = InferType::Tuple(vec![int(), InferType::Con(TypeConstructor::Bool)]);
         assert!(concrete.is_concrete());
 
-        let not_concrete = InferType::Fun(
-            vec![infer_var(0)],
-            Box::new(int()),
-            InferEffectRow::closed_empty(),
-        );
+        let not_concrete =
+            InferType::Fun(vec![infer_var(0)], Box::new(int()), InferEffectRow::closed_empty());
         assert!(!not_concrete.is_concrete());
     }
 
@@ -636,10 +626,7 @@ mod tests {
             InferEffectRow::closed_empty(),
         );
 
-        assert_eq!(
-            infer_type.to_string(),
-            "(List<Int>, (Bool, ?3)) -> Map<String, Int>"
-        );
+        assert_eq!(infer_type.to_string(), "(List<Int>, (Bool, ?3)) -> Map<String, Int>");
     }
 
     #[test]
@@ -667,11 +654,9 @@ mod tests {
                 vec![string.clone()],
             ),
         );
-        let applied = InferType::HktApp(
-            Box::new(infer_var(0)),
-            vec![InferType::Con(TypeConstructor::Bool)],
-        )
-        .apply_type_subst(&type_subst);
+        let applied =
+            InferType::HktApp(Box::new(infer_var(0)), vec![InferType::Con(TypeConstructor::Bool)])
+                .apply_type_subst(&type_subst);
         assert_eq!(
             applied,
             InferType::App(

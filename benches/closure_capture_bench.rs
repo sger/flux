@@ -63,10 +63,8 @@ fn build_array_capture_program(size: usize, calls: usize) -> String {
     let mut src = String::with_capacity(size * 8 + calls * 16 + 256);
     let array = build_array_literal(size);
     let _ = writeln!(src, "let payload = {};", array);
-    let _ = writeln!(
-        src,
-        "let make = fn() {{ let captured = payload; fn(i) {{ captured[i]; }}; }};"
-    );
+    let _ =
+        writeln!(src, "let make = fn() {{ let captured = payload; fn(i) {{ captured[i]; }}; }};");
     let _ = writeln!(src, "let f = make();");
     for i in 0..calls {
         let idx = i % size;
@@ -79,10 +77,8 @@ fn build_hash_capture_program(size: usize, calls: usize) -> String {
     let mut src = String::with_capacity(size * 16 + calls * 24 + 256);
     let hash = build_hash_literal(size);
     let _ = writeln!(src, "let payload = {};", hash);
-    let _ = writeln!(
-        src,
-        "let make = fn() {{ let captured = payload; fn(k) {{ captured[k]; }}; }};"
-    );
+    let _ =
+        writeln!(src, "let make = fn() {{ let captured = payload; fn(k) {{ captured[k]; }}; }};");
     let _ = writeln!(src, "let f = make();");
     for i in 0..calls {
         let _ = writeln!(src, "f(\"k{}\");", i % size);
@@ -111,10 +107,8 @@ fn build_string_capture_program(bytes: usize, calls: usize) -> String {
     let mut src = String::with_capacity(bytes + calls * 16 + 256);
     let payload = "x".repeat(bytes);
     let _ = writeln!(src, "let payload = \"{}\";", payload);
-    let _ = writeln!(
-        src,
-        "let make = fn() {{ let captured = payload; fn() {{ len(captured); }}; }};"
-    );
+    let _ =
+        writeln!(src, "let make = fn() {{ let captured = payload; fn() {{ len(captured); }}; }};");
     let _ = writeln!(src, "let f = make();");
     for _ in 0..calls {
         let _ = writeln!(src, "f();");
@@ -126,10 +120,8 @@ fn build_array_capture_only_program(size: usize, creates: usize) -> String {
     let mut src = String::with_capacity(size * 8 + creates * 8 + 256);
     let array = build_array_literal(size);
     let _ = writeln!(src, "let payload = {};", array);
-    let _ = writeln!(
-        src,
-        "let make = fn() {{ let captured = payload; fn() {{ captured[0]; }}; }};"
-    );
+    let _ =
+        writeln!(src, "let make = fn() {{ let captured = payload; fn() {{ captured[0]; }}; }};");
     for _ in 0..creates {
         let _ = writeln!(src, "make();");
     }
@@ -149,10 +141,8 @@ fn build_array_call_only_program(size: usize, calls: usize) -> String {
     let mut src = String::with_capacity(size * 8 + calls * 16 + 256);
     let array = build_array_literal(size);
     let _ = writeln!(src, "let payload = {};", array);
-    let _ = writeln!(
-        src,
-        "let make = fn() {{ let captured = payload; fn(i) {{ captured[i]; }}; }};"
-    );
+    let _ =
+        writeln!(src, "let make = fn() {{ let captured = payload; fn(i) {{ captured[i]; }}; }};");
     let _ = writeln!(src, "let f = make();");
     for i in 0..calls {
         let _ = writeln!(src, "f({});", i % size);
@@ -164,10 +154,8 @@ fn build_array_create_and_call_program(size: usize, runs: usize) -> String {
     let mut src = String::with_capacity(size * 8 + runs * 24 + 512);
     let array = build_array_literal(size);
     let _ = writeln!(src, "let payload = {};", array);
-    let _ = writeln!(
-        src,
-        "let make = fn() {{ let captured = payload; fn(i) {{ captured[i]; }}; }};"
-    );
+    let _ =
+        writeln!(src, "let make = fn() {{ let captured = payload; fn(i) {{ captured[i]; }}; }};");
     for i in 0..runs {
         let _ = writeln!(src, "let f{} = make();", i);
         let _ = writeln!(src, "f{}({});", i, i % size);

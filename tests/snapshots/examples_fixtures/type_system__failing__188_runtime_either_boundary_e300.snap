@@ -1,0 +1,46 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/188_runtime_either_boundary_e300.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+Warning: Redundant Match Arm
+
+this arm is unreachable — earlier arms already cover it
+
+  examples/type_system/failing/188_runtime_either_boundary_e300.flx:12:9
+   |
+12 |         _ -> 0
+   |         ^^^^^^
+
+
+error[E300]: Argument Type Mismatch
+
+I found the wrong type in the 1st argument to `unwrap_or_zero`.
+
+  examples/type_system/failing/188_runtime_either_boundary_e300.flx:17:16
+   |
+ 8 | fn unwrap_or_zero(input: Either<String, Int>) -> Int {
+   | ---------------------------------------------------- `unwrap_or_zero` expects `Either<String, Int>` as the 1st parameter
+ 9 |     match input {
+10 |         Left(_msg) -> 0,
+... |
+15 | 
+16 | let dynamic = TypeSystem.BoundaryUnknown.dynamic_string()
+17 | unwrap_or_zero(dynamic)
+   |                ^^^^^^^
+   |                ------- this argument has type `String`
+
+Note:
+  expected argument type: Either<String, Int>
+  found argument type: String
+  the actual argument type is inferred from this expression
+  the expected argument type comes from the function signature
+
+Help:
+  Pass a `Either<String, Int>` value as the 1st argument.
+
+Found 1 error and 1 warning.
+== stdout ==
+<not executed>

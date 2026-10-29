@@ -6,9 +6,9 @@
 //
 // This `do` block needs to start with `{`.
 //
-//   examples/parser_errors/missing_do_brace.flx:27:9
+//   examples/parser_errors/missing_do_brace.flx:26:9
 //    |
-// 27 |         let x = 1
+// 26 |         let x = 1
 //    |         ^^^
 //    |         --- This looks like the `do` block body
 //
@@ -16,7 +16,6 @@
 //   Try adding `{` after `do`.
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E034
 
 // Missing `{` in do block.
 //
@@ -24,7 +23,7 @@
 
 fn main() -> Unit {
     do
-        let x = 1
+        let x = 1 //~ E034
         print(x)
 }
 

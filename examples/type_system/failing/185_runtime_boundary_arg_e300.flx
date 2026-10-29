@@ -1,0 +1,13 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// root: examples/type_system
+// expect: compile_error
+
+import TypeSystem.BoundaryUnknown
+
+fn typed_add(a: Int, b: Int) -> Int {
+    a + b
+}
+
+let dynamic = TypeSystem.BoundaryUnknown.dynamic_string()
+typed_add(dynamic, 1) //~ E300

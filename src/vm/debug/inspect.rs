@@ -125,6 +125,9 @@ pub(super) fn is_artificial(name: Option<&str>) -> bool {
 
 const INSTANCE_METHOD: &str = "__tc_";
 
+/// The frame a handle's body runs in (`compile_handle_action`).
+pub const HANDLE_BODY: &str = "__handle_body";
+
 /// How a function is named on the stack: an instance method as
 /// `Class<Type>.method`, everything else as compiled.
 pub(crate) fn display_name(name: &str) -> String {
@@ -205,11 +208,7 @@ fn location_at(function: &CompiledFunction, ip: usize) -> Option<(String, usize,
     let info = function.debug_info.as_ref()?;
     let location = info.location_at(ip)?;
     let file = info.file_for(location.file_id)?.to_string();
-    Some((
-        file,
-        location.span.start.line,
-        location.span.start.column + 1,
-    ))
+    Some((file, location.span.start.line, location.span.start.column + 1))
 }
 
 /// Whether `file` (as the bytecode names it) is the file the user wrote
@@ -263,23 +262,30 @@ impl<'a> Inspector<'a> {
     /// running `resume` will return to. Compiler-made frames are left out
     /// unless internals are shown.
     pub fn stack(&self) -> Vec<StackFrame> {
-        let mut frames: Vec<StackFrame> = self
-            .layout()
-            .into_iter()
-            .map(|(_, frame)| frame)
-            .filter(|frame| !frame.artificial || self.control.show_internals)
-            .collect();
-        frames.reverse();
+        let show = self.control.show_internals;
+        let mut frames = Vec::new();
+        // A handle body's own frame is part of the function it is in, so that
+        // function shows where the body is.
+        let mut body: Option<StackFrame> = None;
+        for (_, mut frame) in self.layout().into_iter().rev() {
+            if frame.name == HANDLE_BODY && !show {
+                body.get_or_insert(frame);
+                continue;
+            }
+            if let Some(body) = body.take() {
+                (frame.file, frame.line, frame.column) = (body.file, body.line, body.column);
+            }
+            if !frame.artificial || show {
+                frames.push(frame);
+            }
+        }
         frames
     }
 
     /// The logical stack, oldest first, with where each frame comes from.
     fn layout(&self) -> Vec<(FrameSource, StackFrame)> {
         match self.other_thread() {
-            Some(super::threads::OtherThread::Parked {
-                continuation,
-                below: Some(below),
-            }) => {
+            Some(super::threads::OtherThread::Parked { continuation, below: Some(below) }) => {
                 let mut out = self.live_layout(0, below.min(self.vm.frame_index));
                 out.extend(parked_layout(&continuation));
                 for (index, (_, frame)) in out.iter_mut().enumerate() {
@@ -317,18 +323,13 @@ impl<'a> Inspector<'a> {
                     let (name, location) = &suspended.summary;
                     push(
                         &mut out,
-                        FrameSource::Suspended {
-                            arm: index,
-                            frame: k,
-                        },
+                        FrameSource::Suspended { arm: index, frame: k },
                         summary_frame(
                             name,
                             location.as_ref(),
                             suspended.artificial,
                             None,
-                            FrameKind::Suspended {
-                                resumable: suspension.resumable,
-                            },
+                            FrameKind::Suspended { resumable: suspension.resumable },
                         ),
                     );
                 }
@@ -392,10 +393,7 @@ impl<'a> Inspector<'a> {
                     let location = location_at(function, hidden.ip);
                     push(
                         &mut out,
-                        FrameSource::Hidden {
-                            note: note_index,
-                            frame: k,
-                        },
+                        FrameSource::Hidden { note: note_index, frame: k },
                         summary_frame(
                             &name,
                             location.as_ref(),
@@ -430,10 +428,7 @@ impl<'a> Inspector<'a> {
                 Some(FrameView {
                     closure: frame.closure.clone(),
                     ip: self.frame_ip(index),
-                    slots: self.vm.stack[from..to]
-                        .iter()
-                        .map(slot::from_slot_ref)
-                        .collect(),
+                    slots: self.vm.stack[from..to].iter().map(slot::from_slot_ref).collect(),
                 })
             }
             FrameSource::Hidden { note, frame } => {
@@ -451,12 +446,8 @@ impl<'a> Inspector<'a> {
             FrameSource::Suspended { arm, frame } => {
                 // The continuation is the arm's first argument, `resume`,
                 // while the arm still holds it.
-                let suspension = self
-                    .control
-                    .suspensions
-                    .iter()
-                    .rev()
-                    .find(|s| s.arm_index == arm)?;
+                let suspension =
+                    self.control.suspensions.iter().rev().find(|s| s.arm_index == arm)?;
                 let arm_frame = self.vm.frames.get(arm)?;
                 let resume = self.vm.stack.get(arm_frame.base_pointer)?;
                 let Value::Continuation(continuation) = slot::from_slot_ref(resume) else {
@@ -476,10 +467,7 @@ impl<'a> Inspector<'a> {
                     slots: continuation.stack.get(from..to)?.to_vec(),
                 })
             }
-            FrameSource::Parked {
-                continuation,
-                frame,
-            } => {
+            FrameSource::Parked { continuation, frame } => {
                 let continuation = continuation.borrow();
                 let captured = continuation.frames.get(frame)?;
                 let count = captured.closure.function.num_locals;
@@ -591,18 +579,13 @@ impl<'a> Inspector<'a> {
                 let note = self.control.resumes.get(note).ok_or_else(missing)?;
                 let hidden = note.hidden.get(frame).ok_or_else(missing)?;
                 // The note's values are the debugger's copies.
-                let from = hidden
-                    .frame
-                    .base_pointer
-                    .checked_sub(note.stack_from)
-                    .ok_or_else(missing)?;
+                let from =
+                    hidden.frame.base_pointer.checked_sub(note.stack_from).ok_or_else(missing)?;
                 let locals = note.stack.get(from..).ok_or_else(missing)?;
                 in_locals(locals, &hidden.frame.closure, hidden.ip, 1)
             }
             FrameSource::Suspended { .. } | FrameSource::Parked { .. } => self
-                .in_continuation(&source, |locals, closure, ip| {
-                    in_locals(locals, closure, ip, 0)
-                }),
+                .in_continuation(&source, |locals, closure, ip| in_locals(locals, closure, ip, 0)),
             FrameSource::Label => None,
         };
         found.ok_or_else(missing)?
@@ -617,12 +600,8 @@ impl<'a> Inspector<'a> {
     ) -> Option<R> {
         let continuation = match source {
             FrameSource::Suspended { arm, frame } => {
-                let suspension = self
-                    .control
-                    .suspensions
-                    .iter()
-                    .rev()
-                    .find(|s| s.arm_index == *arm)?;
+                let suspension =
+                    self.control.suspensions.iter().rev().find(|s| s.arm_index == *arm)?;
                 let arm_frame = self.vm.frames.get(*arm)?;
                 let resume = self.vm.stack.get(arm_frame.base_pointer)?;
                 let Value::Continuation(continuation) = slot::from_slot_ref(resume) else {
@@ -633,10 +612,7 @@ impl<'a> Inspector<'a> {
                 }
                 (continuation, *frame)
             }
-            FrameSource::Parked {
-                continuation,
-                frame,
-            } => (continuation.clone(), *frame),
+            FrameSource::Parked { continuation, frame } => (continuation.clone(), *frame),
             _ => return None,
         };
         let (continuation, frame) = continuation;
@@ -701,8 +677,17 @@ impl<'a> Inspector<'a> {
                     .unwrap_or_default();
                 let internal = arm_name.starts_with("__default_handler");
                 let effect = handled_effect(&arm_name).unwrap_or_else(|| "<effect>".to_string());
-                let handled_in = (handler.entry_frame_index <= self.vm.frame_index)
-                    .then(|| frame_summary(self.vm, handler.entry_frame_index).0);
+                // A handle in a frame the compiler made, such as a handle
+                // body's own, is in the function that frame belongs to.
+                let handled_in = (handler.entry_frame_index <= self.vm.frame_index).then(|| {
+                    let mut index = handler.entry_frame_index;
+                    let mut name = frame_summary(self.vm, index).0;
+                    while index > 0 && is_artificial(Some(&name)) {
+                        index -= 1;
+                        name = frame_summary(self.vm, index).0;
+                    }
+                    name
+                });
                 HandlerView {
                     effect,
                     state: handler.state.clone().map(ValueView::new),
@@ -734,10 +719,7 @@ impl<'a> Inspector<'a> {
                 if site_line < line || !matcher.matches(site_file) {
                     continue;
                 }
-                if best
-                    .as_ref()
-                    .is_none_or(|(_, best_line)| site_line < *best_line)
-                {
+                if best.as_ref().is_none_or(|(_, best_line)| site_line < *best_line) {
                     best = Some((site_file.to_string(), site_line));
                 }
             }
@@ -745,9 +727,7 @@ impl<'a> Inspector<'a> {
         let Some((file, line)) = best else {
             return Err(format!("no code at or after line {line} of {file}"));
         };
-        self.control
-            .breakpoints
-            .insert(LineBreakpoint { file, line });
+        self.control.breakpoints.insert(LineBreakpoint { file, line });
         Ok(line)
     }
 
@@ -755,18 +735,13 @@ impl<'a> Inspector<'a> {
     /// one.
     pub fn clear_breakpoint(&mut self, file: &str, line: usize) -> bool {
         let before = self.control.breakpoints.len();
-        self.control
-            .breakpoints
-            .retain(|bp| !(bp.line == line && same_file(&bp.file, file)));
+        self.control.breakpoints.retain(|bp| !(bp.line == line && same_file(&bp.file, file)));
         self.control.breakpoints.len() != before
     }
 
     /// The runtime error the program stopped at, and its message.
     pub fn exception(&self) -> Option<(super::ExceptionKind, String)> {
-        self.control
-            .exception
-            .as_ref()
-            .map(|(kind, message, _, _)| (*kind, message.clone()))
+        self.control.exception.as_ref().map(|(kind, message, _, _)| (*kind, message.clone()))
     }
 
     /// The runtime errors the debugger stops at.
@@ -833,10 +808,7 @@ fn parked_layout(
         .iter()
         .rev()
         .take_while(|((_, location), artificial)| {
-            *artificial
-                || location
-                    .as_ref()
-                    .is_some_and(|(file, _, _)| is_library_file(file))
+            *artificial || location.as_ref().is_some_and(|(file, _, _)| is_library_file(file))
         })
         .count();
     let keep = frames.len() - parked_in;
@@ -846,10 +818,7 @@ fn parked_layout(
         .enumerate()
         .map(|(k, ((name, location), artificial))| {
             (
-                FrameSource::Parked {
-                    continuation: continuation.clone(),
-                    frame: k,
-                },
+                FrameSource::Parked { continuation: continuation.clone(), frame: k },
                 summary_frame(
                     &name,
                     location.as_ref(),
@@ -926,16 +895,7 @@ fn summary_frame(
     let (file, line, column) = location
         .map(|(file, line, column)| (Some(file.clone()), *line, *column))
         .unwrap_or((None, 0, 0));
-    StackFrame {
-        index: 0,
-        name: name.to_string(),
-        file,
-        line,
-        column,
-        artificial,
-        elided,
-        kind,
-    }
+    StackFrame { index: 0, name: name.to_string(), file, line, column, artificial, elided, kind }
 }
 
 /// The calls a frame replaced by tail calls, and the latest of them.
@@ -1035,10 +995,7 @@ fn counted(value: &Value, copies: usize, path: &str, parts: &[&str]) -> Result<R
         // A copy of the whole holds the whole, not each part.
         copies = 0;
     }
-    Ok(Refs {
-        count: owners(current).map(|count| count - copies),
-        type_name: current.type_name(),
-    })
+    Ok(Refs { count: owners(current).map(|count| count - copies), type_name: current.type_name() })
 }
 
 #[cfg(test)]
@@ -1049,14 +1006,8 @@ mod tests {
     fn instance_methods_read_as_class_type_method() {
         assert_eq!(display_name("__tc_Show_Int_show"), "Show<Int>.show");
         assert_eq!(display_name("__tc_Eq_List<a>_neq"), "Eq<List<a>>.neq");
-        assert_eq!(
-            display_name("__tc_Show_Int_to_string"),
-            "Show<Int>.to_string"
-        );
-        assert_eq!(
-            display_name("__tc_m8_466C6F772E4E756D_Num_Float_sub"),
-            "Num<Float>.sub"
-        );
+        assert_eq!(display_name("__tc_Show_Int_to_string"), "Show<Int>.to_string");
+        assert_eq!(display_name("__tc_m8_466C6F772E4E756D_Num_Float_sub"), "Num<Float>.sub");
         assert_eq!(display_name("__dict_Show_Int"), "__dict_Show_Int");
         assert_eq!(display_name("main"), "main");
     }

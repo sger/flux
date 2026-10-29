@@ -3,6 +3,11 @@
 // bug: a derived Eq instance was callable by name but its dictionary was not
 //      reachable from a constrained function, so `equal` and `eq` disagreed
 //      about the same instance (Proposal 0179 Stage 7).
+// parity-expected-stdout-begin
+// true
+// true
+// false
+// parity-expected-stdout-end
 
 data Color { Red, Green, Blue } deriving (Eq)
 

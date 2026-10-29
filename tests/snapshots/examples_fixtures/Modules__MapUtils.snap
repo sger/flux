@@ -9,10 +9,10 @@ error[E024]: Module Path Mismatch
 
 Module name `Modules.MapUtils` doesn't match file path `examples/Modules/MapUtils.flx`.
 
-  examples/Modules/MapUtils.flx:10:1
-   |
-10 | module Modules.MapUtils {
-   | ^
+  examples/Modules/MapUtils.flx:9:1
+  |
+9 | module Modules.MapUtils {
+  | ^
 
 Hint:
   Rename the module or move the file to match.

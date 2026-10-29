@@ -1,0 +1,16 @@
+// 0189 V6: a value taken out of a map and given away; the map still holds
+// it.
+
+import Flow.Map as Map
+
+fn keep_if(xs, flag) {
+    if flag { xs } else { [] }
+}
+
+fn main() {
+    let m = Map.set({}, "k", [1, 2])
+    let e = match Map.get(m, "k") { Some(v) -> v, _ -> [] }
+    let k = keep_if(e, false)
+    print(len(k))
+    print(Map.get(m, "k"))
+}

@@ -1,5 +1,4 @@
-#[path = "../support/diagnostics_env.rs"]
-mod diagnostics_env;
+use crate::support::diagnostics_env;
 
 use flux::diagnostics::{
     Diagnostic, DiagnosticBuilder, DiagnosticCategory, DiagnosticPhase, DiagnosticsAggregator,
@@ -17,18 +16,9 @@ fn aggregator_sorts_and_groups_by_file_and_severity() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
     let diags = vec![
-        Diagnostic::warning("WARN")
-            .with_message("warn")
-            .with_file("a.flx")
-            .with_span(span(1, 0)),
-        Diagnostic::warning("ERR")
-            .with_message("err")
-            .with_file("a.flx")
-            .with_span(span(1, 0)),
-        Diagnostic::warning("ERRB")
-            .with_message("errb")
-            .with_file("b.flx")
-            .with_span(span(1, 0)),
+        Diagnostic::warning("WARN").with_message("warn").with_file("a.flx").with_span(span(1, 0)),
+        Diagnostic::warning("ERR").with_message("err").with_file("a.flx").with_span(span(1, 0)),
+        Diagnostic::warning("ERRB").with_message("errb").with_file("b.flx").with_span(span(1, 0)),
     ];
 
     let output = render_diagnostics_multi(&diags, Some(50));
@@ -47,36 +37,21 @@ fn aggregator_prints_summary_counts() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
     let diags = vec![
-        Diagnostic::warning("ERR")
-            .with_file("a.flx")
-            .with_span(span(1, 0)),
-        Diagnostic::warning("WARN")
-            .with_file("a.flx")
-            .with_span(span(2, 0)),
+        Diagnostic::warning("ERR").with_file("a.flx").with_span(span(1, 0)),
+        Diagnostic::warning("WARN").with_file("a.flx").with_span(span(2, 0)),
     ];
 
     let output = render_diagnostics_multi(&diags, Some(50));
-    let summary_idx = output
-        .find("Found 2 warnings.")
-        .expect("missing summary line");
-    let last_diag_idx = output
-        .rfind("Warning:")
-        .expect("missing warning diagnostics");
-    assert!(
-        summary_idx > last_diag_idx,
-        "summary should be rendered after diagnostics"
-    );
+    let summary_idx = output.find("Found 2 warnings.").expect("missing summary line");
+    let last_diag_idx = output.rfind("Warning:").expect("missing warning diagnostics");
+    assert!(summary_idx > last_diag_idx, "summary should be rendered after diagnostics");
 }
 
 #[test]
 fn aggregator_single_file_shows_header() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
-    let diags = vec![
-        Diagnostic::warning("ERR")
-            .with_file("a.flx")
-            .with_span(span(1, 0)),
-    ];
+    let diags = vec![Diagnostic::warning("ERR").with_file("a.flx").with_span(span(1, 0))];
 
     let output = render_diagnostics_multi(&diags, Some(50));
     assert!(output.contains("• 1 warning • a.flx"));
@@ -86,11 +61,7 @@ fn aggregator_single_file_shows_header() {
 fn aggregator_file_headers_use_bold_cyan_when_color_enabled() {
     let (_lock, _guard) = diagnostics_env::with_no_color(None);
 
-    let diags = vec![
-        Diagnostic::warning("ERR")
-            .with_file("a.flx")
-            .with_span(span(1, 0)),
-    ];
+    let diags = vec![Diagnostic::warning("ERR").with_file("a.flx").with_span(span(1, 0))];
 
     let output = render_diagnostics_multi(&diags, Some(50));
     assert!(
@@ -104,9 +75,7 @@ fn aggregator_file_header_lists_mixed_counts_in_severity_order() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
     let diags = vec![
-        Diagnostic::warning("warn")
-            .with_file("a.flx")
-            .with_span(span(1, 0)),
+        Diagnostic::warning("warn").with_file("a.flx").with_span(span(1, 0)),
         Diagnostic::make_note("NOTE", "note body", "a.flx", span(2, 0)),
         Diagnostic::make_help("HELP", "help body", "a.flx", span(3, 0)),
         Diagnostic::make_error_dynamic(
@@ -129,18 +98,10 @@ fn aggregator_enforces_max_errors() {
     let (_lock, _guard) = diagnostics_env::with_no_color(Some("1"));
 
     let diags = vec![
-        Diagnostic::warning("E1")
-            .with_file("a.flx")
-            .with_span(span(1, 0)),
-        Diagnostic::warning("E2")
-            .with_file("a.flx")
-            .with_span(span(2, 0)),
-        Diagnostic::warning("E3")
-            .with_file("a.flx")
-            .with_span(span(3, 0)),
-        Diagnostic::warning("W1")
-            .with_file("a.flx")
-            .with_span(span(4, 0)),
+        Diagnostic::warning("E1").with_file("a.flx").with_span(span(1, 0)),
+        Diagnostic::warning("E2").with_file("a.flx").with_span(span(2, 0)),
+        Diagnostic::warning("E3").with_file("a.flx").with_span(span(3, 0)),
+        Diagnostic::warning("W1").with_file("a.flx").with_span(span(4, 0)),
     ];
 
     let output = render_diagnostics_multi(&diags, Some(1));
@@ -209,10 +170,8 @@ fn aggregator_dedupes_related_sets_only_when_matching() {
         .with_span(span(1, 0))
         .with_related(RelatedDiagnostic::note("note B"));
 
-    let output = render_diagnostics_multi(
-        &[with_related, with_related_dup, with_related_diff],
-        Some(50),
-    );
+    let output =
+        render_diagnostics_multi(&[with_related, with_related_dup, with_related_diff], Some(50));
     assert_eq!(output.matches("note:").count(), 2);
 }
 
@@ -285,13 +244,9 @@ fn aggregator_renders_cross_file_related_snippet() {
 
     let primary_source = "let a = 1;\n";
     let related_source = "let b = 2;\n";
-    let primary = Diagnostic::warning("PRIMARY")
-        .with_file("a.flx")
-        .with_span(span(1, 0))
-        .with_related(
-            RelatedDiagnostic::note("see related")
-                .with_file("b.flx")
-                .with_span(span(1, 4)),
+    let primary =
+        Diagnostic::warning("PRIMARY").with_file("a.flx").with_span(span(1, 0)).with_related(
+            RelatedDiagnostic::note("see related").with_file("b.flx").with_span(span(1, 4)),
         );
 
     let output = DiagnosticsAggregator::new(&[primary])
@@ -309,18 +264,15 @@ fn aggregator_related_without_source_renders_no_snippet() {
 
     let primary_source = "let a = 1;\n";
     let related_source = "let missing = 9;\n";
-    let primary = Diagnostic::warning("PRIMARY")
-        .with_file("a.flx")
-        .with_span(span(1, 0))
-        .with_related(
+    let primary =
+        Diagnostic::warning("PRIMARY").with_file("a.flx").with_span(span(1, 0)).with_related(
             RelatedDiagnostic::note("see related")
                 .with_file("missing_related.flx")
                 .with_span(span(1, 0)),
         );
 
-    let output = DiagnosticsAggregator::new(&[primary])
-        .with_source("a.flx", primary_source)
-        .render();
+    let output =
+        DiagnosticsAggregator::new(&[primary]).with_source("a.flx", primary_source).render();
 
     assert!(output.contains("  missing_related.flx:1:1"));
     assert!(!output.contains(related_source));
@@ -548,9 +500,7 @@ fn aggregator_stage_filtering_can_be_disabled() {
     )
     .with_phase(DiagnosticPhase::TypeInference);
 
-    let output = DiagnosticsAggregator::new(&[parse, ty])
-        .with_stage_filtering(false)
-        .render();
+    let output = DiagnosticsAggregator::new(&[parse, ty]).with_stage_filtering(false).render();
     assert!(output.contains("error[E071]"));
     assert!(output.contains("error[E300]"));
     assert!(!output.contains("Downstream Errors Suppressed"));
@@ -773,12 +723,7 @@ fn aggregator_compresses_repeated_parser_errors_separately_per_fingerprint() {
     }
 
     let output = render_diagnostics_multi(&diags, Some(50));
-    assert_eq!(
-        output
-            .matches("Repeated Parser Diagnostics Suppressed")
-            .count(),
-        2
-    );
+    assert_eq!(output.matches("Repeated Parser Diagnostics Suppressed").count(), 2);
     assert!(output.contains("\"Missing Hash Colon\""));
     assert!(output.contains("\"Missing Comma\""));
     assert!(output.contains("Found 10 errors and 2 notes."));
@@ -821,12 +766,7 @@ fn aggregator_repeated_parser_compression_is_scoped_per_file() {
     }
 
     let output = render_diagnostics_multi(&diags, Some(50));
-    assert_eq!(
-        output
-            .matches("Repeated Parser Diagnostics Suppressed")
-            .count(),
-        2
-    );
+    assert_eq!(output.matches("Repeated Parser Diagnostics Suppressed").count(), 2);
     assert!(output.contains("• 4 errors, 1 note • a.flx"));
     assert!(output.contains("• 4 errors, 1 note • b.flx"));
 }
@@ -876,9 +816,7 @@ fn aggregator_repeated_parser_compression_can_be_disabled() {
         })
         .collect::<Vec<_>>();
 
-    let output = DiagnosticsAggregator::new(&diags)
-        .with_stage_filtering(false)
-        .render();
+    let output = DiagnosticsAggregator::new(&diags).with_stage_filtering(false).render();
     assert_eq!(output.matches("error[E073]: Missing Comma").count(), 5);
     assert!(!output.contains("Repeated Parser Diagnostics Suppressed"));
     assert!(output.contains("Found 5 errors."));
@@ -949,10 +887,7 @@ fn main() with IO {
     }
 
     // Must have produced diagnostics (this source has a type error).
-    assert!(
-        !all_diagnostics.is_empty(),
-        "expected diagnostics from multi-error source"
-    );
+    assert!(!all_diagnostics.is_empty(), "expected diagnostics from multi-error source");
 
     // Every diagnostic must have a phase tag.
     for (i, diag) in all_diagnostics.iter().enumerate() {

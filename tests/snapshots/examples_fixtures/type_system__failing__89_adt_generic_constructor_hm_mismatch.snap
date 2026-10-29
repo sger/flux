@@ -9,9 +9,9 @@ error[E300]: Annotation Type Mismatch
 
 The value of `bad` does not match its type annotation.
 
-  examples/type_system/failing/89_adt_generic_constructor_hm_mismatch.flx:46:32
+  examples/type_system/failing/89_adt_generic_constructor_hm_mismatch.flx:44:32
    |
-46 | let bad: Result<Int, String> = Ok("oops")
+44 | let bad: Result<Int, String> = Ok("oops")
    |                                ^^^^^^^^^^
    |                                ---------- this value has type `Result<String, _>`
 

@@ -6,9 +6,9 @@
 //
 // Expected `=` after type declaration name.
 //
-//   examples/type_system/failing/180_type_adt_missing_assign.flx:23:15
+//   examples/type_system/failing/180_type_adt_missing_assign.flx:22:15
 //    |
-// 23 | type Maybe<T> Some(T) | None
+// 22 | type Maybe<T> Some(T) | None
 //    |               ^^^^
 //
 // Hint:
@@ -18,7 +18,6 @@
 //   Suppressed 1 cascading parser diagnostic(s) likely caused by an earlier syntax error.
 // parity-expected-stderr-end
 // expect: compile_error
-// expect-error: E034
 
-type Maybe<T> Some(T) | None
+type Maybe<T> Some(T) | None //~ E034
 let after = 1

@@ -2,6 +2,10 @@
 // expect: success
 // bug: nested ADT pattern matching on Either/Option may evaluate arms
 //       differently when the native backend mishandles tag dispatch.
+// parity-expected-stdout-begin
+// 84
+// 5
+// parity-expected-stdout-end
 
 fn main() with IO {
     let x = Right(42);

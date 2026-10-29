@@ -52,12 +52,7 @@ impl RequestRegistry {
     pub fn register(&mut self) -> RequestId {
         self.next_id += 1;
         let id = RequestId(self.next_id);
-        self.entries.insert(
-            id,
-            Entry {
-                state: RequestState::InFlight,
-            },
-        );
+        self.entries.insert(id, Entry { state: RequestState::InFlight });
         id
     }
 
@@ -155,10 +150,7 @@ mod tests {
                 payload: CompletionPayload::Bytes(vec![9, 9, 9]),
             })
             .expect("cancelled-but-live continuation still needs notification");
-        assert_eq!(
-            delivered.payload,
-            CompletionPayload::Error("cancelled".into())
-        );
+        assert_eq!(delivered.payload, CompletionPayload::Error("cancelled".into()));
         assert_eq!(reg.live_count(), 0);
     }
 
@@ -170,14 +162,9 @@ mod tests {
         assert_eq!(reg.state(req), None);
         assert_eq!(reg.live_count(), 0);
 
-        let delivered = reg.deliver(Completion {
-            request_id: req,
-            payload: CompletionPayload::Bytes(vec![7]),
-        });
-        assert!(
-            delivered.is_none(),
-            "abandoned continuation must drop the completion silently"
-        );
+        let delivered =
+            reg.deliver(Completion { request_id: req, payload: CompletionPayload::Bytes(vec![7]) });
+        assert!(delivered.is_none(), "abandoned continuation must drop the completion silently");
     }
 
     #[test]
@@ -189,10 +176,8 @@ mod tests {
         assert_eq!(reg.state(req), Some(RequestState::Cancelled));
 
         // Cancelling an already-removed (delivered) request is a no-op.
-        let delivered = reg.deliver(Completion {
-            request_id: req,
-            payload: CompletionPayload::Unit,
-        });
+        let delivered =
+            reg.deliver(Completion { request_id: req, payload: CompletionPayload::Unit });
         assert!(delivered.is_some());
         reg.cancel(req); // no entry — no panic, no insertion
         assert_eq!(reg.state(req), None);

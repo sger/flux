@@ -78,10 +78,7 @@ impl Cancellation {
 
     /// Whether `id` was cancelled; consumes the entry so the set stays small.
     fn take_cancelled(&self, id: &RequestId) -> bool {
-        self.cancelled
-            .lock()
-            .map(|mut set| set.remove(id))
-            .unwrap_or(false)
+        self.cancelled.lock().map(|mut set| set.remove(id)).unwrap_or(false)
     }
 }
 
@@ -113,11 +110,7 @@ pub fn spawn_worker_pool(
 /// dropped its sender on shutdown).
 pub fn worker_loop(rx: Receiver<WorkItem>, sender: Sender<Message>, cancel: Cancellation) {
     while let Ok(item) = rx.recv() {
-        let WorkItem {
-            id,
-            generation,
-            compute,
-        } = item;
+        let WorkItem { id, generation, compute } = item;
         let response = if cancel.take_cancelled(&id) {
             Response::new_err(id, REQUEST_CANCELLED, "request cancelled".to_string())
         } else if generation < cancel.generation() {
@@ -189,9 +182,7 @@ mod tests {
 
         let first = expect_response(resp_rx.recv().unwrap());
         assert_eq!(first.id, RequestId::from(1));
-        let err = first
-            .error
-            .expect("panicking job should answer with an error");
+        let err = first.error.expect("panicking job should answer with an error");
         assert_eq!(err.code, INTERNAL_ERROR);
         assert!(err.message.contains("boom"));
 

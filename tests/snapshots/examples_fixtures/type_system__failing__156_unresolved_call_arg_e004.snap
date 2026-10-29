@@ -1,0 +1,20 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/type_system/failing/156_unresolved_call_arg_e004.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E004]: Undefined Variable
+
+I can't find a value named `mystery_value`.
+
+  examples/type_system/failing/156_unresolved_call_arg_e004.flx:8:32
+  |
+8 |     let value: Int = takes_int(mystery_value)
+  |                                ^^^^^^^^^^^^^
+
+Hint:
+  Define it first: let mystery_value = ...;
+== stdout ==
+<not executed>

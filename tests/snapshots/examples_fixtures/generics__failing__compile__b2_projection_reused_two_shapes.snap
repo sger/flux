@@ -9,14 +9,14 @@ error[E300]: Argument Type Mismatch
 
 I found the wrong type in the 1st argument to `fst`.
 
-  examples/generics/failing/compile/b2_projection_reused_two_shapes.flx:27:15
+  examples/generics/failing/compile/b2_projection_reused_two_shapes.flx:25:15
    |
-23 | fn fst(p) { p.0 }
+21 | fn fst(p) { p.0 }
    | --------- `fst` expects `(Int, Int)` as the 1st parameter
-24 | 
-25 | fn main() with IO {
-26 |     print(fst((1, 2)))
-27 |     print(fst(("a", true)))
+22 | 
+23 | fn main() with IO {
+24 |     print(fst((1, 2)))
+25 |     print(fst(("a", true)))
    |               ^^^^^^^^^^^
    |               ----------- this argument has type `(String, Bool)`
 
@@ -34,9 +34,9 @@ error[E300]: Type Mismatch
 
 I found a type mismatch.
 
-  examples/generics/failing/compile/b2_projection_reused_two_shapes.flx:27:16
+  examples/generics/failing/compile/b2_projection_reused_two_shapes.flx:25:16
    |
-27 |     print(fst(("a", true)))
+25 |     print(fst(("a", true)))
    |                ^^^
    |                --- this expression has type `String`
 

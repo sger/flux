@@ -98,10 +98,7 @@ fn token_modifiers() -> Vec<SemanticTokenModifier> {
 }
 
 pub fn semantic_tokens_legend() -> SemanticTokensLegend {
-    SemanticTokensLegend {
-        token_types: token_types(),
-        token_modifiers: token_modifiers(),
-    }
+    SemanticTokensLegend { token_types: token_types(), token_modifiers: token_modifiers() }
 }
 
 /// Built-in type names that resolve to `defaultLibrary` types regardless of any
@@ -119,10 +116,7 @@ const BUILTIN_VARIANTS: &[&str] = &["Ok", "Err"];
 /// Retained for direct callers and tests; the request path goes through
 /// [`full`], which also tags the result for delta follow-ups.
 pub fn semantic_tokens(snapshot: &Snapshot) -> SemanticTokens {
-    SemanticTokens {
-        result_id: None,
-        data: compute(snapshot),
-    }
+    SemanticTokens { result_id: None, data: compute(snapshot) }
 }
 
 /// The classified, line/column-sorted tokens for the whole buffer.
@@ -156,10 +150,7 @@ pub fn full(snapshot: &Snapshot, uri: &str, cache: &Mutex<SemanticTokenCache>) -
     let mut cache = cache.lock().unwrap_or_else(|e| e.into_inner());
     let result_id = cache.fresh_id();
     cache.record(uri, result_id.clone(), data.clone());
-    SemanticTokens {
-        result_id: Some(result_id),
-        data,
-    }
+    SemanticTokens { result_id: Some(result_id), data }
 }
 
 /// `textDocument/semanticTokens/full/delta` — compute the current tokens and,
@@ -193,14 +184,9 @@ pub fn full_delta(
 /// `range`. Range responses don't participate in deltas, so they carry no
 /// `result_id` and aren't cached.
 pub fn range(snapshot: &Snapshot, range: Range) -> SemanticTokens {
-    let raw: Vec<RawToken> = raw_tokens(snapshot)
-        .into_iter()
-        .filter(|t| token_in_range(t, range))
-        .collect();
-    SemanticTokens {
-        result_id: None,
-        data: delta_encode(raw),
-    }
+    let raw: Vec<RawToken> =
+        raw_tokens(snapshot).into_iter().filter(|t| token_in_range(t, range)).collect();
+    SemanticTokens { result_id: None, data: delta_encode(raw) }
 }
 
 /// Whether a token (a single-line span `start..start+length` on `line`)
@@ -270,8 +256,7 @@ impl SemanticTokenCache {
     }
 
     fn record(&mut self, uri: &str, result_id: String, tokens: Vec<SemanticToken>) {
-        self.last
-            .insert(uri.to_string(), CachedTokens { result_id, tokens });
+        self.last.insert(uri.to_string(), CachedTokens { result_id, tokens });
     }
 
     /// The tokens last sent for `uri`, but only if they carried
@@ -372,13 +357,7 @@ fn classify(
 
             // ── built-in constructors / literals that are keyword tokens ────
             TokenType::Some | TokenType::None | TokenType::Left | TokenType::Right => {
-                emit(
-                    snapshot,
-                    tok.span(),
-                    TT_ENUM_MEMBER,
-                    MOD_DEFAULT_LIBRARY,
-                    out,
-                );
+                emit(snapshot, tok.span(), TT_ENUM_MEMBER, MOD_DEFAULT_LIBRARY, out);
             }
             TokenType::True | TokenType::False => {
                 emit(snapshot, tok.span(), TT_KEYWORD, 0, out);
@@ -624,11 +603,7 @@ fn push_segment(
 ) {
     let bytes = snapshot.text.as_bytes();
     // Drop a trailing CR so CRLF line breaks don't pad the token.
-    let end = if end > start && bytes[end - 1] == b'\r' {
-        end - 1
-    } else {
-        end
-    };
+    let end = if end > start && bytes[end - 1] == b'\r' { end - 1 } else { end };
     if end <= start {
         return;
     }
@@ -639,13 +614,7 @@ fn push_segment(
     if length == 0 {
         return;
     }
-    out.push(RawToken {
-        line: s.line,
-        start: s.character,
-        length,
-        token_type,
-        modifiers,
-    });
+    out.push(RawToken { line: s.line, start: s.character, length, token_type, modifiers });
 }
 
 fn delta_encode(sorted: Vec<RawToken>) -> Vec<SemanticToken> {
@@ -654,11 +623,7 @@ fn delta_encode(sorted: Vec<RawToken>) -> Vec<SemanticToken> {
     let mut prev_start = 0u32;
     for tok in sorted {
         let delta_line = tok.line - prev_line;
-        let delta_start = if delta_line == 0 {
-            tok.start - prev_start
-        } else {
-            tok.start
-        };
+        let delta_start = if delta_line == 0 { tok.start - prev_start } else { tok.start };
         result.push(SemanticToken {
             delta_line,
             delta_start,
@@ -723,13 +688,7 @@ impl NameSets {
 
     fn collect_stmt(&mut self, stmt: &Statement, interner: &Interner) {
         match stmt {
-            Statement::Function {
-                name,
-                type_params,
-                parameters,
-                body,
-                ..
-            } => {
+            Statement::Function { name, type_params, parameters, body, .. } => {
                 Self::insert(&mut self.functions, interner, *name);
                 for tp in type_params {
                     Self::insert(&mut self.type_params, interner, tp.name);
@@ -766,12 +725,7 @@ impl NameSets {
                     Self::insert(&mut self.modules, interner, *alias);
                 }
             }
-            Statement::Data {
-                name,
-                type_params,
-                variants,
-                ..
-            } => {
+            Statement::Data { name, type_params, variants, .. } => {
                 Self::insert(&mut self.data_types, interner, *name);
                 for tp in type_params {
                     Self::insert(&mut self.type_params, interner, *tp);
@@ -800,12 +754,7 @@ impl NameSets {
                     Self::insert(&mut self.type_params, interner, *p);
                 }
             }
-            Statement::Class {
-                name,
-                type_params,
-                methods,
-                ..
-            } => {
+            Statement::Class { name, type_params, methods, .. } => {
                 Self::insert(&mut self.classes, interner, *name);
                 for tp in type_params {
                     Self::insert(&mut self.type_params, interner, *tp);
@@ -823,11 +772,7 @@ impl NameSets {
                     }
                 }
             }
-            Statement::Instance {
-                class_name,
-                methods,
-                ..
-            } => {
+            Statement::Instance { class_name, methods, .. } => {
                 Self::insert(&mut self.classes, interner, *class_name);
                 for m in methods {
                     Self::insert(&mut self.functions, interner, m.name);
@@ -849,19 +794,13 @@ impl NameSets {
 
     fn collect_expr(&mut self, expr: &Expression, interner: &Interner) {
         match expr {
-            Expression::Function {
-                parameters, body, ..
-            } => {
+            Expression::Function { parameters, body, .. } => {
                 for p in parameters {
                     Self::insert(&mut self.params, interner, *p);
                 }
                 self.collect_block(body, interner);
             }
-            Expression::Call {
-                function,
-                arguments,
-                ..
-            } => {
+            Expression::Call { function, arguments, .. } => {
                 self.collect_expr(function, interner);
                 for a in arguments {
                     self.collect_expr(a, interner);
@@ -872,12 +811,7 @@ impl NameSets {
                 self.collect_expr(right, interner);
             }
             Expression::Prefix { right, .. } => self.collect_expr(right, interner),
-            Expression::If {
-                condition,
-                consequence,
-                alternative,
-                ..
-            } => {
+            Expression::If { condition, consequence, alternative, .. } => {
                 self.collect_expr(condition, interner);
                 self.collect_block(consequence, interner);
                 if let Some(alt) = alternative {
@@ -885,9 +819,7 @@ impl NameSets {
                 }
             }
             Expression::DoBlock { block, .. } => self.collect_block(block, interner),
-            Expression::Match {
-                scrutinee, arms, ..
-            } => {
+            Expression::Match { scrutinee, arms, .. } => {
                 self.collect_expr(scrutinee, interner);
                 for arm in arms {
                     if let Some(guard) = &arm.guard {
@@ -946,9 +878,7 @@ impl NameSets {
                     }
                 }
             }
-            Expression::Spread {
-                base, overrides, ..
-            } => {
+            Expression::Spread { base, overrides, .. } => {
                 self.collect_expr(base, interner);
                 for f in overrides {
                     Self::insert(&mut self.fields, interner, f.name);
@@ -1036,13 +966,7 @@ mod tests {
                 token_type: TT_FUNCTION,
                 modifiers: MOD_DECLARATION,
             },
-            RawToken {
-                line: 0,
-                start: 8,
-                length: 1,
-                token_type: TT_PARAMETER,
-                modifiers: 0,
-            },
+            RawToken { line: 0, start: 8, length: 1, token_type: TT_PARAMETER, modifiers: 0 },
             RawToken {
                 line: 2,
                 start: 2,
@@ -1080,13 +1004,7 @@ mod tests {
     }
 
     fn tok(delta_line: u32, delta_start: u32, length: u32, ty: u32) -> SemanticToken {
-        SemanticToken {
-            delta_line,
-            delta_start,
-            length,
-            token_type: ty,
-            token_modifiers_bitset: 0,
-        }
+        SemanticToken { delta_line, delta_start, length, token_type: ty, token_modifiers_bitset: 0 }
     }
 
     #[test]
@@ -1097,17 +1015,11 @@ mod tests {
 
     #[test]
     fn diff_tokens_splices_changed_middle() {
-        let old = vec![
-            tok(0, 0, 2, TT_KEYWORD),
-            tok(0, 3, 4, TT_FUNCTION),
-            tok(1, 0, 1, TT_PARAMETER),
-        ];
+        let old =
+            vec![tok(0, 0, 2, TT_KEYWORD), tok(0, 3, 4, TT_FUNCTION), tok(1, 0, 1, TT_PARAMETER)];
         // Middle token changes type; prefix (1 token) and suffix (1 token) hold.
-        let new = vec![
-            tok(0, 0, 2, TT_KEYWORD),
-            tok(0, 3, 4, TT_VARIABLE),
-            tok(1, 0, 1, TT_PARAMETER),
-        ];
+        let new =
+            vec![tok(0, 0, 2, TT_KEYWORD), tok(0, 3, 4, TT_VARIABLE), tok(1, 0, 1, TT_PARAMETER)];
         let edits = diff_tokens(&old, &new);
         assert_eq!(edits.len(), 1);
         // Units are integers (5 per token): skip 1 token, replace 1 token.
@@ -1131,37 +1043,16 @@ mod tests {
     #[test]
     fn token_in_range_filters_by_line_and_column() {
         let r = Range {
-            start: Position {
-                line: 1,
-                character: 0,
-            },
-            end: Position {
-                line: 3,
-                character: 0,
-            },
+            start: Position { line: 1, character: 0 },
+            end: Position { line: 3, character: 0 },
         };
-        let on_line_0 = RawToken {
-            line: 0,
-            start: 0,
-            length: 2,
-            token_type: TT_KEYWORD,
-            modifiers: 0,
-        };
-        let in_middle = RawToken {
-            line: 2,
-            start: 4,
-            length: 3,
-            token_type: TT_FUNCTION,
-            modifiers: 0,
-        };
+        let on_line_0 =
+            RawToken { line: 0, start: 0, length: 2, token_type: TT_KEYWORD, modifiers: 0 };
+        let in_middle =
+            RawToken { line: 2, start: 4, length: 3, token_type: TT_FUNCTION, modifiers: 0 };
         // The end line is exclusive at character 0 → a token there is excluded.
-        let on_end_line = RawToken {
-            line: 3,
-            start: 0,
-            length: 1,
-            token_type: TT_PARAMETER,
-            modifiers: 0,
-        };
+        let on_end_line =
+            RawToken { line: 3, start: 0, length: 1, token_type: TT_PARAMETER, modifiers: 0 };
         assert!(!token_in_range(&on_line_0, r));
         assert!(token_in_range(&in_middle, r));
         assert!(!token_in_range(&on_end_line, r));

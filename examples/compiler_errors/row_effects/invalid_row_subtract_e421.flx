@@ -1,5 +1,4 @@
 // expect: compile_error
-// expect-error: E300
 
 effect Console {
     print: String -> ()
@@ -16,6 +15,6 @@ fn io_console_work() -> Int with IO, Console {
 }
 
 fn main() with IO, Console {
-    run_filtered(io_console_work)
+    run_filtered(io_console_work) //~ E421
     None
 }

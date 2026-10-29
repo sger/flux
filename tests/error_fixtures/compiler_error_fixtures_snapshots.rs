@@ -1,8 +1,5 @@
-#[path = "../support/diagnostics_env.rs"]
-mod diagnostics_env;
-#[allow(dead_code)]
-#[path = "../support/examples_snapshot.rs"]
-mod examples_snapshot;
+use crate::support::diagnostics_env;
+use crate::support::examples_snapshot;
 
 use std::{collections::HashSet, fs, path::Path};
 
@@ -64,10 +61,7 @@ fn build_compiler_transcript(
                 continue;
             }
 
-            let failed_dep = node
-                .imports
-                .iter()
-                .find(|edge| failed.contains(&edge.target_path));
+            let failed_dep = node.imports.iter().find(|edge| failed.contains(&edge.target_path));
             if let Some(dep) = failed_dep {
                 failed.insert(node.path.clone());
                 diagnostics.push(module_skipped_note(

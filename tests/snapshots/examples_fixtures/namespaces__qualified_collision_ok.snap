@@ -9,9 +9,9 @@ error[E018]: Import Not Found
 
 Cannot find module `Modules.Foo.List` to import.
 
-  examples/namespaces/qualified_collision_ok.flx:5:1
+  examples/namespaces/qualified_collision_ok.flx:3:1
   |
-5 | import Modules.Foo.List
+3 | import Modules.Foo.List
   | ^
 
 Hint:
@@ -23,9 +23,9 @@ error[E018]: Import Not Found
 
 Cannot find module `Modules.Bar.List` to import.
 
-  examples/namespaces/qualified_collision_ok.flx:6:1
+  examples/namespaces/qualified_collision_ok.flx:4:1
   |
-6 | import Modules.Bar.List
+4 | import Modules.Bar.List
   | ^
 
 Hint:

@@ -49,9 +49,7 @@ impl<'a> Builder<'a> {
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| file.to_string());
         let mut info = ProgramDebugInfo::default();
-        info.files.push(DebugFile {
-            path: file.to_string(),
-        });
+        info.files.push(DebugFile { path: file.to_string() });
         Self {
             interner,
             info,
@@ -122,10 +120,7 @@ impl<'a> Builder<'a> {
         } else {
             // A definition with no source position was made by the compiler
             // (a class method's dispatcher, for one), whatever its name.
-            (
-                FnKind::User,
-                is_generated(&source_name) || is_unplaced(def.span),
-            )
+            (FnKind::User, is_generated(&source_name) || is_unplaced(def.span))
         };
         let id = self.push_function(DebugFunction {
             id: DebugFnId(0),
@@ -141,13 +136,7 @@ impl<'a> Builder<'a> {
         // A definition whose body is a lambda is a function: the lambda's
         // parameters are the function's own, not a nested lambda's.
         match &def.expr {
-            CoreExpr::Lam {
-                params,
-                param_types,
-                body,
-                span,
-                ..
-            } => {
+            CoreExpr::Lam { params, param_types, body, span, .. } => {
                 self.add_params(&ctx, params, param_types, *span);
                 self.walk(&ctx, body);
             }
@@ -164,7 +153,7 @@ impl<'a> Builder<'a> {
 
     fn add_params(
         &mut self,
-        ctx: &DefCtx,
+        ctx: &DefCtx<'_>,
         params: &[CoreBinder],
         param_types: &[Option<CoreType>],
         span: Span,
@@ -177,7 +166,7 @@ impl<'a> Builder<'a> {
 
     fn add_var(
         &mut self,
-        ctx: &DefCtx,
+        ctx: &DefCtx<'_>,
         binder: &CoreBinder,
         ty: Option<&CoreType>,
         decl_span: Span,
@@ -194,28 +183,20 @@ impl<'a> Builder<'a> {
         } else {
             (kind, is_generated(&name))
         };
-        self.info.functions[ctx.function.0 as usize]
-            .vars
-            .push(DebugVar {
-                name,
-                binder: binder.id.0,
-                decl_span,
-                ty,
-                kind,
-                artificial,
-            });
+        self.info.functions[ctx.function.0 as usize].vars.push(DebugVar {
+            name,
+            binder: binder.id.0,
+            decl_span,
+            ty,
+            kind,
+            artificial,
+        });
     }
 
-    fn walk(&mut self, ctx: &DefCtx, expr: &CoreExpr) {
+    fn walk(&mut self, ctx: &DefCtx<'_>, expr: &CoreExpr) {
         match expr {
             CoreExpr::Var { .. } | CoreExpr::Lit(..) => {}
-            CoreExpr::Lam {
-                params,
-                param_types,
-                body,
-                span,
-                ..
-            } => {
+            CoreExpr::Lam { params, param_types, body, span, .. } => {
                 let parent = &self.info.functions[ctx.function.0 as usize];
                 // A lambda with no source position was made by the compiler,
                 // so it is named after the function it belongs to.
@@ -238,16 +219,11 @@ impl<'a> Builder<'a> {
                     source_name,
                     file: self.file,
                     decl_span: *span,
-                    kind: FnKind::Lambda {
-                        parent: ctx.function,
-                    },
+                    kind: FnKind::Lambda { parent: ctx.function },
                     artificial,
                     vars: Vec::new(),
                 });
-                let inner = DefCtx {
-                    def: ctx.def,
-                    function: lambda,
-                };
+                let inner = DefCtx { def: ctx.def, function: lambda };
                 self.add_params(&inner, params, param_types, *span);
                 self.walk(&inner, body);
             }
@@ -257,27 +233,12 @@ impl<'a> Builder<'a> {
                     self.walk(ctx, arg);
                 }
             }
-            CoreExpr::Let {
-                var,
-                rhs,
-                body,
-                span,
-            }
-            | CoreExpr::LetRec {
-                var,
-                rhs,
-                body,
-                span,
-            } => {
+            CoreExpr::Let { var, rhs, body, span } | CoreExpr::LetRec { var, rhs, body, span } => {
                 self.add_var(ctx, var, None, *span, VarKind::Let);
                 self.walk(ctx, rhs);
                 self.walk(ctx, body);
             }
-            CoreExpr::LetRecGroup {
-                bindings,
-                body,
-                span,
-            } => {
+            CoreExpr::LetRecGroup { bindings, body, span } => {
                 for (var, _) in bindings {
                     self.add_var(ctx, var, None, *span, VarKind::Let);
                 }
@@ -286,9 +247,7 @@ impl<'a> Builder<'a> {
                 }
                 self.walk(ctx, body);
             }
-            CoreExpr::Case {
-                scrutinee, alts, ..
-            } => {
+            CoreExpr::Case { scrutinee, alts, .. } => {
                 self.walk(ctx, scrutinee);
                 for alt in alts {
                     self.walk_alt(ctx, alt);
@@ -308,12 +267,7 @@ impl<'a> Builder<'a> {
                 self.walk(ctx, object);
             }
             CoreExpr::Return { value, .. } => self.walk(ctx, value),
-            CoreExpr::Handle {
-                body,
-                parameter,
-                handlers,
-                ..
-            } => {
+            CoreExpr::Handle { body, parameter, handlers, .. } => {
                 self.walk(ctx, body);
                 if let Some(parameter) = parameter {
                     self.walk(ctx, parameter);
@@ -345,7 +299,7 @@ impl<'a> Builder<'a> {
         }
     }
 
-    fn walk_alt(&mut self, ctx: &DefCtx, alt: &CoreAlt) {
+    fn walk_alt(&mut self, ctx: &DefCtx<'_>, alt: &CoreAlt) {
         self.add_pattern_vars(ctx, &alt.pat, alt.span);
         if let Some(guard) = &alt.guard {
             self.walk(ctx, guard);
@@ -353,7 +307,7 @@ impl<'a> Builder<'a> {
         self.walk(ctx, &alt.rhs);
     }
 
-    fn add_pattern_vars(&mut self, ctx: &DefCtx, pat: &CorePat, span: Span) {
+    fn add_pattern_vars(&mut self, ctx: &DefCtx<'_>, pat: &CorePat, span: Span) {
         match pat {
             CorePat::Var(binder) => self.add_var(ctx, binder, None, span, VarKind::PatternBound),
             CorePat::Con { fields, .. } | CorePat::Tuple(fields) => {

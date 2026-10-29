@@ -6,30 +6,25 @@
 /// `arr[i]`) is safe to drop because its failure was never observed — the
 /// binding is unused, so the whole expression is never evaluated.
 use crate::core::CoreExpr;
+use crate::shared::opt_bisect;
 
 use super::helpers::{appears_free, can_discard, map_children};
 use super::keep;
 
 pub fn elim_dead_let(expr: CoreExpr) -> CoreExpr {
     match expr {
-        CoreExpr::Let {
-            var,
-            rhs,
-            body,
-            span,
-        } => {
+        CoreExpr::Let { var, rhs, body, span } => {
             let rhs = elim_dead_let(*rhs);
             let body = elim_dead_let(*body);
             // A debug build keeps the program's own `let`s (0188 S9c).
-            if !keep::keeps(var.id) && can_discard(&rhs) && !appears_free(var.id, &body) {
+            if !keep::keeps(var.id)
+                && can_discard(&rhs)
+                && !appears_free(var.id, &body)
+                && opt_bisect::allow("elim_dead_let", || "drop a let nothing uses".to_string())
+            {
                 body
             } else {
-                CoreExpr::Let {
-                    var,
-                    rhs: Box::new(rhs),
-                    body: Box::new(body),
-                    span,
-                }
+                CoreExpr::Let { var, rhs: Box::new(rhs), body: Box::new(body), span }
             }
         }
         CoreExpr::Lam { .. }

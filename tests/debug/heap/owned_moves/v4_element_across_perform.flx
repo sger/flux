@@ -1,0 +1,29 @@
+// 0189 V4: an array element read after a perform resumed three times.
+
+effect Ask {
+    ask: Int -> Int
+}
+
+fn numbers(n) {
+    [|n, n + 1, n + 2|]
+}
+
+fn body4(n) -> Int with Ask {
+    let xs = numbers(n)
+    let h = xs[0]
+    let k = perform Ask.ask(1)
+    match h {
+        Some(v) -> v + k,
+        _ -> k
+    }
+}
+
+fn thrice(n) -> Int {
+    body4(n) handle Ask {
+        ask(resume, v) -> resume(v * 100) + resume(v * 10) + resume(v)
+    }
+}
+
+fn main() {
+    print(thrice(1))
+}

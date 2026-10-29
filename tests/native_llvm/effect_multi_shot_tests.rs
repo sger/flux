@@ -17,18 +17,13 @@
 //!
 #![cfg(feature = "llvm")]
 
-#[path = "../support/primop_parity.rs"]
-mod primop_parity;
+use crate::support::primop_parity;
+use primop_parity::workspace_root;
 
 use primop_parity::{run_native, run_native_with_env, scratch::Scratch};
-use std::path::Path;
 use std::process::Command;
 
 const FIXTURE: &str = "effect_multi_shot.flx";
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
 
 /// Run the VM and return `(combined stdout+stderr, exit-success flag)`.
 fn run_vm_with_status() -> (String, bool) {
@@ -74,10 +69,7 @@ fn native_legacy_opt_out_exits_nonzero_on_multi_shot() {
 #[test]
 fn native_default_prints_3_on_multi_shot() {
     let (out, ok) = run_native(FIXTURE);
-    assert!(
-        ok,
-        "native backend (default yield path) must handle multi-shot cleanly, got:\n{out}"
-    );
+    assert!(ok, "native backend (default yield path) must handle multi-shot cleanly, got:\n{out}");
     assert_eq!(
         final_output_line(&out),
         "\"3\"",

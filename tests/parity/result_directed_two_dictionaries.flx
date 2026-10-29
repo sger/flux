@@ -19,6 +19,11 @@
 // 7
 // "int"
 // "str"
+// parity-expected-stdout-begin
+// 7
+// "int"
+// "str"
+// parity-expected-stdout-end
 
 class Make<a> {
     fn make(tag: Int) -> a

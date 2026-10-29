@@ -9,9 +9,9 @@ error[E472]: Type Constructor Arity Mismatch
 
 Type `Box` expects 1 type argument(s), but 2 were given.
 
-  examples/compiler_errors/kind_invalid_ctor_arity_e472.flx:5:16
+  examples/compiler_errors/kind_invalid_ctor_arity_e472.flx:4:16
   |
-5 | fn take(value: Box<Int, String>) -> Int { 1 }
+4 | fn take(value: Box<Int, String>) -> Int { 1 }
   |                ^^^^^^^^^^^^^^^^
 == stdout ==
 <not executed>

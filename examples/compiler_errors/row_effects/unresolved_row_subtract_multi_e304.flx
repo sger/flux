@@ -1,0 +1,9 @@
+// expect: compile_error
+
+fn unresolved_many(x: Int) -> Int with |e - IO, |t - Time { //~ E304
+    x
+}
+
+fn main() -> Unit {
+    let _ = unresolved_many(1)
+}

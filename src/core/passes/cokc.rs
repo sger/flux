@@ -1,3 +1,4 @@
+use crate::core::{CoreBinder, CoreExpr, CoreLit, CorePat, CoreTag};
 /// Case-of-known-constructor pass.
 ///
 /// Reduces `Case(Con(tag, fields), alts)` and `Case(Lit(l), alts)` when the
@@ -11,18 +12,13 @@
 /// Case(Con(Some, [Lit(42)]), [Con(Some, [Var(x)]) → x])  →  Lit(42)
 /// Case(Lit(true), [Lit(true) → a, Wildcard → b])          →  a
 /// ```
-use crate::core::{CoreBinder, CoreExpr, CoreLit, CorePat, CoreTag};
+use crate::shared::opt_bisect;
 
 use super::helpers::{bind_pattern, map_children};
 
 pub fn case_of_known_constructor(expr: CoreExpr) -> CoreExpr {
     match expr {
-        CoreExpr::Case {
-            scrutinee,
-            alts,
-            join_ty,
-            span,
-        } => {
+        CoreExpr::Case { scrutinee, alts, join_ty, span } => {
             let scrutinee = case_of_known_constructor(*scrutinee);
             let alts: Vec<_> = alts
                 .into_iter()
@@ -38,8 +34,13 @@ pub fn case_of_known_constructor(expr: CoreExpr) -> CoreExpr {
                         if let Some(bindings) = match_con_pat(&alt.pat, tag, fields) {
                             match &alt.guard {
                                 Some(CoreExpr::Lit(CoreLit::Bool(false), _)) => continue,
-                                Some(CoreExpr::Lit(CoreLit::Bool(true), _)) | None => {}
-                                Some(_) => {
+                                // A bisected run past its limit (0190 §13)
+                                // keeps the case, as for an undecided guard.
+                                Some(CoreExpr::Lit(CoreLit::Bool(true), _)) | None
+                                    if opt_bisect::allow("case_of_known_constructor", || {
+                                        "select the arm a known value matches".to_string()
+                                    }) => {}
+                                _ => {
                                     return CoreExpr::Case {
                                         scrutinee: Box::new(scrutinee),
                                         alts,
@@ -66,8 +67,13 @@ pub fn case_of_known_constructor(expr: CoreExpr) -> CoreExpr {
                         if let Some(bindings) = match_lit_pat(&alt.pat, &lit, lit_span) {
                             match &alt.guard {
                                 Some(CoreExpr::Lit(CoreLit::Bool(false), _)) => continue,
-                                Some(CoreExpr::Lit(CoreLit::Bool(true), _)) | None => {}
-                                Some(_) => {
+                                // A bisected run past its limit (0190 §13)
+                                // keeps the case, as for an undecided guard.
+                                Some(CoreExpr::Lit(CoreLit::Bool(true), _)) | None
+                                    if opt_bisect::allow("case_of_known_constructor", || {
+                                        "select the arm a known value matches".to_string()
+                                    }) => {}
+                                _ => {
                                     return CoreExpr::Case {
                                         scrutinee: Box::new(scrutinee),
                                         alts,
@@ -87,12 +93,7 @@ pub fn case_of_known_constructor(expr: CoreExpr) -> CoreExpr {
                         span,
                     }
                 }
-                _ => CoreExpr::Case {
-                    scrutinee: Box::new(scrutinee),
-                    alts,
-                    join_ty,
-                    span,
-                },
+                _ => CoreExpr::Case { scrutinee: Box::new(scrutinee), alts, join_ty, span },
             }
         }
         CoreExpr::Lam { .. }
@@ -122,17 +123,11 @@ fn match_con_pat(
     match pat {
         CorePat::Wildcard => Some(vec![]),
         CorePat::Var(binder) => {
-            let val = CoreExpr::Con {
-                tag: tag.clone(),
-                fields: fields.to_vec(),
-                span: Span::default(),
-            };
+            let val =
+                CoreExpr::Con { tag: tag.clone(), fields: fields.to_vec(), span: Span::default() };
             Some(vec![(*binder, val)])
         }
-        CorePat::Con {
-            tag: pat_tag,
-            fields: pat_fields,
-        } => {
+        CorePat::Con { tag: pat_tag, fields: pat_fields } => {
             if pat_tag != tag || pat_fields.len() != fields.len() {
                 return None;
             }

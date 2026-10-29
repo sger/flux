@@ -60,9 +60,7 @@ pub fn server_capabilities(encoding: PositionEncoding) -> ServerCapabilities {
         })),
         // "▶ Run" / "▶ Run Test" runnables (handlers::code_lens). The command
         // is fully specified by the server, so no lazy `resolve` is needed.
-        code_lens_provider: Some(CodeLensOptions {
-            resolve_provider: Some(false),
-        }),
+        code_lens_provider: Some(CodeLensOptions { resolve_provider: Some(false) }),
         // Clickable `import` module paths (handlers::document_link). Targets are
         // resolved eagerly, so no `documentLink/resolve` is offered.
         document_link_provider: Some(DocumentLinkOptions {
@@ -185,10 +183,7 @@ pub fn server_capabilities_json(encoding: PositionEncoding) -> serde_json::Value
     let mut value = serde_json::to_value(server_capabilities(encoding))
         .unwrap_or_else(|_| serde_json::json!({}));
     if let Some(obj) = value.as_object_mut() {
-        obj.insert(
-            "typeHierarchyProvider".to_string(),
-            serde_json::Value::Bool(true),
-        );
+        obj.insert("typeHierarchyProvider".to_string(), serde_json::Value::Bool(true));
     }
     value
 }
@@ -217,10 +212,7 @@ mod tests {
     #[test]
     fn capabilities_advertise_range_formatting() {
         let value = server_capabilities_json(PositionEncoding::Utf16);
-        assert_eq!(
-            value["documentRangeFormattingProvider"],
-            serde_json::json!(true)
-        );
+        assert_eq!(value["documentRangeFormattingProvider"], serde_json::json!(true));
     }
 
     #[test]
@@ -235,10 +227,7 @@ mod tests {
     fn capabilities_advertise_organize_imports() {
         let value = server_capabilities_json(PositionEncoding::Utf16);
         let kinds = &value["codeActionProvider"]["codeActionKinds"];
-        assert_eq!(
-            kinds,
-            &serde_json::json!(["quickfix", "source.organizeImports"])
-        );
+        assert_eq!(kinds, &serde_json::json!(["quickfix", "source.organizeImports"]));
     }
 
     #[test]
@@ -252,10 +241,7 @@ mod tests {
         let value = server_capabilities_json(PositionEncoding::Utf16);
         let provider = &value["signatureHelpProvider"];
         assert_eq!(provider["triggerCharacters"], serde_json::json!(["(", ","]));
-        assert_eq!(
-            provider["retriggerCharacters"],
-            serde_json::json!([",", ")"])
-        );
+        assert_eq!(provider["retriggerCharacters"], serde_json::json!([",", ")"]));
     }
 
     #[test]
@@ -269,19 +255,13 @@ mod tests {
     #[test]
     fn capabilities_advertise_inlay_hint_resolve() {
         let value = server_capabilities_json(PositionEncoding::Utf16);
-        assert_eq!(
-            value["inlayHintProvider"]["resolveProvider"],
-            serde_json::json!(true)
-        );
+        assert_eq!(value["inlayHintProvider"]["resolveProvider"], serde_json::json!(true));
     }
 
     #[test]
     fn capabilities_advertise_document_links() {
         let value = server_capabilities_json(PositionEncoding::Utf16);
-        assert_eq!(
-            value["documentLinkProvider"]["resolveProvider"],
-            serde_json::json!(false)
-        );
+        assert_eq!(value["documentLinkProvider"]["resolveProvider"], serde_json::json!(false));
     }
 
     #[test]

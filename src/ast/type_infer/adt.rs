@@ -15,13 +15,7 @@ impl<'a> InferCtx<'a> {
     /// This enables constructor references before their textual declaration.
     pub(super) fn predeclare_data_constructors_in_statements(&mut self, statements: &[Statement]) {
         for stmt in statements {
-            if let Statement::Data {
-                name,
-                type_params,
-                variants,
-                ..
-            } = stmt
-            {
+            if let Statement::Data { name, type_params, variants, .. } = stmt {
                 self.register_data_constructors(*name, type_params, variants);
             }
         }
@@ -53,11 +47,7 @@ impl<'a> InferCtx<'a> {
             let ctor_ty = if field_tys.is_empty() {
                 result_ty
             } else {
-                InferType::Fun(
-                    field_tys,
-                    Box::new(result_ty),
-                    InferEffectRow::closed_empty(),
-                )
+                InferType::Fun(field_tys, Box::new(result_ty), InferEffectRow::closed_empty())
             };
             let scheme = generalize(&ctor_ty, &HashSet::new());
             self.env.bind(variant.name, scheme);

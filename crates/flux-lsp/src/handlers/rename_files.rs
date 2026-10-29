@@ -39,10 +39,8 @@ use crate::workspace::Workspace;
 /// rename maps to a module move that any source references.
 pub fn will_rename_files(workspace: &mut Workspace, files: &[FileRename]) -> Option<WorkspaceEdit> {
     // Resolve each rename to an (old dotted name → new dotted name) module move.
-    let mappings: Vec<(String, String)> = files
-        .iter()
-        .filter_map(|f| module_rename(workspace, f))
-        .collect();
+    let mappings: Vec<(String, String)> =
+        files.iter().filter_map(|f| module_rename(workspace, f)).collect();
     if mappings.is_empty() {
         return None;
     }
@@ -111,26 +109,18 @@ fn module_rename(workspace: &mut Workspace, f: &FileRename) -> Option<(String, S
 /// The name of the first `module` a file declares — the module it provides.
 /// `None` for an entry script (no module, hence nothing imports it).
 fn declared_module_name(snapshot: &Snapshot) -> Option<String> {
-    snapshot
-        .program
-        .statements
-        .iter()
-        .find_map(|stmt| match stmt {
-            Statement::Module { name, .. } => {
-                snapshot.interner.try_resolve(*name).map(str::to_string)
-            }
-            _ => None,
-        })
+    snapshot.program.statements.iter().find_map(|stmt| match stmt {
+        Statement::Module { name, .. } => snapshot.interner.try_resolve(*name).map(str::to_string),
+        _ => None,
+    })
 }
 
 /// A path relative to a search root as a dotted module name (`A/B/C.flx` →
 /// `A.B.C`). `None` if any component isn't a valid module segment (`[A-Z][A-Za-z0-9]*`)
 /// — e.g. the file was moved into a lowercase directory, where it can't be a module.
 fn path_to_module_name(rel: &Path) -> Option<String> {
-    let comps: Vec<&str> = rel
-        .components()
-        .map(|c| c.as_os_str().to_str())
-        .collect::<Option<_>>()?;
+    let comps: Vec<&str> =
+        rel.components().map(|c| c.as_os_str().to_str()).collect::<Option<_>>()?;
     let (last, dirs) = comps.split_last()?;
     let stem = last.strip_suffix(".flx")?;
     let mut segments: Vec<&str> = dirs.to_vec();
@@ -160,10 +150,7 @@ fn collect_file_edits(
     out: &mut Vec<TextEdit>,
 ) {
     let interner = &snapshot.interner;
-    let rewrite = |range: Range| TextEdit {
-        range,
-        new_text: new_name.to_string(),
-    };
+    let rewrite = |range: Range| TextEdit { range, new_text: new_name.to_string() };
 
     for stmt in &snapshot.program.statements {
         match stmt {
@@ -220,11 +207,7 @@ fn name_range(
     let rel = slice.get(after..)?.find(name)? + after;
     let name_start = start + rel;
     Some(Range {
-        start: snapshot
-            .position_map
-            .offset_to_lsp(TextSize::from(name_start as u32)),
-        end: snapshot
-            .position_map
-            .offset_to_lsp(TextSize::from((name_start + name.len()) as u32)),
+        start: snapshot.position_map.offset_to_lsp(TextSize::from(name_start as u32)),
+        end: snapshot.position_map.offset_to_lsp(TextSize::from((name_start + name.len()) as u32)),
     })
 }

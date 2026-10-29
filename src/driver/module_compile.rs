@@ -31,10 +31,7 @@ pub(crate) struct ModuleBuildState {
 
 pub(crate) fn program_has_user_adt_declarations(program: &Program) -> bool {
     fn block_has_user_adt_declarations(block: &flux::syntax::block::Block) -> bool {
-        block
-            .statements
-            .iter()
-            .any(statement_has_user_adt_declarations)
+        block.statements.iter().any(statement_has_user_adt_declarations)
     }
 
     fn statement_has_user_adt_declarations(statement: &flux::syntax::statement::Statement) -> bool {
@@ -47,10 +44,7 @@ pub(crate) fn program_has_user_adt_declarations(program: &Program) -> bool {
         }
     }
 
-    program
-        .statements
-        .iter()
-        .any(statement_has_user_adt_declarations)
+    program.statements.iter().any(statement_has_user_adt_declarations)
 }
 
 pub(crate) fn tag_module_diagnostics(
@@ -76,10 +70,8 @@ pub(crate) fn build_module_compiler(
     is_entry_module: bool,
 ) -> Compiler {
     let strict_mode = effective_module_strictness(node.kind, entry_module_kind, strict_mode);
-    let mut compiler = Compiler::new_with_interner(
-        node.path.to_string_lossy().to_string(),
-        base_interner.clone(),
-    );
+    let mut compiler =
+        Compiler::new_with_interner(node.path.to_string_lossy().to_string(), base_interner.clone());
     compiler.set_current_module_kind(node.kind);
     compiler.set_strict_require_main(is_entry_module);
     compiler.set_strict_mode(strict_mode);
@@ -179,11 +171,7 @@ pub(crate) fn replay_module_diagnostics(request: ModuleReplayRequest<'_>) -> Vec
         request.enable_analyze,
     );
     let mut diagnostics = compiler.take_warnings();
-    tag_module_diagnostics(
-        &mut diagnostics,
-        DiagnosticPhase::Validation,
-        &request.node.path,
-    );
+    tag_module_diagnostics(&mut diagnostics, DiagnosticPhase::Validation, &request.node.path);
     if let Err(mut diags) = compile_result {
         tag_module_diagnostics(&mut diags, DiagnosticPhase::TypeCheck, &request.node.path);
         diagnostics.extend(diags);

@@ -10,11 +10,7 @@ fn run(input: &str) -> Value {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<unknown>", interner);
     compiler
@@ -29,11 +25,7 @@ fn compile(input: &str) -> flux::bytecode::bytecode::Bytecode {
     let lexer = Lexer::new(input);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     let mut compiler = Compiler::new_with_interner("<unknown>", interner);
     compiler
@@ -350,10 +342,7 @@ fn test_does_not_consume_captured_accumulator_parameter() {
 
     let bytecode = compile(input);
     let asm = find_function_disassembly(&bytecode, 2);
-    assert!(
-        !asm.contains("OpConsumeLocal1"),
-        "unexpected consume:\n{asm}"
-    );
+    assert!(!asm.contains("OpConsumeLocal1"), "unexpected consume:\n{asm}");
     assert!(asm.contains("OpGetLocal"));
 }
 
@@ -408,10 +397,7 @@ fn test_block_level_does_not_consume_repeated_local_reads() {
 
     let bytecode = compile(input);
     let asm = find_function_disassembly(&bytecode, 1);
-    assert!(
-        !asm.contains("OpConsumeLocal"),
-        "unexpected consume:\n{asm}"
-    );
+    assert!(!asm.contains("OpConsumeLocal"), "unexpected consume:\n{asm}");
     assert!(
         asm.contains("OpGetLocal0") || asm.contains("OpAddLocals"),
         "missing ordinary local read:\n{asm}"

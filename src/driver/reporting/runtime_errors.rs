@@ -16,9 +16,7 @@ struct NativeTraceFrame {
 
 #[cfg(feature = "llvm")]
 pub(crate) fn split_native_panic_message(stderr: &str) -> Option<&str> {
-    stderr
-        .lines()
-        .find_map(|line| line.strip_prefix("panic: ").map(str::trim))
+    stderr.lines().find_map(|line| line.strip_prefix("panic: ").map(str::trim))
 }
 
 /// The frames of the trace a native program printed (0188 S10a): `at name
@@ -65,12 +63,10 @@ fn parse_native_trace_frames(stderr: &str) -> Vec<NativeTraceFrame> {
 /// did not open.
 #[cfg(feature = "llvm")]
 fn expression_span(path: &str, span: Span) -> Span {
-    let Some(text) = std::fs::read_to_string(path).ok().and_then(|source| {
-        source
-            .lines()
-            .nth(span.start.line.checked_sub(1)?)
-            .map(str::to_string)
-    }) else {
+    let Some(text) = std::fs::read_to_string(path)
+        .ok()
+        .and_then(|source| source.lines().nth(span.start.line.checked_sub(1)?).map(str::to_string))
+    else {
         return span;
     };
     let Some(rest) = text.get(span.start.column..) else {
@@ -102,20 +98,15 @@ fn expression_span(path: &str, span: Span) -> Span {
 #[cfg(feature = "llvm")]
 fn traced_span(path: &str, frames: &[NativeTraceFrame]) -> Option<Span> {
     let frame = frames.first()?;
-    if !frame
-        .file
-        .as_deref()
-        .is_some_and(|file| same_file(file, path))
-    {
+    if !frame.file.as_deref().is_some_and(|file| same_file(file, path)) {
         return None;
     }
     let (line, column) = (frame.line?, frame.column?.checked_sub(1)?);
     let source = std::fs::read_to_string(path).ok()?;
     let text = source.lines().nth(line.checked_sub(1)?)?;
     let rest = text.get(column..)?;
-    let name = rest
-        .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '.'))
-        .unwrap_or(rest.len());
+    let name =
+        rest.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '.')).unwrap_or(rest.len());
     if name == 0 || !rest[name..].starts_with('(') {
         return None;
     }
@@ -136,10 +127,7 @@ fn traced_span(path: &str, frames: &[NativeTraceFrame]) -> Option<Span> {
             }
         }
     }
-    Some(Span::new(
-        Position::new(line, column),
-        Position::new(line, end),
-    ))
+    Some(Span::new(Position::new(line, column), Position::new(line, end)))
 }
 
 /// Whether `file`, as a native program's line table names it, is `path`.
@@ -171,13 +159,7 @@ fn split_native_panic_message_and_span(stderr: &str) -> Option<(&str, Option<Spa
         return Some((message, None));
     }
     let column = column_1_based - 1;
-    Some((
-        base,
-        Some(Span::new(
-            Position::new(line, column),
-            Position::new(line, column + 1),
-        )),
-    ))
+    Some((base, Some(Span::new(Position::new(line, column), Position::new(line, column + 1)))))
 }
 
 #[cfg(feature = "llvm")]
@@ -189,11 +171,7 @@ fn infer_native_runtime_span(path: &str, message: &str, frames: &[NativeTraceFra
     let preferred_line = frames
         .first()
         .and_then(|frame| {
-            frame
-                .file
-                .as_deref()
-                .filter(|file| same_file(file, path))
-                .and(frame.line)
+            frame.file.as_deref().filter(|file| same_file(file, path)).and(frame.line)
         })
         .filter(|line| *line > 0);
 
@@ -208,10 +186,7 @@ fn infer_native_runtime_span(path: &str, message: &str, frames: &[NativeTraceFra
             {
                 end = col + close_off + 1;
             }
-            return Some(Span::new(
-                Position::new(line_no, col),
-                Position::new(line_no, end),
-            ));
+            return Some(Span::new(Position::new(line_no, col), Position::new(line_no, end)));
         }
         for (idx, line) in lines.iter().enumerate() {
             if let Some(col) = line.find(needle) {
@@ -221,10 +196,7 @@ fn infer_native_runtime_span(path: &str, message: &str, frames: &[NativeTraceFra
                 {
                     end = col + close_off + 1;
                 }
-                return Some(Span::new(
-                    Position::new(idx + 1, col),
-                    Position::new(idx + 1, end),
-                ));
+                return Some(Span::new(Position::new(idx + 1, col), Position::new(idx + 1, end)));
             }
         }
         None
@@ -234,15 +206,9 @@ fn infer_native_runtime_span(path: &str, message: &str, frames: &[NativeTraceFra
             && let Some(line) = lines.get(line_no.saturating_sub(1))
             && let Some(op_col) = line.find(operator)
         {
-            let start = line
-                .chars()
-                .position(|c| !c.is_whitespace())
-                .unwrap_or(op_col);
+            let start = line.chars().position(|c| !c.is_whitespace()).unwrap_or(op_col);
             let end = line.trim_end().trim_end_matches(';').len();
-            return Some(Span::new(
-                Position::new(line_no, start),
-                Position::new(line_no, end),
-            ));
+            return Some(Span::new(Position::new(line_no, start), Position::new(line_no, end)));
         }
         for (idx, line) in lines.iter().enumerate() {
             if let Some(op_col) = line.find(operator) {
@@ -255,15 +221,10 @@ fn infer_native_runtime_span(path: &str, message: &str, frames: &[NativeTraceFra
                             .map(|off| eq_col + 1 + off)
                     })
                     .unwrap_or_else(|| {
-                        line.chars()
-                            .position(|c| !c.is_whitespace())
-                            .unwrap_or(op_col)
+                        line.chars().position(|c| !c.is_whitespace()).unwrap_or(op_col)
                     });
                 let end = line.trim_end().trim_end_matches(';').len();
-                return Some(Span::new(
-                    Position::new(idx + 1, start),
-                    Position::new(idx + 1, end),
-                ));
+                return Some(Span::new(Position::new(idx + 1, start), Position::new(idx + 1, end)));
             }
         }
         None
@@ -298,10 +259,7 @@ fn infer_native_runtime_span(path: &str, message: &str, frames: &[NativeTraceFra
                         break;
                     }
                 }
-                let end = line[open..]
-                    .find(')')
-                    .map(|off| open + off + 1)
-                    .unwrap_or(open + 1);
+                let end = line[open..].find(')').map(|off| open + off + 1).unwrap_or(open + 1);
                 return Span::new(Position::new(idx + 1, start), Position::new(idx + 1, end));
             }
         }
@@ -354,29 +312,14 @@ pub fn render_native_runtime_error(path: &str, stderr: &str) -> Option<String> {
             .and_then(|s| s.split(')').next())
             .map(|s| s.trim_end_matches('.'))
             .unwrap_or("Unknown");
-        Diagnostic::make_error(
-            &diagnostics::NOT_A_FUNCTION,
-            &[actual],
-            path.to_string(),
-            span,
-        )
-        .with_phase(DiagnosticPhase::Runtime)
+        Diagnostic::make_error(&diagnostics::NOT_A_FUNCTION, &[actual], path.to_string(), span)
+            .with_phase(DiagnosticPhase::Runtime)
     } else if message.contains("Division by zero") {
-        Diagnostic::make_error(
-            &diagnostics::DIVISION_BY_ZERO_RUNTIME,
-            &[],
-            path.to_string(),
-            span,
-        )
-        .with_phase(DiagnosticPhase::Runtime)
+        Diagnostic::make_error(&diagnostics::DIVISION_BY_ZERO_RUNTIME, &[], path.to_string(), span)
+            .with_phase(DiagnosticPhase::Runtime)
     } else if message.contains("modulo by zero") {
-        Diagnostic::make_error(
-            &diagnostics::MODULO_BY_ZERO_RUNTIME,
-            &[],
-            path.to_string(),
-            span,
-        )
-        .with_phase(DiagnosticPhase::Runtime)
+        Diagnostic::make_error(&diagnostics::MODULO_BY_ZERO_RUNTIME, &[], path.to_string(), span)
+            .with_phase(DiagnosticPhase::Runtime)
     } else if let Some(rest) = message.strip_prefix("Cannot ")
         && let Some((op, tail)) = rest.split_once(' ')
         && let Some((lhs, rhs_tail)) = tail.split_once(" and ")
@@ -423,11 +366,7 @@ pub fn render_native_runtime_error(path: &str, stderr: &str) -> Option<String> {
                         span.start.column + 1
                     )
                 } else if let (Some(file), Some(line)) = (&frame.file, frame.line) {
-                    let file = if same_file(file, path) {
-                        path
-                    } else {
-                        file.as_str()
-                    };
+                    let file = if same_file(file, path) { path } else { file.as_str() };
                     format!(
                         "{} ({}:{}:{})",
                         frame.name,
@@ -443,12 +382,7 @@ pub fn render_native_runtime_error(path: &str, stderr: &str) -> Option<String> {
     } else {
         Vec::new()
     };
-    Some(render_runtime_diagnostic(
-        &diag,
-        path,
-        source.as_deref(),
-        &stack_frames,
-    ))
+    Some(render_runtime_diagnostic(&diag, path, source.as_deref(), &stack_frames))
 }
 
 #[cfg(not(feature = "llvm"))]

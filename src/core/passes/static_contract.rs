@@ -98,9 +98,9 @@ fn find_unbound_var(
         CoreType::Either(l, r) | CoreType::Map(l, r) => {
             find_unbound_var(l, bound, def, span).or_else(|| find_unbound_var(r, bound, def, span))
         }
-        CoreType::Tuple(items) | CoreType::Adt(_, items) => items
-            .iter()
-            .find_map(|t| find_unbound_var(t, bound, def, span)),
+        CoreType::Tuple(items) | CoreType::Adt(_, items) => {
+            items.iter().find_map(|t| find_unbound_var(t, bound, def, span))
+        }
         CoreType::Function(params, ret) => params
             .iter()
             .find_map(|t| find_unbound_var(t, bound, def, span))
@@ -180,10 +180,7 @@ mod tests {
     }
 
     fn make_program(defs: Vec<CoreDef>) -> CoreProgram {
-        CoreProgram {
-            defs,
-            top_level_items: Vec::new(),
-        }
+        CoreProgram { defs, top_level_items: Vec::new() }
     }
 
     #[test]
@@ -202,10 +199,7 @@ mod tests {
         let v: TypeVarId = 42;
         let ty = CoreType::Forall(
             vec![v],
-            Box::new(CoreType::Function(
-                vec![CoreType::Var(v)],
-                Box::new(CoreType::Var(v)),
-            )),
+            Box::new(CoreType::Function(vec![CoreType::Var(v)], Box::new(CoreType::Var(v)))),
         );
         let prog = make_program(vec![make_def(name, Some(ty))]);
         let report = validate_core_static_contract(&prog, &interner);

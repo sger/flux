@@ -1,0 +1,19 @@
+// 0189 V7: the value map_set stores, then given to a call that releases it.
+// It calls the primop by its bare name: through the Flow wrapper the
+// argument is never released (KI-121), which hides this.
+
+fn list(n) {
+    [n, n + 1]
+}
+
+fn discard(xs, keep) {
+    if keep { xs } else { [] }
+}
+
+fn main() {
+    let v = list(1)
+    let m = map_set({}, "k", v)
+    let d = discard(v, false)
+    print(map_get(m, "k"))
+    print(d)
+}

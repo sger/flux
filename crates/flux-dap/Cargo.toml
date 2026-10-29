@@ -10,6 +10,9 @@ description = "Debug Adapter Protocol server for the Flux language."
 name = "flux-dap"
 path = "src/main.rs"
 
+[lints]
+workspace = true
+
 [dependencies]
 flux = { path = "../..", default-features = false }
 serde = { version = "1.0", features = ["derive"] }

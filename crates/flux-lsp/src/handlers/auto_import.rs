@@ -182,10 +182,7 @@ pub fn missing_import_diagnostics(
                 continue;
             }
             if seen.insert((span.start.line, span.start.column)) {
-                findings.push(MissingImport {
-                    span,
-                    name: prefix.clone(),
-                });
+                findings.push(MissingImport { span, name: prefix.clone() });
             }
             break;
         }
@@ -212,15 +209,10 @@ pub fn missing_import_diagnostics(
 /// anything that is not a bare identifier / member-access chain.
 fn flatten_path(expr: &Expression, interner: &Interner) -> Option<Vec<(String, FluxSpan)>> {
     match expr {
-        Expression::Identifier { name, span, .. } => interner
-            .try_resolve(*name)
-            .map(|s| vec![(s.to_string(), *span)]),
-        Expression::MemberAccess {
-            object,
-            member,
-            span,
-            ..
-        } => {
+        Expression::Identifier { name, span, .. } => {
+            interner.try_resolve(*name).map(|s| vec![(s.to_string(), *span)])
+        }
+        Expression::MemberAccess { object, member, span, .. } => {
             let mut base = flatten_path(object, interner)?;
             let seg = interner.try_resolve(*member)?;
             let prev = base.last()?.0.clone();
@@ -271,12 +263,7 @@ fn collect_paths_expr(
             recurse(left);
             recurse(right);
         }
-        Expression::If {
-            condition,
-            consequence,
-            alternative,
-            ..
-        } => {
+        Expression::If { condition, consequence, alternative, .. } => {
             recurse(condition);
             for stmt in &consequence.statements {
                 collect_paths_stmt(stmt, interner, out);
@@ -292,11 +279,7 @@ fn collect_paths_expr(
                 collect_paths_stmt(stmt, interner, out);
             }
         }
-        Expression::Call {
-            function,
-            arguments,
-            ..
-        } => {
+        Expression::Call { function, arguments, .. } => {
             recurse(function);
             for a in arguments {
                 recurse(a);
@@ -323,9 +306,7 @@ fn collect_paths_expr(
         Expression::MemberAccess { object, .. } | Expression::TupleFieldAccess { object, .. } => {
             recurse(object)
         }
-        Expression::Match {
-            scrutinee, arms, ..
-        } => {
+        Expression::Match { scrutinee, arms, .. } => {
             recurse(scrutinee);
             for arm in arms {
                 if let Some(g) = &arm.guard {
@@ -346,12 +327,7 @@ fn collect_paths_expr(
                 recurse(a);
             }
         }
-        Expression::Handle {
-            expr,
-            parameter,
-            arms,
-            ..
-        } => {
+        Expression::Handle { expr, parameter, arms, .. } => {
             recurse(expr);
             if let Some(p) = parameter {
                 recurse(p);
@@ -368,9 +344,7 @@ fn collect_paths_expr(
                 }
             }
         }
-        Expression::Spread {
-            base, overrides, ..
-        } => {
+        Expression::Spread { base, overrides, .. } => {
             recurse(base);
             for field in overrides {
                 if let Some(v) = &field.value {
@@ -412,18 +386,8 @@ pub(crate) fn import_edit_for(
         format!("import {full_name} as {ref_name}")
     };
     let insertion = import_insertion(snapshot);
-    let new_text = if insertion.after_existing {
-        format!("\n{body}")
-    } else {
-        format!("{body}\n")
-    };
-    Some(TextEdit {
-        range: Range {
-            start: insertion.position,
-            end: insertion.position,
-        },
-        new_text,
-    })
+    let new_text = if insertion.after_existing { format!("\n{body}") } else { format!("{body}\n") };
+    Some(TextEdit { range: Range { start: insertion.position, end: insertion.position }, new_text })
 }
 
 /// Where a new `import` line should go and the text framing it: after the
@@ -449,13 +413,7 @@ fn import_insertion(snapshot: &Snapshot) -> Insertion {
             position: snapshot.position_map.flux_span_to_range(span).end,
             after_existing: true,
         },
-        None => Insertion {
-            position: Position {
-                line: 0,
-                character: 0,
-            },
-            after_existing: false,
-        },
+        None => Insertion { position: Position { line: 0, character: 0 }, after_existing: false },
     }
 }
 
@@ -477,10 +435,7 @@ fn import_action(uri: &Uri, body: &str, insertion: Insertion) -> CodeActionOrCom
                 version: None,
             },
             edits: vec![OneOf::Left(TextEdit {
-                range: Range {
-                    start: insertion.position,
-                    end: insertion.position,
-                },
+                range: Range { start: insertion.position, end: insertion.position },
                 new_text,
             })],
         }])),
@@ -639,9 +594,7 @@ fn module_path_string(expr: &Expression, interner: &Interner) -> Option<String> 
 
 fn span_size(span: FluxSpan) -> u64 {
     let lines = span.end.line.saturating_sub(span.start.line) as u64;
-    lines
-        .saturating_mul(1_000_000)
-        .saturating_add(span.end.column as u64)
+    lines.saturating_mul(1_000_000).saturating_add(span.end.column as u64)
 }
 
 fn walk_block(
@@ -687,12 +640,7 @@ fn walk_expr(
             walk_expr(left, interner, target, best);
             walk_expr(right, interner, target, best);
         }
-        Expression::If {
-            condition,
-            consequence,
-            alternative,
-            ..
-        } => {
+        Expression::If { condition, consequence, alternative, .. } => {
             walk_expr(condition, interner, target, best);
             walk_block(consequence, interner, target, best);
             if let Some(alt) = alternative {
@@ -702,11 +650,7 @@ fn walk_expr(
         Expression::DoBlock { block, .. } | Expression::Function { body: block, .. } => {
             walk_block(block, interner, target, best)
         }
-        Expression::Call {
-            function,
-            arguments,
-            ..
-        } => {
+        Expression::Call { function, arguments, .. } => {
             walk_expr(function, interner, target, best);
             for a in arguments {
                 walk_expr(a, interner, target, best);
@@ -731,9 +675,7 @@ fn walk_expr(
         }
         Expression::MemberAccess { object, .. } => walk_expr(object, interner, target, best),
         Expression::TupleFieldAccess { object, .. } => walk_expr(object, interner, target, best),
-        Expression::Match {
-            scrutinee, arms, ..
-        } => {
+        Expression::Match { scrutinee, arms, .. } => {
             walk_expr(scrutinee, interner, target, best);
             for arm in arms {
                 if let Some(g) = &arm.guard {
@@ -754,12 +696,7 @@ fn walk_expr(
                 walk_expr(a, interner, target, best);
             }
         }
-        Expression::Handle {
-            expr,
-            parameter,
-            arms,
-            ..
-        } => {
+        Expression::Handle { expr, parameter, arms, .. } => {
             walk_expr(expr, interner, target, best);
             if let Some(p) = parameter {
                 walk_expr(p, interner, target, best);
@@ -776,9 +713,7 @@ fn walk_expr(
                 }
             }
         }
-        Expression::Spread {
-            base, overrides, ..
-        } => {
+        Expression::Spread { base, overrides, .. } => {
             walk_expr(base, interner, target, best);
             for field in overrides {
                 if let Some(v) = &field.value {

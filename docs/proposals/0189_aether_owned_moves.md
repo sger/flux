@@ -30,6 +30,22 @@ each one into a use after free. The work is therefore done in six steps,
 ordered so that every step before the one that removes the copy can only add
 leaks, never crashes. The debug heap (0188 S10c) checks each step.
 
+**Where the tree is (2026-10-21).**
+- The copy is already gone. 0190 S15 removed `dup_owned_call_args` for Flux
+  calls and for C primops (8e7000c9, KI-120), ahead of F3-1 to F3-3.
+- One hazard below was live on that commit (V6). A Flux function returns an
+  array element, the array is then given to a call that releases it, and the
+  element reads as freed memory (`fn get0(a) { a[0] }`, then `discard(a)`).
+  F3-1 adds that program as its failing test. The `owned_moves` fixture
+  `array_element_outlives_array.flx` is a different shape and passes today.
+- The other hazards stay hidden only because native code still leaks the
+  values that would expose them (KI-119, KI-121).
+- A second pin exists: the native match copies every field a constructor
+  arm binds (`emit_match_ctor`, `src/lir/emit_llvm.rs`), and nothing
+  releases those copies.
+
+The steps below are ordered around these facts.
+
 ## Motivation
 [motivation]: #motivation
 
@@ -85,6 +101,22 @@ F3-0 fixtures confirm each before it is fixed.
 | V5 | Globals and dictionaries | `plan_var` emits no copy for a binder not in scope; one closure is cached per block (`src/lir/lower.rs:1663`) | a global list passed to an owned parameter twice is released twice |
 | V6 | Results from the C runtime | `flux_array_at`, `flux_array_get` (`runtime/c/array.c:103`, `:116`), `flux_hamt_get` (`runtime/c/hamt.c:424`), `flux_wrap_some`, `flux_unwrap`, `flux_unwrap_or`, `flux_ho_find` (`runtime/c/flux_rt.c`) return values without counting them; `set`, `push`, `concat` and `slice` copy elements with `memcpy` (`array.c:127-155`) | a value taken from an array or map and passed on is released while the collection still holds it |
 | V7 | Owned C primops | `ArrayPush` and `ArrayConcat` take their source owned but never release it | without the pin, the source is freed while the new array still shares its elements |
+
+**Corrections, from reading the tree for F3-0:**
+- **V2 and V4.** Captures are counted when they are stored:
+  `flux_make_closure` retains them, continuations included. What goes wrong
+  is that the closure's one reference is consumed on every call or resume.
+- **V5.** Natively, a top-level value is lowered afresh at each use. The one
+  shared reference is the closure a function used as a value gets, cached
+  per block (`func_closure_in_block`, `src/lir/lower.rs`). Planning a `dup`
+  of a global does not work: LIR lowering looks the binder up before it is
+  bound.
+- **V7.** Primop nodes lend all their arguments. So `push`, `concat`, `set`
+  and a map's `set` store values and share elements that the caller still
+  holds and will release. The runtime has to count both.
+- **V1.** It is real only where a match loads fields without the match-time
+  copy: guarded arms, single-arm matches, arms with refutable field checks,
+  and nested sub-patterns.
 
 **Already sound:**
 - C higher-order functions copy before calling a closure (`call1`/`call2` in
@@ -175,15 +207,18 @@ every step can only add references, so at worst it leaks.
 
 | Step | Change | Can it crash? |
 |---|---|---|
-| F3-0 | **Oracles.** Allocation and free counts on the debug heap (`FLUX_HEAP_STATS=1` prints them at exit; every block goes through the debug allocator, so the counts are exact). Fixtures: a moved capture called twice (V2), a multi-shot handler moving a list after `perform` (V4), values from an array and a map passed on (V6), a global passed owned twice (V5), a shared parent (V1), linear FBIP. | no change |
-| F3-1 | **The C runtime counts what it returns and shares** (V6, V7): copy the value in `array_get`/`array_at`, `hamt_get`, `wrap_some`'s callers, `unwrap`/`unwrap_or` and `ho_find`, and the elements `set`/`push`/`concat`/`slice` share. | leaks only |
-| F3-2 | **Views are copied before an owned use** (V1–V5): rule 3 in `plan_var`; captures and handler values planned as lent; a copy for out-of-scope binders; continuations copy their captures on entry. | leaks only |
+| F3-0 | **Oracles.** Allocation and free counts on the debug heap (`FLUX_HEAP_STATS=1` prints them at exit; every block goes through the debug allocator, so the counts are exact). Fixtures: a moved capture called twice (V2), a multi-shot handler moving a list after `perform` (V4), values from an array and a map passed on (V6), elements shared by `push` and `concat` (V7), a shared parent (V1), linear FBIP. No V5 fixture: as written, V5 does not occur natively (see the corrections); F3-2c adds one for the cached closure. | no change |
+| F3-1 | **The C runtime counts what it returns and shares** (V6, V7). Copy the value `array_get`, `hamt_get_option`, `flux_rt_index` (tuples and lists) and `unwrap` hand out; the elements `set`, `push`, `concat`, `slice` and `reverse` share, and the value `set` and `push` store; the key and value `hamt_set` stores; what `hamt_keys` and `hamt_values` collect; and an argument handed back unchanged (`set` out of range or given something other than an array, `reverse` of an empty array, `replace` with nothing to replace, `string_concat`, `hamt_delete` of a missing key, `hamt_merge` with an empty map). The raw views `array_at` and `hamt_get` stay uncounted for the runtime's own use, and `unwrap_or`, `ho_find` and the sorts are not reached from LIR; nor is `reverse`, which is counted anyway and has no fixture. Fixtures call the bare primops (`array_push`, `map_set`, …), since the `Flow` wrappers leak their argument (KI-121) and that hides V7. | fixes a live use after free (V6, through `Index`) |
+| F3-2 | **Views are copied before an owned use** (V1–V5): rule 3 in `plan_var`; captures and handler values planned as lent; a copy for out-of-scope binders; continuations copy their captures on entry. Landed so far: F3-2.0, the `ViewConsumed` check under `FLUX_AETHER_VERIFY=1` (101 on `verify_aether.flx`); F3-2a, pattern fields and `let x = t.i` are views, copied before an owned use and never released (a dead `let x = t.0` used to release the field), and a bare `t.i` given away is copied through a temporary. Since drop_spec now splits more arms, its unique path also looks for a reuse past a `let` (`forwarded_child` kept its reuse), and `MissedReuse` no longer looks at the shared path. F3-2b, a capture is lent inside its lambda, and a handler clause's `resume`, arguments and state inside the clause (a local loop no longer releases itself, a closure returning its capture copies it); the unique-path reuse fallback is kept only when it releases the cell nowhere, since an arm that does not reuse it still owns its fields. A clause's outer captures are not lent yet. | leaks only |
 | F3-3 | **Arms claim their value:** the claim in `insert.rs`; the shared path keeps its drop; the LIR rewrites a claimed cell in place unconditionally (`claimed_tokens`); the verifier's single-release check counts the shared side's drop, and a new `ViewConsumed` check is added; fbip statistics are taken from the unique body. | leaks only (the pin still holds) |
-| F3-4 | **The pin goes:** `dup_owned_call_args` is removed for Flux calls (`lower.rs:3773`, `:3821`); C primops keep theirs (`:3759`) until F3-5. A LIR safety net copies an owned argument that is a field, member or global read. `CACHE_EPOCH` goes to 79. | this is the step the oracles exist for |
-| F3-5 | **The remaining leaks:** free the cell on a unique path that does not reuse it (a new `flux_free_shell`, debug-heap aware); drop unused fields at the unique path's entry; `push`/`concat` consume their source, so the C primop pin goes too. | no |
+| F3-4 | **The match-time pin goes:** `emit_match_ctor` no longer copies the fields an arm binds, now that the planner copies every field it uses (F3-2). A LIR safety net copies an owned argument that is a field, member or global read. (Removing `dup_owned_call_args` was done early, in 8e7000c9.) Before the pin goes: drop_spec's unique path must keep a copy for a nested field and for each use after the first; and a field's copy must run before its cell's release, which today comes first at the head of the arm (safe only through drop_spec's shared path or the pin). | this is the step the oracles exist for |
+| F3-5 | **The remaining leaks:** free the cell on a unique path that does not reuse it (a new `flux_free_shell`, debug-heap aware); drop unused fields at the unique path's entry; release the matched cell on the shared path, which `rewrite_mode` strips the drop from in both modes; `push`/`concat` may consume their source instead of copying its elements (optional since the primop pin is gone). | no |
 
 ### Checks at every step
 
+- **Counts:** `FLUX_HEAP_STATS=1` makes the debug heap print
+  `heap: allocs=N frees=N live=N` at exit. Until F3-4, a step leaves `allocs`
+  the same, and `frees` may only go down.
 - **Debug heap vs VM:** the debug heap, plain native and the VM print the same
   over:
   - `tests/native_llvm/debug_heap/*`;

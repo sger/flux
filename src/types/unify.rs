@@ -20,14 +20,7 @@ use crate::{
 pub fn unify(t1: &InferType, t2: &InferType) -> Result<TypeSubst, UnifyError> {
     let mut fresh_row_var = 0;
     let empty: HashSet<TypeVarId> = HashSet::new();
-    unify_core(
-        t1,
-        t2,
-        &TypeSubst::empty(),
-        Span::default(),
-        &mut fresh_row_var,
-        &empty,
-    )
+    unify_core(t1, t2, &TypeSubst::empty(), Span::default(), &mut fresh_row_var, &empty)
 }
 
 /// Unify with an explicit source span for error reporting.
@@ -38,14 +31,7 @@ pub fn unify_with_span(
 ) -> Result<TypeSubst, UnifyError> {
     let mut fresh_row_var = 0;
     let empty: HashSet<TypeVarId> = HashSet::new();
-    unify_core(
-        t1,
-        t2,
-        &TypeSubst::empty(),
-        span,
-        &mut fresh_row_var,
-        &empty,
-    )
+    unify_core(t1, t2, &TypeSubst::empty(), span, &mut fresh_row_var, &empty)
 }
 
 /// Follow variable chains in a substitution to resolve the head constructor.
@@ -171,10 +157,7 @@ pub fn unify_core(
             expected_head.clone(),
             actual_head.clone(),
             span,
-            UnifyErrorDetail::FunArityMismatch {
-                expected: params1.len(),
-                actual: params2.len(),
-            },
+            UnifyErrorDetail::FunArityMismatch { expected: params1.len(), actual: params2.len() },
         )),
 
         // Tuple types: same length
@@ -189,14 +172,10 @@ pub fn unify_core(
             let head_subst = unify_core(h1, h2, ctx_subst, span, fresh_row_var, skolems)?;
             let combined = ctx_subst.clone().compose(&head_subst);
             let mut result = head_subst;
-            let applied_args1: Vec<InferType> = args1
-                .iter()
-                .map(|a| a.apply_type_subst(&combined))
-                .collect();
-            let applied_args2: Vec<InferType> = args2
-                .iter()
-                .map(|a| a.apply_type_subst(&combined))
-                .collect();
+            let applied_args1: Vec<InferType> =
+                args1.iter().map(|a| a.apply_type_subst(&combined)).collect();
+            let applied_args2: Vec<InferType> =
+                args2.iter().map(|a| a.apply_type_subst(&combined)).collect();
             let args_subst = unify_many(
                 &applied_args1,
                 &applied_args2,
@@ -222,24 +201,17 @@ pub fn unify_core(
             let applied_head = if leading == 0 {
                 InferType::Con(tc.clone())
             } else {
-                InferType::HktApp(
-                    Box::new(InferType::Con(tc.clone())),
-                    args2[..leading].to_vec(),
-                )
+                InferType::HktApp(Box::new(InferType::Con(tc.clone())), args2[..leading].to_vec())
             };
             let args2 = &args2[leading..];
             let head_subst =
                 unify_core(head, &applied_head, ctx_subst, span, fresh_row_var, skolems)?;
             let combined = ctx_subst.clone().compose(&head_subst);
             let mut result = head_subst;
-            let applied_args1: Vec<InferType> = args1
-                .iter()
-                .map(|a| a.apply_type_subst(&combined))
-                .collect();
-            let applied_args2: Vec<InferType> = args2
-                .iter()
-                .map(|a| a.apply_type_subst(&combined))
-                .collect();
+            let applied_args1: Vec<InferType> =
+                args1.iter().map(|a| a.apply_type_subst(&combined)).collect();
+            let applied_args2: Vec<InferType> =
+                args2.iter().map(|a| a.apply_type_subst(&combined)).collect();
             let args_subst = unify_many(
                 &applied_args1,
                 &applied_args2,
@@ -310,34 +282,32 @@ fn unify_fun_types(
         let p2_sub = p2.apply_type_subst(&subst);
         let s =
             unify_core(&p1_sub, &p2_sub, ctx_subst, span, fresh_row_var, skolems).map_err(|e| {
-                UnifyError::mismatch(
-                    e.expected,
-                    e.actual,
-                    e.span,
-                    UnifyErrorDetail::FunParamMismatch { index },
-                )
+                let detail = UnifyErrorDetail::FunParamMismatch { index };
+                if e.effect_row {
+                    // The rows alone, dressed as `() -> Unit with …`, would
+                    // misstate the parameter; report the whole parameter types.
+                    UnifyError {
+                        effect_row: true,
+                        ..UnifyError::mismatch(
+                            p1_sub.apply_type_subst(ctx_subst),
+                            p2_sub.apply_type_subst(ctx_subst),
+                            e.span,
+                            detail,
+                        )
+                    }
+                } else {
+                    UnifyError::mismatch(e.expected, e.actual, e.span, detail)
+                }
             })?;
         subst = subst.compose(&s);
     }
 
     let ret1_sub = ret1.apply_type_subst(&subst);
     let ret2_sub = ret2.apply_type_subst(&subst);
-    let s2 = unify_core(
-        &ret1_sub,
-        &ret2_sub,
-        ctx_subst,
-        span,
-        fresh_row_var,
-        skolems,
-    )
-    .map_err(|e| {
-        UnifyError::mismatch(
-            e.expected,
-            e.actual,
-            e.span,
-            UnifyErrorDetail::FunReturnMismatch,
-        )
-    })?;
+    let s2 =
+        unify_core(&ret1_sub, &ret2_sub, ctx_subst, span, fresh_row_var, skolems).map_err(|e| {
+            UnifyError::mismatch(e.expected, e.actual, e.span, UnifyErrorDetail::FunReturnMismatch)
+        })?;
     Ok(subst.compose(&s2))
 }
 
@@ -414,11 +384,7 @@ fn unify_effect_rows(
             local_subst,
         ),
 
-        _ => Err(UnifyError::effect_row_mismatch(
-            left_resolved,
-            right_resolved,
-            span,
-        )),
+        _ => Err(UnifyError::effect_row_mismatch(left_resolved, right_resolved, span)),
     }
 }
 
@@ -443,10 +409,7 @@ fn unify_open_with_closed(
             span,
         ));
     }
-    let diff = closed_set
-        .difference(open_set)
-        .copied()
-        .collect::<HashSet<_>>();
+    let diff = closed_set.difference(open_set).copied().collect::<HashSet<_>>();
     unify_row_var(
         open_tail,
         InferEffectRow::closed_from_symbols(diff),
@@ -473,14 +436,8 @@ fn unify_both_open_rows(
     let residual = *fresh_row_var;
     *fresh_row_var += 1;
 
-    let left_extra = left_set
-        .difference(right_set)
-        .copied()
-        .collect::<HashSet<_>>();
-    let right_extra = right_set
-        .difference(left_set)
-        .copied()
-        .collect::<HashSet<_>>();
+    let left_extra = left_set.difference(right_set).copied().collect::<HashSet<_>>();
+    let right_extra = right_set.difference(left_set).copied().collect::<HashSet<_>>();
 
     let left_bind = InferEffectRow::open_from_symbols(right_extra, residual);
     let right_bind = InferEffectRow::open_from_symbols(left_extra, residual);
@@ -634,30 +591,17 @@ mod tests {
     #[test]
     fn unify_fun_arity_mismatch_sets_detail() {
         let left = InferType::Fun(vec![int()], Box::new(int()), InferEffectRow::closed_empty());
-        let right = InferType::Fun(
-            vec![int(), int()],
-            Box::new(int()),
-            InferEffectRow::closed_empty(),
-        );
+        let right =
+            InferType::Fun(vec![int(), int()], Box::new(int()), InferEffectRow::closed_empty());
         let err = unify(&left, &right).expect_err("should mismatch on arity");
         assert_eq!(err.kind, UnifyErrorKind::Mismatch);
-        assert_eq!(
-            err.detail,
-            UnifyErrorDetail::FunArityMismatch {
-                expected: 1,
-                actual: 2
-            }
-        );
+        assert_eq!(err.detail, UnifyErrorDetail::FunArityMismatch { expected: 1, actual: 2 });
     }
 
     #[test]
     fn unify_fun_param_mismatch_sets_detail() {
         let left = InferType::Fun(vec![int()], Box::new(int()), InferEffectRow::closed_empty());
-        let right = InferType::Fun(
-            vec![bool_t()],
-            Box::new(int()),
-            InferEffectRow::closed_empty(),
-        );
+        let right = InferType::Fun(vec![bool_t()], Box::new(int()), InferEffectRow::closed_empty());
         let err = unify(&left, &right).expect_err("should mismatch on parameter type");
         assert_eq!(err.kind, UnifyErrorKind::Mismatch);
         assert_eq!(err.detail, UnifyErrorDetail::FunParamMismatch { index: 0 });
@@ -666,11 +610,7 @@ mod tests {
     #[test]
     fn unify_fun_return_mismatch_sets_detail() {
         let left = InferType::Fun(vec![int()], Box::new(int()), InferEffectRow::closed_empty());
-        let right = InferType::Fun(
-            vec![int()],
-            Box::new(bool_t()),
-            InferEffectRow::closed_empty(),
-        );
+        let right = InferType::Fun(vec![int()], Box::new(bool_t()), InferEffectRow::closed_empty());
         let err = unify(&left, &right).expect_err("should mismatch on return type");
         assert_eq!(err.kind, UnifyErrorKind::Mismatch);
         assert_eq!(err.detail, UnifyErrorDetail::FunReturnMismatch);
@@ -805,27 +745,17 @@ mod tests {
 
     #[test]
     fn unify_fun_types_with_different_closed_effects_fails() {
-        let left = effectful_fun(
-            vec![int()],
-            int(),
-            InferEffectRow::closed_from_symbols([sym(1)]),
-        );
-        let right = effectful_fun(
-            vec![int()],
-            int(),
-            InferEffectRow::closed_from_symbols([sym(2)]),
-        );
+        let left = effectful_fun(vec![int()], int(), InferEffectRow::closed_from_symbols([sym(1)]));
+        let right =
+            effectful_fun(vec![int()], int(), InferEffectRow::closed_from_symbols([sym(2)]));
         let err = unify(&left, &right).expect_err("different effects should mismatch");
         assert_eq!(err.kind, UnifyErrorKind::Mismatch);
     }
 
     #[test]
     fn unify_fun_types_with_open_effect_row_binds_tail() {
-        let left = effectful_fun(
-            vec![int()],
-            int(),
-            InferEffectRow::open_from_symbols([sym(1)], 10),
-        );
+        let left =
+            effectful_fun(vec![int()], int(), InferEffectRow::open_from_symbols([sym(1)], 10));
         let right = effectful_fun(
             vec![int()],
             int(),

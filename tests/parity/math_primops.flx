@@ -1,5 +1,15 @@
 // parity: vm, llvm
 // expect: success
+// parity-expected-stdout-begin
+// 3
+// 0
+// 1
+// 1
+// 0
+// 3
+// 4
+// 4
+// parity-expected-stdout-end
 
 fn main() with IO {
     print(sqrt(9.0))

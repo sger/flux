@@ -1,0 +1,37 @@
+// KI-121: a value matched by an arm that rebuilds it in place is released by
+// the other arms, and a list given away by one path is released by the path
+// that only reads it. Each release must leave what is printed after intact.
+
+type Shape = Circle(Int) | Square(Int)
+
+fn make(n) {
+    if n % 2 == 0 { Circle(n) } else { Square(n) }
+}
+
+fn grow(s) {
+    match s {
+        Circle(r) -> Circle(r + 1),
+        _ -> Circle(0),
+    }
+}
+
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn discard(xs, keep) {
+    if keep { xs } else { [] }
+}
+
+fn give_or_read(xs, give) {
+    if give { len(discard(xs, false)) } else { len(xs) }
+}
+
+fn main() {
+    print(grow(make(2)))
+    print(grow(make(3)))
+    let xs = numbers(1)
+    print(give_or_read(numbers(2), true))
+    print(give_or_read(xs, false))
+    print(xs)
+}

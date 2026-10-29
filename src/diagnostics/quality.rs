@@ -17,10 +17,7 @@ pub struct TypeMismatchNotes<'a> {
 impl<'a> TypeMismatchNotes<'a> {
     /// Create a pair of note labels for expected and actual type lines.
     pub const fn new(expected_label: &'a str, actual_label: &'a str) -> Self {
-        Self {
-            expected_label,
-            actual_label,
-        }
+        Self { expected_label, actual_label }
     }
 }
 
@@ -35,11 +32,7 @@ pub struct TypeOriginNote {
 impl TypeOriginNote {
     /// Create a new type-origin note anchored at the given source span.
     pub fn new(span: Span, label: impl Into<String>) -> Self {
-        Self {
-            span,
-            label: label.into(),
-            note: None,
-        }
+        Self { span, label: label.into(), note: None }
     }
 
     /// Attach an additional explanatory note for this origin entry.
@@ -61,12 +54,7 @@ pub struct EffectConstraintOrigin {
 impl EffectConstraintOrigin {
     /// Create a new effect-constraint origin anchored at a call site.
     pub fn new(call_span: Span, call_label: impl Into<String>, note: impl Into<String>) -> Self {
-        Self {
-            call_span,
-            call_label: call_label.into(),
-            note: note.into(),
-            expected_row: None,
-        }
+        Self { call_span, call_label: call_label.into(), note: note.into(), expected_row: None }
     }
 
     /// Attach a rendered expected-row summary for the originating call.
@@ -79,9 +67,9 @@ impl EffectConstraintOrigin {
 /// Return a targeted help hint for common expected-versus-actual type pairs.
 pub fn type_pair_hint(expected: &str, actual: &str) -> Option<String> {
     match (expected, actual) {
-        ("String", "Int") | ("String", "Float") => Some(format!(
-            "Try `to_string(...)` to convert a `{actual}` into a `String`."
-        )),
+        ("String", "Int") | ("String", "Float") => {
+            Some(format!("Try `to_string(...)` to convert a `{actual}` into a `String`."))
+        }
         ("Int", "Float") => {
             Some("Try `to_int(...)` if truncating a `Float` to an `Int` is intended.".to_string())
         }
@@ -311,10 +299,7 @@ pub fn runtime_type_error_diagnostic(
         .with_note(format!("found type:    {actual}"));
 
     if let Some(value_preview) = value_preview {
-        diag = diag.with_note(format!(
-            "runtime value:  {}",
-            runtime_value_preview(value_preview)
-        ));
+        diag = diag.with_note(format!("runtime value:  {}", runtime_value_preview(value_preview)));
     }
 
     diag.with_help(
@@ -333,11 +318,7 @@ pub fn render_runtime_diagnostic(
         diag.clone()
     } else {
         diag.clone().with_stack_trace(
-            stack_frames
-                .iter()
-                .cloned()
-                .map(StackTraceFrame::new)
-                .collect::<Vec<_>>(),
+            stack_frames.iter().cloned().map(StackTraceFrame::new).collect::<Vec<_>>(),
         )
     };
 
@@ -418,11 +399,7 @@ pub fn downstream_errors_suppressed_note(
     if suppressed_effect_count > 0 {
         details.push(format!("{} effect", suppressed_effect_count));
     }
-    let breakdown = if details.is_empty() {
-        "later-stage".to_string()
-    } else {
-        details.join(", ")
-    };
+    let breakdown = if details.is_empty() { "later-stage".to_string() } else { details.join(", ") };
 
     Diagnostic::make_note(
         "DOWNSTREAM ERRORS SUPPRESSED",

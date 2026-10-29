@@ -13,11 +13,7 @@ pub struct InlineSuggestion {
 impl InlineSuggestion {
     /// Create a suggestion with a replacement text
     pub fn new(span: Span, replacement: impl Into<String>) -> Self {
-        Self {
-            span,
-            replacement: replacement.into(),
-            message: None,
-        }
+        Self { span, replacement: replacement.into(), message: None }
     }
 
     /// Add a message explaining the suggestion

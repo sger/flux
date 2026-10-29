@@ -25,6 +25,21 @@
 // false
 // true
 // false
+// parity-expected-stdout-begin
+// true
+// false
+// true
+// true
+// false
+// true
+// false
+// true
+// false
+// true
+// false
+// true
+// false
+// parity-expected-stdout-end
 
 data Box<a> { Box(a) } deriving (Eq)
 data Maybe<a> { Nothing, Just(a) } deriving (Eq)

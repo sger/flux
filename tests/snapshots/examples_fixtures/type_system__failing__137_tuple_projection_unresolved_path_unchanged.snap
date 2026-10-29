@@ -9,10 +9,10 @@ error[E004]: Undefined Variable
 
 I can't find a value named `mystery`.
 
-  examples/type_system/failing/137_tuple_projection_unresolved_path_unchanged.flx:21:22
-   |
-21 |     let value: Int = mystery.0
-   |                      ^^^^^^^
+  examples/type_system/failing/137_tuple_projection_unresolved_path_unchanged.flx:6:22
+  |
+6 |     let value: Int = mystery.0
+  |                      ^^^^^^^
 
 Hint:
   Define it first: let mystery = ...;

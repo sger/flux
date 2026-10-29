@@ -9,15 +9,15 @@ error[E300]: Type Mismatch
 
 I found a type mismatch.
 
-  examples/compiler_errors/constructor_pattern_wrong_adt_e300.flx:23:5
+  examples/compiler_errors/constructor_pattern_wrong_adt_e300.flx:22:5
    |
-23 |     match c {
-   |     ^^^^^^^^^
-24 |         Circle(n) -> n,
+22 |     match c { //~ E300
+   |     ^^^^^^^^^^^^^^^^^^
+23 |         Circle(n) -> n,
    | ^^^^^^^^^^^^^^^^^^^^^^^
-25 |         _ -> 0,
+24 |         _ -> 0,
    | ^^^^^^^^^^^^^^^
-26 |     }
+25 |     }
    | ^^^^^
 
 Note:

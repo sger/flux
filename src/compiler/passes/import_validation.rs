@@ -61,13 +61,7 @@ impl Compiler {
         // for the cross-scope check (E458).
         let mut file_exposed: HashMap<Identifier, Identifier> = HashMap::new();
         for stmt in &program.statements {
-            let Statement::Import {
-                name: module_name,
-                exposing,
-                span,
-                ..
-            } = stmt
-            else {
+            let Statement::Import { name: module_name, exposing, span, .. } = stmt else {
                 continue;
             };
 
@@ -126,13 +120,7 @@ impl Compiler {
         }
 
         for stmt in statements {
-            let Statement::Import {
-                name: module_name,
-                exposing,
-                span,
-                ..
-            } = stmt
-            else {
+            let Statement::Import { name: module_name, exposing, span, .. } = stmt else {
                 continue;
             };
             let ImportExposing::Names(names) = exposing else {

@@ -1,7 +1,6 @@
 // root: examples
 // expect: compile_error
-// expect-error: E018
 
-import Errors.ScriptOnly
+import Errors.ScriptOnly //~ E018
 
 ScriptOnly;

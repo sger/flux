@@ -1,7 +1,6 @@
 // expect: compile_error
-// expect-error: E024
 
-module ModuleGraph.ModuleGraphC {
+module ModuleGraph.ModuleGraphC { //~ E024
   fn value() {
     3;
   }

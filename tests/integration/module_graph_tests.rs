@@ -1,7 +1,9 @@
+use crate::support::scratch;
+use scratch::Scratch;
+
 use std::{
     fs,
     path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 use flux::{
@@ -12,19 +14,6 @@ use flux::{
         program::Program,
     },
 };
-
-fn temp_root(label: &str) -> PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let mut root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("target")
-        .join("test-scratch");
-    root.push(format!("flux_module_graph_tests_{}_{}", label, nanos));
-    fs::create_dir_all(&root).expect("create temp root");
-    root
-}
 
 fn write_file(path: &Path, contents: &str) {
     if let Some(parent) = path.parent() {
@@ -37,20 +26,13 @@ fn parse_program(source: &str) -> (Program, Interner) {
     let lexer = Lexer::new(source);
     let mut parser = Parser::new(lexer);
     let program = parser.parse_program();
-    assert!(
-        parser.errors.is_empty(),
-        "parser errors: {:?}",
-        parser.errors
-    );
+    assert!(parser.errors.is_empty(), "parser errors: {:?}", parser.errors);
     let interner = parser.take_interner();
     (program, interner)
 }
 
 fn first_code(diags: &[Diagnostic]) -> String {
-    diags
-        .first()
-        .and_then(|d| d.code().map(|s| s.to_string()))
-        .unwrap_or_default()
+    diags.first().and_then(|d| d.code().map(|s| s.to_string())).unwrap_or_default()
 }
 
 fn compile_with_graph(
@@ -75,16 +57,13 @@ fn compile_with_graph(
             continue;
         }
     }
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors)
-    }
+    if errors.is_empty() { Ok(()) } else { Err(errors) }
 }
 
 #[test]
 fn importing_script_is_error() {
-    let root = temp_root("script_import");
+    let root_scratch = Scratch::new("script_import");
+    let root = root_scratch.path().to_path_buf();
     let script_path = root.join("Script.flx");
     write_file(&script_path, "let x = 1;");
 
@@ -100,7 +79,8 @@ fn importing_script_is_error() {
 
 #[test]
 fn module_path_mismatch_is_error() {
-    let root = temp_root("path_mismatch");
+    let root_scratch = Scratch::new("path_mismatch");
+    let root = root_scratch.path().to_path_buf();
     let module_path = root.join("Data").join("List.flx");
     write_file(&module_path, "module Data.Other { fn value() { 1; } }");
 
@@ -116,7 +96,8 @@ fn module_path_mismatch_is_error() {
 
 #[test]
 fn module_file_with_script_code_is_error() {
-    let root = temp_root("module_script");
+    let root_scratch = Scratch::new("module_script");
+    let root = root_scratch.path().to_path_buf();
     let module_path = root.join("Mixed.flx");
     write_file(&module_path, "module Mixed { fn value() { 1; } }\n1;");
 
@@ -132,12 +113,10 @@ fn module_file_with_script_code_is_error() {
 
 #[test]
 fn alias_import_compiles() {
-    let root = temp_root("alias_import");
+    let root_scratch = Scratch::new("alias_import");
+    let root = root_scratch.path().to_path_buf();
     let module_path = root.join("Data").join("MyFile.flx");
-    write_file(
-        &module_path,
-        "module Data.MyFile { public fn value() { 1; } }",
-    );
+    write_file(&module_path, "module Data.MyFile { public fn value() { 1; } }");
 
     let entry_path = root.join("Main.flx");
     let entry_source = "import Data.MyFile as Alias\nAlias.value();";
@@ -150,7 +129,8 @@ fn alias_import_compiles() {
 
 #[test]
 fn import_except_on_module_hides_excluded_member() {
-    let root = temp_root("import_except_module");
+    let root_scratch = Scratch::new("import_except_module");
+    let root = root_scratch.path().to_path_buf();
     let module_path = root.join("Data").join("MyFile.flx");
     write_file(
         &module_path,
@@ -169,7 +149,8 @@ fn import_except_on_module_hides_excluded_member() {
 
 #[test]
 fn import_except_on_module_keeps_other_members() {
-    let root = temp_root("import_except_module_ok");
+    let root_scratch = Scratch::new("import_except_module_ok");
+    let root = root_scratch.path().to_path_buf();
     let module_path = root.join("Data").join("MyFile.flx");
     write_file(
         &module_path,
@@ -187,7 +168,8 @@ fn import_except_on_module_keeps_other_members() {
 
 #[test]
 fn import_except_with_alias_hides_excluded_member() {
-    let root = temp_root("import_except_alias");
+    let root_scratch = Scratch::new("import_except_alias");
+    let root = root_scratch.path().to_path_buf();
     let module_path = root.join("Data").join("MyFile.flx");
     write_file(
         &module_path,
@@ -206,17 +188,13 @@ fn import_except_with_alias_hides_excluded_member() {
 
 #[test]
 fn duplicate_module_across_roots_is_error() {
-    let root_a = temp_root("dupe_root_a");
-    let root_b = temp_root("dupe_root_b");
+    let root_a_scratch = Scratch::new("dupe_root_a");
+    let root_a = root_a_scratch.path().to_path_buf();
+    let root_b_scratch = Scratch::new("dupe_root_b");
+    let root_b = root_b_scratch.path().to_path_buf();
     let module_rel = Path::new("Dup").join("Mod.flx");
-    write_file(
-        &root_a.join(&module_rel),
-        "module Dup.Mod { fn value() { 1; } }",
-    );
-    write_file(
-        &root_b.join(&module_rel),
-        "module Dup.Mod { fn value() { 2; } }",
-    );
+    write_file(&root_a.join(&module_rel), "module Dup.Mod { fn value() { 1; } }");
+    write_file(&root_b.join(&module_rel), "module Dup.Mod { fn value() { 2; } }");
 
     let entry_path = root_a.join("Main.flx");
     let entry_source = "import Dup.Mod\nDup.Mod.value();";
@@ -231,7 +209,8 @@ fn duplicate_module_across_roots_is_error() {
 
 #[test]
 fn import_cycle_is_error() {
-    let root = temp_root("import_cycle");
+    let root_scratch = Scratch::new("import_cycle");
+    let root = root_scratch.path().to_path_buf();
     let module_a = root.join("A.flx");
     let module_b = root.join("B.flx");
     write_file(&module_a, "import B\nmodule A { fn value() { 1; } }");
@@ -249,7 +228,8 @@ fn import_cycle_is_error() {
 
 #[test]
 fn synthetic_flow_import_with_except_does_not_require_file_module() {
-    let root = temp_root("flow_import");
+    let root_scratch = Scratch::new("flow_import");
+    let root = root_scratch.path().to_path_buf();
     let entry_path = root.join("Main.flx");
     let entry_source = "import Flow except [print]\nlen([1, 2, 3]);";
     write_file(&entry_path, entry_source);

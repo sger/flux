@@ -4,5 +4,10 @@ version = "0.0.0"
 edition = "2024"
 publish = false
 
-# Standard library only, so `cargo xtask` builds in seconds.
+# Otherwise std only, so `cargo xtask` builds in seconds. serde_json reads
+# `cargo metadata` for `cargo xtask affected`.
+[lints]
+workspace = true
+
 [dependencies]
+serde_json = "1.0"

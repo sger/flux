@@ -4,6 +4,9 @@
 // A multi-parameter class instance is matched positionally on the first
 // argument. Contextual dictionary resolution must not abandon the direct
 // call just because the full head does not match a single type argument.
+// parity-expected-stdout-begin
+// "42"
+// parity-expected-stdout-end
 
 class Convert<a, b> {
     fn convert(x: a) -> b

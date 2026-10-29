@@ -21,17 +21,9 @@ impl Display for LlvmType {
             LlvmType::Array { len, element } => write!(f, "[{len} x {element}]"),
             LlvmType::Struct { packed, fields } => {
                 let body = comma_join(fields);
-                if *packed {
-                    write!(f, "<{{{body}}}>")
-                } else {
-                    write!(f, "{{{body}}}")
-                }
+                if *packed { write!(f, "<{{{body}}}>") } else { write!(f, "{{{body}}}") }
             }
-            LlvmType::Function {
-                ret,
-                params,
-                varargs,
-            } => {
+            LlvmType::Function { ret, params, varargs } => {
                 write!(f, "{ret} (")?;
                 fmt_param_types(f, params, *varargs)?;
                 write!(f, ")")
@@ -46,11 +38,7 @@ impl Display for LlvmModule {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let mut need_blank = false;
         if let Some(source_filename) = &self.source_filename {
-            writeln!(
-                f,
-                "source_filename = \"{}\"",
-                escape_string(source_filename)
-            )?;
+            writeln!(f, "source_filename = \"{}\"", escape_string(source_filename))?;
             need_blank = true;
         }
         if let Some(target_triple) = &self.target_triple {
@@ -120,11 +108,7 @@ impl Display for LlvmGlobal {
                     "@{} = {}{} {} {}",
                     self.name,
                     linkage,
-                    if self.is_constant {
-                        "constant"
-                    } else {
-                        "global"
-                    },
+                    if self.is_constant { "constant" } else { "global" },
                     self.ty,
                     value
                 )?;
@@ -170,11 +154,7 @@ fn fmt_function(
     {
         write!(f, "define ")?;
         fmt_linkage(f, function.linkage)?;
-        write!(
-            f,
-            "{} {} @{}(",
-            function.sig.call_conv, function.sig.ret, function.name
-        )?;
+        write!(f, "{} {} @{}(", function.sig.call_conv, function.sig.ret, function.name)?;
         for (idx, (ty, param)) in function.sig.params.iter().zip(&function.params).enumerate() {
             if idx > 0 {
                 write!(f, ", ")?;
@@ -198,7 +178,10 @@ fn fmt_function(
         // `uwtable` is harmless on Linux/macOS (DWARF unwind info is
         // emitted regardless) so we add it unconditionally.
         let mut emitted_uwtable = false;
-        for attr in &function.attrs {
+        // A personality is not an attribute: LLVM wants it after them all.
+        let (personality, attrs): (Vec<&String>, Vec<&String>) =
+            function.attrs.iter().partition(|attr| attr.starts_with("personality "));
+        for attr in attrs {
             if attr == "uwtable" {
                 emitted_uwtable = true;
             }
@@ -206,6 +189,9 @@ fn fmt_function(
         }
         if !emitted_uwtable {
             write!(f, " uwtable")?;
+        }
+        for attr in personality {
+            write!(f, " {attr}")?;
         }
         let Some(debug) = debug else {
             writeln!(f, " {{")?;
@@ -243,12 +229,7 @@ impl Display for LlvmBlock {
 impl Display for LlvmInstr {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            LlvmInstr::Alloca {
-                dst,
-                ty,
-                count,
-                align,
-            } => {
+            LlvmInstr::Alloca { dst, ty, count, align } => {
                 write!(f, "{dst} = alloca {ty}")?;
                 if let Some((count_ty, count_operand)) = count {
                     write!(f, ", {count_ty} {count_operand}")?;
@@ -258,62 +239,32 @@ impl Display for LlvmInstr {
                 }
                 Ok(())
             }
-            LlvmInstr::Load {
-                dst,
-                ty,
-                ptr,
-                align,
-            } => {
+            LlvmInstr::Load { dst, ty, ptr, align } => {
                 write!(f, "{dst} = load {ty}, ptr {ptr}")?;
                 if let Some(align) = align {
                     write!(f, ", align {align}")?;
                 }
                 Ok(())
             }
-            LlvmInstr::Store {
-                ty,
-                value,
-                ptr,
-                align,
-            } => {
+            LlvmInstr::Store { ty, value, ptr, align } => {
                 write!(f, "store {ty} {value}, ptr {ptr}")?;
                 if let Some(align) = align {
                     write!(f, ", align {align}")?;
                 }
                 Ok(())
             }
-            LlvmInstr::Binary {
-                dst,
-                op,
-                ty,
-                lhs,
-                rhs,
-            } => write!(f, "{dst} = {} {ty} {lhs}, {rhs}", value_kind_name(*op)),
-            LlvmInstr::Cast {
-                dst,
-                op,
-                from_ty,
-                operand,
-                to_ty,
-            } => write!(
-                f,
-                "{dst} = {} {from_ty} {operand} to {to_ty}",
-                value_kind_name(*op)
-            ),
-            LlvmInstr::Icmp {
-                dst,
-                op,
-                ty,
-                lhs,
-                rhs,
-            } => write!(f, "{dst} = icmp {} {ty} {lhs}, {rhs}", cmp_name(*op)),
-            LlvmInstr::Fcmp {
-                dst,
-                op,
-                ty,
-                lhs,
-                rhs,
-            } => write!(f, "{dst} = fcmp {} {ty} {lhs}, {rhs}", cmp_name(*op)),
+            LlvmInstr::Binary { dst, op, ty, lhs, rhs } => {
+                write!(f, "{dst} = {} {ty} {lhs}, {rhs}", value_kind_name(*op))
+            }
+            LlvmInstr::Cast { dst, op, from_ty, operand, to_ty } => {
+                write!(f, "{dst} = {} {from_ty} {operand} to {to_ty}", value_kind_name(*op))
+            }
+            LlvmInstr::Icmp { dst, op, ty, lhs, rhs } => {
+                write!(f, "{dst} = icmp {} {ty} {lhs}, {rhs}", cmp_name(*op))
+            }
+            LlvmInstr::Fcmp { dst, op, ty, lhs, rhs } => {
+                write!(f, "{dst} = fcmp {} {ty} {lhs}, {rhs}", cmp_name(*op))
+            }
             LlvmInstr::Phi { dst, ty, incoming } => {
                 write!(f, "{dst} = phi {ty} ")?;
                 for (idx, (value, label)) in incoming.iter().enumerate() {
@@ -324,26 +275,11 @@ impl Display for LlvmInstr {
                 }
                 Ok(())
             }
-            LlvmInstr::Select {
-                dst,
-                cond_ty,
-                cond,
-                value_ty,
-                then_value,
-                else_value,
-            } => write!(
+            LlvmInstr::Select { dst, cond_ty, cond, value_ty, then_value, else_value } => write!(
                 f,
                 "{dst} = select {cond_ty} {cond}, {value_ty} {then_value}, {value_ty} {else_value}"
             ),
-            LlvmInstr::Call {
-                dst,
-                tail,
-                call_conv,
-                ret_ty,
-                callee,
-                args,
-                attrs,
-            } => {
+            LlvmInstr::Call { dst, tail, call_conv, ret_ty, callee, args, attrs } => {
                 if let Some(dst) = dst {
                     write!(f, "{dst} = ")?;
                 }
@@ -367,13 +303,8 @@ impl Display for LlvmInstr {
                 }
                 Ok(())
             }
-            LlvmInstr::GetElementPtr {
-                dst,
-                inbounds,
-                element_ty,
-                base,
-                indices,
-            } => {
+            LlvmInstr::LandingPad { dst } => write!(f, "{dst} = landingpad {{ ptr, i32 }} cleanup"),
+            LlvmInstr::GetElementPtr { dst, inbounds, element_ty, base, indices } => {
                 write!(
                     f,
                     "{dst} = getelementptr {}{}, ptr {base}",
@@ -385,12 +316,7 @@ impl Display for LlvmInstr {
                 }
                 Ok(())
             }
-            LlvmInstr::ExtractValue {
-                dst,
-                aggregate_ty,
-                aggregate,
-                indices,
-            } => {
+            LlvmInstr::ExtractValue { dst, aggregate_ty, aggregate, indices } => {
                 write!(f, "{dst} = extractvalue {aggregate_ty} {aggregate}")?;
                 for idx in indices {
                     write!(f, ", {idx}")?;
@@ -424,21 +350,10 @@ impl Display for LlvmTerminator {
             LlvmTerminator::RetVoid => write!(f, "ret void"),
             LlvmTerminator::Ret { ty, value } => write!(f, "ret {ty} {value}"),
             LlvmTerminator::Br { target } => write!(f, "br label %{target}"),
-            LlvmTerminator::CondBr {
-                cond_ty,
-                cond,
-                then_label,
-                else_label,
-            } => write!(
-                f,
-                "br {cond_ty} {cond}, label %{then_label}, label %{else_label}"
-            ),
-            LlvmTerminator::Switch {
-                ty,
-                scrutinee,
-                default,
-                cases,
-            } => {
+            LlvmTerminator::CondBr { cond_ty, cond, then_label, else_label } => {
+                write!(f, "br {cond_ty} {cond}, label %{then_label}, label %{else_label}")
+            }
+            LlvmTerminator::Switch { ty, scrutinee, default, cases } => {
                 write!(f, "switch {ty} {scrutinee}, label %{default} [")?;
                 if !cases.is_empty() {
                     writeln!(f)?;
@@ -450,6 +365,24 @@ impl Display for LlvmTerminator {
                     write!(f, " ]")
                 }
             }
+            LlvmTerminator::Invoke { dst, call_conv, ret_ty, callee, args, normal, unwind } => {
+                if let Some(dst) = dst {
+                    write!(f, "{dst} = ")?;
+                }
+                write!(f, "invoke ")?;
+                if let Some(call_conv) = call_conv {
+                    write!(f, "{call_conv} ")?;
+                }
+                write!(f, "{ret_ty} {callee}(")?;
+                for (idx, (arg_ty, arg)) in args.iter().enumerate() {
+                    if idx > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{arg_ty} {arg}")?;
+                }
+                write!(f, ") to label %{normal} unwind label %{unwind}")
+            }
+            LlvmTerminator::Resume { value } => write!(f, "resume {{ ptr, i32 }} {value}"),
             LlvmTerminator::Unreachable => write!(f, "unreachable"),
         }
     }
@@ -470,10 +403,7 @@ impl Display for LlvmConst {
             }
             LlvmConst::Null => write!(f, "null"),
             LlvmConst::Undef => write!(f, "undef"),
-            LlvmConst::Array {
-                element_ty,
-                elements,
-            } => {
+            LlvmConst::Array { element_ty, elements } => {
                 write!(f, "[")?;
                 for (idx, element) in elements.iter().enumerate() {
                     if idx > 0 {
@@ -596,11 +526,7 @@ fn fmt_param_types(f: &mut Formatter<'_>, params: &[LlvmType], varargs: bool) ->
 }
 
 fn comma_join(items: &[LlvmType]) -> String {
-    items
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join(", ")
+    items.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
 }
 
 fn cmp_name(op: LlvmCmpOp) -> &'static str {
@@ -683,19 +609,12 @@ mod tests {
         assert_eq!(LlvmType::i64().to_string(), "i64");
         assert_eq!(LlvmType::ptr().to_string(), "ptr");
         assert_eq!(
-            LlvmType::Array {
-                len: 4,
-                element: Box::new(LlvmType::i8())
-            }
-            .to_string(),
+            LlvmType::Array { len: 4, element: Box::new(LlvmType::i8()) }.to_string(),
             "[4 x i8]"
         );
         assert_eq!(
-            LlvmType::Struct {
-                packed: false,
-                fields: vec![LlvmType::i32(), LlvmType::ptr()]
-            }
-            .to_string(),
+            LlvmType::Struct { packed: false, fields: vec![LlvmType::i32(), LlvmType::ptr()] }
+                .to_string(),
             "{i32, ptr}"
         );
     }
@@ -735,10 +654,7 @@ mod tests {
                 },
             }],
         };
-        assert!(
-            func.to_string()
-                .contains("define internal fastcc i64 @main(i64 %n) alwaysinline")
-        );
+        assert!(func.to_string().contains("define internal fastcc i64 @main(i64 %n) alwaysinline"));
     }
 
     #[test]
@@ -797,10 +713,7 @@ mod tests {
                     packed: false,
                     fields: vec![
                         LlvmType::i32(),
-                        LlvmType::Array {
-                            len: 0,
-                            element: Box::new(LlvmType::i8()),
-                        },
+                        LlvmType::Array { len: 0, element: Box::new(LlvmType::i8()) },
                     ],
                 },
             }],
@@ -809,10 +722,7 @@ mod tests {
                 name: GlobalId("flux.tag.int".into()),
                 ty: LlvmType::i64(),
                 is_constant: true,
-                value: Some(LlvmConst::Int {
-                    bits: 64,
-                    value: 4607182418800017408,
-                }),
+                value: Some(LlvmConst::Int { bits: 64, value: 4607182418800017408 }),
                 attrs: vec![],
             }],
             declarations: vec![
@@ -879,40 +789,27 @@ mod tests {
                         scrutinee: LlvmOperand::Local(LlvmLocal("tag".into())),
                         default: LabelId("default".into()),
                         cases: vec![
-                            (
-                                LlvmConst::Int { bits: 32, value: 0 },
-                                LabelId("then".into()),
-                            ),
-                            (
-                                LlvmConst::Int { bits: 32, value: 1 },
-                                LabelId("else".into()),
-                            ),
+                            (LlvmConst::Int { bits: 32, value: 0 }, LabelId("then".into())),
+                            (LlvmConst::Int { bits: 32, value: 1 }, LabelId("else".into())),
                         ],
                     },
                 },
                 LlvmBlock {
                     label: LabelId("then".into()),
                     instrs: vec![],
-                    term: LlvmTerminator::Br {
-                        target: LabelId("join".into()),
-                    },
+                    term: LlvmTerminator::Br { target: LabelId("join".into()) },
                 },
                 LlvmBlock {
                     label: LabelId("else".into()),
                     instrs: vec![],
-                    term: LlvmTerminator::Br {
-                        target: LabelId("join".into()),
-                    },
+                    term: LlvmTerminator::Br { target: LabelId("join".into()) },
                 },
                 LlvmBlock {
                     label: LabelId("default".into()),
                     instrs: vec![],
                     term: LlvmTerminator::Ret {
                         ty: LlvmType::i64(),
-                        value: LlvmOperand::Const(LlvmConst::Int {
-                            bits: 64,
-                            value: -1,
-                        }),
+                        value: LlvmOperand::Const(LlvmConst::Int { bits: 64, value: -1 }),
                     },
                 },
                 LlvmBlock {
@@ -959,9 +856,8 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("clock should be after unix epoch")
             .as_nanos();
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("target")
-            .join("test-scratch");
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join("test-scratch");
         std::fs::create_dir_all(&dir).ok();
         dir.join(format!("{prefix}_{nonce}.ll"))
     }

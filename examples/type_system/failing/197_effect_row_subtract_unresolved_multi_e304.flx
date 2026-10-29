@@ -1,0 +1,14 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// expect: compile_error
+
+// E304: two row variables in one `with` clause are rejected at the annotation,
+// before the subtraction check (E420) runs.
+
+fn unresolved_many(x: Int) -> Int with |e - IO, |t - Time { //~ E304
+    x
+}
+
+fn main() -> Unit {
+    let _ = unresolved_many(1)
+}

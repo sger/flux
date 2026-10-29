@@ -1,12 +1,14 @@
 # Flux test suite
 
-This directory holds integration tests for the Flux compiler. 
+This directory holds the Flux compiler's integration tests. Unit tests live
+next to the code in `src/`. `cargo xtask tidy` checks that this file and the
+directory agree.
 
 ## Layout
 
 ```
 tests/
-├── support/          Shared helpers (primop parity, examples snapshot runner, …)
+├── support/          Shared helpers; every test reaches the CLI, files and ports through these
 ├── lexer/            Lexer, tokens, interner, parse perf
 ├── parser/           Parser, recovery, spans, linter, list-literal syntax
 ├── ast_passes/       desugar, constant_fold, free_vars, rename, tail_position, tail_call
@@ -14,19 +16,23 @@ tests/
 ├── core_ir/          Core IR contracts, primop lowering, backend representation
 ├── aether/           Aether RC pass (dup/drop/reuse insertion, FBIP)
 ├── bytecode/         OpCode, superinstruction, cmp/jump fusion
-├── vm_runtime/       VM, program, stdlib, runtime list, stackless drop
-├── native_llvm/      LLVM ADTs, codegen, closures, native primop parity
+├── vm_runtime/       VM, fibers, HTTP/TCP, JSON, streams, stdlib modules
+├── native_llvm/      LLVM codegen, ADTs, closures, native runtime, the parity corpus test
+├── debug/            VM and native debuggers, the debug heap, DWARF and CodeView
 ├── diagnostics/      Render, span render, aggregator, error registry, guards
-├── integration/      Modules, flow prelude, compiler rules, CLI test runner
-├── examples/         Examples snapshot harness (basics, advanced, fixtures)
 ├── error_fixtures/   Parser / compiler / runtime error fixture snapshots
+├── flume/            Manifests, locks, resolution, packages and projects
+├── replay/           Recording a run and replaying it on either backend
+├── integration/      Modules, flow prelude, compiler rules, CLI test runner
+├── examples/         Snapshots of the programs under examples/
 ├── fixtures/         Flux source fixtures grouped by topic
-├── parity/           VM-vs-native parity fixtures (.flx)
-├── flux/             CLI / test-runner fixtures
+├── parity/           Programs both backends must run the same; see CONVENTION.md
+├── parity_debug/     Scripted debugger sessions the VM and lldb must agree on
+├── flux/             Flux test files run with `flux --test`
 └── snapshots/        insta snapshot trees, organized by phase
 ```
 
-Target phase subdirectories (per proposal 0169):
+Which folder a phase's tests go in:
 
 | Phase                       | Subdirectory        |
 |-----------------------------|---------------------|
@@ -39,87 +45,126 @@ Target phase subdirectories (per proposal 0169):
 | CFG / bytecode compiler     | `bytecode/`         |
 | VM / runtime / stdlib       | `vm_runtime/`       |
 | LLVM native backend         | `native_llvm/`      |
+| Debuggers and debug info    | `debug/`            |
 | Diagnostics                 | `diagnostics/`      |
+| Error fixtures              | `error_fixtures/`   |
+| Package manager (Flume)     | `flume/`            |
+| Record and replay           | `replay/`           |
 | Integration / CLI           | `integration/`      |
 | Examples                    | `examples/`         |
-| Error fixtures              | `error_fixtures/`   |
 
-## Conventions
+## Where a new test goes
 
-### Placement
+1. **A program both backends must run the same way** is a `.flx` file in
+   `parity/`, not Rust. Give it a header (`// parity: vm, llvm`,
+   `// expect: success`) and let
+   `cargo run --features llvm -- parity-check tests/parity/<file>.flx --bless`
+   write its expected output. `native_llvm/parity_corpus_tests.rs` runs every file there.
+   [`parity/CONVENTION.md`](parity/CONVENTION.md) lists the header lines.
+2. **A test of one phase** goes in that phase's folder above. If it spans
+   several phases, put it with the phase it is most likely to break.
+3. **A Flux test file for `flux --test`** goes in `flux/`, with a Rust test
+   that runs it through `support/stdlib_fixture.rs` or `run_flux_test`.
 
-New tests go under the subdirectory for the phase they assert against.
-If a test spans multiple phases, place it with the phase whose code it is
-most likely to break. When in doubt, follow the explicit mapping in
-proposal 0169.
-
-### Shared helpers live in `tests/support/`
-
-Do not duplicate helpers across test files. If two tests need the same
-helper, put it in `tests/support/<topic>.rs` and include it via:
+Each folder is one test binary, named after the folder, and each Rust file in
+it is a module of that binary. A new file needs a line in its folder's
+`main.rs`, or it is never compiled:
 
 ```rust
-#[path = "support/<topic>.rs"]
-mod <topic>;
+mod cli_snapshots;
 ```
 
-Current helpers:
+A file that only runs with a feature gets the gate there too:
+`#[cfg(feature = "llvm")]`. A new folder needs a `[[test]]` entry in
+`Cargo.toml` that points at its `main.rs`.
 
-- [`support/primop_parity.rs`](support/primop_parity.rs) — `run_native`, `run_vm`, `assert_vm_native_parity` for VM/LLVM parity checks on `tests/parity/*.flx`
-- [`support/examples_snapshot.rs`](support/examples_snapshot.rs) — snapshot harness driving fixture directories (examples, error fixtures)
-- [`support/semantic_infer.rs`](support/semantic_infer.rs) — type-inference matrix driver
-- [`support/semantic_runtime.rs`](support/semantic_runtime.rs) — runtime matrix driver
-- [`support/semantic_core_dump.rs`](support/semantic_core_dump.rs) — core-IR contract matrix driver
-- [`support/purity_parity.rs`](support/purity_parity.rs) — purity analysis parity driver
+### Naming
 
-### Cargo registration
+Name a test for what it checks. A regression test also gets the number of its
+known issue as a suffix, so searching for the KI finds it:
+`resume_keeps_handler_frames_ki136`.
 
-Cargo's `autotests` only discovers `tests/*.rs`. Files in a subdirectory
-need an explicit `[[test]]` entry in `Cargo.toml`:
+## Shared helpers
 
-```toml
-[[test]]
-name = "aether_cli_snapshots"
-path = "tests/aether/aether_cli_snapshots.rs"
+Do not copy a helper into a test file. Declare `support/mod.rs` once per
+binary and use the helper from there:
+
+```rust
+#[path = "../support/mod.rs"]
+mod support;
+use crate::support::flux_runner;
 ```
 
-Keep the `name` identical to the old flat filename (minus `.rs`) so that
-insta snapshot filenames — which are prefixed with the test binary name —
-do not drift. This is load-bearing: renaming a test binary invalidates
-every `.snap` file it produced unless the test uses
-`prepend_module_to_snapshot => false`.
+A new helper file also gets a `pub mod` line in `support/mod.rs`.
 
-### Snapshot files
+- [`support/scratch.rs`](support/scratch.rs): `Scratch`, a private directory
+  and cache for one test, removed on drop; `free_port`; `workspace_root`.
+  Temporary files always come from a `Scratch`.
+- [`support/flux_runner.rs`](support/flux_runner.rs): runs the `flux` CLI.
+  `flux_source(source, tag)` and `flux_file(path)` build a run, with
+  `.native()`, `.args(..)`, `.env(..)` and `.timeout(..)`. Shortcuts:
+  `run_flux` (inline source), `run_vm` and `run_native` (a `parity/` file),
+  `run_flux_test` (a `flux/` file), and `program_elapsed` for timed
+  programs. It re-exports `scratch`.
+- [`support/stdlib_fixture.rs`](support/stdlib_fixture.rs): runs a `flux/`
+  test file and checks its summary; `assert_backends_agree` runs it on the VM
+  and, with the `llvm` feature, natively.
+- [`support/primop_parity.rs`](support/primop_parity.rs):
+  `assert_vm_native_parity` for a `parity/` file.
+- [`support/examples_snapshot.rs`](support/examples_snapshot.rs): snapshots
+  every program in a fixture directory (examples, error fixtures).
+- [`support/diagnostics_env.rs`](support/diagnostics_env.rs): sets
+  `NO_COLOR` under a lock for tests that render diagnostics.
+- [`support/semantic_infer.rs`](support/semantic_infer.rs),
+  [`support/semantic_runtime.rs`](support/semantic_runtime.rs),
+  [`support/semantic_core_dump.rs`](support/semantic_core_dump.rs): the
+  type-inference, runtime and Core contract matrix drivers.
+- [`support/proc_helper.rs`](support/proc_helper.rs): the `flux_proc_helper`
+  program that the process tests spawn.
 
-Snapshots live under [`snapshots/<phase>/`](snapshots/). The test asserting
-a snapshot picks the directory via `insta::with_settings!`:
+## Snapshots
+
+Snapshots live under [`snapshots/<phase>/`](snapshots/). A test picks the
+directory with `insta::with_settings!`; the path is relative to the test file:
 
 ```rust
 insta::with_settings!({
-    snapshot_path => "snapshots/<phase>",
+    snapshot_path => "../snapshots/<phase>",
     prepend_module_to_snapshot => false,
 }, {
     insta::assert_snapshot!("<name>", rendered);
 });
 ```
 
-Review snapshot diffs with `cargo insta review` before committing.
+A test that leaves the name to insta uses `crate::support::assert_snapshot!`,
+which names the snapshot after the test function alone. insta's own default
+starts the name with the module path, so it would change when a file moves.
 
-### Fixture directories
+Review snapshot diffs with `cargo insta review` before committing. CI fails
+on a snapshot no test produces.
 
-- `tests/fixtures/` — per-topic `.flx` sources used by various tests
-- `tests/parity/` — VM-vs-native parity fixtures; see `CONVENTION.md` inside
-- `tests/flux/` — CLI and test-runner fixtures (`--test`, flow tests, etc.)
+## Fixture directories
 
-These are not redundant; they serve different test runners and have
-different conventions.
+- `fixtures/`: per-topic `.flx` sources used by various tests.
+- `parity/`: programs both backends must run the same; see `CONVENTION.md`.
+- `parity_debug/`: debugger sessions; see its `README.md`.
+- `flux/`: Flux test files for `flux --test`.
+
+They serve different runners and have different conventions.
 
 ## Running
 
+The test tiers (`cargo test-fast`, `cargo test-all`, `cargo test-changed`,
+`cargo test-phase`) are described in [`TESTING.md`](../TESTING.md).
+
 ```bash
-cargo test --all --all-features                 # full suite
-cargo test --test <binary_name>                 # single binary
-cargo test <partial_test_name>                  # filter by test name
+cargo test-all -E 'binary(=vm_runtime)'                       # one folder
+cargo test-all -E 'binary(=vm_runtime) & test(/^vm_json::/)'  # one file
+cargo test-all -E 'test(<partial_name>)'                      # filter by test name
 cargo insta review                              # review snapshot diffs
-cargo insta test --accept                       # accept all new snapshots
+cargo xtask tidy                                # check this layout
 ```
+
+The heavy suites (`native_llvm/`, `debug/`, `parity/`, `parity_debug/` and
+`cargo xtask verify`) build and run a lot of native binaries. Do not run two of
+them at once.

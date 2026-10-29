@@ -1,5 +1,9 @@
 // parity: vm, llvm
 // expect: success
+// parity-expected-stdout-begin
+// 1
+// 33
+// parity-expected-stdout-end
 
 fn main() with IO {
     if true {

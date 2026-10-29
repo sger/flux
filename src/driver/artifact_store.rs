@@ -52,11 +52,7 @@ pub(crate) fn unit_hash(
     let mut hasher = Sha256::new();
     feed(&mut hasher, "format", &cache_paths::CACHE_EPOCH.to_string());
     feed(&mut hasher, "compiler-abi", COMPILER_ABI);
-    feed(
-        &mut hasher,
-        "compiler-version",
-        cache_paths::compiler_build_id(),
-    );
+    feed(&mut hasher, "compiler-version", cache_paths::compiler_build_id());
     feed(&mut hasher, "backend", backend_name(backend));
     feed(&mut hasher, "package", &package);
     feed(&mut hasher, "relative-source", &relative);
@@ -83,11 +79,7 @@ fn feed(hasher: &mut Sha256, label: &str, value: &str) {
 }
 
 fn stable_dependency_label(path: &str) -> String {
-    Path::new(path)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(path)
-        .to_string()
+    Path::new(path).file_name().and_then(|name| name.to_str()).unwrap_or(path).to_string()
 }
 
 fn package_identity(path: &Path) -> (String, String) {
@@ -102,23 +94,12 @@ fn package_identity(path: &Path) -> (String, String) {
                 .strip_prefix(&dir)
                 .ok()
                 .map(|p| p.to_string_lossy().replace('\\', "/"))
-                .unwrap_or_else(|| {
-                    path.file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .into()
-                });
+                .unwrap_or_else(|| path.file_name().unwrap_or_default().to_string_lossy().into());
             return (package, relative);
         }
         current = dir.parent().map(Path::to_path_buf);
     }
-    (
-        "package".into(),
-        path.file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .into(),
-    )
+    ("package".into(), path.file_name().unwrap_or_default().to_string_lossy().into())
 }
 
 fn manifest_string(text: &str, key: &str) -> Option<String> {
@@ -144,11 +125,7 @@ fn manifest_string(text: &str, key: &str) -> Option<String> {
 }
 
 fn artifact_path(hash: &str, backend: Backend) -> PathBuf {
-    store_root()
-        .join(COMPILER_ABI)
-        .join(hash)
-        .join(backend_name(backend))
-        .join("module.fxm")
+    store_root().join(COMPILER_ABI).join(hash).join(backend_name(backend)).join("module.fxm")
 }
 
 /// Hydrate a project-local cache entry from an immutable store entry.
@@ -200,10 +177,7 @@ pub(crate) fn publish(local: &Path, hash: &str, backend: Backend, reason: &str) 
 }
 
 fn now_nanos() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or_default()
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -215,20 +189,8 @@ mod tests {
     #[test]
     fn unit_hash_ignores_absolute_project_prefix() {
         let key = [7u8; 32];
-        let a = unit_hash(
-            Path::new("/one/src/Lib.flx"),
-            "same",
-            &key,
-            Backend::Vm,
-            &[],
-        );
-        let b = unit_hash(
-            Path::new("/two/src/Lib.flx"),
-            "same",
-            &key,
-            Backend::Vm,
-            &[],
-        );
+        let a = unit_hash(Path::new("/one/src/Lib.flx"), "same", &key, Backend::Vm, &[]);
+        let b = unit_hash(Path::new("/two/src/Lib.flx"), "same", &key, Backend::Vm, &[]);
         assert_eq!(a, b);
     }
 
