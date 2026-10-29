@@ -1,8 +1,14 @@
 // parity: vm, llvm
 // expect: success
+// requires: unix
+// Proposal 0178: TryReadFile is the first primop that reports failure as a
 // value. The two backends classify failures independently — the VM matches on
 // Rust's io::ErrorKind, the C runtime on errno — so identical output here is a
 // real invariant, not a shared code path.
+//
+// Windows refuses to open a directory with `ERROR_ACCESS_DENIED`, which both
+// backends report as `PermissionDenied`, so the `directory` line is a claim
+// about the host OS rather than about Flux.
 // parity-expected-stdout-begin
 // "existing ok nonempty=true"
 // "missing err NotFound"
