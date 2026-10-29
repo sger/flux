@@ -111,14 +111,6 @@ fn main() -> Unit with Id {
 }
 
 #[test]
-#[ignore = "fixture uses base functions (print/to_string) not in standalone compiler"]
-fn effect_row_order_equivalence_fixture_compiles() {
-    let source =
-        include_str!("../../../examples/type_system/100_effect_row_order_equivalence_ok.flx");
-    compile_ok_in("examples/type_system/100_effect_row_order_equivalence_ok.flx", source);
-}
-
-#[test]
 fn effect_row_multi_missing_reports_deterministic_first_effect() {
     let source = include_str!(
         "../../../examples/type_system/failing/194_effect_row_multi_missing_deterministic_e400.flx"
@@ -134,22 +126,6 @@ fn effect_row_multi_missing_reports_deterministic_first_effect() {
         "expected deterministic first missing effect `Clock`, got:\n{}",
         rendered
     );
-}
-
-#[test]
-#[ignore = "fixture uses base functions (print/to_string) not in standalone compiler"]
-fn effect_row_subtract_concrete_fixture_compiles() {
-    let source =
-        include_str!("../../../examples/type_system/101_effect_row_subtract_concrete_ok.flx");
-    compile_ok_in("examples/type_system/101_effect_row_subtract_concrete_ok.flx", source);
-}
-
-#[test]
-#[ignore = "fixture uses base functions (print/to_string) not in standalone compiler"]
-fn effect_row_subtract_var_satisfied_fixture_compiles() {
-    let source =
-        include_str!("../../../examples/type_system/102_effect_row_subtract_var_satisfied_ok.flx");
-    compile_ok_in("examples/type_system/102_effect_row_subtract_var_satisfied_ok.flx", source);
 }
 
 #[test]
