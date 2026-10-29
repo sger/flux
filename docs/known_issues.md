@@ -42,41 +42,6 @@ Severity is about consequence, not effort:
 
 ## Open
 
-### KI-141 — A test's port can be taken between `free_port()` and the bind
-
-**Severity:** Medium · **Area:** tests, networking · **Verified:** 2026-10-29, by reading the code; neither failure was reproduced locally · **From:** a one-off failure of `vm_http_server::shutdown_now_cancels_active_connection` in a full `cargo test-all`
-
-`free_port()` (`tests/support/scratch.rs`) binds port 0, reads the port the
-OS chose, and closes the listener. The test's Flux program binds that port
-later. In between, any other process can take it, including the local end of
-another test's outgoing connection, since those also come from the OS's
-ephemeral range. The program then fails at once (address in use), or the
-client connects to someone else's server.
-
-41 calls in `tests/` use it: the HTTP and TCP tests on the VM and natively,
-and replay.
-
-The failure that led here took 0.46 s and passed on every rerun, which fits
-this race; its output was not kept. The same test's timing race (fixed sleeps
-instead of ordering) was fixed in 8e4e3b09, and the other tests in
-`vm_http_server.rs` in the commit after it.
-
-On 2026-10-29 Windows CI hung in
-`vm_http_server::shutdown_drains_active_connection` for over 20 minutes,
-until the job timed out. A client that reaches a listener that never answers
-waits in `Tcp.read` forever. The test passed 30 runs in a row locally, and
-alongside every other network test. Until the fix below:
-- the network tests run one at a time, in nextest's `network` group, so they
-  no longer take each other's ports;
-- the VM network tests stop their program after 60 s and say so;
-- nextest kills any test after five minutes (`terminate-after`), so a hang
-  fails the run instead of stalling it.
-
-**The fix** needs the program to pick the port itself: a way for
-`serve_config`/`Tcp.listen` to bind port 0 and report the port it got, on
-both backends. Tests would then print the port and connect to it, or keep
-the client in the same program.
-
 ### KI-138 — Natively, malformed JSON reports a different error from the VM
 
 **Severity:** Low · **Area:** native runtime, Flow.Json · **Verified:** 2026-10-28 · **From:** merging the VM and native JSON tests into one parity fixture
@@ -2101,6 +2066,51 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-141 — A test's port could be taken between `free_port()` and the bind — FIXED 2026-10-29
+
+**Severity:** Medium · **Area:** tests, networking · **Verified fixed:** 2026-10-29, by reading the code and a test of the range; neither failure was reproduced locally · **From:** a one-off failure of `vm_http_server::shutdown_now_cancels_active_connection` in a full `cargo test-all`
+
+`free_port()` (`tests/support/scratch.rs`) bound port 0, read the port the
+OS chose, and closed the listener. The test's Flux program bound that port
+later. In between, any other process could take it, including the local end
+of another test's outgoing connection, since those also come from the OS's
+ephemeral range. The program then failed at once (address in use), or the
+client connected to someone else's server.
+
+41 calls in `tests/` use it: the HTTP and TCP tests on the VM and natively,
+and replay.
+
+The failure that led here took 0.46 s and passed on every rerun, which fits
+this race; its output was not kept. The same test's timing race (fixed sleeps
+instead of ordering) was fixed in 8e4e3b09, and the other tests in
+`vm_http_server.rs` in the commit after it.
+
+On 2026-10-29 Windows CI hung in
+`vm_http_server::shutdown_drains_active_connection` for over 20 minutes,
+until the job timed out. A client that reaches a listener that never answers
+waits in `Tcp.read` forever. The test passed 30 runs in a row locally, and
+alongside every other network test. Before the fix below, these went in to
+contain it, and they stay:
+- the network tests run one at a time, in nextest's `network` group, so they
+  no longer take each other's ports;
+- the VM network tests stop their program after 60 s and say so;
+- nextest kills any test after five minutes (`terminate-after`), so a hang
+  fails the run instead of stalling it.
+
+**The fix.** `free_port()` picks from 20000–29999, below every OS's
+ephemeral range (Linux from 32768, Windows and macOS from 49152), so no
+outgoing connection can take its port. Each process starts at its own offset,
+since nextest runs each test in its own process, and ports that do not bind
+are skipped. Only an unrelated service on the machine could still take one.
+
+Test: `free_port_is_outside_the_ephemeral_range` in
+`tests/vm_runtime/vm_tcp_echo.rs`.
+
+A program still cannot ask the OS for a port and learn which it got:
+`Tcp.listen` and `serve_config` with port 0 bind, but nothing reports the
+port. Adding that is a new primop on both backends and a new replay record;
+the tests no longer need it.
 
 ### KI-136 — On Linux, lldb lost the frames a `resume` runs on top of — FIXED 2026-10-29
 
