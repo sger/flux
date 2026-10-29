@@ -2456,8 +2456,14 @@ impl<'a> FnEmitter<'a> {
             return;
         }
 
-        let llvm_args: Vec<(LlvmType, LlvmOperand)> =
+        let mut llvm_args: Vec<(LlvmType, LlvmOperand)> =
             args.iter().map(|a| (LlvmType::i64(), self.var(*a))).collect();
+        // `flux_assert_throws` always takes the expected message; without
+        // one, the runtime would read whatever the second argument register
+        // holds as a string.
+        if matches!(op, CorePrimOp::AssertThrows) && args.len() == 1 {
+            llvm_args.push((LlvmType::i64(), self.i64_const(0)));
+        }
         let dst_local = dst.map(|d| self.var_local(d));
 
         // Map CorePrimOp to C runtime function name.
