@@ -911,9 +911,13 @@ pub fn ensure_runtime_lib(
     // and the Flux code it calls (KI-126), which needs their unwind tables.
     // `-fexceptions` makes that unwind release what an effect prompt holds
     // (KI-133).
+    // A debugger walks through the runtime's frames between a `resume` and
+    // the continuations it runs. lldb-18 can misread the CFA of a frame
+    // with no frame pointer and stop the walk there (KI-136).
     if matches!(toolchain, CToolchain::Gcc { .. }) && !cfg!(windows) {
         flags.push("-funwind-tables");
         flags.push("-fexceptions");
+        flags.push("-fno-omit-frame-pointer");
     }
     // On Windows, the C runtime uses MS SEH (`__try` / `__except` /
     // `RaiseException`) to unwind across LLVM-emitted Flux frames
