@@ -1543,71 +1543,6 @@ The resolver permits only one version of a package name in a graph because the
 current linker uses flat global names. Per-package symbol mangling would be
 required before semver-incompatible duplicate versions can be supported safely.
 
-### KI-053 — `--dump-core` and the other whole-program dumps report types from the wrong module
-
-**Severity:** Medium · **Area:** driver, diagnostics tooling · **Verified:** 2026-08-31 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
-
-Every dump flag that needs a whole-program view — `--dump-core`, `--dump-aether`,
-`--dump-cfg`, `--dump-lir`, `--emit-llvm`, `--trace-aether` — concatenates the
-modules into one `Program`:
-
-```rust
-// src/driver/pipeline/program.rs
-fn merge_programs<'a>(programs: impl IntoIterator<Item = &'a Program>) -> Program
-```
-
-Each file is parsed by its own `Parser`, and every `ExprIdGen` starts at 1
-([`src/syntax/expression.rs`](../src/syntax/expression.rs)), while inferred types
-are keyed on that bare number with no module component:
-
-```rust
-// src/ast/type_infer/mod.rs
-expr_types: HashMap<ExprId, InferType>,
-```
-
-So the merged view asks one flat map about ids that several modules each
-allocated from 1. Measured on `import Flow.Json` plus a four-line entry file:
-each module internally clean, the merge holding **2616 expressions across 987
-distinct ids**, with `ExprId(1)` appearing 13 times.
-
-The dumps therefore show expressions annotated with another module's types, and
-lowering decisions taken from them — a dumped call can resolve to an instance
-the compiler would never pick. Normal compilation is unaffected: modules are
-compiled one at a time and `hm_expr_types` is replaced per module, never merged.
-
-**Why this matters more than a cosmetic dump bug.** KI-051's recorded diagnosis
-was derived from one of these dumps and was wrong as a result, which cost two
-attempts. Any diagnosis that quotes a multi-module dump is unsound.
-
-**A worked example, visible in the checked-in snapshots (2026-09-01).** Once
-Stage 7 gave `Eq` a contextual instance over `List`, `--dump-core` began showing
-`Flow.Array.contains` — which is generic over `a: Eq` and must dispatch through
-its dictionary — statically resolved to the `List` instance:
-
-```
-letrec contains =
-λ__dict_Eq, arr, x.
-    let %t = (λv. __tc_Eq_List<a>_eq(__dict_Eq, v, x))   // wrong instance
-    any(arr, %t)
-```
-
-The correct lowering, which `Flow.List.contains` still shows in the same dump,
-projects the method out of the dictionary (`__dict_Eq.0`). If the dumped form
-were what ran, `contains(#[1, 2, 3], 9)` would answer `true`, since an `Int`
-matches neither list arm and the fallthrough returns `true`.
-
-It answers `false` — on the VM and natively, with caches cleared. The compiled
-program is correct; only the merged view is wrong. The `tests/snapshots/aether/`
-files therefore contain a call that no compiled program makes, which is worth
-knowing before reading one as evidence.
-
-**Workaround while this is open:** dump a single module, or read the Core for the
-module you care about from its own compile rather than the merged view.
-
-Two candidate fixes: renumber `ExprId`s when concatenating so the merged program
-is internally consistent, or refuse the merge and dump per module — the latter
-also makes the output match what is actually compiled.
-
 ### KI-054 — An imported contextual instance method is declared one parameter short natively
 
 **Severity:** Low · **Area:** type classes, native backend · **Verified:** 2026-08-31 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
@@ -2181,6 +2116,78 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-053 — `--dump-core` and the other whole-program dumps report types from the wrong module — FIXED 2026-10-29
+
+**Severity:** Medium · **Area:** driver, diagnostics tooling · **Verified fixed:** 2026-10-29 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+
+Every dump flag that needs a whole-program view — `--dump-core`, `--dump-aether`,
+`--dump-cfg`, `--dump-lir`, `--emit-llvm`, `--trace-aether` — concatenates the
+modules into one `Program`:
+
+```rust
+// src/driver/pipeline/program.rs
+fn merge_programs<'a>(programs: impl IntoIterator<Item = &'a Program>) -> Program
+```
+
+Each file is parsed by its own `Parser`, and every `ExprIdGen` starts at 1
+([`src/syntax/expression.rs`](../src/syntax/expression.rs)), while inferred types
+are keyed on that bare number with no module component:
+
+```rust
+// src/ast/type_infer/mod.rs
+expr_types: HashMap<ExprId, InferType>,
+```
+
+So the merged view asks one flat map about ids that several modules each
+allocated from 1. Measured on `import Flow.Json` plus a four-line entry file:
+each module internally clean, the merge holding **2616 expressions across 987
+distinct ids**, with `ExprId(1)` appearing 13 times.
+
+The dumps therefore show expressions annotated with another module's types, and
+lowering decisions taken from them — a dumped call can resolve to an instance
+the compiler would never pick. Normal compilation is unaffected: modules are
+compiled one at a time and `hm_expr_types` is replaced per module, never merged.
+
+**Why this matters more than a cosmetic dump bug.** KI-051's recorded diagnosis
+was derived from one of these dumps and was wrong as a result, which cost two
+attempts. Any diagnosis that quotes a multi-module dump is unsound.
+
+**A worked example, visible in the checked-in snapshots (2026-09-01).** Once
+Stage 7 gave `Eq` a contextual instance over `List`, `--dump-core` began showing
+`Flow.Array.contains` — which is generic over `a: Eq` and must dispatch through
+its dictionary — statically resolved to the `List` instance:
+
+```
+letrec contains =
+λ__dict_Eq, arr, x.
+    let %t = (λv. __tc_Eq_List<a>_eq(__dict_Eq, v, x))   // wrong instance
+    any(arr, %t)
+```
+
+The correct lowering, which `Flow.List.contains` still shows in the same dump,
+projects the method out of the dictionary (`__dict_Eq.0`). If the dumped form
+were what ran, `contains(#[1, 2, 3], 9)` would answer `true`, since an `Int`
+matches neither list arm and the fallthrough returns `true`.
+
+It answers `false` — on the VM and natively, with caches cleared. The compiled
+program is correct; only the merged view is wrong. The `tests/snapshots/aether/`
+files therefore contain a call that no compiled program makes, which is worth
+knowing before reading one as evidence.
+
+**The fix.** Each module is shifted past the expression ids of the ones
+merged before it. `2d1a7203` did that in `merge_programs`
+(`src/driver/pipeline/program.rs`), which the dumps use. `--emit-llvm` and
+`--native --trace-aether` had their own merge, which did not shift, and
+once lowering began checking that a site's evidence was raised by that site,
+`--emit-llvm` stopped with an internal error on every program. They now use
+`merge_programs` too.
+
+The `tests/snapshots/aether/` caveat above no longer holds: `Flow.Array.contains`
+projects the method out of its dictionary there.
+
+Test: `emit_llvm_prints_ir_for_a_program_that_imports_the_prelude` in
+`tests/native_llvm/llvm_codegen.rs`.
 
 ### KI-135 — A handle's value was wrong when its body did work of its own in the handle's frame — FIXED 2026-10-28
 
