@@ -427,7 +427,14 @@ fn every_module_gets_its_own_compile_unit() {
 
 /// Runs lldb in batch mode on `binary` with `commands`.
 fn lldb_session(lldb: &[String], scratch: &Scratch, binary: &str, commands: &[&str]) -> String {
-    let mut args: Vec<String> = vec!["-b".to_string(), "--no-lldbinit".to_string()];
+    // A loaded CI runner can take longer than lldb's 6-second handshake to
+    // start `lldb-server`, and `run` then fails before the program starts.
+    let mut args: Vec<String> = vec![
+        "-b".to_string(),
+        "--no-lldbinit".to_string(),
+        "-O".to_string(),
+        "settings set plugin.process.gdb-remote.packet-timeout 30".to_string(),
+    ];
     for command in commands {
         args.push("-o".to_string());
         args.push(command.to_string());
