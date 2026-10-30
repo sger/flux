@@ -14,7 +14,7 @@ The benchmark suite is split into a smaller `core` set and a broader `extended` 
 
 Core benchmarks:
 
-- `binarytrees`: recursive allocation, tree traversal, and baseline VM/JIT overhead
+- `binarytrees`: recursive allocation, tree traversal, and baseline VM and native overhead
 - `cfold`: nested ADTs, recursive rewrites, and constructor-heavy control flow
 - `deriv`: symbolic AST transformation and pattern-heavy recursive simplification
 - `nqueens`: backtracking search and branch-heavy recursion
@@ -26,6 +26,16 @@ Extended benchmarks:
 - `rbtree_ck`: normalized red-black-tree construction baseline
 - `rbtree`: insert-focused red-black-tree variant
 - `rbtree2`: alternate red-black-tree variant with a different value shape
+
+The scripts need a release `flux` with the native backend:
+
+```bash
+cargo build --release --features llvm --bin flux
+```
+
+Each benchmark runs Flux twice: on the VM (`<name>/flux`), and as a native binary that
+`bench.sh` emits into `target/bench/` before timing starts (`<name>/flux-native`). The
+native case times only the compiled program, not the compiler.
 
 Run the curated groups:
 
@@ -39,10 +49,28 @@ Run grouped flamewatch workflows:
 
 ```bash
 scripts/bench/bench_benchmark_flamewatch.sh core
-scripts/bench/bench_benchmark_flamewatch.sh extended --jit
+scripts/bench/bench_benchmark_flamewatch.sh extended --native
 ```
 
-Grouped flamewatch runs keep per-benchmark artifacts such as `flamegraph-cfold-vm.svg` and `flamegraph-rbtree_del-jit.svg` in the repo root.
+Grouped flamewatch runs keep per-benchmark artifacts such as `flamegraph-cfold-vm.svg` and `flamegraph-rbtree_del-native.svg` in the repo root.
+`--native` profiles a `-g` binary emitted into `target/bench/`, using the `flamegraph`
+command that `cargo install flamegraph` provides.
+
+## Results and baselines
+
+Every run writes hyperfine's JSON results to `target/bench/<name>.json` (`<name>_full.json`
+with `--full`). The report then compares each case with the committed baseline in
+`benchmarks/baselines/` and gives the VM's time as a multiple of native's. It prints a
+line instead of the table when no baseline exists yet. The comparison is informational:
+it never fails a run.
+
+Record a new baseline on a quiet machine, and commit it:
+
+```bash
+scripts/bench/bench.sh all --save-baseline
+```
+
+A baseline only compares well with runs on the machine that recorded it.
 
 ## Binary Trees
 
@@ -59,7 +87,7 @@ Run each version directly:
 
 ```bash
 cargo run --release --bin flux -- benchmarks/flux/binarytrees.flx
-cargo run --release --features jit --bin flux -- benchmarks/flux/binarytrees.flx --jit
+cargo run --release --features llvm --bin flux -- benchmarks/flux/binarytrees.flx --native
 cargo run --release --bin binarytrees_rust
 python3 benchmarks/python/binarytrees.py
 runghc benchmarks/haskell/binarytrees.hs
@@ -94,7 +122,6 @@ Equivalent explicit commands:
 ```bash
 scripts/bench/bench.sh binarytrees \
   --flux-cmd './target/release/flux benchmarks/flux/binarytrees.flx' \
-  --flux-jit-cmd './target/release/flux benchmarks/flux/binarytrees.flx --jit' \
   --rust-cmd './target/release/binarytrees_rust 21' \
   --python-cmd 'python3 benchmarks/python/binarytrees.py 21' \
   --haskell-cmd './target/release/binarytrees_hs 21' \
@@ -106,7 +133,7 @@ Useful options:
 ```bash
 scripts/bench/bench.sh binarytrees --full --runs 3 --warmup 1
 scripts/bench/bench.sh binarytrees --runs 30 --warmup 5
-scripts/bench/bench.sh binarytrees --no-flux-jit
+scripts/bench/bench.sh binarytrees --no-flux-native
 scripts/bench/bench.sh binarytrees --report-file reports/binarytrees_$(date +%F).md
 scripts/bench/bench.sh binarytrees --haskell-cmd 'runghc benchmarks/haskell/binarytrees.hs'
 ```
@@ -116,7 +143,7 @@ Profile binarytrees specifically:
 ```bash
 scripts/bench/bench_benchmark_flamewatch.sh binarytrees
 scripts/bench/bench_benchmark_flamewatch.sh binarytrees --full --runs 3 --warmup 1
-scripts/bench/bench_benchmark_flamewatch.sh binarytrees --jit
+scripts/bench/bench_benchmark_flamewatch.sh binarytrees --native
 ```
 
 Latest report:
@@ -152,7 +179,7 @@ Run each version directly:
 
 ```bash
 cargo run --release --bin flux -- benchmarks/flux/cfold.flx
-cargo run --release --features jit --bin flux -- benchmarks/flux/cfold.flx --jit
+cargo run --release --features llvm --bin flux -- benchmarks/flux/cfold.flx --native
 cargo run --release --bin cfold_rust
 python3 benchmarks/python/cfold.py
 runghc benchmarks/haskell/cfold.hs
@@ -178,7 +205,7 @@ Profile the Flux implementation:
 
 ```bash
 scripts/bench/bench_benchmark_flamewatch.sh cfold
-scripts/bench/bench_benchmark_flamewatch.sh cfold --jit
+scripts/bench/bench_benchmark_flamewatch.sh cfold --native
 ```
 
 Latest report:
@@ -213,7 +240,7 @@ Run each version directly:
 
 ```bash
 cargo run --release --bin flux -- benchmarks/flux/deriv.flx
-cargo run --release --features jit --bin flux -- benchmarks/flux/deriv.flx --jit
+cargo run --release --features llvm --bin flux -- benchmarks/flux/deriv.flx --native
 cargo run --release --bin deriv_rust
 python3 benchmarks/python/deriv.py
 runghc benchmarks/haskell/deriv.hs
@@ -239,10 +266,8 @@ Profile the Flux implementation:
 
 ```bash
 scripts/bench/bench_benchmark_flamewatch.sh deriv
-scripts/bench/bench_benchmark_flamewatch.sh deriv --jit
+scripts/bench/bench_benchmark_flamewatch.sh deriv --native
 ```
-
-`deriv` currently benchmarks Flux VM by default. The Flux JIT path is not included in the cross-language matrix for this benchmark because it does not yet preserve the same counts as the VM/Haskell baseline.
 
 Latest report:
 
@@ -266,7 +291,7 @@ Run each version directly:
 
 ```bash
 cargo run --release --bin flux -- benchmarks/flux/nqueens.flx
-cargo run --release --features jit --bin flux -- benchmarks/flux/nqueens.flx --jit
+cargo run --release --features llvm --bin flux -- benchmarks/flux/nqueens.flx --native
 cargo run --release --bin nqueens_rust
 python3 benchmarks/python/nqueens.py
 runghc benchmarks/haskell/nqueens.hs
@@ -292,7 +317,7 @@ Profile the Flux implementation:
 
 ```bash
 scripts/bench/bench_benchmark_flamewatch.sh nqueens
-scripts/bench/bench_benchmark_flamewatch.sh nqueens --jit
+scripts/bench/bench_benchmark_flamewatch.sh nqueens --native
 ```
 
 Latest report:
@@ -317,7 +342,7 @@ Run each version directly:
 
 ```bash
 cargo run --release --bin flux -- benchmarks/flux/qsort.flx
-cargo run --release --features jit --bin flux -- benchmarks/flux/qsort.flx --jit
+cargo run --release --features llvm --bin flux -- benchmarks/flux/qsort.flx --native
 cargo run --release --bin qsort_rust
 python3 benchmarks/python/qsort.py
 runghc benchmarks/haskell/qsort.hs
@@ -343,7 +368,7 @@ Profile the Flux implementation:
 
 ```bash
 scripts/bench/bench_benchmark_flamewatch.sh qsort
-scripts/bench/bench_benchmark_flamewatch.sh qsort --jit
+scripts/bench/bench_benchmark_flamewatch.sh qsort --native
 ```
 
 Latest report:
@@ -379,7 +404,7 @@ Run each version directly:
 
 ```bash
 cargo run --release --bin flux -- benchmarks/flux/rbtree_ck.flx
-cargo run --release --features jit --bin flux -- benchmarks/flux/rbtree_ck.flx --jit
+cargo run --release --features llvm --bin flux -- benchmarks/flux/rbtree_ck.flx --native
 cargo run --release --bin rbtree_ck_rust
 python3 benchmarks/python/rbtree_ck.py
 runghc benchmarks/haskell/rbtree-ck.hs
@@ -405,10 +430,8 @@ Profile the Flux implementation:
 
 ```bash
 scripts/bench/bench_benchmark_flamewatch.sh rbtree_ck
-scripts/bench/bench_benchmark_flamewatch.sh rbtree_ck --jit
+scripts/bench/bench_benchmark_flamewatch.sh rbtree_ck --native
 ```
-
-`rbtree_ck` currently benchmarks Flux VM by default. The Flux JIT path is not included in the cross-language matrix for this benchmark unless it is explicitly re-enabled.
 
 Latest report:
 
