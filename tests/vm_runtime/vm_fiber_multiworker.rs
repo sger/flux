@@ -61,17 +61,18 @@ fn main() with IO {
 
 #[test]
 fn multiworker_sleep_both_overlaps() {
-    // Two 500ms sleeps across 2 workers should finish in ~500ms, not ~1000ms.
+    // Two 1000ms sleeps across 2 workers should finish in ~1000ms; one after
+    // the other they take at least 2000ms.
     let source = r#"
 import Flow.Async exposing (..)
 
 fn slow_left() -> Int with Async {
-    let _ = sleep(500)
+    let _ = sleep(1000)
     1
 }
 
 fn slow_right() -> Int with Async {
-    let _ = sleep(500)
+    let _ = sleep(1000)
     2
 }
 
@@ -94,15 +95,15 @@ fn main() with IO, Time {
     assert_eq!(lines, ["1", "2"], "expected both fibers' results in order:\nstdout:\n{stdout}");
     // Must wait at least one sleep duration.
     assert!(
-        elapsed >= Duration::from_millis(400),
+        elapsed >= Duration::from_millis(900),
         "elapsed {elapsed:?} too short — sleeps must actually wait"
     );
-    // With 2 OS workers the sleeps overlap: ~500ms, against ~1000ms when
-    // they run one after the other.
+    // One after the other the sleeps take at least their sum, so a run
+    // shorter than that overlapped them, however loaded the machine.
     assert!(
-        elapsed < Duration::from_millis(800),
+        elapsed < Duration::from_millis(2000),
         "elapsed {elapsed:?} — fibers didn't overlap across workers \
-         (sequential would be ~1000ms of sleep)"
+         (sequential takes at least 2000ms of sleep)"
     );
 }
 
@@ -233,7 +234,7 @@ fn fast() -> Int with Async {
 }
 
 fn slow() -> Int with Async {
-    let _ = sleep(2000)
+    let _ = sleep(10000)
     0
 }
 
@@ -252,9 +253,9 @@ fn main() with IO, Time {
     assert!(success, "four-worker race must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
     assert!(stdout.contains("99"), "expected fast branch result (99):\nstdout:\n{stdout}");
-    // Should complete in ~50ms; the slow branch's 2s sleep would not.
+    // Waiting for the slow branch takes at least its 10s sleep.
     assert!(
-        elapsed < Duration::from_millis(1500),
+        elapsed < Duration::from_millis(10_000),
         "elapsed {elapsed:?} — race didn't return on fast branch"
     );
 }

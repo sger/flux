@@ -14,7 +14,7 @@ fn first_of_returns_fastest_index_and_cancels_losers() {
 import Flow.Async exposing (..)
 
 fn slow() -> Int with Async {
-    sleep(1000)
+    sleep(10000)
     1
 }
 
@@ -40,5 +40,9 @@ fn main() with IO, Time {
     let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
     let lines: Vec<_> = stdout.lines().collect();
     assert_eq!(lines, ["1", "2"]);
-    assert!(elapsed < Duration::from_millis(700), "first_of waited for slow losers: {elapsed:?}");
+    // Waiting for a loser takes at least its 10s sleep.
+    assert!(
+        elapsed < Duration::from_millis(10_000),
+        "first_of waited for slow losers: {elapsed:?}"
+    );
 }

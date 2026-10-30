@@ -8,7 +8,7 @@
 //! We verify:
 //! 1. The program succeeds (no runtime error from the cancelled fiber).
 //! 2. The fast result is returned correctly.
-//! 3. Elapsed time is well below the slow fiber's 2s sleep (cancelled, not
+//! 3. Elapsed time is below the slow fiber's 10s sleep (cancelled, not
 //!    waited for), proving `exit_run_async` doesn't hang on cancelled fibers.
 
 use crate::support::flux_runner;
@@ -20,13 +20,13 @@ fn run_source(source: &str, tag: &str) -> (String, String, bool, Duration) {
 
 #[test]
 fn cancelled_fiber_leaves_cleanly() {
-    // fast wins in ~50ms; slow sleeps 2000ms and is cancelled.
+    // fast wins in ~50ms; slow sleeps 10s and is cancelled.
     // The slow fiber is dropped — no runtime panic, correct result returned.
     let source = r#"
 import Flow.Async exposing (..)
 
 fn slow() -> Int with Async {
-    let _ = sleep(2000)
+    let _ = sleep(10000)
     0
 }
 
@@ -50,9 +50,9 @@ fn main() with IO, Time {
     assert!(success, "cancelled-fiber program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
     assert!(stdout.contains("42"), "expected fast result 42:\nstdout:\n{stdout}");
-    // Must complete well before the slow fiber's 2s sleep.
+    // Waiting for the slow fiber takes at least its 10s sleep.
     assert!(
-        elapsed < Duration::from_millis(1500),
+        elapsed < Duration::from_millis(10_000),
         "elapsed {elapsed:?} — slow fiber not cancelled"
     );
 }
@@ -65,7 +65,7 @@ fn both_cancelled_fibers_leave_cleanly() {
 import Flow.Async exposing (..)
 
 fn slow() -> Int with Async {
-    let _ = sleep(2000)
+    let _ = sleep(10000)
     99
 }
 
@@ -92,7 +92,7 @@ fn main() with IO, Time {
     let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
     assert!(stdout.contains("timed_out"), "expected 'timed_out':\nstdout:\n{stdout}");
     assert!(
-        elapsed < Duration::from_millis(1500),
+        elapsed < Duration::from_millis(10_000),
         "elapsed {elapsed:?} — body child not cancelled"
     );
 }
