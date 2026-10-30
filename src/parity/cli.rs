@@ -34,6 +34,7 @@ use super::report::{
 use super::runner::{
     DEFAULT_TIMEOUT_SECS, capture_dump_aether, capture_dump_cfg, capture_dump_core,
     capture_dump_lir, capture_dump_repr, capture_metrics, compile_fixture, is_native_skip, run_way,
+    run_way_counted,
 };
 use super::{
     BackendId, DebugArtifacts, ExitKind, MismatchDetail, ParityResult, SurfaceKind, Verdict, Way,
@@ -111,12 +112,16 @@ pub fn run_parity_check(args: &[String]) {
         std::process::exit(1);
     }
 
-    let mut census_out = config.census.as_deref().map(|path| {
-        CensusWriter::create(path).unwrap_or_else(|err| {
+    let create = |path: &Path, header: &str, what| {
+        TsvWriter::create(path, header, what).unwrap_or_else(|err| {
             eprintln!("Error: cannot write {}: {err}", path.display());
             std::process::exit(1);
         })
-    });
+    };
+    let mut census_out =
+        config.census.as_deref().map(|path| create(path, census::HEADER, "census"));
+    let mut metrics_out =
+        config.metrics.as_deref().map(|path| create(path, METRICS_HEADER, "metrics"));
     let mut results = Vec::new();
     let mut saved_first_failure = false;
 
@@ -127,7 +132,10 @@ pub fn run_parity_check(args: &[String]) {
         |checked| {
             let mut parity_result = checked.result;
             if let Some(out) = census_out.as_mut() {
-                out.write(&checked.rows);
+                out.write(checked.rows.iter().map(census::Row::to_tsv));
+            }
+            if let Some(out) = metrics_out.as_mut() {
+                out.write(metric_rows(&parity_result));
             }
             if config.annotate {
                 annotate(&mut parity_result, &config);
@@ -163,6 +171,10 @@ pub fn run_parity_check(args: &[String]) {
     );
 
     print_summary(&results);
+    if let (Some(out), Some(path)) = (metrics_out, &config.metrics) {
+        let rows = out.finish();
+        eprintln!("[parity] metrics: {rows} row(s) in {}", path.display());
+    }
     if let (Some(out), Some(path)) = (census_out, &config.census) {
         let rows = out.finish();
         eprintln!("[parity] census: {rows} row(s) in {}", path.display());
@@ -606,6 +618,7 @@ fn check_one(file: &Path, config: &Config) -> CheckedFile {
                 skipped_ways: Vec::new(),
                 elapsed: Vec::new(),
                 unexpected_passes: Vec::new(),
+                metrics: Vec::new(),
             },
             rows: census::unrun_rows(file, census_ways, &reason),
         };
@@ -655,6 +668,7 @@ fn check_one(file: &Path, config: &Config) -> CheckedFile {
             stdout_varies: fixture_meta.stdout_varies,
             check_skips: config.check_skips,
             expected_counts: &fixture_meta.expected_counts,
+            collect_metrics: config.metrics.is_some(),
         },
     );
     let rows = if config.census.is_some() {
@@ -766,28 +780,30 @@ fn run_in_order<T, R>(
     });
 }
 
-/// The census file, written row by row in file order.
-struct CensusWriter {
+/// A TSV file written row by row in file order: the census, or the counts.
+struct TsvWriter {
     out: std::io::BufWriter<fs::File>,
     rows: usize,
+    /// What the file holds, for error messages.
+    what: &'static str,
 }
 
-impl CensusWriter {
-    fn create(path: &Path) -> std::io::Result<Self> {
+impl TsvWriter {
+    fn create(path: &Path, header: &str, what: &'static str) -> std::io::Result<Self> {
         if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
             fs::create_dir_all(parent)?;
         }
         let mut out = std::io::BufWriter::new(fs::File::create(path)?);
-        std::io::Write::write_all(&mut out, format!("{}\n", census::HEADER).as_bytes())?;
-        Ok(Self { out, rows: 0 })
+        std::io::Write::write_all(&mut out, format!("{header}\n").as_bytes())?;
+        Ok(Self { out, rows: 0, what })
     }
 
-    fn write(&mut self, rows: &[census::Row]) {
+    fn write(&mut self, rows: impl IntoIterator<Item = String>) {
         for row in rows {
             if let Err(err) =
-                std::io::Write::write_all(&mut self.out, format!("{}\n", row.to_tsv()).as_bytes())
+                std::io::Write::write_all(&mut self.out, format!("{row}\n").as_bytes())
             {
-                eprintln!("[parity] census write failed: {err}");
+                eprintln!("[parity] {} write failed: {err}", self.what);
                 return;
             }
             self.rows += 1;
@@ -797,10 +813,27 @@ impl CensusWriter {
     /// Flushes the file and returns how many rows it holds.
     fn finish(mut self) -> usize {
         if let Err(err) = std::io::Write::flush(&mut self.out) {
-            eprintln!("[parity] census write failed: {err}");
+            eprintln!("[parity] {} write failed: {err}", self.what);
         }
         self.rows
     }
+}
+
+/// The `--metrics` file's first line.
+const METRICS_HEADER: &str = "file\tway\tmetric\tvalue";
+
+/// One `--metrics` row per way and count, in run order and then by name. The
+/// path is written with `/`, so runs on different systems compare.
+fn metric_rows(result: &ParityResult) -> Vec<String> {
+    let file = result.file.to_string_lossy().replace('\\', "/");
+    let file = file.as_str();
+    result
+        .metrics
+        .iter()
+        .flat_map(|(way, counts)| {
+            counts.iter().map(move |(metric, value)| format!("{file}\t{way}\t{metric}\t{value}"))
+        })
+        .collect()
 }
 
 struct CheckOpts<'a> {
@@ -847,9 +880,22 @@ struct CheckOpts<'a> {
     check_skips: bool,
     /// `// expect-reuse:` and `// expect-allocs:`, checked once the ways pass.
     expected_counts: &'a [ExpectedCount],
+    /// `--metrics`: the `vm` and `vm_opt` ways write their counts.
+    collect_metrics: bool,
 }
 
 impl CheckOpts<'_> {
+    /// Whether `way`'s run writes `--metrics` counts: the `vm` and `vm_opt`
+    /// ways under `--metrics`, and the `vm` way when the fixture states
+    /// counts, which are checked against that run's.
+    fn counts(&self, way: Way) -> bool {
+        match way {
+            Way::Vm => self.collect_metrics || !self.expected_counts.is_empty(),
+            Way::VmOpt => self.collect_metrics,
+            _ => false,
+        }
+    }
+
     /// Whether the fixture says what its run must produce, so that a single
     /// way still has something to be checked against.
     fn declares_expectation(&self) -> bool {
@@ -897,6 +943,7 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
         skipped_ways,
         elapsed: Vec::new(),
         unexpected_passes: Vec::new(),
+        metrics: Vec::new(),
     };
     // Before the skip: a skip whose reason cites a closed KI is itself an
     // error (`--known-issues`).
@@ -946,11 +993,24 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
 
     let mut run_results = Vec::new();
     let mut elapsed = Vec::new();
+    let mut metrics = Vec::new();
 
     for &way in &ways {
         let started = std::time::Instant::now();
-        let result =
-            run_way(opts.vm_binary, opts.llvm_binary, file, way, opts.extra_args, opts.timeout);
+        let result = if opts.counts(way) {
+            let (result, counts) = run_way_counted(
+                opts.vm_binary,
+                opts.llvm_binary,
+                file,
+                way,
+                opts.extra_args,
+                opts.timeout,
+            );
+            metrics.extend(counts.map(|counts| (way, counts)));
+            result
+        } else {
+            run_way(opts.vm_binary, opts.llvm_binary, file, way, opts.extra_args, opts.timeout)
+        };
         elapsed.push((way, started.elapsed()));
         run_results.push(result);
     }
@@ -971,6 +1031,7 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
                 skipped_ways,
                 elapsed,
                 unexpected_passes: Vec::new(),
+                metrics: Vec::new(),
             };
         }
     }
@@ -997,10 +1058,16 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
 
     let mut verdict = judge(&run_results, details, opts);
     if matches!(verdict, Verdict::Pass) && !opts.expected_counts.is_empty() && !opts.census {
-        verdict = judge_counts(
-            opts.expected_counts,
-            capture_metrics(opts.vm_binary, file, opts.extra_args, opts.timeout),
-        );
+        let vm_counts = if ways.contains(&Way::Vm) {
+            metrics
+                .iter()
+                .find(|(way, _)| *way == Way::Vm)
+                .map(|(_, counts)| counts.clone())
+                .ok_or_else(|| "the vm run wrote no --metrics counts".to_string())
+        } else {
+            capture_metrics(opts.vm_binary, file, opts.extra_args, opts.timeout)
+        };
+        verdict = judge_counts(opts.expected_counts, vm_counts);
     }
     let unexpected_passes = if opts.check_skips && matches!(verdict, Verdict::Pass) {
         skipped_ways_that_pass(file, opts, &mut run_results, &skipped_ways)
@@ -1016,6 +1083,7 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
         skipped_ways,
         elapsed,
         unexpected_passes,
+        metrics,
     }
 }
 
@@ -1985,6 +2053,61 @@ mod tests {
         assert_eq!(ways_for(&config, &FixtureMeta::default(), &CENSUS_WAYS), CENSUS_WAYS);
     }
 
+    #[test]
+    fn metrics_takes_the_file_to_write() {
+        let config =
+            parse_args(&["x.flx".to_string(), "--metrics".to_string(), "m.tsv".to_string()])
+                .expect("valid arguments");
+        assert_eq!(config.metrics, Some(PathBuf::from("m.tsv")));
+        let missing = parse_args(&["x.flx".to_string(), "--metrics".to_string()]).err();
+        assert_eq!(missing.as_deref(), Some("--metrics requires a file path"));
+    }
+
+    /// The `vm` and `vm_opt` ways count under `--metrics`; the `vm` way also
+    /// counts for a fixture that states counts, and no other way does.
+    #[test]
+    fn the_vm_ways_are_the_ones_that_count() {
+        let ways = [Way::Vm, Way::VmOpt, Way::Llvm, Way::LlvmOpt];
+        let counted = |opts: &CheckOpts<'_>| -> Vec<Way> {
+            ways.iter().copied().filter(|&way| opts.counts(way)).collect()
+        };
+        assert!(counted(&plain_opts(&ways)).is_empty());
+        let collecting = CheckOpts { collect_metrics: true, ..plain_opts(&ways) };
+        assert_eq!(counted(&collecting), [Way::Vm, Way::VmOpt]);
+        let stated = [ExpectedCount {
+            directive: "expect-reuse",
+            key: "aether_reuses",
+            op: super::super::fixture::CountOp::Exactly,
+            value: 1,
+        }];
+        let stating = CheckOpts { expected_counts: &stated, ..plain_opts(&ways) };
+        assert_eq!(counted(&stating), [Way::Vm]);
+    }
+
+    #[test]
+    fn metric_rows_are_one_per_way_and_count_with_forward_slashes() {
+        let mut result = parity_result(vec![]);
+        result.file = PathBuf::from("examples\\aether\\a.flx");
+        result.metrics = vec![
+            (
+                Way::Vm,
+                std::collections::BTreeMap::from([
+                    ("core_size".to_string(), 40),
+                    ("aether_dups".to_string(), 3),
+                ]),
+            ),
+            (Way::VmOpt, std::collections::BTreeMap::from([("core_size".to_string(), 31)])),
+        ];
+        assert_eq!(
+            metric_rows(&result),
+            [
+                "examples/aether/a.flx\tvm\taether_dups\t3",
+                "examples/aether/a.flx\tvm\tcore_size\t40",
+                "examples/aether/a.flx\tvm_opt\tcore_size\t31",
+            ]
+        );
+    }
+
     /// A support module — no `main` — is not a fixture, and a real fixture is.
     /// Both are checked against the tree so the rule cannot drift from it.
     #[test]
@@ -2063,6 +2186,7 @@ mod tests {
             stdout_varies: false,
             check_skips: true,
             expected_counts: &[],
+            collect_metrics: false,
         }
     }
 
@@ -2365,6 +2489,7 @@ mod tests {
             skipped_ways: vec![],
             elapsed: vec![],
             unexpected_passes: vec![],
+            metrics: Vec::new(),
         }
     }
 
@@ -2923,6 +3048,8 @@ struct Config {
     jobs: usize,
     /// Where `--census` writes its rows.
     census: Option<PathBuf>,
+    /// Where `--metrics` writes the counts (0190 §12).
+    metrics: Option<PathBuf>,
     /// `// requires:` resources this run may use.
     allow: Vec<String>,
     /// `--known-issues`: the open KI ids; a skip citing any other is a
@@ -2979,6 +3106,7 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
     let mut paths: Vec<PathBuf> = Vec::new();
     let mut jobs = 1;
     let mut census: Option<PathBuf> = None;
+    let mut metrics: Option<PathBuf> = None;
     let mut allow = Vec::new();
     let mut open_kis: Option<BTreeSet<String>> = None;
     let mut check_skips = false;
@@ -3051,6 +3179,11 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
                 i += 1;
                 let path = args.get(i).ok_or("--census requires a file path")?;
                 census = Some(PathBuf::from(path));
+            }
+            "--metrics" => {
+                i += 1;
+                let path = args.get(i).ok_or("--metrics requires a file path")?;
+                metrics = Some(PathBuf::from(path));
             }
             "--allow" => {
                 i += 1;
@@ -3190,6 +3323,7 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
         paths,
         jobs,
         census,
+        metrics,
         allow,
         open_kis,
         check_skips,
@@ -3249,7 +3383,9 @@ Options:
   --census <file.tsv>    Support census: run every .flx file, including those without main,
                          on vm,llvm,vm_opt,llvm_opt (or --ways) within each file's `// parity:`
                          line, and write one classified row per file and way. Never fails.
-  --allow network        Run fixtures marked `// requires: network`
+  --metrics <file.tsv>   Write the `flux --metrics` counts of each file's vm and vm_opt runs,
+                         one file/way/metric/value row each, in file order
+  --allow network       Run fixtures marked `// requires: network`
   --check-skips          Also run the ways `// skip-way:` removes, outside the verdict, and
                          print UNEXPECTED_PASS for each that would pass (its KI may be fixed)
   --known-issues <file>  docs/known_issues.md: a skip reason citing a KI that is not open
