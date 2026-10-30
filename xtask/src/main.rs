@@ -2,13 +2,15 @@
 //! `.cargo/config.toml`).
 //!
 //! ```text
-//! cargo xtask verify <tag> [--base <tag> [--cmp | --cmp=structure]] [--skip-suite]
-//!                    [--skip-sweeps] [--det-sample <n>]
+//! cargo xtask verify <tag> [--base <tag> [--cmp | --cmp=structure] [--accept-metrics]]
+//!                    [--skip-suite] [--skip-sweeps] [--det-sample <n>]
 //!     lint, the suite, the five corpus sweeps (each with a rerun of n files,
 //!     default 50, that must give the same dumps; compared with --base's, by
 //!     status and by dump; --cmp fails on any changed dump, --cmp=structure
-//!     only on one that is more than renumbered) and parity; outputs in
-//!     .verify/<tag>/ (git-ignored; `store.rs`)
+//!     only on one that is more than renumbered) and parity, whose vm and
+//!     vm_opt runs keep their counts in metrics.tsv; with --base, a count
+//!     worse than the base's fails, unless --accept-metrics (`metrics.rs`);
+//!     outputs in .verify/<tag>/ (git-ignored; `store.rs`)
 //! cargo xtask sweep --out <dir> [--mode cfg|core|core-opt|aether|lir|cache] [--files <list>]
 //!                   [--jobs <n>] [--timeout <seconds>] [--flux <path>] [--determinism]
 //!     compile every .flx file under examples/, tests/ and lib/; with
@@ -54,6 +56,7 @@ mod affected;
 mod bisect;
 mod census;
 mod compare;
+mod metrics;
 mod outcome;
 mod proc;
 mod rewrite;
@@ -71,7 +74,7 @@ use std::time::Duration;
 use sweep::Mode;
 
 const USAGE: &str = "usage:
-  cargo xtask verify <tag> [--base <tag> [--cmp | --cmp=structure]] [--skip-suite] [--skip-sweeps] [--det-sample <n>]
+  cargo xtask verify <tag> [--base <tag> [--cmp | --cmp=structure] [--accept-metrics]] [--skip-suite] [--skip-sweeps] [--det-sample <n>]
   cargo xtask sweep --out <dir> [--mode cfg|core|core-opt|aether|lir|cache] [--files <list>] [--jobs <n>] [--timeout <seconds>] [--flux <path>] [--determinism]
   cargo xtask compare <base sweep dir> <head sweep dir> [--content]
   cargo xtask prune [--keep <n>] [--keep-tag <tag>]... [--yes]
@@ -125,12 +128,18 @@ fn dispatch(root: &Path, args: &[String]) -> Result<bool, String> {
                 skip_suite: args.flag("--skip-suite"),
                 skip_sweeps: args.flag("--skip-sweeps"),
                 det_sample: args.number("--det-sample")?.unwrap_or(50),
+                accept_metrics: args.flag("--accept-metrics"),
                 tag: args.positional()?.ok_or(USAGE)?,
             };
             args.finish()?;
             if options.cmp != verify::Cmp::Off && (options.base.is_none() || options.skip_sweeps) {
                 return Err(format!(
                     "--cmp compares the sweeps with --base's, so it needs --base and the sweeps\n{USAGE}"
+                ));
+            }
+            if options.accept_metrics && options.base.is_none() {
+                return Err(format!(
+                    "--accept-metrics accepts counts worse than --base's, so it needs --base\n{USAGE}"
                 ));
             }
             verify::run_verify(root, &options)

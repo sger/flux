@@ -28,6 +28,7 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use crate::compare;
+use crate::metrics;
 use crate::outcome::{Outcome, Steps, format_duration, parse_summary_file};
 use crate::proc::{run, run_tee};
 use crate::store;
@@ -45,6 +46,9 @@ pub struct Options {
     /// How many files each sweep reruns to check its dumps are reproducible
     /// (0190 §9); 0 checks none.
     pub det_sample: usize,
+    /// Pass the metrics step when counts are worse than `--base`'s, noting
+    /// them instead, for a change that costs them on purpose (0190 §12).
+    pub accept_metrics: bool,
 }
 
 /// Which changed dumps `--cmp` fails on.
@@ -81,8 +85,10 @@ fn step_count(options: &Options) -> usize {
         let checks = if options.det_sample > 0 { SWEEPS.len() } else { 0 };
         SWEEPS.len() + checks + 1 + compares
     };
-    // fmt and clippy; the suite or a build; then the four parity steps.
-    2 + sweeps + 4
+    // fmt and clippy; the suite or a build; then the four parity steps, and
+    // with a base the comparison of the counts.
+    let metrics = usize::from(options.base.is_some());
+    2 + sweeps + 4 + metrics
 }
 
 pub(crate) fn cargo() -> Command {
@@ -311,15 +317,23 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
     let mut counts = ParityCounts::default();
     let mut failed_runs = 0;
     let dirs = ["examples/type_classes", "examples/generics", "tests/flux", "tests/parity"];
-    for dir in dirs {
+    let mut metric_parts = Vec::new();
+    for (n, dir) in dirs.iter().enumerate() {
         println!("{}", Paint::detect().bold(&format!("=== {dir}")));
         writeln!(log, "=== {dir}").map_err(io)?;
-        let run = parity(root, &flux, dir, MAIN_WAYS, true, &mut log).map_err(io)?;
+        // The vm and vm_opt runs write their counts, for the metrics step.
+        let part = out.join(format!("metrics_{n}.tsv"));
+        let extra = ["--metrics".to_string(), part.to_string_lossy().into_owned()];
+        let run = parity_with_env(root, &flux, dir, MAIN_WAYS, true, &mut log, &[], &extra)
+            .map_err(io)?;
         if run.exit != 0 {
             failed_runs += 1;
         }
         counts.absorb(run);
+        metric_parts.push(part);
     }
+    let metrics_file = out.join("metrics.tsv");
+    join_metrics(&metric_parts, &metrics_file).map_err(io)?;
     let took = started.elapsed();
     println!("took {}", format_duration(took));
     // A known divergence is recorded in its fixture with `// skip-way:` and
@@ -340,6 +354,12 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
         entry.details = capped(&counts.failures, &log_path);
     }
     note_unexpected_passes(&mut outcome, "parity", &counts, &log_path);
+
+    if let (Some(base), Some(base_out)) = (&options.base, &base_out) {
+        let started = steps.start(&format!("metrics against {base}"));
+        compare_metrics(&mut outcome, options, base, base_out, &out, &metrics_file, started)
+            .map_err(io)?;
+    }
 
     // A debug build runs as a plain one does (0188 S9c): every guide
     // example prints the same natively with and without `-g`.
@@ -453,6 +473,72 @@ fn listed_note(lines: &[String], prefix: &str, what: &str, log: &Path) -> Option
     let rest = (more > 0).then(|| format!("{more} more in {}", log.display()));
     named.extend(rest.as_deref());
     Some(format!("{} {what}: {}", lines.len(), named.join("; ")))
+}
+
+/// Joins parity-check's `--metrics` files, one per directory, into `into`
+/// with a single header, and removes them. A directory whose run wrote none
+/// adds nothing.
+fn join_metrics(parts: &[PathBuf], into: &Path) -> std::io::Result<()> {
+    let mut joined = format!("{}\n", metrics::HEADER);
+    for part in parts {
+        let Ok(text) = fs::read_to_string(part) else { continue };
+        for line in text.lines().skip(1) {
+            joined.push_str(line);
+            joined.push('\n');
+        }
+        fs::remove_file(part)?;
+    }
+    fs::write(into, joined)
+}
+
+/// The metrics step (0190 §12): the head's counts against `base`'s. A count
+/// that got worse fails it, unless `--accept-metrics`, which notes them
+/// instead. Every changed count is listed in `metrics_diff.txt`.
+fn compare_metrics(
+    outcome: &mut Outcome,
+    options: &Options,
+    base: &str,
+    base_out: &Path,
+    out: &Path,
+    head_file: &Path,
+    started: Instant,
+) -> std::io::Result<()> {
+    let Ok(base_text) = fs::read_to_string(base_out.join("metrics.tsv")) else {
+        let line = format!("metrics: {base} kept no counts (recorded before 0190 S11)");
+        println!("{line}");
+        outcome.record("metrics", true, line, started.elapsed());
+        return Ok(());
+    };
+    let head = metrics::parse(&fs::read_to_string(head_file)?);
+    let report = metrics::compare(&metrics::parse(&base_text), &head);
+    let diff_file = out.join("metrics_diff.txt");
+    let listing: String = report
+        .worse
+        .iter()
+        .map(|line| format!("worse   {line}\n"))
+        .chain(report.better.iter().map(|line| format!("better  {line}\n")))
+        .collect();
+    fs::write(&diff_file, listing)?;
+
+    let (worse, better) = (report.worse.len(), report.better.len());
+    let line = format!(
+        "metrics ({worse} count(s) worse than {base}, {better} better, {} only on one side)",
+        report.unmatched
+    );
+    println!("{line}");
+    let fails = worse > 0 && !options.accept_metrics;
+    let entry = outcome.record("metrics", !fails, line, started.elapsed());
+    if fails {
+        entry.details = capped(&report.worse, &diff_file);
+    } else if let Some(note) =
+        listed_note(&report.worse, "", "count(s) worse, accepted by --accept-metrics", &diff_file)
+    {
+        outcome.note("metrics accepted", note, None);
+    }
+    if let Some(note) = listed_note(&report.better, "", "count(s) better", &diff_file) {
+        outcome.note("metrics better", note, None);
+    }
+    Ok(())
 }
 
 /// At most [`MAX_DETAILS`] of `items`, then how many more, then the log to
@@ -658,10 +744,12 @@ pub(crate) fn parity(
     check_skips: bool,
     log: &mut fs::File,
 ) -> std::io::Result<ParityCounts> {
-    parity_with_env(root, flux, dir, ways, check_skips, log, &[])
+    parity_with_env(root, flux, dir, ways, check_skips, log, &[], &[])
 }
 
-/// [`parity`], with `env` set for `parity-check` and the runs it starts.
+/// [`parity`], with `env` set for `parity-check` and the runs it starts, and
+/// `extra` arguments for `parity-check` itself.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn parity_with_env(
     root: &Path,
     flux: &Path,
@@ -670,6 +758,7 @@ pub(crate) fn parity_with_env(
     check_skips: bool,
     log: &mut fs::File,
     env: &[(&str, &str)],
+    extra: &[String],
 ) -> std::io::Result<ParityCounts> {
     let started = Instant::now();
     let paint = Paint::detect();
@@ -688,6 +777,7 @@ pub(crate) fn parity_with_env(
             // passes is reported.
             .args(["--known-issues", "docs/known_issues.md"])
             .args(check_skips.then_some("--check-skips"))
+            .args(extra)
             // The debug heap records a stack at every allocation and free,
             // so a program that allocates a lot runs several times slower
             // on it than parity-check's default allows.
@@ -930,15 +1020,17 @@ mod tests {
             skip_suite,
             skip_sweeps,
             det_sample: 50,
+            accept_metrics: false,
         };
         // fmt+clippy, suite or build, then four parity steps.
         assert_eq!(step_count(&options(true, true, None)), 6);
-        assert_eq!(step_count(&options(false, true, Some("main"))), 6);
+        // With a base, the counts are compared too.
+        assert_eq!(step_count(&options(false, true, Some("main"))), 7);
         // Five sweeps, each with its determinism check, and the
         // internal-error tally.
         assert_eq!(step_count(&options(false, false, None)), 17);
-        // And five comparisons with the base.
-        assert_eq!(step_count(&options(true, false, Some("main"))), 22);
+        // And five comparisons with the base, and the counts'.
+        assert_eq!(step_count(&options(true, false, Some("main"))), 23);
         let unchecked = Options { det_sample: 0, ..options(false, false, None) };
         assert_eq!(step_count(&unchecked), 12);
     }
