@@ -42,6 +42,41 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-147 — The prelude's `array_get` is typed as returning the element, but returns an `Option`
+
+**Severity:** High · **Area:** stdlib, type inference, native backend · **Verified:** 2026-10-30 (9467a117) · **From:** fixing `benchmarks/flux/qsort.flx` (KI-146)
+
+`Flow.Primops` declares `array_get<a>(arr: Array<a>, i: Int) -> a with Div`,
+and the prelude exposes it to every program. It is bound to the same
+`primop ArrayGet` as `Flow.Array.get`, which is declared `-> Option<a>`.
+Since 1a678147 the primop returns `Some(x)`, or `None` out of range, on both
+backends. The type checker therefore accepts code that uses the `Option` as
+an element:
+
+```flux
+fn main() with IO, Div {
+    let arr = [|10, 20, 30|]
+    print(array_get(arr, 1) + 1)
+}
+```
+
+On the VM this fails at run time with `E1009: Cannot add Some and Int
+values`. Natively it prints `875514857933` and exits 0. `print(array_get(arr, 1))`
+prints `Some(20)` on both, so the run-time behaviour agrees between backends,
+and only the declared type is wrong.
+
+`benchmarks/flux/qsort.flx` used `array_get` this way. Its checksum came out
+as `114980667603374` natively, against `3569966470400` from the Python
+version. It now reads through `Flow.Array.get` and `unwrap_or` instead
+(9467a117). The only other user is `examples/primop/arrays.flx`, which only
+prints the result.
+
+Open question: which signature is meant. `-> Option<a>` matches what the
+primop does and makes `array_get` a second name for `Flow.Array.get`.
+`-> a with Div` matches the declared effect, but needs a primop that returns
+the bare element and fails out of range. Either is a typing change, so the
+fix needs `cargo xtask verify`.
+
 ### KI-146 — A function imported unqualified can be called with too many arguments; natively the extras are dropped
 
 **Severity:** High · **Area:** type inference, imports, native backend · **Verified:** 2026-10-30 (5a875b85) · **From:** running `benchmarks/flux/qsort.flx` while repairing the benchmark scripts
@@ -77,9 +112,9 @@ type `List<_>`" instead of E056.
 
 `benchmarks/flux/qsort.flx` calls bare `concat` on arrays. That has meant
 `Flow.List.concat` since arrays left the prelude (6a06441c), so the program
-fails with that E300 on both backends, and `scripts/bench/bench.sh core` stops
-at it. It needs `Flow.Array.concat` whatever the fix here: once this is fixed
-it is an E056.
+failed with that E300 on both backends. It now calls `Flow.Array.concat`
+(9467a117), which it needed whatever the fix here: once this is fixed the old
+call is an E056.
 
 Not yet known: whether too few arguments are caught on the same path, and why
 an unqualified import loses the arity that the alias path keeps.
