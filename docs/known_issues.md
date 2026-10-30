@@ -42,6 +42,59 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-145 — Natively, a cached stdlib object keeps the constructor tags of the program that built it
+
+**Severity:** High · **Area:** native backend, module cache · **Verified:** 2026-10-30 · **From:** seeding each test's cache with a pre-built stdlib
+
+Every program in a project shares one cache, and a module's native object
+is reused by its cache key. The object for `Flow.Result` compiles the
+tags of `Ok` and `Err` into its code, and those tags depend on the whole
+program, not on the module, so a later program can link an object whose
+tags disagree with its own. Built natively one after the other into the
+same cache:
+
+```flux
+// first.flx
+import Flow.Channel as C
+import Flow.Result as R
+
+fn main() with IO {
+    print(1)
+}
+```
+
+```flux
+// second.flx
+import Flow.Fs as Fs
+
+fn main() with IO {
+    let _ = Fs.write_file("f.txt", "payload")
+    println(Fs.read_file_or("f.txt", "MISSING"))
+}
+```
+
+`second.flx` prints `"MISSING"` for a file it has just written. Built on a
+cold cache, with `--no-cache`, or on the VM over the same cache, it prints
+`"payload"`. The second build recompiles `Flow.IoError` and `Flow.Fs` and
+reuses `first.flx`'s `Flow.Result` object. That object has the same file
+name and symbols as the one a cold build of `second.flx` makes, but its
+code compares tags against 6 where the cold one compares against 15
+(`objdump -d` of the two `Result-1528a147….o`). Nothing reports an error.
+
+The tests did not notice because they all ran with `--no-cache` or on an
+empty private cache, so no object was ever built by another program.
+
+Repro: `native_shared_cache_tests::a_program_reads_its_file_after_another_built_the_stdlib`
+(`tests/native_llvm/native_shared_cache_tests.rs`) is ignored for this
+issue. Run it with `--run-ignored only`; un-ignoring it is the failing test
+for a fix. The replay tests stay on a cold cache for the same reason
+(`tests/replay/replay_cli_tests.rs`, `Case::run`): their `fs_writes`
+fixture records `"MISSING"` natively on a seeded one.
+
+Not yet known: which other ADTs' tags move with the program, and whether
+the VM's cached bytecode can disagree the same way. It printed the right
+answer here.
+
 ### KI-144 — On the VM, a fiber on a second worker cannot perform a builtin effect
 
 **Severity:** High · **Area:** VM runtime, async scheduler, effect handlers · **Verified:** 2026-10-29 · **From:** rewriting the flaky `multiworker_sleep_both_overlaps` test

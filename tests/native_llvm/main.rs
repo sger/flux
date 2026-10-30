@@ -23,6 +23,7 @@ mod native_panic_trace_tests;
 mod native_resolution_tests;
 mod native_runtime_config_tests;
 mod native_runtime_error_spans;
+mod native_shared_cache_tests;
 mod native_stream_tests;
 mod native_typeclass_tests;
 mod native_work_stealing_tests;
