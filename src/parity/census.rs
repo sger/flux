@@ -356,6 +356,7 @@ mod tests {
             verdict: Verdict::Pass,
             skipped_ways: Vec::new(),
             unexpected_passes: Vec::new(),
+            metrics: Vec::new(),
         }
     }
 
