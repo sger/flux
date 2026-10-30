@@ -3,6 +3,9 @@
 Benchmark sources are organized by language:
 
 - `benchmarks/flux/`
+- `benchmarks/elixir/`
+- `benchmarks/erlang/`
+- `benchmarks/go/`
 - `benchmarks/haskell/`
 - `benchmarks/ocaml/`
 - `benchmarks/python/`
@@ -44,6 +47,22 @@ scripts/bench/bench.sh core
 scripts/bench/bench.sh extended
 scripts/bench/bench.sh all
 ```
+
+The Erlang, Elixir and Go ports run when `erlc`, `elixirc` or `go` is installed; `bench.sh`
+compiles them before timing starts and skips a case whose toolchain is missing. Pass an
+empty command to leave one out, for example `--go-cmd ""`.
+
+`--vms` also times two interpreters against their own native code: the Haskell program
+under GHCi (`ghc -e`, which runs bytecode) and the Go program under
+[yaegi](https://github.com/traefik/yaegi). yaegi must be on `PATH`:
+
+```bash
+go install github.com/traefik/yaegi/cmd/yaegi@latest
+scripts/bench/bench.sh rbtree --vms
+```
+
+Both interpreters are slow on the larger workloads: yaegi takes minutes on `deriv` and
+`nqueens`, and over ten on `binarytrees --full`.
 
 Run grouped flamewatch workflows:
 
