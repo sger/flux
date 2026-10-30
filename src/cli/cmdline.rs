@@ -129,6 +129,12 @@ pub fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<CliCommand
     // off first so the program may take flags that flux also understands (or
     // does not) without the CLI parser claiming or rejecting them.
     let program_args = split_program_args(&mut args);
+    // `parity-check` parses its own flags, and some share a name with the
+    // driver's (`--metrics`, `--root`): taking the driver's out first would
+    // swallow them.
+    if args.get(1).is_some_and(|arg| arg == "parity-check") {
+        return Ok(parity_check_command(&args));
+    }
     let (parsed, mut flags) = parse_driver_flags(&mut args)?;
 
     if flags.profile.name.is_some()
