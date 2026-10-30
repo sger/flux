@@ -829,6 +829,28 @@ mod tests {
         }
     }
 
+    /// parity-check's `--metrics` and `--root` are its own, not the driver's
+    /// flags of the same name.
+    #[test]
+    fn parity_check_keeps_flags_the_driver_also_has() {
+        let command = parse_args(cli(&[
+            "flux",
+            "parity-check",
+            "tests/parity",
+            "--metrics",
+            "m.tsv",
+            "--root",
+            "lib",
+        ]))
+        .unwrap();
+        match command {
+            CliCommand::ParityCheck { raw_args } => {
+                assert_eq!(raw_args, ["tests/parity", "--metrics", "m.tsv", "--root", "lib"]);
+            }
+            other => panic!("expected parity-check, got {other:?}"),
+        }
+    }
+
     #[test]
     fn parses_emit_binary_as_native_path() {
         let command = parse_args(cli(&["flux", "examples/guide/arithmetic.flx", "--emit-binary"]));
