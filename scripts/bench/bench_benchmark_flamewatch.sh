@@ -27,7 +27,7 @@ Groups:
 
 Options:
   --full                   Use the full workload when supported
-  --jit                    Profile the Flux JIT path instead of the VM path
+  --native                 Profile an emitted Flux native binary instead of the VM path
   --flux-runs <n>          Flux-only runs (default: 20)
   --flux-warmup <n>        Flux-only warmup (default: 2)
   --runs <n>               Cross-language runs (default: 10)
@@ -42,7 +42,7 @@ Examples:
   scripts/bench/bench_benchmark_flamewatch.sh core
   scripts/bench/bench_benchmark_flamewatch.sh binarytrees --full --runs 3 --warmup 1
   scripts/bench/bench_benchmark_flamewatch.sh cfold
-  scripts/bench/bench_benchmark_flamewatch.sh cfold --jit
+  scripts/bench/bench_benchmark_flamewatch.sh cfold --native
   scripts/bench/bench_benchmark_flamewatch.sh deriv
   scripts/bench/bench_benchmark_flamewatch.sh nqueens
   scripts/bench/bench_benchmark_flamewatch.sh qsort
@@ -111,7 +111,8 @@ WARMUP=2
 TOP_N=25
 SKIP_BUILD=0
 SKIP_FLAMEGRAPH=0
-PROFILE_JIT=0
+PROFILE_NATIVE=0
+BENCH_DIR="target/bench"
 FLAMEGRAPH_ARTIFACT=""
 TRACE_ARTIFACT=""
 
@@ -234,8 +235,8 @@ while [[ $# -gt 0 ]]; do
       FULL_MODE=1
       shift
       ;;
-    --jit)
-      PROFILE_JIT=1
+    --native)
+      PROFILE_NATIVE=1
       shift
       ;;
     --flux-runs)
@@ -290,7 +291,7 @@ fi
 
 if [[ "$SKIP_BUILD" -eq 0 ]]; then
   echo "== Build release binaries =="
-  cargo build --release --features jit --bin flux --bin "$RUST_BIN"
+  cargo build --release --features llvm --bin flux --bin "$RUST_BIN"
   if [[ -n "$HASKELL_SOURCE" ]]; then
     if command -v ghc >/dev/null 2>&1; then
       ghc -O2 "$HASKELL_SOURCE" -o "$HASKELL_BIN"
@@ -323,9 +324,13 @@ fi
 FLUX_CMD="./target/release/flux $FLUX_PROGRAM"
 PROFILE_CMD=("$PROFILE_PROGRAM")
 PROFILE_LABEL="vm"
-if [[ "$PROFILE_JIT" -eq 1 ]]; then
-  PROFILE_CMD=("$PROFILE_PROGRAM" "--jit")
-  PROFILE_LABEL="jit"
+if [[ "$PROFILE_NATIVE" -eq 1 ]]; then
+  mkdir -p "$BENCH_DIR"
+  ./target/release/flux "$FLUX_PROGRAM" --native --emit-binary -o "${BENCH_DIR}/${BENCHMARK}_flux"
+  ./target/release/flux "$PROFILE_PROGRAM" -g --native --emit-binary -o "${BENCH_DIR}/${BENCHMARK}_flux_g"
+  FLUX_CMD="./${BENCH_DIR}/${BENCHMARK}_flux"
+  PROFILE_CMD=("./${BENCH_DIR}/${BENCHMARK}_flux_g")
+  PROFILE_LABEL="native"
 fi
 FLAMEGRAPH_ARTIFACT="flamegraph-${BENCHMARK}-${PROFILE_LABEL}.svg"
 TRACE_ARTIFACT="cargo-flamegraph-${BENCHMARK}-${PROFILE_LABEL}.trace"
@@ -347,7 +352,13 @@ echo
 if [[ "$SKIP_FLAMEGRAPH" -eq 0 ]]; then
   echo "== Flamegraph generation =="
   echo "Profiling workload (${PROFILE_LABEL}): ${PROFILE_CMD[*]}"
-  CARGO_PROFILE_RELEASE_DEBUG=true cargo flamegraph --reverse --bin flux -- "${PROFILE_CMD[@]}"
+  if [[ "$PROFILE_NATIVE" -eq 1 ]]; then
+    # `cargo flamegraph --bin flux -- --native` would profile the driver, not
+    # the child process it starts, so profile the emitted binary directly.
+    flamegraph --reverse -- "${PROFILE_CMD[@]}"
+  else
+    CARGO_PROFILE_RELEASE_DEBUG=true cargo flamegraph --reverse --bin flux -- "${PROFILE_CMD[@]}"
+  fi
   if [[ -f flamegraph.svg ]]; then
     cp flamegraph.svg "$FLAMEGRAPH_ARTIFACT"
   fi
