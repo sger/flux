@@ -42,13 +42,13 @@ fn copy_dir(from: &Path, to: &Path) {
     }
 }
 
-/// Runs flux in `scratch` with `args` and the scratch's cache, and checks
+/// Runs flux in `scratch` with `args` and the scratch's seeded cache, and checks
 /// that it succeeded unless `may_fail`.
 fn flux(scratch: &Scratch, args: &[&str], may_fail: bool) -> String {
     let output = Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(scratch.path())
         .args(args)
-        .args(scratch.cache_args())
+        .args(scratch.seeded_cache_args())
         .env("NO_COLOR", "1")
         .output()
         .expect("run flux");

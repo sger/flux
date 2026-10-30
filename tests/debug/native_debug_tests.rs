@@ -191,13 +191,13 @@ fn build_private(scratch: &Scratch, program: &str, binary: &str) {
     );
 }
 
-/// Runs `flux` with `args` in `scratch`, on its cache.
+/// Runs `flux` with `args` in `scratch`, on its seeded cache.
 fn flux_build(scratch: &Scratch, args: &[&str]) -> Result<Output, String> {
     let _slot = build_slot();
     Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(scratch.path())
         .args(args)
-        .args(scratch.cache_args())
+        .args(scratch.seeded_cache_args())
         .env("NO_COLOR", "1")
         .output()
         .map_err(|e| format!("cannot run flux: {e}"))

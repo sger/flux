@@ -25,15 +25,17 @@ enum Program<'a> {
     File(PathBuf),
 }
 
-/// One `flux --no-cache` run, built up with options. Every run gets its own
-/// `Scratch`: `--no-cache` alone does not isolate, because the native backend
-/// writes shared artifacts under the cache root regardless (KI-010).
+/// One `flux` run, built up with options. Every run gets its own `Scratch`
+/// and a private cache seeded with the stdlib, so the run takes the cached
+/// path users take (KI-051 hid on the other one) without compiling the
+/// stdlib first. [`FluxRun::no_cache`] takes the `--no-cache` path instead.
 pub struct FluxRun<'a> {
     program: Program<'a>,
     tag: &'a str,
     args: Vec<&'a str>,
     env: Vec<(&'a str, &'a str)>,
     native: bool,
+    no_cache: bool,
     timeout: Option<Duration>,
 }
 
@@ -60,11 +62,26 @@ pub fn flux_file(rel: &str) -> FluxRun<'_> {
 
 impl<'a> FluxRun<'a> {
     fn new(program: Program<'a>, tag: &'a str) -> Self {
-        Self { program, tag, args: Vec::new(), env: Vec::new(), native: false, timeout: None }
+        Self {
+            program,
+            tag,
+            args: Vec::new(),
+            env: Vec::new(),
+            native: false,
+            no_cache: false,
+            timeout: None,
+        }
     }
 
     pub fn native(mut self) -> Self {
         self.native = true;
+        self
+    }
+
+    /// Run with `--no-cache`, which compiles every module, stdlib included,
+    /// and reads and writes no cache entries.
+    pub fn no_cache(mut self) -> Self {
+        self.no_cache = true;
         self
     }
 
@@ -103,8 +120,14 @@ impl<'a> FluxRun<'a> {
             .arg(&path)
             .args(&self.args)
             .args(self.native.then_some("--native"))
-            .arg("--no-cache")
-            .args(scratch.cache_args())
+            .args(self.no_cache.then_some("--no-cache"))
+            .args(if self.no_cache {
+                scratch.cache_args()
+            } else if self.native {
+                scratch.seeded_cache_args()
+            } else {
+                scratch.seeded_vm_cache_args()
+            })
             .envs(self.env.iter().copied());
 
         let start = Instant::now();
@@ -238,9 +261,9 @@ pub fn program_elapsed(stdout: &str) -> (String, Duration) {
 
 /// Run `source` on the default **cached** path, with an isolated cache root.
 ///
-/// The other helpers pass `--no-cache`, which bypasses the parallel module
-/// linker entirely. A bug in how imported instance methods are linked is
-/// therefore invisible to them — that is how KI-051 survived: `--no-cache`
+/// Unlike the other helpers, it starts from an empty cache, so the stdlib
+/// goes through the parallel module linker cold too. KI-051 survived while
+/// the tests passed `--no-cache`, which bypasses that linker: `--no-cache`
 /// printed the right answer while the default cached run failed with
 /// `missing imported global`.
 ///

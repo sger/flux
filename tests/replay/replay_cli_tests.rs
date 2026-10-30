@@ -53,6 +53,8 @@ impl Case {
         command
             .current_dir(self.scratch.path())
             .arg(&self.program)
+            // Not seeded: `fs_writes` built on a stdlib another program
+            // compiled reads its own file back as missing natively (KI-145).
             .args(self.scratch.cache_args())
             .args(args)
             .env("NO_COLOR", "1")
