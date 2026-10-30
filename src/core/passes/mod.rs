@@ -38,6 +38,7 @@ pub(crate) use dict_elaborate::reachable_methods;
 pub use disciplined_inline::disciplined_inline;
 pub use evidence::evidence_pass;
 pub use handle_frame::handle_body_frames;
+pub(crate) use helpers::expr_size;
 pub use inline::inline_trivial_lets;
 pub use inliner::inline_lets;
 pub use primop_promote::promote_builtins;

@@ -42,6 +42,8 @@ const GLOBALS_SIZE: usize = 65536;
 const STACK_PREGROW_HEADROOM: usize = 256;
 const STACK_GROW_MIN_CHUNK: usize = 4096;
 
+static VMS_CREATED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 // ── Slot-type abstraction ─────────────────────────────────────────────────────
 //
 // `Slot` is the element type used in the VM's stack, globals, and constants.
@@ -128,10 +130,13 @@ pub struct VM {
     /// top-level loop: callbacks run by `List.map`, resumed continuations.
     /// The debugger checkpoints only when there are none (0188 S3).
     nested_runs: u32,
+    /// Instructions this VM has dispatched, for `--metrics` (0190 S11).
+    instructions_executed: u64,
 }
 
 impl VM {
     pub fn new(bytecode: Bytecode) -> Self {
+        VMS_CREATED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let main_fn = CompiledFunction::new(bytecode.instructions, 0, 0, bytecode.debug_info);
         let main_closure = Closure::new(Arc::new(main_fn), vec![]);
         let main_frame = Frame::new(Rc::new(main_closure), 0);
@@ -161,7 +166,20 @@ impl VM {
             debugger: None,
             call_ips: Vec::new(),
             nested_runs: 0,
+            instructions_executed: 0,
         }
+    }
+
+    /// Instructions this VM has dispatched. Worker VMs keep their own counts.
+    pub fn instructions_executed(&self) -> u64 {
+        self.instructions_executed
+    }
+
+    /// VMs created so far in this process, worker VMs included. `--metrics`
+    /// compares it before and after a run to tell whether work left the main
+    /// VM, where its counts would depend on scheduling.
+    pub fn vms_created() -> usize {
+        VMS_CREATED.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Run the **full** top-level instruction buffer on this live VM, but start

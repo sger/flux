@@ -1,4 +1,4 @@
-use std::{path::PathBuf, time::Instant};
+use std::{collections::BTreeMap, path::PathBuf, time::Instant};
 
 use crate as flux;
 use crate::driver::{
@@ -15,7 +15,9 @@ use crate::driver::{
     },
 };
 use flux::{
+    bytecode::bytecode::Bytecode,
     diagnostics::Diagnostic,
+    runtime::value::Value,
     syntax::{module_graph::ModuleGraph, program::Program},
     vm::VM,
 };
@@ -60,12 +62,17 @@ fn vm_run_stats(request: VmRunStatsRequest<'_>) -> RunStats {
     }
 }
 
-/// Writes `--metrics`: Aether's counts over the program's own functions, one
-/// `key<TAB>value` per line, sorted by key.
-fn write_metrics(request: &mut VmRunRequest<'_>, path: &std::path::Path) {
-    let stats =
-        match request.compiler.aether_metrics(request.program, request.compile.enable_optimize) {
-            Ok(stats) => stats,
+/// `--metrics` (0190 S15, S11): counts that are the same on every run of the
+/// same compiler, keyed by name so the file comes out sorted.
+type Metrics = BTreeMap<&'static str, u64>;
+
+/// The counts known before the program runs: Aether's and the Core's over the
+/// program's own functions, the bytecode compiled from the entry file, and the
+/// compiler's own allocations so far.
+fn compile_metrics(request: &mut VmRunRequest<'_>, bytecode: &Bytecode) -> Metrics {
+    let program =
+        match request.compiler.program_metrics(request.program, request.compile.enable_optimize) {
+            Ok(program) => program,
             Err(diag) => {
                 emit_diagnostics_or_exit(
                     &[diag],
@@ -74,14 +81,61 @@ fn write_metrics(request: &mut VmRunRequest<'_>, path: &std::path::Path) {
                     request.is_multimodule,
                     request.diagnostics,
                 );
-                return;
+                return Metrics::new();
             }
         };
-    let text = format!(
-        "aether_allocs\t{}\naether_drops\t{}\naether_dups\t{}\naether_reuses\t{}\n",
-        stats.allocs, stats.drops, stats.dups, stats.reuses
-    );
-    if let Err(e) = std::fs::write(path, text) {
+    let mut metrics = Metrics::from([
+        ("aether_allocs", program.aether.allocs as u64),
+        ("aether_drops", program.aether.drops as u64),
+        ("aether_dups", program.aether.dups as u64),
+        ("aether_reuses", program.aether.reuses as u64),
+        ("core_size", program.core_size as u64),
+        ("bytecode_bytes", entry_bytecode_bytes(bytecode, request.path) as u64),
+    ]);
+    if let Some(allocations) = flux::alloc_count::allocations() {
+        metrics.insert("compiler_allocs", allocations);
+    }
+    metrics
+}
+
+/// `<main>`'s instructions and those of every function compiled from the
+/// entry file, so that, like the other counts, it leaves the library out.
+fn entry_bytecode_bytes(bytecode: &Bytecode, entry: &str) -> usize {
+    // Debug info names a module by the path the module graph gave it, which
+    // is the entry's canonical path, as `compile_modules` compares it.
+    let entry = std::fs::canonicalize(entry)
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| entry.to_string());
+    let own = bytecode.constants.iter().filter_map(|constant| match constant {
+        Value::Function(function) => function
+            .debug_info
+            .as_ref()
+            .filter(|info| info.files.contains(&entry))
+            .map(|_| function.instructions.len()),
+        _ => None,
+    });
+    bytecode.instructions.len() + own.sum::<usize>()
+}
+
+/// Adds the counts of the run itself, unless the program started worker VMs:
+/// which VM runs which task depends on scheduling, so their counts would not
+/// repeat.
+fn add_run_metrics(metrics: &mut Metrics, vm: &VM, vms_before: usize, allocs_before: Option<u64>) {
+    if VM::vms_created() - vms_before > 1 {
+        return;
+    }
+    metrics.insert("vm_instructions", vm.instructions_executed());
+    if let (Some(before), Some(after)) = (allocs_before, flux::alloc_count::allocations()) {
+        metrics.insert("vm_allocs", after - before);
+    }
+}
+
+fn format_metrics(metrics: &Metrics) -> String {
+    metrics.iter().map(|(key, value)| format!("{key}\t{value}\n")).collect()
+}
+
+fn write_metrics(metrics: &Metrics, path: &std::path::Path) {
+    if let Err(e) = std::fs::write(path, format_metrics(metrics)) {
         eprintln!("Error: could not write --metrics to {}: {e}", path.display());
         std::process::exit(1);
     }
@@ -231,11 +285,11 @@ pub(crate) fn run_vm(mut request: VmRunRequest<'_>) {
     if request.flags.runtime.trace_aether {
         emit_vm_aether_trace(&mut request);
     }
-    if let Some(path) = request.flags.runtime.metrics_path.clone() {
-        write_metrics(&mut request, &path);
-    }
+    let metrics_path = request.flags.runtime.metrics_path.clone();
+    let mut metrics = metrics_path.is_some().then(|| compile_metrics(&mut request, &bytecode));
 
     eprintln!("{}", vm_run_banner());
+    let vms_before = VM::vms_created();
     let mut vm = VM::new(bytecode);
     vm.set_trace(request.runtime.trace);
     if request.runtime.profiling {
@@ -243,6 +297,7 @@ pub(crate) fn run_vm(mut request: VmRunRequest<'_>) {
     }
     crate::driver::replay_session::activate_in_process(request.path);
     crate::driver::debug_session::attach(&mut vm, request.path);
+    let allocs_before = flux::alloc_count::allocations();
     let exec_start = Instant::now();
     let result = vm.run();
     vm.detach_debugger();
@@ -250,6 +305,14 @@ pub(crate) fn run_vm(mut request: VmRunRequest<'_>) {
         result.as_ref().err().map(String::as_str),
         request.path,
     );
+    if let (Some(path), Some(metrics)) = (&metrics_path, &mut metrics) {
+        // A program that fails keeps the counts it has, with the run's own
+        // only when it finished.
+        if result.is_ok() {
+            add_run_metrics(metrics, &vm, vms_before, allocs_before);
+        }
+        write_metrics(metrics, path);
+    }
     if let Err(err) = result {
         eprintln!("{err}");
         std::process::exit(1);
@@ -276,5 +339,20 @@ pub(crate) fn run_vm(mut request: VmRunRequest<'_>) {
             instruction_bytes,
             execute_ms,
         }));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn metrics_are_written_one_per_line_sorted_by_key() {
+        let metrics =
+            Metrics::from([("vm_instructions", 12), ("aether_dups", 3), ("core_size", 40)]);
+        assert_eq!(
+            format_metrics(&metrics),
+            "aether_dups\t3\ncore_size\t40\nvm_instructions\t12\n"
+        );
     }
 }

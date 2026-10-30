@@ -9,6 +9,7 @@ mod fn_shadowing_tests;
 mod generics_tests;
 mod map_contract_tests;
 mod match_arm_outer_binding_tests;
+mod metrics_tests;
 mod program_tests;
 mod runtime_list_index_tests;
 mod stdlib_array_tests;
