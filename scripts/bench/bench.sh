@@ -39,6 +39,10 @@ Options:
   --python-cmd <cmd>       Python command
   --haskell-cmd <cmd>      Haskell command
   --ocaml-cmd <cmd>        OCaml command
+  --erlang-cmd <cmd>       Erlang command (empty disables the case)
+  --elixir-cmd <cmd>       Elixir command (empty disables the case)
+  --go-cmd <cmd>           Go command (empty disables the case)
+  --vms                    Also time interpreted cases: Haskell under GHCi, Go under yaegi
   --no-flux-native         Disable Flux native benchmark case
   --no-shell               Use raw commands (no shell expansion)
   -h, --help               Show this help
@@ -96,7 +100,7 @@ if is_group "$REQUESTED_BENCHMARK"; then
   done
   for arg in "${PASSTHROUGH_ARGS[@]-}"; do
     case "$arg" in
-      --report-file|--flux-cmd|--flux-native-cmd|--rust-cmd|--python-cmd|--haskell-cmd|--ocaml-cmd)
+      --report-file|--flux-cmd|--flux-native-cmd|--rust-cmd|--python-cmd|--haskell-cmd|--ocaml-cmd|--erlang-cmd|--elixir-cmd|--go-cmd)
         echo "Error: option '$arg' is only supported for single benchmarks, not benchmark groups." >&2
         exit 1
         ;;
@@ -153,6 +157,17 @@ RUST_CMD=""
 PYTHON_CMD=""
 HASKELL_CMD=""
 OCAML_CMD=""
+WORKLOAD_ARG_SMOKE=""
+WORKLOAD_ARG_FULL=""
+ERLANG_CMD=""
+ELIXIR_CMD=""
+GO_CMD=""
+DEFAULT_ERLANG_CMD=""
+DEFAULT_ELIXIR_CMD=""
+DEFAULT_GO_CMD=""
+GHCI_CMD=""
+YAEGI_CMD=""
+ENABLE_VMS=0
 
 HAS_RUST=0
 HAS_PYTHON=0
@@ -176,6 +191,8 @@ configure_benchmark() {
       DEFAULT_OCAML_CMD_FULL="./target/release/binarytrees_ocaml 21"
       DEFAULT_PYTHON_CMD_SMOKE="python3 benchmarks/python/binarytrees.py 8"
       DEFAULT_PYTHON_CMD_FULL="python3 benchmarks/python/binarytrees.py 21"
+      WORKLOAD_ARG_SMOKE="8"
+      WORKLOAD_ARG_FULL="21"
       HAS_RUST=1
       HAS_PYTHON=1
       HAS_HASKELL=1
@@ -348,6 +365,31 @@ configure_benchmark() {
   PYTHON_CMD="$DEFAULT_PYTHON_CMD_SMOKE"
   HASKELL_CMD="$DEFAULT_HASKELL_CMD_SMOKE"
   OCAML_CMD="$DEFAULT_OCAML_CMD_SMOKE"
+  configure_port_cmds "$WORKLOAD_ARG_SMOKE"
+}
+
+# The Erlang, Elixir and Go ports follow one naming scheme, so their commands
+# come from the benchmark name instead of a per-benchmark table. A command the
+# user overrode (or emptied to disable) is kept when `--full` reconfigures.
+configure_port_cmds() {
+  local arg="$1"
+  local module="" part erlang elixir go
+  local -a parts
+  IFS=_ read -ra parts <<< "$BENCHMARK"
+  for part in "${parts[@]}"; do
+    module+="${part^}"
+  done
+  erlang="erl -noshell -pa ${BENCH_DIR}/erlang -run ${BENCHMARK} main${arg:+ $arg} -s init stop"
+  elixir="elixir -pa ${BENCH_DIR}/elixir -e 'Bench.${module}.main(System.argv())'${arg:+ -- $arg}"
+  go="./target/release/${BENCHMARK}_go${arg:+ $arg}"
+  [[ "$ERLANG_CMD" == "$DEFAULT_ERLANG_CMD" ]] && ERLANG_CMD="$erlang"
+  [[ "$ELIXIR_CMD" == "$DEFAULT_ELIXIR_CMD" ]] && ELIXIR_CMD="$elixir"
+  [[ "$GO_CMD" == "$DEFAULT_GO_CMD" ]] && GO_CMD="$go"
+  DEFAULT_ERLANG_CMD="$erlang"
+  DEFAULT_ELIXIR_CMD="$elixir"
+  DEFAULT_GO_CMD="$go"
+  GHCI_CMD="ghc -e ':main${arg:+ $arg}' benchmarks/haskell/${BENCHMARK//_/-}.hs"
+  YAEGI_CMD="yaegi run benchmarks/go/${BENCHMARK}/main.go${arg:+ $arg}"
 }
 
 configure_benchmark
@@ -402,6 +444,22 @@ while [[ $# -gt 0 ]]; do
       OCAML_CMD="$2"
       shift 2
       ;;
+    --erlang-cmd)
+      ERLANG_CMD="$2"
+      shift 2
+      ;;
+    --elixir-cmd)
+      ELIXIR_CMD="$2"
+      shift 2
+      ;;
+    --go-cmd)
+      GO_CMD="$2"
+      shift 2
+      ;;
+    --vms)
+      ENABLE_VMS=1
+      shift
+      ;;
     --no-flux-native)
       ENABLE_FLUX_NATIVE=0
       shift
@@ -433,6 +491,7 @@ if [[ "$FULL_MODE" -eq 1 ]]; then
   PYTHON_CMD="$DEFAULT_PYTHON_CMD_FULL"
   HASKELL_CMD="$DEFAULT_HASKELL_CMD_FULL"
   OCAML_CMD="$DEFAULT_OCAML_CMD_FULL"
+  configure_port_cmds "$WORKLOAD_ARG_FULL"
 fi
 
 if [[ ! -x "./target/release/flux" ]]; then
@@ -490,6 +549,49 @@ fi
 
 mkdir -p "$BENCH_DIR" "$(dirname "$REPORT_FILE")"
 
+# Each port is built only when its default command is in use; a missing
+# toolchain drops that case with a warning, as for OCaml above.
+if [[ -n "$ERLANG_CMD" && "$ERLANG_CMD" == "$DEFAULT_ERLANG_CMD" ]]; then
+  if command -v erlc >/dev/null 2>&1; then
+    mkdir -p "${BENCH_DIR}/erlang"
+    erlc -o "${BENCH_DIR}/erlang" "benchmarks/erlang/${BENCHMARK}.erl"
+  else
+    echo "Warning: skipping the Erlang case because erlc is not installed." >&2
+    ERLANG_CMD=""
+  fi
+fi
+
+if [[ -n "$ELIXIR_CMD" && "$ELIXIR_CMD" == "$DEFAULT_ELIXIR_CMD" ]]; then
+  if command -v elixirc >/dev/null 2>&1; then
+    mkdir -p "${BENCH_DIR}/elixir"
+    elixirc -o "${BENCH_DIR}/elixir" "benchmarks/elixir/${BENCHMARK}.ex"
+  else
+    echo "Warning: skipping the Elixir case because elixirc is not installed." >&2
+    ELIXIR_CMD=""
+  fi
+fi
+
+if [[ -n "$GO_CMD" && "$GO_CMD" == "$DEFAULT_GO_CMD" ]]; then
+  if command -v go >/dev/null 2>&1; then
+    (cd benchmarks/go && go build -o "${REPO_ROOT}/target/release/${BENCHMARK}_go" "./${BENCHMARK}")
+  else
+    echo "Warning: skipping the Go case because go is not installed." >&2
+    GO_CMD=""
+  fi
+fi
+
+if [[ "$ENABLE_VMS" -eq 1 ]]; then
+  if ! command -v ghc >/dev/null 2>&1; then
+    echo "Warning: skipping the GHCi case because ghc is not installed." >&2
+    GHCI_CMD=""
+  fi
+  if ! command -v yaegi >/dev/null 2>&1; then
+    echo "Warning: skipping the yaegi case because yaegi is not on PATH." >&2
+    echo "Install: go install github.com/traefik/yaegi/cmd/yaegi@latest" >&2
+    YAEGI_CMD=""
+  fi
+fi
+
 if [[ "$ENABLE_FLUX_NATIVE" -eq 1 && "$FLUX_NATIVE_CMD" == "$DEFAULT_FLUX_NATIVE_CMD" ]]; then
   echo "Building ${FLUX_NATIVE_CMD} from ${FLUX_PROGRAM}..." >&2
   if ! ./target/release/flux "$FLUX_PROGRAM" --native --emit-binary -o "${BENCH_DIR}/${BENCHMARK}_flux" >&2; then
@@ -526,6 +628,13 @@ if [[ "$HAS_HASKELL" -eq 1 ]]; then
 fi
 if [[ "$HAS_OCAML" -eq 1 ]]; then
   add_case "${BENCHMARK}/ocaml" "$OCAML_CMD"
+fi
+add_case "${BENCHMARK}/erlang" "$ERLANG_CMD"
+add_case "${BENCHMARK}/elixir" "$ELIXIR_CMD"
+add_case "${BENCHMARK}/go" "$GO_CMD"
+if [[ "$ENABLE_VMS" -eq 1 ]]; then
+  add_case "${BENCHMARK}/haskell-ghci" "$GHCI_CMD"
+  add_case "${BENCHMARK}/go-yaegi" "$YAEGI_CMD"
 fi
 
 echo "Benchmark: $BENCHMARK"
