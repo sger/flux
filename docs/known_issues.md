@@ -42,6 +42,48 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-146 — A function imported unqualified can be called with too many arguments; natively the extras are dropped
+
+**Severity:** High · **Area:** type inference, imports, native backend · **Verified:** 2026-10-30 (5a875b85) · **From:** running `benchmarks/flux/qsort.flx` while repairing the benchmark scripts
+
+A call with too many arguments to a function that reached scope unqualified,
+through `exposing` or the auto-injected prelude, is not rejected at compile
+time. The VM stops at run time, and the native binary runs, ignores the extra
+arguments and exits 0:
+
+```flux
+fn main() with IO {
+    let a = reverse([1], [2])
+    print("#{a}")
+}
+```
+
+| Call | VM | Native |
+|---|---|---|
+| `reverse([1], [2])` (prelude) | run-time `E1000: wrong number of arguments: want=1, got=2` | prints `"[1]"` |
+| `concat([\|1\|], [\|2\|])` (prelude) | the same `E1000` | prints `"[]"` |
+| `length([\|1\|], [\|2\|])` after `import Flow.Array exposing (length)` | the same `E1000` | prints `"1"` |
+
+The same call through a module alias (`A.length([|1|], [|2|])` after
+`import Flow.Array as A`), and a call to a one-parameter function the program
+defines itself, both fail at compile time with E056 on both backends. So the
+arity check misses only names that an import brings in unqualified; the
+prelude is one such import (`import Flow.List exposing (..)` and the rest of
+`FLOW_PRELUDE_MODULES`, `src/driver/frontend.rs`).
+
+An annotation makes the type checker see the call, but it reports the wrong
+thing: `let xs: Array<Int> = concat([|1|], [|2|])` gives E300 "this value has
+type `List<_>`" instead of E056.
+
+`benchmarks/flux/qsort.flx` calls bare `concat` on arrays. That has meant
+`Flow.List.concat` since arrays left the prelude (6a06441c), so the program
+fails with that E300 on both backends, and `scripts/bench/bench.sh core` stops
+at it. It needs `Flow.Array.concat` whatever the fix here: once this is fixed
+it is an E056.
+
+Not yet known: whether too few arguments are caught on the same path, and why
+an unqualified import loses the arity that the alias path keeps.
+
 ### KI-145 — Natively, a cached stdlib object keeps the constructor tags of the program that built it
 
 **Severity:** High · **Area:** native backend, module cache · **Verified:** 2026-10-30 · **From:** seeding each test's cache with a pre-built stdlib
