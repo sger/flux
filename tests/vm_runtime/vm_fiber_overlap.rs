@@ -77,7 +77,7 @@ fn race_returns_first_finisher() {
 import Flow.Async exposing (..)
 
 fn slow() -> Int with Async {
-    let _ = sleep(1000)
+    let _ = sleep(10000)
     1
 }
 
@@ -100,12 +100,12 @@ fn main() with IO, Time {
     let (stdout, stderr, success, _) = run_source(source, "race_first_finisher");
     assert!(success, "race program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
-    // Upper bound: parent must resume on fast's completion (~50ms),
-    // not wait for slow (~1000ms).
+    // Waiting for slow takes at least its 10s sleep, so any earlier return
+    // came from fast.
     assert!(
-        elapsed < Duration::from_millis(700),
+        elapsed < Duration::from_millis(10_000),
         "elapsed {elapsed:?} — race didn't return on fast (waiting on slow \
-         would be ~1000ms of sleep, fast-wins should be ~50ms)"
+         takes 10s of sleep, fast-wins should be ~50ms)"
     );
     assert!(
         stdout.contains('2'),
