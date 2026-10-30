@@ -1,4 +1,5 @@
 pub mod aether;
+pub mod alloc_count;
 pub mod ast;
 pub mod binding_groups;
 pub mod bytecode;

@@ -174,6 +174,7 @@ impl VM {
         ip: usize,
         op: OpCode,
     ) -> Result<usize, String> {
+        self.instructions_executed += 1;
         match op {
             OpCode::OpCurrentClosure => {
                 let closure = self.frames[self.frame_index].closure.clone();
