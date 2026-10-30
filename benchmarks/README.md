@@ -151,18 +151,30 @@ Latest report:
 <!-- binarytrees-report:start -->
 # Binary Trees Benchmark Report
 
-- Generated: 2026-03-10 15:35:32 UTC
-- Runs: 10
+- Generated: 2026-10-30 17:23:59 UTC
+- Runs: 20
 - Warmup: 2
 - Full baseline: no
 
-| Command | Mean [ms] | Min [ms] | Max [ms] | Relative |
-|:---|---:|---:|---:|---:|
-| `binarytrees/flux` | 8.8 ± 0.2 | 8.5 | 9.3 | 9.62 ± 0.50 |
-| `binarytrees/flux-jit` | 20.7 ± 0.4 | 20.1 | 21.3 | 22.77 ± 1.17 |
-| `binarytrees/rust` | 0.9 ± 0.0 | 0.9 | 1.0 | 1.00 |
-| `binarytrees/python` | 11.1 ± 0.2 | 10.9 | 11.4 | 12.16 ± 0.59 |
-| `binarytrees/haskell` | 10.8 ± 0.1 | 10.7 | 10.9 | 11.91 ± 0.56 |
+| Command | Mean Wall Time [ms] | Change | Factor |
+|:---|---:|---:|:---|
+| `binarytrees/flux` | 106.8 ± 1.2 |  |  |
+| `binarytrees/flux-native` | 1.9 ± 0.1 | -98.2% | (54.8x faster) |
+| `binarytrees/rust` | 1.4 ± 0.2 | -98.7% | (76.8x faster) |
+| `binarytrees/python` | 9.5 ± 0.2 | -91.1% | (11.2x faster) |
+
+### Against baseline
+
+Baseline: `benchmarks/baselines/binarytrees.json`
+
+| Command | Mean now | Baseline mean | Now / baseline |
+|:---|---:|---:|---:|
+| `binarytrees/flux` | 106.8 ms | 106.8 ms | 1.00x |
+| `binarytrees/flux-native` | 1.9 ms | 1.9 ms | 1.00x |
+| `binarytrees/rust` | 1.4 ms | 1.4 ms | 1.00x |
+| `binarytrees/python` | 9.5 ms | 9.5 ms | 1.00x |
+
+VM / native: 54.78x
 <!-- binarytrees-report:end -->
 
 ## Constant Folding
@@ -213,17 +225,29 @@ Latest report:
 <!-- cfold-report:start -->
 # Constant Folding Benchmark Report
 
-- Generated: 2026-03-10 15:36:02 UTC
-- Runs: 10
+- Generated: 2026-10-30 17:24:02 UTC
+- Runs: 20
 - Warmup: 2
 
-| Command | Mean [ms] | Min [ms] | Max [ms] | Relative |
-|:---|---:|---:|---:|---:|
-| `cfold/flux` | 13.6 ± 0.4 | 13.1 | 14.3 | 7.35 ± 0.80 |
-| `cfold/flux-jit` | 32.6 ± 1.3 | 30.9 | 34.8 | 17.65 ± 2.00 |
-| `cfold/rust` | 1.8 ± 0.2 | 1.6 | 2.1 | 1.00 |
-| `cfold/python` | 14.3 ± 0.4 | 13.9 | 15.0 | 7.72 ± 0.84 |
-| `cfold/haskell` | 10.9 ± 0.2 | 10.8 | 11.2 | 5.89 ± 0.63 |
+| Command | Mean Wall Time [ms] | Change | Factor |
+|:---|---:|---:|:---|
+| `cfold/flux` | 118.5 ± 1.6 |  |  |
+| `cfold/flux-native` | 2.0 ± 0.2 | -98.3% | (58.3x faster) |
+| `cfold/rust` | 2.4 ± 0.2 | -98.0% | (49.7x faster) |
+| `cfold/python` | 12.9 ± 0.5 | -89.1% | (9.2x faster) |
+
+### Against baseline
+
+Baseline: `benchmarks/baselines/cfold.json`
+
+| Command | Mean now | Baseline mean | Now / baseline |
+|:---|---:|---:|---:|
+| `cfold/flux` | 118.5 ms | 118.5 ms | 1.00x |
+| `cfold/flux-native` | 2.0 ms | 2.0 ms | 1.00x |
+| `cfold/rust` | 2.4 ms | 2.4 ms | 1.00x |
+| `cfold/python` | 12.9 ms | 12.9 ms | 1.00x |
+
+VM / native: 58.27x
 <!-- cfold-report:end -->
 
 ## Symbolic Differentiation
@@ -274,7 +298,29 @@ Latest report:
 <!-- deriv-report:start -->
 # Symbolic Differentiation Benchmark Report
 
-_Run `scripts/bench/bench.sh deriv` to generate this report._
+- Generated: 2026-10-30 17:37:45 UTC
+- Runs: 3
+- Warmup: 1
+
+| Command | Mean Wall Time [min] | Change | Factor |
+|:---|---:|---:|:---|
+| `deriv/flux` | 1.0 ± 0.0 |  |  |
+| `deriv/flux-native` | 0.0 ± 0.0 | -96.3% | (27.0x faster) |
+| `deriv/rust` | 0.1 ± 0.0 | -93.6% | (15.6x faster) |
+| `deriv/python` | 0.1 ± 0.0 | -88.5% | (8.7x faster) |
+
+### Against baseline
+
+Baseline: `benchmarks/baselines/deriv.json`
+
+| Command | Mean now | Baseline mean | Now / baseline |
+|:---|---:|---:|---:|
+| `deriv/flux` | 61.970 s | 61.970 s | 1.00x |
+| `deriv/flux-native` | 2.294 s | 2.294 s | 1.00x |
+| `deriv/rust` | 3.985 s | 3.985 s | 1.00x |
+| `deriv/python` | 7.098 s | 7.098 s | 1.00x |
+
+VM / native: 27.02x
 <!-- deriv-report:end -->
 
 ## N-Queens
@@ -325,7 +371,29 @@ Latest report:
 <!-- nqueens-report:start -->
 # N-Queens Benchmark Report
 
-_Run `scripts/bench/bench.sh nqueens` to generate this report._
+- Generated: 2026-10-30 17:45:53 UTC
+- Runs: 3
+- Warmup: 1
+
+| Command | Mean Wall Time [min] | Change | Factor |
+|:---|---:|---:|:---|
+| `nqueens/flux` | 1.8 ± 0.0 |  |  |
+| `nqueens/flux-native` | 0.1 ± 0.0 | -96.0% | (25.1x faster) |
+| `nqueens/rust` | 0.0 ± 0.0 | -99.1% | (106.7x faster) |
+| `nqueens/python` | 0.2 ± 0.0 | -90.9% | (11.0x faster) |
+
+### Against baseline
+
+Baseline: `benchmarks/baselines/nqueens.json`
+
+| Command | Mean now | Baseline mean | Now / baseline |
+|:---|---:|---:|---:|
+| `nqueens/flux` | 106.610 s | 106.610 s | 1.00x |
+| `nqueens/flux-native` | 4.246 s | 4.246 s | 1.00x |
+| `nqueens/rust` | 999.3 ms | 999.3 ms | 1.00x |
+| `nqueens/python` | 9.655 s | 9.655 s | 1.00x |
+
+VM / native: 25.11x
 <!-- nqueens-report:end -->
 
 ## Quicksort
@@ -438,7 +506,29 @@ Latest report:
 <!-- rbtree-ck-report:start -->
 # Red-Black Tree Benchmark Report
 
-_Run `scripts/bench/bench.sh rbtree_ck` to generate this report._
+- Generated: 2026-10-30 17:28:08 UTC
+- Runs: 20
+- Warmup: 2
+
+| Command | Mean Wall Time [s] | Change | Factor |
+|:---|---:|---:|:---|
+| `rbtree_ck/flux` | 5.079 ± 0.050 |  |  |
+| `rbtree_ck/flux-native` | 0.189 ± 0.001 | -96.3% | (26.9x faster) |
+| `rbtree_ck/rust` | 0.046 ± 0.001 | -99.1% | (109.3x faster) |
+| `rbtree_ck/python` | 0.261 ± 0.003 | -94.9% | (19.5x faster) |
+
+### Against baseline
+
+Baseline: `benchmarks/baselines/rbtree_ck.json`
+
+| Command | Mean now | Baseline mean | Now / baseline |
+|:---|---:|---:|---:|
+| `rbtree_ck/flux` | 5.079 s | 5.079 s | 1.00x |
+| `rbtree_ck/flux-native` | 188.9 ms | 188.9 ms | 1.00x |
+| `rbtree_ck/rust` | 46.5 ms | 46.5 ms | 1.00x |
+| `rbtree_ck/python` | 260.7 ms | 260.7 ms | 1.00x |
+
+VM / native: 26.89x
 <!-- rbtree-ck-report:end -->
 
 ## Red-Black Tree
@@ -462,17 +552,29 @@ Latest report:
 <!-- rbtree-report:start -->
 # Red-Black Tree Insert Benchmark Report
 
-- Generated: 2026-03-10 13:39:20 UTC
-- Runs: 10
+- Generated: 2026-10-30 17:30:11 UTC
+- Runs: 20
 - Warmup: 2
 
-| Command | Mean [s] | Min [s] | Max [s] | Relative |
-|:---|---:|---:|---:|---:|
-| `rbtree/flux` | 4.614 ± 0.383 | 4.399 | 5.689 | 134.69 ± 21.54 |
-| `rbtree/rust` | 0.145 ± 0.013 | 0.126 | 0.167 | 4.22 ± 0.68 |
-| `rbtree/python` | 0.851 ± 0.080 | 0.717 | 1.032 | 24.83 ± 4.12 |
-| `rbtree/haskell` | 0.056 ± 0.008 | 0.047 | 0.068 | 1.65 ± 0.32 |
-| `rbtree/ocaml` | 0.034 ± 0.005 | 0.027 | 0.041 | 1.00 |
+| Command | Mean Wall Time [s] | Change | Factor |
+|:---|---:|---:|:---|
+| `rbtree/flux` | 5.078 ± 0.062 |  |  |
+| `rbtree/flux-native` | 0.192 ± 0.001 | -96.2% | (26.5x faster) |
+| `rbtree/rust` | 0.047 ± 0.001 | -99.1% | (109.0x faster) |
+| `rbtree/python` | 0.252 ± 0.002 | -95.0% | (20.1x faster) |
+
+### Against baseline
+
+Baseline: `benchmarks/baselines/rbtree.json`
+
+| Command | Mean now | Baseline mean | Now / baseline |
+|:---|---:|---:|---:|
+| `rbtree/flux` | 5.078 s | 5.078 s | 1.00x |
+| `rbtree/flux-native` | 191.7 ms | 191.7 ms | 1.00x |
+| `rbtree/rust` | 46.6 ms | 46.6 ms | 1.00x |
+| `rbtree/python` | 252.5 ms | 252.5 ms | 1.00x |
+
+VM / native: 26.49x
 <!-- rbtree-report:end -->
 
 ## Red-Black Tree 2
@@ -494,9 +596,31 @@ scripts/bench/bench.sh rbtree2
 Latest report:
 
 <!-- rbtree2-report:start -->
-# Red-Black Tree 2 Benchmark Report
+# Red-Black Tree Insert BigInt Benchmark Report
 
-_Run `scripts/bench/bench.sh rbtree2` to generate this report._
+- Generated: 2026-10-30 17:32:15 UTC
+- Runs: 20
+- Warmup: 2
+
+| Command | Mean Wall Time [s] | Change | Factor |
+|:---|---:|---:|:---|
+| `rbtree2/flux` | 5.139 ± 0.059 |  |  |
+| `rbtree2/flux-native` | 0.192 ± 0.002 | -96.3% | (26.7x faster) |
+| `rbtree2/rust` | 0.053 ± 0.001 | -99.0% | (96.6x faster) |
+| `rbtree2/python` | 0.254 ± 0.002 | -95.1% | (20.2x faster) |
+
+### Against baseline
+
+Baseline: `benchmarks/baselines/rbtree2.json`
+
+| Command | Mean now | Baseline mean | Now / baseline |
+|:---|---:|---:|---:|
+| `rbtree2/flux` | 5.139 s | 5.139 s | 1.00x |
+| `rbtree2/flux-native` | 192.3 ms | 192.3 ms | 1.00x |
+| `rbtree2/rust` | 53.2 ms | 53.2 ms | 1.00x |
+| `rbtree2/python` | 254.0 ms | 254.0 ms | 1.00x |
+
+VM / native: 26.73x
 <!-- rbtree2-report:end -->
 
 ## Red-Black Tree Delete
@@ -520,5 +644,27 @@ Latest report:
 <!-- rbtree-del-report:start -->
 # Red-Black Tree Delete Benchmark Report
 
-_Run `scripts/bench/bench.sh rbtree_del` to generate this report._
+- Generated: 2026-10-30 17:26:05 UTC
+- Runs: 20
+- Warmup: 2
+
+| Command | Mean Wall Time [s] | Change | Factor |
+|:---|---:|---:|:---|
+| `rbtree_del/flux` | 5.102 ± 0.042 |  |  |
+| `rbtree_del/flux-native` | 0.165 ± 0.003 | -96.8% | (30.9x faster) |
+| `rbtree_del/rust` | 0.048 ± 0.001 | -99.1% | (105.4x faster) |
+| `rbtree_del/python` | 0.245 ± 0.002 | -95.2% | (20.9x faster) |
+
+### Against baseline
+
+Baseline: `benchmarks/baselines/rbtree_del.json`
+
+| Command | Mean now | Baseline mean | Now / baseline |
+|:---|---:|---:|---:|
+| `rbtree_del/flux` | 5.102 s | 5.102 s | 1.00x |
+| `rbtree_del/flux-native` | 164.9 ms | 164.9 ms | 1.00x |
+| `rbtree_del/rust` | 48.4 ms | 48.4 ms | 1.00x |
+| `rbtree_del/python` | 244.5 ms | 244.5 ms | 1.00x |
+
+VM / native: 30.94x
 <!-- rbtree-del-report:end -->
