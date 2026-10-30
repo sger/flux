@@ -444,18 +444,29 @@ Latest report:
 <!-- qsort-report:start -->
 # Quicksort Benchmark Report
 
-- Generated: 2026-03-10 10:52:37 UTC
-- Runs: 10
+- Generated: 2026-10-30 17:53:55 UTC
+- Runs: 20
 - Warmup: 2
 
-| Command | Mean [ms] | Min [ms] | Max [ms] | Relative |
-|:---|---:|---:|---:|---:|
-| `qsort/flux` | 132.7 ± 37.3 | 92.5 | 193.1 | 2.44 ± 1.78 |
-| `qsort/flux-jit` | 112.2 ± 38.9 | 85.5 | 209.7 | 2.07 ± 1.56 |
-| `qsort/rust` | 169.5 ± 193.4 | 7.2 | 659.4 | 3.12 ± 4.13 |
-| `qsort/python` | 191.9 ± 79.7 | 101.1 | 364.6 | 3.53 ± 2.79 |
-| `qsort/haskell` | 122.0 ± 63.3 | 48.0 | 221.4 | 2.25 ± 1.91 |
-| `qsort/ocaml` | 54.3 ± 36.5 | 9.1 | 127.9 | 1.00 |
+| Command | Mean Wall Time [ms] | Change | Factor |
+|:---|---:|---:|:---|
+| `qsort/flux` | 258.8 ± 3.8 |  |  |
+| `qsort/flux-native` | 8.8 ± 0.5 | -96.6% | (29.4x faster) |
+| `qsort/rust` | 0.7 ± 0.0 | -99.7% | (352.8x faster) |
+| `qsort/python` | 12.3 ± 0.4 | -95.2% | (21.0x faster) |
+
+### Against baseline
+
+Baseline: `benchmarks/baselines/qsort.json`
+
+| Command | Mean now | Baseline mean | Now / baseline |
+|:---|---:|---:|---:|
+| `qsort/flux` | 258.8 ms | 258.8 ms | 1.00x |
+| `qsort/flux-native` | 8.8 ms | 8.8 ms | 1.00x |
+| `qsort/rust` | 0.7 ms | 0.7 ms | 1.00x |
+| `qsort/python` | 12.3 ms | 12.3 ms | 1.00x |
+
+VM / native: 29.37x
 <!-- qsort-report:end -->
 
 ## Red-Black Tree
