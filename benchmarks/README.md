@@ -23,12 +23,15 @@ Core benchmarks:
 - `nqueens`: backtracking search and branch-heavy recursion
 - `qsort`: list/array restructuring and recursive partitioning
 - `rbtree_del`: balanced-tree updates, deletion, and nested constructor matching
+- `nbody`: float arithmetic, five planets stepped through their orbits
+- `tak`: call overhead, from the Takeuchi function's deep non-tail recursion
 
 Extended benchmarks:
 
 - `rbtree_ck`: normalized red-black-tree construction baseline
 - `rbtree`: insert-focused red-black-tree variant
 - `rbtree2`: alternate red-black-tree variant with a different value shape
+- `sfib`: a tail-recursive loop over 32-bit ints that wrap
 
 The scripts need a release `flux` with the native backend:
 
@@ -698,3 +701,91 @@ Baseline: `benchmarks/baselines/rbtree_del.json`
 
 VM / native: 30.94x
 <!-- rbtree-del-report:end -->
+
+## N-Body
+
+The Benchmarks Game's n-body: the Sun and four planets, 50,000 steps of 0.01.
+Each port prints the system's energy before and after, times 10^9 and rounded,
+because Flux has no way to print a float to a fixed number of decimals. At 1,000
+steps the energies are the Benchmarks Game's -0.169075164 and -0.169087605.
+
+The Flux, Haskell, OCaml, Erlang and Elixir ports build new bodies each step. Each
+body adds up the pull of the others in index order, which rounds exactly as the
+usual loop over pairs does, so they print the same numbers as the Rust, Go and
+Python ports, which update the bodies in place.
+
+Sources:
+
+- `benchmarks/flux/nbody.flx`
+- `benchmarks/rust/nbody.rs`
+- `benchmarks/haskell/nbody.hs`
+- `benchmarks/ocaml/nbody.ml`
+- `benchmarks/python/nbody.py`
+
+Run the cross-language benchmark:
+
+```bash
+scripts/bench/bench.sh nbody
+```
+
+Latest report:
+
+<!-- nbody-report:start -->
+<!-- nbody-report:end -->
+
+## Takeuchi
+
+`tak(30, 20, 10)`, from Koka's benchmark set. Almost all of its time goes to
+calls, so it measures the cost of a call and return on each backend.
+
+Sources:
+
+- `benchmarks/flux/tak.flx`
+- `benchmarks/rust/tak.rs`
+- `benchmarks/haskell/tak.hs`
+- `benchmarks/ocaml/tak.ml`
+- `benchmarks/python/tak.py`
+
+Run the cross-language benchmark:
+
+```bash
+scripts/bench/bench.sh tak
+```
+
+Latest report:
+
+<!-- tak-report:start -->
+<!-- tak-report:end -->
+
+## Wrapping Fibonacci
+
+Koka's `sfib`: 20,000,000 turns of a loop over two 32-bit ints, restarting when
+the second passes 10^9. The ints wrap on overflow. Rust, Go and Haskell use 32-bit
+types; Flux, Python, OCaml, Erlang and Elixir mask the result to 32 bits, so every
+port prints the same number.
+
+On the VM, an Int past 2^45 is stored on the heap, and `x1 * x2` often gets there,
+so the VM time includes those allocations.
+
+The native binary crashes with a stack overflow: the loop's tail call is not
+compiled as a jump when an argument is `x1 * x2 + x1`. Until that is fixed, run
+this benchmark with `--no-flux-native`.
+
+Sources:
+
+- `benchmarks/flux/sfib.flx`
+- `benchmarks/rust/sfib.rs`
+- `benchmarks/haskell/sfib.hs`
+- `benchmarks/ocaml/sfib.ml`
+- `benchmarks/python/sfib.py`
+
+Run the cross-language benchmark:
+
+```bash
+scripts/bench/bench.sh sfib
+```
+
+Latest report:
+
+<!-- sfib-report:start -->
+<!-- sfib-report:end -->
