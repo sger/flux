@@ -20,6 +20,9 @@ Benchmarks:
   rbtree                   Red-black tree insert benchmark
   rbtree2                  Red-black tree big-int benchmark
   rbtree_del               Red-black tree delete benchmark
+  nbody                    Planetary orbits, float arithmetic
+  sfib                     Tail-recursive loop over wrapping 32-bit ints
+  tak                      Takeuchi function, call overhead
 
 Groups:
   core                     Curated suite for broad coverage
@@ -60,11 +63,12 @@ Examples:
   scripts/bench/bench.sh rbtree --runs 30 --warmup 5
   scripts/bench/bench.sh rbtree2 --runs 30 --warmup 5
   scripts/bench/bench.sh rbtree_del --runs 30 --warmup 5
+  scripts/bench/bench.sh nbody --runs 10 --warmup 1
 USAGE
 }
 
-CORE_BENCHMARKS=(binarytrees cfold deriv nqueens qsort rbtree_del)
-EXTENDED_BENCHMARKS=(rbtree_ck rbtree rbtree2)
+CORE_BENCHMARKS=(binarytrees cfold deriv nqueens qsort rbtree_del nbody tak)
+EXTENDED_BENCHMARKS=(rbtree_ck rbtree rbtree2 sfib)
 
 is_group() {
   case "$1" in
@@ -345,6 +349,63 @@ configure_benchmark() {
       DEFAULT_OCAML_CMD_FULL="./target/release/rbtree_del_ocaml"
       DEFAULT_PYTHON_CMD_SMOKE="python3 benchmarks/python/rbtree_del.py"
       DEFAULT_PYTHON_CMD_FULL="python3 benchmarks/python/rbtree_del.py"
+      HAS_RUST=1
+      HAS_PYTHON=1
+      HAS_HASKELL=1
+      HAS_OCAML=1
+      ;;
+    nbody)
+      TITLE="N-Body"
+      REPORT_TAG="nbody"
+      REPORT_FILE="reports/NBODY_REPORT.md"
+      FLUX_PROGRAM_SMOKE="benchmarks/flux/nbody.flx"
+      FLUX_PROGRAM_FULL="benchmarks/flux/nbody.flx"
+      DEFAULT_RUST_CMD_SMOKE="./target/release/nbody_rust"
+      DEFAULT_RUST_CMD_FULL="./target/release/nbody_rust"
+      DEFAULT_HASKELL_CMD_SMOKE="./target/release/nbody_hs"
+      DEFAULT_HASKELL_CMD_FULL="./target/release/nbody_hs"
+      DEFAULT_OCAML_CMD_SMOKE="./target/release/nbody_ocaml"
+      DEFAULT_OCAML_CMD_FULL="./target/release/nbody_ocaml"
+      DEFAULT_PYTHON_CMD_SMOKE="python3 benchmarks/python/nbody.py"
+      DEFAULT_PYTHON_CMD_FULL="python3 benchmarks/python/nbody.py"
+      HAS_RUST=1
+      HAS_PYTHON=1
+      HAS_HASKELL=1
+      HAS_OCAML=1
+      ;;
+    sfib)
+      TITLE="Wrapping Fibonacci"
+      REPORT_TAG="sfib"
+      REPORT_FILE="reports/SFIB_REPORT.md"
+      FLUX_PROGRAM_SMOKE="benchmarks/flux/sfib.flx"
+      FLUX_PROGRAM_FULL="benchmarks/flux/sfib.flx"
+      DEFAULT_RUST_CMD_SMOKE="./target/release/sfib_rust"
+      DEFAULT_RUST_CMD_FULL="./target/release/sfib_rust"
+      DEFAULT_HASKELL_CMD_SMOKE="./target/release/sfib_hs"
+      DEFAULT_HASKELL_CMD_FULL="./target/release/sfib_hs"
+      DEFAULT_OCAML_CMD_SMOKE="./target/release/sfib_ocaml"
+      DEFAULT_OCAML_CMD_FULL="./target/release/sfib_ocaml"
+      DEFAULT_PYTHON_CMD_SMOKE="python3 benchmarks/python/sfib.py"
+      DEFAULT_PYTHON_CMD_FULL="python3 benchmarks/python/sfib.py"
+      HAS_RUST=1
+      HAS_PYTHON=1
+      HAS_HASKELL=1
+      HAS_OCAML=1
+      ;;
+    tak)
+      TITLE="Takeuchi"
+      REPORT_TAG="tak"
+      REPORT_FILE="reports/TAK_REPORT.md"
+      FLUX_PROGRAM_SMOKE="benchmarks/flux/tak.flx"
+      FLUX_PROGRAM_FULL="benchmarks/flux/tak.flx"
+      DEFAULT_RUST_CMD_SMOKE="./target/release/tak_rust"
+      DEFAULT_RUST_CMD_FULL="./target/release/tak_rust"
+      DEFAULT_HASKELL_CMD_SMOKE="./target/release/tak_hs"
+      DEFAULT_HASKELL_CMD_FULL="./target/release/tak_hs"
+      DEFAULT_OCAML_CMD_SMOKE="./target/release/tak_ocaml"
+      DEFAULT_OCAML_CMD_FULL="./target/release/tak_ocaml"
+      DEFAULT_PYTHON_CMD_SMOKE="python3 benchmarks/python/tak.py"
+      DEFAULT_PYTHON_CMD_FULL="python3 benchmarks/python/tak.py"
       HAS_RUST=1
       HAS_PYTHON=1
       HAS_HASKELL=1

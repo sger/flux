@@ -19,6 +19,9 @@ Benchmarks:
   rbtree
   rbtree2
   rbtree_del
+  nbody
+  sfib
+  tak
 
 Groups:
   core
@@ -50,11 +53,12 @@ Examples:
   scripts/bench/bench_benchmark_flamewatch.sh rbtree
   scripts/bench/bench_benchmark_flamewatch.sh rbtree2
   scripts/bench/bench_benchmark_flamewatch.sh rbtree_del
+  scripts/bench/bench_benchmark_flamewatch.sh nbody --native
 USAGE
 }
 
-CORE_BENCHMARKS=(binarytrees cfold deriv nqueens qsort rbtree_del)
-EXTENDED_BENCHMARKS=(rbtree_ck rbtree rbtree2)
+CORE_BENCHMARKS=(binarytrees cfold deriv nqueens qsort rbtree_del nbody tak)
+EXTENDED_BENCHMARKS=(rbtree_ck rbtree rbtree2 sfib)
 
 is_group() {
   case "$1" in
@@ -218,6 +222,36 @@ configure_benchmark() {
       HASKELL_BIN="target/release/rbtree_del_hs"
       OCAML_SOURCE="benchmarks/ocaml/rbtree_del.ml"
       OCAML_BIN="target/release/rbtree_del_ocaml"
+      ;;
+    nbody)
+      FLUX_PROGRAM_SMOKE="benchmarks/flux/nbody.flx"
+      FLUX_PROGRAM_FULL="benchmarks/flux/nbody.flx"
+      PROFILE_PROGRAM="benchmarks/flux/nbody.flx"
+      RUST_BIN="nbody_rust"
+      HASKELL_SOURCE="benchmarks/haskell/nbody.hs"
+      HASKELL_BIN="target/release/nbody_hs"
+      OCAML_SOURCE="benchmarks/ocaml/nbody.ml"
+      OCAML_BIN="target/release/nbody_ocaml"
+      ;;
+    sfib)
+      FLUX_PROGRAM_SMOKE="benchmarks/flux/sfib.flx"
+      FLUX_PROGRAM_FULL="benchmarks/flux/sfib.flx"
+      PROFILE_PROGRAM="benchmarks/flux/sfib.flx"
+      RUST_BIN="sfib_rust"
+      HASKELL_SOURCE="benchmarks/haskell/sfib.hs"
+      HASKELL_BIN="target/release/sfib_hs"
+      OCAML_SOURCE="benchmarks/ocaml/sfib.ml"
+      OCAML_BIN="target/release/sfib_ocaml"
+      ;;
+    tak)
+      FLUX_PROGRAM_SMOKE="benchmarks/flux/tak.flx"
+      FLUX_PROGRAM_FULL="benchmarks/flux/tak.flx"
+      PROFILE_PROGRAM="benchmarks/flux/tak.flx"
+      RUST_BIN="tak_rust"
+      HASKELL_SOURCE="benchmarks/haskell/tak.hs"
+      HASKELL_BIN="target/release/tak_hs"
+      OCAML_SOURCE="benchmarks/ocaml/tak.ml"
+      OCAML_BIN="target/release/tak_ocaml"
       ;;
     *)
       echo "Error: unknown benchmark '$BENCHMARK'." >&2

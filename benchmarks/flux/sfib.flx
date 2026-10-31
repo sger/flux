@@ -1,0 +1,20 @@
+// The sequence is defined over 32-bit ints that wrap, so every port wraps the
+// same way and prints the same number.
+fn wrap32(v: Int) -> Int {
+    let m = ((v % 4294967296) + 4294967296) % 4294967296
+    if m >= 2147483648 { m - 4294967296 } else { m }
+}
+
+fn sfibx(n: Int, x1: Int, x2: Int) -> Int {
+    if n <= 0 {
+        x1
+    } else if x2 > 1000000000 {
+        sfibx(n - 1, 1, 2)
+    } else {
+        sfibx(n - 1, wrap32(x2 - x1), wrap32(x1 * x2 + x1))
+    }
+}
+
+fn main() with IO {
+    print(sfibx(20000000, 1, 2))
+}
