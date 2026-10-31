@@ -1,4 +1,3 @@
-#[cfg(feature = "llvm")]
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -18,8 +17,8 @@ use crate::driver::{
     pipeline::program::merge_programs,
     reporting::{
         report::{
-            AetherTraceContext, ArtifactStats, CompileStats, ExecuteStats, RunStats, TraceBackend,
-            print_aether_trace, print_stats,
+            AetherTraceContext, ArtifactStats, CompileStats, ExecuteStats, Phase, RunStats,
+            TraceBackend, print_aether_trace, print_stats, write_stats_json,
         },
         runtime_errors::render_native_runtime_error,
     },
@@ -131,6 +130,7 @@ pub(crate) struct NativeOutputConfig {
     /// Ask the debug heap to report blocks live at exit (0190 S15).
     pub(crate) leak_check: bool,
     pub(crate) output_path: Option<String>,
+    pub(crate) stats_json_path: Option<PathBuf>,
 }
 
 #[cfg_attr(not(feature = "llvm"), allow(dead_code))]
@@ -572,10 +572,10 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
                         eprintln!("{}", native_exit_summary(&output.status));
                     }
                 }
-                if request.runtime.show_stats {
+                if request.runtime.show_stats || request.output.stats_json_path.is_some() {
                     let compile_ms =
                         request.program.compile_start.elapsed().as_secs_f64() * 1000.0 - execute_ms;
-                    print_stats(&RunStats {
+                    let stats = RunStats {
                         compile: CompileStats {
                             parse_ms: Some(request.program.parse_ms),
                             compile_ms: Some(compile_ms),
@@ -595,7 +595,24 @@ pub(crate) fn run_native_backend(request: NativeRunRequest<'_>) {
                             functions_count: None,
                             instruction_bytes: None,
                         },
-                    });
+                    };
+                    if request.runtime.show_stats {
+                        print_stats(&stats);
+                    }
+                    // The steps timed above for `--verbose`, in place of one
+                    // compile time, so a diff shows which of them moved.
+                    if let Some(path) = &request.output.stats_json_path {
+                        let phases = [
+                            Phase { name: "parse", ms: request.program.parse_ms },
+                            Phase { name: "frontend", ms: frontend_ms },
+                            Phase { name: "llvm_modules", ms: native_modules_ms },
+                            Phase { name: "support", ms: support_ms },
+                            Phase { name: "archive", ms: archive_ms },
+                            Phase { name: "link", ms: link_ms },
+                            Phase { name: "execute", ms: execute_ms },
+                        ];
+                        write_stats_json(path, request.program.path, &stats, &phases);
+                    }
                 }
                 // A binary written with `-o` is the user's to keep. On Windows
                 // the linker wrote `out` with `.exe` added, and a PDB beside it.

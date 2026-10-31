@@ -20,6 +20,9 @@ Benchmarks:
   rbtree                   Red-black tree insert benchmark
   rbtree2                  Red-black tree big-int benchmark
   rbtree_del               Red-black tree delete benchmark
+  nbody                    Planetary orbits, float arithmetic
+  sfib                     Tail-recursive loop over wrapping 32-bit ints
+  tak                      Takeuchi function, call overhead
 
 Groups:
   core                     Curated suite for broad coverage
@@ -32,13 +35,18 @@ Options:
   --full                   Use the full workload when supported
   --report-file <path>     Write a Markdown report (default depends on benchmark)
   --no-readme              Do not sync the latest table into benchmarks/README.md
+  --save-baseline          Copy this run's JSON results to benchmarks/baselines/
   --flux-cmd <cmd>         Flux VM command
-  --flux-jit-cmd <cmd>     Flux JIT command
+  --flux-native-cmd <cmd>  Flux native command (default: a binary emitted before the run)
   --rust-cmd <cmd>         Rust command
   --python-cmd <cmd>       Python command
   --haskell-cmd <cmd>      Haskell command
   --ocaml-cmd <cmd>        OCaml command
-  --no-flux-jit            Disable Flux JIT benchmark case
+  --erlang-cmd <cmd>       Erlang command (empty disables the case)
+  --elixir-cmd <cmd>       Elixir command (empty disables the case)
+  --go-cmd <cmd>           Go command (empty disables the case)
+  --vms                    Also time interpreted cases: Haskell under GHCi, Go under yaegi
+  --no-flux-native         Disable Flux native benchmark case
   --no-shell               Use raw commands (no shell expansion)
   -h, --help               Show this help
 
@@ -55,11 +63,12 @@ Examples:
   scripts/bench/bench.sh rbtree --runs 30 --warmup 5
   scripts/bench/bench.sh rbtree2 --runs 30 --warmup 5
   scripts/bench/bench.sh rbtree_del --runs 30 --warmup 5
+  scripts/bench/bench.sh nbody --runs 10 --warmup 1
 USAGE
 }
 
-CORE_BENCHMARKS=(binarytrees cfold deriv nqueens qsort rbtree_del)
-EXTENDED_BENCHMARKS=(rbtree_ck rbtree rbtree2)
+CORE_BENCHMARKS=(binarytrees cfold deriv nqueens qsort rbtree_del nbody tak)
+EXTENDED_BENCHMARKS=(rbtree_ck rbtree rbtree2 sfib)
 
 is_group() {
   case "$1" in
@@ -95,7 +104,7 @@ if is_group "$REQUESTED_BENCHMARK"; then
   done
   for arg in "${PASSTHROUGH_ARGS[@]-}"; do
     case "$arg" in
-      --report-file|--flux-cmd|--flux-jit-cmd|--rust-cmd|--python-cmd|--haskell-cmd|--ocaml-cmd)
+      --report-file|--flux-cmd|--flux-native-cmd|--rust-cmd|--python-cmd|--haskell-cmd|--ocaml-cmd|--erlang-cmd|--elixir-cmd|--go-cmd)
         echo "Error: option '$arg' is only supported for single benchmarks, not benchmark groups." >&2
         exit 1
         ;;
@@ -120,10 +129,13 @@ BENCHMARK="$REQUESTED_BENCHMARK"
 RUNS=20
 WARMUP=2
 SHELL_MODE=1
-ENABLE_FLUX_JIT=1
+ENABLE_FLUX_NATIVE=1
 UPDATE_README=1
 README_PATH="benchmarks/README.md"
 FULL_MODE=0
+SAVE_BASELINE=0
+BENCH_DIR="target/bench"
+BASELINE_DIR="benchmarks/baselines"
 
 TITLE=""
 REPORT_TAG=""
@@ -141,12 +153,25 @@ DEFAULT_OCAML_CMD_FULL=""
 DEFAULT_PYTHON_CMD_SMOKE=""
 DEFAULT_PYTHON_CMD_FULL=""
 
+FLUX_PROGRAM=""
 FLUX_CMD=""
-FLUX_JIT_CMD=""
+DEFAULT_FLUX_NATIVE_CMD=""
+FLUX_NATIVE_CMD=""
 RUST_CMD=""
 PYTHON_CMD=""
 HASKELL_CMD=""
 OCAML_CMD=""
+WORKLOAD_ARG_SMOKE=""
+WORKLOAD_ARG_FULL=""
+ERLANG_CMD=""
+ELIXIR_CMD=""
+GO_CMD=""
+DEFAULT_ERLANG_CMD=""
+DEFAULT_ELIXIR_CMD=""
+DEFAULT_GO_CMD=""
+GHCI_CMD=""
+YAEGI_CMD=""
+ENABLE_VMS=0
 
 HAS_RUST=0
 HAS_PYTHON=0
@@ -170,6 +195,8 @@ configure_benchmark() {
       DEFAULT_OCAML_CMD_FULL="./target/release/binarytrees_ocaml 21"
       DEFAULT_PYTHON_CMD_SMOKE="python3 benchmarks/python/binarytrees.py 8"
       DEFAULT_PYTHON_CMD_FULL="python3 benchmarks/python/binarytrees.py 21"
+      WORKLOAD_ARG_SMOKE="8"
+      WORKLOAD_ARG_FULL="21"
       HAS_RUST=1
       HAS_PYTHON=1
       HAS_HASKELL=1
@@ -212,7 +239,6 @@ configure_benchmark() {
       HAS_PYTHON=1
       HAS_HASKELL=1
       HAS_OCAML=1
-      ENABLE_FLUX_JIT=0
       ;;
     nqueens)
       TITLE="N-Queens"
@@ -270,7 +296,6 @@ configure_benchmark() {
       HAS_PYTHON=1
       HAS_HASKELL=1
       HAS_OCAML=1
-      ENABLE_FLUX_JIT=0
       ;;
     rbtree)
       TITLE="Red-Black Tree Insert"
@@ -290,7 +315,6 @@ configure_benchmark() {
       HAS_PYTHON=1
       HAS_HASKELL=1
       HAS_OCAML=1
-      ENABLE_FLUX_JIT=0
       ;;
     rbtree2)
       TITLE="Red-Black Tree Insert BigInt"
@@ -310,7 +334,6 @@ configure_benchmark() {
       HAS_PYTHON=1
       HAS_HASKELL=1
       HAS_OCAML=1
-      ENABLE_FLUX_JIT=0
       ;;
     rbtree_del)
       TITLE="Red-Black Tree Delete"
@@ -330,7 +353,63 @@ configure_benchmark() {
       HAS_PYTHON=1
       HAS_HASKELL=1
       HAS_OCAML=1
-      ENABLE_FLUX_JIT=1
+      ;;
+    nbody)
+      TITLE="N-Body"
+      REPORT_TAG="nbody"
+      REPORT_FILE="reports/NBODY_REPORT.md"
+      FLUX_PROGRAM_SMOKE="benchmarks/flux/nbody.flx"
+      FLUX_PROGRAM_FULL="benchmarks/flux/nbody.flx"
+      DEFAULT_RUST_CMD_SMOKE="./target/release/nbody_rust"
+      DEFAULT_RUST_CMD_FULL="./target/release/nbody_rust"
+      DEFAULT_HASKELL_CMD_SMOKE="./target/release/nbody_hs"
+      DEFAULT_HASKELL_CMD_FULL="./target/release/nbody_hs"
+      DEFAULT_OCAML_CMD_SMOKE="./target/release/nbody_ocaml"
+      DEFAULT_OCAML_CMD_FULL="./target/release/nbody_ocaml"
+      DEFAULT_PYTHON_CMD_SMOKE="python3 benchmarks/python/nbody.py"
+      DEFAULT_PYTHON_CMD_FULL="python3 benchmarks/python/nbody.py"
+      HAS_RUST=1
+      HAS_PYTHON=1
+      HAS_HASKELL=1
+      HAS_OCAML=1
+      ;;
+    sfib)
+      TITLE="Wrapping Fibonacci"
+      REPORT_TAG="sfib"
+      REPORT_FILE="reports/SFIB_REPORT.md"
+      FLUX_PROGRAM_SMOKE="benchmarks/flux/sfib.flx"
+      FLUX_PROGRAM_FULL="benchmarks/flux/sfib.flx"
+      DEFAULT_RUST_CMD_SMOKE="./target/release/sfib_rust"
+      DEFAULT_RUST_CMD_FULL="./target/release/sfib_rust"
+      DEFAULT_HASKELL_CMD_SMOKE="./target/release/sfib_hs"
+      DEFAULT_HASKELL_CMD_FULL="./target/release/sfib_hs"
+      DEFAULT_OCAML_CMD_SMOKE="./target/release/sfib_ocaml"
+      DEFAULT_OCAML_CMD_FULL="./target/release/sfib_ocaml"
+      DEFAULT_PYTHON_CMD_SMOKE="python3 benchmarks/python/sfib.py"
+      DEFAULT_PYTHON_CMD_FULL="python3 benchmarks/python/sfib.py"
+      HAS_RUST=1
+      HAS_PYTHON=1
+      HAS_HASKELL=1
+      HAS_OCAML=1
+      ;;
+    tak)
+      TITLE="Takeuchi"
+      REPORT_TAG="tak"
+      REPORT_FILE="reports/TAK_REPORT.md"
+      FLUX_PROGRAM_SMOKE="benchmarks/flux/tak.flx"
+      FLUX_PROGRAM_FULL="benchmarks/flux/tak.flx"
+      DEFAULT_RUST_CMD_SMOKE="./target/release/tak_rust"
+      DEFAULT_RUST_CMD_FULL="./target/release/tak_rust"
+      DEFAULT_HASKELL_CMD_SMOKE="./target/release/tak_hs"
+      DEFAULT_HASKELL_CMD_FULL="./target/release/tak_hs"
+      DEFAULT_OCAML_CMD_SMOKE="./target/release/tak_ocaml"
+      DEFAULT_OCAML_CMD_FULL="./target/release/tak_ocaml"
+      DEFAULT_PYTHON_CMD_SMOKE="python3 benchmarks/python/tak.py"
+      DEFAULT_PYTHON_CMD_FULL="python3 benchmarks/python/tak.py"
+      HAS_RUST=1
+      HAS_PYTHON=1
+      HAS_HASKELL=1
+      HAS_OCAML=1
       ;;
     *)
       echo "Error: unknown benchmark '$BENCHMARK'." >&2
@@ -339,12 +418,39 @@ configure_benchmark() {
       ;;
   esac
 
-  FLUX_CMD="./target/release/flux $FLUX_PROGRAM_SMOKE"
-  FLUX_JIT_CMD="./target/release/flux $FLUX_PROGRAM_SMOKE --jit"
+  FLUX_PROGRAM="$FLUX_PROGRAM_SMOKE"
+  FLUX_CMD="./target/release/flux $FLUX_PROGRAM"
+  DEFAULT_FLUX_NATIVE_CMD="./${BENCH_DIR}/${BENCHMARK}_flux"
+  FLUX_NATIVE_CMD="$DEFAULT_FLUX_NATIVE_CMD"
   RUST_CMD="$DEFAULT_RUST_CMD_SMOKE"
   PYTHON_CMD="$DEFAULT_PYTHON_CMD_SMOKE"
   HASKELL_CMD="$DEFAULT_HASKELL_CMD_SMOKE"
   OCAML_CMD="$DEFAULT_OCAML_CMD_SMOKE"
+  configure_port_cmds "$WORKLOAD_ARG_SMOKE"
+}
+
+# The Erlang, Elixir and Go ports follow one naming scheme, so their commands
+# come from the benchmark name instead of a per-benchmark table. A command the
+# user overrode (or emptied to disable) is kept when `--full` reconfigures.
+configure_port_cmds() {
+  local arg="$1"
+  local module="" part erlang elixir go
+  local -a parts
+  IFS=_ read -ra parts <<< "$BENCHMARK"
+  for part in "${parts[@]}"; do
+    module+="${part^}"
+  done
+  erlang="erl -noshell -pa ${BENCH_DIR}/erlang -run ${BENCHMARK} main${arg:+ $arg} -s init stop"
+  elixir="elixir -pa ${BENCH_DIR}/elixir -e 'Bench.${module}.main(System.argv())'${arg:+ -- $arg}"
+  go="./target/release/${BENCHMARK}_go${arg:+ $arg}"
+  [[ "$ERLANG_CMD" == "$DEFAULT_ERLANG_CMD" ]] && ERLANG_CMD="$erlang"
+  [[ "$ELIXIR_CMD" == "$DEFAULT_ELIXIR_CMD" ]] && ELIXIR_CMD="$elixir"
+  [[ "$GO_CMD" == "$DEFAULT_GO_CMD" ]] && GO_CMD="$go"
+  DEFAULT_ERLANG_CMD="$erlang"
+  DEFAULT_ELIXIR_CMD="$elixir"
+  DEFAULT_GO_CMD="$go"
+  GHCI_CMD="ghc -e ':main${arg:+ $arg}' benchmarks/haskell/${BENCHMARK//_/-}.hs"
+  YAEGI_CMD="yaegi run benchmarks/go/${BENCHMARK}/main.go${arg:+ $arg}"
 }
 
 configure_benchmark
@@ -371,12 +477,16 @@ while [[ $# -gt 0 ]]; do
       UPDATE_README=0
       shift
       ;;
+    --save-baseline)
+      SAVE_BASELINE=1
+      shift
+      ;;
     --flux-cmd)
       FLUX_CMD="$2"
       shift 2
       ;;
-    --flux-jit-cmd)
-      FLUX_JIT_CMD="$2"
+    --flux-native-cmd)
+      FLUX_NATIVE_CMD="$2"
       shift 2
       ;;
     --rust-cmd)
@@ -395,8 +505,24 @@ while [[ $# -gt 0 ]]; do
       OCAML_CMD="$2"
       shift 2
       ;;
-    --no-flux-jit)
-      ENABLE_FLUX_JIT=0
+    --erlang-cmd)
+      ERLANG_CMD="$2"
+      shift 2
+      ;;
+    --elixir-cmd)
+      ELIXIR_CMD="$2"
+      shift 2
+      ;;
+    --go-cmd)
+      GO_CMD="$2"
+      shift 2
+      ;;
+    --vms)
+      ENABLE_VMS=1
+      shift
+      ;;
+    --no-flux-native)
+      ENABLE_FLUX_NATIVE=0
       shift
       ;;
     --no-shell)
@@ -420,17 +546,18 @@ if [[ "$FULL_MODE" -eq 1 ]]; then
     echo "Error: benchmark '$BENCHMARK' does not define a separate full workload." >&2
     exit 1
   fi
-  FLUX_CMD="./target/release/flux $FLUX_PROGRAM_FULL"
-  FLUX_JIT_CMD="./target/release/flux $FLUX_PROGRAM_FULL --jit"
+  FLUX_PROGRAM="$FLUX_PROGRAM_FULL"
+  FLUX_CMD="./target/release/flux $FLUX_PROGRAM"
   RUST_CMD="$DEFAULT_RUST_CMD_FULL"
   PYTHON_CMD="$DEFAULT_PYTHON_CMD_FULL"
   HASKELL_CMD="$DEFAULT_HASKELL_CMD_FULL"
   OCAML_CMD="$DEFAULT_OCAML_CMD_FULL"
+  configure_port_cmds "$WORKLOAD_ARG_FULL"
 fi
 
 if [[ ! -x "./target/release/flux" ]]; then
   echo "Error: missing ./target/release/flux" >&2
-  echo "Build it with: cargo build --release --features jit --bin flux" >&2
+  echo "Build it with: cargo build --release --features llvm --bin flux" >&2
   exit 1
 fi
 
@@ -481,6 +608,60 @@ if [[ "$HAS_OCAML" -eq 1 ]] && [[ "$OCAML_CMD" == "$DEFAULT_OCAML_CMD_SMOKE" || 
   fi
 fi
 
+mkdir -p "$BENCH_DIR" "$(dirname "$REPORT_FILE")"
+
+# Each port is built only when its default command is in use; a missing
+# toolchain drops that case with a warning, as for OCaml above.
+if [[ -n "$ERLANG_CMD" && "$ERLANG_CMD" == "$DEFAULT_ERLANG_CMD" ]]; then
+  if command -v erlc >/dev/null 2>&1; then
+    mkdir -p "${BENCH_DIR}/erlang"
+    erlc -o "${BENCH_DIR}/erlang" "benchmarks/erlang/${BENCHMARK}.erl"
+  else
+    echo "Warning: skipping the Erlang case because erlc is not installed." >&2
+    ERLANG_CMD=""
+  fi
+fi
+
+if [[ -n "$ELIXIR_CMD" && "$ELIXIR_CMD" == "$DEFAULT_ELIXIR_CMD" ]]; then
+  if command -v elixirc >/dev/null 2>&1; then
+    mkdir -p "${BENCH_DIR}/elixir"
+    elixirc -o "${BENCH_DIR}/elixir" "benchmarks/elixir/${BENCHMARK}.ex"
+  else
+    echo "Warning: skipping the Elixir case because elixirc is not installed." >&2
+    ELIXIR_CMD=""
+  fi
+fi
+
+if [[ -n "$GO_CMD" && "$GO_CMD" == "$DEFAULT_GO_CMD" ]]; then
+  if command -v go >/dev/null 2>&1; then
+    (cd benchmarks/go && go build -o "${REPO_ROOT}/target/release/${BENCHMARK}_go" "./${BENCHMARK}")
+  else
+    echo "Warning: skipping the Go case because go is not installed." >&2
+    GO_CMD=""
+  fi
+fi
+
+if [[ "$ENABLE_VMS" -eq 1 ]]; then
+  if ! command -v ghc >/dev/null 2>&1; then
+    echo "Warning: skipping the GHCi case because ghc is not installed." >&2
+    GHCI_CMD=""
+  fi
+  if ! command -v yaegi >/dev/null 2>&1; then
+    echo "Warning: skipping the yaegi case because yaegi is not on PATH." >&2
+    echo "Install: go install github.com/traefik/yaegi/cmd/yaegi@latest" >&2
+    YAEGI_CMD=""
+  fi
+fi
+
+if [[ "$ENABLE_FLUX_NATIVE" -eq 1 && "$FLUX_NATIVE_CMD" == "$DEFAULT_FLUX_NATIVE_CMD" ]]; then
+  echo "Building ${FLUX_NATIVE_CMD} from ${FLUX_PROGRAM}..." >&2
+  if ! ./target/release/flux "$FLUX_PROGRAM" --native --emit-binary -o "${BENCH_DIR}/${BENCHMARK}_flux" >&2; then
+    echo "Error: failed to emit a native binary for $FLUX_PROGRAM." >&2
+    echo "Make sure flux was built with: cargo build --release --features llvm --bin flux" >&2
+    exit 1
+  fi
+fi
+
 names=()
 commands=()
 
@@ -494,8 +675,8 @@ add_case() {
 }
 
 add_case "${BENCHMARK}/flux" "$FLUX_CMD"
-if [[ "$ENABLE_FLUX_JIT" -eq 1 ]]; then
-  add_case "${BENCHMARK}/flux-jit" "$FLUX_JIT_CMD"
+if [[ "$ENABLE_FLUX_NATIVE" -eq 1 ]]; then
+  add_case "${BENCHMARK}/flux-native" "$FLUX_NATIVE_CMD"
 fi
 if [[ "$HAS_RUST" -eq 1 ]]; then
   add_case "${BENCHMARK}/rust" "$RUST_CMD"
@@ -509,6 +690,13 @@ fi
 if [[ "$HAS_OCAML" -eq 1 ]]; then
   add_case "${BENCHMARK}/ocaml" "$OCAML_CMD"
 fi
+add_case "${BENCHMARK}/erlang" "$ERLANG_CMD"
+add_case "${BENCHMARK}/elixir" "$ELIXIR_CMD"
+add_case "${BENCHMARK}/go" "$GO_CMD"
+if [[ "$ENABLE_VMS" -eq 1 ]]; then
+  add_case "${BENCHMARK}/haskell-ghci" "$GHCI_CMD"
+  add_case "${BENCHMARK}/go-yaegi" "$YAEGI_CMD"
+fi
 
 echo "Benchmark: $BENCHMARK"
 echo "Runs: $RUNS, Warmup: $WARMUP"
@@ -517,10 +705,15 @@ for i in "${!names[@]}"; do
 done
 echo
 
+results_suffix=""
+if [[ "$FULL_MODE" -eq 1 ]]; then
+  results_suffix="_full"
+fi
+RESULTS_JSON="${BENCH_DIR}/${BENCHMARK}${results_suffix}.json"
+BASELINE_JSON="${BASELINE_DIR}/${BENCHMARK}${results_suffix}.json"
+
 hf_cmd=(hyperfine --warmup "$WARMUP" --runs "$RUNS")
-if [[ "$SHELL_MODE" -eq 1 ]]; then
-  hf_cmd+=(--shell zsh)
-else
+if [[ "$SHELL_MODE" -eq 0 ]]; then
   hf_cmd+=(--shell none)
 fi
 
@@ -530,9 +723,31 @@ done
 for command in "${commands[@]}"; do
   hf_cmd+=("$command")
 done
-hf_cmd+=(--export-markdown "$REPORT_FILE")
+hf_cmd+=(--export-markdown "$REPORT_FILE" --export-json "$RESULTS_JSON")
 
 "${hf_cmd[@]}"
+
+if [[ "$SAVE_BASELINE" -eq 1 ]]; then
+  mkdir -p "$BASELINE_DIR"
+  cp "$RESULTS_JSON" "$BASELINE_JSON"
+  echo "Saved baseline: $BASELINE_JSON"
+fi
+
+# The Windows Store's python3 alias exists on PATH but only prints an install hint.
+python_bin=""
+for candidate in python3 python; do
+  if "$candidate" -c '' >/dev/null 2>&1; then
+    python_bin="$candidate"
+    break
+  fi
+done
+comparison=""
+if [[ -n "$python_bin" ]]; then
+  comparison="$("$python_bin" "$SCRIPT_DIR/compare.py" "$RESULTS_JSON" "$BASELINE_JSON" \
+    --vm "${BENCHMARK}/flux" --native "${BENCHMARK}/flux-native")"
+else
+  echo "Warning: no Python interpreter found; skipping the baseline comparison." >&2
+fi
 
 timestamp="$(date -u +"%Y-%m-%d %H:%M:%S UTC")"
 tmp_report="$(mktemp "${TMPDIR:-/tmp}/${REPORT_TAG}_report.XXXXXX.md")"
@@ -547,10 +762,19 @@ tmp_report="$(mktemp "${TMPDIR:-/tmp}/${REPORT_TAG}_report.XXXXXX.md")"
   fi
   echo
   cat "$REPORT_FILE"
+  if [[ -n "$comparison" ]]; then
+    echo
+    echo "$comparison"
+  fi
 } > "$tmp_report"
 mv "$tmp_report" "$REPORT_FILE"
+if [[ -n "$comparison" ]]; then
+  echo
+  echo "$comparison"
+fi
 echo
 echo "Wrote report: $REPORT_FILE"
+echo "Wrote results: $RESULTS_JSON"
 
 if [[ "$UPDATE_README" -eq 1 ]]; then
   marker_start="<!-- ${REPORT_TAG}-report:start -->"

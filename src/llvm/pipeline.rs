@@ -4,18 +4,20 @@
 //! self-contained binaries that link against `libflux_rt.a` (the C runtime
 //! from `runtime/c/`).
 
+use std::collections::HashMap;
 use std::fmt;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 static NEXT_NATIVE_BUILD_ID: AtomicUsize = AtomicUsize::new(0);
 static TOOLCHAIN_INFO_CACHE: OnceLock<String> = OnceLock::new();
 static RUST_STATICLIB: OnceLock<Option<PathBuf>> = OnceLock::new();
+static CC_VERSION: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
 
 /// Errors from external tool invocation.
 #[derive(Debug)]
@@ -128,18 +130,9 @@ fn run_clang_compile(
     let cc = match &toolchain {
         CToolchain::Gcc { cc, .. } => {
             // Accept "clang", "clang-18", etc. Reject "gcc", "cc" (which may be gcc).
-            if cc.contains("clang") {
+            // On macOS, `cc` is usually clang. On Linux, it may be gcc.
+            if cc.contains("clang") || (cc == "cc" && cc_is_clang(cc)) {
                 cc.clone()
-            } else if cc == "cc" {
-                // On macOS, `cc` is usually clang. On Linux, it may be gcc.
-                // Probe: `cc --version` output contains "clang" for Apple/LLVM clang.
-                let output = Command::new(cc).arg("--version").output().ok()?;
-                let version = String::from_utf8_lossy(&output.stdout);
-                if version.contains("clang") {
-                    cc.clone()
-                } else {
-                    return None;
-                }
             } else {
                 return None;
             }
@@ -503,23 +496,37 @@ fn discover_rust_staticlib() -> Option<PathBuf> {
     // `flux_print_backtrace` (S10a) and the debug heap's `flux_capture_site`
     // (S10c); an archive left from an older build lacks them.
     let has_sentinel = |path: &Path| {
-        archive_exports_symbol(path, "flux_async_run_root")
-            && archive_exports_symbol(path, "flux_tape_init")
-            && archive_exports_symbol(path, "flux_async_debug_block")
-            && archive_exports_symbol(path, "flux_tape_ordered_begin")
-            && archive_exports_symbol(path, "flux_debug_tape_events")
-            && archive_exports_symbol(path, "flux_print_backtrace")
-            && archive_exports_symbol(path, "flux_capture_site")
+        archive_exports_symbols(
+            path,
+            &[
+                "flux_async_run_root",
+                "flux_tape_init",
+                "flux_async_debug_block",
+                "flux_tape_ordered_begin",
+                "flux_debug_tape_events",
+                "flux_print_backtrace",
+                "flux_capture_site",
+            ],
+        )
     };
 
-    // Fast path: sidecar written by a previous successful link.
-    // The archive filename embeds a cargo content hash — if native_abi.rs
-    // changed, cargo produces a new hash and the old sidecar path no longer
-    // exists on disk, causing an automatic fallthrough to the slow scan.
+    // Fast path: sidecar written by a previous successful check, naming the
+    // archive with its size and modification time. An archive that still
+    // matches them is the one checked then, so `nm` need not read its
+    // hundreds of MB again on every native build. The archive filename
+    // embeds a cargo content hash — if native_abi.rs changed, cargo produces
+    // a new hash and the old sidecar path no longer exists on disk, causing
+    // an automatic fallthrough to the slow scan.
     let sidecar = profile_dir.join("flux-staticlib.path");
     if let Ok(raw) = fs::read_to_string(&sidecar) {
-        let path = PathBuf::from(raw.trim());
+        let mut lines = raw.lines();
+        let path = PathBuf::from(lines.next().unwrap_or_default().trim());
+        let stamp = lines.next().map(str::trim);
+        if stamp.is_some() && stamp == archive_stamp(&path).as_deref() {
+            return Some(path);
+        }
         if path.exists() && has_sentinel(&path) {
+            write_staticlib_sidecar(&sidecar, &path);
             return Some(path);
         }
     }
@@ -544,11 +551,30 @@ fn discover_rust_staticlib() -> Option<PathBuf> {
 
     // Cache result. Next run uses the fast path unless the file disappears
     // (which happens automatically when cargo rebuilds with a new content hash).
-    let _ = fs::write(&sidecar, found.to_string_lossy().as_bytes());
+    write_staticlib_sidecar(&sidecar, &found);
     Some(found)
 }
 
-fn archive_exports_symbol(path: &Path, symbol: &str) -> bool {
+/// The size and modification time of `path`, as the staticlib sidecar
+/// records them.
+fn archive_stamp(path: &Path) -> Option<String> {
+    let metadata = fs::metadata(path).ok()?;
+    let modified = metadata.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?;
+    Some(format!("{} {}", metadata.len(), modified.as_nanos()))
+}
+
+fn write_staticlib_sidecar(sidecar: &Path, archive: &Path) {
+    let mut contents = format!("{}\n", archive.to_string_lossy());
+    if let Some(stamp) = archive_stamp(archive) {
+        contents.push_str(&stamp);
+        contents.push('\n');
+    }
+    let _ = fs::write(sidecar, contents);
+}
+
+/// Whether the archive at `path` exports every one of `symbols`, read from
+/// a single listing: each `nm` run reads the whole archive.
+fn archive_exports_symbols(path: &Path, symbols: &[&str]) -> bool {
     // Prefer llvm-nm: Xcode's nm emits "Unknown attribute kind" errors on
     // Rust-produced LLVM bitcode (LLVM version mismatch) and may return false
     // negatives. Both tools exit non-zero when any object file errors, even if
@@ -559,7 +585,7 @@ fn archive_exports_symbol(path: &Path, symbol: &str) -> bool {
             continue;
         };
         let stdout = String::from_utf8_lossy(&output.stdout);
-        if stdout.contains(symbol) {
+        if symbols.iter().all(|symbol| stdout.contains(symbol)) {
             return true;
         }
     }
@@ -827,17 +853,10 @@ pub fn toolchain_info() -> &'static str {
         };
         let (version_line, is_clang) = match &toolchain {
             CToolchain::Gcc { cc, .. } => {
-                let output = Command::new(cc).arg("--version").output().ok();
-                let first_line = output
-                    .as_ref()
-                    .and_then(|o| {
-                        let s = String::from_utf8_lossy(&o.stdout);
-                        s.lines().next().map(|l| l.trim().to_string())
-                    })
+                let first_line = cc_version(cc)
+                    .and_then(|v| v.lines().next().map(|l| l.trim().to_string()))
                     .unwrap_or_else(|| cc.clone());
-                let is_clang = cc.contains("clang")
-                    || output.is_some_and(|o| String::from_utf8_lossy(&o.stdout).contains("clang"));
-                (first_line, is_clang)
+                (first_line, cc_is_clang(cc))
             }
             CToolchain::Msvc { cc, .. } => (format!("msvc ({cc})"), false),
         };
@@ -858,11 +877,26 @@ enum CToolchain {
 /// Whether `cc` is clang: by its name, or, for a plain `cc` as on macOS, by
 /// what `--version` says.
 fn cc_is_clang(cc: &str) -> bool {
-    cc.contains("clang")
-        || Command::new(cc)
-            .arg("--version")
-            .output()
-            .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains("clang"))
+    cc.contains("clang") || cc_version(cc).is_some_and(|v| v.contains("clang"))
+}
+
+/// What `cc --version` prints, or `None` if it could not be run. Asked once
+/// per compiler per process: every module compiled and every build's runtime
+/// check asked again, about 0.1 s of each native compile. Keyed by name
+/// because `detect_c_toolchain` rereads `CC` each time.
+fn cc_version(cc: &str) -> Option<String> {
+    let cache = CC_VERSION.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut cache = cache.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    cache
+        .entry(cc.to_string())
+        .or_insert_with(|| {
+            Command::new(cc)
+                .arg("--version")
+                .output()
+                .ok()
+                .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        })
+        .clone()
 }
 
 /// Detect the available C toolchain.

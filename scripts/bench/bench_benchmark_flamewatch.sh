@@ -19,6 +19,9 @@ Benchmarks:
   rbtree
   rbtree2
   rbtree_del
+  nbody
+  sfib
+  tak
 
 Groups:
   core
@@ -27,7 +30,7 @@ Groups:
 
 Options:
   --full                   Use the full workload when supported
-  --jit                    Profile the Flux JIT path instead of the VM path
+  --native                 Profile an emitted Flux native binary instead of the VM path
   --flux-runs <n>          Flux-only runs (default: 20)
   --flux-warmup <n>        Flux-only warmup (default: 2)
   --runs <n>               Cross-language runs (default: 10)
@@ -42,7 +45,7 @@ Examples:
   scripts/bench/bench_benchmark_flamewatch.sh core
   scripts/bench/bench_benchmark_flamewatch.sh binarytrees --full --runs 3 --warmup 1
   scripts/bench/bench_benchmark_flamewatch.sh cfold
-  scripts/bench/bench_benchmark_flamewatch.sh cfold --jit
+  scripts/bench/bench_benchmark_flamewatch.sh cfold --native
   scripts/bench/bench_benchmark_flamewatch.sh deriv
   scripts/bench/bench_benchmark_flamewatch.sh nqueens
   scripts/bench/bench_benchmark_flamewatch.sh qsort
@@ -50,11 +53,12 @@ Examples:
   scripts/bench/bench_benchmark_flamewatch.sh rbtree
   scripts/bench/bench_benchmark_flamewatch.sh rbtree2
   scripts/bench/bench_benchmark_flamewatch.sh rbtree_del
+  scripts/bench/bench_benchmark_flamewatch.sh nbody --native
 USAGE
 }
 
-CORE_BENCHMARKS=(binarytrees cfold deriv nqueens qsort rbtree_del)
-EXTENDED_BENCHMARKS=(rbtree_ck rbtree rbtree2)
+CORE_BENCHMARKS=(binarytrees cfold deriv nqueens qsort rbtree_del nbody tak)
+EXTENDED_BENCHMARKS=(rbtree_ck rbtree rbtree2 sfib)
 
 is_group() {
   case "$1" in
@@ -111,7 +115,8 @@ WARMUP=2
 TOP_N=25
 SKIP_BUILD=0
 SKIP_FLAMEGRAPH=0
-PROFILE_JIT=0
+PROFILE_NATIVE=0
+BENCH_DIR="target/bench"
 FLAMEGRAPH_ARTIFACT=""
 TRACE_ARTIFACT=""
 
@@ -218,6 +223,36 @@ configure_benchmark() {
       OCAML_SOURCE="benchmarks/ocaml/rbtree_del.ml"
       OCAML_BIN="target/release/rbtree_del_ocaml"
       ;;
+    nbody)
+      FLUX_PROGRAM_SMOKE="benchmarks/flux/nbody.flx"
+      FLUX_PROGRAM_FULL="benchmarks/flux/nbody.flx"
+      PROFILE_PROGRAM="benchmarks/flux/nbody.flx"
+      RUST_BIN="nbody_rust"
+      HASKELL_SOURCE="benchmarks/haskell/nbody.hs"
+      HASKELL_BIN="target/release/nbody_hs"
+      OCAML_SOURCE="benchmarks/ocaml/nbody.ml"
+      OCAML_BIN="target/release/nbody_ocaml"
+      ;;
+    sfib)
+      FLUX_PROGRAM_SMOKE="benchmarks/flux/sfib.flx"
+      FLUX_PROGRAM_FULL="benchmarks/flux/sfib.flx"
+      PROFILE_PROGRAM="benchmarks/flux/sfib.flx"
+      RUST_BIN="sfib_rust"
+      HASKELL_SOURCE="benchmarks/haskell/sfib.hs"
+      HASKELL_BIN="target/release/sfib_hs"
+      OCAML_SOURCE="benchmarks/ocaml/sfib.ml"
+      OCAML_BIN="target/release/sfib_ocaml"
+      ;;
+    tak)
+      FLUX_PROGRAM_SMOKE="benchmarks/flux/tak.flx"
+      FLUX_PROGRAM_FULL="benchmarks/flux/tak.flx"
+      PROFILE_PROGRAM="benchmarks/flux/tak.flx"
+      RUST_BIN="tak_rust"
+      HASKELL_SOURCE="benchmarks/haskell/tak.hs"
+      HASKELL_BIN="target/release/tak_hs"
+      OCAML_SOURCE="benchmarks/ocaml/tak.ml"
+      OCAML_BIN="target/release/tak_ocaml"
+      ;;
     *)
       echo "Error: unknown benchmark '$BENCHMARK'." >&2
       show_help >&2
@@ -234,8 +269,8 @@ while [[ $# -gt 0 ]]; do
       FULL_MODE=1
       shift
       ;;
-    --jit)
-      PROFILE_JIT=1
+    --native)
+      PROFILE_NATIVE=1
       shift
       ;;
     --flux-runs)
@@ -290,7 +325,7 @@ fi
 
 if [[ "$SKIP_BUILD" -eq 0 ]]; then
   echo "== Build release binaries =="
-  cargo build --release --features jit --bin flux --bin "$RUST_BIN"
+  cargo build --release --features llvm --bin flux --bin "$RUST_BIN"
   if [[ -n "$HASKELL_SOURCE" ]]; then
     if command -v ghc >/dev/null 2>&1; then
       ghc -O2 "$HASKELL_SOURCE" -o "$HASKELL_BIN"
@@ -323,9 +358,13 @@ fi
 FLUX_CMD="./target/release/flux $FLUX_PROGRAM"
 PROFILE_CMD=("$PROFILE_PROGRAM")
 PROFILE_LABEL="vm"
-if [[ "$PROFILE_JIT" -eq 1 ]]; then
-  PROFILE_CMD=("$PROFILE_PROGRAM" "--jit")
-  PROFILE_LABEL="jit"
+if [[ "$PROFILE_NATIVE" -eq 1 ]]; then
+  mkdir -p "$BENCH_DIR"
+  ./target/release/flux "$FLUX_PROGRAM" --native --emit-binary -o "${BENCH_DIR}/${BENCHMARK}_flux"
+  ./target/release/flux "$PROFILE_PROGRAM" -g --native --emit-binary -o "${BENCH_DIR}/${BENCHMARK}_flux_g"
+  FLUX_CMD="./${BENCH_DIR}/${BENCHMARK}_flux"
+  PROFILE_CMD=("./${BENCH_DIR}/${BENCHMARK}_flux_g")
+  PROFILE_LABEL="native"
 fi
 FLAMEGRAPH_ARTIFACT="flamegraph-${BENCHMARK}-${PROFILE_LABEL}.svg"
 TRACE_ARTIFACT="cargo-flamegraph-${BENCHMARK}-${PROFILE_LABEL}.trace"
@@ -347,7 +386,13 @@ echo
 if [[ "$SKIP_FLAMEGRAPH" -eq 0 ]]; then
   echo "== Flamegraph generation =="
   echo "Profiling workload (${PROFILE_LABEL}): ${PROFILE_CMD[*]}"
-  CARGO_PROFILE_RELEASE_DEBUG=true cargo flamegraph --reverse --bin flux -- "${PROFILE_CMD[@]}"
+  if [[ "$PROFILE_NATIVE" -eq 1 ]]; then
+    # `cargo flamegraph --bin flux -- --native` would profile the driver, not
+    # the child process it starts, so profile the emitted binary directly.
+    flamegraph --reverse -- "${PROFILE_CMD[@]}"
+  else
+    CARGO_PROFILE_RELEASE_DEBUG=true cargo flamegraph --reverse --bin flux -- "${PROFILE_CMD[@]}"
+  fi
   if [[ -f flamegraph.svg ]]; then
     cp flamegraph.svg "$FLAMEGRAPH_ARTIFACT"
   fi

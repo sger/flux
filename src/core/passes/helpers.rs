@@ -603,7 +603,7 @@ pub(super) fn appears_free(var: CoreBinderId, expr: &CoreExpr) -> bool {
 }
 
 /// Count the number of nodes in a `CoreExpr` (for size-based guards).
-pub(super) fn expr_size(expr: &CoreExpr) -> usize {
+pub(crate) fn expr_size(expr: &CoreExpr) -> usize {
     match expr {
         CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => 1,
         CoreExpr::Lam { body, .. } => 1 + expr_size(body),

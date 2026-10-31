@@ -28,8 +28,12 @@
 //! `Scratch` gives each test its own directory and its own cache root, so two
 //! tests cannot collide however they are scheduled.
 
+use std::hash::{Hash, Hasher};
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 /// Distinguishes scratch dirs created within one process. The pid separates
 /// test binaries from each other; this separates tests inside a binary, which
@@ -94,14 +98,229 @@ impl Scratch {
         self.dir.join("flux-cache")
     }
 
-    /// CLI arguments pinning `flux` to this test's private cache.
+    /// CLI arguments pinning `flux` to this test's private cache, empty.
     ///
-    /// Use these instead of `--no-cache` when the test *exercises* caching
-    /// (a cold run then a warm one). `--no-cache` is still right when caching
-    /// is irrelevant to what is being tested — it is cheaper, and both keep a
-    /// test off the shared cache.
+    /// Use these when the test is about the cache itself: a cold run then a
+    /// warm one, or what a cache miss rebuilds. Other tests want
+    /// [`Scratch::seeded_cache_args`], which skips compiling the stdlib.
     pub fn cache_args(&self) -> Vec<String> {
         cache_args_for(&self.cache_dir())
+    }
+
+    /// [`Scratch::cache_args`], with the private cache first filled from a
+    /// stdlib cache built once per `flux` build. Without it every run
+    /// compiles all of `lib/Flow` before the program, which made that the
+    /// larger part of most native tests. The cache stays private: the test
+    /// gets a copy, and the template is never written to.
+    pub fn seeded_cache_args(&self) -> Vec<String> {
+        self.seed(&["interfaces", "vm", "native"])
+    }
+
+    /// [`Scratch::seeded_cache_args`] for a VM run, which reads none of the
+    /// native objects that make up most of the template.
+    pub fn seeded_vm_cache_args(&self) -> Vec<String> {
+        self.seed(&["interfaces", "vm"])
+    }
+
+    fn seed(&self, parts: &[&str]) -> Vec<String> {
+        let cache = self.cache_dir();
+        if !cache.exists()
+            && let Some(template) = stdlib_template()
+        {
+            for part in parts {
+                // A partial copy only means the test compiles more itself.
+                let _ = copy_tree(&template.join(part), &cache.join(part));
+            }
+        }
+        self.cache_args()
+    }
+}
+
+/// The stdlib cache [`Scratch::seeded_cache_args`] copies from, or `None`
+/// when it could not be built. nextest runs every test in its own process,
+/// so the first process to need it builds it under a lock file and the
+/// others wait for the finished directory.
+fn stdlib_template() -> Option<&'static Path> {
+    static TEMPLATE: OnceLock<Option<PathBuf>> = OnceLock::new();
+    TEMPLATE.get_or_init(build_or_wait_for_template).as_deref()
+}
+
+fn build_or_wait_for_template() -> Option<PathBuf> {
+    let root = workspace_root().join("target").join("test-stdlib-cache");
+    std::fs::create_dir_all(&root).ok()?;
+    let key = template_key();
+    let dir = root.join(&key);
+    let lock = root.join(format!("{key}.lock"));
+    loop {
+        if dir.is_dir() {
+            return Some(dir);
+        }
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&lock) {
+            Ok(mut file) => {
+                let _ = writeln!(file, "pid={}", std::process::id());
+                let _lock = RemoveOnDrop(lock);
+                if !dir.is_dir() {
+                    build_template(&root, &key);
+                }
+                return dir.is_dir().then_some(dir);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                // The same recovery as the runtime's build lock: a killed
+                // holder must not stall every later test.
+                let stale = std::fs::metadata(&lock)
+                    .and_then(|metadata| metadata.modified())
+                    .ok()
+                    .and_then(|modified| modified.elapsed().ok())
+                    .is_some_and(|age| age > Duration::from_secs(5 * 60));
+                if stale {
+                    let _ = std::fs::remove_file(&lock);
+                    continue;
+                }
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            Err(_) => return None,
+        }
+    }
+}
+
+/// Names the template after the `flux` binary and the stdlib sources. Cache
+/// entries are keyed by build already, but `flux_support_O0.o` is not, so a
+/// template from an older build could hand a test a stale object.
+fn template_key() -> String {
+    let mut hasher = std::hash::DefaultHasher::new();
+    let mut stamp = |path: &Path| {
+        if let Ok(metadata) = std::fs::metadata(path) {
+            path.hash(&mut hasher);
+            metadata.len().hash(&mut hasher);
+            metadata.modified().ok().hash(&mut hasher);
+        }
+    };
+    stamp(Path::new(env!("CARGO_BIN_EXE_flux")));
+    let mut sources = Vec::new();
+    files_under(&workspace_root().join("lib"), &mut sources);
+    sources.sort();
+    for source in &sources {
+        stamp(source);
+    }
+    format!("{:016x}", hasher.finish())
+}
+
+fn files_under(dir: &Path, files: &mut Vec<PathBuf>) {
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            files_under(&path, files);
+        } else {
+            files.push(path);
+        }
+    }
+}
+
+/// Fills `<root>/<key>` by running a program that imports every `Flow`
+/// module, on the VM and in each native build the tests use. A run that
+/// fails leaves out only what it would have added.
+fn build_template(root: &Path, key: &str) {
+    let work = root.join(format!("{key}.tmp-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&work);
+    if std::fs::create_dir_all(&work).is_err() {
+        return;
+    }
+    let program = work.join("warm.flx");
+    if std::fs::write(&program, warm_program()).is_err() {
+        return;
+    }
+    let cache = work.join("cache");
+    // `--debug-heap` and `-g` compile the stdlib apart from a plain native
+    // build; the debug tests use both.
+    let variants: &[&[&str]] = if cfg!(feature = "llvm") {
+        &[&[], &["--native"], &["--native", "--debug-heap"], &["--native", "-g"]]
+    } else {
+        &[&[]]
+    };
+    for variant in variants {
+        let _ = std::process::Command::new(env!("CARGO_BIN_EXE_flux"))
+            .current_dir(workspace_root())
+            .arg(&program)
+            .args(*variant)
+            .args(cache_args_for(&cache))
+            .env("NO_COLOR", "1")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+    remove_warm_program_entries(&cache);
+    if cache.is_dir() && std::fs::rename(&cache, root.join(key)).is_ok() {
+        prune_other_templates(root, key);
+    }
+    let _ = std::fs::remove_dir_all(&work);
+}
+
+/// Removes what the warm program left about itself, which no test reads,
+/// and the native build's scratch space.
+fn remove_warm_program_entries(cache: &Path) {
+    let native = cache.join("native");
+    let _ = std::fs::remove_dir_all(native.join("scratch"));
+    let _ = std::fs::remove_dir_all(native.join("program_hash"));
+    for part in ["interfaces", "vm", "native"] {
+        for entry in std::fs::read_dir(cache.join(part)).into_iter().flatten().flatten() {
+            if entry.file_name().to_string_lossy().starts_with("warm") {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+}
+
+/// `import`s for every module in `lib/Flow` except `Primops`, which programs
+/// may not import, and `Effects`, which is documentation.
+fn warm_program() -> String {
+    let mut modules: Vec<String> = std::fs::read_dir(workspace_root().join("lib").join("Flow"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| entry.path().file_stem()?.to_str().map(str::to_owned))
+        .filter(|module| module != "Primops" && module != "Effects")
+        .collect();
+    modules.sort();
+    let mut program: String =
+        modules.iter().map(|module| format!("import Flow.{module} as M{module}\n")).collect();
+    program.push_str("\nfn main() with IO {\n    print(1)\n}\n");
+    program
+}
+
+/// Removes the templates of earlier builds. Best effort: one still being
+/// copied from only leaves its test to compile more itself.
+fn prune_other_templates(root: &Path, key: &str) {
+    for entry in std::fs::read_dir(root).into_iter().flatten().flatten() {
+        let name = entry.file_name();
+        if !name.to_string_lossy().starts_with(key) && entry.path().is_dir() {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
+/// Copies `from` into `to`, keeping each file's mtime: the stdlib archive is
+/// trusted only while it is no older than its members.
+fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let target = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_tree(&entry.path(), &target)?;
+        } else {
+            std::fs::copy(entry.path(), &target)?;
+            let modified = entry.metadata()?.modified()?;
+            std::fs::File::options().write(true).open(&target)?.set_modified(modified)?;
+        }
+    }
+    Ok(())
+}
+
+struct RemoveOnDrop(PathBuf);
+
+impl Drop for RemoveOnDrop {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
     }
 }
 

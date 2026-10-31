@@ -1,15 +1,15 @@
 //! Acid test: race-loser backend request is cancelled immediately after the
 //! winner is determined (proposal 0174 Phase 1b-vi-c).
 //!
-//! `race(fast, slow)` where fast sleeps 50ms and slow sleeps 2000ms.
-//! Before 1b-vi-c the slow fiber's 2s timer was abandoned and kept running
+//! `race(fast, slow)` where fast sleeps 50ms and slow sleeps 10s.
+//! Before 1b-vi-c the slow fiber's timer was abandoned and kept running
 //! until `run_async` returned — total wall-clock was ~50ms of sleep but the
 //! mio reactor timer lingered. After 1b-vi-c, `backend.cancel` is called for
 //! the loser immediately after the winner resolves, and `exit_run_async`
 //! cancels any remaining outstanding requests.
 //!
-//! The observable difference: the program should complete in well under 500ms
-//! of its own time (fast sleep 50ms), not approach 2000ms.
+//! The observable difference: the program returns before slow's 10s sleep
+//! could end; waiting for it would take at least that long.
 
 use crate::support::flux_runner;
 use std::time::Duration;
@@ -20,7 +20,7 @@ fn run_source(source: &str, tag: &str) -> (String, String, bool, Duration) {
 
 #[test]
 fn race_loser_backend_request_is_cancelled() {
-    // fast wins in ~50ms; slow would take 2000ms if not cancelled.
+    // fast wins in ~50ms; slow would take 10s if not cancelled.
     let source = r#"
 import Flow.Async exposing (..)
 
@@ -30,7 +30,7 @@ fn fast() -> Int with Async {
 }
 
 fn slow() -> Int with Async {
-    let _ = sleep(2000)
+    let _ = sleep(10000)
     0
 }
 
@@ -49,11 +49,10 @@ fn main() with IO, Time {
     assert!(success, "race program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
     assert!(stdout.contains("42"), "expected fast branch result 42:\nstdout:\n{stdout}");
-    // Must complete well before the loser's 2s timer; if the loser is NOT
-    // cancelled the program takes ~2000ms of sleep.
+    // Waiting for the loser takes at least its 10s sleep.
     assert!(
-        elapsed < Duration::from_millis(1500),
-        "elapsed {elapsed:?} — loser's 2s timer was not cancelled \
+        elapsed < Duration::from_millis(10_000),
+        "elapsed {elapsed:?} — loser's 10s timer was not cancelled \
          (should complete in ~50ms of sleep)"
     );
 }

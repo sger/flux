@@ -134,8 +134,13 @@ jobs:
       - name: Build tests
         run: cargo test-all --no-run
 
+      # The Windows runner is the slowest, so its hang limits are doubled
+      # (`scaled` in tests/support/flux_runner.rs). Limits that tell right
+      # behaviour from wrong do not scale.
       - name: Tests
         if: ${{ runner.os != 'macOS' }}
+        env:
+          FLUX_TEST_TIMEOUT_SCALE: ${{ runner.os == 'Windows' && '2' || '1' }}
         run: cargo test-all
 
       # The same run through insta, which after a passing run also fails on a

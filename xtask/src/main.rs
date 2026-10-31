@@ -2,13 +2,15 @@
 //! `.cargo/config.toml`).
 //!
 //! ```text
-//! cargo xtask verify <tag> [--base <tag> [--cmp | --cmp=structure]] [--skip-suite]
-//!                    [--skip-sweeps] [--det-sample <n>]
+//! cargo xtask verify <tag> [--base <tag> [--cmp | --cmp=structure] [--accept-metrics]]
+//!                    [--skip-suite] [--skip-sweeps] [--det-sample <n>]
 //!     lint, the suite, the five corpus sweeps (each with a rerun of n files,
 //!     default 50, that must give the same dumps; compared with --base's, by
 //!     status and by dump; --cmp fails on any changed dump, --cmp=structure
-//!     only on one that is more than renumbered) and parity; outputs in
-//!     .verify/<tag>/ (git-ignored; `store.rs`)
+//!     only on one that is more than renumbered) and parity, whose vm and
+//!     vm_opt runs keep their counts in metrics.tsv; with --base, a count
+//!     worse than the base's fails, unless --accept-metrics (`metrics.rs`);
+//!     outputs in .verify/<tag>/ (git-ignored; `store.rs`)
 //! cargo xtask sweep --out <dir> [--mode cfg|core|core-opt|aether|lir|cache] [--files <list>]
 //!                   [--jobs <n>] [--timeout <seconds>] [--flux <path>] [--determinism]
 //!     compile every .flx file under examples/, tests/ and lib/; with
@@ -39,6 +41,10 @@
 //!     the native ways (default llvm,llvm_opt) over tests/parity with the C
 //!     runtime built with ASan and UBSan, or with --thread TSan; report in
 //!     .verify/sanitize/ (.verify/sanitize-thread/)
+//! cargo xtask scale [--flux <path>] [<test>...]
+//!     compile generated programs of growing size and fail a compiler count
+//!     that grows faster than its limit (`scale.rs`); outputs in
+//!     .verify/scale/
 //! cargo xtask affected [<base ref>] [--path <path>]... [--dry-run] [-- <nextest args>]
 //!     run the tests the changed files are likely to break: staged, unstaged
 //!     and untracked files, plus with a base ref everything committed since
@@ -54,10 +60,12 @@ mod affected;
 mod bisect;
 mod census;
 mod compare;
+mod metrics;
 mod outcome;
 mod proc;
 mod rewrite;
 mod sanitize;
+mod scale;
 mod store;
 mod sweep;
 mod text;
@@ -71,7 +79,7 @@ use std::time::Duration;
 use sweep::Mode;
 
 const USAGE: &str = "usage:
-  cargo xtask verify <tag> [--base <tag> [--cmp | --cmp=structure]] [--skip-suite] [--skip-sweeps] [--det-sample <n>]
+  cargo xtask verify <tag> [--base <tag> [--cmp | --cmp=structure] [--accept-metrics]] [--skip-suite] [--skip-sweeps] [--det-sample <n>]
   cargo xtask sweep --out <dir> [--mode cfg|core|core-opt|aether|lir|cache] [--files <list>] [--jobs <n>] [--timeout <seconds>] [--flux <path>] [--determinism]
   cargo xtask compare <base sweep dir> <head sweep dir> [--content]
   cargo xtask prune [--keep <n>] [--keep-tag <tag>]... [--yes]
@@ -79,6 +87,7 @@ const USAGE: &str = "usage:
   cargo xtask rewrite [--kind reorder|rename|let-wrap|all] [--seed <n>] [--ways <w,...>] [--jobs <n>] [<dir|file>...]
   cargo xtask bisect-opt <fixture> [--way vm_opt|llvm_opt] [--timeout <seconds>] [--flux <path>]
   cargo xtask sanitize [--thread] [--ways <w,...>] [<dir>...]
+  cargo xtask scale [--flux <path>] [<test>...]
   cargo xtask affected [<base ref>] [--path <path>]... [--dry-run] [-- <nextest args>]
   cargo xtask phase <phase>... [--dry-run] [-- <nextest args>] | --list
   cargo xtask tidy";
@@ -125,12 +134,18 @@ fn dispatch(root: &Path, args: &[String]) -> Result<bool, String> {
                 skip_suite: args.flag("--skip-suite"),
                 skip_sweeps: args.flag("--skip-sweeps"),
                 det_sample: args.number("--det-sample")?.unwrap_or(50),
+                accept_metrics: args.flag("--accept-metrics"),
                 tag: args.positional()?.ok_or(USAGE)?,
             };
             args.finish()?;
             if options.cmp != verify::Cmp::Off && (options.base.is_none() || options.skip_sweeps) {
                 return Err(format!(
                     "--cmp compares the sweeps with --base's, so it needs --base and the sweeps\n{USAGE}"
+                ));
+            }
+            if options.accept_metrics && options.base.is_none() {
+                return Err(format!(
+                    "--accept-metrics accepts counts worse than --base's, so it needs --base\n{USAGE}"
                 ));
             }
             verify::run_verify(root, &options)
@@ -222,6 +237,13 @@ fn dispatch(root: &Path, args: &[String]) -> Result<bool, String> {
             }
             args.finish()?;
             sanitize::run_sanitize(root, &sanitize::Options { ways, dirs, thread })
+        }
+        "scale" => {
+            let flux = args.value("--flux")?.map(|f| resolve(root, &f));
+            let names =
+                std::iter::from_fn(|| args.positional().transpose()).collect::<Result<_, _>>()?;
+            args.finish()?;
+            scale::run_scale(root, &scale::Options { flux, names })
         }
         "prune" => {
             let keep = args.number("--keep")?.unwrap_or(5);

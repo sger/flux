@@ -14,12 +14,12 @@ fn run_source(source: &str, tag: &str) -> (String, String, bool, Duration) {
 #[test]
 fn scope_cancel_stops_forked_fibers() {
     // Fork two slow sleeps inside a scope; cancel after 100ms.
-    // Without cancellation this would take ~2000ms. With it, ~100ms.
+    // Without cancellation this would take 10s. With it, ~100ms.
     let source = r#"
 import Flow.Async exposing (..)
 
 fn slow_work() -> Int with Async {
-    let _ = sleep(2000)
+    let _ = sleep(10000)
     0
 }
 
@@ -46,9 +46,9 @@ fn main() with IO, Time {
     assert!(success, "scope-cancel program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
     assert!(stdout.contains("42"), "expected result 42:\nstdout:\n{stdout}");
-    // Must complete well before the forked fibers' 2s sleeps.
+    // Waiting for the forked fibers takes at least their 10s sleeps.
     assert!(
-        elapsed < Duration::from_millis(1500),
+        elapsed < Duration::from_millis(10_000),
         "elapsed {elapsed:?} — scope cancel did not stop forked fibers"
     );
 }

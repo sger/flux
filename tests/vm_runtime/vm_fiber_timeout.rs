@@ -12,16 +12,27 @@ fn run_source(source: &str, fixture_tag: &str) -> (String, String, bool, Duratio
     flux_runner::run_flux_timed(source, fixture_tag)
 }
 
+/// The scale that stretches the tests' hang limits on slow machines.
+#[test]
+fn the_test_timeout_scale_is_one_unless_set_to_a_positive_number() {
+    let scale = flux_runner::timeout_scale;
+    assert!((scale(None) - 1.0).abs() < f64::EPSILON);
+    assert!((scale(Some("2")) - 2.0).abs() < f64::EPSILON);
+    assert!((scale(Some(" 1.5 ")) - 1.5).abs() < f64::EPSILON);
+    for bad in ["", "fast", "0", "-2", "NaN", "inf"] {
+        assert!((scale(Some(bad)) - 1.0).abs() < f64::EPSILON, "{bad:?}");
+    }
+}
+
 #[test]
 fn timeout_fires_when_body_too_slow() {
-    // Body would take 1000ms; timeout cuts it off at 50ms. Should return
-    // None (printed as -1) and finish ~50ms after run_async start (well
-    // before slow's 1000ms would complete).
+    // Body would take 10s; timeout cuts it off at 50ms. Should return
+    // None (printed as -1) long before slow's sleep could end.
     let source = r#"
 import Flow.Async exposing (..)
 
 fn slow() -> Int with Async {
-    let _ = sleep(1000)
+    let _ = sleep(10000)
     99
 }
 
@@ -43,18 +54,18 @@ fn main() with IO, Time {
     assert!(success, "timeout program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
     assert!(stdout.contains("-1"), "expected None (-1) in output:\nstdout:\n{stdout}");
-    // Timer must fire well before slow's 1000ms: ~50ms timer, against
-    // ~1000ms on the non-firing path.
+    // Waiting for slow takes at least its 10s sleep, so any earlier return
+    // came from the timer, however loaded the machine.
     assert!(
-        elapsed < Duration::from_millis(700),
-        "elapsed {elapsed:?} — timeout didn't return on timer (slow's full \
-         1000ms would be ~1000ms; the timer should be ~50ms)"
+        elapsed < Duration::from_millis(10_000),
+        "elapsed {elapsed:?} — timeout waited for slow's 10s sleep instead of \
+         returning on its 50ms timer"
     );
 }
 
 #[test]
 fn timeout_returns_some_when_body_in_time() {
-    // Body completes in 50ms; timeout is 1000ms. Should return Some(42).
+    // Body completes in 50ms; timeout is 10s. Should return Some(42).
     let source = r#"
 import Flow.Async exposing (..)
 
@@ -64,7 +75,7 @@ fn fast() -> Int with Async {
 }
 
 fn body() -> Option<Int> with Async {
-    timeout(1000, fast)
+    timeout(10000, fast)
 }
 
 fn main() with IO, Time {
@@ -81,10 +92,11 @@ fn main() with IO, Time {
     assert!(success, "timeout program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
     assert!(stdout.contains("42"), "expected Some(42) result in output:\nstdout:\n{stdout}");
-    // Body must wake parent before timeout fires (~50ms vs 1000ms).
+    // Waiting for the timer takes at least its 10s, so any earlier return
+    // came from the body's completion.
     assert!(
-        elapsed < Duration::from_millis(700),
+        elapsed < Duration::from_millis(10_000),
         "elapsed {elapsed:?} — body should resume parent on completion (~50ms), \
-         not wait for timeout (~1000ms)"
+         not wait for the 10s timeout"
     );
 }

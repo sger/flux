@@ -368,6 +368,7 @@ fn dispatch_backend(ctx: &mut RunContext, request: RunProgramRequest<'_>) {
                 debug_heap: request.flags.backend.debug_heap,
                 leak_check: request.flags.backend.leak_check,
                 output_path: request.flags.backend.output_path.clone(),
+                stats_json_path: request.flags.runtime.stats_json_path.clone(),
             },
             report: NativeReportConfig {
                 render_runtime_error: should_render_native_runtime_error(request.flags),

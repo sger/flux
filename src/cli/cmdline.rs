@@ -129,6 +129,12 @@ pub fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<CliCommand
     // off first so the program may take flags that flux also understands (or
     // does not) without the CLI parser claiming or rejecting them.
     let program_args = split_program_args(&mut args);
+    // `parity-check` parses its own flags, and some share a name with the
+    // driver's (`--metrics`, `--root`): taking the driver's out first would
+    // swallow them.
+    if args.get(1).is_some_and(|arg| arg == "parity-check") {
+        return Ok(parity_check_command(&args));
+    }
     let (parsed, mut flags) = parse_driver_flags(&mut args)?;
 
     if flags.profile.name.is_some()
@@ -826,6 +832,28 @@ mod tests {
         {
             let err = command.unwrap_err();
             assert!(err.contains("native backend features require"));
+        }
+    }
+
+    /// parity-check's `--metrics` and `--root` are its own, not the driver's
+    /// flags of the same name.
+    #[test]
+    fn parity_check_keeps_flags_the_driver_also_has() {
+        let command = parse_args(cli(&[
+            "flux",
+            "parity-check",
+            "tests/parity",
+            "--metrics",
+            "m.tsv",
+            "--root",
+            "lib",
+        ]))
+        .unwrap();
+        match command {
+            CliCommand::ParityCheck { raw_args } => {
+                assert_eq!(raw_args, ["tests/parity", "--metrics", "m.tsv", "--root", "lib"]);
+            }
+            other => panic!("expected parity-check, got {other:?}"),
         }
     }
 
