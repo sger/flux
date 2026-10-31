@@ -445,8 +445,8 @@ two tests this fixture replaced each checked one backend's message, which
 is how the difference went unseen.
 
 Repro: `tests/parity/json_escapes_and_malformed_input.flx` skips its
-`llvm` way for this issue. Deleting that `skip-way:` line is the failing
-test for a fix.
+`llvm` and `llvm_opt` ways for this issue. Deleting that `skip-way:` line is
+the failing test for a fix.
 
 ### KI-125 — `make -C runtime/c test` does not build
 

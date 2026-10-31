@@ -1,6 +1,6 @@
 // parity: vm, llvm
 // expect: success
-// skip-way: llvm: KI-138 the C JSON parser words malformed-input errors differently
+// skip-way: llvm, llvm_opt: KI-138 the C JSON parser words malformed-input errors differently
 // String escapes and \u sequences round-trip, and malformed input is an
 // error value with a message, not a crash.
 // parity-expected-stdout-begin
