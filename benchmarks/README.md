@@ -94,6 +94,26 @@ scripts/bench/bench.sh all --save-baseline
 
 A baseline only compares well with runs on the machine that recorded it.
 
+## Compiler phase times
+
+`--stats-json <file>` writes the timings `--stats` prints as JSON, one record
+per phase, so two builds can be compared by a tool instead of by eye. A VM run
+records `parse`, `compile` and `execute`. A native run splits compiling into
+the steps `--verbose` times: `parse`, `frontend`, `llvm_modules`, `support`,
+`archive`, `link`, then `execute`. The file also holds the module and size
+counts `--stats` shows, with `null` for a count the backend does not have.
+
+```bash
+# The first run fills the cache; `--no-cache` neither reads nor writes it.
+./target/release/flux examples/guide/arithmetic.flx --native > /dev/null
+./target/release/flux examples/guide/arithmetic.flx --native --no-cache --stats-json cold.json
+./target/release/flux examples/guide/arithmetic.flx --native --stats-json warm.json
+python3 scripts/bench/stats_diff.py cold.json warm.json
+```
+
+`stats_diff.py` prints each phase's time in both files and their ratio, then
+any count that changed. Times are single runs, so a small difference is noise.
+
 ## Binary Trees
 
 Sources:

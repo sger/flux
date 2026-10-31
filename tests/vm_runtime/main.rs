@@ -12,6 +12,7 @@ mod match_arm_outer_binding_tests;
 mod metrics_tests;
 mod program_tests;
 mod runtime_list_index_tests;
+mod stats_json_tests;
 mod stdlib_array_tests;
 mod stdlib_crypto_tests;
 mod stdlib_either_tests;

@@ -8,6 +8,7 @@ use crate::driver::{
     reporting::report::{
         AetherTraceContext, ArtifactStats, CompileStats, ExecuteStats, RunStats, TraceBackend,
         count_bytecode_functions, print_aether_trace, print_leak_stats, print_stats,
+        write_stats_json,
     },
     shared::{
         DriverCacheConfig, DriverCompileConfig, DriverDiagnosticConfig, DriverRuntimeConfig,
@@ -242,8 +243,9 @@ pub(crate) fn try_run_parallel_vm(request: ParallelVmRunRequest<'_>) -> bool {
     if request.runtime.leak_detector {
         print_leak_stats();
     }
-    if request.runtime.show_stats {
-        print_stats(&vm_run_stats(VmRunStatsRequest {
+    let stats_json_path = request.flags.runtime.stats_json_path.as_deref();
+    if request.runtime.show_stats || stats_json_path.is_some() {
+        let stats = vm_run_stats(VmRunStatsRequest {
             flags: request.flags,
             parse_ms: request.parse_ms,
             compile_ms,
@@ -255,7 +257,13 @@ pub(crate) fn try_run_parallel_vm(request: ParallelVmRunRequest<'_>) -> bool {
             functions_count,
             instruction_bytes,
             execute_ms,
-        }));
+        });
+        if request.runtime.show_stats {
+            print_stats(&stats);
+        }
+        if let Some(path) = stats_json_path {
+            write_stats_json(path, request.path, &stats, &stats.phases());
+        }
     }
 
     true
@@ -325,8 +333,9 @@ pub(crate) fn run_vm(mut request: VmRunRequest<'_>) {
     if request.runtime.leak_detector {
         print_leak_stats();
     }
-    if request.runtime.show_stats {
-        print_stats(&vm_run_stats(VmRunStatsRequest {
+    let stats_json_path = request.flags.runtime.stats_json_path.as_deref();
+    if request.runtime.show_stats || stats_json_path.is_some() {
+        let stats = vm_run_stats(VmRunStatsRequest {
             flags: request.flags,
             parse_ms: request.parse_ms,
             compile_ms: request.compile_ms,
@@ -338,7 +347,13 @@ pub(crate) fn run_vm(mut request: VmRunRequest<'_>) {
             functions_count,
             instruction_bytes,
             execute_ms,
-        }));
+        });
+        if request.runtime.show_stats {
+            print_stats(&stats);
+        }
+        if let Some(path) = stats_json_path {
+            write_stats_json(path, request.path, &stats, &stats.phases());
+        }
     }
 }
 
