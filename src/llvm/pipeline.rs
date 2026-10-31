@@ -4,18 +4,20 @@
 //! self-contained binaries that link against `libflux_rt.a` (the C runtime
 //! from `runtime/c/`).
 
+use std::collections::HashMap;
 use std::fmt;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 static NEXT_NATIVE_BUILD_ID: AtomicUsize = AtomicUsize::new(0);
 static TOOLCHAIN_INFO_CACHE: OnceLock<String> = OnceLock::new();
 static RUST_STATICLIB: OnceLock<Option<PathBuf>> = OnceLock::new();
+static CC_VERSION: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
 
 /// Errors from external tool invocation.
 #[derive(Debug)]
@@ -128,18 +130,9 @@ fn run_clang_compile(
     let cc = match &toolchain {
         CToolchain::Gcc { cc, .. } => {
             // Accept "clang", "clang-18", etc. Reject "gcc", "cc" (which may be gcc).
-            if cc.contains("clang") {
+            // On macOS, `cc` is usually clang. On Linux, it may be gcc.
+            if cc.contains("clang") || (cc == "cc" && cc_is_clang(cc)) {
                 cc.clone()
-            } else if cc == "cc" {
-                // On macOS, `cc` is usually clang. On Linux, it may be gcc.
-                // Probe: `cc --version` output contains "clang" for Apple/LLVM clang.
-                let output = Command::new(cc).arg("--version").output().ok()?;
-                let version = String::from_utf8_lossy(&output.stdout);
-                if version.contains("clang") {
-                    cc.clone()
-                } else {
-                    return None;
-                }
             } else {
                 return None;
             }
@@ -860,17 +853,10 @@ pub fn toolchain_info() -> &'static str {
         };
         let (version_line, is_clang) = match &toolchain {
             CToolchain::Gcc { cc, .. } => {
-                let output = Command::new(cc).arg("--version").output().ok();
-                let first_line = output
-                    .as_ref()
-                    .and_then(|o| {
-                        let s = String::from_utf8_lossy(&o.stdout);
-                        s.lines().next().map(|l| l.trim().to_string())
-                    })
+                let first_line = cc_version(cc)
+                    .and_then(|v| v.lines().next().map(|l| l.trim().to_string()))
                     .unwrap_or_else(|| cc.clone());
-                let is_clang = cc.contains("clang")
-                    || output.is_some_and(|o| String::from_utf8_lossy(&o.stdout).contains("clang"));
-                (first_line, is_clang)
+                (first_line, cc_is_clang(cc))
             }
             CToolchain::Msvc { cc, .. } => (format!("msvc ({cc})"), false),
         };
@@ -891,11 +877,26 @@ enum CToolchain {
 /// Whether `cc` is clang: by its name, or, for a plain `cc` as on macOS, by
 /// what `--version` says.
 fn cc_is_clang(cc: &str) -> bool {
-    cc.contains("clang")
-        || Command::new(cc)
-            .arg("--version")
-            .output()
-            .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains("clang"))
+    cc.contains("clang") || cc_version(cc).is_some_and(|v| v.contains("clang"))
+}
+
+/// What `cc --version` prints, or `None` if it could not be run. Asked once
+/// per compiler per process: every module compiled and every build's runtime
+/// check asked again, about 0.1 s of each native compile. Keyed by name
+/// because `detect_c_toolchain` rereads `CC` each time.
+fn cc_version(cc: &str) -> Option<String> {
+    let cache = CC_VERSION.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut cache = cache.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    cache
+        .entry(cc.to_string())
+        .or_insert_with(|| {
+            Command::new(cc)
+                .arg("--version")
+                .output()
+                .ok()
+                .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        })
+        .clone()
 }
 
 /// Detect the available C toolchain.
