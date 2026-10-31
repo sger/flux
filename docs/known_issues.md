@@ -42,6 +42,73 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-155 — A self tail call with a constructor application as an argument is rejected with a bogus E082
+
+**Severity:** High · **Area:** compiler, tail calls · **Verified:** 2026-10-31 (ce4da5da) · **From:** writing a `lookup` benchmark for proposal 0193
+
+```flux
+type T = Nl | Cs(Int, T)
+
+fn build(acc: T) -> T {
+    build(Cs(1, acc))
+}
+
+fn main() with IO {
+    print(1)
+}
+```
+
+fails to compile with:
+
+```text
+error[E082]: Constructor Arity Mismatch
+Constructor `Cs` expects 2 argument(s) but got 0.
+```
+
+It fails the same way for any constructor (a one-field `Bx(1)` reports
+"expects 1 argument(s) but got 0"), with or without parameter types, with
+`--no-cache`, and inside an `if` branch, as in the common accumulator shape
+`build(i - 1, Cons(i, acc))`. It compiles when the call is not in tail
+position (`let r = build(Cs(1, acc))` then `r`), or when the constructor is
+bound first (`let next = Cs(1, acc)` then `build(next)`).
+
+"got 0" means the constructor reached the arity check in
+`src/compiler/expression.rs` with its arguments already gone, so something
+that rewrites self tail calls likely takes the call's arguments and leaves the
+nested constructor empty. Not yet known: which pass, and whether a non-self
+tail call is affected. `benchmarks/flux/nqueens.flx` passes a constructor in a
+call that is not a self tail call and compiles.
+
+### KI-154 — Compiling a module with about 1,000 functions or more takes time that grows with the square of their number
+
+**Severity:** Low · **Area:** CFG passes, compiler performance · **Verified:** 2026-10-31 (ce4da5da) · **From:** the `many_fns` test of `cargo xtask scale`
+
+A module of `n` one-line functions, `fn f0(x) { x + 0 }` up to
+`fn f<n-1>(x) { x + <n-1> }`, with a `main` that calls the last one. Compiled
+and run on the VM against a cache that already holds the stdlib (release
+`flux`; allocations from `--metrics`, the empty program's taken off):
+
+| Functions | `compiler_allocs` | Wall time |
+|---:|---:|---:|
+| 250 | 2.40 M | 0.28 s |
+| 500 | 4.81 M | 0.53 s |
+| 1,000 | 17.63 M | 1.63 s |
+| 2,000 | 67.31 M | 5.89 s |
+| 3,000 | 149.0 M | 11.82 s |
+
+Up to 500 functions both grow in step with `n`; from 1,000 on, doubling `n`
+nearly quadruples both. Unlike KI-151, the wall time grows as fast as the
+allocations, so a generated module of a few thousand functions takes seconds
+to compile.
+
+A `sample` profile of the 3,000-function compile puts most of the time in
+`run_ir_pass_pipeline` (`src/cfg/passes.rs`), which runs `validate_ir`
+(`src/cfg/validate.rs`) seven times, and in inserts into, and growth of, a
+`HashSet<IrVar>`, the validator's set of variables defined so far. One
+function in the IR, probably the module's top level, likely has a block or a
+set of defined variables that grows with the number of functions, and the
+validator copies it per block. Not yet confirmed with `--dump-cfg`.
+
 ### KI-153 — With a warm cache, `--native --emit-llvm` fails with an internal compiler error
 
 **Severity:** Medium · **Area:** native backend, module cache · **Verified:** 2026-10-31 (053941b3) · **From:** inspecting the LLVM for KI-148
@@ -120,9 +187,12 @@ approaches ×4, so some pass allocates in proportion to the square of the
 function's length. Wall time grew less over the same range (1.2 s to 2.2 s
 from 1,000 to 2,000), so a timing check would not have flagged it.
 
-Not yet known: which pass. Running the probe with the passes' own counts, or
-under a heap profiler, would narrow it. Proposal 0192 S5's scale test on this
-input fails until it is fixed.
+Not yet known: which pass. A `sample` profile of a 2,400-`let` compile puts
+most of the time in `malloc` and `free`, called from Aether cloning
+`AetherExpr` (`gives_away` in `src/aether/insert.rs`, and `reuse_spec`), and
+in `operand_widths` in the bytecode emitter. A heap profiler would say which
+of these allocates per `let` per `let`. The `let_chain` test of `cargo xtask
+scale` fails until it is fixed.
 
 ### KI-148 — Natively, a self tail call that passes a literal to a borrowed parameter is not a jump, and a long loop overflows the stack
 
