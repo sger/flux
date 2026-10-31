@@ -11,14 +11,16 @@
 [summary]: #summary
 
 Native tests set the pace of `cargo test-all`. This proposal measures where a
-native test's time goes and ranks the fixes by what they save. On macOS the
-biggest cost is not compiling or linking: it is the system's check of every
-new executable the first time it runs, about 0.95 s per binary, 86% of a
-native parity fixture's time. Linking is 5% and LLVM 4%. So the plan is to make
-fewer new binaries per run (keep unchanged test binaries between runs, put the
-parity corpus on the shared stdlib cache, stop building the same program
-twice), to fix which tests count as native, and to add scale tests that gate
-on counts instead of time. Two ideas from the earlier research are not worth
+native test's time goes and ranks the fixes by what they save. On the macOS
+machine measured, the biggest cost is not compiling or linking: it is a check
+of every new executable the first time it runs, about 0.95 s per binary, 86%
+of a native parity fixture's time. Linking is 5% and LLVM 4%. The check most
+likely comes from the endpoint security agent on that machine, not from macOS
+itself, so no setting a developer controls removes it. The plan is to start
+fewer new binaries per run (keep unchanged test binaries between runs, build
+each program once, put the parity corpus on the shared stdlib cache), to fix
+which tests count as native, and to add scale tests that gate on counts
+instead of time. Two ideas from the earlier research are not worth
 doing now: a check-only tier for native tests (it covers 9 of 327 tests), and a
 dynamic runtime library for test links (it shortens the 5%, not the 86%).
 
@@ -60,13 +62,28 @@ back without a new check depends on how:
 | an APFS clone (`cp -c`) | 0.36 s |
 | a freshly linked binary | 0.90–0.97 s |
 
-On 2026-10-29 the same check measured 278 ms, and the suite took 256–270 s.
-On 2026-10-31 it measured 0.95 s and the suite took 465 s. Nothing in the test
-setup changed in between that would explain a 200 s difference; a slower check
-across about 400 new binaries per run would. Why the check got slower is not
-known (unresolved question 1).
+### What the check is
 
-Linux pays no such check, so on Linux CI the compile and link steps are the
+On 2026-10-29 the first run of a new binary took 278 ms. Adding the terminal
+under System Settings → Privacy & Security → Developer Tools, which switches
+off macOS's own first-launch check, brought it to 22 ms, and the suite took
+256–270 s. On 2026-10-31, with the same exemption still in place for both the
+terminal and VS Code, a new binary took 0.9 s, from either one, and the suite
+took 465 s. Nothing in the test setup changed in between that would explain a
+200 s difference; a slower check across about 400 new binaries per run would.
+
+The machine runs Palo Alto's Cortex XDR, an endpoint security agent whose
+system extension sees every process start and can scan a new executable
+before it runs. The Developer Tools exemption does not reach a third-party
+agent. The agent's configuration was updated on the morning of 2026-10-31.
+The pattern fits a scanner that remembers what it has seen: the cost is per
+new file, whatever its size, and a hard link to an already-run binary is
+nearly free. This is likely but not proven; the agent's policy is not
+visible from the machine (unresolved question 1).
+
+So the cost is real for anyone developing Flux on a managed Mac, and it can
+change without notice when the agent's policy does. Linux CI runners without
+such an agent pay neither check, so there the compile and link steps are the
 larger share. The steps below help both, in different proportions.
 
 ### Where the suite's time goes
@@ -274,20 +291,29 @@ on later runs, but the first run still pays every build.
 - S2 moves most native parity runs onto the cached path, so the uncached path
   gets less coverage than today. The fixed `--no-cache` list is the answer,
   but it has to be kept up.
-- The macOS numbers depend on a system check whose cost changed between two
-  measurements two days apart. If it drops back, S1's saving drops with it.
+- The macOS numbers depend on an endpoint agent's policy, which changed
+  between two measurements two days apart and can change again. If the check
+  gets cheaper, or the build folders are excluded from it, S1's saving drops
+  with it. S1 and S4 still save the link and archive time on every
+  platform.
 
 ## Rationale and alternatives
 [rationale-and-alternatives]: #rationale-and-alternatives
 
 - **Exempt the terminal from the check** (System Settings → Privacy & Security
-  → Developer Tools). It removes the 86% on one machine at no code cost, and
-  is the first thing to do locally. It does not help other contributors, CI
-  runners that someday run macOS, or a terminal that cannot be exempted.
+  → Developer Tools). Worth doing, since it removes macOS's own check, but on
+  the measured machine it no longer helped: the remaining cost comes from the
+  endpoint agent, which the exemption does not cover.
+- **Ask for the build folders to be excluded from endpoint scanning.** On a
+  managed machine only IT can do this, and whether they will depends on the
+  organization. It would remove the 86% locally at no code cost, but it helps
+  only the machines it is granted on.
 - **Batch many programs into one binary**, as the `flux test` harness already
-  does for one file's tests. It cuts new binaries further, but changes what
-  each test runs and how failures are reported. S1 gets most of the saving
-  without that.
+  does for one file's tests. With the check outside a developer's control,
+  cutting new binaries is the lever that works everywhere, and batching cuts
+  the most, including on a test's first run, which S1 does not help. It changes
+  what each test runs and how failures are reported, so it comes after S1 and
+  S4 rather than instead of them (see Future possibilities).
 - **Copy or clone into the scratch directory instead of hard-linking.** Both
   measured at 0.15–0.36 s, a third of the full check. Hard links measured
   0.01 s.
@@ -309,9 +335,10 @@ on later runs, but the first run still pays every build.
 ## Unresolved questions
 [unresolved-questions]: #unresolved-questions
 
-1. Why the first-launch check went from 278 ms to 0.95 s between 2026-10-29
-   and 2026-10-31, and whether that explains the suite going from about 260 s
-   to 465 s. Re-measure before S1 and after any macOS update.
+1. Whether the endpoint agent is what made the first launch go from 22 ms to
+   0.9 s between 2026-10-29 and 2026-10-31, and whether that explains the
+   suite going from about 260 s to 465 s. An exclusion for the build folders,
+   even a temporary one, would settle it. Re-measure before S1.
 2. The same measurements on Linux, where there is no first-launch check, to
    size S1 and S2 for CI.
 3. S1's eviction policy and the exact key (which build id for the compiler,
@@ -323,6 +350,9 @@ on later runs, but the first run still pays every build.
 ## Future possibilities
 [future-possibilities]: #future-possibilities
 
+- Batch the native tests that build small programs into one binary per test
+  file, as `flux test` does, so a first run starts a few binaries instead of
+  hundreds.
 - The same store could serve `flux test` binaries and replay tests.
 - `--stats-json` on every native test build would give these numbers on each
   CI run instead of from a one-off script.
