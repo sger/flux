@@ -181,15 +181,20 @@ fixtures keep `--no-cache` on purpose, so the uncached path stays tested.
 
 **Scale tests.** A scale test names an input that grows with `n`, a count from
 `--metrics`, and a limit on how fast the count may grow. It runs the compiler
-at four sizes and fails if the count grows faster than the limit. The first
-one is the `let` chain above, marked ignored with the known-issue number until
-that is fixed:
+at four sizes and fails if the count grows faster than the limit. A test
+that fails because of a known issue carries its number and is reported
+without failing the run, until the issue is fixed. The prototype's output
+today:
 
 ```text
 scale test: let_chain
-  n        250      500     1000     2000
-  allocs   1.38M    4.42M   15.74M   59.39M
-  growth exponent 1.92, limit 1.20: FAIL (KI-151)
+  n                     250      500     1000     2000
+  compiler_allocs     1.38M    4.42M   15.74M   59.39M
+  growth exponent 1.81, limit 1.20: FAIL, known (KI-151)
+scale test: many_fns
+  n                     250      500     1000     2000
+  compiler_allocs     2.40M    4.81M   17.64M   67.31M
+  growth exponent 1.63, limit 1.20: FAIL, known (KI-154)
 ```
 
 Counts, not times, so the test gives the same answer on a laptop and on CI.
@@ -259,15 +264,19 @@ on later runs, but the first run still pays every build.
 
 ### S5. Scale tests on counts
 
-- A small harness in `xtask` (`cargo xtask scale`), not a test binary, since it
-  needs several compiler runs and prints a table.
+- A small harness in `xtask` (`cargo xtask scale`, `xtask/src/scale.rs`), not
+  a test binary, since it needs several compiler runs and prints a table.
+  Prototyped on 2026-10-31 with two tests.
 - Each scale test is a generator `fn(n) -> String`, the metric to read from
   `--metrics` (`compiler_allocs` first), the sizes (default 250, 500, 1000,
   2000) and a limit on the growth exponent (default 1.2, the slope of log
   count against log `n` after subtracting the count for `n = 1`).
-- First inputs: a `let` chain (fails today on KI-151; keep the test with the KI
-  number until it is fixed), many small functions, a deeply nested
-  `match`, a long list literal, and many modules importing one another.
+- A test marked with a known issue that starts passing fails the run, so
+  the marker is removed and the fix stays guarded.
+- First inputs: a `let` chain (fails on KI-151) and many small functions
+  (fails on KI-154, found by this test) are in the prototype. Still to add: a
+  deeply nested `match`, a long list literal, and many modules importing one
+  another.
 - `cargo xtask verify` runs it once; a growth over the limit fails verify the
   way a parity failure does.
 

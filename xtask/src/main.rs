@@ -41,6 +41,10 @@
 //!     the native ways (default llvm,llvm_opt) over tests/parity with the C
 //!     runtime built with ASan and UBSan, or with --thread TSan; report in
 //!     .verify/sanitize/ (.verify/sanitize-thread/)
+//! cargo xtask scale [--flux <path>] [<test>...]
+//!     compile generated programs of growing size and fail a compiler count
+//!     that grows faster than its limit (`scale.rs`); outputs in
+//!     .verify/scale/
 //! cargo xtask affected [<base ref>] [--path <path>]... [--dry-run] [-- <nextest args>]
 //!     run the tests the changed files are likely to break: staged, unstaged
 //!     and untracked files, plus with a base ref everything committed since
@@ -61,6 +65,7 @@ mod outcome;
 mod proc;
 mod rewrite;
 mod sanitize;
+mod scale;
 mod store;
 mod sweep;
 mod text;
@@ -82,6 +87,7 @@ const USAGE: &str = "usage:
   cargo xtask rewrite [--kind reorder|rename|let-wrap|all] [--seed <n>] [--ways <w,...>] [--jobs <n>] [<dir|file>...]
   cargo xtask bisect-opt <fixture> [--way vm_opt|llvm_opt] [--timeout <seconds>] [--flux <path>]
   cargo xtask sanitize [--thread] [--ways <w,...>] [<dir>...]
+  cargo xtask scale [--flux <path>] [<test>...]
   cargo xtask affected [<base ref>] [--path <path>]... [--dry-run] [-- <nextest args>]
   cargo xtask phase <phase>... [--dry-run] [-- <nextest args>] | --list
   cargo xtask tidy";
@@ -231,6 +237,13 @@ fn dispatch(root: &Path, args: &[String]) -> Result<bool, String> {
             }
             args.finish()?;
             sanitize::run_sanitize(root, &sanitize::Options { ways, dirs, thread })
+        }
+        "scale" => {
+            let flux = args.value("--flux")?.map(|f| resolve(root, &f));
+            let names =
+                std::iter::from_fn(|| args.positional().transpose()).collect::<Result<_, _>>()?;
+            args.finish()?;
+            scale::run_scale(root, &scale::Options { flux, names })
         }
         "prune" => {
             let keep = args.number("--keep")?.unwrap_or(5);
