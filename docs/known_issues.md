@@ -2451,6 +2451,36 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 ## Resolved
 
+### KI-156 — `&&` and `||` evaluated their right side before testing the left — FIXED 2026-10-31
+
+**Severity:** High · **Area:** Core lowering, both backends · **Verified fixed:** 2026-10-31, by the parity fixture below on both ways · **From:** the GHC backend comparison, while profiling nqueens
+
+Core lowered `a && b` to `CorePrimOp::And` with both operands lowered first
+(`src/core/lower_ast/expression.rs`), so the right side always ran before
+the left one was tested. `||` did the same with `Or`. The backends did branch
+on the left value afterwards, but by then the right side had already run.
+
+- A recursive right side never stopped: `n > 0 && down(n - 1)` overflows the
+  stack (E1009 on the VM, a crash natively).
+- A guarded division divided by zero: `n != 0 && 10 / n > 1`.
+- Natively, an effectful right side ran when it should have been skipped:
+  `is_pos(0) && boom()` printed boom's output. The VM's CFG called `boom()`
+  too, yet its output didn't appear, so the backends also disagreed.
+- With a literal on the left (`false && boom()`), the algebraic pass folds
+  the whole expression away, which hid the problem in small examples.
+
+It was also slow. nqueens' `safe` walked the whole list on every call, and
+rewriting its `&&` as `if` makes native nqueens 2.3× faster.
+
+Fix: Core lowers `a && b` to the same `case` as `if a then b else false`,
+and `a || b` to `if a then true else b`, so the right side is only reached
+in the branch that needs it, and a recursive call there is a tail call.
+`CACHE_EPOCH` went to 128 so cached modules are rebuilt.
+
+Test: `tests/parity/arith_short_circuit_ki156.flx` failed on both ways
+before the fix (E1009 on the VM, signal 10 natively) and passes on both
+after it.
+
 ### KI-141 — A test's port could be taken between `free_port()` and the bind — FIXED 2026-10-29
 
 **Severity:** Medium · **Area:** tests, networking · **Verified fixed:** 2026-10-29, by reading the code and a test of the range; neither failure was reproduced locally · **From:** a one-off failure of `vm_http_server::shutdown_now_cancels_active_connection` in a full `cargo test-all` · **Issue:** [#41](https://forgejo.spirosgerokostas.com/sger/flux/issues/41)

@@ -1,0 +1,42 @@
+// parity: vm, llvm
+// expect: success
+// bug: `&&` and `||` evaluated their right side before testing the left
+//       one, so a recursive right side never terminated, a guarded
+//       division divided by zero, and an effectful right side ran
+//       natively when it should have been skipped (KI-156).
+// parity-expected-stdout-begin
+// false
+// true
+// false
+// false
+// true
+// parity-expected-stdout-end
+
+fn down(n: Int) -> Bool {
+    n > 0 && down(n - 1)
+}
+
+fn up(n: Int) -> Bool {
+    n <= 0 || up(n - 1)
+}
+
+fn ratio_ok(n: Int) -> Bool {
+    n != 0 && 10 / n > 1
+}
+
+fn boom() -> Bool with IO {
+    print("right side evaluated")
+    true
+}
+
+fn is_pos(n: Int) -> Bool {
+    n > 0
+}
+
+fn main() with IO {
+    print(down(5))
+    print(up(5))
+    print(ratio_ok(0))
+    print(is_pos(0) && boom())
+    print(is_pos(1) || boom())
+}
