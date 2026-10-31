@@ -505,10 +505,6 @@ int64_t flux_json_stringify(
     int64_t value
 );
 
-/* Allocation stats (for diagnostics / testing). */
-size_t flux_gc_allocated(void);
-size_t flux_gc_num_allocs(void);
-
 /* ── I/O ────────────────────────────────────────────────────────────── */
 
 /* They return Unit (FLUX_NONE): compiled code drops a primop's result. */

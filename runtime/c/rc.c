@@ -358,11 +358,6 @@ void flux_debug_heap_report_leaks(void) {
 
 #endif /* FLUX_DEBUG_HEAP */
 
-/* ── Stats ─────────────────────────────────────────────────────────── */
-
-static _Atomic(size_t) gc_total_allocated = 0;
-static _Atomic(size_t) gc_num_allocs      = 0;
-
 /* ── Bump Arena ───────────────────────────────────────────────────── */
 
 #define FLUX_ARENA_DEFAULT_SIZE  (1 << 20)  /* 1 MB */
@@ -438,9 +433,6 @@ void *flux_gc_alloc_header(uint32_t payload_size, uint8_t scan_fsize, uint8_t ob
     void *payload = (char *)hdr + FLUX_HEADER_SIZE;
     memset(payload, 0, aligned);
 
-    atomic_fetch_add_explicit(&gc_total_allocated, aligned, memory_order_relaxed);
-    atomic_fetch_add_explicit(&gc_num_allocs, 1, memory_order_relaxed);
-
     return payload;
 }
 
@@ -480,9 +472,6 @@ void *flux_bump_alloc_slow(uint32_t payload_size, uint8_t scan_fsize, uint8_t ob
 
     void *payload = (char *)hdr + FLUX_HEADER_SIZE;
     memset(payload, 0, aligned);
-
-    atomic_fetch_add_explicit(&gc_total_allocated, aligned, memory_order_relaxed);
-    atomic_fetch_add_explicit(&gc_num_allocs, 1, memory_order_relaxed);
 
     return payload;
 }
@@ -859,8 +848,6 @@ void flux_rc_promote(int64_t val) {
 
 void flux_gc_init(size_t heap_size) {
     (void)heap_size;
-    atomic_store_explicit(&gc_total_allocated, 0, memory_order_relaxed);
-    atomic_store_explicit(&gc_num_allocs, 0, memory_order_relaxed);
     arena_init();
 }
 
@@ -883,14 +870,4 @@ void flux_gc_push_root(int64_t *root) {
 
 void flux_gc_pop_root(void) {
     /* No-op. */
-}
-
-/* ── Stats ─────────────────────────────────────────────────────────── */
-
-size_t flux_gc_allocated(void) {
-    return atomic_load_explicit(&gc_total_allocated, memory_order_relaxed);
-}
-
-size_t flux_gc_num_allocs(void) {
-    return atomic_load_explicit(&gc_num_allocs, memory_order_relaxed);
 }
