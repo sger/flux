@@ -23,7 +23,7 @@ use crate::store;
 use crate::text::{Paint, StatusLine, strip_ansi};
 use crate::verify::{Verdict, cargo, flux_binary, is_cargo_progress, progress, tail};
 
-pub use known_issues::KnownIssues;
+pub use known_issues::{KnownIssues, ki_in};
 
 pub struct Options {
     pub tag: String,

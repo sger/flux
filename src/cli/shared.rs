@@ -143,6 +143,8 @@ pub(crate) struct CliCommandValueOptions {
     pub(crate) opt_bisect_limit: Option<i64>,
     /// `--metrics <file>` (hidden; proposal 0190 §15).
     pub(crate) metrics_path: Option<PathBuf>,
+    /// `--stats-json <file>` (hidden).
+    pub(crate) stats_json_path: Option<PathBuf>,
 }
 
 impl Default for CliDiagnosticOptions {
@@ -164,6 +166,7 @@ impl Default for CliCommandValueOptions {
             debug_engine: None,
             opt_bisect_limit: None,
             metrics_path: None,
+            stats_json_path: None,
         }
     }
 }
@@ -371,6 +374,16 @@ pub(crate) fn extract_cli_value_options(args: &mut Vec<String>) -> Result<CliVal
             values.command.metrics_path = Some(path);
             continue;
         }
+        if let Some(path) = consume_named_value_option(
+            args,
+            &mut i,
+            "--stats-json",
+            "Usage: flux <file.flx> --stats-json <file>",
+            |value| Ok(PathBuf::from(value)),
+        )? {
+            values.command.stats_json_path = Some(path);
+            continue;
+        }
         if let Some(filter) = take_required_long_option(
             args,
             &mut i,
@@ -431,6 +444,7 @@ pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions
             check_only: false,
             tape: values.command.tape,
             metrics_path: values.command.metrics_path,
+            stats_json_path: values.command.stats_json_path,
             // `flux debug` turns the debugger on; `--script` and `--engine`
             // only say where its commands come from.
             debugger: (values.command.debug_script.is_some()
@@ -704,6 +718,17 @@ mod tests {
         assert_eq!(values.paths.output_path.as_deref(), Some("out.ll"));
         assert_eq!(values.paths.roots.len(), 2);
         assert_eq!(args, vec!["flux".to_string(), "run".to_string(), "file.flx".to_string()]);
+    }
+
+    #[test]
+    fn extract_value_options_takes_the_stats_json_file() {
+        let mut args =
+            vec!["flux".into(), "file.flx".into(), "--stats-json".into(), "stats.json".into()];
+
+        let values = extract_cli_value_options(&mut args).unwrap();
+
+        assert_eq!(values.command.stats_json_path.as_deref(), Some(Path::new("stats.json")));
+        assert_eq!(args, vec!["flux".to_string(), "file.flx".to_string()]);
     }
 
     #[test]

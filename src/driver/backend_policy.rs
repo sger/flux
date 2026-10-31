@@ -15,7 +15,11 @@ pub fn has_dump_requests(flags: &DriverFlags) -> bool {
 }
 
 pub fn allow_vm_cache(flags: &DriverFlags) -> bool {
-    flags.backend.selected == Backend::Vm && !has_dump_requests(flags)
+    // `--metrics` counts what this run compiled, and only the serial path
+    // writes the file, so it never reuses cached bytecode.
+    flags.backend.selected == Backend::Vm
+        && !has_dump_requests(flags)
+        && flags.runtime.metrics_path.is_none()
 }
 
 pub fn validate_dump_flags(flags: &DriverFlags) -> Result<(), &'static str> {

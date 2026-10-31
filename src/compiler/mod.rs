@@ -1346,6 +1346,15 @@ pub struct ModuleCacheSnapshot {
     global_definitions_len: usize,
 }
 
+/// What `Compiler::program_metrics` counts for `--metrics`.
+#[derive(Debug, Default)]
+pub struct ProgramMetrics {
+    pub aether: crate::aether::AetherStats,
+    /// Core nodes after optimization, counted as the optimizer's size
+    /// guards count them.
+    pub core_size: usize,
+}
+
 struct FinalInferenceResult<'a> {
     effective_program: Cow<'a, Program>,
     hm_final: InferProgramResult,
@@ -6566,16 +6575,17 @@ impl Compiler {
         self.prepare_backend_core_program_with_preloaded(program, optimize)
     }
 
-    /// Aether's counts over the program's own top-level functions, for
-    /// `--metrics` (0190 S15): the same numbers `--dump-aether` shows per
-    /// function, without the library's, so a fixture's count moves only
-    /// when its own code is planned differently.
+    /// The compile-time counts of `--metrics` over the program's own
+    /// top-level functions (0190 S15, S11): Aether's counts, the same numbers
+    /// `--dump-aether` shows per function, and the size of the Core they were
+    /// planned from. The library's functions are left out, so a fixture's
+    /// counts move only when its own code is compiled differently.
     #[allow(clippy::result_large_err)]
-    pub fn aether_metrics(
+    pub fn program_metrics(
         &mut self,
         program: &Program,
         optimize: bool,
-    ) -> Result<crate::aether::AetherStats, Diagnostic> {
+    ) -> Result<ProgramMetrics, Diagnostic> {
         let own: std::collections::HashSet<_> = program
             .statements
             .iter()
@@ -6585,11 +6595,18 @@ impl Compiler {
             })
             .collect();
         let aether = self.lower_aether_report_program(program, optimize)?;
-        let mut total = crate::aether::AetherStats::default();
+        let mut metrics = ProgramMetrics::default();
         for def in aether.defs().iter().filter(|def| own.contains(&def.name)) {
-            total.add(&crate::aether::collect_stats(&def.expr));
+            metrics.aether.add(&crate::aether::collect_stats(&def.expr));
         }
-        Ok(total)
+        metrics.core_size = aether
+            .core
+            .defs
+            .iter()
+            .filter(|def| own.contains(&def.name))
+            .map(|def| crate::core::passes::expr_size(&def.expr))
+            .sum();
+        Ok(metrics)
     }
 
     /// Render an Aether-native ownership report showing per-function lowering decisions.

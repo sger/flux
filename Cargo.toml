@@ -171,6 +171,18 @@ path = "benchmarks/rust/rbtree2.rs"
 name = "rbtree_del_rust"
 path = "benchmarks/rust/rbtree_del.rs"
 
+[[bin]]
+name = "nbody_rust"
+path = "benchmarks/rust/nbody.rs"
+
+[[bin]]
+name = "sfib_rust"
+path = "benchmarks/rust/sfib.rs"
+
+[[bin]]
+name = "tak_rust"
+path = "benchmarks/rust/tak.rs"
+
 # The child the `Flow.Process` fixture spawns. A program of our own rather
 # than a system command: Windows ships nothing that passes an argument vector
 # through unaltered, and the fixture's whole subject is that arguments reach a

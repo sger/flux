@@ -18,31 +18,38 @@ fn run_source(source: &str, fixture_tag: &str) -> (String, String, bool, Duratio
     flux_runner::run_flux_timed(source, fixture_tag)
 }
 
+/// Each fiber reports when its sleep started and ended, and the two runs must
+/// overlap. That holds however loaded the machine is, where a time budget
+/// for the whole program (sequential ~1000ms against ~500ms) failed on a
+/// slow runner although the sleeps did overlap.
 #[test]
 fn both_overlap_runs_in_parallel() {
     let source = r#"
 import Flow.Async exposing (..)
 
-fn left() -> Int with Async {
+fn run_of(start: Int, stop: Int) -> (Int, Int) { (start, stop) }
+
+fn slept() -> (Int, Int) with Async, Time {
+    let start = now_ms()
     let _ = sleep(500)
-    1
+    run_of(start, now_ms())
 }
 
-fn right() -> Int with Async {
-    let _ = sleep(500)
-    2
+fn body() -> ((Int, Int), (Int, Int)) with Async, Time {
+    both(slept, slept)
 }
 
-fn body() -> (Int, Int) with Async {
-    both(left, right)
+fn print_run(run: (Int, Int)) with IO {
+    print(run.0)
+    print(run.1)
 }
 
 fn main() with IO, Time {
     let t0 = now_ms()
-    let pair = run_async(body)
+    let runs = run_async(body)
     print("elapsed_ms=" + to_string(now_ms() - t0))
-    print(pair.0)
-    print(pair.1)
+    print_run(runs.0)
+    print_run(runs.1)
 }
 "#;
     let (stdout, stderr, success, _) = run_source(source, "both_overlap");
@@ -53,16 +60,14 @@ fn main() with IO, Time {
         elapsed >= Duration::from_millis(450),
         "elapsed {elapsed:?} too short — sleeps must wait at least ~500ms"
     );
-    // Upper bound: fibers must overlap. Sequential = ~1000ms of sleep;
-    // concurrent = ~500ms.
+    let times: Vec<u64> = stdout.lines().filter_map(|line| line.trim().parse().ok()).collect();
+    let [left_start, left_end, right_start, right_end] = times[..] else {
+        panic!("expected four times, start and end of each sleep:\nstdout:\n{stdout}");
+    };
     assert!(
-        elapsed < Duration::from_millis(800),
-        "elapsed {elapsed:?} — fibers didn't overlap (sequential would be \
-         ~1000ms of sleep, concurrent should be ~500ms)"
-    );
-    assert!(
-        stdout.contains('1') && stdout.contains('2'),
-        "expected both results in output:\nstdout:\n{stdout}"
+        left_start < right_end && right_start < left_end,
+        "the sleeps ran one after the other ({left_start}..{left_end}, then \
+         {right_start}..{right_end}), so `both` did not overlap them"
     );
 }
 
@@ -72,7 +77,7 @@ fn race_returns_first_finisher() {
 import Flow.Async exposing (..)
 
 fn slow() -> Int with Async {
-    let _ = sleep(1000)
+    let _ = sleep(10000)
     1
 }
 
@@ -95,12 +100,12 @@ fn main() with IO, Time {
     let (stdout, stderr, success, _) = run_source(source, "race_first_finisher");
     assert!(success, "race program must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
-    // Upper bound: parent must resume on fast's completion (~50ms),
-    // not wait for slow (~1000ms).
+    // Waiting for slow takes at least its 10s sleep, so any earlier return
+    // came from fast.
     assert!(
-        elapsed < Duration::from_millis(700),
+        elapsed < Duration::from_millis(10_000),
         "elapsed {elapsed:?} — race didn't return on fast (waiting on slow \
-         would be ~1000ms of sleep, fast-wins should be ~50ms)"
+         takes 10s of sleep, fast-wins should be ~50ms)"
     );
     assert!(
         stdout.contains('2'),

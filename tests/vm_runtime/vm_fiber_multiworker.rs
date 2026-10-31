@@ -14,6 +14,7 @@
 //!   5. Four-worker race returns the fast branch.
 //!   6. Load-aware spawn placement (least-loaded queue) and the
 //!      `FLUX_WORK_STEALING=0` round-robin fallback both produce correct output.
+//!   7. Two busy fibers run at once on two workers (ignored until KI-144).
 
 use crate::support::flux_runner;
 use std::time::Duration;
@@ -60,17 +61,18 @@ fn main() with IO {
 
 #[test]
 fn multiworker_sleep_both_overlaps() {
-    // Two 500ms sleeps across 2 workers should finish in ~500ms, not ~1000ms.
+    // Two 1000ms sleeps across 2 workers should finish in ~1000ms; one after
+    // the other they take at least 2000ms.
     let source = r#"
 import Flow.Async exposing (..)
 
 fn slow_left() -> Int with Async {
-    let _ = sleep(500)
+    let _ = sleep(1000)
     1
 }
 
 fn slow_right() -> Int with Async {
-    let _ = sleep(500)
+    let _ = sleep(1000)
     2
 }
 
@@ -93,15 +95,67 @@ fn main() with IO, Time {
     assert_eq!(lines, ["1", "2"], "expected both fibers' results in order:\nstdout:\n{stdout}");
     // Must wait at least one sleep duration.
     assert!(
-        elapsed >= Duration::from_millis(400),
+        elapsed >= Duration::from_millis(900),
         "elapsed {elapsed:?} too short — sleeps must actually wait"
     );
-    // With 2 OS workers the sleeps overlap: ~500ms, against ~1000ms when
-    // they run one after the other.
+    // One after the other the sleeps take at least their sum, so a run
+    // shorter than that overlapped them, however loaded the machine.
     assert!(
-        elapsed < Duration::from_millis(800),
+        elapsed < Duration::from_millis(2000),
         "elapsed {elapsed:?} — fibers didn't overlap across workers \
-         (sequential would be ~1000ms of sleep)"
+         (sequential takes at least 2000ms of sleep)"
+    );
+}
+
+// ── Test 7: two workers at once ───────────────────────────────────────────
+
+/// Scheduling is cooperative, so a fiber that never yields holds its worker:
+/// two such fibers overlap only on two OS workers. Checking that their runs
+/// overlap, rather than a time budget, holds however loaded the machine is.
+#[test]
+#[ignore = "KI-144: a fiber on a second VM worker cannot perform Clock; run with `cargo nextest run --run-ignored only -E 'test(=vm_fiber_multiworker::multiworker_both_runs_on_two_workers_at_once)'`"]
+fn multiworker_both_runs_on_two_workers_at_once() {
+    let source = r#"
+import Flow.Async exposing (..)
+
+fn spin_until(t: Int) -> Int with Time {
+    let now = now_ms()
+    if now < t { spin_until(t) } else { now }
+}
+
+fn spin_from(start: Int) -> (Int, Int) with Time {
+    (start, spin_until(start + 1000))
+}
+
+fn busy() -> (Int, Int) with Async, Time {
+    spin_from(now_ms())
+}
+
+fn body() -> ((Int, Int), (Int, Int)) with Async, Time {
+    both(busy, busy)
+}
+
+fn print_run(run: (Int, Int)) with IO {
+    print(run.0)
+    print(run.1)
+}
+
+fn main() with IO, Time {
+    let runs = run_async_with_workers(2, body)
+    print_run(runs.0)
+    print_run(runs.1)
+}
+"#;
+    let (stdout, stderr, success, _) = run_source(source, "busy_two_workers");
+    assert!(success, "two busy fibers must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
+    let times: Vec<u64> = stdout.lines().filter_map(|line| line.trim().parse().ok()).collect();
+    let [left_start, left_end, right_start, right_end] = times[..] else {
+        panic!("expected four times, start and end of each fiber:\nstdout:\n{stdout}");
+    };
+    assert!(
+        left_start < right_end && right_start < left_end,
+        "the fibers ran one after the other ({left_start}..{left_end}, then \
+         {right_start}..{right_end}), so they did not run on two workers at once"
     );
 }
 
@@ -180,7 +234,7 @@ fn fast() -> Int with Async {
 }
 
 fn slow() -> Int with Async {
-    let _ = sleep(2000)
+    let _ = sleep(10000)
     0
 }
 
@@ -199,9 +253,9 @@ fn main() with IO, Time {
     assert!(success, "four-worker race must succeed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     let (stdout, elapsed) = flux_runner::program_elapsed(&stdout);
     assert!(stdout.contains("99"), "expected fast branch result (99):\nstdout:\n{stdout}");
-    // Should complete in ~50ms; the slow branch's 2s sleep would not.
+    // Waiting for the slow branch takes at least its 10s sleep.
     assert!(
-        elapsed < Duration::from_millis(1500),
+        elapsed < Duration::from_millis(10_000),
         "elapsed {elapsed:?} — race didn't return on fast branch"
     );
 }

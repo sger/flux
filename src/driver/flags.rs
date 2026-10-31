@@ -60,6 +60,9 @@ pub struct DriverRuntimeFlags {
     /// `--metrics <file>` (hidden): write counts that are the same on every
     /// run, one `key<TAB>value` per line (0190 §15; §12 adds more).
     pub metrics_path: Option<PathBuf>,
+    /// `--stats-json <file>` (hidden): write `--stats`' timings, one record
+    /// per phase, as JSON, so a tool can compare two builds.
+    pub stats_json_path: Option<PathBuf>,
     /// Run under the debugger (`flux debug`, proposal 0188 S2).
     pub debugger: Option<DebuggerRequest>,
 }

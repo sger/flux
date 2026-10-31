@@ -421,6 +421,9 @@ pub struct ParityResult {
     /// Skipped ways that `--check-skips` ran and found passing: their skip
     /// may no longer be needed.
     pub unexpected_passes: Vec<fixture::SkipWay>,
+    /// The `--metrics` counts of the ways that collected them, in run order
+    /// (0190 §12).
+    pub metrics: Vec<(Way, std::collections::BTreeMap<String, u64>)>,
 }
 
 #[derive(Debug)]

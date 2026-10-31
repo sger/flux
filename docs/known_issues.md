@@ -42,9 +42,393 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-155 — A self tail call with a constructor application as an argument is rejected with a bogus E082
+
+**Severity:** High · **Area:** compiler, tail calls · **Verified:** 2026-10-31 (ce4da5da) · **From:** writing a `lookup` benchmark for proposal 0193
+
+```flux
+type T = Nl | Cs(Int, T)
+
+fn build(acc: T) -> T {
+    build(Cs(1, acc))
+}
+
+fn main() with IO {
+    print(1)
+}
+```
+
+fails to compile with:
+
+```text
+error[E082]: Constructor Arity Mismatch
+Constructor `Cs` expects 2 argument(s) but got 0.
+```
+
+It fails the same way for any constructor (a one-field `Bx(1)` reports
+"expects 1 argument(s) but got 0"), with or without parameter types, with
+`--no-cache`, and inside an `if` branch, as in the common accumulator shape
+`build(i - 1, Cons(i, acc))`. It compiles when the call is not in tail
+position (`let r = build(Cs(1, acc))` then `r`), or when the constructor is
+bound first (`let next = Cs(1, acc)` then `build(next)`).
+
+"got 0" means the constructor reached the arity check in
+`src/compiler/expression.rs` with its arguments already gone, so something
+that rewrites self tail calls likely takes the call's arguments and leaves the
+nested constructor empty. Not yet known: which pass, and whether a non-self
+tail call is affected. `benchmarks/flux/nqueens.flx` passes a constructor in a
+call that is not a self tail call and compiles.
+
+### KI-154 — Compiling a module with about 1,000 functions or more takes time that grows with the square of their number
+
+**Severity:** Low · **Area:** CFG passes, compiler performance · **Verified:** 2026-10-31 (ce4da5da) · **From:** the `many_fns` test of `cargo xtask scale`
+
+A module of `n` one-line functions, `fn f0(x) { x + 0 }` up to
+`fn f<n-1>(x) { x + <n-1> }`, with a `main` that calls the last one. Compiled
+and run on the VM against a cache that already holds the stdlib (release
+`flux`; allocations from `--metrics`, the empty program's taken off):
+
+| Functions | `compiler_allocs` | Wall time |
+|---:|---:|---:|
+| 250 | 2.40 M | 0.28 s |
+| 500 | 4.81 M | 0.53 s |
+| 1,000 | 17.63 M | 1.63 s |
+| 2,000 | 67.31 M | 5.89 s |
+| 3,000 | 149.0 M | 11.82 s |
+
+Up to 500 functions both grow in step with `n`; from 1,000 on, doubling `n`
+nearly quadruples both. Unlike KI-151, the wall time grows as fast as the
+allocations, so a generated module of a few thousand functions takes seconds
+to compile.
+
+A `sample` profile of the 3,000-function compile puts most of the time in
+`run_ir_pass_pipeline` (`src/cfg/passes.rs`), which runs `validate_ir`
+(`src/cfg/validate.rs`) seven times, and in inserts into, and growth of, a
+`HashSet<IrVar>`, the validator's set of variables defined so far. One
+function in the IR, probably the module's top level, likely has a block or a
+set of defined variables that grows with the number of functions, and the
+validator copies it per block. Not yet confirmed with `--dump-cfg`.
+
+### KI-153 — With a warm cache, `--native --emit-llvm` fails with an internal compiler error
+
+**Severity:** Medium · **Area:** native backend, module cache · **Verified:** 2026-10-31 (053941b3) · **From:** inspecting the LLVM for KI-148
+
+`--native --emit-llvm` works on a cache that does not yet hold the stdlib, and
+fails on every later run that reads it:
+
+```sh
+flux one.flx --native --emit-llvm --cache-dir c   # prints the IR
+flux one.flx --native --emit-llvm --cache-dir c   # fails
+```
+
+where `one.flx` is `fn main() with IO { print(1) }`. The second run reports:
+
+```text
+error[E000]: Internal Compiler Error
+lowering the site at 39:11 from its evidence: the definition `assert_gt`: a dictionary parameter name was never interned
+```
+
+`assert_gt` is `lib/Flow/Assert.flx:39`, an `Ord`-constrained function. A
+plain native run and a VM run on the same warm cache both print `1`, so only
+the `--emit-llvm` path lowers something from the cache that the others do not.
+`--no-cache` avoids it.
+
+Not yet known: whether `--dump-lir-llvm` fails the same way, and which cached
+artifact is missing the interned dictionary parameter name.
+
+### KI-152 — A function with about 2,500 `let`s overflows the compiler's stack
+
+**Severity:** Medium · **Area:** Aether · **Verified:** 2026-10-31 (053941b3) · **From:** a scale probe for proposal 0192
+
+One function made of a chain of `let`s, `let x1 = x0 + 1` and so on, compiles
+at 2,000 `let`s and crashes the compiler at 2,500:
+
+```text
+thread 'main' has overflowed its stack
+fatal runtime error: stack overflow, aborting
+```
+
+It crashes on the VM, natively, and under `--dump-core`, so it happens before
+code generation. lldb stops in `flux::aether::insert::plan_expr`
+(`src/aether/insert.rs`), which walks the nested `let`s by recursion, one frame
+or more per `let`. Generator:
+
+```sh
+python3 -c "
+n = 2500
+print('fn main() with IO {')
+print('    let x0 = 1')
+for i in range(1, n): print(f'    let x{i} = x{i-1} + {i}')
+print(f'    print(x{n-1})')
+print('}')" > lets.flx
+```
+
+Not yet known: whether other passes over the same chain (Core lowering, ANF)
+would overflow next once Aether no longer does, and whether generated code
+(a long `match` or a big literal) reaches the limit in practice.
+
+### KI-151 — Compiler allocations grow with the square of a function's length
+
+**Severity:** Low · **Area:** compiler performance · **Verified:** 2026-10-31 (053941b3) · **From:** a scale probe for proposal 0192
+
+With the same `let` chain as KI-152, `--metrics` counts the compiler's own
+allocations. Above an empty program:
+
+| `let`s | `compiler_allocs` | Growth when doubled |
+|---:|---:|---:|
+| 125 | 443,863 | |
+| 250 | 1,383,781 | ×3.12 |
+| 500 | 4,420,247 | ×3.19 |
+| 1,000 | 15,743,445 | ×3.56 |
+| 2,000 | 59,389,595 | ×3.77 |
+
+A pass that does a fixed amount of work per `let` would double. This one
+approaches ×4, so some pass allocates in proportion to the square of the
+function's length. Wall time grew less over the same range (1.2 s to 2.2 s
+from 1,000 to 2,000), so a timing check would not have flagged it.
+
+Not yet known: which pass. A `sample` profile of a 2,400-`let` compile puts
+most of the time in `malloc` and `free`, called from Aether cloning
+`AetherExpr` (`gives_away` in `src/aether/insert.rs`, and `reuse_spec`), and
+in `operand_widths` in the bytecode emitter. A heap profiler would say which
+of these allocates per `let` per `let`. The `let_chain` test of `cargo xtask
+scale` fails until it is fixed.
+
+### KI-148 — Natively, a self tail call that passes a literal to a borrowed parameter is not a jump, and a long loop overflows the stack
+
+**Severity:** Medium · **Area:** Aether, borrow inference, native backend · **Verified:** 2026-10-31 (027d5766) · **From:** adding `benchmarks/flux/sfib.flx`
+
+A recursive tail call stops being compiled as a jump when it passes an `Int`
+literal to a parameter that borrow inference made borrowed. Each turn through
+that call keeps a frame, and the native binary dies with a stack overflow:
+
+```flux
+fn walk(n: Int, x: Int) -> Int {
+    if n <= 0 { 0 } else if x > 5 { walk(n - 1, 0) } else { walk(n - 1, 9) }
+}
+fn main() with IO { print(walk(10000000, 0)) }
+```
+
+The VM prints `0`. Natively the program exits with "native program terminated
+by signal 10", and lldb shows the fault at a stack address inside `walk`.
+`--dump-aether` reports `aether_call[borrowed, borrowed] walk` and
+`BorrowedCallGuards: 2`. In the LLVM (`--emit-llvm --no-cache`), each such call
+is a `flux_dup` of the literal, an `invoke` of `@flux_walk` that is not a tail
+call, and a `flux_drop` after it returns. The copy and the release do nothing
+useful for an `Int`.
+
+| Change to `walk` | Inferred | Native, 10M turns |
+|---|---|---|
+| as above | `[borrowed, borrowed]`, 2 guards | crashes |
+| `walk(n - 1, x - 1)` in place of `walk(n - 1, 0)` | `[borrowed, borrowed]`, 1 guard | crashes |
+| base case returns `x` instead of `0` | `[borrowed, owned]`, no guard | prints `0` |
+
+The second row also shows that the fresh `x - 1` does not make `x` owned. That
+is the rule KI-128 relies on to keep a tail call a jump (`TailCaller`,
+`src/aether/borrow_infer.rs`).
+
+`benchmarks/flux/sfib.flx` hits this. Its restart branch is
+`sfibx(n - 1, 1, 2)`, `x2` is borrowed, and the native binary crashes between
+100,000 and 1,000,000 turns. The benchmark runs with `--no-flux-native` until
+this is fixed. A loop that takes the guarded call only rarely survives, so the
+guard count alone does not say whether a program will crash.
+
+Workaround: make the parameter owned, for example by returning it from the base
+case.
+
+Not yet known: whether a literal of a heap type (a string) is guarded the same
+way, and whether the guard should be skipped for unboxed values or the
+`TailCaller` rule should count a literal or a primop result as fresh. Either fix
+is in Aether, so it needs `cargo xtask verify`.
+
+### KI-147 — The prelude's `array_get` is typed as returning the element, but returns an `Option`
+
+**Severity:** High · **Area:** stdlib, type inference, native backend · **Verified:** 2026-10-30 (9467a117) · **From:** fixing `benchmarks/flux/qsort.flx` (KI-146)
+
+`Flow.Primops` declares `array_get<a>(arr: Array<a>, i: Int) -> a with Div`,
+and the prelude exposes it to every program. It is bound to the same
+`primop ArrayGet` as `Flow.Array.get`, which is declared `-> Option<a>`.
+Since 1a678147 the primop returns `Some(x)`, or `None` out of range, on both
+backends. The type checker therefore accepts code that uses the `Option` as
+an element:
+
+```flux
+fn main() with IO, Div {
+    let arr = [|10, 20, 30|]
+    print(array_get(arr, 1) + 1)
+}
+```
+
+On the VM this fails at run time with `E1009: Cannot add Some and Int
+values`. Natively it prints `875514857933` and exits 0. `print(array_get(arr, 1))`
+prints `Some(20)` on both, so the run-time behaviour agrees between backends,
+and only the declared type is wrong.
+
+`benchmarks/flux/qsort.flx` used `array_get` this way. Its checksum came out
+as `114980667603374` natively, against `3569966470400` from the Python
+version. It now reads through `Flow.Array.get` and `unwrap_or` instead
+(9467a117). The only other user is `examples/primop/arrays.flx`, which only
+prints the result.
+
+Open question: which signature is meant. `-> Option<a>` matches what the
+primop does and makes `array_get` a second name for `Flow.Array.get`.
+`-> a with Div` matches the declared effect, but needs a primop that returns
+the bare element and fails out of range. Either is a typing change, so the
+fix needs `cargo xtask verify`.
+
+### KI-146 — A function imported unqualified can be called with too many arguments; natively the extras are dropped
+
+**Severity:** High · **Area:** type inference, imports, native backend · **Verified:** 2026-10-30 (5a875b85) · **From:** running `benchmarks/flux/qsort.flx` while repairing the benchmark scripts
+
+A call with too many arguments to a function that reached scope unqualified,
+through `exposing` or the auto-injected prelude, is not rejected at compile
+time. The VM stops at run time, and the native binary runs, ignores the extra
+arguments and exits 0:
+
+```flux
+fn main() with IO {
+    let a = reverse([1], [2])
+    print("#{a}")
+}
+```
+
+| Call | VM | Native |
+|---|---|---|
+| `reverse([1], [2])` (prelude) | run-time `E1000: wrong number of arguments: want=1, got=2` | prints `"[1]"` |
+| `concat([\|1\|], [\|2\|])` (prelude) | the same `E1000` | prints `"[]"` |
+| `length([\|1\|], [\|2\|])` after `import Flow.Array exposing (length)` | the same `E1000` | prints `"1"` |
+
+The same call through a module alias (`A.length([|1|], [|2|])` after
+`import Flow.Array as A`), and a call to a one-parameter function the program
+defines itself, both fail at compile time with E056 on both backends. So the
+arity check misses only names that an import brings in unqualified; the
+prelude is one such import (`import Flow.List exposing (..)` and the rest of
+`FLOW_PRELUDE_MODULES`, `src/driver/frontend.rs`).
+
+An annotation makes the type checker see the call, but it reports the wrong
+thing: `let xs: Array<Int> = concat([|1|], [|2|])` gives E300 "this value has
+type `List<_>`" instead of E056.
+
+`benchmarks/flux/qsort.flx` calls bare `concat` on arrays. That has meant
+`Flow.List.concat` since arrays left the prelude (6a06441c), so the program
+failed with that E300 on both backends. It now calls `Flow.Array.concat`
+(9467a117), which it needed whatever the fix here: once this is fixed the old
+call is an E056.
+
+Not yet known: whether too few arguments are caught on the same path, and why
+an unqualified import loses the arity that the alias path keeps.
+
+### KI-145 — Natively, a cached stdlib object keeps the constructor tags of the program that built it
+
+**Severity:** High · **Area:** native backend, module cache · **Verified:** 2026-10-30 · **From:** seeding each test's cache with a pre-built stdlib
+
+Every program in a project shares one cache, and a module's native object
+is reused by its cache key. The object for `Flow.Result` compiles the
+tags of `Ok` and `Err` into its code, and those tags depend on the whole
+program, not on the module, so a later program can link an object whose
+tags disagree with its own. Built natively one after the other into the
+same cache:
+
+```flux
+// first.flx
+import Flow.Channel as C
+import Flow.Result as R
+
+fn main() with IO {
+    print(1)
+}
+```
+
+```flux
+// second.flx
+import Flow.Fs as Fs
+
+fn main() with IO {
+    let _ = Fs.write_file("f.txt", "payload")
+    println(Fs.read_file_or("f.txt", "MISSING"))
+}
+```
+
+`second.flx` prints `"MISSING"` for a file it has just written. Built on a
+cold cache, with `--no-cache`, or on the VM over the same cache, it prints
+`"payload"`. The second build recompiles `Flow.IoError` and `Flow.Fs` and
+reuses `first.flx`'s `Flow.Result` object. That object has the same file
+name and symbols as the one a cold build of `second.flx` makes, but its
+code compares tags against 6 where the cold one compares against 15
+(`objdump -d` of the two `Result-1528a147….o`). Nothing reports an error.
+
+The tests did not notice because they all ran with `--no-cache` or on an
+empty private cache, so no object was ever built by another program.
+
+Repro: `native_shared_cache_tests::a_program_reads_its_file_after_another_built_the_stdlib`
+(`tests/native_llvm/native_shared_cache_tests.rs`) is ignored for this
+issue. Run it with `--run-ignored only`; un-ignoring it is the failing test
+for a fix. The replay tests stay on a cold cache for the same reason
+(`tests/replay/replay_cli_tests.rs`, `Case::run`): their `fs_writes`
+fixture records `"MISSING"` natively on a seeded one.
+
+Not yet known: which other ADTs' tags move with the program, and whether
+the VM's cached bytecode can disagree the same way. It printed the right
+answer here.
+
+### KI-144 — On the VM, a fiber on a second worker cannot perform a builtin effect
+
+**Severity:** High · **Area:** VM runtime, async scheduler, effect handlers · **Verified:** 2026-10-29 · **From:** rewriting the flaky `multiworker_sleep_both_overlaps` test
+
+With `run_async_with_workers(n)` for `n > 1`, the VM runs fibers on `n - 1`
+extra OS threads (`flux-fiber-worker-{w}`, `src/vm/core_dispatch.rs`). A
+fiber that runs on one of them and performs `Console` or `Clock` stops the
+whole run:
+
+```flux
+import Flow.Async exposing (..)
+
+fn left() -> Int with Async, IO {
+    print("left")
+    1
+}
+
+fn right() -> Int with Async, IO {
+    print("right")
+    2
+}
+
+fn body() -> (Int, Int) with Async, IO {
+    both(left, right)
+}
+
+fn main() with IO {
+    let pair = run_async_with_workers(2, body)
+    print(pair.0 + pair.1)
+}
+```
+
+```
+"left"
+error[E1009]: AsyncError: Adt(AdtValue { constructor: "Panicked", fields:
+One(String("unhandled effect: Console (no matching handle block)")) })
+```
+
+The fiber on worker 0, the caller's thread, prints. The one placed on
+worker 1 does not find the builtin handler, so the handlers `main` runs
+under look to be installed only on the caller's thread. With one worker
+the program prints `left`, `right`, `3`. It type-checks, and native code
+runs it correctly. None of the other multiworker tests notice, because
+their fibers only return constants or `sleep`, which goes through the
+async backend rather than a handler.
+
+Repro: `vm_fiber_multiworker::multiworker_both_runs_on_two_workers_at_once`
+(`tests/vm_runtime/vm_fiber_multiworker.rs`) is ignored for this issue. Its
+fibers read `now_ms()` and fail on `Clock` the same way. Run it with
+`--run-ignored only`; un-ignoring it is the failing test for a fix.
+
+Not yet known: whether user-defined handlers outside `run_async` are lost
+the same way, and whether a fiber that steals or migrates between workers
+(`FLUX_FIBER_MIGRATION`) loses them mid-run.
+
 ### KI-138 — Natively, malformed JSON reports a different error from the VM
 
-**Severity:** Low · **Area:** native runtime, Flow.Json · **Verified:** 2026-10-28 · **From:** merging the VM and native JSON tests into one parity fixture
+**Severity:** Low · **Area:** native runtime, Flow.Json · **Verified:** 2026-10-28 · **From:** merging the VM and native JSON tests into one parity fixture · **Issue:** [#38](https://forgejo.spirosgerokostas.com/sger/flux/issues/38)
 
 The VM parses JSON in `src/runtime/json.rs` and native code in
 `runtime/c/json.c`. On malformed input they report different messages,
@@ -61,12 +445,12 @@ two tests this fixture replaced each checked one backend's message, which
 is how the difference went unseen.
 
 Repro: `tests/parity/json_escapes_and_malformed_input.flx` skips its
-`llvm` way for this issue. Deleting that `skip-way:` line is the failing
-test for a fix.
+`llvm` and `llvm_opt` ways for this issue. Deleting that `skip-way:` line is
+the failing test for a fix.
 
 ### KI-125 — `make -C runtime/c test` does not build
 
-**Severity:** Low · **Area:** native runtime, tests · **Verified:** 2026-10-21 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-0
+**Severity:** Low · **Area:** native runtime, tests · **Verified:** 2026-10-21 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-0 · **Issue:** [#25](https://forgejo.spirosgerokostas.com/sger/flux/issues/25)
 
 `runtime/c/smoke_test.c` still uses the NaN-boxing API that c493978a replaced
 with pointer tagging (`flux_is_nanbox`, `flux_nanbox_tag`, `FLUX_TAG_*`,
@@ -2069,7 +2453,7 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 ### KI-141 — A test's port could be taken between `free_port()` and the bind — FIXED 2026-10-29
 
-**Severity:** Medium · **Area:** tests, networking · **Verified fixed:** 2026-10-29, by reading the code and a test of the range; neither failure was reproduced locally · **From:** a one-off failure of `vm_http_server::shutdown_now_cancels_active_connection` in a full `cargo test-all`
+**Severity:** Medium · **Area:** tests, networking · **Verified fixed:** 2026-10-29, by reading the code and a test of the range; neither failure was reproduced locally · **From:** a one-off failure of `vm_http_server::shutdown_now_cancels_active_connection` in a full `cargo test-all` · **Issue:** [#41](https://forgejo.spirosgerokostas.com/sger/flux/issues/41)
 
 `free_port()` (`tests/support/scratch.rs`) bound port 0, read the port the
 OS chose, and closed the listener. The test's Flux program bound that port
@@ -2114,7 +2498,7 @@ the tests no longer need it.
 
 ### KI-136 — On Linux, lldb lost the frames a `resume` runs on top of — FIXED 2026-10-29
 
-**Severity:** Medium · **Area:** native debugging, native runtime, CI · **Verified fixed:** 2026-10-29 · **From:** the CI run of the verification-toolkit PR
+**Severity:** Medium · **Area:** native debugging, native runtime, CI · **Verified fixed:** 2026-10-29 · **From:** the CI run of the verification-toolkit PR · **Issue:** [#36](https://forgejo.spirosgerokostas.com/sger/flux/issues/36)
 
 Three debugger tests failed on Linux and passed on macOS and Windows:
 
@@ -2239,7 +2623,7 @@ Test: `emit_llvm_prints_ir_for_a_program_that_imports_the_prelude` in
 
 ### KI-135 — A handle's value was wrong when its body did work of its own in the handle's frame — FIXED 2026-10-28
 
-**Severity:** High · **Area:** effects, native backend, VM · **Verified fixed:** 2026-10-28 · **From:** KI-133
+**Severity:** High · **Area:** effects, native backend, VM · **Verified fixed:** 2026-10-28 · **From:** KI-133 · **Issue:** [#35](https://forgejo.spirosgerokostas.com/sger/flux/issues/35)
 
 Filed as "natively, a panic in a handler clause is caught, then reported again
 at exit":
@@ -2292,7 +2676,7 @@ hung on it and native printed wrong values).
 
 ### KI-134 — Natively, an effect context snapshot shared values between threads uncounted — FIXED 2026-10-28
 
-**Severity:** High · **Area:** native runtime, async scheduler, effects · **Verified fixed:** 2026-10-28 · **From:** `cargo xtask sanitize --thread`
+**Severity:** High · **Area:** native runtime, async scheduler, effects · **Verified fixed:** 2026-10-28 · **From:** `cargo xtask sanitize --thread` · **Issue:** [#34](https://forgejo.spirosgerokostas.com/sger/flux/issues/34)
 
 ```
 $ FLUX_RT_SANITIZE=thread flux --native tests/parity/async_observable_ordering.flx
@@ -2331,7 +2715,7 @@ Test: `native_debug_heap_tests::effects::an_effect_context_crossing_threads_is_s
 
 ### KI-143 — A duplicate instance also reported a duplicate internal name, with no location — FIXED 2026-10-28
 
-**Severity:** Low · **Area:** diagnostics, type classes · **Verified fixed:** 2026-10-28 · **From:** moving `examples/compiler_errors` to `//~` annotations (proposal 0191)
+**Severity:** Low · **Area:** diagnostics, type classes · **Verified fixed:** 2026-10-28 · **From:** moving `examples/compiler_errors` to `//~` annotations (proposal 0191) · **Issue:** [#43](https://forgejo.spirosgerokostas.com/sger/flux/issues/43)
 
 ```flux
 class Sizeable<a> {
@@ -2370,7 +2754,7 @@ Test: `compiler_rules_tests::modules_and_matches::a_duplicate_instance_reports_n
 
 ### KI-142 — An error inside a lambda reported a false duplicate name in a later function — FIXED 2026-10-28
 
-**Severity:** Medium · **Area:** compiler, diagnostics · **Verified fixed:** 2026-10-28 · **From:** rewriting the HTTP server tests (KI-141)
+**Severity:** Medium · **Area:** compiler, diagnostics · **Verified fixed:** 2026-10-28 · **From:** rewriting the HTTP server tests (KI-141) · **Issue:** [#42](https://forgejo.spirosgerokostas.com/sger/flux/issues/42)
 
 ```flux
 fn apply(f: () -> Int) -> Int { f() }
@@ -2409,7 +2793,7 @@ Test: `compiler_rules_tests::modules_and_matches::an_error_inside_a_lambda_does_
 
 ### KI-140 — The CLI hid a specific effect-row error behind a generic E300 — FIXED 2026-10-28
 
-**Severity:** Low · **Area:** diagnostics, effect rows · **Verified fixed:** 2026-10-28 · **From:** KI-137
+**Severity:** Low · **Area:** diagnostics, effect rows · **Verified fixed:** 2026-10-28 · **From:** KI-137 · **Issue:** [#40](https://forgejo.spirosgerokostas.com/sger/flux/issues/40)
 
 ```flux
 fn run_filtered(f: (() -> Int with IO - Console)) -> Int with IO - Console { f() }
@@ -2442,7 +2826,7 @@ Tests: `test_runner_cli::examples_manifest::*_ki140`; the fixtures are now
 
 ### KI-137 — Twenty failing fixtures were named for an error code the CLI does not report — FIXED 2026-10-28
 
-**Severity:** Low · **Area:** diagnostics, test fixtures · **Verified fixed:** 2026-10-28, by `cargo xtask tidy` · **From:** the test-suite review
+**Severity:** Low · **Area:** diagnostics, test fixtures · **Verified fixed:** 2026-10-28, by `cargo xtask tidy` · **From:** the test-suite review · **Issue:** [#37](https://forgejo.spirosgerokostas.com/sger/flux/issues/37)
 
 In 20 fixtures under `examples/`, the error code in the file name differed
 from the one the `expect-error:` header pinned and the CLI printed. A 21st,
@@ -2467,7 +2851,7 @@ no `// expect-error:` line lists.
 
 ### KI-139 — A failing `assert_eq` reported an unhandled Console effect instead of its message — FIXED 2026-10-28
 
-**Severity:** Medium · **Area:** effects, default handlers · **Verified fixed:** 2026-10-28, VM and native · **From:** checking `docs/guide/08_testing.md` against the runner
+**Severity:** Medium · **Area:** effects, default handlers · **Verified fixed:** 2026-10-28, VM and native · **From:** checking `docs/guide/08_testing.md` against the runner · **Issue:** [#39](https://forgejo.spirosgerokostas.com/sger/flux/issues/39)
 
 ```flux
 fn test_fails() {
@@ -2505,7 +2889,7 @@ Tests: `test_runner_cli::test_mode::*_ki139`, on the VM, natively, and for
 
 ### KI-133 — Natively, a caught panic leaked what a `handle` it skipped built — FIXED 2026-10-27
 
-**Severity:** Low · **Area:** native runtime, effects, LLVM emission · **Verified fixed:** 2026-10-27 · **From:** KI-126
+**Severity:** Low · **Area:** native runtime, effects, LLVM emission · **Verified fixed:** 2026-10-27 · **From:** KI-126 · **Issue:** [#33](https://forgejo.spirosgerokostas.com/sger/flux/issues/33)
 
 ```flux
 effect Ask { ask : (Int) -> Int }
@@ -2554,7 +2938,7 @@ turn).
 
 ### KI-126 — Natively, a caught panic leaked what the frames it skipped held — FIXED 2026-10-27
 
-**Severity:** Low · **Area:** native runtime, panics, LLVM emission · **Verified fixed:** 2026-10-27 · **From:** the Perceus audit, R7 and C1
+**Severity:** Low · **Area:** native runtime, panics, LLVM emission · **Verified fixed:** 2026-10-27 · **From:** the Perceus audit, R7 and C1 · **Issue:** [#26](https://forgejo.spirosgerokostas.com/sger/flux/issues/26)
 
 ```flux
 fn numbers(n) { [n, n + 1, n + 2] }
@@ -2604,7 +2988,7 @@ holding a list, none leaving a block per turn).
 
 ### KI-132 — Natively, a chain of calls that can suspend grew the program exponentially — FIXED 2026-10-27
 
-**Severity:** Medium · **Area:** LIR, continuation splitting · **Verified fixed:** 2026-10-27 · **From:** KI-130
+**Severity:** Medium · **Area:** LIR, continuation splitting · **Verified fixed:** 2026-10-27 · **From:** KI-130 · **Issue:** [#32](https://forgejo.spirosgerokostas.com/sger/flux/issues/32)
 
 ```flux
 import Flow.Fs exposing (create_dir_all)
@@ -2641,7 +3025,7 @@ the first continuation's copy of call 2 uses call 2's continuation).
 
 ### KI-131 — Natively, a failed file operation's error freed the path it held twice — FIXED 2026-10-27
 
-**Severity:** High · **Area:** native runtime, file system · **Verified fixed:** 2026-10-27 · **From:** KI-130
+**Severity:** High · **Area:** native runtime, file system · **Verified fixed:** 2026-10-27 · **From:** KI-130 · **Issue:** [#31](https://forgejo.spirosgerokostas.com/sger/flux/issues/31)
 
 ```flux
 import Flow.Fs exposing (remove_file)
@@ -2678,7 +3062,7 @@ the end with nothing left live).
 
 ### KI-130 — A call through a module alias was not seen as the call it is, and leaked natively — FIXED 2026-10-26
 
-**Severity:** Medium · **Area:** Core ANF, Aether, LIR lowering · **Verified fixed:** 2026-10-26 · **From:** KI-124
+**Severity:** Medium · **Area:** Core ANF, Aether, LIR lowering · **Verified fixed:** 2026-10-26 · **From:** KI-124 · **Issue:** [#30](https://forgejo.spirosgerokostas.com/sger/flux/issues/30)
 
 ```flux
 import Flow.Map as Map
@@ -2720,7 +3104,7 @@ turn).
 
 ### KI-124 — Natively, a map's release freed its root and nothing under it — FIXED 2026-10-26
 
-**Severity:** Low · **Area:** native runtime, maps, Aether · **Verified fixed:** 2026-10-26 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-1
+**Severity:** Low · **Area:** native runtime, maps, Aether · **Verified fixed:** 2026-10-26 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-1 · **Issue:** [#24](https://forgejo.spirosgerokostas.com/sger/flux/issues/24)
 
 ```flux
 fn turn(n) {
@@ -2770,7 +3154,7 @@ map functions by name, because of KI-130 (since fixed).
 
 ### KI-123 — Natively, an array released and promoted at most its first 255 elements — FIXED 2026-10-26
 
-**Severity:** Low · **Area:** native runtime, arrays · **Verified fixed:** 2026-10-26 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-1
+**Severity:** Low · **Area:** native runtime, arrays · **Verified fixed:** 2026-10-26 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-1 · **Issue:** [#23](https://forgejo.spirosgerokostas.com/sger/flux/issues/23)
 
 An array of 256 lists, released natively, left the last list live; an array
 of 70000 left 69745. Sharing an array across threads stopped at the same
@@ -2799,7 +3183,7 @@ leaves what an array of one leaves), and
 
 ### KI-129 — Natively, a value was never released when a result computed from it was given away — FIXED 2026-10-26
 
-**Severity:** Medium · **Area:** Aether, drop insertion · **Verified fixed:** 2026-10-26 · **From:** KI-128, the stress fixture's leak
+**Severity:** Medium · **Area:** Aether, drop insertion · **Verified fixed:** 2026-10-26 · **From:** KI-128, the stress fixture's leak · **Issue:** [#29](https://forgejo.spirosgerokostas.com/sger/flux/issues/29)
 
 ```flux
 fn go(n) with IO {
@@ -2842,7 +3226,7 @@ program that prints leaves (KI-119).
 
 ### KI-128 — Natively, a value only lent to a call in tail position was never released — FIXED 2026-10-26
 
-**Severity:** Medium · **Area:** Aether, drop insertion, borrow inference · **Verified fixed:** 2026-10-26 · **From:** the Perceus audit, R5 and step 10
+**Severity:** Medium · **Area:** Aether, drop insertion, borrow inference · **Verified fixed:** 2026-10-26 · **From:** the Perceus audit, R5 and step 10 · **Issue:** [#28](https://forgejo.spirosgerokostas.com/sger/flux/issues/28)
 
 Aether kept a value whose last use was a call in tail position, so that the
 call could stay a tail call. When the call only borrowed the value, nothing
@@ -2888,7 +3272,7 @@ Unit tests cover each shape in `insert.rs` and the inference rule in
 
 ### KI-127 — On the VM, a function with about a hundred `let`s computed a wrong result — FIXED 2026-10-26
 
-**Severity:** High · **Area:** VM, bytecode · **Verified fixed:** 2026-10-26 · **From:** the Perceus audit, step 10
+**Severity:** High · **Area:** VM, bytecode · **Verified fixed:** 2026-10-26 · **From:** the Perceus audit, step 10 · **Issue:** [#27](https://forgejo.spirosgerokostas.com/sger/flux/issues/27)
 
 A function that binds many values with `let` gave a wrong answer on the
 VM, with no error, while native gave the right one:

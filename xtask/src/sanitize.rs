@@ -68,7 +68,7 @@ pub fn run_sanitize(root: &Path, options: &Options) -> Result<bool, String> {
     let mut failed_runs = 0;
     for dir in &options.dirs {
         println!("=== {dir}");
-        let run = parity_with_env(root, &flux, dir, &options.ways, false, &mut log, env)
+        let run = parity_with_env(root, &flux, dir, &options.ways, false, &mut log, env, &[])
             .map_err(|e| e.to_string())?;
         if run.exit != 0 {
             failed_runs += 1;

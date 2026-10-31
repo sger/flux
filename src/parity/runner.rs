@@ -388,6 +388,30 @@ fn observe_cache_files(
     obs
 }
 
+/// [`run_way`] with `flux --metrics` (0190 §12): the run, and the counts it
+/// wrote, keyed by name. A run that wrote none, such as one that does not
+/// compile, gives no counts.
+pub fn run_way_counted(
+    vm_binary: &Path,
+    llvm_binary: &Path,
+    file: &Path,
+    way: Way,
+    extra_args: &[String],
+    timeout: Duration,
+) -> (RunResult, Option<std::collections::BTreeMap<String, u64>>) {
+    let cache_dir = parity_cache_dir(file, way);
+    let _ = std::fs::create_dir_all(&cache_dir);
+    let metrics = cache_dir.join(format!("metrics_{way}.tsv"));
+    let _ = std::fs::remove_file(&metrics);
+    // Ahead of the fixture's own arguments, which may end in `--` and the
+    // program's.
+    let mut args = vec!["--metrics".to_string(), metrics.to_string_lossy().into_owned()];
+    args.extend_from_slice(extra_args);
+    let result = run_way(vm_binary, llvm_binary, file, way, &args, timeout);
+    let counts = std::fs::read_to_string(&metrics).ok().map(|text| parse_metrics(&text));
+    (result, counts)
+}
+
 /// The `--metrics` counts of a VM run of `file` (0190 §15), keyed by name.
 /// The program runs as on the `vm` way; a run that fails gives its stderr.
 pub fn capture_metrics(

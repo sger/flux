@@ -4,6 +4,9 @@
 # (`cfg(feature = "llvm")`) are compiled out, not filtered.
 # `ci` is the full gate and runs with `--all-features`.
 
+# `flaky-result` below came in 0.9.131; an older nextest would ignore it.
+nextest-version = { required = "0.9.131" }
+
 [profile.default]
 fail-fast = true
 test-threads = "num-cpus"
@@ -17,7 +20,12 @@ default-filter = "not test(/a_hundred_times/)"
 [profile.ci]
 default-filter = "all()"
 fail-fast = false
-retries = 0
+# A test that fails is run once more. Passing then still fails the run, but
+# it is reported as FLAKY (`<flakyFailure>` in junit.xml), so a flake is told
+# apart from a real failure, which fails both runs. A known flake gets an
+# override below instead, citing its open KI (`cargo xtask tidy` checks).
+retries = 1
+flaky-result = "fail"
 # The thread count the full suite has passed at on a laptop. The native
 # group below caps the tests that build native binaries.
 test-threads = 6
@@ -58,3 +66,14 @@ test-group = "native"
 [[profile.ci.overrides]]
 filter = "test(/a_hundred_times/)"
 slow-timeout = { period = "120s", terminate-after = 5 }
+
+# Known flakes. Each entry retries its tests and lets a pass on a retry pass
+# the run; its retries still show in junit.xml. Every entry with
+# `flaky-result = "pass"` must cite a KI that is open in
+# docs/known_issues.md (`cargo xtask tidy`), and goes when the KI is fixed:
+#
+# [[profile.ci.overrides]]
+# # KI-nnn: what makes it flaky
+# filter = "test(=binary_module::test_name)"
+# retries = 2
+# flaky-result = "pass"

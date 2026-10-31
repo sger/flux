@@ -1,0 +1,137 @@
+// x, y, z, vx, vy, vz, mass
+type Body = Body(Float, Float, Float, Float, Float, Float, Float)
+
+type Bodies = BNil | BCons(Body, Bodies)
+
+fn solar_mass() -> Float {
+    4.0 * 3.141592653589793 * 3.141592653589793
+}
+
+fn planet(x: Float, y: Float, z: Float, vx: Float, vy: Float, vz: Float, mass: Float) -> Body {
+    Body(x, y, z, vx * 365.24, vy * 365.24, vz * 365.24, mass * solar_mass())
+}
+
+fn initial() -> Bodies {
+    let sun = Body(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, solar_mass())
+    let jupiter = planet(
+        4.84143144246472090e+00, -1.16032004402742839e+00, -1.03622044471123109e-01,
+        1.66007664274403694e-03, 7.69901118419740425e-03, -6.90460016972063023e-05,
+        9.54791938424326609e-04)
+    let saturn = planet(
+        8.34336671824457987e+00, 4.12479856412430479e+00, -4.03523417114321381e-01,
+        -2.76742510726862411e-03, 4.99852801234917238e-03, 2.30417297573763929e-05,
+        2.85885980666130812e-04)
+    let uranus = planet(
+        1.28943695621391310e+01, -1.51111514016986312e+01, -2.23307578892655734e-01,
+        2.96460137564761618e-03, 2.37847173959480950e-03, -2.96589568540237556e-05,
+        4.36624404335156298e-05)
+    let neptune = planet(
+        1.53796971148509165e+01, -2.59193146099879641e+01, 1.79258772950371181e-01,
+        2.68067772490389322e-03, 1.62824170038242295e-03, -9.51592254519715870e-05,
+        5.15138902046611451e-05)
+    BCons(sun, BCons(jupiter, BCons(saturn, BCons(uranus, BCons(neptune, BNil)))))
+}
+
+// Returns the total momentum in the velocity fields of a massless body.
+fn momentum(bs: Bodies, px: Float, py: Float, pz: Float) -> Body {
+    match bs {
+        BNil -> Body(0.0, 0.0, 0.0, px, py, pz, 0.0),
+        BCons(b, rest) -> match b {
+            Body(_, _, _, vx, vy, vz, m) -> momentum(rest, px + vx * m, py + vy * m, pz + vz * m),
+        },
+    }
+}
+
+// Gives the sun the opposite of the total momentum, so the system as a whole
+// stays at rest.
+fn offset_momentum(bs: Bodies) -> Bodies {
+    match momentum(bs, 0.0, 0.0, 0.0) {
+        Body(_, _, _, px, py, pz, _) -> match bs {
+            BCons(sun, planets) -> match sun {
+                Body(x, y, z, _, _, _, m) ->
+                    BCons(Body(x, y, z, -px / solar_mass(), -py / solar_mass(), -pz / solar_mass(), m), planets),
+            },
+            BNil -> BNil,
+        },
+    }
+}
+
+fn potential(m: Float, om: Float, dx: Float, dy: Float, dz: Float) -> Float {
+    (m * om) / sqrt(dx * dx + dy * dy + dz * dz)
+}
+
+fn pair_energy(b: Body, rest: Bodies, e: Float) -> Float {
+    match rest {
+        BNil -> e,
+        BCons(o, more) -> match b {
+            Body(x, y, z, _, _, _, m) -> match o {
+                Body(ox, oy, oz, _, _, _, om) -> pair_energy(b, more, e - potential(m, om, x - ox, y - oy, z - oz)),
+            },
+        },
+    }
+}
+
+fn energy_from(bs: Bodies, e: Float) -> Float {
+    match bs {
+        BNil -> e,
+        BCons(b, rest) -> match b {
+            Body(_, _, _, vx, vy, vz, m) ->
+                energy_from(rest, pair_energy(b, rest, e + 0.5 * m * (vx * vx + vy * vy + vz * vz))),
+        },
+    }
+}
+
+fn energy(bs: Bodies) -> Float {
+    energy_from(bs, 0.0)
+}
+
+fn magnitude(dx: Float, dy: Float, dz: Float) -> Float {
+    let d2 = dx * dx + dy * dy + dz * dz
+    0.01 / (d2 * sqrt(d2))
+}
+
+fn pull(b: Body, i: Int, rest: Bodies, j: Int, vx: Float, vy: Float, vz: Float, om: Float, dx: Float, dy: Float, dz: Float) -> Body {
+    let mag = magnitude(dx, dy, dz)
+    kick(b, i, rest, j + 1, vx - dx * om * mag, vy - dy * om * mag, vz - dz * om * mag)
+}
+
+// Pulls body `i` towards every other body, in index order, then moves it.
+// Visiting the others in index order gives the same rounding as the usual
+// loop over pairs, so the mutable ports print the same energies.
+fn kick(b: Body, i: Int, others: Bodies, j: Int, vx: Float, vy: Float, vz: Float) -> Body {
+    match others {
+        BNil -> match b {
+            Body(x, y, z, _, _, _, m) -> Body(x + 0.01 * vx, y + 0.01 * vy, z + 0.01 * vz, vx, vy, vz, m),
+        },
+        BCons(o, rest) -> if j == i {
+            kick(b, i, rest, j + 1, vx, vy, vz)
+        } else {
+            match b {
+                Body(x, y, z, _, _, _, _) -> match o {
+                    Body(ox, oy, oz, _, _, _, om) -> pull(b, i, rest, j, vx, vy, vz, om, x - ox, y - oy, z - oz),
+                },
+            }
+        },
+    }
+}
+
+fn advance_from(all: Bodies, bs: Bodies, i: Int) -> Bodies {
+    match bs {
+        BNil -> BNil,
+        BCons(b, rest) -> match b {
+            Body(_, _, _, vx, vy, vz, _) -> BCons(kick(b, i, all, 0, vx, vy, vz), advance_from(all, rest, i + 1)),
+        },
+    }
+}
+
+fn run(bs: Bodies, n: Int) -> Bodies {
+    if n == 0 { bs } else { run(advance_from(bs, bs, 0), n - 1) }
+}
+
+fn main() with IO {
+    let bs = offset_momentum(initial())
+    // Flux has no fixed-precision float formatting; nine rounded decimals,
+    // printed as a whole number, compare across every port.
+    print(round(energy(bs) * 1.0e9))
+    print(round(energy(run(bs, 50000)) * 1.0e9))
+}

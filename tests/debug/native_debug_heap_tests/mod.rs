@@ -41,7 +41,7 @@ fn run_env(
         .arg(file)
         .args(args)
         .arg("--quiet")
-        .args(scratch.cache_args())
+        .args(scratch.seeded_cache_args())
         .env("NO_COLOR", "1")
         .env_remove("FLUX_AETHER_FAULT")
         .env_remove("FLUX_HEAP_STATS")

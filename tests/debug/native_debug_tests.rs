@@ -191,13 +191,13 @@ fn build_private(scratch: &Scratch, program: &str, binary: &str) {
     );
 }
 
-/// Runs `flux` with `args` in `scratch`, on its cache.
+/// Runs `flux` with `args` in `scratch`, on its seeded cache.
 fn flux_build(scratch: &Scratch, args: &[&str]) -> Result<Output, String> {
     let _slot = build_slot();
     Command::new(env!("CARGO_BIN_EXE_flux"))
         .current_dir(scratch.path())
         .args(args)
-        .args(scratch.cache_args())
+        .args(scratch.seeded_cache_args())
         .env("NO_COLOR", "1")
         .output()
         .map_err(|e| format!("cannot run flux: {e}"))
@@ -429,11 +429,15 @@ fn every_module_gets_its_own_compile_unit() {
 fn lldb_session(lldb: &[String], scratch: &Scratch, binary: &str, commands: &[&str]) -> String {
     // A loaded CI runner can take longer than lldb's 6-second handshake to
     // start `lldb-server`, and `run` then fails before the program starts.
+    let packet_timeout = crate::support::flux_runner::scaled(std::time::Duration::from_secs(30));
     let mut args: Vec<String> = vec![
         "-b".to_string(),
         "--no-lldbinit".to_string(),
         "-O".to_string(),
-        "settings set plugin.process.gdb-remote.packet-timeout 30".to_string(),
+        format!(
+            "settings set plugin.process.gdb-remote.packet-timeout {}",
+            packet_timeout.as_secs()
+        ),
     ];
     for command in commands {
         args.push("-o".to_string());

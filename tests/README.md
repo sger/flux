@@ -99,10 +99,14 @@ A new helper file also gets a `pub mod` line in `support/mod.rs`.
 
 - [`support/scratch.rs`](support/scratch.rs): `Scratch`, a private directory
   and cache for one test, removed on drop; `free_port`; `workspace_root`.
-  Temporary files always come from a `Scratch`.
-- [`support/flux_runner.rs`](support/flux_runner.rs): runs the `flux` CLI.
-  `flux_source(source, tag)` and `flux_file(path)` build a run, with
-  `.native()`, `.args(..)`, `.env(..)` and `.timeout(..)`. Shortcuts:
+  Temporary files always come from a `Scratch`. `seeded_cache_args()` fills
+  the cache with a copy of the stdlib, built once per `flux` build under
+  `target/test-stdlib-cache/`, so a run compiles only the program.
+  `cache_args()` leaves it empty, for tests about the cache itself.
+- [`support/flux_runner.rs`](support/flux_runner.rs): runs the `flux` CLI on
+  a seeded cache. `flux_source(source, tag)` and `flux_file(path)` build a
+  run, with `.native()`, `.args(..)`, `.env(..)`, `.timeout(..)`, and
+  `.no_cache()` for the `--no-cache` path. Shortcuts:
   `run_flux` (inline source), `run_vm` and `run_native` (a `parity/` file),
   `run_flux_test` (a `flux/` file), and `program_elapsed` for timed
   programs. It re-exports `scratch`.
