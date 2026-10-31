@@ -47,6 +47,28 @@ pub(crate) struct RunStats {
     pub(crate) artifacts: ArtifactStats,
 }
 
+/// One timed step of a run, as `--stats-json` records it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Phase {
+    pub(crate) name: &'static str,
+    pub(crate) ms: f64,
+}
+
+impl RunStats {
+    /// The parse, compile and execute steps the `--stats` table shows.
+    pub(crate) fn phases(&self) -> Vec<Phase> {
+        let mut phases = Vec::new();
+        if let Some(ms) = self.compile.parse_ms {
+            phases.push(Phase { name: "parse", ms });
+        }
+        if let Some(ms) = self.compile.compile_ms {
+            phases.push(Phase { name: "compile", ms });
+        }
+        phases.push(Phase { name: "execute", ms: self.execute.execute_ms });
+        phases
+    }
+}
+
 /// Grouped Aether trace metadata printed before the ownership report itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct AetherTraceContext<'a> {
@@ -177,6 +199,46 @@ pub(crate) fn print_stats(stats: &RunStats) {
     eprintln!("  {}", "─".repeat(w - 2));
 }
 
+/// The `--stats-json` record for one run. Counts a backend does not have are
+/// `null`, so the VM and native runs share one shape and a diff can line
+/// them up.
+pub(crate) fn stats_json(file: &str, stats: &RunStats, phases: &[Phase]) -> serde_json::Value {
+    serde_json::json!({
+        "version": 1,
+        "file": file,
+        "backend": stats.execute.execute_backend,
+        "phases": phases
+            .iter()
+            .map(|phase| serde_json::json!({ "phase": phase.name, "ms": phase.ms }))
+            .collect::<Vec<_>>(),
+        "modules": {
+            "total": stats.compile.module_count,
+            "cached": stats.compile.cached_module_count,
+            "compiled": stats.compile.compiled_module_count,
+        },
+        "source_lines": stats.artifacts.source_lines,
+        "globals": stats.artifacts.globals_count,
+        "functions": stats.artifacts.functions_count,
+        "instruction_bytes": stats.artifacts.instruction_bytes,
+    })
+}
+
+/// Writes `stats_json` to `path`, exiting as `--metrics` does when it cannot.
+pub(crate) fn write_stats_json(
+    path: &std::path::Path,
+    file: &str,
+    stats: &RunStats,
+    phases: &[Phase],
+) {
+    let mut text = serde_json::to_string_pretty(&stats_json(file, stats, phases))
+        .expect("stats are plain JSON values");
+    text.push('\n');
+    if let Err(e) = std::fs::write(path, text) {
+        eprintln!("Error: could not write --stats-json to {}: {e}", path.display());
+        std::process::exit(1);
+    }
+}
+
 /// Prints approximate runtime allocation counters from the VM leak detector.
 pub(crate) fn print_leak_stats() {
     let stats = flux::runtime::leak_detector::snapshot();
@@ -189,8 +251,63 @@ pub(crate) fn print_leak_stats() {
 #[cfg(test)]
 mod tests {
     use super::{
-        AetherTraceContext, ArtifactStats, CompileStats, ExecuteStats, RunStats, TraceBackend,
+        AetherTraceContext, ArtifactStats, CompileStats, ExecuteStats, Phase, RunStats,
+        TraceBackend, stats_json,
     };
+
+    fn native_stats() -> RunStats {
+        RunStats {
+            compile: CompileStats {
+                parse_ms: Some(1.0),
+                compile_ms: Some(20.0),
+                compile_backend: Some("llvm"),
+                cached: false,
+                module_count: Some(18),
+                cached_module_count: None,
+                compiled_module_count: None,
+            },
+            execute: ExecuteStats { execute_ms: 3.0, execute_backend: "native" },
+            artifacts: ArtifactStats {
+                source_lines: 1943,
+                globals_count: None,
+                functions_count: None,
+                instruction_bytes: None,
+            },
+        }
+    }
+
+    #[test]
+    fn the_stats_table_gives_parse_compile_and_execute_phases() {
+        let names: Vec<_> = native_stats().phases().iter().map(|p| p.name).collect();
+        assert_eq!(names, ["parse", "compile", "execute"]);
+    }
+
+    #[test]
+    fn stats_json_keeps_phase_order_and_writes_missing_counts_as_null() {
+        let phases = [
+            Phase { name: "parse", ms: 1.0 },
+            Phase { name: "link", ms: 5.5 },
+            Phase { name: "execute", ms: 3.0 },
+        ];
+
+        let json = stats_json("main.flx", &native_stats(), &phases);
+
+        assert_eq!(json["version"], 1);
+        assert_eq!(json["file"], "main.flx");
+        assert_eq!(json["backend"], "native");
+        let names: Vec<_> = json["phases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["phase"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, ["parse", "link", "execute"]);
+        assert_eq!(json["phases"][1]["ms"], 5.5);
+        assert_eq!(json["modules"]["total"], 18);
+        assert!(json["modules"]["cached"].is_null());
+        assert!(json["globals"].is_null());
+        assert_eq!(json["source_lines"], 1943);
+    }
 
     #[test]
     fn run_stats_groups_compile_execute_and_artifact_data() {
