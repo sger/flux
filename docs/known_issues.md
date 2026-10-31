@@ -42,6 +42,53 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-148 — Natively, a self tail call that passes a literal to a borrowed parameter is not a jump, and a long loop overflows the stack
+
+**Severity:** Medium · **Area:** Aether, borrow inference, native backend · **Verified:** 2026-10-31 (027d5766) · **From:** adding `benchmarks/flux/sfib.flx`
+
+A recursive tail call stops being compiled as a jump when it passes an `Int`
+literal to a parameter that borrow inference made borrowed. Each turn through
+that call keeps a frame, and the native binary dies with a stack overflow:
+
+```flux
+fn walk(n: Int, x: Int) -> Int {
+    if n <= 0 { 0 } else if x > 5 { walk(n - 1, 0) } else { walk(n - 1, 9) }
+}
+fn main() with IO { print(walk(10000000, 0)) }
+```
+
+The VM prints `0`. Natively the program exits with "native program terminated
+by signal 10", and lldb shows the fault at a stack address inside `walk`.
+`--dump-aether` reports `aether_call[borrowed, borrowed] walk` and
+`BorrowedCallGuards: 2`. In the LLVM (`--emit-llvm --no-cache`), each such call
+is a `flux_dup` of the literal, an `invoke` of `@flux_walk` that is not a tail
+call, and a `flux_drop` after it returns. The copy and the release do nothing
+useful for an `Int`.
+
+| Change to `walk` | Inferred | Native, 10M turns |
+|---|---|---|
+| as above | `[borrowed, borrowed]`, 2 guards | crashes |
+| `walk(n - 1, x - 1)` in place of `walk(n - 1, 0)` | `[borrowed, borrowed]`, 1 guard | crashes |
+| base case returns `x` instead of `0` | `[borrowed, owned]`, no guard | prints `0` |
+
+The second row also shows that the fresh `x - 1` does not make `x` owned. That
+is the rule KI-128 relies on to keep a tail call a jump (`TailCaller`,
+`src/aether/borrow_infer.rs`).
+
+`benchmarks/flux/sfib.flx` hits this. Its restart branch is
+`sfibx(n - 1, 1, 2)`, `x2` is borrowed, and the native binary crashes between
+100,000 and 1,000,000 turns. The benchmark runs with `--no-flux-native` until
+this is fixed. A loop that takes the guarded call only rarely survives, so the
+guard count alone does not say whether a program will crash.
+
+Workaround: make the parameter owned, for example by returning it from the base
+case.
+
+Not yet known: whether a literal of a heap type (a string) is guarded the same
+way, and whether the guard should be skipped for unboxed values or the
+`TailCaller` rule should count a literal or a primop result as fresh. Either fix
+is in Aether, so it needs `cargo xtask verify`.
+
 ### KI-147 — The prelude's `array_get` is typed as returning the element, but returns an `Option`
 
 **Severity:** High · **Area:** stdlib, type inference, native backend · **Verified:** 2026-10-30 (9467a117) · **From:** fixing `benchmarks/flux/qsort.flx` (KI-146)
