@@ -67,26 +67,7 @@ impl<'a> super::AstLowerer<'a> {
                     .as_ref()
                     .map(|b| self.lower_block(b))
                     .unwrap_or(CoreExpr::Lit(CoreLit::Unit, *span));
-
-                CoreExpr::Case {
-                    scrutinee: Box::new(cond),
-                    alts: vec![
-                        CoreAlt {
-                            pat: CorePat::Lit(CoreLit::Bool(true)),
-                            guard: None,
-                            rhs: true_branch,
-                            span: *span,
-                        },
-                        CoreAlt {
-                            pat: CorePat::Wildcard,
-                            guard: None,
-                            rhs: false_branch,
-                            span: *span,
-                        },
-                    ],
-                    join_ty: self.infer_core_type(*id),
-                    span: *span,
-                }
+                self.bool_case(cond, true_branch, false_branch, *id, *span)
             }
 
             Expression::DoBlock { block, span, .. } => {
@@ -275,6 +256,30 @@ impl<'a> super::AstLowerer<'a> {
         }
     }
 
+    fn bool_case(
+        &mut self,
+        cond: CoreExpr,
+        on_true: CoreExpr,
+        otherwise: CoreExpr,
+        id: ExprId,
+        span: Span,
+    ) -> CoreExpr {
+        CoreExpr::Case {
+            scrutinee: Box::new(cond),
+            alts: vec![
+                CoreAlt {
+                    pat: CorePat::Lit(CoreLit::Bool(true)),
+                    guard: None,
+                    rhs: on_true,
+                    span,
+                },
+                CoreAlt { pat: CorePat::Wildcard, guard: None, rhs: otherwise, span },
+            ],
+            join_ty: self.infer_core_type(id),
+            span,
+        }
+    }
+
     // ── Infix lowering ───────────────────────────────────────────────────────
 
     fn lower_infix(
@@ -290,6 +295,17 @@ impl<'a> super::AstLowerer<'a> {
             let func = self.lower_expr(right);
             let arg = self.lower_expr(left);
             return CoreExpr::App { func: Box::new(func), args: vec![arg], span };
+        }
+
+        // As primop operands, both sides would be evaluated before the
+        // operator runs, so the right side has to sit inside a branch.
+        if operator == "&&" || operator == "||" {
+            let cond = self.lower_expr(left);
+            let rhs = self.lower_expr(right);
+            let decided = CoreExpr::Lit(CoreLit::Bool(operator == "||"), span);
+            let (on_true, otherwise) =
+                if operator == "&&" { (rhs, decided) } else { (decided, rhs) };
+            return self.bool_case(cond, on_true, otherwise, id, span);
         }
 
         // Determine the concrete result type from HM inference.
@@ -350,8 +366,6 @@ impl<'a> super::AstLowerer<'a> {
             ">=" if operands_int => CorePrimOp::ICmpGe,
             ">=" if operands_float => CorePrimOp::FCmpGe,
             ">=" => CorePrimOp::Ge,
-            "&&" => CorePrimOp::And,
-            "||" => CorePrimOp::Or,
             "++" => CorePrimOp::Concat,
             _ => {
                 // Unknown operator — emit as generic Add (fallback placeholder).

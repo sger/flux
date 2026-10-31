@@ -393,7 +393,9 @@ use sha2::{Digest, Sha256};
 /// evidence, which its landing pad releases (KI-133).
 /// Epoch 127: on Windows, a caught panic puts back the handlers its try
 /// started under (PA C1).
-pub const CACHE_EPOCH: u16 = 127;
+/// Epoch 128: `&&` and `||` test their left side before running the right;
+/// an epoch-127 unit ran both (KI-156).
+pub const CACHE_EPOCH: u16 = 128;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
