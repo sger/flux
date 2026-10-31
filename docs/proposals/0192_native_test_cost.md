@@ -141,11 +141,10 @@ function made of a chain of `let`s, `let x1 = x0 + 1` and so on:
 | 2,000 | 59.39 M | ×3.77 |
 
 A linear pass grows ×2 per doubling. This one approaches ×4, so something
-allocates in proportion to the square of the function's length. At 4,000
-`let`s the compiler overflows its own stack. Neither has an entry in
-`docs/known_issues.md`. Wall time grew less (1.2 s to 2.2 s from 1,000 to
-2,000), which is why a timing check would not have caught it; the count is
-exact on every run.
+allocates in proportion to the square of the function's length (KI-151). At
+2,500 `let`s the compiler overflows its own stack (KI-152). Wall time grew
+less (1.2 s to 2.2 s from 1,000 to 2,000), which is why a timing check would
+not have caught it; the count is exact on every run.
 
 ## Guide-level explanation
 [guide-level-explanation]: #guide-level-explanation
@@ -173,7 +172,7 @@ that is fixed:
 scale test: let_chain
   n        250      500     1000     2000
   allocs   1.38M    4.42M   15.74M   59.39M
-  growth exponent 1.92, limit 1.20: FAIL (KI-nnn)
+  growth exponent 1.92, limit 1.20: FAIL (KI-151)
 ```
 
 Counts, not times, so the test gives the same answer on a laptop and on CI.
@@ -249,8 +248,8 @@ on later runs, but the first run still pays every build.
   `--metrics` (`compiler_allocs` first), the sizes (default 250, 500, 1000,
   2000) and a limit on the growth exponent (default 1.2, the slope of log
   count against log `n` after subtracting the count for `n = 1`).
-- First inputs: a `let` chain (fails today; file a KI and keep the test with
-  the KI number until it is fixed), many small functions, a deeply nested
+- First inputs: a `let` chain (fails today on KI-151; keep the test with the KI
+  number until it is fixed), many small functions, a deeply nested
   `match`, a long list literal, and many modules importing one another.
 - `cargo xtask verify` runs it once; a growth over the limit fails verify the
   way a parity failure does.
@@ -317,9 +316,9 @@ on later runs, but the first run still pays every build.
    size S1 and S2 for CI.
 3. S1's eviction policy and the exact key (which build id for the compiler,
    which identity for `libflux_rt.a` and `libflux.a`).
-4. Which pass allocates in proportion to the square of a function's length, and
-   why 4,000 `let`s overflow the compiler's stack. Both get known-issue entries
-   when S5 starts.
+4. Which pass allocates in proportion to the square of a function's length
+   (KI-151), and how deep Aether's recursion may go before it overflows the
+   compiler's stack (KI-152).
 
 ## Future possibilities
 [future-possibilities]: #future-possibilities

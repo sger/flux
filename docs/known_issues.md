@@ -42,6 +42,88 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-153 — With a warm cache, `--native --emit-llvm` fails with an internal compiler error
+
+**Severity:** Medium · **Area:** native backend, module cache · **Verified:** 2026-10-31 (053941b3) · **From:** inspecting the LLVM for KI-148
+
+`--native --emit-llvm` works on a cache that does not yet hold the stdlib, and
+fails on every later run that reads it:
+
+```sh
+flux one.flx --native --emit-llvm --cache-dir c   # prints the IR
+flux one.flx --native --emit-llvm --cache-dir c   # fails
+```
+
+where `one.flx` is `fn main() with IO { print(1) }`. The second run reports:
+
+```text
+error[E000]: Internal Compiler Error
+lowering the site at 39:11 from its evidence: the definition `assert_gt`: a dictionary parameter name was never interned
+```
+
+`assert_gt` is `lib/Flow/Assert.flx:39`, an `Ord`-constrained function. A
+plain native run and a VM run on the same warm cache both print `1`, so only
+the `--emit-llvm` path lowers something from the cache that the others do not.
+`--no-cache` avoids it.
+
+Not yet known: whether `--dump-lir-llvm` fails the same way, and which cached
+artifact is missing the interned dictionary parameter name.
+
+### KI-152 — A function with about 2,500 `let`s overflows the compiler's stack
+
+**Severity:** Medium · **Area:** Aether · **Verified:** 2026-10-31 (053941b3) · **From:** a scale probe for proposal 0192
+
+One function made of a chain of `let`s, `let x1 = x0 + 1` and so on, compiles
+at 2,000 `let`s and crashes the compiler at 2,500:
+
+```text
+thread 'main' has overflowed its stack
+fatal runtime error: stack overflow, aborting
+```
+
+It crashes on the VM, natively, and under `--dump-core`, so it happens before
+code generation. lldb stops in `flux::aether::insert::plan_expr`
+(`src/aether/insert.rs`), which walks the nested `let`s by recursion, one frame
+or more per `let`. Generator:
+
+```sh
+python3 -c "
+n = 2500
+print('fn main() with IO {')
+print('    let x0 = 1')
+for i in range(1, n): print(f'    let x{i} = x{i-1} + {i}')
+print(f'    print(x{n-1})')
+print('}')" > lets.flx
+```
+
+Not yet known: whether other passes over the same chain (Core lowering, ANF)
+would overflow next once Aether no longer does, and whether generated code
+(a long `match` or a big literal) reaches the limit in practice.
+
+### KI-151 — Compiler allocations grow with the square of a function's length
+
+**Severity:** Low · **Area:** compiler performance · **Verified:** 2026-10-31 (053941b3) · **From:** a scale probe for proposal 0192
+
+With the same `let` chain as KI-152, `--metrics` counts the compiler's own
+allocations. Above an empty program:
+
+| `let`s | `compiler_allocs` | Growth when doubled |
+|---:|---:|---:|
+| 125 | 443,863 | |
+| 250 | 1,383,781 | ×3.12 |
+| 500 | 4,420,247 | ×3.19 |
+| 1,000 | 15,743,445 | ×3.56 |
+| 2,000 | 59,389,595 | ×3.77 |
+
+A pass that does a fixed amount of work per `let` would double. This one
+approaches ×4, so some pass allocates in proportion to the square of the
+function's length. Wall time grew less over the same range (1.2 s to 2.2 s
+from 1,000 to 2,000), so a timing check would not have flagged it.
+
+Not yet known: which pass. Running the probe with the passes' own counts, or
+under a heap profiler, would narrow it. Proposal 0192 S5's scale test on this
+input fails until it is fixed.
+
 ### KI-148 — Natively, a self tail call that passes a literal to a borrowed parameter is not a jump, and a long loop overflows the stack
 
 **Severity:** Medium · **Area:** Aether, borrow inference, native backend · **Verified:** 2026-10-31 (027d5766) · **From:** adding `benchmarks/flux/sfib.flx`
