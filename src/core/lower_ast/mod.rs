@@ -326,6 +326,12 @@ pub(super) struct AstLowerer<'a> {
     /// desugaring dot access on multi-variant ADTs.
     pub(super) adt_variants:
         std::collections::HashMap<crate::syntax::Identifier, Vec<crate::syntax::Identifier>>,
+    /// Variant name → the data type declaring it and its declared field types,
+    /// or `None` when two declarations share the name.
+    pub(super) ctor_field_types: std::collections::HashMap<
+        crate::syntax::Identifier,
+        Option<(crate::syntax::Identifier, Vec<crate::syntax::type_expr::TypeExpr>)>,
+    >,
     /// 0187 B1: for each generalized function whose call sites all agree on one
     /// concrete instantiation, the substitution that reaches it.
     ///
@@ -379,6 +385,7 @@ impl<'a> AstLowerer<'a> {
             current_module_name: None,
             ctor_field_names: std::collections::HashMap::new(),
             adt_variants: std::collections::HashMap::new(),
+            ctor_field_types: std::collections::HashMap::new(),
             specializations: HashMap::new(),
             active_subst: None,
             evidence,
@@ -555,10 +562,15 @@ impl<'a> AstLowerer<'a> {
     /// Proposal 0152: populate `ctor_field_names` from a program's `data`
     /// declarations. Walks both top-level and module-nested statements.
     pub(super) fn collect_ctor_field_names(&mut self, program: &Program) {
+        type FieldTypes = std::collections::HashMap<
+            Identifier,
+            Option<(Identifier, Vec<crate::syntax::type_expr::TypeExpr>)>,
+        >;
         fn walk(
             stmts: &[Statement],
             field_names: &mut std::collections::HashMap<Identifier, Vec<Identifier>>,
             adt_variants: &mut std::collections::HashMap<Identifier, Vec<Identifier>>,
+            field_types: &mut FieldTypes,
         ) {
             for stmt in stmts {
                 match stmt {
@@ -568,22 +580,51 @@ impl<'a> AstLowerer<'a> {
                             if let Some(names) = variant.field_names.as_ref() {
                                 field_names.insert(variant.name, names.clone());
                             }
+                            field_types
+                                .entry(variant.name)
+                                .and_modify(|seen| *seen = None)
+                                .or_insert_with(|| Some((*name, variant.fields.clone())));
                         }
                     }
                     Statement::Module { body, .. } => {
-                        walk(&body.statements, field_names, adt_variants);
+                        walk(&body.statements, field_names, adt_variants, field_types);
                     }
                     _ => {}
                 }
             }
         }
-        walk(&program.statements, &mut self.ctor_field_names, &mut self.adt_variants);
+        walk(
+            &program.statements,
+            &mut self.ctor_field_names,
+            &mut self.adt_variants,
+            &mut self.ctor_field_types,
+        );
     }
 
     pub(super) fn bind_name(&mut self, name: crate::syntax::Identifier) -> CoreBinder {
         let id = super::CoreBinderId(self.next_binder_id);
         self.next_binder_id += 1;
         CoreBinder::new(id, name)
+    }
+
+    /// A nested function's parameter. Its annotation, when it says `Int` or
+    /// `Bool`, gives the representation: the function's own HM type is looked
+    /// up by name, which two nested functions of one module may share.
+    fn bind_annotated_param(
+        &mut self,
+        name: crate::syntax::Identifier,
+        annotation: Option<&crate::syntax::type_expr::TypeExpr>,
+    ) -> CoreBinder {
+        let binder = self.bind_name(name);
+        let rep = annotation
+            .and_then(|ty| self.core_type_from_type_expr(ty))
+            .map(|ty| super::FluxRep::from_core_type(&ty));
+        match rep {
+            Some(rep @ (super::FluxRep::IntRep | super::FluxRep::BoolRep)) => {
+                CoreBinder { rep, ..binder }
+            }
+            _ => binder,
+        }
     }
 
     /// Create a binder with a known runtime representation from HM type info.
@@ -1271,13 +1312,30 @@ impl<'a> AstLowerer<'a> {
             },
 
             Statement::Function { .. } => {
-                let Statement::Function { name, parameters, body, intrinsic, span: s, id, .. } =
-                    stmt
+                let Statement::Function {
+                    name,
+                    parameters,
+                    parameter_types,
+                    body,
+                    intrinsic,
+                    span: s,
+                    id,
+                    ..
+                } = stmt
                 else {
                     unreachable!();
                 };
                 let binder = self.bind_name(*name);
-                let params: Vec<_> = parameters.iter().map(|&p| self.bind_name(p)).collect();
+                let params: Vec<_> = parameters
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &p)| {
+                        self.bind_annotated_param(
+                            p,
+                            parameter_types.get(i).and_then(Option::as_ref),
+                        )
+                    })
+                    .collect();
                 let (mut param_types, result_ty) = self.lambda_signature_from_function_name(*name);
                 if !param_types.is_empty() && param_types.len() != params.len() {
                     param_types = Vec::new();

@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use crate::core::{CoreBinder, CoreBinderId, CorePrimOp, CoreTag, CoreVarRef};
+use crate::core::{CoreBinder, CoreBinderId, CoreLit, CorePrimOp, CoreTag, CoreVarRef, FluxRep};
 use crate::diagnostics::position::Span;
 
 use super::analysis::{
@@ -53,11 +53,18 @@ impl Scope {
     /// A fresh binder for a value the plan has to name. Its name is never
     /// interned, so the debugger never lists it.
     fn temp(&mut self) -> CoreBinder {
+        self.temp_with_rep(FluxRep::TaggedRep)
+    }
+
+    /// A temporary for a value whose representation is known, so that one
+    /// holding an Int or a Bool takes no Dup.
+    fn temp_with_rep(&mut self, rep: FluxRep) -> CoreBinder {
         let n = self.temps;
         self.temps += 1;
-        CoreBinder::new(
+        CoreBinder::with_rep(
             CoreBinderId(FIRST_TEMP_ID + n),
             crate::syntax::symbol::Symbol::new(FIRST_TEMP_SYMBOL + n),
+            rep,
         )
     }
 
@@ -1579,6 +1586,26 @@ fn alias_of(
     .then_some(var.id)
 }
 
+/// The names a pattern over an alias adds to `aliases`: an unboxed field, as
+/// in `alias_of`, points into nothing.
+fn counted_pat_binders(pat: &crate::core::CorePat) -> Vec<CoreBinderId> {
+    let mut out = Vec::new();
+    collect_counted_pat_binders(pat, &mut out);
+    out
+}
+
+fn collect_counted_pat_binders(pat: &crate::core::CorePat, out: &mut Vec<CoreBinderId>) {
+    match pat {
+        crate::core::CorePat::Var(binder) if binder.rep.needs_rc() => out.push(binder.id),
+        crate::core::CorePat::Con { fields, .. } | crate::core::CorePat::Tuple(fields) => {
+            for field in fields {
+                collect_counted_pat_binders(field, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Whether `expr` ends in a value it copied itself, `dup v in … v`: the
 /// release walker writes that when it releases what the value might point
 /// into, so the value holds a reference of its own (KI-129).
@@ -1610,6 +1637,21 @@ fn ends_in(expr: &CoreExpr, var: &CoreVarRef) -> bool {
 
 /// Whether `expr` is a runtime operation whose result is an Int or a Bool,
 /// whatever rep its binder was given: such a result points into nothing.
+/// `IntRep` or `BoolRep` for an expression that always makes one, from its
+/// primop or literal; `TaggedRep` for anything else.
+fn scalar_rep(expr: &CoreExpr) -> FluxRep {
+    let rep = match expr {
+        CoreExpr::PrimOp { op, .. } => crate::core::passes::primop_result_rep(op),
+        CoreExpr::Lit(CoreLit::Int(_), _) => FluxRep::IntRep,
+        CoreExpr::Lit(CoreLit::Bool(_), _) => FluxRep::BoolRep,
+        _ => FluxRep::TaggedRep,
+    };
+    match rep {
+        FluxRep::IntRep | FluxRep::BoolRep => rep,
+        _ => FluxRep::TaggedRep,
+    }
+}
+
 fn returns_scalar(expr: &CoreExpr) -> bool {
     matches!(
         expr,
@@ -1673,7 +1715,7 @@ fn aliases_owned_unknown(
             alts.iter().any(|alt| {
                 let mut arm = aliases.clone();
                 if matched {
-                    arm.extend(pat_binders(&alt.pat));
+                    arm.extend(counted_pat_binders(&alt.pat));
                 }
                 aliases_owned_unknown(&alt.rhs, &arm, scope, registry)
             })
@@ -1928,7 +1970,7 @@ impl Release<'_> {
                         }
                         let mut arm = path.clone();
                         if reads {
-                            arm.aliases.extend(pat_binders(&alt.pat));
+                            arm.aliases.extend(counted_pat_binders(&alt.pat));
                         }
                         let rhs = self.at_returns(alt.rhs, &arm, scope);
                         CoreAlt { rhs, ..alt }
@@ -2030,7 +2072,7 @@ impl Release<'_> {
                     .map(|alt| {
                         let mut arm = arms.clone();
                         if reads {
-                            arm.aliases.extend(pat_binders(&alt.pat));
+                            arm.aliases.extend(counted_pat_binders(&alt.pat));
                         }
                         // Another value matched with a fitting constructor
                         // takes the constructor first, as for `head_drop`, so
@@ -2146,7 +2188,7 @@ impl Release<'_> {
                 // before the release.
                 let counted = produces_fresh_value(&result, self.registry)
                     || (!path.lent_result && matches!(result, CoreExpr::Var { .. }));
-                let held = scope.temp();
+                let held = scope.temp_with_rep(scalar_rep(&result));
                 let mut tail = self.drop_before(CoreExpr::Var {
                     var: CoreVarRef::resolved(&held),
                     span: self.span,
@@ -3475,6 +3517,24 @@ mod tests {
         let rewritten = insert_dup_drop_with_registry(expr, &registry);
         assert_eq!(drops_of(&rewritten, x.id), 1, "{rewritten:?}");
         assert!(released_after(&rewritten, x.id, t.id), "{rewritten:?}");
+        assert_contract(&rewritten);
+    }
+
+    /// `lam(n) -> IAdd(n, 1)`, `n` counted. The sum is held while `n` is
+    /// released after it, and the sum, an Int, takes no copy.
+    #[test]
+    fn a_held_int_result_takes_no_dup() {
+        let mut interner = Interner::new();
+        let n = binder(&mut interner, 1, "n");
+        let registry = release_registry(&mut interner);
+        let sum = CoreExpr::PrimOp {
+            op: CorePrimOp::IAdd,
+            args: vec![var(n), CoreExpr::Lit(CoreLit::Int(1), Span::default())],
+            span: Span::default(),
+        };
+        let rewritten = insert_dup_drop_with_registry(lam(vec![n], sum), &registry);
+        assert_eq!(crate::aether::collect_stats(&rewritten).dups, 0, "{rewritten:?}");
+        assert_eq!(drops_of(&rewritten, n.id), 1, "{rewritten:?}");
         assert_contract(&rewritten);
     }
 

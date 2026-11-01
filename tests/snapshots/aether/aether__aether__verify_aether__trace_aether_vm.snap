@@ -103,7 +103,7 @@ lam(opt, f) ->
       drop opt#6 in
         None
 ── fn set_black ──
-  Dups: 3  Drops: 2  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fip
+  Dups: 2  Drops: 2  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fip
   FreshAllocs: 0
   verifier: ok
 lam(t) ->
@@ -114,30 +114,13 @@ lam(t) ->
           drop <sym:7500000>#3758096384 in
             reuse t#10 as Node mask=0x1(Black, left#11, key#12, right#13)
         shared ->
-          dup key#12 in
-            dup left#11 in
-              dup right#13 in
-                drop t#10 in
-                  aether_call[owned, owned, owned, owned] Node(Black, left#11, key#12, right#13)
+          dup left#11 in
+            dup right#13 in
+              drop t#10 in
+                aether_call[owned, owned, owned, owned] Node(Black, left#11, key#12, right#13)
       }
     _ ->
       t#10
-── fn my_len ──
-  Dups: 1  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
-  FreshAllocs: 0
-  verifier: ok
-lam(xs) ->
-  case xs#15 of
-    Cons(_, t) ->
-      let <sym:4000069> =
-        aether_call[borrowed] my_len#14(t#16)
-      let <sym:7000000> =
-        IAdd(1, <sym:4000069>#69)
-      dup <sym:7000000>#4026531840 in
-        drop <sym:4000069>#69 in
-          <sym:7000000>#4026531840
-    _ ->
-      0
 ── fn my_filter ──
   Dups: 3  Drops: 5  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
   FreshAllocs: 0
@@ -163,22 +146,6 @@ lam(xs, f) ->
     _ ->
       drop xs#18 in
         Nil
-── fn my_sum ──
-  Dups: 1  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
-  FreshAllocs: 0
-  verifier: ok
-lam(xs) ->
-  case xs#23 of
-    Cons(h, t) ->
-      let <sym:4000072> =
-        aether_call[borrowed] my_sum#22(t#25)
-      let <sym:7000000> =
-        IAdd(h#24, <sym:4000072>#72)
-      dup <sym:7000000>#4026531840 in
-        drop <sym:4000072>#72 in
-          <sym:7000000>#4026531840
-    _ ->
-      0
 ── fn main [handle×5] ──
   Dups: 1  Drops: 42  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)  Yields: 0  Handles: 5  HandlerArms: 11
   FreshAllocs: 1
@@ -200,7 +167,7 @@ lam() ->
         aether_call[owned] __resume_default#65(<sym:4000126>#126)
 
 ── Total ──
-  Dups: 12  Drops: 55  Reuses: 4  DropSpecs: 3  BorrowedCallGuards: 0  FBIP: fbip(3)  Yields: 0  Handles: 5  HandlerArms: 11
+  Dups: 9  Drops: 53  Reuses: 4  DropSpecs: 3  BorrowedCallGuards: 0  FBIP: fbip(3)  Yields: 0  Handles: 5  HandlerArms: 11
   FreshAllocs: 3
 
 [cfg→vm] Running via CFG → bytecode VM backend...
