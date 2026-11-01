@@ -1532,7 +1532,7 @@ letrec lookup =
 
 letrec not_elem =
 λ__dict_m7_466C6F772E4571_Eq#667:Box, xs#665:Box, x#666.
-    let %t339 = contains#545(__dict_m7_466C6F772E4571_Eq#667, xs#665, x#666)
+    let %t339:Bool = contains#545(__dict_m7_466C6F772E4571_Eq#667, xs#665, x#666)
     Not(#4001705[synthetic]#1705)
 
 letrec enumerate_go =
@@ -1591,7 +1591,7 @@ letrec unique_by_go =
 
 letrec unique_by_step =
 λ__dict_m7_466C6F772E4571_Eq#708:Box, xs#702, value#703, key#704, f#705, seen#706, acc#707.
-    let %t350 = contains#545(__dict_m7_466C6F772E4571_Eq#708, seen#706, key#704)
+    let %t350:Bool = contains#545(__dict_m7_466C6F772E4571_Eq#708, seen#706, key#704)
     case #4001716[synthetic]#1716 of
       true →
         unique_by_go#693(__dict_m7_466C6F772E4571_Eq#708, xs#702, f#705, seen#706, acc#707)
@@ -1636,7 +1636,7 @@ letrec merge_sort_by =
 
 letrec merge_sort_do =
 λxs#733, key_fn#734.
-    let mid#737:Int = (let %t356 = length#499(xs#733)
+    let mid#737:Int = (let %t356:Int = length#499(xs#733)
     IDiv(#4001722[synthetic]#1722, 2))
     let %t357 = split_at#453(xs#733, mid#737)
     case #4001723[synthetic]#1723 of
@@ -1855,7 +1855,7 @@ letrec __tc_m7_466C6F772E4571_Eq_List<a>_eq =
 
 letrec __tc_m7_466C6F772E4571_Eq_List<a>_neq =
 λ__dict_m7_466C6F772E4571_Eq#854, xs#855:Box, ys#856:Box.
-    let %t391 = __tc_m7_466C6F772E4571_Eq_List<a>_eq#892(__dict_m7_466C6F772E4571_Eq#854, xs#855, ys#856)
+    let %t391:Bool = __tc_m7_466C6F772E4571_Eq_List<a>_eq#892(__dict_m7_466C6F772E4571_Eq#854, xs#855, ys#856)
     Not(#4001757[synthetic]#1757)
 
 letrec __tc_m7_466C6F772E4571_Eq_Option<a>_eq =
@@ -1877,7 +1877,7 @@ letrec __tc_m7_466C6F772E4571_Eq_Option<a>_eq =
 
 letrec __tc_m7_466C6F772E4571_Eq_Option<a>_neq =
 λ__dict_m7_466C6F772E4571_Eq#865, x#866:Box, y#867:Box.
-    let %t393 = __tc_m7_466C6F772E4571_Eq_Option<a>_eq#900(__dict_m7_466C6F772E4571_Eq#865, x#866, y#867)
+    let %t393:Bool = __tc_m7_466C6F772E4571_Eq_Option<a>_eq#900(__dict_m7_466C6F772E4571_Eq#865, x#866, y#867)
     Not(#4001759[synthetic]#1759)
 
 letrec __tc_m7_466C6F772E4571_Eq_Int_eq : (Int, Int) -> Bool =

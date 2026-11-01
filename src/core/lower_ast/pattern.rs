@@ -163,6 +163,36 @@ impl<'a> super::AstLowerer<'a> {
         self.lower_pattern_typed(pat, None)
     }
 
+    /// The types a constructor pattern knows for its `arity` fields: `Int` or
+    /// `Bool` where the constructor declares one, when the matched value's
+    /// type is the data type declaring it, and nothing anywhere else.
+    fn scalar_field_types(
+        &self,
+        ctor: crate::syntax::Identifier,
+        ty: Option<&InferType>,
+        arity: usize,
+    ) -> Vec<Option<InferType>> {
+        use crate::types::type_constructor::TypeConstructor;
+
+        let declared = match (ty, self.ctor_field_types.get(&ctor)) {
+            (
+                Some(
+                    InferType::Con(TypeConstructor::Adt(adt))
+                    | InferType::App(TypeConstructor::Adt(adt), _),
+                ),
+                Some(Some((data, fields))),
+            ) if adt == data && fields.len() == arity => Some(fields),
+            _ => None,
+        };
+        (0..arity)
+            .map(|i| match self.core_type_from_type_expr(declared?.get(i)?)? {
+                crate::core::CoreType::Int => Some(InferType::Con(TypeConstructor::Int)),
+                crate::core::CoreType::Bool => Some(InferType::Con(TypeConstructor::Bool)),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// Lower a pattern with an optional known type for the value being matched.
     ///
     /// When `ty` is `Some`, pattern variable binders get their `FluxRep` from
@@ -258,15 +288,16 @@ impl<'a> super::AstLowerer<'a> {
                 })
             }
             Pattern::Constructor { name, fields, .. } => {
-                // Try to get field types from ADT constructor info via hm_expr_types.
-                // ADT constructor field types require looking up the constructor's
-                // type scheme, which we don't have direct access to here.
-                // Fall back to untyped for ADT fields — this is a known limitation
-                // (Phase 7e handles built-in patterns; ADT field typing needs
-                // constructor type info threaded into the lowerer).
+                // Only an Int or Bool field is typed: any other field's type
+                // can depend on the data type's parameters.
+                let field_types = self.scalar_field_types(*name, ty, fields.len());
                 CorePat::Con {
                     tag: CoreTag::Named(*name),
-                    fields: fields.iter().map(|p| self.lower_pattern_typed(p, None)).collect(),
+                    fields: fields
+                        .iter()
+                        .zip(&field_types)
+                        .map(|(p, t)| self.lower_pattern_typed(p, t.as_ref()))
+                        .collect(),
                 }
             }
             Pattern::NamedConstructor { name, fields, .. } => {
@@ -275,13 +306,18 @@ impl<'a> super::AstLowerer<'a> {
                 // duplicate fields have already been diagnosed in HM; we
                 // recover with wildcards for any missing slot.
                 let declared = self.ctor_field_names.get(name).cloned().unwrap_or_default();
+                let field_types = self.scalar_field_types(*name, ty, declared.len());
                 let mut positional: Vec<CorePat> =
                     (0..declared.len()).map(|_| CorePat::Wildcard).collect();
                 for field in fields {
                     if let Some(index) = declared.iter().position(|n| *n == field.name) {
-                        let sub = match &field.pattern {
-                            Some(p) => self.lower_pattern_typed(p, None),
-                            None => CorePat::Var(self.bind_name(field.name)),
+                        let field_ty = field_types[index].as_ref();
+                        let sub = match (&field.pattern, field_ty) {
+                            (Some(p), _) => self.lower_pattern_typed(p, field_ty),
+                            (None, Some(t)) => {
+                                CorePat::Var(self.bind_name_with_type(field.name, t))
+                            }
+                            (None, None) => CorePat::Var(self.bind_name(field.name)),
                         };
                         positional[index] = sub;
                     }

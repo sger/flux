@@ -259,6 +259,11 @@ fn run_semantic_core_passes_with_optional_interner(
         verify_aether_contract_stage(def, &e, "anf_normalize")?;
         def.expr = e;
     }
+    // After the evidence pass, so an arity counts the dictionaries it adds.
+    let result_reps = anf::scalar_result_reps(program);
+    for def in &mut program.defs {
+        anf::type_call_results(&mut def.expr, &result_reps);
+    }
 
     // Verify Core invariants after normalization.
     core_lint_stage(program, "normalization", interner)?;
