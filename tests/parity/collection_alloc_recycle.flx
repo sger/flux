@@ -1,0 +1,96 @@
+// parity: vm, llvm
+// expect: success
+// bug: guards the native runtime's size-class free lists: blocks of many
+//       sizes are freed out of order and handed out again, across more than
+//       the 1 MB bump arena, so a block recycled into the wrong size class
+//       or still in use shows up as a wrong checksum or a crash.
+// parity-expected-stdout-begin
+// 100068032
+// 250523
+// 1860704540
+// parity-expected-stdout-end
+
+import Flow.Array as Array
+
+type Shape = Dot | Pair(Int, Int) | Box(Int, Int, Int, Int) | Wide(Int, Int, Int, Int, Int, Int)
+type Tree = Leaf | Node(Tree, Int, Shape, Tree)
+
+fn shape_for(i: Int) -> Shape {
+    let k = i % 4;
+    if k == 0 {
+        Dot
+    } else if k == 1 {
+        Pair(i, i + 1)
+    } else if k == 2 {
+        Box(i, 1, 2, 3)
+    } else {
+        Wide(i, 1, 2, 3, 4, 5)
+    }
+}
+
+fn weight(s: Shape) -> Int {
+    match s {
+        Dot -> 1,
+        Pair(a, b) -> a + b,
+        Box(a, b, c, d) -> a + b + c + d,
+        Wide(a, b, c, d, e, f) -> a + b + c + d + e + f,
+    }
+}
+
+fn insert(t: Tree, k: Int) -> Tree {
+    match t {
+        Leaf -> Node(Leaf, k, shape_for(k), Leaf),
+        Node(l, x, s, r) ->
+            if k < x {
+                Node(insert(l, k), x, s, r)
+            } else {
+                Node(l, x, s, insert(r, k))
+            },
+    }
+}
+
+fn build(i: Int, n: Int, seed: Int, t: Tree) -> Tree {
+    if i >= n {
+        t
+    } else {
+        build(i + 1, n, seed, insert(t, (i * 7919 + seed) % 100003))
+    }
+}
+
+fn total(t: Tree) -> Int {
+    match t {
+        Leaf -> 0,
+        Node(l, x, s, r) -> total(l) + x % 97 + weight(s) + total(r),
+    }
+}
+
+fn small_things(i: Int, n: Int, acc: Int) -> Int {
+    if i >= n {
+        acc
+    } else {
+        let label = "item-#{i}-#{i * 31}";
+        let triple = (i, len(label), i % 7);
+        let bump = \x -> x + triple.0 + triple.2;
+        let few = [|i, i + 1, i + 2|];
+        let many = Array.range(0, 40 + i % 5);
+        let here = bump(len(label)) + Array.sum(few) + Array.length(many);
+        small_things(i + 1, n, acc + here % 1000)
+    }
+}
+
+fn rounds(r: Int, n: Int, keep: Tree, acc: Int) -> Int {
+    if r >= n {
+        acc + total(keep)
+    } else {
+        let churn = build(0, 6000, r * 13, Leaf);
+        let mixed = small_things(0, 3000, 0);
+        let kept = insert(keep, r * 101);
+        rounds(r + 1, n, kept, acc + total(churn) + mixed)
+    }
+}
+
+fn main() with IO {
+    print(total(build(0, 2000, 7, Leaf)));
+    print(small_things(0, 500, 0));
+    print(rounds(0, 6, build(0, 1000, 3, Leaf), 0));
+}

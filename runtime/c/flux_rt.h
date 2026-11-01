@@ -121,7 +121,7 @@ static inline double flux_unbox_float(int64_t val) {
 
 static inline uint8_t flux_obj_tag(void *ptr) {
     /* Read obj_tag from the FluxHeader at ptr - 8.
-     * Layout: { i32 refcount, u8 scan_fsize, u8 obj_tag, u16 reserved }
+     * Layout: { i32 refcount, u8 scan_fsize, u8 obj_tag, u8 progress, u8 size_class }
      * obj_tag is at offset 5 within the header. */
     return *((uint8_t *)ptr - 3);
 }
@@ -143,7 +143,8 @@ static inline int flux_val_is_float(int64_t val) {
 /* ── Allocation & Reference Counting (Aether RC) ──────────────────── */
 /*
  * Every heap object has an 8-byte FluxHeader at (payload - 8):
- *   { int32_t refcount, uint8_t scan_fsize, uint8_t obj_tag, uint16_t reserved }
+ *   { int32_t refcount, uint8_t scan_fsize, uint8_t obj_tag, uint8_t progress,
+ *     uint8_t size_class }
  *
  * flux_gc_alloc_header: allocate with explicit scan_fsize and obj_tag
  * flux_gc_alloc: backward-compatible (scan_fsize=0, obj_tag=0)
