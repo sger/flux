@@ -25,11 +25,13 @@ fn a_use_after_free_is_caught() {
 
 #[test]
 fn without_the_debug_heap_the_fault_goes_unnoticed() {
-    // What the debug heap is for: the arena never reuses a block, so the
-    // faulted program prints its answer and exits cleanly.
+    // What the debug heap is for: the plain runtime hands the freed block
+    // out again, so the faulted program exits cleanly with whatever the
+    // block now holds, and nothing reports the fault.
     let scratch = Scratch::new("debug-heap-unnoticed");
-    let (stdout, stderr, code) = run(&scratch, FIXTURE, &["--native"], Some("skip-dup:victim"));
-    assert_eq!((stdout.as_str(), code), ("6\n", 0), "{stderr}");
+    let (_, stderr, code) = run(&scratch, FIXTURE, &["--native"], Some("skip-dup:victim"));
+    assert_eq!(code, 0, "{stderr}");
+    assert!(!stderr.contains("use after free"), "{stderr}");
 }
 
 #[test]

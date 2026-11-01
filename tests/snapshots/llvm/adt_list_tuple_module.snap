@@ -164,8 +164,14 @@ fast:
   %tag8 = trunc i32 %tag to i8
   %ot_ptr = getelementptr i8, ptr %hp, i64 5
   store i8 %tag8, ptr %ot_ptr, align 1
-  %res_ptr = getelementptr i8, ptr %hp, i64 6
-  store i16 0, ptr %res_ptr, align 2
+  %prog_ptr = getelementptr i8, ptr %hp, i64 6
+  store i8 0, ptr %prog_ptr, align 1
+  %small = icmp ule i32 %masked, 256
+  %class_all = lshr i32 %masked, 3
+  %class32 = select i1 %small, i32 %class_all, i32 0
+  %class8 = trunc i32 %class32 to i8
+  %class_ptr = getelementptr i8, ptr %hp, i64 7
+  store i8 %class8, ptr %class_ptr, align 1
   %payload = getelementptr i8, ptr %hp, i64 8
   %aligned64 = zext i32 %masked to i64
   call ccc void @llvm.memset.p0.i64(ptr %payload, i8 0, i64 %aligned64, i1 0)

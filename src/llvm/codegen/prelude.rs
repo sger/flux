@@ -485,6 +485,9 @@ fn emit_gc_free_decl(module: &mut LlvmModule) {
 // ── Phase 7b: Bump allocator ─────────────────────────────────────────
 
 const FLUX_HEADER_SIZE: i64 = 8;
+/// The largest payload the runtime recycles through a free list
+/// (`FLUX_SMALL_MAX` in `runtime/c/rc.c`).
+const FLUX_SMALL_MAX: i32 = 256;
 
 /// Emit external global declarations for the bump arena pointers and
 /// the `flux_bump_alloc_inline` helper function.
@@ -592,7 +595,7 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
     //
     // fast:
     //   store ptr %new_hp, ptr @flux_arena_hp
-    //   ; init header at %hp: refcount=1, scan_fsize, obj_tag, reserved=0
+    //   ; init header at %hp: refcount=1, scan_fsize, obj_tag, progress=0, size_class
     //   store i32 1, ptr %hp              ; refcount
     //   %scan8 = trunc i32 %scan to i8
     //   %sf_ptr = getelementptr i8, ptr %hp, i64 4
@@ -600,8 +603,14 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
     //   %tag8 = trunc i32 %tag to i8
     //   %ot_ptr = getelementptr i8, ptr %hp, i64 5
     //   store i8 %tag8, ptr %ot_ptr       ; obj_tag
-    //   %res_ptr = getelementptr i8, ptr %hp, i64 6
-    //   store i16 0, ptr %res_ptr         ; reserved
+    //   %prog_ptr = getelementptr i8, ptr %hp, i64 6
+    //   store i8 0, ptr %prog_ptr         ; progress
+    //   %small = icmp ule i32 %masked, 256
+    //   %class_all = lshr i32 %masked, 3
+    //   %class32 = select i1 %small, i32 %class_all, i32 0
+    //   %class8 = trunc i32 %class32 to i8
+    //   %class_ptr = getelementptr i8, ptr %hp, i64 7
+    //   store i8 %class8, ptr %class_ptr  ; size_class
     //   %payload = getelementptr i8, ptr %hp, i64 8
     //   call void @llvm.memset.p0.i64(ptr %payload, i8 0, i64 %aligned64, i1 false)
     //   ret ptr %payload
@@ -614,7 +623,6 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
     let i64_ty = LlvmType::i64();
     let ptr_ty = LlvmType::Ptr;
     let i8_ty = LlvmType::Integer(8);
-    let i16_ty = LlvmType::Integer(16);
     let i1_ty = LlvmType::i1();
 
     module.functions.push(LlvmFunction {
@@ -800,20 +808,73 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
                         ptr: local("ot_ptr"),
                         align: Some(1),
                     },
-                    // %res_ptr = getelementptr i8, ptr %hp, i64 6
+                    // %prog_ptr = getelementptr i8, ptr %hp, i64 6
                     LlvmInstr::GetElementPtr {
-                        dst: LlvmLocal("res_ptr".into()),
+                        dst: LlvmLocal("prog_ptr".into()),
                         inbounds: false,
                         element_ty: i8_ty.clone(),
                         base: local("hp"),
                         indices: vec![(i64_ty.clone(), const_i64_operand(6))],
                     },
-                    // store i16 0, ptr %res_ptr  (reserved = 0)
+                    // store i8 0, ptr %prog_ptr  (progress = 0)
                     LlvmInstr::Store {
-                        ty: i16_ty.clone(),
-                        value: LlvmOperand::Const(LlvmConst::Int { bits: 16, value: 0 }),
-                        ptr: local("res_ptr"),
-                        align: Some(2),
+                        ty: i8_ty.clone(),
+                        value: LlvmOperand::Const(LlvmConst::Int { bits: 8, value: 0 }),
+                        ptr: local("prog_ptr"),
+                        align: Some(1),
+                    },
+                    // The runtime's size_class_of: free on a list once the
+                    // block is released, instead of left in the arena.
+                    // %small = icmp ule i32 %masked, 256
+                    LlvmInstr::Icmp {
+                        dst: LlvmLocal("small".into()),
+                        op: LlvmCmpOp::Ule,
+                        ty: i32_ty.clone(),
+                        lhs: local("masked"),
+                        rhs: LlvmOperand::Const(LlvmConst::Int {
+                            bits: 32,
+                            value: FLUX_SMALL_MAX as i128,
+                        }),
+                    },
+                    // %class_all = lshr i32 %masked, 3
+                    LlvmInstr::Binary {
+                        dst: LlvmLocal("class_all".into()),
+                        op: LlvmValueKind::LShr,
+                        ty: i32_ty.clone(),
+                        lhs: local("masked"),
+                        rhs: LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 3 }),
+                    },
+                    // %class32 = select i1 %small, i32 %class_all, i32 0
+                    LlvmInstr::Select {
+                        dst: LlvmLocal("class32".into()),
+                        cond_ty: i1_ty.clone(),
+                        cond: local("small"),
+                        value_ty: i32_ty.clone(),
+                        then_value: local("class_all"),
+                        else_value: LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 }),
+                    },
+                    // %class8 = trunc i32 %class32 to i8
+                    LlvmInstr::Cast {
+                        dst: LlvmLocal("class8".into()),
+                        op: LlvmValueKind::Trunc,
+                        from_ty: i32_ty.clone(),
+                        operand: local("class32"),
+                        to_ty: i8_ty.clone(),
+                    },
+                    // %class_ptr = getelementptr i8, ptr %hp, i64 7
+                    LlvmInstr::GetElementPtr {
+                        dst: LlvmLocal("class_ptr".into()),
+                        inbounds: false,
+                        element_ty: i8_ty.clone(),
+                        base: local("hp"),
+                        indices: vec![(i64_ty.clone(), const_i64_operand(7))],
+                    },
+                    // store i8 %class8, ptr %class_ptr  (size_class)
+                    LlvmInstr::Store {
+                        ty: i8_ty.clone(),
+                        value: local("class8"),
+                        ptr: local("class_ptr"),
+                        align: Some(1),
                     },
                     // %payload = getelementptr i8, ptr %hp, i64 8
                     LlvmInstr::GetElementPtr {
@@ -1153,5 +1214,19 @@ mod tests {
             rendered
                 .contains("define internal fastcc i1 @flux_rc_is_unique(i64 %val) alwaysinline")
         );
+    }
+
+    #[test]
+    fn bump_alloc_records_the_size_class() {
+        let mut module = LlvmModule::new();
+        emit_prelude(&mut module);
+        let rendered = render_module(&module);
+        assert!(rendered.contains("store i8 0, ptr %prog_ptr"));
+        assert!(rendered.contains("%small = icmp ule i32 %masked, 256"));
+        assert!(rendered.contains("%class_all = lshr i32 %masked, 3"));
+        assert!(rendered.contains("%class32 = select i1 %small, i32 %class_all, i32 0"));
+        assert!(rendered.contains("%class_ptr = getelementptr i8, ptr %hp, i64 7"));
+        assert!(rendered.contains("store i8 %class8, ptr %class_ptr"));
+        assert!(!rendered.contains("store i16 0"));
     }
 }
