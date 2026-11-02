@@ -42,6 +42,67 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-163 — Natively, a self tail call that lends a field of a matched owned value to a borrowed parameter is not a jump
+
+**Severity:** Medium · **Area:** Aether, borrow inference, native backend · **Verified:** 2026-11-02 (54dbde9d) · **From:** timing `benchmarks/flux/binarytrees_fbip.flx` for the binarytrees work, which dies with signal 10 at n=21
+
+```flux
+type Tree = Node(Tree, Tree) | Tip
+
+type Stack = Empty | Push(Tree, Stack)
+
+fn spine(n: Int, acc: Tree) -> Tree {
+    if n <= 0 {
+        acc
+    } else {
+        let next = Node(Tip, acc)
+        spine(n - 1, next)
+    }
+}
+
+fn walk(tree: Tree, stack: Stack, acc: Int) -> Int {
+    match tree {
+        Node(left, right) -> do {
+            let pushed = Push(right, stack)
+            walk(left, pushed, acc + 1)
+        },
+        Tip -> match stack {
+            Push(next, rest) -> walk(next, rest, acc),
+            Empty -> acc,
+        },
+    }
+}
+
+fn main() with IO {
+    print(walk(spine(3000000, Tip), Empty, 0))
+}
+```
+
+The VM prints `3000000`. Natively the program exits with "native program
+terminated by signal 10"; with 100,000 in place of 3,000,000 it prints
+`100000`, and with 1,000,000 it crashes.
+
+`--dump-aether=debug` shows why. `walk` is inferred `[Borrowed, Owned, Owned]`,
+and the `Push(next, rest)` arm lends `next`, a field of the owned `stack`, to
+the borrowed `tree`. So `stack` must outlive the call, and its drop comes after
+it:
+
+```text
+let <sym> = aether_call[borrowed, owned, owned] walk(next, dup rest in rest, acc)
+drop stack in <sym>
+```
+
+That call is a `bl` with the drop after it returns, so every `Tip` keeps a
+frame. The `Node` arm, which lends `left` from the borrowed `tree`, is a jump.
+`binarytrees_fbip.flx`'s `checkv` has the same shape in its `NodeR(right,
+next)` arm.
+
+This is the same family as KI-148 (a literal lent to a borrowed parameter) and
+KI-128's `TailCaller` rule (`src/aether/borrow_infer.rs`). Not yet known: a
+source workaround, or whether the fix is to make such a parameter owned, or to
+dup the field and drop its owner before the call. Either is in Aether, so it
+needs `cargo xtask verify`.
+
 ### KI-162 — A class constraint met by a tuple, an Array, an Either, or an `Ord` container stops the compiler with E000
 
 **Severity:** Medium · **Area:** type classes, Core lowering · **Verified:** 2026-11-02 (a4dece25), VM and native alike · **From:** checking `Ord` on tuples while deciding KI-157
