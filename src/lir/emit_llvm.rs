@@ -2717,7 +2717,7 @@ impl<'a> FnEmitter<'a> {
 
     fn emit_make_hash(&mut self, dst: LirVar, pairs: &[LirVar]) {
         // Build HAMT from interleaved key-value pairs.
-        // Start with flux_hamt_empty(), then flux_hamt_set(map, key, val) for each pair.
+        // Start with flux_hamt_empty(), then flux_hamt_set_literal(map, key, val) for each pair.
         let mut current = self.tmp();
         self.call_c(Some(current.clone()), "flux_hamt_empty", Vec::new(), LlvmType::i64());
         for chunk in pairs.chunks(2) {
@@ -2725,7 +2725,7 @@ impl<'a> FnEmitter<'a> {
                 let next = self.tmp();
                 self.call_c(
                     Some(next.clone()),
-                    "flux_hamt_set",
+                    "flux_hamt_set_literal",
                     vec![
                         (LlvmType::i64(), LlvmOperand::Local(current.clone())),
                         (LlvmType::i64(), self.var(chunk[0])),
@@ -4155,6 +4155,9 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         }
         "flux_panic" => (LlvmType::Void, vec![LlvmType::i64()]),
         "flux_make_cons" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_hamt_set_literal" => {
+            (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64()])
+        }
         "flux_make_array" | "flux_make_tuple" | "flux_make_hash" | "flux_interpolate" => {
             (LlvmType::i64(), vec![LlvmType::Ptr, LlvmType::i32()])
         }

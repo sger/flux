@@ -122,9 +122,20 @@ on 2026-11-02; the other three full runs passed. The failing runs kept only
 the panic line, not the session, so which line was missing is not known, nor
 the cause: lldb timing under load, or state left by an earlier test.
 
-### KI-157 — Natively, a map compares tuple, constructor and Float keys wrongly
+### KI-157 — A map key or ordering operand that is not an Int, Bool or String type-checks, then stops at run time
 
-**Severity:** High · **Area:** native runtime, maps · **Verified:** 2026-11-02 (c4019333, and the same at 4a97c60f) · **From:** planning static nullary constructors (native runtime roadmap task 6a)
+**Severity:** Medium (was High until 2026-11-02: natively the answers were silently wrong) · **Area:** types, maps, native runtime · **Verified:** 2026-11-02 (c4019333, and the same at 4a97c60f) · **From:** planning static nullary constructors (native runtime roadmap task 6a)
+
+**Now:** both backends stop with the same error. Natively, `Map.set`, `get`,
+`has` and `delete` refuse such a key with the VM's E1004, a map literal and
+`m[key]` with its E1009 (`unusable as hash key`), and `<`, `<=`, `>` and `>=`
+on tuples, lists, arrays and constructors with its E1009 (`cannot compare`):
+`flux_hamt_key_ok` and `check_key` in `runtime/c/hamt.c`, `check_ordered` in
+`runtime/c/flux_rt.c`, and one fixture per case, `tests/parity/map_*_refused.flx`
+and `tuple_ordering_refused.flx`. What stays open is that the types accept
+these programs; proposal 0194 (a `Hash` class for map keys) closes it.
+
+What it was, natively, before the refusal:
 
 ```flux
 import Flow.Map as Map
@@ -168,8 +179,9 @@ Same family: natively `pair(1, 2) < pair(0, 9)` is `true`, because
 or Float as a word, so tuples by address. The VM stops with
 `error[E1009]: cannot compare Tuple with OpGreaterThan`.
 
-Not decided: reject such keys in the types, as the VM's set of hashable keys
-suggests, or hash and compare them by structure in C.
+Decided (2026-11-02): reject such keys in the types, with a `Hash` class as
+Haskell, Rust, Swift and Lean do, rather than hash them by structure in C as
+OCaml does; see proposal 0194.
 
 ### KI-155 — A self tail call with a constructor application as an argument is rejected with a bogus E082
 

@@ -379,12 +379,31 @@ static uint32_t hamt_size_impl(HamtNode *node) {
 
 /* ── Public API (pointer-tagged) ───────────────────────────────────── */
 
+/* ── Keys the VM accepts ─────────────────────────────────────────────── */
+
+/* The VM keys a map only by an Int, a Bool or a String (`HashKey`) and stops
+ * at any other key. This map would hash another boxed key by its address and
+ * compare it as a string, so it refuses it the same way, before it looks at
+ * the map (KI-157). */
+int flux_hamt_key_ok(int64_t key) {
+    if (flux_is_int(key) || key == FLUX_TRUE || key == FLUX_FALSE) return 1;
+    return flux_is_ptr(key) && flux_obj_tag(flux_untag_ptr(key)) == FLUX_OBJ_STRING;
+}
+
+static void check_key(const char *op, int64_t key) {
+    if (!flux_hamt_key_ok(key)) {
+        flux_runtime_error("primop %s expects hashable key (String, Int, Bool), got %s",
+                           op, flux_value_kind_name(key));
+    }
+}
+
 int64_t flux_hamt_empty(void) {
     HamtNode *root = make_empty();
     return flux_tag_ptr(root);
 }
 
 int64_t flux_hamt_get(int64_t map, int64_t key) {
+    check_key("get", key);
     HamtNode *root = node_of(map);
     if (!root) return flux_make_none();
     uint64_t hash = hamt_hash(key);
@@ -396,6 +415,7 @@ int64_t flux_hamt_get(int64_t map, int64_t key) {
 /* The map operations are lent their arguments and return a new map. */
 
 int64_t flux_hamt_set(int64_t map, int64_t key, int64_t value) {
+    check_key("put", key);
     HamtNode *root = node_of(map);
     uint64_t hash = hamt_hash(key);
     if (!root) {
@@ -407,6 +427,7 @@ int64_t flux_hamt_set(int64_t map, int64_t key, int64_t value) {
 }
 
 int64_t flux_hamt_delete(int64_t map, int64_t key) {
+    check_key("delete", key);
     HamtNode *root = node_of(map);
     if (!root) return map;
     uint64_t hash = hamt_hash(key);
@@ -417,7 +438,15 @@ int64_t flux_hamt_delete(int64_t map, int64_t key) {
     return flux_tag_ptr(new_root);
 }
 
+int64_t flux_hamt_set_literal(int64_t map, int64_t key, int64_t value) {
+    if (!flux_hamt_key_ok(key)) {
+        flux_runtime_error("unusable as hash key: %s", flux_value_kind_name(key));
+    }
+    return flux_hamt_set(map, key, value);
+}
+
 int64_t flux_hamt_contains(int64_t map, int64_t key) {
+    check_key("has_key", key);
     HamtNode *root = node_of(map);
     if (!root) return flux_make_bool(0);
     uint64_t hash = hamt_hash(key);

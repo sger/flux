@@ -2330,9 +2330,25 @@ static int flux_string_cmp(int64_t a, int64_t b) {
     return la < lb ? -1 : 1;
 }
 
+/* The VM orders only Ints, Floats and Strings, and stops at anything else
+ * with E1009 (`src/vm/comparison_ops.rs`). A boxed value of another kind
+ * would be compared here by its address, so it is refused the same way
+ * (KI-157). `opcode` is the VM's name for the operator; it writes `<` as
+ * `OpGreaterThan` with the operands swapped. */
+static void check_ordered(int64_t a, int64_t b, const char *opcode) {
+    int64_t odd = 0;
+    if (flux_is_ptr(a) && !flux_val_is_string(a) && !flux_val_is_float(a)) odd = a;
+    else if (flux_is_ptr(b) && !flux_val_is_string(b) && !flux_val_is_float(b)) odd = b;
+    if (odd) {
+        flux_runtime_error("cannot compare %s with %s",
+                           flux_value_kind_name(odd), opcode);
+    }
+}
+
 int64_t flux_rt_lt(int64_t a, int64_t b) {
     if (flux_val_is_string(a) && flux_val_is_string(b))
         return flux_make_bool(flux_string_cmp(a, b) < 0);
+    check_ordered(a, b, "OpGreaterThan");
     if (flux_val_is_float(a))
         return flux_make_bool(flux_unbox_float(a) < flux_unbox_float(b));
     return flux_make_bool(flux_untag_int(a) < flux_untag_int(b));
@@ -2341,6 +2357,7 @@ int64_t flux_rt_lt(int64_t a, int64_t b) {
 int64_t flux_rt_le(int64_t a, int64_t b) {
     if (flux_val_is_string(a) && flux_val_is_string(b))
         return flux_make_bool(flux_string_cmp(a, b) <= 0);
+    check_ordered(a, b, "OpLessThanOrEqual");
     if (flux_val_is_float(a))
         return flux_make_bool(flux_unbox_float(a) <= flux_unbox_float(b));
     return flux_make_bool(flux_untag_int(a) <= flux_untag_int(b));
@@ -2349,6 +2366,7 @@ int64_t flux_rt_le(int64_t a, int64_t b) {
 int64_t flux_rt_gt(int64_t a, int64_t b) {
     if (flux_val_is_string(a) && flux_val_is_string(b))
         return flux_make_bool(flux_string_cmp(a, b) > 0);
+    check_ordered(a, b, "OpGreaterThan");
     if (flux_val_is_float(a))
         return flux_make_bool(flux_unbox_float(a) > flux_unbox_float(b));
     return flux_make_bool(flux_untag_int(a) > flux_untag_int(b));
@@ -2357,6 +2375,7 @@ int64_t flux_rt_gt(int64_t a, int64_t b) {
 int64_t flux_rt_ge(int64_t a, int64_t b) {
     if (flux_val_is_string(a) && flux_val_is_string(b))
         return flux_make_bool(flux_string_cmp(a, b) >= 0);
+    check_ordered(a, b, "OpGreaterThanOrEqual");
     if (flux_val_is_float(a))
         return flux_make_bool(flux_unbox_float(a) >= flux_unbox_float(b));
     return flux_make_bool(flux_untag_int(a) >= flux_untag_int(b));
@@ -2392,6 +2411,9 @@ int64_t flux_rt_index(int64_t collection, int64_t key) {
         return flux_wrap_some(elems[idx]);
     }
     case FLUX_OBJ_MAP:
+        if (!flux_hamt_key_ok(key)) {
+            flux_runtime_error("unusable as hash key: %s", flux_value_kind_name(key));
+        }
         return flux_hamt_get_option(collection, key);
     case FLUX_OBJ_ADT: {
         /* Cons list: ctor_tag=4, traverse to nth element. */
@@ -2509,6 +2531,45 @@ FLUX_DEBUG_HOOK void flux_debug_on_fiber_failure(int64_t err) {
 void flux_panic(int64_t msg) {
     flux_debug_on_panic(msg);
     flux_panic_unhooked(msg);
+}
+
+void flux_runtime_error(const char *fmt, ...) {
+    char buf[256];
+    va_list args;
+    va_start(args, fmt);
+    int pos = vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    if (pos > (int)sizeof(buf) - 1) pos = (int)sizeof(buf) - 1;
+    flux_panic(flux_string_new(buf, (uint32_t)pos));
+}
+
+const char *flux_value_kind_name(int64_t val) {
+    if (flux_is_int(val)) return "Int";
+    if (val == FLUX_TRUE || val == FLUX_FALSE) return "Bool";
+    if (val == FLUX_NONE) return "None";
+    if (val == FLUX_EMPTY_LIST) return "List";
+    if (!flux_is_ptr(val)) return "Uninit";
+    void *ptr = flux_untag_ptr(val);
+    switch (flux_obj_tag(ptr)) {
+    case FLUX_OBJ_STRING:  return "String";
+    case FLUX_OBJ_FLOAT:   return "Float";
+    case FLUX_OBJ_TUPLE:   return "Tuple";
+    case FLUX_OBJ_ARRAY:   return "Array";
+    case FLUX_OBJ_MAP:     return "Map";
+    case FLUX_OBJ_CLOSURE: return "Closure";
+    case FLUX_OBJ_ADT: {
+        int32_t ctor_tag = *(int32_t *)ptr;
+        int32_t field_count = *((int32_t *)ptr + 1);
+        if (ctor_tag == 0 && field_count == 0) return "None";
+        if (ctor_tag == 1) return "Some";
+        if (ctor_tag == 2) return "Left";
+        if (ctor_tag == 3) return "Right";
+        if (ctor_tag == 4) return "List";
+        return "Adt";
+    }
+    default:
+        return flux_is_hamt(ptr) ? "Map" : "Adt";
+    }
 }
 
 /* What a panic nothing catches prints, all to stderr: the message, then
