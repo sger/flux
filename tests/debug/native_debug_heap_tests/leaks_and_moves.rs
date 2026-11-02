@@ -168,6 +168,21 @@ fn a_value_passed_by_ownership_is_freed_by_its_callee() {
     assert!(!stderr.contains("leak:"), "{stderr}");
 }
 
+/// KI-160: an interpolation's part strings and the joins between them are
+/// released, so only its result is left to its owner.
+#[test]
+fn an_interpolation_frees_its_parts_and_joins() {
+    let scratch = Scratch::new("debug-heap-interpolated-parts");
+    let (stdout, stderr, code) = run(
+        &scratch,
+        "tests/debug/heap/interpolated_parts.flx",
+        &["--native", "--leak-check"],
+        None,
+    );
+    assert_eq!((stdout.as_str(), code), ("", 0), "{stderr}");
+    assert!(!stderr.contains("leak:"), "{stderr}");
+}
+
 /// `--debug-heap` alone does not report leaks: nearly every program still
 /// leaks (KI-119, KI-121).
 #[test]

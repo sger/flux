@@ -3155,6 +3155,7 @@ int64_t flux_to_string(int64_t val) {
                     memcpy(buf + pos, sd, sl);
                     pos += sl;
                 }
+                flux_drop(s);
             }
             pos += snprintf(buf + pos, sizeof(buf) - pos, "|]");
             return flux_string_new(buf, (uint32_t)pos);
@@ -3174,6 +3175,7 @@ int64_t flux_to_string(int64_t val) {
                     memcpy(buf + pos, sd, sl);
                     pos += sl;
                 }
+                flux_drop(s);
             }
             if (arity == 1) pos += snprintf(buf + pos, sizeof(buf) - pos, ",");
             pos += snprintf(buf + pos, sizeof(buf) - pos, ")");
@@ -3191,6 +3193,7 @@ int64_t flux_to_string(int64_t val) {
                 int64_t s = flux_to_string(fields[0]);
                 const char *sd = flux_string_data(s); uint32_t sl = flux_string_len(s);
                 if (pos + sl < sizeof(buf) - 10) { memcpy(buf + pos, sd, sl); pos += sl; }
+                flux_drop(s);
                 pos += snprintf(buf + pos, sizeof(buf) - pos, ")");
                 return flux_string_new(buf, (uint32_t)pos);
             }
@@ -3201,6 +3204,7 @@ int64_t flux_to_string(int64_t val) {
                 int64_t s = flux_to_string(fields[0]);
                 const char *sd = flux_string_data(s); uint32_t sl = flux_string_len(s);
                 if (pos + sl < sizeof(buf) - 10) { memcpy(buf + pos, sd, sl); pos += sl; }
+                flux_drop(s);
                 pos += snprintf(buf + pos, sizeof(buf) - pos, ")");
                 return flux_string_new(buf, (uint32_t)pos);
             }
@@ -3211,6 +3215,7 @@ int64_t flux_to_string(int64_t val) {
                 int64_t s = flux_to_string(fields[0]);
                 const char *sd = flux_string_data(s); uint32_t sl = flux_string_len(s);
                 if (pos + sl < sizeof(buf) - 10) { memcpy(buf + pos, sd, sl); pos += sl; }
+                flux_drop(s);
                 pos += snprintf(buf + pos, sizeof(buf) - pos, ")");
                 return flux_string_new(buf, (uint32_t)pos);
             }
@@ -3233,6 +3238,7 @@ int64_t flux_to_string(int64_t val) {
                             memcpy(buf + pos, sd, sl);
                             pos += sl;
                         }
+                        flux_drop(s);
                     }
                     pos += snprintf(buf + pos, sizeof(buf) - pos, ")");
                 }
@@ -3260,6 +3266,7 @@ int64_t flux_to_string(int64_t val) {
                         memcpy(buf + pos, sd, sl);
                         pos += sl;
                     }
+                    flux_drop(s);
                     cur = fields[1];
                 }
                 pos += snprintf(buf + pos, sizeof(buf) - pos, "]");
@@ -3307,6 +3314,7 @@ int64_t flux_to_string_value(int64_t val) {
                 const char *sd = flux_string_data(s);
                 uint32_t sl = flux_string_len(s);
                 if (pos + sl < sizeof(buf) - 10) { memcpy(buf + pos, sd, sl); pos += sl; }
+                flux_drop(s);
                 pos += snprintf(buf + pos, sizeof(buf) - pos, ")");
                 return flux_string_new(buf, (uint32_t)pos);
             }
