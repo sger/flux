@@ -927,7 +927,7 @@ impl<'a> FnEmitter<'a> {
     }
 
     /// Emit a call to a C runtime function.
-    /// Automatically uses `fastcc` for LLVM prelude helpers (arithmetic, NaN-box,
+    /// Automatically uses `fastcc` for LLVM prelude helpers (arithmetic, tagging,
     /// ADT constructors) and `ccc` for actual C runtime functions.
     fn call_c(
         &mut self,
@@ -3843,7 +3843,7 @@ impl LirInstr {
 fn is_fastcc_prelude_helper(name: &str) -> bool {
     matches!(
         name,
-        // NaN-box tag/untag
+        // Pointer-tag tag/untag
         "flux_tag_int" | "flux_untag_int" | "flux_is_ptr"
         | "flux_tag_thunk" | "flux_untag_thunk_ptr" | "flux_is_thunk"
         | "flux_tag_boxed_ptr" | "flux_untag_boxed_ptr"
@@ -4277,7 +4277,7 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         }
         "flux_event_wait" => (LlvmType::i64(), vec![LlvmType::i64()]),
         // TCP primops (proposal 0174 Phase 1b-vii).
-        // Args are NaN-boxed i64 values matching the Flow.Tcp primop arity.
+        // Args are tagged i64 values matching the Flow.Tcp primop arity.
         "flux_tcp_connect" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
         "flux_tcp_read" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
         "flux_tcp_write_all" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
