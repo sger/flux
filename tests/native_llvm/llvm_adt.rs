@@ -193,6 +193,38 @@ fn main() {
     );
 }
 
+/// A nullary constructor is one read-only object with a sticky count, shared
+/// by every use, so building it allocates nothing.
+#[test]
+fn nullary_constructors_are_static_objects() {
+    let rendered = compile_to_llvm_ir(
+        r#"
+data Color {
+    Red,
+    Green,
+    Blue,
+}
+
+fn pick(n) {
+    if n > 0 { Red } else { Green }
+}
+
+fn main() {
+    pick(1)
+}
+"#,
+    );
+
+    let statics: Vec<&str> =
+        rendered.lines().filter(|line| line.starts_with("@flux.ctor.")).collect();
+    assert_eq!(statics.len(), 2, "one static object each for Red and Green:\n{rendered}");
+    for line in statics {
+        assert!(line.contains("private constant"), "{line}");
+        assert!(line.contains("i32 1073741824"), "{line}");
+    }
+    assert!(!rendered.contains("@flux_make_adt(ptr null"), "{rendered}");
+}
+
 #[test]
 fn per_module_adt_owner_emits_ctor_name_helper_without_main() {
     let rendered = compile_per_module_llvm_ir(
