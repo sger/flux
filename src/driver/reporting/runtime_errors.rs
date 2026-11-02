@@ -130,6 +130,20 @@ fn traced_span(path: &str, frames: &[NativeTraceFrame]) -> Option<Span> {
     Some(Span::new(Position::new(line, column), Position::new(line, end)))
 }
 
+/// Whether `frame` is in an `intrinsic fn`, which its line declares.
+#[cfg(feature = "llvm")]
+fn is_intrinsic_frame(frame: &NativeTraceFrame) -> bool {
+    let (Some(file), Some(line)) = (&frame.file, frame.line) else {
+        return false;
+    };
+    std::fs::read_to_string(file)
+        .ok()
+        .and_then(|source| {
+            Some(source.lines().nth(line.checked_sub(1)?)?.contains("intrinsic fn "))
+        })
+        .unwrap_or(false)
+}
+
 /// Whether `file`, as a native program's line table names it, is `path`.
 #[cfg(feature = "llvm")]
 fn same_file(file: &str, path: &str) -> bool {
@@ -292,7 +306,14 @@ fn infer_native_runtime_span(path: &str, message: &str, frames: &[NativeTraceFra
 #[cfg(feature = "llvm")]
 pub fn render_native_runtime_error(path: &str, stderr: &str) -> Option<String> {
     let (message, encoded_span) = split_native_panic_message_and_span(stderr)?;
-    let frames = parse_native_trace_frames(stderr);
+    let mut frames = parse_native_trace_frames(stderr);
+    // An `intrinsic fn` only names its primop: an optimized build inlines it
+    // and the VM gives it no position, so an error raised in one is placed
+    // where it was called, the same with and without `--optimize`.
+    let intrinsics = frames.iter().take_while(|frame| is_intrinsic_frame(frame)).count();
+    if intrinsics < frames.len() {
+        frames.drain(..intrinsics);
+    }
     // The error is in the innermost frame's file, which may be another
     // module than the program's (0188 S10a).
     let error_file = frames

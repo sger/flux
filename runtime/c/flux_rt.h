@@ -774,6 +774,11 @@ int64_t flux_hamt_get(int64_t map, int64_t key);
 int64_t flux_hamt_set(int64_t map, int64_t key, int64_t value);
 int64_t flux_hamt_delete(int64_t map, int64_t key);
 int64_t flux_hamt_contains(int64_t map, int64_t key);
+/* Whether `key` is one the VM can key a map with: an Int, a Bool or a
+ * String. */
+int     flux_hamt_key_ok(int64_t key);
+/* A map literal's entry: `flux_hamt_set` with the VM's literal error. */
+int64_t flux_hamt_set_literal(int64_t map, int64_t key, int64_t value);
 int64_t flux_hamt_size(int64_t map);
 int     flux_is_hamt(void *ptr);
 int64_t flux_hamt_format(int64_t map);
@@ -841,6 +846,11 @@ int64_t flux_is_none_val(int64_t val);
 /* ── Control ────────────────────────────────────────────────────────── */
 
 void    flux_panic(int64_t msg);
+/* Panics with one of the VM's runtime error messages, word for word; the
+ * driver gives it the VM's code (`render_native_runtime_error`). */
+void    flux_runtime_error(const char *fmt, ...);
+/* The name the VM gives a value's kind in its errors (`Value::type_name`). */
+const char *flux_value_kind_name(int64_t val);
 
 /* Debugger hooks (proposal 0188 S7b): empty functions the runtime calls
  * just before it reports an error, so a debugger can stop there by name.

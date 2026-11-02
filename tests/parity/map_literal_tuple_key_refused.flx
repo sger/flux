@@ -1,0 +1,10 @@
+// parity: vm, llvm
+// expect: runtime_error
+// bug: KI-157: natively a tuple key in a map literal was accepted and gave a
+//       wrong answer, where the VM stops; both backends must refuse it.
+
+fn pair(a: Int, b: Int) -> (Int, Int) { (a, b) }
+
+fn main() with IO {
+    print({pair(1, 2): "a"})
+}
