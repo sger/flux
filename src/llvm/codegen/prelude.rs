@@ -47,6 +47,8 @@ pub fn emit_prelude(module: &mut LlvmModule) {
     emit_is_ptr(module);
     emit_dup(module);
     emit_drop(module);
+    emit_dup_inline(module);
+    emit_drop_inline(module);
     emit_drop_reuse(module);
     emit_rc_is_unique(module);
     emit_is_thunk(module);
@@ -233,6 +235,145 @@ fn emit_drop(module: &mut LlvmModule) {
             call_conv: CallConv::Ccc,
         },
         attrs: vec!["nounwind".into()],
+    });
+}
+
+/// The runtime's sticky count (`FLUX_RC_STICKY` in `runtime/c/rc.c`): a
+/// count at or past it never changes.
+const FLUX_RC_STICKY: i128 = 0x4000_0000;
+
+/// Emit `flux_dup_inline(i64 %val) -> void`: `flux_dup` with its common case,
+/// a live count owned by one thread, done in place.
+fn emit_dup_inline(module: &mut LlvmModule) {
+    emit_rc_inline(module, "flux_dup_inline", "flux_dup", 0, 1);
+}
+
+/// Emit `flux_drop_inline(i64 %val) -> void`: `flux_drop` with its common
+/// case, a count owned by one thread that stays above zero, done in place.
+fn emit_drop_inline(module: &mut LlvmModule) {
+    emit_rc_inline(module, "flux_drop_inline", "flux_drop", 1, -1);
+}
+
+/// A count above `floor` and below the sticky count belongs to one thread
+/// (`rc.c`'s sign encoding), so it changes by `delta` with a plain store. A
+/// sticky count is left alone. Anything else calls `slow`: a shared count
+/// needs the runtime's atomics, and a drop to zero frees. A block the debug
+/// heap has freed keeps count 0, so its check in `slow` still runs.
+fn emit_rc_inline(module: &mut LlvmModule, name: &str, slow: &str, floor: i128, delta: i128) {
+    if has_function(module, name) {
+        return;
+    }
+    let i32_const = |value: i128| LlvmOperand::Const(LlvmConst::Int { bits: 32, value });
+    module.functions.push(LlvmFunction {
+        linkage: Linkage::Internal,
+        name: flux_prelude_symbol(name),
+        sig: LlvmFunctionSig {
+            ret: LlvmType::Void,
+            params: vec![LlvmType::i64()],
+            varargs: false,
+            call_conv: CallConv::Fastcc,
+        },
+        params: vec![LlvmLocal("val".into())],
+        attrs: helper_attrs(),
+        blocks: vec![
+            LlvmBlock {
+                label: LabelId("entry".into()),
+                instrs: vec![LlvmInstr::Call {
+                    dst: Some(LlvmLocal("is_ptr".into())),
+                    tail: false,
+                    call_conv: Some(CallConv::Fastcc),
+                    ret_ty: LlvmType::i1(),
+                    callee: LlvmOperand::Global(flux_prelude_symbol("flux_is_ptr")),
+                    args: vec![(LlvmType::i64(), local("val"))],
+                    attrs: vec![],
+                }],
+                term: LlvmTerminator::CondBr {
+                    cond_ty: LlvmType::i1(),
+                    cond: local("is_ptr"),
+                    then_label: LabelId("check_rc".into()),
+                    else_label: LabelId("done".into()),
+                },
+            },
+            LlvmBlock {
+                label: LabelId("check_rc".into()),
+                instrs: {
+                    let mut instrs = rc_extract_ptr_instrs();
+                    instrs.push(LlvmInstr::Load {
+                        dst: LlvmLocal("rc".into()),
+                        ty: LlvmType::i32(),
+                        ptr: local("rc_ptr"),
+                        align: Some(4),
+                    });
+                    instrs.push(LlvmInstr::Icmp {
+                        dst: LlvmLocal("local".into()),
+                        op: LlvmCmpOp::Sgt,
+                        ty: LlvmType::i32(),
+                        lhs: local("rc"),
+                        rhs: i32_const(floor),
+                    });
+                    instrs
+                },
+                term: LlvmTerminator::CondBr {
+                    cond_ty: LlvmType::i1(),
+                    cond: local("local"),
+                    then_label: LabelId("check_sticky".into()),
+                    else_label: LabelId("slow".into()),
+                },
+            },
+            LlvmBlock {
+                label: LabelId("check_sticky".into()),
+                instrs: vec![LlvmInstr::Icmp {
+                    dst: LlvmLocal("sticky".into()),
+                    op: LlvmCmpOp::Sge,
+                    ty: LlvmType::i32(),
+                    lhs: local("rc"),
+                    rhs: i32_const(FLUX_RC_STICKY),
+                }],
+                term: LlvmTerminator::CondBr {
+                    cond_ty: LlvmType::i1(),
+                    cond: local("sticky"),
+                    then_label: LabelId("done".into()),
+                    else_label: LabelId("update".into()),
+                },
+            },
+            LlvmBlock {
+                label: LabelId("update".into()),
+                instrs: vec![
+                    LlvmInstr::Binary {
+                        dst: LlvmLocal("next".into()),
+                        op: LlvmValueKind::Add,
+                        ty: LlvmType::i32(),
+                        lhs: local("rc"),
+                        rhs: i32_const(delta),
+                    },
+                    LlvmInstr::Store {
+                        ty: LlvmType::i32(),
+                        value: local("next"),
+                        ptr: local("rc_ptr"),
+                        align: Some(4),
+                    },
+                ],
+                term: LlvmTerminator::RetVoid,
+            },
+            LlvmBlock {
+                label: LabelId("slow".into()),
+                instrs: vec![LlvmInstr::Call {
+                    dst: None,
+                    tail: false,
+                    call_conv: Some(CallConv::Ccc),
+                    ret_ty: LlvmType::Void,
+                    callee: LlvmOperand::Global(flux_prelude_symbol(slow)),
+                    args: vec![(LlvmType::i64(), local("val"))],
+                    attrs: vec![],
+                }],
+                term: LlvmTerminator::RetVoid,
+            },
+            LlvmBlock {
+                label: LabelId("done".into()),
+                instrs: vec![],
+                term: LlvmTerminator::RetVoid,
+            },
+        ],
     });
 }
 
@@ -1228,5 +1369,43 @@ mod tests {
         assert!(rendered.contains("%class_ptr = getelementptr i8, ptr %hp, i64 7"));
         assert!(rendered.contains("store i8 %class8, ptr %class_ptr"));
         assert!(!rendered.contains("store i16 0"));
+    }
+
+    /// The body of `name` in `rendered`, from its `define` to its closing brace.
+    fn function_body<'a>(rendered: &'a str, name: &str) -> &'a str {
+        let start = rendered
+            .find(&format!("@{name}("))
+            .and_then(|at| rendered[..at].rfind("define "))
+            .unwrap_or_else(|| panic!("no `{name}` in:\n{rendered}"));
+        let end = start + rendered[start..].find("\n}").expect("an unclosed function");
+        &rendered[start..end]
+    }
+
+    #[test]
+    fn inline_rc_updates_only_a_thread_local_live_count() {
+        let mut module = LlvmModule::new();
+        emit_prelude(&mut module);
+        let rendered = render_module(&module);
+
+        let dup = function_body(&rendered, "flux_dup_inline");
+        assert!(
+            dup.starts_with("define internal fastcc void @flux_dup_inline(i64 %val) alwaysinline")
+        );
+        assert!(dup.contains("%local = icmp sgt i32 %rc, 0"), "{dup}");
+        assert!(dup.contains("%sticky = icmp sge i32 %rc, 1073741824"), "{dup}");
+        assert!(dup.contains("%next = add i32 %rc, 1"), "{dup}");
+        assert!(dup.contains("call ccc void @flux_dup(i64 %val)"), "{dup}");
+
+        let drop = function_body(&rendered, "flux_drop_inline");
+        assert!(
+            drop.starts_with(
+                "define internal fastcc void @flux_drop_inline(i64 %val) alwaysinline"
+            )
+        );
+        // A count of 1 is the last reference: the runtime frees it.
+        assert!(drop.contains("%local = icmp sgt i32 %rc, 1"), "{drop}");
+        assert!(drop.contains("%sticky = icmp sge i32 %rc, 1073741824"), "{drop}");
+        assert!(drop.contains("%next = add i32 %rc, -1"), "{drop}");
+        assert!(drop.contains("call ccc void @flux_drop(i64 %val)"), "{drop}");
     }
 }

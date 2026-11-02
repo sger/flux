@@ -1890,7 +1890,7 @@ impl<'a> FnEmitter<'a> {
                 if !self.worker_mode {
                     self.call_c(
                         None,
-                        "flux_dup",
+                        "flux_dup_inline",
                         vec![(LlvmType::i64(), self.var(*val))],
                         LlvmType::Void,
                     );
@@ -1900,7 +1900,7 @@ impl<'a> FnEmitter<'a> {
                 if !self.worker_mode {
                     self.call_c(
                         None,
-                        "flux_drop",
+                        "flux_drop_inline",
                         vec![(LlvmType::i64(), self.var(*val))],
                         LlvmType::Void,
                     );
@@ -3848,7 +3848,7 @@ fn is_fastcc_prelude_helper(name: &str) -> bool {
         // Logic
         | "flux_not" | "flux_and" | "flux_or"
         // RC helpers
-        | "flux_drop_reuse" | "flux_rc_is_unique"
+        | "flux_dup_inline" | "flux_drop_inline" | "flux_drop_reuse" | "flux_rc_is_unique"
         // Bump allocator
         | "flux_bump_alloc_inline"
         // ADT/Tuple/Closure construction

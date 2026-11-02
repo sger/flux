@@ -107,6 +107,9 @@ static inline void rc_store_relaxed(FluxHeader *hdr, int32_t v) {
  * value. ThreadSanitizer treats every atomic access as race-free, so in its
  * build the change is a plain write: a second thread that changes it without
  * synchronising with the owner is then a data race it reports (audit L7).
+ * Generated code changes a thread-local count in place without calling here
+ * (flux_dup_inline and flux_drop_inline in src/llvm/codegen/prelude.rs), and
+ * it is not built with ThreadSanitizer, so those changes go unseen.
  */
 static inline void rc_store_local(FluxHeader *hdr, int32_t v) {
 #ifdef FLUX_TSAN_COUNTS
