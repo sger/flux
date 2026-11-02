@@ -42,6 +42,138 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-160 — Natively, an interpolated string with more than one part leaks its pieces
+
+**Severity:** Medium · **Area:** LLVM emission, strings · **Verified:** 2026-11-02 (c4019333, and the same at 4a97c60f) · **From:** re-running the native runtime roadmap's leak checks with `--leak-check`
+
+```flux
+fn size(i: Int) -> Int {
+    let label = "item-#{i}"
+    len(label)
+}
+
+fn main() with IO {
+    print(size(3) + size(40))
+}
+```
+
+```text
+$ flux size.flx --native --leak-check
+13
+leak: 5 blocks still live at exit
+  a String (16 bytes) allocated at size (size.flx:2:17)
+  a String (16 bytes) allocated at size (size.flx:2:17)
+  a String (16 bytes) allocated at size (size.flx:2:17)
+  a String (16 bytes) allocated at size (size.flx:2:17)
+  a tuple (8 bytes) allocated at <lambda size.flx:6:1> (size.flx:6:1)
+```
+
+Two strings per evaluation of `"item-#{i}"`; the tuple is KI-119's. The
+same holds when the result is passed on rather than borrowed. `"#{n}"` alone,
+`to_string(i)`, and an interpolation that is never used leak nothing.
+
+`emit_interpolate` (`src/lir/emit_llvm.rs`) turns each part into a string
+with `flux_to_string_value` and joins them with `flux_string_concat`, which
+only borrows its arguments (it counts once more an argument it returns as it
+is). Only the final string is owned by anyone; the part strings and the
+intermediate joins are never released. A program that interpolates in a loop
+leaks without bound: `tests/parity/collection_alloc_recycle.flx` ends with
+111,000 blocks live and `benchmarks/flux/binarytrees_smoke.flx` with 37, all
+from interpolations. Likely fix: drop each part string and each intermediate
+join once the next concat has copied it.
+
+### KI-159 — The sanitizer runs check only the C runtime, not generated code
+
+**Severity:** Medium · **Area:** native runtime, sanitizers · **Verified:** 2026-11-02 (c4019333), by reading the build and the emitted IR · **From:** inline reference counting (native runtime roadmap task 5b), an accepted gap
+
+`cargo xtask sanitize` and `cargo xtask sanitize --thread` link each program
+against a runtime built with `-fsanitize` (`RuntimeVariant::defines` and
+`link_flags` in `src/llvm/pipeline.rs`). The program's own code is the same
+LLVM IR as in any other build and is not instrumented, so nothing it does
+there is checked. That code now does work the runtime used to do:
+
+- Since 9b2a49c2, `flux_dup_inline` and `flux_drop_inline` change a
+  thread-local count in place and call `flux_dup` or `flux_drop` only for a
+  shared count, a free, or a count of 0 or below. TSan found KI-134's race
+  inside `flux_drop`; the same race through the inline path goes unreported.
+  The comment above `rc_store_local` in `runtime/c/rc.c` says the same.
+- ASan does not see the inline allocators (`flux_bump_alloc_inline`,
+  `flux_bump_alloc_filled`) or the stores that fill a new object.
+
+The debug heap still catches a use after free through the inline paths: a
+freed block's count is 0, which they hand to the runtime.
+
+Not decided: compile the generated code with the same `-fsanitize` flags in
+those variants, which makes the object cache depend on the variant.
+
+### KI-158 — Two lldb tests fail now and then in a full sequential run of the `debug` suite
+
+**Severity:** Low · **Area:** tests, native debugger · **Verified:** 2026-11-02 (c4019333), macOS arm64, lldb-2103.0.34.407 · **From:** verification runs for the native runtime roadmap, tasks 5 and 6
+
+In five full runs of `cargo test --all-features --test debug --
+--test-threads=1` on 2026-11-01 and 2026-11-02, two failed, each on one test
+and each time in `assert_lines` (`tests/debug/native_debug_tests.rs:643`),
+which means an expected line was missing from the lldb session's output:
+
+- `native_debug_tests::a_caught_panic_stops_at_the_call_to_panic`, in the
+  run for 9b2a49c2;
+- `native_debug_tests::lldb_runs_a_replay_to_an_event_and_back`, in the run
+  for bbaebee0.
+
+Both passed 5 of 5 times when re-run alone straight after, and 10 of 10 each
+on 2026-11-02; the other three full runs passed. The failing runs kept only
+the panic line, not the session, so which line was missing is not known, nor
+the cause: lldb timing under load, or state left by an earlier test.
+
+### KI-157 — Natively, a map compares tuple, constructor and Float keys wrongly
+
+**Severity:** High · **Area:** native runtime, maps · **Verified:** 2026-11-02 (c4019333, and the same at 4a97c60f) · **From:** planning static nullary constructors (native runtime roadmap task 6a)
+
+```flux
+import Flow.Map as Map
+
+fn pair(a: Int, b: Int) -> (Int, Int) { (a, b) }
+
+type Color = Red | Green
+
+fn main() with IO {
+    print(Map.get(Map.set({}, pair(1, 2), "a"), pair(1, 3)))
+    let both = Map.set(Map.set({}, Red, "red"), Green, "green")
+    print(Map.size(both))
+    print(Map.get(both, Red))
+}
+```
+
+Natively this prints `Some("a")`, `1` and `Some("green")`: `(1, 3)` finds
+the entry for `(1, 2)`, and `Green` replaces `Red`. A Float key computed
+twice (`half(3.0)` for `fn half(x: Float) -> Float { x / 2.0 }`) is not
+found at all. The VM takes only `Int`, `Bool` and `String` keys and stops at
+the first `Map.set`:
+
+```text
+error[E1004]: primop put expects hashable key (String, Int, Bool), got Tuple
+```
+
+`Map.set<k, v>` (`lib/Flow/Map.flx`) puts no constraint on `k`, so the
+program type-checks. In `runtime/c/hamt.c`, `hamt_hash` hashes a key that is
+not a String as its raw word (for a boxed value, its address), and
+`keys_equal` hands any two boxed keys to `flux_string_eq`, which does not
+check that they are strings: it reads the word at offset 4 as a length (a
+tuple's arity, a constructor's field count) and compares that many bytes
+after it. So any two constructors without fields are equal, and two tuples
+are equal when their first `arity` payload bytes are. A leaf compares keys
+without checking the hash, so which wrong answer comes out depends on the
+map's shape: `pair(5, 2)` against `pair(1, 2)`, and `Some(2)` against
+`Some(1)`, happened to give `None`.
+
+Same family: natively `pair(1, 2) < pair(0, 9)` is `true`, because
+`flux_rt_lt` (`runtime/c/flux_rt.c`) compares any value that is not a String
+or Float as a word, so tuples by address. The VM stops with
+`error[E1009]: cannot compare Tuple with OpGreaterThan`.
+
+Not decided: reject such keys in the types, as the VM's set of hashable keys
+suggests, or hash and compare them by structure in C.
+
 ### KI-155 — A self tail call with a constructor application as an argument is rejected with a bogus E082
 
 **Severity:** High · **Area:** compiler, tail calls · **Verified:** 2026-10-31 (ce4da5da) · **From:** writing a `lookup` benchmark for proposal 0193
