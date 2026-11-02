@@ -42,6 +42,43 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-161 — Natively, a Float literal used as an operand or argument leaks its box
+
+**Severity:** Medium · **Area:** LLVM emission, Floats · **Verified:** 2026-11-02 (66decd77) · **From:** the full verify after the Float counting fix (204a2c8e), whose new fixture `tests/parity/float_let_shared.flx` was the one file added to heap parity's leak list
+
+```flux
+fn half(x: Float) -> Float {
+    x * 0.5
+}
+
+fn main() {
+    let h = half(3.0)
+    if h > 1.0 { 0 } else { 1 }
+}
+```
+
+```text
+$ flux half.flx --native --leak-check
+leak: 3 blocks still live at exit
+  a Float (8 bytes) allocated at main (half.flx:6:13)
+  a Float (8 bytes) allocated at half (half.flx:2:5)
+  a Float (8 bytes) allocated at main (half.flx:7:8)
+```
+
+One box per literal: the `3.0` lent to `half`, the `0.5` in `x * 0.5`, and
+the `1.0` in the comparison. The result `h` is freed. The Aether dump shows
+why: a Float literal stays an operand (`aether_call[borrowed] half(3)`,
+`FCmpGt(h, 1)`), so no binder owns it and nothing drops it, but emission
+(`LirConst::Float` in `src/lir/emit_llvm.rs`) boxes it with
+`flux_box_float_rt` at each use. A `let` bound to a literal is propagated
+into its uses, so `let a = 3.14` used twice leaks two boxes.
+`examples/guide/float.flx` leaks 4 blocks and `float_let_shared.flx` 6 (and
+KI-119's tuple), all literals; a loop over such code leaks without bound.
+
+Likely fix: emit a Float literal as a static object with a sticky count, as
+`StaticObjects` already does for string literals, so it allocates nothing
+and dropping it does nothing. That also saves an allocation per use.
+
 ### KI-160 — Natively, an interpolated string with more than one part leaks its pieces
 
 **Severity:** Medium · **Area:** LLVM emission, strings · **Verified:** 2026-11-02 (c4019333, and the same at 4a97c60f) · **From:** re-running the native runtime roadmap's leak checks with `--leak-check`
