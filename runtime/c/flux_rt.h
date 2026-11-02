@@ -157,6 +157,7 @@ void  flux_gc_shutdown(void);
 void *flux_gc_alloc(uint32_t size);
 void *flux_gc_alloc_header(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag);
 void *flux_bump_alloc_slow(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag);
+void *flux_bump_alloc_slow_filled(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag);
 void  flux_gc_free(void *ptr);
 void  flux_gc_collect(void);
 void  flux_gc_push_root(int64_t *root);
