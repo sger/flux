@@ -107,7 +107,7 @@ and both runtimes keep hashing those keys themselves. That is what makes it
 cheap, and it avoids a hazard found while writing this: `Ord` on a tuple
 type-checks through the solver's structural rule but its dictionary cannot be
 built, so `fn bigger<a: Ord>(x: a, y: a) -> Bool` called with two tuples
-stops the compiler with E000 on both backends (to be filed as a known issue).
+stops the compiler with E000 on both backends (KI-162).
 A class without methods needs no dictionary at run time, as `Sendable` shows.
 
 ### Tuples, `Option`, `List`

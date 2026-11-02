@@ -42,6 +42,49 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-162 — A class constraint met by a tuple, an Array, an Either, or an `Ord` container stops the compiler with E000
+
+**Severity:** Medium · **Area:** type classes, Core lowering · **Verified:** 2026-11-02 (a4dece25), VM and native alike · **From:** checking `Ord` on tuples while deciding KI-157
+
+```flux
+fn bigger<a: Ord>(x: a, y: a) -> Bool {
+    x > y
+}
+
+fn main() with IO {
+    print(bigger((1, 2), (0, 9)))
+}
+```
+
+```text
+$ flux bigger.flx
+error[E000]: Internal Compiler Error
+lowering the site at 6:10 from its evidence: a predicate it raised (Ord) has no answer that can be built
+```
+
+The same program with `Eq` and `==`, or with another argument type:
+
+| Constraint | `Some(2)` | `[1, 2]` | `[\|1, 2\|]` | `(1, 2)` | `Left(1)` |
+|---|---|---|---|---|---|
+| `Eq` | runs | runs | E000 | E000 | E000 |
+| `Ord` | E000 | E000 | E000 | E000 | not tried |
+
+`compare((1, 2), (0, 9))` with no generic function in between stops the same
+way. `(1, 2) == (1, 2)` with no constraint runs.
+
+The type checker accepts each of these through the built-in structural rule
+(`structural_builtin_evidence`, `src/types/class_solver.rs`), which solves
+`Eq` and `Ord` for tuples, Option, List, Array and Either from their parts.
+Lowering needs a dictionary, and builds one only from an instance declared in
+`lib/Flow/`: `Eq.flx` declares `Eq` for List and Option, and `Ord.flx` only
+for Int, Float and String. So every type the rule accepts without such an
+instance gets as far as `src/core/lower_ast/emit.rs`, which raises the E000.
+
+Not decided: declare the missing instances in Flux, build the dictionary from
+the components the rule already found, or narrow the rule to the instances
+that exist (an error at type checking instead of the E000). Proposal 0194
+relies on this for its `Hash` class having no methods.
+
 ### KI-161 — Natively, a Float literal used as an operand or argument leaks its box
 
 **Severity:** Medium · **Area:** LLVM emission, Floats · **Verified:** 2026-11-02 (66decd77) · **From:** the full verify after the Float counting fix (204a2c8e), whose new fixture `tests/parity/float_let_shared.flx` was the one file added to heap parity's leak list
