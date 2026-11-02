@@ -157,18 +157,17 @@ void  flux_gc_shutdown(void);
 void *flux_gc_alloc(uint32_t size);
 void *flux_gc_alloc_header(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag);
 void *flux_bump_alloc_slow(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag);
-int32_t flux_can_use_bump_arena(void);
 void  flux_gc_free(void *ptr);
 void  flux_gc_collect(void);
 void  flux_gc_push_root(int64_t *root);
 void  flux_gc_pop_root(void);
 
-/* Bump arena pointers (exported for Phase 7b inline LLVM allocation). */
-extern char *flux_arena_hp;
-extern char *flux_arena_limit;
+/* This thread's bump pointers, NULL on every thread without the arena
+ * (exported for the inline LLVM allocation). */
+extern __thread char *flux_arena_hp;
+extern __thread char *flux_arena_limit;
 
-/* Set to 1 in task worker threads (tasks.c) to bypass the bump arena
- * and force all allocations through malloc, which is thread-safe.
+/* Set to 1 in task worker threads (tasks.c), which keep no free lists.
  * Defined in rc.c; each thread gets its own copy via __thread TLS. */
 extern __thread int flux_worker_thread;
 

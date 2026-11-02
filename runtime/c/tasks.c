@@ -16,8 +16,9 @@
  *   - Per-slot mutex + condvar protect the status field.
  *   - cancelled_flag is _Atomic so the worker can load it without the lock.
  *   - flux_dup/flux_drop use atomic RC (sign-bit encoding, Phase 1a-iv).
- *   - Worker threads set flux_worker_thread = 1 so all Flux allocations go
- *     through malloc, bypassing the non-thread-safe bump arena (rc.c).
+ *   - Worker threads have no bump arena (their flux_arena_hp stays NULL), so
+ *     all their Flux allocations go through malloc. They set
+ *     flux_worker_thread = 1, which keeps them off the free lists (rc.c).
  *
  * Windows: CreateThread / CRITICAL_SECTION / CONDITION_VARIABLE will be wired
  * in a follow-up.  The abort() fallback keeps native Task calls loud on that
@@ -175,7 +176,7 @@ static int flux_task_tape_start(FluxTaskEntry *e) {
 static void *flux_task_worker(void *arg) {
     FluxTaskEntry *e = (FluxTaskEntry *)arg;
 
-    /* Bypass bump arena: worker threads allocate via malloc only. */
+    /* Workers keep no free lists; they have no arena either. */
     flux_worker_thread = 1;
 
     int skip = flux_tape_mode
@@ -579,7 +580,7 @@ static int flux_task_tape_start(FluxTaskEntry *e) {
 static unsigned __stdcall flux_task_worker(void *arg) {
     FluxTaskEntry *e = (FluxTaskEntry *)arg;
 
-    /* Bypass bump arena: worker threads allocate via malloc only. */
+    /* Workers keep no free lists; they have no arena either. */
     flux_worker_thread = 1;
 
     int skip = flux_tape_mode

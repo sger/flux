@@ -53,8 +53,9 @@
  * view of the prior ST writes.
  *
  * Phase 7 (Proposal 0140): bump arena for fast-path allocation.
- * A 1 MB arena is allocated once at init.  flux_gc_alloc_header tries
- * to bump-allocate from the arena; on overflow it falls back to malloc.
+ * A 1 MB arena is allocated once at init, for the thread that inits.
+ * flux_gc_alloc_header tries to bump-allocate from the arena; on overflow,
+ * or on any other thread, it falls back to malloc.
  * flux_drop skips free() for arena-resident objects (range check).
  *
  * Freed blocks of up to 256 bytes go on per-thread size-class free lists,
@@ -68,19 +69,9 @@
 #include <string.h>
 #include <stdio.h>
 
-/* Set to 1 in task worker threads (tasks.c) to force malloc-only allocation,
- * bypassing the non-thread-safe bump arena.  The main thread always leaves
- * this at 0 and retains full bump-arena speed. */
+/* Set to 1 in task worker threads (tasks.c), which keep no free lists (see
+ * "Free lists" below). */
 __thread int flux_worker_thread = 0;
-
-int32_t flux_can_use_bump_arena(void) {
-#ifdef FLUX_DEBUG_HEAP
-    /* Every block goes through flux_bump_alloc_slow, which records it. */
-    return 0;
-#else
-    return flux_worker_thread ? 0 : 1;
-#endif
-}
 
 /* ── FluxHeader ────────────────────────────────────────────────────── */
 
@@ -372,20 +363,25 @@ void flux_debug_heap_report_leaks(void) {
 
 #define FLUX_ARENA_DEFAULT_SIZE  (1 << 20)  /* 1 MB */
 
+/* The arena's bounds, for every thread: a block from it can be released on
+ * a worker, which must leave it alone rather than free() it. */
 static char *arena_base = NULL;
+static char *arena_end  = NULL;
 
 /*
- * Exported bump pointers — shared between C runtime and LLVM inline
- * allocation.  The LLVM fast path stores directly to flux_arena_hp,
- * so the C runtime MUST use the same variable (not a private copy)
- * to avoid allocating overlapping regions.
+ * The bump pointers, shared with the LLVM inline allocation in
+ * src/llvm/codegen/prelude.rs. Each thread has its own, and only the thread
+ * that runs arena_init gets an arena: everywhere else both stay NULL, the
+ * bump never fits, and allocation takes the slow path. So the inline path
+ * needs no test of which thread it is on, and the debug heap, which makes no
+ * arena, sends every block through the slow path that records it.
  */
-char *flux_arena_hp    = NULL;
-char *flux_arena_limit = NULL;
+__thread char *flux_arena_hp    = NULL;
+__thread char *flux_arena_limit = NULL;
 
 #ifndef FLUX_DEBUG_HEAP
 static inline int is_bump_allocated(void *hdr) {
-    return arena_base && (char *)hdr >= arena_base && (char *)hdr < flux_arena_limit;
+    return arena_base && (char *)hdr >= arena_base && (char *)hdr < arena_end;
 }
 #endif
 
@@ -400,8 +396,9 @@ static void arena_init(void) {
                 FLUX_ARENA_DEFAULT_SIZE);
         abort();
     }
+    arena_end        = arena_base + FLUX_ARENA_DEFAULT_SIZE;
     flux_arena_hp    = arena_base;
-    flux_arena_limit = arena_base + FLUX_ARENA_DEFAULT_SIZE;
+    flux_arena_limit = arena_end;
 }
 
 /* ── Free lists ────────────────────────────────────────────────────── */
@@ -519,13 +516,12 @@ void *flux_gc_alloc_header(uint32_t payload_size, uint8_t scan_fsize, uint8_t ob
     }
 #endif
 
-    if (!hdr && !flux_worker_thread && arena_base) {
+    if (!hdr && flux_arena_hp) {
         char *hp = flux_arena_hp;
-        char *new_ptr = hp + total;
-        if (new_ptr <= flux_arena_limit) {
-            /* Fast path: bump allocation from the arena (main thread only). */
+        if (total <= (size_t)(flux_arena_limit - hp)) {
+            /* Fast path: bump allocation from this thread's arena. */
             hdr = (FluxHeader *)hp;
-            flux_arena_hp = new_ptr;
+            flux_arena_hp = hp + total;
         }
     }
 
@@ -944,6 +940,7 @@ void flux_gc_shutdown(void) {
     if (arena_base) {
         free(arena_base);
         arena_base       = NULL;
+        arena_end        = NULL;
         flux_arena_hp    = NULL;
         flux_arena_limit = NULL;
     }

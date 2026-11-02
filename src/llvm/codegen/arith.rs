@@ -92,6 +92,7 @@ fn emit_checked_div_helper(module: &mut LlvmModule, name: &str, op: LlvmValueKin
         name: msg_global_id.clone(),
         ty: LlvmType::Array { len: msg.len() as u64, element: Box::new(LlvmType::i8()) },
         is_constant: true,
+        thread_local: false,
         value: Some(LlvmConst::Array {
             element_ty: LlvmType::i8(),
             elements: msg.bytes().map(|b| LlvmConst::Int { bits: 8, value: b as i128 }).collect(),

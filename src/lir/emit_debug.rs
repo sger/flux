@@ -561,6 +561,7 @@ impl DebugBuilder {
             name: GlobalId(self.types_symbol.clone()),
             ty: LlvmType::Integer(8),
             is_constant: true,
+            thread_local: false,
             value: Some(LlvmConst::Int { bits: 8, value: 0 }),
             attrs: vec![format!(", !dbg !{expression}")],
         })
