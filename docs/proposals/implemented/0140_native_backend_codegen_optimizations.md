@@ -469,6 +469,13 @@ The remaining 1.3x gap to GHC would be due to:
 | RC system | Perceus (compile-time reuse) | Aether (compile-time dup/drop) | Similar design |
 | Constructor reuse | `kk_block_drop_reuse()` | `DropReuse` LIR instruction | Similar design |
 
+> **Note** (2026-11-02): this table is Flux as it was when the proposal was
+> written. Since then pointer tagging (c493978a) has replaced NaN-boxing, and
+> the tail-call row was never true: a LIR tail call becomes an LLVM `tail call`
+> (`promote_tail_calls` in `src/lir/lower.rs`), a hint LLVM may ignore, and
+> Flux emits no `musttail`. [KI-148](../../known_issues.md#ki-148) is a self
+> tail call that stays an ordinary call.
+
 **Key Koka advantage:** 1-bit pointer tagging means boxing/unboxing is nearly free (1 shift instruction vs Flux's multi-instruction NaN-box encode/decode). This is the single biggest difference.
 
 **Key shared advantage:** Both Flux (Aether) and Koka (Perceus) use compile-time reference counting with constructor reuse. Flux's `DropReuse` LIR instruction is the direct equivalent of Koka's `kk_block_drop_reuse()`.
