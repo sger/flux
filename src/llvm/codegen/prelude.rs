@@ -662,20 +662,21 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
         });
     }
 
-    // ── Declare @flux_bump_alloc_slow (C runtime fallback) ───────
-    let slow_name = "flux_bump_alloc_slow";
-    if !module.declarations.iter().any(|d| d.name.0 == slow_name) {
-        module.declarations.push(crate::llvm::LlvmDecl {
-            linkage: Linkage::External,
-            name: GlobalId(slow_name.into()),
-            sig: LlvmFunctionSig {
-                ret: LlvmType::ptr(),
-                params: vec![LlvmType::i32(), LlvmType::i32(), LlvmType::i32()],
-                varargs: false,
-                call_conv: CallConv::Ccc,
-            },
-            attrs: vec!["nounwind".into()],
-        });
+    // ── Declare the C runtime fallbacks, zeroing and not ─────────
+    for slow_name in ["flux_bump_alloc_slow", "flux_bump_alloc_slow_filled"] {
+        if !module.declarations.iter().any(|d| d.name.0 == slow_name) {
+            module.declarations.push(crate::llvm::LlvmDecl {
+                linkage: Linkage::External,
+                name: GlobalId(slow_name.into()),
+                sig: LlvmFunctionSig {
+                    ret: LlvmType::ptr(),
+                    params: vec![LlvmType::i32(), LlvmType::i32(), LlvmType::i32()],
+                    varargs: false,
+                    call_conv: CallConv::Ccc,
+                },
+                attrs: vec!["nounwind".into()],
+            });
+        }
     }
 
     // ── Declare @llvm.memset.p0.i64 intrinsic ────────────────────
@@ -705,15 +706,15 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
     emit_bump_alloc_fn(module, "flux_bump_alloc_filled", false);
 }
 
-/// Defines `fn_name`, the inline bump allocator, zeroing the payload on the
-/// fast path when `zero` is set. The slow path always zeroes.
+/// Defines `fn_name`, the inline bump allocator, zeroing the payload when
+/// `zero` is set, on both paths.
 fn emit_bump_alloc_fn(module: &mut LlvmModule, fn_name: &str, zero: bool) {
     if has_function(module, fn_name) {
         return;
     }
     let hp_name = "flux_arena_hp";
     let lim_name = "flux_arena_limit";
-    let slow_name = "flux_bump_alloc_slow";
+    let slow_name = if zero { "flux_bump_alloc_slow" } else { "flux_bump_alloc_slow_filled" };
     let memset_name = "llvm.memset.p0.i64";
 
     // Signature: fastcc ptr @flux_bump_alloc_inline(i32 %size, i32 %scan, i32 %tag)
@@ -756,7 +757,7 @@ fn emit_bump_alloc_fn(module: &mut LlvmModule, fn_name: &str, zero: bool) {
     //
     // slow:
     //   %p = call ccc ptr @flux_bump_alloc_slow(i32 %size, i32 %scan, i32 %tag)
-    //   ret ptr %p
+    //   ret ptr %p                        ; @flux_bump_alloc_slow_filled if !zero
 
     let i32_ty = LlvmType::i32();
     let i64_ty = LlvmType::i64();
@@ -1365,8 +1366,8 @@ mod tests {
         assert!(!rendered.contains("flux_can_use_bump_arena"), "{rendered}");
     }
 
-    /// A caller that writes every payload word gets a block nobody zeroed;
-    /// the slow path still zeroes, which also clears a recycled block's link.
+    /// A caller that writes every payload word gets a block nobody zeroed, on
+    /// the slow path too.
     #[test]
     fn bump_alloc_filled_leaves_the_payload_to_its_caller() {
         let mut module = LlvmModule::new();
@@ -1375,6 +1376,7 @@ mod tests {
 
         let zeroed = function_body(&rendered, "flux_bump_alloc_inline");
         assert!(zeroed.contains("call ccc void @llvm.memset.p0.i64("), "{zeroed}");
+        assert!(zeroed.contains("call ccc ptr @flux_bump_alloc_slow("), "{zeroed}");
 
         let filled = function_body(&rendered, "flux_bump_alloc_filled");
         assert!(
@@ -1385,7 +1387,7 @@ mod tests {
         );
         assert!(!filled.contains("memset"), "{filled}");
         assert!(filled.contains("store i8 %class8, ptr %class_ptr"), "{filled}");
-        assert!(filled.contains("call ccc ptr @flux_bump_alloc_slow("), "{filled}");
+        assert!(filled.contains("call ccc ptr @flux_bump_alloc_slow_filled("), "{filled}");
     }
 
     /// The body of `name` in `rendered`, from its `define` to its closing brace.

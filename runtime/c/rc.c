@@ -488,17 +488,20 @@ static inline void flux_block_free(void *ptr) {
 
 /* ── Allocation ────────────────────────────────────────────────────── */
 
-static inline void *init_block(FluxHeader *hdr, size_t aligned, uint8_t scan_fsize,
-                               uint8_t obj_tag) {
+static inline void *init_header(FluxHeader *hdr, size_t aligned, uint8_t scan_fsize,
+                                uint8_t obj_tag) {
     rc_store_relaxed(hdr, 1);
     hdr->scan_fsize = scan_fsize;
     hdr->obj_tag    = obj_tag;
     hdr->progress   = 0;
     hdr->size_class = size_class_of(aligned);
+    return (char *)hdr + FLUX_HEADER_SIZE;
+}
 
-    void *payload = (char *)hdr + FLUX_HEADER_SIZE;
+static inline void *init_block(FluxHeader *hdr, size_t aligned, uint8_t scan_fsize,
+                               uint8_t obj_tag) {
+    void *payload = init_header(hdr, aligned, scan_fsize, obj_tag);
     memset(payload, 0, aligned);
-
     return payload;
 }
 
@@ -554,13 +557,10 @@ void *flux_gc_alloc(uint32_t size) {
  * Called when the inline bump check fails (arena full or uninitialized),
  * or on a worker thread. Takes a recycled block, else mallocs one.
  */
-void *flux_bump_alloc_slow(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag) {
-    size_t aligned = align_up((size_t)payload_size, FLUX_ALIGN);
-    size_t total = FLUX_HEADER_SIZE + aligned;
-
+static FluxHeader *slow_block(uint32_t payload_size, size_t aligned) {
 #ifdef FLUX_DEBUG_HEAP
-    (void)total;
-    FluxHeader *hdr = debug_alloc(aligned);
+    (void)payload_size;
+    return debug_alloc(aligned);
 #else
     FluxHeader *hdr = NULL;
     uint8_t size_class = size_class_of(aligned);
@@ -568,15 +568,35 @@ void *flux_bump_alloc_slow(uint32_t payload_size, uint8_t scan_fsize, uint8_t ob
         hdr = free_list_pop(size_class);
     }
     if (!hdr) {
-        hdr = (FluxHeader *)malloc(total);
+        hdr = (FluxHeader *)malloc(FLUX_HEADER_SIZE + aligned);
         if (!hdr) {
             fprintf(stderr, "flux_bump_alloc_slow: out of memory (%u bytes)\n", payload_size);
             abort();
         }
     }
+    return hdr;
 #endif
+}
 
-    return init_block(hdr, aligned, scan_fsize, obj_tag);
+void *flux_bump_alloc_slow(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag) {
+    size_t aligned = align_up((size_t)payload_size, FLUX_ALIGN);
+    return init_block(slow_block(payload_size, aligned), aligned, scan_fsize, obj_tag);
+}
+
+/* For a caller that writes every payload word before anything reads the
+ * block (`flux_bump_alloc_filled`), so zeroing it would be wasted. The debug
+ * heap fills it with FLUX_POISON instead, so a word the caller forgot reads
+ * as a stray Int and shows up as a heap-parity mismatch. */
+void *flux_bump_alloc_slow_filled(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag) {
+    size_t aligned = align_up((size_t)payload_size, FLUX_ALIGN);
+    void *payload = init_header(slow_block(payload_size, aligned), aligned, scan_fsize, obj_tag);
+#ifdef FLUX_DEBUG_HEAP
+    uint64_t *words = (uint64_t *)payload;
+    for (size_t i = 0; i < aligned / 8; i++) {
+        words[i] = FLUX_POISON;
+    }
+#endif
+    return payload;
 }
 
 void flux_gc_free(void *ptr) {

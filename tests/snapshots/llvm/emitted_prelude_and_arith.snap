@@ -38,6 +38,8 @@ declare ccc ptr @flux_gc_alloc_header(i32, i32, i32) nounwind
 
 declare ccc ptr @flux_bump_alloc_slow(i32, i32, i32) nounwind
 
+declare ccc ptr @flux_bump_alloc_slow_filled(i32, i32, i32) nounwind
+
 declare ccc void @llvm.memset.p0.i64(ptr, i8, i64, i1) nocallback nounwind
 
 declare ccc void @flux_panic(i64) nounwind
@@ -250,7 +252,7 @@ fast:
   %payload = getelementptr i8, ptr %hp, i64 8
   ret ptr %payload
 slow:
-  %slow_ptr = call ccc ptr @flux_bump_alloc_slow(i32 %size, i32 %scan, i32 %tag)
+  %slow_ptr = call ccc ptr @flux_bump_alloc_slow_filled(i32 %size, i32 %scan, i32 %tag)
   ret ptr %slow_ptr
 }
 
