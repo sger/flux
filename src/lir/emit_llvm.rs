@@ -3858,7 +3858,7 @@ fn is_fastcc_prelude_helper(name: &str) -> bool {
         // RC helpers
         | "flux_dup_inline" | "flux_drop_inline" | "flux_drop_reuse" | "flux_rc_is_unique"
         // Bump allocator
-        | "flux_bump_alloc_inline"
+        | "flux_bump_alloc_inline" | "flux_bump_alloc_filled"
         // ADT/Tuple/Closure construction
         | "flux_make_adt" | "flux_make_cons" | "flux_make_tuple"
         | "flux_tuple_len"

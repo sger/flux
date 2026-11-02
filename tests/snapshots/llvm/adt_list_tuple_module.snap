@@ -225,6 +225,43 @@ slow:
   ret ptr %slow_ptr
 }
 
+define internal fastcc ptr @flux_bump_alloc_filled(i32 %size, i32 %scan, i32 %tag) alwaysinline uwtable {
+entry:
+  %aligned = add i32 %size, 7
+  %masked = and i32 %aligned, -8
+  %total_i32 = add i32 %masked, 8
+  %total = zext i32 %total_i32 to i64
+  br label %bump_check
+bump_check:
+  %hp = load ptr, ptr @flux_arena_hp, align 8
+  %new_hp = getelementptr i8, ptr %hp, i64 %total
+  %lim = load ptr, ptr @flux_arena_limit, align 8
+  %fits = icmp ule ptr %new_hp, %lim
+  br i1 %fits, label %fast, label %slow
+fast:
+  store ptr %new_hp, ptr @flux_arena_hp, align 8
+  store i32 1, ptr %hp, align 4
+  %scan8 = trunc i32 %scan to i8
+  %sf_ptr = getelementptr i8, ptr %hp, i64 4
+  store i8 %scan8, ptr %sf_ptr, align 1
+  %tag8 = trunc i32 %tag to i8
+  %ot_ptr = getelementptr i8, ptr %hp, i64 5
+  store i8 %tag8, ptr %ot_ptr, align 1
+  %prog_ptr = getelementptr i8, ptr %hp, i64 6
+  store i8 0, ptr %prog_ptr, align 1
+  %small = icmp ule i32 %masked, 256
+  %class_all = lshr i32 %masked, 3
+  %class32 = select i1 %small, i32 %class_all, i32 0
+  %class8 = trunc i32 %class32 to i8
+  %class_ptr = getelementptr i8, ptr %hp, i64 7
+  store i8 %class8, ptr %class_ptr, align 1
+  %payload = getelementptr i8, ptr %hp, i64 8
+  ret ptr %payload
+slow:
+  %slow_ptr = call ccc ptr @flux_bump_alloc_slow(i32 %size, i32 %scan, i32 %tag)
+  ret ptr %slow_ptr
+}
+
 define internal fastcc i64 @flux_iadd(i64 %a, i64 %b) alwaysinline uwtable {
 entry:
   %a_raw = call fastcc i64 @flux_untag_int(i64 %a)
@@ -452,7 +489,7 @@ define internal fastcc i64 @flux_make_adt(ptr %fields, i32 %field_count, i32 %ct
 entry:
   %payload.bytes = mul i32 %field_count, 8
   %alloc.bytes = add i32 %payload.bytes, 8
-  %mem = call fastcc ptr @flux_bump_alloc_inline(i32 %alloc.bytes, i32 %field_count, i32 242)
+  %mem = call fastcc ptr @flux_bump_alloc_filled(i32 %alloc.bytes, i32 %field_count, i32 242)
   %tag.ptr = getelementptr inbounds %FluxAdt, ptr %mem, i32 0, i32 0
   store i32 %ctor_tag, ptr %tag.ptr, align 4
   %field_count.ptr = getelementptr inbounds %FluxAdt, ptr %mem, i32 0, i32 1
@@ -478,7 +515,7 @@ define internal fastcc i64 @flux_make_tuple(ptr %fields, i32 %arity) alwaysinlin
 entry:
   %payload.bytes = mul i32 %arity, 8
   %alloc.bytes = add i32 %payload.bytes, 8
-  %mem = call fastcc ptr @flux_bump_alloc_inline(i32 %alloc.bytes, i32 %arity, i32 243)
+  %mem = call fastcc ptr @flux_bump_alloc_filled(i32 %alloc.bytes, i32 %arity, i32 243)
   %tag.ptr = getelementptr inbounds %FluxTuple, ptr %mem, i32 0, i32 0
   store i8 243, ptr %tag.ptr, align 1
   %arity.ptr = getelementptr inbounds %FluxTuple, ptr %mem, i32 0, i32 4

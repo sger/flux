@@ -233,7 +233,7 @@ fn emit_make_adt(module: &mut LlvmModule) {
                     tail: false,
                     call_conv: Some(CallConv::Fastcc),
                     ret_ty: LlvmType::ptr(),
-                    callee: LlvmOperand::Global(GlobalId("flux_bump_alloc_inline".into())),
+                    callee: LlvmOperand::Global(GlobalId("flux_bump_alloc_filled".into())),
                     args: vec![
                         (LlvmType::i32(), local_operand("alloc.bytes")),
                         (LlvmType::i32(), local_operand("field_count")), // scan_fsize
@@ -384,7 +384,7 @@ fn emit_make_tuple(module: &mut LlvmModule) {
                     tail: false,
                     call_conv: Some(CallConv::Fastcc),
                     ret_ty: LlvmType::ptr(),
-                    callee: LlvmOperand::Global(GlobalId("flux_bump_alloc_inline".into())),
+                    callee: LlvmOperand::Global(GlobalId("flux_bump_alloc_filled".into())),
                     args: vec![
                         (LlvmType::i32(), local_operand("alloc.bytes")),
                         (LlvmType::i32(), local_operand("arity")), // scan_fsize
@@ -615,5 +615,21 @@ mod tests {
         assert_eq!(metadata.user_tag_for_constructor(some_i), Some(6));
         assert_eq!(metadata.user_tag_for_constructor(pair_ctor), Some(7));
         assert_eq!(metadata.arity_for_constructor(some_i), Some(0));
+    }
+
+    /// Both builders write the header and every field before anything can
+    /// read the object, so zeroing it first is wasted work.
+    #[test]
+    fn constructors_and_tuples_are_allocated_without_zeroing() {
+        let mut module = LlvmModule::new();
+        emit_make_adt(&mut module);
+        emit_make_tuple(&mut module);
+        let rendered = crate::llvm::render_module(&module);
+        for name in ["flux_make_adt", "flux_make_tuple"] {
+            let start = rendered.find(&format!("@{name}(")).expect(name);
+            let body = &rendered[start..start + rendered[start..].find("\n}").unwrap()];
+            assert!(body.contains("@flux_bump_alloc_filled("), "{body}");
+            assert!(!body.contains("@flux_bump_alloc_inline("), "{body}");
+        }
     }
 }
