@@ -685,7 +685,7 @@ fn dropped(instr: &LlvmInstr) -> Option<&LlvmLocal> {
     let LlvmOperand::Global(GlobalId(name)) = callee else {
         return None;
     };
-    if name != "flux_drop" && name != "flux_drop_reuse" {
+    if !matches!(name.as_str(), "flux_drop" | "flux_drop_inline" | "flux_drop_reuse") {
         return None;
     }
     match args.first() {

@@ -80,6 +80,54 @@ entry:
   ret i1 %result
 }
 
+define internal fastcc void @flux_dup_inline(i64 %val) alwaysinline uwtable {
+entry:
+  %is_ptr = call fastcc i1 @flux_is_ptr(i64 %val)
+  br i1 %is_ptr, label %check_rc, label %done
+check_rc:
+  %ptr = inttoptr i64 %val to ptr
+  %rc_ptr = getelementptr i8, ptr %ptr, i64 -8
+  %rc = load i32, ptr %rc_ptr, align 4
+  %local = icmp sgt i32 %rc, 0
+  br i1 %local, label %check_sticky, label %slow
+check_sticky:
+  %sticky = icmp sge i32 %rc, 1073741824
+  br i1 %sticky, label %done, label %update
+update:
+  %next = add i32 %rc, 1
+  store i32 %next, ptr %rc_ptr, align 4
+  ret void
+slow:
+  call ccc void @flux_dup(i64 %val)
+  ret void
+done:
+  ret void
+}
+
+define internal fastcc void @flux_drop_inline(i64 %val) alwaysinline uwtable {
+entry:
+  %is_ptr = call fastcc i1 @flux_is_ptr(i64 %val)
+  br i1 %is_ptr, label %check_rc, label %done
+check_rc:
+  %ptr = inttoptr i64 %val to ptr
+  %rc_ptr = getelementptr i8, ptr %ptr, i64 -8
+  %rc = load i32, ptr %rc_ptr, align 4
+  %local = icmp sgt i32 %rc, 1
+  br i1 %local, label %check_sticky, label %slow
+check_sticky:
+  %sticky = icmp sge i32 %rc, 1073741824
+  br i1 %sticky, label %done, label %update
+update:
+  %next = add i32 %rc, -1
+  store i32 %next, ptr %rc_ptr, align 4
+  ret void
+slow:
+  call ccc void @flux_drop(i64 %val)
+  ret void
+done:
+  ret void
+}
+
 define internal fastcc ptr @flux_drop_reuse(i64 %val, i32 %size) alwaysinline uwtable {
 entry:
   %is_ptr = call fastcc i1 @flux_is_ptr(i64 %val)
