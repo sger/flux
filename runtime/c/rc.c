@@ -100,7 +100,8 @@ static inline void rc_store_relaxed(FluxHeader *hdr, int32_t v) {
  * synchronising with the owner is then a data race it reports (audit L7).
  * Generated code changes a thread-local count in place without calling here
  * (flux_dup_inline and flux_drop_inline in src/llvm/codegen/prelude.rs), and
- * it is not built with ThreadSanitizer, so those changes go unseen.
+ * it is not built with ThreadSanitizer, so those changes go unseen
+ * (docs/known_issues.md#ki-159).
  */
 static inline void rc_store_local(FluxHeader *hdr, int32_t v) {
 #ifdef FLUX_TSAN_COUNTS
