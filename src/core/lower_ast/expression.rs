@@ -267,12 +267,7 @@ impl<'a> super::AstLowerer<'a> {
         CoreExpr::Case {
             scrutinee: Box::new(cond),
             alts: vec![
-                CoreAlt {
-                    pat: CorePat::Lit(CoreLit::Bool(true)),
-                    guard: None,
-                    rhs: on_true,
-                    span,
-                },
+                CoreAlt { pat: CorePat::Lit(CoreLit::Bool(true)), guard: None, rhs: on_true, span },
                 CoreAlt { pat: CorePat::Wildcard, guard: None, rhs: otherwise, span },
             ],
             join_ty: self.infer_core_type(id),
