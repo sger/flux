@@ -571,6 +571,19 @@ runs one fixture at a time.
 - **A quick tier.** `verify --quick` runs fmt, clippy, the build, the three
   sweeps with determinism sampling, and main parity over `tests/parity` only.
   It is the check while working; the full verify is the check before a merge.
+- **Choosing checks (2026-11-02).** `--only <checks>` runs just the checks it
+  names and `--skip <checks>` all but those. The names are `fmt`, `clippy`,
+  `suite`, `sweeps`, `parity`, `metrics`, `debug-build-parity`, `debug-parity`
+  and `heap-parity`. `--skip-suite` and `--skip-sweeps` stay as
+  `--skip suite` and `--skip sweeps`.
+  - **Refused:** a check that needs another (`metrics` without `parity` or
+    `--base`), and a flag that needs a check (`--cmp` without `sweeps`,
+    `--accept-metrics` without `metrics`).
+  - **A partial run says so:** each check it left out is a `skipped` line in
+    `summary.txt`, and the run ends with "partial run: … a merge needs the
+    full verify". Its total is not compared with a base's.
+  - **Quick tier:** this replaces the quick-tier flag, since a preset over
+    these names gives the same thing if one is ever wanted.
 
 ### §13 Optimization bisection
 
