@@ -1,6 +1,6 @@
 //! Core IR → LIR lowering (Proposal 0132 Phases 2–3).
 //!
-//! Translates the functional Core IR into the flat, NaN-box-aware LIR CFG.
+//! Translates the functional Core IR into the flat, pointer-tag-aware LIR CFG.
 //! - Phase 2: literals, variables, let/letrec bindings, primop calls, top-level functions.
 //! - Phase 3: pattern matching (Case), ADT/cons/tuple construction (Con), tuple field access.
 
@@ -1208,7 +1208,7 @@ struct FnLower<'a> {
     /// Maps CoreBinderId → top-level non-function rhs so native lowering can
     /// use the value directly instead of fabricating a closure placeholder.
     top_level_value_map: &'a HashMap<CoreBinderId, &'a CoreExpr>,
-    /// Variables known to hold NaN-boxed integers at this point in lowering.
+    /// Variables known to hold tagged integers at this point in lowering.
     /// Used for local type propagation: when a generic `Add` sees both
     /// operands in this set, it emits `IAdd` instead of a C runtime call.
     int_vars: HashSet<LirVar>,
@@ -1680,7 +1680,7 @@ impl<'a> FnLower<'a> {
     // ── Expression lowering ──────────────────────────────────────────
 
     /// Lower a `CoreExpr` and return the `LirVar` holding the result.
-    /// The result is always a NaN-boxed i64 value.
+    /// The result is always a tagged i64 value.
     /// The location of a node with `span`: its own, with the inlined lambda
     /// it belongs to, if any, or, for a node the compiler made without one,
     /// the enclosing node's.
@@ -3279,7 +3279,7 @@ impl<'a> FnLower<'a> {
             args: vec![],
         });
 
-        // Effect tag: Symbol(u32) → NaN-boxed integer.
+        // Effect tag: Symbol(u32) → tagged integer.
         let htag = self.fresh_var();
         self.emit(LirInstr::Const {
             dst: htag,
@@ -4107,7 +4107,7 @@ impl<'a> FnLower<'a> {
             self.lower_expr(&args[0])
         };
 
-        // Effect tag and operation tag as NaN-boxed integers.
+        // Effect tag and operation tag as tagged integers.
         let htag = self.fresh_var();
         self.emit(LirInstr::Const {
             dst: htag,

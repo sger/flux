@@ -33,7 +33,7 @@ pub struct CoreBinder {
     pub name: Identifier,
     /// Runtime representation (Proposal 0119).
     /// Determined by HM type inference during AST→Core lowering.
-    /// Defaults to `TaggedRep` (NaN-boxed) when type is unknown.
+    /// Defaults to `TaggedRep` (a tagged word) when type is unknown.
     pub rep: FluxRep,
 }
 
@@ -248,22 +248,22 @@ impl CoreType {
 /// Runtime representation of a Flux value (Proposal 0119).
 ///
 /// Determined by HM type inference and carried through Core IR on binders.
-/// The `llvm` backend uses this to choose between boxed (NaN-boxed)
+/// The `llvm` backend uses this to choose between boxed (tagged)
 /// and unboxed (raw register) code generation.
 ///
 /// Analogous to GHC's `PrimRep`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FluxRep {
-    /// Raw signed 64-bit integer. No NaN-boxing.
+    /// Raw signed 64-bit integer. Not tagged.
     IntRep,
-    /// Raw IEEE 754 double. No NaN-boxing.
+    /// Raw IEEE 754 double. Not boxed.
     FloatRep,
-    /// Raw boolean (i1). No NaN-boxing.
+    /// Raw boolean (i1). Not tagged.
     BoolRep,
-    /// Heap-allocated boxed value (NaN-boxed pointer).
+    /// Heap-allocated boxed value (a pointer word).
     /// Used for: String, Array, Closure, ADT, Cons, HashMap.
     BoxedRep,
-    /// NaN-boxed value with unknown or polymorphic type.
+    /// Tagged value with unknown or polymorphic type.
     /// Fallback when the type is not statically known.
     TaggedRep,
     /// Unit `()`. Minimal runtime representation (tagged None).
@@ -298,7 +298,7 @@ impl FluxRep {
             .unwrap_or(FluxRep::TaggedRep)
     }
 
-    /// Whether this rep is unboxed (no NaN-boxing overhead).
+    /// Whether this rep is unboxed (no tagging or boxing overhead).
     pub fn is_unboxed(self) -> bool {
         matches!(self, FluxRep::IntRep | FluxRep::FloatRep | FluxRep::BoolRep)
     }
