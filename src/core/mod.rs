@@ -303,9 +303,10 @@ impl FluxRep {
         matches!(self, FluxRep::IntRep | FluxRep::FloatRep | FluxRep::BoolRep)
     }
 
-    /// Whether this rep needs reference counting (Aether dup/drop).
+    /// Whether this rep needs reference counting (Aether dup/drop). A Float
+    /// does: the native backend keeps every Float in a heap box.
     pub fn needs_rc(self) -> bool {
-        matches!(self, FluxRep::BoxedRep | FluxRep::TaggedRep)
+        matches!(self, FluxRep::BoxedRep | FluxRep::TaggedRep | FluxRep::FloatRep)
     }
 
     /// Derive the runtime representation from a syntactic `TypeExpr`.

@@ -1481,6 +1481,15 @@ fn fresh_result(
     match expr {
         CoreExpr::Var { var, .. } => var.binder.is_some_and(|id| fresh.contains(&id)),
         CoreExpr::Con { .. } | CoreExpr::Lam { .. } => true,
+        // Natively every Float is a new heap box: a literal, a negation, or
+        // the result of float arithmetic.
+        CoreExpr::Lit(CoreLit::Float(_), _) => true,
+        CoreExpr::PrimOp { op, .. }
+            if *op == CorePrimOp::Neg
+                || crate::core::passes::primop_result_rep(op) == FluxRep::FloatRep =>
+        {
+            true
+        }
         CoreExpr::PrimOp { op, .. } => matches!(
             op,
             CorePrimOp::MakeList
