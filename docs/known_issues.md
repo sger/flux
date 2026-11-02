@@ -79,46 +79,6 @@ Likely fix: emit a Float literal as a static object with a sticky count, as
 `StaticObjects` already does for string literals, so it allocates nothing
 and dropping it does nothing. That also saves an allocation per use.
 
-### KI-160 — Natively, an interpolated string with more than one part leaks its pieces
-
-**Severity:** Medium · **Area:** LLVM emission, strings · **Verified:** 2026-11-02 (c4019333, and the same at 4a97c60f) · **From:** re-running the native runtime roadmap's leak checks with `--leak-check`
-
-```flux
-fn size(i: Int) -> Int {
-    let label = "item-#{i}"
-    len(label)
-}
-
-fn main() with IO {
-    print(size(3) + size(40))
-}
-```
-
-```text
-$ flux size.flx --native --leak-check
-13
-leak: 5 blocks still live at exit
-  a String (16 bytes) allocated at size (size.flx:2:17)
-  a String (16 bytes) allocated at size (size.flx:2:17)
-  a String (16 bytes) allocated at size (size.flx:2:17)
-  a String (16 bytes) allocated at size (size.flx:2:17)
-  a tuple (8 bytes) allocated at <lambda size.flx:6:1> (size.flx:6:1)
-```
-
-Two strings per evaluation of `"item-#{i}"`; the tuple is KI-119's. The
-same holds when the result is passed on rather than borrowed. `"#{n}"` alone,
-`to_string(i)`, and an interpolation that is never used leak nothing.
-
-`emit_interpolate` (`src/lir/emit_llvm.rs`) turns each part into a string
-with `flux_to_string_value` and joins them with `flux_string_concat`, which
-only borrows its arguments (it counts once more an argument it returns as it
-is). Only the final string is owned by anyone; the part strings and the
-intermediate joins are never released. A program that interpolates in a loop
-leaks without bound: `tests/parity/collection_alloc_recycle.flx` ends with
-111,000 blocks live and `benchmarks/flux/binarytrees_smoke.flx` with 37, all
-from interpolations. Likely fix: drop each part string and each intermediate
-join once the next concat has copied it.
-
 ### KI-159 — The sanitizer runs check only the C runtime, not generated code
 
 **Severity:** Medium · **Area:** native runtime, sanitizers · **Verified:** 2026-11-02 (c4019333), by reading the build and the emitted IR · **From:** inline reference counting (native runtime roadmap task 5b), an accepted gap
@@ -2619,6 +2579,56 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-160 — Natively, an interpolated string with more than one part leaked its pieces — FIXED 2026-11-02
+
+**Severity:** Medium · **Area:** LLVM emission, strings · **Verified:** 2026-11-02 (c4019333, and the same at 4a97c60f) · **From:** re-running the native runtime roadmap's leak checks with `--leak-check`
+
+```flux
+fn size(i: Int) -> Int {
+    let label = "item-#{i}"
+    len(label)
+}
+
+fn main() with IO {
+    print(size(3) + size(40))
+}
+```
+
+```text
+$ flux size.flx --native --leak-check
+13
+leak: 5 blocks still live at exit
+  a String (16 bytes) allocated at size (size.flx:2:17)
+  a String (16 bytes) allocated at size (size.flx:2:17)
+  a String (16 bytes) allocated at size (size.flx:2:17)
+  a String (16 bytes) allocated at size (size.flx:2:17)
+  a tuple (8 bytes) allocated at <lambda size.flx:6:1> (size.flx:6:1)
+```
+
+Two strings per evaluation of `"item-#{i}"`; the tuple is KI-119's. The
+same holds when the result is passed on rather than borrowed. `"#{n}"` alone,
+`to_string(i)`, and an interpolation that is never used leak nothing.
+
+`emit_interpolate` (`src/lir/emit_llvm.rs`) turns each part into a string
+with `flux_to_string_value` and joins them with `flux_string_concat`, which
+only borrows its arguments (it counts once more an argument it returns as it
+is). Only the final string is owned by anyone; the part strings and the
+intermediate joins are never released. A program that interpolates in a loop
+leaks without bound: `tests/parity/collection_alloc_recycle.flx` ends with
+111,000 blocks live and `benchmarks/flux/binarytrees_smoke.flx` with 37, all
+from interpolations. Likely fix: drop each part string and each intermediate
+join once the next concat has copied it.
+
+**Fixed** in `emit_interpolate`: after each join, the join before it and
+the part's string are dropped, so only the result has an owner. The runtime
+had the same fault one level down: `flux_to_string` and
+`flux_to_string_value` built a string for each element of a list, array,
+tuple or constructor part and never released it; they now drop it once it
+is copied. `tests/debug/heap/interpolated_parts.flx` leaked 580 blocks and
+now leaks none. The program above leaks only KI-119's tuple,
+`collection_alloc_recycle.flx` none, and `binarytrees_smoke.flx` only the
+tuple. Heap parity's leaked blocks fell from 111,433 to 399.
 
 ### KI-156 — `&&` and `||` evaluated their right side before testing the left — FIXED 2026-10-31
 

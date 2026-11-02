@@ -1,0 +1,26 @@
+// KI-160: each part of an interpolation becomes a string, and the parts are
+// joined one at a time. Only the last join has an owner, so the part strings
+// and the joins between them must be released as the next join copies them.
+// A compound part is written by the runtime, which turns each element into a
+// string of its own first. Nothing prints (KI-119), so nothing should be live
+// at exit. No part is a Float literal, which leaks on its own (KI-161).
+
+fn tag(name: String, i: Int) -> String {
+    "#{name}-#{i}"
+}
+
+fn measure(i: Int) -> Int {
+    let name = "item"
+    let label = "#{name} #{i} of #{i + 1}: #{i > 10}, #{Some(i)}"
+    let shapes = "#{[i, i + 1]} #{(i, name)}"
+    len(label) + len(tag(name, i)) + len(shapes)
+}
+
+fn total(i: Int, acc: Int) -> Int {
+    if i == 0 { acc } else { total(i - 1, acc + measure(i)) }
+}
+
+fn main() {
+    let n = total(20, 0)
+    if n > 0 { 0 } else { 1 }
+}

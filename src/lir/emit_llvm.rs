@@ -2687,11 +2687,23 @@ impl<'a> FnEmitter<'a> {
                 Some(next.clone()),
                 "flux_string_concat",
                 vec![
-                    (LlvmType::i64(), LlvmOperand::Local(current)),
-                    (LlvmType::i64(), LlvmOperand::Local(part_str)),
+                    (LlvmType::i64(), LlvmOperand::Local(current.clone())),
+                    (LlvmType::i64(), LlvmOperand::Local(part_str.clone())),
                 ],
                 LlvmType::i64(),
             );
+            // The concat only borrows both strings, so only the last join
+            // has an owner; this join's inputs are let go (KI-160).
+            if !self.worker_mode {
+                for val in [current, part_str] {
+                    self.call_c(
+                        None,
+                        "flux_drop",
+                        vec![(LlvmType::i64(), LlvmOperand::Local(val))],
+                        LlvmType::Void,
+                    );
+                }
+            }
             current = next;
         }
         self.emit(LlvmInstr::Binary {
