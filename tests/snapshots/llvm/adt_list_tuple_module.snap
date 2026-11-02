@@ -22,9 +22,9 @@ source_filename = "flux_lir"
 
 @flux.ptrtag.yield_sentinel = private constant i64 10
 
-@flux_arena_hp = external global ptr
+@flux_arena_hp = external thread_local global ptr
 
-@flux_arena_limit = external global ptr
+@flux_arena_limit = external thread_local global ptr
 
 @flux_idiv.div_zero_msg = private constant [16 x i8] [i8 68, i8 105, i8 118, i8 105, i8 115, i8 105, i8 111, i8 110, i8 32, i8 98, i8 121, i8 32, i8 122, i8 101, i8 114, i8 111]
 
@@ -45,8 +45,6 @@ declare ccc ptr @flux_gc_alloc(i32) nounwind
 declare ccc ptr @flux_gc_alloc_header(i32, i32, i32) nounwind
 
 declare ccc ptr @flux_bump_alloc_slow(i32, i32, i32) nounwind
-
-declare ccc i32 @flux_can_use_bump_arena() nounwind
 
 declare ccc void @llvm.memset.p0.i64(ptr, i8, i64, i1) nocallback nounwind
 
@@ -194,9 +192,7 @@ entry:
   %masked = and i32 %aligned, -8
   %total_i32 = add i32 %masked, 8
   %total = zext i32 %total_i32 to i64
-  %can_bump_i32 = call ccc i32 @flux_can_use_bump_arena()
-  %can_bump = icmp ne i32 %can_bump_i32, 0
-  br i1 %can_bump, label %bump_check, label %slow
+  br label %bump_check
 bump_check:
   %hp = load ptr, ptr @flux_arena_hp, align 8
   %new_hp = getelementptr i8, ptr %hp, i64 %total

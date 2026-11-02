@@ -12,7 +12,7 @@ use crate::{
 };
 
 pub const NATIVE_MODULE_CACHE_FORMAT_VERSION: u16 = crate::shared::cache_paths::CACHE_EPOCH;
-const NATIVE_CACHE_ABI_TAG: &[u8] = b"native-cache-abi-v13:static-nullary-constructors";
+const NATIVE_CACHE_ABI_TAG: &[u8] = b"native-cache-abi-v14:thread-local-arena";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NativeModuleArtifactMetadata {

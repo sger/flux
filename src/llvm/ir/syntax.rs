@@ -127,6 +127,8 @@ pub struct LlvmGlobal {
     pub name: GlobalId,
     pub ty: LlvmType,
     pub is_constant: bool,
+    /// Each thread has its own copy (`thread_local`, the default TLS model).
+    pub thread_local: bool,
     /// `None` for external global declarations (no initializer).
     pub value: Option<LlvmConst>,
     pub attrs: Vec<String>,

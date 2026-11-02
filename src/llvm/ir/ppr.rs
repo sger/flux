@@ -96,6 +96,7 @@ impl Display for LlvmTypeDef {
 
 impl Display for LlvmGlobal {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let tls = if self.thread_local { "thread_local " } else { "" };
         match &self.value {
             Some(value) => {
                 // A definition with external linkage spells no linkage.
@@ -105,9 +106,10 @@ impl Display for LlvmGlobal {
                 };
                 write!(
                     f,
-                    "@{} = {}{} {} {}",
+                    "@{} = {}{}{} {} {}",
                     self.name,
                     linkage,
+                    tls,
                     if self.is_constant { "constant" } else { "global" },
                     self.ty,
                     value
@@ -115,7 +117,7 @@ impl Display for LlvmGlobal {
             }
             None => {
                 // External global declaration (no initializer).
-                write!(f, "@{} = {} global {}", self.name, self.linkage, self.ty)?;
+                write!(f, "@{} = {} {}global {}", self.name, self.linkage, tls, self.ty)?;
             }
         }
         for attr in &self.attrs {
@@ -701,6 +703,27 @@ mod tests {
         );
     }
 
+    #[test]
+    fn thread_local_globals_print_before_global() {
+        let declared = LlvmGlobal {
+            linkage: Linkage::External,
+            name: GlobalId("flux_arena_hp".into()),
+            ty: LlvmType::ptr(),
+            is_constant: false,
+            thread_local: true,
+            value: None,
+            attrs: vec![],
+        };
+        assert_eq!(declared.to_string(), "@flux_arena_hp = external thread_local global ptr");
+        let defined = LlvmGlobal {
+            linkage: Linkage::Internal,
+            value: Some(LlvmConst::Int { bits: 64, value: 0 }),
+            ty: LlvmType::i64(),
+            ..declared
+        };
+        assert_eq!(defined.to_string(), "@flux_arena_hp = internal thread_local global i64 0");
+    }
+
     fn build_demo_module() -> LlvmModule {
         LlvmModule {
             debug: None,
@@ -722,6 +745,7 @@ mod tests {
                 name: GlobalId("flux.tag.int".into()),
                 ty: LlvmType::i64(),
                 is_constant: true,
+                thread_local: false,
                 value: Some(LlvmConst::Int { bits: 64, value: 4607182418800017408 }),
                 attrs: vec![],
             }],

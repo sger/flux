@@ -72,6 +72,7 @@ fn emit_ptrtag_constants(module: &mut LlvmModule) {
             name: flux_prelude_symbol(name),
             ty: LlvmType::i64(),
             is_constant: true,
+            thread_local: false,
             value: Some(const_i64(value)),
             attrs: vec![],
         });
@@ -633,7 +634,9 @@ const FLUX_SMALL_MAX: i32 = 256;
 /// Emit external global declarations for the bump arena pointers and
 /// the `flux_bump_alloc_inline` helper function.
 fn emit_bump_alloc_inline(module: &mut LlvmModule) {
-    // ── External globals: @flux_arena_hp, @flux_arena_limit ──────
+    // ── External thread-local globals: @flux_arena_hp, @flux_arena_limit ──
+    // NULL on every thread without the arena, so the bump never fits there
+    // (runtime/c/rc.c).
     let hp_name = "flux_arena_hp";
     if !has_global(module, hp_name) {
         module.globals.push(LlvmGlobal {
@@ -641,6 +644,7 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
             name: GlobalId(hp_name.into()),
             ty: LlvmType::Ptr,
             is_constant: false,
+            thread_local: true,
             value: None,
             attrs: vec![],
         });
@@ -652,6 +656,7 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
             name: GlobalId(lim_name.into()),
             ty: LlvmType::Ptr,
             is_constant: false,
+            thread_local: true,
             value: None,
             attrs: vec![],
         });
@@ -666,22 +671,6 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
             sig: LlvmFunctionSig {
                 ret: LlvmType::ptr(),
                 params: vec![LlvmType::i32(), LlvmType::i32(), LlvmType::i32()],
-                varargs: false,
-                call_conv: CallConv::Ccc,
-            },
-            attrs: vec!["nounwind".into()],
-        });
-    }
-
-    // ── Declare @flux_can_use_bump_arena (C runtime TLS check) ─────
-    let can_bump_name = "flux_can_use_bump_arena";
-    if !module.declarations.iter().any(|d| d.name.0 == can_bump_name) {
-        module.declarations.push(crate::llvm::LlvmDecl {
-            linkage: Linkage::External,
-            name: GlobalId(can_bump_name.into()),
-            sig: LlvmFunctionSig {
-                ret: LlvmType::i32(),
-                params: vec![],
                 varargs: false,
                 call_conv: CallConv::Ccc,
             },
@@ -723,9 +712,7 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
     //   %masked  = and i32 %aligned, -8
     //   %total_i32 = add i32 %masked, 8   ; + FLUX_HEADER_SIZE
     //   %total   = zext i32 %total_i32 to i64
-    //   %can_bump_i32 = call ccc i32 @flux_can_use_bump_arena()
-    //   %can_bump = icmp ne i32 %can_bump_i32, 0
-    //   br i1 %can_bump, label %bump_check, label %slow
+    //   br label %bump_check
     //
     // bump_check:
     //   %hp      = load ptr, ptr @flux_arena_hp
@@ -778,7 +765,7 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
         params: vec![LlvmLocal("size".into()), LlvmLocal("scan".into()), LlvmLocal("tag".into())],
         attrs: helper_attrs(),
         blocks: vec![
-            // ── entry: compute aligned total, check thread-local bump eligibility ──
+            // ── entry: compute aligned total ──
             LlvmBlock {
                 label: LabelId("entry".into()),
                 instrs: vec![
@@ -817,33 +804,10 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
                         operand: local("total_i32"),
                         to_ty: i64_ty.clone(),
                     },
-                    // %can_bump_i32 = call ccc i32 @flux_can_use_bump_arena()
-                    LlvmInstr::Call {
-                        dst: Some(LlvmLocal("can_bump_i32".into())),
-                        tail: false,
-                        call_conv: Some(CallConv::Ccc),
-                        ret_ty: i32_ty.clone(),
-                        callee: LlvmOperand::Global(GlobalId(can_bump_name.into())),
-                        args: vec![],
-                        attrs: vec![],
-                    },
-                    // %can_bump = icmp ne i32 %can_bump_i32, 0
-                    LlvmInstr::Icmp {
-                        dst: LlvmLocal("can_bump".into()),
-                        op: LlvmCmpOp::Ne,
-                        ty: i32_ty.clone(),
-                        lhs: local("can_bump_i32"),
-                        rhs: LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 }),
-                    },
                 ],
-                term: LlvmTerminator::CondBr {
-                    cond_ty: i1_ty.clone(),
-                    cond: local("can_bump"),
-                    then_label: LabelId("bump_check".into()),
-                    else_label: LabelId("slow".into()),
-                },
+                term: LlvmTerminator::Br { target: LabelId("bump_check".into()) },
             },
-            // ── bump_check: root/non-worker thread only; load hp/limit and branch ──
+            // ── bump_check: load this thread's hp/limit and branch ──
             LlvmBlock {
                 label: LabelId("bump_check".into()),
                 instrs: vec![
@@ -1369,6 +1333,18 @@ mod tests {
         assert!(rendered.contains("%class_ptr = getelementptr i8, ptr %hp, i64 7"));
         assert!(rendered.contains("store i8 %class8, ptr %class_ptr"));
         assert!(!rendered.contains("store i16 0"));
+    }
+
+    /// Each thread bumps its own arena pointers, NULL where it has no arena,
+    /// so an allocation asks no one which thread it is on.
+    #[test]
+    fn bump_alloc_reads_this_threads_arena() {
+        let mut module = LlvmModule::new();
+        emit_prelude(&mut module);
+        let rendered = render_module(&module);
+        assert!(rendered.contains("@flux_arena_hp = external thread_local global ptr"));
+        assert!(rendered.contains("@flux_arena_limit = external thread_local global ptr"));
+        assert!(!rendered.contains("flux_can_use_bump_arena"), "{rendered}");
     }
 
     /// The body of `name` in `rendered`, from its `define` to its closing brace.
