@@ -670,15 +670,18 @@ const STATIC_HEADER_SIZE: i64 = 8;
 const MAX_SCANNED_FIELDS: usize = 255;
 const FLUX_OBJ_STRING_TAG: i128 = 0xF1;
 
-/// Values that are the same every time they are made: string literals, and
-/// the closures of functions that capture nothing. Each is one read-only
-/// object outside the heap, with a sticky count, so making one allocates
-/// nothing and copying or releasing it does nothing.
+/// Values that are the same every time they are made: string literals, the
+/// closures of functions that capture nothing, and constructors without
+/// fields. Each is one read-only object outside the heap, with a sticky
+/// count, so making one allocates nothing and copying or releasing it does
+/// nothing.
 #[derive(Default)]
 struct StaticObjects {
     strings: BTreeMap<String, GlobalId>,
     /// Keyed by the function pointer the closure calls, with its arity.
     closures: BTreeMap<String, (GlobalId, usize)>,
+    /// Keyed by constructor tag.
+    ctors: BTreeMap<i32, GlobalId>,
 }
 
 impl StaticObjects {
@@ -697,6 +700,11 @@ impl StaticObjects {
             .or_insert_with(|| (GlobalId(format!("flux.closure.{next}")), arity))
             .0
             .clone()
+    }
+
+    fn nullary_ctor(&mut self, tag: i32) -> GlobalId {
+        let next = self.ctors.len();
+        self.ctors.entry(tag).or_insert_with(|| GlobalId(format!("flux.ctor.{next}"))).clone()
     }
 
     fn emit(self, module: &mut LlvmModule) {
@@ -748,6 +756,12 @@ impl StaticObjects {
                 int(32, 0),
                 int(32, 0),
             ]);
+            module.globals.push(object(name, fields));
+        }
+        for (tag, name) in self.ctors {
+            // FluxAdt: the constructor tag and no fields.
+            let mut fields = header(crate::llvm::codegen::FLUX_OBJ_ADT as i128);
+            fields.extend([int(32, tag as i128), int(32, 0)]);
             module.globals.push(object(name, fields));
         }
     }
@@ -2831,16 +2845,8 @@ impl<'a> FnEmitter<'a> {
             // flux_make_adt(ptr fields, i32 field_count, i32 ctor_tag) → i64
             let arr = self.tmp();
             if fields.is_empty() {
-                self.call_fastcc(
-                    Some(self.var_local(dst)),
-                    "flux_make_adt",
-                    vec![
-                        (LlvmType::Ptr, LlvmOperand::Const(LlvmConst::Null)),
-                        (LlvmType::i32(), self.i32_const(0)),
-                        (LlvmType::i32(), self.i32_const(ctor_tag)),
-                    ],
-                    LlvmType::i64(),
-                );
+                let gid = self.statics.nullary_ctor(ctor_tag);
+                self.emit_static_ref(dst, gid);
             } else {
                 self.emit(LlvmInstr::Alloca {
                     dst: arr.clone(),

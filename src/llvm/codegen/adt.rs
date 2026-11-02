@@ -31,7 +31,7 @@ const CONS_TAG_ID: i32 = 4;
 const FIRST_USER_TAG_ID: i32 = 5;
 
 // C runtime obj_tag values (must match flux_rt.h)
-const FLUX_OBJ_ADT: i32 = 0xF2;
+pub const FLUX_OBJ_ADT: i32 = 0xF2;
 const FLUX_OBJ_TUPLE: i32 = 0xF3;
 
 pub const FLUX_ADT_TAG_FIELD: i32 = 0;
