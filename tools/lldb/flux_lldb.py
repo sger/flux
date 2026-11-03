@@ -53,6 +53,10 @@ DROPPED_MARKER = 0x0DEB0DEB00000002
 
 NONE, FALSE, TRUE, EMPTY_LIST, UNINIT, YIELD = 0, 2, 4, 6, 8, 10
 MIN_PTR = 12
+# A count this far from zero never changes (`FLUX_RC_STICKY` in
+# `runtime/c/rc.c`): a static object the compiler emitted, such as a string
+# literal or a constructor of constants.
+RC_STICKY = 0x40000000
 # Far above any user-space address on the platforms Flux supports.
 MAX_PTR = 1 << 56
 
@@ -1644,8 +1648,8 @@ def _uncounted(value):
 def _command_refs(debugger, args, result):
     """How many references a value has (0188 S10b): the count in its
     header, at the word before it. A negative count is shared across
-    threads. A debug slot holds no reference, so the count is the
-    program's own."""
+    threads, and a sticky one is a static object's. A debug slot holds no
+    reference, so the count is the program's own."""
     path = args.strip()
     parts = path.split(".")
     if not parts or not parts[0]:
@@ -1676,6 +1680,9 @@ def _command_refs(debugger, args, result):
     count = value.memory.i32(value.word - 8)
     if not count:
         result.AppendMessage("%s: freed or unreadable" % path)
+        return
+    if abs(count) >= RC_STICKY:
+        result.AppendMessage("%s: static (never counted or freed)" % path)
         return
     noun = "reference" if abs(count) == 1 else "references"
     if count < 0:

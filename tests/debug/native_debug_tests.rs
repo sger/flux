@@ -648,7 +648,8 @@ fn assert_lines(session: &str, expected: &[&str]) {
 /// S10b). Natively `main` has passed `xs` on, so `total` holds its three
 /// references: `xs`, `ys` and the tuple's.
 /// `refs.flx` builds `xs` at run time, since a list of constants is one
-/// static object whose count never changes.
+/// static object whose count never changes; `pair.1`, a string literal, is
+/// one too.
 #[test]
 fn lldb_counts_references() {
     let Some(lldb) = lldb() else {
@@ -679,7 +680,14 @@ fn lldb_counts_references() {
         &scratch,
         "app",
         ("refs.flx", 6),
-        &["flux refs xs", "flux refs ys", "flux refs pair", "flux refs pair.0", "flux refs pair.5"],
+        &[
+            "flux refs xs",
+            "flux refs ys",
+            "flux refs pair",
+            "flux refs pair.0",
+            "flux refs pair.1",
+            "flux refs pair.5",
+        ],
     ) else {
         return;
     };
@@ -690,6 +698,7 @@ fn lldb_counts_references() {
             "ys: 2 references (shared)",
             "pair: 1 reference (unique: can be reused in place)",
             "pair.0: 2 references (shared)",
+            "pair.1: static (never counted or freed)",
             "`pair.5` has no part `5`",
         ],
     );
