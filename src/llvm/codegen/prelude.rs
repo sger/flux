@@ -630,13 +630,15 @@ const FLUX_HEADER_SIZE: i64 = 8;
 /// The largest payload the runtime recycles through a free list
 /// (`FLUX_SMALL_MAX` in `runtime/c/rc.c`).
 const FLUX_SMALL_MAX: i32 = 256;
+/// The class-byte bit of a block from the heap's chunks (`FLUX_FROM_CHUNK`).
+const FLUX_FROM_CHUNK: i32 = 0x80;
 
-/// Emit external global declarations for the bump arena pointers and
+/// Emit external global declarations for the heap's bump pointers and
 /// the `flux_bump_alloc_inline` helper function.
 fn emit_bump_alloc_inline(module: &mut LlvmModule) {
     // ── External thread-local globals: @flux_arena_hp, @flux_arena_limit ──
-    // NULL on every thread without the arena, so the bump never fits there
-    // (runtime/c/rc.c).
+    // NULL on every thread but the heap's owner, so the bump never fits there
+    // ("Heap" in runtime/c/rc.c).
     let hp_name = "flux_arena_hp";
     if !has_global(module, hp_name) {
         module.globals.push(LlvmGlobal {
@@ -724,13 +726,20 @@ fn emit_bump_alloc_fn(module: &mut LlvmModule, fn_name: &str, zero: bool) {
     //   %masked  = and i32 %aligned, -8
     //   %total_i32 = add i32 %masked, 8   ; + FLUX_HEADER_SIZE
     //   %total   = zext i32 %total_i32 to i64
+    //   %small = icmp ule i32 %masked, 256
+    //   %class_all = lshr i32 %masked, 3
+    //   %class32 = select i1 %small, i32 %class_all, i32 0
+    //   %has_class = icmp ne i32 %class32, 0
+    //   %chunk_class = or i32 %class32, 128
+    //   %class8 = trunc i32 %chunk_class to i8
     //   br label %bump_check
     //
     // bump_check:
     //   %hp      = load ptr, ptr @flux_arena_hp
     //   %new_hp  = getelementptr i8, ptr %hp, i64 %total
     //   %lim     = load ptr, ptr @flux_arena_limit
-    //   %fits    = icmp ule ptr %new_hp, %lim
+    //   %in_chunk = icmp ule ptr %new_hp, %lim
+    //   %fits    = and i1 %has_class, %in_chunk
     //   br i1 %fits, label %fast, label %slow
     //
     // fast:
@@ -745,10 +754,6 @@ fn emit_bump_alloc_fn(module: &mut LlvmModule, fn_name: &str, zero: bool) {
     //   store i8 %tag8, ptr %ot_ptr       ; obj_tag
     //   %prog_ptr = getelementptr i8, ptr %hp, i64 6
     //   store i8 0, ptr %prog_ptr         ; progress
-    //   %small = icmp ule i32 %masked, 256
-    //   %class_all = lshr i32 %masked, 3
-    //   %class32 = select i1 %small, i32 %class_all, i32 0
-    //   %class8 = trunc i32 %class32 to i8
     //   %class_ptr = getelementptr i8, ptr %hp, i64 7
     //   store i8 %class8, ptr %class_ptr  ; size_class
     //   %payload = getelementptr i8, ptr %hp, i64 8
@@ -816,6 +821,65 @@ fn emit_bump_alloc_fn(module: &mut LlvmModule, fn_name: &str, zero: bool) {
                         operand: local("total_i32"),
                         to_ty: i64_ty.clone(),
                     },
+                    // The runtime's size_class_of. Only a block with a class
+                    // comes from a chunk, since only it goes back on a free
+                    // list; the size is a constant at every call, so this
+                    // folds away.
+                    // %small = icmp ule i32 %masked, 256
+                    LlvmInstr::Icmp {
+                        dst: LlvmLocal("small".into()),
+                        op: LlvmCmpOp::Ule,
+                        ty: i32_ty.clone(),
+                        lhs: local("masked"),
+                        rhs: LlvmOperand::Const(LlvmConst::Int {
+                            bits: 32,
+                            value: FLUX_SMALL_MAX as i128,
+                        }),
+                    },
+                    // %class_all = lshr i32 %masked, 3
+                    LlvmInstr::Binary {
+                        dst: LlvmLocal("class_all".into()),
+                        op: LlvmValueKind::LShr,
+                        ty: i32_ty.clone(),
+                        lhs: local("masked"),
+                        rhs: LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 3 }),
+                    },
+                    // %class32 = select i1 %small, i32 %class_all, i32 0
+                    LlvmInstr::Select {
+                        dst: LlvmLocal("class32".into()),
+                        cond_ty: i1_ty.clone(),
+                        cond: local("small"),
+                        value_ty: i32_ty.clone(),
+                        then_value: local("class_all"),
+                        else_value: LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 }),
+                    },
+                    // %has_class = icmp ne i32 %class32, 0
+                    LlvmInstr::Icmp {
+                        dst: LlvmLocal("has_class".into()),
+                        op: LlvmCmpOp::Ne,
+                        ty: i32_ty.clone(),
+                        lhs: local("class32"),
+                        rhs: LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 }),
+                    },
+                    // %chunk_class = or i32 %class32, 128  (FLUX_FROM_CHUNK)
+                    LlvmInstr::Binary {
+                        dst: LlvmLocal("chunk_class".into()),
+                        op: LlvmValueKind::Or,
+                        ty: i32_ty.clone(),
+                        lhs: local("class32"),
+                        rhs: LlvmOperand::Const(LlvmConst::Int {
+                            bits: 32,
+                            value: FLUX_FROM_CHUNK as i128,
+                        }),
+                    },
+                    // %class8 = trunc i32 %chunk_class to i8
+                    LlvmInstr::Cast {
+                        dst: LlvmLocal("class8".into()),
+                        op: LlvmValueKind::Trunc,
+                        from_ty: i32_ty.clone(),
+                        operand: local("chunk_class"),
+                        to_ty: i8_ty.clone(),
+                    },
                 ],
                 term: LlvmTerminator::Br { target: LabelId("bump_check".into()) },
             },
@@ -845,13 +909,21 @@ fn emit_bump_alloc_fn(module: &mut LlvmModule, fn_name: &str, zero: bool) {
                         ptr: LlvmOperand::Global(GlobalId(lim_name.into())),
                         align: Some(8),
                     },
-                    // %fits = icmp ule ptr %new_hp, %lim
+                    // %in_chunk = icmp ule ptr %new_hp, %lim
                     LlvmInstr::Icmp {
-                        dst: LlvmLocal("fits".into()),
+                        dst: LlvmLocal("in_chunk".into()),
                         op: LlvmCmpOp::Ule,
                         ty: ptr_ty.clone(),
                         lhs: local("new_hp"),
                         rhs: local("lim"),
+                    },
+                    // %fits = and i1 %has_class, %in_chunk
+                    LlvmInstr::Binary {
+                        dst: LlvmLocal("fits".into()),
+                        op: LlvmValueKind::And,
+                        ty: i1_ty.clone(),
+                        lhs: local("has_class"),
+                        rhs: local("in_chunk"),
                     },
                 ],
                 term: LlvmTerminator::CondBr {
@@ -940,44 +1012,6 @@ fn emit_bump_alloc_fn(module: &mut LlvmModule, fn_name: &str, zero: bool) {
                             value: LlvmOperand::Const(LlvmConst::Int { bits: 8, value: 0 }),
                             ptr: local("prog_ptr"),
                             align: Some(1),
-                        },
-                        // The runtime's size_class_of: free on a list once the
-                        // block is released, instead of left in the arena.
-                        // %small = icmp ule i32 %masked, 256
-                        LlvmInstr::Icmp {
-                            dst: LlvmLocal("small".into()),
-                            op: LlvmCmpOp::Ule,
-                            ty: i32_ty.clone(),
-                            lhs: local("masked"),
-                            rhs: LlvmOperand::Const(LlvmConst::Int {
-                                bits: 32,
-                                value: FLUX_SMALL_MAX as i128,
-                            }),
-                        },
-                        // %class_all = lshr i32 %masked, 3
-                        LlvmInstr::Binary {
-                            dst: LlvmLocal("class_all".into()),
-                            op: LlvmValueKind::LShr,
-                            ty: i32_ty.clone(),
-                            lhs: local("masked"),
-                            rhs: LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 3 }),
-                        },
-                        // %class32 = select i1 %small, i32 %class_all, i32 0
-                        LlvmInstr::Select {
-                            dst: LlvmLocal("class32".into()),
-                            cond_ty: i1_ty.clone(),
-                            cond: local("small"),
-                            value_ty: i32_ty.clone(),
-                            then_value: local("class_all"),
-                            else_value: LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 }),
-                        },
-                        // %class8 = trunc i32 %class32 to i8
-                        LlvmInstr::Cast {
-                            dst: LlvmLocal("class8".into()),
-                            op: LlvmValueKind::Trunc,
-                            from_ty: i32_ty.clone(),
-                            operand: local("class32"),
-                            to_ty: i8_ty.clone(),
                         },
                         // %class_ptr = getelementptr i8, ptr %hp, i64 7
                         LlvmInstr::GetElementPtr {
@@ -1352,6 +1386,21 @@ mod tests {
         assert!(rendered.contains("%class_ptr = getelementptr i8, ptr %hp, i64 7"));
         assert!(rendered.contains("store i8 %class8, ptr %class_ptr"));
         assert!(!rendered.contains("store i16 0"));
+    }
+
+    /// Only a block with a size class is bumped from a chunk, since only it
+    /// can go back on a free list, and it is marked as a chunk block
+    /// (`FLUX_FROM_CHUNK` in `runtime/c/rc.c`).
+    #[test]
+    fn bump_alloc_takes_only_small_blocks_from_a_chunk() {
+        let mut module = LlvmModule::new();
+        emit_prelude(&mut module);
+        let rendered = render_module(&module);
+        let filled = function_body(&rendered, "flux_bump_alloc_filled");
+        assert!(filled.contains("%has_class = icmp ne i32 %class32, 0"), "{filled}");
+        assert!(filled.contains("%fits = and i1 %has_class, %in_chunk"), "{filled}");
+        assert!(filled.contains("%chunk_class = or i32 %class32, 128"), "{filled}");
+        assert!(filled.contains("%class8 = trunc i32 %chunk_class to i8"), "{filled}");
     }
 
     /// Each thread bumps its own arena pointers, NULL where it has no arena,

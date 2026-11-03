@@ -1,0 +1,51 @@
+// parity: vm, llvm
+// expect: success
+// bug: guards the native heap's hand-back: trees built on the main thread
+//       are moved into tasks and freed there, and the main thread keeps
+//       building trees of the same size, so a block a worker frees that is
+//       lost, freed twice or handed out while still in use shows up as a
+//       wrong checksum, a crash, or a TSan report.
+// parity-expected-stdout-begin
+// 3391338
+// parity-expected-stdout-end
+
+import Flow.Task as Task
+
+type Tree = Node(Tree, Int, Tree) | Tip
+
+fn make(depth: Int, label: Int) -> Tree {
+    if depth <= 0 {
+        Tip
+    } else {
+        Node(make(depth - 1, label * 2), label, make(depth - 1, label * 2 + 1))
+    }
+}
+
+fn check(tree: Tree) -> Int {
+    match tree {
+        Node(left, label, right) -> check(left) + label % 1009 + check(right),
+        Tip -> 1,
+    }
+}
+
+// The tree is made here, so the task's closure holds its only reference
+// and the worker, dropping the closure, frees it.
+fn on_worker(label: Int) -> Int {
+    let tree = make(14, label)
+    let t = Task.spawn_move(fn() { check(tree) })
+    Task.blocking_join(t)
+}
+
+fn rounds(round: Int, n: Int, acc: Int) -> Int {
+    if round >= n {
+        acc
+    } else {
+        let away = on_worker(round + 1)
+        let here = check(make(14, round + 2))
+        rounds(round + 1, n, acc + (away + here) % 1000003)
+    }
+}
+
+fn main() with IO {
+    print(rounds(0, 8, 0))
+}

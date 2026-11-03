@@ -2,7 +2,7 @@
 // expect: success
 // bug: guards the native runtime's size-class free lists: blocks of many
 //       sizes are freed out of order and handed out again, across more than
-//       the 1 MB bump arena, so a block recycled into the wrong size class
+//       one 1 MB heap chunk, so a block recycled into the wrong size class
 //       or still in use shows up as a wrong checksum or a crash.
 // parity-expected-stdout-begin
 // 100068032

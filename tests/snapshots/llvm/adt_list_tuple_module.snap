@@ -194,12 +194,19 @@ entry:
   %masked = and i32 %aligned, -8
   %total_i32 = add i32 %masked, 8
   %total = zext i32 %total_i32 to i64
+  %small = icmp ule i32 %masked, 256
+  %class_all = lshr i32 %masked, 3
+  %class32 = select i1 %small, i32 %class_all, i32 0
+  %has_class = icmp ne i32 %class32, 0
+  %chunk_class = or i32 %class32, 128
+  %class8 = trunc i32 %chunk_class to i8
   br label %bump_check
 bump_check:
   %hp = load ptr, ptr @flux_arena_hp, align 8
   %new_hp = getelementptr i8, ptr %hp, i64 %total
   %lim = load ptr, ptr @flux_arena_limit, align 8
-  %fits = icmp ule ptr %new_hp, %lim
+  %in_chunk = icmp ule ptr %new_hp, %lim
+  %fits = and i1 %has_class, %in_chunk
   br i1 %fits, label %fast, label %slow
 fast:
   store ptr %new_hp, ptr @flux_arena_hp, align 8
@@ -212,10 +219,6 @@ fast:
   store i8 %tag8, ptr %ot_ptr, align 1
   %prog_ptr = getelementptr i8, ptr %hp, i64 6
   store i8 0, ptr %prog_ptr, align 1
-  %small = icmp ule i32 %masked, 256
-  %class_all = lshr i32 %masked, 3
-  %class32 = select i1 %small, i32 %class_all, i32 0
-  %class8 = trunc i32 %class32 to i8
   %class_ptr = getelementptr i8, ptr %hp, i64 7
   store i8 %class8, ptr %class_ptr, align 1
   %payload = getelementptr i8, ptr %hp, i64 8
@@ -233,12 +236,19 @@ entry:
   %masked = and i32 %aligned, -8
   %total_i32 = add i32 %masked, 8
   %total = zext i32 %total_i32 to i64
+  %small = icmp ule i32 %masked, 256
+  %class_all = lshr i32 %masked, 3
+  %class32 = select i1 %small, i32 %class_all, i32 0
+  %has_class = icmp ne i32 %class32, 0
+  %chunk_class = or i32 %class32, 128
+  %class8 = trunc i32 %chunk_class to i8
   br label %bump_check
 bump_check:
   %hp = load ptr, ptr @flux_arena_hp, align 8
   %new_hp = getelementptr i8, ptr %hp, i64 %total
   %lim = load ptr, ptr @flux_arena_limit, align 8
-  %fits = icmp ule ptr %new_hp, %lim
+  %in_chunk = icmp ule ptr %new_hp, %lim
+  %fits = and i1 %has_class, %in_chunk
   br i1 %fits, label %fast, label %slow
 fast:
   store ptr %new_hp, ptr @flux_arena_hp, align 8
@@ -251,10 +261,6 @@ fast:
   store i8 %tag8, ptr %ot_ptr, align 1
   %prog_ptr = getelementptr i8, ptr %hp, i64 6
   store i8 0, ptr %prog_ptr, align 1
-  %small = icmp ule i32 %masked, 256
-  %class_all = lshr i32 %masked, 3
-  %class32 = select i1 %small, i32 %class_all, i32 0
-  %class8 = trunc i32 %class32 to i8
   %class_ptr = getelementptr i8, ptr %hp, i64 7
   store i8 %class8, ptr %class_ptr, align 1
   %payload = getelementptr i8, ptr %hp, i64 8
