@@ -435,6 +435,9 @@ impl Display for LlvmConst {
                 Ok(())
             }
             LlvmConst::GlobalRef(id) => write!(f, "@{id}"),
+            LlvmConst::GlobalOffset { global, offset } => {
+                write!(f, "getelementptr inbounds (i8, ptr @{global}, i64 {offset})")
+            }
             LlvmConst::ZeroInit => write!(f, "zeroinitializer"),
         }
     }

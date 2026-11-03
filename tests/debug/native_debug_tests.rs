@@ -647,6 +647,8 @@ fn assert_lines(session: &str, expected: &[&str]) {
 /// `flux refs` reads a value's reference count from its header (0188
 /// S10b). Natively `main` has passed `xs` on, so `total` holds its three
 /// references: `xs`, `ys` and the tuple's.
+/// `refs.flx` builds `xs` at run time, since a list of constants is one
+/// static object whose count never changes.
 #[test]
 fn lldb_counts_references() {
     let Some(lldb) = lldb() else {

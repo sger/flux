@@ -3,7 +3,7 @@ use super::LlvmType;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LlvmLocal(pub String);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct GlobalId(pub String);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -161,13 +161,27 @@ pub struct LlvmBlock {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum LlvmConst {
-    Int { bits: u32, value: i128 },
+    Int {
+        bits: u32,
+        value: i128,
+    },
     Float(f64),
     Null,
     Undef,
-    Array { element_ty: LlvmType, elements: Vec<LlvmConst> },
-    Struct { packed: bool, fields: Vec<(LlvmType, LlvmConst)> },
+    Array {
+        element_ty: LlvmType,
+        elements: Vec<LlvmConst>,
+    },
+    Struct {
+        packed: bool,
+        fields: Vec<(LlvmType, LlvmConst)>,
+    },
     GlobalRef(GlobalId),
+    /// The address `offset` bytes into a global.
+    GlobalOffset {
+        global: GlobalId,
+        offset: i64,
+    },
     ZeroInit,
 }
 

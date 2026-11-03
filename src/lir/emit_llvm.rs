@@ -8,7 +8,7 @@
 //! nearly 1:1: each `LirInstr` → one or more `LlvmInstr`, each
 //! `LirTerminator` → an `LlvmTerminator`, each `LirBlock` → an `LlvmBlock`.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::core::CorePrimOp;
 use crate::lir::*;
@@ -254,6 +254,7 @@ pub fn emit_llvm_module_with_debug(
             block_locs: Vec::new(),
             invoke_at: None,
             unwinds: false,
+            static_words: HashMap::new(),
         };
         let llvm_func = emitter.emit_function();
         let block_locs = std::mem::take(&mut emitter.block_locs);
@@ -284,6 +285,7 @@ pub fn emit_llvm_module_with_debug(
                 block_locs: Vec::new(),
                 invoke_at: None,
                 unwinds: false,
+                static_words: HashMap::new(),
             };
             let worker_func = emitter.emit_function();
             let block_locs = std::mem::take(&mut emitter.block_locs);
@@ -314,6 +316,7 @@ pub fn emit_llvm_module_with_debug(
                 block_locs: Vec::new(),
                 invoke_at: None,
                 unwinds: false,
+                static_words: HashMap::new(),
             };
             let direct_capture_func = emitter.emit_function();
             let block_locs = std::mem::take(&mut emitter.block_locs);
@@ -672,17 +675,27 @@ const MAX_SCANNED_FIELDS: usize = 255;
 const FLUX_OBJ_STRING_TAG: i128 = 0xF1;
 
 /// Values that are the same every time they are made: string literals, the
-/// closures of functions that capture nothing, and constructors without
-/// fields. Each is one read-only object outside the heap, with a sticky
-/// count, so making one allocates nothing and copying or releasing it does
-/// nothing.
+/// closures of functions that capture nothing, and constructors whose fields
+/// are all such values or immediates. Each is one read-only object outside
+/// the heap, with a sticky count, so making one allocates nothing and copying
+/// or releasing it does nothing. Reuse needs a count of one, so a static
+/// object is never written.
 #[derive(Default)]
 struct StaticObjects {
     strings: BTreeMap<String, GlobalId>,
     /// Keyed by the function pointer the closure calls, with its arity.
     closures: BTreeMap<String, (GlobalId, usize)>,
-    /// Keyed by constructor tag.
-    ctors: BTreeMap<i32, GlobalId>,
+    /// Keyed by constructor tag and fields.
+    ctors: BTreeMap<(i32, Vec<StaticWord>), GlobalId>,
+}
+
+/// A word a static object can hold.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum StaticWord {
+    /// A tagged immediate: an Int, a Bool, None, the empty list.
+    Imm(i64),
+    /// Another static object.
+    Object(GlobalId),
 }
 
 impl StaticObjects {
@@ -703,9 +716,12 @@ impl StaticObjects {
             .clone()
     }
 
-    fn nullary_ctor(&mut self, tag: i32) -> GlobalId {
+    fn ctor(&mut self, tag: i32, fields: Vec<StaticWord>) -> GlobalId {
         let next = self.ctors.len();
-        self.ctors.entry(tag).or_insert_with(|| GlobalId(format!("flux.ctor.{next}"))).clone()
+        self.ctors
+            .entry((tag, fields))
+            .or_insert_with(|| GlobalId(format!("flux.ctor.{next}")))
+            .clone()
     }
 
     fn emit(self, module: &mut LlvmModule) {
@@ -713,7 +729,9 @@ impl StaticObjects {
             |bits: u32, value: i128| (LlvmType::Integer(bits), LlvmConst::Int { bits, value });
         let bytes =
             |len: usize| LlvmType::Array { len: len as u64, element: Box::new(LlvmType::i8()) };
-        let header = |tag: i128| vec![int(32, STATIC_RC), int(8, 0), int(8, tag), int(16, 0)];
+        let header = |tag: i128, scan: usize| {
+            vec![int(32, STATIC_RC), int(8, scan as i128), int(8, tag), int(16, 0)]
+        };
         let object = |name: GlobalId, fields: Vec<(LlvmType, LlvmConst)>| LlvmGlobal {
             linkage: Linkage::Private,
             name,
@@ -729,7 +747,7 @@ impl StaticObjects {
         for (text, name) in self.strings {
             // FluxString: its own tag byte, three pad bytes, the length,
             // then the bytes.
-            let mut fields = header(FLUX_OBJ_STRING_TAG);
+            let mut fields = header(FLUX_OBJ_STRING_TAG, 0);
             fields.extend([
                 int(8, FLUX_OBJ_STRING_TAG),
                 (bytes(3), LlvmConst::ZeroInit),
@@ -750,7 +768,7 @@ impl StaticObjects {
         for (fn_ptr, (name, arity)) in self.closures {
             // FluxClosure: the function, its remaining arity, no captures,
             // nothing applied, padding.
-            let mut fields = header(crate::llvm::codegen::FLUX_OBJ_CLOSURE_TAG as i128);
+            let mut fields = header(crate::llvm::codegen::FLUX_OBJ_CLOSURE_TAG as i128, 0);
             fields.extend([
                 (LlvmType::Ptr, LlvmConst::GlobalRef(GlobalId(fn_ptr))),
                 int(32, arity as i128),
@@ -760,10 +778,16 @@ impl StaticObjects {
             ]);
             module.globals.push(object(name, fields));
         }
-        for (tag, name) in self.ctors {
-            // FluxAdt: the constructor tag and no fields.
-            let mut fields = header(crate::llvm::codegen::FLUX_OBJ_ADT as i128);
-            fields.extend([int(32, tag as i128), int(32, 0)]);
+        for ((tag, words), name) in self.ctors {
+            // FluxAdt: the constructor tag, the field count, the fields.
+            let mut fields = header(crate::llvm::codegen::FLUX_OBJ_ADT as i128, words.len());
+            fields.extend([int(32, tag as i128), int(32, words.len() as i128)]);
+            fields.extend(words.into_iter().map(|word| match word {
+                StaticWord::Imm(value) => int(64, value as i128),
+                StaticWord::Object(global) => {
+                    (LlvmType::Ptr, LlvmConst::GlobalOffset { global, offset: STATIC_HEADER_SIZE })
+                }
+            }));
             module.globals.push(object(name, fields));
         }
     }
@@ -819,6 +843,8 @@ struct FnEmitter<'a> {
     invoke_at: Option<(usize, Vec<LirVar>)>,
     /// Whether the function has an `invoke`, and so needs a personality.
     unwinds: bool,
+    /// The variables known to hold a constant a static object can hold.
+    static_words: HashMap<LirVar, StaticWord>,
 }
 
 /// Adds `function` to `module`, with its debug information in a debug build.
@@ -1464,6 +1490,9 @@ impl<'a> FnEmitter<'a> {
         match instr {
             LirInstr::Const { dst, value } => self.emit_const(*dst, value),
             LirInstr::Copy { dst, src } => {
+                if let Some(word) = self.static_word(*src) {
+                    self.note_static(*dst, word);
+                }
                 // SSA identity: %dst = add i64 %src, 0
                 self.emit(LlvmInstr::Binary {
                     dst: self.var_local(*dst),
@@ -2096,6 +2125,17 @@ impl<'a> FnEmitter<'a> {
     }
 
     fn emit_const(&mut self, dst: LirVar, value: &LirConst) {
+        let word = match value {
+            LirConst::Int(n) => Some((*n << 1) | 1),
+            LirConst::Bool(b) => Some(if *b { FLUX_TRUE } else { FLUX_FALSE }),
+            LirConst::None => Some(FLUX_NONE),
+            LirConst::EmptyList => Some(FLUX_EMPTY_LIST),
+            LirConst::Tagged(n) => Some(*n),
+            LirConst::Float(_) | LirConst::String(_) => None,
+        };
+        if let Some(word) = word {
+            self.note_static(dst, StaticWord::Imm(word));
+        }
         match value {
             LirConst::Int(n) => {
                 // In worker mode, emit raw value; otherwise pointer-tag: (n << 1) | 1.
@@ -2568,6 +2608,11 @@ impl<'a> FnEmitter<'a> {
 
     /// The value of a static object: the address just past its header.
     fn emit_static_ref(&mut self, dst: LirVar, gid: GlobalId) {
+        self.note_static(dst, StaticWord::Object(gid.clone()));
+        self.emit_static_ref_into(self.var_local(dst), gid);
+    }
+
+    fn emit_static_ref_into(&mut self, dst: LlvmLocal, gid: GlobalId) {
         let payload = self.tmp();
         self.emit(LlvmInstr::GetElementPtr {
             dst: payload.clone(),
@@ -2577,7 +2622,7 @@ impl<'a> FnEmitter<'a> {
             indices: vec![(LlvmType::i64(), self.i64_const(STATIC_HEADER_SIZE))],
         });
         self.emit(LlvmInstr::Cast {
-            dst: self.var_local(dst),
+            dst,
             op: LlvmValueKind::PtrToInt,
             from_ty: LlvmType::Ptr,
             operand: LlvmOperand::Local(payload),
@@ -2751,28 +2796,59 @@ impl<'a> FnEmitter<'a> {
                 lhs: self.i64_const(FLUX_EMPTY_LIST),
                 rhs: self.i64_const(0),
             });
+            self.note_static(dst, StaticWord::Imm(FLUX_EMPTY_LIST));
             return;
         }
-        // Built right to left, so each cell's tail already exists.
+        // Built right to left, so each cell's tail already exists. The cells
+        // after the last element that is not a constant are static.
         let mut tail = self.i64_const(FLUX_EMPTY_LIST);
+        let mut static_tail = Some(StaticWord::Imm(FLUX_EMPTY_LIST));
         for (i, elem) in elements.iter().enumerate().rev() {
             let cell = if i == 0 { self.var_local(dst) } else { self.tmp() };
-            let fields = [self.var(*elem), tail];
-            self.emit_adt_object(cell.clone(), CONS_TAG, &fields);
+            let words = static_tail.and_then(|tail| Some(vec![self.static_word(*elem)?, tail]));
+            if let Some(words) = words {
+                let gid = self.statics.ctor(CONS_TAG, words);
+                self.emit_static_ref_into(cell.clone(), gid.clone());
+                static_tail = Some(StaticWord::Object(gid));
+            } else {
+                let fields = [self.var(*elem), tail];
+                self.emit_adt_object(cell.clone(), CONS_TAG, &fields);
+                static_tail = None;
+            }
             tail = LlvmOperand::Local(cell);
+        }
+        if let Some(word) = static_tail {
+            self.note_static(dst, word);
         }
     }
 
     fn emit_make_ctor(&mut self, dst: LirVar, ctor_tag: i32, fields: &[LirVar]) {
         debug_assert!(fields.len() <= MAX_SCANNED_FIELDS, "E087 missed a constructor");
-        if fields.is_empty() {
-            let gid = self.statics.nullary_ctor(ctor_tag);
+        let words: Option<Vec<StaticWord>> =
+            fields.iter().map(|field| self.static_word(*field)).collect();
+        if let Some(words) = words {
+            let gid = self.statics.ctor(ctor_tag, words);
             self.emit_static_ref(dst, gid);
             return;
         }
         // Some, Left, Right and Cons share the user constructors' layout.
         let fields: Vec<LlvmOperand> = fields.iter().map(|field| self.var(*field)).collect();
         self.emit_adt_object(self.var_local(dst), ctor_tag, &fields);
+    }
+
+    /// What `var` holds when it is the same constant on every run. A worker
+    /// holds its Ints untagged, so it reports none.
+    fn static_word(&self, var: LirVar) -> Option<StaticWord> {
+        if self.worker_mode {
+            return None;
+        }
+        self.static_words.get(&var).cloned()
+    }
+
+    fn note_static(&mut self, var: LirVar, word: StaticWord) {
+        if !self.worker_mode {
+            self.static_words.insert(var, word);
+        }
     }
 
     /// Builds `{i32 tag, i32 count, fields}` in a new block, storing each
