@@ -1,6 +1,6 @@
 - Feature Name: Total Functions and Safe Arithmetic
 - Start Date: 2026-03-25
-- Status: Partially Implemented — Phase 1 (safe_div / safe_mod returning `Option<Int>`) shipped end-to-end across VM, LLVM, and C runtime; see `tests/safe_arithmetic_tests.rs`, `tests/non_zero_type_tests.rs`. Phase 2 (NonZero type), Phase 3 (operator edition change), Phase 4 (refinement types) open.
+- Status: Partially Implemented — Phase 1 (safe_div / safe_mod returning `Option<Int>`) shipped end-to-end across VM, LLVM, and C runtime; see `tests/native_llvm/safe_arithmetic_tests.rs`. Phase 2 shipped as a library type, `lib/Flow/NonZero.flx` (`tests/type_inference/non_zero_type_tests.rs`, `tests/flux/non_zero.flx`); its private constructor leaks through `exposing (..)`, see [0198](0198_opaque_types_and_total_stdlib.md). Phase 3 (operators return `Option`) is superseded by [0197](0197_partiality_as_effects.md), which keeps `/` and adds an `Exn` effect. Phase 4 (refinement types) open. Checked 2026-11-03.
 - Proposal PR:
 - Flux Issue:
 
