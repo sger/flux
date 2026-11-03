@@ -436,6 +436,60 @@ fn main() { rebuild([("key", [1, 2])]) }
     );
 }
 
+/// KI-164: `nodes` owns `tree` (its `Tip` arm stores it), and its `Node`
+/// arm builds no cell to reuse `tree`'s for. On the unique path the arm
+/// still owns the cell and its fields, so it frees the cell alone and copies
+/// nothing; the shared path copies the fields and releases its reference.
+#[test]
+fn a_unique_cell_whose_arm_builds_no_cell_frees_its_shell() {
+    let src = r#"
+type Tree = Node(Tree, Tree) | Tip
+
+fn make(depth: Int) -> Tree {
+    if depth <= 0 { Tip } else { Node(make(depth - 1), make(depth - 1)) }
+}
+
+fn nodes(tree: Tree) -> Int {
+    match tree {
+        Node(left, right) -> nodes(left) + nodes(right) + 1,
+        Tip -> len([tree]) - 1,
+    }
+}
+
+fn main() with IO {
+    print(nodes(make(20)))
+}
+"#;
+    let (core, interner) = lowered_core_and_interner(src);
+    let def = core.defs.iter().find(|def| interner.resolve(def.name) == "nodes").expect("nodes");
+    let specialized: Vec<(&CoreExpr, &CoreExpr)> = collect_core_exprs(&def.expr)
+        .into_iter()
+        .filter_map(|expr| match expr {
+            CoreExpr::DropSpecialized { unique_body, shared_body, .. } => {
+                Some((unique_body.as_ref(), shared_body.as_ref()))
+            }
+            _ => None,
+        })
+        .collect();
+    let [(unique, shared)] = specialized.as_slice() else {
+        panic!("one drop specialization in nodes, got {}: {:?}", specialized.len(), def.expr);
+    };
+    let tree_name = interner.lookup("tree").expect("the program binds `tree`");
+    let tree = |var: &flux::core::CoreVarRef| var.name == tree_name;
+    assert!(
+        matches!(unique, CoreExpr::FreeShell { var, .. } if tree(var)),
+        "the unique path frees tree first: {unique:?}"
+    );
+    assert_eq!(count_matching(unique, &|expr| matches!(expr, CoreExpr::Dup { .. })), 0);
+    assert_eq!(
+        count_matching(shared, &|expr| matches!(expr, CoreExpr::Drop { var, .. } if tree(var))),
+        1,
+        "{shared:?}"
+    );
+    flux::aether::verify::verify_def_contract_aether(&def.expr, def.borrow_signature.as_ref())
+        .expect("the contract holds");
+}
+
 /// Audit L1: `Node(color, left, key, right) -> Node(color, left, key, left)`
 /// stores `left` twice. A unique cell hands over one reference to it, so the
 /// unique path keeps one copy for the second store.
