@@ -68,9 +68,26 @@ Making `check_tree`'s parameter owned removes the second walk, since each
 call frees the cell it took apart. A throwaway build that forced it owned was
 24% slower (2,576 → 3,197 ms), because a unique cell that builds nothing had
 no way to be freed without its fields: each call copied both children and
-released the cell (KI-164). 0189 F3-5 fixed that (07cdfc77). With it, the
-same throwaway build takes **TBD ms** (P1-2 measurement, to fill in), which is
-the most this proposal can gain on binarytrees.
+released the cell (KI-164). 0189 F3-5 fixed that (07cdfc77).
+
+Forcing the parameter owned on top of 07cdfc77 is not enough by itself: the
+arm still does not claim its cell (see "The arm has to claim its cell"
+below), so `check_tree` copies each child at its call and releases `tree`
+after both calls, and nothing frees a cell as it is read. A throwaway build
+that also makes every arm that may release its cell claim it gives the shape
+this proposal wants, and measures the most it can gain on binarytrees
+(2026-11-03, n=21, 5 interleaved runs, same output, RSS 137 MB both):
+
+| Build | Median |
+|---|---|
+| 07cdfc77 | 2,663 ms |
+| `check_tree` owned, arms claim | 2,422 ms (−9%) |
+
+`flux_drop` is gone from that profile. What is left is `check_tree` (57% of
+samples, mostly waiting on memory), `make_tree` (27%), `flux_free_shell`
+(9.5%) and `_tlv_get_addr` (6.5%, the heap's thread-local lookup in each
+free). An inline shell free and uniqueness check (0189 F3-5 follow-up P1-3)
+target the last two.
 
 Forcing the parameter owned everywhere is not the answer. A function that
 only looks at a value the caller keeps, such as `rbtree`'s `lookup`, would
@@ -158,6 +175,23 @@ passes E1 and E2 before Aether runs, and passes the map in. In LIR, the
 clone's qualified name is the original's plus `$own` (`Flow.List.length$own`),
 which stays unique per module. `$` is valid in LLVM and Mach-O symbol names.
 
+### The arm has to claim its cell
+
+The planner (`src/aether/insert.rs`, the `Case` branch of `plan_expr`) copies
+an arm's fields and releases the matched cell at the arm's head only when the
+arm builds a cell of the same shape (`head_drop`, for the reuse pass) or
+another arm still uses the cell (`own_fields`). Otherwise the fields stay
+views of the cell, and the cell is released after their last use. That is the
+cheaper plan for a cell no path can free alone, and it was the only plan
+before 0189 F3-5. With F3-5, an arm that gives a field away is better off
+claiming the cell: drop specialization then splits it, and on the unique path
+the copies cancel and the cell is freed alone.
+
+So the clone needs one more rule: an arm that may release its cell claims it
+when the arm gives one of its fields to an owned position. This applies to
+every function, not only clones, so it is its own step (C1b), measured on its
+own before any clone exists.
+
 ### How a call site picks the clone
 
 In the planner's `App` case (`src/aether/insert.rs`), a call to `f` becomes a
@@ -226,6 +260,7 @@ drop.
 | Step | Change | Can it crash? |
 |---|---|---|
 | C0 | **Fixtures and baselines** in `examples/aether`, each with expected output: a binarytrees-shaped `sum_trees`; `length` of a dead list; a dead tree also kept in a list (count 2); even/odd walkers; a two-parameter `same(a, b)`; a kept-tree `rbtree` lookup; an effectful walk (excluded); `nodes` handing a field to `check_tree`. Record debug-heap counts and timings. | no change |
+| C1b | **Arms that give a field away claim their cell** (above), in every function, with the snapshot review and the benchmark set run on its own. | yes: a claim the shared path does not balance; the verifier's single-release and read-after-release checks and the debug heap catch it |
 | C1 | **Candidates.** `src/aether/owned_clone.rs`, `candidates(&CoreProgram, &BorrowRegistry)` with E1–E5 and the fixpoint; the compiler interns the `$own` names. Nothing calls it yet. | no |
 | C2 | **Clones and call sites:** making and planning the clones, the call-site rule, LIR names, the dump, off on the VM. | yes: a wrong last-reference decision is a use after free; the verifier and the debug heap catch it |
 | C3 | **The shared fallback** and its verifier change, only if the C0 shared fixture is more than about 5% slower than the borrowed walk. | yes: a read after the drop; `check_reads_after_release` catches it |
