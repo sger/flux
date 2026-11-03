@@ -1972,8 +1972,7 @@ impl<'a> FnEmitter<'a> {
             }
             LirInstr::MakeTuple { dst, elements } => {
                 debug_assert!(elements.len() <= MAX_SCANNED_FIELDS, "E087 missed a tuple");
-                // flux_make_tuple is emitted by emit_adt_support (fastcc LLVM helper).
-                self.emit_make_collection_fastcc(*dst, elements, "flux_make_tuple");
+                self.emit_make_tuple(*dst, elements);
             }
             LirInstr::MakeHash { dst, pairs } => {
                 self.emit_make_hash(*dst, pairs);
@@ -2586,25 +2585,9 @@ impl<'a> FnEmitter<'a> {
         });
     }
 
-    fn emit_make_collection_fastcc(&mut self, dst: LirVar, elements: &[LirVar], func: &str) {
-        self.emit_make_collection_inner(dst, elements, func, true);
-    }
-
     fn emit_make_collection(&mut self, dst: LirVar, elements: &[LirVar], c_func: &str) {
-        self.emit_make_collection_inner(dst, elements, c_func, false);
-    }
-
-    fn emit_make_collection_inner(
-        &mut self,
-        dst: LirVar,
-        elements: &[LirVar],
-        c_func: &str,
-        use_fastcc: bool,
-    ) {
-        let call = if use_fastcc { FnEmitter::call_fastcc } else { FnEmitter::call_c };
         if elements.is_empty() {
-            call(
-                self,
+            self.call_c(
                 Some(self.var_local(dst)),
                 c_func,
                 vec![
@@ -2640,8 +2623,7 @@ impl<'a> FnEmitter<'a> {
                     align: Some(8),
                 });
             }
-            call(
-                self,
+            self.call_c(
                 Some(self.var_local(dst)),
                 c_func,
                 vec![
@@ -2761,144 +2743,117 @@ impl<'a> FnEmitter<'a> {
     }
 
     fn emit_make_list(&mut self, dst: LirVar, elements: &[LirVar]) {
-        // Build cons list right-to-left: Cons(e_n-1, Cons(e_n, EmptyList))
-        let empty = FLUX_EMPTY_LIST;
-        let current = self.i64_const(empty);
-        // Need a variable to hold the current tail.
-        let mut current_local: Option<LlvmLocal> = None;
-
-        for elem in elements.iter().rev() {
-            let result = self.tmp();
-            let tail_op = if let Some(ref loc) = current_local {
-                LlvmOperand::Local(loc.clone())
-            } else {
-                current.clone()
-            };
-            self.call_fastcc(
-                Some(result.clone()),
-                "flux_make_cons",
-                vec![(LlvmType::i64(), self.var(*elem)), (LlvmType::i64(), tail_op)],
-                LlvmType::i64(),
-            );
-            current_local = Some(result);
+        if elements.is_empty() {
+            self.emit(LlvmInstr::Binary {
+                dst: self.var_local(dst),
+                op: LlvmValueKind::Add,
+                ty: LlvmType::i64(),
+                lhs: self.i64_const(FLUX_EMPTY_LIST),
+                rhs: self.i64_const(0),
+            });
+            return;
         }
-
-        if let Some(loc) = current_local {
-            // Copy to dst variable.
-            self.emit(LlvmInstr::Binary {
-                dst: self.var_local(dst),
-                op: LlvmValueKind::Add,
-                ty: LlvmType::i64(),
-                lhs: LlvmOperand::Local(loc),
-                rhs: self.i64_const(0),
-            });
-        } else {
-            // Empty list.
-            self.emit(LlvmInstr::Binary {
-                dst: self.var_local(dst),
-                op: LlvmValueKind::Add,
-                ty: LlvmType::i64(),
-                lhs: current,
-                rhs: self.i64_const(0),
-            });
+        // Built right to left, so each cell's tail already exists.
+        let mut tail = self.i64_const(FLUX_EMPTY_LIST);
+        for (i, elem) in elements.iter().enumerate().rev() {
+            let cell = if i == 0 { self.var_local(dst) } else { self.tmp() };
+            let fields = [self.var(*elem), tail];
+            self.emit_adt_object(cell.clone(), CONS_TAG, &fields);
+            tail = LlvmOperand::Local(cell);
         }
     }
 
     fn emit_make_ctor(&mut self, dst: LirVar, ctor_tag: i32, fields: &[LirVar]) {
         debug_assert!(fields.len() <= MAX_SCANNED_FIELDS, "E087 missed a constructor");
-        // Built-in constructors with dedicated C runtime functions
-        // that use flux_gc_alloc_header (correct RC metadata).
-        match (ctor_tag, fields.len()) {
-            (1, 1) => {
-                // Some(val)
-                self.call_c(
-                    Some(self.var_local(dst)),
-                    "flux_wrap_some",
-                    vec![(LlvmType::i64(), self.var(fields[0]))],
-                    LlvmType::i64(),
-                );
-                return;
-            }
-            (2, 1) => {
-                // Left(val)
-                self.call_c(
-                    Some(self.var_local(dst)),
-                    "flux_make_left",
-                    vec![(LlvmType::i64(), self.var(fields[0]))],
-                    LlvmType::i64(),
-                );
-                return;
-            }
-            (3, 1) => {
-                // Right(val)
-                self.call_c(
-                    Some(self.var_local(dst)),
-                    "flux_make_right",
-                    vec![(LlvmType::i64(), self.var(fields[0]))],
-                    LlvmType::i64(),
-                );
-                return;
-            }
-            (4, 2) => {
-                // Cons(head, tail)
-                self.call_fastcc(
-                    Some(self.var_local(dst)),
-                    "flux_make_cons",
-                    vec![
-                        (LlvmType::i64(), self.var(fields[0])),
-                        (LlvmType::i64(), self.var(fields[1])),
-                    ],
-                    LlvmType::i64(),
-                );
-                return;
-            }
-            _ => {}
+        if fields.is_empty() {
+            let gid = self.statics.nullary_ctor(ctor_tag);
+            self.emit_static_ref(dst, gid);
+            return;
         }
-        {
-            // User-defined ADTs: use flux_make_adt LLVM helper.
-            // flux_make_adt(ptr fields, i32 field_count, i32 ctor_tag) → i64
-            let arr = self.tmp();
-            if fields.is_empty() {
-                let gid = self.statics.nullary_ctor(ctor_tag);
-                self.emit_static_ref(dst, gid);
-            } else {
-                self.emit(LlvmInstr::Alloca {
-                    dst: arr.clone(),
-                    ty: LlvmType::Array {
-                        len: fields.len() as u64,
-                        element: Box::new(LlvmType::i64()),
-                    },
-                    count: None,
-                    align: Some(8),
-                });
-                for (i, field) in fields.iter().enumerate() {
-                    let gep = self.tmp();
-                    self.emit(LlvmInstr::GetElementPtr {
-                        dst: gep.clone(),
-                        inbounds: true,
-                        element_ty: LlvmType::i64(),
-                        base: LlvmOperand::Local(arr.clone()),
-                        indices: vec![(LlvmType::i32(), self.i32_const(i as i32))],
-                    });
-                    self.emit(LlvmInstr::Store {
-                        ty: LlvmType::i64(),
-                        value: self.var(*field),
-                        ptr: LlvmOperand::Local(gep),
-                        align: Some(8),
-                    });
-                }
-                self.call_fastcc(
-                    Some(self.var_local(dst)),
-                    "flux_make_adt",
-                    vec![
-                        (LlvmType::Ptr, LlvmOperand::Local(arr)),
-                        (LlvmType::i32(), self.i32_const(fields.len() as i32)),
-                        (LlvmType::i32(), self.i32_const(ctor_tag)),
-                    ],
-                    LlvmType::i64(),
-                );
-            }
+        // Some, Left, Right and Cons share the user constructors' layout.
+        let fields: Vec<LlvmOperand> = fields.iter().map(|field| self.var(*field)).collect();
+        self.emit_adt_object(self.var_local(dst), ctor_tag, &fields);
+    }
+
+    /// Builds `{i32 tag, i32 count, fields}` in a new block, storing each
+    /// field into the block itself. A field array handed to a helper stayed
+    /// on the stack after optimization, with a copy, whenever the
+    /// constructor was not in the function's first block.
+    fn emit_adt_object(&mut self, dst: LlvmLocal, ctor_tag: i32, fields: &[LlvmOperand]) {
+        let mem = self.emit_filled_block(fields.len(), crate::llvm::codegen::FLUX_OBJ_ADT);
+        self.emit_store_at(LlvmType::i32(), self.i32_const(ctor_tag), &mem, 0);
+        self.emit_store_at(LlvmType::i32(), self.i32_const(fields.len() as i32), &mem, 1);
+        for (i, field) in fields.iter().enumerate() {
+            self.emit_store_at(LlvmType::i64(), field.clone(), &mem, 1 + i as i32);
         }
+        self.emit_tag_block(dst, mem);
+    }
+
+    /// Builds `{i8 0xF3, pad, i32 arity, fields}` the same way.
+    fn emit_make_tuple(&mut self, dst: LirVar, elements: &[LirVar]) {
+        let obj_tag = crate::llvm::codegen::FLUX_OBJ_TUPLE;
+        let mem = self.emit_filled_block(elements.len(), obj_tag);
+        self.emit_store_at(
+            LlvmType::i8(),
+            LlvmOperand::Const(LlvmConst::Int { bits: 8, value: obj_tag as i128 }),
+            &mem,
+            0,
+        );
+        self.emit_store_at(LlvmType::i32(), self.i32_const(elements.len() as i32), &mem, 1);
+        for (i, elem) in elements.iter().enumerate() {
+            self.emit_store_at(LlvmType::i64(), self.var(*elem), &mem, 1 + i as i32);
+        }
+        self.emit_tag_block(self.var_local(dst), mem);
+    }
+
+    /// A block with an 8-byte object header and `fields` words after it,
+    /// none of them zeroed: the caller stores every one.
+    fn emit_filled_block(&mut self, fields: usize, obj_tag: i32) -> LlvmLocal {
+        let mem = self.tmp();
+        self.call_fastcc(
+            Some(mem.clone()),
+            "flux_bump_alloc_filled",
+            vec![
+                (LlvmType::i32(), self.i32_const(8 + 8 * fields as i32)),
+                (LlvmType::i32(), self.i32_const(fields as i32)),
+                (LlvmType::i32(), self.i32_const(obj_tag)),
+            ],
+            LlvmType::Ptr,
+        );
+        mem
+    }
+
+    /// Stores `value` at element `index` of `mem`, counted in `ty`s.
+    fn emit_store_at(&mut self, ty: LlvmType, value: LlvmOperand, mem: &LlvmLocal, index: i32) {
+        let align = match &ty {
+            t if *t == LlvmType::i64() => 8,
+            t if *t == LlvmType::i32() => 4,
+            _ => 1,
+        };
+        let ptr = if index == 0 {
+            mem.clone()
+        } else {
+            let gep = self.tmp();
+            self.emit(LlvmInstr::GetElementPtr {
+                dst: gep.clone(),
+                inbounds: true,
+                element_ty: ty.clone(),
+                base: LlvmOperand::Local(mem.clone()),
+                indices: vec![(LlvmType::i32(), self.i32_const(index))],
+            });
+            gep
+        };
+        self.emit(LlvmInstr::Store { ty, value, ptr: LlvmOperand::Local(ptr), align: Some(align) });
+    }
+
+    fn emit_tag_block(&mut self, dst: LlvmLocal, mem: LlvmLocal) {
+        self.emit(LlvmInstr::Cast {
+            dst,
+            op: LlvmValueKind::PtrToInt,
+            from_ty: LlvmType::Ptr,
+            operand: LlvmOperand::Local(mem),
+            to_ty: LlvmType::i64(),
+        });
     }
 
     // ── Yield-check emission (Proposal 0162 Phase 3 slice 3a) ────────
@@ -3871,8 +3826,7 @@ fn is_fastcc_prelude_helper(name: &str) -> bool {
         | "flux_dup_inline" | "flux_drop_inline" | "flux_drop_reuse" | "flux_rc_is_unique"
         // Bump allocator
         | "flux_bump_alloc_inline" | "flux_bump_alloc_filled"
-        // ADT/Tuple/Closure construction
-        | "flux_make_adt" | "flux_make_cons" | "flux_make_tuple"
+        // Tuple/Closure helpers
         | "flux_tuple_len"
         | "flux_copy_i64s"
         | "flux_make_closure" | "flux_call_closure"
@@ -4154,14 +4108,12 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
             (LlvmType::i64(), vec![LlvmType::i64()])
         }
         "flux_panic" => (LlvmType::Void, vec![LlvmType::i64()]),
-        "flux_make_cons" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
         "flux_hamt_set_literal" => {
             (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64()])
         }
-        "flux_make_array" | "flux_make_tuple" | "flux_make_hash" | "flux_interpolate" => {
+        "flux_make_array" | "flux_make_hash" | "flux_interpolate" => {
             (LlvmType::i64(), vec![LlvmType::Ptr, LlvmType::i32()])
         }
-        "flux_make_adt" => (LlvmType::i64(), vec![LlvmType::Ptr, LlvmType::i32(), LlvmType::i32()]),
         "flux_rc_is_unique" => (LlvmType::i1(), vec![LlvmType::i64()]),
         "flux_drop_reuse" => (LlvmType::Ptr, vec![LlvmType::i64(), LlvmType::i32()]),
         // Collection helpers

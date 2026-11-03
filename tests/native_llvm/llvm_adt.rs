@@ -48,18 +48,22 @@ fn compile_per_module_llvm_ir(src: &str, export_user_ctor_name_helper: bool) -> 
 fn lowers_option_and_either_constructor_patterns() {
     let rendered = compile_to_llvm_ir(
         r#"
-fn main() {
-    match Some(Left(21)) {
+fn read(x) {
+    match x {
         Some(Left(v)) -> v + 1,
         Some(Right(v)) -> v,
         _ -> 0,
     }
 }
+
+fn main() {
+    read(Some(Left(read(None))))
+}
 "#,
     );
 
     assert!(
-        rendered.contains("flux_make_adt") || rendered.contains("flux_make_cons"),
+        rendered.contains("@flux_bump_alloc_filled(i32 16, i32 1, i32 242)"),
         "expected ADT construction"
     );
     // Phase 4 (Proposal 0140): ADT tag check is now inlined as GEP+load.
@@ -86,7 +90,10 @@ fn main() {
 "#,
     );
 
-    assert!(rendered.contains("flux_make_cons"), "expected cons construction");
+    assert!(
+        rendered.contains("@flux_bump_alloc_filled(i32 24, i32 2, i32 242)"),
+        "expected cons construction"
+    );
 }
 
 #[test]
@@ -107,7 +114,10 @@ fn main() {
 "#,
     );
 
-    assert!(rendered.contains("flux_make_tuple"), "expected tuple construction");
+    assert!(
+        rendered.contains("@flux_bump_alloc_filled(i32 24, i32 2, i32 243)"),
+        "expected tuple construction"
+    );
 }
 
 #[test]
@@ -223,6 +233,69 @@ fn main() {
         assert!(line.contains("i32 1073741824"), "{line}");
     }
     assert!(!rendered.contains("@flux_make_adt(ptr null"), "{rendered}");
+}
+
+/// Fields passed to a helper through a stack buffer kept the buffer and a
+/// copy in optimized code wherever the constructor was not in the function's
+/// first block, so each one is stored straight into the new block.
+#[test]
+fn constructor_and_tuple_fields_are_stored_straight_into_the_block() {
+    let rendered = compile_to_llvm_ir(
+        r#"
+data Tree {
+    Node(Tree, Int, Tree),
+    Tip,
+}
+
+fn node(n) { Node(Tip, n, Tip) }
+fn some(n) { Some(n) }
+fn right(n) { Right(n) }
+fn list(n) { [n, n + 1] }
+fn pair(n) { (n, n + 1) }
+
+fn main() {
+    let a = node(1);
+    let b = some(2);
+    let c = right(3);
+    let d = list(4);
+    let e = pair(5);
+    0
+}
+"#,
+    );
+
+    let body = |name: &str| -> &str {
+        let define = rendered
+            .lines()
+            .find(|line| line.starts_with("define") && line.contains(&format!("_{name}(")))
+            .unwrap_or_else(|| panic!("no function {name}:\n{rendered}"));
+        let start = rendered.find(define).unwrap();
+        &rendered[start..start + rendered[start..].find("\n}").unwrap()]
+    };
+    // (function, block bytes, scanned fields, object tag, stores of i64 fields)
+    for (name, bytes, fields, obj_tag) in [
+        ("node", 32, 3, 0xF2),
+        ("some", 16, 1, 0xF2),
+        ("right", 16, 1, 0xF2),
+        ("list", 24, 2, 0xF2),
+        ("pair", 24, 2, 0xF3),
+    ] {
+        let body = body(name);
+        assert!(!body.contains("alloca"), "{name}:\n{body}");
+        for helper in [
+            "@flux_make_adt(",
+            "@flux_make_cons(",
+            "@flux_make_tuple(",
+            "@flux_wrap_some(",
+            "@flux_make_right(",
+        ] {
+            assert!(!body.contains(helper), "{name} calls {helper}:\n{body}");
+        }
+        let alloc = format!("@flux_bump_alloc_filled(i32 {bytes}, i32 {fields}, i32 {obj_tag})");
+        assert!(body.contains(&alloc), "{name} has no {alloc}:\n{body}");
+        let stores = body.matches("store i64 ").count();
+        assert!(stores >= fields as usize, "{name} stores {stores} words:\n{body}");
+    }
 }
 
 #[test]
