@@ -163,14 +163,11 @@ void  flux_gc_collect(void);
 void  flux_gc_push_root(int64_t *root);
 void  flux_gc_pop_root(void);
 
-/* This thread's bump pointers, NULL on every thread without the arena
- * (exported for the inline LLVM allocation). */
+/* This thread's bump pointers into its current heap chunk, NULL on every
+ * thread but the one that owns the heap (exported for the inline LLVM
+ * allocation; see "Heap" in rc.c). */
 extern __thread char *flux_arena_hp;
 extern __thread char *flux_arena_limit;
-
-/* Set to 1 in task worker threads (tasks.c), which keep no free lists.
- * Defined in rc.c; each thread gets its own copy via __thread TLS. */
-extern __thread int flux_worker_thread;
 
 /* Aether RC: dup/drop for pointer-tagged heap values.
  *

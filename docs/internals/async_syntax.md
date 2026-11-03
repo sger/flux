@@ -593,7 +593,7 @@ Spawn flow:
 3. `flux_rc_promote(closure)` — recursively promote the closure's reference count from single-threaded to atomic mode (sign-bit encoding in [runtime/c/rc.c](../../runtime/c/rc.c)). Required because the worker thread will dup/drop concurrently.
 4. `flux_dup(closure)` — bump the count once for the worker.
 5. `pthread_create` (or `_beginthreadex` on Win32; we prefer `_beginthreadex` over `CreateThread` for proper CRT init).
-6. The worker sets `flux_worker_thread = 1` (TLS) so allocations bypass the per-process bump arena and go through `malloc`.
+6. The worker owns no heap: its allocations go through `malloc`, and a block of the root thread's heap that it frees is handed back to the root thread ("Heap" in [runtime/c/rc.c](../../runtime/c/rc.c)).
 
 Worker body:
 

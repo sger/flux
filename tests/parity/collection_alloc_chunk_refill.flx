@@ -1,0 +1,59 @@
+// parity: vm, llvm
+// expect: success
+// bug: guards the native heap's chunks: a tree of several MB stays alive
+//       while trees of about 0.5 MB are built and freed many times, mixed
+//       with tuples and with arrays too big for a size class, so a block
+//       handed out twice, recycled into the wrong class or lost between
+//       chunks shows up as a wrong checksum or a crash.
+// parity-expected-stdout-begin
+// 33072160
+// 45605534
+// 33072160
+// parity-expected-stdout-end
+
+import Flow.Array as Array
+
+type Tree = Node(Tree, Int, Tree) | Tip
+
+fn make(depth: Int, label: Int) -> Tree {
+    if depth <= 0 {
+        Tip
+    } else {
+        Node(make(depth - 1, label * 2), label, make(depth - 1, label * 2 + 1))
+    }
+}
+
+fn check(tree: Tree) -> Int {
+    match tree {
+        Node(left, label, right) -> check(left) + label % 1009 + check(right),
+        Tip -> 1,
+    }
+}
+
+fn mixed(i: Int, n: Int, acc: Int) -> Int {
+    if i >= n {
+        acc
+    } else {
+        let pair = (i, i * 3);
+        let wide = Array.range(0, 40 + i % 9);
+        let here = pair.0 + pair.1 + Array.sum(wide) + Array.length(wide);
+        mixed(i + 1, n, acc + here % 10007)
+    }
+}
+
+fn churn(round: Int, rounds: Int, kept: Tree, acc: Int) -> Int {
+    if round >= rounds {
+        acc + check(kept)
+    } else {
+        let tree = make(14, round + 1)
+        let here = check(tree) + mixed(0, 200, round)
+        churn(round + 1, rounds, kept, acc + here % 1000003)
+    }
+}
+
+fn main() with IO {
+    let kept = make(16, 1)
+    print(check(kept))
+    print(churn(0, 24, kept, 0))
+    print(check(kept))
+}
