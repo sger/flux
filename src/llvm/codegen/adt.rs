@@ -3,9 +3,8 @@ use std::collections::HashMap;
 use crate::{
     core::{CoreProgram, CoreTag, CoreTopLevelItem},
     llvm::{
-        CallConv, GlobalId, LabelId, Linkage, LlvmBlock, LlvmConst, LlvmFunction, LlvmFunctionSig,
-        LlvmInstr, LlvmLocal, LlvmModule, LlvmOperand, LlvmTerminator, LlvmType, LlvmTypeDef,
-        LlvmValueKind,
+        CallConv, GlobalId, LabelId, Linkage, LlvmBlock, LlvmFunction, LlvmFunctionSig, LlvmInstr,
+        LlvmLocal, LlvmModule, LlvmOperand, LlvmTerminator, LlvmType, LlvmTypeDef,
     },
     syntax::{Identifier, interner::Interner},
 };
@@ -21,8 +20,6 @@ pub const FLUX_ADT_TYPE_NAME: &str = "FluxAdt";
 pub const FLUX_TUPLE_TYPE_NAME: &str = "FluxTuple";
 // FluxAdt = {i32 tag, i32 field_count, [0 x i64]} → 8 bytes before payload (no padding needed).
 // FluxTuple = {i32 arity, [0 x i64]} → 4 bytes data, but LLVM pads to 8 for i64 alignment.
-const FLUX_ADT_HEADER_SIZE: i32 = 8;
-const FLUX_TUPLE_HEADER_SIZE: i32 = 8;
 
 const SOME_TAG_ID: i32 = 1;
 const LEFT_TAG_ID: i32 = 2;
@@ -32,15 +29,9 @@ const FIRST_USER_TAG_ID: i32 = 5;
 
 // C runtime obj_tag values (must match flux_rt.h)
 pub const FLUX_OBJ_ADT: i32 = 0xF2;
-const FLUX_OBJ_TUPLE: i32 = 0xF3;
+pub const FLUX_OBJ_TUPLE: i32 = 0xF3;
 
-pub const FLUX_ADT_TAG_FIELD: i32 = 0;
-pub const FLUX_ADT_FIELD_COUNT_FIELD: i32 = 1;
-pub const FLUX_ADT_PAYLOAD_FIELD: i32 = 2;
-
-pub const FLUX_TUPLE_OBJ_TAG_FIELD: i32 = 0;
 pub const FLUX_TUPLE_ARITY_FIELD: i32 = 4;
-pub const FLUX_TUPLE_PAYLOAD_FIELD: i32 = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct AdtMetadata {
@@ -104,14 +95,7 @@ pub fn flux_adt_symbol(name: &str) -> GlobalId {
 pub fn emit_adt_support(module: &mut LlvmModule, _metadata: &AdtMetadata) {
     emit_adt_type(module);
     emit_tuple_type(module);
-    emit_make_adt(module);
-    emit_make_cons(module);
-    emit_make_tuple(module);
     emit_tuple_len(module);
-}
-
-pub fn adt_type() -> LlvmType {
-    LlvmType::Named(FLUX_ADT_TYPE_NAME.into())
 }
 
 pub fn tuple_type() -> LlvmType {
@@ -197,260 +181,6 @@ fn emit_tuple_type(module: &mut LlvmModule) {
     });
 }
 
-fn emit_make_adt(module: &mut LlvmModule) {
-    let name = "flux_make_adt";
-    if has_function(module, name) {
-        return;
-    }
-    module.functions.push(LlvmFunction {
-        linkage: Linkage::Internal,
-        name: flux_adt_symbol(name),
-        sig: LlvmFunctionSig {
-            ret: LlvmType::i64(),
-            params: vec![LlvmType::ptr(), LlvmType::i32(), LlvmType::i32()],
-            varargs: false,
-            call_conv: CallConv::Fastcc,
-        },
-        params: vec![
-            LlvmLocal("fields".into()),
-            LlvmLocal("field_count".into()),
-            LlvmLocal("ctor_tag".into()),
-        ],
-        attrs: helper_attrs(),
-        blocks: vec![LlvmBlock {
-            label: LabelId("entry".into()),
-            instrs: vec![
-                byte_size_instr("payload.bytes", local_operand("field_count")),
-                LlvmInstr::Binary {
-                    dst: LlvmLocal("alloc.bytes".into()),
-                    op: LlvmValueKind::Add,
-                    ty: LlvmType::i32(),
-                    lhs: local_operand("payload.bytes"),
-                    rhs: const_i32_operand(FLUX_ADT_HEADER_SIZE),
-                },
-                LlvmInstr::Call {
-                    dst: Some(LlvmLocal("mem".into())),
-                    tail: false,
-                    call_conv: Some(CallConv::Fastcc),
-                    ret_ty: LlvmType::ptr(),
-                    callee: LlvmOperand::Global(GlobalId("flux_bump_alloc_filled".into())),
-                    args: vec![
-                        (LlvmType::i32(), local_operand("alloc.bytes")),
-                        (LlvmType::i32(), local_operand("field_count")), // scan_fsize
-                        (LlvmType::i32(), const_i32_operand(FLUX_OBJ_ADT)),
-                    ],
-                    attrs: vec![],
-                },
-                gep_struct_field("tag.ptr", adt_type(), local_operand("mem"), FLUX_ADT_TAG_FIELD),
-                LlvmInstr::Store {
-                    ty: LlvmType::i32(),
-                    value: local_operand("ctor_tag"),
-                    ptr: local_operand("tag.ptr"),
-                    align: Some(4),
-                },
-                gep_struct_field(
-                    "field_count.ptr",
-                    adt_type(),
-                    local_operand("mem"),
-                    FLUX_ADT_FIELD_COUNT_FIELD,
-                ),
-                LlvmInstr::Store {
-                    ty: LlvmType::i32(),
-                    value: local_operand("field_count"),
-                    ptr: local_operand("field_count.ptr"),
-                    align: Some(4),
-                },
-                gep_payload(
-                    "payload.ptr",
-                    adt_type(),
-                    local_operand("mem"),
-                    FLUX_ADT_PAYLOAD_FIELD,
-                ),
-                LlvmInstr::Call {
-                    dst: None,
-                    tail: false,
-                    call_conv: Some(CallConv::Fastcc),
-                    ret_ty: LlvmType::Void,
-                    callee: LlvmOperand::Global(flux_closure_symbol("flux_copy_i64s")),
-                    args: vec![
-                        (LlvmType::ptr(), local_operand("payload.ptr")),
-                        (LlvmType::ptr(), local_operand("fields")),
-                        (LlvmType::i32(), local_operand("field_count")),
-                    ],
-                    attrs: vec![],
-                },
-                LlvmInstr::Call {
-                    dst: Some(LlvmLocal("boxed".into())),
-                    tail: false,
-                    call_conv: Some(CallConv::Fastcc),
-                    ret_ty: LlvmType::i64(),
-                    callee: LlvmOperand::Global(flux_closure_symbol("flux_tag_boxed_ptr")),
-                    args: vec![(LlvmType::ptr(), local_operand("mem"))],
-                    attrs: vec![],
-                },
-            ],
-            term: LlvmTerminator::Ret { ty: LlvmType::i64(), value: local_operand("boxed") },
-        }],
-    });
-}
-
-fn emit_make_cons(module: &mut LlvmModule) {
-    let name = "flux_make_cons";
-    if has_function(module, name) {
-        return;
-    }
-    module.functions.push(LlvmFunction {
-        linkage: Linkage::Internal,
-        name: flux_adt_symbol(name),
-        sig: LlvmFunctionSig {
-            ret: LlvmType::i64(),
-            params: vec![LlvmType::i64(), LlvmType::i64()],
-            varargs: false,
-            call_conv: CallConv::Fastcc,
-        },
-        params: vec![LlvmLocal("head".into()), LlvmLocal("tail".into())],
-        attrs: helper_attrs(),
-        blocks: vec![LlvmBlock {
-            label: LabelId("entry".into()),
-            instrs: vec![
-                LlvmInstr::Alloca {
-                    dst: LlvmLocal("fields".into()),
-                    ty: LlvmType::i64(),
-                    count: Some((LlvmType::i32(), const_i32_operand(2))),
-                    align: Some(8),
-                },
-                gep_i64("head.ptr", local_operand("fields"), const_i32_operand(0)),
-                LlvmInstr::Store {
-                    ty: LlvmType::i64(),
-                    value: local_operand("head"),
-                    ptr: local_operand("head.ptr"),
-                    align: Some(8),
-                },
-                gep_i64("tail.ptr", local_operand("fields"), const_i32_operand(1)),
-                LlvmInstr::Store {
-                    ty: LlvmType::i64(),
-                    value: local_operand("tail"),
-                    ptr: local_operand("tail.ptr"),
-                    align: Some(8),
-                },
-                LlvmInstr::Call {
-                    dst: Some(LlvmLocal("boxed".into())),
-                    tail: false,
-                    call_conv: Some(CallConv::Fastcc),
-                    ret_ty: LlvmType::i64(),
-                    callee: LlvmOperand::Global(flux_adt_symbol("flux_make_adt")),
-                    args: vec![
-                        (LlvmType::ptr(), local_operand("fields")),
-                        (LlvmType::i32(), const_i32_operand(2)),
-                        (LlvmType::i32(), const_i32_operand(CONS_TAG_ID)),
-                    ],
-                    attrs: vec![],
-                },
-            ],
-            term: LlvmTerminator::Ret { ty: LlvmType::i64(), value: local_operand("boxed") },
-        }],
-    });
-}
-
-fn emit_make_tuple(module: &mut LlvmModule) {
-    let name = "flux_make_tuple";
-    if has_function(module, name) {
-        return;
-    }
-    module.functions.push(LlvmFunction {
-        linkage: Linkage::Internal,
-        name: flux_adt_symbol(name),
-        sig: LlvmFunctionSig {
-            ret: LlvmType::i64(),
-            params: vec![LlvmType::ptr(), LlvmType::i32()],
-            varargs: false,
-            call_conv: CallConv::Fastcc,
-        },
-        params: vec![LlvmLocal("fields".into()), LlvmLocal("arity".into())],
-        attrs: helper_attrs(),
-        blocks: vec![LlvmBlock {
-            label: LabelId("entry".into()),
-            instrs: vec![
-                byte_size_instr("payload.bytes", local_operand("arity")),
-                LlvmInstr::Binary {
-                    dst: LlvmLocal("alloc.bytes".into()),
-                    op: LlvmValueKind::Add,
-                    ty: LlvmType::i32(),
-                    lhs: local_operand("payload.bytes"),
-                    rhs: const_i32_operand(FLUX_TUPLE_HEADER_SIZE),
-                },
-                LlvmInstr::Call {
-                    dst: Some(LlvmLocal("mem".into())),
-                    tail: false,
-                    call_conv: Some(CallConv::Fastcc),
-                    ret_ty: LlvmType::ptr(),
-                    callee: LlvmOperand::Global(GlobalId("flux_bump_alloc_filled".into())),
-                    args: vec![
-                        (LlvmType::i32(), local_operand("alloc.bytes")),
-                        (LlvmType::i32(), local_operand("arity")), // scan_fsize
-                        (LlvmType::i32(), const_i32_operand(FLUX_OBJ_TUPLE)),
-                    ],
-                    attrs: vec![],
-                },
-                // Store obj_tag = FLUX_OBJ_TUPLE (0xF3)
-                gep_struct_field(
-                    "tag.ptr",
-                    tuple_type(),
-                    local_operand("mem"),
-                    FLUX_TUPLE_OBJ_TAG_FIELD,
-                ),
-                LlvmInstr::Store {
-                    ty: LlvmType::i8(),
-                    value: LlvmOperand::Const(LlvmConst::Int { bits: 8, value: 0xF3 }),
-                    ptr: local_operand("tag.ptr"),
-                    align: Some(1),
-                },
-                gep_struct_field(
-                    "arity.ptr",
-                    tuple_type(),
-                    local_operand("mem"),
-                    FLUX_TUPLE_ARITY_FIELD,
-                ),
-                LlvmInstr::Store {
-                    ty: LlvmType::i32(),
-                    value: local_operand("arity"),
-                    ptr: local_operand("arity.ptr"),
-                    align: Some(4),
-                },
-                gep_payload(
-                    "payload.ptr",
-                    tuple_type(),
-                    local_operand("mem"),
-                    FLUX_TUPLE_PAYLOAD_FIELD,
-                ),
-                LlvmInstr::Call {
-                    dst: None,
-                    tail: false,
-                    call_conv: Some(CallConv::Fastcc),
-                    ret_ty: LlvmType::Void,
-                    callee: LlvmOperand::Global(flux_closure_symbol("flux_copy_i64s")),
-                    args: vec![
-                        (LlvmType::ptr(), local_operand("payload.ptr")),
-                        (LlvmType::ptr(), local_operand("fields")),
-                        (LlvmType::i32(), local_operand("arity")),
-                    ],
-                    attrs: vec![],
-                },
-                LlvmInstr::Call {
-                    dst: Some(LlvmLocal("boxed".into())),
-                    tail: false,
-                    call_conv: Some(CallConv::Fastcc),
-                    ret_ty: LlvmType::i64(),
-                    callee: LlvmOperand::Global(flux_closure_symbol("flux_tag_boxed_ptr")),
-                    args: vec![(LlvmType::ptr(), local_operand("mem"))],
-                    attrs: vec![],
-                },
-            ],
-            term: LlvmTerminator::Ret { ty: LlvmType::i64(), value: local_operand("boxed") },
-        }],
-    });
-}
-
 fn emit_tuple_len(module: &mut LlvmModule) {
     let name = "flux_tuple_len";
     if has_function(module, name) {
@@ -489,16 +219,6 @@ fn emit_tuple_len(module: &mut LlvmModule) {
     });
 }
 
-fn byte_size_instr(dst: &str, count: LlvmOperand) -> LlvmInstr {
-    LlvmInstr::Binary {
-        dst: LlvmLocal(dst.into()),
-        op: LlvmValueKind::Mul,
-        ty: LlvmType::i32(),
-        lhs: count,
-        rhs: const_i32_operand(8),
-    }
-}
-
 fn gep_struct_field(dst: &str, ty: LlvmType, base: LlvmOperand, field: i32) -> LlvmInstr {
     LlvmInstr::GetElementPtr {
         dst: LlvmLocal(dst.into()),
@@ -509,30 +229,6 @@ fn gep_struct_field(dst: &str, ty: LlvmType, base: LlvmOperand, field: i32) -> L
             (LlvmType::i32(), const_i32_operand(0)),
             (LlvmType::i32(), const_i32_operand(field)),
         ],
-    }
-}
-
-fn gep_payload(dst: &str, ty: LlvmType, base: LlvmOperand, field: i32) -> LlvmInstr {
-    LlvmInstr::GetElementPtr {
-        dst: LlvmLocal(dst.into()),
-        inbounds: true,
-        element_ty: ty,
-        base,
-        indices: vec![
-            (LlvmType::i32(), const_i32_operand(0)),
-            (LlvmType::i32(), const_i32_operand(field)),
-            (LlvmType::i32(), const_i32_operand(0)),
-        ],
-    }
-}
-
-fn gep_i64(dst: &str, base: LlvmOperand, index: LlvmOperand) -> LlvmInstr {
-    LlvmInstr::GetElementPtr {
-        dst: LlvmLocal(dst.into()),
-        inbounds: true,
-        element_ty: LlvmType::i64(),
-        base,
-        indices: vec![(LlvmType::i32(), index)],
     }
 }
 
@@ -615,21 +311,5 @@ mod tests {
         assert_eq!(metadata.user_tag_for_constructor(some_i), Some(6));
         assert_eq!(metadata.user_tag_for_constructor(pair_ctor), Some(7));
         assert_eq!(metadata.arity_for_constructor(some_i), Some(0));
-    }
-
-    /// Both builders write the header and every field before anything can
-    /// read the object, so zeroing it first is wasted work.
-    #[test]
-    fn constructors_and_tuples_are_allocated_without_zeroing() {
-        let mut module = LlvmModule::new();
-        emit_make_adt(&mut module);
-        emit_make_tuple(&mut module);
-        let rendered = crate::llvm::render_module(&module);
-        for name in ["flux_make_adt", "flux_make_tuple"] {
-            let start = rendered.find(&format!("@{name}(")).expect(name);
-            let body = &rendered[start..start + rendered[start..].find("\n}").unwrap()];
-            assert!(body.contains("@flux_bump_alloc_filled("), "{body}");
-            assert!(!body.contains("@flux_bump_alloc_inline("), "{body}");
-        }
     }
 }
