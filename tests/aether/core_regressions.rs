@@ -87,7 +87,9 @@ fn collect_core_exprs(expr: &CoreExpr) -> Vec<&CoreExpr> {
                 out.extend(collect_core_exprs(&handler.body));
             }
         }
-        CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => {
+        CoreExpr::Dup { body, .. }
+        | CoreExpr::Drop { body, .. }
+        | CoreExpr::FreeShell { body, .. } => {
             out.extend(collect_core_exprs(body));
         }
         CoreExpr::DropSpecialized { unique_body, shared_body, .. } => {

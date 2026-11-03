@@ -549,7 +549,8 @@ fn analyze_expr_aether(expr: &AetherExpr, ctx: &FbipContext<'_>) -> FbipFact {
             analyze_expr_aether(object, ctx)
         }
         AetherExpr::Dup { body, .. } => analyze_expr_aether(body, ctx),
-        AetherExpr::Drop { var, body, .. } => {
+        // A freed shell is a token given up, as a dropped one is.
+        AetherExpr::Drop { var, body, .. } | AetherExpr::FreeShell { var, body, .. } => {
             let mut fact = analyze_expr_aether(body, ctx);
             if fact.has_constructors
                 && !var.binder.is_some_and(|id| ctx.shared_tokens.contains(&id))

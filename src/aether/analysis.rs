@@ -300,7 +300,7 @@ fn count_uses_aether(expr: &AetherExpr, counts: &mut HashMap<CoreBinderId, usize
             }
             count_uses_aether(body, counts);
         }
-        AetherExpr::Drop { body, .. } => {
+        AetherExpr::Drop { body, .. } | AetherExpr::FreeShell { body, .. } => {
             count_uses_aether(body, counts);
         }
         AetherExpr::Reuse { token, fields, .. } => {
@@ -343,6 +343,137 @@ fn count_handler_uses_aether(handler: &AetherHandler, counts: &mut HashMap<CoreB
 
 /// Count uses within a single Case alternative's RHS (and guard),
 /// excluding pattern-bound variables.
+/// Whether every evaluation path through `expr` disposes of `token`'s cell
+/// exactly once. On a unique path (`unique`) that is a `Reuse` or a
+/// `FreeShell` of it, and a `Drop` is wrong, since the fields were handed to
+/// the arm; on a shared path it is a `Drop`. Paths are counted rather than
+/// sites: a disposal in one branch does not dispose of the cell on another.
+pub(super) fn uses_shell_on_every_path(
+    expr: &AetherExpr,
+    token: CoreBinderId,
+    unique: bool,
+) -> bool {
+    shell_disposals(expr, token, unique) == Some((1, 1))
+}
+
+/// The fewest and most disposals of `token`'s cell along any path through
+/// `expr` (capped at 2), or `None` when some use of it is not a disposal of
+/// the kind `uses_shell_on_every_path` describes.
+pub(super) fn shell_disposals(
+    expr: &AetherExpr,
+    token: CoreBinderId,
+    unique: bool,
+) -> Option<(u8, u8)> {
+    fn sequence<'a>(
+        children: impl IntoIterator<Item = &'a AetherExpr>,
+        token: CoreBinderId,
+        unique: bool,
+    ) -> Option<(u8, u8)> {
+        children.into_iter().try_fold((0u8, 0u8), |(min, max), child| {
+            let (child_min, child_max) = counts(child, token, unique)?;
+            Some(((min + child_min).min(2), (max + child_max).min(2)))
+        })
+    }
+
+    fn branches<'a>(
+        children: impl IntoIterator<Item = &'a AetherExpr>,
+        token: CoreBinderId,
+        unique: bool,
+    ) -> Option<(u8, u8)> {
+        children.into_iter().try_fold(None::<(u8, u8)>, |joined, child| {
+            let (min, max) = counts(child, token, unique)?;
+            Some(Some(match joined {
+                None => (min, max),
+                Some((lo, hi)) => (min.min(lo), max.max(hi)),
+            }))
+        })?
+    }
+
+    fn counts(expr: &AetherExpr, token: CoreBinderId, unique: bool) -> Option<(u8, u8)> {
+        match expr {
+            AetherExpr::Var { var, .. } => (var.binder != Some(token)).then_some((0, 0)),
+            AetherExpr::Lit(..) => Some((0, 0)),
+            AetherExpr::Lam { .. } | AetherExpr::Handle { .. } | AetherExpr::Perform { .. } => {
+                (!use_counts_aether(expr).contains_key(&token)).then_some((0, 0))
+            }
+            AetherExpr::Let { rhs, body, .. } | AetherExpr::LetRec { rhs, body, .. } => {
+                sequence([rhs.as_ref(), body.as_ref()], token, unique)
+            }
+            AetherExpr::LetRecGroup { bindings, body, .. } => sequence(
+                bindings.iter().map(|(_, rhs)| rhs.as_ref()).chain([body.as_ref()]),
+                token,
+                unique,
+            ),
+            AetherExpr::Case { scrutinee, alts, .. } => {
+                for guard in alts.iter().filter_map(|alt| alt.guard.as_ref()) {
+                    if counts(guard, token, unique)? != (0, 0) {
+                        return None;
+                    }
+                }
+                let (before_min, before_max) = counts(scrutinee, token, unique)?;
+                let (arm_min, arm_max) = branches(alts.iter().map(|alt| &alt.rhs), token, unique)?;
+                Some(((before_min + arm_min).min(2), (before_max + arm_max).min(2)))
+            }
+            AetherExpr::Dup { var, body, .. } => {
+                if var.binder == Some(token) {
+                    None
+                } else {
+                    counts(body, token, unique)
+                }
+            }
+            AetherExpr::Drop { var, body, .. } => {
+                if var.binder == Some(token) {
+                    if unique {
+                        return None;
+                    }
+                    let (min, max) = counts(body, token, unique)?;
+                    Some(((min + 1).min(2), (max + 1).min(2)))
+                } else {
+                    counts(body, token, unique)
+                }
+            }
+            AetherExpr::FreeShell { var, body, .. } => {
+                if var.binder == Some(token) {
+                    if !unique {
+                        return None;
+                    }
+                    let (min, max) = counts(body, token, unique)?;
+                    Some(((min + 1).min(2), (max + 1).min(2)))
+                } else {
+                    counts(body, token, unique)
+                }
+            }
+            AetherExpr::Reuse { token: reused, fields, .. } => {
+                if !unique && reused.binder == Some(token) {
+                    return None;
+                }
+                let (min, max) = sequence(fields, token, unique)?;
+                let own = u8::from(reused.binder == Some(token));
+                Some(((min + own).min(2), (max + own).min(2)))
+            }
+            AetherExpr::Con { fields, .. } | AetherExpr::PrimOp { args: fields, .. } => {
+                sequence(fields, token, unique)
+            }
+            AetherExpr::App { func, args, .. } | AetherExpr::AetherCall { func, args, .. } => {
+                sequence(std::iter::once(func.as_ref()).chain(args), token, unique)
+            }
+            AetherExpr::Return { value, .. } => counts(value, token, unique),
+            AetherExpr::MemberAccess { object, .. } | AetherExpr::TupleField { object, .. } => {
+                counts(object, token, unique)
+            }
+            AetherExpr::DropSpecialized { scrutinee, unique_body, shared_body, .. } => {
+                if scrutinee.binder == Some(token) {
+                    None
+                } else {
+                    branches([unique_body.as_ref(), shared_body.as_ref()], token, unique)
+                }
+            }
+        }
+    }
+
+    counts(expr, token, unique)
+}
+
 pub fn alt_use_counts(alt: &crate::core::CoreAlt) -> HashMap<CoreBinderId, usize> {
     let mut counts = HashMap::new();
     count_uses(&alt.rhs, &mut counts);

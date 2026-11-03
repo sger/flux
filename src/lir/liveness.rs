@@ -231,7 +231,8 @@ fn instr_def(instr: &LirInstr) -> Option<LirVar> {
         LirInstr::Store { .. }
         | LirInstr::StoreI32 { .. }
         | LirInstr::Dup { .. }
-        | LirInstr::Drop { .. } => None,
+        | LirInstr::Drop { .. }
+        | LirInstr::FreeShell { .. } => None,
     }
 }
 
@@ -263,7 +264,10 @@ pub(crate) fn instr_uses(instr: &LirInstr) -> Vec<LirVar> {
         | LirInstr::IShr { a, b, .. }
         | LirInstr::ICmp { a, b, .. } => vec![*a, *b],
         LirInstr::PrimCall { args, .. } => args.clone(),
-        LirInstr::Dup { val } | LirInstr::Drop { val } | LirInstr::IsUnique { val, .. } => {
+        LirInstr::Dup { val }
+        | LirInstr::Drop { val }
+        | LirInstr::FreeShell { val }
+        | LirInstr::IsUnique { val, .. } => {
             vec![*val]
         }
         LirInstr::DropReuse { val, .. } => vec![*val],
