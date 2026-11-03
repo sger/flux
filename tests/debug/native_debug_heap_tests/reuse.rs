@@ -505,3 +505,56 @@ fn a_function_or_literal_used_as_a_value_is_never_allocated() {
     .collect();
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+const NODES_OF_TREES: &str = r"type Tree = Node(Tree, Tree) | Tip
+
+fn make(depth: Int) -> Tree {
+    if depth <= 0 { Tip } else { Node(make(depth - 1), make(depth - 1)) }
+}
+
+// `tree` is owned: the `Tip` arm stores it.
+fn nodes(tree: Tree) -> Int {
+    match tree {
+        Node(left, right) -> nodes(left) + nodes(right) + 1,
+        Tip -> len([tree]) - 1,
+    }
+}
+
+fn count(n, total) {
+    if n == 0 { total } else {
+        let tree = make(4)
+        KEEP
+        count(n - 1, total + nodes(tree) + len(kept))
+    }
+}
+
+fn main() {
+    print(count(SIZE, 0))
+}
+";
+
+/// KI-164: `nodes`'s `Node` arm builds no cell, so on the unique path it
+/// frees each cell alone and hands both children on. Every node and leaf of
+/// a tree is still freed exactly once: 31 a turn, none left live, whether
+/// the tree is the walk's alone or also kept in a list (one block more),
+/// where the walk takes the shared path at every level and the list frees
+/// the tree afterwards.
+#[test]
+fn a_walk_that_frees_each_cell_as_it_reads_it_frees_every_cell() {
+    let scratch = Scratch::new("debug-heap-nodes-of-trees");
+    for (name, keep) in [("alone", "let kept = []"), ("kept", "let kept = [tree]")] {
+        let program = NODES_OF_TREES.replace("KEEP", keep);
+        let (allocs, frees, live) = per_thousand_cells(&scratch, name, &program);
+        let expected_allocs = if name == "kept" { 32_000 } else { 31_000 };
+        assert_eq!((allocs, frees, live), (expected_allocs, expected_allocs, 0), "{name}");
+
+        let path = scratch.write(&format!("nodes_{name}.flx"), &program.replace("SIZE", "50"));
+        let file = path.to_string_lossy();
+        let (vm, vm_err, vm_code) = run(&scratch, &file, &[], None);
+        assert_eq!(vm_code, 0, "{name} on the VM:\n{vm_err}");
+        let (native, native_err, native_code) =
+            run(&scratch, &file, &["--native", "--debug-heap"], None);
+        assert_eq!(native_code, 0, "{name} on the debug heap:\n{native_err}");
+        assert_eq!(native, vm, "{name}");
+    }
+}

@@ -1027,10 +1027,12 @@ fn check_reads_after_release(
             }
             check_reads_after_release(body, path, errors);
         }
-        // The fields went to the arm, so only the cell is gone.
+        // The cell's references to its fields went to the arm's binders, so
+        // only the cell is gone, and those binders are no longer views of it.
         AetherExpr::FreeShell { var, body, .. } => {
             if let Some(binder) = var.binder {
                 path.release_cell(binder);
+                path.parents.retain(|_, parent| *parent != binder);
             }
             check_reads_after_release(body, path, errors);
         }
@@ -2067,6 +2069,30 @@ mod tests {
             on_flag(h, free_shell(xs, v(t)), v(t))
         });
         assert!(contract_errors(&one_branch).contains(&AetherErrorKind::ShellNotDisposed));
+    }
+
+    /// `filter`'s unique path: the cell is freed first, then `h`, which the
+    /// arm now owns, is copied for each use and released at the end.
+    #[test]
+    fn a_field_of_a_freed_shell_is_the_arms_own() {
+        let def = shell_case(&mut Interner::new(), |shell| {
+            let Shell { f, xs, h, t } = *shell;
+            let uses = CoreExpr::Con {
+                tag: CoreTag::Cons,
+                fields: vec![give(f, dup(h, v(h))), give(f, dup(h, v(h)))],
+                span: s(),
+            };
+            free_shell(
+                xs,
+                CoreExpr::Let {
+                    var: binder(9, Interner::new().intern("pair")),
+                    rhs: Box::new(uses),
+                    body: Box::new(drop_in(h, give(f, v(t)))),
+                    span: s(),
+                },
+            )
+        });
+        assert_eq!(contract_errors(&def), vec![]);
     }
 
     #[test]

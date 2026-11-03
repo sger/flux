@@ -10,7 +10,7 @@ use crate::core::{CoreBinderId, CorePat, CoreTag, CoreVarRef};
 use crate::diagnostics::position::Span;
 use crate::shared::opt_bisect;
 
-use super::analysis::{ArmShape, pat_field_binder_ids, uses_shell_on_every_path};
+use super::analysis::{ArmShape, pat_field_binder_ids, shell_disposals, uses_shell_on_every_path};
 use super::reuse_analysis::rewrite_drop_body;
 use super::{AetherExpr, into_constructor_shape_for_tag_aether};
 
@@ -210,7 +210,8 @@ fn rewrite_with_ctx(
         },
         // DropSpecialized (Perceus Section 2.4): on the unique path the
         // scrutinee is uniquely owned, so a Con of the constructor it matched
-        // reuses its cell without a check.
+        // reuses its cell without a check, and a path that builds none frees
+        // the cell alone.
         CoreExpr::DropSpecialized { scrutinee, unique_body, shared_body, span } => {
             let unique_body =
                 reuse_on_unique_path(&scrutinee, *unique_body, arm, span, blocked_outer_token);
@@ -219,8 +220,9 @@ fn rewrite_with_ctx(
                 .is_some_and(|id| uses_shell_on_every_path(&shared_body, id, false));
             let Some(unique_body) = unique_body.filter(|_| shared_releases) else {
                 // The shared body retains the original copies and release.
-                // Without reuse on every unique path, it is the only body
-                // that can release the shell without freeing moved fields.
+                // When the unique path reuses the cell on some paths only,
+                // it is the only body that can release the shell without
+                // freeing moved fields.
                 return rewrite_with_ctx(*shared_body, arm, blocked_outer_token);
             };
             let shared_body = rewrite_with_ctx(*shared_body, arm, scrutinee.binder);
@@ -259,7 +261,8 @@ fn is_heap_tag(tag: &CoreTag) -> bool {
 /// The unique path of a `DropSpecialized`: a Con on its spine reuses the
 /// matched cell. When the walk finds none, the new cell may be bound by a
 /// `let` and passed to a wrapper; the plain-drop rewrite finds that case, so
-/// splitting the arm does not lose the reuse it had before.
+/// splitting the arm does not lose the reuse it had before. When nothing
+/// reuses the cell on any path, the path frees it alone (KI-164).
 fn reuse_on_unique_path(
     scrutinee: &CoreVarRef,
     body: CoreExpr,
@@ -289,6 +292,17 @@ fn reuse_on_unique_path(
         && scrutinee.binder.is_some_and(|id| uses_shell_on_every_path(&rewritten.expr, id, true))
     {
         Some(rewritten.expr)
+    } else if !rewritten.reused
+        && scrutinee.binder.is_some_and(|id| shell_disposals(&walked, id, true) == Some((0, 0)))
+        && opt_bisect::allow("free_shell", || "free a unique cell without its fields".to_string())
+    {
+        // A reuse on some paths only, which the plain release keeps once the
+        // split is undone, is worth more than freeing the cell on all of
+        // them.
+        // The free comes first, straight after the uniqueness check: past a
+        // call that can suspend, a multi-shot resume may have copied the
+        // cell, so it would no longer be this path's alone.
+        Some(CoreExpr::FreeShell { var: *scrutinee, body: Box::new(walked), span })
     } else {
         None
     }
@@ -606,8 +620,12 @@ mod tests {
         super::insert_reuse(expr)
     }
 
+    /// `[h | t] -> Pair2(h, t)` builds no `Cons` to reuse the cell for. The
+    /// unique path still owns it, with its fields handed to `h` and `t`, so
+    /// it frees the cell alone (KI-164); the shared path keeps its copies and
+    /// its release.
     #[test]
-    fn an_unreused_specialization_keeps_its_plain_release() {
+    fn an_unreused_specialization_frees_its_shell() {
         let mut interner = Interner::new();
         let [xs, h, t] = [(1, "xs"), (2, "h"), (3, "t")]
             .map(|(id, name)| CoreBinder::new(CoreBinderId(id), interner.intern(name)));
@@ -616,8 +634,15 @@ mod tests {
         let CoreExpr::Case { alts, .. } = &rewritten else {
             panic!("expected a case: {rewritten:?}");
         };
-        assert!(!matches!(alts[0].rhs, CoreExpr::DropSpecialized { .. }), "{rewritten:?}");
-        assert_eq!(drops_of(&rewritten, xs.id), 1, "{rewritten:?}");
+        let CoreExpr::DropSpecialized { unique_body, shared_body, .. } = &alts[0].rhs else {
+            panic!("expected specialization: {rewritten:?}");
+        };
+        let CoreExpr::FreeShell { var, body, .. } = unique_body.as_ref() else {
+            panic!("expected the unique path to free the shell first: {rewritten:?}");
+        };
+        assert_eq!(var.binder, Some(xs.id));
+        assert!(matches!(body.as_ref(), CoreExpr::Con { .. }), "{rewritten:?}");
+        assert_eq!(drops_of(shared_body, xs.id), 1, "{rewritten:?}");
         assert_eq!(reuses_of(&rewritten, xs.id), 0, "{rewritten:?}");
         assert!(crate::aether::verify::verify_contract_aether(&rewritten).is_ok(), "{rewritten:?}");
     }
@@ -814,6 +839,14 @@ mod tests {
 
         let rewritten = super::insert_reuse(expr);
         assert_eq!(reuses_of(&rewritten, xs.id), 0, "{rewritten:?}");
-        assert_eq!(drops_of(&rewritten, xs.id), 1, "{rewritten:?}");
+        // With no `Cons` to reuse it for, the unique path frees the cell.
+        let CoreExpr::Case { alts, .. } = &rewritten else {
+            panic!("expected a case: {rewritten:?}");
+        };
+        assert!(
+            matches!(&alts[0].rhs, CoreExpr::DropSpecialized { unique_body, .. }
+                if matches!(unique_body.as_ref(), CoreExpr::FreeShell { var, .. } if var.binder == Some(xs.id))),
+            "{rewritten:?}"
+        );
     }
 }

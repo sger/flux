@@ -98,6 +98,7 @@ fn runs(program: &str) -> bool {
             | "handlers.flx"
             | "overflow.flx"
             | "refs.flx"
+            | "shells.flx"
     )
 }
 
@@ -308,6 +309,7 @@ const FIXTURES: &[&str] = &[
     "root_panic.flx",
     "inlined.flx",
     "refs.flx",
+    "shells.flx",
 ];
 
 /// The errors `llvm-dwarfdump --verify` reports in Flux's compile units.
@@ -702,6 +704,28 @@ fn lldb_counts_references() {
             "`pair.5` has no part `5`",
         ],
     );
+}
+
+/// KI-164: on the unique path `nodes` frees `tree`'s cell alone and keeps
+/// its children. The debugger must show `tree` as dropped there, not read
+/// the freed block, and still show both children.
+#[test]
+fn lldb_shows_a_freed_cell_as_dropped() {
+    let Some(lldb) = lldb() else {
+        eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
+        return;
+    };
+    let scratch = built("shells.flx");
+    let Some(session) = flux_session(
+        &lldb,
+        &scratch,
+        "app",
+        ("shells.flx", 13),
+        &["flux refs tree", "flux print left", "flux print right"],
+    ) else {
+        return;
+    };
+    assert_lines(&session, &["tree: dropped", "left = Node(Tip, Tip)", "right = Node(Tip, Tip)"]);
 }
 
 #[test]
