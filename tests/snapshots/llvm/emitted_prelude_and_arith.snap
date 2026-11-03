@@ -18,9 +18,7 @@ target datalayout = "e-m:e-p:64:64-i64:64-n8:16:32:64-S128"
 
 @flux.ptrtag.yield_sentinel = private constant i64 10
 
-@flux_arena_hp = external thread_local global ptr
-
-@flux_arena_limit = external thread_local global ptr
+@flux_heap = external thread_local(initialexec) global [35 x ptr]
 
 @flux_idiv.div_zero_msg = private constant [16 x i8] [i8 68, i8 105, i8 118, i8 105, i8 115, i8 105, i8 111, i8 110, i8 32, i8 98, i8 121, i8 32, i8 122, i8 101, i8 114, i8 111]
 
@@ -35,6 +33,8 @@ declare ccc void @flux_gc_free(ptr) nounwind
 declare ccc ptr @flux_gc_alloc(i32) nounwind
 
 declare ccc ptr @flux_gc_alloc_header(i32, i32, i32) nounwind
+
+declare ccc ptr @llvm.threadlocal.address.p0(ptr) nounwind
 
 declare ccc ptr @flux_bump_alloc_slow(i32, i32, i32) nounwind
 
@@ -192,28 +192,44 @@ entry:
   %has_class = icmp ne i32 %class32, 0
   %chunk_class = or i32 %class32, 128
   %class8 = trunc i32 %chunk_class to i8
-  br label %bump_check
+  %heap = call ccc ptr @llvm.threadlocal.address.p0(ptr @flux_heap)
+  br i1 %has_class, label %pop_check, label %slow
+pop_check:
+  %class64 = zext i32 %class32 to i64
+  %free = getelementptr i8, ptr %heap, i64 16
+  %slot = getelementptr ptr, ptr %free, i64 %class64
+  %head = load ptr, ptr %slot, align 8
+  %has_head = icmp ne ptr %head, null
+  br i1 %has_head, label %pop, label %bump_check
+pop:
+  %next_ptr = getelementptr i8, ptr %head, i64 8
+  %next = load ptr, ptr %next_ptr, align 8
+  store ptr %next, ptr %slot, align 8
+  br label %init
 bump_check:
-  %hp = load ptr, ptr @flux_arena_hp, align 8
+  %hp = load ptr, ptr %heap, align 8
   %new_hp = getelementptr i8, ptr %hp, i64 %total
-  %lim = load ptr, ptr @flux_arena_limit, align 8
+  %lim_ptr = getelementptr i8, ptr %heap, i64 8
+  %lim = load ptr, ptr %lim_ptr, align 8
   %in_chunk = icmp ule ptr %new_hp, %lim
-  %fits = and i1 %has_class, %in_chunk
-  br i1 %fits, label %fast, label %slow
-fast:
-  store ptr %new_hp, ptr @flux_arena_hp, align 8
-  store i32 1, ptr %hp, align 4
+  br i1 %in_chunk, label %bump, label %slow
+bump:
+  store ptr %new_hp, ptr %heap, align 8
+  br label %init
+init:
+  %block = phi ptr [ %head, %pop ], [ %hp, %bump ]
+  store i32 1, ptr %block, align 4
   %scan8 = trunc i32 %scan to i8
-  %sf_ptr = getelementptr i8, ptr %hp, i64 4
+  %sf_ptr = getelementptr i8, ptr %block, i64 4
   store i8 %scan8, ptr %sf_ptr, align 1
   %tag8 = trunc i32 %tag to i8
-  %ot_ptr = getelementptr i8, ptr %hp, i64 5
+  %ot_ptr = getelementptr i8, ptr %block, i64 5
   store i8 %tag8, ptr %ot_ptr, align 1
-  %prog_ptr = getelementptr i8, ptr %hp, i64 6
+  %prog_ptr = getelementptr i8, ptr %block, i64 6
   store i8 0, ptr %prog_ptr, align 1
-  %class_ptr = getelementptr i8, ptr %hp, i64 7
+  %class_ptr = getelementptr i8, ptr %block, i64 7
   store i8 %class8, ptr %class_ptr, align 1
-  %payload = getelementptr i8, ptr %hp, i64 8
+  %payload = getelementptr i8, ptr %block, i64 8
   %aligned64 = zext i32 %masked to i64
   call ccc void @llvm.memset.p0.i64(ptr %payload, i8 0, i64 %aligned64, i1 0)
   ret ptr %payload
@@ -234,28 +250,44 @@ entry:
   %has_class = icmp ne i32 %class32, 0
   %chunk_class = or i32 %class32, 128
   %class8 = trunc i32 %chunk_class to i8
-  br label %bump_check
+  %heap = call ccc ptr @llvm.threadlocal.address.p0(ptr @flux_heap)
+  br i1 %has_class, label %pop_check, label %slow
+pop_check:
+  %class64 = zext i32 %class32 to i64
+  %free = getelementptr i8, ptr %heap, i64 16
+  %slot = getelementptr ptr, ptr %free, i64 %class64
+  %head = load ptr, ptr %slot, align 8
+  %has_head = icmp ne ptr %head, null
+  br i1 %has_head, label %pop, label %bump_check
+pop:
+  %next_ptr = getelementptr i8, ptr %head, i64 8
+  %next = load ptr, ptr %next_ptr, align 8
+  store ptr %next, ptr %slot, align 8
+  br label %init
 bump_check:
-  %hp = load ptr, ptr @flux_arena_hp, align 8
+  %hp = load ptr, ptr %heap, align 8
   %new_hp = getelementptr i8, ptr %hp, i64 %total
-  %lim = load ptr, ptr @flux_arena_limit, align 8
+  %lim_ptr = getelementptr i8, ptr %heap, i64 8
+  %lim = load ptr, ptr %lim_ptr, align 8
   %in_chunk = icmp ule ptr %new_hp, %lim
-  %fits = and i1 %has_class, %in_chunk
-  br i1 %fits, label %fast, label %slow
-fast:
-  store ptr %new_hp, ptr @flux_arena_hp, align 8
-  store i32 1, ptr %hp, align 4
+  br i1 %in_chunk, label %bump, label %slow
+bump:
+  store ptr %new_hp, ptr %heap, align 8
+  br label %init
+init:
+  %block = phi ptr [ %head, %pop ], [ %hp, %bump ]
+  store i32 1, ptr %block, align 4
   %scan8 = trunc i32 %scan to i8
-  %sf_ptr = getelementptr i8, ptr %hp, i64 4
+  %sf_ptr = getelementptr i8, ptr %block, i64 4
   store i8 %scan8, ptr %sf_ptr, align 1
   %tag8 = trunc i32 %tag to i8
-  %ot_ptr = getelementptr i8, ptr %hp, i64 5
+  %ot_ptr = getelementptr i8, ptr %block, i64 5
   store i8 %tag8, ptr %ot_ptr, align 1
-  %prog_ptr = getelementptr i8, ptr %hp, i64 6
+  %prog_ptr = getelementptr i8, ptr %block, i64 6
   store i8 0, ptr %prog_ptr, align 1
-  %class_ptr = getelementptr i8, ptr %hp, i64 7
+  %class_ptr = getelementptr i8, ptr %block, i64 7
   store i8 %class8, ptr %class_ptr, align 1
-  %payload = getelementptr i8, ptr %hp, i64 8
+  %payload = getelementptr i8, ptr %block, i64 8
   ret ptr %payload
 slow:
   %slow_ptr = call ccc ptr @flux_bump_alloc_slow_filled(i32 %size, i32 %scan, i32 %tag)

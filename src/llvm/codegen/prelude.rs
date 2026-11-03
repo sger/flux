@@ -1,7 +1,7 @@
 use crate::llvm::{
     CallConv, GlobalId, LabelId, Linkage, LlvmBlock, LlvmCmpOp, LlvmConst, LlvmFunction,
     LlvmFunctionSig, LlvmGlobal, LlvmInstr, LlvmLocal, LlvmModule, LlvmOperand, LlvmTerminator,
-    LlvmType, LlvmValueKind,
+    LlvmType, LlvmValueKind, TlsModel,
 };
 
 /// Pointer-tag layout constants for the LLVM codegen layer.
@@ -72,7 +72,7 @@ fn emit_ptrtag_constants(module: &mut LlvmModule) {
             name: flux_prelude_symbol(name),
             ty: LlvmType::i64(),
             is_constant: true,
-            thread_local: false,
+            thread_local: None,
             value: Some(const_i64(value)),
             attrs: vec![],
         });
@@ -632,35 +632,43 @@ const FLUX_HEADER_SIZE: i64 = 8;
 const FLUX_SMALL_MAX: i32 = 256;
 /// The class-byte bit of a block from the heap's chunks (`FLUX_FROM_CHUNK`).
 const FLUX_FROM_CHUNK: i32 = 0x80;
+/// `FluxHeap` in `runtime/c/rc.c`: the bump pointer, its limit, then one
+/// free list per size class, 0 to 32. Only these words are named here.
+const FLUX_HEAP_NAME: &str = "flux_heap";
+const FLUX_HEAP_WORDS: u64 = 35;
+const FLUX_HEAP_LIMIT: i64 = 8;
+const FLUX_HEAP_FREE: i64 = 16;
+const THREADLOCAL_ADDRESS: &str = "llvm.threadlocal.address.p0";
 
 /// Emit external global declarations for the heap's bump pointers and
 /// the `flux_bump_alloc_inline` helper function.
 fn emit_bump_alloc_inline(module: &mut LlvmModule) {
-    // ── External thread-local globals: @flux_arena_hp, @flux_arena_limit ──
-    // NULL on every thread but the heap's owner, so the bump never fits there
-    // ("Heap" in runtime/c/rc.c).
-    let hp_name = "flux_arena_hp";
-    if !has_global(module, hp_name) {
+    // ── External thread-local global: @flux_heap ──
+    // All zero on every thread but the heap's owner, so neither the pop nor
+    // the bump succeeds there ("Heap" in runtime/c/rc.c). The runtime is
+    // linked into the executable, so its offset is fixed on ELF.
+    if !has_global(module, FLUX_HEAP_NAME) {
         module.globals.push(LlvmGlobal {
             linkage: Linkage::External,
-            name: GlobalId(hp_name.into()),
-            ty: LlvmType::Ptr,
+            name: GlobalId(FLUX_HEAP_NAME.into()),
+            ty: LlvmType::Array { len: FLUX_HEAP_WORDS, element: Box::new(LlvmType::Ptr) },
             is_constant: false,
-            thread_local: true,
+            thread_local: Some(TlsModel::InitialExec),
             value: None,
             attrs: vec![],
         });
     }
-    let lim_name = "flux_arena_limit";
-    if !has_global(module, lim_name) {
-        module.globals.push(LlvmGlobal {
+    if !module.declarations.iter().any(|d| d.name.0 == THREADLOCAL_ADDRESS) {
+        module.declarations.push(crate::llvm::LlvmDecl {
             linkage: Linkage::External,
-            name: GlobalId(lim_name.into()),
-            ty: LlvmType::Ptr,
-            is_constant: false,
-            thread_local: true,
-            value: None,
-            attrs: vec![],
+            name: GlobalId(THREADLOCAL_ADDRESS.into()),
+            sig: LlvmFunctionSig {
+                ret: LlvmType::Ptr,
+                params: vec![LlvmType::Ptr],
+                varargs: false,
+                call_conv: CallConv::Ccc,
+            },
+            attrs: vec!["nounwind".into()],
         });
     }
 
@@ -708,20 +716,18 @@ fn emit_bump_alloc_inline(module: &mut LlvmModule) {
     emit_bump_alloc_fn(module, "flux_bump_alloc_filled", false);
 }
 
-/// Defines `fn_name`, the inline bump allocator, zeroing the payload when
-/// `zero` is set, on both paths.
+/// Defines `fn_name`, the inline allocator, zeroing the payload when `zero`
+/// is set, on both paths.
 fn emit_bump_alloc_fn(module: &mut LlvmModule, fn_name: &str, zero: bool) {
     if has_function(module, fn_name) {
         return;
     }
-    let hp_name = "flux_arena_hp";
-    let lim_name = "flux_arena_limit";
     let slow_name = if zero { "flux_bump_alloc_slow" } else { "flux_bump_alloc_slow_filled" };
     let memset_name = "llvm.memset.p0.i64";
 
     // Signature: fastcc ptr @flux_bump_alloc_inline(i32 %size, i32 %scan, i32 %tag)
     //
-    // Fast path:
+    // entry:
     //   %aligned = add i32 %size, 7
     //   %masked  = and i32 %aligned, -8
     //   %total_i32 = add i32 %masked, 8   ; + FLUX_HEADER_SIZE
@@ -732,31 +738,40 @@ fn emit_bump_alloc_fn(module: &mut LlvmModule, fn_name: &str, zero: bool) {
     //   %has_class = icmp ne i32 %class32, 0
     //   %chunk_class = or i32 %class32, 128
     //   %class8 = trunc i32 %chunk_class to i8
-    //   br label %bump_check
+    //   %heap = call ptr @llvm.threadlocal.address.p0(ptr @flux_heap)
+    //   br i1 %has_class, label %pop_check, label %slow
+    //
+    // pop_check:                          ; free[class], the runtime's free_list_pop
+    //   %class64 = zext i32 %class32 to i64
+    //   %free = getelementptr i8, ptr %heap, i64 16
+    //   %slot = getelementptr ptr, ptr %free, i64 %class64
+    //   %head = load ptr, ptr %slot
+    //   %has_head = icmp ne ptr %head, null
+    //   br i1 %has_head, label %pop, label %bump_check
+    //
+    // pop:                                ; a freed block links on in its first payload word
+    //   %next_ptr = getelementptr i8, ptr %head, i64 8
+    //   %next = load ptr, ptr %next_ptr
+    //   store ptr %next, ptr %slot
+    //   br label %init
     //
     // bump_check:
-    //   %hp      = load ptr, ptr @flux_arena_hp
+    //   %hp      = load ptr, ptr %heap
     //   %new_hp  = getelementptr i8, ptr %hp, i64 %total
-    //   %lim     = load ptr, ptr @flux_arena_limit
+    //   %lim_ptr = getelementptr i8, ptr %heap, i64 8
+    //   %lim     = load ptr, ptr %lim_ptr
     //   %in_chunk = icmp ule ptr %new_hp, %lim
-    //   %fits    = and i1 %has_class, %in_chunk
-    //   br i1 %fits, label %fast, label %slow
+    //   br i1 %in_chunk, label %bump, label %slow
     //
-    // fast:
-    //   store ptr %new_hp, ptr @flux_arena_hp
-    //   ; init header at %hp: refcount=1, scan_fsize, obj_tag, progress=0, size_class
-    //   store i32 1, ptr %hp              ; refcount
-    //   %scan8 = trunc i32 %scan to i8
-    //   %sf_ptr = getelementptr i8, ptr %hp, i64 4
-    //   store i8 %scan8, ptr %sf_ptr      ; scan_fsize
-    //   %tag8 = trunc i32 %tag to i8
-    //   %ot_ptr = getelementptr i8, ptr %hp, i64 5
-    //   store i8 %tag8, ptr %ot_ptr       ; obj_tag
-    //   %prog_ptr = getelementptr i8, ptr %hp, i64 6
-    //   store i8 0, ptr %prog_ptr         ; progress
-    //   %class_ptr = getelementptr i8, ptr %hp, i64 7
-    //   store i8 %class8, ptr %class_ptr  ; size_class
-    //   %payload = getelementptr i8, ptr %hp, i64 8
+    // bump:
+    //   store ptr %new_hp, ptr %heap
+    //   br label %init
+    //
+    // init:
+    //   %block = phi ptr [ %head, %pop ], [ %hp, %bump ]
+    //   ; header at %block: refcount=1, scan_fsize, obj_tag, progress=0, size_class
+    //   ...
+    //   %payload = getelementptr i8, ptr %block, i64 8
     //   call void @llvm.memset.p0.i64(ptr %payload, i8 0, i64 %aligned64, i1 false) ; if zero
     //   ret ptr %payload
     //
@@ -769,6 +784,100 @@ fn emit_bump_alloc_fn(module: &mut LlvmModule, fn_name: &str, zero: bool) {
     let ptr_ty = LlvmType::Ptr;
     let i8_ty = LlvmType::Integer(8);
     let i1_ty = LlvmType::i1();
+    let i32_const = |value: i128| LlvmOperand::Const(LlvmConst::Int { bits: 32, value });
+    let byte_at = |dst: &str, base: &str, offset: i64| LlvmInstr::GetElementPtr {
+        dst: LlvmLocal(dst.into()),
+        inbounds: false,
+        element_ty: LlvmType::Integer(8),
+        base: local(base),
+        indices: vec![(LlvmType::i64(), const_i64_operand(offset))],
+    };
+    let label = |name: &str| LabelId(name.into());
+
+    let mut init = vec![
+        LlvmInstr::Phi {
+            dst: LlvmLocal("block".into()),
+            ty: ptr_ty.clone(),
+            incoming: vec![(local("head"), label("pop")), (local("hp"), label("bump"))],
+        },
+        // store i32 1, ptr %block  (refcount = 1)
+        LlvmInstr::Store {
+            ty: i32_ty.clone(),
+            value: i32_const(1),
+            ptr: local("block"),
+            align: Some(4),
+        },
+        LlvmInstr::Cast {
+            dst: LlvmLocal("scan8".into()),
+            op: LlvmValueKind::Trunc,
+            from_ty: i32_ty.clone(),
+            operand: local("scan"),
+            to_ty: i8_ty.clone(),
+        },
+        byte_at("sf_ptr", "block", 4),
+        LlvmInstr::Store {
+            ty: i8_ty.clone(),
+            value: local("scan8"),
+            ptr: local("sf_ptr"),
+            align: Some(1),
+        },
+        LlvmInstr::Cast {
+            dst: LlvmLocal("tag8".into()),
+            op: LlvmValueKind::Trunc,
+            from_ty: i32_ty.clone(),
+            operand: local("tag"),
+            to_ty: i8_ty.clone(),
+        },
+        byte_at("ot_ptr", "block", 5),
+        LlvmInstr::Store {
+            ty: i8_ty.clone(),
+            value: local("tag8"),
+            ptr: local("ot_ptr"),
+            align: Some(1),
+        },
+        // progress = 0
+        byte_at("prog_ptr", "block", 6),
+        LlvmInstr::Store {
+            ty: i8_ty.clone(),
+            value: LlvmOperand::Const(LlvmConst::Int { bits: 8, value: 0 }),
+            ptr: local("prog_ptr"),
+            align: Some(1),
+        },
+        // size_class, marked as a chunk block
+        byte_at("class_ptr", "block", 7),
+        LlvmInstr::Store {
+            ty: i8_ty.clone(),
+            value: local("class8"),
+            ptr: local("class_ptr"),
+            align: Some(1),
+        },
+        byte_at("payload", "block", FLUX_HEADER_SIZE),
+    ];
+    if zero {
+        init.extend([
+            LlvmInstr::Cast {
+                dst: LlvmLocal("aligned64".into()),
+                op: LlvmValueKind::ZExt,
+                from_ty: i32_ty.clone(),
+                operand: local("masked"),
+                to_ty: i64_ty.clone(),
+            },
+            LlvmInstr::Call {
+                dst: None,
+                tail: false,
+                call_conv: Some(CallConv::Ccc),
+                ret_ty: LlvmType::Void,
+                callee: LlvmOperand::Global(GlobalId(memset_name.into())),
+                args: vec![
+                    (ptr_ty.clone(), local("payload")),
+                    (i8_ty.clone(), LlvmOperand::Const(LlvmConst::Int { bits: 8, value: 0 })),
+                    (i64_ty.clone(), local("aligned64")),
+                    (i1_ty.clone(), LlvmOperand::Const(LlvmConst::Int { bits: 1, value: 0 })),
+                ],
+                attrs: vec![],
+            },
+        ]);
+    }
 
     module.functions.push(LlvmFunction {
         linkage: Linkage::Internal,
@@ -782,38 +891,30 @@ fn emit_bump_alloc_fn(module: &mut LlvmModule, fn_name: &str, zero: bool) {
         params: vec![LlvmLocal("size".into()), LlvmLocal("scan".into()), LlvmLocal("tag".into())],
         attrs: helper_attrs(),
         blocks: vec![
-            // ── entry: compute aligned total ──
             LlvmBlock {
-                label: LabelId("entry".into()),
+                label: label("entry"),
                 instrs: vec![
-                    // %aligned = add i32 %size, 7
                     LlvmInstr::Binary {
                         dst: LlvmLocal("aligned".into()),
                         op: LlvmValueKind::Add,
                         ty: i32_ty.clone(),
                         lhs: local("size"),
-                        rhs: LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 7 }),
+                        rhs: i32_const(7),
                     },
-                    // %masked = and i32 %aligned, -8
                     LlvmInstr::Binary {
                         dst: LlvmLocal("masked".into()),
                         op: LlvmValueKind::And,
                         ty: i32_ty.clone(),
                         lhs: local("aligned"),
-                        rhs: LlvmOperand::Const(LlvmConst::Int { bits: 32, value: -8i32 as i128 }),
+                        rhs: i32_const(-8i32 as i128),
                     },
-                    // %total_i32 = add i32 %masked, 8  (FLUX_HEADER_SIZE)
                     LlvmInstr::Binary {
                         dst: LlvmLocal("total_i32".into()),
                         op: LlvmValueKind::Add,
                         ty: i32_ty.clone(),
                         lhs: local("masked"),
-                        rhs: LlvmOperand::Const(LlvmConst::Int {
-                            bits: 32,
-                            value: FLUX_HEADER_SIZE as i128,
-                        }),
+                        rhs: i32_const(FLUX_HEADER_SIZE as i128),
                     },
-                    // %total = zext i32 %total_i32 to i64
                     LlvmInstr::Cast {
                         dst: LlvmLocal("total".into()),
                         op: LlvmValueKind::ZExt,
@@ -822,57 +923,44 @@ fn emit_bump_alloc_fn(module: &mut LlvmModule, fn_name: &str, zero: bool) {
                         to_ty: i64_ty.clone(),
                     },
                     // The runtime's size_class_of. Only a block with a class
-                    // comes from a chunk, since only it goes back on a free
-                    // list; the size is a constant at every call, so this
-                    // folds away.
-                    // %small = icmp ule i32 %masked, 256
+                    // is kept on a list or carved from a chunk; the size is a
+                    // constant at every call, so this folds away.
                     LlvmInstr::Icmp {
                         dst: LlvmLocal("small".into()),
                         op: LlvmCmpOp::Ule,
                         ty: i32_ty.clone(),
                         lhs: local("masked"),
-                        rhs: LlvmOperand::Const(LlvmConst::Int {
-                            bits: 32,
-                            value: FLUX_SMALL_MAX as i128,
-                        }),
+                        rhs: i32_const(FLUX_SMALL_MAX as i128),
                     },
-                    // %class_all = lshr i32 %masked, 3
                     LlvmInstr::Binary {
                         dst: LlvmLocal("class_all".into()),
                         op: LlvmValueKind::LShr,
                         ty: i32_ty.clone(),
                         lhs: local("masked"),
-                        rhs: LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 3 }),
+                        rhs: i32_const(3),
                     },
-                    // %class32 = select i1 %small, i32 %class_all, i32 0
                     LlvmInstr::Select {
                         dst: LlvmLocal("class32".into()),
                         cond_ty: i1_ty.clone(),
                         cond: local("small"),
                         value_ty: i32_ty.clone(),
                         then_value: local("class_all"),
-                        else_value: LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 }),
+                        else_value: i32_const(0),
                     },
-                    // %has_class = icmp ne i32 %class32, 0
                     LlvmInstr::Icmp {
                         dst: LlvmLocal("has_class".into()),
                         op: LlvmCmpOp::Ne,
                         ty: i32_ty.clone(),
                         lhs: local("class32"),
-                        rhs: LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 }),
+                        rhs: i32_const(0),
                     },
-                    // %chunk_class = or i32 %class32, 128  (FLUX_FROM_CHUNK)
                     LlvmInstr::Binary {
                         dst: LlvmLocal("chunk_class".into()),
                         op: LlvmValueKind::Or,
                         ty: i32_ty.clone(),
                         lhs: local("class32"),
-                        rhs: LlvmOperand::Const(LlvmConst::Int {
-                            bits: 32,
-                            value: FLUX_FROM_CHUNK as i128,
-                        }),
+                        rhs: i32_const(FLUX_FROM_CHUNK as i128),
                     },
-                    // %class8 = trunc i32 %chunk_class to i8
                     LlvmInstr::Cast {
                         dst: LlvmLocal("class8".into()),
                         op: LlvmValueKind::Trunc,
@@ -880,21 +968,99 @@ fn emit_bump_alloc_fn(module: &mut LlvmModule, fn_name: &str, zero: bool) {
                         operand: local("chunk_class"),
                         to_ty: i8_ty.clone(),
                     },
+                    // Once per function after inlining: a native function
+                    // never changes thread mid-call, since a fiber suspends by
+                    // returning its continuation (0162).
+                    LlvmInstr::Call {
+                        dst: Some(LlvmLocal("heap".into())),
+                        tail: false,
+                        call_conv: Some(CallConv::Ccc),
+                        ret_ty: ptr_ty.clone(),
+                        callee: LlvmOperand::Global(GlobalId(THREADLOCAL_ADDRESS.into())),
+                        args: vec![(
+                            ptr_ty.clone(),
+                            LlvmOperand::Global(GlobalId(FLUX_HEAP_NAME.into())),
+                        )],
+                        attrs: vec![],
+                    },
                 ],
-                term: LlvmTerminator::Br { target: LabelId("bump_check".into()) },
+                term: LlvmTerminator::CondBr {
+                    cond_ty: i1_ty.clone(),
+                    cond: local("has_class"),
+                    then_label: label("pop_check"),
+                    else_label: label("slow"),
+                },
             },
-            // ── bump_check: load this thread's hp/limit and branch ──
+            // Once the first chunks are carved, nearly every block is a freed
+            // one, so the class's list comes before the bump.
             LlvmBlock {
-                label: LabelId("bump_check".into()),
+                label: label("pop_check"),
                 instrs: vec![
-                    // %hp = load ptr, ptr @flux_arena_hp
+                    LlvmInstr::Cast {
+                        dst: LlvmLocal("class64".into()),
+                        op: LlvmValueKind::ZExt,
+                        from_ty: i32_ty.clone(),
+                        operand: local("class32"),
+                        to_ty: i64_ty.clone(),
+                    },
+                    byte_at("free", "heap", FLUX_HEAP_FREE),
+                    LlvmInstr::GetElementPtr {
+                        dst: LlvmLocal("slot".into()),
+                        inbounds: false,
+                        element_ty: ptr_ty.clone(),
+                        base: local("free"),
+                        indices: vec![(i64_ty.clone(), local("class64"))],
+                    },
+                    LlvmInstr::Load {
+                        dst: LlvmLocal("head".into()),
+                        ty: ptr_ty.clone(),
+                        ptr: local("slot"),
+                        align: Some(8),
+                    },
+                    LlvmInstr::Icmp {
+                        dst: LlvmLocal("has_head".into()),
+                        op: LlvmCmpOp::Ne,
+                        ty: ptr_ty.clone(),
+                        lhs: local("head"),
+                        rhs: LlvmOperand::Const(LlvmConst::Null),
+                    },
+                ],
+                term: LlvmTerminator::CondBr {
+                    cond_ty: i1_ty.clone(),
+                    cond: local("has_head"),
+                    then_label: label("pop"),
+                    else_label: label("bump_check"),
+                },
+            },
+            // A freed block links to the next in its first payload word.
+            LlvmBlock {
+                label: label("pop"),
+                instrs: vec![
+                    byte_at("next_ptr", "head", FLUX_HEADER_SIZE),
+                    LlvmInstr::Load {
+                        dst: LlvmLocal("next".into()),
+                        ty: ptr_ty.clone(),
+                        ptr: local("next_ptr"),
+                        align: Some(8),
+                    },
+                    LlvmInstr::Store {
+                        ty: ptr_ty.clone(),
+                        value: local("next"),
+                        ptr: local("slot"),
+                        align: Some(8),
+                    },
+                ],
+                term: LlvmTerminator::Br { target: label("init") },
+            },
+            LlvmBlock {
+                label: label("bump_check"),
+                instrs: vec![
                     LlvmInstr::Load {
                         dst: LlvmLocal("hp".into()),
                         ty: ptr_ty.clone(),
-                        ptr: LlvmOperand::Global(GlobalId(hp_name.into())),
+                        ptr: local("heap"),
                         align: Some(8),
                     },
-                    // %new_hp = getelementptr i8, ptr %hp, i64 %total
                     LlvmInstr::GetElementPtr {
                         dst: LlvmLocal("new_hp".into()),
                         inbounds: false,
@@ -902,14 +1068,13 @@ fn emit_bump_alloc_fn(module: &mut LlvmModule, fn_name: &str, zero: bool) {
                         base: local("hp"),
                         indices: vec![(i64_ty.clone(), local("total"))],
                     },
-                    // %lim = load ptr, ptr @flux_arena_limit
+                    byte_at("lim_ptr", "heap", FLUX_HEAP_LIMIT),
                     LlvmInstr::Load {
                         dst: LlvmLocal("lim".into()),
                         ty: ptr_ty.clone(),
-                        ptr: LlvmOperand::Global(GlobalId(lim_name.into())),
+                        ptr: local("lim_ptr"),
                         align: Some(8),
                     },
-                    // %in_chunk = icmp ule ptr %new_hp, %lim
                     LlvmInstr::Icmp {
                         dst: LlvmLocal("in_chunk".into()),
                         op: LlvmCmpOp::Ule,
@@ -917,166 +1082,32 @@ fn emit_bump_alloc_fn(module: &mut LlvmModule, fn_name: &str, zero: bool) {
                         lhs: local("new_hp"),
                         rhs: local("lim"),
                     },
-                    // %fits = and i1 %has_class, %in_chunk
-                    LlvmInstr::Binary {
-                        dst: LlvmLocal("fits".into()),
-                        op: LlvmValueKind::And,
-                        ty: i1_ty.clone(),
-                        lhs: local("has_class"),
-                        rhs: local("in_chunk"),
-                    },
                 ],
                 term: LlvmTerminator::CondBr {
                     cond_ty: i1_ty.clone(),
-                    cond: local("fits"),
-                    then_label: LabelId("fast".into()),
-                    else_label: LabelId("slow".into()),
+                    cond: local("in_chunk"),
+                    then_label: label("bump"),
+                    else_label: label("slow"),
                 },
             },
-            // ── fast: bump hp, init header, zero payload, return ──
             LlvmBlock {
-                label: LabelId("fast".into()),
-                instrs: {
-                    let mut instrs = vec![
-                        // store ptr %new_hp, ptr @flux_arena_hp
-                        LlvmInstr::Store {
-                            ty: ptr_ty.clone(),
-                            value: local("new_hp"),
-                            ptr: LlvmOperand::Global(GlobalId(hp_name.into())),
-                            align: Some(8),
-                        },
-                        // store i32 1, ptr %hp  (refcount = 1)
-                        LlvmInstr::Store {
-                            ty: i32_ty.clone(),
-                            value: LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 1 }),
-                            ptr: local("hp"),
-                            align: Some(4),
-                        },
-                        // %scan8 = trunc i32 %scan to i8
-                        LlvmInstr::Cast {
-                            dst: LlvmLocal("scan8".into()),
-                            op: LlvmValueKind::Trunc,
-                            from_ty: i32_ty.clone(),
-                            operand: local("scan"),
-                            to_ty: i8_ty.clone(),
-                        },
-                        // %sf_ptr = getelementptr i8, ptr %hp, i64 4
-                        LlvmInstr::GetElementPtr {
-                            dst: LlvmLocal("sf_ptr".into()),
-                            inbounds: false,
-                            element_ty: i8_ty.clone(),
-                            base: local("hp"),
-                            indices: vec![(i64_ty.clone(), const_i64_operand(4))],
-                        },
-                        // store i8 %scan8, ptr %sf_ptr
-                        LlvmInstr::Store {
-                            ty: i8_ty.clone(),
-                            value: local("scan8"),
-                            ptr: local("sf_ptr"),
-                            align: Some(1),
-                        },
-                        // %tag8 = trunc i32 %tag to i8
-                        LlvmInstr::Cast {
-                            dst: LlvmLocal("tag8".into()),
-                            op: LlvmValueKind::Trunc,
-                            from_ty: i32_ty.clone(),
-                            operand: local("tag"),
-                            to_ty: i8_ty.clone(),
-                        },
-                        // %ot_ptr = getelementptr i8, ptr %hp, i64 5
-                        LlvmInstr::GetElementPtr {
-                            dst: LlvmLocal("ot_ptr".into()),
-                            inbounds: false,
-                            element_ty: i8_ty.clone(),
-                            base: local("hp"),
-                            indices: vec![(i64_ty.clone(), const_i64_operand(5))],
-                        },
-                        // store i8 %tag8, ptr %ot_ptr
-                        LlvmInstr::Store {
-                            ty: i8_ty.clone(),
-                            value: local("tag8"),
-                            ptr: local("ot_ptr"),
-                            align: Some(1),
-                        },
-                        // %prog_ptr = getelementptr i8, ptr %hp, i64 6
-                        LlvmInstr::GetElementPtr {
-                            dst: LlvmLocal("prog_ptr".into()),
-                            inbounds: false,
-                            element_ty: i8_ty.clone(),
-                            base: local("hp"),
-                            indices: vec![(i64_ty.clone(), const_i64_operand(6))],
-                        },
-                        // store i8 0, ptr %prog_ptr  (progress = 0)
-                        LlvmInstr::Store {
-                            ty: i8_ty.clone(),
-                            value: LlvmOperand::Const(LlvmConst::Int { bits: 8, value: 0 }),
-                            ptr: local("prog_ptr"),
-                            align: Some(1),
-                        },
-                        // %class_ptr = getelementptr i8, ptr %hp, i64 7
-                        LlvmInstr::GetElementPtr {
-                            dst: LlvmLocal("class_ptr".into()),
-                            inbounds: false,
-                            element_ty: i8_ty.clone(),
-                            base: local("hp"),
-                            indices: vec![(i64_ty.clone(), const_i64_operand(7))],
-                        },
-                        // store i8 %class8, ptr %class_ptr  (size_class)
-                        LlvmInstr::Store {
-                            ty: i8_ty.clone(),
-                            value: local("class8"),
-                            ptr: local("class_ptr"),
-                            align: Some(1),
-                        },
-                        // %payload = getelementptr i8, ptr %hp, i64 8
-                        LlvmInstr::GetElementPtr {
-                            dst: LlvmLocal("payload".into()),
-                            inbounds: false,
-                            element_ty: i8_ty.clone(),
-                            base: local("hp"),
-                            indices: vec![(i64_ty.clone(), const_i64_operand(FLUX_HEADER_SIZE))],
-                        },
-                    ];
-                    if zero {
-                        instrs.extend([
-                            // %aligned64 = zext i32 %masked to i64
-                            LlvmInstr::Cast {
-                                dst: LlvmLocal("aligned64".into()),
-                                op: LlvmValueKind::ZExt,
-                                from_ty: i32_ty.clone(),
-                                operand: local("masked"),
-                                to_ty: i64_ty.clone(),
-                            },
-                            // call void @llvm.memset.p0.i64(ptr %payload, i8 0, i64 %aligned64, i1 false)
-                            LlvmInstr::Call {
-                                dst: None,
-                                tail: false,
-                                call_conv: Some(CallConv::Ccc),
-                                ret_ty: LlvmType::Void,
-                                callee: LlvmOperand::Global(GlobalId(memset_name.into())),
-                                args: vec![
-                                    (ptr_ty.clone(), local("payload")),
-                                    (
-                                        i8_ty.clone(),
-                                        LlvmOperand::Const(LlvmConst::Int { bits: 8, value: 0 }),
-                                    ),
-                                    (i64_ty.clone(), local("aligned64")),
-                                    (
-                                        i1_ty.clone(),
-                                        LlvmOperand::Const(LlvmConst::Int { bits: 1, value: 0 }),
-                                    ),
-                                ],
-                                attrs: vec![],
-                            },
-                        ]);
-                    }
-                    instrs
-                },
+                label: label("bump"),
+                instrs: vec![LlvmInstr::Store {
+                    ty: ptr_ty.clone(),
+                    value: local("new_hp"),
+                    ptr: local("heap"),
+                    align: Some(8),
+                }],
+                term: LlvmTerminator::Br { target: label("init") },
+            },
+            LlvmBlock {
+                label: label("init"),
+                instrs: init,
                 term: LlvmTerminator::Ret { ty: ptr_ty.clone(), value: local("payload") },
             },
-            // ── slow: fall back to C runtime malloc path ──
+            // The C runtime: the remote frees, a new chunk, or malloc.
             LlvmBlock {
-                label: LabelId("slow".into()),
+                label: label("slow"),
                 instrs: vec![LlvmInstr::Call {
                     dst: Some(LlvmLocal("slow_ptr".into())),
                     tail: false,
@@ -1383,14 +1414,14 @@ mod tests {
         assert!(rendered.contains("%small = icmp ule i32 %masked, 256"));
         assert!(rendered.contains("%class_all = lshr i32 %masked, 3"));
         assert!(rendered.contains("%class32 = select i1 %small, i32 %class_all, i32 0"));
-        assert!(rendered.contains("%class_ptr = getelementptr i8, ptr %hp, i64 7"));
+        assert!(rendered.contains("%class_ptr = getelementptr i8, ptr %block, i64 7"));
         assert!(rendered.contains("store i8 %class8, ptr %class_ptr"));
         assert!(!rendered.contains("store i16 0"));
     }
 
-    /// Only a block with a size class is bumped from a chunk, since only it
-    /// can go back on a free list, and it is marked as a chunk block
-    /// (`FLUX_FROM_CHUNK` in `runtime/c/rc.c`).
+    /// Only a block with a size class is taken from a list or bumped from a
+    /// chunk, since only it can go back on a free list, and it is marked as a
+    /// chunk block (`FLUX_FROM_CHUNK` in `runtime/c/rc.c`).
     #[test]
     fn bump_alloc_takes_only_small_blocks_from_a_chunk() {
         let mut module = LlvmModule::new();
@@ -1398,21 +1429,36 @@ mod tests {
         let rendered = render_module(&module);
         let filled = function_body(&rendered, "flux_bump_alloc_filled");
         assert!(filled.contains("%has_class = icmp ne i32 %class32, 0"), "{filled}");
-        assert!(filled.contains("%fits = and i1 %has_class, %in_chunk"), "{filled}");
+        assert!(filled.contains("br i1 %has_class, label %pop_check, label %slow"), "{filled}");
         assert!(filled.contains("%chunk_class = or i32 %class32, 128"), "{filled}");
         assert!(filled.contains("%class8 = trunc i32 %chunk_class to i8"), "{filled}");
     }
 
-    /// Each thread bumps its own arena pointers, NULL where it has no arena,
-    /// so an allocation asks no one which thread it is on.
+    /// Each thread has its own heap, all zero where it owns none, so an
+    /// allocation asks no one which thread it is on. The bump pointers and
+    /// the class lists share one thread-local, so a function finds it once
+    /// after inlining; a block comes off its class's list before the bump,
+    /// since once the first chunks are used nearly every block is a freed one.
     #[test]
-    fn bump_alloc_reads_this_threads_arena() {
+    fn bump_alloc_pops_its_class_list_before_bumping() {
         let mut module = LlvmModule::new();
         emit_prelude(&mut module);
         let rendered = render_module(&module);
-        assert!(rendered.contains("@flux_arena_hp = external thread_local global ptr"));
-        assert!(rendered.contains("@flux_arena_limit = external thread_local global ptr"));
+        assert!(
+            rendered.contains("@flux_heap = external thread_local(initialexec) global [35 x ptr]"),
+            "{rendered}"
+        );
+        assert!(!rendered.contains("@flux_arena_hp"), "{rendered}");
         assert!(!rendered.contains("flux_can_use_bump_arena"), "{rendered}");
+        for name in ["flux_bump_alloc_inline", "flux_bump_alloc_filled"] {
+            let body = function_body(&rendered, name);
+            let finds = body.matches("@llvm.threadlocal.address.p0(ptr @flux_heap)").count();
+            assert_eq!(finds, 1, "{body}");
+            let pop = body.find("%head = load ptr, ptr %slot").expect(name);
+            let bump = body.find("%hp = load ptr, ptr %heap").expect(name);
+            assert!(pop < bump, "{body}");
+            assert!(body.contains("%block = phi ptr [ %head, %pop ], [ %hp, %bump ]"), "{body}");
+        }
     }
 
     /// A caller that writes every payload word gets a block nobody zeroed, on
