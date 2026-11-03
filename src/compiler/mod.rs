@@ -992,6 +992,14 @@ fn collect_aether_debug_details(
                 ));
                 walk(body, interner, details);
             }
+            AetherExpr::FreeShell { var, body, span } => {
+                details.drops.push(format!(
+                    "line {}: free_shell {}",
+                    span.start.line,
+                    crate::aether::display::format_var_ref(var, interner)
+                ));
+                walk(body, interner, details);
+            }
             AetherExpr::Reuse { token, tag, fields, field_mask, span } => {
                 details.reuses.push(format!(
                     "line {}: reuse {} as {}{}",

@@ -47,6 +47,14 @@ pub enum AetherErrorKind {
     /// A binder read after a path released it, or a view read after the
     /// value holding it was released without a copy of the view first.
     UsedAfterRelease,
+    /// A `FreeShell` of a value that is not the scrutinee of an enclosing
+    /// `DropSpecialized`'s unique path, the only place its cell is known to
+    /// be the path's alone with its fields already handed to the arm.
+    FreeShellOutsideUniquePath,
+    /// A `DropSpecialized` whose unique path does not dispose of the cell
+    /// exactly once on every path, by a `Reuse` or a `FreeShell`: it would
+    /// leak the cell, or free it twice.
+    ShellNotDisposed,
 }
 
 /// Non-fatal Aether diagnostic.
@@ -95,6 +103,7 @@ pub fn verify_contract_aether(expr: &AetherExpr) -> Result<(), Vec<AetherError>>
     let mut errors = Vec::new();
     check_contract(expr, &mut errors);
     check_single_release(expr, &mut Vec::new(), &mut errors);
+    check_shells(expr, &mut Vec::new(), &mut errors);
     if errors.is_empty() { Ok(()) } else { Err(errors) }
 }
 
@@ -413,7 +422,9 @@ fn check_views(
             }
             check_views(body, owned, views, diags);
         }
-        AetherExpr::Drop { body, .. } => check_views(body, owned, views, diags),
+        AetherExpr::Drop { body, .. } | AetherExpr::FreeShell { body, .. } => {
+            check_views(body, owned, views, diags)
+        }
         AetherExpr::DropSpecialized { scrutinee, unique_body, shared_body, .. } => {
             // On the unique side the cell is this path's alone: it hands the
             // arm its one reference to each field it holds, in place of the
@@ -477,7 +488,7 @@ fn check_borrowed_kept(
         AetherExpr::Lam { body, .. }
         | AetherExpr::Return { value: body, .. }
         | AetherExpr::Dup { body, .. } => walk(body),
-        AetherExpr::Drop { var, body, .. } => {
+        AetherExpr::Drop { var, body, .. } | AetherExpr::FreeShell { var, body, .. } => {
             errors.extend(released(var));
             check_borrowed_kept(body, borrowed, errors);
         }
@@ -546,7 +557,9 @@ fn leaves(expr: &AetherExpr) -> bool {
         AetherExpr::Return { .. } => true,
         AetherExpr::Let { rhs, body, .. } => leaves(rhs) || leaves(body),
         AetherExpr::Case { alts, .. } => alts.iter().all(|alt| leaves(&alt.rhs)),
-        AetherExpr::Dup { body, .. } | AetherExpr::Drop { body, .. } => leaves(body),
+        AetherExpr::Dup { body, .. }
+        | AetherExpr::Drop { body, .. }
+        | AetherExpr::FreeShell { body, .. } => leaves(body),
         _ => false,
     }
 }
@@ -639,7 +652,7 @@ fn check_single_release(
             }
         }
         AetherExpr::Dup { body, .. } => check_single_release(body, released, errors),
-        AetherExpr::Drop { var, body, .. } => {
+        AetherExpr::Drop { var, body, .. } | AetherExpr::FreeShell { var, body, .. } => {
             release(var, released, errors);
             check_single_release(body, released, errors);
         }
@@ -1014,6 +1027,13 @@ fn check_reads_after_release(
             }
             check_reads_after_release(body, path, errors);
         }
+        // The fields went to the arm, so only the cell is gone.
+        AetherExpr::FreeShell { var, body, .. } => {
+            if let Some(binder) = var.binder {
+                path.release_cell(binder);
+            }
+            check_reads_after_release(body, path, errors);
+        }
         AetherExpr::Reuse { token, fields, .. } => {
             for field in fields {
                 check_reads_after_release(field, path, errors);
@@ -1036,6 +1056,95 @@ fn check_reads_after_release(
             if let Some(binder) = scrutinee.binder {
                 path.release_cell(binder);
             }
+        }
+    }
+}
+
+/// Checks that a `FreeShell` frees only the cell of a value whose unique path
+/// it is on (`unique` holds those values), and that each unique path disposes
+/// of its cell exactly once. A function or a handler clause runs later, when
+/// the cell may be shared, so it starts with no unique cells.
+fn check_shells(expr: &AetherExpr, unique: &mut Vec<CoreBinderId>, errors: &mut Vec<AetherError>) {
+    match expr {
+        AetherExpr::Var { .. } | AetherExpr::Lit(_, _) => {}
+        AetherExpr::Lam { body, .. } => check_shells(body, &mut Vec::new(), errors),
+        AetherExpr::Return { value: body, .. }
+        | AetherExpr::Dup { body, .. }
+        | AetherExpr::Drop { body, .. }
+        | AetherExpr::MemberAccess { object: body, .. }
+        | AetherExpr::TupleField { object: body, .. } => check_shells(body, unique, errors),
+        AetherExpr::FreeShell { var, body, .. } => {
+            if !var.binder.is_some_and(|binder| unique.contains(&binder)) {
+                errors.push(AetherError {
+                    kind: AetherErrorKind::FreeShellOutsideUniquePath,
+                    message: format!(
+                        "free_shell of {:?} is not on the unique path of a drop_spec on it",
+                        var.binder
+                    ),
+                });
+            }
+            check_shells(body, unique, errors);
+        }
+        AetherExpr::App { func, args, .. } | AetherExpr::AetherCall { func, args, .. } => {
+            check_shells(func, unique, errors);
+            for arg in args {
+                check_shells(arg, unique, errors);
+            }
+        }
+        AetherExpr::Let { rhs, body, .. } | AetherExpr::LetRec { rhs, body, .. } => {
+            check_shells(rhs, unique, errors);
+            check_shells(body, unique, errors);
+        }
+        AetherExpr::LetRecGroup { bindings, body, .. } => {
+            for (_, rhs) in bindings {
+                check_shells(rhs, unique, errors);
+            }
+            check_shells(body, unique, errors);
+        }
+        AetherExpr::Case { scrutinee, alts, .. } => {
+            check_shells(scrutinee, unique, errors);
+            for alt in alts {
+                if let Some(guard) = &alt.guard {
+                    check_shells(guard, unique, errors);
+                }
+                check_shells(&alt.rhs, unique, errors);
+            }
+        }
+        AetherExpr::Con { fields: args, .. }
+        | AetherExpr::Reuse { fields: args, .. }
+        | AetherExpr::PrimOp { args, .. }
+        | AetherExpr::Perform { args, .. } => {
+            for arg in args {
+                check_shells(arg, unique, errors);
+            }
+        }
+        AetherExpr::Handle { body, parameter, handlers, .. } => {
+            if let Some(parameter) = parameter {
+                check_shells(parameter, unique, errors);
+            }
+            check_shells(body, unique, errors);
+            for handler in handlers {
+                check_shells(&handler.body, &mut Vec::new(), errors);
+            }
+        }
+        AetherExpr::DropSpecialized { scrutinee, unique_body, shared_body, .. } => {
+            // An unresolved scrutinee is reported by `check_contract`.
+            if let Some(cell) = scrutinee.binder {
+                if !super::analysis::uses_shell_on_every_path(unique_body, cell, true) {
+                    errors.push(AetherError {
+                        kind: AetherErrorKind::ShellNotDisposed,
+                        message: format!(
+                            "drop_spec on {cell:?}: a unique path does not reuse or free the cell exactly once"
+                        ),
+                    });
+                }
+                unique.push(cell);
+                check_shells(unique_body, unique, errors);
+                unique.pop();
+            } else {
+                check_shells(unique_body, unique, errors);
+            }
+            check_shells(shared_body, unique, errors);
         }
     }
 }
@@ -1107,7 +1216,9 @@ fn check_reuse_tokens(
                 check_reuse_tokens(&handler.body, None, errors);
             }
         }
-        AetherExpr::Dup { body, .. } | AetherExpr::Drop { body, .. } => {
+        AetherExpr::Dup { body, .. }
+        | AetherExpr::Drop { body, .. }
+        | AetherExpr::FreeShell { body, .. } => {
             check_reuse_tokens(body, arm, errors);
         }
         AetherExpr::Reuse { token, tag, fields, .. } => {
@@ -1236,6 +1347,28 @@ fn check_contract(expr: &AetherExpr, errors: &mut Vec<AetherError>) {
                 errors.push(AetherError {
                     kind: AetherErrorKind::UnresolvedAetherVar,
                     message: format!("drop uses unresolved variable `{}`", var.name.as_u32()),
+                });
+            }
+            check_contract(body, errors);
+        }
+        AetherExpr::FreeShell { var, body, .. } => {
+            if let Some(id) = var.binder {
+                if let Some(&count) = use_counts_aether(body).get(&id)
+                    && count > 0
+                {
+                    errors.push(AetherError {
+                        kind: AetherErrorKind::UnsafeDrop,
+                        message: format!(
+                            "free_shell of `{}` is unsafe: variable still has {} use(s) in body",
+                            var.name.as_u32(),
+                            count
+                        ),
+                    });
+                }
+            } else {
+                errors.push(AetherError {
+                    kind: AetherErrorKind::UnresolvedAetherVar,
+                    message: format!("free_shell uses unresolved variable `{}`", var.name.as_u32()),
                 });
             }
             check_contract(body, errors);
@@ -1375,9 +1508,9 @@ fn check_diagnostics(expr: &AetherExpr, diags: &mut Vec<AetherDiagnostic>) {
                 }
             }
         }
-        AetherExpr::Dup { body, .. } | AetherExpr::Drop { body, .. } => {
-            check_diagnostics(body, diags)
-        }
+        AetherExpr::Dup { body, .. }
+        | AetherExpr::Drop { body, .. }
+        | AetherExpr::FreeShell { body, .. } => check_diagnostics(body, diags),
         AetherExpr::Reuse { fields, .. } | AetherExpr::Con { fields, .. } => {
             for f in fields {
                 check_diagnostics(f, diags);
@@ -1526,6 +1659,11 @@ fn invalid_drop_specialized_uses_aether(
         }
         AetherExpr::Dup { var, body, .. } => {
             usize::from(var.binder == Some(scrutinee_id))
+                + invalid_drop_specialized_uses_aether(body, scrutinee_id, count_reuse_token)
+        }
+        // Disposes of the cell as a reuse does: right on the unique side only.
+        AetherExpr::FreeShell { var, body, .. } => {
+            usize::from(count_reuse_token && var.binder == Some(scrutinee_id))
                 + invalid_drop_specialized_uses_aether(body, scrutinee_id, count_reuse_token)
         }
         AetherExpr::Reuse { token, fields, .. } => {
@@ -1831,6 +1969,143 @@ mod tests {
             .into_iter()
             .map(|error| error.kind)
             .collect()
+    }
+
+    fn free_shell(x: CoreBinder, body: CoreExpr) -> CoreExpr {
+        CoreExpr::FreeShell { var: CoreVarRef::resolved(&x), body: Box::new(body), span: s() }
+    }
+
+    /// `fn(f, xs) case xs of [h | t] -> drop_spec xs { unique -> <unique>,
+    /// shared -> dup h in dup t in drop xs in f(h) + f(t)... }`: the shared
+    /// side is the plain Perceus release, so only `unique` varies.
+    fn shell_case(names: &mut Interner, unique: impl FnOnce(&Shell) -> CoreExpr) -> CoreExpr {
+        let [f, xs, h, t] = ["f", "xs", "h", "t"].map(|name| names.intern(name));
+        let shell = Shell { f: binder(1, f), xs: binder(2, xs), h: binder(3, h), t: binder(4, t) };
+        let Shell { f, xs, h, t } = shell;
+        let shared = dup(
+            h,
+            dup(
+                t,
+                drop_in(
+                    xs,
+                    give(
+                        f,
+                        CoreExpr::Con { tag: CoreTag::Cons, fields: vec![v(h), v(t)], span: s() },
+                    ),
+                ),
+            ),
+        );
+        let specialized = CoreExpr::DropSpecialized {
+            scrutinee: CoreVarRef::resolved(&xs),
+            unique_body: Box::new(unique(&shell)),
+            shared_body: Box::new(shared),
+            span: s(),
+        };
+        lam(vec![f, xs], on_cons(xs, h, t, specialized))
+    }
+
+    struct Shell {
+        f: CoreBinder,
+        xs: CoreBinder,
+        h: CoreBinder,
+        t: CoreBinder,
+    }
+
+    /// The unique side frees the cell and hands its fields on.
+    fn frees_and_gives(shell: &Shell) -> CoreExpr {
+        let Shell { f, xs, h, t } = *shell;
+        free_shell(
+            xs,
+            give(f, CoreExpr::Con { tag: CoreTag::Cons, fields: vec![v(h), v(t)], span: s() }),
+        )
+    }
+
+    #[test]
+    fn a_unique_cell_may_free_its_shell_and_keep_its_fields() {
+        let def = shell_case(&mut Interner::new(), frees_and_gives);
+        assert_eq!(contract_errors(&def), vec![]);
+    }
+
+    #[test]
+    fn a_shell_is_freed_only_on_the_unique_path() {
+        let mut interner = Interner::new();
+        let [xs, h, t] = ["xs", "h", "t"].map(|name| interner.intern(name));
+        let (xs, h, t) = (binder(1, xs), binder(2, h), binder(3, t));
+        // A plain match: nothing checked that the cell is unique.
+        let plain = lam(vec![xs], on_cons(xs, h, t, free_shell(xs, v(h))));
+        assert!(contract_errors(&plain).contains(&AetherErrorKind::FreeShellOutsideUniquePath));
+        // Inside a closure built on the unique path, which runs later.
+        let later = shell_case(&mut Interner::new(), |shell| {
+            let xs = shell.xs;
+            free_shell(xs, lam(vec![], free_shell(xs, CoreExpr::Lit(CoreLit::Int(0), s()))))
+        });
+        let outside = |errors: Vec<AetherErrorKind>| {
+            errors.into_iter().filter(|e| *e == AetherErrorKind::FreeShellOutsideUniquePath).count()
+        };
+        assert_eq!(outside(contract_errors(&later)), 1);
+    }
+
+    #[test]
+    fn a_unique_path_disposes_of_its_cell_exactly_once() {
+        // Neither reused nor freed: the cell leaks.
+        let kept = shell_case(&mut Interner::new(), |shell| {
+            let Shell { f, h, .. } = *shell;
+            give(f, v(h))
+        });
+        assert!(contract_errors(&kept).contains(&AetherErrorKind::ShellNotDisposed));
+        // Freed, then reused.
+        let twice = shell_case(&mut Interner::new(), |shell| {
+            let Shell { xs, h, t, .. } = *shell;
+            free_shell(xs, reuse(xs, CoreTag::Cons, vec![v(h), v(t)]))
+        });
+        let errors = contract_errors(&twice);
+        assert!(errors.contains(&AetherErrorKind::DoubleDrop), "{errors:?}");
+        assert!(errors.contains(&AetherErrorKind::ShellNotDisposed), "{errors:?}");
+        // Freed on one branch only.
+        let one_branch = shell_case(&mut Interner::new(), |shell| {
+            let Shell { xs, h, t, .. } = *shell;
+            on_flag(h, free_shell(xs, v(t)), v(t))
+        });
+        assert!(contract_errors(&one_branch).contains(&AetherErrorKind::ShellNotDisposed));
+    }
+
+    #[test]
+    fn a_freed_shell_is_not_read_again() {
+        let def = shell_case(&mut Interner::new(), |shell| {
+            let Shell { f, xs, .. } = *shell;
+            free_shell(xs, give(f, v(xs)))
+        });
+        let errors = contract_errors(&def);
+        assert!(errors.contains(&AetherErrorKind::UnsafeDrop), "{errors:?}");
+        assert!(errors.contains(&AetherErrorKind::UsedAfterRelease), "{errors:?}");
+    }
+
+    #[test]
+    fn a_borrowed_parameter_is_never_freed() {
+        use crate::aether::borrow_infer::{BorrowMode, BorrowProvenance, BorrowSignature};
+        let def = shell_case(&mut Interner::new(), frees_and_gives);
+        let signature = BorrowSignature::new(
+            vec![BorrowMode::Owned, BorrowMode::Borrowed],
+            BorrowProvenance::Inferred,
+        );
+        let errors = super::verify_def_contract_aether(&def, Some(&signature))
+            .expect_err("a borrowed cell is freed");
+        assert!(errors.iter().any(|error| error.kind == AetherErrorKind::BorrowedParamReleased));
+    }
+
+    #[test]
+    fn the_shared_path_never_frees_a_shell() {
+        let mut interner = Interner::new();
+        let [xs, h, t] = ["xs", "h", "t"].map(|name| interner.intern(name));
+        let (xs, h, t) = (binder(1, xs), binder(2, h), binder(3, t));
+        let specialized = CoreExpr::DropSpecialized {
+            scrutinee: CoreVarRef::resolved(&xs),
+            unique_body: Box::new(free_shell(xs, v(h))),
+            shared_body: Box::new(free_shell(xs, v(t))),
+            span: s(),
+        };
+        let errors = contract_errors(&lam(vec![xs], on_cons(xs, h, t, specialized)));
+        assert!(errors.contains(&AetherErrorKind::InvalidDropSpecializedUse), "{errors:?}");
     }
 
     #[test]

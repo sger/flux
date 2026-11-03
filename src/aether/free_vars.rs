@@ -124,7 +124,9 @@ pub fn free_vars_rec_aether(
                 }
             }
         }
-        AetherExpr::Dup { var, body, .. } | AetherExpr::Drop { var, body, .. } => {
+        AetherExpr::Dup { var, body, .. }
+        | AetherExpr::Drop { var, body, .. }
+        | AetherExpr::FreeShell { var, body, .. } => {
             if let Some(binder) = var.binder
                 && !bound.contains(&binder)
             {

@@ -223,6 +223,9 @@ fn transform(expr: CoreExpr, fresh: &mut FieldNames) -> CoreExpr {
         CoreExpr::Drop { var, body, span } => {
             CoreExpr::Drop { var, body: Box::new(transform(*body, fresh)), span }
         }
+        CoreExpr::FreeShell { var, body, span } => {
+            CoreExpr::FreeShell { var, body: Box::new(transform(*body, fresh)), span }
+        }
         CoreExpr::Reuse { token, tag, fields, field_mask, span } => CoreExpr::Reuse {
             token,
             tag,
@@ -516,7 +519,9 @@ fn validate_skeleton(
             }
             Ok(any_branch_has_drop)
         }
-        CoreExpr::DropSpecialized { .. } => Err(DropSpecFailureReason::AlreadySpecialized),
+        CoreExpr::DropSpecialized { .. } | CoreExpr::FreeShell { .. } => {
+            Err(DropSpecFailureReason::AlreadySpecialized)
+        }
         other => {
             if uses_binder(other, scrutinee_id) {
                 Err(DropSpecFailureReason::ScrutineeEscapes)
@@ -602,7 +607,7 @@ fn validate_after_drop_body(
         CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
             validate_after_drop_body(object, scrutinee_id)
         }
-        CoreExpr::Lam { .. } | CoreExpr::DropSpecialized { .. } => {
+        CoreExpr::Lam { .. } | CoreExpr::DropSpecialized { .. } | CoreExpr::FreeShell { .. } => {
             Err(DropSpecFailureReason::EffectfulBoundary)
         }
     }
@@ -820,6 +825,7 @@ fn is_safe_wrapper_rhs(expr: &CoreExpr) -> bool {
         | CoreExpr::Return { .. }
         | CoreExpr::Dup { .. }
         | CoreExpr::Drop { .. }
+        | CoreExpr::FreeShell { .. }
         | CoreExpr::MemberAccess { .. }
         | CoreExpr::TupleField { .. } => true,
     }
@@ -895,9 +901,9 @@ mod tests {
                         .map(|handler| count_matching(&handler.body, predicate))
                         .sum::<usize>()
             }
-            CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => {
-                here + count_matching(body, predicate)
-            }
+            CoreExpr::Dup { body, .. }
+            | CoreExpr::Drop { body, .. }
+            | CoreExpr::FreeShell { body, .. } => here + count_matching(body, predicate),
             CoreExpr::DropSpecialized { unique_body, shared_body, .. } => {
                 here + count_matching(unique_body, predicate)
                     + count_matching(shared_body, predicate)

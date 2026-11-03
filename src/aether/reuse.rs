@@ -10,7 +10,7 @@ use crate::core::{CoreBinderId, CorePat, CoreTag, CoreVarRef};
 use crate::diagnostics::position::Span;
 use crate::shared::opt_bisect;
 
-use super::analysis::{ArmShape, pat_field_binder_ids};
+use super::analysis::{ArmShape, pat_field_binder_ids, uses_shell_on_every_path};
 use super::reuse_analysis::rewrite_drop_body;
 use super::{AetherExpr, into_constructor_shape_for_tag_aether};
 
@@ -69,6 +69,11 @@ fn rewrite_with_ctx(
             }
             CoreExpr::Drop { var, body: Box::new(rewritten.expr), span }
         }
+        CoreExpr::FreeShell { var, body, span } => CoreExpr::FreeShell {
+            var,
+            body: Box::new(rewrite_with_ctx(*body, arm, blocked_outer_token)),
+            span,
+        },
         // Recurse into all other forms
         CoreExpr::Let { var, rhs, body, span } => CoreExpr::Let {
             var,
@@ -287,109 +292,6 @@ fn reuse_on_unique_path(
     } else {
         None
     }
-}
-
-/// A unique shell has no recursive release available once its fields move.
-/// Count reuse along evaluation paths, rather than counting sites: one site
-/// in a branch does not dispose of the shell on the other branch.
-fn uses_shell_on_every_path(expr: &CoreExpr, token: CoreBinderId, reuse: bool) -> bool {
-    fn sequence<'a>(
-        children: impl IntoIterator<Item = &'a CoreExpr>,
-        token: CoreBinderId,
-        reuse: bool,
-    ) -> Option<(u8, u8)> {
-        children.into_iter().try_fold((0u8, 0u8), |(min, max), child| {
-            let (child_min, child_max) = counts(child, token, reuse)?;
-            Some(((min + child_min).min(2), (max + child_max).min(2)))
-        })
-    }
-
-    fn branches<'a>(
-        children: impl IntoIterator<Item = &'a CoreExpr>,
-        token: CoreBinderId,
-        reuse: bool,
-    ) -> Option<(u8, u8)> {
-        children.into_iter().try_fold(None::<(u8, u8)>, |joined, child| {
-            let (min, max) = counts(child, token, reuse)?;
-            Some(Some(match joined {
-                None => (min, max),
-                Some((lo, hi)) => (min.min(lo), max.max(hi)),
-            }))
-        })?
-    }
-
-    fn counts(expr: &CoreExpr, token: CoreBinderId, reuse: bool) -> Option<(u8, u8)> {
-        match expr {
-            CoreExpr::Var { var, .. } => (var.binder != Some(token)).then_some((0, 0)),
-            CoreExpr::Lit(..) => Some((0, 0)),
-            CoreExpr::Lam { .. } | CoreExpr::Handle { .. } | CoreExpr::Perform { .. } => {
-                (!super::analysis::use_counts_aether(expr).contains_key(&token)).then_some((0, 0))
-            }
-            CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
-                sequence([rhs.as_ref(), body.as_ref()], token, reuse)
-            }
-            CoreExpr::LetRecGroup { bindings, body, .. } => sequence(
-                bindings.iter().map(|(_, rhs)| rhs.as_ref()).chain([body.as_ref()]),
-                token,
-                reuse,
-            ),
-            CoreExpr::Case { scrutinee, alts, .. } => {
-                for guard in alts.iter().filter_map(|alt| alt.guard.as_ref()) {
-                    if counts(guard, token, reuse)? != (0, 0) {
-                        return None;
-                    }
-                }
-                let (before_min, before_max) = counts(scrutinee, token, reuse)?;
-                let (arm_min, arm_max) = branches(alts.iter().map(|alt| &alt.rhs), token, reuse)?;
-                Some(((before_min + arm_min).min(2), (before_max + arm_max).min(2)))
-            }
-            CoreExpr::Dup { var, body, .. } => {
-                if var.binder == Some(token) {
-                    None
-                } else {
-                    counts(body, token, reuse)
-                }
-            }
-            CoreExpr::Drop { var, body, .. } => {
-                if var.binder == Some(token) {
-                    if reuse {
-                        return None;
-                    }
-                    let (min, max) = counts(body, token, reuse)?;
-                    Some(((min + 1).min(2), (max + 1).min(2)))
-                } else {
-                    counts(body, token, reuse)
-                }
-            }
-            CoreExpr::Reuse { token: reused, fields, .. } => {
-                if !reuse && reused.binder == Some(token) {
-                    return None;
-                }
-                let (min, max) = sequence(fields, token, reuse)?;
-                let own = u8::from(reused.binder == Some(token));
-                Some(((min + own).min(2), (max + own).min(2)))
-            }
-            CoreExpr::Con { fields, .. } | CoreExpr::PrimOp { args: fields, .. } => {
-                sequence(fields, token, reuse)
-            }
-            CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
-                sequence(std::iter::once(func.as_ref()).chain(args), token, reuse)
-            }
-            CoreExpr::Return { value, .. } => counts(value, token, reuse),
-            CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
-                counts(object, token, reuse)
-            }
-            CoreExpr::DropSpecialized { scrutinee, unique_body, shared_body, .. } => {
-                if scrutinee.binder == Some(token) {
-                    None
-                } else {
-                    branches([unique_body.as_ref(), shared_body.as_ref()], token, reuse)
-                }
-            }
-        }
-    }
-
-    counts(expr, token, reuse) == Some((1, 1))
 }
 
 /// Perceus drop-reuse specialization (Section 2.4, Fig 1e-1g).

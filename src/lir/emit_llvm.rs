@@ -1951,6 +1951,18 @@ impl<'a> FnEmitter<'a> {
                     );
                 }
             }
+            // A worker counts nothing, so its uniqueness check proves
+            // nothing either: the cell may be someone else's too.
+            LirInstr::FreeShell { val } => {
+                if !self.worker_mode {
+                    self.call_c(
+                        None,
+                        "flux_free_shell",
+                        vec![(LlvmType::i64(), self.var(*val))],
+                        LlvmType::Void,
+                    );
+                }
+            }
             LirInstr::IsUnique { dst, val } => {
                 let bool_tmp = self.tmp();
                 self.call_c(
@@ -4191,6 +4203,7 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
             (LlvmType::i64(), vec![LlvmType::Ptr, LlvmType::i32()])
         }
         "flux_rc_is_unique" => (LlvmType::i1(), vec![LlvmType::i64()]),
+        "flux_free_shell" => (LlvmType::Void, vec![LlvmType::i64()]),
         "flux_drop_reuse" => (LlvmType::Ptr, vec![LlvmType::i64(), LlvmType::i32()]),
         // Collection helpers
         "flux_try" | "flux_array_reverse" | "flux_sort_default" | "flux_flatten" => {

@@ -163,6 +163,9 @@ pub enum LirInstr {
     /// Decrement the reference count and free if zero.
     /// No-op for non-pointer values.
     Drop { val: LirVar },
+    /// Free a unique cell's block without releasing its fields, which the
+    /// arm that matched it took over (Aether's `FreeShell`).
+    FreeShell { val: LirVar },
     /// Check if a value's refcount is exactly 1 (uniquely owned).
     /// Result is 0 or 1 (raw, not tagged).
     IsUnique { dst: LirVar, val: LirVar },

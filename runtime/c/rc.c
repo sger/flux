@@ -864,6 +864,33 @@ void flux_drop(int64_t val) {
     }
 }
 
+/*
+ * Frees a cell's block without releasing its fields, which the match arm
+ * that holds the cell took over (Aether's FreeShell, KI-164). Generated
+ * code calls it only right after flux_rc_is_unique said yes, with no call
+ * in between, so the count is still 1; the debug heap checks that.
+ */
+void flux_free_shell(int64_t val) {
+    if (!flux_is_ptr(val)) return;
+    void *ptr = flux_untag_ptr(val);
+    if (!ptr) return;
+    FluxHeader *hdr = header_of(ptr);
+#ifdef FLUX_DEBUG_HEAP
+    DEBUG_CHECK(hdr, "freeing");
+    int32_t rc = rc_load_relaxed(hdr);
+    if (rc != 1) {
+        char message[200];
+        int len = snprintf(message, sizeof message,
+                           "freeing the cell of %s that is not unique (count %d)",
+                           debug_kind(hdr->obj_tag), (int)rc);
+        if (len < 0) len = 0;
+        if ((size_t)len >= sizeof message) len = (int)sizeof message - 1;
+        flux_heap_fault(message, (uint32_t)len);
+    }
+#endif
+    flux_block_free(ptr);
+}
+
 int flux_rc_is_unique(int64_t val) {
     if (!flux_is_ptr(val)) return 1;
     void *ptr = flux_untag_ptr(val);

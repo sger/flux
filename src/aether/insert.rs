@@ -1089,6 +1089,14 @@ fn plan_expr(
                 env_before: body_plan.env_before,
             }
         }
+        CoreExpr::FreeShell { var, body, span } => {
+            let body_plan =
+                plan_expr(*body, tail_env, demand, position, registry, scope, field_parents);
+            AetherPlan {
+                expr: CoreExpr::FreeShell { var, body: Box::new(body_plan.expr), span },
+                env_before: body_plan.env_before,
+            }
+        }
         CoreExpr::Reuse { token, tag, fields, field_mask, span } => {
             let (fields, mut env_before) =
                 plan_expr_list(fields, tail_env, registry, scope, field_parents, |_| {
@@ -1817,7 +1825,9 @@ fn gives_away(expr: &CoreExpr, whole: &BTreeSet<CoreBinderId>, owned: bool) -> b
         CoreExpr::Dup { var, body, .. } => {
             !copies_itself(var, body) && gives_away(body, whole, owned)
         }
-        CoreExpr::Drop { var, body, .. } => named(var) || gives_away(body, whole, owned),
+        CoreExpr::Drop { var, body, .. } | CoreExpr::FreeShell { var, body, .. } => {
+            named(var) || gives_away(body, whole, owned)
+        }
         CoreExpr::Reuse { token, fields, .. } => {
             named(token) || fields.iter().any(|field| gives_away(field, whole, true))
         }
@@ -2361,7 +2371,7 @@ fn expr_uses_binder(expr: &CoreExpr, binder: CoreBinderId) -> bool {
 
 pub(super) fn expr_drops_binder(expr: &CoreExpr, binder: CoreBinderId) -> bool {
     match expr {
-        CoreExpr::Drop { var, body, .. } => {
+        CoreExpr::Drop { var, body, .. } | CoreExpr::FreeShell { var, body, .. } => {
             var.binder == Some(binder) || expr_drops_binder(body, binder)
         }
         CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
@@ -2508,7 +2518,10 @@ mod tests {
             }
             CoreExpr::Return { value, .. }
             | CoreExpr::Dup { body: value, .. }
-            | CoreExpr::Drop { body: value, .. } => count_binder_nodes(value, binder, predicate),
+            | CoreExpr::Drop { body: value, .. }
+            | CoreExpr::FreeShell { body: value, .. } => {
+                count_binder_nodes(value, binder, predicate)
+            }
             CoreExpr::Handle { body, parameter, handlers, .. } => {
                 parameter
                     .as_ref()
@@ -4431,6 +4444,7 @@ mod tests {
             | CoreExpr::Return { value: body, .. }
             | CoreExpr::Dup { body, .. }
             | CoreExpr::Drop { body, .. }
+            | CoreExpr::FreeShell { body, .. }
             | CoreExpr::MemberAccess { object: body, .. }
             | CoreExpr::TupleField { object: body, .. } => vec![body],
             CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {

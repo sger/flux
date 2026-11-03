@@ -178,6 +178,15 @@ pub enum AetherExpr {
         body: Box<AetherExpr>,
         span: Span,
     },
+    /// Frees `var`'s cell without releasing its fields. Only the unique path
+    /// of a `DropSpecialized` on `var` may hold one: there the cell is the
+    /// arm's alone and its fields were handed to the arm's binders, so a
+    /// plain `Drop` would release them a second time (KI-164).
+    FreeShell {
+        var: CoreVarRef,
+        body: Box<AetherExpr>,
+        span: Span,
+    },
     Reuse {
         token: CoreVarRef,
         tag: CoreTag,
@@ -424,6 +433,7 @@ impl AetherExpr {
             Self::AetherCall { .. }
             | Self::Dup { .. }
             | Self::Drop { .. }
+            | Self::FreeShell { .. }
             | Self::Reuse { .. }
             | Self::DropSpecialized { .. } => {
                 panic!("Aether-only expressions cannot be projected back into semantic Core")
@@ -451,6 +461,7 @@ impl AetherExpr {
             | Self::Handle { span, .. }
             | Self::Dup { span, .. }
             | Self::Drop { span, .. }
+            | Self::FreeShell { span, .. }
             | Self::Reuse { span, .. }
             | Self::DropSpecialized { span, .. } => *span,
         }
@@ -525,6 +536,8 @@ pub struct AetherStats {
     pub drops: usize,
     pub reuses: usize,
     pub drop_specs: usize,
+    /// Cells freed without their fields on a unique path (KI-164).
+    pub free_shells: usize,
     /// Number of heap constructor allocations (Con nodes with heap tags).
     pub allocs: usize,
     /// Proposal 0162 Phase 3: perform sites (lower to `flux_yield_to`).
@@ -556,6 +569,7 @@ impl AetherStats {
         self.drops += other.drops;
         self.reuses += other.reuses;
         self.drop_specs += other.drop_specs;
+        self.free_shells += other.free_shells;
         self.allocs += other.allocs;
         self.performs += other.performs;
         self.handles += other.handles;
@@ -595,6 +609,9 @@ impl std::fmt::Display for AetherStats {
             FbipStatus::Fbip(n) => write!(f, "  FBIP: fbip({})", n)?,
             FbipStatus::NotApplicable => {}
         }
+        if self.free_shells > 0 {
+            write!(f, "  FreeShells: {}", self.free_shells)?;
+        }
         if self.performs > 0 || self.handles > 0 {
             write!(
                 f,
@@ -621,6 +638,10 @@ fn count_nodes(expr: &AetherExpr, stats: &mut AetherStats) {
         }
         AetherExpr::Drop { body, .. } => {
             stats.drops += 1;
+            count_nodes(body, stats);
+        }
+        AetherExpr::FreeShell { body, .. } => {
+            stats.free_shells += 1;
             count_nodes(body, stats);
         }
         AetherExpr::Reuse { fields, .. } => {
