@@ -16,7 +16,7 @@
  *   - Per-slot mutex + condvar protect the status field.
  *   - cancelled_flag is _Atomic so the worker can load it without the lock.
  *   - flux_dup/flux_drop use atomic RC (sign-bit encoding, Phase 1a-iv).
- *   - Worker threads own no heap (their flux_arena_hp stays NULL), so all
+ *   - Worker threads own no heap (their flux_heap stays all zero), so all
  *     their Flux allocations go through malloc, and a block of the root
  *     thread's heap they free goes back to it (rc.c, "Heap").
  *

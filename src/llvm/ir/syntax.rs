@@ -127,11 +127,21 @@ pub struct LlvmGlobal {
     pub name: GlobalId,
     pub ty: LlvmType,
     pub is_constant: bool,
-    /// Each thread has its own copy (`thread_local`, the default TLS model).
-    pub thread_local: bool,
+    /// Each thread has its own copy, its address found the way the model says.
+    pub thread_local: Option<TlsModel>,
     /// `None` for external global declarations (no initializer).
     pub value: Option<LlvmConst>,
     pub attrs: Vec<String>,
+}
+
+/// How a thread-local global's address is found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TlsModel {
+    /// LLVM's default: works from any module, a shared library's included.
+    GeneralDynamic,
+    /// For a global the executable defines: a fixed offset from the thread
+    /// pointer on ELF. Mach-O finds every thread-local through its thunk.
+    InitialExec,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

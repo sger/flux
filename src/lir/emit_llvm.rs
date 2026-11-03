@@ -482,7 +482,7 @@ fn emit_user_ctor_name_helper(module: &mut LlvmModule, program: &LirProgram) {
             name: global.clone(),
             ty: LlvmType::Array { len: bytes.len() as u64, element: Box::new(LlvmType::i8()) },
             is_constant: true,
-            thread_local: false,
+            thread_local: None,
             value: Some(LlvmConst::Array {
                 element_ty: LlvmType::i8(),
                 elements: bytes
@@ -740,7 +740,7 @@ impl StaticObjects {
                 fields: fields.iter().map(|(ty, _)| ty.clone()).collect(),
             },
             is_constant: true,
-            thread_local: false,
+            thread_local: None,
             value: Some(LlvmConst::Struct { packed: false, fields }),
             attrs: vec![", align 8".to_string()],
         };

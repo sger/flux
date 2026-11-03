@@ -163,12 +163,6 @@ void  flux_gc_collect(void);
 void  flux_gc_push_root(int64_t *root);
 void  flux_gc_pop_root(void);
 
-/* This thread's bump pointers into its current heap chunk, NULL on every
- * thread but the one that owns the heap (exported for the inline LLVM
- * allocation; see "Heap" in rc.c). */
-extern __thread char *flux_arena_hp;
-extern __thread char *flux_arena_limit;
-
 /* Aether RC: dup/drop for pointer-tagged heap values.
  *
  * Hybrid atomic-on-share refcount (proposal 0174 Phase 1a-iv): the rc

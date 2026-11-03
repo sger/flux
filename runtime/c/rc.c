@@ -65,6 +65,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <stddef.h>
 
 /* ── FluxHeader ────────────────────────────────────────────────────── */
 
@@ -371,10 +372,13 @@ void flux_debug_heap_report_leaks(void) {
  * owner empties onto its lists before it carves a new chunk, so the lists
  * themselves are only ever touched by the owner.
  *
- * The bump pointers are shared with the LLVM inline allocation in
- * src/llvm/codegen/prelude.rs. They stay NULL on every thread but the owner,
- * so the bump never fits there and allocation takes the slow path; the
- * inline path needs no test of which thread it is on. The debug heap owns no
+ * The bump pointers and the lists are one thread-local, flux_heap, which
+ * the LLVM inline allocation in src/llvm/codegen/prelude.rs reads too: it
+ * pops a class's list, else bumps, else calls the slow path here, which
+ * drains the remote frees and adds a chunk. flux_heap stays all zero on every
+ * thread but the owner, so neither the pop nor the bump succeeds there and
+ * allocation takes the slow path; the inline path needs no test of which
+ * thread it is on. The debug heap owns no
  * chunks, so every block goes through the slow path that records it, and
  * neither does an ASan build, so that ASan sees every block: generated code
  * bumping through a chunk would hide them from it.
@@ -394,8 +398,33 @@ void flux_debug_heap_report_leaks(void) {
 #  define FLUX_ASAN 1
 #endif
 
-__thread char *flux_arena_hp    = NULL;
-__thread char *flux_arena_limit = NULL;
+/* Generated code reads hp, limit and free[] at the offsets prelude.rs
+ * names (FLUX_HEAP_LIMIT, FLUX_HEAP_FREE, FLUX_HEAP_WORDS). */
+typedef struct {
+    char *hp;
+    char *limit;
+    FluxHeader *free[FLUX_NUM_CLASSES];
+    int owner;
+} FluxHeap;
+
+#if defined(_MSC_VER)
+static_assert(offsetof(FluxHeap, limit) == 8 && offsetof(FluxHeap, free) == 16 &&
+                  FLUX_NUM_CLASSES == 33,
+              "FluxHeap's layout is fixed by the inline allocator");
+#else
+_Static_assert(offsetof(FluxHeap, limit) == 8 && offsetof(FluxHeap, free) == 16 &&
+                   FLUX_NUM_CLASSES == 33,
+               "FluxHeap's layout is fixed by the inline allocator");
+#endif
+
+/* The runtime is linked into the executable, so on ELF this thread's copy is
+ * at a fixed offset from the thread pointer; Mach-O always goes through its
+ * thunk. */
+#if defined(__ELF__)
+__thread FluxHeap flux_heap __attribute__((tls_model("initial-exec")));
+#else
+__thread FluxHeap flux_heap;
+#endif
 
 static inline uint8_t size_class_of(size_t aligned) {
     return aligned <= FLUX_SMALL_MAX ? (uint8_t)(aligned / FLUX_ALIGN) : 0;
@@ -403,10 +432,8 @@ static inline uint8_t size_class_of(size_t aligned) {
 
 #ifndef FLUX_DEBUG_HEAP
 
-static __thread int heap_owner = 0;
 /* The owner's chunks, linked through their first word. */
 static char *chunks = NULL;
-static __thread FluxHeader *free_lists[FLUX_NUM_CLASSES];
 static _Atomic(FluxHeader *) remote_free = NULL;
 
 static inline FluxHeader **free_link(FluxHeader *hdr) {
@@ -414,17 +441,17 @@ static inline FluxHeader **free_link(FluxHeader *hdr) {
 }
 
 static inline FluxHeader *free_list_pop(uint8_t size_class) {
-    FluxHeader *hdr = free_lists[size_class];
+    FluxHeader *hdr = flux_heap.free[size_class];
     if (hdr) {
-        free_lists[size_class] = *free_link(hdr);
+        flux_heap.free[size_class] = *free_link(hdr);
     }
     return hdr;
 }
 
 static inline void free_list_push(FluxHeader *hdr) {
     uint8_t size_class = hdr->size_class & FLUX_CLASS_MASK;
-    *free_link(hdr) = free_lists[size_class];
-    free_lists[size_class] = hdr;
+    *free_link(hdr) = flux_heap.free[size_class];
+    flux_heap.free[size_class] = hdr;
 }
 
 static void remote_push(FluxHeader *hdr) {
@@ -449,8 +476,8 @@ static void remote_drain(void) {
 
 /* A block of `total` bytes from the current chunk, or from a new one. */
 static FluxHeader *chunk_bump(size_t total) {
-    char *hp = flux_arena_hp;
-    if (total > (size_t)(flux_arena_limit - hp)) {
+    char *hp = flux_heap.hp;
+    if (total > (size_t)(flux_heap.limit - hp)) {
         char *chunk = (char *)malloc(FLUX_CHUNK_SIZE);
         if (!chunk) {
             fprintf(stderr, "flux: out of memory (a %zu-byte heap chunk)\n",
@@ -460,9 +487,9 @@ static FluxHeader *chunk_bump(size_t total) {
         *(char **)chunk = chunks;
         chunks = chunk;
         hp = chunk + FLUX_ALIGN;
-        flux_arena_limit = chunk + FLUX_CHUNK_SIZE;
+        flux_heap.limit = chunk + FLUX_CHUNK_SIZE;
     }
-    flux_arena_hp = hp + total;
+    flux_heap.hp = hp + total;
     return (FluxHeader *)hp;
 }
 
@@ -470,7 +497,7 @@ static FluxHeader *chunk_bump(size_t total) {
 
 static void arena_init(void) {
 #if !defined(FLUX_DEBUG_HEAP) && !defined(FLUX_ASAN)
-    heap_owner = 1;
+    flux_heap.owner = 1;
 #endif
 }
 
@@ -481,7 +508,7 @@ static inline void flux_block_free(void *ptr) {
 #else
     if (!(hdr->size_class & FLUX_FROM_CHUNK)) {
         free(hdr);
-    } else if (heap_owner) {
+    } else if (flux_heap.owner) {
         free_list_push(hdr);
     } else {
         remote_push(hdr);
@@ -520,7 +547,7 @@ static FluxHeader *take_block(uint32_t payload_size, size_t aligned, int *from_c
     return debug_alloc(aligned);
 #else
     uint8_t size_class = size_class_of(aligned);
-    if (heap_owner && size_class) {
+    if (flux_heap.owner && size_class) {
         FluxHeader *hdr = free_list_pop(size_class);
         if (!hdr) {
             remote_drain();
@@ -946,19 +973,14 @@ void flux_gc_init(size_t heap_size) {
  * frees them all. */
 void flux_gc_shutdown(void) {
 #ifndef FLUX_DEBUG_HEAP
-    for (int c = 0; c < FLUX_NUM_CLASSES; c++) {
-        free_lists[c] = NULL;
-    }
     atomic_store_explicit(&remote_free, NULL, memory_order_relaxed);
     while (chunks) {
         char *next = *(char **)chunks;
         free(chunks);
         chunks = next;
     }
-    heap_owner = 0;
 #endif
-    flux_arena_hp    = NULL;
-    flux_arena_limit = NULL;
+    memset(&flux_heap, 0, sizeof flux_heap);
 }
 
 void flux_gc_collect(void) {
