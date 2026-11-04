@@ -1047,43 +1047,6 @@ holds for:
 - `examples/type_system/failing/133_if_branch_value_span_precision.flx`
 - `examples/type_system/failing/135_if_any_branch_suppressed.flx`
 
-### KI-106 — Natively under `--optimize`, a nested constructor match on a known value takes the wildcard arm
-
-**Severity:** High · **Area:** Native backend, optimizer · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#6](https://forgejo.spirosgerokostas.com/sger/flux/issues/6)
-
-```flux
-// examples/patterns/pattern_validation_happy_path.flx
-let value = Some(Left(21));
-let result = match value {
-    Some(Left(v)) -> v + 1,
-    Some(Right(v)) -> v,
-    _ -> 0,
-};
-print(result);
-```
-
-`vm`, `vm_opt` and `llvm` print `22`, then `10` for the `Some(Right(5))` case;
-`llvm_opt` prints `0` and `0`. The guarded `match Some(8)` in the same file is
-right on every way. The VM runs the same optimized Core correctly, so the
-fault is in native lowering of what the optimizer produces for a nested
-pattern on a known constructor.
-
-**Re-checked 2026-11-04:** plain `--native` is affected too when the value is
-written in the `match` itself. This prints `7` on the VM and `0` natively, with or
-without `-O`:
-
-```flux
-fn main() with IO {
-    match Some(Some(7)) {
-        Some(Some(a)) -> print(a),
-        _ -> print(0),
-    }
-}
-```
-
-With `let o = Some(Some(7))` first, only `-O` prints `0`. A tuple holding the
-constructor (`match (1, Some(7))`) is right on every way.
-
 ### KI-107 — Natively, calling a function through a variable with too few arguments is not an error
 
 **Severity:** Medium · **Area:** Native backend, calls · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#7](https://forgejo.spirosgerokostas.com/sger/flux/issues/7)
@@ -2737,6 +2700,57 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-106 — A match on a known value skipped an arm it could not decide, so a later `_` won — FIXED 2026-11-04
+
+**Severity:** High · **Area:** Core passes · **Verified:** 2026-11-04 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#6](https://forgejo.spirosgerokostas.com/sger/flux/issues/6)
+
+```flux
+// examples/patterns/pattern_validation_happy_path.flx
+let value = Some(Left(21));
+let result = match value {
+    Some(Left(v)) -> v + 1,
+    Some(Right(v)) -> v,
+    _ -> 0,
+};
+print(result);
+```
+
+`vm`, `vm_opt` and `llvm` print `22`, then `10` for the `Some(Right(5))` case;
+`llvm_opt` prints `0` and `0`. The guarded `match Some(8)` in the same file is
+right on every way.
+
+**Re-checked 2026-11-04:** plain `--native` is affected too when the value is
+written in the `match` itself. This prints `7` on the VM and `0` natively, with or
+without `-O`:
+
+```flux
+fn main() with IO {
+    match Some(Some(7)) {
+        Some(Some(a)) -> print(a),
+        _ -> print(0),
+    }
+}
+```
+
+With `let o = Some(Some(7))` first, only `-O` prints `0`. A tuple holding the
+constructor (`match (1, Some(7))`) is right on every way.
+
+**Cause (corrected 2026-11-04).** This entry first put the fault in native
+lowering. It is in the optimizer: with every rewrite off (`FLUX_OPT_BISECT=0`)
+native prints the right answer, and `--dump-core` already shows the wrong arm.
+`case_of_known_constructor` and `constant_fold` each had a matcher whose `None`
+meant both "this arm cannot match" and "this pattern is too complex for me", and
+both moved on to the next arm on either. So any arm with a literal or a
+constructor in a field was skipped, not only nested ones, and a `let` wasn't
+needed: `match Some(1) { Some(1) -> 10, _ -> 20 }` printed 20 on plain `--native`.
+A value reaching the match through a `let` or an inlined call took the same path
+under `--optimize`.
+
+**Fixed:** both passes use one matcher (`select_known_arm`, `core/passes/helpers.rs`)
+that tells the two apart. An arm it can't decide stops the search and the `case`
+stays, for lowering to match at run time. `tests/parity/known_constructor_match_ki106.flx`
+covers the shapes on `vm`, `llvm` and `llvm_opt`. `CACHE_EPOCH` is 131.
 
 ### KI-167 — A temporary and a variable bound by a pattern could get the same binder id — FIXED 2026-11-04
 

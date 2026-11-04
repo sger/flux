@@ -130,6 +130,80 @@ fn cokc_skips_guarded_arm() {
     );
 }
 
+/// `match <scrutinee> { <pat> -> 1, _ -> 2 }`.
+fn known_match(scrutinee: CoreExpr, pat: CorePat) -> CoreExpr {
+    CoreExpr::Case {
+        scrutinee: Box::new(scrutinee),
+        alts: vec![
+            CoreAlt { pat, guard: None, rhs: int(1), span: s() },
+            CoreAlt { pat: CorePat::Wildcard, guard: None, rhs: int(2), span: s() },
+        ],
+        join_ty: None,
+        span: s(),
+    }
+}
+
+fn some_of(field: CoreExpr) -> CoreExpr {
+    CoreExpr::Con { tag: CoreTag::Some, fields: vec![field], span: s() }
+}
+
+/// The two passes that select an arm of a known value.
+const SELECTING_PASSES: [fn(CoreExpr) -> CoreExpr; 2] = [case_of_known_constructor, constant_fold];
+
+/// A field pattern these passes don't look into says nothing about whether the
+/// arm matches, so the arm after it can't be chosen in its place (KI-106).
+#[test]
+fn a_known_value_keeps_the_case_when_it_cannot_decide_an_arm_ki106() {
+    let undecided = [
+        (
+            some_of(int(1)),
+            CorePat::Con { tag: CoreTag::Some, fields: vec![CorePat::Lit(CoreLit::Int(1))] },
+        ),
+        (
+            some_of(some_of(int(7))),
+            CorePat::Con {
+                tag: CoreTag::Some,
+                fields: vec![CorePat::Con { tag: CoreTag::Some, fields: vec![CorePat::Wildcard] }],
+            },
+        ),
+    ];
+    for pass in SELECTING_PASSES {
+        for (scrutinee, pat) in &undecided {
+            let result = pass(known_match(scrutinee.clone(), pat.clone()));
+            assert!(matches!(result, CoreExpr::Case { .. }), "{pat:?} became {result:?}");
+        }
+    }
+}
+
+/// An arm of another constructor really can't match, so the search goes on.
+#[test]
+fn a_known_value_moves_past_an_arm_of_another_constructor_ki106() {
+    let none = CorePat::Con { tag: CoreTag::None, fields: Vec::new() };
+    let nested_in_another_constructor =
+        CorePat::Con { tag: CoreTag::Left, fields: vec![CorePat::Lit(CoreLit::Int(1))] };
+    for pass in SELECTING_PASSES {
+        for pat in [&none, &nested_in_another_constructor] {
+            let result = pass(known_match(some_of(int(1)), pat.clone()));
+            assert!(
+                matches!(result, CoreExpr::Lit(CoreLit::Int(2), _)),
+                "{pat:?} became {result:?}"
+            );
+        }
+    }
+}
+
+/// A different literal can't match, but a pattern that isn't a literal is not
+/// the same answer.
+#[test]
+fn a_known_literal_only_moves_past_a_different_literal_ki106() {
+    for pass in SELECTING_PASSES {
+        let other = pass(known_match(int(1), CorePat::Lit(CoreLit::Int(2))));
+        assert!(matches!(other, CoreExpr::Lit(CoreLit::Int(2), _)), "{other:?}");
+        let not_a_literal = pass(known_match(int(1), CorePat::Tuple(vec![CorePat::Wildcard])));
+        assert!(matches!(not_a_literal, CoreExpr::Case { .. }), "{not_a_literal:?}");
+    }
+}
+
 #[test]
 fn cokc_leaves_unknown_scrutinee_alone() {
     // Case(Var(x), [...]) — scrutinee not statically known; must not be reduced.
