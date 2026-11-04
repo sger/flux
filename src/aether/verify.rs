@@ -81,21 +81,26 @@ pub fn verify_contract(expr: &CoreExpr) -> Result<(), Vec<AetherError>> {
     verify_contract_aether(&AetherExpr::from_core(expr.clone()))
 }
 
-static CONTRACT_GATE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static CONTRACT_SKIPPED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Makes builds check the Aether contract. The driver turns it on for
-/// `--debug-heap` and `--leak-check`: those runs look for memory bugs, and an
-/// invalid plan is one the compiler can name before the program runs. The
-/// switch is process-wide, and the last call wins.
-pub fn set_contract_gate(on: bool) {
-    CONTRACT_GATE.store(on, std::sync::atomic::Ordering::Relaxed);
+/// Skips the Aether contract for this process. The driver does this for
+/// `--dump-aether`, which prints what the check finds beside the plan: a plan
+/// the check rejects is the one someone needs to read.
+pub fn skip_contract() {
+    CONTRACT_SKIPPED.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
-/// Whether builds check the Aether contract: set by [`set_contract_gate`],
-/// or by `FLUX_AETHER_VERIFY=1`.
+/// Whether this build checks the Aether contract. Every build does, because a
+/// plan that fails it runs as a memory bug with nothing to say so (KI-165).
+/// `FLUX_AETHER_VERIFY=0` opts out, for when the check itself is wrong and is
+/// blocking a build.
 pub fn contract_gate() -> bool {
-    CONTRACT_GATE.load(std::sync::atomic::Ordering::Relaxed)
-        || std::env::var("FLUX_AETHER_VERIFY").is_ok_and(|v| v == "1")
+    !CONTRACT_SKIPPED.load(std::sync::atomic::Ordering::Relaxed)
+        && gate_from(std::env::var("FLUX_AETHER_VERIFY").ok().as_deref())
+}
+
+fn gate_from(value: Option<&str>) -> bool {
+    value != Some("0")
 }
 
 /// Verify the fatal Aether contract for a backend-only Aether expression.
@@ -1777,6 +1782,15 @@ mod tests {
 
     fn v<B: Borrow<CoreBinder>>(binder: B) -> CoreExpr {
         CoreExpr::bound_var(*binder.borrow(), s())
+    }
+
+    /// Every build checks the contract, and opting out takes an explicit `0`.
+    #[test]
+    fn every_build_checks_the_contract_unless_told_not_to() {
+        assert!(super::gate_from(None));
+        assert!(super::gate_from(Some("1")));
+        assert!(super::gate_from(Some("")));
+        assert!(!super::gate_from(Some("0")));
     }
 
     #[test]

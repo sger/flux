@@ -974,6 +974,41 @@ fn run_core_passes_rejects_malformed_aether_before_lowering() {
     );
 }
 
+/// Any build can show this, so it reads as a compiler bug, names the function
+/// and says how to get past it.
+#[test]
+fn a_rejected_plan_reads_as_a_compiler_bug_and_names_its_function() {
+    let mut interner = Interner::new();
+    let peel = binder(0, interner.intern("peel"));
+    let xs = binder(1, interner.intern("xs"));
+    let expr = crate::aether::AetherExpr::Drop {
+        var: crate::core::CoreVarRef::resolved(&xs),
+        body: Box::new(crate::aether::AetherExpr::bound_var(xs, s())),
+        span: s(),
+    };
+    let def = crate::aether::AetherDef::from_core(CoreDef::new(
+        peel,
+        CoreExpr::Lit(crate::core::CoreLit::Int(0), s()),
+        false,
+        s(),
+    ));
+    let program = crate::aether::AetherProgram::new(
+        CoreProgram { defs: Vec::new(), top_level_items: Vec::new() },
+        vec![crate::aether::AetherDef { expr, ..def }],
+        Vec::new(),
+    );
+    let error = verify_aether_program_contract(&program, Some(&interner))
+        .expect_err("a drop read afterwards is rejected");
+    let message = error.message().expect("a message");
+    assert!(message.contains("compiler bug"), "{message}");
+    assert!(message.contains("`peel`"), "{message}");
+    assert!(!message.contains("definition `"), "{message}");
+    assert!(message.contains("UnsafeDrop") || message.contains("UsedAfterRelease"), "{message}");
+    let rendered = format!("{error:?}");
+    assert!(rendered.contains("issues"), "{rendered}");
+    assert!(rendered.contains("FLUX_AETHER_VERIFY=0"), "{rendered}");
+}
+
 #[test]
 fn core_lint_is_fatal_with_e998() {
     let mut interner = Interner::new();
