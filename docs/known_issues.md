@@ -2756,6 +2756,45 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 ## Resolved
 
+### KI-165 — Natively, a rebuild around a field's own field read it after a unique path released it — FIXED 2026-11-04
+
+**Severity:** High (silent wrong output, or a crash) · **Area:** Aether, reuse · **Verified:** 2026-11-04 (a4314aba, and the same at b21d7f89, before 0189 F3-5) · **From:** implementing 0189 F3-5 P1-2b
+
+```flux
+type Item = Wrap(Item) | Leaf(String)
+
+fn peel(xs: List<Item>) -> List<Item> {
+    match xs {
+        [h | t] -> match h {
+            Wrap(x) -> [x | t],
+            _ -> [Leaf("none") | t],
+        },
+        _ -> [],
+    }
+}
+```
+
+Called with a unique list, a plain native build printed freed memory as a
+string (`"abc!   � �H…"`) and exited 0. The fixture below crashed with a bus
+error under `parity-check`. The VM was right.
+
+The plain-drop rewrite in `reuse_analysis` plans
+`drop h in reuse xs as Cons(dup x in x, t)`. That is safe under a plain release,
+because `xs` still holds `h` while `x` is read. The reuse pass then kept that
+plan on the unique path of a `DropSpecialized`, where the path owns `h`'s only
+reference: `drop h` frees `h` and with it `x`, and only then does `dup x` read
+`x`. The contract checker reports this as `UsedAfterRelease`, but it runs only
+under `--debug-heap`, `--leak-check` or `FLUX_AETHER_VERIFY=1`, so a plain build
+never saw it.
+
+**Fixed** in `src/aether/reuse.rs`: a unique path that fails
+`reads_after_release` (`src/aether/verify.rs`) is not kept, and the function
+keeps its plain release, which copies `h` and `t` first. The shape still reuses
+its cell. `tests/parity/unique_cell_field_of_a_field_ki165.flx` and
+`a_rebuild_around_a_field_of_a_field_reads_it_before_its_parent_is_released_ki165`
+failed before this and pass now. A later change could keep the split by building
+first (`let r = reuse … in drop h in r`); nothing plans that today.
+
 ### KI-160 — Natively, an interpolated string with more than one part leaked its pieces — FIXED 2026-11-02
 
 **Severity:** Medium · **Area:** LLVM emission, strings · **Verified:** 2026-11-02 (c4019333, and the same at 4a97c60f) · **From:** re-running the native runtime roadmap's leak checks with `--leak-check`
