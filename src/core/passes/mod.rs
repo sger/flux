@@ -371,7 +371,7 @@ fn run_aether_passes_with_optional_interner(
 ) -> Result<Vec<Diagnostic>, Diagnostic> {
     let (aether_program, warnings) =
         crate::aether::lower_core_to_aether_program(program, interner, preloaded_registry)?;
-    verify_aether_program_contract(&aether_program)?;
+    verify_aether_program_contract(&aether_program, interner)?;
     *program = aether_program.into_core();
     Ok(warnings)
 }
@@ -381,9 +381,15 @@ fn run_aether_passes_with_optional_interner(
 #[allow(clippy::result_large_err)]
 pub(crate) fn verify_aether_program_contract(
     program: &crate::aether::AetherProgram,
+    interner: Option<&Interner>,
 ) -> Result<(), Diagnostic> {
     for def in program.defs() {
-        verify_aether_contract_stage_aether(def, &def.expr, "lower_core_to_aether_program")?;
+        verify_aether_contract_stage_aether(
+            def,
+            &def.expr,
+            "lower_core_to_aether_program",
+            interner,
+        )?;
     }
     Ok(())
 }
@@ -532,11 +538,12 @@ fn verify_aether_contract_stage_aether(
     def: &crate::aether::AetherDef,
     expr: &crate::aether::AetherExpr,
     stage: &'static str,
+    interner: Option<&Interner>,
 ) -> Result<(), Diagnostic> {
     if let Err(errors) =
         crate::aether::verify::verify_def_contract_aether(expr, def.borrow_signature.as_ref())
     {
-        return Err(aether_contract_error_aether(def, stage, &errors));
+        return Err(aether_contract_error_aether(def, stage, &errors, interner));
     }
     Ok(())
 }
@@ -546,19 +553,21 @@ fn aether_contract_error_core(
     stage: &'static str,
     errors: &[crate::aether::verify::AetherError],
 ) -> Diagnostic {
-    aether_contract_error_common(def.name.as_u32(), def.span, stage, errors)
+    aether_contract_error_common(None, def.span, stage, errors)
 }
 
 fn aether_contract_error_aether(
     def: &crate::aether::AetherDef,
     stage: &'static str,
     errors: &[crate::aether::verify::AetherError],
+    interner: Option<&Interner>,
 ) -> Diagnostic {
-    aether_contract_error_common(def.name.as_u32(), def.span, stage, errors)
+    let name = interner.and_then(|interner| interner.try_resolve(def.name));
+    aether_contract_error_common(name, def.span, stage, errors)
 }
 
 fn aether_contract_error_common(
-    def_name: u32,
+    def_name: Option<&str>,
     def_span: crate::diagnostics::position::Span,
     stage: &'static str,
     errors: &[crate::aether::verify::AetherError],
@@ -567,22 +576,30 @@ fn aether_contract_error_common(
         errors.iter().map(|error| format!("- {:?}", error.kind)).collect::<Vec<_>>().join("\n");
     let details =
         errors.iter().map(|error| format!("- {}", error.message)).collect::<Vec<_>>().join("\n");
+    let subject =
+        def_name.map_or_else(|| "this definition".to_string(), |name| format!("`{name}`"));
     Diagnostic::make_error_dynamic(
         "E999",
         "AETHER VERIFICATION FAILED",
         ErrorType::Compiler,
         format!(
-            "definition `{}` emitted malformed Aether after `{}` and cannot be lowered:\n{}\n\n{}",
-            def_name, stage, bullet_lines, details
+            "This is a compiler bug, not a problem in your code: the ownership plan for {} is \
+             unsound, so it was not compiled.\n\nFor the bug report, after `{}`:\n{}\n\n{}",
+            subject, stage, bullet_lines, details
         ),
-        Some("Fix the Aether transform in src/aether/ before lowering to CFG.".to_string()),
+        Some(
+            "Please report this at: https://github.com/flux-lang/flux/issues\nSetting \
+             FLUX_AETHER_VERIFY=0 builds it anyway, but the program may then crash or print \
+             wrong results."
+                .to_string(),
+        ),
         "",
         def_span,
     )
     .with_display_title("Aether Verification Failed")
     .with_category(DiagnosticCategory::Internal)
     .with_phase(DiagnosticPhase::Validation)
-    .with_primary_label(def_span, "malformed Aether emitted here")
+    .with_primary_label(def_span, "the plan for this definition was rejected")
 }
 
 #[cfg(test)]

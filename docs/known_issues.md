@@ -42,6 +42,32 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-166 — Natively, the first rebuilds under `-g` recompile the whole stdlib
+
+**Severity:** Low · **Area:** Native driver, module cache · **Verified:** 2026-11-04 (feaada41) · **From:** turning on the Aether contract for every build
+
+On a fresh cache, build a program natively, then change a comment in it before each
+further build. Modules compiled per build, counted from `Compiling` in the progress
+output:
+
+| Build | 1st | 2nd | 3rd | 4th | 5th |
+|---|---|---|---|---|---|
+| plain, or `-O` | 19 | 2 | 2 | 2 | 2 |
+| `-g` | 19 | 19 | 6 | 2 | 2 |
+
+`FLUX_AETHER_VERIFY=0` shows the same 19, 19, 6, 2. It settles, so only the first
+rebuilds after a new cache are slower: 392 and 172 ms against 133 ms on `rbtree`,
+measured with the contract's old gate on, which behaved the same way.
+
+Not fully traced. These are the settings where `compute_artifact_config_hash` differs
+from `compute_semantic_config_hash` (`src/compiler/module_interface.rs`). The stage
+that loads interfaces validates them with the artifact hash
+(`src/driver/run_program/modules.rs`), and the native stage saves them with the
+semantic one (`src/driver/pipeline/native/parallel.rs`), which is the likely cause.
+Under `--verbose` the second build reports `module-cache: miss (reason: dependency
+interface changed)` for some modules. A default build keeps the two hashes equal, and
+`an_edit_recompiles_only_the_edited_file_on_the_next_build` pins that.
+
 ### KI-163 — Natively, a self tail call that lends a field of a matched owned value to a borrowed parameter is not a jump
 
 **Severity:** Medium · **Area:** Aether, borrow inference, native backend · **Verified:** 2026-11-02 (54dbde9d) · **From:** timing `benchmarks/flux/binarytrees_fbip.flx` for the binarytrees work, which dies with signal 10 at n=21
@@ -2809,6 +2835,11 @@ its cell. `tests/parity/unique_cell_field_of_a_field_ki165.flx` and
 `a_rebuild_around_a_field_of_a_field_reads_it_before_its_parent_is_released_ki165`
 failed before this and pass now. A later change could keep the split by building
 first (`let r = reuse … in drop h in r`); nothing plans that today.
+
+Every build now runs the contract checker, so a plan like this one is a compile
+error (`E999`) and not freed memory. That was checked by disabling the fix above: a
+plain build refuses `peel`, `FLUX_AETHER_VERIFY=0` reproduces the output above, and
+`--dump-aether` still prints the plan with `UsedAfterRelease` beside it.
 
 ### KI-160 — Natively, an interpolated string with more than one part leaked its pieces — FIXED 2026-11-02
 

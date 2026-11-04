@@ -2066,7 +2066,7 @@ impl Compiler {
             preloaded_registry,
         )?;
         if crate::aether::verify::contract_gate() {
-            crate::core::passes::verify_aether_program_contract(&aether)?;
+            crate::core::passes::verify_aether_program_contract(&aether, Some(&self.interner))?;
         }
         aether.inline_sites = inline_sites;
         Ok(aether)

@@ -1658,3 +1658,18 @@ fn main() { pairs([1, 2], [10, 20]) }
     assert_eq!(drops_of(b), 3, "{body:?}");
     assert!(flux::aether::verify::verify_contract_aether(body).is_ok());
 }
+
+/// Every build checks the Aether contract, and says nothing when it holds: the
+/// `FLUX_AETHER_VERIFY=1` report is for someone who asked for it.
+#[test]
+fn a_build_that_checks_the_contract_says_nothing() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_flux"))
+        .args(["tests/parity/unique_cell_field_of_a_field_ki165.flx", "--no-cache", "--quiet"])
+        .env("NO_COLOR", "1")
+        .env_remove("FLUX_AETHER_VERIFY")
+        .output()
+        .expect("run flux");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert!(!stderr.contains("Aether verify"), "{stderr}");
+}
