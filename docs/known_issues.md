@@ -732,36 +732,6 @@ none of these are in `libflux_rt_nomain.a`. CI does not run it. The C
 runtime is tested through Flux programs instead: `tests/native_llvm`, the
 debug heap, and the parity ways.
 
-### KI-122 — Natively, the async runtime releases one of its own closures twice
-
-**Severity:** Medium · **Area:** native runtime, async scheduler · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `llvm_heap` run over `tests/parity` · **Issue:** [#120](https://forgejo.spirosgerokostas.com/sger/flux/issues/120)
-
-Two fixtures print the right output natively but stop on the debug heap:
-
-```
-$ flux --native --debug-heap tests/parity/async_select_loser_watchers_reclaimed.flx
-error[E1009]: use after free: dropping a closure that was already freed
-(allocated at fiber_run_async (lib/Flow/Async.flx:72:15),
- freed at fiber_run_async (lib/Flow/Async.flx:72:15))
-
-$ flux --native --debug-heap tests/parity/fs_async.flx
-error[E1009]: use after free: dropping a closure that was already freed
-(allocated at fiber_run_async_with_prim (lib/Flow/Async.flx:77:15),
- freed at fiber_run_async_with_prim (lib/Flow/Async.flx:77:15))
-```
-
-Both sites are inside the `run_async` intrinsic, with no Flux frame below
-it, so the closure is one the scheduler or the C runtime made (a
-continuation or a watcher), not one from the program. The first fixture
-cancels the losing arms of a `select`; the second runs `Flow.Fs` calls on
-the blocking pool. Simpler `run_async` programs
-(`async_run_async_returns_value.flx`) run clean, so the extra release is on
-those paths. On the plain heap the freed block is still readable, which is
-why `llvm` passes. Both fixtures carry `skip-way: llvm_heap KI-122`.
-
-Not yet known: which release is the extra one, in `runtime/c/tasks.c` or the
-Rust scheduler (`flux_async_release`, `flux_async_run_root`).
-
 ### KI-121 — Natively, a `let` value read in one branch and dead in the other is never dropped
 
 **Severity:** Medium · **Area:** Aether, drop insertion · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `--leak-check` runs · **Issue:** [#119](https://forgejo.spirosgerokostas.com/sger/flux/issues/119)
@@ -2700,6 +2670,49 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-122 — Natively, the async runtime releases one of its own closures twice — FIXED 2026-10-25
+
+**Severity:** Medium · **Area:** native runtime, async scheduler · **Verified:** 2026-11-04 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `llvm_heap` run over `tests/parity` · **Issue:** [#120](https://forgejo.spirosgerokostas.com/sger/flux/issues/120)
+
+Two fixtures print the right output natively but stop on the debug heap:
+
+```
+$ flux --native --debug-heap tests/parity/async_select_loser_watchers_reclaimed.flx
+error[E1009]: use after free: dropping a closure that was already freed
+(allocated at fiber_run_async (lib/Flow/Async.flx:72:15),
+ freed at fiber_run_async (lib/Flow/Async.flx:72:15))
+
+$ flux --native --debug-heap tests/parity/fs_async.flx
+error[E1009]: use after free: dropping a closure that was already freed
+(allocated at fiber_run_async_with_prim (lib/Flow/Async.flx:77:15),
+ freed at fiber_run_async_with_prim (lib/Flow/Async.flx:77:15))
+```
+
+Both sites are inside the `run_async` intrinsic, with no Flux frame below
+it, so the closure is one the scheduler or the C runtime made (a
+continuation or a watcher), not one from the program. The first fixture
+cancels the losing arms of a `select`; the second runs `Flow.Fs` calls on
+the blocking pool. Simpler `run_async` programs
+(`async_run_async_returns_value.flx`) run clean, so the extra release is on
+those paths. On the plain heap the freed block is still readable, which is
+why `llvm` passes. Both fixtures carry `skip-way: llvm_heap KI-122`.
+
+**Fixed** by 403a62a7, on 2026-10-25, though the entry stayed open until `cargo xtask
+verify` reported the skipped ways passing. Bisecting 331 commits between 64381a24 and
+bf31e39e found it. The extra release was in neither place this entry suspected:
+`flux_compose_trampoline_closure_entry` (`runtime/c/effects.c`) passed
+`flux_yield_extend` the array's own reference to an outer continuation, which the
+context gave away and the array then released again. That commit adds a `flux_dup` first.
+
+The `flux_dup` alone is the fix. Added to 403a62a7's parent, it clears the error from
+every fixture below; removed at ad216569, `E1009` comes back on all of them, 3 runs out
+of 3. So the debug heap still detects this, and 5d0afdba, which made capture-free
+closures static a day later, didn't hide it.
+
+The two fixtures run on the heap way again. `async_capturing_action_ki122.flx` and
+`async_capturing_action_on_pool_ki122.flx` join them with an action that captures a
+value, so that the closure is on the heap on both `run_async` paths.
 
 ### KI-168 — A match on a value built in place ran its fields twice, never, or out of order — FIXED 2026-11-04
 
