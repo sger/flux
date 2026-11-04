@@ -397,7 +397,9 @@ use sha2::{Digest, Sha256};
 /// an epoch-127 unit ran both (KI-156).
 /// Epoch 129: every build checks the Aether contract and keeps the default keys;
 /// an epoch-128 unit under those keys was never checked (KI-165).
-pub const CACHE_EPOCH: u16 = 129;
+/// Epoch 130: a fresh binder id is above those a pattern binds; an epoch-129 unit
+/// can hold a plan in which a temporary and a field share an id (KI-167).
+pub const CACHE_EPOCH: u16 = 130;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

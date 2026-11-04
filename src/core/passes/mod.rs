@@ -46,7 +46,7 @@ pub use inliner::inline_lets;
 pub use primop_promote::promote_builtins;
 pub use specialize::specialize_known_shapes;
 
-use crate::core::{CoreExpr, CoreLit, CoreProgram};
+use crate::core::{CoreExpr, CoreLit, CorePat, CoreProgram};
 use crate::diagnostics::compiler_errors::CORE_LINT_FAILURE;
 use crate::diagnostics::{
     Diagnostic, DiagnosticBuilder, DiagnosticCategory, DiagnosticPhase, ErrorType, diagnostic_for,
@@ -443,6 +443,7 @@ fn collect_max_binder_id(expr: &CoreExpr, max: &mut u32) {
         Case { scrutinee, alts, .. } => {
             collect_max_binder_id(scrutinee, max);
             for alt in alts {
+                collect_max_pattern_binder_id(&alt.pat, max);
                 collect_max_binder_id(&alt.rhs, max);
                 if let Some(g) = &alt.guard {
                     collect_max_binder_id(g, max);
@@ -478,6 +479,18 @@ fn collect_max_binder_id(expr: &CoreExpr, max: &mut u32) {
         MemberAccess { object, .. } | TupleField { object, .. } => {
             collect_max_binder_id(object, max);
         }
+    }
+}
+
+fn collect_max_pattern_binder_id(pat: &CorePat, max: &mut u32) {
+    match pat {
+        CorePat::Var(binder) => *max = (*max).max(binder.id.0),
+        CorePat::Con { fields, .. } | CorePat::Tuple(fields) => {
+            for field in fields {
+                collect_max_pattern_binder_id(field, max);
+            }
+        }
+        CorePat::Wildcard | CorePat::Lit(_) | CorePat::EmptyList => {}
     }
 }
 
@@ -553,7 +566,7 @@ fn aether_contract_error_core(
     stage: &'static str,
     errors: &[crate::aether::verify::AetherError],
 ) -> Diagnostic {
-    aether_contract_error_common(None, def.span, stage, errors)
+    aether_contract_error_common("this definition", def.span, stage, errors)
 }
 
 fn aether_contract_error_aether(
@@ -562,12 +575,20 @@ fn aether_contract_error_aether(
     errors: &[crate::aether::verify::AetherError],
     interner: Option<&Interner>,
 ) -> Diagnostic {
-    let name = interner.and_then(|interner| interner.try_resolve(def.name));
-    aether_contract_error_common(name, def.span, stage, errors)
+    // A top-level expression's `name` is a placeholder symbol, which resolves to
+    // whatever was interned first.
+    let subject = if def.is_anonymous {
+        "a top-level expression".to_string()
+    } else {
+        interner
+            .and_then(|interner| interner.try_resolve(def.name))
+            .map_or_else(|| "this definition".to_string(), |name| format!("`{name}`"))
+    };
+    aether_contract_error_common(&subject, def.span, stage, errors)
 }
 
 fn aether_contract_error_common(
-    def_name: Option<&str>,
+    subject: &str,
     def_span: crate::diagnostics::position::Span,
     stage: &'static str,
     errors: &[crate::aether::verify::AetherError],
@@ -576,8 +597,6 @@ fn aether_contract_error_common(
         errors.iter().map(|error| format!("- {:?}", error.kind)).collect::<Vec<_>>().join("\n");
     let details =
         errors.iter().map(|error| format!("- {}", error.message)).collect::<Vec<_>>().join("\n");
-    let subject =
-        def_name.map_or_else(|| "this definition".to_string(), |name| format!("`{name}`"));
     Diagnostic::make_error_dynamic(
         "E999",
         "AETHER VERIFICATION FAILED",

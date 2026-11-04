@@ -1673,3 +1673,23 @@ fn a_build_that_checks_the_contract_says_nothing() {
     assert!(output.status.success(), "{stderr}");
     assert!(!stderr.contains("Aether verify"), "{stderr}");
 }
+
+/// `v` is the program's highest binder here, so the temporary holding the
+/// indexed value used to get the same id. The temporary's drop then cancelled
+/// `v`'s dup, and the arm never released the temporary (KI-167).
+#[test]
+fn a_temporary_and_the_field_it_holds_stay_two_variables_ki167() {
+    let core = lowered_core(
+        r#"
+fn at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> [],
+    }
+}
+"#,
+    );
+    let def = core.defs().iter().last().expect("the function");
+    let drops = count_matching(&def.expr, &|expr| matches!(expr, CoreExpr::Drop { .. }));
+    assert_eq!(drops, 2, "each arm releases the temporary: {:?}", def.expr);
+}

@@ -1009,6 +1009,64 @@ fn a_rejected_plan_reads_as_a_compiler_bug_and_names_its_function() {
     assert!(rendered.contains("FLUX_AETHER_VERIFY=0"), "{rendered}");
 }
 
+/// A top-level expression has no name of its own: its `name` is a placeholder
+/// symbol that belongs to whatever was interned first (KI-167).
+#[test]
+fn a_rejected_top_level_expression_is_not_named_after_another_symbol_ki167() {
+    let mut interner = Interner::new();
+    let placeholder = binder(0, interner.intern("unrelated"));
+    let xs = binder(1, interner.intern("xs"));
+    let expr = crate::aether::AetherExpr::Drop {
+        var: crate::core::CoreVarRef::resolved(&xs),
+        body: Box::new(crate::aether::AetherExpr::bound_var(xs, s())),
+        span: s(),
+    };
+    let def = crate::aether::AetherDef::from_core(CoreDef::new_anonymous(
+        placeholder,
+        CoreExpr::Lit(crate::core::CoreLit::Int(0), s()),
+        false,
+        s(),
+    ));
+    let program = crate::aether::AetherProgram::new(
+        CoreProgram { defs: Vec::new(), top_level_items: Vec::new() },
+        vec![crate::aether::AetherDef { expr, ..def }],
+        Vec::new(),
+    );
+    let error = verify_aether_program_contract(&program, Some(&interner))
+        .expect_err("a drop read afterwards is rejected");
+    let message = error.message().expect("a message");
+    assert!(!message.contains("unrelated"), "{message}");
+    assert!(message.contains("a top-level expression"), "{message}");
+}
+
+/// A pattern binds its variables as surely as a `let` does. An id given out
+/// again makes a temporary and an arm's field one variable, and the temporary's
+/// drop then cancels the field's dup (KI-167).
+#[test]
+fn a_fresh_binder_id_is_above_every_id_a_pattern_binds_ki167() {
+    let mut interner = Interner::new();
+    let f = binder(0, interner.intern("f"));
+    let nested = binder(5, interner.intern("nested"));
+    let last = binder(9, interner.intern("last"));
+    let expr = CoreExpr::Case {
+        scrutinee: Box::new(CoreExpr::Lit(CoreLit::Int(0), s())),
+        alts: vec![CoreAlt {
+            pat: CorePat::Con {
+                tag: CoreTag::Some,
+                fields: vec![CorePat::Tuple(vec![CorePat::Var(nested), CorePat::Var(last)])],
+            },
+            guard: None,
+            rhs: CoreExpr::Lit(CoreLit::Int(0), s()),
+            span: s(),
+        }],
+        join_ty: None,
+        span: s(),
+    };
+    let program =
+        CoreProgram { defs: vec![CoreDef::new(f, expr, false, s())], top_level_items: Vec::new() };
+    assert_eq!(next_fresh_binder_id(&program), 10);
+}
+
 #[test]
 fn core_lint_is_fatal_with_e998() {
     let mut interner = Interner::new();

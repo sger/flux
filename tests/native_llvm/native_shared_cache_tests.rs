@@ -73,6 +73,36 @@ fn an_edit_recompiles_only_the_edited_file_on_the_next_build() {
     assert!(compiled[0].ends_with("Compiling  program"), "{stderr}");
 }
 
+/// `v` is the imported module's highest binder, so the temporary holding the
+/// indexed value used to get the same id, and clang rejected the module as
+/// broken (KI-167).
+#[test]
+fn a_module_ending_in_a_match_on_a_temporary_builds_ki167() {
+    let scratch = Scratch::new("module-temporary");
+    scratch.write(
+        "Shared.flx",
+        r"module Shared {
+    public fn at(arr, idx) {
+        match arr[idx] {
+            Some(v) -> v,
+            _ -> [],
+        }
+    }
+}
+",
+    );
+    scratch.write(
+        "program.flx",
+        r"import Shared
+
+fn main() with IO {
+    print(Shared.at([|[1, 2], [3, 4, 5]|], 1))
+}
+",
+    );
+    assert_eq!(run_native(&scratch, "program.flx").trim(), "[3, 4, 5]");
+}
+
 #[test]
 #[ignore = "KI-145: a cached stdlib object keeps the constructor tags of the program that built it"]
 fn a_program_reads_its_file_after_another_built_the_stdlib() {

@@ -1068,6 +1068,22 @@ right on every way. The VM runs the same optimized Core correctly, so the
 fault is in native lowering of what the optimizer produces for a nested
 pattern on a known constructor.
 
+**Re-checked 2026-11-04:** plain `--native` is affected too when the value is
+written in the `match` itself. This prints `7` on the VM and `0` natively, with or
+without `-O`:
+
+```flux
+fn main() with IO {
+    match Some(Some(7)) {
+        Some(Some(a)) -> print(a),
+        _ -> print(0),
+    }
+}
+```
+
+With `let o = Some(Some(7))` first, only `-O` prints `0`. A tuple holding the
+constructor (`match (1, Some(7))`) is right on every way.
+
 ### KI-107 — Natively, calling a function through a variable with too few arguments is not an error
 
 **Severity:** Medium · **Area:** Native backend, calls · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#7](https://forgejo.spirosgerokostas.com/sger/flux/issues/7)
@@ -2721,6 +2737,46 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-167 — A temporary and a variable bound by a pattern could get the same binder id — FIXED 2026-11-04
+
+**Severity:** High · **Area:** Core passes, Aether · **Verified:** 2026-11-04 · **From:** `cargo xtask verify v1`, the first full run with the Aether contract on in every build (KI-165)
+
+```flux
+// Shared.flx, imported by a program with a `main`
+module Shared {
+    public fn at(arr, idx) {
+        match arr[idx] {
+            Some(v) -> v,
+            _ -> [],
+        }
+    }
+}
+```
+
+`next_fresh_binder_id` looked for the highest id in the program, but
+`collect_max_binder_id` walked a `Case` arm's guard and body and not its
+pattern. When the highest id belonged to a pattern, as with `v` above, a later
+temporary got an id already in use. Temporaries and fields then shared a binder
+inside one function, which caused three different failures:
+
+- Natively, clang stopped on the program above with `Broken module found`.
+- `at`'s plan lost a release. The arm's `dup v; drop temporary` became
+  `dup v#3 in v#3`, since both names were binder 3.
+- A top-level `match` with a guard on a value built in place stopped with
+  `E999`, as `test_match_guards_true_and_false_paths` did under the always-on
+  contract. The opt-out build ran it with exit 0.
+
+It needs the highest ids in the unit lowered to be a pattern's, so it mostly
+hit small modules: a detector run on both paths over `examples`, `tests`, `lib`
+and `benchmarks` found it in `int_at` in `examples/aoc/2024/Aoc2024Shared.flx`,
+reported from 5 of the 1,644 files.
+
+**Fixed:** the search counts the variables patterns bind, at any depth. The same
+scan now reports none. The `E999` message also says "a top-level expression" for
+a definition with no name: it had printed the placeholder symbol's text, which
+is whatever was interned first (`x`, `Flow`). `CACHE_EPOCH` is 130, since an older
+unit can hold one of these plans.
 
 ### KI-164 — A unique cell whose arm builds no new cell is released field by field, because Aether cannot free a cell without its fields — FIXED 2026-11-04
 
