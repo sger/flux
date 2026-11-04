@@ -399,7 +399,9 @@ use sha2::{Digest, Sha256};
 /// an epoch-128 unit under those keys was never checked (KI-165).
 /// Epoch 130: a fresh binder id is above those a pattern binds; an epoch-129 unit
 /// can hold a plan in which a temporary and a field share an id (KI-167).
-pub const CACHE_EPOCH: u16 = 130;
+/// Epoch 131: a match on a known value keeps an arm it cannot decide; an epoch-130
+/// unit can have taken a later arm instead (KI-106).
+pub const CACHE_EPOCH: u16 = 131;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
