@@ -316,6 +316,10 @@ drop.
   original for now).
 - Relaxing E2 to allow reads before the claim, such as `if is_leaf(t) ...`.
 - Allowing effects (E4), which needs clones to meet `cont_split`.
+- Whether the shell free should be inline once clones exist. It did not land on
+  its own, because hoisting the heap lookup slowed `deriv` on Mach-O (0189's
+  status has the numbers). A clone frees on every turn of its loop, which is the
+  case the hoist helps, so measure it again at C2.
 
 ## Future possibilities
 [future-possibilities]: #future-possibilities

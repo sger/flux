@@ -64,6 +64,18 @@ The steps below are ordered around these facts.
   debug heap, `allocs=2097157 frees=2097156 live=1`; the block still live is
   `main`'s unit tuple. F3-5 must leave these counts unchanged and make
   `DropSpecs` 1.
+- The shell free stays a call to the runtime. An inline free was measured on
+  2026-11-04 against 1efad94a on macOS arm64, and did not land. Instructions
+  retired, against that commit: `nodes` -3.4%, `split` on unique input -14.5%
+  and on shared input -7.0%, binarytrees and rbtree unchanged, but `deriv` +5.4%
+  (cycles +3.4% and +3.7% in two runs). `llvm.threadlocal.address` is
+  speculatable, so LLVM hoists it out of a self tail call's loop. On Mach-O that
+  is a thunk call, which `mul(left, mul(right, g))` then makes on every call,
+  even on the arms that free nothing. Moving the lookup and the push into a
+  `noinline` helper fixes `deriv` (+0.3%) but gives back most of the gain
+  (`nodes` -1.9%, unique `split` -3.0%, shared `split` -1.4%). ELF has no such
+  call, and a loop that frees on every turn gains from the hoist, so 0200 is
+  where to measure this again.
 
 ## Motivation
 [motivation]: #motivation
