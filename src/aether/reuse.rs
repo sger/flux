@@ -12,6 +12,7 @@ use crate::shared::opt_bisect;
 
 use super::analysis::{ArmShape, pat_field_binder_ids, shell_disposals, uses_shell_on_every_path};
 use super::reuse_analysis::rewrite_drop_body;
+use super::verify::reads_after_release;
 use super::{AetherExpr, into_constructor_shape_for_tag_aether};
 
 type CoreExpr = AetherExpr;
@@ -218,11 +219,16 @@ fn rewrite_with_ctx(
             let shared_releases = scrutinee
                 .binder
                 .is_some_and(|id| uses_shell_on_every_path(&shared_body, id, false));
+            // The plain-drop rewrite may release a field before the rebuild
+            // reads that field's own field, which is safe only while the
+            // matched cell still holds the field. On a unique path it does
+            // not: the path owns the field's only reference (KI-165).
+            let unique_body = unique_body.filter(|body| !reads_after_release(body));
             let Some(unique_body) = unique_body.filter(|_| shared_releases) else {
                 // The shared body retains the original copies and release.
                 // When the unique path reuses the cell on some paths only,
-                // it is the only body that can release the shell without
-                // freeing moved fields.
+                // or would read a field too late, it is the only body that
+                // can release the shell without freeing moved fields.
                 return rewrite_with_ctx(*shared_body, arm, blocked_outer_token);
             };
             let shared_body = rewrite_with_ctx(*shared_body, arm, scrutinee.binder);

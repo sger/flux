@@ -840,6 +840,15 @@ impl ReleasedSoFar {
     }
 }
 
+/// Whether some path through `expr` reads a binder after releasing it. The
+/// reuse pass asks this of a unique path before keeping it: a plan that fails
+/// here would be a use after free in a build that does not run the contract.
+pub(super) fn reads_after_release(expr: &AetherExpr) -> bool {
+    let mut errors = Vec::new();
+    check_reads_after_release(expr, &mut ReleasedSoFar::default(), &mut errors);
+    !errors.is_empty()
+}
+
 /// Checks that no path reads a binder after releasing it, or reads a view
 /// after releasing the value it was read out of without copying the view
 /// first (`dup fields; drop xs`). Giving a bare binder to an owned position

@@ -490,6 +490,28 @@ fn main() with IO {
         .expect("the contract holds");
 }
 
+/// KI-165: `[h | t] -> match h { Wrap(x) -> [x | t], .. }`. The plain-drop
+/// rewrite releases `h` before the rebuild, which is safe only while `xs`
+/// still holds `h`. A unique path owns `h`'s only reference, so that release
+/// frees `x` before the rebuild reads it. The plan keeps the reuse, under the
+/// plain release.
+#[test]
+fn a_rebuild_around_a_field_of_a_field_reads_it_before_its_parent_is_released_ki165() {
+    let src = std::fs::read_to_string("tests/parity/unique_cell_field_of_a_field_ki165.flx")
+        .expect("fixture should exist");
+    let (core, interner) = lowered_core_and_interner(src);
+    for name in ["peel", "peel_or_drop"] {
+        let def = core.defs.iter().find(|def| interner.resolve(def.name) == name).expect(name);
+        flux::aether::verify::verify_def_contract_aether(&def.expr, def.borrow_signature.as_ref())
+            .unwrap_or_else(|errors| panic!("{name}: {errors:?}"));
+        assert!(
+            count_matching(&def.expr, &|expr| matches!(expr, CoreExpr::Reuse { .. })) > 0,
+            "{name} still reuses the cell: {:?}",
+            def.expr
+        );
+    }
+}
+
 /// Audit L1: `Node(color, left, key, right) -> Node(color, left, key, left)`
 /// stores `left` twice. A unique cell hands over one reference to it, so the
 /// unique path keeps one copy for the second store.
