@@ -42,6 +42,40 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-169 — Natively, the second `run_async` in a program finds no handler for a builtin effect
+
+**Severity:** Medium · **Area:** native runtime, async scheduler · **Verified:** 2026-11-04 (ad216569, and the same at 64381a24) · **From:** writing a fixture for KI-122
+
+```flux
+import Flow.Async exposing (run_async)
+
+fn first() -> Int with Async { 1 }
+fn second() -> Int with Async, Console { println(9); 2 }
+
+fn main() -> Unit with IO {
+    print(run_async(first))
+    print(run_async(second))
+}
+```
+
+```text
+$ flux program.flx
+1
+9
+2
+$ flux program.flx --native
+1
+flux_perform_direct: unhandled effect (htag=0x11)
+```
+
+It stops the same way when the first run also prints, and when the second is a
+`run_async_with` that reads a file and prints. One `run_async` that prints is right, and
+so are two runs where the second performs no builtin effect. `Console` still works in
+`main` between the runs, so the handlers aren't gone from the program, only from what
+the second run sees.
+
+Not yet known: why the second run doesn't see them.
+
 ### KI-166 — Natively, the first rebuilds under `-g` recompile the whole stdlib
 
 **Severity:** Low · **Area:** Native driver, module cache · **Verified:** 2026-11-04 (feaada41) · **From:** turning on the Aether contract for every build · **Issue:** [#162](https://forgejo.spirosgerokostas.com/sger/flux/issues/162)
