@@ -210,9 +210,11 @@ evaluates `body`. It is valid only on the unique branch of a
 each field's reference. It is equivalent to copying each field and dropping
 `x`, without the copies or the release walk (KI-164).
 
-The pass places it first on the unique branch, before any call: a call that
-suspends can resume more than once, and a resume copies what it captured, so
-past it the cell may no longer be unique.
+The pass places it before any call on its path, on each path of the unique
+branch that does not reuse the cell: a call that suspends can resume more than
+once, and a resume copies what it captured, so past it the cell may no longer be
+unique. To reach a path, it goes down only through forms that run no code. A
+unique branch with a call before its branches keeps the plain release.
 
 ---
 

@@ -2147,24 +2147,38 @@ lam(xs) ->
   drop length_go#501 in
     <sym:7000000>#4026531840
 ── fn init ──
-  Dups: 2  Drops: 4  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
-  FreshAllocs: 0
+  Dups: 2  Drops: 6  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)  FreeShells: 1
+  FreshAllocs: 1
   verifier: ok
 lam(xs) ->
   case xs#507 of
     Cons(h, t) ->
-      dup h#508 in
-        dup t#509 in
+      drop_specialized xs#507 {
+        unique ->
           case t#509 of
             Cons(h2, t2) ->
               let <sym:4001613> =
                 aether_call[owned] init#506(t#509)
               reuse xs#507 as Cons mask=0x2(h#508, <sym:4001613>#1613)
             _ ->
-                  drop xs#507 in
-                drop t#509 in
-              drop h#508 in
+              free_shell xs#507 in
+                  drop t#509 in
+                drop h#508 in
                     Nil
+        shared ->
+          dup h#508 in
+            dup t#509 in
+              drop xs#507 in
+                case t#509 of
+                  Cons(h2, t2) ->
+                    let <sym:4001613> =
+                      aether_call[owned] init#506(t#509)
+                    Cons(h#508, <sym:4001613>#1613)
+                  _ ->
+                      drop t#509 in
+                    drop h#508 in
+                        Nil
+      }
     _ ->
       drop xs#507 in
         aether_call[owned] panic#1210("init called on empty list")
@@ -3683,8 +3697,8 @@ lam() ->
         aether_call[owned] __resume_default#1357(<sym:4001853>#1853)
 
 ── Total ──
-  Dups: 206  Drops: 549  Reuses: 14  DropSpecs: 29  BorrowedCallGuards: 13  FBIP: fbip(55)  FreeShells: 18  Yields: 11  Handles: 5  HandlerArms: 11
-  FreshAllocs: 55
+  Dups: 206  Drops: 551  Reuses: 14  DropSpecs: 30  BorrowedCallGuards: 13  FBIP: fbip(56)  FreeShells: 19  Yields: 11  Handles: 5  HandlerArms: 11
+  FreshAllocs: 56
 
 [ 1 of 18] Compiling  Add
 [ 2 of 18] Compiling  Assert
