@@ -1,0 +1,47 @@
+// drop_spec's unique path where one arm reuses the matched cell and the other
+// frees it alone. The freeing arm then calls a function whose handler resumes
+// twice: the free has to come before that call, since a resumed continuation
+// copies what it holds, and past it the cell would no longer be unique.
+
+effect Ask {
+    ask: Int -> Int
+}
+
+data Item {
+    Box(Int, List<Int>),
+    Done(Int),
+}
+
+fn numbers(n) {
+    [n, n + 1, n + 2]
+}
+
+fn ask_it(n) -> Int with Ask {
+    perform Ask.ask(n)
+}
+
+fn step(item: Item, keep: Bool) -> Item with Ask {
+    match item {
+        Box(n, rest) -> if keep { Box(n + 1, rest) } else { Done(ask_it(n) + len(rest)) },
+        _ -> item,
+    }
+}
+
+fn total(item: Item) -> Int {
+    match item {
+        Box(n, rest) -> n + len(rest),
+        Done(n) -> n,
+    }
+}
+
+fn twice(n, keep) -> Int {
+    total(step(Box(n, numbers(n)), keep)) handle Ask {
+        ask(resume, v) -> resume(v * 10) + resume(v)
+    }
+}
+
+fn main() {
+    print(twice(1, true))
+    print(twice(1, false))
+    print(twice(2, false))
+}

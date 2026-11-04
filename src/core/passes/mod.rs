@@ -25,6 +25,8 @@ mod specialize;
 pub mod static_contract;
 mod tail_resumptive;
 
+pub(crate) use helpers::is_primop_pure;
+
 pub use algebraic::algebraic_simplify;
 pub use anf::{anf_normalize, primop_result_rep};
 pub use beta::beta_reduce;

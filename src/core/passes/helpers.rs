@@ -321,7 +321,7 @@ pub(super) fn can_discard(expr: &CoreExpr) -> bool {
 }
 
 /// Classify whether a primitive operation can fail at runtime.
-fn is_primop_pure(op: &CorePrimOp) -> bool {
+pub(crate) fn is_primop_pure(op: &CorePrimOp) -> bool {
     match op {
         // Typed arithmetic on proven types — can't type-mismatch
         CorePrimOp::IAdd

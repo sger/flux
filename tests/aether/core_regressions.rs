@@ -512,6 +512,66 @@ fn a_rebuild_around_a_field_of_a_field_reads_it_before_its_parent_is_released_ki
     }
 }
 
+/// The arms of the case on the unique path of `name`'s one split.
+fn unique_path_arms<'a>(
+    core: &'a AetherProgram,
+    interner: &Interner,
+    name: &str,
+) -> (&'a CoreExpr, &'a [flux::aether::AetherAlt]) {
+    let def = core.defs.iter().find(|def| interner.resolve(def.name) == name).expect(name);
+    flux::aether::verify::verify_def_contract_aether(&def.expr, def.borrow_signature.as_ref())
+        .expect("the contract holds");
+    let unique: Vec<&CoreExpr> = collect_core_exprs(&def.expr)
+        .into_iter()
+        .filter_map(|expr| match expr {
+            CoreExpr::DropSpecialized { unique_body, .. } => Some(unique_body.as_ref()),
+            _ => None,
+        })
+        .collect();
+    let [unique] = unique.as_slice() else {
+        panic!("one split in {name}, got {}: {:?}", unique.len(), def.expr);
+    };
+    let CoreExpr::Case { alts, .. } = unique else {
+        panic!("a case on {name}'s unique path: {unique:?}");
+    };
+    (unique, alts)
+}
+
+/// A unique path that can reuse its cell on one arm only: the other arm frees
+/// it alone, so neither arm pays for field copies or a release walk.
+#[test]
+fn a_unique_path_frees_its_cell_on_the_arm_that_does_not_reuse_it() {
+    let src =
+        std::fs::read_to_string("tests/debug/heap/owned_moves/unique_path_reuse_in_one_arm.flx")
+            .expect("fixture should exist");
+    let (core, interner) = lowered_core_and_interner(src);
+    let (unique, arms) = unique_path_arms(&core, &interner, "split");
+    assert_eq!(
+        count_matching(unique, &|expr| matches!(expr, CoreExpr::Dup { .. })),
+        0,
+        "{unique:?}"
+    );
+    assert_eq!(count_matching(&arms[0].rhs, &|expr| matches!(expr, CoreExpr::Reuse { .. })), 1);
+    assert_eq!(count_matching(&arms[0].rhs, &|expr| matches!(expr, CoreExpr::FreeShell { .. })), 0);
+    assert_eq!(count_matching(&arms[1].rhs, &|expr| matches!(expr, CoreExpr::Reuse { .. })), 0);
+    assert_eq!(count_matching(&arms[1].rhs, &|expr| matches!(expr, CoreExpr::FreeShell { .. })), 1);
+}
+
+/// The arm that frees its cell then calls a function that can suspend. The
+/// free has to come first: past the call a resumed continuation may have
+/// copied the cell, so it would no longer be this path's alone.
+#[test]
+fn a_unique_path_frees_its_cell_before_a_call_that_can_suspend() {
+    let src = std::fs::read_to_string(
+        "tests/debug/heap/owned_moves/unique_path_frees_before_a_resumed_call.flx",
+    )
+    .expect("fixture should exist");
+    let (core, interner) = lowered_core_and_interner(src);
+    let (_, arms) = unique_path_arms(&core, &interner, "step");
+    assert_eq!(count_matching(&arms[0].rhs, &|expr| matches!(expr, CoreExpr::Reuse { .. })), 1);
+    assert!(matches!(arms[1].rhs, CoreExpr::FreeShell { .. }), "{:?}", arms[1].rhs);
+}
+
 /// Audit L1: `Node(color, left, key, right) -> Node(color, left, key, left)`
 /// stores `left` twice. A unique cell hands over one reference to it, so the
 /// unique path keeps one copy for the second store.
