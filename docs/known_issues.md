@@ -42,66 +42,6 @@ Severity is about consequence, not effort:
 
 ## Open
 
-### KI-164 — A unique cell whose arm builds no new cell is released field by field, because Aether cannot free a cell without its fields
-
-**Severity:** Low · **Area:** Aether, drop specialization, reuse · **Verified:** 2026-11-03 (f35b7705) · **From:** profiling `benchmarks/flux/binarytrees.flx` natively, where the drop walk is 34% of the run
-
-```flux
-type Tree = Node(Tree, Tree) | Tip
-
-fn make(depth: Int) -> Tree {
-    if depth <= 0 { Tip } else { Node(make(depth - 1), make(depth - 1)) }
-}
-
-// `tree` is owned: the `Tip` arm stores it.
-fn nodes(tree: Tree) -> Int {
-    match tree {
-        Node(left, right) -> nodes(left) + nodes(right) + 1,
-        Tip -> len([tree]) - 1,
-    }
-}
-
-fn main() with IO {
-    print(nodes(make(20)))
-}
-```
-
-Both backends print `1048575`. `--dump-aether` reports `DropSpecs: 0` for
-`nodes`, and its `Node` arm is the plain Perceus release:
-
-```text
-Node(left, right) ->
-  dup left in
-    dup right in
-      drop tree in
-        ... nodes(left) ... nodes(right) ...
-```
-
-That is the shape drop specialization looks for (`src/aether/drop_spec.rs`),
-and it does split the arm. But its unique path keeps the cell for reuse
-(`rewrite_mode`, "The cell stays for reuse"), and when that path builds no
-cell to reuse, `insert_reuse_aether` puts the plain release back
-(`src/aether/reuse.rs`, the `DropSpecialized` arm of `rewrite_with_ctx`): "A
-unique shell has no recursive release available once its fields move". So a
-unique `Node` costs two copies and a release whose walk decrements both
-children, where Perceus' unique path frees the cell alone and does no
-reference counting at all.
-
-This is why a traversal cannot free a tree as it reads it. In
-`binarytrees.flx`, `check_tree`'s parameter is inferred borrowed, since
-nothing stores it, so `sum_trees` frees each tree afterwards with a second
-full walk (`flux_drop_free_recx`): 34% of a native run at n=21, against 37%
-for `check_tree` itself. Forcing that parameter owned, in a throwaway build,
-made the run 24% slower (2,576 to 3,197 ms), since the copies above replace
-the walk instead of removing it.
-
-The likely fix is a release of the shell alone, without its fields, for the
-unique path when it reuses nothing. With it, an owned traversal frees each
-cell as it reads it, and borrow inference could then make such a parameter
-owned where the caller hands over its last reference. Both are in Aether, so
-they need `cargo xtask verify`. Not yet known: whether that inference change
-costs programs that keep the value after the call.
-
 ### KI-163 — Natively, a self tail call that lends a field of a matched owned value to a borrowed parameter is not a jump
 
 **Severity:** Medium · **Area:** Aether, borrow inference, native backend · **Verified:** 2026-11-02 (54dbde9d) · **From:** timing `benchmarks/flux/binarytrees_fbip.flx` for the binarytrees work, which dies with signal 10 at n=21
@@ -2755,6 +2695,81 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-164 — A unique cell whose arm builds no new cell is released field by field, because Aether cannot free a cell without its fields — FIXED 2026-11-04
+
+**Severity:** Low · **Area:** Aether, drop specialization, reuse · **Verified:** 2026-11-03 (f35b7705) · **From:** profiling `benchmarks/flux/binarytrees.flx` natively, where the drop walk is 34% of the run
+
+```flux
+type Tree = Node(Tree, Tree) | Tip
+
+fn make(depth: Int) -> Tree {
+    if depth <= 0 { Tip } else { Node(make(depth - 1), make(depth - 1)) }
+}
+
+// `tree` is owned: the `Tip` arm stores it.
+fn nodes(tree: Tree) -> Int {
+    match tree {
+        Node(left, right) -> nodes(left) + nodes(right) + 1,
+        Tip -> len([tree]) - 1,
+    }
+}
+
+fn main() with IO {
+    print(nodes(make(20)))
+}
+```
+
+Both backends print `1048575`. `--dump-aether` reports `DropSpecs: 0` for
+`nodes`, and its `Node` arm is the plain Perceus release:
+
+```text
+Node(left, right) ->
+  dup left in
+    dup right in
+      drop tree in
+        ... nodes(left) ... nodes(right) ...
+```
+
+That is the shape drop specialization looks for (`src/aether/drop_spec.rs`),
+and it does split the arm. But its unique path keeps the cell for reuse
+(`rewrite_mode`, "The cell stays for reuse"), and when that path builds no
+cell to reuse, `insert_reuse_aether` puts the plain release back
+(`src/aether/reuse.rs`, the `DropSpecialized` arm of `rewrite_with_ctx`): "A
+unique shell has no recursive release available once its fields move". So a
+unique `Node` costs two copies and a release whose walk decrements both
+children, where Perceus' unique path frees the cell alone and does no
+reference counting at all.
+
+This is why a traversal cannot free a tree as it reads it. In
+`binarytrees.flx`, `check_tree`'s parameter is inferred borrowed, since
+nothing stores it, so `sum_trees` frees each tree afterwards with a second
+full walk (`flux_drop_free_recx`): 34% of a native run at n=21, against 37%
+for `check_tree` itself. Forcing that parameter owned, in a throwaway build,
+made the run 24% slower (2,576 to 3,197 ms), since the copies above replace
+the walk instead of removing it.
+
+The likely fix is a release of the shell alone, without its fields, for the
+unique path when it reuses nothing. With it, an owned traversal frees each
+cell as it reads it, and borrow inference could then make such a parameter
+owned where the caller hands over its last reference. Both are in Aether, so
+they need `cargo xtask verify`. Not yet known: whether that inference change
+costs programs that keep the value after the call.
+
+**Fixed** in `src/aether/reuse.rs` (07cdfc77, 1efad94a): `AetherExpr::FreeShell`
+frees a cell's block without its fields, and a unique path uses it on each path
+that does not reuse the cell, before any call on that path. A `Case` guard, a
+call or an impure primop before the branch keeps the plain release, since past a
+call a multi-shot resume may have copied the cell. Re-verified 2026-11-04 at
+debdb73b: the program above reports `DropSpecs: 1` and `FreeShells: 1`, prints
+`1048575` on both backends, and keeps its debug-heap counts
+(`allocs=2097157 frees=2097156 live=1`, the block still live being KI-119's
+tuple). `nodes` at depth 22 went from 77 to 64 ms.
+
+binarytrees did not change (2,668 to 2,677 ms), since `check_tree` still borrows
+its parameter and `sum_trees` still frees each tree with a second walk. That part,
+and the inference question above, are [0200](proposals/0200_aether_consuming_clones.md).
+The free itself is still a call to the runtime; 0189's status says why.
 
 ### KI-165 — Natively, a rebuild around a field's own field read it after a unique path released it — FIXED 2026-11-04
 

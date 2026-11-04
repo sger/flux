@@ -56,14 +56,13 @@ The steps below are ordered around these facts.
   LIR remembers which cells are on a unique path (`unique_cells`,
   `src/lir/lower.rs`), and a reuse there releases no old fields. The fbip
   statistics are not yet taken from the unique body.
-- Of F3-5, the field releases are done: on the unique path `rewrite_mode`
-  releases every field the arm was not handed. The shell free is what is
-  left. Without it, a unique path that builds no cell has nothing that frees
-  the cell alone, so `insert_reuse_aether` puts the plain release back
-  (KI-164). KI-164's `nodes(make(20))` reports `DropSpecs: 0` and, on the
-  debug heap, `allocs=2097157 frees=2097156 live=1`; the block still live is
-  `main`'s unit tuple. F3-5 must leave these counts unchanged and make
-  `DropSpecs` 1.
+- F3-5 is in, apart from its optional `push`/`concat` item. On the unique path
+  `rewrite_mode` releases every field the arm was not handed, and since
+  07cdfc77 and 1efad94a `FreeShell` frees the cell alone on each path that does
+  not reuse it, before any call on that path (KI-164). A call or a guard before
+  the branch keeps the plain release. KI-164's `nodes(make(20))` went from
+  `DropSpecs: 0` to `DropSpecs: 1` and keeps `allocs=2097157 frees=2097156
+  live=1` on the debug heap; the block still live is `main`'s unit tuple.
 - The shell free stays a call to the runtime. An inline free was measured on
   2026-11-04 against 1efad94a on macOS arm64, and did not land. Instructions
   retired, against that commit: `nodes` -3.4%, `split` on unique input -14.5%
@@ -243,7 +242,7 @@ every step can only add references, so at worst it leaks.
 | F3-2 | **Views are copied before an owned use** (V1–V5): rule 3 in `plan_var`; captures and handler values planned as lent; a copy for out-of-scope binders; continuations copy their captures on entry. Landed so far: F3-2.0, the `ViewConsumed` check under `FLUX_AETHER_VERIFY=1` (101 on `verify_aether.flx`); F3-2a, pattern fields and `let x = t.i` are views, copied before an owned use and never released (a dead `let x = t.0` used to release the field), and a bare `t.i` given away is copied through a temporary. Since drop_spec now splits more arms, its unique path also looks for a reuse past a `let` (`forwarded_child` kept its reuse), and `MissedReuse` no longer looks at the shared path. F3-2b, a capture is lent inside its lambda, and a handler clause's `resume`, arguments and state inside the clause (a local loop no longer releases itself, a closure returning its capture copies it); the unique-path reuse fallback is kept only when it releases the cell nowhere, since an arm that does not reuse it still owns its fields. A clause's outer captures are not lent yet. | leaks only |
 | F3-3 | **Arms claim their value** (mostly landed; see "Where the tree is")**:** the claim in `insert.rs`; the shared path keeps its drop; the LIR rewrites a claimed cell in place unconditionally (`claimed_tokens`); the verifier's single-release check counts the shared side's drop, and a new `ViewConsumed` check is added; fbip statistics are taken from the unique body. | leaks only (the pin still holds) |
 | F3-4 | **The match-time pin goes** (landed, 7754b423)**:** `emit_match_ctor` no longer copies the fields an arm binds, now that the planner copies every field it uses (F3-2). A LIR safety net copies an owned argument that is a field, member or global read. (Removing `dup_owned_call_args` was done early, in 8e7000c9.) Before the pin goes: drop_spec's unique path must keep a copy for a nested field and for each use after the first; and a field's copy must run before its cell's release, which today comes first at the head of the arm (safe only through drop_spec's shared path or the pin). | this is the step the oracles exist for |
-| F3-5 | **The remaining leaks:** free the cell on a unique path that does not reuse it (a new `flux_free_shell`, debug-heap aware); drop unused fields at the unique path's entry; release the matched cell on the shared path, which `rewrite_mode` strips the drop from in both modes; `push`/`concat` may consume their source instead of copying its elements (optional since the primop pin is gone). As of 2026-11-03 only the shell free is left (see "Where the tree is"). It is safe only right after the uniqueness check: past a call that can suspend, a multi-shot resume copies its captures (9e64d3a9), so the cell may no longer be unique, and a worker-mode function skips counting, so it must skip the free too. | no |
+| F3-5 | **The remaining leaks:** free the cell on a unique path that does not reuse it (a new `flux_free_shell`, debug-heap aware); drop unused fields at the unique path's entry; release the matched cell on the shared path, which `rewrite_mode` strips the drop from in both modes; `push`/`concat` may consume their source instead of copying its elements (optional since the primop pin is gone). Done except the optional `push`/`concat` item: the shell free landed in 07cdfc77 and 1efad94a. It is safe only before any call on its path: past a call that can suspend, a multi-shot resume copies its captures (9e64d3a9), so the cell may no longer be unique, and a worker-mode function skips counting, so it skips the free too. | no |
 
 ### Checks at every step
 
