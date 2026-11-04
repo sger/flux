@@ -2701,6 +2701,45 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 ## Resolved
 
+### KI-168 — A match on a value built in place ran its fields twice, never, or out of order — FIXED 2026-11-04
+
+**Severity:** High · **Area:** Core passes · **Verified:** 2026-11-04 · **From:** investigating KI-106
+
+```flux
+fn noisy() with IO { print(1); 5 }
+
+fn main() with IO {
+    match Some(noisy()) {
+        Some(x) -> print(x + x),
+        _ -> print(3),
+    }
+}
+```
+
+The VM prints `1`, `10`. Natively this printed `1`, `1`, `10`, with or without
+`--optimize`: `noisy()` ran twice. `case_of_known_constructor` and `constant_fold`
+copied a known value's fields into the arm that matched, with no check that a
+field was safe to copy.
+
+| Arm | VM | Native |
+|---|---|---|
+| `Some(_) -> print(2)`, or `_ -> print(2)` | `1 2` | `2` |
+| `Some(x) -> print(2)` | `1 2` | `2` |
+| `Some(x) -> print(x + x)` | `1 10` | `1 1 10` |
+| `Some(x) -> print(after(9) + x)`, where `after` prints `0` | `1 0 14` | `0 1 14` |
+
+It was silent, and only built-in constructors reached it: `Some`, `Left`, `Right`
+and `[h | t]`, whose two fields also ran in reverse order. Named `data` constructors
+printed the right answer. `-g` already bound the variables it keeps, which is why it
+got a bound field right, but it dropped a field under `_` like any other build.
+
+**Fixed:** `bind_pattern` substitutes only a pure value (`is_pure`) and binds anything
+else with a `let`, in field order. A field that isn't pure and that nothing binds keeps
+the `case`, since these passes can't make a binder for it. Core is unchanged for
+binarytrees, rbtree, rbtree_del, deriv, cfold, nqueens and qsort, with and without
+`--optimize`. `tests/parity/known_constructor_effects_ki168.flx` covers the shapes on
+`vm`, `llvm` and `llvm_opt`. `CACHE_EPOCH` is 132.
+
 ### KI-106 — A match on a known value skipped an arm it could not decide, so a later `_` won — FIXED 2026-11-04
 
 **Severity:** High · **Area:** Core passes · **Verified:** 2026-11-04 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#6](https://forgejo.spirosgerokostas.com/sger/flux/issues/6)

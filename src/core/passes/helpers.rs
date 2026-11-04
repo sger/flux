@@ -50,6 +50,8 @@ fn known_arm(pat: &CorePat, scrutinee: &CoreExpr) -> Option<KnownArm> {
 
 fn known_con_arm(pat: &CorePat, value: &CoreExpr, tag: &CoreTag, fields: &[CoreExpr]) -> KnownArm {
     match pat {
+        // Nothing binds the fields here, so an effect in one would be lost.
+        CorePat::Wildcard if !fields.iter().all(is_pure) => KnownArm::Undecided,
         CorePat::Wildcard => KnownArm::Binds(Vec::new()),
         CorePat::Var(binder) => KnownArm::Binds(vec![(*binder, value.clone())]),
         CorePat::Con { tag: pat_tag, .. } if pat_tag != tag => KnownArm::CannotMatch,
@@ -57,7 +59,7 @@ fn known_con_arm(pat: &CorePat, value: &CoreExpr, tag: &CoreTag, fields: &[CoreE
             let mut bindings = Vec::new();
             for (pat_field, field) in pat_fields.iter().zip(fields) {
                 match pat_field {
-                    CorePat::Wildcard => {}
+                    CorePat::Wildcard if is_pure(field) => {}
                     CorePat::Var(binder) => bindings.push((*binder, field.clone())),
                     _ => return KnownArm::Undecided,
                 }
@@ -85,8 +87,9 @@ fn known_lit_arm(pat: &CorePat, value: &CoreExpr, lit: &CoreLit) -> KnownArm {
 // ── Substitution ──────────────────────────────────────────────────────────────
 
 /// `body` with a reduced `case`'s pattern variables given their values:
-/// substituted, or, for one a debug build keeps (proposal 0188 S9c), bound by
-/// a `let` at the arm, so the debugger shows it.
+/// substituted when pure, or bound by a `let` at the arm, so a value with an
+/// effect runs once and in field order (KI-168). A debug build also binds one
+/// it keeps (proposal 0188 S9c), so the debugger shows it.
 pub(super) fn bind_pattern(
     body: CoreExpr,
     bindings: Vec<(crate::core::CoreBinder, CoreExpr)>,
@@ -95,7 +98,7 @@ pub(super) fn bind_pattern(
     let mut body = body;
     let mut kept = Vec::new();
     for (binder, value) in bindings {
-        if super::keep::keeps(binder.id) {
+        if super::keep::keeps(binder.id) || !is_pure(&value) {
             kept.push((binder, value));
         } else {
             body = subst(body, binder.id, &value);

@@ -204,6 +204,98 @@ fn a_known_literal_only_moves_past_a_different_literal_ki106() {
     }
 }
 
+/// A call that may print, fail or never return.
+fn impure_call(function: CoreBinder) -> CoreExpr {
+    CoreExpr::App { func: Box::new(var_ref(function)), args: Vec::new(), span: s() }
+}
+
+/// A field that isn't pure runs where the value was built and once, however
+/// often the arm uses it. Substituting it ran it at each use (KI-168).
+#[test]
+fn a_known_value_binds_a_field_that_is_not_pure_ki168() {
+    let mut interner = Interner::new();
+    let noisy = binder(0, interner.intern("noisy"));
+    let x = binder(1, interner.intern("x"));
+    let doubled =
+        CoreExpr::PrimOp { op: CorePrimOp::IAdd, args: vec![var_ref(x), var_ref(x)], span: s() };
+    let expr = CoreExpr::Case {
+        scrutinee: Box::new(some_of(impure_call(noisy))),
+        alts: vec![CoreAlt {
+            pat: CorePat::Con { tag: CoreTag::Some, fields: vec![CorePat::Var(x)] },
+            guard: None,
+            rhs: doubled,
+            span: s(),
+        }],
+        join_ty: None,
+        span: s(),
+    };
+    for pass in SELECTING_PASSES {
+        let result = pass(expr.clone());
+        let CoreExpr::Let { var, rhs, body, .. } = &result else {
+            panic!("expected a let: {result:?}");
+        };
+        assert_eq!(var.id, x.id);
+        assert!(matches!(rhs.as_ref(), CoreExpr::App { .. }), "{rhs:?}");
+        assert!(!format!("{body:?}").contains("App"), "the call was copied: {body:?}");
+    }
+}
+
+/// Nothing binds a field under `_`, and these passes can't make a binder, so
+/// the only way to keep its effect is to keep the `case` (KI-168).
+#[test]
+fn a_known_value_keeps_the_case_rather_than_drop_a_field_that_is_not_pure_ki168() {
+    let mut interner = Interner::new();
+    let noisy = binder(0, interner.intern("noisy"));
+    let unbound =
+        [CorePat::Con { tag: CoreTag::Some, fields: vec![CorePat::Wildcard] }, CorePat::Wildcard];
+    for pass in SELECTING_PASSES {
+        for pat in &unbound {
+            let result = pass(known_match(some_of(impure_call(noisy)), pat.clone()));
+            assert!(matches!(result, CoreExpr::Case { .. }), "{pat:?} became {result:?}");
+        }
+    }
+}
+
+/// A variable bound to the whole value holds its fields' effects (KI-168).
+#[test]
+fn a_known_value_binds_a_whole_value_that_is_not_pure_ki168() {
+    let mut interner = Interner::new();
+    let noisy = binder(0, interner.intern("noisy"));
+    let whole = binder(1, interner.intern("whole"));
+    for pass in SELECTING_PASSES {
+        let result = pass(known_match(some_of(impure_call(noisy)), CorePat::Var(whole)));
+        assert!(matches!(&result, CoreExpr::Let { var, .. } if var.id == whole.id), "{result:?}");
+    }
+}
+
+/// A pure field is still free to copy or drop, so these still reduce fully.
+#[test]
+fn a_known_value_still_substitutes_or_drops_a_pure_field_ki168() {
+    let mut interner = Interner::new();
+    let y = binder(0, interner.intern("y"));
+    let x = binder(1, interner.intern("x"));
+    for pass in SELECTING_PASSES {
+        let used = CoreExpr::Case {
+            scrutinee: Box::new(some_of(var_ref(y))),
+            alts: vec![CoreAlt {
+                pat: CorePat::Con { tag: CoreTag::Some, fields: vec![CorePat::Var(x)] },
+                guard: None,
+                rhs: var_ref(x),
+                span: s(),
+            }],
+            join_ty: None,
+            span: s(),
+        };
+        let substituted = pass(used);
+        assert!(matches!(substituted, CoreExpr::Var { .. }), "{substituted:?}");
+        let dropped = pass(known_match(
+            some_of(var_ref(y)),
+            CorePat::Con { tag: CoreTag::Some, fields: vec![CorePat::Wildcard] },
+        ));
+        assert!(matches!(dropped, CoreExpr::Lit(CoreLit::Int(1), _)), "{dropped:?}");
+    }
+}
+
 #[test]
 fn cokc_leaves_unknown_scrutinee_alone() {
     // Case(Var(x), [...]) — scrutinee not statically known; must not be reduced.

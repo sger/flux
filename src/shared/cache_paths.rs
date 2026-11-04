@@ -401,7 +401,9 @@ use sha2::{Digest, Sha256};
 /// can hold a plan in which a temporary and a field share an id (KI-167).
 /// Epoch 131: a match on a known value keeps an arm it cannot decide; an epoch-130
 /// unit can have taken a later arm instead (KI-106).
-pub const CACHE_EPOCH: u16 = 131;
+/// Epoch 132: a match on a known value runs each field once and in order; an
+/// epoch-131 unit can have copied or dropped a field's effect (KI-168).
+pub const CACHE_EPOCH: u16 = 132;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
