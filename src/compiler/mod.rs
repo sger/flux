@@ -1257,6 +1257,10 @@ pub struct Compiler {
     strict_mode: bool,
     /// How much debug information to build (proposal 0188, `-g`).
     debug_level: crate::debuginfo::DebugLevel,
+    /// Each top-level function's name and its consuming clone's. Lowering to Aether
+    /// can't intern, and which functions get a clone is only known once it has run
+    /// (0200 C1).
+    pub owned_clone_names: HashMap<Identifier, Identifier>,
     /// One entry per module this compiler lowered while `debug_level` was
     /// enabled, in lowering order.
     debug_infos: Vec<crate::debuginfo::ProgramDebugInfo>,
@@ -1830,6 +1834,7 @@ impl Compiler {
             inferred_function_effects: HashMap::new(),
             strict_mode: false,
             debug_level: crate::debuginfo::DebugLevel::None,
+            owned_clone_names: HashMap::new(),
             debug_infos: Vec::new(),
             left_debug_tables: None,
             pipe_sites: debug_sites::PipeSites::default(),
@@ -2121,6 +2126,23 @@ impl Compiler {
         desugar_named_fields_in_program(program, &mut ctx);
     }
 
+    fn intern_owned_clone_names(&mut self, statements: &[Statement]) {
+        for statement in statements {
+            match statement {
+                Statement::Function { name, .. } if !self.owned_clone_names.contains_key(name) => {
+                    let clone =
+                        crate::aether::owned_clone::owned_clone_name(self.interner.resolve(*name));
+                    let clone = self.interner.intern(&clone);
+                    self.owned_clone_names.insert(*name, clone);
+                }
+                Statement::Module { body, .. } => {
+                    self.intern_owned_clone_names(&body.statements);
+                }
+                _ => {}
+            }
+        }
+    }
+
     #[allow(clippy::result_large_err)]
     fn prepare_backend_core_program_with_preloaded(
         &mut self,
@@ -2132,6 +2154,7 @@ impl Compiler {
         self.apply_hm_final(&prepared.hm_final);
         let mut program_to_lower = prepared.effective_program.into_owned();
         self.apply_named_field_desugar(&mut program_to_lower);
+        self.intern_owned_clone_names(&program_to_lower.statements);
         self.lower_aether_from_program(&program_to_lower, optimize, true, None)
     }
 
@@ -6450,6 +6473,7 @@ impl Compiler {
         self.apply_named_field_desugar(&mut effective_program);
         let mut pre_pass_core = None;
         let capture = self.debug_level.is_enabled().then_some(&mut pre_pass_core);
+        self.intern_owned_clone_names(&effective_program.statements);
         let aether = self.lower_aether_from_program(&effective_program, optimize, true, capture)?;
         if let Some(core) = &pre_pass_core {
             self.record_debug_info(core);
