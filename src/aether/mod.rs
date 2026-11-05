@@ -30,6 +30,7 @@ pub mod free_vars;
 pub mod fusion;
 pub mod held;
 pub mod insert;
+pub mod owned_clone;
 pub mod reuse;
 pub mod reuse_analysis;
 pub mod reuse_spec;

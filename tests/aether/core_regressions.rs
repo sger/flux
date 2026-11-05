@@ -4,7 +4,7 @@ use std::path::Path;
 use flux::aether::{AetherExpr as CoreExpr, AetherProgram, lower_core_to_aether_program};
 use flux::compiler::Compiler;
 use flux::core::{
-    CorePat,
+    CorePat, CoreProgram,
     lower_ast::lower_program_ast,
     passes::{run_aether_passes_with_interner_and_registry, run_core_passes_with_interner},
 };
@@ -1785,4 +1785,413 @@ fn balance(left_tree: Tree, right_tree: Tree) -> Tree {
         )
     });
     assert_eq!(allocated, 0, "{unique_path:?}");
+}
+
+/// The candidate parameters of `name` in `core` (proposal 0200 C1).
+fn candidates_of(core: &CoreProgram, interner: &Interner, name: &str) -> Vec<usize> {
+    let found = flux::aether::owned_clone::candidates(core, interner);
+    let symbol = interner.lookup(name).unwrap_or_else(|| panic!("the program binds `{name}`"));
+    let def = core.defs.iter().find(|def| def.name == symbol).expect("a definition");
+    found
+        .get(&def.binder.id)
+        .map(|positions| positions.iter().copied().collect())
+        .unwrap_or_default()
+}
+
+fn candidates_in(src: &str, name: &str) -> Vec<usize> {
+    let (aether, interner) = lowered_core_and_interner(src);
+    candidates_of(aether.as_core(), &interner, name)
+}
+
+const TREE_WALK: &str = r#"
+type Tree = Node(Tree, Tree) | Tip
+fn check_tree(tree: Tree) -> Int {
+    match tree {
+        Node(left, right) -> check_tree(left) + check_tree(right) + 1,
+        Tip -> 0,
+    }
+}
+"#;
+
+fn with_tree_walk(rest: &str) -> String {
+    format!("{TREE_WALK}{rest}\nfn main() {{ check_tree(Tip) }}\n")
+}
+
+#[test]
+fn a_walker_that_hands_its_fields_on_is_a_candidate() {
+    assert_eq!(candidates_in(&with_tree_walk(""), "check_tree"), [0]);
+}
+
+#[test]
+fn a_lookup_is_a_candidate_though_its_callers_may_keep_the_tree() {
+    let src = with_tree_walk(
+        r#"
+fn leftmost(tree: Tree, depth: Int) -> Int {
+    match tree {
+        Node(left, _) -> leftmost(left, depth + 1),
+        Tip -> depth,
+    }
+}
+"#,
+    );
+    assert_eq!(candidates_in(&src, "leftmost"), [0]);
+}
+
+#[test]
+fn walkers_that_call_each_other_qualify_together() {
+    let src = with_tree_walk(
+        r#"
+fn even_walk(tree: Tree) -> Int {
+    match tree {
+        Node(left, right) -> odd_walk(left) + odd_walk(right) + 1,
+        Tip -> 0,
+    }
+}
+fn odd_walk(tree: Tree) -> Int {
+    match tree {
+        Node(left, right) -> even_walk(left) + even_walk(right),
+        Tip -> 0,
+    }
+}
+"#,
+    );
+    assert_eq!(candidates_in(&src, "even_walk"), [0]);
+    assert_eq!(candidates_in(&src, "odd_walk"), [0]);
+}
+
+#[test]
+fn both_parameters_of_a_walk_over_two_trees_are_candidates() {
+    let src = with_tree_walk(
+        r#"
+fn same(a: Tree, b: Tree) -> Bool {
+    match a {
+        Node(a_left, a_right) -> match b {
+            Node(b_left, b_right) -> same(a_left, b_left) && same(a_right, b_right),
+            Tip -> false,
+        },
+        Tip -> match b {
+            Tip -> true,
+            _ -> false,
+        },
+    }
+}
+"#,
+    );
+    assert_eq!(candidates_in(&src, "same"), [0, 1]);
+}
+
+/// A field handed to a function that is only a candidate because of its own fields.
+#[test]
+fn a_field_handed_to_a_candidate_makes_its_parent_one() {
+    let src = with_tree_walk(
+        r#"
+fn left_size(tree: Tree) -> Int {
+    match tree {
+        Node(left, _) -> check_tree(left),
+        Tip -> 0,
+    }
+}
+"#,
+    );
+    assert_eq!(candidates_in(&src, "left_size"), [0]);
+}
+
+#[test]
+fn a_parameter_a_guard_reads_is_no_candidate() {
+    let src = with_tree_walk(
+        r#"
+fn is_tip(tree: Tree) -> Bool {
+    match tree {
+        Tip -> true,
+        _ -> false,
+    }
+}
+fn guarded(tree: Tree) -> Int {
+    match tree {
+        Node(left, _) if is_tip(tree) -> guarded(left),
+        Node(left, _) -> guarded(left) + 1,
+        Tip -> 0,
+    }
+}
+"#,
+    );
+    assert_eq!(candidates_in(&src, "guarded"), Vec::<usize>::new());
+}
+
+#[test]
+fn a_parameter_a_primop_reads_is_no_candidate() {
+    let src = r#"
+fn walk(xs: List<Int>) -> Int {
+    let n = len(xs)
+    match xs {
+        [_ | rest] -> walk(rest) + n,
+        _ -> 0,
+    }
+}
+fn main() { walk([1]) }
+"#;
+    assert_eq!(candidates_in(src, "walk"), Vec::<usize>::new());
+}
+
+/// The lambda holds a field and may run later, or twice, so nothing here is a last
+/// reference, though the field does reach a candidate position.
+#[test]
+fn a_function_with_a_lambda_is_no_candidate() {
+    let src = with_tree_walk(
+        r#"
+type Later = Held((Int) -> Int)
+fn delayed(tree: Tree) -> Later {
+    match tree {
+        Node(left, _) -> Held(\x -> x + check_tree(left)),
+        Tip -> Held(\x -> x),
+    }
+}
+"#,
+    );
+    assert_eq!(candidates_in(&src, "delayed"), Vec::<usize>::new());
+}
+
+/// A constructor isn't a function call with an effect to look for.
+#[test]
+fn a_function_that_builds_a_constructor_is_a_candidate() {
+    let src = with_tree_walk(
+        r#"
+type Sized = Measured(Int)
+fn measured(tree: Tree) -> Sized {
+    match tree {
+        Node(left, _) -> Measured(check_tree(left)),
+        Tip -> Measured(0),
+    }
+}
+"#,
+    );
+    assert_eq!(candidates_in(&src, "measured"), [0]);
+}
+
+/// Turns the first call in `expr` into a call to a name nothing binds, as one to
+/// another module can be.
+fn unresolve_first_call(expr: &mut flux::core::CoreExpr, name: flux::syntax::Identifier) -> bool {
+    use flux::core::CoreExpr as E;
+    match expr {
+        E::App { func, .. } => match func.as_mut() {
+            E::Var { var, .. } if var.binder.is_some() => {
+                *var = flux::core::CoreVarRef::unresolved(name);
+                true
+            }
+            _ => false,
+        },
+        E::Lam { body, .. } => unresolve_first_call(body, name),
+        E::Let { rhs, body, .. } => {
+            unresolve_first_call(rhs, name) || unresolve_first_call(body, name)
+        }
+        E::Case { alts, .. } => alts.iter_mut().any(|alt| unresolve_first_call(&mut alt.rhs, name)),
+        E::PrimOp { args, .. } => args.iter_mut().any(|arg| unresolve_first_call(arg, name)),
+        _ => false,
+    }
+}
+
+/// `check_tree` still hands a field to itself through its other call, so E4 is the
+/// only reason left.
+#[test]
+fn a_function_that_calls_a_name_it_cannot_see_is_no_candidate() {
+    let (aether, mut interner) = lowered_core_and_interner(with_tree_walk(""));
+    let mut core = aether.as_core().clone();
+    let symbol = interner.lookup("check_tree").expect("the program binds it");
+    let mystery = interner.intern("mystery");
+    let def = core.defs.iter_mut().find(|def| def.name == symbol).expect("a definition");
+    assert!(unresolve_first_call(&mut def.expr, mystery));
+    assert_eq!(candidates_of(&core, &interner, "check_tree"), Vec::<usize>::new());
+}
+
+#[test]
+fn a_function_that_performs_is_no_candidate() {
+    let src = with_tree_walk(
+        r#"
+effect Note {
+    note : () -> Int
+}
+fn noted(tree: Tree) -> Int with Note {
+    match tree {
+        Node(left, _) -> noted(left) + perform Note.note(),
+        Tip -> 0,
+    }
+}
+"#,
+    );
+    assert_eq!(candidates_in(&src, "noted"), Vec::<usize>::new());
+}
+
+/// E4 follows calls: this walker performs nothing itself.
+#[test]
+fn a_function_that_calls_one_that_performs_is_no_candidate() {
+    let src = with_tree_walk(
+        r#"
+effect Note {
+    note : () -> Int
+}
+fn noted() -> Int with Note { perform Note.note() }
+fn calls_noted(tree: Tree) -> Int with Note {
+    match tree {
+        Node(left, _) -> calls_noted(left) + noted(),
+        Tip -> 0,
+    }
+}
+"#,
+    );
+    assert_eq!(candidates_in(&src, "calls_noted"), Vec::<usize>::new());
+}
+
+#[test]
+fn a_function_that_calls_a_parameter_is_no_candidate() {
+    let src = with_tree_walk(
+        r#"
+fn mapped(tree: Tree, f: (Int) -> Int) -> Int {
+    match tree {
+        Node(left, _) -> f(mapped(left, f)),
+        Tip -> 0,
+    }
+}
+"#,
+    );
+    assert_eq!(candidates_in(&src, "mapped"), Vec::<usize>::new());
+}
+
+#[test]
+fn a_function_over_the_size_limit_is_no_candidate() {
+    let sum = vec!["1"; 300].join(" + ");
+    let src = with_tree_walk(&format!(
+        r#"
+fn large(tree: Tree) -> Int {{
+    match tree {{
+        Node(left, _) -> large(left) + {sum},
+        Tip -> 0,
+    }}
+}}
+"#
+    ));
+    assert_eq!(candidates_in(&src, "large"), Vec::<usize>::new());
+}
+
+#[test]
+fn an_arm_whose_field_is_used_twice_makes_no_candidate() {
+    let src = with_tree_walk(
+        r#"
+fn twice(tree: Tree) -> Int {
+    match tree {
+        Node(left, _) -> twice(left) + twice(left),
+        Tip -> 0,
+    }
+}
+"#,
+    );
+    assert_eq!(candidates_in(&src, "twice"), Vec::<usize>::new());
+}
+
+/// Drop specialization leaves a nested pattern alone, so the clone couldn't free
+/// the cell it reads.
+#[test]
+fn an_arm_with_a_nested_pattern_makes_no_candidate() {
+    let src = r#"
+fn nested(xs: List<(Int, Int)>) -> Int {
+    match xs {
+        [(a, _) | rest] -> nested(rest) + a,
+        _ -> 0,
+    }
+}
+fn main() { nested([(1, 2)]) }
+"#;
+    assert_eq!(candidates_in(src, "nested"), Vec::<usize>::new());
+}
+
+/// The fixpoint: `outer` hands a field to `middle`, which hands one to `reads`, which
+/// isn't a candidate. So neither of the first two is.
+#[test]
+fn losing_a_candidate_takes_its_callers_with_it() {
+    let src = r#"
+fn outer(xsss: List<List<List<Int>>>) -> Int {
+    match xsss {
+        [xss | _] -> middle(xss),
+        _ -> 0,
+    }
+}
+fn middle(xss: List<List<Int>>) -> Int {
+    match xss {
+        [xs | _] -> reads(xs),
+        _ -> 0,
+    }
+}
+fn reads(xs: List<Int>) -> Int { len(xs) }
+fn main() { outer([[[1]]]) }
+"#;
+    assert_eq!(candidates_in(src, "reads"), Vec::<usize>::new());
+    assert_eq!(candidates_in(src, "middle"), Vec::<usize>::new());
+    assert_eq!(candidates_in(src, "outer"), Vec::<usize>::new());
+}
+
+/// Every read of `tree` is a scrutinee and its fields go to a candidate position, but
+/// the arm rebuilds the cell, so inference makes it owned already.
+#[test]
+fn a_parameter_only_taken_apart_but_inferred_owned_is_no_candidate() {
+    let src = with_tree_walk(
+        r#"
+fn mirror(tree: Tree) -> Tree {
+    match tree {
+        Node(left, right) -> Node(mirror(right), mirror(left)),
+        Tip -> Tip,
+    }
+}
+"#,
+    );
+    assert_eq!(candidates_in(&src, "mirror"), Vec::<usize>::new());
+}
+
+/// The fixture's `nodes`: the `Tip` arm stores the tree, so the parameter is owned
+/// already and needs no clone.
+#[test]
+fn a_parameter_inferred_owned_is_no_candidate() {
+    let src = with_tree_walk(
+        r#"
+fn nodes(tree: Tree) -> Int {
+    match tree {
+        Node(left, right) -> check_tree(left) + nodes(right) + 1,
+        Tip -> len([tree]) - 1,
+    }
+}
+"#,
+    );
+    assert_eq!(candidates_in(&src, "nodes"), Vec::<usize>::new());
+}
+
+/// The flags and names E1 reads, set by hand on a function that otherwise qualifies:
+/// the source can't always spell them.
+#[test]
+fn main_a_dictionary_an_anonymous_def_and_an_unboxed_parameter_are_no_candidates() {
+    let (aether, mut interner) = lowered_core_and_interner(with_tree_walk(""));
+    let core = aether.as_core().clone();
+    let symbol = interner.lookup("check_tree").expect("the program binds it");
+    let position = core.defs.iter().position(|def| def.name == symbol).expect("a definition");
+    let qualifies = |core: &CoreProgram, interner: &Interner| {
+        flux::aether::owned_clone::candidates(core, interner)
+            .contains_key(&core.defs[position].binder.id)
+    };
+    assert!(qualifies(&core, &interner));
+
+    let mut dictionary = core.clone();
+    dictionary.defs[position].is_dict_def = true;
+    assert!(!qualifies(&dictionary, &interner));
+
+    let mut anonymous = core.clone();
+    anonymous.defs[position].is_anonymous = true;
+    assert!(!qualifies(&anonymous, &interner));
+
+    let mut unboxed = core.clone();
+    let flux::core::CoreExpr::Lam { params, .. } = &mut unboxed.defs[position].expr else {
+        panic!("a function");
+    };
+    params[0].rep = flux::core::FluxRep::IntRep;
+    assert!(!qualifies(&unboxed, &interner));
+
+    let mut named_main = core.clone();
+    named_main.defs[position].name = interner.intern("main");
+    assert!(!qualifies(&named_main, &interner));
 }
