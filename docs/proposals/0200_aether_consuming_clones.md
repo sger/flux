@@ -298,6 +298,13 @@ drop.
 - **A faster drop walk.** It still visits every dead cell; the clone removes
   the second visit.
 
+**`binarytrees_fbip.flx` isn't an alternative yet.** It runs since KI-163 was fixed and
+prints what `binarytrees.flx` prints, but at n=21 it takes 3.68 s against 2.80 s, with
+69% more instructions, and at n=12 it makes 1,009,079 allocations against 334,582. Its
+`checkv` is owned now and frees each unique `Node`, then allocates a `Push` of the same
+size, with no reuse between them (`Reuses: 0`). Reuse across constructors of the same
+size would change this comparison, so it's worth measuring before settling on clones.
+
 ## Prior art
 [prior-art]: #prior-art
 
