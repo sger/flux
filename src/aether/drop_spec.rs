@@ -532,6 +532,21 @@ fn validate_skeleton(
     }
 }
 
+/// Whether a release of `scrutinee` at the head of `rhs`, the arm that matched `pat`,
+/// could be split into a unique and a shared path. The planner asks before it moves a
+/// release there for this pass to split (0200 C1b).
+pub(super) fn can_split_a_head_release(
+    pat: &CorePat,
+    rhs: &CoreExpr,
+    scrutinee: CoreBinderId,
+) -> bool {
+    let (CorePat::Con { fields, .. } | CorePat::Tuple(fields)) = pat else {
+        return false;
+    };
+    fields.iter().all(|field| matches!(field, CorePat::Var(_) | CorePat::Wildcard))
+        && validate_after_drop_body(rhs, scrutinee).is_ok()
+}
+
 fn validate_after_drop_body(
     expr: &CoreExpr,
     scrutinee_id: CoreBinderId,
