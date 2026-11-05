@@ -331,6 +331,7 @@ fn handle_dump_requests(
         diagnostics_format: request.session.diagnostics_format,
         all_errors: request.session.all_errors,
         enable_optimize: request.session.enable_optimize,
+        native: request.flags.is_native_backend(),
         dump_aether: request.flags.dumps.dump_aether,
         dump_core: request.flags.dumps.dump_core,
         dump_lir: request.flags.dumps.dump_lir,

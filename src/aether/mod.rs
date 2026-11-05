@@ -217,6 +217,9 @@ pub struct AetherDef {
     pub is_recursive: bool,
     pub fip: Option<FipAnnotation>,
     pub span: Span,
+    /// The function this is a consuming copy of (proposal 0200). It has no `CoreDef`,
+    /// so module interfaces never see it.
+    pub owned_clone_of: Option<CoreBinderId>,
 }
 
 #[derive(Debug, Clone)]
@@ -274,6 +277,7 @@ impl AetherDef {
             is_recursive: def.is_recursive,
             fip: def.fip,
             span: def.span,
+            owned_clone_of: None,
         }
     }
 }
@@ -936,21 +940,53 @@ pub fn run_aether_def_with_registry(
     held::annotate_owned_after(expr)
 }
 
+/// [`lower_core_to_aether_program`] for a native build, which also makes consuming
+/// clones (proposal 0200). `clone_names` holds each function's clone name. The VM's
+/// values are `Rc`s, so a clone gains nothing there.
+#[allow(clippy::result_large_err)]
+pub fn lower_core_to_native_aether_program(
+    core: &CoreProgram,
+    interner: Option<&Interner>,
+    preloaded_registry: borrow_infer::BorrowRegistry,
+    clone_names: &std::collections::HashMap<crate::syntax::Identifier, crate::syntax::Identifier>,
+) -> Result<(AetherProgram, Vec<crate::diagnostics::Diagnostic>), crate::diagnostics::Diagnostic> {
+    lower_with_clone_names(core, interner, preloaded_registry, Some(clone_names))
+}
+
 #[allow(clippy::result_large_err)]
 pub fn lower_core_to_aether_program(
     core: &CoreProgram,
     interner: Option<&Interner>,
     preloaded_registry: borrow_infer::BorrowRegistry,
 ) -> Result<(AetherProgram, Vec<crate::diagnostics::Diagnostic>), crate::diagnostics::Diagnostic> {
+    lower_with_clone_names(core, interner, preloaded_registry, None)
+}
+
+#[allow(clippy::result_large_err)]
+fn lower_with_clone_names(
+    core: &CoreProgram,
+    interner: Option<&Interner>,
+    preloaded_registry: borrow_infer::BorrowRegistry,
+    clone_names: Option<
+        &std::collections::HashMap<crate::syntax::Identifier, crate::syntax::Identifier>,
+    >,
+) -> Result<(AetherProgram, Vec<crate::diagnostics::Diagnostic>), crate::diagnostics::Diagnostic> {
     let mut warnings = Vec::new();
     let mut semantic_core = core.clone();
-    let borrow_registry = borrow_infer::infer_borrow_modes_with_preloaded(
+    let mut borrow_registry = borrow_infer::infer_borrow_modes_with_preloaded(
         &mut semantic_core,
         interner,
         preloaded_registry,
     );
+    // Clones first: planning the originals chooses among them.
+    let mut clones = match (clone_names, interner) {
+        (Some(names), Some(interner)) => {
+            owned_clone::plan_clones(&semantic_core, interner, names, &mut borrow_registry)
+        }
+        _ => Vec::new(),
+    };
 
-    let defs = semantic_core
+    let mut defs: Vec<AetherDef> = semantic_core
         .defs
         .iter()
         .cloned()
@@ -987,9 +1023,13 @@ pub fn lower_core_to_aether_program(
                 is_recursive: def.is_recursive,
                 fip: def.fip,
                 span: def.span,
+                owned_clone_of: None,
             }
         })
         .collect();
+
+    owned_clone::keep_reached(&defs, &mut clones);
+    defs.append(&mut clones);
 
     if let Some(interner) = interner {
         let fbip_result = check_fbip::check_fbip(&semantic_core, interner);

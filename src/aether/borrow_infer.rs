@@ -75,6 +75,16 @@ pub struct BorrowRegistry {
     pub by_name: HashMap<Identifier, BorrowSignature>,
     pub by_member_access: HashMap<(Identifier, Identifier), BorrowSignature>,
     pub unknown_callee_signature: BorrowSignature,
+    /// Each function's consuming clone (proposal 0200), for call sites to choose.
+    pub owned_clones: HashMap<CoreBinderId, OwnedClone>,
+}
+
+/// A consuming copy of a function, and the parameters it owns that the original
+/// borrows.
+#[derive(Debug, Clone)]
+pub struct OwnedClone {
+    pub binder: CoreBinder,
+    pub positions: std::collections::BTreeSet<usize>,
 }
 
 impl Default for BorrowRegistry {
@@ -83,12 +93,31 @@ impl Default for BorrowRegistry {
             by_binder: HashMap::new(),
             by_name: HashMap::new(),
             by_member_access: HashMap::new(),
+            owned_clones: HashMap::new(),
             unknown_callee_signature: BorrowSignature::new(Vec::new(), BorrowProvenance::Unknown),
         }
     }
 }
 
 impl BorrowRegistry {
+    /// Registers a clone by binder only. `upsert_user_signature` also writes the name,
+    /// and LIR resolves names, so a shared one could swap the two functions.
+    pub fn add_owned_clone(
+        &mut self,
+        original: CoreBinderId,
+        clone: OwnedClone,
+        signature: BorrowSignature,
+    ) {
+        self.by_binder.insert(clone.binder.id, signature);
+        self.owned_clones.insert(original, clone);
+    }
+
+    pub fn remove_owned_clone(&mut self, original: CoreBinderId) {
+        if let Some(clone) = self.owned_clones.remove(&original) {
+            self.by_binder.remove(&clone.binder.id);
+        }
+    }
+
     pub fn lookup_binder(&self, binder: CoreBinderId) -> Option<&BorrowSignature> {
         self.by_binder.get(&binder)
     }

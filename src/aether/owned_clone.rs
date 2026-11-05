@@ -7,10 +7,17 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use crate::core::{CoreBinderId, CoreDef, CoreExpr, CorePat, CoreProgram, CoreTopLevelItem};
+use crate::core::{
+    CoreBinder, CoreBinderId, CoreDef, CoreExpr, CorePat, CoreProgram, CoreTopLevelItem,
+};
+use crate::shared::opt_bisect;
 use crate::syntax::{Identifier, interner::Interner};
 
-use super::{analysis::use_counts, borrow_infer::BorrowMode};
+use super::{
+    AetherDef, AetherExpr,
+    analysis::use_counts,
+    borrow_infer::{BorrowMode, BorrowRegistry, BorrowSignature, OwnedClone},
+};
 
 /// E5. A clone copies the body, so a large one costs more code than the walk it
 /// saves. To be set from measurements at C2.
@@ -29,10 +36,18 @@ pub fn owned_clone_name(name: &str) -> String {
 /// that call each other qualify together. `core` has had its borrow modes inferred.
 pub fn candidates(core: &CoreProgram, interner: &Interner) -> Candidates {
     let effect_free = effect_free_functions(core);
+    let mut name_uses: HashMap<Identifier, usize> = HashMap::new();
+    for def in &core.defs {
+        *name_uses.entry(def.name).or_insert(0) += 1;
+    }
     let mut found: Candidates = core
         .defs
         .iter()
         .filter(|def| effect_free.contains(&def.binder.id) && is_named_function(def, interner))
+        // In a merged program, a call in a module can carry the binder of another
+        // function with its name, and LIR resolves it by name afterwards. A clone's
+        // call would be believed, so it could reach the wrong function.
+        .filter(|def| name_uses[&def.name] == 1)
         .filter(|def| size(&def.expr) <= SIZE_LIMIT)
         .filter_map(|def| Some((def.binder.id, takes_apart_only(def)?)))
         .collect();
@@ -59,6 +74,184 @@ pub fn candidates(core: &CoreProgram, interner: &Interner) -> Candidates {
         }
         if !removed {
             return found;
+        }
+    }
+}
+
+/// Makes and plans the clones worth having, registered in `registry` for call sites
+/// to choose. A clone that can't free a cell as it reads one only adds code, so it
+/// goes, which may leave another with nothing to call, so this repeats.
+pub(super) fn plan_clones(
+    core: &CoreProgram,
+    interner: &Interner,
+    names: &HashMap<Identifier, Identifier>,
+    registry: &mut BorrowRegistry,
+) -> Vec<AetherDef> {
+    let found = candidates(core, interner);
+    let mut next_id = crate::core::passes::next_fresh_binder_id(core);
+    let mut made: Vec<(&CoreDef, BorrowSignature)> = Vec::new();
+    for def in &core.defs {
+        let (Some(positions), Some(&name), Some(signature)) =
+            (found.get(&def.binder.id), names.get(&def.name), def.borrow_signature.as_ref())
+        else {
+            continue;
+        };
+        if !opt_bisect::allow("owned_clone", || {
+            format!("make a consuming copy of {}", interner.resolve(def.name))
+        }) {
+            continue;
+        }
+        let mut signature = signature.clone();
+        for &index in positions {
+            signature.params[index] = BorrowMode::Owned;
+        }
+        let binder = CoreBinder::with_rep(CoreBinderId(next_id), name, def.binder.rep);
+        next_id += 1;
+        let clone = OwnedClone { binder, positions: positions.clone() };
+        registry.add_owned_clone(def.binder.id, clone, signature.clone());
+        made.push((def, signature));
+    }
+
+    loop {
+        let planned: Vec<AetherDef> = made
+            .iter()
+            .map(|(def, signature)| {
+                if opt_bisect::is_active() {
+                    opt_bisect::set_def(|| interner.resolve(names[&def.name]).to_string());
+                }
+                let clone = &registry.owned_clones[&def.binder.id];
+                AetherDef {
+                    name: clone.binder.name,
+                    binder: clone.binder,
+                    expr: super::run_aether_def_with_registry(
+                        AetherExpr::from_core(def.expr.clone()),
+                        registry,
+                        Some(signature),
+                    ),
+                    is_dict_def: false,
+                    borrow_signature: Some(signature.clone()),
+                    result_ty: def.result_ty.clone(),
+                    is_anonymous: false,
+                    is_recursive: def.is_recursive,
+                    fip: None,
+                    span: def.span,
+                    owned_clone_of: Some(def.binder.id),
+                }
+            })
+            .collect();
+        let frees: Vec<bool> = made
+            .iter()
+            .zip(&planned)
+            .map(|((def, _), clone)| {
+                frees_a_cell(clone, &registry.owned_clones[&def.binder.id].positions)
+            })
+            .collect();
+        if frees.iter().all(|frees| *frees) {
+            return planned;
+        }
+        let mut frees = frees.into_iter();
+        made.retain(|(def, _)| {
+            let keep = frees.next().unwrap_or(false);
+            if !keep {
+                registry.remove_owned_clone(def.binder.id);
+            }
+            keep
+        });
+    }
+}
+
+/// Whether a parameter the clone owns reaches a split release whose unique path frees
+/// or reuses the cell.
+fn frees_a_cell(clone: &AetherDef, positions: &BTreeSet<usize>) -> bool {
+    let AetherExpr::Lam { params, body, .. } = &clone.expr else { return false };
+    let owned: HashSet<CoreBinderId> = positions.iter().map(|&index| params[index].id).collect();
+    any_aether(body, &|expr| match expr {
+        AetherExpr::DropSpecialized { scrutinee, unique_body, .. } => {
+            scrutinee.binder.is_some_and(|id| {
+                owned.contains(&id)
+                    && any_aether(unique_body, &|expr| match expr {
+                        AetherExpr::FreeShell { var, .. } => var.binder == Some(id),
+                        AetherExpr::Reuse { token, .. } => token.binder == Some(id),
+                        _ => false,
+                    })
+            })
+        }
+        _ => false,
+    })
+}
+
+/// Keeps only the clones some function in `originals` reaches, directly or through
+/// another clone.
+pub(super) fn keep_reached(originals: &[AetherDef], clones: &mut Vec<AetherDef>) {
+    let by_binder: HashMap<CoreBinderId, &AetherDef> =
+        clones.iter().map(|clone| (clone.binder.id, clone)).collect();
+    let mut reached: HashSet<CoreBinderId> = HashSet::new();
+    let mut work: Vec<&AetherDef> = originals.iter().collect();
+    while let Some(def) = work.pop() {
+        let mut called = HashSet::new();
+        collect_called(&def.expr, &mut called);
+        for callee in called {
+            if let Some(clone) = by_binder.get(&callee)
+                && reached.insert(callee)
+            {
+                work.push(clone);
+            }
+        }
+    }
+    clones.retain(|clone| reached.contains(&clone.binder.id));
+}
+
+fn collect_called(expr: &AetherExpr, out: &mut HashSet<CoreBinderId>) {
+    if let AetherExpr::AetherCall { func, .. } = expr
+        && let AetherExpr::Var { var, .. } = func.as_ref()
+        && let Some(id) = var.binder
+    {
+        out.insert(id);
+    }
+    for child in aether_children(expr) {
+        collect_called(child, out);
+    }
+}
+
+fn any_aether(expr: &AetherExpr, found: &impl Fn(&AetherExpr) -> bool) -> bool {
+    found(expr) || aether_children(expr).into_iter().any(|child| any_aether(child, found))
+}
+
+fn aether_children(expr: &AetherExpr) -> Vec<&AetherExpr> {
+    match expr {
+        AetherExpr::Var { .. } | AetherExpr::Lit(..) => Vec::new(),
+        AetherExpr::Lam { body, .. }
+        | AetherExpr::Dup { body, .. }
+        | AetherExpr::Drop { body, .. }
+        | AetherExpr::FreeShell { body, .. } => vec![body],
+        AetherExpr::App { func, args, .. } | AetherExpr::AetherCall { func, args, .. } => {
+            std::iter::once(func.as_ref()).chain(args).collect()
+        }
+        AetherExpr::Let { rhs, body, .. } | AetherExpr::LetRec { rhs, body, .. } => {
+            vec![rhs, body]
+        }
+        AetherExpr::LetRecGroup { bindings, body, .. } => bindings
+            .iter()
+            .map(|(_, rhs)| rhs.as_ref())
+            .chain(std::iter::once(body.as_ref()))
+            .collect(),
+        AetherExpr::Case { scrutinee, alts, .. } => std::iter::once(scrutinee.as_ref())
+            .chain(alts.iter().flat_map(|alt| alt.guard.iter().chain(std::iter::once(&alt.rhs))))
+            .collect(),
+        AetherExpr::Con { fields: args, .. }
+        | AetherExpr::Reuse { fields: args, .. }
+        | AetherExpr::PrimOp { args, .. }
+        | AetherExpr::Perform { args, .. } => args.iter().collect(),
+        AetherExpr::MemberAccess { object, .. } | AetherExpr::TupleField { object, .. } => {
+            vec![object]
+        }
+        AetherExpr::Return { value, .. } => vec![value],
+        AetherExpr::Handle { body, parameter, handlers, .. } => std::iter::once(body.as_ref())
+            .chain(parameter.as_deref())
+            .chain(handlers.iter().map(|handler| &handler.body))
+            .collect(),
+        AetherExpr::DropSpecialized { unique_body, shared_body, .. } => {
+            vec![unique_body, shared_body]
         }
     }
 }
