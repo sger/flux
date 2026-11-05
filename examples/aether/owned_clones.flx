@@ -1,0 +1,226 @@
+/*
+Aether consuming clones fixture (proposal 0200).
+Each section below has a shape a clone must handle, or must leave alone. A clone
+frees each cell as it reads it, so a value something else still holds has to stay
+readable afterwards: those sections read it again and print the result.
+*/
+
+// parity-expected-stdout-begin
+// 45
+// 5
+// 7
+// 7
+// 5
+// 1
+// 0
+// 1
+// 0
+// 3
+// 3
+// 7
+// 1
+// 3
+// 3
+// 3
+// 106
+// 15
+// 15
+// 15
+// parity-expected-stdout-end
+
+import Flow.Task exposing (..)
+
+type Tree = Node(Tree, Tree) | Tip
+type Keyed = KLeaf | KNode(Keyed, Int, Keyed)
+
+effect Note {
+    note : () -> Int
+}
+
+effect Flip {
+    flip : () -> Bool
+}
+
+fn make_tree(depth: Int) -> Tree {
+    if depth > 0 {
+        Node(make_tree(depth - 1), make_tree(depth - 1))
+    } else {
+        Node(Tip, Tip)
+    }
+}
+
+fn check_tree(tree: Tree) -> Int {
+    match tree {
+        Node(left, right) -> check_tree(left) + check_tree(right) + 1,
+        Tip -> 0,
+    }
+}
+
+// The main case: the tree is dead after the walk.
+fn sum_trees(iterations: Int, depth: Int, acc: Int) -> Int {
+    if iterations <= 0 {
+        acc
+    } else {
+        let tree = make_tree(depth)
+        sum_trees(iterations - 1, depth, acc + check_tree(tree))
+    }
+}
+
+// A walker over a list nothing else holds.
+fn count_up(n: Int, acc: List<Int>) -> List<Int> {
+    if n == 0 { acc } else { count_up(n - 1, [n | acc]) }
+}
+
+fn list_size(xs: List<Int>) -> Int {
+    match xs {
+        [_ | rest] -> list_size(rest) + 1,
+        _ -> 0,
+    }
+}
+
+fn first_tree_size(trees: List<Tree>) -> Int {
+    match trees {
+        [tree | _] -> check_tree(tree),
+        _ -> 0 - 1,
+    }
+}
+
+// Two walkers that call each other qualify together.
+fn even_walk(tree: Tree) -> Int {
+    match tree {
+        Node(left, right) -> odd_walk(left) + odd_walk(right) + 1,
+        Tip -> 0,
+    }
+}
+
+fn odd_walk(tree: Tree) -> Int {
+    match tree {
+        Node(left, right) -> even_walk(left) + even_walk(right),
+        Tip -> 0,
+    }
+}
+
+// Two parameters: a clone needs both to be the last reference.
+fn same(a: Tree, b: Tree) -> Bool {
+    match a {
+        Node(a_left, a_right) -> match b {
+            Node(b_left, b_right) -> same(a_left, b_left) && same(a_right, b_right),
+            Tip -> false,
+        },
+        Tip -> match b {
+            Tip -> true,
+            _ -> false,
+        },
+    }
+}
+
+fn bit(value: Bool) -> Int {
+    if value { 1 } else { 0 }
+}
+
+// A lookup whose caller keeps the tree stays on the original.
+fn insert(tree: Keyed, key: Int) -> Keyed {
+    match tree {
+        KLeaf -> KNode(KLeaf, key, KLeaf),
+        KNode(left, at, right) ->
+            if key < at {
+                KNode(insert(left, key), at, right)
+            } else {
+                KNode(left, at, insert(right, key))
+            },
+    }
+}
+
+fn has(tree: Keyed, key: Int) -> Bool {
+    match tree {
+        KLeaf -> false,
+        KNode(left, at, right) ->
+            if key == at {
+                true
+            } else if key < at {
+                has(left, key)
+            } else {
+                has(right, key)
+            },
+    }
+}
+
+fn keyed_size(tree: Keyed) -> Int {
+    match tree {
+        KLeaf -> 0,
+        KNode(left, _, right) -> keyed_size(left) + keyed_size(right) + 1,
+    }
+}
+
+// A walk that performs an effect gets no clone (E4).
+fn noted_walk(tree: Tree) -> Int with Note {
+    match tree {
+        Node(left, right) -> noted_walk(left) + noted_walk(right) + perform Note.note(),
+        Tip -> 0,
+    }
+}
+
+// `tree` is owned, since the `Tip` arm stores it, so `left` is the last
+// reference to a field of something this function owns.
+fn nodes(tree: Tree) -> Int {
+    match tree {
+        Node(left, right) -> check_tree(left) + nodes(right) + 1,
+        Tip -> len([tree]) - 1,
+    }
+}
+
+// A continuation holds the tree, and runs twice over the same cells.
+fn read_either_way(tree: Tree) -> Int with Flip {
+    let forward = perform Flip.flip()
+    if forward { check_tree(tree) } else { check_tree(tree) + 100 }
+}
+
+fn main() with IO {
+    print(sum_trees(3, 3, 0))
+    print(list_size(count_up(5, [])))
+
+    // The last reference by name, but a list holds it too.
+    let listed = make_tree(2)
+    let held = [listed]
+    print(check_tree(listed))
+    print(first_tree_size(held))
+
+    print(even_walk(make_tree(2)))
+    print(bit(same(make_tree(2), make_tree(2))))
+    print(bit(same(make_tree(1), make_tree(2))))
+
+    let keyed = insert(insert(insert(KLeaf, 5), 3), 7)
+    print(bit(has(keyed, 3)))
+    print(bit(has(keyed, 9)))
+    print(keyed_size(keyed))
+
+    let noted = noted_walk(make_tree(1)) handle Note {
+        note(resume) -> resume(1)
+    }
+    print(noted)
+    print(nodes(make_tree(2)))
+
+    // One tree is both arguments.
+    let twice = make_tree(1)
+    print(bit(same(twice, twice)))
+    print(check_tree(twice))
+
+    // A closure holds it.
+    let closed = make_tree(1)
+    let read = \() -> check_tree(closed)
+    print(check_tree(closed))
+    print(read())
+
+    let resumed = read_either_way(make_tree(1)) handle Flip {
+        flip(resume) -> resume(true) + resume(false)
+    }
+    print(resumed)
+
+    // Two tasks hold it at once, and so does `main`.
+    let shared = make_tree(3)
+    let one = spawn(\() -> check_tree(shared))
+    let two = spawn(\() -> check_tree(shared))
+    print(blocking_join(one))
+    print(blocking_join(two))
+    print(check_tree(shared))
+}
