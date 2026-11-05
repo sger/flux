@@ -409,7 +409,10 @@ use sha2::{Digest, Sha256};
 /// epoch-133 unit holds the plan that allocated one and freed the other (KI-171).
 /// Epoch 135: an arm that gives a field away claims its cell; an epoch-134 unit holds
 /// the plan that copied the field and released the cell after the call (0200 C1b).
-pub const CACHE_EPOCH: u16 = 135;
+/// Epoch 136: an arm claims its cell only for a counted field and a release drop
+/// specialization can split; an epoch-135 unit holds the plan that claimed it and
+/// copied the fields for nothing (0200 C1b).
+pub const CACHE_EPOCH: u16 = 136;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

@@ -651,7 +651,9 @@ fn plan_expr(
                             && !scope.views.contains(&inner)
                             && !tail_env.is_live(inner)
                             && !alt_uses_binder(inner_alt, inner)
-                    }) || claim_pays_off(&rhs, &pat_ids, registry, scope));
+                    }) || (scrutinee_var.as_ref().is_some_and(|sv| {
+                        super::drop_spec::can_split_a_head_release(&pat, &rhs, sv.id)
+                    }) && claim_pays_off(&rhs, &pat, &pat_ids, registry, scope)));
                 // Where the cell may be released, at the head or to balance an
                 // arm that gives it away, the release can free the fields with
                 // it. So the arm takes its own reference to each field it
@@ -1398,17 +1400,24 @@ fn binder_demand(env: &AetherEnv, binder: CoreBinderId) -> ValueDemand {
 
 /// Whether an arm should claim its cell for the fields it gives away. On the
 /// unique path a claim cancels the copy of a field used once. A field used twice
-/// still takes one, as in `take_while`, and that arm does better freeing the shell
+/// still takes one, as in `take_while`, and that arm does better freeing the shell.
+/// An unboxed field has no count, so it neither pays for a claim nor stops one
 /// (0200 C1b).
 fn claim_pays_off(
     rhs: &CoreExpr,
+    pat: &crate::core::CorePat,
     fields: &[CoreBinderId],
     registry: Option<&BorrowRegistry>,
     scope: &Scope,
 ) -> bool {
+    let counted: Vec<CoreBinderId> = fields
+        .iter()
+        .copied()
+        .filter(|&id| find_binder_in_pat(pat, id).is_some_and(|field| field.rep.needs_rc()))
+        .collect();
     let uses = use_counts_aether(rhs);
-    fields.iter().all(|id| uses.get(id).copied().unwrap_or(0) <= 1)
-        && gives_a_field_away(rhs, fields, registry, scope)
+    counted.iter().all(|id| uses.get(id).copied().unwrap_or(0) <= 1)
+        && gives_a_field_away(rhs, &counted, registry, scope)
 }
 
 /// Whether `expr`, not yet planned, calls a function of this program with one of
@@ -4958,6 +4967,97 @@ mod tests {
         let (planned, xs, a) =
             plan_of_a_call_then_another(&mut interner, call_f, &BorrowRegistry::default());
         assert!(released_above_case_on(&planned, xs, a), "{planned:?}");
+    }
+
+    /// `Cons(h, t) -> let a = f(h) in let n = len(t) in g(a, n)` with `h` an `Int`:
+    /// it has no count, so giving it away saves no copy, and claiming the cell would
+    /// only copy `t` for `len` to read.
+    #[test]
+    fn an_arm_that_gives_away_only_an_unboxed_field_keeps_its_cell() {
+        let mut interner = Interner::new();
+        let [xs, t, a, n, f] = [(1, "xs"), (3, "t"), (4, "a"), (5, "n"), (9, "f")]
+            .map(|(id, name)| binder(&mut interner, id, name));
+        let h = CoreBinder::with_rep(CoreBinderId(2), interner.intern("h"), FluxRep::IntRep);
+        let [len, g] = ["len", "g"].map(|name| interner.intern(name));
+        let registry = borrowed_len_registry(&mut interner);
+        let let_in = |var, rhs, body| CoreExpr::Let {
+            var,
+            rhs: Box::new(rhs),
+            body: Box::new(body),
+            span: Span::default(),
+        };
+        let call_f =
+            CoreExpr::App { func: Box::new(var(f)), args: vec![var(h)], span: Span::default() };
+        let rhs =
+            let_in(a, call_f, let_in(n, call(len, vec![var(t)]), call(g, vec![var(a), var(n)])));
+        let planned = super::insert_dup_drop_for_def(
+            lam(vec![xs], case_of(xs, vec![(cons(h, t), rhs), (CorePat::Wildcard, nil())])),
+            &registry,
+            Default::default(),
+        );
+        assert!(!released_above_case_on(&planned, xs, a), "{planned:?}");
+    }
+
+    /// `Cons((name, score), t) -> let n = len(name) in f(t)`: drop specialization
+    /// leaves a nested pattern alone, so no copy would cancel, and claiming the cell
+    /// would only copy `name` for `len` to read.
+    #[test]
+    fn an_arm_with_a_nested_pattern_keeps_its_cell() {
+        let mut interner = Interner::new();
+        let [xs, name, score, t, n, f] =
+            [(1, "xs"), (2, "name"), (3, "score"), (4, "t"), (5, "n"), (9, "f")]
+                .map(|(id, label)| binder(&mut interner, id, label));
+        let len = interner.intern("len");
+        let registry = borrowed_len_registry(&mut interner);
+        let pat = CorePat::Con {
+            tag: crate::core::CoreTag::Cons,
+            fields: vec![
+                CorePat::Tuple(vec![CorePat::Var(name), CorePat::Var(score)]),
+                CorePat::Var(t),
+            ],
+        };
+        let rhs = CoreExpr::Let {
+            var: n,
+            rhs: Box::new(call(len, vec![var(name)])),
+            body: Box::new(CoreExpr::App {
+                func: Box::new(var(f)),
+                args: vec![var(t)],
+                span: Span::default(),
+            }),
+            span: Span::default(),
+        };
+        let planned = super::insert_dup_drop_for_def(
+            lam(vec![xs], case_of(xs, vec![(pat, rhs), (CorePat::Wildcard, nil())])),
+            &registry,
+            Default::default(),
+        );
+        assert!(!released_above_case_on(&planned, xs, n), "{planned:?}");
+    }
+
+    /// `Cons(h, t) -> let k = \\x -> x in k(h)`: drop specialization won't split a
+    /// release with a lambda below it, as `print` in `main` has, and released later
+    /// the arm does specialize.
+    #[test]
+    fn an_arm_that_builds_a_lambda_keeps_its_cell() {
+        let mut interner = Interner::new();
+        let [xs, h, t, k, x] = [(1, "xs"), (2, "h"), (3, "t"), (4, "k"), (5, "x")]
+            .map(|(id, label)| binder(&mut interner, id, label));
+        let rhs = CoreExpr::Let {
+            var: k,
+            rhs: Box::new(lam(vec![x], var(x))),
+            body: Box::new(CoreExpr::App {
+                func: Box::new(var(k)),
+                args: vec![var(h)],
+                span: Span::default(),
+            }),
+            span: Span::default(),
+        };
+        let planned = super::insert_dup_drop_for_def(
+            lam(vec![xs], case_of(xs, vec![(cons(h, t), rhs), (CorePat::Wildcard, nil())])),
+            &BorrowRegistry::default(),
+            Default::default(),
+        );
+        assert!(!released_above_case_on(&planned, xs, k), "{planned:?}");
     }
 
     /// `len` only borrows `h`, which stays a view of the cell, so there is
