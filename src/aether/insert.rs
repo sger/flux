@@ -641,14 +641,17 @@ fn plan_expr(
                 // because the plan of its fields depends on it.
                 // This arm's own fields claim nothing: the arm takes the
                 // constructor first.
+                // Or when the arm gives a field away: drop specialization then
+                // splits the release, and on the unique path the copies cancel
+                // and the cell is freed alone (0200 C1b).
                 let head_drop = may_release
-                    && has_compatible_con(&pat, &rhs, &|inner, inner_alt| {
+                    && (has_compatible_con(&pat, &rhs, &|inner, inner_alt| {
                         !pat_ids.contains(&inner)
                             && !scope.lent(inner, field_parents)
                             && !scope.views.contains(&inner)
                             && !tail_env.is_live(inner)
                             && !alt_uses_binder(inner_alt, inner)
-                    });
+                    }) || claim_pays_off(&rhs, &pat_ids, registry, scope));
                 // Where the cell may be released, at the head or to balance an
                 // arm that gives it away, the release can free the fields with
                 // it. So the arm takes its own reference to each field it
@@ -1390,6 +1393,54 @@ fn binder_demand(env: &AetherEnv, binder: CoreBinderId) -> ValueDemand {
         ValueDemand::Borrowed
     } else {
         ValueDemand::Ignore
+    }
+}
+
+/// Whether an arm should claim its cell for the fields it gives away. On the
+/// unique path a claim cancels the copy of a field used once. A field used twice
+/// still takes one, as in `take_while`, and that arm does better freeing the shell
+/// (0200 C1b).
+fn claim_pays_off(
+    rhs: &CoreExpr,
+    fields: &[CoreBinderId],
+    registry: Option<&BorrowRegistry>,
+    scope: &Scope,
+) -> bool {
+    let uses = use_counts_aether(rhs);
+    fields.iter().all(|id| uses.get(id).copied().unwrap_or(0) <= 1)
+        && gives_a_field_away(rhs, fields, registry, scope)
+}
+
+/// Whether `expr`, not yet planned, calls a function of this program with one of
+/// `fields` in an owned position. A constructor doesn't count: one of the same
+/// shape is `has_compatible_con`'s, and an inner cell may be taking it.
+fn gives_a_field_away(
+    expr: &CoreExpr,
+    fields: &[CoreBinderId],
+    registry: Option<&BorrowRegistry>,
+    scope: &Scope,
+) -> bool {
+    let gives = |expr: &CoreExpr| gives_a_field_away(expr, fields, registry, scope);
+    let is_field = |expr: &CoreExpr| matches!(expr, CoreExpr::Var { var, .. } if var.binder.is_some_and(|id| fields.contains(&id)));
+    match expr {
+        CoreExpr::Let { rhs, body, .. } => gives(rhs) || gives(body),
+        CoreExpr::Case { scrutinee, alts, .. } => {
+            gives(scrutinee) || alts.iter().any(|alt| gives(&alt.rhs))
+        }
+        CoreExpr::Con { fields: args, .. } => args.iter().any(gives),
+        CoreExpr::App { func, args, .. } => {
+            let callee = planned_callee(func, registry, scope);
+            args.iter().enumerate().any(|(index, arg)| {
+                let named_function =
+                    matches!(func.as_ref(), CoreExpr::Var { var, .. } if var.binder.is_some());
+                let borrowed = callee
+                    .zip(registry)
+                    .is_some_and(|(callee, registry)| registry.is_borrowed(callee, index));
+                (named_function && !borrowed && is_field(arg)) || gives(arg)
+            })
+        }
+        CoreExpr::PrimOp { args, .. } => args.iter().any(gives),
+        _ => false,
     }
 }
 
@@ -4872,6 +4923,53 @@ mod tests {
         let (planned, xs, ys) =
             plan_of_two_cells(&mut interner, |[h, _, _, b, _]| cons_of(vec![var(h), var(b)]));
         assert!(!released_above_case_on(&planned, xs, ys), "{planned:?}");
+    }
+
+    /// `Cons(h, t) -> let a = callee(h) in g(a)`, the shape of `check_tree`.
+    fn plan_of_a_call_then_another(
+        interner: &mut Interner,
+        callee: impl FnOnce(Vec<CoreExpr>) -> CoreExpr,
+        registry: &BorrowRegistry,
+    ) -> (CoreExpr, CoreBinder, CoreBinder) {
+        let [xs, h, t, a] =
+            [(1, "xs"), (2, "h"), (3, "t"), (4, "a")].map(|(id, name)| binder(interner, id, name));
+        let g = interner.intern("g");
+        let rhs = CoreExpr::Let {
+            var: a,
+            rhs: Box::new(callee(vec![var(h)])),
+            body: Box::new(call(g, vec![var(a)])),
+            span: Span::default(),
+        };
+        let planned = super::insert_dup_drop_for_def(
+            lam(vec![xs], case_of(xs, vec![(cons(h, t), rhs), (CorePat::Wildcard, nil())])),
+            registry,
+            Default::default(),
+        );
+        (planned, xs, a)
+    }
+
+    /// The arm gives a field away, so it claims the cell, and drop specialization
+    /// can then free a unique cell alone rather than after both calls (0200 C1b).
+    #[test]
+    fn an_arm_that_gives_a_field_away_claims_its_cell() {
+        let mut interner = Interner::new();
+        let f = binder(&mut interner, 9, "f");
+        let call_f = |args| CoreExpr::App { func: Box::new(var(f)), args, span: Span::default() };
+        let (planned, xs, a) =
+            plan_of_a_call_then_another(&mut interner, call_f, &BorrowRegistry::default());
+        assert!(released_above_case_on(&planned, xs, a), "{planned:?}");
+    }
+
+    /// `len` only borrows `h`, which stays a view of the cell, so there is
+    /// nothing to claim the cell for.
+    #[test]
+    fn an_arm_that_only_lends_a_field_keeps_its_cell() {
+        let mut interner = Interner::new();
+        let len = interner.intern("len");
+        let registry = borrowed_len_registry(&mut interner);
+        let (planned, xs, a) =
+            plan_of_a_call_then_another(&mut interner, |args| call(len, args), &registry);
+        assert!(!released_above_case_on(&planned, xs, a), "{planned:?}");
     }
 
     /// `Cons(h, t) -> let c = pred(h) in let x = Cons(h, acc) in f(t, x)`, as in
