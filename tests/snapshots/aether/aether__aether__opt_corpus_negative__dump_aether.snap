@@ -1821,8 +1821,8 @@ lam(xs, f) ->
       drop f#422 in
         MakeTuple()
 ── fn take ──
-  Dups: 3  Drops: 9  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(2)  FreeShells: 1
-  FreshAllocs: 2
+  Dups: 2  Drops: 8  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
+  FreshAllocs: 1
   verifier: ok
 lam(xs, n) ->
   letrec take_acc =
@@ -1839,23 +1839,22 @@ lam(xs, n) ->
             Cons(h, t) ->
               drop_specialized ys#430 {
                 unique ->
-                  free_shell ys#430 in
-                    let <sym:4001599> =
-                      ISub(remaining#431, 1)
-                    drop remaining#431 in
-                      let <sym:4001600> =
-                        Cons(dup h#433 in h#433, acc#432)
-                      drop h#433 in
-                        aether_call[owned, owned, owned] take_acc#429(t#434, <sym:4001599>#1599, <sym:4001600>#1600)
-                shared ->
                   let <sym:4001599> =
                     ISub(remaining#431, 1)
                   drop remaining#431 in
                     let <sym:4001600> =
-                      Cons(dup h#433 in h#433, acc#432)
+                      reuse ys#430 as Cons mask=0x2(h#433, acc#432)
+                    aether_call[owned, owned, owned] take_acc#429(t#434, <sym:4001599>#1599, <sym:4001600>#1600)
+                shared ->
+                  dup h#433 in
                     dup t#434 in
                       drop ys#430 in
-                        aether_call[owned, owned, owned] take_acc#429(t#434, <sym:4001599>#1599, <sym:4001600>#1600)
+                        let <sym:4001599> =
+                          ISub(remaining#431, 1)
+                        drop remaining#431 in
+                          let <sym:4001600> =
+                            Cons(h#433, acc#432)
+                          aether_call[owned, owned, owned] take_acc#429(t#434, <sym:4001599>#1599, <sym:4001600>#1600)
               }
             _ ->
                 drop ys#430 in
@@ -2208,8 +2207,8 @@ lam(start, stop) ->
   drop range_go#519 in
     <sym:7000000>#4026531840
 ── fn reverse ──
-  Dups: 3  Drops: 4  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(2)  FreeShells: 1
-  FreshAllocs: 2
+  Dups: 2  Drops: 3  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
+  FreshAllocs: 1
   verifier: ok
 lam(xs) ->
   letrec rev_acc =
@@ -2218,17 +2217,16 @@ lam(xs) ->
         Cons(h, t) ->
           drop_specialized ys#525 {
             unique ->
-              free_shell ys#525 in
-                let <sym:4001630> =
-                  Cons(dup h#527 in h#527, acc#526)
-                drop h#527 in
-                  aether_call[owned, owned] rev_acc#524(t#528, <sym:4001630>#1630)
-            shared ->
               let <sym:4001630> =
-                Cons(dup h#527 in h#527, acc#526)
-              dup t#528 in
-                drop ys#525 in
-                  aether_call[owned, owned] rev_acc#524(t#528, <sym:4001630>#1630)
+                reuse ys#525 as Cons mask=0x2(h#527, acc#526)
+              aether_call[owned, owned] rev_acc#524(t#528, <sym:4001630>#1630)
+            shared ->
+              dup h#527 in
+                dup t#528 in
+                  drop ys#525 in
+                    let <sym:4001630> =
+                      Cons(h#527, acc#526)
+                    aether_call[owned, owned] rev_acc#524(t#528, <sym:4001630>#1630)
           }
         _ ->
           drop ys#525 in
@@ -3075,11 +3073,12 @@ lam(xs) ->
     lam(ys, acc) ->
       case ys#796 of
         Cons(Left(x), t) ->
-          let <sym:4001728> =
-            Cons(dup x#798 in x#798, acc#797)
           dup t#799 in
-            drop ys#796 in
-              aether_call[owned, owned] lefts_acc#795(t#799, <sym:4001728>#1728)
+            dup x#798 in
+              drop ys#796 in
+                let <sym:4001728> =
+                  Cons(x#798, acc#797)
+                aether_call[owned, owned] lefts_acc#795(t#799, <sym:4001728>#1728)
         Cons(Right(_), t) ->
           dup t#800 in
             drop ys#796 in
@@ -3102,11 +3101,12 @@ lam(xs) ->
     lam(ys, acc) ->
       case ys#804 of
         Cons(Right(y), t) ->
-          let <sym:4001730> =
-            Cons(dup y#806 in y#806, acc#805)
           dup t#807 in
-            drop ys#804 in
-              aether_call[owned, owned] rights_acc#803(t#807, <sym:4001730>#1730)
+            dup y#806 in
+              drop ys#804 in
+                let <sym:4001730> =
+                  Cons(y#806, acc#805)
+                aether_call[owned, owned] rights_acc#803(t#807, <sym:4001730>#1730)
         Cons(Left(_), t) ->
           dup t#808 in
             drop ys#804 in
@@ -3129,17 +3129,19 @@ lam(xs) ->
     lam(ys, ls, rs) ->
       case ys#812 of
         Cons(Left(x), t) ->
-          let <sym:4001732> =
-            Cons(dup x#815 in x#815, ls#813)
           dup t#816 in
-            drop ys#812 in
-              aether_call[owned, owned, owned] partition_acc#811(t#816, <sym:4001732>#1732, rs#814)
+            dup x#815 in
+              drop ys#812 in
+                let <sym:4001732> =
+                  Cons(x#815, ls#813)
+                aether_call[owned, owned, owned] partition_acc#811(t#816, <sym:4001732>#1732, rs#814)
         Cons(Right(y), t) ->
-          let <sym:4001733> =
-            Cons(dup y#817 in y#817, rs#814)
           dup t#818 in
-            drop ys#812 in
-              aether_call[owned, owned, owned] partition_acc#811(t#818, ls#813, <sym:4001733>#1733)
+            dup y#817 in
+              drop ys#812 in
+                let <sym:4001733> =
+                  Cons(y#817, rs#814)
+                aether_call[owned, owned, owned] partition_acc#811(t#818, ls#813, <sym:4001733>#1733)
         _ ->
           drop ys#812 in
             let <sym:4001734> =
@@ -3715,8 +3717,8 @@ lam() ->
         aether_call[owned] __resume_default#1369(<sym:4001872>#1872)
 
 ── Total ──
-  Dups: 208  Drops: 559  Reuses: 14  DropSpecs: 30  BorrowedCallGuards: 13  FBIP: fbip(56)  FreeShells: 19  Yields: 11  Handles: 5  HandlerArms: 11
-  FreshAllocs: 56
+  Dups: 206  Drops: 557  Reuses: 16  DropSpecs: 30  BorrowedCallGuards: 13  FBIP: fbip(54)  FreeShells: 17  Yields: 11  Handles: 5  HandlerArms: 11
+  FreshAllocs: 54
 
 [ 1 of 18] Compiling  Add
 [ 2 of 18] Compiling  Assert

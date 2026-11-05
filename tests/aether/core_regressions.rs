@@ -1430,15 +1430,9 @@ fn forwarded_wrapper_fixture_rewrites_only_the_inner_child() {
     let exprs = core.defs.iter().flat_map(|def| collect_core_exprs(&def.expr)).collect::<Vec<_>>();
 
     assert!(
-        exprs.iter().any(|expr| {
-            matches!(
-                expr,
-                CoreExpr::App { args: fields, .. } | CoreExpr::AetherCall { args: fields, .. }
-                    if fields
-                        .iter()
-                        .any(|field| matches!(field, CoreExpr::Reuse { tag: flux::core::CoreTag::Cons, .. }))
-            )
-        }),
+        exprs
+            .iter()
+            .any(|expr| matches!(expr, CoreExpr::Reuse { tag: flux::core::CoreTag::Cons, .. })),
         "forwarded wrapper fixture should keep the outer wrapper fresh and recover inner cons reuse"
     );
     assert!(
@@ -1506,15 +1500,9 @@ fn opt_corpus_positive_fixture_claims_match_current_core_shape() {
         "positive corpus should include DropSpecialized"
     );
     assert!(
-        exprs.iter().any(|expr| {
-            matches!(
-                expr,
-                CoreExpr::App { args: fields, .. } | CoreExpr::AetherCall { args: fields, .. }
-                    if fields
-                        .iter()
-                        .any(|field| matches!(field, CoreExpr::Reuse { tag: flux::core::CoreTag::Cons, .. }))
-            )
-        }),
+        exprs
+            .iter()
+            .any(|expr| matches!(expr, CoreExpr::Reuse { tag: flux::core::CoreTag::Cons, .. })),
         "positive corpus should include forwarded-child reuse inside a fresh wrapper"
     );
     assert!(
@@ -1738,4 +1726,62 @@ fn walk(tree: Tree, stack: Stack, acc: Int) -> Int {
         )
     });
     assert_eq!(held_across_the_call, 0, "{:?}", walk.expr);
+}
+
+/// `balance1`'s common arm builds two nodes from the two it matched. Each cell
+/// takes one, so its unique path allocates nothing, and frees nothing (KI-171).
+#[test]
+fn a_path_that_builds_two_constructors_reuses_both_of_its_cells_ki171() {
+    let (core, interner) = lowered_core_and_interner(
+        r#"
+type Color = Red | Black
+type Tree = Leaf | Node(Color, Tree, Int, Bool, Tree)
+
+fn balance(left_tree: Tree, right_tree: Tree) -> Tree {
+    match left_tree {
+        Node(_, _, kv, vv, tail) -> match right_tree {
+            Node(_, l, ky, vy, r) -> Node(Black, Node(Red, l, ky, vy, r), kv, vv, tail),
+            _ -> Leaf,
+        },
+        _ -> Leaf,
+    }
+}
+"#,
+    );
+    let balance = core
+        .defs()
+        .iter()
+        .find(|def| interner.try_resolve(def.name) == Some("balance"))
+        .expect("balance");
+    let CoreExpr::Lam { params, .. } = &balance.expr else { panic!("{:?}", balance.expr) };
+    let (left, right) = (params[0].id, params[1].id);
+    let reuses_of = |expr: &CoreExpr, cell| {
+        count_matching(
+            expr,
+            &|expr| matches!(expr, CoreExpr::Reuse { token, .. } if token.binder == Some(cell)),
+        )
+    };
+    let unique_path = collect_core_exprs(&balance.expr)
+        .into_iter()
+        .find_map(|expr| match expr {
+            CoreExpr::DropSpecialized { scrutinee, unique_body, .. }
+                if scrutinee.binder == Some(right) =>
+            {
+                Some(unique_body.as_ref())
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("{:?}", balance.expr));
+    assert_eq!(reuses_of(unique_path, right), 1, "{unique_path:?}");
+    assert_eq!(reuses_of(unique_path, left), 1, "{unique_path:?}");
+    let allocated = count_matching(unique_path, &|expr| {
+        matches!(
+            expr,
+            CoreExpr::AetherCall { func, .. } if matches!(
+                func.as_ref(),
+                CoreExpr::Var { var, .. } if interner.try_resolve(var.name) == Some("Node")
+            )
+        )
+    });
+    assert_eq!(allocated, 0, "{unique_path:?}");
 }
