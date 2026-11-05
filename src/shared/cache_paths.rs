@@ -407,7 +407,9 @@ use sha2::{Digest, Sha256};
 /// owned; an epoch-132 interface holds the old signature (KI-163).
 /// Epoch 134: a path that builds two constructors reuses both of its cells; an
 /// epoch-133 unit holds the plan that allocated one and freed the other (KI-171).
-pub const CACHE_EPOCH: u16 = 134;
+/// Epoch 135: an arm that gives a field away claims its cell; an epoch-134 unit holds
+/// the plan that copied the field and released the cell after the call (0200 C1b).
+pub const CACHE_EPOCH: u16 = 135;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
