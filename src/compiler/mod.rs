@@ -2065,10 +2065,11 @@ impl Compiler {
             pre_pass_core,
         )?;
         let preloaded_registry = self.build_preloaded_borrow_registry(program_to_lower);
-        let (mut aether, _) = crate::aether::lower_core_to_aether_program(
+        let (mut aether, _) = crate::aether::lower_core_to_native_aether_program(
             &core,
             Some(&self.interner),
             preloaded_registry,
+            &self.owned_clone_names,
         )?;
         if crate::aether::verify::contract_gate() {
             crate::core::passes::verify_aether_program_contract(&aether, Some(&self.interner))?;
@@ -2126,6 +2127,13 @@ impl Compiler {
         desugar_named_fields_in_program(program, &mut ctx);
     }
 
+    /// Plans from here on make consuming clones for `program`'s functions (proposal
+    /// 0200). Only a native plan wants them: the VM's values are `Rc`s, so its plans and
+    /// traces have none.
+    pub fn enable_owned_clones(&mut self, program: &Program) {
+        self.intern_owned_clone_names(&program.statements);
+    }
+
     fn intern_owned_clone_names(&mut self, statements: &[Statement]) {
         for statement in statements {
             match statement {
@@ -2154,7 +2162,6 @@ impl Compiler {
         self.apply_hm_final(&prepared.hm_final);
         let mut program_to_lower = prepared.effective_program.into_owned();
         self.apply_named_field_desugar(&mut program_to_lower);
-        self.intern_owned_clone_names(&program_to_lower.statements);
         self.lower_aether_from_program(&program_to_lower, optimize, true, None)
     }
 
@@ -6399,6 +6406,7 @@ impl Compiler {
     /// Lower to Core IR, then to LIR, and return a human-readable dump.
     #[allow(clippy::result_large_err)]
     pub fn dump_lir(&mut self, program: &Program, optimize: bool) -> Result<String, Diagnostic> {
+        self.enable_owned_clones(program);
         let aether = self.prepare_backend_core_program_with_preloaded(program, optimize)?;
         let globals_map = self.build_globals_map();
         let lir = crate::lir::lower::lower_aether_program_with_interner(
@@ -6440,6 +6448,7 @@ impl Compiler {
         program: &Program,
         optimize: bool,
     ) -> Result<crate::llvm::LlvmModule, Diagnostic> {
+        self.enable_owned_clones(program);
         let aether = self.prepare_backend_core_program_with_preloaded(program, optimize)?;
 
         // Pass None for globals_map so ALL functions are lowered to LIR

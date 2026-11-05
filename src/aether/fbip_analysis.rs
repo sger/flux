@@ -1014,6 +1014,7 @@ mod tests {
             is_recursive: false,
             fip,
             span: Span::default(),
+            owned_clone_of: None,
         }
     }
 
@@ -1198,6 +1199,7 @@ mod tests {
                 is_recursive: caller.is_recursive,
                 fip: caller.fip,
                 span: caller.span,
+                owned_clone_of: None,
             },
         ]);
         let summaries = analyze_program_aether(&program, &interner);
@@ -1295,6 +1297,7 @@ mod tests {
                 is_recursive: caller.is_recursive,
                 fip: caller.fip,
                 span: caller.span,
+                owned_clone_of: None,
             },
         ]);
         let summaries = analyze_program_aether(&program, &interner);

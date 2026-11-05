@@ -81,6 +81,7 @@ fn emit_native_aether_trace(
     diagnostics: DriverDiagnosticConfig,
 ) {
     input.compiler.infer_expr_types_for_program(program);
+    input.compiler.enable_owned_clones(program);
     match input.compiler.render_aether_report(program, compile.enable_optimize, false) {
         Ok(report) => print_aether_trace(
             AetherTraceContext {

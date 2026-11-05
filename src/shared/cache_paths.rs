@@ -412,7 +412,9 @@ use sha2::{Digest, Sha256};
 /// Epoch 136: an arm claims its cell only for a counted field and a release drop
 /// specialization can split; an epoch-135 unit holds the plan that claimed it and
 /// copied the fields for nothing (0200 C1b).
-pub const CACHE_EPOCH: u16 = 136;
+/// Epoch 137: a call handing over its last reference uses a consuming clone; an
+/// epoch-136 unit holds the plan that lent it and released it after (0200 C2).
+pub const CACHE_EPOCH: u16 = 137;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

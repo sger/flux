@@ -912,6 +912,7 @@ mod tests {
                 is_recursive: false,
                 fip: None,
                 span: Span::default(),
+                owned_clone_of: None,
             }],
             Vec::new(),
         );

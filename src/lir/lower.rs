@@ -866,7 +866,14 @@ fn lower_aether_program_inner(
             externs.values().filter(|sym| sym.can_suspend).map(|sym| sym.symbol.clone()).collect();
     }
 
-    let qualified_names = build_qualified_names(core, interner, entry_qualifier);
+    let mut qualified_names = build_qualified_names(core, interner, entry_qualifier);
+    // A clone has no `CoreDef` to be named from, and keeps its original's module.
+    for def in program.defs() {
+        if let Some(name) = def.owned_clone_of.and_then(|original| qualified_names.get(&original)) {
+            let name = crate::aether::owned_clone::owned_clone_name(name);
+            qualified_names.insert(def.binder.id, name);
+        }
+    }
     // Compiler-wide tags first — see the note in
     // `lower_program_with_interner_and_externs`.
     if let Some(imported) = imported_constructor_tags {

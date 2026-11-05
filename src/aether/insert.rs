@@ -43,6 +43,11 @@ struct Scope {
     /// into an argument without a reference of its own, so an argument it
     /// names is not released after its last use (`aliases_owned_unknown`).
     owned_unknown: HashSet<CoreBinderId>,
+    /// Binders holding a reference of their own that the function has to release:
+    /// owned parameters, `let`s that made a fresh value, and the fields of an arm that
+    /// claimed its cell. Handing one to a consuming clone makes it the last reference
+    /// (0200 C2).
+    owners: HashSet<CoreBinderId>,
 }
 
 impl Scope {
@@ -230,8 +235,12 @@ fn plan_expr(
 
             // The binding made the value, so it holds a reference of its own.
             let owner = !view && var.rep.needs_rc() && produces_fresh_value(&rhs, registry);
+            if owner {
+                scope.owners.insert(var.id);
+            }
             let body_plan =
                 plan_expr(*body, tail_env, demand, position, registry, scope, field_parents);
+            scope.owners.remove(&var.id);
             let mut binder_demand = binder_demand(&body_plan.env_before, var.id);
             let mut body_expr = body_plan.expr;
             if binder_demand == ValueDemand::Ignore && !view {
@@ -417,6 +426,9 @@ fn plan_expr(
             for param in &params {
                 scope.insert(param.id, *param);
                 param_ids.push(param.id);
+                if param.rep.needs_rc() && !scope.borrowed_params.contains(&param.id) {
+                    scope.owners.insert(param.id);
+                }
             }
             // Making the closure retains each capture (`flux_make_closure`),
             // so inside the body a capture is lent, like a Borrowed
@@ -439,6 +451,7 @@ fn plan_expr(
             );
             for param in &params {
                 scope.remove(&param.id);
+                scope.owners.remove(&param.id);
             }
             scope.unlend(lent);
 
@@ -492,6 +505,17 @@ fn plan_expr(
             }
         }
         CoreExpr::App { func, args, span } => {
+            let func = match consuming_clone_for_call(
+                &func,
+                &args,
+                &tail_env,
+                registry,
+                scope,
+                field_parents,
+            ) {
+                Some(clone) => Box::new(CoreExpr::Var { var: CoreVarRef::resolved(&clone), span }),
+                None => func,
+            };
             let resolved_callee = planned_callee(func.as_ref(), registry, scope);
             let arg_modes: Vec<_> = (0..args.len())
                 .map(|index| {
@@ -677,6 +701,9 @@ fn plan_expr(
                 for binder_id in &pat_ids {
                     if let Some(binder) = find_binder_in_pat(&pat, *binder_id) {
                         scope.insert(*binder_id, binder);
+                        if own_fields && binder.rep.needs_rc() {
+                            scope.owners.insert(*binder_id);
+                        }
                     }
                     if views {
                         scope.views.insert(*binder_id);
@@ -745,6 +772,7 @@ fn plan_expr(
                 for binder_id in &pat_ids {
                     scope.remove(binder_id);
                     scope.views.remove(binder_id);
+                    scope.owners.remove(binder_id);
                     field_parents.remove(binder_id);
                 }
                 for view in &owned_views {
@@ -1233,6 +1261,71 @@ fn planned_callee(
     }
 }
 
+/// The clone a call should use, if every position it owns gets a last reference.
+/// `plan_var` adds a copy if this is wrong, so a mistake costs a walk of a shared
+/// value rather than memory safety. That is what each condition here avoids
+/// (0200, "How a call site picks the clone").
+fn consuming_clone_for_call(
+    func: &CoreExpr,
+    args: &[CoreExpr],
+    tail_env: &AetherEnv,
+    registry: Option<&BorrowRegistry>,
+    scope: &Scope,
+    field_parents: &FieldParents,
+) -> Option<CoreBinder> {
+    let CoreExpr::Var { var, .. } = func else { return None };
+    let clone = registry?.owned_clones.get(&var.binder?)?;
+    let mut uses: HashMap<CoreBinderId, usize> = HashMap::new();
+    for arg in args {
+        for (id, count) in use_counts_aether(arg) {
+            *uses.entry(id).or_insert(0) += count;
+        }
+    }
+    let hands_over = clone.positions.iter().all(|&index| {
+        let Some(CoreExpr::Var { var, .. }) = args.get(index) else { return false };
+        let Some(id) = var.binder else { return false };
+        scope.owners.contains(&id)
+            && uses.get(&id) == Some(&1)
+            && moves_without_a_copy(id, tail_env, scope, field_parents)
+    });
+    (hands_over
+        && crate::shared::opt_bisect::allow("owned_clone_call", || {
+            "call a consuming copy with a last reference".to_string()
+        }))
+    .then_some(clone.binder)
+}
+
+/// Whether an owned use of `id` can give away the reference the caller holds,
+/// rather than take a copy. A consuming clone asks the same question, because
+/// the value it receives has to be one nothing here reads again.
+fn moves_without_a_copy(
+    id: CoreBinderId,
+    tail_env: &AetherEnv,
+    scope: &Scope,
+    field_parents: &FieldParents,
+) -> bool {
+    let borrowed_parent =
+        field_parents.get(&id).is_some_and(|field| tail_env.is_borrowed(field.parent));
+    // An owned use of something the caller lent takes its own reference: the
+    // caller keeps the one it lent.
+    let lent = scope.lent(id, field_parents);
+    // A view read out of the value and still used after this would go with the
+    // value if the receiver frees it (audit L9). An unboxed field is a copy of
+    // the value it read, not a view.
+    let views_live_after = || {
+        field_parents.iter().any(|(child, _)| {
+            tail_env.is_live(*child)
+                && scope.get(child).is_none_or(|binder| binder.rep.needs_rc())
+                && descends_from(*child, id, field_parents)
+        })
+    };
+    !(tail_env.is_live(id)
+        || scope.views.contains(&id)
+        || borrowed_parent
+        || lent
+        || views_live_after())
+}
+
 /// Decide which borrowed call arguments need an owning reference while the
 /// callee runs. A borrowed parameter is normally safe to pass without a
 /// clone, but the callee's reuse analysis only sees the reference count. If
@@ -1353,26 +1446,7 @@ fn plan_var(
             AetherPlan { expr: CoreExpr::Var { var, span }, env_before: tail_env }
         }
         ValueDemand::Owned => {
-            let borrowed_parent =
-                field_parents.get(&id).is_some_and(|field| tail_env.is_borrowed(field.parent));
-            // An owned use of something the caller lent takes its own
-            // reference: the caller keeps the one it lent.
-            let lent = scope.lent(id, field_parents);
-            // A view read out of the value and still used after this would
-            // go with the value if the receiver frees it (audit L9). An
-            // unboxed field is a copy of the value it read, not a view.
-            let views_live_after = || {
-                field_parents.iter().any(|(child, _)| {
-                    tail_env.is_live(*child)
-                        && scope.get(child).is_none_or(|binder| binder.rep.needs_rc())
-                        && descends_from(*child, id, field_parents)
-                })
-            };
-            let needs_dup = tail_env.is_live(id)
-                || scope.views.contains(&id)
-                || borrowed_parent
-                || lent
-                || views_live_after();
+            let needs_dup = !moves_without_a_copy(id, &tail_env, scope, field_parents);
             tail_env.mark_owned(id);
             let expr = if needs_dup {
                 if let Some(binder) = scope.get(&id).cloned() {
@@ -1439,13 +1513,21 @@ fn gives_a_field_away(
         CoreExpr::Con { fields: args, .. } => args.iter().any(gives),
         CoreExpr::App { func, args, .. } => {
             let callee = planned_callee(func, registry, scope);
+            let clone = match (func.as_ref(), registry) {
+                (CoreExpr::Var { var, .. }, Some(registry)) => {
+                    var.binder.and_then(|id| registry.owned_clones.get(&id))
+                }
+                _ => None,
+            };
             args.iter().enumerate().any(|(index, arg)| {
                 let named_function =
                     matches!(func.as_ref(), CoreExpr::Var { var, .. } if var.binder.is_some());
                 let borrowed = callee
                     .zip(registry)
                     .is_some_and(|(callee, registry)| registry.is_borrowed(callee, index));
-                (named_function && !borrowed && is_field(arg)) || gives(arg)
+                // A position the callee's clone owns: the call can use the clone.
+                let consumed = clone.is_some_and(|clone| clone.positions.contains(&index));
+                (named_function && (!borrowed || consumed) && is_field(arg)) || gives(arg)
             })
         }
         CoreExpr::PrimOp { args, .. } => args.iter().any(gives),
