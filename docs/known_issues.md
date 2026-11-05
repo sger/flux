@@ -42,9 +42,32 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
+
+**Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
+
+`vm_debug_tests::going_back_across_a_task` failed once in a full suite run, with the rest
+of the `debug` suite running around it:
+
+```text
+> continue
+stopped: breakpoint at reverse_task.flx:9:5 in main (position 7)
+error[E1022]: Replay diverged at event #1: the tape expected task_start(task 1), but the program performed task_end(task 1, done).
+```
+
+The re-run after `reverse-next` recorded the task ending before the tape's record of it
+starting, so this looks like the order of two threads' events, not the program. That is
+a guess: the cause hasn't been traced.
+
+It hasn't come back. The test passed 6 times alone and in 2 more runs of the whole `debug`
+suite, and 400 sessions of its program at 14 at a time ran clean, on each of a compiler with
+and without the KI-163 change. That change leaves this program's Aether plan
+byte-identical, so it isn't the cause. Those 800 sessions used a release build, and the
+failure was on a debug build, so they don't rule out a timing that only a slower build hits.
+
 ### KI-169 — Natively, the second `run_async` in a program finds no handler for a builtin effect
 
-**Severity:** Medium · **Area:** native runtime, async scheduler · **Verified:** 2026-11-04 (ad216569, and the same at 64381a24) · **From:** writing a fixture for KI-122
+**Severity:** Medium · **Area:** native runtime, async scheduler · **Verified:** 2026-11-04 (ad216569, and the same at 64381a24) · **From:** writing a fixture for KI-122 · **Issue:** [#165](https://forgejo.spirosgerokostas.com/sger/flux/issues/165)
 
 ```flux
 import Flow.Async exposing (run_async)
