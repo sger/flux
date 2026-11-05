@@ -403,7 +403,9 @@ use sha2::{Digest, Sha256};
 /// unit can have taken a later arm instead (KI-106).
 /// Epoch 132: a match on a known value runs each field once and in order; an
 /// epoch-131 unit can have copied or dropped a field's effect (KI-168).
-pub const CACHE_EPOCH: u16 = 132;
+/// Epoch 133: a tail call that passes on a field of an owned value makes its target
+/// owned; an epoch-132 interface holds the old signature (KI-163).
+pub const CACHE_EPOCH: u16 = 133;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

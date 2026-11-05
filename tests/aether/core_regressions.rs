@@ -1693,3 +1693,49 @@ fn at(arr, idx) {
     let drops = count_matching(&def.expr, &|expr| matches!(expr, CoreExpr::Drop { .. }));
     assert_eq!(drops, 2, "each arm releases the temporary: {:?}", def.expr);
 }
+
+/// `next` lives in the owned `stack`. Lent to a borrowed `tree`, `stack` had to
+/// outlive the call and its release came after it, so the call kept a frame and
+/// a long walk overflowed the stack (KI-163).
+#[test]
+fn a_walk_that_passes_on_a_field_of_its_stack_ends_in_a_jump_ki163() {
+    let (core, interner) = lowered_core_and_interner(
+        r#"
+type Tree = Node(Tree, Tree) | Tip
+type Stack = Empty | Push(Tree, Stack)
+
+fn walk(tree: Tree, stack: Stack, acc: Int) -> Int {
+    match tree {
+        Node(left, right) -> do {
+            let pushed = Push(right, stack)
+            walk(left, pushed, acc + 1)
+        },
+        Tip -> match stack {
+            Push(next, rest) -> walk(next, rest, acc),
+            Empty -> acc,
+        },
+    }
+}
+"#,
+    );
+    let walk = core
+        .defs()
+        .iter()
+        .find(|def| interner.try_resolve(def.name) == Some("walk"))
+        .expect("walk");
+    let modes = &walk.borrow_signature.as_ref().expect("a signature").params;
+    assert_eq!(modes[0], flux::aether::borrow_infer::BorrowMode::Owned, "{:?}", walk.expr);
+    let held_across_the_call = count_matching(&walk.expr, &|expr| {
+        matches!(
+            expr,
+            CoreExpr::Let { rhs, .. } if matches!(
+                rhs.as_ref(),
+                CoreExpr::AetherCall { func, .. } if matches!(
+                    func.as_ref(),
+                    CoreExpr::Var { var, .. } if var.name == walk.name
+                )
+            )
+        )
+    });
+    assert_eq!(held_across_the_call, 0, "{:?}", walk.expr);
+}

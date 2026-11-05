@@ -102,67 +102,6 @@ Under `--verbose` the second build reports `module-cache: miss (reason: dependen
 interface changed)` for some modules. A default build keeps the two hashes equal, and
 `an_edit_recompiles_only_the_edited_file_on_the_next_build` pins that.
 
-### KI-163 — Natively, a self tail call that lends a field of a matched owned value to a borrowed parameter is not a jump
-
-**Severity:** Medium · **Area:** Aether, borrow inference, native backend · **Verified:** 2026-11-02 (54dbde9d) · **From:** timing `benchmarks/flux/binarytrees_fbip.flx` for the binarytrees work, which dies with signal 10 at n=21 · **Issue:** [#159](https://forgejo.spirosgerokostas.com/sger/flux/issues/159)
-
-```flux
-type Tree = Node(Tree, Tree) | Tip
-
-type Stack = Empty | Push(Tree, Stack)
-
-fn spine(n: Int, acc: Tree) -> Tree {
-    if n <= 0 {
-        acc
-    } else {
-        let next = Node(Tip, acc)
-        spine(n - 1, next)
-    }
-}
-
-fn walk(tree: Tree, stack: Stack, acc: Int) -> Int {
-    match tree {
-        Node(left, right) -> do {
-            let pushed = Push(right, stack)
-            walk(left, pushed, acc + 1)
-        },
-        Tip -> match stack {
-            Push(next, rest) -> walk(next, rest, acc),
-            Empty -> acc,
-        },
-    }
-}
-
-fn main() with IO {
-    print(walk(spine(3000000, Tip), Empty, 0))
-}
-```
-
-The VM prints `3000000`. Natively the program exits with "native program
-terminated by signal 10"; with 100,000 in place of 3,000,000 it prints
-`100000`, and with 1,000,000 it crashes.
-
-`--dump-aether=debug` shows why. `walk` is inferred `[Borrowed, Owned, Owned]`,
-and the `Push(next, rest)` arm lends `next`, a field of the owned `stack`, to
-the borrowed `tree`. So `stack` must outlive the call, and its drop comes after
-it:
-
-```text
-let <sym> = aether_call[borrowed, owned, owned] walk(next, dup rest in rest, acc)
-drop stack in <sym>
-```
-
-That call is a `bl` with the drop after it returns, so every `Tip` keeps a
-frame. The `Node` arm, which lends `left` from the borrowed `tree`, is a jump.
-`binarytrees_fbip.flx`'s `checkv` has the same shape in its `NodeR(right,
-next)` arm.
-
-This is the same family as KI-148 (a literal lent to a borrowed parameter) and
-KI-128's `TailCaller` rule (`src/aether/borrow_infer.rs`). Not yet known: a
-source workaround, or whether the fix is to make such a parameter owned, or to
-dup the field and drop its owner before the call. Either is in Aether, so it
-needs `cargo xtask verify`.
-
 ### KI-162 — A class constraint met by a tuple, an Array, an Either, or an `Ord` container stops the compiler with E000
 
 **Severity:** Medium · **Area:** type classes, Core lowering · **Verified:** 2026-11-02 (a4dece25), VM and native alike · **From:** checking `Ord` on tuples while deciding KI-157
@@ -2704,6 +2643,86 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-163 — Natively, a self tail call that lends a field of a matched owned value to a borrowed parameter is not a jump — FIXED 2026-11-04
+
+**Severity:** Medium · **Area:** Aether, borrow inference, native backend · **Verified:** 2026-11-02 (54dbde9d) · **From:** timing `benchmarks/flux/binarytrees_fbip.flx` for the binarytrees work, which dies with signal 10 at n=21 · **Issue:** [#159](https://forgejo.spirosgerokostas.com/sger/flux/issues/159)
+
+```flux
+type Tree = Node(Tree, Tree) | Tip
+
+type Stack = Empty | Push(Tree, Stack)
+
+fn spine(n: Int, acc: Tree) -> Tree {
+    if n <= 0 {
+        acc
+    } else {
+        let next = Node(Tip, acc)
+        spine(n - 1, next)
+    }
+}
+
+fn walk(tree: Tree, stack: Stack, acc: Int) -> Int {
+    match tree {
+        Node(left, right) -> do {
+            let pushed = Push(right, stack)
+            walk(left, pushed, acc + 1)
+        },
+        Tip -> match stack {
+            Push(next, rest) -> walk(next, rest, acc),
+            Empty -> acc,
+        },
+    }
+}
+
+fn main() with IO {
+    print(walk(spine(3000000, Tip), Empty, 0))
+}
+```
+
+The VM prints `3000000`. Natively the program exits with "native program
+terminated by signal 10"; with 100,000 in place of 3,000,000 it prints
+`100000`, and with 1,000,000 it crashes.
+
+`--dump-aether=debug` shows why. `walk` is inferred `[Borrowed, Owned, Owned]`,
+and the `Push(next, rest)` arm lends `next`, a field of the owned `stack`, to
+the borrowed `tree`. So `stack` must outlive the call, and its drop comes after
+it:
+
+```text
+let <sym> = aether_call[borrowed, owned, owned] walk(next, dup rest in rest, acc)
+drop stack in <sym>
+```
+
+That call is a `bl` with the drop after it returns, so every `Tip` keeps a
+frame. The `Node` arm, which lends `left` from the borrowed `tree`, is a jump.
+`binarytrees_fbip.flx`'s `checkv` has the same shape in its `NodeR(right,
+next)` arm.
+
+This is the same family as KI-148 (a literal lent to a borrowed parameter) and
+KI-128's `TailCaller` rule (`src/aether/borrow_infer.rs`).
+
+**Fixed:** making the parameter owned is the only fix that keeps the call a jump: a
+borrowed parameter needs a reference released after the call, whoever holds it.
+`TailCaller` said a pattern variable changes nothing because its scrutinee may be
+borrowed. It now counts as what it was matched out of: a field of a borrowed parameter
+still changes nothing, a field of an owned parameter makes the target owned, and a
+field of a value the caller made forces it. `walk` is `[Owned, Owned, Owned]`, and each
+arm ends in a jump.
+
+Across `lib/` and `benchmarks/`, 5 of about 950 signatures changed: `checkv`, and four
+that pass on a field in a loop (`Flow.Http`'s `handle_parsed`, Flume's `expand`,
+`try_candidates` and `drawn_rest`). The plans for binarytrees, rbtree, rbtree_del,
+deriv, cfold, nqueens and qsort are unchanged, with and without `--optimize`.
+
+`binarytrees_fbip` now runs at n=21 and prints what `binarytrees` prints, but it is
+slower: 3.68 s against 2.80 s, with 69% more instructions, median of 5, and three times
+the allocations at n=12. A unique `Node` is freed and a `Push` of the same size allocated
+right after it, rather than reused (`Reuses: 0`). That comparison is on 0200.
+
+`tests/parity/tail_call_passes_on_a_field_ki163.flx` covers the shapes on every way,
+including the debug heap. `a_walk_passing_on_a_field_stays_a_jump_at_any_depth_ki163` runs
+them at 1,000,000 natively, where a frame per turn overflows the stack. KI-148 is unchanged.
 
 ### KI-122 — Natively, the async runtime releases one of its own closures twice — FIXED 2026-10-25
 
