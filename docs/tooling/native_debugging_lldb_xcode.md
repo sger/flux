@@ -197,11 +197,15 @@ p = Point(1, 2)
   ```
 
   A count shared between threads (a value sent on a channel or to a task)
-  reads `shared across threads`. A debug slot holds no reference, so the
-  count is the program's own. `flux debug`'s `refs` counts the VM's
-  references instead, which can differ: the VM keeps a variable until its
-  frame returns, where native code releases it at its last use. In VS Code,
-  `.refs xs` in the Debug Console does the same on either backend.
+  reads `shared across threads`. A value the compiler built once, such as a
+  string literal or a constructor whose fields are all constants
+  (`Node(Tip, Tip)`, `[1, 2, 3]`), is one read-only object that is never
+  counted, and reads `static (never counted or freed)`. A debug slot holds
+  no reference, so the count is the program's own. `flux debug`'s `refs`
+  counts the VM's references instead, which can differ: the VM keeps a
+  variable until its frame returns, where native code releases it at its
+  last use. In VS Code, `.refs xs` in the Debug Console does the same on
+  either backend.
 
 ### Effects
 

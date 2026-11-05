@@ -14,6 +14,8 @@ pub enum Mark {
     Fail,
     /// Informational: never fails the run.
     Note,
+    /// A check this run did not take (`--only`, `--skip`).
+    Skipped,
 }
 
 impl Mark {
@@ -22,6 +24,7 @@ impl Mark {
             Self::Ok => "ok",
             Self::Fail => "FAIL",
             Self::Note => "note",
+            Self::Skipped => SKIPPED,
         }
     }
 }
@@ -68,6 +71,18 @@ impl Outcome {
             mark: Mark::Note,
             line,
             took,
+            details: Vec::new(),
+        });
+    }
+
+    /// A check this run did not take, so the summary shows the run was not
+    /// a full one.
+    pub fn skip(&mut self, step: &str, line: String) {
+        self.push(Entry {
+            step: step.to_string(),
+            mark: Mark::Skipped,
+            line,
+            took: None,
             details: Vec::new(),
         });
     }
@@ -123,6 +138,7 @@ impl Outcome {
                 Mark::Ok => println!("{} {text}", paint.green("ok  ")),
                 Mark::Fail => println!("{} {text}", paint.red("FAIL")),
                 Mark::Note => println!("     {}", paint.yellow(&text)),
+                Mark::Skipped => println!("{}", paint.dim(&format!("skip {text}"))),
             }
             for detail in &entry.details {
                 println!("       {}", paint.red(detail));
@@ -159,7 +175,10 @@ impl Outcome {
 }
 
 /// The step name under which the whole run's time is saved.
-const TOTAL: &str = "total";
+pub const TOTAL: &str = "total";
+
+/// The mark a skipped check is saved with.
+const SKIPPED: &str = "skipped";
 
 /// The narrowest the summary gets, after its mark column.
 const MIN_WIDTH: usize = 67;
@@ -185,6 +204,12 @@ pub fn parse_summary_file(text: &str) -> HashMap<String, Duration> {
             Some((step.to_string(), Duration::from_secs(seconds)))
         })
         .collect()
+}
+
+/// Whether a summary file that [`Outcome::to_file`] wrote is from a run
+/// that skipped a check.
+pub fn summary_is_partial(text: &str) -> bool {
+    text.lines().any(|line| line.split('\t').nth(1) == Some(SKIPPED))
 }
 
 /// `m:ss`, or `h:mm:ss` from an hour on.
@@ -280,6 +305,21 @@ mod tests {
         assert!(!outcome.failed());
         outcome.record("debug parity", false, "debug parity".into(), secs(1));
         assert!(outcome.failed());
+    }
+
+    #[test]
+    fn a_skipped_check_never_fails_the_run_and_marks_its_summary() {
+        let mut outcome = Outcome::new();
+        outcome.record("fmt", true, "fmt".into(), secs(1));
+        assert!(!summary_is_partial(&outcome.to_file()));
+        outcome.skip("heap-parity", "heap-parity (not run)".into());
+        assert!(!outcome.failed());
+        let file = outcome.to_file();
+        assert!(file.contains("heap-parity\tskipped\t\theap-parity (not run)\n"));
+        assert!(summary_is_partial(&file));
+        assert!(!parse_summary_file(&file).contains_key("heap-parity"));
+        // A line that only mentions the word is not a skipped check.
+        assert!(!summary_is_partial("parity\tok\t3\tskipped 2 ways\n"));
     }
 
     /// A note has no time to line up, and one listing 151 leaking files made

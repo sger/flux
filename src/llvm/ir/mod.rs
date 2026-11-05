@@ -7,5 +7,6 @@ pub use syntax::{
     BlockDebug, CallConv, FunctionDebug, GlobalId, LabelId, Linkage, LlvmBlock, LlvmCallingConv,
     LlvmCmpOp, LlvmConst, LlvmDecl, LlvmFunction, LlvmFunctionSig, LlvmGlobal, LlvmInstr,
     LlvmLocal, LlvmModule, LlvmOperand, LlvmTerminator, LlvmTypeDef, LlvmValueKind, ModuleDebug,
+    TlsModel,
 };
 pub use types::LlvmType;

@@ -1,0 +1,12 @@
+// parity: vm, llvm
+// expect: runtime_error
+// bug: KI-157: natively a tuple key was accepted and gave a wrong answer, where
+//       the VM stops; both backends must refuse it.
+
+import Flow.Map as Map
+
+fn pair(a: Int, b: Int) -> (Int, Int) { (a, b) }
+
+fn main() with IO {
+    print(Map.set({}, pair(1, 2), "a"))
+}

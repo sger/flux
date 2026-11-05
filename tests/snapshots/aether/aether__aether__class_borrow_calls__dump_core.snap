@@ -1851,8 +1851,11 @@ letrec __tc_m7_466C6F772E4571_Eq_List<a>_eq =
           ::(h2, t2) →
             let %t389 = (let %t390 = __dict_m7_466C6F772E4571_Eq.0
             %t390(h1, h2))
-            let %t391 = __tc_m7_466C6F772E4571_Eq_List<a>_eq(__dict_m7_466C6F772E4571_Eq, t1, t2)
-            And(%t389, %t391)
+            case %t389 of
+              true →
+                __tc_m7_466C6F772E4571_Eq_List<a>_eq(__dict_m7_466C6F772E4571_Eq, t1, t2)
+              _ →
+                false
           _ →
             false
       _ →
@@ -1864,8 +1867,8 @@ letrec __tc_m7_466C6F772E4571_Eq_List<a>_eq =
 
 letrec __tc_m7_466C6F772E4571_Eq_List<a>_neq =
 λ__dict_m7_466C6F772E4571_Eq, xs, ys.
-    let %t392 = __tc_m7_466C6F772E4571_Eq_List<a>_eq(__dict_m7_466C6F772E4571_Eq, xs, ys)
-    Not(%t392)
+    let %t391 = __tc_m7_466C6F772E4571_Eq_List<a>_eq(__dict_m7_466C6F772E4571_Eq, xs, ys)
+    Not(%t391)
 
 letrec __tc_m7_466C6F772E4571_Eq_Option<a>_eq =
 λ__dict_m7_466C6F772E4571_Eq, x, y.
@@ -1873,8 +1876,8 @@ letrec __tc_m7_466C6F772E4571_Eq_Option<a>_eq =
       Some(u) →
         case y of
           Some(v) →
-            let %t393 = __dict_m7_466C6F772E4571_Eq.0
-            %t393(u, v)
+            let %t392 = __dict_m7_466C6F772E4571_Eq.0
+            %t392(u, v)
           _ →
             false
       _ →
@@ -1886,8 +1889,8 @@ letrec __tc_m7_466C6F772E4571_Eq_Option<a>_eq =
 
 letrec __tc_m7_466C6F772E4571_Eq_Option<a>_neq =
 λ__dict_m7_466C6F772E4571_Eq, x, y.
-    let %t394 = __tc_m7_466C6F772E4571_Eq_Option<a>_eq(__dict_m7_466C6F772E4571_Eq, x, y)
-    Not(%t394)
+    let %t393 = __tc_m7_466C6F772E4571_Eq_Option<a>_eq(__dict_m7_466C6F772E4571_Eq, x, y)
+    Not(%t393)
 
 letrec __tc_m7_466C6F772E4571_Eq_Int_eq =
 λx, y.
@@ -1940,41 +1943,41 @@ letrec __tc_m7_466C6F772E4571_Eq_Option<a>_neq =
 letrec print_all =
 λarr.
     letrec pa_go = (λi.
-      let %t395 = (let %t396 = Len(arr)
-      ICmpLt(i, %t396))
-      case %t395 of
+      let %t394 = (let %t395 = Len(arr)
+      ICmpLt(i, %t395))
+      case %t394 of
         true →
-          let %t397 = (let %t398 = Index(arr, i)
-          case %t398 of
+          let %t396 = (let %t397 = Index(arr, i)
+          case %t397 of
             Some(v) →
               perform Console.print(v)
             _ →
               perform Console.print(""))
-          let %t399 = IAdd(i, 1)
-          pa_go(%t399)
+          let %t398 = IAdd(i, 1)
+          pa_go(%t398)
         _ →
           MakeTuple())
-    let %t400 = pa_go(0)
+    let %t399 = pa_go(0)
     ()
 
 letrec println_all =
 λarr.
     letrec pla_go = (λi.
-      let %t401 = (let %t402 = Len(arr)
-      ICmpLt(i, %t402))
-      case %t401 of
+      let %t400 = (let %t401 = Len(arr)
+      ICmpLt(i, %t401))
+      case %t400 of
         true →
-          let %t403 = (let %t404 = Index(arr, i)
-          case %t404 of
+          let %t402 = (let %t403 = Index(arr, i)
+          case %t403 of
             Some(v) →
               perform Console.println(v)
             _ →
               perform Console.println(""))
-          let %t405 = IAdd(i, 1)
-          pla_go(%t405)
+          let %t404 = IAdd(i, 1)
+          pla_go(%t404)
         _ →
           MakeTuple())
-    let %t406 = pla_go(0)
+    let %t405 = pla_go(0)
     ()
 
 letrec read_lines =
@@ -1985,24 +1988,24 @@ letrec read_lines =
 letrec parse_ints =
 λarr.
     letrec pi_go = (λi, result.
-      let %t407 = (let %t408 = Len(arr)
-      ICmpGe(i, %t408))
-      case %t407 of
+      let %t406 = (let %t407 = Len(arr)
+      ICmpGe(i, %t407))
+      case %t406 of
         true →
           result
         _ →
-          let %t409 = Index(arr, i)
-          case %t409 of
+          let %t408 = Index(arr, i)
+          case %t408 of
             Some(s) →
-              let %t410 = IAdd(i, 1)
-              let %t411 = (let %t412 = ParseInt(s)
-              Array.push(result, %t412))
-              pi_go(%t410, %t411)
+              let %t409 = IAdd(i, 1)
+              let %t410 = (let %t411 = ParseInt(s)
+              Array.push(result, %t411))
+              pi_go(%t409, %t410)
             _ →
-              let %t413 = IAdd(i, 1)
-              pi_go(%t413, result))
-    let %t414 = MakeArray()
-    pi_go(0, %t414)
+              let %t412 = IAdd(i, 1)
+              pi_go(%t412, result))
+    let %t413 = MakeArray()
+    pi_go(0, %t413)
 
 letrec split_ints =
 λs, sep.
@@ -2126,70 +2129,70 @@ letrec __tc_m8_466C6F772E4E756D_Num_Float_div =
 
 letrec even =
 λn.
-    let %t415 = IMod(n, 2)
-    ICmpEq(%t415, 0)
+    let %t414 = IMod(n, 2)
+    ICmpEq(%t414, 0)
 
 letrec odd =
 λn.
-    let %t416 = IMod(n, 2)
-    ICmpNe(%t416, 0)
+    let %t415 = IMod(n, 2)
+    ICmpNe(%t415, 0)
 
 letrec gcd =
 λa, b.
-    let aa = (let %t417 = ICmpLt(a, 0)
-    case %t417 of
+    let aa = (let %t416 = ICmpLt(a, 0)
+    case %t416 of
       true →
         ISub(0, a)
       _ →
         a)
-    let bb = (let %t418 = ICmpLt(b, 0)
-    case %t418 of
+    let bb = (let %t417 = ICmpLt(b, 0)
+    case %t417 of
       true →
         ISub(0, b)
       _ →
         b)
     letrec gcd_go = (λx, y.
-      let %t419 = ICmpEq(y, 0)
-      case %t419 of
+      let %t418 = ICmpEq(y, 0)
+      case %t418 of
         true →
           x
         _ →
-          let %t420 = IMod(x, y)
-          gcd_go(y, %t420))
+          let %t419 = IMod(x, y)
+          gcd_go(y, %t419))
     gcd_go(aa, bb)
 
 letrec lcm =
 λa, b.
-    let %t421 = ICmpEq(a, 0)
-    case %t421 of
+    let %t420 = ICmpEq(a, 0)
+    case %t420 of
       true →
         0
       _ →
-        let %t422 = ICmpEq(b, 0)
-        case %t422 of
+        let %t421 = ICmpEq(b, 0)
+        case %t421 of
           true →
             0
           _ →
             let g = gcd(a, b)
             let q = IDiv(a, g)
-            let %t423 = (let %t424 = IMul(q, b)
-            ICmpLt(%t424, 0))
-            case %t423 of
+            let %t422 = (let %t423 = IMul(q, b)
+            ICmpLt(%t423, 0))
+            case %t422 of
               true →
-                let %t425 = IMul(q, b)
-                ISub(0, %t425)
+                let %t424 = IMul(q, b)
+                ISub(0, %t424)
               _ →
                 IMul(q, b)
 
 letrec signum =
 λn.
-    let %t426 = ICmpGt(n, 0)
-    case %t426 of
+    let %t425 = ICmpGt(n, 0)
+    case %t425 of
       true →
         1
       _ →
-        let %t427 = ICmpLt(n, 0)
-        case %t427 of
+        let %t426 = ICmpLt(n, 0)
+        case %t426 of
           true →
             -1
           _ →
@@ -2199,28 +2202,34 @@ letrec floor_div =
 λa, b.
     let q = IDiv(a, b)
     let r = IMod(a, b)
-    let %t428 = (let %t429 = ICmpNe(r, 0)
-    let %t430 = (let %t431 = ICmpLt(a, 0)
-    let %t432 = ICmpLt(b, 0)
-    NEq(%t431, %t432))
-    And(%t429, %t430))
-    case %t428 of
+    let %t427 = ICmpNe(r, 0)
+    case %t427 of
       true →
-        ISub(q, 1)
+        let %t428 = (let %t429 = ICmpLt(a, 0)
+        let %t430 = ICmpLt(b, 0)
+        NEq(%t429, %t430))
+        case %t428 of
+          true →
+            ISub(q, 1)
+          _ →
+            q
       _ →
         q
 
 letrec mod =
 λa, b.
     let r = IMod(a, b)
-    let %t433 = (let %t434 = ICmpNe(r, 0)
-    let %t435 = (let %t436 = ICmpLt(r, 0)
-    let %t437 = ICmpLt(b, 0)
-    NEq(%t436, %t437))
-    And(%t434, %t435))
-    case %t433 of
+    let %t431 = ICmpNe(r, 0)
+    case %t431 of
       true →
-        IAdd(r, b)
+        let %t432 = (let %t433 = ICmpLt(r, 0)
+        let %t434 = ICmpLt(b, 0)
+        NEq(%t433, %t434))
+        case %t432 of
+          true →
+            IAdd(r, b)
+          _ →
+            r
       _ →
         r
 
@@ -2244,8 +2253,8 @@ letrec map_option =
 λopt, f.
     case opt of
       Some(v) →
-        let %t438 = f(v)
-        Some(%t438)
+        let %t435 = f(v)
+        Some(%t435)
       _ →
         None
 
@@ -2275,13 +2284,13 @@ letrec is_none_opt =
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Int_compare =
 λ__dict_m7_466C6F772E4571_Eq, x, y.
-    let %t439 = ICmpLt(x, y)
-    case %t439 of
+    let %t436 = ICmpLt(x, y)
+    case %t436 of
       true →
         Neg(1)
       _ →
-        let %t440 = ICmpGt(x, y)
-        case %t440 of
+        let %t437 = ICmpGt(x, y)
+        case %t437 of
           true →
             1
           _ →
@@ -2305,13 +2314,13 @@ letrec __tc_m8_466C6F772E4F7264_Ord_Int_gte =
 
 letrec __tc_m8_466C6F772E4F7264_Ord_Float_compare =
 λ__dict_m7_466C6F772E4571_Eq, x, y.
-    let %t441 = FCmpLt(x, y)
-    case %t441 of
+    let %t438 = FCmpLt(x, y)
+    case %t438 of
       true →
         Neg(1)
       _ →
-        let %t442 = FCmpGt(x, y)
-        case %t442 of
+        let %t439 = FCmpGt(x, y)
+        case %t439 of
           true →
             1
           _ →
@@ -2335,13 +2344,13 @@ letrec __tc_m8_466C6F772E4F7264_Ord_Float_gte =
 
 letrec __tc_m8_466C6F772E4F7264_Ord_String_compare =
 λ__dict_m7_466C6F772E4571_Eq, x, y.
-    let %t443 = Lt(x, y)
-    case %t443 of
+    let %t440 = Lt(x, y)
+    case %t440 of
       true →
         Neg(1)
       _ →
-        let %t444 = Gt(x, y)
-        case %t444 of
+        let %t441 = Gt(x, y)
+        case %t441 of
           true →
             1
           _ →
@@ -2529,9 +2538,9 @@ letrec __tc_m14_466C6F772E53656D6967726F7570_Semigroup_Option<a>_append =
       Some(u) →
         case y of
           Some(v) →
-            let %t445 = (let %t446 = __dict_m14_466C6F772E53656D6967726F7570_Semigroup.0
-            %t446(u, v))
-            Some(%t445)
+            let %t442 = (let %t443 = __dict_m14_466C6F772E53656D6967726F7570_Semigroup.0
+            %t443(u, v))
+            Some(%t442)
           _ →
             x
       _ →
@@ -2549,8 +2558,8 @@ letrec append_lists =
 λxs, ys.
     case xs of
       ::(h, t) →
-        let %t447 = append_lists(t, ys)
-        ::(h, %t447)
+        let %t444 = append_lists(t, ys)
+        ::(h, %t444)
       _ →
         ys
 
@@ -2605,72 +2614,72 @@ letrec __tc_m9_466C6F772E53686F77_Show_Bool_show =
 letrec starts_with =
 λs, prefix.
     let plen = Len(prefix)
-    let %t448 = (let %t449 = Len(s)
-    ICmpGt(plen, %t449))
-    case %t448 of
+    let %t445 = (let %t446 = Len(s)
+    ICmpGt(plen, %t446))
+    case %t445 of
       true →
         false
       _ →
-        let %t450 = Substring(s, 0, plen)
-        Eq(%t450, prefix)
+        let %t447 = Substring(s, 0, plen)
+        Eq(%t447, prefix)
 
 letrec ends_with =
 λs, suffix.
     let slen = Len(s)
     let plen = Len(suffix)
-    let %t451 = ICmpGt(plen, slen)
-    case %t451 of
+    let %t448 = ICmpGt(plen, slen)
+    case %t448 of
       true →
         false
       _ →
-        let %t452 = (let %t453 = ISub(slen, plen)
-        Substring(s, %t453, slen))
-        Eq(%t452, suffix)
+        let %t449 = (let %t450 = ISub(slen, plen)
+        Substring(s, %t450, slen))
+        Eq(%t449, suffix)
 
 letrec chars =
 λs.
     letrec chars_go = (λi, result.
-      let %t454 = (let %t455 = Len(s)
-      ICmpGe(i, %t455))
-      case %t454 of
+      let %t451 = (let %t452 = Len(s)
+      ICmpGe(i, %t452))
+      case %t451 of
         true →
           result
         _ →
-          let %t456 = IAdd(i, 1)
-          let %t457 = (let %t458 = (let %t459 = IAdd(i, 1)
-          Substring(s, i, %t459))
-          Array.push(result, %t458))
-          chars_go(%t456, %t457))
-    let %t460 = MakeArray()
-    chars_go(0, %t460)
+          let %t453 = IAdd(i, 1)
+          let %t454 = (let %t455 = (let %t456 = IAdd(i, 1)
+          Substring(s, i, %t456))
+          Array.push(result, %t455))
+          chars_go(%t453, %t454))
+    let %t457 = MakeArray()
+    chars_go(0, %t457)
 
 letrec join =
 λarr, sep.
-    let %t461 = (let %t462 = Len(arr)
-    ICmpEq(%t462, 0))
-    case %t461 of
+    let %t458 = (let %t459 = Len(arr)
+    ICmpEq(%t459, 0))
+    case %t458 of
       true →
         ""
       _ →
         letrec join_go = (λi, result.
-          let %t463 = (let %t464 = Len(arr)
-          ICmpGe(i, %t464))
-          case %t463 of
+          let %t460 = (let %t461 = Len(arr)
+          ICmpGe(i, %t461))
+          case %t460 of
             true →
               result
             _ →
-              let %t465 = Index(arr, i)
-              case %t465 of
+              let %t462 = Index(arr, i)
+              case %t462 of
                 Some(v) →
-                  let %t466 = IAdd(i, 1)
-                  let %t467 = (let %t468 = Add(result, sep)
-                  Add(%t468, v))
-                  join_go(%t466, %t467)
+                  let %t463 = IAdd(i, 1)
+                  let %t464 = (let %t465 = Add(result, sep)
+                  Add(%t465, v))
+                  join_go(%t463, %t464)
                 _ →
-                  let %t469 = IAdd(i, 1)
-                  join_go(%t469, result))
-        let %t470 = Index(arr, 0)
-        case %t470 of
+                  let %t466 = IAdd(i, 1)
+                  join_go(%t466, result))
+        let %t467 = Index(arr, 0)
+        case %t467 of
           Some(first_val) →
             join_go(1, first_val)
           _ →
@@ -2692,132 +2701,132 @@ letrec str_contains =
 λs, needle.
     let slen = Len(s)
     let nlen = Len(needle)
-    let %t471 = ICmpGt(nlen, slen)
-    case %t471 of
+    let %t468 = ICmpGt(nlen, slen)
+    case %t468 of
       true →
         false
       _ →
         letrec sc_go = (λi.
-          let %t472 = (let %t473 = IAdd(i, nlen)
-          ICmpGt(%t473, slen))
-          case %t472 of
+          let %t469 = (let %t470 = IAdd(i, nlen)
+          ICmpGt(%t470, slen))
+          case %t469 of
             true →
               false
             _ →
-              let %t474 = (let %t475 = (let %t476 = IAdd(i, nlen)
-              Substring(s, i, %t476))
-              Eq(%t475, needle))
-              case %t474 of
+              let %t471 = (let %t472 = (let %t473 = IAdd(i, nlen)
+              Substring(s, i, %t473))
+              Eq(%t472, needle))
+              case %t471 of
                 true →
                   true
                 _ →
-                  let %t477 = IAdd(i, 1)
-                  sc_go(%t477))
+                  let %t474 = IAdd(i, 1)
+                  sc_go(%t474))
         sc_go(0)
 
 letrec total_size =
 λa, b.
-    let %t478 = __tc_Sizeable_Int_size(a)
-    let %t479 = __tc_Sizeable_String_size(b)
-    IAdd(%t478, %t479)
+    let %t475 = __tc_Sizeable_Int_size(a)
+    let %t476 = __tc_Sizeable_String_size(b)
+    IAdd(%t475, %t476)
 
 letrec size_twice =
 λx.
-    let %t480 = __tc_Sizeable_String_size(x)
-    let %t481 = __tc_Sizeable_String_size(x)
-    IAdd(%t480, %t481)
+    let %t477 = __tc_Sizeable_String_size(x)
+    let %t478 = __tc_Sizeable_String_size(x)
+    IAdd(%t477, %t478)
 
 def main =
-let %t482 = (λ__resume_default, __arg0, __arg1.
-    let %t483 = ProcRun(__arg0, __arg1)
-    __resume_default(%t483))
+let %t479 = (λ__resume_default, __arg0, __arg1.
+    let %t480 = ProcRun(__arg0, __arg1)
+    __resume_default(%t480))
   handle Process {
     proc_run(__arg0, __arg1; __resume_default) →
-      let %t484 = ProcRun(__arg0, __arg1)
-      __resume_default(%t484)
+      let %t481 = ProcRun(__arg0, __arg1)
+      __resume_default(%t481)
   } with
-    let %t485 = (λ__resume_default, __arg0.
-      let %t486 = EnvVar(__arg0)
-      __resume_default(%t486))
-    let %t487 = (λ__resume_default.
-      let %t488 = EnvArgs()
-      __resume_default(%t488))
-    let %t489 = (λ__resume_default.
-      let %t490 = EnvCwd()
-      __resume_default(%t490))
-    let %t491 = (λ__resume_default.
-      let %t492 = EnvHomeDir()
-      __resume_default(%t492))
+    let %t482 = (λ__resume_default, __arg0.
+      let %t483 = EnvVar(__arg0)
+      __resume_default(%t483))
+    let %t484 = (λ__resume_default.
+      let %t485 = EnvArgs()
+      __resume_default(%t485))
+    let %t486 = (λ__resume_default.
+      let %t487 = EnvCwd()
+      __resume_default(%t487))
+    let %t488 = (λ__resume_default.
+      let %t489 = EnvHomeDir()
+      __resume_default(%t489))
     handle Env {
       env_var(__arg0; __resume_default) →
-        let %t493 = EnvVar(__arg0)
-        __resume_default(%t493)
+        let %t490 = EnvVar(__arg0)
+        __resume_default(%t490)
       env_args(; __resume_default) →
-        let %t494 = EnvArgs()
-        __resume_default(%t494)
+        let %t491 = EnvArgs()
+        __resume_default(%t491)
       env_cwd(; __resume_default) →
-        let %t495 = EnvCwd()
-        __resume_default(%t495)
+        let %t492 = EnvCwd()
+        __resume_default(%t492)
       env_home_dir(; __resume_default) →
-        let %t496 = EnvHomeDir()
-        __resume_default(%t496)
+        let %t493 = EnvHomeDir()
+        __resume_default(%t493)
     } with
-      let %t497 = (λ__resume_default.
-        let %t498 = __primop_read_stdin()
-        __resume_default(%t498))
+      let %t494 = (λ__resume_default.
+        let %t495 = __primop_read_stdin()
+        __resume_default(%t495))
       handle Stdin {
         read_stdin(; __resume_default) →
-          let %t499 = __primop_read_stdin()
-          __resume_default(%t499)
+          let %t496 = __primop_read_stdin()
+          __resume_default(%t496)
       } with
-        let %t500 = (λ__resume_default, __arg0.
-          let %t501 = __primop_read_file(__arg0)
-          __resume_default(%t501))
-        let %t502 = (λ__resume_default, __arg0.
-          let %t503 = __primop_read_lines(__arg0)
+        let %t497 = (λ__resume_default, __arg0.
+          let %t498 = __primop_read_file(__arg0)
+          __resume_default(%t498))
+        let %t499 = (λ__resume_default, __arg0.
+          let %t500 = __primop_read_lines(__arg0)
+          __resume_default(%t500))
+        let %t501 = (λ__resume_default, __arg0, __arg1.
+          let %t502 = __primop_write_file(__arg0, __arg1)
+          let %t503 = MakeTuple()
           __resume_default(%t503))
-        let %t504 = (λ__resume_default, __arg0, __arg1.
-          let %t505 = __primop_write_file(__arg0, __arg1)
-          let %t506 = MakeTuple()
-          __resume_default(%t506))
         handle FileSystem {
           read_file(__arg0; __resume_default) →
-            let %t507 = __primop_read_file(__arg0)
-            __resume_default(%t507)
+            let %t504 = __primop_read_file(__arg0)
+            __resume_default(%t504)
           read_lines(__arg0; __resume_default) →
-            let %t508 = __primop_read_lines(__arg0)
-            __resume_default(%t508)
+            let %t505 = __primop_read_lines(__arg0)
+            __resume_default(%t505)
           write_file(__arg0, __arg1; __resume_default) →
-            let %t505 = __primop_write_file(__arg0, __arg1)
-            let %t509 = MakeTuple()
-            __resume_default(%t509)
+            let %t502 = __primop_write_file(__arg0, __arg1)
+            let %t506 = MakeTuple()
+            __resume_default(%t506)
         } with
+          let %t507 = (λ__resume_default, __arg0.
+            let %t508 = __primop_print(__arg0)
+            let %t509 = MakeTuple()
+            __resume_default(%t509))
           let %t510 = (λ__resume_default, __arg0.
-            let %t511 = __primop_print(__arg0)
+            let %t511 = __primop_println(__arg0)
             let %t512 = MakeTuple()
             __resume_default(%t512))
-          let %t513 = (λ__resume_default, __arg0.
-            let %t514 = __primop_println(__arg0)
-            let %t515 = MakeTuple()
-            __resume_default(%t515))
           handle Console {
             print(__arg0; __resume_default) →
-              let %t511 = __primop_print(__arg0)
-              let %t516 = MakeTuple()
-              __resume_default(%t516)
+              let %t508 = __primop_print(__arg0)
+              let %t513 = MakeTuple()
+              __resume_default(%t513)
             println(__arg0; __resume_default) →
-              let %t514 = __primop_println(__arg0)
-              let %t517 = MakeTuple()
-              __resume_default(%t517)
+              let %t511 = __primop_println(__arg0)
+              let %t514 = MakeTuple()
+              __resume_default(%t514)
           } with
-            let %t518 = (let %t519 = (λ%t520.
+            let %t515 = (let %t516 = (λ%t517.
+              %t517)
+            let %t518 = total_size(42, "hello")
+            %t507(%t516, %t518))
+            let %t519 = (λ%t520.
               %t520)
-            let %t521 = total_size(42, "hello")
-            %t510(%t519, %t521))
-            let %t522 = (λ%t523.
-              %t523)
-            let %t524 = size_twice("world")
-            %t510(%t522, %t524)
+            let %t521 = size_twice("world")
+            %t507(%t519, %t521)
 
 [ 1 of 18] Compiling  Add
 [ 2 of 18] Compiling  Assert

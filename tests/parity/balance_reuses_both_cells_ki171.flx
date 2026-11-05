@@ -1,0 +1,270 @@
+// parity: vm, llvm, llvm_opt
+// expect: success
+// bug: KI-171. A rebalance that builds two nodes from two cells now writes both
+//       cells in place, and the second write happens before the end of the arm.
+//       Values are immutable, so a cell is written only when nothing else can see
+//       it. Each section gives `balance` a tree something else still holds, and
+//       then prints that tree: it must be unchanged. With
+//       `cargo xtask sanitize --thread`, a write to a tree another task holds is a
+//       data race ThreadSanitizer reports.
+// parity-expected-stdout-begin
+// 200
+// "(B (R . 2f .) 1t .)"
+// "(R (B . 3t .) 4f (B . 1t .))"
+// "(R (B . 5t .) 6f (B . 1t .))"
+// "."
+// "."
+// "(B . 70t (R . 71f .))"
+// "(B (R . 11f .) 10t .)"
+// "(B . 10t .)"
+// "(B . 11f .)"
+// "(R (B . 13t .) 14f (B . 12t .))"
+// "(B . 12t .)"
+// "(B (R . 13t .) 14f .)"
+// "(B . 72t (R . 73f .))"
+// "(B . 72t .)"
+// "(B . 73f .)"
+// "(B (R . 20t .) 20t .)"
+// "(B . 20t .)"
+// "(B (R . 21f .) 21f .)"
+// "(B (R . 31t .) 30t .)"
+// "(B . 30t .)"
+// "(B . 31t .)"
+// "(B (R . 41f .) 40t .)"
+// "(B . 40t .)"
+// "(B (R . 51t .) 50t .) (B (R . 50t .) 51t .)"
+// "(B (R . 61t .) 60t .)"
+// "(B (R . 60t .) 61t .)"
+// "(B . 60t .)"
+// "(B . 61t .)"
+// parity-expected-stdout-end
+
+import Flow.Task exposing (..)
+
+type Color = Red | Black
+type Tree = Leaf | Node(Color, Tree, Int, Bool, Tree)
+
+effect Flip {
+    flip : () -> Bool
+}
+
+fn count_true(tree: Tree) -> Int {
+    match tree {
+        Leaf -> 0,
+        Node(_, left, _, value, right) ->
+            count_true(left) + (if value { 1 } else { 0 }) + count_true(right),
+    }
+}
+
+fn is_red(tree: Tree) -> Bool {
+    match tree {
+        Node(Red, _, _, _, _) -> true,
+        _ -> false,
+    }
+}
+
+fn balance1(left_tree: Tree, right_tree: Tree) -> Tree {
+    match left_tree {
+        Node(_, _, kv, vv, tail) -> match right_tree {
+            Node(_, Node(Red, l, kx, vx, r1), ky, vy, r2) ->
+                Node(Red, Node(Black, l, kx, vx, r1), ky, vy, Node(Black, r2, kv, vv, tail)),
+            Node(_, l1, ky, vy, Node(Red, l2, kx, vx, r)) ->
+                Node(Red, Node(Black, l1, ky, vy, l2), kx, vx, Node(Black, r, kv, vv, tail)),
+            Node(_, l, ky, vy, r) ->
+                Node(Black, Node(Red, l, ky, vy, r), kv, vv, tail),
+            _ -> Leaf,
+        },
+        _ -> Leaf,
+    }
+}
+
+fn balance2(left_tree: Tree, right_tree: Tree) -> Tree {
+    match left_tree {
+        Node(_, tree0, kv, vv, _) -> match right_tree {
+            Node(_, Node(Red, l, kx1, vx1, r1), ky, vy, r2) ->
+                Node(Red, Node(Black, tree0, kv, vv, l), kx1, vx1, Node(Black, r1, ky, vy, r2)),
+            Node(_, l1, ky, vy, Node(Red, l2, kx2, vx2, r2)) ->
+                Node(Red, Node(Black, tree0, kv, vv, l1), ky, vy, Node(Black, l2, kx2, vx2, r2)),
+            Node(_, l, ky, vy, r) ->
+                Node(Black, tree0, kv, vv, Node(Red, l, ky, vy, r)),
+            _ -> Leaf,
+        },
+        _ -> Leaf,
+    }
+}
+
+fn ins(tree: Tree, kx: Int, vx: Bool) -> Tree {
+    match tree {
+        Leaf -> Node(Red, Leaf, kx, vx, Leaf),
+        Node(Red, a, ky, vy, b) ->
+            if kx < ky {
+                Node(Red, ins(a, kx, vx), ky, vy, b)
+            } else if ky < kx {
+                Node(Red, a, ky, vy, ins(b, kx, vx))
+            } else {
+                Node(Red, a, kx, vx, b)
+            },
+        Node(Black, a, ky, vy, b) ->
+            if kx < ky {
+                if is_red(a) {
+                    balance1(Node(Black, Leaf, ky, vy, b), ins(a, kx, vx))
+                } else {
+                    Node(Black, ins(a, kx, vx), ky, vy, b)
+                }
+            } else if ky < kx {
+                if is_red(b) {
+                    balance2(Node(Black, a, ky, vy, Leaf), ins(b, kx, vx))
+                } else {
+                    Node(Black, a, ky, vy, ins(b, kx, vx))
+                }
+            } else {
+                Node(Black, a, kx, vx, b)
+            },
+    }
+}
+
+fn set_black(tree: Tree) -> Tree {
+    match tree {
+        Node(_, left, key, value, right) -> Node(Black, left, key, value, right),
+        other -> other,
+    }
+}
+
+fn insert(tree: Tree, key: Int, value: Bool) -> Tree {
+    if is_red(tree) {
+        set_black(ins(tree, key, value))
+    } else {
+        ins(tree, key, value)
+    }
+}
+
+fn mk_map_aux(n: Int, tree: Tree) -> Tree {
+    if n == 0 {
+        tree
+    } else {
+        let n1 = n - 1
+        let next = insert(tree, n1, n1 % 10 == 0)
+        mk_map_aux(n1, next)
+    }
+}
+
+// A parameter, so each call makes a new cell rather than a static object.
+fn make(k: Int, v: Bool) -> Tree {
+    Node(Black, Leaf, k, v, Leaf)
+}
+
+fn red_on_the_left(k: Int) -> Tree {
+    Node(Black, Node(Red, Leaf, k, true, Leaf), k + 1, false, Leaf)
+}
+
+fn red_on_the_right(k: Int) -> Tree {
+    Node(Black, Leaf, k, true, Node(Red, Leaf, k + 1, false, Leaf))
+}
+
+fn color_name(color: Color) -> String {
+    match color {
+        Red -> "R",
+        Black -> "B",
+    }
+}
+
+fn flag(value: Bool) -> String {
+    if value { "t" } else { "f" }
+}
+
+fn drawn(tree: Tree) -> String {
+    match tree {
+        Leaf -> ".",
+        Node(color, l, k, v, r) ->
+            "(" + color_name(color) + " " + drawn(l) + " " + to_string(k) + flag(v) + " " + drawn(r) + ")",
+    }
+}
+
+fn twice(tree: Tree) -> Tree {
+    balance1(tree, tree)
+}
+
+fn first_of(trees: List<Tree>) -> String {
+    match trees {
+        [h | _] -> drawn(h),
+        _ -> "none",
+    }
+}
+
+fn second_of(trees: List<Tree>) -> String {
+    match trees {
+        [_ | t] -> first_of(t),
+        _ -> "none",
+    }
+}
+
+fn either_way(l: Tree, r: Tree) -> String with Flip {
+    let forward = perform Flip.flip()
+    if forward { drawn(balance1(l, r)) } else { drawn(balance1(r, l)) }
+}
+
+fn main() with IO {
+    // Nothing else holds these: each arm, and the whole tree algorithm.
+    print(count_true(mk_map_aux(2000, Leaf)))
+    print(drawn(balance1(make(1, true), make(2, false))))
+    print(drawn(balance1(make(1, true), red_on_the_left(3))))
+    print(drawn(balance1(make(1, true), red_on_the_right(5))))
+    print(drawn(balance1(make(1, true), Leaf)))
+    print(drawn(balance1(Leaf, make(2, false))))
+    print(drawn(balance2(make(70, true), make(71, false))))
+
+    // The caller keeps both trees.
+    let kept_l = make(10, true)
+    let kept_r = make(11, false)
+    print(drawn(balance1(kept_l, kept_r)))
+    print(drawn(kept_l))
+    print(drawn(kept_r))
+
+    let red_l = make(12, true)
+    let red_r = red_on_the_left(13)
+    print(drawn(balance1(red_l, red_r)))
+    print(drawn(red_l))
+    print(drawn(red_r))
+
+    let other_l = make(72, true)
+    let other_r = make(73, false)
+    print(drawn(balance2(other_l, other_r)))
+    print(drawn(other_l))
+    print(drawn(other_r))
+
+    // One tree is both arguments, so neither call site can write it.
+    let same = make(20, true)
+    print(drawn(balance1(same, same)))
+    print(drawn(same))
+    print(drawn(twice(make(21, false))))
+
+    // A list holds them while they are passed on.
+    let listed_a = make(30, true)
+    let listed_b = make(31, true)
+    let held = [listed_a, listed_b]
+    print(drawn(balance1(listed_a, listed_b)))
+    print(first_of(held))
+    print(second_of(held))
+
+    // A closure holds one.
+    let closed = make(40, true)
+    let read = \() -> drawn(closed)
+    print(drawn(balance1(closed, make(41, false))))
+    print(read())
+
+    // A continuation holds them, and runs twice over the same cells.
+    let resumed = either_way(make(50, true), make(51, true)) handle Flip {
+        flip(resume) -> resume(true) + " " + resume(false)
+    }
+    print(resumed)
+
+    // Two tasks hold them at once, and so does `main`.
+    let shared_a = make(60, true)
+    let shared_b = make(61, true)
+    let one = spawn(\() -> drawn(balance1(shared_a, shared_b)))
+    let two = spawn(\() -> drawn(balance1(shared_b, shared_a)))
+    print(blocking_join(one))
+    print(blocking_join(two))
+    print(drawn(shared_a))
+    print(drawn(shared_b))
+}

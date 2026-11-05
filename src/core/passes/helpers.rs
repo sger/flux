@@ -2,13 +2,94 @@
 ///
 /// These utilities (substitution, tree walking, free-variable analysis) are
 /// used by multiple optimization passes.
-use crate::core::{CoreBinderId, CoreExpr, CoreHandler, CorePat, CorePrimOp};
+use crate::core::{
+    CoreAlt, CoreBinder, CoreBinderId, CoreExpr, CoreHandler, CoreLit, CorePat, CorePrimOp, CoreTag,
+};
+
+// ── Known values ──────────────────────────────────────────────────────────────
+
+/// What a pattern says about a value known at compile time.
+enum KnownArm {
+    Binds(Vec<(CoreBinder, CoreExpr)>),
+    CannotMatch,
+    /// The pattern isn't one these passes look into, which says nothing about
+    /// whether it matches. Moving on to the next arm here is KI-106.
+    Undecided,
+}
+
+/// The arm a known constructor or literal takes, and what its pattern binds.
+/// `None` when that can't be decided, so the `case` stays and lowering handles
+/// it.
+pub(super) fn select_known_arm<'a>(
+    scrutinee: &CoreExpr,
+    alts: &'a [CoreAlt],
+) -> Option<(&'a CoreAlt, Vec<(CoreBinder, CoreExpr)>)> {
+    for alt in alts {
+        let bindings = match known_arm(&alt.pat, scrutinee)? {
+            KnownArm::Binds(bindings) => bindings,
+            KnownArm::CannotMatch => continue,
+            KnownArm::Undecided => return None,
+        };
+        match &alt.guard {
+            Some(CoreExpr::Lit(CoreLit::Bool(false), _)) => {}
+            Some(CoreExpr::Lit(CoreLit::Bool(true), _)) | None => return Some((alt, bindings)),
+            Some(_) => return None,
+        }
+    }
+    None
+}
+
+/// `None` when `scrutinee` isn't a known value.
+fn known_arm(pat: &CorePat, scrutinee: &CoreExpr) -> Option<KnownArm> {
+    match scrutinee {
+        CoreExpr::Con { tag, fields, .. } => Some(known_con_arm(pat, scrutinee, tag, fields)),
+        CoreExpr::Lit(lit, _) => Some(known_lit_arm(pat, scrutinee, lit)),
+        _ => None,
+    }
+}
+
+fn known_con_arm(pat: &CorePat, value: &CoreExpr, tag: &CoreTag, fields: &[CoreExpr]) -> KnownArm {
+    match pat {
+        // Nothing binds the fields here, so an effect in one would be lost.
+        CorePat::Wildcard if !fields.iter().all(is_pure) => KnownArm::Undecided,
+        CorePat::Wildcard => KnownArm::Binds(Vec::new()),
+        CorePat::Var(binder) => KnownArm::Binds(vec![(*binder, value.clone())]),
+        CorePat::Con { tag: pat_tag, .. } if pat_tag != tag => KnownArm::CannotMatch,
+        CorePat::Con { fields: pat_fields, .. } if pat_fields.len() == fields.len() => {
+            let mut bindings = Vec::new();
+            for (pat_field, field) in pat_fields.iter().zip(fields) {
+                match pat_field {
+                    CorePat::Wildcard if is_pure(field) => {}
+                    CorePat::Var(binder) => bindings.push((*binder, field.clone())),
+                    _ => return KnownArm::Undecided,
+                }
+            }
+            KnownArm::Binds(bindings)
+        }
+        CorePat::EmptyList if *tag == CoreTag::Nil && fields.is_empty() => {
+            KnownArm::Binds(Vec::new())
+        }
+        CorePat::EmptyList => KnownArm::CannotMatch,
+        _ => KnownArm::Undecided,
+    }
+}
+
+fn known_lit_arm(pat: &CorePat, value: &CoreExpr, lit: &CoreLit) -> KnownArm {
+    match pat {
+        CorePat::Wildcard => KnownArm::Binds(Vec::new()),
+        CorePat::Var(binder) => KnownArm::Binds(vec![(*binder, value.clone())]),
+        CorePat::Lit(pat_lit) if pat_lit == lit => KnownArm::Binds(Vec::new()),
+        CorePat::Lit(_) => KnownArm::CannotMatch,
+        _ => KnownArm::Undecided,
+    }
+}
 
 // ── Substitution ──────────────────────────────────────────────────────────────
 
 /// `body` with a reduced `case`'s pattern variables given their values:
-/// substituted, or, for one a debug build keeps (proposal 0188 S9c), bound by
-/// a `let` at the arm, so the debugger shows it.
+/// substituted when pure, or bound by a `let` at the arm, so a value with an
+/// effect runs once and in field order (KI-168). A debug build also binds one
+/// it keeps (proposal 0188 S9c), so the debugger shows it.
 pub(super) fn bind_pattern(
     body: CoreExpr,
     bindings: Vec<(crate::core::CoreBinder, CoreExpr)>,
@@ -17,7 +98,7 @@ pub(super) fn bind_pattern(
     let mut body = body;
     let mut kept = Vec::new();
     for (binder, value) in bindings {
-        if super::keep::keeps(binder.id) {
+        if super::keep::keeps(binder.id) || !is_pure(&value) {
             kept.push((binder, value));
         } else {
             body = subst(body, binder.id, &value);
@@ -321,7 +402,7 @@ pub(super) fn can_discard(expr: &CoreExpr) -> bool {
 }
 
 /// Classify whether a primitive operation can fail at runtime.
-fn is_primop_pure(op: &CorePrimOp) -> bool {
+pub(crate) fn is_primop_pure(op: &CorePrimOp) -> bool {
     match op {
         // Typed arithmetic on proven types — can't type-mismatch
         CorePrimOp::IAdd

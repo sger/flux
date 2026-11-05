@@ -1,0 +1,63 @@
+/*
+Aether fixture: Int and Bool values are never reference counted.
+
+Each function below handles only integers and booleans apart from the tree it
+walks, so its Aether dump should copy and release nothing but tree nodes: no
+dup or drop on a call's Int result, an IAdd result, an Int or Bool constructor
+field, or a nested function's Int parameters.
+*/
+
+// parity-expected-stdout-begin
+// 33
+// 3775
+// (50, false)
+// parity-expected-stdout-end
+
+type Color = Red | Black
+type Tree = Leaf | Node(Color, Tree, Int, Bool, Tree)
+
+fn count_true(tree: Tree) -> Int {
+    match tree {
+        Leaf -> 0,
+        Node(_, left, _, value, right) ->
+            count_true(left) + (if value { 1 } else { 0 }) + count_true(right),
+    }
+}
+
+fn keys_above(tree: Tree, floor: Int) -> Int {
+    match tree {
+        Leaf -> 0,
+        Node(_, left, key, _, right) ->
+            if key > floor {
+                key + keys_above(left, floor) + keys_above(right, floor)
+            } else {
+                keys_above(right, floor)
+            },
+    }
+}
+
+fn root_entry(tree: Tree) -> (Int, Bool) {
+    match tree {
+        Leaf -> (0, false),
+        Node(_, _, key, value, _) -> (key, value),
+    }
+}
+
+fn build(n: Int) -> Tree {
+    fn build_go(lo: Int, hi: Int) -> Tree {
+        if lo > hi {
+            Leaf
+        } else {
+            let mid = (lo + hi) / 2;
+            Node(Black, build_go(lo, mid - 1), mid, mid % 3 == 0, build_go(mid + 1, hi))
+        }
+    }
+    build_go(1, n)
+}
+
+fn main() with IO {
+    let tree = build(100);
+    print(count_true(tree));
+    print(keys_above(tree, 50));
+    print(root_entry(tree));
+}

@@ -12,7 +12,8 @@ use crate::{
 };
 
 pub const NATIVE_MODULE_CACHE_FORMAT_VERSION: u16 = crate::shared::cache_paths::CACHE_EPOCH;
-const NATIVE_CACHE_ABI_TAG: &[u8] = b"native-cache-abi-v11:dwarf-beside-codeview";
+const NATIVE_CACHE_ABI_TAG: &[u8] =
+    b"native-cache-abi-v30:a-last-reference-goes-to-a-consuming-clone";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NativeModuleArtifactMetadata {

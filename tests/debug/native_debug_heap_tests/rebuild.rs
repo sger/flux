@@ -59,6 +59,74 @@ fn a_linear_rebuild_allocates_once_per_cell() {
     }
 }
 
+/// `reverse` moves each cell onto the accumulator, so only the list it was
+/// given is allocated. It took a new block per cell as well (KI-171).
+#[test]
+fn reversing_a_list_nothing_else_holds_allocates_nothing_ki171() {
+    let scratch = Scratch::new("debug-heap-reverse");
+    let (allocs, _, live) = per_thousand_cells(
+        &scratch,
+        "reverse",
+        r"import Flow.List as List
+
+fn build(n, acc) {
+    if n == 0 { acc } else { build(n - 1, [n | acc]) }
+}
+
+fn main() {
+    print(len(List.reverse(build(SIZE, []))))
+}
+",
+    );
+    assert_eq!((allocs, live), (1000, 0), "(allocs, live) per 1000 cells");
+}
+
+/// Each turn makes two cells and rebalances them into two nodes, in place. The
+/// inner node took a new block, and the unused cell was freed (KI-171).
+#[test]
+fn a_rebalance_of_two_cells_allocates_nothing_ki171() {
+    let scratch = Scratch::new("debug-heap-rebalance");
+    let (allocs, _, live) = per_thousand_cells(
+        &scratch,
+        "rebalance",
+        r"type Color = Red | Black
+type Tree = Leaf | Node(Color, Tree, Int, Bool, Tree)
+
+fn balance(left_tree: Tree, right_tree: Tree) -> Tree {
+    match left_tree {
+        Node(_, _, kv, vv, tail) -> match right_tree {
+            Node(_, l, ky, vy, r) -> Node(Black, Node(Red, l, ky, vy, r), kv, vv, tail),
+            _ -> Leaf,
+        },
+        _ -> Leaf,
+    }
+}
+
+fn size(tree: Tree) -> Int {
+    match tree {
+        Leaf -> 0,
+        Node(_, l, _, _, r) -> size(l) + size(r) + 1,
+    }
+}
+
+fn turns(n: Int, acc: Int) -> Int {
+    if n == 0 {
+        acc
+    } else {
+        let left = Node(Black, Leaf, n, true, Leaf)
+        let right = Node(Black, Leaf, n, false, Leaf)
+        turns(n - 1, acc + size(balance(left, right)))
+    }
+}
+
+fn main() {
+    print(turns(SIZE, 0))
+}
+",
+    );
+    assert_eq!((allocs, live), (2000, 0), "(allocs, live) per 1000 turns");
+}
+
 /// Releasing the rebuilt list frees every cell: none is left behind by a copy
 /// the match made and nothing released (0189 F3-4).
 #[test]
@@ -141,6 +209,74 @@ fn a_loop_that_lends_a_fresh_list_to_its_tail_call_stays_a_tail_call() {
     let file = path.to_string_lossy();
     let (native, stderr, code) = run(&scratch, &file, &["--native"], None);
     assert_eq!((native.as_str(), code), ("29999997\n", 0), "{stderr}");
+}
+
+const WALK_PASSING_ON_A_FIELD: &str = r"type Tree = Node(Tree, Tree) | Tip
+
+type Stack = Empty | Push(Tree, Stack)
+
+fn spine(n: Int, acc: Tree) -> Tree {
+    if n <= 0 {
+        acc
+    } else {
+        let next = Node(Tip, acc)
+        spine(n - 1, next)
+    }
+}
+
+fn walk(tree: Tree, stack: Stack, acc: Int) -> Int {
+    match tree {
+        Node(left, right) -> do {
+            let pushed = Push(right, stack)
+            walk(left, pushed, acc + 1)
+        },
+        Tip -> match stack {
+            Push(next, rest) -> walk(next, rest, acc),
+            Empty -> acc,
+        },
+    }
+}
+
+fn main() with IO {
+    BODY
+}
+";
+
+/// `walk` owns its tree now, and frees it as it goes, unless the caller keeps it
+/// (KI-163). Neither way may leave a block per cell, or free one twice, and the
+/// tree the caller kept still has to read the same.
+#[test]
+fn a_walk_that_owns_its_tree_frees_it_once_whoever_else_holds_it_ki163() {
+    let scratch = Scratch::new("debug-heap-walk-field");
+    let given = WALK_PASSING_ON_A_FIELD.replace("BODY", "print(walk(spine(SIZE, Tip), Empty, 0))");
+    let (allocs, frees, live) = per_thousand_cells(&scratch, "given", &given);
+    assert_eq!((allocs, live), (frees, 0), "given away: {allocs} {frees} {live}");
+    let kept = WALK_PASSING_ON_A_FIELD.replace(
+        "BODY",
+        "let kept = spine(SIZE, Tip)\n    print(walk(kept, Empty, 0))\n    print(walk(kept, Empty, 0))",
+    );
+    let (allocs, frees, live) = per_thousand_cells(&scratch, "kept", &kept);
+    assert_eq!((allocs, live), (frees, 0), "kept: {allocs} {frees} {live}");
+    let path = scratch.write("kept_output.flx", &kept.replace("SIZE", "1000"));
+    let file = path.to_string_lossy();
+    let (native, stderr, code) = run(&scratch, &file, &["--native", "--debug-heap"], None);
+    assert_eq!((native.as_str(), code), ("1000\n1000\n", 0), "{stderr}");
+}
+
+/// The parity fixture for KI-163, deep enough that a frame per turn overflows the
+/// stack. The debug heap can't run it this deep within parity's timeout.
+#[test]
+fn a_walk_passing_on_a_field_stays_a_jump_at_any_depth_ki163() {
+    let scratch = Scratch::new("debug-heap-walk-deep");
+    let source = include_str!("../../parity/tail_call_passes_on_a_field_ki163.flx")
+        .replace("1000,", "1000000,");
+    let path = scratch.write("walk_deep.flx", &source);
+    let file = path.to_string_lossy();
+    let expected = "1000000\n1000000\n1000000\n1000000\n1000000\n1000001\n";
+    for flags in [&["--native"][..], &["--native", "--optimize"][..]] {
+        let (native, stderr, code) = run(&scratch, &file, flags, None);
+        assert_eq!((native.as_str(), code), (expected, 0), "{flags:?}: {stderr}");
+    }
 }
 
 const CLOSURE_PER_TURN: &str = r"fn numbers(n) {

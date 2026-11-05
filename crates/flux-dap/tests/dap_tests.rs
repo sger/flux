@@ -326,8 +326,10 @@ fn breakpoints_stack_variables_and_watches() {
     snapshot("breakpoints_stack_variables_and_watches", &editor.finish());
 }
 
-/// A program for `.refs` (0188 S10b): at line 6, `xs` is shared.
-const REFS: &str = "fn total(xs: List<Int>) -> Int {\n    let ys = xs\n    let pair = (ys, \"pair\")\n    len(xs) + len(pair.0)\n}\n\nfn main() {\n    let fresh = [1, 2, 3]\n    print(total(fresh))\n}\n";
+/// A program for `.refs` (0188 S10b): at line 6, `xs` is shared. `fresh` is
+/// built at run time, since a list of constants is one static object whose
+/// count never changes.
+const REFS: &str = "fn total(xs: List<Int>) -> Int {\n    let ys = xs\n    let pair = (ys, \"pair\")\n    len(xs) + len(pair.0)\n}\n\nfn main() {\n    let fresh = [len(\"a\" + \"b\") - 1, 2, 3]\n    print(total(fresh))\n}\n";
 
 /// The Debug Console's answer to `expression`.
 fn console_result(editor: &mut Editor, expression: &str) -> String {

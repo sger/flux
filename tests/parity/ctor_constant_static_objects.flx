@@ -1,0 +1,81 @@
+// parity: vm, llvm
+// expect: success
+// bug: guards constructors whose fields are all constants, which natively are
+//       read-only static objects: they are matched, rebuilt by functions that
+//       would reuse a unique node in place, dropped inside heap trees, nested
+//       in each other, and moved to a worker, so one that is written, freed
+//       or counted shows up as a crash, a wrong checksum, or a TSan report.
+// parity-expected-stdout-begin
+// 1525
+// 2046
+// 32
+// 15
+// 6
+// 501
+// parity-expected-stdout-end
+
+import Flow.Task as Task
+
+type Tree = Node(Tree, Int, Tree) | Tip
+type Label = Label(Tree, Int, String, Option<Int>)
+
+fn grow(depth: Int) -> Tree {
+    if depth <= 0 {
+        Node(Tip, 1, Tip)
+    } else {
+        Node(grow(depth - 1), depth, grow(depth - 1))
+    }
+}
+
+fn total(tree: Tree) -> Int {
+    match tree {
+        Node(left, value, right) -> total(left) + value + total(right),
+        Tip -> 0,
+    }
+}
+
+// Takes the tree, so a unique node is rebuilt in place; a static one must be
+// copied instead.
+fn bump(tree: Tree) -> Tree {
+    match tree {
+        Node(left, value, right) -> Node(bump(left), value + 1, bump(right)),
+        Tip -> Tip,
+    }
+}
+
+fn nested() -> Tree {
+    Node(Node(Tip, 2, Node(Tip, 3, Tip)), 4, Node(Tip, 5, Tip))
+}
+
+fn label_sum(label: Label) -> Int {
+    match label {
+        Label(tree, n, text, Some(extra)) -> total(tree) + n + len(text) + extra,
+        Label(tree, n, text, None) -> total(tree) + n + len(text),
+    }
+}
+
+fn digits() -> List<Int> {
+    [1, 2, 3]
+}
+
+fn sum_list(xs: List<Int>) -> Int {
+    match xs {
+        [x | rest] -> x + sum_list(rest),
+        _ -> 0,
+    }
+}
+
+fn on_worker(depth: Int) -> Int {
+    let tree = grow(depth)
+    let t = Task.spawn_move(fn() { total(tree) })
+    Task.blocking_join(t)
+}
+
+fn main() with IO {
+    print(total(grow(9)))
+    print(total(bump(bump(grow(9)))) - total(grow(9)))
+    print(total(bump(nested())) + total(nested()))
+    print(label_sum(Label(Node(Tip, 1, Tip), 2, "seven", Some(7))))
+    print(sum_list(digits()))
+    print(on_worker(9) - 1024)
+}

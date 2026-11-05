@@ -1,0 +1,12 @@
+// parity: vm, llvm
+// expect: runtime_error
+// bug: KI-157: natively a Float key was accepted and gave a wrong answer, where
+//       the VM stops; both backends must refuse it.
+
+import Flow.Map as Map
+
+fn half(x: Float) -> Float { x / 2.0 }
+
+fn main() with IO {
+    print(Map.set({}, half(3.0), "a"))
+}

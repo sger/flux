@@ -992,6 +992,14 @@ fn collect_aether_debug_details(
                 ));
                 walk(body, interner, details);
             }
+            AetherExpr::FreeShell { var, body, span } => {
+                details.drops.push(format!(
+                    "line {}: free_shell {}",
+                    span.start.line,
+                    crate::aether::display::format_var_ref(var, interner)
+                ));
+                walk(body, interner, details);
+            }
             AetherExpr::Reuse { token, tag, fields, field_mask, span } => {
                 details.reuses.push(format!(
                     "line {}: reuse {} as {}{}",
@@ -1249,6 +1257,10 @@ pub struct Compiler {
     strict_mode: bool,
     /// How much debug information to build (proposal 0188, `-g`).
     debug_level: crate::debuginfo::DebugLevel,
+    /// Each top-level function's name and its consuming clone's. Lowering to Aether
+    /// can't intern, and which functions get a clone is only known once it has run
+    /// (0200 C1).
+    pub owned_clone_names: HashMap<Identifier, Identifier>,
     /// One entry per module this compiler lowered while `debug_level` was
     /// enabled, in lowering order.
     debug_infos: Vec<crate::debuginfo::ProgramDebugInfo>,
@@ -1822,6 +1834,7 @@ impl Compiler {
             inferred_function_effects: HashMap::new(),
             strict_mode: false,
             debug_level: crate::debuginfo::DebugLevel::None,
+            owned_clone_names: HashMap::new(),
             debug_infos: Vec::new(),
             left_debug_tables: None,
             pipe_sites: debug_sites::PipeSites::default(),
@@ -2052,13 +2065,14 @@ impl Compiler {
             pre_pass_core,
         )?;
         let preloaded_registry = self.build_preloaded_borrow_registry(program_to_lower);
-        let (mut aether, _) = crate::aether::lower_core_to_aether_program(
+        let (mut aether, _) = crate::aether::lower_core_to_native_aether_program(
             &core,
             Some(&self.interner),
             preloaded_registry,
+            &self.owned_clone_names,
         )?;
         if crate::aether::verify::contract_gate() {
-            crate::core::passes::verify_aether_program_contract(&aether)?;
+            crate::core::passes::verify_aether_program_contract(&aether, Some(&self.interner))?;
         }
         aether.inline_sites = inline_sites;
         Ok(aether)
@@ -2111,6 +2125,30 @@ impl Compiler {
             hm_expr_types: &self.hm_expr_types,
         };
         desugar_named_fields_in_program(program, &mut ctx);
+    }
+
+    /// Plans from here on make consuming clones for `program`'s functions (proposal
+    /// 0200). Only a native plan wants them: the VM's values are `Rc`s, so its plans and
+    /// traces have none.
+    pub fn enable_owned_clones(&mut self, program: &Program) {
+        self.intern_owned_clone_names(&program.statements);
+    }
+
+    fn intern_owned_clone_names(&mut self, statements: &[Statement]) {
+        for statement in statements {
+            match statement {
+                Statement::Function { name, .. } if !self.owned_clone_names.contains_key(name) => {
+                    let clone =
+                        crate::aether::owned_clone::owned_clone_name(self.interner.resolve(*name));
+                    let clone = self.interner.intern(&clone);
+                    self.owned_clone_names.insert(*name, clone);
+                }
+                Statement::Module { body, .. } => {
+                    self.intern_owned_clone_names(&body.statements);
+                }
+                _ => {}
+            }
+        }
     }
 
     #[allow(clippy::result_large_err)]
@@ -6368,6 +6406,7 @@ impl Compiler {
     /// Lower to Core IR, then to LIR, and return a human-readable dump.
     #[allow(clippy::result_large_err)]
     pub fn dump_lir(&mut self, program: &Program, optimize: bool) -> Result<String, Diagnostic> {
+        self.enable_owned_clones(program);
         let aether = self.prepare_backend_core_program_with_preloaded(program, optimize)?;
         let globals_map = self.build_globals_map();
         let lir = crate::lir::lower::lower_aether_program_with_interner(
@@ -6409,6 +6448,7 @@ impl Compiler {
         program: &Program,
         optimize: bool,
     ) -> Result<crate::llvm::LlvmModule, Diagnostic> {
+        self.enable_owned_clones(program);
         let aether = self.prepare_backend_core_program_with_preloaded(program, optimize)?;
 
         // Pass None for globals_map so ALL functions are lowered to LIR
@@ -6442,6 +6482,7 @@ impl Compiler {
         self.apply_named_field_desugar(&mut effective_program);
         let mut pre_pass_core = None;
         let capture = self.debug_level.is_enabled().then_some(&mut pre_pass_core);
+        self.intern_owned_clone_names(&effective_program.statements);
         let aether = self.lower_aether_from_program(&effective_program, optimize, true, capture)?;
         if let Some(core) = &pre_pass_core {
             self.record_debug_info(core);

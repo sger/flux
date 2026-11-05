@@ -7,15 +7,18 @@
  *   - uint8_t scan_fsize  (number of child tagged fields to scan on drop;
  *                          arrays and map nodes count theirs in the payload)
  *   - uint8_t obj_tag     (FLUX_OBJ_STRING, FLUX_OBJ_ARRAY, etc.)
- *   - uint16_t reserved
+ *   - uint8_t progress    (the stackless drop's field index)
+ *   - uint8_t size_class  (the block's free-list class, 0 for none, plus
+ *                          FLUX_FROM_CHUNK for a chunk block)
  *
  * Memory layout:
- *   ┌─────────────────────────┐  ← malloc'd block
+ *   ┌─────────────────────────┐  ← malloc'd or chunk block
  *   │  FluxHeader (8 bytes)   │
  *   │  ├─ refcount            │
  *   │  ├─ scan_fsize          │
  *   │  ├─ obj_tag             │
- *   │  └─ reserved            │
+ *   │  ├─ progress            │
+ *   │  └─ size_class          │
  *   ├─────────────────────────┤
  *   │  payload                │  ← returned pointer
  *   └─────────────────────────┘
@@ -50,10 +53,11 @@
  * the synchronization point that gives every other thread a happens-after
  * view of the prior ST writes.
  *
- * Phase 7 (Proposal 0140): bump arena for fast-path allocation.
- * A 1 MB arena is allocated once at init.  flux_gc_alloc_header tries
- * to bump-allocate from the arena; on overflow it falls back to malloc.
- * flux_drop skips free() for arena-resident objects (range check).
+ * Phase 7 (Proposal 0140): bump allocation. The thread that inits owns the
+ * heap: its blocks of up to 256 bytes come from size-class free lists, else
+ * from 1 MB chunks it bumps through, and go back on those lists when freed.
+ * Larger blocks, and every block of other threads, come from malloc (see
+ * "Heap" below).
  */
 
 #include "flux_rt.h"
@@ -61,20 +65,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-
-/* Set to 1 in task worker threads (tasks.c) to force malloc-only allocation,
- * bypassing the non-thread-safe bump arena.  The main thread always leaves
- * this at 0 and retains full bump-arena speed. */
-__thread int flux_worker_thread = 0;
-
-int32_t flux_can_use_bump_arena(void) {
-#ifdef FLUX_DEBUG_HEAP
-    /* Every block goes through flux_bump_alloc_slow, which records it. */
-    return 0;
-#else
-    return flux_worker_thread ? 0 : 1;
-#endif
-}
+#include <stddef.h>
 
 /* ── FluxHeader ────────────────────────────────────────────────────── */
 
@@ -82,7 +73,8 @@ typedef struct {
     _Atomic(int32_t) refcount;  /* sign-bit-encoded; see top-of-file comment */
     uint8_t  scan_fsize;        /* number of child tagged fields to scan */
     uint8_t  obj_tag;           /* FLUX_OBJ_STRING, FLUX_OBJ_ARRAY, etc. */
-    uint16_t _reserved;
+    uint8_t  progress;          /* see save_progress */
+    uint8_t  size_class;        /* see "Heap"; 0 = never recycled */
 } FluxHeader;
 
 /* ── Refcount helpers ──────────────────────────────────────────────── */
@@ -100,6 +92,10 @@ static inline void rc_store_relaxed(FluxHeader *hdr, int32_t v) {
  * value. ThreadSanitizer treats every atomic access as race-free, so in its
  * build the change is a plain write: a second thread that changes it without
  * synchronising with the owner is then a data race it reports (audit L7).
+ * Generated code changes a thread-local count in place without calling here
+ * (flux_dup_inline and flux_drop_inline in src/llvm/codegen/prelude.rs), and
+ * it is not built with ThreadSanitizer, so those changes go unseen
+ * (docs/known_issues.md#ki-159).
  */
 static inline void rc_store_local(FluxHeader *hdr, int32_t v) {
 #ifdef FLUX_TSAN_COUNTS
@@ -146,8 +142,8 @@ static inline size_t align_up(size_t n, size_t align) {
 /*
  * Built with -DFLUX_DEBUG_HEAP into libflux_rt_debug.a, which
  * `flux --debug-heap` links instead of libflux_rt.a. Generated code is the
- * same: it asks flux_can_use_bump_arena, which says no, so every block is
- * malloc'd here behind a prefix that records where it was allocated.
+ * same: no thread owns chunks, so the inline bump never fits and every block
+ * is malloc'd here behind a prefix that records where it was allocated.
  *
  *   ┌──────────────────────────┐
  *   │ FluxDebugPrefix          │  magic, size, allocation and free sites
@@ -358,90 +354,223 @@ void flux_debug_heap_report_leaks(void) {
 
 #endif /* FLUX_DEBUG_HEAP */
 
-/* ── Stats ─────────────────────────────────────────────────────────── */
-
-static _Atomic(size_t) gc_total_allocated = 0;
-static _Atomic(size_t) gc_num_allocs      = 0;
-
-/* ── Bump Arena ───────────────────────────────────────────────────── */
-
-#define FLUX_ARENA_DEFAULT_SIZE  (1 << 20)  /* 1 MB */
-
-static char *arena_base = NULL;
+/* ── Heap: chunks and free lists ───────────────────────────────────── */
 
 /*
- * Exported bump pointers — shared between C runtime and LLVM inline
- * allocation.  The LLVM fast path stores directly to flux_arena_hp,
- * so the C runtime MUST use the same variable (not a private copy)
- * to avoid allocating overlapping regions.
+ * One thread owns the heap: the one that runs flux_gc_init. It takes every
+ * block of up to FLUX_SMALL_MAX payload bytes from a size-class free list,
+ * else by bumping through 1 MB chunks it mallocs as it needs them. Such a
+ * block has FLUX_FROM_CHUNK in its class byte, and when it is freed it goes
+ * back on the owner's list for its class, linked through its first payload
+ * word, never to free(): the next block of that size is the same memory.
+ * So the heap only grows, to the sum of each class's peak, and is given back
+ * when the process exits, as GHC's is.
+ *
+ * Every other block, and every block of every other thread (task workers,
+ * the timer and async threads), comes from malloc and goes back to free().
+ * A chunk block freed on another thread is pushed on remote_free, which the
+ * owner empties onto its lists before it carves a new chunk, so the lists
+ * themselves are only ever touched by the owner.
+ *
+ * The bump pointers and the lists are one thread-local, flux_heap, which
+ * the LLVM inline allocation in src/llvm/codegen/prelude.rs reads too: it
+ * pops a class's list, else bumps, else calls the slow path here, which
+ * drains the remote frees and adds a chunk. flux_heap stays all zero on every
+ * thread but the owner, so neither the pop nor the bump succeeds there and
+ * allocation takes the slow path; the inline path needs no test of which
+ * thread it is on. The debug heap owns no
+ * chunks, so every block goes through the slow path that records it, and
+ * neither does an ASan build, so that ASan sees every block: generated code
+ * bumping through a chunk would hide them from it.
  */
-char *flux_arena_hp    = NULL;
-char *flux_arena_limit = NULL;
+#define FLUX_CHUNK_SIZE  ((size_t)1 << 20)
+#define FLUX_SMALL_MAX   256
+#define FLUX_NUM_CLASSES (FLUX_SMALL_MAX / FLUX_ALIGN + 1)
+#define FLUX_CLASS_MASK  0x3f
+#define FLUX_FROM_CHUNK  0x80
 
-static inline int is_bump_allocated(void *hdr) {
-    return arena_base && (char *)hdr >= arena_base && (char *)hdr < flux_arena_limit;
+#if defined(__has_feature)
+#  if __has_feature(address_sanitizer)
+#    define FLUX_ASAN 1
+#  endif
+#endif
+#if defined(__SANITIZE_ADDRESS__)
+#  define FLUX_ASAN 1
+#endif
+
+/* Generated code reads hp, limit and free[] at the offsets prelude.rs
+ * names (FLUX_HEAP_LIMIT, FLUX_HEAP_FREE, FLUX_HEAP_WORDS). */
+typedef struct {
+    char *hp;
+    char *limit;
+    FluxHeader *free[FLUX_NUM_CLASSES];
+    int owner;
+} FluxHeap;
+
+#if defined(_MSC_VER)
+static_assert(offsetof(FluxHeap, limit) == 8 && offsetof(FluxHeap, free) == 16 &&
+                  FLUX_NUM_CLASSES == 33,
+              "FluxHeap's layout is fixed by the inline allocator");
+#else
+_Static_assert(offsetof(FluxHeap, limit) == 8 && offsetof(FluxHeap, free) == 16 &&
+                   FLUX_NUM_CLASSES == 33,
+               "FluxHeap's layout is fixed by the inline allocator");
+#endif
+
+/* The runtime is linked into the executable, so on ELF this thread's copy is
+ * at a fixed offset from the thread pointer; Mach-O always goes through its
+ * thunk. */
+#if defined(__ELF__)
+__thread FluxHeap flux_heap __attribute__((tls_model("initial-exec")));
+#else
+__thread FluxHeap flux_heap;
+#endif
+
+static inline uint8_t size_class_of(size_t aligned) {
+    return aligned <= FLUX_SMALL_MAX ? (uint8_t)(aligned / FLUX_ALIGN) : 0;
 }
 
-static void arena_init(void) {
-#ifdef FLUX_DEBUG_HEAP
-    /* No arena: every block is recorded (see "Debug heap" above). */
-    return;
-#endif
-    arena_base = (char *)malloc(FLUX_ARENA_DEFAULT_SIZE);
-    if (!arena_base) {
-        fprintf(stderr, "flux: failed to allocate bump arena (%d bytes)\n",
-                FLUX_ARENA_DEFAULT_SIZE);
-        abort();
+#ifndef FLUX_DEBUG_HEAP
+
+/* The owner's chunks, linked through their first word. */
+static char *chunks = NULL;
+static _Atomic(FluxHeader *) remote_free = NULL;
+
+static inline FluxHeader **free_link(FluxHeader *hdr) {
+    return (FluxHeader **)((char *)hdr + FLUX_HEADER_SIZE);
+}
+
+static inline FluxHeader *free_list_pop(uint8_t size_class) {
+    FluxHeader *hdr = flux_heap.free[size_class];
+    if (hdr) {
+        flux_heap.free[size_class] = *free_link(hdr);
     }
-    flux_arena_hp    = arena_base;
-    flux_arena_limit = arena_base + FLUX_ARENA_DEFAULT_SIZE;
+    return hdr;
+}
+
+static inline void free_list_push(FluxHeader *hdr) {
+    uint8_t size_class = hdr->size_class & FLUX_CLASS_MASK;
+    *free_link(hdr) = flux_heap.free[size_class];
+    flux_heap.free[size_class] = hdr;
+}
+
+static void remote_push(FluxHeader *hdr) {
+    FluxHeader *head = atomic_load_explicit(&remote_free, memory_order_relaxed);
+    do {
+        *free_link(hdr) = head;
+    } while (!atomic_compare_exchange_weak_explicit(&remote_free, &head, hdr,
+                                                    memory_order_release,
+                                                    memory_order_relaxed));
+}
+
+/* Takes the whole stack at once, so with one taker there is no ABA. */
+static void remote_drain(void) {
+    if (!atomic_load_explicit(&remote_free, memory_order_relaxed)) return;
+    FluxHeader *hdr = atomic_exchange_explicit(&remote_free, NULL, memory_order_acquire);
+    while (hdr) {
+        FluxHeader *next = *free_link(hdr);
+        free_list_push(hdr);
+        hdr = next;
+    }
+}
+
+/* A block of `total` bytes from the current chunk, or from a new one. */
+static FluxHeader *chunk_bump(size_t total) {
+    char *hp = flux_heap.hp;
+    if (total > (size_t)(flux_heap.limit - hp)) {
+        char *chunk = (char *)malloc(FLUX_CHUNK_SIZE);
+        if (!chunk) {
+            fprintf(stderr, "flux: out of memory (a %zu-byte heap chunk)\n",
+                    (size_t)FLUX_CHUNK_SIZE);
+            abort();
+        }
+        *(char **)chunk = chunks;
+        chunks = chunk;
+        hp = chunk + FLUX_ALIGN;
+        flux_heap.limit = chunk + FLUX_CHUNK_SIZE;
+    }
+    flux_heap.hp = hp + total;
+    return (FluxHeader *)hp;
+}
+
+#endif /* !FLUX_DEBUG_HEAP */
+
+static void arena_init(void) {
+#if !defined(FLUX_DEBUG_HEAP) && !defined(FLUX_ASAN)
+    flux_heap.owner = 1;
+#endif
+}
+
+static inline void flux_block_free(void *ptr) {
+    FluxHeader *hdr = header_of(ptr);
+#ifdef FLUX_DEBUG_HEAP
+    debug_free(hdr);
+#else
+    if (!(hdr->size_class & FLUX_FROM_CHUNK)) {
+        free(hdr);
+    } else if (flux_heap.owner) {
+        free_list_push(hdr);
+    } else {
+        remote_push(hdr);
+    }
+#endif
 }
 
 /* ── Allocation ────────────────────────────────────────────────────── */
 
-void *flux_gc_alloc_header(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag) {
-    size_t aligned = align_up((size_t)payload_size, FLUX_ALIGN);
-    size_t total = FLUX_HEADER_SIZE + aligned;
-
-    FluxHeader *hdr = NULL;
-
-#ifdef FLUX_DEBUG_HEAP
-    hdr = debug_alloc(aligned);
-#endif
-
-    if (!hdr && !flux_worker_thread && arena_base) {
-        char *hp = flux_arena_hp;
-        char *new_ptr = hp + total;
-        if (new_ptr <= flux_arena_limit) {
-            /* Fast path: bump allocation from the arena (main thread only). */
-            hdr = (FluxHeader *)hp;
-            flux_arena_hp = new_ptr;
-        }
-    }
-
-    if (!hdr) {
-        /* Slow path: fall back to malloc. Worker threads never touch the
-         * process-global bump pointers, which keeps root-thread bump
-         * allocation single-writer even during native parallel re-entry. */
-        hdr = (FluxHeader *)malloc(total);
-        if (!hdr) {
-            fprintf(stderr, "flux_gc_alloc: out of memory (%u bytes)\n", payload_size);
-            abort();
-        }
-    }
-
+static inline void *init_header(FluxHeader *hdr, size_t aligned, uint8_t scan_fsize,
+                                uint8_t obj_tag, int from_chunk) {
     rc_store_relaxed(hdr, 1);
     hdr->scan_fsize = scan_fsize;
     hdr->obj_tag    = obj_tag;
-    hdr->_reserved  = 0;
+    hdr->progress   = 0;
+    hdr->size_class = (uint8_t)(size_class_of(aligned) | (from_chunk ? FLUX_FROM_CHUNK : 0));
+    return (char *)hdr + FLUX_HEADER_SIZE;
+}
 
-    void *payload = (char *)hdr + FLUX_HEADER_SIZE;
+static inline void *init_block(FluxHeader *hdr, size_t aligned, uint8_t scan_fsize,
+                               uint8_t obj_tag, int from_chunk) {
+    void *payload = init_header(hdr, aligned, scan_fsize, obj_tag, from_chunk);
     memset(payload, 0, aligned);
-
-    atomic_fetch_add_explicit(&gc_total_allocated, aligned, memory_order_relaxed);
-    atomic_fetch_add_explicit(&gc_num_allocs, 1, memory_order_relaxed);
-
     return payload;
+}
+
+/* A block for `aligned` payload bytes; sets *from_chunk when it is the
+ * owner's (see "Heap" above). `who` names the caller in the out-of-memory
+ * message. */
+static FluxHeader *take_block(uint32_t payload_size, size_t aligned, int *from_chunk,
+                              const char *who) {
+#ifdef FLUX_DEBUG_HEAP
+    (void)payload_size;
+    (void)who;
+    *from_chunk = 0;
+    return debug_alloc(aligned);
+#else
+    uint8_t size_class = size_class_of(aligned);
+    if (flux_heap.owner && size_class) {
+        FluxHeader *hdr = free_list_pop(size_class);
+        if (!hdr) {
+            remote_drain();
+            hdr = free_list_pop(size_class);
+        }
+        *from_chunk = 1;
+        return hdr ? hdr : chunk_bump(FLUX_HEADER_SIZE + aligned);
+    }
+    *from_chunk = 0;
+    FluxHeader *hdr = (FluxHeader *)malloc(FLUX_HEADER_SIZE + aligned);
+    if (!hdr) {
+        fprintf(stderr, "%s: out of memory (%u bytes)\n", who, payload_size);
+        abort();
+    }
+    return hdr;
+#endif
+}
+
+void *flux_gc_alloc_header(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag) {
+    size_t aligned = align_up((size_t)payload_size, FLUX_ALIGN);
+    int from_chunk;
+    FluxHeader *hdr = take_block(payload_size, aligned, &from_chunk, "flux_gc_alloc");
+    return init_block(hdr, aligned, scan_fsize, obj_tag, from_chunk);
 }
 
 /*
@@ -455,48 +584,37 @@ void *flux_gc_alloc(uint32_t size) {
 
 /*
  * Slow-path allocator for Phase 7b inline LLVM bump allocation.
- * Called when the inline bump check fails (arena full or uninitialized).
- * Uses malloc and initializes the header.
+ * Called when the inline bump check fails: the current chunk is full, the
+ * block has no size class, or this thread owns no heap.
  */
 void *flux_bump_alloc_slow(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag) {
     size_t aligned = align_up((size_t)payload_size, FLUX_ALIGN);
-    size_t total = FLUX_HEADER_SIZE + aligned;
+    int from_chunk;
+    FluxHeader *hdr = take_block(payload_size, aligned, &from_chunk, "flux_bump_alloc_slow");
+    return init_block(hdr, aligned, scan_fsize, obj_tag, from_chunk);
+}
 
+/* For a caller that writes every payload word before anything reads the
+ * block (`flux_bump_alloc_filled`), so zeroing it would be wasted. The debug
+ * heap fills it with FLUX_POISON instead, so a word the caller forgot reads
+ * as a stray Int and shows up as a heap-parity mismatch. */
+void *flux_bump_alloc_slow_filled(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag) {
+    size_t aligned = align_up((size_t)payload_size, FLUX_ALIGN);
+    int from_chunk;
+    FluxHeader *hdr = take_block(payload_size, aligned, &from_chunk, "flux_bump_alloc_slow");
+    void *payload = init_header(hdr, aligned, scan_fsize, obj_tag, from_chunk);
 #ifdef FLUX_DEBUG_HEAP
-    (void)total;
-    FluxHeader *hdr = debug_alloc(aligned);
-#else
-    FluxHeader *hdr = (FluxHeader *)malloc(total);
-    if (!hdr) {
-        fprintf(stderr, "flux_bump_alloc_slow: out of memory (%u bytes)\n", payload_size);
-        abort();
+    uint64_t *words = (uint64_t *)payload;
+    for (size_t i = 0; i < aligned / 8; i++) {
+        words[i] = FLUX_POISON;
     }
 #endif
-
-    rc_store_relaxed(hdr, 1);
-    hdr->scan_fsize = scan_fsize;
-    hdr->obj_tag    = obj_tag;
-    hdr->_reserved  = 0;
-
-    void *payload = (char *)hdr + FLUX_HEADER_SIZE;
-    memset(payload, 0, aligned);
-
-    atomic_fetch_add_explicit(&gc_total_allocated, aligned, memory_order_relaxed);
-    atomic_fetch_add_explicit(&gc_num_allocs, 1, memory_order_relaxed);
-
     return payload;
 }
 
 void flux_gc_free(void *ptr) {
     if (!ptr) return;
-    FluxHeader *hdr = header_of(ptr);
-#ifdef FLUX_DEBUG_HEAP
-    debug_free(hdr);
-    return;
-#endif
-    if (!is_bump_allocated(hdr)) {
-        free(hdr);
-    }
+    flux_block_free(ptr);
 }
 
 /* ── Reference Counting ────────────────────────────────────────────── */
@@ -552,16 +670,16 @@ static inline uint32_t scan_count(void *ptr) {
 
 /*
  * Where the stackless drop keeps a block's next field index while it walks a
- * child. `_reserved` holds 16 bits, too few for a long array or collision
- * node; those keep it in their fourth word instead, an array's unused
- * `_pad2` and half a map node's hash, which a node being freed no longer
- * needs.
+ * child. The header's `progress` byte is enough for a count that fits in
+ * `scan_fsize`, but too small for a long array or collision node; those keep
+ * it in their fourth word instead, an array's unused `_pad2` and half a map
+ * node's hash, which a node being freed no longer needs.
  */
 static inline void save_progress(void *ptr, uint32_t i) {
     if (counted_in_payload(ptr)) {
         ((uint32_t *)ptr)[3] = i;
     } else {
-        header_of(ptr)->_reserved = (uint16_t)i;
+        header_of(ptr)->progress = (uint8_t)i;
     }
 }
 
@@ -569,10 +687,8 @@ static inline uint32_t load_progress(void *ptr) {
     if (counted_in_payload(ptr)) {
         return ((uint32_t *)ptr)[3];
     }
-    return header_of(ptr)->_reserved;
+    return header_of(ptr)->progress;
 }
-
-static inline void flux_block_free(void *ptr);
 
 /*
  * Evidence vectors are not compatible with the generic scan_fsize scanner:
@@ -647,17 +763,6 @@ static inline void *flux_field_should_free(void *ptr, int field_idx) {
         if (old + 1 != 0) return NULL;
     }
     return child;
-}
-
-static inline void flux_block_free(void *ptr) {
-    FluxHeader *hdr = header_of(ptr);
-#ifdef FLUX_DEBUG_HEAP
-    debug_free(hdr);
-    return;
-#endif
-    if (!is_bump_allocated(hdr)) {
-        free(hdr);
-    }
 }
 
 /*
@@ -757,6 +862,33 @@ void flux_drop(int64_t val) {
     } else {
         flux_block_free(ptr);
     }
+}
+
+/*
+ * Frees a cell's block without releasing its fields, which the match arm
+ * that holds the cell took over (Aether's FreeShell, KI-164). Generated
+ * code calls it only right after flux_rc_is_unique said yes, with no call
+ * in between, so the count is still 1; the debug heap checks that.
+ */
+void flux_free_shell(int64_t val) {
+    if (!flux_is_ptr(val)) return;
+    void *ptr = flux_untag_ptr(val);
+    if (!ptr) return;
+    FluxHeader *hdr = header_of(ptr);
+#ifdef FLUX_DEBUG_HEAP
+    DEBUG_CHECK(hdr, "freeing");
+    int32_t rc = rc_load_relaxed(hdr);
+    if (rc != 1) {
+        char message[200];
+        int len = snprintf(message, sizeof message,
+                           "freeing the cell of %s that is not unique (count %d)",
+                           debug_kind(hdr->obj_tag), (int)rc);
+        if (len < 0) len = 0;
+        if ((size_t)len >= sizeof message) len = (int)sizeof message - 1;
+        flux_heap_fault(message, (uint32_t)len);
+    }
+#endif
+    flux_block_free(ptr);
 }
 
 int flux_rc_is_unique(int64_t val) {
@@ -859,18 +991,23 @@ void flux_rc_promote(int64_t val) {
 
 void flux_gc_init(size_t heap_size) {
     (void)heap_size;
-    atomic_store_explicit(&gc_total_allocated, 0, memory_order_relaxed);
-    atomic_store_explicit(&gc_num_allocs, 0, memory_order_relaxed);
     arena_init();
 }
 
+/* For a program that embeds the runtime: the CLI's flux_rt_shutdown never
+ * calls this. Runs on the owner, with no worker left that could free a
+ * chunk block; every listed block lives in a chunk, so freeing the chunks
+ * frees them all. */
 void flux_gc_shutdown(void) {
-    if (arena_base) {
-        free(arena_base);
-        arena_base       = NULL;
-        flux_arena_hp    = NULL;
-        flux_arena_limit = NULL;
+#ifndef FLUX_DEBUG_HEAP
+    atomic_store_explicit(&remote_free, NULL, memory_order_relaxed);
+    while (chunks) {
+        char *next = *(char **)chunks;
+        free(chunks);
+        chunks = next;
     }
+#endif
+    memset(&flux_heap, 0, sizeof flux_heap);
 }
 
 void flux_gc_collect(void) {
@@ -883,14 +1020,4 @@ void flux_gc_push_root(int64_t *root) {
 
 void flux_gc_pop_root(void) {
     /* No-op. */
-}
-
-/* ── Stats ─────────────────────────────────────────────────────────── */
-
-size_t flux_gc_allocated(void) {
-    return atomic_load_explicit(&gc_total_allocated, memory_order_relaxed);
-}
-
-size_t flux_gc_num_allocs(void) {
-    return atomic_load_explicit(&gc_num_allocs, memory_order_relaxed);
 }

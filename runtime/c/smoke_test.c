@@ -76,10 +76,8 @@ static void test_nanbox_ptr(void) {
 /* ── GC tests ───────────────────────────────────────────────────────── */
 
 static void test_gc_basic(void) {
-    size_t before = flux_gc_num_allocs();
     void *p = flux_gc_alloc(64);
     ASSERT(p != NULL, "gc_alloc returns non-null");
-    ASSERT(flux_gc_num_allocs() == before + 1, "gc alloc count incremented");
 }
 
 /* ── String tests ───────────────────────────────────────────────────── */

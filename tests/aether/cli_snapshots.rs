@@ -283,6 +283,30 @@ fn snapshot_bench_reuse_dump_aether() {
     assert_cli_snapshot("aether/bench_reuse.flx", &["--dump-aether"], "dump_aether");
 }
 
+/// The counts line of `name`'s section in an Aether dump, or `None` when the
+/// dump leaves the function out because Aether added nothing to it.
+fn aether_counts(dump: &str, name: &str) -> Option<String> {
+    let heading = format!("── fn {name} ");
+    let mut lines = dump.lines().skip_while(|line| !line.starts_with(&heading));
+    lines.next()?;
+    Some(lines.next().unwrap_or_default().trim().to_string())
+}
+
+#[test]
+fn int_and_bool_values_are_not_reference_counted() {
+    let file = example_path("aether/scalar_rc.flx");
+    let dump = run_flux(&["--dump-aether", file.to_str().unwrap()]);
+    for name in ["count_true", "keys_above", "root_entry"] {
+        if let Some(counts) = aether_counts(&dump, name) {
+            assert!(counts.starts_with("Dups: 0  Drops: 0 "), "{name}: {counts}\n{dump}");
+        }
+    }
+    // `build` releases its nested `build_go` closure, and nothing else: not
+    // the closure's Int parameters.
+    let counts = aether_counts(&dump, "build").unwrap_or_default();
+    assert!(counts.starts_with("Dups: 0  Drops: 1 "), "build: {counts}\n{dump}");
+}
+
 #[test]
 fn snapshot_bench_reuse_enabled_dump_aether() {
     assert_cli_snapshot("aether/bench_reuse_enabled.flx", &["--dump-aether"], "dump_aether");

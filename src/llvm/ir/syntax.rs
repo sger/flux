@@ -3,7 +3,7 @@ use super::LlvmType;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LlvmLocal(pub String);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct GlobalId(pub String);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -127,9 +127,21 @@ pub struct LlvmGlobal {
     pub name: GlobalId,
     pub ty: LlvmType,
     pub is_constant: bool,
+    /// Each thread has its own copy, its address found the way the model says.
+    pub thread_local: Option<TlsModel>,
     /// `None` for external global declarations (no initializer).
     pub value: Option<LlvmConst>,
     pub attrs: Vec<String>,
+}
+
+/// How a thread-local global's address is found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TlsModel {
+    /// LLVM's default: works from any module, a shared library's included.
+    GeneralDynamic,
+    /// For a global the executable defines: a fixed offset from the thread
+    /// pointer on ELF. Mach-O finds every thread-local through its thunk.
+    InitialExec,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -159,13 +171,27 @@ pub struct LlvmBlock {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum LlvmConst {
-    Int { bits: u32, value: i128 },
+    Int {
+        bits: u32,
+        value: i128,
+    },
     Float(f64),
     Null,
     Undef,
-    Array { element_ty: LlvmType, elements: Vec<LlvmConst> },
-    Struct { packed: bool, fields: Vec<(LlvmType, LlvmConst)> },
+    Array {
+        element_ty: LlvmType,
+        elements: Vec<LlvmConst>,
+    },
+    Struct {
+        packed: bool,
+        fields: Vec<(LlvmType, LlvmConst)>,
+    },
     GlobalRef(GlobalId),
+    /// The address `offset` bytes into a global.
+    GlobalOffset {
+        global: GlobalId,
+        offset: i64,
+    },
     ZeroInit,
 }
 

@@ -561,6 +561,7 @@ impl DebugBuilder {
             name: GlobalId(self.types_symbol.clone()),
             ty: LlvmType::Integer(8),
             is_constant: true,
+            thread_local: None,
             value: Some(LlvmConst::Int { bits: 8, value: 0 }),
             attrs: vec![format!(", !dbg !{expression}")],
         })
@@ -685,7 +686,10 @@ fn dropped(instr: &LlvmInstr) -> Option<&LlvmLocal> {
     let LlvmOperand::Global(GlobalId(name)) = callee else {
         return None;
     };
-    if name != "flux_drop" && name != "flux_drop_reuse" {
+    if !matches!(
+        name.as_str(),
+        "flux_drop" | "flux_drop_inline" | "flux_drop_reuse" | "flux_free_shell"
+    ) {
         return None;
     }
     match args.first() {

@@ -98,6 +98,7 @@ fn runs(program: &str) -> bool {
             | "handlers.flx"
             | "overflow.flx"
             | "refs.flx"
+            | "shells.flx"
     )
 }
 
@@ -308,6 +309,7 @@ const FIXTURES: &[&str] = &[
     "root_panic.flx",
     "inlined.flx",
     "refs.flx",
+    "shells.flx",
 ];
 
 /// The errors `llvm-dwarfdump --verify` reports in Flux's compile units.
@@ -647,6 +649,9 @@ fn assert_lines(session: &str, expected: &[&str]) {
 /// `flux refs` reads a value's reference count from its header (0188
 /// S10b). Natively `main` has passed `xs` on, so `total` holds its three
 /// references: `xs`, `ys` and the tuple's.
+/// `refs.flx` builds `xs` at run time, since a list of constants is one
+/// static object whose count never changes; `pair.1`, a string literal, is
+/// one too.
 #[test]
 fn lldb_counts_references() {
     let Some(lldb) = lldb() else {
@@ -677,7 +682,14 @@ fn lldb_counts_references() {
         &scratch,
         "app",
         ("refs.flx", 6),
-        &["flux refs xs", "flux refs ys", "flux refs pair", "flux refs pair.0", "flux refs pair.5"],
+        &[
+            "flux refs xs",
+            "flux refs ys",
+            "flux refs pair",
+            "flux refs pair.0",
+            "flux refs pair.1",
+            "flux refs pair.5",
+        ],
     ) else {
         return;
     };
@@ -688,9 +700,32 @@ fn lldb_counts_references() {
             "ys: 2 references (shared)",
             "pair: 1 reference (unique: can be reused in place)",
             "pair.0: 2 references (shared)",
+            "pair.1: static (never counted or freed)",
             "`pair.5` has no part `5`",
         ],
     );
+}
+
+/// KI-164: on the unique path `nodes` frees `tree`'s cell alone and keeps
+/// its children. The debugger must show `tree` as dropped there, not read
+/// the freed block, and still show both children.
+#[test]
+fn lldb_shows_a_freed_cell_as_dropped() {
+    let Some(lldb) = lldb() else {
+        eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
+        return;
+    };
+    let scratch = built("shells.flx");
+    let Some(session) = flux_session(
+        &lldb,
+        &scratch,
+        "app",
+        ("shells.flx", 13),
+        &["flux refs tree", "flux print left", "flux print right"],
+    ) else {
+        return;
+    };
+    assert_lines(&session, &["tree: dropped", "left = Node(Tip, Tip)", "right = Node(Tip, Tip)"]);
 }
 
 #[test]

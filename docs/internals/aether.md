@@ -253,6 +253,14 @@ Examples of checks:
 This is why malformed Aether fails before backend lowering with:
 - `E999 Aether Verification Failed`
 
+Every build runs the checker, at about 1.5% of a cold compile, because a plan that
+fails it otherwise runs as a memory bug with nothing to say so (KI-165). Two things
+skip it. `FLUX_AETHER_VERIFY=0` is the way past a false positive, and the E999 hint
+names it. `--dump-aether` skips it because the dump prints the same findings beside
+the plan, and a rejected plan is the one someone needs to read. A build that skipped
+the check has its own cache keys, so its units never reach a build that checks.
+`FLUX_AETHER_VERIFY=1` adds the optional diagnostics report on stderr.
+
 The verifier should be understood as an executable contract checker. The
 reduced formal target for future proof work is documented separately in:
 - `docs/internals/aether_formal_semantics.md`

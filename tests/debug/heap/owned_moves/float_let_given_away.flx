@@ -1,0 +1,10 @@
+// A Float `let` given to `print`, then read again: natively a Float is a
+// heap box, so it needs counting like any other boxed value.
+
+fn main() with IO {
+    let a = 3.14
+    let b = -0.5
+    print(b)
+    print(a + b)
+    print(a * 2.0)
+}

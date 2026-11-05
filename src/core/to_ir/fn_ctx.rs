@@ -723,7 +723,9 @@ impl<'a> FnCtx<'a> {
                 self.current_block = cont_block_idx;
                 dest
             }
-            AetherExpr::Drop { var, body, span } => {
+            // The VM's values are `Rc`s and each pattern field holds its own,
+            // so releasing the cell's slot frees only the shell there too.
+            AetherExpr::Drop { var, body, span } | AetherExpr::FreeShell { var, body, span } => {
                 if let Some(binder) = var.binder
                     && let Some(&ir_var) = self.env.get(&binder)
                 {

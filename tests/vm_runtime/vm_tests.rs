@@ -787,6 +787,23 @@ fn test_match_guards_true_and_false_paths() {
     );
 }
 
+/// The arm's fields used to share ids with the temporaries that built the value
+/// matched, so the build rejected this as a bad ownership plan (KI-167).
+#[test]
+fn a_top_level_match_on_heap_fields_builds_and_runs_ki167() {
+    assert_eq!(
+        run(r#"
+            data Box { Box(List<Int>, List<Int>), Empty }
+            match Box([1, 2, 3], [4, 5]) {
+                Box(a, b) if len(a) > 5 -> len(b),
+                Box(a, b) -> len(a) + len(b) * 10,
+                _ -> 0,
+            };
+        "#,),
+        Value::Integer(23)
+    );
+}
+
 #[test]
 fn test_match_guards_can_use_pattern_bound_values() {
     assert_eq!(

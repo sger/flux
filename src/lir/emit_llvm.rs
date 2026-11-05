@@ -8,7 +8,7 @@
 //! nearly 1:1: each `LirInstr` → one or more `LlvmInstr`, each
 //! `LirTerminator` → an `LlvmTerminator`, each `LirBlock` → an `LlvmBlock`.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::core::CorePrimOp;
 use crate::lir::*;
@@ -254,6 +254,7 @@ pub fn emit_llvm_module_with_debug(
             block_locs: Vec::new(),
             invoke_at: None,
             unwinds: false,
+            static_words: HashMap::new(),
         };
         let llvm_func = emitter.emit_function();
         let block_locs = std::mem::take(&mut emitter.block_locs);
@@ -284,6 +285,7 @@ pub fn emit_llvm_module_with_debug(
                 block_locs: Vec::new(),
                 invoke_at: None,
                 unwinds: false,
+                static_words: HashMap::new(),
             };
             let worker_func = emitter.emit_function();
             let block_locs = std::mem::take(&mut emitter.block_locs);
@@ -314,6 +316,7 @@ pub fn emit_llvm_module_with_debug(
                 block_locs: Vec::new(),
                 invoke_at: None,
                 unwinds: false,
+                static_words: HashMap::new(),
             };
             let direct_capture_func = emitter.emit_function();
             let block_locs = std::mem::take(&mut emitter.block_locs);
@@ -479,6 +482,7 @@ fn emit_user_ctor_name_helper(module: &mut LlvmModule, program: &LirProgram) {
             name: global.clone(),
             ty: LlvmType::Array { len: bytes.len() as u64, element: Box::new(LlvmType::i8()) },
             is_constant: true,
+            thread_local: None,
             value: Some(LlvmConst::Array {
                 element_ty: LlvmType::i8(),
                 elements: bytes
@@ -670,15 +674,28 @@ const STATIC_HEADER_SIZE: i64 = 8;
 const MAX_SCANNED_FIELDS: usize = 255;
 const FLUX_OBJ_STRING_TAG: i128 = 0xF1;
 
-/// Values that are the same every time they are made: string literals, and
-/// the closures of functions that capture nothing. Each is one read-only
-/// object outside the heap, with a sticky count, so making one allocates
-/// nothing and copying or releasing it does nothing.
+/// Values that are the same every time they are made: string literals, the
+/// closures of functions that capture nothing, and constructors whose fields
+/// are all such values or immediates. Each is one read-only object outside
+/// the heap, with a sticky count, so making one allocates nothing and copying
+/// or releasing it does nothing. Reuse needs a count of one, so a static
+/// object is never written.
 #[derive(Default)]
 struct StaticObjects {
     strings: BTreeMap<String, GlobalId>,
     /// Keyed by the function pointer the closure calls, with its arity.
     closures: BTreeMap<String, (GlobalId, usize)>,
+    /// Keyed by constructor tag and fields.
+    ctors: BTreeMap<(i32, Vec<StaticWord>), GlobalId>,
+}
+
+/// A word a static object can hold.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum StaticWord {
+    /// A tagged immediate: an Int, a Bool, None, the empty list.
+    Imm(i64),
+    /// Another static object.
+    Object(GlobalId),
 }
 
 impl StaticObjects {
@@ -699,12 +716,22 @@ impl StaticObjects {
             .clone()
     }
 
+    fn ctor(&mut self, tag: i32, fields: Vec<StaticWord>) -> GlobalId {
+        let next = self.ctors.len();
+        self.ctors
+            .entry((tag, fields))
+            .or_insert_with(|| GlobalId(format!("flux.ctor.{next}")))
+            .clone()
+    }
+
     fn emit(self, module: &mut LlvmModule) {
         let int =
             |bits: u32, value: i128| (LlvmType::Integer(bits), LlvmConst::Int { bits, value });
         let bytes =
             |len: usize| LlvmType::Array { len: len as u64, element: Box::new(LlvmType::i8()) };
-        let header = |tag: i128| vec![int(32, STATIC_RC), int(8, 0), int(8, tag), int(16, 0)];
+        let header = |tag: i128, scan: usize| {
+            vec![int(32, STATIC_RC), int(8, scan as i128), int(8, tag), int(16, 0)]
+        };
         let object = |name: GlobalId, fields: Vec<(LlvmType, LlvmConst)>| LlvmGlobal {
             linkage: Linkage::Private,
             name,
@@ -713,13 +740,14 @@ impl StaticObjects {
                 fields: fields.iter().map(|(ty, _)| ty.clone()).collect(),
             },
             is_constant: true,
+            thread_local: None,
             value: Some(LlvmConst::Struct { packed: false, fields }),
             attrs: vec![", align 8".to_string()],
         };
         for (text, name) in self.strings {
             // FluxString: its own tag byte, three pad bytes, the length,
             // then the bytes.
-            let mut fields = header(FLUX_OBJ_STRING_TAG);
+            let mut fields = header(FLUX_OBJ_STRING_TAG, 0);
             fields.extend([
                 int(8, FLUX_OBJ_STRING_TAG),
                 (bytes(3), LlvmConst::ZeroInit),
@@ -740,7 +768,7 @@ impl StaticObjects {
         for (fn_ptr, (name, arity)) in self.closures {
             // FluxClosure: the function, its remaining arity, no captures,
             // nothing applied, padding.
-            let mut fields = header(crate::llvm::codegen::FLUX_OBJ_CLOSURE_TAG as i128);
+            let mut fields = header(crate::llvm::codegen::FLUX_OBJ_CLOSURE_TAG as i128, 0);
             fields.extend([
                 (LlvmType::Ptr, LlvmConst::GlobalRef(GlobalId(fn_ptr))),
                 int(32, arity as i128),
@@ -748,6 +776,18 @@ impl StaticObjects {
                 int(32, 0),
                 int(32, 0),
             ]);
+            module.globals.push(object(name, fields));
+        }
+        for ((tag, words), name) in self.ctors {
+            // FluxAdt: the constructor tag, the field count, the fields.
+            let mut fields = header(crate::llvm::codegen::FLUX_OBJ_ADT as i128, words.len());
+            fields.extend([int(32, tag as i128), int(32, words.len() as i128)]);
+            fields.extend(words.into_iter().map(|word| match word {
+                StaticWord::Imm(value) => int(64, value as i128),
+                StaticWord::Object(global) => {
+                    (LlvmType::Ptr, LlvmConst::GlobalOffset { global, offset: STATIC_HEADER_SIZE })
+                }
+            }));
             module.globals.push(object(name, fields));
         }
     }
@@ -803,6 +843,8 @@ struct FnEmitter<'a> {
     invoke_at: Option<(usize, Vec<LirVar>)>,
     /// Whether the function has an `invoke`, and so needs a personality.
     unwinds: bool,
+    /// The variables known to hold a constant a static object can hold.
+    static_words: HashMap<LirVar, StaticWord>,
 }
 
 /// Adds `function` to `module`, with its debug information in a debug build.
@@ -911,7 +953,7 @@ impl<'a> FnEmitter<'a> {
     }
 
     /// Emit a call to a C runtime function.
-    /// Automatically uses `fastcc` for LLVM prelude helpers (arithmetic, NaN-box,
+    /// Automatically uses `fastcc` for LLVM prelude helpers (arithmetic, tagging,
     /// ADT constructors) and `ccc` for actual C runtime functions.
     fn call_c(
         &mut self,
@@ -1448,6 +1490,9 @@ impl<'a> FnEmitter<'a> {
         match instr {
             LirInstr::Const { dst, value } => self.emit_const(*dst, value),
             LirInstr::Copy { dst, src } => {
+                if let Some(word) = self.static_word(*src) {
+                    self.note_static(*dst, word);
+                }
                 // SSA identity: %dst = add i64 %src, 0
                 self.emit(LlvmInstr::Binary {
                     dst: self.var_local(*dst),
@@ -1890,7 +1935,7 @@ impl<'a> FnEmitter<'a> {
                 if !self.worker_mode {
                     self.call_c(
                         None,
-                        "flux_dup",
+                        "flux_dup_inline",
                         vec![(LlvmType::i64(), self.var(*val))],
                         LlvmType::Void,
                     );
@@ -1900,7 +1945,19 @@ impl<'a> FnEmitter<'a> {
                 if !self.worker_mode {
                     self.call_c(
                         None,
-                        "flux_drop",
+                        "flux_drop_inline",
+                        vec![(LlvmType::i64(), self.var(*val))],
+                        LlvmType::Void,
+                    );
+                }
+            }
+            // A worker counts nothing, so its uniqueness check proves
+            // nothing either: the cell may be someone else's too.
+            LirInstr::FreeShell { val } => {
+                if !self.worker_mode {
+                    self.call_c(
+                        None,
+                        "flux_free_shell",
                         vec![(LlvmType::i64(), self.var(*val))],
                         LlvmType::Void,
                     );
@@ -1956,8 +2013,7 @@ impl<'a> FnEmitter<'a> {
             }
             LirInstr::MakeTuple { dst, elements } => {
                 debug_assert!(elements.len() <= MAX_SCANNED_FIELDS, "E087 missed a tuple");
-                // flux_make_tuple is emitted by emit_adt_support (fastcc LLVM helper).
-                self.emit_make_collection_fastcc(*dst, elements, "flux_make_tuple");
+                self.emit_make_tuple(*dst, elements);
             }
             LirInstr::MakeHash { dst, pairs } => {
                 self.emit_make_hash(*dst, pairs);
@@ -2081,6 +2137,17 @@ impl<'a> FnEmitter<'a> {
     }
 
     fn emit_const(&mut self, dst: LirVar, value: &LirConst) {
+        let word = match value {
+            LirConst::Int(n) => Some((*n << 1) | 1),
+            LirConst::Bool(b) => Some(if *b { FLUX_TRUE } else { FLUX_FALSE }),
+            LirConst::None => Some(FLUX_NONE),
+            LirConst::EmptyList => Some(FLUX_EMPTY_LIST),
+            LirConst::Tagged(n) => Some(*n),
+            LirConst::Float(_) | LirConst::String(_) => None,
+        };
+        if let Some(word) = word {
+            self.note_static(dst, StaticWord::Imm(word));
+        }
         match value {
             LirConst::Int(n) => {
                 // In worker mode, emit raw value; otherwise pointer-tag: (n << 1) | 1.
@@ -2553,6 +2620,11 @@ impl<'a> FnEmitter<'a> {
 
     /// The value of a static object: the address just past its header.
     fn emit_static_ref(&mut self, dst: LirVar, gid: GlobalId) {
+        self.note_static(dst, StaticWord::Object(gid.clone()));
+        self.emit_static_ref_into(self.var_local(dst), gid);
+    }
+
+    fn emit_static_ref_into(&mut self, dst: LlvmLocal, gid: GlobalId) {
         let payload = self.tmp();
         self.emit(LlvmInstr::GetElementPtr {
             dst: payload.clone(),
@@ -2562,7 +2634,7 @@ impl<'a> FnEmitter<'a> {
             indices: vec![(LlvmType::i64(), self.i64_const(STATIC_HEADER_SIZE))],
         });
         self.emit(LlvmInstr::Cast {
-            dst: self.var_local(dst),
+            dst,
             op: LlvmValueKind::PtrToInt,
             from_ty: LlvmType::Ptr,
             operand: LlvmOperand::Local(payload),
@@ -2570,25 +2642,9 @@ impl<'a> FnEmitter<'a> {
         });
     }
 
-    fn emit_make_collection_fastcc(&mut self, dst: LirVar, elements: &[LirVar], func: &str) {
-        self.emit_make_collection_inner(dst, elements, func, true);
-    }
-
     fn emit_make_collection(&mut self, dst: LirVar, elements: &[LirVar], c_func: &str) {
-        self.emit_make_collection_inner(dst, elements, c_func, false);
-    }
-
-    fn emit_make_collection_inner(
-        &mut self,
-        dst: LirVar,
-        elements: &[LirVar],
-        c_func: &str,
-        use_fastcc: bool,
-    ) {
-        let call = if use_fastcc { FnEmitter::call_fastcc } else { FnEmitter::call_c };
         if elements.is_empty() {
-            call(
-                self,
+            self.call_c(
                 Some(self.var_local(dst)),
                 c_func,
                 vec![
@@ -2624,8 +2680,7 @@ impl<'a> FnEmitter<'a> {
                     align: Some(8),
                 });
             }
-            call(
-                self,
+            self.call_c(
                 Some(self.var_local(dst)),
                 c_func,
                 vec![
@@ -2671,11 +2726,23 @@ impl<'a> FnEmitter<'a> {
                 Some(next.clone()),
                 "flux_string_concat",
                 vec![
-                    (LlvmType::i64(), LlvmOperand::Local(current)),
-                    (LlvmType::i64(), LlvmOperand::Local(part_str)),
+                    (LlvmType::i64(), LlvmOperand::Local(current.clone())),
+                    (LlvmType::i64(), LlvmOperand::Local(part_str.clone())),
                 ],
                 LlvmType::i64(),
             );
+            // The concat only borrows both strings, so only the last join
+            // has an owner; this join's inputs are let go (KI-160).
+            if !self.worker_mode {
+                for val in [current, part_str] {
+                    self.call_c(
+                        None,
+                        "flux_drop",
+                        vec![(LlvmType::i64(), LlvmOperand::Local(val))],
+                        LlvmType::Void,
+                    );
+                }
+            }
             current = next;
         }
         self.emit(LlvmInstr::Binary {
@@ -2689,7 +2756,7 @@ impl<'a> FnEmitter<'a> {
 
     fn emit_make_hash(&mut self, dst: LirVar, pairs: &[LirVar]) {
         // Build HAMT from interleaved key-value pairs.
-        // Start with flux_hamt_empty(), then flux_hamt_set(map, key, val) for each pair.
+        // Start with flux_hamt_empty(), then flux_hamt_set_literal(map, key, val) for each pair.
         let mut current = self.tmp();
         self.call_c(Some(current.clone()), "flux_hamt_empty", Vec::new(), LlvmType::i64());
         for chunk in pairs.chunks(2) {
@@ -2697,7 +2764,7 @@ impl<'a> FnEmitter<'a> {
                 let next = self.tmp();
                 self.call_c(
                     Some(next.clone()),
-                    "flux_hamt_set",
+                    "flux_hamt_set_literal",
                     vec![
                         (LlvmType::i64(), LlvmOperand::Local(current.clone())),
                         (LlvmType::i64(), self.var(chunk[0])),
@@ -2733,152 +2800,148 @@ impl<'a> FnEmitter<'a> {
     }
 
     fn emit_make_list(&mut self, dst: LirVar, elements: &[LirVar]) {
-        // Build cons list right-to-left: Cons(e_n-1, Cons(e_n, EmptyList))
-        let empty = FLUX_EMPTY_LIST;
-        let current = self.i64_const(empty);
-        // Need a variable to hold the current tail.
-        let mut current_local: Option<LlvmLocal> = None;
-
-        for elem in elements.iter().rev() {
-            let result = self.tmp();
-            let tail_op = if let Some(ref loc) = current_local {
-                LlvmOperand::Local(loc.clone())
-            } else {
-                current.clone()
-            };
-            self.call_fastcc(
-                Some(result.clone()),
-                "flux_make_cons",
-                vec![(LlvmType::i64(), self.var(*elem)), (LlvmType::i64(), tail_op)],
-                LlvmType::i64(),
-            );
-            current_local = Some(result);
+        if elements.is_empty() {
+            self.emit(LlvmInstr::Binary {
+                dst: self.var_local(dst),
+                op: LlvmValueKind::Add,
+                ty: LlvmType::i64(),
+                lhs: self.i64_const(FLUX_EMPTY_LIST),
+                rhs: self.i64_const(0),
+            });
+            self.note_static(dst, StaticWord::Imm(FLUX_EMPTY_LIST));
+            return;
         }
-
-        if let Some(loc) = current_local {
-            // Copy to dst variable.
-            self.emit(LlvmInstr::Binary {
-                dst: self.var_local(dst),
-                op: LlvmValueKind::Add,
-                ty: LlvmType::i64(),
-                lhs: LlvmOperand::Local(loc),
-                rhs: self.i64_const(0),
-            });
-        } else {
-            // Empty list.
-            self.emit(LlvmInstr::Binary {
-                dst: self.var_local(dst),
-                op: LlvmValueKind::Add,
-                ty: LlvmType::i64(),
-                lhs: current,
-                rhs: self.i64_const(0),
-            });
+        // Built right to left, so each cell's tail already exists. The cells
+        // after the last element that is not a constant are static.
+        let mut tail = self.i64_const(FLUX_EMPTY_LIST);
+        let mut static_tail = Some(StaticWord::Imm(FLUX_EMPTY_LIST));
+        for (i, elem) in elements.iter().enumerate().rev() {
+            let cell = if i == 0 { self.var_local(dst) } else { self.tmp() };
+            let words = static_tail.and_then(|tail| Some(vec![self.static_word(*elem)?, tail]));
+            if let Some(words) = words {
+                let gid = self.statics.ctor(CONS_TAG, words);
+                self.emit_static_ref_into(cell.clone(), gid.clone());
+                static_tail = Some(StaticWord::Object(gid));
+            } else {
+                let fields = [self.var(*elem), tail];
+                self.emit_adt_object(cell.clone(), CONS_TAG, &fields);
+                static_tail = None;
+            }
+            tail = LlvmOperand::Local(cell);
+        }
+        if let Some(word) = static_tail {
+            self.note_static(dst, word);
         }
     }
 
     fn emit_make_ctor(&mut self, dst: LirVar, ctor_tag: i32, fields: &[LirVar]) {
         debug_assert!(fields.len() <= MAX_SCANNED_FIELDS, "E087 missed a constructor");
-        // Built-in constructors with dedicated C runtime functions
-        // that use flux_gc_alloc_header (correct RC metadata).
-        match (ctor_tag, fields.len()) {
-            (1, 1) => {
-                // Some(val)
-                self.call_c(
-                    Some(self.var_local(dst)),
-                    "flux_wrap_some",
-                    vec![(LlvmType::i64(), self.var(fields[0]))],
-                    LlvmType::i64(),
-                );
-                return;
-            }
-            (2, 1) => {
-                // Left(val)
-                self.call_c(
-                    Some(self.var_local(dst)),
-                    "flux_make_left",
-                    vec![(LlvmType::i64(), self.var(fields[0]))],
-                    LlvmType::i64(),
-                );
-                return;
-            }
-            (3, 1) => {
-                // Right(val)
-                self.call_c(
-                    Some(self.var_local(dst)),
-                    "flux_make_right",
-                    vec![(LlvmType::i64(), self.var(fields[0]))],
-                    LlvmType::i64(),
-                );
-                return;
-            }
-            (4, 2) => {
-                // Cons(head, tail)
-                self.call_fastcc(
-                    Some(self.var_local(dst)),
-                    "flux_make_cons",
-                    vec![
-                        (LlvmType::i64(), self.var(fields[0])),
-                        (LlvmType::i64(), self.var(fields[1])),
-                    ],
-                    LlvmType::i64(),
-                );
-                return;
-            }
-            _ => {}
+        let words: Option<Vec<StaticWord>> =
+            fields.iter().map(|field| self.static_word(*field)).collect();
+        if let Some(words) = words {
+            let gid = self.statics.ctor(ctor_tag, words);
+            self.emit_static_ref(dst, gid);
+            return;
         }
-        {
-            // User-defined ADTs: use flux_make_adt LLVM helper.
-            // flux_make_adt(ptr fields, i32 field_count, i32 ctor_tag) → i64
-            let arr = self.tmp();
-            if fields.is_empty() {
-                self.call_fastcc(
-                    Some(self.var_local(dst)),
-                    "flux_make_adt",
-                    vec![
-                        (LlvmType::Ptr, LlvmOperand::Const(LlvmConst::Null)),
-                        (LlvmType::i32(), self.i32_const(0)),
-                        (LlvmType::i32(), self.i32_const(ctor_tag)),
-                    ],
-                    LlvmType::i64(),
-                );
-            } else {
-                self.emit(LlvmInstr::Alloca {
-                    dst: arr.clone(),
-                    ty: LlvmType::Array {
-                        len: fields.len() as u64,
-                        element: Box::new(LlvmType::i64()),
-                    },
-                    count: None,
-                    align: Some(8),
-                });
-                for (i, field) in fields.iter().enumerate() {
-                    let gep = self.tmp();
-                    self.emit(LlvmInstr::GetElementPtr {
-                        dst: gep.clone(),
-                        inbounds: true,
-                        element_ty: LlvmType::i64(),
-                        base: LlvmOperand::Local(arr.clone()),
-                        indices: vec![(LlvmType::i32(), self.i32_const(i as i32))],
-                    });
-                    self.emit(LlvmInstr::Store {
-                        ty: LlvmType::i64(),
-                        value: self.var(*field),
-                        ptr: LlvmOperand::Local(gep),
-                        align: Some(8),
-                    });
-                }
-                self.call_fastcc(
-                    Some(self.var_local(dst)),
-                    "flux_make_adt",
-                    vec![
-                        (LlvmType::Ptr, LlvmOperand::Local(arr)),
-                        (LlvmType::i32(), self.i32_const(fields.len() as i32)),
-                        (LlvmType::i32(), self.i32_const(ctor_tag)),
-                    ],
-                    LlvmType::i64(),
-                );
-            }
+        // Some, Left, Right and Cons share the user constructors' layout.
+        let fields: Vec<LlvmOperand> = fields.iter().map(|field| self.var(*field)).collect();
+        self.emit_adt_object(self.var_local(dst), ctor_tag, &fields);
+    }
+
+    /// What `var` holds when it is the same constant on every run. A worker
+    /// holds its Ints untagged, so it reports none.
+    fn static_word(&self, var: LirVar) -> Option<StaticWord> {
+        if self.worker_mode {
+            return None;
         }
+        self.static_words.get(&var).cloned()
+    }
+
+    fn note_static(&mut self, var: LirVar, word: StaticWord) {
+        if !self.worker_mode {
+            self.static_words.insert(var, word);
+        }
+    }
+
+    /// Builds `{i32 tag, i32 count, fields}` in a new block, storing each
+    /// field into the block itself. A field array handed to a helper stayed
+    /// on the stack after optimization, with a copy, whenever the
+    /// constructor was not in the function's first block.
+    fn emit_adt_object(&mut self, dst: LlvmLocal, ctor_tag: i32, fields: &[LlvmOperand]) {
+        let mem = self.emit_filled_block(fields.len(), crate::llvm::codegen::FLUX_OBJ_ADT);
+        self.emit_store_at(LlvmType::i32(), self.i32_const(ctor_tag), &mem, 0);
+        self.emit_store_at(LlvmType::i32(), self.i32_const(fields.len() as i32), &mem, 1);
+        for (i, field) in fields.iter().enumerate() {
+            self.emit_store_at(LlvmType::i64(), field.clone(), &mem, 1 + i as i32);
+        }
+        self.emit_tag_block(dst, mem);
+    }
+
+    /// Builds `{i8 0xF3, pad, i32 arity, fields}` the same way.
+    fn emit_make_tuple(&mut self, dst: LirVar, elements: &[LirVar]) {
+        let obj_tag = crate::llvm::codegen::FLUX_OBJ_TUPLE;
+        let mem = self.emit_filled_block(elements.len(), obj_tag);
+        self.emit_store_at(
+            LlvmType::i8(),
+            LlvmOperand::Const(LlvmConst::Int { bits: 8, value: obj_tag as i128 }),
+            &mem,
+            0,
+        );
+        self.emit_store_at(LlvmType::i32(), self.i32_const(elements.len() as i32), &mem, 1);
+        for (i, elem) in elements.iter().enumerate() {
+            self.emit_store_at(LlvmType::i64(), self.var(*elem), &mem, 1 + i as i32);
+        }
+        self.emit_tag_block(self.var_local(dst), mem);
+    }
+
+    /// A block with an 8-byte object header and `fields` words after it,
+    /// none of them zeroed: the caller stores every one.
+    fn emit_filled_block(&mut self, fields: usize, obj_tag: i32) -> LlvmLocal {
+        let mem = self.tmp();
+        self.call_fastcc(
+            Some(mem.clone()),
+            "flux_bump_alloc_filled",
+            vec![
+                (LlvmType::i32(), self.i32_const(8 + 8 * fields as i32)),
+                (LlvmType::i32(), self.i32_const(fields as i32)),
+                (LlvmType::i32(), self.i32_const(obj_tag)),
+            ],
+            LlvmType::Ptr,
+        );
+        mem
+    }
+
+    /// Stores `value` at element `index` of `mem`, counted in `ty`s.
+    fn emit_store_at(&mut self, ty: LlvmType, value: LlvmOperand, mem: &LlvmLocal, index: i32) {
+        let align = match &ty {
+            t if *t == LlvmType::i64() => 8,
+            t if *t == LlvmType::i32() => 4,
+            _ => 1,
+        };
+        let ptr = if index == 0 {
+            mem.clone()
+        } else {
+            let gep = self.tmp();
+            self.emit(LlvmInstr::GetElementPtr {
+                dst: gep.clone(),
+                inbounds: true,
+                element_ty: ty.clone(),
+                base: LlvmOperand::Local(mem.clone()),
+                indices: vec![(LlvmType::i32(), self.i32_const(index))],
+            });
+            gep
+        };
+        self.emit(LlvmInstr::Store { ty, value, ptr: LlvmOperand::Local(ptr), align: Some(align) });
+    }
+
+    fn emit_tag_block(&mut self, dst: LlvmLocal, mem: LlvmLocal) {
+        self.emit(LlvmInstr::Cast {
+            dst,
+            op: LlvmValueKind::PtrToInt,
+            from_ty: LlvmType::Ptr,
+            operand: LlvmOperand::Local(mem),
+            to_ty: LlvmType::i64(),
+        });
     }
 
     // ── Yield-check emission (Proposal 0162 Phase 3 slice 3a) ────────
@@ -3835,7 +3898,7 @@ impl LirInstr {
 fn is_fastcc_prelude_helper(name: &str) -> bool {
     matches!(
         name,
-        // NaN-box tag/untag
+        // Pointer-tag tag/untag
         "flux_tag_int" | "flux_untag_int" | "flux_is_ptr"
         | "flux_tag_thunk" | "flux_untag_thunk_ptr" | "flux_is_thunk"
         | "flux_tag_boxed_ptr" | "flux_untag_boxed_ptr"
@@ -3848,11 +3911,10 @@ fn is_fastcc_prelude_helper(name: &str) -> bool {
         // Logic
         | "flux_not" | "flux_and" | "flux_or"
         // RC helpers
-        | "flux_drop_reuse" | "flux_rc_is_unique"
+        | "flux_dup_inline" | "flux_drop_inline" | "flux_drop_reuse" | "flux_rc_is_unique"
         // Bump allocator
-        | "flux_bump_alloc_inline"
-        // ADT/Tuple/Closure construction
-        | "flux_make_adt" | "flux_make_cons" | "flux_make_tuple"
+        | "flux_bump_alloc_inline" | "flux_bump_alloc_filled"
+        // Tuple/Closure helpers
         | "flux_tuple_len"
         | "flux_copy_i64s"
         | "flux_make_closure" | "flux_call_closure"
@@ -4134,12 +4196,14 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
             (LlvmType::i64(), vec![LlvmType::i64()])
         }
         "flux_panic" => (LlvmType::Void, vec![LlvmType::i64()]),
-        "flux_make_cons" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
-        "flux_make_array" | "flux_make_tuple" | "flux_make_hash" | "flux_interpolate" => {
+        "flux_hamt_set_literal" => {
+            (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64()])
+        }
+        "flux_make_array" | "flux_make_hash" | "flux_interpolate" => {
             (LlvmType::i64(), vec![LlvmType::Ptr, LlvmType::i32()])
         }
-        "flux_make_adt" => (LlvmType::i64(), vec![LlvmType::Ptr, LlvmType::i32(), LlvmType::i32()]),
         "flux_rc_is_unique" => (LlvmType::i1(), vec![LlvmType::i64()]),
+        "flux_free_shell" => (LlvmType::Void, vec![LlvmType::i64()]),
         "flux_drop_reuse" => (LlvmType::Ptr, vec![LlvmType::i64(), LlvmType::i32()]),
         // Collection helpers
         "flux_try" | "flux_array_reverse" | "flux_sort_default" | "flux_flatten" => {
@@ -4269,7 +4333,7 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         }
         "flux_event_wait" => (LlvmType::i64(), vec![LlvmType::i64()]),
         // TCP primops (proposal 0174 Phase 1b-vii).
-        // Args are NaN-boxed i64 values matching the Flow.Tcp primop arity.
+        // Args are tagged i64 values matching the Flow.Tcp primop arity.
         "flux_tcp_connect" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
         "flux_tcp_read" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
         "flux_tcp_write_all" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
