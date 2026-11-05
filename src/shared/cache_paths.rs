@@ -405,7 +405,9 @@ use sha2::{Digest, Sha256};
 /// epoch-131 unit can have copied or dropped a field's effect (KI-168).
 /// Epoch 133: a tail call that passes on a field of an owned value makes its target
 /// owned; an epoch-132 interface holds the old signature (KI-163).
-pub const CACHE_EPOCH: u16 = 133;
+/// Epoch 134: a path that builds two constructors reuses both of its cells; an
+/// epoch-133 unit holds the plan that allocated one and freed the other (KI-171).
+pub const CACHE_EPOCH: u16 = 134;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

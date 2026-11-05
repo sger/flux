@@ -2275,53 +2275,94 @@ fn has_compatible_con(
     let Some(pat_tag) = pat_tag else {
         return false;
     };
-    unclaimed_con_tag_in_spine(rhs, pat_tag, claims, &mut Vec::new())
-        .is_some_and(|ref con_tag| tags_shape_compatible(pat_tag, con_tag))
+    spare_constructors_on_a_path(rhs, pat_tag, false, claims, &mut Vec::new()) > 0
 }
 
-/// The tag of a constructor along `expr`'s spine that a scrutinee being
-/// released could reuse: as [`find_con_tag_in_spine`], but leaving out an
-/// inner arm that `claims` for its own scrutinee. The reuse pass gives such
-/// a constructor to the inner scrutinee, so releasing the outer one for it
-/// would only release it early. A scrutinee a pattern on the way down
-/// bound (`bound`) is a view, and never claims one.
-fn unclaimed_con_tag_in_spine(
+/// The most constructors of `expected_tag` any path through `expr` builds
+/// beyond those its inner cells take. Each inner arm that `claims` for its own
+/// scrutinee takes one, and the reuse pass gives it that one, so a scrutinee
+/// released for it would only be released early. A path that builds more than
+/// its inner cells take leaves one for the scrutinee being released (KI-171).
+/// A nested constructor is a `let`'s right-hand side by now, so that counts,
+/// unless a call comes first (`after_a_call`): the cell would then be released
+/// and its fields copied before the call, for no reuse. A scrutinee a pattern
+/// on the way down bound (`bound`) is a view, and never claims one.
+fn spare_constructors_on_a_path(
     expr: &CoreExpr,
     expected_tag: &CoreTag,
+    after_a_call: bool,
     claims: &dyn Fn(CoreBinderId, &CoreAlt) -> bool,
     bound: &mut Vec<CoreBinderId>,
-) -> Option<CoreTag> {
+) -> usize {
+    let builds_one = |expr: &CoreExpr| {
+        constructor_shape_for_tag_aether(expr, Some(expected_tag))
+            .is_some_and(|(tag, _, _)| tags_shape_compatible(expected_tag, &tag))
+    };
     match expr {
-        CoreExpr::Reuse { .. } => None,
-        _ if constructor_shape_for_tag_aether(expr, Some(expected_tag)).is_some() => {
-            constructor_shape_for_tag_aether(expr, Some(expected_tag)).map(|(tag, _, _)| tag)
-        }
+        _ if builds_one(expr) => 1,
         CoreExpr::Case { scrutinee, alts, .. } => {
             let scrutinee = match scrutinee.as_ref() {
                 CoreExpr::Var { var, .. } => var.binder,
                 _ => None,
             };
-            alts.iter().find_map(|alt| {
-                let claimed = scrutinee.is_some_and(|inner| {
-                    !bound.contains(&inner)
-                        && pat_constructor_tag(&alt.pat)
-                            .is_some_and(|tag| tags_shape_compatible(expected_tag, &tag))
-                        && claims(inner, alt)
-                });
-                if claimed {
-                    return None;
-                }
-                let depth = bound.len();
-                bound.extend(pat_binders(&alt.pat));
-                let found = unclaimed_con_tag_in_spine(&alt.rhs, expected_tag, claims, bound);
-                bound.truncate(depth);
-                found
-            })
+            alts.iter()
+                .map(|alt| {
+                    let claimed = scrutinee.is_some_and(|inner| {
+                        !bound.contains(&inner)
+                            && pat_constructor_tag(&alt.pat)
+                                .is_some_and(|tag| tags_shape_compatible(expected_tag, &tag))
+                            && claims(inner, alt)
+                    });
+                    let depth = bound.len();
+                    bound.extend(pat_binders(&alt.pat));
+                    let spare = spare_constructors_on_a_path(
+                        &alt.rhs,
+                        expected_tag,
+                        after_a_call,
+                        claims,
+                        bound,
+                    );
+                    bound.truncate(depth);
+                    spare.saturating_sub(usize::from(claimed))
+                })
+                .max()
+                .unwrap_or(0)
         }
-        CoreExpr::Let { body, .. } | CoreExpr::Drop { body, .. } | CoreExpr::Dup { body, .. } => {
-            unclaimed_con_tag_in_spine(body, expected_tag, claims, bound)
+        CoreExpr::Let { rhs, body, .. } => {
+            let built = builds_one(rhs);
+            usize::from(built && !after_a_call)
+                + spare_constructors_on_a_path(
+                    body,
+                    expected_tag,
+                    after_a_call || (!built && may_call(rhs)),
+                    claims,
+                    bound,
+                )
         }
-        _ => None,
+        CoreExpr::Drop { body, .. } | CoreExpr::Dup { body, .. } => {
+            spare_constructors_on_a_path(body, expected_tag, after_a_call, claims, bound)
+        }
+        _ => 0,
+    }
+}
+
+/// Whether evaluating `expr` may run code other than primitive operations. A
+/// constructor applied by name counts, since it reads like any other call here.
+fn may_call(expr: &CoreExpr) -> bool {
+    match expr {
+        CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => false,
+        CoreExpr::Con { fields: args, .. } | CoreExpr::PrimOp { args, .. } => {
+            args.iter().any(may_call)
+        }
+        CoreExpr::Let { rhs, body, .. } => may_call(rhs) || may_call(body),
+        CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => may_call(body),
+        CoreExpr::Case { scrutinee, alts, .. } => {
+            may_call(scrutinee)
+                || alts
+                    .iter()
+                    .any(|alt| may_call(&alt.rhs) || alt.guard.as_ref().is_some_and(may_call))
+        }
+        _ => true,
     }
 }
 
@@ -4767,6 +4808,98 @@ mod tests {
             Default::default(),
         );
         assert_eq!(drops(&planned, xs), 2, "{planned:?}");
+    }
+
+    /// Whether `cell` is released on the way to the case on `inner`, in the
+    /// first arm of each case before it.
+    fn released_above_case_on(expr: &CoreExpr, cell: CoreBinder, inner: CoreBinder) -> bool {
+        match expr {
+            CoreExpr::Lam { body, .. } | CoreExpr::Dup { body, .. } => {
+                released_above_case_on(body, cell, inner)
+            }
+            CoreExpr::Drop { var, body, .. } => {
+                var.binder == Some(cell.id) || released_above_case_on(body, cell, inner)
+            }
+            CoreExpr::Case { scrutinee, alts, .. } => {
+                let on_inner = matches!(
+                    scrutinee.as_ref(),
+                    CoreExpr::Var { var, .. } if var.binder == Some(inner.id)
+                );
+                !on_inner && released_above_case_on(&alts[0].rhs, cell, inner)
+            }
+            _ => false,
+        }
+    }
+
+    /// `xs` and `ys` are both released, around `Cons(h, t) -> case ys of
+    /// Cons(a, b) -> rhs`.
+    fn plan_of_two_cells(
+        interner: &mut Interner,
+        rhs: impl FnOnce([CoreBinder; 5]) -> CoreExpr,
+    ) -> (CoreExpr, CoreBinder, CoreBinder) {
+        let [xs, ys, h, t, a, b, x] =
+            [(1, "xs"), (2, "ys"), (3, "h"), (4, "t"), (5, "a"), (6, "b"), (7, "x")]
+                .map(|(id, name)| binder(interner, id, name));
+        let inner =
+            case_of(ys, vec![(cons(a, b), rhs([h, t, a, b, x])), (CorePat::Wildcard, nil())]);
+        let planned = super::insert_dup_drop_for_def(
+            lam(vec![xs, ys], case_of(xs, vec![(cons(h, t), inner), (CorePat::Wildcard, nil())])),
+            &BorrowRegistry::default(),
+            Default::default(),
+        );
+        (planned, xs, ys)
+    }
+
+    /// The inner cell takes one of the two constructors, which leaves one for
+    /// the outer cell, so the outer cell is released to be reused (KI-171).
+    #[test]
+    fn an_outer_cell_claims_the_second_constructor_on_a_path_ki171() {
+        let mut interner = Interner::new();
+        let (planned, xs, ys) = plan_of_two_cells(&mut interner, |[h, _, a, b, x]| CoreExpr::Let {
+            var: x,
+            rhs: Box::new(cons_of(vec![var(h), var(a)])),
+            body: Box::new(cons_of(vec![var(x), var(b)])),
+            span: Span::default(),
+        });
+        assert!(released_above_case_on(&planned, xs, ys), "{planned:?}");
+    }
+
+    /// One constructor and two cells: the inner cell takes it, so releasing
+    /// the outer cell first gains nothing (`nested_match_drops_neither_list_twice`).
+    #[test]
+    fn an_outer_cell_leaves_the_only_constructor_to_the_inner_cell() {
+        let mut interner = Interner::new();
+        let (planned, xs, ys) =
+            plan_of_two_cells(&mut interner, |[h, _, _, b, _]| cons_of(vec![var(h), var(b)]));
+        assert!(!released_above_case_on(&planned, xs, ys), "{planned:?}");
+    }
+
+    /// `Cons(h, t) -> let c = pred(h) in let x = Cons(h, acc) in f(t, x)`, as in
+    /// `take_while`: no reuse can follow the release across the call, so
+    /// claiming the cell would only copy its fields for nothing.
+    #[test]
+    fn a_constructor_a_let_binds_after_a_call_claims_no_cell() {
+        let mut interner = Interner::new();
+        let [xs, acc, h, t, c, x] = [(1, "xs"), (2, "acc"), (3, "h"), (4, "t"), (5, "c"), (6, "x")]
+            .map(|(id, name)| binder(&mut interner, id, name));
+        let [pred, f] = ["pred", "f"].map(|name| interner.intern(name));
+        let let_in = |var, rhs, body| CoreExpr::Let {
+            var,
+            rhs: Box::new(rhs),
+            body: Box::new(body),
+            span: Span::default(),
+        };
+        let rhs = let_in(
+            c,
+            call(pred, vec![var(h)]),
+            let_in(x, cons_of(vec![var(h), var(acc)]), call(f, vec![var(t), var(x)])),
+        );
+        let planned = super::insert_dup_drop_for_def(
+            lam(vec![xs, acc], case_of(xs, vec![(cons(h, t), rhs), (CorePat::Wildcard, nil())])),
+            &BorrowRegistry::default(),
+            Default::default(),
+        );
+        assert!(!released_above_case_on(&planned, xs, c), "{planned:?}");
     }
 
     /// The other arm only reads `xs`, so this arm keeps the cell and copies

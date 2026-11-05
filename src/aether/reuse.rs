@@ -10,10 +10,12 @@ use crate::core::{CoreBinderId, CorePat, CoreTag, CoreVarRef};
 use crate::diagnostics::position::Span;
 use crate::shared::opt_bisect;
 
-use super::analysis::{ArmShape, pat_field_binder_ids, shell_disposals, uses_shell_on_every_path};
+use super::analysis::{
+    ArmShape, pat_field_binder_ids, shell_disposals, use_counts_aether, uses_shell_on_every_path,
+};
 use super::reuse_analysis::rewrite_drop_body;
 use super::verify::reads_after_release;
-use super::{AetherExpr, into_constructor_shape_for_tag_aether};
+use super::{AetherExpr, constructor_shape_for_tag_aether, into_constructor_shape_for_tag_aether};
 
 type CoreExpr = AetherExpr;
 
@@ -403,6 +405,29 @@ fn runs_no_code(expr: &CoreExpr) -> bool {
     }
 }
 
+/// A constructor a `let` binds, written into the matched cell. The code after
+/// the `let` still runs, but the arm read its fields at its head, so it never
+/// reads them out of the cell (KI-171). A field copied here means the arm did
+/// not claim the cell, and frees its shell instead.
+fn reuse_for_let_rhs(
+    scrutinee: &CoreVarRef,
+    rhs: &CoreExpr,
+    pat_tag: Option<&CoreTag>,
+) -> Option<CoreExpr> {
+    let token = scrutinee.binder?;
+    let (tag, fields, span) = constructor_shape_for_tag_aether(rhs, pat_tag)?;
+    let usable = fields.iter().all(|field| {
+        !matches!(field, CoreExpr::Dup { .. }) && !use_counts_aether(field).contains_key(&token)
+    });
+    (Some(&tag) == pat_tag && is_heap_tag(&tag) && usable).then(|| CoreExpr::Reuse {
+        token: *scrutinee,
+        tag,
+        fields: fields.to_vec(),
+        field_mask: None,
+        span,
+    })
+}
+
 /// Perceus drop-reuse specialization (Section 2.4, Fig 1e-1g).
 ///
 /// On the unique path of a `DropSpecialized`, the scrutinee is guaranteed
@@ -426,18 +451,28 @@ fn insert_reuse_in_unique(
     }
     match body {
         // Walk through Let spine
-        CoreExpr::Let { var, rhs, body: let_body, span } => CoreExpr::Let {
-            var,
-            rhs,
-            body: Box::new(insert_reuse_in_unique(
-                scrutinee,
-                *let_body,
-                pat_tag,
-                arm,
-                blocked_outer_token,
-            )),
-            span,
-        },
+        CoreExpr::Let { var, rhs, body: let_body, span } => {
+            if let Some(reused) = reuse_for_let_rhs(scrutinee, &rhs, pat_tag) {
+                return CoreExpr::Let {
+                    var,
+                    rhs: Box::new(reused),
+                    body: Box::new(rewrite_with_ctx(*let_body, arm, blocked_outer_token)),
+                    span,
+                };
+            }
+            CoreExpr::Let {
+                var,
+                rhs,
+                body: Box::new(insert_reuse_in_unique(
+                    scrutinee,
+                    *let_body,
+                    pat_tag,
+                    arm,
+                    blocked_outer_token,
+                )),
+                span,
+            }
+        }
         // Walk through Dup spine
         CoreExpr::Dup { var, body: dup_body, span } => CoreExpr::Dup {
             var,
@@ -625,6 +660,109 @@ mod tests {
 
         let rewritten = super::insert_reuse(expr);
         assert_eq!(reuses_of(&rewritten, xs.id), 1, "{rewritten:?}");
+    }
+
+    /// `[y | ys] -> let tmp = rhs in f(tmp, ys)`, split into its two paths, with
+    /// `rhs` built from `[xs, y, ys, acc]`.
+    fn let_then_a_call(rhs: impl Fn([CoreBinder; 4]) -> CoreExpr) -> (CoreExpr, CoreBinderId) {
+        let mut interner = Interner::new();
+        let [xs, y, ys, acc, tmp, f] =
+            [(1, "xs"), (2, "y"), (3, "ys"), (4, "acc"), (5, "tmp"), (6, "f")]
+                .map(|(id, name)| CoreBinder::new(CoreBinderId(id), interner.intern(name)));
+        let body = || CoreExpr::Let {
+            var: tmp,
+            rhs: Box::new(rhs([xs, y, ys, acc])),
+            body: Box::new(CoreExpr::AetherCall {
+                func: Box::new(v(f)),
+                args: vec![v(tmp), v(ys)],
+                arg_modes: vec![BorrowMode::Owned, BorrowMode::Owned],
+                guarded_borrowed_args: vec![false, false],
+                owned_after: Vec::new(),
+                span: Span::default(),
+            }),
+            span: Span::default(),
+        };
+        let expr = CoreExpr::Case {
+            scrutinee: Box::new(v(xs)),
+            alts: vec![CoreAlt {
+                pat: CorePat::Con {
+                    tag: CoreTag::Cons,
+                    fields: vec![CorePat::Var(y), CorePat::Var(ys)],
+                },
+                guard: None,
+                rhs: CoreExpr::DropSpecialized {
+                    scrutinee: CoreVarRef::resolved(&xs),
+                    unique_body: Box::new(body()),
+                    shared_body: Box::new(CoreExpr::Dup {
+                        var: CoreVarRef::resolved(&y),
+                        body: Box::new(CoreExpr::Dup {
+                            var: CoreVarRef::resolved(&ys),
+                            body: Box::new(drop_in(xs, body())),
+                            span: Span::default(),
+                        }),
+                        span: Span::default(),
+                    }),
+                    span: Span::default(),
+                },
+                span: Span::default(),
+            }],
+            join_ty: None,
+            span: Span::default(),
+        };
+        (super::insert_reuse(expr), xs.id)
+    }
+
+    /// The cell is written before the call, so the fields the arm still needs
+    /// have to be read already, which the arm's head does (KI-171).
+    #[test]
+    fn a_unique_path_reuses_its_cell_for_a_constructor_a_let_binds_ki171() {
+        let (rewritten, xs) = let_then_a_call(|[_, y, _, acc]| CoreExpr::Con {
+            tag: CoreTag::Cons,
+            fields: vec![v(y), v(acc)],
+            span: Span::default(),
+        });
+        assert_eq!(reuses_of(&rewritten, xs), 1, "{rewritten:?}");
+    }
+
+    /// The new cell would hold itself.
+    #[test]
+    fn a_constructor_a_let_binds_that_mentions_the_cell_does_not_reuse_it() {
+        let (rewritten, xs) = let_then_a_call(|[xs, y, _, _]| CoreExpr::Con {
+            tag: CoreTag::Cons,
+            fields: vec![v(y), v(xs)],
+            span: Span::default(),
+        });
+        assert_eq!(reuses_of(&rewritten, xs), 0, "{rewritten:?}");
+    }
+
+    /// `Cons(dup y in y, acc)`: an arm holding a copy of the field did not claim
+    /// its cell, so it frees the shell, as `take_while` does.
+    #[test]
+    fn a_constructor_a_let_binds_that_copies_a_field_does_not_reuse_the_cell() {
+        let (rewritten, xs) = let_then_a_call(|[_, y, _, acc]| CoreExpr::Con {
+            tag: CoreTag::Cons,
+            fields: vec![
+                CoreExpr::Dup {
+                    var: CoreVarRef::resolved(&y),
+                    body: Box::new(v(y)),
+                    span: Span::default(),
+                },
+                v(acc),
+            ],
+            span: Span::default(),
+        });
+        assert_eq!(reuses_of(&rewritten, xs), 0, "{rewritten:?}");
+    }
+
+    /// Another constructor may not fit: the cell is written with no size check.
+    #[test]
+    fn a_constructor_a_let_binds_of_another_tag_does_not_reuse_the_cell() {
+        let (rewritten, xs) = let_then_a_call(|[_, y, _, _]| CoreExpr::Con {
+            tag: CoreTag::Some,
+            fields: vec![v(y)],
+            span: Span::default(),
+        });
+        assert_eq!(reuses_of(&rewritten, xs), 0, "{rewritten:?}");
     }
 
     /// `[y | ys] -> if c { Pair2([y | acc], ys) } else { Pair2(acc, ys) }`

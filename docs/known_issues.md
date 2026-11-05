@@ -42,32 +42,6 @@ Severity is about consequence, not effort:
 
 ## Open
 
-### KI-171 — A match arm that builds two constructors from two cells allocates one and frees the other
-
-**Severity:** Low · **Area:** Aether, reuse · **Verified:** 2026-11-05 (f75c8e51) · **From:** measuring what free-a-cell can still gain (0200)
-
-`balance1` in `benchmarks/flux/rbtree.flx` rebuilds two nodes from the two it matched:
-
-```flux
-Node(_, l, ky, vy, r) -> Node(Black, Node(Red, l, ky, vy, r), kv, vv, tail)
-```
-
-`right_tree` is reused for the outer node, the inner node is allocated, and `left_tree` is
-freed, so each rebalance does an allocation and a free it doesn't need. `balance2` is the same.
-
-Two rules cause it. `unclaimed_con_tag_in_spine` (`src/aether/insert.rs`) stops looking once an
-inner scrutinee claims a constructor, so the outer cell never claims one, and it doesn't look
-in a `let`'s right-hand side, which is where the inner node is once nested constructors are
-flattened. `insert_reuse_in_unique` (`src/aether/reuse.rs`) walks past that right-hand side too.
-
-The rule behind the first of those is right for `pairs` in
-`nested_match_drops_neither_list_twice`, which builds one constructor from two cells. It only
-needs to compare the two counts.
-
-A throwaway that ignored the comparison, so not yet a fix, gave `rbtree`, `rbtree_ck` and
-`rbtree2` 12% fewer instructions and 10–11% less time at `limit` 4,000,000, and 20% fewer
-allocations at 20,000. Nothing else in the benchmark set moved.
-
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
@@ -2698,6 +2672,40 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-171 — A match arm that builds two constructors from two cells allocates one and frees the other
+
+**Severity:** Low · **Area:** Aether, reuse · **Verified:** 2026-11-05 (f75c8e51) · **From:** measuring what free-a-cell can still gain (0200)
+
+`balance1` in `benchmarks/flux/rbtree.flx` rebuilds two nodes from the two it matched:
+
+```flux
+Node(_, l, ky, vy, r) -> Node(Black, Node(Red, l, ky, vy, r), kv, vv, tail)
+```
+
+`right_tree` was reused for the outer node, the inner node was allocated, and `left_tree` was
+freed, so each rebalance did an allocation and a free it didn't need. `balance2` was the same.
+
+Two rules caused it. `unclaimed_con_tag_in_spine` (`src/aether/insert.rs`) stopped looking once
+an inner scrutinee claimed a constructor, so the outer cell never claimed one, and it didn't look
+in a `let`'s right-hand side, which is where the inner node is once nested constructors are
+flattened. `insert_reuse_in_unique` (`src/aether/reuse.rs`) walked past that right-hand side too.
+
+**Fixed:** `spare_constructors_on_a_path` counts the constructors a path builds against the inner
+cells that take one, so `pairs` in `nested_match_drops_neither_list_twice`, with one constructor
+and two cells, still leaves the outer cell alone. A constructor a `let` binds counts unless a call
+comes first, since the cell would then be released and its fields copied for no reuse, as in
+`take_while`. On a unique path that constructor takes the cell unless it copies a field, which
+means the arm didn't claim the cell. The code after the `let` still runs, but it can't see the
+write: the arm read its fields at its head.
+
+`rbtree`, `rbtree_ck` and `rbtree2` retire 11.8% fewer instructions and take 8.5–11% less time at
+`limit` 4,000,000. No other benchmark's count moved by more than 0.1%. `List.reverse`, `take` and
+Flume's rebuilt `Ok` and `Err` values reuse their cells too, so reversing a list nothing else holds
+allocates nothing. 25 functions changed across `lib/`, `examples/` and `benchmarks/`.
+`tests/parity/balance_reuses_both_cells_ki171.flx` pins that a tree something else holds stays
+unchanged: a caller, a list, a closure, a continuation that resumes twice, another task, and the
+same tree passed as both arguments.
 
 ### KI-163 — Natively, a self tail call that lends a field of a matched owned value to a borrowed parameter is not a jump — FIXED 2026-11-04
 

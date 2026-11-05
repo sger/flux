@@ -59,6 +59,74 @@ fn a_linear_rebuild_allocates_once_per_cell() {
     }
 }
 
+/// `reverse` moves each cell onto the accumulator, so only the list it was
+/// given is allocated. It took a new block per cell as well (KI-171).
+#[test]
+fn reversing_a_list_nothing_else_holds_allocates_nothing_ki171() {
+    let scratch = Scratch::new("debug-heap-reverse");
+    let (allocs, _, live) = per_thousand_cells(
+        &scratch,
+        "reverse",
+        r"import Flow.List as List
+
+fn build(n, acc) {
+    if n == 0 { acc } else { build(n - 1, [n | acc]) }
+}
+
+fn main() {
+    print(len(List.reverse(build(SIZE, []))))
+}
+",
+    );
+    assert_eq!((allocs, live), (1000, 0), "(allocs, live) per 1000 cells");
+}
+
+/// Each turn makes two cells and rebalances them into two nodes, in place. The
+/// inner node took a new block, and the unused cell was freed (KI-171).
+#[test]
+fn a_rebalance_of_two_cells_allocates_nothing_ki171() {
+    let scratch = Scratch::new("debug-heap-rebalance");
+    let (allocs, _, live) = per_thousand_cells(
+        &scratch,
+        "rebalance",
+        r"type Color = Red | Black
+type Tree = Leaf | Node(Color, Tree, Int, Bool, Tree)
+
+fn balance(left_tree: Tree, right_tree: Tree) -> Tree {
+    match left_tree {
+        Node(_, _, kv, vv, tail) -> match right_tree {
+            Node(_, l, ky, vy, r) -> Node(Black, Node(Red, l, ky, vy, r), kv, vv, tail),
+            _ -> Leaf,
+        },
+        _ -> Leaf,
+    }
+}
+
+fn size(tree: Tree) -> Int {
+    match tree {
+        Leaf -> 0,
+        Node(_, l, _, _, r) -> size(l) + size(r) + 1,
+    }
+}
+
+fn turns(n: Int, acc: Int) -> Int {
+    if n == 0 {
+        acc
+    } else {
+        let left = Node(Black, Leaf, n, true, Leaf)
+        let right = Node(Black, Leaf, n, false, Leaf)
+        turns(n - 1, acc + size(balance(left, right)))
+    }
+}
+
+fn main() {
+    print(turns(SIZE, 0))
+}
+",
+    );
+    assert_eq!((allocs, live), (2000, 0), "(allocs, live) per 1000 turns");
+}
+
 /// Releasing the rebuilt list frees every cell: none is left behind by a copy
 /// the match made and nothing released (0189 F3-4).
 #[test]
