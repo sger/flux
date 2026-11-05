@@ -42,6 +42,32 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-171 — A match arm that builds two constructors from two cells allocates one and frees the other
+
+**Severity:** Low · **Area:** Aether, reuse · **Verified:** 2026-11-05 (f75c8e51) · **From:** measuring what free-a-cell can still gain (0200)
+
+`balance1` in `benchmarks/flux/rbtree.flx` rebuilds two nodes from the two it matched:
+
+```flux
+Node(_, l, ky, vy, r) -> Node(Black, Node(Red, l, ky, vy, r), kv, vv, tail)
+```
+
+`right_tree` is reused for the outer node, the inner node is allocated, and `left_tree` is
+freed, so each rebalance does an allocation and a free it doesn't need. `balance2` is the same.
+
+Two rules cause it. `unclaimed_con_tag_in_spine` (`src/aether/insert.rs`) stops looking once an
+inner scrutinee claims a constructor, so the outer cell never claims one, and it doesn't look
+in a `let`'s right-hand side, which is where the inner node is once nested constructors are
+flattened. `insert_reuse_in_unique` (`src/aether/reuse.rs`) walks past that right-hand side too.
+
+The rule behind the first of those is right for `pairs` in
+`nested_match_drops_neither_list_twice`, which builds one constructor from two cells. It only
+needs to compare the two counts.
+
+A throwaway that ignored the comparison, so not yet a fix, gave `rbtree`, `rbtree_ck` and
+`rbtree2` 12% fewer instructions and 10–11% less time at `limit` 4,000,000, and 20% fewer
+allocations at 20,000. Nothing else in the benchmark set moved.
+
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
@@ -1482,6 +1508,12 @@ when the function performs effects.
 **Consequence.** A program that builds a very long list by non-tail recursion
 can pass a native build and fail under the VM. The boundary is high enough
 (between 300k and 400k frames) that ordinary programs do not reach it.
+
+**Native has a limit too, and it isn't reported.** Verified 2026-11-05 (f75c8e51):
+`benchmarks/flux/cfold.flx` with `mk_expr(21, 1)` recurses too deeply in `append_add`.
+n=20 runs. At n=21 the VM reports `E1009`, while the native binary dies with signal 10, with
+no message and with a 64 MB stack limit as well; `lldb` shows `EXC_BAD_ACCESS` at the stack
+guard in `append_add`. The benchmark itself uses n=12.
 
 **What actually binds.** Not an allocation failure: the VM stack already grows
 on demand. `ensure_stack_capacity_with_headroom` (`src/vm/mod.rs`) resizes by

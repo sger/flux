@@ -89,6 +89,15 @@ samples, mostly waiting on memory), `make_tree` (27%), `flux_free_shell`
 free). An inline shell free and uniqueness check (0189 F3-5 follow-up P1-3)
 target the last two.
 
+Measured again at f75c8e51 (2026-11-05, n=21, instructions and output compared
+across 5 and 7 interleaved runs), the same throwaway is 7–11% faster than the
+compiler without it: 2.38–2.39 s, about 1.25× GHC (1.90–1.91 s), at 20% more
+instructions. So the time saved is memory access, not path length. The two runs
+differ because timing noise reaches 3.5% on identical instruction counts.
+`flux_free_shell` and `_tlv_get_addr` take 16.5% of its samples. C1b's rule alone
+leaves `binarytrees` unchanged and adds at most 1.5% instructions across the
+benchmark set, so a clone's gain arrives only at C2.
+
 Forcing the parameter owned everywhere is not the answer. A function that
 only looks at a value the caller keeps, such as `rbtree`'s `lookup`, would
 then copy its argument at every call and release it in the callee: the caller
@@ -298,12 +307,14 @@ drop.
 - **A faster drop walk.** It still visits every dead cell; the clone removes
   the second visit.
 
-**`binarytrees_fbip.flx` isn't an alternative yet.** It runs since KI-163 was fixed and
-prints what `binarytrees.flx` prints, but at n=21 it takes 3.68 s against 2.80 s, with
-69% more instructions, and at n=12 it makes 1,009,079 allocations against 334,582. Its
-`checkv` is owned now and frees each unique `Node`, then allocates a `Push` of the same
-size, with no reuse between them (`Reuses: 0`). Reuse across constructors of the same
-size would change this comparison, so it's worth measuring before settling on clones.
+- **Reuse across constructors of the same size.** It can't replace a clone: `check_tree`
+  builds no cell, so it has nothing to reuse there, and GHC's benchmark is the plain
+  recursive program. A throwaway measured it on `binarytrees_fbip.flx`, whose `checkv`
+  frees each unique `Node` and allocates a `NodeR` of the same size. Time went from 3.48 s
+  to 2.95 s and allocations at n=12 from 1,009,079 to 674,569, against about 2.65 s and
+  334,582 for plain `binarytrees`. It needed the verifier's reuse rule relaxed from the same
+  tag to the same field count. No standard benchmark gained from it beyond what same-tag
+  reuse gives (KI-171), so it stays in 0189's future possibilities.
 
 ## Prior art
 [prior-art]: #prior-art
