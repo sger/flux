@@ -63,18 +63,31 @@ The steps below are ordered around these facts.
   the branch keeps the plain release. KI-164's `nodes(make(20))` went from
   `DropSpecs: 0` to `DropSpecs: 1` and keeps `allocs=2097157 frees=2097156
   live=1` on the debug heap; the block still live is `main`'s unit tuple.
-- The shell free stays a call to the runtime. An inline free was measured on
-  2026-11-04 against 1efad94a on macOS arm64, and did not land. Instructions
-  retired, against that commit: `nodes` -3.4%, `split` on unique input -14.5%
-  and on shared input -7.0%, binarytrees and rbtree unchanged, but `deriv` +5.4%
-  (cycles +3.4% and +3.7% in two runs). `llvm.threadlocal.address` is
-  speculatable, so LLVM hoists it out of a self tail call's loop. On Mach-O that
-  is a thunk call, which `mul(left, mul(right, g))` then makes on every call,
-  even on the arms that free nothing. Moving the lookup and the push into a
-  `noinline` helper fixes `deriv` (+0.3%) but gives back most of the gain
-  (`nodes` -1.9%, unique `split` -3.0%, shared `split` -1.4%). ELF has no such
-  call, and a loop that frees on every turn gains from the hoist, so 0200 is
-  where to measure this again.
+- On macOS arm64 the shell free pushes in place (P1-3, 2026-11-08, after
+  0200 C2). A chunk block freed by the heap's owner goes back on its class's
+  list in `flux_free_shell_inline`; every other block still calls
+  `flux_free_shell`, so the debug heap keeps its count check. The owner is
+  found without the thread-local heap: `arena_init` stores the owner's
+  `TPIDRRO_EL0` and its heap's address in one plain global,
+  `flux_heap_owner`, and the inline free compares its own `TPIDRRO_EL0`
+  with it. `TPIDR_EL0`, which `llvm.thread.pointer` and
+  `__builtin_thread_pointer` read, holds the CPU number on Darwin, so two
+  threads can share it and it can't name the owner. Other hosts keep the
+  call.
+
+  Instructions retired against `ab89616a` (C2), 5–7 interleaved runs:
+  binarytrees -6.6% (2,400 to 2,200 ms, faster in all 7 pairs),
+  binarytrees_fbip -19.8%, `nodes` -4.6%, `deriv` +0.2%, the rest within
+  0.3%. Two earlier versions did not pass. Pushing through
+  `llvm.threadlocal.address` gave `deriv` +5.4%, as on 2026-11-04 against
+  1efad94a: the lookup is speculatable, so LLVM hoists its thunk call into
+  `mul`'s entry, where `mul(left, mul(right, g))` makes it on every call; and
+  binarytrees gained only 1.9%, since the thunk still ran on every free.
+  Keeping the owner's thread and heap in two globals gave `deriv` +1.7%,
+  because both addresses were hoisted into `mul`'s entry and held in
+  callee-saved registers. TSan does not see the inline push, since generated
+  code isn't instrumented (KI-159). The 2026-11-04 attempt (a `noinline`
+  helper fixed `deriv` but gave back most of the gain) is superseded.
 
 ## Motivation
 [motivation]: #motivation
