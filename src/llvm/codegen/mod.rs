@@ -14,7 +14,8 @@ pub use closure::{
     flux_closure_symbol,
 };
 pub use prelude::{
-    FluxNanboxLayout, FluxPtrTagLayout, emit_prelude, emit_prelude_and_arith, flux_prelude_symbol,
+    FluxNanboxLayout, FluxPtrTagLayout, emit_free_shell_inline, emit_prelude,
+    emit_prelude_and_arith, flux_prelude_symbol,
 };
 
 use crate::syntax::Identifier;

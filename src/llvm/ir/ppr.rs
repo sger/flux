@@ -454,6 +454,9 @@ impl Display for LlvmOperand {
             LlvmOperand::Global(global) => write!(f, "@{global}"),
             LlvmOperand::Const(value) => write!(f, "{value}"),
             LlvmOperand::Metadata(text) => write!(f, "{text}"),
+            LlvmOperand::InlineAsm { template, constraints } => {
+                write!(f, "asm \"{}\", \"{}\"", escape_string(template), escape_string(constraints))
+            }
         }
     }
 }

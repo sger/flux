@@ -358,6 +358,10 @@ pub fn emit_llvm_module_with_debug(
         emit_user_ctor_name_helper(&mut module, program);
     }
 
+    if INLINE_SHELL_FREE && needed_decls.contains("flux_free_shell") {
+        crate::llvm::codegen::emit_free_shell_inline(&mut module);
+    }
+
     // Add external declarations for C runtime functions.
     for name in &needed_decls {
         if module.declarations.iter().any(|d| d.name.0 == *name)
@@ -1955,9 +1959,17 @@ impl<'a> FnEmitter<'a> {
             // nothing either: the cell may be someone else's too.
             LirInstr::FreeShell { val } => {
                 if !self.worker_mode {
+                    // The helper calls the runtime for every case it does not
+                    // handle; `needed_decls` holding it adds the helper.
+                    self.needed_decls.insert("flux_free_shell".to_string());
+                    let callee = if INLINE_SHELL_FREE {
+                        "flux_free_shell_inline"
+                    } else {
+                        "flux_free_shell"
+                    };
                     self.call_c(
                         None,
-                        "flux_free_shell",
+                        callee,
                         vec![(LlvmType::i64(), self.var(*val))],
                         LlvmType::Void,
                     );
@@ -3892,6 +3904,11 @@ impl LirInstr {
     }
 }
 
+/// A shell free pushes in place only on macOS arm64, where it recognises the
+/// heap's owner by TPIDRRO_EL0 (`emit_free_shell_inline`). Native code is
+/// always built for the host, so this follows the compiler's own target.
+const INLINE_SHELL_FREE: bool = cfg!(all(target_os = "macos", target_arch = "aarch64"));
+
 /// Returns true if the function is a fastcc LLVM prelude helper (emitted by
 /// `llvm/codegen/prelude.rs` or `adt.rs`), as opposed to a true C
 /// runtime function that uses the C calling convention.
@@ -3912,6 +3929,7 @@ fn is_fastcc_prelude_helper(name: &str) -> bool {
         | "flux_not" | "flux_and" | "flux_or"
         // RC helpers
         | "flux_dup_inline" | "flux_drop_inline" | "flux_drop_reuse" | "flux_rc_is_unique"
+        | "flux_free_shell_inline"
         // Bump allocator
         | "flux_bump_alloc_inline" | "flux_bump_alloc_filled"
         // Tuple/Closure helpers

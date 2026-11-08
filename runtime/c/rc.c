@@ -426,6 +426,28 @@ __thread FluxHeap flux_heap __attribute__((tls_model("initial-exec")));
 __thread FluxHeap flux_heap;
 #endif
 
+/* The owner's thread and heap, as a plain global, for the inline shell free
+ * on macOS arm64 (flux_free_shell_inline in prelude.rs). There flux_heap is
+ * reached through a thunk call, which LLVM hoists into every call of a
+ * function that frees on any path (0189, P1-3); comparing the thread's
+ * TPIDRRO_EL0 with the owner's needs no call. TPIDR_EL0, which
+ * __builtin_thread_pointer reads, holds the CPU number on Darwin, so two
+ * threads can share it. Both fields stay zero unless a thread owns the
+ * heap, and no thread's TPIDRRO_EL0 is zero. They share one global so a
+ * function that frees keeps one address live, not two. */
+typedef struct {
+    uintptr_t thread;
+    FluxHeap *heap;
+} FluxHeapOwner;
+
+#if defined(_MSC_VER)
+static_assert(offsetof(FluxHeapOwner, heap) == 8, "prelude.rs reads the heap at offset 8");
+#else
+_Static_assert(offsetof(FluxHeapOwner, heap) == 8, "prelude.rs reads the heap at offset 8");
+#endif
+
+FluxHeapOwner flux_heap_owner;
+
 static inline uint8_t size_class_of(size_t aligned) {
     return aligned <= FLUX_SMALL_MAX ? (uint8_t)(aligned / FLUX_ALIGN) : 0;
 }
@@ -498,6 +520,12 @@ static FluxHeader *chunk_bump(size_t total) {
 static void arena_init(void) {
 #if !defined(FLUX_DEBUG_HEAP) && !defined(FLUX_ASAN)
     flux_heap.owner = 1;
+#if defined(__APPLE__) && defined(__aarch64__)
+    uintptr_t thread;
+    __asm__("mrs %0, TPIDRRO_EL0" : "=r"(thread));
+    flux_heap_owner.heap = &flux_heap;
+    flux_heap_owner.thread = thread;
+#endif
 #endif
 }
 
