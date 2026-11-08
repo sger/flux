@@ -203,6 +203,12 @@ pub enum LlvmOperand {
     /// A debug intrinsic's metadata argument, as written: `ptr %slot`,
     /// `!12`, `!DIExpression()`.
     Metadata(String),
+    /// Inline assembly as a call's callee: `asm "<template>", "<constraints>"`.
+    /// It has no side effects, so LLVM may merge or move it like a load.
+    InlineAsm {
+        template: String,
+        constraints: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

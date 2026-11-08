@@ -688,7 +688,11 @@ fn dropped(instr: &LlvmInstr) -> Option<&LlvmLocal> {
     };
     if !matches!(
         name.as_str(),
-        "flux_drop" | "flux_drop_inline" | "flux_drop_reuse" | "flux_free_shell"
+        "flux_drop"
+            | "flux_drop_inline"
+            | "flux_drop_reuse"
+            | "flux_free_shell"
+            | "flux_free_shell_inline"
     ) {
         return None;
     }

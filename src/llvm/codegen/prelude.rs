@@ -638,6 +638,8 @@ const FLUX_HEAP_NAME: &str = "flux_heap";
 const FLUX_HEAP_WORDS: u64 = 35;
 const FLUX_HEAP_LIMIT: i64 = 8;
 const FLUX_HEAP_FREE: i64 = 16;
+/// The class-byte bits that name the size class (`FLUX_CLASS_MASK`).
+const FLUX_CLASS_MASK: i128 = 0x3f;
 const THREADLOCAL_ADDRESS: &str = "llvm.threadlocal.address.p0";
 
 /// Emit external global declarations for the heap's bump pointers and
@@ -1123,6 +1125,243 @@ fn emit_bump_alloc_fn(module: &mut LlvmModule, fn_name: &str, zero: bool) {
                 }],
                 term: LlvmTerminator::Ret { ty: ptr_ty.clone(), value: local("slow_ptr") },
             },
+        ],
+    });
+}
+
+/// `FluxHeapOwner` in rc.c, set in `arena_init`: the owner's TPIDRRO_EL0,
+/// then its heap's address at offset 8.
+const FLUX_HEAP_OWNER: &str = "flux_heap_owner";
+const FLUX_HEAP_OWNER_HEAP: i64 = 8;
+
+/// Emit `flux_free_shell_inline(i64 %val) -> void`, for macOS arm64 only:
+/// `flux_free_shell` with its common case done in place. A walk that takes
+/// each cell apart frees one per node, and nearly all of them are chunk
+/// blocks freed by the heap's owner, which go back on their class's list
+/// (rc.c's free_list_push). It finds the owner by its TPIDRRO_EL0 and the
+/// heap through a plain global, since reaching `flux_heap` there is a thunk
+/// call that LLVM hoists into every call of the function (0189, P1-3).
+/// Every other block calls the runtime: a malloc block goes to free(), a
+/// worker's free goes on the remote stack, and the debug heap and ASan
+/// builds have no owner, so the debug heap still checks the count there.
+pub fn emit_free_shell_inline(module: &mut LlvmModule) {
+    let name = "flux_free_shell_inline";
+    if has_function(module, name) {
+        return;
+    }
+    let slow = "flux_free_shell";
+    if !module.declarations.iter().any(|d| d.name.0 == slow) {
+        module.declarations.push(crate::llvm::LlvmDecl {
+            linkage: Linkage::External,
+            name: flux_prelude_symbol(slow),
+            sig: LlvmFunctionSig {
+                ret: LlvmType::Void,
+                params: vec![LlvmType::i64()],
+                varargs: false,
+                call_conv: CallConv::Ccc,
+            },
+            attrs: vec!["nounwind".into()],
+        });
+    }
+    if !has_global(module, FLUX_HEAP_OWNER) {
+        module.globals.push(LlvmGlobal {
+            linkage: Linkage::External,
+            name: GlobalId(FLUX_HEAP_OWNER.into()),
+            ty: LlvmType::Array { len: 2, element: Box::new(LlvmType::i64()) },
+            is_constant: false,
+            thread_local: None,
+            value: None,
+            attrs: vec![],
+        });
+    }
+    let ptr_ty = LlvmType::Ptr;
+    let i8_ty = LlvmType::Integer(8);
+    let i64_ty = LlvmType::i64();
+    let label = |name: &str| LabelId(name.into());
+    let byte_at = |dst: &str, base: &str, offset: i64| LlvmInstr::GetElementPtr {
+        dst: LlvmLocal(dst.into()),
+        inbounds: false,
+        element_ty: LlvmType::Integer(8),
+        base: local(base),
+        indices: vec![(LlvmType::i64(), const_i64_operand(offset))],
+    };
+    module.functions.push(LlvmFunction {
+        linkage: Linkage::Internal,
+        name: flux_prelude_symbol(name),
+        sig: LlvmFunctionSig {
+            ret: LlvmType::Void,
+            params: vec![i64_ty.clone()],
+            varargs: false,
+            call_conv: CallConv::Fastcc,
+        },
+        params: vec![LlvmLocal("val".into())],
+        attrs: helper_attrs(),
+        blocks: vec![
+            LlvmBlock {
+                label: label("entry"),
+                instrs: vec![LlvmInstr::Call {
+                    dst: Some(LlvmLocal("is_ptr".into())),
+                    tail: false,
+                    call_conv: Some(CallConv::Fastcc),
+                    ret_ty: LlvmType::i1(),
+                    callee: LlvmOperand::Global(flux_prelude_symbol("flux_is_ptr")),
+                    args: vec![(i64_ty.clone(), local("val"))],
+                    attrs: vec![],
+                }],
+                term: LlvmTerminator::CondBr {
+                    cond_ty: LlvmType::i1(),
+                    cond: local("is_ptr"),
+                    then_label: label("check_class"),
+                    else_label: label("done"),
+                },
+            },
+            // The class byte is the header's last; FLUX_FROM_CHUNK is its
+            // top bit.
+            LlvmBlock {
+                label: label("check_class"),
+                instrs: vec![
+                    LlvmInstr::Cast {
+                        dst: LlvmLocal("ptr".into()),
+                        op: LlvmValueKind::IntToPtr,
+                        from_ty: i64_ty.clone(),
+                        operand: local("val"),
+                        to_ty: ptr_ty.clone(),
+                    },
+                    byte_at("class_ptr", "ptr", -1),
+                    LlvmInstr::Load {
+                        dst: LlvmLocal("class_byte".into()),
+                        ty: i8_ty.clone(),
+                        ptr: local("class_ptr"),
+                        align: Some(1),
+                    },
+                    LlvmInstr::Icmp {
+                        dst: LlvmLocal("from_chunk".into()),
+                        op: LlvmCmpOp::Slt,
+                        ty: i8_ty.clone(),
+                        lhs: local("class_byte"),
+                        rhs: LlvmOperand::Const(LlvmConst::Int { bits: 8, value: 0 }),
+                    },
+                ],
+                term: LlvmTerminator::CondBr {
+                    cond_ty: LlvmType::i1(),
+                    cond: local("from_chunk"),
+                    then_label: label("check_owner"),
+                    else_label: label("slow"),
+                },
+            },
+            // The owner global is zero when no thread owns the heap, and no
+            // thread's TPIDRRO_EL0 is zero.
+            LlvmBlock {
+                label: label("check_owner"),
+                instrs: vec![
+                    LlvmInstr::Call {
+                        dst: Some(LlvmLocal("thread".into())),
+                        tail: false,
+                        call_conv: None,
+                        ret_ty: i64_ty.clone(),
+                        callee: LlvmOperand::InlineAsm {
+                            template: "mrs $0, TPIDRRO_EL0".into(),
+                            constraints: "=r".into(),
+                        },
+                        args: vec![],
+                        attrs: vec![],
+                    },
+                    LlvmInstr::Load {
+                        dst: LlvmLocal("owner".into()),
+                        ty: i64_ty.clone(),
+                        ptr: LlvmOperand::Global(GlobalId(FLUX_HEAP_OWNER.into())),
+                        align: Some(8),
+                    },
+                    LlvmInstr::Icmp {
+                        dst: LlvmLocal("is_owner".into()),
+                        op: LlvmCmpOp::Eq,
+                        ty: i64_ty.clone(),
+                        lhs: local("thread"),
+                        rhs: local("owner"),
+                    },
+                ],
+                term: LlvmTerminator::CondBr {
+                    cond_ty: LlvmType::i1(),
+                    cond: local("is_owner"),
+                    then_label: label("push"),
+                    else_label: label("slow"),
+                },
+            },
+            // The list holds headers and links through the first payload word.
+            LlvmBlock {
+                label: label("push"),
+                instrs: vec![
+                    LlvmInstr::GetElementPtr {
+                        dst: LlvmLocal("heap_ptr".into()),
+                        inbounds: false,
+                        element_ty: LlvmType::Integer(8),
+                        base: LlvmOperand::Global(GlobalId(FLUX_HEAP_OWNER.into())),
+                        indices: vec![(LlvmType::i64(), const_i64_operand(FLUX_HEAP_OWNER_HEAP))],
+                    },
+                    LlvmInstr::Load {
+                        dst: LlvmLocal("heap".into()),
+                        ty: ptr_ty.clone(),
+                        ptr: local("heap_ptr"),
+                        align: Some(8),
+                    },
+                    LlvmInstr::Binary {
+                        dst: LlvmLocal("class_bits".into()),
+                        op: LlvmValueKind::And,
+                        ty: i8_ty.clone(),
+                        lhs: local("class_byte"),
+                        rhs: LlvmOperand::Const(LlvmConst::Int { bits: 8, value: FLUX_CLASS_MASK }),
+                    },
+                    LlvmInstr::Cast {
+                        dst: LlvmLocal("class64".into()),
+                        op: LlvmValueKind::ZExt,
+                        from_ty: i8_ty.clone(),
+                        operand: local("class_bits"),
+                        to_ty: i64_ty.clone(),
+                    },
+                    byte_at("free", "heap", FLUX_HEAP_FREE),
+                    LlvmInstr::GetElementPtr {
+                        dst: LlvmLocal("slot".into()),
+                        inbounds: false,
+                        element_ty: ptr_ty.clone(),
+                        base: local("free"),
+                        indices: vec![(i64_ty.clone(), local("class64"))],
+                    },
+                    LlvmInstr::Load {
+                        dst: LlvmLocal("head".into()),
+                        ty: ptr_ty.clone(),
+                        ptr: local("slot"),
+                        align: Some(8),
+                    },
+                    LlvmInstr::Store {
+                        ty: ptr_ty.clone(),
+                        value: local("head"),
+                        ptr: local("ptr"),
+                        align: Some(8),
+                    },
+                    byte_at("block", "ptr", -FLUX_HEADER_SIZE),
+                    LlvmInstr::Store {
+                        ty: ptr_ty.clone(),
+                        value: local("block"),
+                        ptr: local("slot"),
+                        align: Some(8),
+                    },
+                ],
+                term: LlvmTerminator::RetVoid,
+            },
+            LlvmBlock {
+                label: label("slow"),
+                instrs: vec![LlvmInstr::Call {
+                    dst: None,
+                    tail: false,
+                    call_conv: Some(CallConv::Ccc),
+                    ret_ty: LlvmType::Void,
+                    callee: LlvmOperand::Global(flux_prelude_symbol(slow)),
+                    args: vec![(i64_ty.clone(), local("val"))],
+                    attrs: vec![],
+                }],
+                term: LlvmTerminator::RetVoid,
+            },
+            LlvmBlock { label: label("done"), instrs: vec![], term: LlvmTerminator::RetVoid },
         ],
     });
 }
