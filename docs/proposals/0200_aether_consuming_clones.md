@@ -334,10 +334,11 @@ drop.
   original for now).
 - Relaxing E2 to allow reads before the claim, such as `if is_leaf(t) ...`.
 - Allowing effects (E4), which needs clones to meet `cont_split`.
-- Whether the shell free should be inline once clones exist. It did not land on
-  its own, because hoisting the heap lookup slowed `deriv` on Mach-O (0189's
-  status has the numbers). A clone frees on every turn of its loop, which is the
-  case the hoist helps, so measure it again at C2.
+- Whether the shell free should be inline once clones exist. Measured again
+  after C2 and landed for macOS arm64 (0189 P1-3): binarytrees 2,400 to
+  2,200 ms, -6.6% instructions. It finds the heap's owner by `TPIDRRO_EL0`
+  and a plain global rather than the thread-local heap, whose hoisted lookup
+  slowed `deriv`. Other hosts still call the runtime.
 
 ## Future possibilities
 [future-possibilities]: #future-possibilities
