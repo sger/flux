@@ -74,7 +74,8 @@ views Flux's:
   perform suspended, and the `⟂ handling …` label, are added from
   `flux bt --json` (they have no variables), as are the continuations a
   running `resume` has still to run. A resumed frame is named by its
-  function, without lldb's `(resumed after L:C)`.
+  function, without lldb's `(resumed after L:C)`. A frame named `<fn>$own`
+  is the copy of `<fn>` that owns its argument and frees it as it reads it.
 - **Stepping:** Step Over, Into and Out run `flux next`, `flux step` and
   `flux finish`, which step as the VM does, across performs and into
   `resume` too, and report the stop themselves.
