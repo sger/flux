@@ -42,6 +42,84 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-175 — A class method called in an `if` or `match` that is an annotated `let`'s value stops the compiler with E000
+
+**Severity:** Medium · **Area:** Core lowering, dictionary passing · **Verified:** 2026-11-09 (2fe0af80) · **From:** 0190 S17a (`cargo xtask fuzz --seed 1 --with classes --gen-only`, then `--dump-core`)
+
+```flux
+fn label(b: Bool) -> String {
+    let s: String = if b { show(1) } else { "z" };
+    s
+}
+
+fn main() with IO {
+    print(label(true))
+}
+```
+
+On all four ways (`vm`, `llvm`, `vm_opt`, `llvm_opt`) the compiler stops with
+`E000 Internal Compiler Error: lowering the site at 2:27 from its evidence: a
+method call answered with more than one dictionary` (`src/core/lower_ast/emit.rs`,
+`site_error` from the method-call case). Any class method does it, the
+prelude's `show` as well as a user class's, and a `match` in place of the `if`
+too. Without the annotation (`let s = if b { ... }`) the program prints `"1"`,
+and so does `let s: String = show(1)` with no `if`.
+
+With `if true` the program compiles under `--optimize`, because the AST fold
+drops the `if` before lowering. It was 104 of the first 200 programs with
+classes, which the fuzz run moves to `internal/`.
+
+### KI-176 — An uppercase type parameter breaks `deriving` on a generic type and an instance's context
+
+**Severity:** Medium · **Area:** Type classes, deriving · **Verified:** 2026-11-09 (2fe0af80) · **From:** 0190 S17a (`cargo xtask fuzz --with classes`, the generator's first version)
+
+```flux
+data Box<T> { Full(T), Empty } deriving (Eq)
+
+fn main() with IO {
+    print(Full(1) == Full(1))
+}
+```
+
+On all four ways the compiler reports `E444 No Type Class Instance: No instance
+for Eq<T>`, at the top of the file. With `data Box<a>` it prints `true`. A
+contextual instance does the same: `instance Size<T> => Size<Box<T>>` whose
+method calls `size` on a `T` field gives `No instance for Size<T>`, and with `a`
+it runs. An uppercase parameter works on a function (`fn identity<T>(x: T)`),
+and nothing documents that it can't be used here. `cargo xtask fuzz` writes `a`
+until this is fixed.
+
+### KI-177 — A method call on a generic type's nullary constructor stops the compiler with E000
+
+**Severity:** Low · **Area:** Type classes, diagnostics · **Verified:** 2026-11-09 (2fe0af80) · **From:** 0190 S17a (`cargo xtask fuzz --with classes`)
+
+```flux
+data Box<a> { Full(a), Empty }
+
+class Size<a> {
+    fn size(x: a) -> Int
+}
+
+instance Size<Int> {
+    fn size(x) { x }
+}
+
+instance Size<a> => Size<Box<a>> {
+    fn size(x) { match x { Full(v) -> size(v), Empty -> 0 } }
+}
+
+fn main() with IO {
+    print(size(Empty))
+}
+```
+
+Nothing fixes `Empty`'s `a`, so `Size<a>` has no answer. The program is wrong,
+but the compiler stops with `E000 Internal Compiler Error: ... a predicate it
+raised (Size) has no answer that can be built` on all four ways, where
+`E476 Ambiguous Type Variable` would say what to fix. With
+`let b: Box<Int> = Empty` before the call it prints `0`. `cargo xtask fuzz`
+only calls a method on a generic type's value through an annotated variable.
+
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
