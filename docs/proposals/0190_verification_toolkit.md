@@ -320,9 +320,9 @@ line names both counts.
   Floats, whose printed form differs between the backends. Each can return when
   its KI is fixed.
 - **Layout:** one statement per line, so the reducer (§7) can work line by line.
-- **Effects, type classes and async are out of scope.** Generating handlers needs
-  effect-row typing, and async needs deterministic scheduling across backends.
-  Both are listed under Future possibilities.
+- **Effects, type classes and async were out of scope for S8.** Generating handlers
+  needs effect-row typing, and async needs deterministic scheduling across
+  backends. S17 adds them, with generics, records and modules (below).
 - **`cargo xtask fuzz [--seed S] [--count N] [--ways W] [--jobs J] [--gen-only]`:**
   - It writes `<store>/fuzz_<seed>/cases/case_<i>.flx` (the store is verify's
     output folder, `.verify/`), recreated on each run. `--gen-only` stops there.
@@ -351,9 +351,47 @@ returned without counting it, and with the parameter borrowed the same plan
 passed the verifier and printed freed memory (KI-172, fixed before going on).
 Case 61 is a native miscompile: a call whose result nothing reads, before a join
 whose value comes from elsewhere, was made a tail call, so the function returned
-the callee's result (KI-173, open). A planted miscompile, the `--optimize` AST
+the callee's result (KI-173). A planted miscompile, the `--optimize` AST
 fold of `+` off by one when the left operand is 2 mod 5, made 47 of the 200
 mismatch, all on the opt ways only. That run took 9:51 with `--jobs 4`.
+
+**The clean runs.** Without the plant, seed 1 gave 46 mismatches and seed 2 gave
+58. Most were one new bug, KI-174: every multi-statement block the AST fold made
+from an `if true` had the same expression id, so the second inference under
+`--optimize` typed one block with another's type and rejected valid programs
+(43 and 51 cases). It hid the rest on the opt ways: KI-116, the VM moving a
+variable out in a `do` block that the function read again, which the fold now
+reached from ordinary code (12 and 7 cases), and KI-173. All three were fixed
+test-first, and seeds 1 and 2 then agreed on all four ways, 200 of 200 each, in
+about 2 minutes a run: most of the 9:51 had gone to diagnosing mismatches.
+
+**S17: whole programs.** S8's programs cover scalars, lists, options, pairs,
+positional `data`, pure helpers and `main`. S17 extends the generator in four
+parts, each designed around its open KIs, as S8 was, and each turned on with its
+own flag so that a seed's programs don't change when a part is added, and a bug
+in one part doesn't flood the others:
+
+- **S17a, generics and type classes.** Type parameters on helpers and `data`; a
+  class with one or two methods, instances for the generated data types,
+  `deriving` where it applies, helpers with a constraint (`<a: Show>`) called at
+  more than one type. Around: KI-162 (no tuple, Array, Either or `Ord` container
+  meets a constraint), KI-104 (no instance method calls itself, since parity runs
+  `--no-cache`), KI-076 and KI-086 (no class inside a `module` block).
+- **S17b, records and closures as values.** Named-field `data` (0152), field
+  access and update; lambdas bound, returned from helpers, stored in lists and
+  data and called later; Arrays, Maps with `Int` or `String` keys (KI-157),
+  `Either`. Still no Floats (KI-161 and the printed form).
+- **S17c, effects and handlers.** One or two user effects; helpers that declare
+  and perform them; `handle` with clauses that resume once or don't resume, in
+  helpers and in `main`. Around: KI-029 (no `perform` inside a lambda), KI-102
+  and KI-114 (no effect named after a builtin), KI-032 (wrappers annotated).
+  Multi-shot handlers come after.
+- **S17d, async and modules.** Tasks whose results are awaited in a fixed order,
+  and channels with one producer and one consumer, so the output doesn't depend
+  on scheduling; a case can be a folder with a module file beside its `main`,
+  which the reducer then has to shrink as a whole. Around: KI-108 and KI-169
+  (native async; one `run_async` per program), KI-144, KI-103 (no constructor
+  through a module alias), KI-110 and KI-146. KI-108 may have to be fixed first.
 
 ### §7 The reducer
 
@@ -929,17 +967,22 @@ each joined to an open KI:
 | S14 | `lir::verify`, `--verify-each`, the `vm_verify` way (§14) | Unit tests per LIR rule. A planted malformed rewrite, not committed, fails `--verify-each` naming its pass, where plain parity shows only wrong output. Main parity under `vm_verify` has 0 failures, after fixes or KIs. |
 | S16 ✓ | The support census (§16): `ExitKind::Crash`, `--jobs`, `--census`, `requires: network`, `flux features`, `cargo xtask census` | Every file and way in the corpus is classified; every failure has a KI or a header fix, so the unfiled list is empty; the matrix is published. Plain parity over `tests/parity` gives the same verdicts as before, except crashes now reported as such. |
 | S15 | Live blocks at exit, the `llvm_heap` way, expected counts, `cargo xtask sanitize` (§15) | `llvm_heap` over `tests/parity` and `examples/aether` reports 0 leaks, after fixes or KIs. A planted missing `drop`, not committed, fails it with the allocation site. A removed reuse fails an `expect-reuse` fixture. |
+| S17 | Whole programs from the generator, in four parts (§6): S17a generics and type classes, S17b records and closures as values, S17c effects and handlers, S17d async and modules | For each part: 200 programs of one seed that use it compile with 0 generator failures; a planted miscompile in that part's lowering (a dictionary passed for the wrong type, a clause that resumes with the wrong value), not committed, is found within `--count 200` and reduces to at most 15 lines; every mismatch is fixed or filed. S17d's programs print the same output on 10 reruns of each way. |
 
 S1 comes first, since without it the later stages could fail silently. S2 and S3
 go together: the opt ways will find divergences, and S2 is how they are recorded
-while they are open. S9 needs S8. S6's shuffling and S11's counts need nothing else. The expected
+while they are open. S9 needs S8, and S17 needs both. S6's shuffling and S11's counts need nothing else. The expected
 counts in S15 use S11's `--metrics`. The rest are independent of each other.
 
 Stage numbers name the stages; they are not the order of work. The intended
-order is S16, S5, S6, S7, S13, S15, S8, S9, S14, S10, S11, S12: the census
+order is S16, S5, S6, S7, S13, S15, S8, S9, S17, S14, S10, S11, S12: the census
 first, since the goal is to know what works and what does not, then cheap
 invariants, then the tools that turn a found mismatch into a named cause (S13) and
-the check for the bugs parity cannot see (S15), then the generator.
+the check for the bugs parity cannot see (S15), then the generator. S17 follows
+S9 directly: in its first 400 programs S8's subset found three new bugs and
+reached a known one (KI-172 to KI-174, KI-116), and once they were fixed seeds 1
+to 3 found nothing, so the next bugs are in the parts of the language it doesn't
+generate.
 
 **Why this order.** The first four stages showed where the bugs are. Counting
 failures that were already printed (S1, S2) uncovered 11 of them, three of
@@ -1058,8 +1101,7 @@ which guards debug output that already agrees 21/21, goes last.
 ## Future possibilities
 [future-possibilities]: #future-possibilities
 
-- Generated effect handlers (state, exceptions, multi-shot) once the generator can
-  build effect rows.
+- Multi-shot handlers in generated programs, after S17c's single-shot ones.
 - Generated `-g` programs with generated `// dbg:` scripts, feeding debug parity.
 - A nightly or weekly fuzz run on the CI runners, with seeds recorded in the
   report.
