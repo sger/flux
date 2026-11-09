@@ -1,0 +1,40 @@
+// expect: success
+// bug: KI-172. A `let` nobody reads still released its value, but the value
+//       was planned as if it were ignored: a branch that returned a
+//       parameter handed it over without counting it. An owned parameter
+//       was released before the branch read it (E999 since every build
+//       checks the plan); a borrowed one was released for its caller, so
+//       natively a later read saw freed memory.
+// parity-expected-stdout-begin
+// 1
+// 8
+// 1
+// 8
+// 1
+// parity-expected-stdout-end
+
+fn takes(s: String, b: Bool) -> Int {
+    let unused: String = if b { s } else { "y" };
+    1
+}
+
+fn lends(s: String, b: Bool) -> Int {
+    let unused: String = if b { s } else { "y" };
+    len(s)
+}
+
+fn picks(xs: List<Int>, n: Int) -> Int {
+    let unused: List<Int> = match n {
+        1 -> xs,
+        _ -> [],
+    };
+    n
+}
+
+fn main() with IO {
+    print(takes(to_string(12345) + "abc", true));
+    print(lends(to_string(12345) + "abc", true));
+    print(takes(to_string(12345) + "abc", false));
+    print(lends(to_string(12345) + "abc", false));
+    print(picks([1, 2, 3], 1));
+}
