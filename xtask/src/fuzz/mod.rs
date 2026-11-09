@@ -302,4 +302,22 @@ mod tests {
         assert_eq!(judge(true, 139, ""), Compile::Internal("exit 139: ".into()));
         assert_eq!(judge(true, 0, "warning[W001]: unused\n"), Compile::Ok);
     }
+
+    /// Every internal compiler error has one title, so the reducer, which
+    /// keeps a candidate that fails the same way, needs the explanation to
+    /// tell two apart; not the site, which moves as lines go.
+    #[test]
+    fn internal_errors_differ_by_their_explanation_not_their_site() {
+        let ice = |site: &str, why: &str| {
+            format!(
+                "• 1 error • a.flx\nerror[E000]: Internal Compiler Error\n\n\
+                 lowering the site at {site} from its evidence: {why}\n\n  a.flx:{site}\n"
+            )
+        };
+        let many = "a method call answered with more than one dictionary";
+        let none = "a predicate it raised (Cls11) has no answer that can be built";
+        let one = judge(true, 1, &ice("7:46", many));
+        assert_eq!(one, judge(true, 1, &ice("3:12", many)));
+        assert_ne!(one, judge(true, 1, &ice("7:46", none)));
+    }
 }
