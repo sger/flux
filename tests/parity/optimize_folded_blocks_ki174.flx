@@ -1,0 +1,83 @@
+// parity: vm, llvm
+// expect: success
+// bug: KI-174. `--optimize` folds `if true` to its `then` block and `if false`
+//      to its `else` block, then infers the program again. A folded block of
+//      more than one statement became a `do` block with no id of its own, so
+//      every such block shared one entry in the types the second inference
+//      records, and each was checked against the last one's type: `f` against
+//      `g`'s `String`. Run with `--ways vm,llvm,vm_opt,llvm_opt`.
+// parity-expected-stdout-begin
+// 1
+// "a"
+// 2
+// "c"
+// 3
+// "d"
+// parity-expected-stdout-end
+
+fn f() -> Int {
+    let n: Int = if true {
+        let t = 1;
+        t
+    } else {
+        0
+    };
+    n
+}
+
+fn g() -> String {
+    let s: String = if true {
+        let t = "a";
+        t
+    } else {
+        "b"
+    };
+    s
+}
+
+fn h() -> Int {
+    let n: Int = if false {
+        0
+    } else {
+        let t = 2;
+        t
+    };
+    n
+}
+
+fn k() -> String {
+    let s: String = if false {
+        "b"
+    } else {
+        let t = "c";
+        t
+    };
+    s
+}
+
+fn r() -> Int {
+    if true {
+        let t = 3;
+        t
+    } else {
+        0
+    }
+}
+
+fn q() -> String {
+    if true {
+        let t = "d";
+        t
+    } else {
+        "e"
+    }
+}
+
+fn main() with IO {
+    print(f())
+    print(g())
+    print(h())
+    print(k())
+    print(r())
+    print(q())
+}
