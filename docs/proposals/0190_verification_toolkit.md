@@ -357,29 +357,62 @@ mismatch, all on the opt ways only. That run took 9:51 with `--jobs 4`.
 
 ### §7 The reducer
 
-- **`cargo xtask fuzz reduce <case.flx> [--ways W]`:** delta debugging (ddmin)
-  over lines. A candidate deletes a set of lines; a deletion that splits a brace
-  pair is widened to the whole statement or match arm.
-- **Keeping a candidate:** it is kept when it compiles on every way and
-  `parity-check` reports the same verdict, between the same pair of ways, on the
-  same stream (exit kind, stdout or stderr) as the original.
+- **`cargo xtask fuzz reduce <case.flx> [--ways W] [--jobs J] [--timeout S]`:**
+  delta debugging (ddmin) over lines, after the passes below. A candidate
+  deletes a set of lines; a deletion that splits a brace pair is widened to the
+  lines the pair encloses. Code: `xtask/src/fuzz/reduce.rs`.
+- **Keeping a candidate:** the pair of ways that disagreed on the original
+  must still differ on the same stream (exit, stdout or stderr), and each way
+  must compile it exactly when it compiled the original. The pair is the one
+  with the fewest native ways among those that disagree, so a bug the VM shows
+  is reduced on the VM alone. The two ways run directly, not through
+  `parity-check`, which would run every way per candidate; a native pair
+  checks `--dump-core` first. A case every way agrees on but the compiler
+  fails on itself (one in fuzz's `internal/`) is reduced while it fails with
+  the same first error line.
 - **Syntax-aware passes first.** Line ddmin spends most of its runs on
   candidates that do not parse. Before it, the reducer tries edits that keep
   the program well formed, as Perses and llvm-reduce do:
   - delete a whole top-level item;
   - delete a statement, or a `match` arm when a later arm is a wildcard;
-  - replace an expression with a literal of its type (`0`, `false`, `""`), the
-    type taken from `--dump-core`'s annotations;
-  - inline a `let` used once.
+  - replace an `if` with one of its branches, or a `match` with one arm's
+    value; a `match` with one arm whose pattern names the scrutinee or its
+    tuple's parts gets the parts put in for the names;
+  - replace a `let`'s value with a literal of its declared type (`0`, `false`,
+    `""`, `[]`, `None`, tuples of these), the type taken from the annotation the
+    generator writes;
+  - inline a `let` used once;
+  - replace an expression (a bracketed group, a call or a string) with a
+    literal, one of its operands, a call's argument, or a tuple's or list's
+    element, largest first. Its type is not known, so a wrong one is turned
+    away by the compile check.
 
-  Each candidate is checked with `flux --no-cache --dump-core` first, which is
-  far cheaper than a parity run; one that does not compile is dropped. Line
-  ddmin then runs on what is left.
-- **Output:** `<case>.min.flx`.
+  Line ddmin runs after the deleting passes and before the expressions pass,
+  which tries the most candidates per line and should see the smallest
+  program. Rounds repeat until one changes nothing. A pass that keeps a
+  candidate goes on from there rather than starting over, which would retest
+  every candidate before it.
+- **Cost:** candidates are tested `--jobs` at a time (default 4) and each
+  distinct text once. Native candidates build the standard library into a
+  cache per job slot instead of on every run (about 0.8 s down to 0.3 s), and
+  the result is checked again with `--no-cache`. `--timeout` defaults to 10 s:
+  a candidate can recurse forever, and a timeout kills what flux started as
+  well as flux, since the built program would otherwise hold the output pipes
+  open.
+- **Output:** `<case>.min.flx` beside the case, and the run's candidates in
+  `.verify/reduce_<case>/`.
 - **Promotion:** a minimized case goes to `tests/parity/` with `// expect: success`
   and a `parity-expected-stdout` block taken from the way that is right. It goes in
   the commit that fixes the bug, or with a `// skip-way:` and a KI if the bug stays
   open.
+
+**What S9 measured.** On seed 1's mismatches: the planted fold's case_106, 69
+lines to 3 (`print((67 + 10))`) in 170 runs and 0:25 on `vm` vs `vm_opt`;
+KI-173's case_61, 61 lines to 11 in 282 runs and 0:59 on `vm` vs `llvm`; and
+case_6, 42 lines to 14 in 129 runs and 0:08. case_6 was not the plant: on the
+clean compiler `--optimize` rejects it with E300, typing a `let` of a data type
+as `String`, where `vm` runs it. A planted run can hide real opt bugs among its
+mismatches, so a fuzz run is judged on the clean compiler.
 
 ### §8 Checked skips
 
@@ -888,7 +921,7 @@ each joined to an open KI:
 | S6 ✓ | Normalized hashes, sampled determinism in verify, `aether` and `lir` sweeps, cache determinism (§9) | Undoing the S4 lowering fix, not committed, fails verify's determinism sample and reads `numbering` in `compare --content`. The new sweeps' cost is recorded here. |
 | S7 ✓ | `cargo xtask rewrite` with `reorder`, then `rename` and `let-wrap` (§10) | Every rewrite of `tests/parity` and `examples/guide` compiles and matches; each mismatch is fixed or filed as a KI. A planted order bug, not committed, is caught by `reorder`: predeclaration forgetting the functions written after `main` (78 copies no longer compile, against 1). (Undoing the S4 lowering fix, planned here first, changes only numbering, so no output; S6's determinism sample catches it. `binding_groups` in source order, planned next, changes nothing `reorder` touches: it orders statements inside blocks, not top-level items.) |
 | S8 ✓ | The generator and `cargo xtask fuzz` (§6) | Unit tests: the same seed gives the same text; 200 seeds compile with 0 generator failures (an ignored test that runs `flux --dump-core`). A planted miscompile under `--optimize`, not committed, is found within `--count 200`. (200 of 200 compile with 0 generator failures and 0 internal errors; the run itself is the compile check, so there is no ignored test. The planted `+` fold made 47 of 200 mismatch. Found KI-172 and KI-173.) |
-| S9 | `cargo xtask fuzz reduce` (§7) | The planted miscompile's case shrinks to at most 10 lines. Reducer unit tests on a fake oracle. |
+| S9 ✓ | `cargo xtask fuzz reduce` (§7) | The planted miscompile's case shrinks to at most 10 lines. Reducer unit tests on a fake oracle. (69 lines to 3 in 0:25. 12 unit tests: the passes on their own, and ddmin, the whole reducer and the tester on fake oracles. Found on the way: a timeout left the program flux built running.) |
 | S10 | `verify --behaviour` (§11) | A planted change to a `print` builtin's output, not committed, fails it and names the files; a no-op change passes. |
 | S11 | `parity-check --jobs`, opt ways on optimizer changes, per-fixture times, `verify --quick` (§12) | Main parity with `--jobs 2` gives the same verdicts as `--jobs 1`, faster; the times are recorded here. A planted slowdown in one fixture is listed. |
 | S12 | `// dbg-check:` (§5), checks added to all 21 debug fixtures | Debug parity 21/21. Changing one expected local makes both the parity run and `parity_debug_tests` fail. |
