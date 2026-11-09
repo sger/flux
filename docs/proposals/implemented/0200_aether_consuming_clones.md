@@ -2,9 +2,9 @@
 - Start Date: 2026-11-03
 - Proposal PR:
 - Flux Issue:
-- Status: Draft
-- Depends on: [0189](0189_aether_owned_moves.md) F3-5 (a unique cell frees its shell alone, KI-164)
-- Relates to: [0193](0193_parameter_ownership_annotations.md) (`@own`, which makes a clone unneeded for that parameter), [0137](implemented/0137_modular_aether_and_module_interfaces.md) (owned-by-default, rejected), [0196](0196_checked_fip.md) (the unique path of `DropSpecialized`), [0130](0130_benchmark_framework.md) (benchmarks)
+- Status: Implemented (2026-11-09)
+- Depends on: [0189](../0189_aether_owned_moves.md) F3-5 (a unique cell frees its shell alone, KI-164)
+- Relates to: [0193](../0193_parameter_ownership_annotations.md) (`@own`, which makes a clone unneeded for that parameter), [0137](0137_modular_aether_and_module_interfaces.md) (owned-by-default, rejected), [0196](../0196_checked_fip.md) (the unique path of `DropSpecialized`), [0130](../0130_benchmark_framework.md) (benchmarks)
 
 # Proposal 0200: A consuming copy of a function that takes its argument apart
 
@@ -293,7 +293,28 @@ by 69% in instructions, to slightly below the borrowed walk.
 | C2 | **Clones and call sites:** making and planning the clones, the call-site rule, LIR names, the dump, off on the VM. | yes: a wrong last-reference decision is a use after free; the verifier and the debug heap catch it |
 | C3 | **The shared fallback** and its verifier change, only if the C0 shared fixture is more than about 5% slower than the borrowed walk. Done: it was 63% slower; see "When the clone gets a shared value". | yes: a read after the drop; `check_reads_after_release` catches it |
 | C4 | **Debugger:** `$own` in backtraces, a line breakpoint stopping in both copies, `flux refs` reading 1 on the unique path. Done: all three worked through the existing debug info; tests now pin them (lldb, DAP, DWARF verify), and the debug parity harness reads `$own` frames as their original. | no |
-| C5 | **Evidence:** commits, timings, and this proposal's status. | no |
+| C5 | **Evidence:** commits, timings, and this proposal's status. Done: below. | no |
+
+### Evidence
+
+Measured on one Apple Silicon Mac, native at `-O`, each step against the
+commit before it in interleaved runs.
+
+| Step | Commits | Measured |
+|---|---|---|
+| C0 | `67406f2d` | the fixture and its baselines |
+| C1b | `21bd5012`, `c02bec7a` | binarytrees_fbip -4.9% instructions; deriv +0.1%; the rest unchanged |
+| C1 | `e86c2085` | nothing calls it yet; no output changed |
+| C2 | `ab89616a` | binarytrees (n = 21) 2,840 to 2,400 ms (-15.5%) at 19.8% more instructions: the second walk over memory is gone |
+| P1-3 (0189) | `fd45b5b9` | the inline shell free on macOS arm64: binarytrees 2,400 to 2,200 ms, -6.6% instructions; deriv +0.2% |
+| C3 | `378116f5` | a shared tree walked by the clone: -69% instructions, below the borrowed walk. binarytrees 2,200 to 1,970 ms, -21.5% instructions, since every static `Node(Tip, Tip)` leaf took the shared path |
+| C4 | `8ee8c6c5`, `e991ef06`, `f35361d2` | lldb, DAP and DWARF tests of the clone's frames; the debug parity harness reads `$own` frames as their original |
+
+In all, binarytrees at n = 21 went from 2,808 ms before this proposal (task
+B, `f35b7705`) to 1,914 ms. GHC 9.10.3 `-O2` takes 1,827 ms on the same
+machine (hyperfine, 10 runs each): 1.05× its time, at 47.4 G instructions
+to its 50.7 G. Every code step passed `cargo xtask verify` against the one
+before it, and C2, P1-3 and C3 also passed ASan/UBSan and TSan.
 
 ### Checks at every step
 
@@ -358,6 +379,12 @@ by 69% in instructions, to slightly below the borrowed walk.
   2,200 ms, -6.6% instructions. It finds the heap's owner by `TPIDRRO_EL0`
   and a plain global rather than the thread-local heap, whose hoisted lookup
   slowed `deriv`. Other hosts still call the runtime.
+- E5's size limit, `SIZE_LIMIT = 200` (`src/aether/owned_clone.rs`), was
+  never tuned against measurements.
+- C3 needs the clone's other parameters to be borrowed or to take no count.
+  An `Int` parameter whose binder is left `TaggedRep` keeps the old shared
+  path. A native build gives an annotated `Int` parameter `IntRep`, but
+  the test harness behind `a_tail_call_in_a_clone_calls_the_clone` doesn't.
 
 ## Future possibilities
 [future-possibilities]: #future-possibilities
