@@ -1,0 +1,61 @@
+// parity: vm, llvm
+// expect: success
+// bug: KI-116. The VM's bytecode compiler counted a `do` block's reads on
+//      their own, so a variable read once inside the block was moved out of
+//      its slot there, and the function's later read of it found `Uninit`.
+//      Each shape is in a function rather than `main` (KI-118). `folded`
+//      becomes a `do` block only under `--optimize`, so `vm_opt` checks it.
+// parity-expected-stdout-begin
+// 10
+// 10
+// [""]
+// ["ab"]
+// 10
+// parity-expected-stdout-end
+
+fn let_reads(x: Int) -> Int {
+    let y: Int = do {
+        let t = x;
+        t
+    };
+    x + y
+}
+
+fn returns_in_branch(x: Int, b: Bool) -> Int {
+    let r: Int = if b {
+        0
+    } else {
+        let y: Int = do {
+            let t: Bool = true;
+            x
+        };
+        sum([x]) + y
+    };
+    r
+}
+
+fn captured(s: String) -> List<String> {
+    let n: Int = do {
+        let t: String = "Flux#{s}";
+        1
+    };
+    [false] |> map(\_ -> s)
+}
+
+fn folded(x: Int) -> Int {
+    let y: Int = if true {
+        let t = x;
+        t
+    } else {
+        0
+    };
+    x + y
+}
+
+fn main() with IO {
+    print(let_reads(5))
+    print(returns_in_branch(5, false))
+    print(captured(""))
+    print(captured("ab"))
+    print(folded(5))
+}
