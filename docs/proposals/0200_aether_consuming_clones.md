@@ -256,6 +256,22 @@ decrement. This needs `invalid_drop_specialized_uses_aether`
 (`src/aether/verify.rs`) to allow borrowed reads on the shared side before the
 drop.
 
+Measured on 2026-11-09, it mattered: on a tree that 50 list cells hold, each
+handed to `check_tree` by its last reference, the clone's walks took 1.63× the
+borrowed walk's time and 3.35× its instructions. The fallback landed as C3.
+The uniqueness test is per arm, after the match, so each arm's shared path
+lends the whole value to the original, which reads the tag once more. The
+clone must own one parameter, and every other must be borrowed or take no
+count. An arm whose split release is not at its root keeps the old shared
+path. The verifier allows the scrutinee on the shared side only as a borrowed
+call argument; `check_reads_after_release` still rejects a read after the
+drop.
+
+A static object is always shared, since its count is sticky, so this is also
+the path every `Node(Tip, Tip)` leaf took in binarytrees. That benchmark went
+from 2,200 ms to 1,970 ms (-21.5% instructions); the shared walk itself fell
+by 69% in instructions, to slightly below the borrowed walk.
+
 ### Debugging
 
 - The DWARF name is `check_tree$own`, and backtraces show it.
@@ -272,7 +288,7 @@ drop.
 | C1b | **Arms that give a field away claim their cell** (above), in every function, with the snapshot review and the benchmark set run on its own. | yes: a claim the shared path does not balance; the verifier's single-release and read-after-release checks and the debug heap catch it |
 | C1 | **Candidates.** `src/aether/owned_clone.rs`, `candidates(&CoreProgram, &BorrowRegistry)` with E1–E5 and the fixpoint; the compiler interns the `$own` names. Nothing calls it yet. | no |
 | C2 | **Clones and call sites:** making and planning the clones, the call-site rule, LIR names, the dump, off on the VM. | yes: a wrong last-reference decision is a use after free; the verifier and the debug heap catch it |
-| C3 | **The shared fallback** and its verifier change, only if the C0 shared fixture is more than about 5% slower than the borrowed walk. | yes: a read after the drop; `check_reads_after_release` catches it |
+| C3 | **The shared fallback** and its verifier change, only if the C0 shared fixture is more than about 5% slower than the borrowed walk. Done: it was 63% slower; see "When the clone gets a shared value". | yes: a read after the drop; `check_reads_after_release` catches it |
 | C4 | **Debugger:** `$own` in backtraces, a line breakpoint stopping in both copies, `flux refs` reading 1 on the unique path. | no |
 | C5 | **Evidence:** commits, timings, and this proposal's status. | no |
 
