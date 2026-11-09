@@ -377,6 +377,44 @@ in one part doesn't flood the others:
   more than one type. Around: KI-162 (no tuple, Array, Either or `Ord` container
   meets a constraint), KI-104 (no instance method calls itself, since parity runs
   `--no-cache`), KI-076 and KI-086 (no class inside a `module` block).
+
+  As built (`cargo xtask fuzz --with classes`, cases in
+  `.verify/fuzz_<seed>_classes/`):
+  - **Types:** the data types may derive `Eq`, `Show` or both, and one generic
+    `data G<a>` holds `a` or scalars.
+  - **Classes:** one or two user classes of one to three methods `(x: a) -> R`,
+    or `(x: a, y: a) -> Bool`. Sometimes two methods share a type, so swapped
+    dictionary slots would still type-check, and sometimes one has a default
+    body.
+  - **Instances:** for some of Int, Bool, String and the data types. Their
+    methods call no class method (KI-104), and sometimes a contextual
+    `instance C<a> => C<G<a>>` calls the class's methods on an `a` field.
+  - **Helpers:** half are generic `fn f<a>` or constrained `fn f<a: C>`, fully
+    annotated (KI-101). A constrained one always ends in a call of one of its
+    class's methods on its `a` parameter, so its dictionary is used.
+  - **Expressions:** they also call class methods at any type with an instance,
+    `==` on data deriving `Eq`, and `show` on data deriving `Show`.
+  - **Unchanged without the flag:** a test pins the hash of seed 1's first 50
+    programs.
+
+  Left out: multi-parameter classes (KI-075, KI-073), superclasses,
+  instances of prelude classes for user types, and higher kinds.
+
+  **What S17a found** before parity ran, compiling seed 1's first 200 programs:
+  - **KI-176:** an uppercase type parameter (`data G<T> … deriving (Eq)`, or
+    `instance C<T> => C<G<T>>`) gives E444 where `a` works, so the generator
+    writes `a`.
+  - **KI-177:** `m(C10)`, a method on a generic type's nullary constructor,
+    stops the compiler with E000 rather than E476, so the generator calls
+    methods on the generic type only through an annotated variable.
+  - **KI-175:** 104 of the 200 still stop with E000. A class method in an
+    `if` or `match` that is an annotated `let`'s value is "answered with more
+    than one dictionary". Even the prelude's `show` does it, and the fuzz run
+    moves those cases to `internal/`.
+  - **The reducer:** for an internal error it compared only the first error
+    line, which is the same for every E000, so a reduction could drift from
+    one internal error to another. `judge` now includes the explanation
+    line, with its positions masked.
 - **S17b, records and closures as values.** Named-field `data` (0152), field
   access and update; lambdas bound, returned from helpers, stored in lists and
   data and called later; Arrays, Maps with `Int` or `String` keys (KI-157),
@@ -967,7 +1005,7 @@ each joined to an open KI:
 | S14 | `lir::verify`, `--verify-each`, the `vm_verify` way (§14) | Unit tests per LIR rule. A planted malformed rewrite, not committed, fails `--verify-each` naming its pass, where plain parity shows only wrong output. Main parity under `vm_verify` has 0 failures, after fixes or KIs. |
 | S16 ✓ | The support census (§16): `ExitKind::Crash`, `--jobs`, `--census`, `requires: network`, `flux features`, `cargo xtask census` | Every file and way in the corpus is classified; every failure has a KI or a header fix, so the unfiled list is empty; the matrix is published. Plain parity over `tests/parity` gives the same verdicts as before, except crashes now reported as such. |
 | S15 | Live blocks at exit, the `llvm_heap` way, expected counts, `cargo xtask sanitize` (§15) | `llvm_heap` over `tests/parity` and `examples/aether` reports 0 leaks, after fixes or KIs. A planted missing `drop`, not committed, fails it with the allocation site. A removed reuse fails an `expect-reuse` fixture. |
-| S17 | Whole programs from the generator, in four parts (§6): S17a generics and type classes, S17b records and closures as values, S17c effects and handlers, S17d async and modules | For each part: 200 programs of one seed that use it compile with 0 generator failures; a planted miscompile in that part's lowering (a dictionary passed for the wrong type, a clause that resumes with the wrong value), not committed, is found within `--count 200` and reduces to at most 15 lines; every mismatch is fixed or filed. S17d's programs print the same output on 10 reruns of each way. |
+| S17 | Whole programs from the generator, in four parts (§6): S17a generics and type classes, S17b records and closures as values, S17c effects and handlers, S17d async and modules | For each part: 200 programs of one seed that use it compile with 0 generator failures; a planted miscompile in that part's lowering (a dictionary's methods swapped on one backend, a clause that resumes with the wrong value), not committed, is found within `--count 200` and reduces to at most 15 lines; every mismatch is fixed or filed. S17d's programs print the same output on 10 reruns of each way. |
 
 S1 comes first, since without it the later stages could fail silently. S2 and S3
 go together: the opt ways will find divergences, and S2 is how they are recorded
