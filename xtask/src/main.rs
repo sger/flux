@@ -39,6 +39,13 @@
 //!     rewrite each fixture (default tests/parity and examples/guide) in
 //!     ways that cannot change its output, and check the copies against the
 //!     original's output with parity-check; outputs in .verify/rewrite_<seed>/
+//! cargo xtask fuzz [--seed <n>] [--count <n>] [--ways <w,…>] [--jobs <n>]
+//!                  [--gen-only]
+//!     generate well-typed programs (default 50, from seed 1) and run the
+//!     ones that compile through parity-check (default vm,llvm,vm_opt,
+//!     llvm_opt); a program the compiler fails on is a compiler bug, one
+//!     it rejects with a diagnostic a generator bug; outputs in
+//!     .verify/fuzz_<seed>/
 //! cargo xtask bisect-opt <fixture> [--way vm_opt|llvm_opt] [--timeout <seconds>]
 //!                        [--flux <path>]
 //!     find the optimizing rewrite that makes the opt way differ from the
@@ -66,6 +73,7 @@ mod affected;
 mod bisect;
 mod census;
 mod compare;
+mod fuzz;
 mod metrics;
 mod outcome;
 mod parity;
@@ -93,6 +101,7 @@ const USAGE: &str = "usage:
   cargo xtask prune [--keep <n>] [--keep-tag <tag>]... [--yes]
   cargo xtask census [--tag <tag>] [--base <tag>] [--jobs <n>] [--ways <w,...>] [--allow network] [<dir>...]
   cargo xtask rewrite [--kind reorder|rename|let-wrap|all] [--seed <n>] [--ways <w,...>] [--jobs <n>] [<dir|file>...]
+  cargo xtask fuzz [--seed <n>] [--count <n>] [--ways <w,...>] [--jobs <n>] [--gen-only]
   cargo xtask bisect-opt <fixture> [--way vm_opt|llvm_opt] [--timeout <seconds>] [--flux <path>]
   cargo xtask sanitize [--thread] [--ways <w,...>] [<dir>...]
   cargo xtask scale [--flux <path>] [<test>...]
@@ -219,6 +228,17 @@ fn dispatch(root: &Path, args: &[String]) -> Result<bool, String> {
             let options = rewrite_options(&mut args)?;
             args.finish()?;
             rewrite::run_rewrite(root, &options)
+        }
+        "fuzz" => {
+            let options = fuzz::Options {
+                seed: args.number("--seed")?.unwrap_or(1) as u64,
+                count: args.number("--count")?.unwrap_or(50),
+                ways: args.value("--ways")?.unwrap_or_else(|| fuzz::DEFAULT_WAYS.to_string()),
+                jobs: args.number("--jobs")?.unwrap_or(1).max(1),
+                gen_only: args.flag("--gen-only"),
+            };
+            args.finish()?;
+            fuzz::run_fuzz(root, &options)
         }
         "bisect-opt" => {
             let way = args.value("--way")?.unwrap_or_else(|| "vm_opt".to_string());
