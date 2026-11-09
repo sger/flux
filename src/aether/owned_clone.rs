@@ -123,10 +123,11 @@ pub(super) fn plan_clones(
                 AetherDef {
                     name: clone.binder.name,
                     binder: clone.binder,
-                    expr: super::run_aether_def_with_registry(
+                    expr: super::run_aether_clone_def(
                         AetherExpr::from_core(def.expr.clone()),
                         registry,
-                        Some(signature),
+                        signature,
+                        &def.binder,
                     ),
                     is_dict_def: false,
                     borrow_signature: Some(signature.clone()),
@@ -158,6 +159,139 @@ pub(super) fn plan_clones(
             keep
         });
     }
+}
+
+/// C3. A clone given a shared value would copy each field and recurse into itself,
+/// writing every cell of the shared part; measured on a tree 50 cells hold, that is
+/// 3.35× the borrowed walk's instructions. Instead each arm's shared path lends the
+/// whole value to the original, which only reads, and then releases its own
+/// reference once: `let r = original(params) in drop param in r`. That re-reads the
+/// tag the arm already matched, one load.
+///
+/// It applies when the clone owns one parameter, the others are borrowed or take no
+/// count, and the body is a match on that parameter, so the original can stand in
+/// for the whole body. An arm whose split release is not at its root keeps the C2
+/// shared path, which is correct, only slower.
+pub(super) fn share_with_original(
+    expr: AetherExpr,
+    original: &CoreBinder,
+    registry: &BorrowRegistry,
+    clone_signature: &BorrowSignature,
+) -> AetherExpr {
+    let (Some(clone), Some(original_signature)) =
+        (registry.owned_clones.get(&original.id), registry.by_binder.get(&original.id))
+    else {
+        return expr;
+    };
+    let &[owned] = clone.positions.iter().copied().collect::<Vec<_>>().as_slice() else {
+        return expr;
+    };
+    let AetherExpr::Lam { params, param_types, result_ty, body, span } = expr else {
+        return expr;
+    };
+    let lends_the_rest = params.len() == original_signature.params.len()
+        && original_signature.params[owned] == BorrowMode::Borrowed
+        && params.iter().enumerate().all(|(index, param)| {
+            index == owned
+                || clone_signature.params.get(index) == Some(&BorrowMode::Borrowed)
+                || !param.rep.needs_rc()
+        });
+    let param = params[owned];
+    let mut next = first_free_temp(&body);
+    let body = match *body {
+        AetherExpr::Case { scrutinee, alts, join_ty, span: case_span }
+            if lends_the_rest
+                && matches!(scrutinee.as_ref(), AetherExpr::Var { var, .. } if var.binder == Some(param.id))
+                && opt_bisect::allow("owned_clone_shared", || {
+                    format!("walk a shared value with {:?}", original.name)
+                }) =>
+        {
+            let alts = alts
+                .into_iter()
+                .map(|mut alt| {
+                    if let AetherExpr::DropSpecialized { scrutinee, shared_body, .. } = &mut alt.rhs
+                        && scrutinee.binder == Some(param.id)
+                    {
+                        let result = CoreBinder::with_rep(
+                            CoreBinderId(next),
+                            crate::syntax::symbol::Symbol::new(
+                                super::insert::FIRST_TEMP_SYMBOL
+                                    + (next - super::insert::FIRST_TEMP_ID),
+                            ),
+                            crate::core::FluxRep::TaggedRep,
+                        );
+                        next += 1;
+                        **shared_body = lend_to_original(
+                            original,
+                            &params,
+                            owned,
+                            &original_signature.params,
+                            result,
+                            alt.span,
+                        );
+                    }
+                    alt
+                })
+                .collect();
+            AetherExpr::Case { scrutinee, alts, join_ty, span: case_span }
+        }
+        body => body,
+    };
+    AetherExpr::Lam { params, param_types, result_ty, body: Box::new(body), span }
+}
+
+/// `let result = original(params) in drop params[owned] in result`. Only the owned
+/// parameter is still held after the call, so only it is guarded, as the planner
+/// guards a borrowed argument that outlives its call.
+fn lend_to_original(
+    original: &CoreBinder,
+    params: &[CoreBinder],
+    owned: usize,
+    modes: &[BorrowMode],
+    result: CoreBinder,
+    span: crate::diagnostics::position::Span,
+) -> AetherExpr {
+    let call = AetherExpr::AetherCall {
+        func: Box::new(AetherExpr::bound_var(*original, span)),
+        args: params.iter().map(|param| AetherExpr::bound_var(*param, span)).collect(),
+        arg_modes: modes.to_vec(),
+        guarded_borrowed_args: (0..params.len()).map(|index| index == owned).collect(),
+        owned_after: Vec::new(),
+        span,
+    };
+    AetherExpr::Let {
+        var: result,
+        rhs: Box::new(call),
+        body: Box::new(AetherExpr::Drop {
+            var: crate::core::CoreVarRef::resolved(&params[owned]),
+            body: Box::new(AetherExpr::bound_var(result, span)),
+            span,
+        }),
+        span,
+    }
+}
+
+/// An id for a new temporary, above every one the planner already used in `expr`.
+fn first_free_temp(expr: &AetherExpr) -> u32 {
+    fn highest(expr: &AetherExpr, top: &mut u32) {
+        let id = match expr {
+            AetherExpr::Var { var, .. }
+            | AetherExpr::Dup { var, .. }
+            | AetherExpr::Drop { var, .. }
+            | AetherExpr::FreeShell { var, .. } => var.binder,
+            AetherExpr::Let { var, .. } | AetherExpr::LetRec { var, .. } => Some(var.id),
+            _ => None,
+        };
+        if let Some(id) = id {
+            *top = (*top).max(id.0);
+        }
+        for child in aether_children(expr) {
+            highest(child, top);
+        }
+    }
+    let mut top = super::insert::FIRST_TEMP_ID - 1;
+    highest(expr, &mut top);
+    top + 1
 }
 
 /// Whether a parameter the clone owns reaches a split release whose unique path frees

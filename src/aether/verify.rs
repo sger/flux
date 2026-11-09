@@ -1599,6 +1599,29 @@ fn invalid_drop_specialized_uses_aether(
         AetherExpr::Lam { body, .. } | AetherExpr::Return { value: body, .. } => {
             invalid_drop_specialized_uses_aether(body, scrutinee_id, count_reuse_token)
         }
+        // The shared side may lend the cell to a call that only reads it, as a
+        // consuming clone does when it walks a shared value with the original
+        // (0200 C3). Its count is at least 2 there, so the read is safe until
+        // the side's one release, and check_reads_after_release rejects a read
+        // after it.
+        AetherExpr::AetherCall { func, args, arg_modes, .. } if count_reuse_token => {
+            invalid_drop_specialized_uses_aether(func, scrutinee_id, count_reuse_token)
+                + args
+                    .iter()
+                    .zip(arg_modes.iter().map(Some).chain(std::iter::repeat(None)))
+                    .map(|(arg, mode)| match (arg, mode) {
+                        (
+                            AetherExpr::Var { var, .. },
+                            Some(super::borrow_infer::BorrowMode::Borrowed),
+                        ) if var.binder == Some(scrutinee_id) => 0,
+                        _ => invalid_drop_specialized_uses_aether(
+                            arg,
+                            scrutinee_id,
+                            count_reuse_token,
+                        ),
+                    })
+                    .sum::<usize>()
+        }
         AetherExpr::App { func, args, .. } | AetherExpr::AetherCall { func, args, .. } => {
             invalid_drop_specialized_uses_aether(func, scrutinee_id, count_reuse_token)
                 + args
@@ -2154,6 +2177,78 @@ mod tests {
             span: s(),
         };
         let errors = contract_errors(&lam(vec![xs], on_cons(xs, h, t, specialized)));
+        assert!(errors.contains(&AetherErrorKind::InvalidDropSpecializedUse), "{errors:?}");
+    }
+
+    /// A call that only reads its one argument.
+    fn lend(f: CoreBinder, arg: CoreExpr) -> CoreExpr {
+        CoreExpr::AetherCall {
+            func: Box::new(v(f)),
+            args: vec![arg],
+            arg_modes: vec![crate::aether::borrow_infer::BorrowMode::Borrowed],
+            guarded_borrowed_args: vec![true],
+            owned_after: Vec::new(),
+            span: s(),
+        }
+    }
+
+    /// `shell_case` with a unique side that frees the cell and a shared side
+    /// built by `shared`.
+    fn shared_case(names: &mut Interner, shared: impl FnOnce(&Shell) -> CoreExpr) -> CoreExpr {
+        let [f, xs, h, t] = ["f", "xs", "h", "t"].map(|name| names.intern(name));
+        let shell = Shell { f: binder(1, f), xs: binder(2, xs), h: binder(3, h), t: binder(4, t) };
+        let specialized = CoreExpr::DropSpecialized {
+            scrutinee: CoreVarRef::resolved(&shell.xs),
+            unique_body: Box::new(frees_and_gives(&shell)),
+            shared_body: Box::new(shared(&shell)),
+            span: s(),
+        };
+        lam(vec![shell.f, shell.xs], on_cons(shell.xs, shell.h, shell.t, specialized))
+    }
+
+    /// A consuming clone's shared side may lend the whole cell to a function
+    /// that only reads it, then release it once (0200 C3).
+    #[test]
+    fn a_shared_path_may_lend_the_cell_before_releasing_it() {
+        let mut interner = Interner::new();
+        let r = binder(5, interner.intern("r"));
+        let def = shared_case(&mut interner, |shell| CoreExpr::Let {
+            var: r,
+            rhs: Box::new(lend(shell.f, v(shell.xs))),
+            body: Box::new(drop_in(shell.xs, v(r))),
+            span: s(),
+        });
+        assert_eq!(contract_errors(&def), vec![]);
+    }
+
+    /// Lending is the only use allowed, and only while the cell is held.
+    #[test]
+    fn a_shared_path_may_not_otherwise_use_the_cell() {
+        let mut interner = Interner::new();
+        let after =
+            shared_case(&mut interner, |shell| drop_in(shell.xs, lend(shell.f, v(shell.xs))));
+        let errors = contract_errors(&after);
+        assert!(errors.contains(&AetherErrorKind::UsedAfterRelease), "{errors:?}");
+
+        let mut interner = Interner::new();
+        let given = shared_case(&mut interner, |shell| give(shell.f, v(shell.xs)));
+        let errors = contract_errors(&given);
+        assert!(errors.contains(&AetherErrorKind::InvalidDropSpecializedUse), "{errors:?}");
+
+        let mut interner = Interner::new();
+        let r = binder(5, interner.intern("r"));
+        let copied = shared_case(&mut interner, |shell| {
+            dup(
+                shell.xs,
+                CoreExpr::Let {
+                    var: r,
+                    rhs: Box::new(give(shell.f, v(shell.xs))),
+                    body: Box::new(drop_in(shell.xs, v(r))),
+                    span: s(),
+                },
+            )
+        });
+        let errors = contract_errors(&copied);
         assert!(errors.contains(&AetherErrorKind::InvalidDropSpecializedUse), "{errors:?}");
     }
 

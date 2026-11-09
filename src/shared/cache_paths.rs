@@ -414,7 +414,9 @@ use sha2::{Digest, Sha256};
 /// copied the fields for nothing (0200 C1b).
 /// Epoch 137: a call handing over its last reference uses a consuming clone; an
 /// epoch-136 unit holds the plan that lent it and released it after (0200 C2).
-pub const CACHE_EPOCH: u16 = 137;
+/// Epoch 138: a consuming clone given a shared value walks it with the original;
+/// an epoch-137 unit holds the clone that copied each field and recursed (0200 C3).
+pub const CACHE_EPOCH: u16 = 138;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

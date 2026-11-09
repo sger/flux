@@ -2291,7 +2291,8 @@ fn main() { sum_trees(1, 1, 0) }
     assert!(flux::aether::verify::verify_contract_aether(&sum_trees.expr).is_ok());
 }
 
-/// A clone frees each cell as it reads it, and hands its fields on to itself.
+/// A clone frees each cell as it reads it, and hands its fields on to itself. A
+/// shared value goes to the original instead (0200 C3).
 #[test]
 fn a_clone_frees_its_cell_on_the_unique_path_and_calls_itself() {
     let src = with_clone_base("fn main() { check_tree(make_tree(1)) }");
@@ -2301,10 +2302,65 @@ fn a_clone_frees_its_cell_on_the_unique_path_and_calls_itself() {
         clone.owned_clone_of,
         Some(def_named(&aether, &interner, "check_tree").expect("the original").binder.id)
     );
-    assert!(callees_of(&aether, &interner, "check_tree$own").iter().all(|f| f == "check_tree$own"));
+    let mut callees = callees_of(&aether, &interner, "check_tree$own");
+    callees.sort();
+    assert_eq!(callees, ["check_tree", "check_tree$own", "check_tree$own"]);
     let frees = count_matching(&clone.expr, &|expr| matches!(expr, CoreExpr::FreeShell { .. }));
     assert_eq!(frees, 1, "{:?}", clone.expr);
     assert!(flux::aether::verify::verify_contract_aether(&clone.expr).is_ok());
+}
+
+/// A clone given a shared value walks it with the original, which only reads,
+/// and then releases its own reference once (0200 C3). Recursing into the
+/// clone would copy both fields and write every cell of the shared tree.
+#[test]
+fn a_clone_given_a_shared_value_walks_it_with_the_original() {
+    use flux::aether::borrow_infer::BorrowMode;
+
+    let src = with_clone_base("fn main() { check_tree(make_tree(1)) }");
+    let (aether, interner) = lowered_with_clones(src);
+    let clone = def_named(&aether, &interner, "check_tree$own").expect("a clone");
+    let tree = interner.lookup("tree").expect("the parameter");
+
+    let shared: Vec<&CoreExpr> = collect_core_exprs(&clone.expr)
+        .into_iter()
+        .filter_map(|expr| match expr {
+            CoreExpr::DropSpecialized { shared_body, .. } => Some(shared_body.as_ref()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(shared.len(), 1, "{:?}", clone.expr);
+    let shared = shared[0];
+
+    let calls: Vec<(String, Vec<BorrowMode>, bool)> = collect_core_exprs(shared)
+        .into_iter()
+        .filter_map(|expr| match expr {
+            CoreExpr::AetherCall { func, args, arg_modes, .. } => match func.as_ref() {
+                CoreExpr::Var { var, .. } => Some((
+                    interner.resolve(var.name).to_string(),
+                    arg_modes.clone(),
+                    matches!(args.first(), Some(CoreExpr::Var { var, .. }) if var.name == tree),
+                )),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    assert_eq!(calls, [("check_tree".to_string(), vec![BorrowMode::Borrowed], true)], "{shared:?}");
+    let dups = count_matching(shared, &|expr| matches!(expr, CoreExpr::Dup { .. }));
+    assert_eq!(dups, 0, "{shared:?}");
+    let drops = count_matching(
+        shared,
+        &|expr| matches!(expr, CoreExpr::Drop { var, .. } if var.name == tree),
+    );
+    assert_eq!(drops, 1, "{shared:?}");
+    assert_eq!(
+        flux::aether::verify::verify_def_contract_aether(
+            &clone.expr,
+            clone.borrow_signature.as_ref()
+        ),
+        Ok(())
+    );
 }
 
 /// The original stays as it was, for callers that keep the value.
@@ -2593,8 +2649,14 @@ fn main() { leftmost(make_tree(1), 0) }
 "#,
     );
     let (aether, interner) = lowered_with_clones(src);
-    // Once on the unique path and once on the shared one.
-    assert_eq!(callees_of(&aether, &interner, "leftmost$own"), ["leftmost$own", "leftmost$own"]);
+    // The unique path calls the clone. The shared path calls the clone too, or
+    // the original once C3 can lend it the value, which needs `depth` to take
+    // no count; a native build gives an `Int` parameter `IntRep`, this harness
+    // doesn't.
+    let callees = callees_of(&aether, &interner, "leftmost$own");
+    assert_eq!(callees.len(), 2, "{callees:?}");
+    assert!(callees.contains(&"leftmost$own".to_string()), "{callees:?}");
+    assert!(callees.iter().all(|f| f == "leftmost$own" || f == "leftmost"), "{callees:?}");
 }
 
 /// Only a native build makes clones: the VM's values are `Rc`s, so one gains nothing.
