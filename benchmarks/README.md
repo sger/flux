@@ -40,7 +40,7 @@ cargo build --release --features llvm --bin flux
 ```
 
 Each benchmark runs Flux twice: on the VM (`<name>/flux`), and as a native binary that
-`bench.sh` emits into `target/bench/` before timing starts (`<name>/flux-native`). The
+`bench.sh` emits with `-O` into `target/bench/` before timing starts (`<name>/flux-native`). The
 native case times only the compiled program, not the compiler.
 
 Run the curated groups:

@@ -165,7 +165,7 @@ fn lower_program_to_ir_impl(
     };
     warnings.append(&mut aether_warnings);
     if crate::aether::verify::contract_gate() {
-        crate::core::passes::verify_aether_program_contract(&aether)?;
+        crate::core::passes::verify_aether_program_contract(&aether, interner)?;
     }
 
     // Aether diagnostics (works for all backends: VM, JIT, LLVM).

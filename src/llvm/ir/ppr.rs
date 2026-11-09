@@ -3,7 +3,7 @@ use std::fmt::{self, Display, Formatter};
 use super::{
     BlockDebug, CallConv, FunctionDebug, GlobalId, LabelId, Linkage, LlvmBlock, LlvmCmpOp,
     LlvmConst, LlvmDecl, LlvmFunction, LlvmGlobal, LlvmInstr, LlvmLocal, LlvmModule, LlvmOperand,
-    LlvmTerminator, LlvmType, LlvmTypeDef, LlvmValueKind,
+    LlvmTerminator, LlvmType, LlvmTypeDef, LlvmValueKind, TlsModel,
 };
 
 pub fn render_module(module: &LlvmModule) -> String {
@@ -96,6 +96,11 @@ impl Display for LlvmTypeDef {
 
 impl Display for LlvmGlobal {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let tls = match self.thread_local {
+            None => "",
+            Some(TlsModel::GeneralDynamic) => "thread_local ",
+            Some(TlsModel::InitialExec) => "thread_local(initialexec) ",
+        };
         match &self.value {
             Some(value) => {
                 // A definition with external linkage spells no linkage.
@@ -105,9 +110,10 @@ impl Display for LlvmGlobal {
                 };
                 write!(
                     f,
-                    "@{} = {}{} {} {}",
+                    "@{} = {}{}{} {} {}",
                     self.name,
                     linkage,
+                    tls,
                     if self.is_constant { "constant" } else { "global" },
                     self.ty,
                     value
@@ -115,7 +121,7 @@ impl Display for LlvmGlobal {
             }
             None => {
                 // External global declaration (no initializer).
-                write!(f, "@{} = {} global {}", self.name, self.linkage, self.ty)?;
+                write!(f, "@{} = {} {}global {}", self.name, self.linkage, tls, self.ty)?;
             }
         }
         for attr in &self.attrs {
@@ -433,6 +439,9 @@ impl Display for LlvmConst {
                 Ok(())
             }
             LlvmConst::GlobalRef(id) => write!(f, "@{id}"),
+            LlvmConst::GlobalOffset { global, offset } => {
+                write!(f, "getelementptr inbounds (i8, ptr @{global}, i64 {offset})")
+            }
             LlvmConst::ZeroInit => write!(f, "zeroinitializer"),
         }
     }
@@ -445,6 +454,9 @@ impl Display for LlvmOperand {
             LlvmOperand::Global(global) => write!(f, "@{global}"),
             LlvmOperand::Const(value) => write!(f, "{value}"),
             LlvmOperand::Metadata(text) => write!(f, "{text}"),
+            LlvmOperand::InlineAsm { template, constraints } => {
+                write!(f, "asm \"{}\", \"{}\"", escape_string(template), escape_string(constraints))
+            }
         }
     }
 }
@@ -701,6 +713,33 @@ mod tests {
         );
     }
 
+    #[test]
+    fn thread_local_globals_print_before_global() {
+        let declared = LlvmGlobal {
+            linkage: Linkage::External,
+            name: GlobalId("flux_heap".into()),
+            ty: LlvmType::ptr(),
+            is_constant: false,
+            thread_local: Some(TlsModel::GeneralDynamic),
+            value: None,
+            attrs: vec![],
+        };
+        assert_eq!(declared.to_string(), "@flux_heap = external thread_local global ptr");
+        let initial_exec =
+            LlvmGlobal { thread_local: Some(TlsModel::InitialExec), ..declared.clone() };
+        assert_eq!(
+            initial_exec.to_string(),
+            "@flux_heap = external thread_local(initialexec) global ptr"
+        );
+        let defined = LlvmGlobal {
+            linkage: Linkage::Internal,
+            value: Some(LlvmConst::Int { bits: 64, value: 0 }),
+            ty: LlvmType::i64(),
+            ..declared
+        };
+        assert_eq!(defined.to_string(), "@flux_heap = internal thread_local global i64 0");
+    }
+
     fn build_demo_module() -> LlvmModule {
         LlvmModule {
             debug: None,
@@ -722,6 +761,7 @@ mod tests {
                 name: GlobalId("flux.tag.int".into()),
                 ty: LlvmType::i64(),
                 is_constant: true,
+                thread_local: None,
                 value: Some(LlvmConst::Int { bits: 64, value: 4607182418800017408 }),
                 attrs: vec![],
             }],

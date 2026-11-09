@@ -25,6 +25,8 @@ mod specialize;
 pub mod static_contract;
 mod tail_resumptive;
 
+pub(crate) use helpers::is_primop_pure;
+
 pub use algebraic::algebraic_simplify;
 pub use anf::{anf_normalize, primop_result_rep};
 pub use beta::beta_reduce;
@@ -44,7 +46,7 @@ pub use inliner::inline_lets;
 pub use primop_promote::promote_builtins;
 pub use specialize::specialize_known_shapes;
 
-use crate::core::{CoreExpr, CoreLit, CoreProgram};
+use crate::core::{CoreExpr, CoreLit, CorePat, CoreProgram};
 use crate::diagnostics::compiler_errors::CORE_LINT_FAILURE;
 use crate::diagnostics::{
     Diagnostic, DiagnosticBuilder, DiagnosticCategory, DiagnosticPhase, ErrorType, diagnostic_for,
@@ -259,6 +261,11 @@ fn run_semantic_core_passes_with_optional_interner(
         verify_aether_contract_stage(def, &e, "anf_normalize")?;
         def.expr = e;
     }
+    // After the evidence pass, so an arity counts the dictionaries it adds.
+    let result_reps = anf::scalar_result_reps(program);
+    for def in &mut program.defs {
+        anf::type_call_results(&mut def.expr, &result_reps);
+    }
 
     // Verify Core invariants after normalization.
     core_lint_stage(program, "normalization", interner)?;
@@ -364,7 +371,7 @@ fn run_aether_passes_with_optional_interner(
 ) -> Result<Vec<Diagnostic>, Diagnostic> {
     let (aether_program, warnings) =
         crate::aether::lower_core_to_aether_program(program, interner, preloaded_registry)?;
-    verify_aether_program_contract(&aether_program)?;
+    verify_aether_program_contract(&aether_program, interner)?;
     *program = aether_program.into_core();
     Ok(warnings)
 }
@@ -374,9 +381,15 @@ fn run_aether_passes_with_optional_interner(
 #[allow(clippy::result_large_err)]
 pub(crate) fn verify_aether_program_contract(
     program: &crate::aether::AetherProgram,
+    interner: Option<&Interner>,
 ) -> Result<(), Diagnostic> {
     for def in program.defs() {
-        verify_aether_contract_stage_aether(def, &def.expr, "lower_core_to_aether_program")?;
+        verify_aether_contract_stage_aether(
+            def,
+            &def.expr,
+            "lower_core_to_aether_program",
+            interner,
+        )?;
     }
     Ok(())
 }
@@ -430,6 +443,7 @@ fn collect_max_binder_id(expr: &CoreExpr, max: &mut u32) {
         Case { scrutinee, alts, .. } => {
             collect_max_binder_id(scrutinee, max);
             for alt in alts {
+                collect_max_pattern_binder_id(&alt.pat, max);
                 collect_max_binder_id(&alt.rhs, max);
                 if let Some(g) = &alt.guard {
                     collect_max_binder_id(g, max);
@@ -465,6 +479,18 @@ fn collect_max_binder_id(expr: &CoreExpr, max: &mut u32) {
         MemberAccess { object, .. } | TupleField { object, .. } => {
             collect_max_binder_id(object, max);
         }
+    }
+}
+
+fn collect_max_pattern_binder_id(pat: &CorePat, max: &mut u32) {
+    match pat {
+        CorePat::Var(binder) => *max = (*max).max(binder.id.0),
+        CorePat::Con { fields, .. } | CorePat::Tuple(fields) => {
+            for field in fields {
+                collect_max_pattern_binder_id(field, max);
+            }
+        }
+        CorePat::Wildcard | CorePat::Lit(_) | CorePat::EmptyList => {}
     }
 }
 
@@ -525,11 +551,12 @@ fn verify_aether_contract_stage_aether(
     def: &crate::aether::AetherDef,
     expr: &crate::aether::AetherExpr,
     stage: &'static str,
+    interner: Option<&Interner>,
 ) -> Result<(), Diagnostic> {
     if let Err(errors) =
         crate::aether::verify::verify_def_contract_aether(expr, def.borrow_signature.as_ref())
     {
-        return Err(aether_contract_error_aether(def, stage, &errors));
+        return Err(aether_contract_error_aether(def, stage, &errors, interner));
     }
     Ok(())
 }
@@ -539,19 +566,29 @@ fn aether_contract_error_core(
     stage: &'static str,
     errors: &[crate::aether::verify::AetherError],
 ) -> Diagnostic {
-    aether_contract_error_common(def.name.as_u32(), def.span, stage, errors)
+    aether_contract_error_common("this definition", def.span, stage, errors)
 }
 
 fn aether_contract_error_aether(
     def: &crate::aether::AetherDef,
     stage: &'static str,
     errors: &[crate::aether::verify::AetherError],
+    interner: Option<&Interner>,
 ) -> Diagnostic {
-    aether_contract_error_common(def.name.as_u32(), def.span, stage, errors)
+    // A top-level expression's `name` is a placeholder symbol, which resolves to
+    // whatever was interned first.
+    let subject = if def.is_anonymous {
+        "a top-level expression".to_string()
+    } else {
+        interner
+            .and_then(|interner| interner.try_resolve(def.name))
+            .map_or_else(|| "this definition".to_string(), |name| format!("`{name}`"))
+    };
+    aether_contract_error_common(&subject, def.span, stage, errors)
 }
 
 fn aether_contract_error_common(
-    def_name: u32,
+    subject: &str,
     def_span: crate::diagnostics::position::Span,
     stage: &'static str,
     errors: &[crate::aether::verify::AetherError],
@@ -565,17 +602,23 @@ fn aether_contract_error_common(
         "AETHER VERIFICATION FAILED",
         ErrorType::Compiler,
         format!(
-            "definition `{}` emitted malformed Aether after `{}` and cannot be lowered:\n{}\n\n{}",
-            def_name, stage, bullet_lines, details
+            "This is a compiler bug, not a problem in your code: the ownership plan for {} is \
+             unsound, so it was not compiled.\n\nFor the bug report, after `{}`:\n{}\n\n{}",
+            subject, stage, bullet_lines, details
         ),
-        Some("Fix the Aether transform in src/aether/ before lowering to CFG.".to_string()),
+        Some(
+            "Please report this at: https://github.com/flux-lang/flux/issues\nSetting \
+             FLUX_AETHER_VERIFY=0 builds it anyway, but the program may then crash or print \
+             wrong results."
+                .to_string(),
+        ),
         "",
         def_span,
     )
     .with_display_title("Aether Verification Failed")
     .with_category(DiagnosticCategory::Internal)
     .with_phase(DiagnosticPhase::Validation)
-    .with_primary_label(def_span, "malformed Aether emitted here")
+    .with_primary_label(def_span, "the plan for this definition was rejected")
 }
 
 #[cfg(test)]

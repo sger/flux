@@ -1,6 +1,6 @@
 //! Core IR → LIR lowering (Proposal 0132 Phases 2–3).
 //!
-//! Translates the functional Core IR into the flat, NaN-box-aware LIR CFG.
+//! Translates the functional Core IR into the flat, pointer-tag-aware LIR CFG.
 //! - Phase 2: literals, variables, let/letrec bindings, primop calls, top-level functions.
 //! - Phase 3: pattern matching (Case), ADT/cons/tuple construction (Con), tuple field access.
 
@@ -350,9 +350,9 @@ fn resumes_only_as_last_act(body: &AetherExpr, resume: CoreBinderId) -> bool {
                     .iter()
                     .all(|alt| !alt.guard.as_ref().is_some_and(mentions) && last(&alt.rhs))
         }
-        AetherExpr::Dup { var, body, .. } | AetherExpr::Drop { var, body, .. } => {
-            var.binder != Some(resume) && last(body)
-        }
+        AetherExpr::Dup { var, body, .. }
+        | AetherExpr::Drop { var, body, .. }
+        | AetherExpr::FreeShell { var, body, .. } => var.binder != Some(resume) && last(body),
         AetherExpr::DropSpecialized { unique_body, shared_body, .. } => {
             last(unique_body) && last(shared_body)
         }
@@ -866,7 +866,14 @@ fn lower_aether_program_inner(
             externs.values().filter(|sym| sym.can_suspend).map(|sym| sym.symbol.clone()).collect();
     }
 
-    let qualified_names = build_qualified_names(core, interner, entry_qualifier);
+    let mut qualified_names = build_qualified_names(core, interner, entry_qualifier);
+    // A clone has no `CoreDef` to be named from, and keeps its original's module.
+    for def in program.defs() {
+        if let Some(name) = def.owned_clone_of.and_then(|original| qualified_names.get(&original)) {
+            let name = crate::aether::owned_clone::owned_clone_name(name);
+            qualified_names.insert(def.binder.id, name);
+        }
+    }
     // Compiler-wide tags first — see the note in
     // `lower_program_with_interner_and_externs`.
     if let Some(imported) = imported_constructor_tags {
@@ -1208,7 +1215,7 @@ struct FnLower<'a> {
     /// Maps CoreBinderId → top-level non-function rhs so native lowering can
     /// use the value directly instead of fabricating a closure placeholder.
     top_level_value_map: &'a HashMap<CoreBinderId, &'a CoreExpr>,
-    /// Variables known to hold NaN-boxed integers at this point in lowering.
+    /// Variables known to hold tagged integers at this point in lowering.
     /// Used for local type propagation: when a generic `Add` sees both
     /// operands in this set, it emits `IAdd` instead of a C runtime call.
     int_vars: HashSet<LirVar>,
@@ -1467,7 +1474,9 @@ impl<'a> FnLower<'a> {
     fn emit(&mut self, instr: LirInstr) {
         let faulted = match &instr {
             LirInstr::Dup { val } => Some((AetherFault::SkipDup, val)),
-            LirInstr::Drop { val } => Some((AetherFault::SkipDrop, val)),
+            LirInstr::Drop { val } | LirInstr::FreeShell { val } => {
+                Some((AetherFault::SkipDrop, val))
+            }
             _ => None,
         };
         if let Some((kind, val)) = faulted
@@ -1680,7 +1689,7 @@ impl<'a> FnLower<'a> {
     // ── Expression lowering ──────────────────────────────────────────
 
     /// Lower a `CoreExpr` and return the `LirVar` holding the result.
-    /// The result is always a NaN-boxed i64 value.
+    /// The result is always a tagged i64 value.
     /// The location of a node with `span`: its own, with the inlined lambda
     /// it belongs to, if any, or, for a node the compiler made without one,
     /// the enclosing node's.
@@ -2489,6 +2498,7 @@ impl<'a> FnLower<'a> {
         let loc = match expr {
             AetherExpr::Dup { .. }
             | AetherExpr::Drop { .. }
+            | AetherExpr::FreeShell { .. }
             | AetherExpr::Reuse { .. }
             | AetherExpr::DropSpecialized { .. } => LirLoc::NONE,
             AetherExpr::Lit(_, span) => self.literal_loc(*span),
@@ -3044,6 +3054,13 @@ impl<'a> FnLower<'a> {
                 }
                 self.lower_expr_aether(body)
             }
+            AetherExpr::FreeShell { var, body, .. } => {
+                if let Some(binder) = var.binder {
+                    let v = self.lookup(binder);
+                    self.emit(LirInstr::FreeShell { val: v });
+                }
+                self.lower_expr_aether(body)
+            }
             AetherExpr::Reuse { token, tag, fields, field_mask, .. } => {
                 let field_vars: Vec<LirVar> =
                     fields.iter().map(|f| self.lower_expr_aether(f)).collect();
@@ -3279,7 +3296,7 @@ impl<'a> FnLower<'a> {
             args: vec![],
         });
 
-        // Effect tag: Symbol(u32) → NaN-boxed integer.
+        // Effect tag: Symbol(u32) → tagged integer.
         let htag = self.fresh_var();
         self.emit(LirInstr::Const {
             dst: htag,
@@ -4107,7 +4124,7 @@ impl<'a> FnLower<'a> {
             self.lower_expr(&args[0])
         };
 
-        // Effect tag and operation tag as NaN-boxed integers.
+        // Effect tag and operation tag as tagged integers.
         let htag = self.fresh_var();
         self.emit(LirInstr::Const {
             dst: htag,
@@ -5726,6 +5743,7 @@ fn display_instr(instr: &LirInstr) -> String {
         }
         LirInstr::Dup { val } => format!("dup {val}"),
         LirInstr::Drop { val } => format!("drop {val}"),
+        LirInstr::FreeShell { val } => format!("free_shell {val}"),
         LirInstr::IsUnique { dst, val } => format!("{dst} = is_unique({val})"),
         LirInstr::DropReuse { dst, val, size } => format!("{dst} = drop_reuse({val}, size={size})"),
         LirInstr::MakeClosure { dst, func_id, captures } => {
@@ -5998,7 +6016,9 @@ fn collect_parameterized_effects_aether_rec(expr: &AetherExpr, effects: &mut Has
         AetherExpr::MemberAccess { object, .. } | AetherExpr::TupleField { object, .. } => {
             collect_parameterized_effects_aether_rec(object, effects);
         }
-        AetherExpr::Dup { body, .. } | AetherExpr::Drop { body, .. } => {
+        AetherExpr::Dup { body, .. }
+        | AetherExpr::Drop { body, .. }
+        | AetherExpr::FreeShell { body, .. } => {
             collect_parameterized_effects_aether_rec(body, effects);
         }
         AetherExpr::Reuse { fields, .. } => {
@@ -6195,6 +6215,115 @@ mod tests {
             op: crate::core::CorePrimOp::Add,
             args: vec![left, right],
             span: Span::default(),
+        }
+    }
+
+    /// `case xs of [h | t] -> drop_spec xs { unique -> free_shell xs in h,
+    /// shared -> dup h in drop xs in h }`: the cell's block is freed alone,
+    /// on the path the uniqueness check takes, and nowhere else.
+    #[test]
+    fn a_freed_shell_is_freed_on_the_unique_branch_only() {
+        use crate::aether::{AetherAlt, AetherDef, AetherProgram};
+        use crate::core::{CorePat, CoreTag, CoreVarRef};
+        let span = Span::default();
+        let [f, xs, h, t] = [1, 2, 3, 4].map(|id| mk_binder(id, Identifier::new(id)));
+        let var = |binder| AetherExpr::bound_var(binder, span);
+        let specialized = AetherExpr::DropSpecialized {
+            scrutinee: CoreVarRef::resolved(&xs),
+            unique_body: Box::new(AetherExpr::FreeShell {
+                var: CoreVarRef::resolved(&xs),
+                body: Box::new(var(h)),
+                span,
+            }),
+            shared_body: Box::new(AetherExpr::Dup {
+                var: CoreVarRef::resolved(&h),
+                body: Box::new(AetherExpr::Drop {
+                    var: CoreVarRef::resolved(&xs),
+                    body: Box::new(var(h)),
+                    span,
+                }),
+                span,
+            }),
+            span,
+        };
+        let body = AetherExpr::Case {
+            scrutinee: Box::new(var(xs)),
+            alts: vec![
+                AetherAlt {
+                    pat: CorePat::Con {
+                        tag: CoreTag::Cons,
+                        fields: vec![CorePat::Var(h), CorePat::Var(t)],
+                    },
+                    guard: None,
+                    rhs: specialized,
+                    span,
+                },
+                AetherAlt {
+                    pat: CorePat::Wildcard,
+                    guard: None,
+                    rhs: AetherExpr::Lit(CoreLit::Int(0), span),
+                    span,
+                },
+            ],
+            join_ty: None,
+            span,
+        };
+        let expr = AetherExpr::Lam {
+            params: vec![xs],
+            param_types: vec![],
+            result_ty: None,
+            body: Box::new(body),
+            span,
+        };
+        let def = AetherDef::from_core(CoreDef::new(
+            f,
+            CoreExpr::Lit(CoreLit::Int(0), span),
+            false,
+            span,
+        ));
+        let def = AetherDef { expr, ..def };
+        let program = AetherProgram::new(
+            CoreProgram { defs: Vec::new(), top_level_items: Vec::new() },
+            vec![def],
+            Vec::new(),
+        );
+        let lowered = super::lower_aether_program(&program);
+        let func = lowered
+            .functions
+            .iter()
+            .find(|func| {
+                func.blocks.iter().any(|block| {
+                    block
+                        .instrs
+                        .iter()
+                        .any(|instr| matches!(instr, crate::lir::LirInstr::FreeShell { .. }))
+                })
+            })
+            .unwrap_or_else(|| panic!("no free_shell in {}", super::display_program(&lowered)));
+        let unique_block = func
+            .blocks
+            .iter()
+            .find_map(|block| {
+                let is_unique = block.instrs.iter().find_map(|instr| match instr {
+                    crate::lir::LirInstr::IsUnique { dst, .. } => Some(*dst),
+                    _ => None,
+                })?;
+                match block.terminator {
+                    LirTerminator::Branch { cond, then_block, .. } if cond == is_unique => {
+                        Some(then_block)
+                    }
+                    _ => None,
+                }
+            })
+            .expect("a uniqueness check");
+        for block in &func.blocks {
+            let frees = block
+                .instrs
+                .iter()
+                .filter(|instr| matches!(instr, crate::lir::LirInstr::FreeShell { .. }))
+                .count();
+            let expected = usize::from(block.id == unique_block);
+            assert_eq!(frees, expected, "{}", super::display_program(&lowered));
         }
     }
 

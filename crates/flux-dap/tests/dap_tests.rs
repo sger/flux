@@ -326,8 +326,10 @@ fn breakpoints_stack_variables_and_watches() {
     snapshot("breakpoints_stack_variables_and_watches", &editor.finish());
 }
 
-/// A program for `.refs` (0188 S10b): at line 6, `xs` is shared.
-const REFS: &str = "fn total(xs: List<Int>) -> Int {\n    let ys = xs\n    let pair = (ys, \"pair\")\n    len(xs) + len(pair.0)\n}\n\nfn main() {\n    let fresh = [1, 2, 3]\n    print(total(fresh))\n}\n";
+/// A program for `.refs` (0188 S10b): at line 6, `xs` is shared. `fresh` is
+/// built at run time, since a list of constants is one static object whose
+/// count never changes.
+const REFS: &str = "fn total(xs: List<Int>) -> Int {\n    let ys = xs\n    let pair = (ys, \"pair\")\n    len(xs) + len(pair.0)\n}\n\nfn main() {\n    let fresh = [len(\"a\" + \"b\") - 1, 2, 3]\n    print(total(fresh))\n}\n";
 
 /// The Debug Console's answer to `expression`.
 fn console_result(editor: &mut Editor, expression: &str) -> String {
@@ -374,6 +376,36 @@ fn native_the_console_counts_references() {
         console_result(&mut editor, ".refs pair.0").contains("pair.0: 2 references (shared)"),
         "native .refs pair.0"
     );
+    editor.request("continue", json!({ "threadId": thread }));
+    editor.finish();
+}
+
+/// `main` hands `dead` over by its last reference, so natively its walk runs
+/// as the consuming clone `check_tree$own` (0200), which owns `tree`.
+const CLONES: &str = "type Tree = Node(Tree, Tree) | Tip\n\nfn make(depth: Int) -> Tree {\n    if depth <= 0 { Tip } else { Node(make(depth - 1), make(depth - 1)) }\n}\n\nfn check_tree(tree: Tree) -> Int {\n    match tree {\n        Node(left, right) -> check_tree(left) + check_tree(right) + 1,\n        Tip -> 0,\n    }\n}\n\nfn main() {\n    let dead = make(2)\n    print(check_tree(dead))\n}\n";
+
+#[test]
+fn native_a_consuming_clone_shows_in_the_call_stack() {
+    if !native_debugging() {
+        return;
+    }
+    let scratch = Scratch::new("native-clones");
+    let program = scratch.write("clones.flx", CLONES);
+    let mut editor = Editor::start(&scratch);
+    let Some(stopped) = launch_native(&mut editor, &program, &[8]) else {
+        return;
+    };
+    let thread = stopped["body"]["threadId"].clone();
+    let frames = frame_names(&mut editor, &thread);
+    let names: Vec<&str> = frames.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(names, ["check_tree$own", "main"], "{frames:?}");
+    assert_eq!(frames[0].1["line"], 8, "{frames:?}");
+    assert!(
+        console_result(&mut editor, ".refs tree").contains("tree: 1 reference (unique"),
+        "native .refs tree"
+    );
+    // Every call stops at line 8: clear it so the run can finish.
+    editor.request("setBreakpoints", json!({ "source": { "path": program }, "breakpoints": [] }));
     editor.request("continue", json!({ "threadId": thread }));
     editor.finish();
 }

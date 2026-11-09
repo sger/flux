@@ -48,18 +48,22 @@ fn compile_per_module_llvm_ir(src: &str, export_user_ctor_name_helper: bool) -> 
 fn lowers_option_and_either_constructor_patterns() {
     let rendered = compile_to_llvm_ir(
         r#"
-fn main() {
-    match Some(Left(21)) {
+fn read(x) {
+    match x {
         Some(Left(v)) -> v + 1,
         Some(Right(v)) -> v,
         _ -> 0,
     }
 }
+
+fn main() {
+    read(Some(Left(read(None))))
+}
 "#,
     );
 
     assert!(
-        rendered.contains("flux_make_adt") || rendered.contains("flux_make_cons"),
+        rendered.contains("@flux_bump_alloc_filled(i32 16, i32 1, i32 242)"),
         "expected ADT construction"
     );
     // Phase 4 (Proposal 0140): ADT tag check is now inlined as GEP+load.
@@ -86,7 +90,8 @@ fn main() {
 "#,
     );
 
-    assert!(rendered.contains("flux_make_cons"), "expected cons construction");
+    // A list of constants is static cells; its last is `Cons(3, [])`.
+    assert!(rendered.contains("i32 4, i32 2, i64 7, i64 6}"), "expected cons construction");
 }
 
 #[test]
@@ -107,7 +112,10 @@ fn main() {
 "#,
     );
 
-    assert!(rendered.contains("flux_make_tuple"), "expected tuple construction");
+    assert!(
+        rendered.contains("@flux_bump_alloc_filled(i32 24, i32 2, i32 243)"),
+        "expected tuple construction"
+    );
 }
 
 #[test]
@@ -191,6 +199,169 @@ fn main() {
         rendered.contains("switch i32"),
         "expected switch instruction for multi-constructor match"
     );
+}
+
+/// A nullary constructor is one read-only object with a sticky count, shared
+/// by every use, so building it allocates nothing.
+#[test]
+fn nullary_constructors_are_static_objects() {
+    let rendered = compile_to_llvm_ir(
+        r#"
+data Color {
+    Red,
+    Green,
+    Blue,
+}
+
+fn pick(n) {
+    if n > 0 { Red } else { Green }
+}
+
+fn main() {
+    pick(1)
+}
+"#,
+    );
+
+    let statics: Vec<&str> =
+        rendered.lines().filter(|line| line.starts_with("@flux.ctor.")).collect();
+    assert_eq!(statics.len(), 2, "one static object each for Red and Green:\n{rendered}");
+    for line in statics {
+        assert!(line.contains("private constant"), "{line}");
+        assert!(line.contains("i32 1073741824"), "{line}");
+    }
+    assert!(!rendered.contains("@flux_make_adt(ptr null"), "{rendered}");
+}
+
+/// Fields passed to a helper through a stack buffer kept the buffer and a
+/// copy in optimized code wherever the constructor was not in the function's
+/// first block, so each one is stored straight into the new block.
+#[test]
+fn constructor_and_tuple_fields_are_stored_straight_into_the_block() {
+    let rendered = compile_to_llvm_ir(
+        r#"
+data Tree {
+    Node(Tree, Int, Tree),
+    Tip,
+}
+
+fn node(n) { Node(Tip, n, Tip) }
+fn some(n) { Some(n) }
+fn right(n) { Right(n) }
+fn list(n) { [n, n + 1] }
+fn pair(n) { (n, n + 1) }
+
+fn main() {
+    let a = node(1);
+    let b = some(2);
+    let c = right(3);
+    let d = list(4);
+    let e = pair(5);
+    0
+}
+"#,
+    );
+
+    let body = |name: &str| -> &str {
+        let define = rendered
+            .lines()
+            .find(|line| line.starts_with("define") && line.contains(&format!("_{name}(")))
+            .unwrap_or_else(|| panic!("no function {name}:\n{rendered}"));
+        let start = rendered.find(define).unwrap();
+        &rendered[start..start + rendered[start..].find("\n}").unwrap()]
+    };
+    // (function, block bytes, scanned fields, object tag, stores of i64 fields)
+    for (name, bytes, fields, obj_tag) in [
+        ("node", 32, 3, 0xF2),
+        ("some", 16, 1, 0xF2),
+        ("right", 16, 1, 0xF2),
+        ("list", 24, 2, 0xF2),
+        ("pair", 24, 2, 0xF3),
+    ] {
+        let body = body(name);
+        assert!(!body.contains("alloca"), "{name}:\n{body}");
+        for helper in [
+            "@flux_make_adt(",
+            "@flux_make_cons(",
+            "@flux_make_tuple(",
+            "@flux_wrap_some(",
+            "@flux_make_right(",
+        ] {
+            assert!(!body.contains(helper), "{name} calls {helper}:\n{body}");
+        }
+        let alloc = format!("@flux_bump_alloc_filled(i32 {bytes}, i32 {fields}, i32 {obj_tag})");
+        assert!(body.contains(&alloc), "{name} has no {alloc}:\n{body}");
+        let stores = body.matches("store i64 ").count();
+        assert!(stores >= fields as usize, "{name} stores {stores} words:\n{body}");
+    }
+}
+
+/// A constructor whose fields are all constants is the same value every time,
+/// so, like a nullary one, it is one read-only object; a tree's leaves are
+/// half its nodes.
+#[test]
+fn constant_constructors_are_static_objects() {
+    let rendered = compile_to_llvm_ir(
+        r#"
+data Tree {
+    Node(Tree, Tree),
+    Tip,
+}
+
+data Label {
+    Label(Tree, Int, String),
+}
+
+fn leaf() { Node(Tip, Tip) }
+fn label() { Label(Node(Tip, Tip), 7, "seven") }
+fn digits() { [1, 2, 3] }
+fn mixed(n) { Node(Node(Tip, Tip), n) }
+
+fn main() {
+    let a = leaf();
+    let b = label();
+    let c = digits();
+    let d = mixed(Tip);
+    0
+}
+"#,
+    );
+
+    let body = |name: &str| -> &str {
+        let define = rendered
+            .lines()
+            .find(|line| line.starts_with("define") && line.contains(&format!("_{name}(")))
+            .unwrap_or_else(|| panic!("no function {name}:\n{rendered}"));
+        let start = rendered.find(define).unwrap();
+        &rendered[start..start + rendered[start..].find("\n}").unwrap()]
+    };
+    for name in ["leaf", "label", "digits"] {
+        let body = body(name);
+        assert!(!body.contains("@flux_bump_alloc"), "{name} allocates:\n{body}");
+        assert!(body.contains("@flux.ctor."), "{name} names no static object:\n{body}");
+    }
+    // Only the node around `n` is built; its constant child is not.
+    let mixed = body("mixed");
+    assert_eq!(mixed.matches("@flux_bump_alloc_filled(").count(), 1, "{mixed}");
+
+    let statics: Vec<&str> =
+        rendered.lines().filter(|line| line.starts_with("@flux.ctor.")).collect();
+    for line in &statics {
+        assert!(line.contains("private constant"), "{line}");
+        assert!(line.contains("i32 1073741824"), "{line}");
+    }
+    let nested = "ptr getelementptr inbounds (i8, ptr @flux.ctor.";
+    let label = statics
+        .iter()
+        .find(|line| line.contains("i64 15") && line.contains("@flux.str."))
+        .unwrap_or_else(|| panic!("no static Label(.., 7, \"seven\"):\n{rendered}"));
+    assert!(label.contains(nested), "{label}");
+    // `Node(Tip, Tip)` appears three times but is one object.
+    let leaves = statics
+        .iter()
+        .filter(|line| line.contains("{i32, i8, i8, i16, i32, i32, ptr, ptr}"))
+        .count();
+    assert_eq!(leaves, 1, "{statics:#?}");
 }
 
 #[test]

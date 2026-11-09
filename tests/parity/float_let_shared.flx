@@ -1,0 +1,27 @@
+// parity: vm, llvm
+// expect: success
+// bug: a Float `let` was never reference counted, though the native backend
+//       boxes Floats, so giving it to `print` freed its box and the next read
+//       of it saw whatever the freed block held next.
+// parity-expected-stdout-begin
+// -0.5
+// 2.64
+// 6.28
+// 0.75
+// 0.75
+// parity-expected-stdout-end
+
+fn quarter(x: Float) -> Float {
+    x / 4.0
+}
+
+fn main() with IO {
+    let a = 3.14
+    let b = -0.5
+    print(b)
+    print(a + b)
+    print(a * 2.0)
+    let q = quarter(3.0)
+    print(q)
+    print(q)
+}

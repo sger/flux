@@ -161,7 +161,7 @@ fn walk(
             walk(body, pending, given, counted);
             release(var, pending, -1);
         }
-        AetherExpr::Drop { var, body, .. } => {
+        AetherExpr::Drop { var, body, .. } | AetherExpr::FreeShell { var, body, .. } => {
             walk(body, pending, given, counted);
             release(var, pending, 1);
         }
@@ -281,7 +281,9 @@ fn collect_counted(expr: &AetherExpr, out: &mut HashSet<CoreBinderId>) {
                 collect_counted(&handler.body, out);
             }
         }
-        AetherExpr::Dup { body, .. } | AetherExpr::Drop { body, .. } => collect_counted(body, out),
+        AetherExpr::Dup { body, .. }
+        | AetherExpr::Drop { body, .. }
+        | AetherExpr::FreeShell { body, .. } => collect_counted(body, out),
         AetherExpr::DropSpecialized { unique_body, shared_body, .. } => {
             collect_counted(unique_body, out);
             collect_counted(shared_body, out);

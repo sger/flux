@@ -125,5 +125,6 @@ fn per_thousand_cells(scratch: &Scratch, name: &str, program: &str) -> (u64, u64
 mod collections_and_panics;
 mod effects;
 mod leaks_and_moves;
+mod owned_clones;
 mod rebuild;
 mod reuse;

@@ -16,8 +16,9 @@
  *   - Per-slot mutex + condvar protect the status field.
  *   - cancelled_flag is _Atomic so the worker can load it without the lock.
  *   - flux_dup/flux_drop use atomic RC (sign-bit encoding, Phase 1a-iv).
- *   - Worker threads set flux_worker_thread = 1 so all Flux allocations go
- *     through malloc, bypassing the non-thread-safe bump arena (rc.c).
+ *   - Worker threads own no heap (their flux_heap stays all zero), so all
+ *     their Flux allocations go through malloc, and a block of the root
+ *     thread's heap they free goes back to it (rc.c, "Heap").
  *
  * Windows: CreateThread / CRITICAL_SECTION / CONDITION_VARIABLE will be wired
  * in a follow-up.  The abort() fallback keeps native Task calls loud on that
@@ -174,9 +175,6 @@ static int flux_task_tape_start(FluxTaskEntry *e) {
 
 static void *flux_task_worker(void *arg) {
     FluxTaskEntry *e = (FluxTaskEntry *)arg;
-
-    /* Bypass bump arena: worker threads allocate via malloc only. */
-    flux_worker_thread = 1;
 
     int skip = flux_tape_mode
         ? !flux_task_tape_start(e)
@@ -578,9 +576,6 @@ static int flux_task_tape_start(FluxTaskEntry *e) {
 
 static unsigned __stdcall flux_task_worker(void *arg) {
     FluxTaskEntry *e = (FluxTaskEntry *)arg;
-
-    /* Bypass bump arena: worker threads allocate via malloc only. */
-    flux_worker_thread = 1;
 
     int skip = flux_tape_mode
         ? !flux_task_tape_start(e)
@@ -1048,7 +1043,9 @@ void flux_async_promote(int64_t value) {
 }
 
 void flux_async_enter_worker_thread(void) {
-    flux_worker_thread = 1;
+    /* Nothing to set: a thread that never ran flux_gc_init owns no heap, so
+     * it already allocates with malloc (rc.c, "Heap"). Kept in the callback
+     * table for src/runtime/async/native_abi.rs. */
 }
 
 int64_t flux_async_make_string(const uint8_t *data, uintptr_t len) {

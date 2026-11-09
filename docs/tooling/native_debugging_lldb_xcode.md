@@ -197,11 +197,15 @@ p = Point(1, 2)
   ```
 
   A count shared between threads (a value sent on a channel or to a task)
-  reads `shared across threads`. A debug slot holds no reference, so the
-  count is the program's own. `flux debug`'s `refs` counts the VM's
-  references instead, which can differ: the VM keeps a variable until its
-  frame returns, where native code releases it at its last use. In VS Code,
-  `.refs xs` in the Debug Console does the same on either backend.
+  reads `shared across threads`. A value the compiler built once, such as a
+  string literal or a constructor whose fields are all constants
+  (`Node(Tip, Tip)`, `[1, 2, 3]`), is one read-only object that is never
+  counted, and reads `static (never counted or freed)`. A debug slot holds
+  no reference, so the count is the program's own. `flux debug`'s `refs`
+  counts the VM's references instead, which can differ: the VM keeps a
+  variable until its frame returns, where native code releases it at its
+  last use. In VS Code, `.refs xs` in the Debug Console does the same on
+  either backend.
 
 ### Effects
 
@@ -279,6 +283,14 @@ What you see:
 - A breakpoint may resolve to two or three locations: the compiler emits a
   function's body more than once (boxed, unboxed and closure-capture
   variants). They are all the same Flux line.
+- A function that only takes its argument apart, such as a tree walk, can
+  also run as `<fn>$own` when its caller passes the last reference. That
+  copy owns the argument and frees each cell as it reads it. A breakpoint on
+  a line stops in both copies, and the frame name says which one is
+  running. A breakpoint by name needs both names:
+  `breakpoint set -n check_tree -n 'check_tree$own'`. In the `$own` copy,
+  `flux refs` on the argument reads 1 reference until the cell is freed,
+  then `dropped`.
 - Without the script, `frame variable` shows raw 64-bit words: an Int `n`
   is `2n+1`, and other values are addresses. In an unboxed worker frame,
   Ints and Bools are raw.

@@ -1,0 +1,24 @@
+// Consuming clones (0200 C4): `main` hands `dead` over by its last
+// reference, so its walk runs `check_tree$own`, which frees each cell as it
+// reads it. `kept` is used again after its first walk, which runs `check_tree`.
+type Tree = Node(Tree, Tree) | Tip
+
+fn make(depth: Int) -> Tree {
+    if depth <= 0 { Tip } else { Node(make(depth - 1), make(depth - 1)) }
+}
+
+fn check_tree(tree: Tree) -> Int {
+    match tree {
+        Node(left, right) ->
+            check_tree(left) + check_tree(right) + 1,
+        Tip -> 0,
+    }
+}
+
+fn main() {
+    let dead = make(2)
+    let kept = make(1)
+    let a = check_tree(dead)
+    let b = check_tree(kept)
+    print(a + b + check_tree(kept))
+}

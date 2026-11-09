@@ -111,7 +111,10 @@ fn main() {
     );
 
     assert!(rendered.contains("flux_call_closure"), "expected closure call");
-    assert!(rendered.contains("flux_make_cons"), "expected cons construction");
+    assert!(
+        rendered.contains("@flux_bump_alloc_filled(i32 24, i32 2, i32 242)"),
+        "expected cons construction"
+    );
 }
 
 #[test]

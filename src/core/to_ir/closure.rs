@@ -741,7 +741,9 @@ fn collect_used_candidate_binders_aether(
         AetherExpr::MemberAccess { object, .. } | AetherExpr::TupleField { object, .. } => {
             collect_used_candidate_binders_aether(object, bound, candidates, used);
         }
-        AetherExpr::Dup { var, body, .. } | AetherExpr::Drop { var, body, .. } => {
+        AetherExpr::Dup { var, body, .. }
+        | AetherExpr::Drop { var, body, .. }
+        | AetherExpr::FreeShell { var, body, .. } => {
             if let Some(binder) = var.binder
                 && candidates.contains(&binder)
                 && !bound.contains(&binder)

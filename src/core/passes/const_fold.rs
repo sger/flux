@@ -1,7 +1,7 @@
-use crate::core::{CoreAlt, CoreBinder, CoreExpr, CoreLit, CorePat, CorePrimOp, CoreTag};
+use crate::core::{CoreAlt, CoreExpr, CoreLit, CorePrimOp};
 use crate::shared::opt_bisect;
 
-use super::helpers::bind_pattern;
+use super::helpers::{bind_pattern, select_known_arm};
 
 /// Fold literal-only Core primops and known branch conditions.
 ///
@@ -156,79 +156,6 @@ fn masked_shift_amount(value: i64) -> u32 {
 }
 
 fn fold_case(scrutinee: &CoreExpr, alts: &[CoreAlt]) -> Option<CoreExpr> {
-    match scrutinee {
-        CoreExpr::Lit(lit, lit_span) => {
-            for alt in alts {
-                let Some(bindings) = match_lit_pat(&alt.pat, lit, *lit_span) else {
-                    continue;
-                };
-                match &alt.guard {
-                    Some(CoreExpr::Lit(CoreLit::Bool(false), _)) => continue,
-                    Some(CoreExpr::Lit(CoreLit::Bool(true), _)) | None => {}
-                    Some(_) => return None,
-                }
-                let body = bind_pattern(alt.rhs.clone(), bindings, alt.span);
-                return Some(constant_fold(body));
-            }
-            None
-        }
-        CoreExpr::Con { tag, fields, span } => {
-            for alt in alts {
-                let Some(bindings) = match_con_pat(&alt.pat, tag, fields, *span) else {
-                    continue;
-                };
-                match &alt.guard {
-                    Some(CoreExpr::Lit(CoreLit::Bool(false), _)) => continue,
-                    Some(CoreExpr::Lit(CoreLit::Bool(true), _)) | None => {}
-                    Some(_) => return None,
-                }
-                let body = bind_pattern(alt.rhs.clone(), bindings, alt.span);
-                return Some(constant_fold(body));
-            }
-            None
-        }
-        _ => None,
-    }
-}
-
-fn match_lit_pat(
-    pat: &CorePat,
-    lit: &CoreLit,
-    lit_span: crate::diagnostics::position::Span,
-) -> Option<Vec<(CoreBinder, CoreExpr)>> {
-    match pat {
-        CorePat::Wildcard => Some(Vec::new()),
-        CorePat::Var(binder) => Some(vec![(*binder, CoreExpr::Lit(lit.clone(), lit_span))]),
-        CorePat::Lit(pat_lit) if pat_lit == lit => Some(Vec::new()),
-        _ => None,
-    }
-}
-
-fn match_con_pat(
-    pat: &CorePat,
-    tag: &CoreTag,
-    fields: &[CoreExpr],
-    span: crate::diagnostics::position::Span,
-) -> Option<Vec<(CoreBinder, CoreExpr)>> {
-    match pat {
-        CorePat::Wildcard => Some(Vec::new()),
-        CorePat::Var(binder) => {
-            Some(vec![(*binder, CoreExpr::Con { tag: tag.clone(), fields: fields.to_vec(), span })])
-        }
-        CorePat::Con { tag: pat_tag, fields: pat_fields }
-            if pat_tag == tag && pat_fields.len() == fields.len() =>
-        {
-            let mut bindings = Vec::new();
-            for (pat_field, field) in pat_fields.iter().zip(fields.iter()) {
-                match pat_field {
-                    CorePat::Wildcard => {}
-                    CorePat::Var(binder) => bindings.push((*binder, field.clone())),
-                    _ => return None,
-                }
-            }
-            Some(bindings)
-        }
-        CorePat::EmptyList if *tag == CoreTag::Nil && fields.is_empty() => Some(Vec::new()),
-        _ => None,
-    }
+    let (alt, bindings) = select_known_arm(scrutinee, alts)?;
+    Some(constant_fold(bind_pattern(alt.rhs.clone(), bindings, alt.span)))
 }

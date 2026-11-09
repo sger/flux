@@ -75,6 +75,16 @@ pub struct BorrowRegistry {
     pub by_name: HashMap<Identifier, BorrowSignature>,
     pub by_member_access: HashMap<(Identifier, Identifier), BorrowSignature>,
     pub unknown_callee_signature: BorrowSignature,
+    /// Each function's consuming clone (proposal 0200), for call sites to choose.
+    pub owned_clones: HashMap<CoreBinderId, OwnedClone>,
+}
+
+/// A consuming copy of a function, and the parameters it owns that the original
+/// borrows.
+#[derive(Debug, Clone)]
+pub struct OwnedClone {
+    pub binder: CoreBinder,
+    pub positions: std::collections::BTreeSet<usize>,
 }
 
 impl Default for BorrowRegistry {
@@ -83,12 +93,31 @@ impl Default for BorrowRegistry {
             by_binder: HashMap::new(),
             by_name: HashMap::new(),
             by_member_access: HashMap::new(),
+            owned_clones: HashMap::new(),
             unknown_callee_signature: BorrowSignature::new(Vec::new(), BorrowProvenance::Unknown),
         }
     }
 }
 
 impl BorrowRegistry {
+    /// Registers a clone by binder only. `upsert_user_signature` also writes the name,
+    /// and LIR resolves names, so a shared one could swap the two functions.
+    pub fn add_owned_clone(
+        &mut self,
+        original: CoreBinderId,
+        clone: OwnedClone,
+        signature: BorrowSignature,
+    ) {
+        self.by_binder.insert(clone.binder.id, signature);
+        self.owned_clones.insert(original, clone);
+    }
+
+    pub fn remove_owned_clone(&mut self, original: CoreBinderId) {
+        if let Some(clone) = self.owned_clones.remove(&original) {
+            self.by_binder.remove(&clone.binder.id);
+        }
+    }
+
     pub fn lookup_binder(&self, binder: CoreBinderId) -> Option<&BorrowSignature> {
         self.by_binder.get(&binder)
     }
@@ -410,7 +439,7 @@ fn infer_group_constraints(
             continue;
         };
         let caller = TailCaller { binder: *binder, params, defs_by_binder, registry, group_set };
-        caller.collect(body, &mut HashSet::new(), &mut constraints);
+        caller.collect(body, &mut TailScope::default(), &mut constraints);
     }
 
     constraints
@@ -424,8 +453,10 @@ fn infer_group_constraints(
 /// parameter a recursive tail call passes an owned value to is owned
 /// instead: the call gives the value away and stays a jump. A fresh value
 /// makes it owned, and a parameter of the caller makes it owned when that
-/// parameter is. A pattern variable is a view of its scrutinee, which may
-/// be borrowed, so it changes nothing.
+/// parameter is. A pattern variable is a view of what it was matched out of,
+/// which holds it until released, so it counts as that value does: a field of
+/// a borrowed parameter changes nothing, and a field of an owned one makes the
+/// target owned (KI-163).
 struct TailCaller<'a> {
     binder: CoreBinderId,
     params: &'a [CoreBinder],
@@ -434,32 +465,60 @@ struct TailCaller<'a> {
     group_set: &'a HashSet<CoreBinderId>,
 }
 
+/// What holds a pattern variable, at the tail call that passes it on.
+#[derive(Clone, Copy)]
+enum HeldBy {
+    /// The caller's parameter at this position.
+    Param(usize),
+    /// A value the caller made, and so has to release.
+    Fresh,
+}
+
+/// What a tail call's reading has in scope.
+#[derive(Default)]
+struct TailScope {
+    /// The `let`s whose value is fresh.
+    fresh: HashSet<CoreBinderId>,
+    /// The pattern variables, and what holds each.
+    views: HashMap<CoreBinderId, HeldBy>,
+}
+
 impl TailCaller<'_> {
     /// Reads the tail calls of `expr`, an expression in tail position.
-    /// `fresh` holds the `let`s in scope whose value is fresh.
     fn collect(
         &self,
         expr: &CoreExpr,
-        fresh: &mut HashSet<CoreBinderId>,
+        scope: &mut TailScope,
         constraints: &mut HashMap<(CoreBinderId, usize), ParamConstraint>,
     ) {
         match expr {
             CoreExpr::Let { var, rhs, body, .. } => {
-                let inserted = makes_fresh_value(rhs, self.registry) && fresh.insert(var.id);
-                self.collect(body, fresh, constraints);
+                let inserted = makes_fresh_value(rhs, self.registry) && scope.fresh.insert(var.id);
+                self.collect(body, scope, constraints);
                 if inserted {
-                    fresh.remove(&var.id);
+                    scope.fresh.remove(&var.id);
                 }
             }
             CoreExpr::LetRec { body, .. } | CoreExpr::LetRecGroup { body, .. } => {
-                self.collect(body, fresh, constraints);
+                self.collect(body, scope, constraints);
             }
-            CoreExpr::Case { alts, .. } => {
+            CoreExpr::Case { scrutinee, alts, .. } => {
+                let held_by = self.held_by(scrutinee, scope);
                 for alt in alts {
-                    self.collect(&alt.rhs, fresh, constraints);
+                    let mut bound = Vec::new();
+                    pattern_variables(&alt.pat, &mut bound);
+                    if let Some(held_by) = held_by {
+                        for id in &bound {
+                            scope.views.insert(*id, held_by);
+                        }
+                    }
+                    self.collect(&alt.rhs, scope, constraints);
+                    for id in &bound {
+                        scope.views.remove(id);
+                    }
                 }
             }
-            CoreExpr::Return { value, .. } => self.collect(value, fresh, constraints),
+            CoreExpr::Return { value, .. } => self.collect(value, scope, constraints),
             CoreExpr::App { func, args, .. } => {
                 let CoreExpr::Var { var, .. } = func.as_ref() else {
                     return;
@@ -479,23 +538,47 @@ impl TailCaller<'_> {
                     let Some(constraint) = constraints.get_mut(&(callee, index)) else {
                         continue;
                     };
-                    let named = match arg {
-                        CoreExpr::Var { var, .. } => var.binder,
-                        _ => None,
-                    };
-                    if let Some(position) =
-                        named.and_then(|id| self.params.iter().position(|p| p.id == id))
-                    {
-                        constraint.deps.push((self.binder, position));
-                    } else if named.is_some_and(|id| fresh.contains(&id))
-                        || makes_fresh_value(arg, self.registry)
-                    {
-                        constraint.force_owned = true;
+                    match self.held_by(arg, scope) {
+                        Some(HeldBy::Param(position)) => {
+                            constraint.deps.push((self.binder, position));
+                        }
+                        Some(HeldBy::Fresh) => constraint.force_owned = true,
+                        None => {}
                     }
                 }
             }
             _ => {}
         }
+    }
+
+    /// What holds the value of `expr`, if the caller's tail call has to answer
+    /// for it. A parameter holds itself.
+    fn held_by(&self, expr: &CoreExpr, scope: &TailScope) -> Option<HeldBy> {
+        if let CoreExpr::Var { var, .. } = expr
+            && let Some(id) = var.binder
+        {
+            if let Some(position) = self.params.iter().position(|p| p.id == id) {
+                return Some(HeldBy::Param(position));
+            }
+            if scope.fresh.contains(&id) {
+                return Some(HeldBy::Fresh);
+            }
+            return scope.views.get(&id).copied();
+        }
+        makes_fresh_value(expr, self.registry).then_some(HeldBy::Fresh)
+    }
+}
+
+fn pattern_variables(pat: &crate::core::CorePat, out: &mut Vec<CoreBinderId>) {
+    use crate::core::CorePat;
+    match pat {
+        CorePat::Var(binder) => out.push(binder.id),
+        CorePat::Con { fields, .. } | CorePat::Tuple(fields) => {
+            for field in fields {
+                pattern_variables(field, out);
+            }
+        }
+        CorePat::Wildcard | CorePat::Lit(_) | CorePat::EmptyList => {}
     }
 }
 
@@ -1368,6 +1451,251 @@ mod tests {
         assert_eq!(fresh, BorrowMode::Owned);
         assert_eq!(lending_loop_mode(|_, prev, _| var_ref(prev)), BorrowMode::Borrowed);
         assert_eq!(lending_loop_mode(|_, _, t| var_ref(t)), BorrowMode::Borrowed);
+    }
+
+    fn cons_alt(fields: Vec<crate::core::CorePat>, rhs: CoreExpr) -> crate::core::CoreAlt {
+        crate::core::CoreAlt {
+            pat: crate::core::CorePat::Con { tag: crate::core::CoreTag::Cons, fields },
+            guard: None,
+            rhs,
+            span: span(),
+        }
+    }
+
+    fn otherwise(rhs: CoreExpr) -> crate::core::CoreAlt {
+        crate::core::CoreAlt { pat: crate::core::CorePat::Wildcard, guard: None, rhs, span: span() }
+    }
+
+    fn case_of(scrutinee: CoreExpr, alts: Vec<crate::core::CoreAlt>) -> CoreExpr {
+        CoreExpr::Case { scrutinee: Box::new(scrutinee), alts, join_ty: None, span: span() }
+    }
+
+    fn call_of(function: CoreBinder, args: Vec<CoreExpr>) -> CoreExpr {
+        CoreExpr::App { func: Box::new(var_ref(function)), args, span: span() }
+    }
+
+    fn cons_of(head: CoreExpr, tail: CoreExpr) -> CoreExpr {
+        CoreExpr::Con { tag: crate::core::CoreTag::Cons, fields: vec![head, tail], span: span() }
+    }
+
+    fn zero() -> CoreExpr {
+        CoreExpr::Lit(crate::core::CoreLit::Int(0), span())
+    }
+
+    fn pat_var(binder: CoreBinder) -> crate::core::CorePat {
+        crate::core::CorePat::Var(binder)
+    }
+
+    /// The modes of `function(params) = body`, which calls itself.
+    fn recursive_modes(
+        interner: &Interner,
+        function: CoreBinder,
+        params: Vec<CoreBinder>,
+        body: CoreExpr,
+    ) -> Vec<BorrowMode> {
+        let mut program = CoreProgram {
+            defs: vec![def(function, params, body, true)],
+            top_level_items: Vec::new(),
+        };
+        let registry = infer_borrow_modes(&mut program, Some(interner));
+        registry.lookup_binder(function.id).expect("the signature").params.clone()
+    }
+
+    /// `walk(tree, stack)` with `stack` owned, because a tail call hands it a
+    /// fresh value: the `Tip` arm is `tip_arm(walk, stack)`.
+    fn walking_modes(
+        tip_arm: impl Fn(&mut Interner, CoreBinder, CoreBinder) -> CoreExpr,
+    ) -> Vec<BorrowMode> {
+        let mut interner = Interner::new();
+        let walk = binder(1, interner.intern("walk"));
+        let tree = binder(2, interner.intern("tree"));
+        let stack = binder(3, interner.intern("stack"));
+        let left = binder(4, interner.intern("left"));
+        let right = binder(5, interner.intern("right"));
+        let tip = tip_arm(&mut interner, walk, stack);
+        let body = case_of(
+            var_ref(tree),
+            vec![
+                cons_alt(
+                    vec![pat_var(left), pat_var(right)],
+                    call_of(walk, vec![var_ref(left), cons_of(var_ref(right), var_ref(stack))]),
+                ),
+                otherwise(tip),
+            ],
+        );
+        recursive_modes(&interner, walk, vec![tree, stack], body)
+    }
+
+    /// KI-163: a field of an owned parameter is held by something the caller
+    /// has to release, so lending it keeps the call from being a jump.
+    #[test]
+    fn a_tail_call_passing_a_field_of_an_owned_parameter_makes_its_target_owned_ki163() {
+        let modes = walking_modes(|interner, walk, stack| {
+            let next = binder(10, interner.intern("next"));
+            let rest = binder(11, interner.intern("rest"));
+            case_of(
+                var_ref(stack),
+                vec![
+                    cons_alt(
+                        vec![pat_var(next), pat_var(rest)],
+                        call_of(walk, vec![var_ref(next), var_ref(rest)]),
+                    ),
+                    otherwise(zero()),
+                ],
+            )
+        });
+        assert_eq!(modes, vec![BorrowMode::Owned, BorrowMode::Owned]);
+    }
+
+    #[test]
+    fn a_field_of_a_field_of_an_owned_parameter_counts_the_same_ki163() {
+        let through_a_second_match = walking_modes(|interner, walk, stack| {
+            let first = binder(10, interner.intern("first"));
+            let rest = binder(11, interner.intern("rest"));
+            let deep = binder(12, interner.intern("deep"));
+            case_of(
+                var_ref(stack),
+                vec![
+                    cons_alt(
+                        vec![pat_var(first), pat_var(rest)],
+                        case_of(
+                            var_ref(first),
+                            vec![
+                                cons_alt(
+                                    vec![pat_var(deep), crate::core::CorePat::Wildcard],
+                                    call_of(walk, vec![var_ref(deep), var_ref(rest)]),
+                                ),
+                                otherwise(zero()),
+                            ],
+                        ),
+                    ),
+                    otherwise(zero()),
+                ],
+            )
+        });
+        assert_eq!(through_a_second_match, vec![BorrowMode::Owned, BorrowMode::Owned]);
+
+        let through_a_nested_pattern = walking_modes(|interner, walk, stack| {
+            let deep = binder(10, interner.intern("deep"));
+            let rest = binder(11, interner.intern("rest"));
+            let nested = crate::core::CorePat::Con {
+                tag: crate::core::CoreTag::Cons,
+                fields: vec![pat_var(deep), crate::core::CorePat::Wildcard],
+            };
+            case_of(
+                var_ref(stack),
+                vec![
+                    cons_alt(
+                        vec![nested, pat_var(rest)],
+                        call_of(walk, vec![var_ref(deep), var_ref(rest)]),
+                    ),
+                    otherwise(zero()),
+                ],
+            )
+        });
+        assert_eq!(through_a_nested_pattern, vec![BorrowMode::Owned, BorrowMode::Owned]);
+    }
+
+    /// The function made the value, so it has to release it, whatever else its
+    /// parameters do. `walk(xs) = case <fresh> of Cons(ys, _) -> walk(ys); _ -> 0`.
+    #[test]
+    fn a_field_of_a_fresh_value_makes_its_target_owned_ki163() {
+        let mut interner = Interner::new();
+        let walk = binder(1, interner.intern("walk"));
+        let xs = binder(2, interner.intern("xs"));
+        let ys = binder(3, interner.intern("ys"));
+        let matched = binder(4, interner.intern("matched"));
+        let fresh = || cons_of(zero(), zero());
+        let arms = || {
+            vec![
+                cons_alt(
+                    vec![pat_var(ys), crate::core::CorePat::Wildcard],
+                    call_of(walk, vec![var_ref(ys)]),
+                ),
+                otherwise(zero()),
+            ]
+        };
+        let in_place = case_of(fresh(), arms());
+        assert_eq!(recursive_modes(&interner, walk, vec![xs], in_place), vec![BorrowMode::Owned]);
+        let through_a_let = CoreExpr::Let {
+            var: matched,
+            rhs: Box::new(fresh()),
+            body: Box::new(case_of(var_ref(matched), arms())),
+            span: span(),
+        };
+        assert_eq!(
+            recursive_modes(&interner, walk, vec![xs], through_a_let),
+            vec![BorrowMode::Owned]
+        );
+    }
+
+    #[test]
+    fn a_field_of_an_owned_parameter_reaches_across_mutual_recursion_ki163() {
+        let mut interner = Interner::new();
+        let down = binder(1, interner.intern("down"));
+        let up = binder(2, interner.intern("up"));
+        let tree = binder(3, interner.intern("tree"));
+        let stack = binder(4, interner.intern("stack"));
+        let left = binder(5, interner.intern("left"));
+        let right = binder(6, interner.intern("right"));
+        let up_stack = binder(7, interner.intern("up_stack"));
+        let next = binder(8, interner.intern("next"));
+        let rest = binder(9, interner.intern("rest"));
+        let down_body = case_of(
+            var_ref(tree),
+            vec![
+                cons_alt(
+                    vec![pat_var(left), pat_var(right)],
+                    call_of(down, vec![var_ref(left), cons_of(var_ref(right), var_ref(stack))]),
+                ),
+                otherwise(call_of(up, vec![var_ref(stack)])),
+            ],
+        );
+        let up_body = case_of(
+            var_ref(up_stack),
+            vec![
+                cons_alt(
+                    vec![pat_var(next), pat_var(rest)],
+                    call_of(down, vec![var_ref(next), var_ref(rest)]),
+                ),
+                otherwise(zero()),
+            ],
+        );
+        let mut program = CoreProgram {
+            defs: vec![
+                def(down, vec![tree, stack], down_body, true),
+                def(up, vec![up_stack], up_body, true),
+            ],
+            top_level_items: Vec::new(),
+        };
+        let registry = infer_borrow_modes(&mut program, Some(&interner));
+        assert_eq!(
+            registry.lookup_binder(down.id).expect("down").params,
+            vec![BorrowMode::Owned, BorrowMode::Owned]
+        );
+    }
+
+    /// A field of a borrowed parameter is held by the caller's caller, so a
+    /// lookup down a tree the caller keeps stays borrowed, and stays a jump.
+    #[test]
+    fn a_field_of_a_borrowed_parameter_changes_nothing() {
+        let mut interner = Interner::new();
+        let lookup = binder(1, interner.intern("lookup"));
+        let tree = binder(2, interner.intern("tree"));
+        let key = binder(3, interner.intern("key"));
+        let left = binder(4, interner.intern("left"));
+        let body = case_of(
+            var_ref(tree),
+            vec![
+                cons_alt(
+                    vec![pat_var(left), crate::core::CorePat::Wildcard],
+                    call_of(lookup, vec![var_ref(left), var_ref(key)]),
+                ),
+                otherwise(zero()),
+            ],
+        );
+        let modes = recursive_modes(&interner, lookup, vec![tree, key], body);
+        assert_eq!(modes[0], BorrowMode::Borrowed);
     }
 
     #[test]

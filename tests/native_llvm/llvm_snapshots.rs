@@ -30,6 +30,7 @@ fn hand_written_module_snapshot() {
             name: GlobalId("flux.ptrtag.true".into()),
             ty: LlvmType::i64(),
             is_constant: true,
+            thread_local: None,
             value: Some(LlvmConst::Int {
                 bits: 64,
                 value: 4, // FLUX_TRUE

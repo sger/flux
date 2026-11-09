@@ -193,6 +193,75 @@ fn factorial(n, acc) {
     );
 }
 
+/// A walk that takes each cell apart (KI-164's `nodes`, binarytrees'
+/// `check_tree` clone) frees one on every node. On macOS arm64 the common
+/// case, a chunk block on the thread that owns the heap, goes back on its
+/// class's list in place: the owner is recognised by TPIDRRO_EL0 and its heap
+/// read from a plain global, since reaching the thread-local heap there is a
+/// thunk call. TPIDR_EL0 holds the CPU number on Darwin, so it can't name the
+/// owner. Elsewhere the runtime frees it.
+#[test]
+fn a_shell_free_pushes_an_owned_chunk_block_inline() {
+    let mut program = LirProgram::new();
+    program.push_function(LirFunction {
+        name: "walk".to_string(),
+        id: LirFuncId(1),
+        qualified_name: "walk".to_string(),
+        is_dict_def: false,
+        params: vec![LirVar(0)],
+        blocks: vec![LirBlock {
+            id: BlockId(0),
+            params: Vec::new(),
+            instrs: vec![
+                LirInstr::FreeShell { val: LirVar(0) },
+                LirInstr::Const { dst: LirVar(1), value: LirConst::Tagged(0) },
+            ],
+            terminator: LirTerminator::Return(LirVar(1)),
+            locs: Vec::new(),
+            term_loc: Default::default(),
+        }],
+        next_var: 2,
+        capture_vars: Vec::new(),
+        param_reps: Vec::new(),
+        result_rep: FluxRep::TaggedRep,
+        debug: None,
+    });
+
+    let ll = emit_llvm_ir(&program);
+    let walk = llvm_function_text(&ll, "flux_walk");
+    let walk = &walk[..walk.find("\n}").expect("an unclosed function")];
+    if !cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        assert!(walk.contains("call ccc void @flux_free_shell(i64"), "{walk}");
+        assert!(!ll.contains("@flux_free_shell_inline("), "{ll}");
+        return;
+    }
+    assert!(walk.contains("call fastcc void @flux_free_shell_inline(i64"), "{walk}");
+    assert!(!walk.contains("@flux_free_shell("), "{walk}");
+
+    let define = "define internal fastcc void @flux_free_shell_inline(i64 %val) alwaysinline";
+    let start = ll.find(define).unwrap_or_else(|| panic!("no inline shell free:\n{ll}"));
+    let helper = &ll[start..start + ll[start..].find("\n}").expect("an unclosed function")];
+    // Only a chunk block freed by the heap's owner is pushed here; a malloc
+    // block, a worker's free and the debug heap (which has no owner) all
+    // take the runtime's path, which keeps the debug heap's count check.
+    assert!(helper.contains("%from_chunk = icmp slt i8 %class_byte, 0"), "{helper}");
+    assert!(
+        helper.contains("%thread = call i64 asm \"mrs $0, TPIDRRO_EL0\", \"=r\"()"),
+        "{helper}"
+    );
+    assert!(helper.contains("%owner = load i64, ptr @flux_heap_owner"), "{helper}");
+    assert!(
+        helper.contains("%heap_ptr = getelementptr i8, ptr @flux_heap_owner, i64 8"),
+        "{helper}"
+    );
+    assert!(helper.contains("%heap = load ptr, ptr %heap_ptr"), "{helper}");
+    assert!(helper.contains("store ptr %head, ptr %ptr"), "{helper}");
+    assert!(helper.contains("store ptr %block, ptr %slot"), "{helper}");
+    assert!(helper.contains("call ccc void @flux_free_shell(i64 %val)"), "{helper}");
+    assert!(!helper.contains("threadlocal"), "{helper}");
+    assert!(ll.contains("@flux_heap_owner = external global [2 x i64]"), "{ll}");
+}
+
 #[test]
 fn outlines_excess_run_async_with_calls_before_llvm_rendering() {
     let mut instrs = vec![

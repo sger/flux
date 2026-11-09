@@ -45,6 +45,64 @@ fn run_native(scratch: &Scratch, file: &str) -> String {
     String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n")
 }
 
+/// The cache keys for a checked build agree between the stage that loads
+/// interfaces and the one that saves them, so an edit costs one module from the
+/// very next build. Under `-g` they differ and it takes three more (KI-166).
+#[test]
+fn an_edit_recompiles_only_the_edited_file_on_the_next_build() {
+    let scratch = Scratch::new("edit-one-file");
+    let build = |source: &str| {
+        scratch.write("program.flx", source);
+        let output = Command::new(env!("CARGO_BIN_EXE_flux"))
+            .current_dir(scratch.path())
+            .args(["program.flx", "--native"])
+            .args(scratch.cache_args())
+            .env("NO_COLOR", "1")
+            .env_remove("FLUX_AETHER_VERIFY")
+            .output()
+            .expect("run flux");
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        assert!(output.status.success(), "{stderr}");
+        stderr
+    };
+    build("fn main() with IO {\n    print(1)\n}\n");
+    let stderr = build("fn main() with IO {\n    print(2)\n}\n");
+    let compiled: Vec<&str> =
+        stderr.lines().filter(|line| line.contains("] Compiling  ")).collect();
+    assert_eq!(compiled.len(), 1, "{stderr}");
+    assert!(compiled[0].ends_with("Compiling  program"), "{stderr}");
+}
+
+/// `v` is the imported module's highest binder, so the temporary holding the
+/// indexed value used to get the same id, and clang rejected the module as
+/// broken (KI-167).
+#[test]
+fn a_module_ending_in_a_match_on_a_temporary_builds_ki167() {
+    let scratch = Scratch::new("module-temporary");
+    scratch.write(
+        "Shared.flx",
+        r"module Shared {
+    public fn at(arr, idx) {
+        match arr[idx] {
+            Some(v) -> v,
+            _ -> [],
+        }
+    }
+}
+",
+    );
+    scratch.write(
+        "program.flx",
+        r"import Shared
+
+fn main() with IO {
+    print(Shared.at([|[1, 2], [3, 4, 5]|], 1))
+}
+",
+    );
+    assert_eq!(run_native(&scratch, "program.flx").trim(), "[3, 4, 5]");
+}
+
 #[test]
 #[ignore = "KI-145: a cached stdlib object keeps the constructor tags of the program that built it"]
 fn a_program_reads_its_file_after_another_built_the_stdlib() {

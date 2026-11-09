@@ -10,9 +10,12 @@ use crate::core::{CoreBinderId, CorePat, CoreTag, CoreVarRef};
 use crate::diagnostics::position::Span;
 use crate::shared::opt_bisect;
 
-use super::analysis::{ArmShape, pat_field_binder_ids};
+use super::analysis::{
+    ArmShape, pat_field_binder_ids, shell_disposals, use_counts_aether, uses_shell_on_every_path,
+};
 use super::reuse_analysis::rewrite_drop_body;
-use super::{AetherExpr, into_constructor_shape_for_tag_aether};
+use super::verify::reads_after_release;
+use super::{AetherExpr, constructor_shape_for_tag_aether, into_constructor_shape_for_tag_aether};
 
 type CoreExpr = AetherExpr;
 
@@ -69,6 +72,11 @@ fn rewrite_with_ctx(
             }
             CoreExpr::Drop { var, body: Box::new(rewritten.expr), span }
         }
+        CoreExpr::FreeShell { var, body, span } => CoreExpr::FreeShell {
+            var,
+            body: Box::new(rewrite_with_ctx(*body, arm, blocked_outer_token)),
+            span,
+        },
         // Recurse into all other forms
         CoreExpr::Let { var, rhs, body, span } => CoreExpr::Let {
             var,
@@ -205,7 +213,8 @@ fn rewrite_with_ctx(
         },
         // DropSpecialized (Perceus Section 2.4): on the unique path the
         // scrutinee is uniquely owned, so a Con of the constructor it matched
-        // reuses its cell without a check.
+        // reuses its cell without a check, and a path that builds none frees
+        // the cell alone.
         CoreExpr::DropSpecialized { scrutinee, unique_body, shared_body, span } => {
             let unique_body =
                 reuse_on_unique_path(&scrutinee, *unique_body, arm, span, blocked_outer_token);
@@ -214,8 +223,9 @@ fn rewrite_with_ctx(
                 .is_some_and(|id| uses_shell_on_every_path(&shared_body, id, false));
             let Some(unique_body) = unique_body.filter(|_| shared_releases) else {
                 // The shared body retains the original copies and release.
-                // Without reuse on every unique path, it is the only body
-                // that can release the shell without freeing moved fields.
+                // When the unique path reuses the cell on some paths only,
+                // or would read a field too late, it is the only body that
+                // can release the shell without freeing moved fields.
                 return rewrite_with_ctx(*shared_body, arm, blocked_outer_token);
             };
             let shared_body = rewrite_with_ctx(*shared_body, arm, scrutinee.binder);
@@ -254,7 +264,9 @@ fn is_heap_tag(tag: &CoreTag) -> bool {
 /// The unique path of a `DropSpecialized`: a Con on its spine reuses the
 /// matched cell. When the walk finds none, the new cell may be bound by a
 /// `let` and passed to a wrapper; the plain-drop rewrite finds that case, so
-/// splitting the arm does not lose the reuse it had before.
+/// splitting the arm does not lose the reuse it had before. Paths that reuse
+/// nothing free the cell alone (KI-164), where that is safe; otherwise the
+/// caller undoes the split, and the plain release keeps any reuse it found.
 fn reuse_on_unique_path(
     scrutinee: &CoreVarRef,
     body: CoreExpr,
@@ -262,11 +274,17 @@ fn reuse_on_unique_path(
     span: Span,
     blocked_outer_token: Option<CoreBinderId>,
 ) -> Option<CoreExpr> {
+    let token = scrutinee.binder?;
     let (pat_binders, pat_tag) = ArmShape::matched_by(arm, scrutinee.binder);
     let original = body.clone();
+    // The plain-drop rewrite may release a field before the rebuild reads that
+    // field's own field, which is safe only while the matched cell still holds
+    // the field. On a unique path it does not: the path owns the field's only
+    // reference (KI-165).
+    let reads_in_time = |body: &CoreExpr| !reads_after_release(body);
     let walked = insert_reuse_in_unique(scrutinee, body, pat_tag, arm, blocked_outer_token);
-    if scrutinee.binder.is_some_and(|id| uses_shell_on_every_path(&walked, id, true)) {
-        return Some(walked);
+    if uses_shell_on_every_path(&walked, token, true) {
+        return Some(walked).filter(reads_in_time);
     }
     let rewritten = rewrite_drop_body(
         scrutinee,
@@ -276,120 +294,138 @@ fn reuse_on_unique_path(
         pat_tag,
         blocked_outer_token,
     );
+    if rewritten.reused && uses_shell_on_every_path(&rewritten.expr, token, true) {
+        return Some(rewritten.expr).filter(reads_in_time);
+    }
     // The plain-drop rewrite has every arm that does not reuse the cell drop
     // it, which is right under a plain drop, where the fields were copied
     // first. Here drop_spec took those copies out, so that drop would release
     // the fields a second time.
-    if rewritten.reused
-        && scrutinee.binder.is_some_and(|id| uses_shell_on_every_path(&rewritten.expr, id, true))
-    {
-        Some(rewritten.expr)
-    } else {
-        None
+    let candidate = if rewritten.reused { without_drops_of(rewritten.expr, token) } else { walked };
+    free_shell_on_unreused_paths(candidate, scrutinee, token, span).filter(reads_in_time).filter(
+        |_| opt_bisect::allow("free_shell", || "free a unique cell without its fields".to_string()),
+    )
+}
+
+/// Takes the drops of `token` off the spine of `expr`.
+fn without_drops_of(expr: CoreExpr, token: CoreBinderId) -> CoreExpr {
+    match expr {
+        CoreExpr::Drop { var, body, .. } if var.binder == Some(token) => {
+            without_drops_of(*body, token)
+        }
+        CoreExpr::Drop { var, body, span } => {
+            CoreExpr::Drop { var, body: Box::new(without_drops_of(*body, token)), span }
+        }
+        CoreExpr::Dup { var, body, span } => {
+            CoreExpr::Dup { var, body: Box::new(without_drops_of(*body, token)), span }
+        }
+        CoreExpr::Let { var, rhs, body, span } => {
+            CoreExpr::Let { var, rhs, body: Box::new(without_drops_of(*body, token)), span }
+        }
+        CoreExpr::Case { scrutinee, alts, join_ty, span } => CoreExpr::Case {
+            scrutinee,
+            alts: alts
+                .into_iter()
+                .map(|mut alt| {
+                    alt.rhs = without_drops_of(alt.rhs, token);
+                    alt
+                })
+                .collect(),
+            join_ty,
+            span,
+        },
+        other => other,
     }
 }
 
-/// A unique shell has no recursive release available once its fields move.
-/// Count reuse along evaluation paths, rather than counting sites: one site
-/// in a branch does not dispose of the shell on the other branch.
-fn uses_shell_on_every_path(expr: &CoreExpr, token: CoreBinderId, reuse: bool) -> bool {
-    fn sequence<'a>(
-        children: impl IntoIterator<Item = &'a CoreExpr>,
-        token: CoreBinderId,
-        reuse: bool,
-    ) -> Option<(u8, u8)> {
-        children.into_iter().try_fold((0u8, 0u8), |(min, max), child| {
-            let (child_min, child_max) = counts(child, token, reuse)?;
-            Some(((min + child_min).min(2), (max + child_max).min(2)))
-        })
-    }
-
-    fn branches<'a>(
-        children: impl IntoIterator<Item = &'a CoreExpr>,
-        token: CoreBinderId,
-        reuse: bool,
-    ) -> Option<(u8, u8)> {
-        children.into_iter().try_fold(None::<(u8, u8)>, |joined, child| {
-            let (min, max) = counts(child, token, reuse)?;
-            Some(Some(match joined {
-                None => (min, max),
-                Some((lo, hi)) => (min.min(lo), max.max(hi)),
-            }))
-        })?
-    }
-
-    fn counts(expr: &CoreExpr, token: CoreBinderId, reuse: bool) -> Option<(u8, u8)> {
-        match expr {
-            CoreExpr::Var { var, .. } => (var.binder != Some(token)).then_some((0, 0)),
-            CoreExpr::Lit(..) => Some((0, 0)),
-            CoreExpr::Lam { .. } | CoreExpr::Handle { .. } | CoreExpr::Perform { .. } => {
-                (!super::analysis::use_counts_aether(expr).contains_key(&token)).then_some((0, 0))
-            }
-            CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => {
-                sequence([rhs.as_ref(), body.as_ref()], token, reuse)
-            }
-            CoreExpr::LetRecGroup { bindings, body, .. } => sequence(
-                bindings.iter().map(|(_, rhs)| rhs.as_ref()).chain([body.as_ref()]),
-                token,
-                reuse,
-            ),
-            CoreExpr::Case { scrutinee, alts, .. } => {
-                for guard in alts.iter().filter_map(|alt| alt.guard.as_ref()) {
-                    if counts(guard, token, reuse)? != (0, 0) {
-                        return None;
-                    }
-                }
-                let (before_min, before_max) = counts(scrutinee, token, reuse)?;
-                let (arm_min, arm_max) = branches(alts.iter().map(|alt| &alt.rhs), token, reuse)?;
-                Some(((before_min + arm_min).min(2), (before_max + arm_max).min(2)))
-            }
-            CoreExpr::Dup { var, body, .. } => {
-                if var.binder == Some(token) {
-                    None
-                } else {
-                    counts(body, token, reuse)
-                }
-            }
-            CoreExpr::Drop { var, body, .. } => {
-                if var.binder == Some(token) {
-                    if reuse {
-                        return None;
-                    }
-                    let (min, max) = counts(body, token, reuse)?;
-                    Some(((min + 1).min(2), (max + 1).min(2)))
-                } else {
-                    counts(body, token, reuse)
-                }
-            }
-            CoreExpr::Reuse { token: reused, fields, .. } => {
-                if !reuse && reused.binder == Some(token) {
-                    return None;
-                }
-                let (min, max) = sequence(fields, token, reuse)?;
-                let own = u8::from(reused.binder == Some(token));
-                Some(((min + own).min(2), (max + own).min(2)))
-            }
-            CoreExpr::Con { fields, .. } | CoreExpr::PrimOp { args: fields, .. } => {
-                sequence(fields, token, reuse)
-            }
-            CoreExpr::App { func, args, .. } | CoreExpr::AetherCall { func, args, .. } => {
-                sequence(std::iter::once(func.as_ref()).chain(args), token, reuse)
-            }
-            CoreExpr::Return { value, .. } => counts(value, token, reuse),
-            CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
-                counts(object, token, reuse)
-            }
-            CoreExpr::DropSpecialized { scrutinee, unique_body, shared_body, .. } => {
-                if scrutinee.binder == Some(token) {
-                    None
-                } else {
-                    branches([unique_body.as_ref(), shared_body.as_ref()], token, reuse)
-                }
-            }
+/// Frees `token`'s cell on each path through `expr`, a unique path, that does
+/// not reuse it, or `None` if some path cannot. The free has to come before
+/// anything that can suspend: past that, a multi-shot resume may have copied
+/// the cell, so it would no longer be this path's alone. So this goes down
+/// only through forms that run no code.
+fn free_shell_on_unreused_paths(
+    expr: CoreExpr,
+    scrutinee: &CoreVarRef,
+    token: CoreBinderId,
+    span: Span,
+) -> Option<CoreExpr> {
+    match shell_disposals(&expr, token, true)? {
+        (1, 1) => return Some(expr),
+        (0, 0) => {
+            return Some(CoreExpr::FreeShell { var: *scrutinee, body: Box::new(expr), span });
         }
+        (0, 1) => {}
+        _ => return None,
     }
+    let go_down = |body| free_shell_on_unreused_paths(body, scrutinee, token, span);
+    match expr {
+        CoreExpr::Dup { var, body, span } => {
+            Some(CoreExpr::Dup { var, body: Box::new(go_down(*body)?), span })
+        }
+        CoreExpr::Drop { var, body, span } => {
+            Some(CoreExpr::Drop { var, body: Box::new(go_down(*body)?), span })
+        }
+        CoreExpr::Let { var, rhs, body, span }
+            if runs_no_code(&rhs) && shell_disposals(&rhs, token, true) == Some((0, 0)) =>
+        {
+            Some(CoreExpr::Let { var, rhs, body: Box::new(go_down(*body)?), span })
+        }
+        // A guard can call, and it runs before the arm it guards.
+        CoreExpr::Case { scrutinee: matched, alts, join_ty, span }
+            if matches!(matched.as_ref(), CoreExpr::Var { .. })
+                && alts.iter().all(|alt| alt.guard.is_none()) =>
+        {
+            let alts = alts
+                .into_iter()
+                .map(|mut alt| {
+                    alt.rhs = go_down(alt.rhs)?;
+                    Some(alt)
+                })
+                .collect::<Option<Vec<_>>>()?;
+            Some(CoreExpr::Case { scrutinee: matched, alts, join_ty, span })
+        }
+        _ => None,
+    }
+}
 
-    counts(expr, token, reuse) == Some((1, 1))
+/// Whether evaluating `expr` runs no Flux code, and so cannot suspend. Not
+/// every primop qualifies: `try` and `fiber_yield_now` run or suspend code.
+fn runs_no_code(expr: &CoreExpr) -> bool {
+    match expr {
+        CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => true,
+        CoreExpr::Con { fields, .. } => fields.iter().all(runs_no_code),
+        CoreExpr::PrimOp { op, args, .. } => {
+            crate::core::passes::is_primop_pure(op) && args.iter().all(runs_no_code)
+        }
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            runs_no_code(object)
+        }
+        CoreExpr::Let { rhs, body, .. } => runs_no_code(rhs) && runs_no_code(body),
+        _ => false,
+    }
+}
+
+/// A constructor a `let` binds, written into the matched cell. The code after
+/// the `let` still runs, but the arm read its fields at its head, so it never
+/// reads them out of the cell (KI-171). A field copied here means the arm did
+/// not claim the cell, and frees its shell instead.
+fn reuse_for_let_rhs(
+    scrutinee: &CoreVarRef,
+    rhs: &CoreExpr,
+    pat_tag: Option<&CoreTag>,
+) -> Option<CoreExpr> {
+    let token = scrutinee.binder?;
+    let (tag, fields, span) = constructor_shape_for_tag_aether(rhs, pat_tag)?;
+    let usable = fields.iter().all(|field| {
+        !matches!(field, CoreExpr::Dup { .. }) && !use_counts_aether(field).contains_key(&token)
+    });
+    (Some(&tag) == pat_tag && is_heap_tag(&tag) && usable).then(|| CoreExpr::Reuse {
+        token: *scrutinee,
+        tag,
+        fields: fields.to_vec(),
+        field_mask: None,
+        span,
+    })
 }
 
 /// Perceus drop-reuse specialization (Section 2.4, Fig 1e-1g).
@@ -415,18 +451,28 @@ fn insert_reuse_in_unique(
     }
     match body {
         // Walk through Let spine
-        CoreExpr::Let { var, rhs, body: let_body, span } => CoreExpr::Let {
-            var,
-            rhs,
-            body: Box::new(insert_reuse_in_unique(
-                scrutinee,
-                *let_body,
-                pat_tag,
-                arm,
-                blocked_outer_token,
-            )),
-            span,
-        },
+        CoreExpr::Let { var, rhs, body: let_body, span } => {
+            if let Some(reused) = reuse_for_let_rhs(scrutinee, &rhs, pat_tag) {
+                return CoreExpr::Let {
+                    var,
+                    rhs: Box::new(reused),
+                    body: Box::new(rewrite_with_ctx(*let_body, arm, blocked_outer_token)),
+                    span,
+                };
+            }
+            CoreExpr::Let {
+                var,
+                rhs,
+                body: Box::new(insert_reuse_in_unique(
+                    scrutinee,
+                    *let_body,
+                    pat_tag,
+                    arm,
+                    blocked_outer_token,
+                )),
+                span,
+            }
+        }
         // Walk through Dup spine
         CoreExpr::Dup { var, body: dup_body, span } => CoreExpr::Dup {
             var,
@@ -498,9 +544,48 @@ mod tests {
             }
             CoreExpr::Case { alts, .. } => alts.iter().map(|alt| reuses_of(&alt.rhs, token)).sum(),
             CoreExpr::DropSpecialized { unique_body, .. } => reuses_of(unique_body, token),
-            CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => reuses_of(body, token),
+            CoreExpr::Dup { body, .. }
+            | CoreExpr::Drop { body, .. }
+            | CoreExpr::FreeShell { body, .. } => reuses_of(body, token),
             _ => 0,
         }
+    }
+
+    fn frees_of(expr: &CoreExpr, token: CoreBinderId) -> usize {
+        match expr {
+            CoreExpr::FreeShell { var, body, .. } => {
+                usize::from(var.binder == Some(token)) + frees_of(body, token)
+            }
+            CoreExpr::Let { rhs, body, .. } => frees_of(rhs, token) + frees_of(body, token),
+            CoreExpr::Case { alts, .. } => alts.iter().map(|alt| frees_of(&alt.rhs, token)).sum(),
+            CoreExpr::DropSpecialized { unique_body, .. } => frees_of(unique_body, token),
+            CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => frees_of(body, token),
+            _ => 0,
+        }
+    }
+
+    /// The arms of the case on the unique path of the first arm of `expr`,
+    /// past any `let`s: the first must reuse `token`, the others free it.
+    fn assert_reuses_then_frees(expr: &CoreExpr, token: CoreBinderId) {
+        let CoreExpr::Case { alts, .. } = expr else {
+            panic!("expected a case: {expr:?}");
+        };
+        let CoreExpr::DropSpecialized { unique_body, shared_body, .. } = &alts[0].rhs else {
+            panic!("expected the split to be kept: {expr:?}");
+        };
+        let mut body = unique_body.as_ref();
+        while let CoreExpr::Let { body: inner, .. } = body {
+            body = inner;
+        }
+        let CoreExpr::Case { alts: arms, .. } = body else {
+            panic!("expected a case on the unique path: {expr:?}");
+        };
+        assert_eq!(reuses_of(&arms[0].rhs, token), 1, "{expr:?}");
+        assert_eq!(frees_of(&arms[0].rhs, token), 0, "{expr:?}");
+        assert_eq!(reuses_of(&arms[1].rhs, token), 0, "{expr:?}");
+        assert_eq!(frees_of(&arms[1].rhs, token), 1, "{expr:?}");
+        assert_eq!(drops_of(unique_body, token), 0, "{expr:?}");
+        assert_eq!(drops_of(shared_body, token), 1, "{expr:?}");
     }
 
     fn drops_of(expr: &CoreExpr, token: CoreBinderId) -> usize {
@@ -577,11 +662,115 @@ mod tests {
         assert_eq!(reuses_of(&rewritten, xs.id), 1, "{rewritten:?}");
     }
 
-    /// `[y | ys] -> if c { Pair2([y | acc], ys) } else { Pair2(acc, ys) }`
-    /// Only one arm can reuse `xs`, so specialization falls back to the
-    /// copied fields and a plain release instead of losing the other shell.
+    /// `[y | ys] -> let tmp = rhs in f(tmp, ys)`, split into its two paths, with
+    /// `rhs` built from `[xs, y, ys, acc]`.
+    fn let_then_a_call(rhs: impl Fn([CoreBinder; 4]) -> CoreExpr) -> (CoreExpr, CoreBinderId) {
+        let mut interner = Interner::new();
+        let [xs, y, ys, acc, tmp, f] =
+            [(1, "xs"), (2, "y"), (3, "ys"), (4, "acc"), (5, "tmp"), (6, "f")]
+                .map(|(id, name)| CoreBinder::new(CoreBinderId(id), interner.intern(name)));
+        let body = || CoreExpr::Let {
+            var: tmp,
+            rhs: Box::new(rhs([xs, y, ys, acc])),
+            body: Box::new(CoreExpr::AetherCall {
+                func: Box::new(v(f)),
+                args: vec![v(tmp), v(ys)],
+                arg_modes: vec![BorrowMode::Owned, BorrowMode::Owned],
+                guarded_borrowed_args: vec![false, false],
+                owned_after: Vec::new(),
+                span: Span::default(),
+            }),
+            span: Span::default(),
+        };
+        let expr = CoreExpr::Case {
+            scrutinee: Box::new(v(xs)),
+            alts: vec![CoreAlt {
+                pat: CorePat::Con {
+                    tag: CoreTag::Cons,
+                    fields: vec![CorePat::Var(y), CorePat::Var(ys)],
+                },
+                guard: None,
+                rhs: CoreExpr::DropSpecialized {
+                    scrutinee: CoreVarRef::resolved(&xs),
+                    unique_body: Box::new(body()),
+                    shared_body: Box::new(CoreExpr::Dup {
+                        var: CoreVarRef::resolved(&y),
+                        body: Box::new(CoreExpr::Dup {
+                            var: CoreVarRef::resolved(&ys),
+                            body: Box::new(drop_in(xs, body())),
+                            span: Span::default(),
+                        }),
+                        span: Span::default(),
+                    }),
+                    span: Span::default(),
+                },
+                span: Span::default(),
+            }],
+            join_ty: None,
+            span: Span::default(),
+        };
+        (super::insert_reuse(expr), xs.id)
+    }
+
+    /// The cell is written before the call, so the fields the arm still needs
+    /// have to be read already, which the arm's head does (KI-171).
     #[test]
-    fn a_forwarded_constructor_reused_on_one_path_keeps_the_other_release() {
+    fn a_unique_path_reuses_its_cell_for_a_constructor_a_let_binds_ki171() {
+        let (rewritten, xs) = let_then_a_call(|[_, y, _, acc]| CoreExpr::Con {
+            tag: CoreTag::Cons,
+            fields: vec![v(y), v(acc)],
+            span: Span::default(),
+        });
+        assert_eq!(reuses_of(&rewritten, xs), 1, "{rewritten:?}");
+    }
+
+    /// The new cell would hold itself.
+    #[test]
+    fn a_constructor_a_let_binds_that_mentions_the_cell_does_not_reuse_it() {
+        let (rewritten, xs) = let_then_a_call(|[xs, y, _, _]| CoreExpr::Con {
+            tag: CoreTag::Cons,
+            fields: vec![v(y), v(xs)],
+            span: Span::default(),
+        });
+        assert_eq!(reuses_of(&rewritten, xs), 0, "{rewritten:?}");
+    }
+
+    /// `Cons(dup y in y, acc)`: an arm holding a copy of the field did not claim
+    /// its cell, so it frees the shell, as `take_while` does.
+    #[test]
+    fn a_constructor_a_let_binds_that_copies_a_field_does_not_reuse_the_cell() {
+        let (rewritten, xs) = let_then_a_call(|[_, y, _, acc]| CoreExpr::Con {
+            tag: CoreTag::Cons,
+            fields: vec![
+                CoreExpr::Dup {
+                    var: CoreVarRef::resolved(&y),
+                    body: Box::new(v(y)),
+                    span: Span::default(),
+                },
+                v(acc),
+            ],
+            span: Span::default(),
+        });
+        assert_eq!(reuses_of(&rewritten, xs), 0, "{rewritten:?}");
+    }
+
+    /// Another constructor may not fit: the cell is written with no size check.
+    #[test]
+    fn a_constructor_a_let_binds_of_another_tag_does_not_reuse_the_cell() {
+        let (rewritten, xs) = let_then_a_call(|[_, y, _, _]| CoreExpr::Con {
+            tag: CoreTag::Some,
+            fields: vec![v(y)],
+            span: Span::default(),
+        });
+        assert_eq!(reuses_of(&rewritten, xs), 0, "{rewritten:?}");
+    }
+
+    /// `[y | ys] -> if c { Pair2([y | acc], ys) } else { Pair2(acc, ys) }`
+    /// Only one arm can reuse `xs`; on the unique path the other frees it
+    /// alone. The plain rewrite that finds the reuse dropped `xs` on that arm,
+    /// which on a unique path would release the fields a second time.
+    #[test]
+    fn a_forwarded_constructor_reused_on_one_path_frees_its_shell_on_the_other() {
         let mut interner = Interner::new();
         let pair2 = interner.intern("Pair2");
         let [xs, y, ys, acc, tmp, c] =
@@ -650,8 +839,8 @@ mod tests {
         };
 
         let rewritten = specialize_and_reuse(expr);
-        assert_eq!(reuses_of(&rewritten, xs.id), 1, "{rewritten:?}");
-        assert_eq!(drops_of(&rewritten, xs.id), 1, "{rewritten:?}");
+        assert_reuses_then_frees(&rewritten, xs.id);
+        assert!(crate::aether::verify::verify_contract_aether(&rewritten).is_ok(), "{rewritten:?}");
     }
 
     fn con(tag: CoreTag, fields: Vec<CoreExpr>) -> CoreExpr {
@@ -704,8 +893,12 @@ mod tests {
         super::insert_reuse(expr)
     }
 
+    /// `[h | t] -> Pair2(h, t)` builds no `Cons` to reuse the cell for. The
+    /// unique path still owns it, with its fields handed to `h` and `t`, so
+    /// it frees the cell alone (KI-164); the shared path keeps its copies and
+    /// its release.
     #[test]
-    fn an_unreused_specialization_keeps_its_plain_release() {
+    fn an_unreused_specialization_frees_its_shell() {
         let mut interner = Interner::new();
         let [xs, h, t] = [(1, "xs"), (2, "h"), (3, "t")]
             .map(|(id, name)| CoreBinder::new(CoreBinderId(id), interner.intern(name)));
@@ -714,38 +907,148 @@ mod tests {
         let CoreExpr::Case { alts, .. } = &rewritten else {
             panic!("expected a case: {rewritten:?}");
         };
-        assert!(!matches!(alts[0].rhs, CoreExpr::DropSpecialized { .. }), "{rewritten:?}");
-        assert_eq!(drops_of(&rewritten, xs.id), 1, "{rewritten:?}");
+        let CoreExpr::DropSpecialized { unique_body, shared_body, .. } = &alts[0].rhs else {
+            panic!("expected specialization: {rewritten:?}");
+        };
+        let CoreExpr::FreeShell { var, body, .. } = unique_body.as_ref() else {
+            panic!("expected the unique path to free the shell first: {rewritten:?}");
+        };
+        assert_eq!(var.binder, Some(xs.id));
+        assert!(matches!(body.as_ref(), CoreExpr::Con { .. }), "{rewritten:?}");
+        assert_eq!(drops_of(shared_body, xs.id), 1, "{rewritten:?}");
         assert_eq!(reuses_of(&rewritten, xs.id), 0, "{rewritten:?}");
         assert!(crate::aether::verify::verify_contract_aether(&rewritten).is_ok(), "{rewritten:?}");
     }
 
-    #[test]
-    fn a_partially_reused_specialization_keeps_a_release_on_the_other_path() {
-        let mut interner = Interner::new();
-        let [xs, h, t, c] = [(1, "xs"), (2, "h"), (3, "t"), (4, "c")]
-            .map(|(id, name)| CoreBinder::new(CoreBinderId(id), interner.intern(name)));
-        let body = case(
+    /// `case c of true -> [h | t], _ -> Pair2(h, t)`.
+    fn reuses_on_one_arm(
+        interner: &mut Interner,
+        c: CoreBinder,
+        h: CoreBinder,
+        t: CoreBinder,
+    ) -> CoreExpr {
+        case(
             c,
             vec![
                 (
                     CorePat::Lit(crate::core::CoreLit::Bool(true)),
-                    drop_in(c, con(CoreTag::Cons, vec![v(h), v(t)])),
+                    con(CoreTag::Cons, vec![v(h), v(t)]),
                 ),
                 (
                     CorePat::Wildcard,
                     con(CoreTag::Named(interner.intern("Pair2")), vec![v(h), v(t)]),
                 ),
             ],
-        );
+        )
+    }
+
+    #[test]
+    fn a_partially_reused_specialization_frees_its_shell_on_the_other_path() {
+        let mut interner = Interner::new();
+        let [xs, h, t, c] = [(1, "xs"), (2, "h"), (3, "t"), (4, "c")]
+            .map(|(id, name)| CoreBinder::new(CoreBinderId(id), interner.intern(name)));
+        let body = reuses_on_one_arm(&mut interner, c, h, t);
         let rewritten = specialize_and_reuse(copied_fields_release(xs, h, t, body));
-        let CoreExpr::Case { alts, .. } = &rewritten else {
+        assert_reuses_then_frees(&rewritten, xs.id);
+        assert!(crate::aether::verify::verify_contract_aether(&rewritten).is_ok(), "{rewritten:?}");
+    }
+
+    /// `let c = h > 0 in case c of ...`: a comparison runs no code, so the
+    /// branch is still straight after the uniqueness check.
+    #[test]
+    fn a_pure_let_before_the_branch_still_frees_the_shell() {
+        let mut interner = Interner::new();
+        let [xs, h, t, c] = [(1, "xs"), (2, "h"), (3, "t"), (4, "c")]
+            .map(|(id, name)| CoreBinder::new(CoreBinderId(id), interner.intern(name)));
+        let compare = CoreExpr::PrimOp {
+            op: crate::core::CorePrimOp::ICmpGt,
+            args: vec![v(h), CoreExpr::Lit(crate::core::CoreLit::Int(0), Span::default())],
+            span: Span::default(),
+        };
+        let body = CoreExpr::Let {
+            var: c,
+            rhs: Box::new(compare),
+            body: Box::new(reuses_on_one_arm(&mut interner, c, h, t)),
+            span: Span::default(),
+        };
+        let rewritten = specialize_and_reuse(copied_fields_release(xs, h, t, body));
+        assert_reuses_then_frees(&rewritten, xs.id);
+        assert!(crate::aether::verify::verify_contract_aether(&rewritten).is_ok(), "{rewritten:?}");
+    }
+
+    /// The plain release: the cell is reused on one arm and dropped on the
+    /// other, with no split.
+    fn assert_plain_release(rewritten: &CoreExpr, token: CoreBinderId) {
+        let CoreExpr::Case { alts, .. } = rewritten else {
             panic!("expected a case: {rewritten:?}");
         };
         assert!(!matches!(alts[0].rhs, CoreExpr::DropSpecialized { .. }), "{rewritten:?}");
-        assert_eq!(reuses_of(&rewritten, xs.id), 1, "{rewritten:?}");
-        assert_eq!(drops_of(&rewritten, xs.id), 1, "{rewritten:?}");
-        assert!(crate::aether::verify::verify_contract_aether(&rewritten).is_ok(), "{rewritten:?}");
+        assert_eq!(frees_of(rewritten, token), 0, "{rewritten:?}");
+        assert_eq!(reuses_of(rewritten, token), 1, "{rewritten:?}");
+        assert_eq!(drops_of(rewritten, token), 1, "{rewritten:?}");
+    }
+
+    /// `let c = f(h) in case c of ...`, as in `filter`: past the call a
+    /// multi-shot resume may have copied the cell, so nothing frees it there
+    /// unchecked. The reuse checks again at run time, and the other arm keeps
+    /// its plain release.
+    #[test]
+    fn a_call_before_the_branch_keeps_the_plain_release() {
+        let mut interner = Interner::new();
+        let [xs, h, t, c, f] = [(1, "xs"), (2, "h"), (3, "t"), (4, "c"), (5, "f")]
+            .map(|(id, name)| CoreBinder::new(CoreBinderId(id), interner.intern(name)));
+        let call = CoreExpr::AetherCall {
+            func: Box::new(v(f)),
+            args: vec![v(h)],
+            arg_modes: vec![BorrowMode::Borrowed],
+            guarded_borrowed_args: vec![false],
+            owned_after: Vec::new(),
+            span: Span::default(),
+        };
+        let body = CoreExpr::Let {
+            var: c,
+            rhs: Box::new(call),
+            body: Box::new(reuses_on_one_arm(&mut interner, c, h, t)),
+            span: Span::default(),
+        };
+        let rewritten = specialize_and_reuse(copied_fields_release(xs, h, t, body));
+        assert_plain_release(&rewritten, xs.id);
+    }
+
+    /// Primops are not all free of code: `print` here stands for those that
+    /// run or suspend it, such as `try` and `fiber_yield_now`.
+    #[test]
+    fn an_impure_primop_before_the_branch_keeps_the_plain_release() {
+        let mut interner = Interner::new();
+        let [xs, h, t, c] = [(1, "xs"), (2, "h"), (3, "t"), (4, "c")]
+            .map(|(id, name)| CoreBinder::new(CoreBinderId(id), interner.intern(name)));
+        let print = CoreExpr::PrimOp {
+            op: crate::core::CorePrimOp::Print,
+            args: vec![v(h)],
+            span: Span::default(),
+        };
+        let body = CoreExpr::Let {
+            var: c,
+            rhs: Box::new(print),
+            body: Box::new(reuses_on_one_arm(&mut interner, c, h, t)),
+            span: Span::default(),
+        };
+        let rewritten = specialize_and_reuse(copied_fields_release(xs, h, t, body));
+        assert_plain_release(&rewritten, xs.id);
+    }
+
+    /// A guard can call, and it runs before the arm it guards.
+    #[test]
+    fn a_guarded_branch_keeps_the_plain_release() {
+        let mut interner = Interner::new();
+        let [xs, h, t, c, g] = [(1, "xs"), (2, "h"), (3, "t"), (4, "c"), (5, "g")]
+            .map(|(id, name)| CoreBinder::new(CoreBinderId(id), interner.intern(name)));
+        let mut body = reuses_on_one_arm(&mut interner, c, h, t);
+        if let CoreExpr::Case { alts, .. } = &mut body {
+            alts[0].guard = Some(v(g));
+        }
+        let rewritten = specialize_and_reuse(copied_fields_release(xs, h, t, body));
+        assert_plain_release(&rewritten, xs.id);
     }
 
     #[test]
@@ -912,6 +1215,14 @@ mod tests {
 
         let rewritten = super::insert_reuse(expr);
         assert_eq!(reuses_of(&rewritten, xs.id), 0, "{rewritten:?}");
-        assert_eq!(drops_of(&rewritten, xs.id), 1, "{rewritten:?}");
+        // With no `Cons` to reuse it for, the unique path frees the cell.
+        let CoreExpr::Case { alts, .. } = &rewritten else {
+            panic!("expected a case: {rewritten:?}");
+        };
+        assert!(
+            matches!(&alts[0].rhs, CoreExpr::DropSpecialized { unique_body, .. }
+                if matches!(unique_body.as_ref(), CoreExpr::FreeShell { var, .. } if var.binder == Some(xs.id))),
+            "{rewritten:?}"
+        );
     }
 }

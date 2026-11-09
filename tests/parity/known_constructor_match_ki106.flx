@@ -1,0 +1,73 @@
+// parity: vm, llvm, llvm_opt
+// expect: success
+// bug: KI-106. A match on a value the optimizer knows skipped any arm whose
+//       field pattern it didn't look into, so a later `_` won: natively,
+//       `match Some(1) { Some(1) -> 10, _ -> 20 }` printed 20. The value can be
+//       written in the match, or reach it through a `let` or an inlined call,
+//       which only an optimized build sees.
+// parity-expected-stdout-begin
+// 10
+// 30
+// 20
+// 2
+// 1
+// 1
+// 7
+// 2
+// 7
+// 7
+// 8
+// 2
+// 3
+// 2
+// 10
+// 10
+// 20
+// 22
+// 5
+// parity-expected-stdout-end
+
+fn literal_field(o: Option<Int>) -> Int {
+    match o {
+        Some(1) -> 10,
+        _ -> 20,
+    }
+}
+
+fn main() with IO {
+    // A literal in a field.
+    print(match Some(1) { Some(1) -> 10, _ -> 20, })
+    print(match Some(2) { Some(1) -> 10, Some(2) -> 30, _ -> 20, })
+    print(match Some(3) { Some(1) -> 10, Some(2) -> 30, _ -> 20, })
+    print(match None { Some(1) -> 1, _ -> 2, })
+    print(match Some(true) { Some(true) -> 1, Some(false) -> 2, _ -> 3, })
+    print(match Some("hi") { Some("hi") -> 1, _ -> 2, })
+
+    // A constructor in a field.
+    print(match Some(Some(7)) { Some(Some(a)) -> a, _ -> 0, })
+    print(match Some(Some(1)) { Some(None) -> 1, Some(Some(_)) -> 2, _ -> 3, })
+    print(match Left(Some(7)) { Left(Some(a)) -> a, _ -> 0, })
+
+    // A guard on an arm with a constructor in a field.
+    print(match Some(Some(7)) { Some(Some(a)) if a > 5 -> a, _ -> 0, })
+    print(match Some(Some(7)) { Some(Some(a)) if a > 9 -> a, Some(Some(b)) -> b + 1, _ -> 0, })
+
+    // An arm of another constructor is still passed over.
+    print(match Some(1) { None -> 0, Some(x) -> x + 1, })
+    print(match Left(3) { Right(x) -> x, Left(x) -> x, })
+    print(match Some(1) { Left(1) -> 1, _ -> 2, })
+
+    // Known only after a `let` is inlined.
+    let known = Some(1)
+    print(match known { Some(1) -> 10, _ -> 20, })
+
+    // Known only after a call is inlined.
+    print(literal_field(Some(1)))
+    print(literal_field(Some(2)))
+
+    // KI-106's own program.
+    let value = Some(Left(21))
+    print(match value { Some(Left(v)) -> v + 1, Some(Right(v)) -> v, _ -> 0, })
+    let other = Some(Right(5))
+    print(match other { Some(Left(v)) -> v + 1, Some(Right(v)) -> v, _ -> 0, })
+}

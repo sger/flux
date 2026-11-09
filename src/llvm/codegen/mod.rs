@@ -5,7 +5,8 @@ mod closure;
 mod prelude;
 
 pub use adt::{
-    AdtMetadata, FLUX_ADT_TYPE_NAME, FLUX_TUPLE_TYPE_NAME, emit_adt_support, flux_adt_symbol,
+    AdtMetadata, FLUX_ADT_TYPE_NAME, FLUX_OBJ_ADT, FLUX_OBJ_TUPLE, FLUX_TUPLE_TYPE_NAME,
+    emit_adt_support, flux_adt_symbol,
 };
 pub use arith::{emit_and, emit_arith, emit_not, emit_or, flux_arith_symbol};
 pub use closure::{
@@ -13,7 +14,8 @@ pub use closure::{
     flux_closure_symbol,
 };
 pub use prelude::{
-    FluxNanboxLayout, FluxPtrTagLayout, emit_prelude, emit_prelude_and_arith, flux_prelude_symbol,
+    FluxNanboxLayout, FluxPtrTagLayout, emit_free_shell_inline, emit_prelude,
+    emit_prelude_and_arith, flux_prelude_symbol,
 };
 
 use crate::syntax::Identifier;

@@ -98,6 +98,8 @@ fn runs(program: &str) -> bool {
             | "handlers.flx"
             | "overflow.flx"
             | "refs.flx"
+            | "shells.flx"
+            | "clones.flx"
     )
 }
 
@@ -308,6 +310,8 @@ const FIXTURES: &[&str] = &[
     "root_panic.flx",
     "inlined.flx",
     "refs.flx",
+    "shells.flx",
+    "clones.flx",
 ];
 
 /// The errors `llvm-dwarfdump --verify` reports in Flux's compile units.
@@ -647,6 +651,9 @@ fn assert_lines(session: &str, expected: &[&str]) {
 /// `flux refs` reads a value's reference count from its header (0188
 /// S10b). Natively `main` has passed `xs` on, so `total` holds its three
 /// references: `xs`, `ys` and the tuple's.
+/// `refs.flx` builds `xs` at run time, since a list of constants is one
+/// static object whose count never changes; `pair.1`, a string literal, is
+/// one too.
 #[test]
 fn lldb_counts_references() {
     let Some(lldb) = lldb() else {
@@ -677,7 +684,14 @@ fn lldb_counts_references() {
         &scratch,
         "app",
         ("refs.flx", 6),
-        &["flux refs xs", "flux refs ys", "flux refs pair", "flux refs pair.0", "flux refs pair.5"],
+        &[
+            "flux refs xs",
+            "flux refs ys",
+            "flux refs pair",
+            "flux refs pair.0",
+            "flux refs pair.1",
+            "flux refs pair.5",
+        ],
     ) else {
         return;
     };
@@ -688,9 +702,101 @@ fn lldb_counts_references() {
             "ys: 2 references (shared)",
             "pair: 1 reference (unique: can be reused in place)",
             "pair.0: 2 references (shared)",
+            "pair.1: static (never counted or freed)",
             "`pair.5` has no part `5`",
         ],
     );
+}
+
+/// KI-164: on the unique path `nodes` frees `tree`'s cell alone and keeps
+/// its children. The debugger must show `tree` as dropped there, not read
+/// the freed block, and still show both children.
+#[test]
+fn lldb_shows_a_freed_cell_as_dropped() {
+    let Some(lldb) = lldb() else {
+        eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
+        return;
+    };
+    let scratch = built("shells.flx");
+    let Some(session) = flux_session(
+        &lldb,
+        &scratch,
+        "app",
+        ("shells.flx", 13),
+        &["flux refs tree", "flux print left", "flux print right"],
+    ) else {
+        return;
+    };
+    assert_lines(&session, &["tree: dropped", "left = Node(Tip, Tip)", "right = Node(Tip, Tip)"]);
+}
+
+/// A consuming clone (0200) is a function of its own in the debug info,
+/// named `<fn>$own`, at the original's line, so a debug build has one too.
+#[test]
+fn the_ir_of_a_debug_build_names_a_consuming_clone() {
+    let source = std::fs::read_to_string(fixture_dir().join("clones.flx")).unwrap();
+    let ir = module_ir(&source, flux::debuginfo::DebugLevel::Full);
+    let line_of = |name: &str| -> String {
+        let needle = format!("DISubprogram(name: \"{name}\"");
+        let at = ir.find(&needle).unwrap_or_else(|| panic!("no subprogram `{name}`:\n{ir}"));
+        let rest = &ir[at..];
+        let line = rest.find(" line: ").expect("a line") + " line: ".len();
+        rest[line..].chars().take_while(char::is_ascii_digit).collect()
+    };
+    assert_eq!(line_of("check_tree$own"), line_of("check_tree"));
+}
+
+/// A line in a function that also runs as its consuming clone resolves in
+/// both copies, and the frame says which one stopped.
+#[test]
+fn lldb_stops_in_both_copies_of_a_function_at_a_line() {
+    let Some(lldb) = lldb() else {
+        eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
+        return;
+    };
+    let scratch = built("clones.flx");
+    let mut commands = vec!["breakpoint set --file clones.flx --line 13", "breakpoint list", "run"];
+    // `dead` has three nodes, walked by the clone; `kept` has one, walked by
+    // the original first.
+    for _ in 0..4 {
+        commands.extend(["frame info", "continue"]);
+    }
+    let session = lldb_session(&lldb, &scratch, "app", &commands);
+    let located =
+        |name: &str| session.lines().any(|line| line.contains(&format!("where = app`{name} + ")));
+    assert!(located("check_tree$own") && located("check_tree"), "{session}");
+    let stops: Vec<&str> = session.lines().filter(|line| line.starts_with("frame #0")).collect();
+    assert!(stops.iter().any(|stop| stop.contains("`check_tree$own(")), "{session}");
+    assert!(stops.iter().any(|stop| stop.contains("`check_tree(")), "{session}");
+}
+
+/// In the clone, `tree` is its own: unique when the walk reaches it, then
+/// dropped once the arm has freed its cell.
+#[test]
+fn lldb_counts_a_consuming_clones_parameter_as_unique() {
+    let Some(lldb) = lldb() else {
+        eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
+        return;
+    };
+    let scratch = built("clones.flx");
+    let Some(session) =
+        flux_session(&lldb, &scratch, "app", ("clones.flx", 11), &["flux bt", "flux refs tree"])
+    else {
+        return;
+    };
+    assert_lines(
+        &session,
+        &[
+            "#0 check_tree$own at clones.flx:11:5",
+            "tree: 1 reference (unique: can be reused in place)",
+        ],
+    );
+    let Some(session) =
+        flux_session(&lldb, &scratch, "app", ("clones.flx", 13), &["flux bt", "flux refs tree"])
+    else {
+        return;
+    };
+    assert_lines(&session, &["#0 check_tree$own at clones.flx:13:13", "tree: dropped"]);
 }
 
 #[test]

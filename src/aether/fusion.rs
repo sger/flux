@@ -144,6 +144,10 @@ fn fuse(expr: CoreExpr) -> CoreExpr {
             field_mask,
             span,
         },
+        // A shell free never pairs with a copy: the copy belongs to a field.
+        CoreExpr::FreeShell { var, body, span } => {
+            CoreExpr::FreeShell { var, body: Box::new(fuse(*body)), span }
+        }
         CoreExpr::DropSpecialized { scrutinee, unique_body, shared_body, span } => {
             CoreExpr::DropSpecialized {
                 scrutinee,
@@ -292,6 +296,7 @@ fn is_safe_fusion_wrapper_rhs(expr: &CoreExpr) -> bool {
         | CoreExpr::Return { .. }
         | CoreExpr::Dup { .. }
         | CoreExpr::Drop { .. }
+        | CoreExpr::FreeShell { .. }
         | CoreExpr::MemberAccess { .. }
         | CoreExpr::TupleField { .. } => true,
     }
@@ -377,9 +382,9 @@ mod tests {
                         .map(|handler| count_matching(&handler.body, predicate))
                         .sum::<usize>()
             }
-            CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => {
-                here + count_matching(body, predicate)
-            }
+            CoreExpr::Dup { body, .. }
+            | CoreExpr::Drop { body, .. }
+            | CoreExpr::FreeShell { body, .. } => here + count_matching(body, predicate),
             CoreExpr::DropSpecialized { unique_body, shared_body, .. } => {
                 here + count_matching(unique_body, predicate)
                     + count_matching(shared_body, predicate)

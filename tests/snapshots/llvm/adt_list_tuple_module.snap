@@ -22,13 +22,17 @@ source_filename = "flux_lir"
 
 @flux.ptrtag.yield_sentinel = private constant i64 10
 
-@flux_arena_hp = external global ptr
-
-@flux_arena_limit = external global ptr
+@flux_heap = external thread_local(initialexec) global [35 x ptr]
 
 @flux_idiv.div_zero_msg = private constant [16 x i8] [i8 68, i8 105, i8 118, i8 105, i8 115, i8 105, i8 111, i8 110, i8 32, i8 98, i8 121, i8 32, i8 122, i8 101, i8 114, i8 111]
 
 @flux_imod.div_zero_msg = private constant [16 x i8] [i8 68, i8 105, i8 118, i8 105, i8 115, i8 105, i8 111, i8 110, i8 32, i8 98, i8 121, i8 32, i8 122, i8 101, i8 114, i8 111]
+
+@flux.ctor.1 = private constant {i32, i8, i8, i16, i32, i32, i64, ptr} {i32 1073741824, i8 2, i8 242, i16 0, i32 4, i32 2, i64 3, ptr getelementptr inbounds (i8, ptr @flux.ctor.0, i64 8)} , align 8
+
+@flux.ctor.0 = private constant {i32, i8, i8, i16, i32, i32, i64, i64} {i32 1073741824, i8 2, i8 242, i16 0, i32 4, i32 2, i64 5, i64 6} , align 8
+
+@flux.ctor.2 = private constant {i32, i8, i8, i16, i32, i32, i64} {i32 1073741824, i8 1, i8 242, i16 0, i32 5, i32 1, i64 7} , align 8
 
 @flux_ctor_name.0 = private constant [5 x i8] [i8 87, i8 114, i8 97, i8 112, i8 0]
 
@@ -44,9 +48,11 @@ declare ccc ptr @flux_gc_alloc(i32) nounwind
 
 declare ccc ptr @flux_gc_alloc_header(i32, i32, i32) nounwind
 
+declare ccc ptr @llvm.threadlocal.address.p0(ptr) nounwind
+
 declare ccc ptr @flux_bump_alloc_slow(i32, i32, i32) nounwind
 
-declare ccc i32 @flux_can_use_bump_arena() nounwind
+declare ccc ptr @flux_bump_alloc_slow_filled(i32, i32, i32) nounwind
 
 declare ccc void @llvm.memset.p0.i64(ptr, i8, i64, i1) nocallback nounwind
 
@@ -78,6 +84,54 @@ entry:
   %above_sentinel = icmp sge i64 %val, 12
   %result = and i1 %not_int, %above_sentinel
   ret i1 %result
+}
+
+define internal fastcc void @flux_dup_inline(i64 %val) alwaysinline uwtable {
+entry:
+  %is_ptr = call fastcc i1 @flux_is_ptr(i64 %val)
+  br i1 %is_ptr, label %check_rc, label %done
+check_rc:
+  %ptr = inttoptr i64 %val to ptr
+  %rc_ptr = getelementptr i8, ptr %ptr, i64 -8
+  %rc = load i32, ptr %rc_ptr, align 4
+  %local = icmp sgt i32 %rc, 0
+  br i1 %local, label %check_sticky, label %slow
+check_sticky:
+  %sticky = icmp sge i32 %rc, 1073741824
+  br i1 %sticky, label %done, label %update
+update:
+  %next = add i32 %rc, 1
+  store i32 %next, ptr %rc_ptr, align 4
+  ret void
+slow:
+  call ccc void @flux_dup(i64 %val)
+  ret void
+done:
+  ret void
+}
+
+define internal fastcc void @flux_drop_inline(i64 %val) alwaysinline uwtable {
+entry:
+  %is_ptr = call fastcc i1 @flux_is_ptr(i64 %val)
+  br i1 %is_ptr, label %check_rc, label %done
+check_rc:
+  %ptr = inttoptr i64 %val to ptr
+  %rc_ptr = getelementptr i8, ptr %ptr, i64 -8
+  %rc = load i32, ptr %rc_ptr, align 4
+  %local = icmp sgt i32 %rc, 1
+  br i1 %local, label %check_sticky, label %slow
+check_sticky:
+  %sticky = icmp sge i32 %rc, 1073741824
+  br i1 %sticky, label %done, label %update
+update:
+  %next = add i32 %rc, -1
+  store i32 %next, ptr %rc_ptr, align 4
+  ret void
+slow:
+  call ccc void @flux_drop(i64 %val)
+  ret void
+done:
+  ret void
 }
 
 define internal fastcc ptr @flux_drop_reuse(i64 %val, i32 %size) alwaysinline uwtable {
@@ -146,32 +200,111 @@ entry:
   %masked = and i32 %aligned, -8
   %total_i32 = add i32 %masked, 8
   %total = zext i32 %total_i32 to i64
-  %can_bump_i32 = call ccc i32 @flux_can_use_bump_arena()
-  %can_bump = icmp ne i32 %can_bump_i32, 0
-  br i1 %can_bump, label %bump_check, label %slow
+  %small = icmp ule i32 %masked, 256
+  %class_all = lshr i32 %masked, 3
+  %class32 = select i1 %small, i32 %class_all, i32 0
+  %has_class = icmp ne i32 %class32, 0
+  %chunk_class = or i32 %class32, 128
+  %class8 = trunc i32 %chunk_class to i8
+  %heap = call ccc ptr @llvm.threadlocal.address.p0(ptr @flux_heap)
+  br i1 %has_class, label %pop_check, label %slow
+pop_check:
+  %class64 = zext i32 %class32 to i64
+  %free = getelementptr i8, ptr %heap, i64 16
+  %slot = getelementptr ptr, ptr %free, i64 %class64
+  %head = load ptr, ptr %slot, align 8
+  %has_head = icmp ne ptr %head, null
+  br i1 %has_head, label %pop, label %bump_check
+pop:
+  %next_ptr = getelementptr i8, ptr %head, i64 8
+  %next = load ptr, ptr %next_ptr, align 8
+  store ptr %next, ptr %slot, align 8
+  br label %init
 bump_check:
-  %hp = load ptr, ptr @flux_arena_hp, align 8
+  %hp = load ptr, ptr %heap, align 8
   %new_hp = getelementptr i8, ptr %hp, i64 %total
-  %lim = load ptr, ptr @flux_arena_limit, align 8
-  %fits = icmp ule ptr %new_hp, %lim
-  br i1 %fits, label %fast, label %slow
-fast:
-  store ptr %new_hp, ptr @flux_arena_hp, align 8
-  store i32 1, ptr %hp, align 4
+  %lim_ptr = getelementptr i8, ptr %heap, i64 8
+  %lim = load ptr, ptr %lim_ptr, align 8
+  %in_chunk = icmp ule ptr %new_hp, %lim
+  br i1 %in_chunk, label %bump, label %slow
+bump:
+  store ptr %new_hp, ptr %heap, align 8
+  br label %init
+init:
+  %block = phi ptr [ %head, %pop ], [ %hp, %bump ]
+  store i32 1, ptr %block, align 4
   %scan8 = trunc i32 %scan to i8
-  %sf_ptr = getelementptr i8, ptr %hp, i64 4
+  %sf_ptr = getelementptr i8, ptr %block, i64 4
   store i8 %scan8, ptr %sf_ptr, align 1
   %tag8 = trunc i32 %tag to i8
-  %ot_ptr = getelementptr i8, ptr %hp, i64 5
+  %ot_ptr = getelementptr i8, ptr %block, i64 5
   store i8 %tag8, ptr %ot_ptr, align 1
-  %res_ptr = getelementptr i8, ptr %hp, i64 6
-  store i16 0, ptr %res_ptr, align 2
-  %payload = getelementptr i8, ptr %hp, i64 8
+  %prog_ptr = getelementptr i8, ptr %block, i64 6
+  store i8 0, ptr %prog_ptr, align 1
+  %class_ptr = getelementptr i8, ptr %block, i64 7
+  store i8 %class8, ptr %class_ptr, align 1
+  %payload = getelementptr i8, ptr %block, i64 8
   %aligned64 = zext i32 %masked to i64
   call ccc void @llvm.memset.p0.i64(ptr %payload, i8 0, i64 %aligned64, i1 0)
   ret ptr %payload
 slow:
   %slow_ptr = call ccc ptr @flux_bump_alloc_slow(i32 %size, i32 %scan, i32 %tag)
+  ret ptr %slow_ptr
+}
+
+define internal fastcc ptr @flux_bump_alloc_filled(i32 %size, i32 %scan, i32 %tag) alwaysinline uwtable {
+entry:
+  %aligned = add i32 %size, 7
+  %masked = and i32 %aligned, -8
+  %total_i32 = add i32 %masked, 8
+  %total = zext i32 %total_i32 to i64
+  %small = icmp ule i32 %masked, 256
+  %class_all = lshr i32 %masked, 3
+  %class32 = select i1 %small, i32 %class_all, i32 0
+  %has_class = icmp ne i32 %class32, 0
+  %chunk_class = or i32 %class32, 128
+  %class8 = trunc i32 %chunk_class to i8
+  %heap = call ccc ptr @llvm.threadlocal.address.p0(ptr @flux_heap)
+  br i1 %has_class, label %pop_check, label %slow
+pop_check:
+  %class64 = zext i32 %class32 to i64
+  %free = getelementptr i8, ptr %heap, i64 16
+  %slot = getelementptr ptr, ptr %free, i64 %class64
+  %head = load ptr, ptr %slot, align 8
+  %has_head = icmp ne ptr %head, null
+  br i1 %has_head, label %pop, label %bump_check
+pop:
+  %next_ptr = getelementptr i8, ptr %head, i64 8
+  %next = load ptr, ptr %next_ptr, align 8
+  store ptr %next, ptr %slot, align 8
+  br label %init
+bump_check:
+  %hp = load ptr, ptr %heap, align 8
+  %new_hp = getelementptr i8, ptr %hp, i64 %total
+  %lim_ptr = getelementptr i8, ptr %heap, i64 8
+  %lim = load ptr, ptr %lim_ptr, align 8
+  %in_chunk = icmp ule ptr %new_hp, %lim
+  br i1 %in_chunk, label %bump, label %slow
+bump:
+  store ptr %new_hp, ptr %heap, align 8
+  br label %init
+init:
+  %block = phi ptr [ %head, %pop ], [ %hp, %bump ]
+  store i32 1, ptr %block, align 4
+  %scan8 = trunc i32 %scan to i8
+  %sf_ptr = getelementptr i8, ptr %block, i64 4
+  store i8 %scan8, ptr %sf_ptr, align 1
+  %tag8 = trunc i32 %tag to i8
+  %ot_ptr = getelementptr i8, ptr %block, i64 5
+  store i8 %tag8, ptr %ot_ptr, align 1
+  %prog_ptr = getelementptr i8, ptr %block, i64 6
+  store i8 0, ptr %prog_ptr, align 1
+  %class_ptr = getelementptr i8, ptr %block, i64 7
+  store i8 %class8, ptr %class_ptr, align 1
+  %payload = getelementptr i8, ptr %block, i64 8
+  ret ptr %payload
+slow:
+  %slow_ptr = call ccc ptr @flux_bump_alloc_slow_filled(i32 %size, i32 %scan, i32 %tag)
   ret ptr %slow_ptr
 }
 
@@ -398,47 +531,6 @@ do_float:
   ret i64 %float_result
 }
 
-define internal fastcc i64 @flux_make_adt(ptr %fields, i32 %field_count, i32 %ctor_tag) alwaysinline uwtable {
-entry:
-  %payload.bytes = mul i32 %field_count, 8
-  %alloc.bytes = add i32 %payload.bytes, 8
-  %mem = call fastcc ptr @flux_bump_alloc_inline(i32 %alloc.bytes, i32 %field_count, i32 242)
-  %tag.ptr = getelementptr inbounds %FluxAdt, ptr %mem, i32 0, i32 0
-  store i32 %ctor_tag, ptr %tag.ptr, align 4
-  %field_count.ptr = getelementptr inbounds %FluxAdt, ptr %mem, i32 0, i32 1
-  store i32 %field_count, ptr %field_count.ptr, align 4
-  %payload.ptr = getelementptr inbounds %FluxAdt, ptr %mem, i32 0, i32 2, i32 0
-  call fastcc void @flux_copy_i64s(ptr %payload.ptr, ptr %fields, i32 %field_count)
-  %boxed = call fastcc i64 @flux_tag_boxed_ptr(ptr %mem)
-  ret i64 %boxed
-}
-
-define internal fastcc i64 @flux_make_cons(i64 %head, i64 %tail) alwaysinline uwtable {
-entry:
-  %fields = alloca i64, i32 2, align 8
-  %head.ptr = getelementptr inbounds i64, ptr %fields, i32 0
-  store i64 %head, ptr %head.ptr, align 8
-  %tail.ptr = getelementptr inbounds i64, ptr %fields, i32 1
-  store i64 %tail, ptr %tail.ptr, align 8
-  %boxed = call fastcc i64 @flux_make_adt(ptr %fields, i32 2, i32 4)
-  ret i64 %boxed
-}
-
-define internal fastcc i64 @flux_make_tuple(ptr %fields, i32 %arity) alwaysinline uwtable {
-entry:
-  %payload.bytes = mul i32 %arity, 8
-  %alloc.bytes = add i32 %payload.bytes, 8
-  %mem = call fastcc ptr @flux_bump_alloc_inline(i32 %alloc.bytes, i32 %arity, i32 243)
-  %tag.ptr = getelementptr inbounds %FluxTuple, ptr %mem, i32 0, i32 0
-  store i8 243, ptr %tag.ptr, align 1
-  %arity.ptr = getelementptr inbounds %FluxTuple, ptr %mem, i32 0, i32 4
-  store i32 %arity, ptr %arity.ptr, align 4
-  %payload.ptr = getelementptr inbounds %FluxTuple, ptr %mem, i32 0, i32 5, i32 0
-  call fastcc void @flux_copy_i64s(ptr %payload.ptr, ptr %fields, i32 %arity)
-  %boxed = call fastcc i64 @flux_tag_boxed_ptr(ptr %mem)
-  ret i64 %boxed
-}
-
 define internal fastcc i32 @flux_tuple_len(i64 %value) alwaysinline uwtable {
 entry:
   %ptr = call fastcc ptr @flux_untag_boxed_ptr(i64 %value)
@@ -614,118 +706,120 @@ define ccc i64 @flux_main() uwtable {
 bb0:
   %v0 = add i64 3, 0
   %v1 = add i64 5, 0
-  %t0 = call fastcc i64 @flux_make_cons(i64 %v1, i64 6)
-  %t1 = call fastcc i64 @flux_make_cons(i64 %v0, i64 %t0)
-  %v2 = add i64 %t1, 0
+  %t1 = getelementptr inbounds i8, ptr @flux.ctor.0, i64 8
+  %t0 = ptrtoint ptr %t1 to i64
+  %t2 = getelementptr inbounds i8, ptr @flux.ctor.1, i64 8
+  %v2 = ptrtoint ptr %t2 to i64
   %v4 = add i64 0, 0
   %v3 = call fastcc i64 @flux_fold(i64 %v2)
   br label %bb1
 bb1:
   %v5 = add i64 7, 0
-  %t2 = alloca [1 x i64], align 8
-  %t3 = getelementptr inbounds i64, ptr %t2, i32 0
-  store i64 %v5, ptr %t3, align 8
-  %v6 = call fastcc i64 @flux_make_adt(ptr %t2, i32 1, i32 5)
-  %t4 = alloca [2 x i64], align 8
-  %t5 = getelementptr inbounds i64, ptr %t4, i32 0
-  store i64 %v3, ptr %t5, align 8
+  %t3 = getelementptr inbounds i8, ptr @flux.ctor.2, i64 8
+  %v6 = ptrtoint ptr %t3 to i64
+  %t4 = call fastcc ptr @flux_bump_alloc_filled(i32 24, i32 2, i32 243)
+  store i8 243, ptr %t4, align 1
+  %t5 = getelementptr inbounds i32, ptr %t4, i32 1
+  store i32 2, ptr %t5, align 4
   %t6 = getelementptr inbounds i64, ptr %t4, i32 1
-  store i64 %v6, ptr %t6, align 8
-  %v7 = call fastcc i64 @flux_make_tuple(ptr %t4, i32 2)
-  %t7 = inttoptr i64 %v7 to ptr
-  %t8 = getelementptr inbounds %FluxTuple, ptr %t7, i32 0, i32 5, i32 0
-  %t9 = getelementptr inbounds i64, ptr %t8, i32 0
-  %v9 = load i64, ptr %t9, align 8
-  %t10 = inttoptr i64 %v7 to ptr
-  %t11 = getelementptr inbounds %FluxTuple, ptr %t10, i32 0, i32 5, i32 0
-  %t12 = getelementptr inbounds i64, ptr %t11, i32 1
-  %v10 = load i64, ptr %t12, align 8
+  store i64 %v3, ptr %t6, align 8
+  %t7 = getelementptr inbounds i64, ptr %t4, i32 2
+  store i64 %v6, ptr %t7, align 8
+  %v7 = ptrtoint ptr %t4 to i64
+  %t8 = inttoptr i64 %v7 to ptr
+  %t9 = getelementptr inbounds %FluxTuple, ptr %t8, i32 0, i32 5, i32 0
+  %t10 = getelementptr inbounds i64, ptr %t9, i32 0
+  %v9 = load i64, ptr %t10, align 8
+  %t11 = inttoptr i64 %v7 to ptr
+  %t12 = getelementptr inbounds %FluxTuple, ptr %t11, i32 0, i32 5, i32 0
+  %t13 = getelementptr inbounds i64, ptr %t12, i32 1
+  %v10 = load i64, ptr %t13, align 8
   br label %bb5
 bb2:
   %v8 = phi i64 [ %v19, %bb3 ], [ %v24, %bb7 ]
   ret i64 %v8
 bb3:
-  %t13 = inttoptr i64 %v7 to ptr
-  %t14 = getelementptr inbounds %FluxTuple, ptr %t13, i32 0, i32 5, i32 0
-  %t15 = getelementptr inbounds i64, ptr %t14, i32 0
-  %v12 = load i64, ptr %t15, align 8
-  %t16 = inttoptr i64 %v7 to ptr
-  %t17 = getelementptr inbounds %FluxTuple, ptr %t16, i32 0, i32 5, i32 0
-  %t18 = getelementptr inbounds i64, ptr %t17, i32 1
-  %v13 = load i64, ptr %t18, align 8
+  %t14 = inttoptr i64 %v7 to ptr
+  %t15 = getelementptr inbounds %FluxTuple, ptr %t14, i32 0, i32 5, i32 0
+  %t16 = getelementptr inbounds i64, ptr %t15, i32 0
+  %v12 = load i64, ptr %t16, align 8
+  %t17 = inttoptr i64 %v7 to ptr
+  %t18 = getelementptr inbounds %FluxTuple, ptr %t17, i32 0, i32 5, i32 0
+  %t19 = getelementptr inbounds i64, ptr %t18, i32 1
+  %v13 = load i64, ptr %t19, align 8
   %v14 = add i64 %v13, 0
-  %t19 = inttoptr i64 %v14 to ptr
-  %t20 = getelementptr inbounds i8, ptr %t19, i32 8
-  %v15 = load i64, ptr %t20, align 8
+  %t20 = inttoptr i64 %v14 to ptr
+  %t21 = getelementptr inbounds i8, ptr %t20, i32 8
+  %v15 = load i64, ptr %t21, align 8
   %v16 = ashr i64 %v12, 1
   %v17 = ashr i64 %v15, 1
   %v18 = add i64 %v16, %v17
-  %t21 = shl i64 %v18, 1
-  %v19 = or i64 %t21, 1
+  %t22 = shl i64 %v18, 1
+  %v19 = or i64 %t22, 1
   br label %bb2
 bb4:
-  %t22 = inttoptr i64 %v7 to ptr
-  %t23 = getelementptr inbounds %FluxTuple, ptr %t22, i32 0, i32 5, i32 0
-  %t24 = getelementptr inbounds i64, ptr %t23, i32 0
-  %v20 = load i64, ptr %t24, align 8
-  %t25 = inttoptr i64 %v7 to ptr
-  %t26 = getelementptr inbounds %FluxTuple, ptr %t25, i32 0, i32 5, i32 0
-  %t27 = getelementptr inbounds i64, ptr %t26, i32 1
-  %v21 = load i64, ptr %t27, align 8
+  %t23 = inttoptr i64 %v7 to ptr
+  %t24 = getelementptr inbounds %FluxTuple, ptr %t23, i32 0, i32 5, i32 0
+  %t25 = getelementptr inbounds i64, ptr %t24, i32 0
+  %v20 = load i64, ptr %t25, align 8
+  %t26 = inttoptr i64 %v7 to ptr
+  %t27 = getelementptr inbounds %FluxTuple, ptr %t26, i32 0, i32 5, i32 0
+  %t28 = getelementptr inbounds i64, ptr %t27, i32 1
+  %v21 = load i64, ptr %t28, align 8
   br label %bb9
 bb5:
-  %match.ptrck.38 = icmp ule i64 12, %v10
-  br i1 %match.ptrck.38, label %match.boxed.29, label %bb4
-match.extract.6.30:
+  %match.ptrck.39 = icmp ule i64 12, %v10
+  br i1 %match.ptrck.39, label %match.boxed.30, label %bb4
+match.extract.6.31:
   %ext.ptr.6 = inttoptr i64 %v10 to ptr
   %ext.payload.6 = getelementptr inbounds %FluxAdt, ptr %ext.ptr.6, i32 0, i32 2, i32 0
   %ext.6.0 = getelementptr inbounds i64, ptr %ext.payload.6, i32 0
   %v11 = load i64, ptr %ext.6.0, align 8
   br label %bb6
-match.adt.31:
-  %match.adtptr.32 = inttoptr i64 %v10 to ptr
-  %match.adttagptr.33 = getelementptr inbounds %FluxAdt, ptr %match.adtptr.32, i32 0, i32 0
-  %t28 = load i32, ptr %match.adttagptr.33, align 4
-  switch i32 %t28, label %bb4 [
-    i32 5, label %match.extract.6.30
+match.adt.32:
+  %match.adtptr.33 = inttoptr i64 %v10 to ptr
+  %match.adttagptr.34 = getelementptr inbounds %FluxAdt, ptr %match.adtptr.33, i32 0, i32 0
+  %t29 = load i32, ptr %match.adttagptr.34, align 4
+  switch i32 %t29, label %bb4 [
+    i32 5, label %match.extract.6.31
   ]
-match.boxed.29:
-  %match.ptr.34 = inttoptr i64 %v10 to ptr
-  %match.otptr.35 = getelementptr i8, ptr %match.ptr.34, i32 -3
-  %match.ot.36 = load i8, ptr %match.otptr.35, align 1
-  %match.isadt.37 = icmp eq i8 %match.ot.36, 242
-  br i1 %match.isadt.37, label %match.adt.31, label %bb4
+match.boxed.30:
+  %match.ptr.35 = inttoptr i64 %v10 to ptr
+  %match.otptr.36 = getelementptr i8, ptr %match.ptr.35, i32 -3
+  %match.ot.37 = load i8, ptr %match.otptr.36, align 1
+  %match.isadt.38 = icmp eq i8 %match.ot.37, 242
+  br i1 %match.isadt.38, label %match.adt.32, label %bb4
 bb6:
   br label %bb3
 bb7:
-  %t39 = inttoptr i64 %v7 to ptr
-  %t40 = getelementptr inbounds %FluxTuple, ptr %t39, i32 0, i32 5, i32 0
-  %t41 = getelementptr inbounds i64, ptr %t40, i32 0
-  %v22 = load i64, ptr %t41, align 8
-  %t42 = inttoptr i64 %v7 to ptr
-  %t43 = getelementptr inbounds %FluxTuple, ptr %t42, i32 0, i32 5, i32 0
-  %t44 = getelementptr inbounds i64, ptr %t43, i32 1
-  %v23 = load i64, ptr %t44, align 8
+  %t40 = inttoptr i64 %v7 to ptr
+  %t41 = getelementptr inbounds %FluxTuple, ptr %t40, i32 0, i32 5, i32 0
+  %t42 = getelementptr inbounds i64, ptr %t41, i32 0
+  %v22 = load i64, ptr %t42, align 8
+  %t43 = inttoptr i64 %v7 to ptr
+  %t44 = getelementptr inbounds %FluxTuple, ptr %t43, i32 0, i32 5, i32 0
+  %t45 = getelementptr inbounds i64, ptr %t44, i32 1
+  %v23 = load i64, ptr %t45, align 8
   %v24 = add i64 1, 0
   br label %bb2
 bb8:
   unreachable
 bb9:
-  %match.ptrck.54 = icmp ule i64 12, %v21
-  br i1 %match.ptrck.54, label %match.boxed.46, label %bb8
-match.adt.47:
-  %match.adtptr.48 = inttoptr i64 %v21 to ptr
-  %match.adttagptr.49 = getelementptr inbounds %FluxAdt, ptr %match.adtptr.48, i32 0, i32 0
-  %t45 = load i32, ptr %match.adttagptr.49, align 4
-  switch i32 %t45, label %bb8 [
+  %match.ptrck.55 = icmp ule i64 12, %v21
+  br i1 %match.ptrck.55, label %match.boxed.47, label %bb8
+match.adt.48:
+  %match.adtptr.49 = inttoptr i64 %v21 to ptr
+  %match.adttagptr.50 = getelementptr inbounds %FluxAdt, ptr %match.adtptr.49, i32 0, i32 0
+  %t46 = load i32, ptr %match.adttagptr.50, align 4
+  switch i32 %t46, label %bb8 [
     i32 6, label %bb10
   ]
-match.boxed.46:
-  %match.ptr.50 = inttoptr i64 %v21 to ptr
-  %match.otptr.51 = getelementptr i8, ptr %match.ptr.50, i32 -3
-  %match.ot.52 = load i8, ptr %match.otptr.51, align 1
-  %match.isadt.53 = icmp eq i8 %match.ot.52, 242
-  br i1 %match.isadt.53, label %match.adt.47, label %bb8
+match.boxed.47:
+  %match.ptr.51 = inttoptr i64 %v21 to ptr
+  %match.otptr.52 = getelementptr i8, ptr %match.ptr.51, i32 -3
+  %match.ot.53 = load i8, ptr %match.otptr.52, align 1
+  %match.isadt.54 = icmp eq i8 %match.ot.53, 242
+  br i1 %match.isadt.54, label %match.adt.48, label %bb8
 bb10:
   br label %bb7
 }

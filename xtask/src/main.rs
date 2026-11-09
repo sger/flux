@@ -3,14 +3,20 @@
 //!
 //! ```text
 //! cargo xtask verify <tag> [--base <tag> [--cmp | --cmp=structure] [--accept-metrics]]
-//!                    [--skip-suite] [--skip-sweeps] [--det-sample <n>]
+//!                    [--only <checks> | --skip <checks>] [--skip-suite] [--skip-sweeps]
+//!                    [--det-sample <n>]
 //!     lint, the suite, the five corpus sweeps (each with a rerun of n files,
 //!     default 50, that must give the same dumps; compared with --base's, by
 //!     status and by dump; --cmp fails on any changed dump, --cmp=structure
 //!     only on one that is more than renumbered) and parity, whose vm and
 //!     vm_opt runs keep their counts in metrics.tsv; with --base, a count
 //!     worse than the base's fails, unless --accept-metrics (`metrics.rs`);
-//!     outputs in .verify/<tag>/ (git-ignored; `store.rs`)
+//!     --only runs just the checks it names and --skip all but those, from
+//!     fmt, clippy, suite, sweeps, parity, metrics, debug-build-parity,
+//!     debug-parity and heap-parity (--skip-suite and --skip-sweeps are
+//!     --skip suite and --skip sweeps); a run that skips a check says so
+//!     in its summary, since a merge needs them all; outputs in
+//!     .verify/<tag>/ (git-ignored; `store.rs`)
 //! cargo xtask sweep --out <dir> [--mode cfg|core|core-opt|aether|lir|cache] [--files <list>]
 //!                   [--jobs <n>] [--timeout <seconds>] [--flux <path>] [--determinism]
 //!     compile every .flx file under examples/, tests/ and lib/; with
@@ -79,7 +85,7 @@ use std::time::Duration;
 use sweep::Mode;
 
 const USAGE: &str = "usage:
-  cargo xtask verify <tag> [--base <tag> [--cmp | --cmp=structure] [--accept-metrics]] [--skip-suite] [--skip-sweeps] [--det-sample <n>]
+  cargo xtask verify <tag> [--base <tag> [--cmp | --cmp=structure] [--accept-metrics]] [--only <checks> | --skip <checks>] [--skip-suite] [--skip-sweeps] [--det-sample <n>]
   cargo xtask sweep --out <dir> [--mode cfg|core|core-opt|aether|lir|cache] [--files <list>] [--jobs <n>] [--timeout <seconds>] [--flux <path>] [--determinism]
   cargo xtask compare <base sweep dir> <head sweep dir> [--content]
   cargo xtask prune [--keep <n>] [--keep-tag <tag>]... [--yes]
@@ -128,26 +134,27 @@ fn dispatch(root: &Path, args: &[String]) -> Result<bool, String> {
                 (false, true) => verify::Cmp::Structure,
                 (true, true) => return Err(format!("--cmp or --cmp=structure, not both\n{USAGE}")),
             };
+            let base = args.value("--base")?;
+            let accept_metrics = args.flag("--accept-metrics");
+            let only = args.values("--only")?;
+            let mut skip = args.values("--skip")?;
+            if args.flag("--skip-suite") {
+                skip.push("suite".into());
+            }
+            if args.flag("--skip-sweeps") {
+                skip.push("sweeps".into());
+            }
+            let checks = verify::choose_checks(&only, &skip, base.is_some(), cmp, accept_metrics)
+                .map_err(|e| format!("{e}\n{USAGE}"))?;
             let options = verify::Options {
-                base: args.value("--base")?,
+                base,
                 cmp,
-                skip_suite: args.flag("--skip-suite"),
-                skip_sweeps: args.flag("--skip-sweeps"),
+                checks,
                 det_sample: args.number("--det-sample")?.unwrap_or(50),
-                accept_metrics: args.flag("--accept-metrics"),
+                accept_metrics,
                 tag: args.positional()?.ok_or(USAGE)?,
             };
             args.finish()?;
-            if options.cmp != verify::Cmp::Off && (options.base.is_none() || options.skip_sweeps) {
-                return Err(format!(
-                    "--cmp compares the sweeps with --base's, so it needs --base and the sweeps\n{USAGE}"
-                ));
-            }
-            if options.accept_metrics && options.base.is_none() {
-                return Err(format!(
-                    "--accept-metrics accepts counts worse than --base's, so it needs --base\n{USAGE}"
-                ));
-            }
             verify::run_verify(root, &options)
         }
         "sweep" => {

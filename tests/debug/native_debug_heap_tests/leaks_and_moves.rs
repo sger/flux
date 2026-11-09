@@ -25,11 +25,13 @@ fn a_use_after_free_is_caught() {
 
 #[test]
 fn without_the_debug_heap_the_fault_goes_unnoticed() {
-    // What the debug heap is for: the arena never reuses a block, so the
-    // faulted program prints its answer and exits cleanly.
+    // What the debug heap is for: the plain runtime hands the freed block
+    // out again, so the faulted program exits cleanly with whatever the
+    // block now holds, and nothing reports the fault.
     let scratch = Scratch::new("debug-heap-unnoticed");
-    let (stdout, stderr, code) = run(&scratch, FIXTURE, &["--native"], Some("skip-dup:victim"));
-    assert_eq!((stdout.as_str(), code), ("6\n", 0), "{stderr}");
+    let (_, stderr, code) = run(&scratch, FIXTURE, &["--native"], Some("skip-dup:victim"));
+    assert_eq!(code, 0, "{stderr}");
+    assert!(!stderr.contains("use after free"), "{stderr}");
 }
 
 #[test]
@@ -162,6 +164,21 @@ fn a_value_passed_by_ownership_is_freed_by_its_callee() {
     let scratch = Scratch::new("debug-heap-owned-arg");
     let (stdout, stderr, code) =
         run(&scratch, "tests/debug/heap/owned_arg.flx", &["--native", "--leak-check"], None);
+    assert_eq!((stdout.as_str(), code), ("", 0), "{stderr}");
+    assert!(!stderr.contains("leak:"), "{stderr}");
+}
+
+/// KI-160: an interpolation's part strings and the joins between them are
+/// released, so only its result is left to its owner.
+#[test]
+fn an_interpolation_frees_its_parts_and_joins() {
+    let scratch = Scratch::new("debug-heap-interpolated-parts");
+    let (stdout, stderr, code) = run(
+        &scratch,
+        "tests/debug/heap/interpolated_parts.flx",
+        &["--native", "--leak-check"],
+        None,
+    );
     assert_eq!((stdout.as_str(), code), ("", 0), "{stderr}");
     assert!(!stderr.contains("leak:"), "{stderr}");
 }

@@ -655,7 +655,7 @@ fi
 
 if [[ "$ENABLE_FLUX_NATIVE" -eq 1 && "$FLUX_NATIVE_CMD" == "$DEFAULT_FLUX_NATIVE_CMD" ]]; then
   echo "Building ${FLUX_NATIVE_CMD} from ${FLUX_PROGRAM}..." >&2
-  if ! ./target/release/flux "$FLUX_PROGRAM" --native --emit-binary -o "${BENCH_DIR}/${BENCHMARK}_flux" >&2; then
+  if ! ./target/release/flux "$FLUX_PROGRAM" --native -O --emit-binary -o "${BENCH_DIR}/${BENCHMARK}_flux" >&2; then
     echo "Error: failed to emit a native binary for $FLUX_PROGRAM." >&2
     echo "Make sure flux was built with: cargo build --release --features llvm --bin flux" >&2
     exit 1

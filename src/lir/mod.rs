@@ -1,6 +1,6 @@
 //! Low-Level IR (LIR) — native backend IR for Flux (Proposal 0132).
 //!
-//! LIR is a flat, NaN-box-aware CFG with explicit memory operations.  It sits
+//! LIR is a flat, pointer-tag-aware CFG with explicit memory operations.  It sits
 //! between Core IR (functional, high-level) and LLVM IR (native binary).
 //! The VM bytecode path uses CFG (`src/cfg/`) instead.
 //!
@@ -53,9 +53,9 @@ pub struct BlockId(pub u32);
 /// Literal constant values that can appear inline in LIR instructions.
 #[derive(Debug, Clone, PartialEq)]
 pub enum LirConst {
-    /// Raw signed 64-bit integer (before NaN-boxing).
+    /// Raw signed 64-bit integer (before tagging).
     Int(i64),
-    /// IEEE 754 double (before NaN-boxing).
+    /// IEEE 754 double (before boxing).
     Float(f64),
     /// Boolean value.
     Bool(bool),
@@ -63,9 +63,9 @@ pub enum LirConst {
     String(String),
     /// The None / unit sentinel value.
     None,
-    /// NaN-boxed empty list sentinel.
+    /// The empty list sentinel (6).
     EmptyList,
-    /// A pre-tagged NaN-boxed i64 literal (already in runtime representation).
+    /// A pre-tagged i64 literal (already in runtime representation).
     Tagged(i64),
 }
 
@@ -83,18 +83,18 @@ pub enum CmpOp {
 // ── Instructions ─────────────────────────────────────────────────────────────
 
 /// A single LIR instruction.  All instructions operate on `LirVar` SSA values
-/// representing NaN-boxed `i64` words (the Flux runtime representation).
+/// representing pointer-tagged `i64` words (the Flux runtime representation).
 #[derive(Debug, Clone)]
 pub enum LirInstr {
     // ── Memory ──────────────────────────────────────────────────────
-    /// Load a NaN-boxed word from `ptr + offset`.
+    /// Load a tagged word from `ptr + offset`.
     Load { dst: LirVar, ptr: LirVar, offset: i32 },
-    /// Store a NaN-boxed word to `ptr + offset`.
+    /// Store a tagged word to `ptr + offset`.
     Store { ptr: LirVar, offset: i32, val: LirVar },
     /// Store a raw 32-bit integer to `ptr + offset`.
     StoreI32 { ptr: LirVar, offset: i32, value: i32 },
-    /// Allocate `size` bytes of heap memory.  Returns a raw pointer
-    /// (not yet NaN-boxed).  The caller must `TagPtr` before storing.
+    /// Allocate `size` bytes of heap memory.  Returns a raw pointer, which
+    /// the caller passes through `TagPtr` (a copy) before storing.
     Alloc {
         dst: LirVar,
         size: u32,
@@ -104,24 +104,27 @@ pub enum LirInstr {
         obj_tag: u8,
     },
 
-    // ── NaN-boxing ──────────────────────────────────────────────────
-    /// Tag a raw i64 as a NaN-boxed integer.
+    // ── Tagging ─────────────────────────────────────────────────────
+    // In a worker (the raw-i64 copy of an all-`IntRep` function, 0140
+    // Phase 10) the integer and boolean forms are copies instead.
+    /// Tag a raw i64 as an integer: `(raw << 1) | 1`.
     TagInt { dst: LirVar, raw: LirVar },
-    /// Untag a NaN-boxed integer to raw i64.
+    /// Untag an integer to raw i64: an arithmetic shift right by 1.
     UntagInt { dst: LirVar, val: LirVar },
-    /// Tag a raw f64 as a NaN-boxed float.
+    /// Box a raw f64 on the heap (`flux_box_float`).
     TagFloat { dst: LirVar, raw: LirVar },
-    /// Untag a NaN-boxed float to raw f64.
+    /// Read the raw f64 out of a boxed float.
     UntagFloat { dst: LirVar, val: LirVar },
-    /// Extract the NaN-box type tag (discriminant) from a value.
+    /// Load the constructor tag (`i32` at offset 0) of an ADT value.
     GetTag { dst: LirVar, val: LirVar },
-    /// Tag a raw heap pointer as a NaN-boxed pointer value.
+    /// Tag a raw heap pointer: a copy, since an aligned address is already
+    /// a valid pointer word.
     TagPtr { dst: LirVar, ptr: LirVar },
-    /// Untag a NaN-boxed pointer to a raw heap pointer.
+    /// Untag a pointer word to a raw heap pointer: a copy.
     UntagPtr { dst: LirVar, val: LirVar },
-    /// Tag a boolean (0 or 1) into NaN-boxed form.
+    /// Tag a boolean (0 or 1): `false` is 2, `true` is 4.
     TagBool { dst: LirVar, raw: LirVar },
-    /// Untag a NaN-boxed boolean to 0 or 1.
+    /// Untag a boolean to 0 or 1.
     UntagBool { dst: LirVar, val: LirVar },
 
     // ── Inline arithmetic (no C call overhead) ──────────────────────
@@ -150,18 +153,21 @@ pub enum LirInstr {
 
     // ── C runtime calls (CorePrimOp dispatch) ───────────────────────
     /// Call a C runtime function identified by `CorePrimOp`.
-    /// Arguments and result are NaN-boxed i64 values.
+    /// Arguments and result are tagged i64 values.
     PrimCall { dst: Option<LirVar>, op: CorePrimOp, args: Vec<LirVar> },
 
     // ── Aether reference counting ───────────────────────────────────
-    /// Increment the reference count of a NaN-boxed value.
-    /// No-op for non-pointer values (Int, Float, Bool, None).
+    /// Increment the reference count of a tagged value.
+    /// No-op for non-pointer values (Int, Bool, None and the other sentinels).
     Dup { val: LirVar },
     /// Decrement the reference count and free if zero.
     /// No-op for non-pointer values.
     Drop { val: LirVar },
+    /// Free a unique cell's block without releasing its fields, which the
+    /// arm that matched it took over (Aether's `FreeShell`).
+    FreeShell { val: LirVar },
     /// Check if a value's refcount is exactly 1 (uniquely owned).
-    /// Result is 0 or 1 (raw, not NaN-boxed).
+    /// Result is 0 or 1 (raw, not tagged).
     IsUnique { dst: LirVar, val: LirVar },
     /// Drop for reuse: decrement refcount.  If unique, return the raw
     /// pointer for in-place reuse.  If shared, return null.
@@ -329,9 +335,9 @@ pub struct CtorArm {
 /// Constructor tags for pattern matching.
 #[derive(Debug, Clone)]
 pub enum CtorTag {
-    /// None value (NaN-box tag 0x2).
+    /// None value (the sentinel word 0).
     None,
-    /// Empty list `[]` (NaN-box tag 0x4).
+    /// Empty list `[]` (the sentinel word 6).
     EmptyList,
     /// `Some(val)` — built-in, ctor_tag = 1.
     Some,

@@ -62,6 +62,7 @@ The reduced formal model includes these Core/Aether constructs:
 - `Drop`
 - `Reuse`
 - `DropSpecialized`
+- `FreeShell`
 - `field_mask`
 
 The reduced model is single-threaded and assumes:
@@ -197,6 +198,24 @@ the formalized surface.
 The semantics should be defined so the whole expression is observationally
 equivalent to a conservative drop-based treatment of the same value.
 
+On the unique branch the fields belong to the arm's binders, so the shell is
+disposed of without releasing them: by a `Reuse`, which writes the new value
+into it, or by a `FreeShell`.
+
+### 4.7 `FreeShell`
+
+`FreeShell(x, body)` frees the block of `x` and none of its fields, then
+evaluates `body`. It is valid only on the unique branch of a
+`DropSpecialized` on `x`, where `x` has one reference and the arm already owns
+each field's reference. It is equivalent to copying each field and dropping
+`x`, without the copies or the release walk (KI-164).
+
+The pass places it before any call on its path, on each path of the unique
+branch that does not reuse the cell: a call that suspends can resume more than
+once, and a resume copies what it captured, so past it the cell may no longer be
+unique. To reach a path, it goes down only through forms that run no code. A
+unique branch with a call before its branches keeps the plain release.
+
 ---
 
 ## 5. Syntax-Directed Aether Obligations
@@ -302,6 +321,10 @@ Current verifier-aligned obligations include:
 - reuse-token escape is invalid
 - invalid `field_mask` is invalid
 - malformed `DropSpecialized` scrutinee usage is invalid
+- a `FreeShell` outside the unique branch of a `DropSpecialized` on its binder
+  is invalid
+- a unique branch that does not dispose of its shell exactly once on every
+  path is invalid
 
 Future proof work should treat `src/aether/verify.rs` as the executable
 counterpart of these obligations, not as the proof artifact itself.
