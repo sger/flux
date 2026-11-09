@@ -1011,7 +1011,9 @@ fn promote_tail_calls(program: &mut LirProgram) {
         //   - all instructions are phi-bridge Copies (Copy where dst is a
         //     block param of a successor)
         //   - terminator is Return(param) or Return(copy_dst)
-        //   - OR terminator is Jump to another return-tail block
+        //   - OR terminator is Jump to another return-tail block whose param
+        //     it copies its own param into. A jump that forwards some other
+        //     value returns that value, not the call's result (KI-173).
         let mut is_return_tail = vec![false; num_blocks];
 
         // Collect which vars are block params (for phi-bridge detection).
@@ -1039,14 +1041,8 @@ fn promote_tail_calls(program: &mut LirProgram) {
                 LirTerminator::Return(v) if *v == param => {
                     is_return_tail[idx] = true;
                 }
-                LirTerminator::Return(v) => {
-                    // Check if param is copied to v.
-                    let copied_to_ret = block.instrs.iter().any(|instr| {
-                        matches!(instr, LirInstr::Copy { dst, src } if *src == param && *dst == *v)
-                    });
-                    if copied_to_ret {
-                        is_return_tail[idx] = true;
-                    }
+                LirTerminator::Return(v) if forwards(block, param, *v) => {
+                    is_return_tail[idx] = true;
                 }
                 _ => {}
             }
@@ -1073,7 +1069,10 @@ fn promote_tail_calls(program: &mut LirProgram) {
 
                 if let LirTerminator::Jump(target) = &block.terminator {
                     let target_idx = target.0 as usize;
-                    if target_idx < num_blocks && is_return_tail[target_idx] {
+                    if target_idx < num_blocks
+                        && is_return_tail[target_idx]
+                        && forwards(block, block.params[0], func.blocks[target_idx].params[0])
+                    {
                         is_return_tail[idx] = true;
                         changed = true;
                     }
@@ -1086,23 +1085,25 @@ fn promote_tail_calls(program: &mut LirProgram) {
 
         // Phase 2: promote eligible Call → TailCall.
         for idx in 0..num_blocks {
-            let should_promote = if let LirTerminator::Call { cont, yield_cont, kind, .. } =
-                &func.blocks[idx].terminator
-            {
-                let cont_idx = cont.0 as usize;
-                yield_cont.is_none()
-                    && cont_idx < num_blocks
-                    && is_return_tail[cont_idx]
-                    && matches!(
-                        kind,
-                        CallKind::Direct { .. }
-                            | CallKind::DirectClosure { .. }
-                            | CallKind::DirectExtern { .. }
-                    )
-                    && !call_kind_is_direct_async(kind, &async_funcs)
-            } else {
-                false
-            };
+            let should_promote =
+                if let LirTerminator::Call { dst, cont, yield_cont, kind, .. } =
+                    &func.blocks[idx].terminator
+                {
+                    let cont_idx = cont.0 as usize;
+                    yield_cont.is_none()
+                        && cont_idx < num_blocks
+                        && is_return_tail[cont_idx]
+                        && func.blocks[cont_idx].params == [*dst]
+                        && matches!(
+                            kind,
+                            CallKind::Direct { .. }
+                                | CallKind::DirectClosure { .. }
+                                | CallKind::DirectExtern { .. }
+                        )
+                        && !call_kind_is_direct_async(kind, &async_funcs)
+                } else {
+                    false
+                };
 
             if should_promote {
                 let old =
@@ -1114,6 +1115,14 @@ fn promote_tail_calls(program: &mut LirProgram) {
             }
         }
     }
+}
+
+/// Whether `block` leaves `from` in `to`: the last copy into `to` reads `from`.
+fn forwards(block: &LirBlock, from: LirVar, to: LirVar) -> bool {
+    block.instrs.iter().rev().find_map(|instr| match instr {
+        LirInstr::Copy { dst, src } if *dst == to => Some(*src == from),
+        _ => None,
+    }) == Some(true)
 }
 
 thread_local! {
