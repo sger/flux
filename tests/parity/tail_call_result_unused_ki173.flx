@@ -1,0 +1,37 @@
+// parity: vm, llvm
+// expect: success
+// bug: KI-173. A call whose result nothing reads, followed by a join that
+//      returns another value, was made a tail call natively: the join's copy
+//      of `n` was taken as forwarding the call's result, so `f` returned the
+//      innermost call's `0` and `h` returned `g(8)`, 800, instead of `n`.
+// parity-expected-stdout-begin
+// 9
+// 9
+// parity-expected-stdout-end
+
+fn f(n: Int) -> Int {
+    if (n <= 0) {
+        n
+    } else {
+        let v: Int = f((n - 1));
+        n
+    }
+}
+
+fn g(n: Int) -> Int {
+    n * 100
+}
+
+fn h(n: Int) -> Int {
+    if (n <= 0) {
+        n
+    } else {
+        let v: Int = g((n - 1));
+        n
+    }
+}
+
+fn main() with IO {
+    print(f(9))
+    print(h(9))
+}

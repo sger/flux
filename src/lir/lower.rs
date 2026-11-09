@@ -6569,4 +6569,78 @@ mod tests {
             other => panic!("expected call terminator, got {other:?}"),
         }
     }
+
+    /// `fn f(%0) { bb0: call f(%0) -> bb1;  bb1(%2): %3 = copy <forwarded>;
+    /// jmp bb2;  bb2(%3): ret %3 }`: the call's result is `%2`, and the join
+    /// `bb2` returns whatever `bb1` copies into it (KI-173).
+    fn call_then_join(forwarded: LirVar) -> crate::lir::LirProgram {
+        use crate::lir::{LirFuncId, LirFunction, LirInstr, LirProgram};
+        let block = |id: u32, params: Vec<LirVar>, instrs: Vec<LirInstr>, terminator| LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
+            id: BlockId(id),
+            params,
+            instrs,
+            terminator,
+        };
+        let (param, callee, result, joined) = (LirVar(0), LirVar(1), LirVar(2), LirVar(3));
+        let f = LirFunction {
+            debug: None,
+            name: "f".into(),
+            id: LirFuncId(0),
+            qualified_name: "f".into(),
+            is_dict_def: false,
+            params: vec![param],
+            blocks: vec![
+                block(
+                    0,
+                    Vec::new(),
+                    Vec::new(),
+                    LirTerminator::Call {
+                        dst: result,
+                        func: callee,
+                        args: vec![param],
+                        cont: BlockId(1),
+                        kind: CallKind::Direct { func_id: LirFuncId(0) },
+                        suppress_yield_check: false,
+                        yield_cont: None,
+                        held: None,
+                    },
+                ),
+                block(
+                    1,
+                    vec![result],
+                    vec![LirInstr::Copy { dst: joined, src: forwarded }],
+                    LirTerminator::Jump(BlockId(2)),
+                ),
+                block(2, vec![joined], Vec::new(), LirTerminator::Return(joined)),
+            ],
+            next_var: 4,
+            capture_vars: Vec::new(),
+            param_reps: vec![FluxRep::TaggedRep],
+            result_rep: FluxRep::TaggedRep,
+        };
+        let mut program = LirProgram::new();
+        program.push_function(f);
+        program
+    }
+
+    /// The join returns the parameter, not the call's result, so returning
+    /// the callee's result in its place is wrong.
+    #[test]
+    fn a_call_whose_result_is_dropped_before_the_join_stays_a_call() {
+        let mut program = call_then_join(LirVar(0));
+        super::promote_tail_calls(&mut program);
+        let terminator = &program.functions[0].blocks[0].terminator;
+        assert!(matches!(terminator, LirTerminator::Call { .. }), "{terminator:?}");
+    }
+
+    /// The join returns the call's result, so the call can be a tail call.
+    #[test]
+    fn a_call_whose_result_reaches_ret_through_a_join_is_a_tail_call() {
+        let mut program = call_then_join(LirVar(2));
+        super::promote_tail_calls(&mut program);
+        let terminator = &program.functions[0].blocks[0].terminator;
+        assert!(matches!(terminator, LirTerminator::TailCall { .. }), "{terminator:?}");
+    }
 }
