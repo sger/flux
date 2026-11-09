@@ -438,3 +438,38 @@ impl Args {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fuzz(args: &[&str]) -> Result<FuzzCommand, String> {
+        let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+        fuzz_command(&mut Args::new(&args))
+    }
+
+    #[test]
+    fn a_fuzz_option_value_is_not_a_subcommand() {
+        let Ok(FuzzCommand::Run(run)) = fuzz(&["--seed", "1", "--count", "200", "--jobs", "4"])
+        else {
+            panic!("a run");
+        };
+        assert_eq!((run.seed, run.count, run.jobs), (1, 200, 4));
+    }
+
+    #[test]
+    fn reduce_takes_its_case_wherever_the_options_are() {
+        for args in [
+            &["reduce", "--ways", "vm,vm_opt", "case.flx"][..],
+            &["reduce", "case.flx", "--ways", "vm,vm_opt"],
+            &["--ways", "vm,vm_opt", "reduce", "case.flx"],
+        ] {
+            let Ok(FuzzCommand::Reduce(reduce)) = fuzz(args) else {
+                panic!("a reduce: {args:?}");
+            };
+            assert_eq!((reduce.case.as_str(), reduce.ways.as_str()), ("case.flx", "vm,vm_opt"));
+        }
+        assert!(fuzz(&["shrink", "case.flx"]).is_err());
+        assert!(fuzz(&["reduce"]).is_err());
+    }
+}
