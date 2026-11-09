@@ -634,6 +634,7 @@ fn wait_with_timeout(mut child: Child, timeout: Duration) -> (bool, i32, String,
         match child.try_wait() {
             Ok(Some(status)) => break (true, status.code().unwrap_or(-1)),
             Ok(None) if started.elapsed() >= timeout => {
+                kill_descendants(child.id());
                 let _ = child.kill();
                 let _ = child.wait();
                 break (false, -1);
@@ -645,6 +646,25 @@ fn wait_with_timeout(mut child: Child, timeout: Duration) -> (bool, i32, String,
     let stdout = stdout.join().unwrap_or_default();
     let stderr = stderr.join().unwrap_or_default();
     (finished, exit, stdout, stderr)
+}
+
+/// Kills every process below `pid`, deepest first. A native run is flux and
+/// the program it built; killing flux alone leaves the program holding the
+/// output pipes, and reading them would wait for it forever. The children
+/// stay in our process group, so Ctrl-C still reaches them.
+fn kill_descendants(pid: u32) {
+    if !cfg!(unix) {
+        return;
+    }
+    let Ok(out) = Command::new("pgrep").args(["-P", &pid.to_string()]).output() else {
+        return;
+    };
+    for child in String::from_utf8_lossy(&out.stdout).lines() {
+        if let Ok(child) = child.trim().parse::<u32>() {
+            kill_descendants(child);
+            let _ = Command::new("kill").args(["-KILL", &child.to_string()]).status();
+        }
+    }
 }
 
 /// Reads `stream` to its end on its own thread, so a full pipe never blocks
