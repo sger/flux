@@ -15,6 +15,7 @@
 //! recursively and would run them again.
 
 mod generate;
+mod reduce;
 
 use std::fmt::Write as _;
 use std::fs;
@@ -30,6 +31,7 @@ use crate::sweep::run_flux;
 use crate::verify::{cargo, flux_binary};
 
 pub use generate::program;
+pub use reduce::{ReduceOptions, run_reduce};
 
 pub const DEFAULT_WAYS: &str = "vm,llvm,vm_opt,llvm_opt";
 
