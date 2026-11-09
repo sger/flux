@@ -13,6 +13,7 @@ pub(crate) struct DumpRequest<'a> {
     pub(crate) diagnostics_format: DiagnosticOutputFormat,
     pub(crate) all_errors: bool,
     pub(crate) enable_optimize: bool,
+    pub(crate) native: bool,
     pub(crate) dump_aether: AetherDumpMode,
     pub(crate) dump_core: CoreDumpMode,
     pub(crate) dump_lir: bool,
@@ -23,6 +24,9 @@ pub(crate) struct DumpRequest<'a> {
 
 pub(crate) fn handle_dumps(request: DumpRequest<'_>) -> bool {
     if request.dump_aether != AetherDumpMode::None {
+        if request.native {
+            request.compiler.enable_owned_clones(request.merged_program);
+        }
         match request.compiler.dump_aether_report(
             request.merged_program,
             request.enable_optimize,

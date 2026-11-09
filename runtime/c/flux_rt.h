@@ -121,7 +121,7 @@ static inline double flux_unbox_float(int64_t val) {
 
 static inline uint8_t flux_obj_tag(void *ptr) {
     /* Read obj_tag from the FluxHeader at ptr - 8.
-     * Layout: { i32 refcount, u8 scan_fsize, u8 obj_tag, u16 reserved }
+     * Layout: { i32 refcount, u8 scan_fsize, u8 obj_tag, u8 progress, u8 size_class }
      * obj_tag is at offset 5 within the header. */
     return *((uint8_t *)ptr - 3);
 }
@@ -143,7 +143,8 @@ static inline int flux_val_is_float(int64_t val) {
 /* ── Allocation & Reference Counting (Aether RC) ──────────────────── */
 /*
  * Every heap object has an 8-byte FluxHeader at (payload - 8):
- *   { int32_t refcount, uint8_t scan_fsize, uint8_t obj_tag, uint16_t reserved }
+ *   { int32_t refcount, uint8_t scan_fsize, uint8_t obj_tag, uint8_t progress,
+ *     uint8_t size_class }
  *
  * flux_gc_alloc_header: allocate with explicit scan_fsize and obj_tag
  * flux_gc_alloc: backward-compatible (scan_fsize=0, obj_tag=0)
@@ -156,20 +157,11 @@ void  flux_gc_shutdown(void);
 void *flux_gc_alloc(uint32_t size);
 void *flux_gc_alloc_header(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag);
 void *flux_bump_alloc_slow(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag);
-int32_t flux_can_use_bump_arena(void);
+void *flux_bump_alloc_slow_filled(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag);
 void  flux_gc_free(void *ptr);
 void  flux_gc_collect(void);
 void  flux_gc_push_root(int64_t *root);
 void  flux_gc_pop_root(void);
-
-/* Bump arena pointers (exported for Phase 7b inline LLVM allocation). */
-extern char *flux_arena_hp;
-extern char *flux_arena_limit;
-
-/* Set to 1 in task worker threads (tasks.c) to bypass the bump arena
- * and force all allocations through malloc, which is thread-safe.
- * Defined in rc.c; each thread gets its own copy via __thread TLS. */
-extern __thread int flux_worker_thread;
 
 /* Aether RC: dup/drop for pointer-tagged heap values.
  *
@@ -184,6 +176,8 @@ void flux_drop(int64_t val);
  * lent, since the lender may release that value right after the call. */
 void flux_dup_range(const int64_t *vals, uint32_t n);
 int  flux_rc_is_unique(int64_t val);
+/* Frees a unique cell without releasing its fields (Aether's FreeShell). */
+void flux_free_shell(int64_t val);
 int  flux_rc_is_shared(int64_t val);
 int  flux_rc_is_thread_local(int64_t val);
 void flux_rc_promote(int64_t val);
@@ -505,10 +499,6 @@ int64_t flux_json_stringify(
     int64_t value
 );
 
-/* Allocation stats (for diagnostics / testing). */
-size_t flux_gc_allocated(void);
-size_t flux_gc_num_allocs(void);
-
 /* ── I/O ────────────────────────────────────────────────────────────── */
 
 /* They return Unit (FLUX_NONE): compiled code drops a primop's result. */
@@ -778,6 +768,11 @@ int64_t flux_hamt_get(int64_t map, int64_t key);
 int64_t flux_hamt_set(int64_t map, int64_t key, int64_t value);
 int64_t flux_hamt_delete(int64_t map, int64_t key);
 int64_t flux_hamt_contains(int64_t map, int64_t key);
+/* Whether `key` is one the VM can key a map with: an Int, a Bool or a
+ * String. */
+int     flux_hamt_key_ok(int64_t key);
+/* A map literal's entry: `flux_hamt_set` with the VM's literal error. */
+int64_t flux_hamt_set_literal(int64_t map, int64_t key, int64_t value);
 int64_t flux_hamt_size(int64_t map);
 int     flux_is_hamt(void *ptr);
 int64_t flux_hamt_format(int64_t map);
@@ -845,6 +840,11 @@ int64_t flux_is_none_val(int64_t val);
 /* ── Control ────────────────────────────────────────────────────────── */
 
 void    flux_panic(int64_t msg);
+/* Panics with one of the VM's runtime error messages, word for word; the
+ * driver gives it the VM's code (`render_native_runtime_error`). */
+void    flux_runtime_error(const char *fmt, ...);
+/* The name the VM gives a value's kind in its errors (`Value::type_name`). */
+const char *flux_value_kind_name(int64_t val);
 
 /* Debugger hooks (proposal 0188 S7b): empty functions the runtime calls
  * just before it reports an error, so a debugger can stop there by name.

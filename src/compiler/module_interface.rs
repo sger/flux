@@ -689,8 +689,8 @@ pub fn compute_semantic_config_hash(strict_mode: bool, optimize_mode: bool) -> [
 /// builds then reuses each module's interface and recompiles only the
 /// artifacts. The VM keys its interfaces with this hash instead, since under
 /// `-g` it compiles every function it can on the AST path (0188 S2), which
-/// exports different globals. Without `-g`, a planted Aether fault or the
-/// Aether contract gate, the two hashes are equal, so existing cache keys are
+/// exports different globals. Without `-g`, a planted Aether fault or an opt-out
+/// of the Aether contract, the two hashes are equal, so existing cache keys are
 /// unchanged.
 pub fn compute_artifact_config_hash(
     strict_mode: bool,
@@ -705,12 +705,14 @@ pub fn compute_artifact_config_hash(
         marker.push_str(&fault);
         marker.push('\n');
     }
-    // A cached module is never lowered again, so a build that checks the
-    // Aether contract must not reuse one built without the check.
-    if crate::aether::verify::contract_gate() {
-        marker.push_str("aether verified\n");
-    }
+    marker.push_str(contract_marker(crate::aether::verify::contract_gate()));
     hash_bytes(marker.as_bytes())
+}
+
+/// A cached module is never lowered again, so a build that skipped the Aether
+/// contract must not share a unit with one that checked it.
+fn contract_marker(checked: bool) -> &'static str {
+    if checked { "" } else { "aether unverified\n" }
 }
 
 fn config_marker(
@@ -948,6 +950,15 @@ mod tests {
             type_constructor::TypeConstructor,
         },
     };
+
+    /// A build that checks the contract keeps the default keys, so the
+    /// semantic and artifact hashes agree on it; one that opts out shares no
+    /// unit with it.
+    #[test]
+    fn only_a_build_that_skips_the_contract_changes_its_cache_keys() {
+        assert_eq!(super::contract_marker(true), "");
+        assert_ne!(super::contract_marker(false), "");
+    }
 
     #[test]
     fn build_interface_exports_public_schemes_and_borrow_signatures() {

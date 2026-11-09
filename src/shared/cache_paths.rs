@@ -393,7 +393,32 @@ use sha2::{Digest, Sha256};
 /// evidence, which its landing pad releases (KI-133).
 /// Epoch 127: on Windows, a caught panic puts back the handlers its try
 /// started under (PA C1).
-pub const CACHE_EPOCH: u16 = 127;
+/// Epoch 128: `&&` and `||` test their left side before running the right;
+/// an epoch-127 unit ran both (KI-156).
+/// Epoch 129: every build checks the Aether contract and keeps the default keys;
+/// an epoch-128 unit under those keys was never checked (KI-165).
+/// Epoch 130: a fresh binder id is above those a pattern binds; an epoch-129 unit
+/// can hold a plan in which a temporary and a field share an id (KI-167).
+/// Epoch 131: a match on a known value keeps an arm it cannot decide; an epoch-130
+/// unit can have taken a later arm instead (KI-106).
+/// Epoch 132: a match on a known value runs each field once and in order; an
+/// epoch-131 unit can have copied or dropped a field's effect (KI-168).
+/// Epoch 133: a tail call that passes on a field of an owned value makes its target
+/// owned; an epoch-132 interface holds the old signature (KI-163).
+/// Epoch 134: a path that builds two constructors reuses both of its cells; an
+/// epoch-133 unit holds the plan that allocated one and freed the other (KI-171).
+/// Epoch 135: an arm that gives a field away claims its cell; an epoch-134 unit holds
+/// the plan that copied the field and released the cell after the call (0200 C1b).
+/// Epoch 136: an arm claims its cell only for a counted field and a release drop
+/// specialization can split; an epoch-135 unit holds the plan that claimed it and
+/// copied the fields for nothing (0200 C1b).
+/// Epoch 137: a call handing over its last reference uses a consuming clone; an
+/// epoch-136 unit holds the plan that lent it and released it after (0200 C2).
+/// Epoch 138: a consuming clone given a shared value walks it with the original;
+/// an epoch-137 unit holds the clone that copied each field and recursed (0200 C3).
+/// Epoch 139: an unused `let` owns the value it releases; an epoch-138 unit holds
+/// the plan that released a parameter its branch returned uncounted (KI-172).
+pub const CACHE_EPOCH: u16 = 139;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

@@ -17,8 +17,10 @@
 ///
 /// This simplifies the Core→CFG lowering (`to_ir.rs`) because each `Let`
 /// maps directly to one IR instruction.
+use std::collections::HashMap;
+
 use crate::{
-    core::{CoreBinder, CoreBinderId, CoreExpr, CorePrimOp, FluxRep},
+    core::{CoreBinder, CoreBinderId, CoreExpr, CorePrimOp, CoreProgram, CoreType, FluxRep},
     diagnostics::position::Span,
 };
 
@@ -29,6 +31,105 @@ use crate::{
 /// in the program.
 pub fn anf_normalize(expr: CoreExpr, next_id: &mut u32) -> CoreExpr {
     anf_expr(expr, next_id)
+}
+
+/// The top-level definitions whose HM type says a full call returns an Int or
+/// a Bool, with how many arguments a full call takes and that representation.
+pub fn scalar_result_reps(program: &CoreProgram) -> HashMap<CoreBinderId, (usize, FluxRep)> {
+    program
+        .defs
+        .iter()
+        .filter_map(|def| {
+            let (arity, ret) = match &def.expr {
+                CoreExpr::Lam { params, result_ty: Some(ret), .. } => (params.len(), ret),
+                CoreExpr::Lam { params, .. } => {
+                    (params.len(), returned_type(def.result_ty.as_ref()?)?)
+                }
+                _ => return None,
+            };
+            match FluxRep::from_core_type(ret) {
+                rep @ (FluxRep::IntRep | FluxRep::BoolRep) => Some((def.binder.id, (arity, rep))),
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+fn returned_type(ty: &CoreType) -> Option<&CoreType> {
+    match ty {
+        CoreType::Function(_, ret) => Some(ret),
+        CoreType::Forall(_, body) => returned_type(body),
+        _ => None,
+    }
+}
+
+/// ANF names a call's result before knowing its type. A `let` that names a
+/// full call of one of `reps`'s definitions takes that definition's result
+/// representation, so Aether does not count an Int or a Bool.
+pub fn type_call_results(expr: &mut CoreExpr, reps: &HashMap<CoreBinderId, (usize, FluxRep)>) {
+    match expr {
+        CoreExpr::Let { var, rhs, body, .. } => {
+            if var.rep == FluxRep::TaggedRep
+                && let CoreExpr::App { func, args, .. } = rhs.as_ref()
+                && let CoreExpr::Var { var: callee, .. } = func.as_ref()
+                && let Some(&(arity, rep)) = callee.binder.and_then(|id| reps.get(&id))
+                && args.len() == arity
+            {
+                var.rep = rep;
+            }
+            type_call_results(rhs, reps);
+            type_call_results(body, reps);
+        }
+        CoreExpr::Lam { body, .. } => type_call_results(body, reps),
+        CoreExpr::App { func, args, .. } => {
+            type_call_results(func, reps);
+            for arg in args {
+                type_call_results(arg, reps);
+            }
+        }
+        CoreExpr::LetRec { rhs, body, .. } => {
+            type_call_results(rhs, reps);
+            type_call_results(body, reps);
+        }
+        CoreExpr::LetRecGroup { bindings, body, .. } => {
+            for (_, rhs) in bindings {
+                type_call_results(rhs, reps);
+            }
+            type_call_results(body, reps);
+        }
+        CoreExpr::Case { scrutinee, alts, .. } => {
+            type_call_results(scrutinee, reps);
+            for alt in alts {
+                if let Some(guard) = &mut alt.guard {
+                    type_call_results(guard, reps);
+                }
+                type_call_results(&mut alt.rhs, reps);
+            }
+        }
+        CoreExpr::Con { fields, .. } | CoreExpr::PrimOp { args: fields, .. } => {
+            for field in fields {
+                type_call_results(field, reps);
+            }
+        }
+        CoreExpr::Return { value, .. }
+        | CoreExpr::MemberAccess { object: value, .. }
+        | CoreExpr::TupleField { object: value, .. } => type_call_results(value, reps),
+        CoreExpr::Perform { args, .. } => {
+            for arg in args {
+                type_call_results(arg, reps);
+            }
+        }
+        CoreExpr::Handle { body, parameter, handlers, .. } => {
+            type_call_results(body, reps);
+            if let Some(parameter) = parameter {
+                type_call_results(parameter, reps);
+            }
+            for handler in handlers {
+                type_call_results(&mut handler.body, reps);
+            }
+        }
+        CoreExpr::Var { .. } | CoreExpr::Lit(_, _) => {}
+    }
 }
 
 /// Is this expression trivial (no need to let-bind)?

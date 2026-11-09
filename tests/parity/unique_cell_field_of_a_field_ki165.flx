@@ -1,0 +1,70 @@
+// parity: vm, llvm
+// expect: success
+// bug: KI-165. An arm matches a field of a unique cell and rebuilds the cell
+//       around that field's own field. Natively the field was released before
+//       its own field was read, so `x` was already freed: this printed freed
+//       memory as a string.
+// parity-expected-stdout-begin
+// "abc!"
+// "wrap deep!"
+// "none"
+// "kept!"
+// "next!"
+// "shared!"
+// "wrap shared!"
+// parity-expected-stdout-end
+
+type Item = Wrap(Item) | Leaf(String)
+
+// Every arm reuses the cell of `xs`.
+fn peel(xs: List<Item>) -> List<Item> {
+    match xs {
+        [h | t] -> match h {
+            Wrap(x) -> [x | t],
+            _ -> [Leaf("none") | t],
+        },
+        _ -> [],
+    }
+}
+
+// Only the first arm reuses it.
+fn peel_or_drop(xs: List<Item>) -> List<Item> {
+    match xs {
+        [h | t] -> match h {
+            Wrap(x) -> [x | t],
+            _ -> t,
+        },
+        _ -> [],
+    }
+}
+
+fn text(item: Item) -> String {
+    match item {
+        Wrap(inner) -> "wrap " + text(inner),
+        Leaf(s) -> s,
+    }
+}
+
+fn first(xs: List<Item>) -> String {
+    match xs {
+        [h | _] -> text(h),
+        _ -> "empty",
+    }
+}
+
+fn leaf(s: String) -> Item {
+    Leaf(s + "!")
+}
+
+fn main() {
+    print(first(peel([Wrap(leaf("abc"))])))
+    print(first(peel([Wrap(Wrap(leaf("deep")))])))
+    print(first(peel([leaf("xyz")])))
+    print(first(peel_or_drop([Wrap(leaf("kept"))])))
+    print(first(peel_or_drop([leaf("gone"), leaf("next")])))
+
+    // The list is shared here, so the rebuild must not touch `shared`.
+    let shared = [Wrap(leaf("shared"))]
+    print(first(peel(shared)))
+    print(first(shared))
+}

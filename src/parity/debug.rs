@@ -546,6 +546,9 @@ fn parse_frame(line: &str) -> Option<String> {
 /// A fixture's own file is named in lower case.
 fn place_of(function: &str, place: &str) -> String {
     let file = file_line(place);
+    // A native build may run a function as its consuming clone `<fn>$own`
+    // (0200), which the VM never makes. No source name contains `$`.
+    let function = function.strip_suffix("$own").unwrap_or(function);
     if is_library_file(&file) { "<library>".to_string() } else { format!("{function} {file}") }
 }
 
@@ -669,6 +672,19 @@ mod tests {
         assert_eq!(
             parse_frame("#0 <lambda app.flx:2:14> at app.flx:4:9   [inlined]").as_deref(),
             Some("frame <lambda app.flx:2:14> app.flx:4")
+        );
+    }
+
+    /// Natively a walk may run as its consuming clone, which the VM never makes.
+    #[test]
+    fn a_consuming_clone_is_the_same_frame_as_its_original() {
+        assert_eq!(
+            parse_frame("#0 check_tree$own at app.flx:15:9"),
+            parse_frame("#0 check_tree at app.flx:15:9")
+        );
+        assert_eq!(
+            parse_frame("#0 check_tree$own at app.flx:15:9").as_deref(),
+            Some("frame check_tree app.flx:15")
         );
     }
 

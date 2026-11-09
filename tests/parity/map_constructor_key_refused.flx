@@ -1,0 +1,12 @@
+// parity: vm, llvm
+// expect: runtime_error
+// bug: KI-157: natively a constructor key was accepted and gave a wrong answer,
+//       where the VM stops; both backends must refuse it.
+
+import Flow.Map as Map
+
+type Color = Red | Green
+
+fn main() with IO {
+    print(Map.set({}, Red, "red"))
+}

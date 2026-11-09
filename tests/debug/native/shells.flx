@@ -1,0 +1,20 @@
+// A cell freed alone (KI-164): `nodes` owns `tree`, and its `Node` arm
+// builds no cell, so on the unique path it frees the cell's block and keeps
+// both children. A stop in that arm shows `tree` as dropped.
+type Tree = Node(Tree, Tree) | Tip
+
+fn make(depth: Int) -> Tree {
+    if depth <= 0 { Tip } else { Node(make(depth - 1), make(depth - 1)) }
+}
+
+fn nodes(tree: Tree) -> Int {
+    match tree {
+        Node(left, right) ->
+            nodes(left) + nodes(right) + 1,
+        Tip -> len([tree]) - 1,
+    }
+}
+
+fn main() {
+    print(nodes(make(2)))
+}

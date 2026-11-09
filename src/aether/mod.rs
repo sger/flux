@@ -10,9 +10,11 @@
 //! - `Reuse` may target only heap-allocating constructor tags and the reuse
 //!   token must not appear free in any field expression.
 //! - `DropSpecialized` must use a resolved scrutinee and both branches must
-//!   remain valid Aether expressions. The unique branch consumes its shell
-//!   through reuse on every path; the shared branch drops its reference after
-//!   copying the fields it keeps.
+//!   remain valid Aether expressions. The unique branch disposes of the shell
+//!   exactly once on every path, through reuse or `FreeShell`; the shared
+//!   branch drops its reference after copying the fields it keeps.
+//! - `FreeShell` appears only on the unique branch of a `DropSpecialized` on
+//!   the same binder, outside any lambda or handler clause.
 //!
 //! The pass runs as the final Core IR transformation (after ANF normalization).
 //! Existing passes (1-7) never see Dup/Drop nodes.
@@ -28,6 +30,7 @@ pub mod free_vars;
 pub mod fusion;
 pub mod held;
 pub mod insert;
+pub mod owned_clone;
 pub mod reuse;
 pub mod reuse_analysis;
 pub mod reuse_spec;
@@ -178,6 +181,15 @@ pub enum AetherExpr {
         body: Box<AetherExpr>,
         span: Span,
     },
+    /// Frees `var`'s cell without releasing its fields. Only the unique path
+    /// of a `DropSpecialized` on `var` may hold one: there the cell is the
+    /// arm's alone and its fields were handed to the arm's binders, so a
+    /// plain `Drop` would release them a second time (KI-164).
+    FreeShell {
+        var: CoreVarRef,
+        body: Box<AetherExpr>,
+        span: Span,
+    },
     Reuse {
         token: CoreVarRef,
         tag: CoreTag,
@@ -205,6 +217,9 @@ pub struct AetherDef {
     pub is_recursive: bool,
     pub fip: Option<FipAnnotation>,
     pub span: Span,
+    /// The function this is a consuming copy of (proposal 0200). It has no `CoreDef`,
+    /// so module interfaces never see it.
+    pub owned_clone_of: Option<CoreBinderId>,
 }
 
 #[derive(Debug, Clone)]
@@ -262,6 +277,7 @@ impl AetherDef {
             is_recursive: def.is_recursive,
             fip: def.fip,
             span: def.span,
+            owned_clone_of: None,
         }
     }
 }
@@ -424,6 +440,7 @@ impl AetherExpr {
             Self::AetherCall { .. }
             | Self::Dup { .. }
             | Self::Drop { .. }
+            | Self::FreeShell { .. }
             | Self::Reuse { .. }
             | Self::DropSpecialized { .. } => {
                 panic!("Aether-only expressions cannot be projected back into semantic Core")
@@ -451,6 +468,7 @@ impl AetherExpr {
             | Self::Handle { span, .. }
             | Self::Dup { span, .. }
             | Self::Drop { span, .. }
+            | Self::FreeShell { span, .. }
             | Self::Reuse { span, .. }
             | Self::DropSpecialized { span, .. } => *span,
         }
@@ -525,6 +543,8 @@ pub struct AetherStats {
     pub drops: usize,
     pub reuses: usize,
     pub drop_specs: usize,
+    /// Cells freed without their fields on a unique path (KI-164).
+    pub free_shells: usize,
     /// Number of heap constructor allocations (Con nodes with heap tags).
     pub allocs: usize,
     /// Proposal 0162 Phase 3: perform sites (lower to `flux_yield_to`).
@@ -556,6 +576,7 @@ impl AetherStats {
         self.drops += other.drops;
         self.reuses += other.reuses;
         self.drop_specs += other.drop_specs;
+        self.free_shells += other.free_shells;
         self.allocs += other.allocs;
         self.performs += other.performs;
         self.handles += other.handles;
@@ -595,6 +616,9 @@ impl std::fmt::Display for AetherStats {
             FbipStatus::Fbip(n) => write!(f, "  FBIP: fbip({})", n)?,
             FbipStatus::NotApplicable => {}
         }
+        if self.free_shells > 0 {
+            write!(f, "  FreeShells: {}", self.free_shells)?;
+        }
         if self.performs > 0 || self.handles > 0 {
             write!(
                 f,
@@ -621,6 +645,10 @@ fn count_nodes(expr: &AetherExpr, stats: &mut AetherStats) {
         }
         AetherExpr::Drop { body, .. } => {
             stats.drops += 1;
+            count_nodes(body, stats);
+        }
+        AetherExpr::FreeShell { body, .. } => {
+            stats.free_shells += 1;
             count_nodes(body, stats);
         }
         AetherExpr::Reuse { fields, .. } => {
@@ -895,6 +923,28 @@ pub fn run_aether_def_with_registry(
     registry: &borrow_infer::BorrowRegistry,
     signature: Option<&borrow_infer::BorrowSignature>,
 ) -> AetherExpr {
+    held::annotate_owned_after(plan_def_until_held(expr, registry, signature))
+}
+
+/// [`run_aether_def_with_registry`] for the consuming clone of `original`: its
+/// shared paths walk a shared value with the original (0200 C3). That runs
+/// before `held`, which has to see the call it adds.
+pub(super) fn run_aether_clone_def(
+    expr: AetherExpr,
+    registry: &borrow_infer::BorrowRegistry,
+    signature: &borrow_infer::BorrowSignature,
+    original: &CoreBinder,
+) -> AetherExpr {
+    let expr = plan_def_until_held(expr, registry, Some(signature));
+    let expr = owned_clone::share_with_original(expr, original, registry, signature);
+    held::annotate_owned_after(expr)
+}
+
+fn plan_def_until_held(
+    expr: AetherExpr,
+    registry: &borrow_infer::BorrowRegistry,
+    signature: Option<&borrow_infer::BorrowSignature>,
+) -> AetherExpr {
     let borrowed_params = match (&expr, signature) {
         (AetherExpr::Lam { params, .. }, Some(signature)) => params
             .iter()
@@ -908,8 +958,20 @@ pub fn run_aether_def_with_registry(
     let expr = drop_spec::specialize_drops_aether(expr);
     let expr = fusion::fuse_dup_drop_aether(expr);
     let expr = reuse::insert_reuse_aether(expr);
-    let expr = reuse_spec::specialize_reuse_aether(expr);
-    held::annotate_owned_after(expr)
+    reuse_spec::specialize_reuse_aether(expr)
+}
+
+/// [`lower_core_to_aether_program`] for a native build, which also makes consuming
+/// clones (proposal 0200). `clone_names` holds each function's clone name. The VM's
+/// values are `Rc`s, so a clone gains nothing there.
+#[allow(clippy::result_large_err)]
+pub fn lower_core_to_native_aether_program(
+    core: &CoreProgram,
+    interner: Option<&Interner>,
+    preloaded_registry: borrow_infer::BorrowRegistry,
+    clone_names: &std::collections::HashMap<crate::syntax::Identifier, crate::syntax::Identifier>,
+) -> Result<(AetherProgram, Vec<crate::diagnostics::Diagnostic>), crate::diagnostics::Diagnostic> {
+    lower_with_clone_names(core, interner, preloaded_registry, Some(clone_names))
 }
 
 #[allow(clippy::result_large_err)]
@@ -918,15 +980,34 @@ pub fn lower_core_to_aether_program(
     interner: Option<&Interner>,
     preloaded_registry: borrow_infer::BorrowRegistry,
 ) -> Result<(AetherProgram, Vec<crate::diagnostics::Diagnostic>), crate::diagnostics::Diagnostic> {
+    lower_with_clone_names(core, interner, preloaded_registry, None)
+}
+
+#[allow(clippy::result_large_err)]
+fn lower_with_clone_names(
+    core: &CoreProgram,
+    interner: Option<&Interner>,
+    preloaded_registry: borrow_infer::BorrowRegistry,
+    clone_names: Option<
+        &std::collections::HashMap<crate::syntax::Identifier, crate::syntax::Identifier>,
+    >,
+) -> Result<(AetherProgram, Vec<crate::diagnostics::Diagnostic>), crate::diagnostics::Diagnostic> {
     let mut warnings = Vec::new();
     let mut semantic_core = core.clone();
-    let borrow_registry = borrow_infer::infer_borrow_modes_with_preloaded(
+    let mut borrow_registry = borrow_infer::infer_borrow_modes_with_preloaded(
         &mut semantic_core,
         interner,
         preloaded_registry,
     );
+    // Clones first: planning the originals chooses among them.
+    let mut clones = match (clone_names, interner) {
+        (Some(names), Some(interner)) => {
+            owned_clone::plan_clones(&semantic_core, interner, names, &mut borrow_registry)
+        }
+        _ => Vec::new(),
+    };
 
-    let defs = semantic_core
+    let mut defs: Vec<AetherDef> = semantic_core
         .defs
         .iter()
         .cloned()
@@ -963,9 +1044,13 @@ pub fn lower_core_to_aether_program(
                 is_recursive: def.is_recursive,
                 fip: def.fip,
                 span: def.span,
+                owned_clone_of: None,
             }
         })
         .collect();
+
+    owned_clone::keep_reached(&defs, &mut clones);
+    defs.append(&mut clones);
 
     if let Some(interner) = interner {
         let fbip_result = check_fbip::check_fbip(&semantic_core, interner);

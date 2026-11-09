@@ -1,0 +1,111 @@
+// parity: vm, llvm, llvm_opt
+// expect: success
+// bug: KI-163. A self tail call that passed on a field of a value the caller owned
+//       lent it to a borrowed parameter, so the owner's release came after the
+//       call and the call kept a frame. This depth is for the debug heap, which
+//       checks that each parameter now owned is released once. The native test
+//       `a_walk_passing_on_a_field_stays_a_jump_at_any_depth_ki163` runs this
+//       program deep enough to overflow the stack with a frame per turn.
+// parity-expected-stdout-begin
+// 1000
+// 1000
+// 1000
+// 1000
+// 1000
+// 1001
+// parity-expected-stdout-end
+
+type Tree = Node(Tree, Tree) | Tip
+
+type Stack = Empty | Push(Tree, Stack)
+
+type Frame = Frame(Stack)
+
+fn spine(n: Int, acc: Tree) -> Tree {
+    if n <= 0 {
+        acc
+    } else {
+        let next = Node(Tip, acc)
+        spine(n - 1, next)
+    }
+}
+
+// The shape KI-163 reported: `next` lives in the owned `stack`.
+fn walk(tree: Tree, stack: Stack, acc: Int) -> Int {
+    match tree {
+        Node(left, right) -> do {
+            let pushed = Push(right, stack)
+            walk(left, pushed, acc + 1)
+        },
+        Tip -> match stack {
+            Push(next, rest) -> walk(next, rest, acc),
+            Empty -> acc,
+        },
+    }
+}
+
+// A field of a field of the owned parameter.
+fn walk_framed(tree: Tree, frame: Frame, acc: Int) -> Int {
+    match tree {
+        Node(left, right) -> match frame {
+            Frame(stack) -> do {
+                let pushed = Frame(Push(right, stack))
+                walk_framed(left, pushed, acc + 1)
+            },
+        },
+        Tip -> match frame {
+            Frame(Push(next, rest)) -> do {
+                let popped = Frame(rest)
+                walk_framed(next, popped, acc)
+            },
+            Frame(Empty) -> acc,
+        },
+    }
+}
+
+// The same through mutual recursion.
+fn down(tree: Tree, stack: Stack, acc: Int) -> Int {
+    match tree {
+        Node(left, right) -> do {
+            let pushed = Push(right, stack)
+            down(left, pushed, acc + 1)
+        },
+        Tip -> up(stack, acc),
+    }
+}
+
+fn up(stack: Stack, acc: Int) -> Int {
+    match stack {
+        Push(next, rest) -> down(next, rest, acc),
+        Empty -> acc,
+    }
+}
+
+fn wrapped(n: Int) -> Option<List<Int>> {
+    if n < 0 { None } else { Some([n]) }
+}
+
+// A field of a value the function made itself and has to release.
+fn from_fresh(n: Int, xs: List<Int>, acc: Int) -> Int {
+    if n == 0 {
+        acc + len(xs)
+    } else {
+        match wrapped(n) {
+            Some(ys) -> from_fresh(n - 1, ys, acc + len(xs)),
+            None -> acc,
+        }
+    }
+}
+
+fn main() with IO {
+    print(walk(spine(1000, Tip), Empty, 0))
+
+    // The caller keeps the tree, so each cell is shared and nothing is freed early.
+    let kept = spine(1000, Tip)
+    print(walk(kept, Empty, 0))
+    print(walk(kept, Empty, 0))
+
+    print(walk_framed(spine(1000, Tip), Frame(Empty), 0))
+    print(down(spine(1000, Tip), Empty, 0))
+    print(from_fresh(1000, [0], 0))
+}

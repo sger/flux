@@ -1,0 +1,94 @@
+// parity: vm, llvm, llvm_opt
+// expect: success
+// bug: KI-168. Reducing a match on a value built in place copied its fields into
+//       the arm. Natively, a field's call ran once per use: twice, never, or
+//       after what the arm did first.
+// parity-expected-stdout-begin
+// 1
+// 2
+// 1
+// 2
+// 1
+// 2
+// 1
+// 2
+// 1
+// 10
+// 1
+// 2
+// 1
+// 0
+// 14
+// 1
+// 5
+// 1
+// 10
+// 1
+// 2
+// 6
+// 1
+// 2
+// 1
+// 1
+// 2
+// 5
+// 6
+// parity-expected-stdout-end
+
+fn noisy() with IO {
+    print(1);
+    5
+}
+
+fn after(n: Int) with IO {
+    print(0);
+    n
+}
+
+fn first() with IO {
+    print(1);
+    5
+}
+
+fn rest() with IO {
+    print(2);
+    [6]
+}
+
+fn doubled(o) {
+    match o {
+        Some(x) -> x + x,
+        _ -> 0,
+    }
+}
+
+fn main() with IO {
+    // Nothing binds the field: it still runs.
+    match Some(noisy()) { Some(_) -> print(2), _ -> print(3), }
+    match Some(noisy()) { _ -> print(2), }
+    match Some(noisy()) { None -> print(3), _ -> print(2), }
+    match Some(noisy()) { whole -> print(2), }
+
+    // Bound and used twice: it runs once.
+    match Some(noisy()) { Some(x) -> print(x + x), _ -> print(3), }
+
+    // Bound and not used: it still runs.
+    match Some(noisy()) { Some(x) -> print(2), _ -> print(3), }
+
+    // Bound and used after something else: it runs first.
+    match Some(noisy()) { Some(x) -> print(after(9) + x), _ -> print(3), }
+
+    // Bound and used once.
+    match Some(noisy()) { Some(x) -> print(x), _ -> print(3), }
+
+    // Through a call an optimized build inlines.
+    print(doubled(Some(noisy())))
+
+    // Two fields run in order, whichever the arm binds.
+    match [first() | rest()] { [h | t] -> print(len(t) + h), _ -> print(0), }
+    match [first() | rest()] { [_ | t] -> print(len(t)), _ -> print(0), }
+    match [first() | rest()] { [h | _] -> print(h), _ -> print(0), }
+
+    // A pure field has no effect to keep.
+    print(match Some(3) { Some(x) -> x + x, _ -> 0, })
+}

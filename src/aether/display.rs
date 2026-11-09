@@ -258,6 +258,13 @@ fn fmt_expr(expr: &AetherExpr, interner: &Interner, indent: usize, out: &mut Str
             }
             fmt_expr(tail, interner, indent + vars.len() * 2, out);
         }
+        AetherExpr::FreeShell { var, body, .. } => {
+            out.push_str(&pad);
+            out.push_str("free_shell ");
+            out.push_str(&format_var_ref(var, interner));
+            out.push_str(" in\n");
+            fmt_expr(body, interner, indent + 2, out);
+        }
         AetherExpr::Reuse { token, tag, fields, field_mask, .. } => {
             out.push_str(&pad);
             out.push_str("reuse ");
@@ -391,4 +398,24 @@ fn resolve_name(interner: &Interner, name: Identifier) -> String {
         .try_resolve(name)
         .map(str::to_string)
         .unwrap_or_else(|| format!("<sym:{}>", name.as_u32()))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::aether::AetherExpr;
+    use crate::core::{CoreBinder, CoreBinderId, CoreLit, CoreVarRef};
+    use crate::diagnostics::position::Span;
+    use crate::syntax::interner::Interner;
+
+    #[test]
+    fn a_freed_shell_reads_free_shell() {
+        let mut interner = Interner::new();
+        let xs = CoreBinder::new(CoreBinderId(7), interner.intern("xs"));
+        let expr = AetherExpr::FreeShell {
+            var: CoreVarRef::resolved(&xs),
+            body: Box::new(AetherExpr::Lit(CoreLit::Int(1), Span::default())),
+            span: Span::default(),
+        };
+        assert_eq!(super::display_expr_readable(&expr, &interner), "free_shell xs#7 in\n  1");
+    }
 }

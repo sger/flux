@@ -1,0 +1,40 @@
+// parity: vm, llvm, llvm_opt
+// expect: success
+// bug: KI-122. A composed resume gave away the array's own reference to a
+//       continuation, so the closure was released twice under `run_async`. The
+//       action here captures a value, so it is a heap closure: one that captures
+//       nothing is a static object now, and releasing it twice shows nothing.
+// parity-expected-stdout-begin
+// 10
+// 10
+// parity-expected-stdout-end
+
+import Flow.Async as Async
+import Flow.Channel as Channel
+import Flow.Event as Event
+
+fn race(n: Int, ch: Channel<Int>, acc: Int) -> Int with Async {
+    if n == 0 {
+        acc
+    } else {
+        let value = select {
+            recv ch as _ -> 1000000,
+            after 1 -> 1
+        }
+        race(n - 1, ch, acc + value)
+    }
+}
+
+fn losers(xs: List<Int>) -> Int with Async {
+    let ch = Channel.make(0)
+    race(len(xs), ch, 0)
+}
+
+fn main() -> Unit with IO {
+    let xs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    fn action() -> Int with Async {
+        losers(xs)
+    }
+    print(Async.run_async(action))
+    print(len(xs))
+}

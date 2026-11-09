@@ -7,7 +7,7 @@ fn total(xs: List<Int>) -> Int {
 }
 
 fn main() {
-    let xs = [1, 2, 3]
+    let xs = [len("a" + "b") - 1, 2, 3]
     let s = "fresh" + "!"
     let n = 7
     print(total(xs))

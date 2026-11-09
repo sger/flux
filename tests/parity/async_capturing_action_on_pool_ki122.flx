@@ -1,0 +1,32 @@
+// parity: vm, llvm, llvm_opt
+// expect: success
+// bug: KI-122. The same double release on the blocking pool's path, through
+//       `run_async_with`, with an action that captures a value so that it is a
+//       heap closure.
+// parity-expected-stdout-begin
+// "payload"
+// 3
+// 3
+// parity-expected-stdout-end
+
+import Flow.Async exposing (run_async_with, with_fs_pool_size)
+import Flow.Fs as Fs
+
+fn round_trip(tag: List<Int>) -> Unit with Async, FileSystem, Console {
+    let base = "target/test-scratch/async_capturing_action_on_pool_ki122"
+    let path = base + "/value.txt"
+    let made = Fs.create_dir_all(base)
+    let wrote = Fs.write_file(path, "payload")
+    println(Fs.read_file_or(path, "MISSING"))
+    let removed = Fs.remove_dir_all(base)
+    println(len(tag))
+}
+
+fn main() -> Unit with IO {
+    let tag = [1, 2, 3]
+    fn action() with Async, FileSystem, Console {
+        round_trip(tag)
+    }
+    let done = run_async_with(with_fs_pool_size(1), action)
+    print(len(tag))
+}

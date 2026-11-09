@@ -1,10 +1,13 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use flux::aether::{AetherExpr as CoreExpr, AetherProgram, lower_core_to_aether_program};
+use flux::aether::{
+    AetherDef, AetherExpr as CoreExpr, AetherProgram, lower_core_to_aether_program,
+    lower_core_to_native_aether_program,
+};
 use flux::compiler::Compiler;
 use flux::core::{
-    CorePat,
+    CorePat, CoreProgram,
     lower_ast::lower_program_ast,
     passes::{run_aether_passes_with_interner_and_registry, run_core_passes_with_interner},
 };
@@ -87,7 +90,9 @@ fn collect_core_exprs(expr: &CoreExpr) -> Vec<&CoreExpr> {
                 out.extend(collect_core_exprs(&handler.body));
             }
         }
-        CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => {
+        CoreExpr::Dup { body, .. }
+        | CoreExpr::Drop { body, .. }
+        | CoreExpr::FreeShell { body, .. } => {
             out.extend(collect_core_exprs(body));
         }
         CoreExpr::DropSpecialized { unique_body, shared_body, .. } => {
@@ -432,6 +437,142 @@ fn main() { rebuild([("key", [1, 2])]) }
         0,
         "{rhs:?}"
     );
+}
+
+/// KI-164: `nodes` owns `tree` (its `Tip` arm stores it), and its `Node`
+/// arm builds no cell to reuse `tree`'s for. On the unique path the arm
+/// still owns the cell and its fields, so it frees the cell alone and copies
+/// nothing; the shared path copies the fields and releases its reference.
+#[test]
+fn a_unique_cell_whose_arm_builds_no_cell_frees_its_shell() {
+    let src = r#"
+type Tree = Node(Tree, Tree) | Tip
+
+fn make(depth: Int) -> Tree {
+    if depth <= 0 { Tip } else { Node(make(depth - 1), make(depth - 1)) }
+}
+
+fn nodes(tree: Tree) -> Int {
+    match tree {
+        Node(left, right) -> nodes(left) + nodes(right) + 1,
+        Tip -> len([tree]) - 1,
+    }
+}
+
+fn main() with IO {
+    print(nodes(make(20)))
+}
+"#;
+    let (core, interner) = lowered_core_and_interner(src);
+    let def = core.defs.iter().find(|def| interner.resolve(def.name) == "nodes").expect("nodes");
+    let specialized: Vec<(&CoreExpr, &CoreExpr)> = collect_core_exprs(&def.expr)
+        .into_iter()
+        .filter_map(|expr| match expr {
+            CoreExpr::DropSpecialized { unique_body, shared_body, .. } => {
+                Some((unique_body.as_ref(), shared_body.as_ref()))
+            }
+            _ => None,
+        })
+        .collect();
+    let [(unique, shared)] = specialized.as_slice() else {
+        panic!("one drop specialization in nodes, got {}: {:?}", specialized.len(), def.expr);
+    };
+    let tree_name = interner.lookup("tree").expect("the program binds `tree`");
+    let tree = |var: &flux::core::CoreVarRef| var.name == tree_name;
+    assert!(
+        matches!(unique, CoreExpr::FreeShell { var, .. } if tree(var)),
+        "the unique path frees tree first: {unique:?}"
+    );
+    assert_eq!(count_matching(unique, &|expr| matches!(expr, CoreExpr::Dup { .. })), 0);
+    assert_eq!(
+        count_matching(shared, &|expr| matches!(expr, CoreExpr::Drop { var, .. } if tree(var))),
+        1,
+        "{shared:?}"
+    );
+    flux::aether::verify::verify_def_contract_aether(&def.expr, def.borrow_signature.as_ref())
+        .expect("the contract holds");
+}
+
+/// KI-165: `[h | t] -> match h { Wrap(x) -> [x | t], .. }`. The plain-drop
+/// rewrite releases `h` before the rebuild, which is safe only while `xs`
+/// still holds `h`. A unique path owns `h`'s only reference, so that release
+/// frees `x` before the rebuild reads it. The plan keeps the reuse, under the
+/// plain release.
+#[test]
+fn a_rebuild_around_a_field_of_a_field_reads_it_before_its_parent_is_released_ki165() {
+    let src = std::fs::read_to_string("tests/parity/unique_cell_field_of_a_field_ki165.flx")
+        .expect("fixture should exist");
+    let (core, interner) = lowered_core_and_interner(src);
+    for name in ["peel", "peel_or_drop"] {
+        let def = core.defs.iter().find(|def| interner.resolve(def.name) == name).expect(name);
+        flux::aether::verify::verify_def_contract_aether(&def.expr, def.borrow_signature.as_ref())
+            .unwrap_or_else(|errors| panic!("{name}: {errors:?}"));
+        assert!(
+            count_matching(&def.expr, &|expr| matches!(expr, CoreExpr::Reuse { .. })) > 0,
+            "{name} still reuses the cell: {:?}",
+            def.expr
+        );
+    }
+}
+
+/// The arms of the case on the unique path of `name`'s one split.
+fn unique_path_arms<'a>(
+    core: &'a AetherProgram,
+    interner: &Interner,
+    name: &str,
+) -> (&'a CoreExpr, &'a [flux::aether::AetherAlt]) {
+    let def = core.defs.iter().find(|def| interner.resolve(def.name) == name).expect(name);
+    flux::aether::verify::verify_def_contract_aether(&def.expr, def.borrow_signature.as_ref())
+        .expect("the contract holds");
+    let unique: Vec<&CoreExpr> = collect_core_exprs(&def.expr)
+        .into_iter()
+        .filter_map(|expr| match expr {
+            CoreExpr::DropSpecialized { unique_body, .. } => Some(unique_body.as_ref()),
+            _ => None,
+        })
+        .collect();
+    let [unique] = unique.as_slice() else {
+        panic!("one split in {name}, got {}: {:?}", unique.len(), def.expr);
+    };
+    let CoreExpr::Case { alts, .. } = unique else {
+        panic!("a case on {name}'s unique path: {unique:?}");
+    };
+    (unique, alts)
+}
+
+/// A unique path that can reuse its cell on one arm only: the other arm frees
+/// it alone, so neither arm pays for field copies or a release walk.
+#[test]
+fn a_unique_path_frees_its_cell_on_the_arm_that_does_not_reuse_it() {
+    let src =
+        std::fs::read_to_string("tests/debug/heap/owned_moves/unique_path_reuse_in_one_arm.flx")
+            .expect("fixture should exist");
+    let (core, interner) = lowered_core_and_interner(src);
+    let (unique, arms) = unique_path_arms(&core, &interner, "split");
+    assert_eq!(
+        count_matching(unique, &|expr| matches!(expr, CoreExpr::Dup { .. })),
+        0,
+        "{unique:?}"
+    );
+    assert_eq!(count_matching(&arms[0].rhs, &|expr| matches!(expr, CoreExpr::Reuse { .. })), 1);
+    assert_eq!(count_matching(&arms[0].rhs, &|expr| matches!(expr, CoreExpr::FreeShell { .. })), 0);
+    assert_eq!(count_matching(&arms[1].rhs, &|expr| matches!(expr, CoreExpr::Reuse { .. })), 0);
+    assert_eq!(count_matching(&arms[1].rhs, &|expr| matches!(expr, CoreExpr::FreeShell { .. })), 1);
+}
+
+/// The arm that frees its cell then calls a function that can suspend. The
+/// free has to come first: past the call a resumed continuation may have
+/// copied the cell, so it would no longer be this path's alone.
+#[test]
+fn a_unique_path_frees_its_cell_before_a_call_that_can_suspend() {
+    let src = std::fs::read_to_string(
+        "tests/debug/heap/owned_moves/unique_path_frees_before_a_resumed_call.flx",
+    )
+    .expect("fixture should exist");
+    let (core, interner) = lowered_core_and_interner(src);
+    let (_, arms) = unique_path_arms(&core, &interner, "step");
+    assert_eq!(count_matching(&arms[0].rhs, &|expr| matches!(expr, CoreExpr::Reuse { .. })), 1);
+    assert!(matches!(arms[1].rhs, CoreExpr::FreeShell { .. }), "{:?}", arms[1].rhs);
 }
 
 /// Audit L1: `Node(color, left, key, right) -> Node(color, left, key, left)`
@@ -1292,15 +1433,9 @@ fn forwarded_wrapper_fixture_rewrites_only_the_inner_child() {
     let exprs = core.defs.iter().flat_map(|def| collect_core_exprs(&def.expr)).collect::<Vec<_>>();
 
     assert!(
-        exprs.iter().any(|expr| {
-            matches!(
-                expr,
-                CoreExpr::App { args: fields, .. } | CoreExpr::AetherCall { args: fields, .. }
-                    if fields
-                        .iter()
-                        .any(|field| matches!(field, CoreExpr::Reuse { tag: flux::core::CoreTag::Cons, .. }))
-            )
-        }),
+        exprs
+            .iter()
+            .any(|expr| matches!(expr, CoreExpr::Reuse { tag: flux::core::CoreTag::Cons, .. })),
         "forwarded wrapper fixture should keep the outer wrapper fresh and recover inner cons reuse"
     );
     assert!(
@@ -1368,15 +1503,9 @@ fn opt_corpus_positive_fixture_claims_match_current_core_shape() {
         "positive corpus should include DropSpecialized"
     );
     assert!(
-        exprs.iter().any(|expr| {
-            matches!(
-                expr,
-                CoreExpr::App { args: fields, .. } | CoreExpr::AetherCall { args: fields, .. }
-                    if fields
-                        .iter()
-                        .any(|field| matches!(field, CoreExpr::Reuse { tag: flux::core::CoreTag::Cons, .. }))
-            )
-        }),
+        exprs
+            .iter()
+            .any(|expr| matches!(expr, CoreExpr::Reuse { tag: flux::core::CoreTag::Cons, .. })),
         "positive corpus should include forwarded-child reuse inside a fresh wrapper"
     );
     assert!(
@@ -1473,12 +1602,12 @@ fn fbip_failure_cases_fixture_reports_expected_warning_mix() {
     }));
 }
 
-/// Nested matches that rebuild the inner list (`list_zip`'s shape): the
-/// inner list's cell is reused, and the outer one, whose cell nothing
-/// reuses, is released once on each of its four paths, never twice. The
-/// inner list is dropped on the two empty-list paths and the shared rebuild
-/// path; the unique rebuild consumes it through reuse. This guards against
-/// dropping the outer list on entry and again in each inner arm.
+/// Nested matches that rebuild the inner list (`list_zip`'s shape): each list is
+/// released once on each path, never twice. The outer list is dropped on three
+/// paths, and its cell is reused where the inner list is shared. The inner list is
+/// dropped on the two empty-list paths and the shared rebuild path; the unique
+/// rebuild consumes it through reuse. This guards against dropping the outer list on
+/// entry and again in each inner arm.
 #[test]
 fn nested_match_drops_neither_list_twice() {
     let src = r#"
@@ -1515,8 +1644,1126 @@ fn main() { pairs([1, 2], [10, 20]) }
             &|expr| matches!(expr, CoreExpr::Reuse { token, .. } if token.binder == Some(binder)),
         )
     };
-    assert_eq!(drops_of(a), 4, "{body:?}");
+    assert_eq!(drops_of(a), 3, "{body:?}");
+    assert_eq!(reuses_of(a), 1, "{body:?}");
     assert_eq!(reuses_of(b), 1, "{body:?}");
     assert_eq!(drops_of(b), 3, "{body:?}");
     assert!(flux::aether::verify::verify_contract_aether(body).is_ok());
+}
+
+/// Every build checks the Aether contract, and says nothing when it holds: the
+/// `FLUX_AETHER_VERIFY=1` report is for someone who asked for it.
+#[test]
+fn a_build_that_checks_the_contract_says_nothing() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_flux"))
+        .args(["tests/parity/unique_cell_field_of_a_field_ki165.flx", "--no-cache", "--quiet"])
+        .env("NO_COLOR", "1")
+        .env_remove("FLUX_AETHER_VERIFY")
+        .output()
+        .expect("run flux");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert!(!stderr.contains("Aether verify"), "{stderr}");
+}
+
+/// `v` is the program's highest binder here, so the temporary holding the
+/// indexed value used to get the same id. The temporary's drop then cancelled
+/// `v`'s dup, and the arm never released the temporary (KI-167).
+#[test]
+fn a_temporary_and_the_field_it_holds_stay_two_variables_ki167() {
+    let core = lowered_core(
+        r#"
+fn at(arr, idx) {
+    match arr[idx] {
+        Some(v) -> v,
+        _ -> [],
+    }
+}
+"#,
+    );
+    let def = core.defs().iter().last().expect("the function");
+    let drops = count_matching(&def.expr, &|expr| matches!(expr, CoreExpr::Drop { .. }));
+    assert_eq!(drops, 2, "each arm releases the temporary: {:?}", def.expr);
+}
+
+/// `next` lives in the owned `stack`. Lent to a borrowed `tree`, `stack` had to
+/// outlive the call and its release came after it, so the call kept a frame and
+/// a long walk overflowed the stack (KI-163).
+#[test]
+fn a_walk_that_passes_on_a_field_of_its_stack_ends_in_a_jump_ki163() {
+    let (core, interner) = lowered_core_and_interner(
+        r#"
+type Tree = Node(Tree, Tree) | Tip
+type Stack = Empty | Push(Tree, Stack)
+
+fn walk(tree: Tree, stack: Stack, acc: Int) -> Int {
+    match tree {
+        Node(left, right) -> do {
+            let pushed = Push(right, stack)
+            walk(left, pushed, acc + 1)
+        },
+        Tip -> match stack {
+            Push(next, rest) -> walk(next, rest, acc),
+            Empty -> acc,
+        },
+    }
+}
+"#,
+    );
+    let walk = core
+        .defs()
+        .iter()
+        .find(|def| interner.try_resolve(def.name) == Some("walk"))
+        .expect("walk");
+    let modes = &walk.borrow_signature.as_ref().expect("a signature").params;
+    assert_eq!(modes[0], flux::aether::borrow_infer::BorrowMode::Owned, "{:?}", walk.expr);
+    let held_across_the_call = count_matching(&walk.expr, &|expr| {
+        matches!(
+            expr,
+            CoreExpr::Let { rhs, .. } if matches!(
+                rhs.as_ref(),
+                CoreExpr::AetherCall { func, .. } if matches!(
+                    func.as_ref(),
+                    CoreExpr::Var { var, .. } if var.name == walk.name
+                )
+            )
+        )
+    });
+    assert_eq!(held_across_the_call, 0, "{:?}", walk.expr);
+}
+
+/// `balance1`'s common arm builds two nodes from the two it matched. Each cell
+/// takes one, so its unique path allocates nothing, and frees nothing (KI-171).
+#[test]
+fn a_path_that_builds_two_constructors_reuses_both_of_its_cells_ki171() {
+    let (core, interner) = lowered_core_and_interner(
+        r#"
+type Color = Red | Black
+type Tree = Leaf | Node(Color, Tree, Int, Bool, Tree)
+
+fn balance(left_tree: Tree, right_tree: Tree) -> Tree {
+    match left_tree {
+        Node(_, _, kv, vv, tail) -> match right_tree {
+            Node(_, l, ky, vy, r) -> Node(Black, Node(Red, l, ky, vy, r), kv, vv, tail),
+            _ -> Leaf,
+        },
+        _ -> Leaf,
+    }
+}
+"#,
+    );
+    let balance = core
+        .defs()
+        .iter()
+        .find(|def| interner.try_resolve(def.name) == Some("balance"))
+        .expect("balance");
+    let CoreExpr::Lam { params, .. } = &balance.expr else { panic!("{:?}", balance.expr) };
+    let (left, right) = (params[0].id, params[1].id);
+    let reuses_of = |expr: &CoreExpr, cell| {
+        count_matching(
+            expr,
+            &|expr| matches!(expr, CoreExpr::Reuse { token, .. } if token.binder == Some(cell)),
+        )
+    };
+    let unique_path = collect_core_exprs(&balance.expr)
+        .into_iter()
+        .find_map(|expr| match expr {
+            CoreExpr::DropSpecialized { scrutinee, unique_body, .. }
+                if scrutinee.binder == Some(right) =>
+            {
+                Some(unique_body.as_ref())
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("{:?}", balance.expr));
+    assert_eq!(reuses_of(unique_path, right), 1, "{unique_path:?}");
+    assert_eq!(reuses_of(unique_path, left), 1, "{unique_path:?}");
+    let allocated = count_matching(unique_path, &|expr| {
+        matches!(
+            expr,
+            CoreExpr::AetherCall { func, .. } if matches!(
+                func.as_ref(),
+                CoreExpr::Var { var, .. } if interner.try_resolve(var.name) == Some("Node")
+            )
+        )
+    });
+    assert_eq!(allocated, 0, "{unique_path:?}");
+}
+
+/// The candidate parameters of `name` in `core` (proposal 0200 C1).
+fn candidates_of(core: &CoreProgram, interner: &Interner, name: &str) -> Vec<usize> {
+    let found = flux::aether::owned_clone::candidates(core, interner);
+    let symbol = interner.lookup(name).unwrap_or_else(|| panic!("the program binds `{name}`"));
+    let def = core.defs.iter().find(|def| def.name == symbol).expect("a definition");
+    found
+        .get(&def.binder.id)
+        .map(|positions| positions.iter().copied().collect())
+        .unwrap_or_default()
+}
+
+fn candidates_in(src: &str, name: &str) -> Vec<usize> {
+    let (aether, interner) = lowered_core_and_interner(src);
+    candidates_of(aether.as_core(), &interner, name)
+}
+
+const TREE_WALK: &str = r#"
+type Tree = Node(Tree, Tree) | Tip
+fn check_tree(tree: Tree) -> Int {
+    match tree {
+        Node(left, right) -> check_tree(left) + check_tree(right) + 1,
+        Tip -> 0,
+    }
+}
+"#;
+
+fn with_tree_walk(rest: &str) -> String {
+    format!("{TREE_WALK}{rest}\nfn main() {{ check_tree(Tip) }}\n")
+}
+
+#[test]
+fn a_walker_that_hands_its_fields_on_is_a_candidate() {
+    assert_eq!(candidates_in(&with_tree_walk(""), "check_tree"), [0]);
+}
+
+#[test]
+fn a_lookup_is_a_candidate_though_its_callers_may_keep_the_tree() {
+    let src = with_tree_walk(
+        r#"
+fn leftmost(tree: Tree, depth: Int) -> Int {
+    match tree {
+        Node(left, _) -> leftmost(left, depth + 1),
+        Tip -> depth,
+    }
+}
+"#,
+    );
+    assert_eq!(candidates_in(&src, "leftmost"), [0]);
+}
+
+#[test]
+fn walkers_that_call_each_other_qualify_together() {
+    let src = with_tree_walk(
+        r#"
+fn even_walk(tree: Tree) -> Int {
+    match tree {
+        Node(left, right) -> odd_walk(left) + odd_walk(right) + 1,
+        Tip -> 0,
+    }
+}
+fn odd_walk(tree: Tree) -> Int {
+    match tree {
+        Node(left, right) -> even_walk(left) + even_walk(right),
+        Tip -> 0,
+    }
+}
+"#,
+    );
+    assert_eq!(candidates_in(&src, "even_walk"), [0]);
+    assert_eq!(candidates_in(&src, "odd_walk"), [0]);
+}
+
+#[test]
+fn both_parameters_of_a_walk_over_two_trees_are_candidates() {
+    let src = with_tree_walk(
+        r#"
+fn same(a: Tree, b: Tree) -> Bool {
+    match a {
+        Node(a_left, a_right) -> match b {
+            Node(b_left, b_right) -> same(a_left, b_left) && same(a_right, b_right),
+            Tip -> false,
+        },
+        Tip -> match b {
+            Tip -> true,
+            _ -> false,
+        },
+    }
+}
+"#,
+    );
+    assert_eq!(candidates_in(&src, "same"), [0, 1]);
+}
+
+/// A field handed to a function that is only a candidate because of its own fields.
+#[test]
+fn a_field_handed_to_a_candidate_makes_its_parent_one() {
+    let src = with_tree_walk(
+        r#"
+fn left_size(tree: Tree) -> Int {
+    match tree {
+        Node(left, _) -> check_tree(left),
+        Tip -> 0,
+    }
+}
+"#,
+    );
+    assert_eq!(candidates_in(&src, "left_size"), [0]);
+}
+
+#[test]
+fn a_parameter_a_guard_reads_is_no_candidate() {
+    let src = with_tree_walk(
+        r#"
+fn is_tip(tree: Tree) -> Bool {
+    match tree {
+        Tip -> true,
+        _ -> false,
+    }
+}
+fn guarded(tree: Tree) -> Int {
+    match tree {
+        Node(left, _) if is_tip(tree) -> guarded(left),
+        Node(left, _) -> guarded(left) + 1,
+        Tip -> 0,
+    }
+}
+"#,
+    );
+    assert_eq!(candidates_in(&src, "guarded"), Vec::<usize>::new());
+}
+
+#[test]
+fn a_parameter_a_primop_reads_is_no_candidate() {
+    let src = r#"
+fn walk(xs: List<Int>) -> Int {
+    let n = len(xs)
+    match xs {
+        [_ | rest] -> walk(rest) + n,
+        _ -> 0,
+    }
+}
+fn main() { walk([1]) }
+"#;
+    assert_eq!(candidates_in(src, "walk"), Vec::<usize>::new());
+}
+
+/// The lambda holds a field and may run later, or twice, so nothing here is a last
+/// reference, though the field does reach a candidate position.
+#[test]
+fn a_function_with_a_lambda_is_no_candidate() {
+    let src = with_tree_walk(
+        r#"
+type Later = Held((Int) -> Int)
+fn delayed(tree: Tree) -> Later {
+    match tree {
+        Node(left, _) -> Held(\x -> x + check_tree(left)),
+        Tip -> Held(\x -> x),
+    }
+}
+"#,
+    );
+    assert_eq!(candidates_in(&src, "delayed"), Vec::<usize>::new());
+}
+
+/// A constructor isn't a function call with an effect to look for.
+#[test]
+fn a_function_that_builds_a_constructor_is_a_candidate() {
+    let src = with_tree_walk(
+        r#"
+type Sized = Measured(Int)
+fn measured(tree: Tree) -> Sized {
+    match tree {
+        Node(left, _) -> Measured(check_tree(left)),
+        Tip -> Measured(0),
+    }
+}
+"#,
+    );
+    assert_eq!(candidates_in(&src, "measured"), [0]);
+}
+
+/// Turns the first call in `expr` into a call to a name nothing binds, as one to
+/// another module can be.
+fn unresolve_first_call(expr: &mut flux::core::CoreExpr, name: flux::syntax::Identifier) -> bool {
+    use flux::core::CoreExpr as E;
+    match expr {
+        E::App { func, .. } => match func.as_mut() {
+            E::Var { var, .. } if var.binder.is_some() => {
+                *var = flux::core::CoreVarRef::unresolved(name);
+                true
+            }
+            _ => false,
+        },
+        E::Lam { body, .. } => unresolve_first_call(body, name),
+        E::Let { rhs, body, .. } => {
+            unresolve_first_call(rhs, name) || unresolve_first_call(body, name)
+        }
+        E::Case { alts, .. } => alts.iter_mut().any(|alt| unresolve_first_call(&mut alt.rhs, name)),
+        E::PrimOp { args, .. } => args.iter_mut().any(|arg| unresolve_first_call(arg, name)),
+        _ => false,
+    }
+}
+
+/// `check_tree` still hands a field to itself through its other call, so E4 is the
+/// only reason left.
+#[test]
+fn a_function_that_calls_a_name_it_cannot_see_is_no_candidate() {
+    let (aether, mut interner) = lowered_core_and_interner(with_tree_walk(""));
+    let mut core = aether.as_core().clone();
+    let symbol = interner.lookup("check_tree").expect("the program binds it");
+    let mystery = interner.intern("mystery");
+    let def = core.defs.iter_mut().find(|def| def.name == symbol).expect("a definition");
+    assert!(unresolve_first_call(&mut def.expr, mystery));
+    assert_eq!(candidates_of(&core, &interner, "check_tree"), Vec::<usize>::new());
+}
+
+#[test]
+fn a_function_that_performs_is_no_candidate() {
+    let src = with_tree_walk(
+        r#"
+effect Note {
+    note : () -> Int
+}
+fn noted(tree: Tree) -> Int with Note {
+    match tree {
+        Node(left, _) -> noted(left) + perform Note.note(),
+        Tip -> 0,
+    }
+}
+"#,
+    );
+    assert_eq!(candidates_in(&src, "noted"), Vec::<usize>::new());
+}
+
+/// E4 follows calls: this walker performs nothing itself.
+#[test]
+fn a_function_that_calls_one_that_performs_is_no_candidate() {
+    let src = with_tree_walk(
+        r#"
+effect Note {
+    note : () -> Int
+}
+fn noted() -> Int with Note { perform Note.note() }
+fn calls_noted(tree: Tree) -> Int with Note {
+    match tree {
+        Node(left, _) -> calls_noted(left) + noted(),
+        Tip -> 0,
+    }
+}
+"#,
+    );
+    assert_eq!(candidates_in(&src, "calls_noted"), Vec::<usize>::new());
+}
+
+#[test]
+fn a_function_that_calls_a_parameter_is_no_candidate() {
+    let src = with_tree_walk(
+        r#"
+fn mapped(tree: Tree, f: (Int) -> Int) -> Int {
+    match tree {
+        Node(left, _) -> f(mapped(left, f)),
+        Tip -> 0,
+    }
+}
+"#,
+    );
+    assert_eq!(candidates_in(&src, "mapped"), Vec::<usize>::new());
+}
+
+#[test]
+fn a_function_over_the_size_limit_is_no_candidate() {
+    let sum = vec!["1"; 300].join(" + ");
+    let src = with_tree_walk(&format!(
+        r#"
+fn large(tree: Tree) -> Int {{
+    match tree {{
+        Node(left, _) -> large(left) + {sum},
+        Tip -> 0,
+    }}
+}}
+"#
+    ));
+    assert_eq!(candidates_in(&src, "large"), Vec::<usize>::new());
+}
+
+#[test]
+fn an_arm_whose_field_is_used_twice_makes_no_candidate() {
+    let src = with_tree_walk(
+        r#"
+fn twice(tree: Tree) -> Int {
+    match tree {
+        Node(left, _) -> twice(left) + twice(left),
+        Tip -> 0,
+    }
+}
+"#,
+    );
+    assert_eq!(candidates_in(&src, "twice"), Vec::<usize>::new());
+}
+
+/// Drop specialization leaves a nested pattern alone, so the clone couldn't free
+/// the cell it reads.
+#[test]
+fn an_arm_with_a_nested_pattern_makes_no_candidate() {
+    let src = r#"
+fn nested(xs: List<(Int, Int)>) -> Int {
+    match xs {
+        [(a, _) | rest] -> nested(rest) + a,
+        _ -> 0,
+    }
+}
+fn main() { nested([(1, 2)]) }
+"#;
+    assert_eq!(candidates_in(src, "nested"), Vec::<usize>::new());
+}
+
+/// The fixpoint: `outer` hands a field to `middle`, which hands one to `reads`, which
+/// isn't a candidate. So neither of the first two is.
+#[test]
+fn losing_a_candidate_takes_its_callers_with_it() {
+    let src = r#"
+fn outer(xsss: List<List<List<Int>>>) -> Int {
+    match xsss {
+        [xss | _] -> middle(xss),
+        _ -> 0,
+    }
+}
+fn middle(xss: List<List<Int>>) -> Int {
+    match xss {
+        [xs | _] -> reads(xs),
+        _ -> 0,
+    }
+}
+fn reads(xs: List<Int>) -> Int { len(xs) }
+fn main() { outer([[[1]]]) }
+"#;
+    assert_eq!(candidates_in(src, "reads"), Vec::<usize>::new());
+    assert_eq!(candidates_in(src, "middle"), Vec::<usize>::new());
+    assert_eq!(candidates_in(src, "outer"), Vec::<usize>::new());
+}
+
+/// Every read of `tree` is a scrutinee and its fields go to a candidate position, but
+/// the arm rebuilds the cell, so inference makes it owned already.
+#[test]
+fn a_parameter_only_taken_apart_but_inferred_owned_is_no_candidate() {
+    let src = with_tree_walk(
+        r#"
+fn mirror(tree: Tree) -> Tree {
+    match tree {
+        Node(left, right) -> Node(mirror(right), mirror(left)),
+        Tip -> Tip,
+    }
+}
+"#,
+    );
+    assert_eq!(candidates_in(&src, "mirror"), Vec::<usize>::new());
+}
+
+/// The fixture's `nodes`: the `Tip` arm stores the tree, so the parameter is owned
+/// already and needs no clone.
+#[test]
+fn a_parameter_inferred_owned_is_no_candidate() {
+    let src = with_tree_walk(
+        r#"
+fn nodes(tree: Tree) -> Int {
+    match tree {
+        Node(left, right) -> check_tree(left) + nodes(right) + 1,
+        Tip -> len([tree]) - 1,
+    }
+}
+"#,
+    );
+    assert_eq!(candidates_in(&src, "nodes"), Vec::<usize>::new());
+}
+
+/// The flags and names E1 reads, set by hand on a function that otherwise qualifies:
+/// the source can't always spell them.
+#[test]
+fn main_a_dictionary_an_anonymous_def_and_an_unboxed_parameter_are_no_candidates() {
+    let (aether, mut interner) = lowered_core_and_interner(with_tree_walk(""));
+    let core = aether.as_core().clone();
+    let symbol = interner.lookup("check_tree").expect("the program binds it");
+    let position = core.defs.iter().position(|def| def.name == symbol).expect("a definition");
+    let qualifies = |core: &CoreProgram, interner: &Interner| {
+        flux::aether::owned_clone::candidates(core, interner)
+            .contains_key(&core.defs[position].binder.id)
+    };
+    assert!(qualifies(&core, &interner));
+
+    let mut dictionary = core.clone();
+    dictionary.defs[position].is_dict_def = true;
+    assert!(!qualifies(&dictionary, &interner));
+
+    let mut anonymous = core.clone();
+    anonymous.defs[position].is_anonymous = true;
+    assert!(!qualifies(&anonymous, &interner));
+
+    let mut unboxed = core.clone();
+    let flux::core::CoreExpr::Lam { params, .. } = &mut unboxed.defs[position].expr else {
+        panic!("a function");
+    };
+    params[0].rep = flux::core::FluxRep::IntRep;
+    assert!(!qualifies(&unboxed, &interner));
+
+    let mut named_main = core.clone();
+    named_main.defs[position].name = interner.intern("main");
+    assert!(!qualifies(&named_main, &interner));
+}
+
+/// A program lowered as a native build lowers it, with clones (proposal 0200 C2).
+fn lowered_with_clones(src: impl AsRef<str>) -> (AetherProgram, Interner) {
+    let (program, types, mut interner) = parse_and_infer(src.as_ref());
+    let mut core = lower_program_ast(&program, &types);
+    run_core_passes_with_interner(&mut core, &interner, false).expect("core passes should succeed");
+    let compiler = Compiler::new_with_interner("<test>", interner.clone());
+    let preloaded_registry = compiler.build_preloaded_borrow_registry(&program);
+    let mut names = HashMap::new();
+    for def in &core.defs {
+        let clone = flux::aether::owned_clone::owned_clone_name(interner.resolve(def.name));
+        let clone = interner.intern(&clone);
+        names.insert(def.name, clone);
+    }
+    let (aether, _warnings) =
+        lower_core_to_native_aether_program(&core, Some(&interner), preloaded_registry, &names)
+            .expect("aether lowering should succeed");
+    (aether, interner)
+}
+
+fn def_named<'a>(
+    aether: &'a AetherProgram,
+    interner: &Interner,
+    name: &str,
+) -> Option<&'a AetherDef> {
+    aether.defs.iter().find(|def| interner.resolve(def.name) == name)
+}
+
+/// The names `name` calls, in no particular order.
+fn callees_of(aether: &AetherProgram, interner: &Interner, name: &str) -> Vec<String> {
+    let def = def_named(aether, interner, name).unwrap_or_else(|| panic!("no `{name}`"));
+    collect_core_exprs(&def.expr)
+        .into_iter()
+        .filter_map(|expr| match expr {
+            CoreExpr::AetherCall { func, .. } => match func.as_ref() {
+                CoreExpr::Var { var, .. } => Some(interner.resolve(var.name).to_string()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect()
+}
+
+fn drops_named(def: &AetherDef, interner: &Interner, name: &str) -> usize {
+    let name = interner.lookup(name).unwrap_or_else(|| panic!("the program binds `{name}`"));
+    count_matching(
+        &def.expr,
+        &|expr| matches!(expr, CoreExpr::Drop { var, .. } if var.name == name),
+    )
+}
+
+const CLONE_BASE: &str = r#"
+type Tree = Node(Tree, Tree) | Tip
+fn make_tree(depth: Int) -> Tree {
+    if depth > 0 { Node(make_tree(depth - 1), make_tree(depth - 1)) } else { Node(Tip, Tip) }
+}
+fn check_tree(tree: Tree) -> Int {
+    match tree {
+        Node(left, right) -> check_tree(left) + check_tree(right) + 1,
+        Tip -> 0,
+    }
+}
+"#;
+
+fn with_clone_base(rest: &str) -> String {
+    format!("{CLONE_BASE}{rest}\n")
+}
+
+/// The main case: the tree is dead after the walk, so the walk frees it and the
+/// caller has nothing left to release.
+#[test]
+fn a_last_reference_goes_to_the_clone_with_no_release_after() {
+    let src = with_clone_base(
+        r#"
+fn sum_trees(iterations: Int, depth: Int, acc: Int) -> Int {
+    if iterations <= 0 {
+        acc
+    } else {
+        let tree = make_tree(depth)
+        sum_trees(iterations - 1, depth, acc + check_tree(tree))
+    }
+}
+fn main() { sum_trees(1, 1, 0) }
+"#,
+    );
+    let (aether, interner) = lowered_with_clones(src);
+    assert!(callees_of(&aether, &interner, "sum_trees").contains(&"check_tree$own".to_string()));
+    assert!(!callees_of(&aether, &interner, "sum_trees").contains(&"check_tree".to_string()));
+    let sum_trees = def_named(&aether, &interner, "sum_trees").expect("sum_trees");
+    assert_eq!(drops_named(sum_trees, &interner, "tree"), 0);
+    assert!(flux::aether::verify::verify_contract_aether(&sum_trees.expr).is_ok());
+}
+
+/// A clone frees each cell as it reads it, and hands its fields on to itself. A
+/// shared value goes to the original instead (0200 C3).
+#[test]
+fn a_clone_frees_its_cell_on_the_unique_path_and_calls_itself() {
+    let src = with_clone_base("fn main() { check_tree(make_tree(1)) }");
+    let (aether, interner) = lowered_with_clones(src);
+    let clone = def_named(&aether, &interner, "check_tree$own").expect("a clone");
+    assert_eq!(
+        clone.owned_clone_of,
+        Some(def_named(&aether, &interner, "check_tree").expect("the original").binder.id)
+    );
+    let mut callees = callees_of(&aether, &interner, "check_tree$own");
+    callees.sort();
+    assert_eq!(callees, ["check_tree", "check_tree$own", "check_tree$own"]);
+    let frees = count_matching(&clone.expr, &|expr| matches!(expr, CoreExpr::FreeShell { .. }));
+    assert_eq!(frees, 1, "{:?}", clone.expr);
+    assert!(flux::aether::verify::verify_contract_aether(&clone.expr).is_ok());
+}
+
+/// A clone given a shared value walks it with the original, which only reads,
+/// and then releases its own reference once (0200 C3). Recursing into the
+/// clone would copy both fields and write every cell of the shared tree.
+#[test]
+fn a_clone_given_a_shared_value_walks_it_with_the_original() {
+    use flux::aether::borrow_infer::BorrowMode;
+
+    let src = with_clone_base("fn main() { check_tree(make_tree(1)) }");
+    let (aether, interner) = lowered_with_clones(src);
+    let clone = def_named(&aether, &interner, "check_tree$own").expect("a clone");
+    let tree = interner.lookup("tree").expect("the parameter");
+
+    let shared: Vec<&CoreExpr> = collect_core_exprs(&clone.expr)
+        .into_iter()
+        .filter_map(|expr| match expr {
+            CoreExpr::DropSpecialized { shared_body, .. } => Some(shared_body.as_ref()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(shared.len(), 1, "{:?}", clone.expr);
+    let shared = shared[0];
+
+    let calls: Vec<(String, Vec<BorrowMode>, bool)> = collect_core_exprs(shared)
+        .into_iter()
+        .filter_map(|expr| match expr {
+            CoreExpr::AetherCall { func, args, arg_modes, .. } => match func.as_ref() {
+                CoreExpr::Var { var, .. } => Some((
+                    interner.resolve(var.name).to_string(),
+                    arg_modes.clone(),
+                    matches!(args.first(), Some(CoreExpr::Var { var, .. }) if var.name == tree),
+                )),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    assert_eq!(calls, [("check_tree".to_string(), vec![BorrowMode::Borrowed], true)], "{shared:?}");
+    let dups = count_matching(shared, &|expr| matches!(expr, CoreExpr::Dup { .. }));
+    assert_eq!(dups, 0, "{shared:?}");
+    let drops = count_matching(
+        shared,
+        &|expr| matches!(expr, CoreExpr::Drop { var, .. } if var.name == tree),
+    );
+    assert_eq!(drops, 1, "{shared:?}");
+    assert_eq!(
+        flux::aether::verify::verify_def_contract_aether(
+            &clone.expr,
+            clone.borrow_signature.as_ref()
+        ),
+        Ok(())
+    );
+}
+
+/// The original stays as it was, for callers that keep the value.
+#[test]
+fn a_call_that_keeps_the_value_stays_on_the_original() {
+    let src = with_clone_base(
+        r#"
+fn keeps(depth: Int) -> Int {
+    let tree = make_tree(depth)
+    let first = check_tree(tree)
+    first + check_tree(tree)
+}
+fn main() { keeps(1) }
+"#,
+    );
+    let (aether, interner) = lowered_with_clones(src);
+    let mut calls = callees_of(&aether, &interner, "keeps");
+    calls.retain(|f| f.starts_with("check_tree"));
+    calls.sort();
+    assert_eq!(calls, ["check_tree", "check_tree$own"]);
+}
+
+#[test]
+fn a_value_passed_twice_stays_on_the_original() {
+    let src = with_clone_base(
+        r#"
+fn same(a: Tree, b: Tree) -> Bool {
+    match a {
+        Node(a_left, _) -> match b {
+            Node(b_left, _) -> same(a_left, b_left),
+            Tip -> false,
+        },
+        Tip -> true,
+    }
+}
+fn twice(depth: Int) -> Bool {
+    let tree = make_tree(depth)
+    same(tree, tree)
+}
+fn main() { twice(1) }
+"#,
+    );
+    let (aether, interner) = lowered_with_clones(src);
+    assert!(callees_of(&aether, &interner, "twice").contains(&"same".to_string()));
+}
+
+/// A parameter the caller lends isn't this function's to give away.
+#[test]
+fn a_borrowed_parameter_stays_on_the_original() {
+    let src = with_clone_base(
+        r#"
+fn lent(tree: Tree) -> Int { check_tree(tree) + 1 }
+fn main() { lent(make_tree(1)) }
+"#,
+    );
+    let (aether, interner) = lowered_with_clones(src);
+    assert!(callees_of(&aether, &interner, "lent").contains(&"check_tree".to_string()));
+}
+
+/// `kept` holds a field of a value the caller lent, so the field is only a view.
+#[test]
+fn a_field_of_a_borrowed_value_stays_on_the_original() {
+    let src = with_clone_base(
+        r#"
+fn kept(pair: (Tree, Int)) -> Int {
+    match pair {
+        (tree, n) -> check_tree(tree) + n,
+    }
+}
+fn main() { kept((make_tree(1), 1)) }
+"#,
+    );
+    let (aether, interner) = lowered_with_clones(src);
+    assert!(callees_of(&aether, &interner, "kept").contains(&"check_tree".to_string()));
+}
+
+/// A view read out of the value is still used after the call, and would go with it.
+#[test]
+fn a_value_whose_view_is_still_live_stays_on_the_original() {
+    let src = with_clone_base(
+        r#"
+fn left_of(tree: Tree) -> Tree {
+    match tree {
+        Node(left, _) -> left,
+        Tip -> Tip,
+    }
+}
+fn view_live(depth: Int) -> Int {
+    let pair = (make_tree(depth), 1)
+    let tree = pair.0
+    let first = check_tree(tree)
+    first + pair.1
+}
+fn main() { view_live(1) + check_tree(left_of(make_tree(1))) }
+"#,
+    );
+    let (aether, interner) = lowered_with_clones(src);
+    assert!(callees_of(&aether, &interner, "view_live").contains(&"check_tree".to_string()));
+}
+
+/// A field read out of the value is still used after the call, and would go with it.
+#[test]
+fn a_value_whose_field_is_still_live_stays_on_the_original() {
+    let src = with_clone_base(
+        r#"
+fn field_live(depth: Int) -> Int {
+    let tree = make_tree(depth)
+    match tree {
+        Node(left, _) -> check_tree(tree) + check_tree(left),
+        Tip -> 0,
+    }
+}
+fn main() { field_live(1) }
+"#,
+    );
+    let (aether, interner) = lowered_with_clones(src);
+    assert!(callees_of(&aether, &interner, "field_live").contains(&"check_tree".to_string()));
+}
+
+/// The value came out of a branch, so it may be one something else holds too.
+#[test]
+fn a_value_this_function_did_not_make_stays_on_the_original() {
+    let src = with_clone_base(
+        r#"
+fn keep(tree: Tree) -> List<Tree> { [tree] }
+fn pick(a: Tree, b: Tree, left: Bool) -> Int {
+    let kept = keep(a)
+    let chosen = if left { a } else { b }
+    let size = check_tree(chosen)
+    size + len(kept) + len(keep(b))
+}
+fn main() { pick(make_tree(1), make_tree(1), true) }
+"#,
+    );
+    let (aether, interner) = lowered_with_clones(src);
+    assert!(callees_of(&aether, &interner, "pick").contains(&"check_tree".to_string()));
+}
+
+/// Both parameters have to hand over: the second is still needed afterwards.
+#[test]
+fn a_call_needs_every_position_to_hand_over() {
+    let src = with_clone_base(
+        r#"
+fn same(a: Tree, b: Tree) -> Bool {
+    match a {
+        Node(a_left, a_right) -> match b {
+            Node(b_left, b_right) -> same(a_left, b_left) && same(a_right, b_right),
+            Tip -> false,
+        },
+        Tip -> match b {
+            Tip -> true,
+            _ -> false,
+        },
+    }
+}
+fn one_kept(depth: Int) -> Int {
+    let a = make_tree(depth)
+    let b = make_tree(depth)
+    if same(a, b) { check_tree(b) } else { 0 }
+}
+fn both_dead(depth: Int) -> Bool {
+    let a = make_tree(depth)
+    let b = make_tree(depth)
+    same(a, b)
+}
+fn main() { if both_dead(1) { one_kept(1) } else { 0 } }
+"#,
+    );
+    let (aether, interner) = lowered_with_clones(src);
+    assert!(callees_of(&aether, &interner, "both_dead").contains(&"same$own".to_string()));
+    assert!(callees_of(&aether, &interner, "one_kept").contains(&"same".to_string()));
+}
+
+/// A closure holds the tree, so the name's last use isn't the last reference.
+#[test]
+fn a_value_a_closure_holds_stays_on_the_original() {
+    let src = with_clone_base(
+        r#"
+fn closed(depth: Int) -> Int {
+    let tree = make_tree(depth)
+    let read = \() -> check_tree(tree)
+    read() + 1
+}
+fn main() { closed(1) }
+"#,
+    );
+    let (aether, interner) = lowered_with_clones(src);
+    let lambda_calls: Vec<String> = aether
+        .defs
+        .iter()
+        .flat_map(|def| collect_core_exprs(&def.expr))
+        .filter_map(|expr| match expr {
+            CoreExpr::Lam { body, .. } => Some(collect_core_exprs(body)),
+            _ => None,
+        })
+        .flatten()
+        .filter_map(|expr| match expr {
+            CoreExpr::AetherCall { func, .. } => match func.as_ref() {
+                CoreExpr::Var { var, .. } => Some(interner.resolve(var.name).to_string()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    assert!(lambda_calls.contains(&"check_tree".to_string()), "{lambda_calls:?}");
+    assert!(!lambda_calls.contains(&"check_tree$own".to_string()), "{lambda_calls:?}");
+}
+
+/// `right` is used twice, so the arm doesn't claim its cell and the clone would free
+/// nothing as it reads: it only adds code.
+#[test]
+fn a_clone_that_cannot_free_is_removed() {
+    let src = with_clone_base(
+        r#"
+fn uses_twice(tree: Tree) -> Int {
+    match tree {
+        Node(left, right) -> uses_twice(left) + check_tree(right) + check_tree(right),
+        Tip -> 0,
+    }
+}
+fn main() { uses_twice(make_tree(1)) }
+"#,
+    );
+    let (aether, interner) = lowered_with_clones(src);
+    assert!(def_named(&aether, &interner, "uses_twice$own").is_none());
+    assert!(callees_of(&aether, &interner, "main").contains(&"uses_twice".to_string()));
+}
+
+/// Nothing hands `leftmost` a last reference, so its clone is left out.
+#[test]
+fn a_clone_nothing_reaches_is_removed() {
+    let src = with_clone_base(
+        r#"
+fn leftmost(tree: Tree, depth: Int) -> Int {
+    match tree {
+        Node(left, _) -> leftmost(left, depth + 1),
+        Tip -> depth,
+    }
+}
+fn keeps(depth: Int) -> Int {
+    let tree = make_tree(depth)
+    let found = leftmost(tree, 0)
+    found + len([tree])
+}
+fn main() { keeps(1) }
+"#,
+    );
+    let (aether, interner) = lowered_with_clones(src);
+    assert!(def_named(&aether, &interner, "leftmost$own").is_none());
+}
+
+/// Unreached by any original, except through another clone.
+#[test]
+fn a_clone_only_another_clone_reaches_is_kept() {
+    let src = with_clone_base(
+        r#"
+fn left_size(tree: Tree) -> Int {
+    match tree {
+        Node(left, _) -> check_tree(left),
+        Tip -> 0,
+    }
+}
+fn main() { left_size(make_tree(1)) }
+"#,
+    );
+    let (aether, interner) = lowered_with_clones(src);
+    assert!(def_named(&aether, &interner, "left_size$own").is_some());
+    assert!(def_named(&aether, &interner, "check_tree$own").is_some());
+    assert!(
+        callees_of(&aether, &interner, "left_size$own").contains(&"check_tree$own".to_string())
+    );
+}
+
+/// The self call must stay a self call, which is what LIR turns into a jump.
+#[test]
+fn a_tail_call_in_a_clone_calls_the_clone() {
+    let src = with_clone_base(
+        r#"
+fn leftmost(tree: Tree, depth: Int) -> Int {
+    match tree {
+        Node(left, _) -> leftmost(left, depth + 1),
+        Tip -> depth,
+    }
+}
+fn main() { leftmost(make_tree(1), 0) }
+"#,
+    );
+    let (aether, interner) = lowered_with_clones(src);
+    // The unique path calls the clone. The shared path calls the clone too, or
+    // the original once C3 can lend it the value, which needs `depth` to take
+    // no count; a native build gives an `Int` parameter `IntRep`, this harness
+    // doesn't.
+    let callees = callees_of(&aether, &interner, "leftmost$own");
+    assert_eq!(callees.len(), 2, "{callees:?}");
+    assert!(callees.contains(&"leftmost$own".to_string()), "{callees:?}");
+    assert!(callees.iter().all(|f| f == "leftmost$own" || f == "leftmost"), "{callees:?}");
+}
+
+/// Only a native build makes clones: the VM's values are `Rc`s, so one gains nothing.
+#[test]
+fn the_vm_lowering_makes_no_clone() {
+    let src = with_clone_base("fn main() { check_tree(make_tree(1)) }");
+    let aether = lowered_core(src);
+    assert!(aether.defs.iter().all(|def| def.owned_clone_of.is_none()));
+}
+
+/// Merged into one program, a function in a module can call its own name and carry the
+/// binder of another function with that name, and LIR puts it right by name. A clone's
+/// name would have only one function to resolve to, so this call would reach `walk` over
+/// the tree with a list. So neither gets a clone.
+#[test]
+fn a_function_sharing_its_name_gets_no_clone() {
+    let src = with_clone_base(
+        r#"
+module Lists {
+    public fn walk(xs: List<Int>, acc: Int) -> Int {
+        match xs {
+            [_ | rest] -> walk(rest, acc + 1),
+            _ -> acc,
+        }
+    }
+}
+fn walk(tree: Tree, acc: Int) -> Int {
+    match tree {
+        Node(left, _) -> walk(left, acc + 1),
+        Tip -> acc,
+    }
+}
+fn main() { walk(make_tree(1), Lists.walk([1, 2], 0)) }
+"#,
+    );
+    let (aether, interner) = lowered_with_clones(src);
+    assert!(def_named(&aether, &interner, "walk$own").is_none());
+    let found = flux::aether::owned_clone::candidates(aether.as_core(), &interner);
+    let walk = interner.lookup("walk").expect("the program binds it");
+    assert!(
+        aether
+            .as_core()
+            .defs
+            .iter()
+            .filter(|def| def.name == walk)
+            .all(|def| !found.contains_key(&def.binder.id))
+    );
+}
+
+/// Each `Dup` and `Drop` of the binder named `name` in `name`'s function
+/// `def`, in plan order: `true` for a dup.
+fn rc_ops_on(aether: &AetherProgram, interner: &Interner, def: &str, name: &str) -> Vec<bool> {
+    let def = def_named(aether, interner, def).unwrap_or_else(|| panic!("no `{def}`"));
+    let name = interner.lookup(name).expect("the program binds it");
+    collect_core_exprs(&def.expr)
+        .into_iter()
+        .filter_map(|expr| match expr {
+            CoreExpr::Dup { var, .. } if var.name == name => Some(true),
+            CoreExpr::Drop { var, .. } if var.name == name => Some(false),
+            _ => None,
+        })
+        .collect()
+}
+
+/// KI-172: a `let` nobody reads still releases its value, so the value is
+/// owned. An owned parameter one branch returns moves into it, and is not
+/// released before the branch reads it.
+#[test]
+fn a_dead_let_takes_over_an_owned_parameter_its_branch_returns() {
+    let src = r#"
+fn f(s: String, b: Bool) -> Int {
+    let v: String = if b { s } else { "y" };
+    1
+}
+fn main() { f(to_string(5) + "a", true) }
+"#;
+    let (aether, interner) = lowered_with_clones(src);
+    let f = def_named(&aether, &interner, "f").expect("f");
+    assert_eq!(rc_ops_on(&aether, &interner, "f", "s"), [false], "{:?}", f.expr);
+    assert_eq!(
+        flux::aether::verify::verify_def_contract_aether(&f.expr, f.borrow_signature.as_ref()),
+        Ok(())
+    );
+}
+
+/// KI-172: a parameter read after a dead `let` whose branch returns it is
+/// copied for the `let`, which releases its value. Taking it makes the
+/// parameter owned, so it is released once more after the read; borrowed, it
+/// would be the caller's to release.
+#[test]
+fn a_dead_let_copies_a_parameter_its_branch_returns_and_read_later() {
+    use flux::aether::borrow_infer::BorrowMode;
+
+    let src = r#"
+fn f(s: String, b: Bool) -> Int {
+    let v: String = if b { s } else { "y" };
+    len(s)
+}
+fn main() { f(to_string(5) + "a", true) }
+"#;
+    let (aether, interner) = lowered_with_clones(src);
+    let f = def_named(&aether, &interner, "f").expect("f");
+    let owned = f.borrow_signature.as_ref().is_none_or(|sig| sig.params[0] == BorrowMode::Owned);
+    let expected: &[bool] = if owned { &[true, false] } else { &[true] };
+    assert_eq!(rc_ops_on(&aether, &interner, "f", "s"), expected, "{:?}", f.expr);
+    assert_eq!(
+        flux::aether::verify::verify_def_contract_aether(&f.expr, f.borrow_signature.as_ref()),
+        Ok(())
+    );
 }

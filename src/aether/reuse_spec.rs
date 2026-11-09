@@ -166,6 +166,9 @@ fn specialize_with_env(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
         CoreExpr::Drop { var, body, span } => {
             CoreExpr::Drop { var, body: Box::new(specialize_with_env(*body, env)), span }
         }
+        CoreExpr::FreeShell { var, body, span } => {
+            CoreExpr::FreeShell { var, body: Box::new(specialize_with_env(*body, env)), span }
+        }
         CoreExpr::Reuse { token, tag, fields, field_mask: _, span } => {
             let fields: Vec<CoreExpr> =
                 fields.into_iter().map(|field| specialize_with_env(field, env)).collect();
@@ -337,6 +340,11 @@ fn specialize_with_env_aether(expr: CoreExpr, env: &ReuseEnv) -> CoreExpr {
         AetherExpr::Drop { var, body, span } => {
             AetherExpr::Drop { var, body: Box::new(specialize_with_env_aether(*body, env)), span }
         }
+        AetherExpr::FreeShell { var, body, span } => AetherExpr::FreeShell {
+            var,
+            body: Box::new(specialize_with_env_aether(*body, env)),
+            span,
+        },
         AetherExpr::Reuse { token, tag, fields, field_mask: _, span } => {
             let fields: Vec<AetherExpr> =
                 fields.into_iter().map(|field| specialize_with_env_aether(field, env)).collect();
