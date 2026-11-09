@@ -20,9 +20,9 @@ type CoreExpr = AetherExpr;
 /// Temporaries this pass makes take ids from here up, far above any binder
 /// lowering makes: one is only read in the function it is bound in, so it
 /// can never shadow a real binder there.
-const FIRST_TEMP_ID: u32 = 0xF000_0000;
+pub(super) const FIRST_TEMP_ID: u32 = 0xF000_0000;
 /// Their names, past the evidence pass's (`6_000_000 + id`).
-const FIRST_TEMP_SYMBOL: u32 = 7_000_000;
+pub(super) const FIRST_TEMP_SYMBOL: u32 = 7_000_000;
 
 /// The binders in scope, by id, and the function's Borrowed parameters.
 #[derive(Default)]

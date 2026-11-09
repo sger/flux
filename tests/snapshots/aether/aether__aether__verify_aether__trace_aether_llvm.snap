@@ -169,7 +169,7 @@ lam() ->
           ProcRun(__arg0#63, __arg1#64)
         aether_call[owned] __resume_default#65(<sym:4000126>#126)
 ── fn my_len$own ──
-  Dups: 1  Drops: 3  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
+  Dups: 0  Drops: 3  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 1  FreeShells: 1
   FreshAllocs: 0
   verifier: ok
 lam(xs) ->
@@ -183,17 +183,16 @@ lam(xs) ->
                 aether_call[owned] my_len$own#127(t#16)
               IAdd(1, <sym:4000069>#69)
         shared ->
-          dup t#16 in
-            drop xs#15 in
-              let <sym:4000069> =
-                aether_call[owned] my_len$own#127(t#16)
-              IAdd(1, <sym:4000069>#69)
+          let <sym:7000000> =
+            aether_call[borrowed] my_len#14(xs#15)
+          drop xs#15 in
+            <sym:7000000>#4026531840
       }
     _ ->
       drop xs#15 in
         0
 ── fn my_sum$own ──
-  Dups: 1  Drops: 2  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 1  FreeShells: 1
   FreshAllocs: 0
   verifier: ok
 lam(xs) ->
@@ -206,18 +205,17 @@ lam(xs) ->
               aether_call[owned] my_sum$own#128(t#25)
             IAdd(h#24, <sym:4000072>#72)
         shared ->
-          dup t#25 in
-            drop xs#23 in
-              let <sym:4000072> =
-                aether_call[owned] my_sum$own#128(t#25)
-              IAdd(h#24, <sym:4000072>#72)
+          let <sym:7000000> =
+            aether_call[borrowed] my_sum#22(xs#23)
+          drop xs#23 in
+            <sym:7000000>#4026531840
       }
     _ ->
       drop xs#23 in
         0
 
 ── Total ──
-  Dups: 11  Drops: 56  Reuses: 4  DropSpecs: 5  BorrowedCallGuards: 0  FBIP: fbip(3)  FreeShells: 2  Yields: 0  Handles: 5  HandlerArms: 11
+  Dups: 9  Drops: 56  Reuses: 4  DropSpecs: 5  BorrowedCallGuards: 2  FBIP: fbip(3)  FreeShells: 2  Yields: 0  Handles: 5  HandlerArms: 11
   FreshAllocs: 3
 
 [2, 4, 6]

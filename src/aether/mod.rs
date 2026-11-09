@@ -923,6 +923,28 @@ pub fn run_aether_def_with_registry(
     registry: &borrow_infer::BorrowRegistry,
     signature: Option<&borrow_infer::BorrowSignature>,
 ) -> AetherExpr {
+    held::annotate_owned_after(plan_def_until_held(expr, registry, signature))
+}
+
+/// [`run_aether_def_with_registry`] for the consuming clone of `original`: its
+/// shared paths walk a shared value with the original (0200 C3). That runs
+/// before `held`, which has to see the call it adds.
+pub(super) fn run_aether_clone_def(
+    expr: AetherExpr,
+    registry: &borrow_infer::BorrowRegistry,
+    signature: &borrow_infer::BorrowSignature,
+    original: &CoreBinder,
+) -> AetherExpr {
+    let expr = plan_def_until_held(expr, registry, Some(signature));
+    let expr = owned_clone::share_with_original(expr, original, registry, signature);
+    held::annotate_owned_after(expr)
+}
+
+fn plan_def_until_held(
+    expr: AetherExpr,
+    registry: &borrow_infer::BorrowRegistry,
+    signature: Option<&borrow_infer::BorrowSignature>,
+) -> AetherExpr {
     let borrowed_params = match (&expr, signature) {
         (AetherExpr::Lam { params, .. }, Some(signature)) => params
             .iter()
@@ -936,8 +958,7 @@ pub fn run_aether_def_with_registry(
     let expr = drop_spec::specialize_drops_aether(expr);
     let expr = fusion::fuse_dup_drop_aether(expr);
     let expr = reuse::insert_reuse_aether(expr);
-    let expr = reuse_spec::specialize_reuse_aether(expr);
-    held::annotate_owned_after(expr)
+    reuse_spec::specialize_reuse_aether(expr)
 }
 
 /// [`lower_core_to_aether_program`] for a native build, which also makes consuming
