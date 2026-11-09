@@ -20,7 +20,8 @@ use super::{
 };
 
 /// E5. A clone copies the body, so a large one costs more code than the walk it
-/// saves. To be set from measurements at C2.
+/// saves. Never tuned against measurements; see proposal 0200's Unresolved
+/// questions.
 const SIZE_LIMIT: usize = 200;
 
 /// The candidate parameters of each function that has any.
