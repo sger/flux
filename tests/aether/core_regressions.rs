@@ -2705,3 +2705,60 @@ fn main() { walk(make_tree(1), Lists.walk([1, 2], 0)) }
             .all(|def| !found.contains_key(&def.binder.id))
     );
 }
+
+/// Each `Dup` and `Drop` of the binder named `name` in `name`'s function
+/// `def`, in plan order: `true` for a dup.
+fn rc_ops_on(aether: &AetherProgram, interner: &Interner, def: &str, name: &str) -> Vec<bool> {
+    let def = def_named(aether, interner, def).unwrap_or_else(|| panic!("no `{def}`"));
+    let name = interner.lookup(name).expect("the program binds it");
+    collect_core_exprs(&def.expr)
+        .into_iter()
+        .filter_map(|expr| match expr {
+            CoreExpr::Dup { var, .. } if var.name == name => Some(true),
+            CoreExpr::Drop { var, .. } if var.name == name => Some(false),
+            _ => None,
+        })
+        .collect()
+}
+
+/// KI-172: a `let` nobody reads still releases its value, so the value is
+/// owned. An owned parameter one branch returns moves into it, and is not
+/// released before the branch reads it.
+#[test]
+fn a_dead_let_takes_over_an_owned_parameter_its_branch_returns() {
+    let src = r#"
+fn f(s: String, b: Bool) -> Int {
+    let v: String = if b { s } else { "y" };
+    1
+}
+fn main() { f(to_string(5) + "a", true) }
+"#;
+    let (aether, interner) = lowered_with_clones(src);
+    let f = def_named(&aether, &interner, "f").expect("f");
+    assert_eq!(rc_ops_on(&aether, &interner, "f", "s"), [false], "{:?}", f.expr);
+    assert_eq!(
+        flux::aether::verify::verify_def_contract_aether(&f.expr, f.borrow_signature.as_ref()),
+        Ok(())
+    );
+}
+
+/// KI-172: a borrowed parameter one branch of a dead `let` returns is copied
+/// for it, since the `let` releases its value and the caller still owns the
+/// parameter.
+#[test]
+fn a_dead_let_copies_a_borrowed_parameter_its_branch_returns() {
+    let src = r#"
+fn f(s: String, b: Bool) -> Int {
+    let v: String = if b { s } else { "y" };
+    len(s)
+}
+fn main() { f(to_string(5) + "a", true) }
+"#;
+    let (aether, interner) = lowered_with_clones(src);
+    let f = def_named(&aether, &interner, "f").expect("f");
+    assert_eq!(rc_ops_on(&aether, &interner, "f", "s"), [true], "{:?}", f.expr);
+    assert_eq!(
+        flux::aether::verify::verify_def_contract_aether(&f.expr, f.borrow_signature.as_ref()),
+        Ok(())
+    );
+}
