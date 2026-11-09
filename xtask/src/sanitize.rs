@@ -20,10 +20,11 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use crate::outcome::format_duration;
+use crate::parity::{ParityCounts, parity_with_env};
 use crate::proc::run;
 use crate::store;
 use crate::sweep::run_with_timeout;
-use crate::verify::{ParityCounts, cargo, flux_binary, parity_with_env};
+use crate::verify::{cargo, flux_binary};
 
 pub struct Options {
     /// The ways to run, comma-separated: native ones, since only they link

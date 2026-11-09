@@ -5,9 +5,9 @@
 
 use std::fmt::Write as _;
 
-use super::Rng;
 use super::items::Fixture;
 use super::lex::{Kind, Token, is_keyword};
+use crate::rng::Rng;
 
 /// At most this many wraps per file, so a failing copy stays readable.
 const MAX_WRAPS: usize = 8;
