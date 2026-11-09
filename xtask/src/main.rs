@@ -40,12 +40,14 @@
 //!     ways that cannot change its output, and check the copies against the
 //!     original's output with parity-check; outputs in .verify/rewrite_<seed>/
 //! cargo xtask fuzz [--seed <n>] [--count <n>] [--ways <w,…>] [--jobs <n>]
-//!                  [--gen-only]
+//!                  [--gen-only] [--with classes]
 //!     generate well-typed programs (default 50, from seed 1) and run the
 //!     ones that compile through parity-check (default vm,llvm,vm_opt,
 //!     llvm_opt); a program the compiler fails on is a compiler bug, one
 //!     it rejects with a diagnostic a generator bug; outputs in
-//!     .verify/fuzz_<seed>/
+//!     .verify/fuzz_<seed>/. --with adds parts of the language (0190 S17):
+//!     classes for generics and type classes; outputs then in
+//!     .verify/fuzz_<seed>_<parts>/
 //! cargo xtask fuzz reduce <case.flx> [--ways <w,…>] [--jobs <n>]
 //!                         [--timeout <seconds>]
 //!     shrink a case to a small program the cheapest pair of ways that
@@ -106,7 +108,7 @@ const USAGE: &str = "usage:
   cargo xtask prune [--keep <n>] [--keep-tag <tag>]... [--yes]
   cargo xtask census [--tag <tag>] [--base <tag>] [--jobs <n>] [--ways <w,...>] [--allow network] [<dir>...]
   cargo xtask rewrite [--kind reorder|rename|let-wrap|all] [--seed <n>] [--ways <w,...>] [--jobs <n>] [<dir|file>...]
-  cargo xtask fuzz [--seed <n>] [--count <n>] [--ways <w,...>] [--jobs <n>] [--gen-only]
+  cargo xtask fuzz [--seed <n>] [--count <n>] [--ways <w,...>] [--jobs <n>] [--gen-only] [--with classes]
   cargo xtask fuzz reduce <case.flx> [--ways <w,...>] [--jobs <n>] [--timeout <seconds>]
   cargo xtask bisect-opt <fixture> [--way vm_opt|llvm_opt] [--timeout <seconds>] [--flux <path>]
   cargo xtask sanitize [--thread] [--ways <w,...>] [<dir>...]
@@ -373,6 +375,10 @@ fn fuzz_command(args: &mut Args) -> Result<FuzzCommand, String> {
         ways: args.value("--ways")?.unwrap_or_else(|| fuzz::DEFAULT_WAYS.to_string()),
         jobs: args.number("--jobs")?.unwrap_or(1).max(1),
         gen_only: args.flag("--gen-only"),
+        parts: match args.value("--with")? {
+            Some(names) => fuzz::Parts::parse(&names)?,
+            None => fuzz::Parts::NONE,
+        },
     };
     args.finish()?;
     Ok(FuzzCommand::Run(options))
@@ -450,6 +456,17 @@ mod tests {
             panic!("a run");
         };
         assert_eq!((run.seed, run.count, run.jobs), (1, 200, 4));
+    }
+
+    #[test]
+    fn with_names_the_parts_a_run_adds() {
+        let Ok(FuzzCommand::Run(run)) = fuzz(&["--with", "classes", "--seed", "2"]) else {
+            panic!("a run");
+        };
+        assert_eq!((run.seed, run.parts), (2, fuzz::Parts { classes: true }));
+        let Ok(FuzzCommand::Run(run)) = fuzz(&["--seed", "2"]) else { panic!("a run") };
+        assert_eq!(run.parts, fuzz::Parts::NONE);
+        assert!(fuzz(&["--with", "nope"]).is_err());
     }
 
     #[test]
