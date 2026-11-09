@@ -646,6 +646,15 @@ impl<'r> Gen<'r> {
 mod tests {
     use super::*;
 
+    /// A seed names the same programs across versions of the generator, so a
+    /// reported case can be regenerated later. Adding a part (0190 S17) must
+    /// leave the programs without it as they were.
+    #[test]
+    fn programs_without_parts_are_unchanged() {
+        let all: String = (0..50).map(|case| program(1, case)).collect();
+        assert_eq!(fnv64(all.as_bytes()), 1246894218328004906);
+    }
+
     #[test]
     fn a_seed_and_case_give_one_program() {
         for seed in 0..50 {
