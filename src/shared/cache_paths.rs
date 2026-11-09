@@ -422,7 +422,9 @@ use sha2::{Digest, Sha256};
 /// unit built with it may hold a block typed as another folded block (KI-174).
 /// Epoch 141: a `do` block keeps its function's use counts; an epoch-140 bytecode
 /// unit may move a variable out in a `do` block that the function reads again (KI-116).
-pub const CACHE_EPOCH: u16 = 141;
+/// Epoch 142: an annotated `let`'s value raises each predicate once; an epoch-141 unit
+/// may hold a constrained call there that passes one dictionary twice (KI-175).
+pub const CACHE_EPOCH: u16 = 142;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

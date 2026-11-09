@@ -263,7 +263,14 @@ impl<'a> InferCtx<'a> {
             return self.infer_expression(value).apply_type_subst(&self.subst);
         };
         if benefits_from_check_propagation(value) {
+            // The value is inferred again just below, which raises its
+            // predicates at the same `ExprId`s, as for a checked call argument
+            // (`infer_call_fixed_arity_path`). Keeping this pass's too recorded
+            // each one twice: a method call read two dictionaries, and a
+            // constrained call passed an extra one (KI-175).
+            let check_pass = self.class_constraints.open_window();
             self.check_expression(value, &ann_ty);
+            let _raised_again = self.class_constraints.close_window(check_pass);
         }
         let val_ty = self.infer_expression(value);
         self.check_let_annotation(name, ann, &ann_ty, value, &val_ty)
