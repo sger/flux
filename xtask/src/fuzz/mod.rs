@@ -30,7 +30,8 @@ use crate::store;
 use crate::sweep::run_flux;
 use crate::verify::{cargo, flux_binary};
 
-pub use generate::program;
+pub use generate::Parts;
+use generate::program_with;
 pub use reduce::{ReduceOptions, run_reduce};
 
 pub const DEFAULT_WAYS: &str = "vm,llvm,vm_opt,llvm_opt";
@@ -54,10 +55,22 @@ pub struct Options {
     pub jobs: usize,
     /// Write the cases and stop.
     pub gen_only: bool,
+    /// The parts of the language beyond S8's subset (`--with`, 0190 S17).
+    pub parts: Parts,
+}
+
+/// `fuzz_<seed>`, or `fuzz_<seed>_<parts>` with parts on, so that runs of
+/// one seed with and without them keep their own cases.
+fn run_dir(options: &Options) -> String {
+    if options.parts == Parts::NONE {
+        format!("fuzz_{}", options.seed)
+    } else {
+        format!("fuzz_{}_{}", options.seed, options.parts.names().replace(',', "_"))
+    }
 }
 
 pub fn run_fuzz(root: &Path, options: &Options) -> Result<bool, String> {
-    let out = store::store_root(root).join(format!("fuzz_{}", options.seed));
+    let out = store::store_root(root).join(run_dir(options));
     if out.exists() {
         fs::remove_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
     }
@@ -75,7 +88,7 @@ pub fn run_fuzz(root: &Path, options: &Options) -> Result<bool, String> {
     steps.start(&format!("generate {} program(s) from seed {}", options.count, options.seed));
     let files: Vec<String> = (0..options.count).map(|i| format!("case_{i}.flx")).collect();
     for (i, file) in files.iter().enumerate() {
-        write(&cases.join(file), &program(options.seed, i))?;
+        write(&cases.join(file), &program_with(options.seed, i, &options.parts))?;
     }
     if options.gen_only {
         return Ok(true);
@@ -197,9 +210,14 @@ fn summary(
     let mut text = String::new();
     let compiled = generated - failures.compiler.len() - failures.generator.len();
     let failing = counts.mismatches + counts.expected;
+    let with = if options.parts == Parts::NONE {
+        String::new()
+    } else {
+        format!(", with {}", options.parts.names())
+    };
     let _ = writeln!(
         text,
-        "fuzz: seed {}, {} program(s), ways {}",
+        "fuzz: seed {}{with}, {} program(s), ways {}",
         options.seed, generated, options.ways
     );
     let _ = writeln!(text, "internal compiler errors: {}", failures.compiler.len());
@@ -241,8 +259,14 @@ mod tests {
 
     #[test]
     fn a_summary_lists_each_failure() {
-        let options =
-            Options { seed: 1, count: 3, ways: DEFAULT_WAYS.into(), jobs: 1, gen_only: false };
+        let options = Options {
+            seed: 1,
+            count: 3,
+            ways: DEFAULT_WAYS.into(),
+            jobs: 1,
+            gen_only: false,
+            parts: Parts::NONE,
+        };
         let counts = ParityCounts {
             mismatches: 1,
             exit: 1,
