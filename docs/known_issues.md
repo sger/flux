@@ -93,6 +93,44 @@ raised (Size) has no answer that can be built` on all four ways, where
 `let b: Box<Int> = Empty` before the call it prints `0`. `cargo xtask fuzz`
 only calls a method on a generic type's value through an annotated variable.
 
+### KI-178 — On the VM, a class method named like a prelude function panics when `main` calls it
+
+**Severity:** Medium · **Area:** VM, type classes, name resolution · **Verified:** 2026-11-10 (ea48361a) · **From:** 0190 S17a (a probe written while checking the exit plant)
+
+```flux
+class Two<a> {
+    fn first(x: a) -> Int
+    fn second(x: a) -> Int
+}
+
+instance Two<Int> {
+    fn first(x) { x + 1 }
+    fn second(x) { x + 100 }
+}
+
+fn main() with IO {
+    print(first(5))
+}
+```
+
+On `vm` and `vm_opt` this stops with `error[E1009]: panic: No instance of
+Two.first for the given type`, at `first`, called from `main`. On `llvm` and
+`llvm_opt` it prints `6`. It needs both of these:
+- the method shares its name with a prelude function. The prelude has
+  `first` (`Flow.List`, `Flow.Array`, `Flow.Async`). `second(5)` in the same
+  program prints `105`, and so does a one-method class whose method is
+  `only`;
+- the call is in `main`. `fn helper() -> Int { first(5) }` called from `main`
+  prints `6` on the VM.
+
+Core keeps a panicking stub for each class method
+(`letrec first = λ__x0. panic("No instance of Two.first …")`), and the call in
+`main` reaches it on the VM. The VM compiles `main`'s body by its own path
+([KI-118](#ki-118)). [KI-091](#ki-091) fixed a user *function* losing to a
+prelude function of the same name. A class method was not covered.
+
+The fuzz generator names its methods `m<n>`, so it can't produce this.
+
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
