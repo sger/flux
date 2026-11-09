@@ -2673,6 +2673,49 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 ## Resolved
 
+### KI-172 — A `let` nobody read released a parameter its branch returned, uncounted — FIXED 2026-11-09
+
+**Severity:** High (silent wrong output natively; valid programs refused with `E999`) · **Area:** Aether, dup/drop insertion · **Verified:** 2026-11-09 (b835e8df, and on main at 0ea95cb4) · **From:** 0190 S8, `cargo xtask fuzz --seed 1` (8 of its first 200 programs)
+
+```flux
+fn takes(s: String, b: Bool) -> Int {
+    let unused: String = if b { s } else { "y" };
+    1
+}
+
+fn lends(s: String, b: Bool) -> Int {
+    let unused: String = if b { s } else { "y" };
+    len(s)
+}
+```
+
+The plans were `drop s; let unused = case b of true -> s | _ -> "y"; drop unused; 1`
+for `takes`, and `let unused = case … s …; drop unused; Len(s)` for `lends`.
+`takes` read `s` after releasing it and released it twice. Since every build
+checks the plan (03b9072c, KI-165) it is refused with `E999 Aether Verification
+Failed`; main builds it unchecked, and with a heap string the `llvm_heap` way
+crashes. `lends` passed the checker: `s` was borrowed, and `drop unused` released
+the caller's reference. Called with the last reference, `--native --debug-heap`
+printed `3735936685` (`0xDEADBEAD`, freed memory) where the VM printed `8`. A
+`match` on an `Int` or a `List` in place of the `if` did the same.
+
+In `plan_expr`'s `Let` (`src/aether/insert.rs`), an unused binder has demand
+`Ignore`, so its body is wrapped in `drop unused`, and its value was planned with
+that same `Ignore`. Under `Ignore`, `plan_var` returns a variable without counting
+it, so an arm returning `s` handed `unused` a reference it never had, which the
+drop then released.
+
+**Fixed** in `src/aether/insert.rs`: an unused counted binding's value is planned
+with `Owned` demand, since the drop consumes it. An owned `s` now moves into it,
+and one read later is copied for it. `tests/parity/aether_dead_let_ki172.flx`,
+`a_dead_let_takes_over_an_owned_parameter_its_branch_returns` and
+`a_dead_let_copies_a_parameter_its_branch_returns_and_read_later` failed before
+this and pass now. `LetRec` and `LetRecGroup` plan an unused binding the same way;
+their value is a lambda, always fresh, so they were left.
+
+Still open: the contract checker didn't see `unused` alias the borrowed `s`
+through the `case`'s result, which is why `lends` passed it.
+
 ### KI-171 — A match arm that builds two constructors from two cells allocates one and frees the other
 
 **Severity:** Low · **Area:** Aether, reuse · **Verified:** 2026-11-05 (f75c8e51) · **From:** measuring what free-a-cell can still gain (0200)

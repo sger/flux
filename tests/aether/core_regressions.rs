@@ -2742,11 +2742,14 @@ fn main() { f(to_string(5) + "a", true) }
     );
 }
 
-/// KI-172: a borrowed parameter one branch of a dead `let` returns is copied
-/// for it, since the `let` releases its value and the caller still owns the
-/// parameter.
+/// KI-172: a parameter read after a dead `let` whose branch returns it is
+/// copied for the `let`, which releases its value. Taking it makes the
+/// parameter owned, so it is released once more after the read; borrowed, it
+/// would be the caller's to release.
 #[test]
-fn a_dead_let_copies_a_borrowed_parameter_its_branch_returns() {
+fn a_dead_let_copies_a_parameter_its_branch_returns_and_read_later() {
+    use flux::aether::borrow_infer::BorrowMode;
+
     let src = r#"
 fn f(s: String, b: Bool) -> Int {
     let v: String = if b { s } else { "y" };
@@ -2756,7 +2759,9 @@ fn main() { f(to_string(5) + "a", true) }
 "#;
     let (aether, interner) = lowered_with_clones(src);
     let f = def_named(&aether, &interner, "f").expect("f");
-    assert_eq!(rc_ops_on(&aether, &interner, "f", "s"), [true], "{:?}", f.expr);
+    let owned = f.borrow_signature.as_ref().is_none_or(|sig| sig.params[0] == BorrowMode::Owned);
+    let expected: &[bool] = if owned { &[true, false] } else { &[true] };
+    assert_eq!(rc_ops_on(&aether, &interner, "f", "s"), expected, "{:?}", f.expr);
     assert_eq!(
         flux::aether::verify::verify_def_contract_aether(&f.expr, f.borrow_signature.as_ref()),
         Ok(())
