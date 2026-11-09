@@ -18,10 +18,11 @@ use std::process::Command;
 use std::time::Instant;
 
 use crate::outcome::{Steps, format_duration};
+use crate::parity::{Verdict, is_cargo_progress, progress, tail};
 use crate::proc::{run, run_tee};
 use crate::store;
 use crate::text::{Paint, StatusLine, strip_ansi};
-use crate::verify::{Verdict, cargo, flux_binary, is_cargo_progress, progress, tail};
+use crate::verify::{cargo, flux_binary};
 
 pub use known_issues::{KnownIssues, ki_in};
 

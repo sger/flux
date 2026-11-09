@@ -2,8 +2,8 @@
 //! definition order, or in an order it got from a hash, gives the copy a
 //! different program.
 
-use super::Rng;
 use super::items::Fixture;
+use crate::rng::Rng;
 
 /// The fixture with its movable items shuffled, each within the run of
 /// items between two pinned ones; the header, imports and top-level `let`s

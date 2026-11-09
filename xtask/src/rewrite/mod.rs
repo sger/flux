@@ -26,11 +26,13 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::outcome::{Steps, format_duration};
+use crate::parity::{self, ParityCounts};
 use crate::proc::run;
+use crate::rng::Rng;
 use crate::store;
 use crate::sweep::{fnv64, run_flux};
 use crate::text::diagnostic_codes;
-use crate::verify::{self, ParityCounts, cargo, flux_binary};
+use crate::verify::{cargo, flux_binary};
 use items::Fixture;
 
 /// What `rewrite` covers unless paths are named: two folders whose fixtures
@@ -81,36 +83,6 @@ pub struct Options {
     /// Files or folders, from the repository root.
     pub paths: Vec<String>,
     pub jobs: usize,
-}
-
-/// splitmix64: small, std-only, and the same on every platform, so a seed
-/// names one set of copies.
-pub struct Rng(u64);
-
-impl Rng {
-    pub fn new(seed: u64) -> Rng {
-        Rng(seed)
-    }
-
-    pub fn next_u64(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-        z ^ (z >> 31)
-    }
-
-    /// A number in `0..n`; `n` must not be 0.
-    pub fn below(&mut self, n: usize) -> usize {
-        usize::try_from(self.next_u64() % n as u64).expect("below n, which is a usize")
-    }
-
-    /// Fisher–Yates.
-    pub fn shuffle<T>(&mut self, items: &mut [T]) {
-        for i in (1..items.len()).rev() {
-            items.swap(i, self.below(i + 1));
-        }
-    }
 }
 
 /// A fixture that can be rewritten.
@@ -234,7 +206,11 @@ fn fixture_files(root: &Path, paths: &[String]) -> Result<Vec<String>, String> {
 }
 
 /// Runs `job` on each item on `jobs` threads, keeping the items' order.
-fn parallel<T: Sync, R: Send>(items: &[T], jobs: usize, job: impl Fn(&T) -> R + Sync) -> Vec<R> {
+pub(crate) fn parallel<T: Sync, R: Send>(
+    items: &[T],
+    jobs: usize,
+    job: impl Fn(&T) -> R + Sync,
+) -> Vec<R> {
     let next = AtomicUsize::new(0);
     let results = Mutex::new(Vec::with_capacity(items.len()));
     thread::scope(|scope| {
@@ -315,7 +291,7 @@ fn has_expected_stdout(source: &str) -> bool {
 
 /// Whether `stderr` reports a compile error: a diagnostic code outside the
 /// runtime's E1000–E1999 (`src/parity/runner.rs`).
-fn compile_errors(stderr: &str) -> bool {
+pub(crate) fn compile_errors(stderr: &str) -> bool {
     diagnostic_codes(stderr).iter().any(|code| !(code.len() == 5 && code.starts_with("E1")))
 }
 
@@ -413,7 +389,7 @@ fn run_kind(
         let shown = dir.strip_prefix(root).unwrap_or(&dir).to_string_lossy().into_owned();
         let mut log = fs::File::create(out.join(format!("{}.log", kind.name())))
             .map_err(|e| e.to_string())?;
-        tally.parity = verify::parity(root, flux, &shown, &options.ways, false, &mut log)
+        tally.parity = parity::parity(root, flux, &shown, &options.ways, false, &mut log)
             .map_err(|e| e.to_string())?;
     }
     Ok(tally)
@@ -499,16 +475,6 @@ mod tests {
         assert_eq!(Kind::parse("let-wrap"), Some(vec![Kind::LetWrap]));
         assert_eq!(Kind::parse("all").map(|k| k.len()), Some(3));
         assert_eq!(Kind::parse("shuffle"), None);
-    }
-
-    #[test]
-    fn a_seed_gives_one_sequence() {
-        let draw = |seed| {
-            let mut rng = Rng::new(seed);
-            (0..4).map(|_| rng.below(100)).collect::<Vec<_>>()
-        };
-        assert_eq!(draw(1), draw(1));
-        assert_ne!(draw(1), draw(2));
     }
 
     #[test]
