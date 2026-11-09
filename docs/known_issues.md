@@ -42,6 +42,61 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-174 — `--optimize` rejects a valid program whose folded `if true` blocks have different types
+
+**Severity:** Medium · **Area:** Type inference, AST optimization · **Verified:** 2026-11-09 (4d99ac21) · **From:** 0190 S8 (`cargo xtask fuzz --seed 1` and `--seed 2`)
+
+```flux
+fn f() -> Int {
+    let n: Int = if true {
+        let t = 1;
+        t
+    } else {
+        0
+    };
+    n
+}
+
+fn g() -> String {
+    let s: String = if true {
+        let t = "a";
+        t
+    } else {
+        "b"
+    };
+    s
+}
+
+fn main() with IO {
+    print(f())
+    print(g())
+}
+```
+
+Without `--optimize` the program prints `1` and `"a"`. With `--optimize`, on
+both backends, it stops with `E300 Annotation Type Mismatch` on `n`
+(annotated type `Int`, value type `String`). A declared return type gives
+`E300 Return Type Mismatch` instead.
+
+Under `--optimize`, `infer_final_program` (`src/compiler/mod.rs`) folds the
+program with `type_informed_fold` and infers it again. The fold replaces
+`if true { ... }` with its `then` block (`if false` with its `else`), and when
+that block has more than one statement, `block_to_expr`
+(`src/ast/type_informed_fold.rs`) wraps it in a `DoBlock` with
+`id: ExprId::UNSET`. Every folded block in the program gets that same id, so the
+second inference records all their types under one key and the last one wins:
+`f`'s block is checked against `g`'s `String`. A one-statement block keeps its
+expression's own id and is not affected.
+
+Likely fix: give the `DoBlock` the id of the `if` it replaces, as the
+`if false` with no `else` case already does for the `None` it returns.
+
+It is the most common fuzz finding: 43 of 200 programs in seed 1 and 51 of
+200 in seed 2, which hides whatever else those programs would show on
+`vm_opt` and `llvm_opt`. Until it is fixed, `--ways vm,llvm` fuzzes the
+backends without it. Related: [KI-105](#ki-105) is the same second inference
+accepting a program it should reject.
+
 ### KI-173 — Native code returned a call's result when the function returned something else
 
 **Severity:** High · **Area:** native backend, tail calls · **Verified:** 2026-11-09 (ff00ea39; also main 0ea95cb4) · **From:** 0190 S8 (`cargo xtask fuzz --seed 1`, case 61)
@@ -871,7 +926,7 @@ whose runtime check the VM gets wrong.
 
 ### KI-116 — On the VM, a variable read by a `let` inside a `do` block is uninitialised afterwards
 
-**Severity:** High · **Area:** VM, ownership · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S7, `cargo xtask rewrite --kind let-wrap` · **Issue:** [#114](https://forgejo.spirosgerokostas.com/sger/flux/issues/114)
+**Severity:** High · **Area:** VM, ownership · **Verified:** 2026-11-09 (4d99ac21) · **From:** [0190](proposals/0190_verification_toolkit.md) S7, `cargo xtask rewrite --kind let-wrap` · **Issue:** [#114](https://forgejo.spirosgerokostas.com/sger/flux/issues/114)
 
 ```flux
 fn main() with IO {
@@ -893,6 +948,28 @@ the 192 let-wrapped copies of `tests/parity` and `examples/guide` give
 `MISMATCH`: in every one, `vm` and `vm_opt` differ from `llvm` and `llvm_opt`,
 which agree with each other. In the five checked against the expected output,
 the VM is wrong and native is right.
+
+A program with no `do` block hits it too under `--optimize`: the AST fold
+(`type_informed_fold`) turns `if true { let ...; e } else { ... }` into a `do`
+block, so any such branch with a `let` that reads an outer variable loses that
+variable on `vm_opt`. `cargo xtask fuzz` found 7 of these in 200 programs
+(seed 2: `<uninit>` printed, `E1009 Cannot add Uninit and String values`,
+`E1004`); 2 in seed 1 have the same shape but were not reduced. A closure that captures the lost variable reads
+`None`, with no error:
+
+```flux
+fn main() with IO {
+    let v25: String = "";
+    let v28: Int = do {
+        let v30: String = "Flux#{v25}";
+        1
+    };
+    print(([false] |> map(\x36 -> v25)));   // [None] on the VM; [""] natively
+}
+```
+
+The fuzz case it came from (seed 2, case 6, reduced to 11 lines) has
+`if true` in place of `do` and prints `[None]` only on `vm_opt`.
 
 Fixture: `tests/parity/do_block_let_keeps_its_source.flx`.
 
