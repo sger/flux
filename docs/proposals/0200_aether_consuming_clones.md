@@ -275,7 +275,10 @@ by 69% in instructions, to slightly below the borrowed walk.
 ### Debugging
 
 - The DWARF name is `check_tree$own`, and backtraces show it.
-- A breakpoint on a line resolves to both copies.
+- A breakpoint on a line resolves to both copies. A breakpoint by name
+  (`b check_tree`) matches only the original; it takes both names.
+- The debug parity harness reads a `$own` frame as its original, since the
+  VM makes no clones.
 - `check_fbip` and the fbip statistics skip clones.
 - `--metrics` counts `owned_clones`.
 
@@ -289,7 +292,7 @@ by 69% in instructions, to slightly below the borrowed walk.
 | C1 | **Candidates.** `src/aether/owned_clone.rs`, `candidates(&CoreProgram, &BorrowRegistry)` with E1–E5 and the fixpoint; the compiler interns the `$own` names. Nothing calls it yet. | no |
 | C2 | **Clones and call sites:** making and planning the clones, the call-site rule, LIR names, the dump, off on the VM. | yes: a wrong last-reference decision is a use after free; the verifier and the debug heap catch it |
 | C3 | **The shared fallback** and its verifier change, only if the C0 shared fixture is more than about 5% slower than the borrowed walk. Done: it was 63% slower; see "When the clone gets a shared value". | yes: a read after the drop; `check_reads_after_release` catches it |
-| C4 | **Debugger:** `$own` in backtraces, a line breakpoint stopping in both copies, `flux refs` reading 1 on the unique path. | no |
+| C4 | **Debugger:** `$own` in backtraces, a line breakpoint stopping in both copies, `flux refs` reading 1 on the unique path. Done: all three worked through the existing debug info; tests now pin them (lldb, DAP, DWARF verify), and the debug parity harness reads `$own` frames as their original. | no |
 | C5 | **Evidence:** commits, timings, and this proposal's status. | no |
 
 ### Checks at every step
