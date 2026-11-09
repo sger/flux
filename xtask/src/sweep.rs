@@ -715,6 +715,19 @@ fn write_outputs(
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
+    #[test]
+    fn a_timeout_stops_what_the_command_started() {
+        // `sh` forks `sleep`, as flux starts the native program it built; the
+        // child holds the output pipes after its parent is killed.
+        let mut command = Command::new("sh");
+        command.args(["-c", "sleep 5; true"]);
+        let started = Instant::now();
+        let ran = run_with_timeout(command, Path::new("."), Duration::from_millis(300));
+        assert!(!ran.finished);
+        assert!(started.elapsed() < Duration::from_secs(3), "took {:?}", started.elapsed());
+    }
+
     fn codes(list: &[&str]) -> Vec<String> {
         list.iter().map(|c| c.to_string()).collect()
     }
