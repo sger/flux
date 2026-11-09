@@ -1,0 +1,26 @@
+// Debug parity (0200 C4): a consuming clone. `main` hands its tree over by
+// its last reference, so natively the walk runs `check_tree$own`; the VM
+// makes no clones and runs `check_tree`. Their frames read the same.
+// dbg: break 15
+// dbg: continue
+// dbg: bt
+// dbg: delete 15
+// dbg: continue
+
+type Tree = Node(Tree, Tree) | Tip
+
+fn check_tree(tree: Tree) -> Int {
+    match tree {
+        Tip -> 0,
+        Node(left, right) -> check_tree(left) + check_tree(right) + 1,
+    }
+}
+
+fn make(depth: Int) -> Tree {
+    if depth <= 0 { Tip } else { Node(make(depth - 1), make(depth - 1)) }
+}
+
+fn main() with IO {
+    let tree = make(2)
+    print(check_tree(tree))
+}
