@@ -418,7 +418,9 @@ use sha2::{Digest, Sha256};
 /// an epoch-137 unit holds the clone that copied each field and recursed (0200 C3).
 /// Epoch 139: an unused `let` owns the value it releases; an epoch-138 unit holds
 /// the plan that released a parameter its branch returned uncounted (KI-172).
-pub const CACHE_EPOCH: u16 = 139;
+/// Epoch 140: each block `--optimize` folds an `if` to has its own id; an epoch-139
+/// unit built with it may hold a block typed as another folded block (KI-174).
+pub const CACHE_EPOCH: u16 = 140;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

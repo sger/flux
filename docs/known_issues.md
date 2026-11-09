@@ -42,61 +42,6 @@ Severity is about consequence, not effort:
 
 ## Open
 
-### KI-174 — `--optimize` rejects a valid program whose folded `if true` blocks have different types
-
-**Severity:** Medium · **Area:** Type inference, AST optimization · **Verified:** 2026-11-09 (4d99ac21) · **From:** 0190 S8 (`cargo xtask fuzz --seed 1` and `--seed 2`)
-
-```flux
-fn f() -> Int {
-    let n: Int = if true {
-        let t = 1;
-        t
-    } else {
-        0
-    };
-    n
-}
-
-fn g() -> String {
-    let s: String = if true {
-        let t = "a";
-        t
-    } else {
-        "b"
-    };
-    s
-}
-
-fn main() with IO {
-    print(f())
-    print(g())
-}
-```
-
-Without `--optimize` the program prints `1` and `"a"`. With `--optimize`, on
-both backends, it stops with `E300 Annotation Type Mismatch` on `n`
-(annotated type `Int`, value type `String`). A declared return type gives
-`E300 Return Type Mismatch` instead.
-
-Under `--optimize`, `infer_final_program` (`src/compiler/mod.rs`) folds the
-program with `type_informed_fold` and infers it again. The fold replaces
-`if true { ... }` with its `then` block (`if false` with its `else`), and when
-that block has more than one statement, `block_to_expr`
-(`src/ast/type_informed_fold.rs`) wraps it in a `DoBlock` with
-`id: ExprId::UNSET`. Every folded block in the program gets that same id, so the
-second inference records all their types under one key and the last one wins:
-`f`'s block is checked against `g`'s `String`. A one-statement block keeps its
-expression's own id and is not affected.
-
-Likely fix: give the `DoBlock` the id of the `if` it replaces, as the
-`if false` with no `else` case already does for the `None` it returns.
-
-It is the most common fuzz finding: 43 of 200 programs in seed 1 and 51 of
-200 in seed 2, which hides whatever else those programs would show on
-`vm_opt` and `llvm_opt`. Until it is fixed, `--ways vm,llvm` fuzzes the
-backends without it. Related: [KI-105](#ki-105) is the same second inference
-accepting a program it should reject.
-
 ### KI-173 — Native code returned a call's result when the function returned something else
 
 **Severity:** High · **Area:** native backend, tail calls · **Verified:** 2026-11-09 (ff00ea39; also main 0ea95cb4) · **From:** 0190 S8 (`cargo xtask fuzz --seed 1`, case 61)
@@ -2784,6 +2729,65 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-174 — `--optimize` rejected a valid program whose folded `if true` blocks had different types — FIXED 2026-11-09
+
+**Severity:** Medium · **Area:** Type inference, AST optimization · **Verified:** 2026-11-09 (4d99ac21) · **From:** 0190 S8 (`cargo xtask fuzz --seed 1` and `--seed 2`)
+
+```flux
+fn f() -> Int {
+    let n: Int = if true {
+        let t = 1;
+        t
+    } else {
+        0
+    };
+    n
+}
+
+fn g() -> String {
+    let s: String = if true {
+        let t = "a";
+        t
+    } else {
+        "b"
+    };
+    s
+}
+
+fn main() with IO {
+    print(f())
+    print(g())
+}
+```
+
+Without `--optimize` the program prints `1` and `"a"`. With `--optimize`, on
+both backends, it stopped with `E300 Annotation Type Mismatch` on `n`
+(annotated type `Int`, value type `String`). A declared return type gave
+`E300 Return Type Mismatch` instead.
+
+Under `--optimize`, `infer_final_program` (`src/compiler/mod.rs`) folds the
+program with `type_informed_fold` and infers it again. The fold replaces
+`if true { ... }` with its `then` block (`if false` with its `else`), and when
+that block has more than one statement, `block_to_expr`
+(`src/ast/type_informed_fold.rs`) wrapped it in a `DoBlock` with
+`id: ExprId::UNSET`. Every folded block in the program got that same id, so the
+second inference recorded all their types under one key and the last one won:
+`f`'s block was checked against `g`'s `String`. A one-statement block keeps its
+expression's own id and was not affected.
+
+It was the most common fuzz finding: 43 of 200 programs in seed 1 and 51 of
+200 in seed 2, which hid whatever else those programs would show on `vm_opt`
+and `llvm_opt`.
+
+**Fixed** in `src/ast/type_informed_fold.rs`: the `DoBlock` takes the id of the
+`if` it replaces, as the `if false` with no `else` case already did for the
+`None` it returns. `tests/parity/optimize_folded_blocks_ki174.flx` (with
+`--ways vm,llvm,vm_opt,llvm_opt`) and `optimize_types_each_folded_block_on_its_own`
+in `tests/integration/compiler_optimization_tests.rs` failed before this and
+pass now, and all 104 mismatch cases of seeds 1 and 2 compile with `--optimize`.
+Still open: [KI-105](#ki-105), the same second inference accepting a program it
+should reject.
 
 ### KI-172 — A `let` nobody read released a parameter its branch returned, uncounted — FIXED 2026-11-09
 

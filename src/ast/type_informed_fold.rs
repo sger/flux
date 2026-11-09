@@ -262,7 +262,7 @@ impl Folder for TypeInformedFoldCtx<'_> {
                             "drop the else of `if true`".to_string()
                         }) =>
                     {
-                        block_to_expr(consequence, span)
+                        block_to_expr(consequence, span, id)
                     }
                     Expression::Boolean { value: false, .. }
                         if opt_bisect::allow("type_informed_fold", || {
@@ -270,7 +270,7 @@ impl Folder for TypeInformedFoldCtx<'_> {
                         }) =>
                     {
                         if let Some(alt) = alternative {
-                            block_to_expr(alt, span)
+                            block_to_expr(alt, span, id)
                         } else {
                             Expression::None { span, id }
                         }
@@ -520,13 +520,17 @@ fn stmt_reference_name(stmt: &Statement, target: Symbol) -> bool {
 
 /// Convert a block to an expression. If the block has a single expression
 /// statement, unwrap it; otherwise wrap in a DoBlock.
-fn block_to_expr(block: Block, span: Span) -> Expression {
+///
+/// The DoBlock takes `id`, the id of the `if` it replaces: the folded program
+/// is inferred again and its types are keyed by id, so blocks sharing one id
+/// were each checked against another's type (KI-174).
+fn block_to_expr(block: Block, span: Span, id: ExprId) -> Expression {
     if block.statements.len() == 1
         && let Statement::Expression { expression, has_semicolon: false, .. } = &block.statements[0]
     {
         return expression.clone();
     }
-    Expression::DoBlock { block, span, id: ExprId::UNSET }
+    Expression::DoBlock { block, span, id }
 }
 
 /// Set the span on an expression top-level only.
