@@ -380,6 +380,36 @@ fn native_the_console_counts_references() {
     editor.finish();
 }
 
+/// `main` hands `dead` over by its last reference, so natively its walk runs
+/// as the consuming clone `check_tree$own` (0200), which owns `tree`.
+const CLONES: &str = "type Tree = Node(Tree, Tree) | Tip\n\nfn make(depth: Int) -> Tree {\n    if depth <= 0 { Tip } else { Node(make(depth - 1), make(depth - 1)) }\n}\n\nfn check_tree(tree: Tree) -> Int {\n    match tree {\n        Node(left, right) -> check_tree(left) + check_tree(right) + 1,\n        Tip -> 0,\n    }\n}\n\nfn main() {\n    let dead = make(2)\n    print(check_tree(dead))\n}\n";
+
+#[test]
+fn native_a_consuming_clone_shows_in_the_call_stack() {
+    if !native_debugging() {
+        return;
+    }
+    let scratch = Scratch::new("native-clones");
+    let program = scratch.write("clones.flx", CLONES);
+    let mut editor = Editor::start(&scratch);
+    let Some(stopped) = launch_native(&mut editor, &program, &[8]) else {
+        return;
+    };
+    let thread = stopped["body"]["threadId"].clone();
+    let frames = frame_names(&mut editor, &thread);
+    let names: Vec<&str> = frames.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(names, ["check_tree$own", "main"], "{frames:?}");
+    assert_eq!(frames[0].1["line"], 8, "{frames:?}");
+    assert!(
+        console_result(&mut editor, ".refs tree").contains("tree: 1 reference (unique"),
+        "native .refs tree"
+    );
+    // Every call stops at line 8: clear it so the run can finish.
+    editor.request("setBreakpoints", json!({ "source": { "path": program }, "breakpoints": [] }));
+    editor.request("continue", json!({ "threadId": thread }));
+    editor.finish();
+}
+
 #[test]
 fn stepping_forward_and_back() {
     let scratch = Scratch::new("stepping");

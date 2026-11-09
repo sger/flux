@@ -99,6 +99,7 @@ fn runs(program: &str) -> bool {
             | "overflow.flx"
             | "refs.flx"
             | "shells.flx"
+            | "clones.flx"
     )
 }
 
@@ -310,6 +311,7 @@ const FIXTURES: &[&str] = &[
     "inlined.flx",
     "refs.flx",
     "shells.flx",
+    "clones.flx",
 ];
 
 /// The errors `llvm-dwarfdump --verify` reports in Flux's compile units.
@@ -726,6 +728,75 @@ fn lldb_shows_a_freed_cell_as_dropped() {
         return;
     };
     assert_lines(&session, &["tree: dropped", "left = Node(Tip, Tip)", "right = Node(Tip, Tip)"]);
+}
+
+/// A consuming clone (0200) is a function of its own in the debug info,
+/// named `<fn>$own`, at the original's line, so a debug build has one too.
+#[test]
+fn the_ir_of_a_debug_build_names_a_consuming_clone() {
+    let source = std::fs::read_to_string(fixture_dir().join("clones.flx")).unwrap();
+    let ir = module_ir(&source, flux::debuginfo::DebugLevel::Full);
+    let line_of = |name: &str| -> String {
+        let needle = format!("DISubprogram(name: \"{name}\"");
+        let at = ir.find(&needle).unwrap_or_else(|| panic!("no subprogram `{name}`:\n{ir}"));
+        let rest = &ir[at..];
+        let line = rest.find(" line: ").expect("a line") + " line: ".len();
+        rest[line..].chars().take_while(char::is_ascii_digit).collect()
+    };
+    assert_eq!(line_of("check_tree$own"), line_of("check_tree"));
+}
+
+/// A line in a function that also runs as its consuming clone resolves in
+/// both copies, and the frame says which one stopped.
+#[test]
+fn lldb_stops_in_both_copies_of_a_function_at_a_line() {
+    let Some(lldb) = lldb() else {
+        eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
+        return;
+    };
+    let scratch = built("clones.flx");
+    let mut commands = vec!["breakpoint set --file clones.flx --line 13", "breakpoint list", "run"];
+    // `dead` has three nodes, walked by the clone; `kept` has one, walked by
+    // the original first.
+    for _ in 0..4 {
+        commands.extend(["frame info", "continue"]);
+    }
+    let session = lldb_session(&lldb, &scratch, "app", &commands);
+    let located =
+        |name: &str| session.lines().any(|line| line.contains(&format!("where = app`{name} + ")));
+    assert!(located("check_tree$own") && located("check_tree"), "{session}");
+    let stops: Vec<&str> = session.lines().filter(|line| line.starts_with("frame #0")).collect();
+    assert!(stops.iter().any(|stop| stop.contains("`check_tree$own(")), "{session}");
+    assert!(stops.iter().any(|stop| stop.contains("`check_tree(")), "{session}");
+}
+
+/// In the clone, `tree` is its own: unique when the walk reaches it, then
+/// dropped once the arm has freed its cell.
+#[test]
+fn lldb_counts_a_consuming_clones_parameter_as_unique() {
+    let Some(lldb) = lldb() else {
+        eprintln!("note: lldb not found; skipping (set FLUX_LLDB)");
+        return;
+    };
+    let scratch = built("clones.flx");
+    let Some(session) =
+        flux_session(&lldb, &scratch, "app", ("clones.flx", 11), &["flux bt", "flux refs tree"])
+    else {
+        return;
+    };
+    assert_lines(
+        &session,
+        &[
+            "#0 check_tree$own at clones.flx:11:5",
+            "tree: 1 reference (unique: can be reused in place)",
+        ],
+    );
+    let Some(session) =
+        flux_session(&lldb, &scratch, "app", ("clones.flx", 13), &["flux bt", "flux refs tree"])
+    else {
+        return;
+    };
+    assert_lines(&session, &["#0 check_tree$own at clones.flx:13:13", "tree: dropped"]);
 }
 
 #[test]
