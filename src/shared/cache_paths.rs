@@ -416,7 +416,9 @@ use sha2::{Digest, Sha256};
 /// epoch-136 unit holds the plan that lent it and released it after (0200 C2).
 /// Epoch 138: a consuming clone given a shared value walks it with the original;
 /// an epoch-137 unit holds the clone that copied each field and recursed (0200 C3).
-pub const CACHE_EPOCH: u16 = 138;
+/// Epoch 139: an unused `let` owns the value it releases; an epoch-138 unit holds
+/// the plan that released a parameter its branch returned uncounted (KI-172).
+pub const CACHE_EPOCH: u16 = 139;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

@@ -243,7 +243,8 @@ fn plan_expr(
             scope.owners.remove(&var.id);
             let mut binder_demand = binder_demand(&body_plan.env_before, var.id);
             let mut body_expr = body_plan.expr;
-            if binder_demand == ValueDemand::Ignore && !view {
+            let released_unused = binder_demand == ValueDemand::Ignore && !view;
+            if released_unused {
                 body_expr = wrap_drop(var, body_expr, span);
             }
             // A view only reads its field; each owned use copies it.
@@ -273,12 +274,21 @@ fn plan_expr(
                 scope.owned_unknown.insert(var.id);
             }
 
+            // An unused binding is still released, so its value must be
+            // owned. Planned as ignored, a branch returning a variable would
+            // hand it over uncounted, and the drop would release a reference
+            // the binding never had (KI-172).
+            let rhs_demand = if released_unused && var.rep.needs_rc() {
+                ValueDemand::Owned
+            } else {
+                binder_demand
+            };
             let mut rhs_tail = body_plan.env_before.clone();
             rhs_tail.remove(var.id);
             let rhs_plan = plan_expr(
                 *rhs,
                 rhs_tail,
-                binder_demand,
+                rhs_demand,
                 TailPosition::NonTail,
                 registry,
                 scope,
