@@ -3032,7 +3032,7 @@ tuple). `nodes` at depth 22 went from 77 to 64 ms.
 
 binarytrees did not change (2,668 to 2,677 ms), since `check_tree` still borrows
 its parameter and `sum_trees` still frees each tree with a second walk. That part,
-and the inference question above, are [0200](proposals/0200_aether_consuming_clones.md).
+and the inference question above, are [0200](proposals/implemented/0200_aether_consuming_clones.md).
 The free itself is still a call to the runtime; 0189's status says why.
 
 ### KI-165 — Natively, a rebuild around a field's own field read it after a unique path released it — FIXED 2026-11-04
