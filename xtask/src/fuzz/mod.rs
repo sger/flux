@@ -166,8 +166,20 @@ enum Compile {
 
 fn judge(finished: bool, exit: i32, stderr: &str) -> Compile {
     let first_error = || {
-        let line = stderr.lines().find(|l| l.contains("error[E") || l.contains("panicked at"));
-        line.or_else(|| stderr.lines().find(|l| !l.trim().is_empty())).unwrap_or("").trim().into()
+        let mut lines = stderr.lines();
+        let Some(line) = lines.find(|l| l.contains("error[E") || l.contains("panicked at")) else {
+            return stderr.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_string();
+        };
+        // Every internal compiler error has the same title; the line after
+        // it says which one, with its positions masked as lines move.
+        match lines.find(|l| !l.trim().is_empty()) {
+            Some(why) if line.contains("error[E000]") => {
+                let why: String =
+                    why.trim().chars().map(|c| if c.is_ascii_digit() { '#' } else { c }).collect();
+                format!("{}: {why}", line.trim())
+            }
+            _ => line.trim().to_string(),
+        }
     };
     let lower = stderr.to_lowercase();
     if !finished {
