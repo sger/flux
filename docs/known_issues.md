@@ -2711,8 +2711,13 @@ them since KI-001; the `do` block was the path left.
 
 **Fixed** in `src/compiler/expression.rs` and `statement.rs`: a `do` block
 keeps the enclosing counts, so a read in it is a move only when nothing after
-it reads the variable. Function bodies and `if` branches in tail position
-still count their own statements. `tests/parity/do_block_keeps_what_it_reads_ki116.flx`
+it reads the variable. Function bodies, and `if` branches and `do` blocks in
+tail position, still count their own statements, since nothing in their
+function runs after them. Keeping the function's counts in a tail-position `do`
+too made `tail_call_passes_on_a_field_ki163.flx` copy a stack it used to move,
+4000 more VM allocations, which verify's metrics caught.
+`a_do_block_in_tail_position_moves_what_it_reads_once` checks the move.
+`tests/parity/do_block_keeps_what_it_reads_ki116.flx`
 (a `let` that reads a parameter, the branch case, the closure case, and the
 folded `if true` under `vm_opt`) failed on `vm` before this and passes on all
 four ways now, and `tests/parity/do_block_let_keeps_its_source.flx` runs on

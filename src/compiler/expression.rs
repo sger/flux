@@ -776,8 +776,11 @@ impl Compiler {
             Expression::DoBlock { block, .. } => {
                 // A `do` block is part of its function: a variable read once in
                 // it may be read again after it, so it is moved only if the
-                // function's counts say this is its only read (KI-116).
-                self.compile_block_with_tail_mode(block, self.in_tail_position, true)?;
+                // function's counts say this is its only read (KI-116). In tail
+                // position nothing in the function runs after it, so its own
+                // reads decide, as for an `if` branch there.
+                let in_tail = self.in_tail_position;
+                self.compile_block_with_tail_mode(block, in_tail, !in_tail)?;
                 if !self.block_has_value_tail(block) {
                     self.emit(OpCode::OpNone, &[]);
                 }
