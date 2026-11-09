@@ -42,33 +42,6 @@ Severity is about consequence, not effort:
 
 ## Open
 
-### KI-175 — A class method called in an `if` or `match` that is an annotated `let`'s value stops the compiler with E000
-
-**Severity:** Medium · **Area:** Core lowering, dictionary passing · **Verified:** 2026-11-09 (2fe0af80) · **From:** 0190 S17a (`cargo xtask fuzz --seed 1 --with classes --gen-only`, then `--dump-core`)
-
-```flux
-fn label(b: Bool) -> String {
-    let s: String = if b { show(1) } else { "z" };
-    s
-}
-
-fn main() with IO {
-    print(label(true))
-}
-```
-
-On all four ways (`vm`, `llvm`, `vm_opt`, `llvm_opt`) the compiler stops with
-`E000 Internal Compiler Error: lowering the site at 2:27 from its evidence: a
-method call answered with more than one dictionary` (`src/core/lower_ast/emit.rs`,
-`site_error` from the method-call case). Any class method does it, the
-prelude's `show` as well as a user class's, and a `match` in place of the `if`
-too. Without the annotation (`let s = if b { ... }`) the program prints `"1"`,
-and so does `let s: String = show(1)` with no `if`.
-
-With `if true` the program compiles under `--optimize`, because the AST fold
-drops the `if` before lowering. It was 104 of the first 200 programs with
-classes, which the fuzz run moves to `internal/`.
-
 ### KI-176 — An uppercase type parameter breaks `deriving` on a generic type and an instance's context
 
 **Severity:** Medium · **Area:** Type classes, deriving · **Verified:** 2026-11-09 (2fe0af80) · **From:** 0190 S17a (`cargo xtask fuzz --with classes`, the generator's first version)
@@ -2723,6 +2696,64 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-175 — A class method or constrained call in an annotated `let`'s `if`, `match` or literal was given its dictionary twice — FIXED 2026-11-09
+
+**Severity:** High (silent wrong output natively; valid programs refused with `E000`) · **Area:** Type inference, dictionary passing · **Verified:** 2026-11-09 (2fe0af80) · **From:** 0190 S17a (`cargo xtask fuzz --seed 1 --with classes --gen-only`, then `--dump-core`)
+
+```flux
+fn render<a: Show>(x: a) -> String {
+    show(x)
+}
+
+fn label(b: Bool) -> String {
+    let s: String = if b { show(1) } else { "z" };
+    s
+}
+
+fn shown(b: Bool) -> String {
+    let u: String = if b { render(1) } else { "z" };
+    u
+}
+
+fn main() with IO {
+    print(label(true))
+    print(shown(true))
+}
+```
+
+`label` stopped the compiler on all four ways (`vm`, `llvm`, `vm_opt`,
+`llvm_opt`) with `E000 Internal Compiler Error: lowering the site at 6:27 from
+its evidence: a method call answered with more than one dictionary`. A `match`
+or a tuple, list or other literal in place of the `if` did it too, with any
+class method, the prelude's `show` as well as a user class's. `shown` compiled,
+and natively printed `"(<value>,)"` where the VM printed `"1"`. Without the
+annotation, or with no `if`, both print `"1"`.
+
+`infer_annotated_let_value` (`src/ast/type_infer/statement.rs`) checks a value
+that has a check rule (`benefits_from_check_propagation`) against the
+annotation, then infers it again. Both passes raised each class predicate in
+the value at the same `ExprId`. So a method call's site recorded `Show`
+twice, which `method_call_from_evidence` (`src/core/lower_ast/emit.rs`) read as
+two dictionaries. A constrained function's callee also recorded it twice, and
+the call passed both dictionaries ahead of its argument. The checked call
+argument and a recursive helper's refine pass had the same double pass, and
+were fixed in 2a7be643 by dropping what the extra pass raised. The annotated
+`let` was the third driver, and was missed.
+
+It was 104 of the first 200 programs with classes, which the fuzz run moved to
+`internal/`.
+
+**Fixed** in `infer_annotated_let_value`: the check pass runs in a capture
+window, and what it raised is dropped. The unifications it made stay, and the
+inference after it raises each predicate once. `CACHE_EPOCH` is 142 and the
+native cache ABI tag v35, because an earlier unit could hold a constrained
+call that passes an extra dictionary.
+`an_annotated_lets_checked_value_raises_its_predicates_once` in
+`tests/type_inference/typeclass_baseline_tests.rs` (an `if`, a `match`, a
+constrained call and a tuple, each raising its predicate twice) and
+`tests/parity/annotated_let_method_call_ki175.flx` (with
+`--ways vm,llvm,vm_opt,llvm_opt`) failed before this and pass now.
 
 ### KI-116 — On the VM, a variable read by a `let` inside a `do` block was uninitialised afterwards — FIXED 2026-11-09
 
