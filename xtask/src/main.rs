@@ -356,21 +356,16 @@ enum FuzzCommand {
     Reduce(fuzz::ReduceOptions),
 }
 
-/// `fuzz`'s arguments: a run, or `reduce` and its case.
+/// `fuzz`'s arguments: a run, or `reduce` and its case. The options are
+/// read before the case, since an option's value is not a flag either.
 fn fuzz_command(args: &mut Args) -> Result<FuzzCommand, String> {
-    if let Some(sub) = args.positional()? {
-        if sub != "reduce" {
-            return Err(format!("unknown fuzz command {sub}\n{USAGE}"));
-        }
+    if args.flag("reduce") {
+        let ways = args.value("--ways")?.unwrap_or_else(|| fuzz::DEFAULT_WAYS.to_string());
+        let jobs = args.number("--jobs")?.unwrap_or(4).max(1);
+        let timeout = Duration::from_secs(args.number("--timeout")?.unwrap_or(10) as u64);
         let case = args.positional()?.ok_or(format!("fuzz reduce: which case?\n{USAGE}"))?;
-        let options = fuzz::ReduceOptions {
-            case,
-            ways: args.value("--ways")?.unwrap_or_else(|| fuzz::DEFAULT_WAYS.to_string()),
-            jobs: args.number("--jobs")?.unwrap_or(4).max(1),
-            timeout: Duration::from_secs(args.number("--timeout")?.unwrap_or(10) as u64),
-        };
         args.finish()?;
-        return Ok(FuzzCommand::Reduce(options));
+        return Ok(FuzzCommand::Reduce(fuzz::ReduceOptions { case, ways, jobs, timeout }));
     }
     let options = fuzz::Options {
         seed: args.number("--seed")?.unwrap_or(1) as u64,
