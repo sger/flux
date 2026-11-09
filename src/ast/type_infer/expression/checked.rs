@@ -9,10 +9,11 @@ impl<'a> InferCtx<'a> {
     /// so the default rule preserves the existing diagnostic shape.
     ///
     /// Note: this intentionally does not overwrite `self.expr_types[expr]` —
-    /// check_expression runs *after* a prior `infer_expression` pass in the
-    /// typed-let driver, and that pass has already recorded the authoritative
-    /// inferred type for the expression. Overwriting with `expected` would
-    /// mask the actual inferred shape from downstream consumers.
+    /// the typed-let and call-argument drivers run `infer_expression` on the
+    /// same expression right after this, and that pass records the
+    /// authoritative inferred type for it. Overwriting with `expected` would
+    /// mask the actual inferred shape from downstream consumers. Those drivers
+    /// also drop the predicates this pass raises, so each is raised once.
     pub(in crate::ast::type_infer) fn check_expression(
         &mut self,
         expr: &Expression,
