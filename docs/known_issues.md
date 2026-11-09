@@ -42,6 +42,41 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-173 — Native code returned a call's result when the function returned something else
+
+**Severity:** High · **Area:** native backend, tail calls · **Verified:** 2026-11-09 (ff00ea39; also main 0ea95cb4) · **From:** 0190 S8 (`cargo xtask fuzz --seed 1`, case 61)
+
+```flux
+fn f(n: Int) -> Int {
+    if (n <= 0) { n } else { let v: Int = f((n - 1)); n }
+}
+
+fn main() with IO {
+    print(f(9))
+}
+```
+
+The VM prints `9`. `--native` prints `0`, with or without `--optimize`, and with no error.
+Core and the VM are right; the call is not in tail position. The LIR for the `else` branch is:
+
+```
+bb3: ... tailcall f(%12)       ← was `call f(%12) -> bb4`
+bb4(%13): %6 = copy %0         ← forwards n, not the call's result %13
+          jmp bb1                (bb1 returns %6)
+```
+
+`promote_tail_calls` (`src/lir/lower.rs`) turns a `Call` into a `TailCall` when its
+continuation block is a "return tail". Its fixed-point step accepts a block whose
+instructions are all copies into a successor's block parameter and that jumps to a return
+tail, but it doesn't check that the copy forwards the block's own parameter. `bb4` forwards
+`n` instead, so it was accepted, and `f` returned the innermost call's result.
+
+Likely fix: in the fixed-point step, require the block to copy its own parameter into the
+target's parameter. Any direct call is affected, not only a self call: with
+`fn g(n: Int) -> Int { n * 100 }` and `let v: Int = g((n - 1)); n` in the `else` branch,
+`--native` prints `800`, `g(8)`. A call whose argument is a parameter escapes, because the
+continuation then starts with a `drop`, which isn't a copy.
+
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
