@@ -834,55 +834,6 @@ Not yet confirmed: the function appears to be inferred from its first use in
 the row of `main`'s context, and give `apply_n` a monomorphic function type
 whose runtime check the VM gets wrong.
 
-### KI-116 — On the VM, a variable read by a `let` inside a `do` block is uninitialised afterwards
-
-**Severity:** High · **Area:** VM, ownership · **Verified:** 2026-11-09 (4d99ac21) · **From:** [0190](proposals/0190_verification_toolkit.md) S7, `cargo xtask rewrite --kind let-wrap` · **Issue:** [#114](https://forgejo.spirosgerokostas.com/sger/flux/issues/114)
-
-```flux
-fn main() with IO {
-    let x = 5
-    print(do { let t = x; t })   // 5
-    print(x)                     // <uninit> on the VM; 5 natively
-}
-```
-
-`vm` and `vm_opt` both print `<uninit>`; `llvm` prints `5`. In longer
-programs the uninitialised value either fails an operation (`E1009 Cannot add
-Uninit and Int values`, `E1009 read from uninitialized stack slot`,
-`E1004 primop len expected String`) or prints a wrong answer with no error:
-the let-wrapped `examples/guide/array_hash_combo.flx` prints `"unknown"` where
-it should print `"unwrap value Alice"`, and the let-wrapped
-`stdlib_pipelines.flx` counts an emptied list as `0` (`("eng", 0)` for
-`("eng", 3)`). In the full run (seed 1, ways `vm,vm_opt,llvm,llvm_opt`), 51 of
-the 192 let-wrapped copies of `tests/parity` and `examples/guide` give
-`MISMATCH`: in every one, `vm` and `vm_opt` differ from `llvm` and `llvm_opt`,
-which agree with each other. In the five checked against the expected output,
-the VM is wrong and native is right.
-
-A program with no `do` block hits it too under `--optimize`: the AST fold
-(`type_informed_fold`) turns `if true { let ...; e } else { ... }` into a `do`
-block, so any such branch with a `let` that reads an outer variable loses that
-variable on `vm_opt`. `cargo xtask fuzz` found 7 of these in 200 programs
-(seed 2: `<uninit>` printed, `E1009 Cannot add Uninit and String values`,
-`E1004`); 2 in seed 1 have the same shape but were not reduced. A closure that captures the lost variable reads
-`None`, with no error:
-
-```flux
-fn main() with IO {
-    let v25: String = "";
-    let v28: Int = do {
-        let v30: String = "Flux#{v25}";
-        1
-    };
-    print(([false] |> map(\x36 -> v25)));   // [None] on the VM; [""] natively
-}
-```
-
-The fuzz case it came from (seed 2, case 6, reduced to 11 lines) has
-`if true` in place of `do` and prints `[None]` only on `vm_opt`.
-
-Fixture: `tests/parity/do_block_let_keeps_its_source.flx`.
-
 ### KI-115 — A cached module with type-class instances is written differently from one run to the next
 
 **Severity:** Low · **Area:** VM bytecode cache · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) S6, `sweep --determinism --mode cache` · **Issue:** [#113](https://forgejo.spirosgerokostas.com/sger/flux/issues/113)
@@ -2694,6 +2645,81 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-116 — On the VM, a variable read by a `let` inside a `do` block was uninitialised afterwards — FIXED 2026-11-09
+
+**Severity:** High · **Area:** VM, ownership · **Verified:** 2026-11-09 (4d99ac21) · **From:** [0190](proposals/0190_verification_toolkit.md) S7, `cargo xtask rewrite --kind let-wrap` · **Issue:** [#114](https://forgejo.spirosgerokostas.com/sger/flux/issues/114)
+
+```flux
+fn main() with IO {
+    let x = 5
+    print(do { let t = x; t })   // 5
+    print(x)                     // <uninit> on the VM; 5 natively
+}
+```
+
+`vm` and `vm_opt` both print `<uninit>`; `llvm` prints `5`. In longer
+programs the uninitialised value either fails an operation (`E1009 Cannot add
+Uninit and Int values`, `E1009 read from uninitialized stack slot`,
+`E1004 primop len expected String`) or prints a wrong answer with no error:
+the let-wrapped `examples/guide/array_hash_combo.flx` prints `"unknown"` where
+it should print `"unwrap value Alice"`, and the let-wrapped
+`stdlib_pipelines.flx` counts an emptied list as `0` (`("eng", 0)` for
+`("eng", 3)`). In the full run (seed 1, ways `vm,vm_opt,llvm,llvm_opt`), 51 of
+the 192 let-wrapped copies of `tests/parity` and `examples/guide` give
+`MISMATCH`: in every one, `vm` and `vm_opt` differ from `llvm` and `llvm_opt`,
+which agree with each other. In the five checked against the expected output,
+the VM is wrong and native is right.
+
+A program with no `do` block hits it too under `--optimize`: the AST fold
+(`type_informed_fold`) turns `if true { let ...; e } else { ... }` into a `do`
+block, so any such branch with a `let` that reads an outer variable loses that
+variable on `vm_opt`. `cargo xtask fuzz` found 7 of these in 200 programs
+(seed 2: `<uninit>` printed, `E1009 Cannot add Uninit and String values`,
+`E1004`); after KI-174 and KI-173 were fixed, all 12 mismatches left in seed 1 were this. A closure that captures the lost variable reads
+`None`, with no error:
+
+```flux
+fn main() with IO {
+    let v25: String = "";
+    let v28: Int = do {
+        let v30: String = "Flux#{v25}";
+        1
+    };
+    print(([false] |> map(\x36 -> v25)));   // [None] on the VM; [""] natively
+}
+```
+
+The fuzz case it came from (seed 2, case 6, reduced to 11 lines) has
+`if true` in place of `do` and prints `[None]` only on `vm_opt`.
+
+After KI-174 was fixed, a block that returned the variable as its last
+expression lost it too, when the block sat in a branch:
+`let y = do { let t: Bool = true; x }; sum([x])` in an `else` gave `E1004`
+(seed 1, case 134).
+
+The VM compiles these functions from the AST (`src/compiler/`), not from the
+simplified Core, whose `f` was already `IAdd(x, x)`. The AST compiler turns a
+local's read into `OpConsumeLocal`, a move that clears the slot, when the
+local is read once in its function's use counts (`try_emit_consumed_param`).
+A `do` block compiled through `compile_block_with_tail_mode`, which counted
+the block's own statements and pushed those counts in place of the
+function's. Inside `do { let t = x; t }`, `x` is read once, so it was moved
+there, and the read after the block found `Uninit`. `compile_block` had
+already kept a parent's counts for `if` branches, and match arms merged into
+them since KI-001; the `do` block was the path left.
+
+**Fixed** in `src/compiler/expression.rs` and `statement.rs`: a `do` block
+keeps the enclosing counts, so a read in it is a move only when nothing after
+it reads the variable. Function bodies and `if` branches in tail position
+still count their own statements. `tests/parity/do_block_keeps_what_it_reads_ki116.flx`
+(a `let` that reads a parameter, the branch case, the closure case, and the
+folded `if true` under `vm_opt`) failed on `vm` before this and passes on all
+four ways now, and `tests/parity/do_block_let_keeps_its_source.flx` runs on
+every way with its KI-116 skip removed. All 70 mismatch cases left in seeds
+1 and 2 now agree between `vm` and `vm_opt`. Not known: why these functions
+took the AST path rather than the CFG one (see [KI-118](#ki-118)).
+
 
 ### KI-173 — Native code returned a call's result when the function returned something else — FIXED 2026-11-09
 
