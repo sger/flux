@@ -1,9 +1,8 @@
 // parity: vm, llvm
 // expect: success
-// bug: KI-116. Reading `x` inside `do { let t = x; t }` leaves `x`
-//      uninitialised on the VM, so the second print shows `<uninit>`.
+// bug: KI-116. Reading `x` inside `do { let t = x; t }` left `x`
+//      uninitialised on the VM, so the second print showed `<uninit>`.
 //      Found by `cargo xtask rewrite --kind let-wrap` (0190 S7).
-// skip-way: vm, vm_cached, vm_strict, vm_opt: KI-116 the VM clears a variable a do-block let reads
 // parity-expected-stdout-begin
 // 5
 // 5

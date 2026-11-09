@@ -420,7 +420,9 @@ use sha2::{Digest, Sha256};
 /// the plan that released a parameter its branch returned uncounted (KI-172).
 /// Epoch 140: each block `--optimize` folds an `if` to has its own id; an epoch-139
 /// unit built with it may hold a block typed as another folded block (KI-174).
-pub const CACHE_EPOCH: u16 = 140;
+/// Epoch 141: a `do` block keeps its function's use counts; an epoch-140 bytecode
+/// unit may move a variable out in a `do` block that the function reads again (KI-116).
+pub const CACHE_EPOCH: u16 = 141;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
