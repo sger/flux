@@ -284,11 +284,13 @@ line names both counts.
 
 - **Location:** `xtask/src/fuzz/`. Like the rest of xtask it uses only the
   standard library, so `cargo xtask` still builds in seconds.
-  - `rng.rs`: splitmix64. The same seed always gives the same programs, on every
-    platform.
-  - `gen.rs`: a type-directed generator. It keeps an environment of typed
-    variables and functions, and builds an expression of a requested type within a
-    depth budget, preferring variables in scope so that values flow.
+  - `xtask/src/rng.rs`: splitmix64, shared with `rewrite` (§10). The same seed
+    always gives the same programs, on every platform.
+  - `generate.rs`: a type-directed generator (`gen` is a reserved word in Rust
+    2024). It keeps an environment of typed variables and functions, and builds
+    an expression of a requested type within a depth budget, preferring
+    variables in scope so that values flow. Case `i` of seed `s` is seeded from
+    `s` and a hash of `i`, so one case can be regenerated alone.
 - **Types:** `Int`, `Bool`, `String`, `Option<T>`, two or three generated `data`
   types (with fields), tuples, lists.
 - **Forms:**
@@ -307,23 +309,51 @@ line names both counts.
   program's final result.
 - **Safety:**
   - Divisors and moduli are non-zero literals.
-  - Literals stay small, so overflow is rare.
+  - Literals stay below 100 and every `*` is reduced `% 9973`, so no value gets
+    near the backends' different Int widths (KI-038, KI-039).
   - Runtime errors are allowed: parity compares `exit_kind`, and stderr when a run
-    fails.
+    fails. Each program's header is `// expect: any`.
+- **What open KIs leave out:** helpers are pure and only `main` prints, since a
+  lambda can't call an effectful function (KI-029); only `Int` and `String` are
+  ordered and only scalars compared (KI-157, KI-162); functions come before their
+  callers (KI-117); a recursive call's arguments are variables (KI-155); no
+  Floats, whose printed form differs between the backends. Each can return when
+  its KI is fixed.
 - **Layout:** one statement per line, so the reducer (§7) can work line by line.
 - **Effects, type classes and async are out of scope.** Generating handlers needs
   effect-row typing, and async needs deterministic scheduling across backends.
   Both are listed under Future possibilities.
-- **`cargo xtask fuzz [--seed S] [--count N] [--ways W] [--jobs J]`:**
-  - It writes `<store>/fuzz_<seed>/case_<i>.flx` (the store is verify's
-    output folder, below) and runs
-    `flux parity-check` on that folder. `parity()` moves from `verify.rs` to a
-    module shared by verify and fuzz.
-  - It copies mismatching cases to `mismatch/`.
-  - A case that fails to compile on every way is a generator bug. These are counted
-    on their own line, and the target is zero.
+- **`cargo xtask fuzz [--seed S] [--count N] [--ways W] [--jobs J] [--gen-only]`:**
+  - It writes `<store>/fuzz_<seed>/cases/case_<i>.flx` (the store is verify's
+    output folder, `.verify/`), recreated on each run. `--gen-only` stops there.
+  - It compiles each case with `flux --dump-core` first, on all cores but two,
+    and moves the ones that fail out of `cases/`:
+    - to `internal/` when the compiler failed on its own: a panic, a failed Core
+      lint or Aether check, a timeout, or a non-zero exit with no diagnostic.
+      Each is a compiler bug. E999 counts by its title, since FBIP's E999 is an
+      ordinary diagnostic.
+    - to `genfail/` when it reported a diagnostic. Each is a generator bug.
+    Both are counted on their own line, the target is zero, and either fails
+    the run.
+  - It runs `flux parity-check` on `cases/` and copies mismatching cases to
+    `mismatch/`. The copies sit outside `cases/` because parity-check sweeps a
+    folder recursively. `parity()` moved from `verify.rs` to `xtask/src/parity.rs`,
+    shared by verify, sanitize, census, rewrite and fuzz.
+  - `parity.log` and `summary.txt` sit beside them.
   - Defaults are `--jobs 1` and `--count 50`. Native builds are expensive, and one
     heavy run at a time keeps the machine usable.
+  - Not done in S8: running `bisect-opt` on each opt-only mismatch (§13) and
+    `--verify-each` on every case (§14, which S14 adds).
+
+**What S8 found.** The first 200 programs of seed 1 found two bugs no fixture
+had. Eight failed with E999: an unused `let` released a parameter its branch
+returned without counting it, and with the parameter borrowed the same plan
+passed the verifier and printed freed memory (KI-172, fixed before going on).
+Case 61 is a native miscompile: a call whose result nothing reads, before a join
+whose value comes from elsewhere, was made a tail call, so the function returned
+the callee's result (KI-173, open). A planted miscompile, the `--optimize` AST
+fold of `+` off by one when the left operand is 2 mod 5, made 47 of the 200
+mismatch, all on the opt ways only. That run took 9:51 with `--jobs 4`.
 
 ### §7 The reducer
 
@@ -857,7 +887,7 @@ each joined to an open KI:
 | S5 ✓ | Checked skips: `UNEXPECTED_PASS` and open KIs only (§8) | Unit tests for both. Moving a KI that a fixture names to `## Resolved` gives a metadata error; deleting a skipped bug's cause, not committed, gives `UNEXPECTED_PASS`. |
 | S6 ✓ | Normalized hashes, sampled determinism in verify, `aether` and `lir` sweeps, cache determinism (§9) | Undoing the S4 lowering fix, not committed, fails verify's determinism sample and reads `numbering` in `compare --content`. The new sweeps' cost is recorded here. |
 | S7 ✓ | `cargo xtask rewrite` with `reorder`, then `rename` and `let-wrap` (§10) | Every rewrite of `tests/parity` and `examples/guide` compiles and matches; each mismatch is fixed or filed as a KI. A planted order bug, not committed, is caught by `reorder`: predeclaration forgetting the functions written after `main` (78 copies no longer compile, against 1). (Undoing the S4 lowering fix, planned here first, changes only numbering, so no output; S6's determinism sample catches it. `binding_groups` in source order, planned next, changes nothing `reorder` touches: it orders statements inside blocks, not top-level items.) |
-| S8 | The generator and `cargo xtask fuzz` (§6) | Unit tests: the same seed gives the same text; 200 seeds compile with 0 generator failures (an ignored test that runs `flux --dump-core`). A planted miscompile under `--optimize`, not committed, is found within `--count 200`. |
+| S8 ✓ | The generator and `cargo xtask fuzz` (§6) | Unit tests: the same seed gives the same text; 200 seeds compile with 0 generator failures (an ignored test that runs `flux --dump-core`). A planted miscompile under `--optimize`, not committed, is found within `--count 200`. (200 of 200 compile with 0 generator failures and 0 internal errors; the run itself is the compile check, so there is no ignored test. The planted `+` fold made 47 of 200 mismatch. Found KI-172 and KI-173.) |
 | S9 | `cargo xtask fuzz reduce` (§7) | The planted miscompile's case shrinks to at most 10 lines. Reducer unit tests on a fake oracle. |
 | S10 | `verify --behaviour` (§11) | A planted change to a `print` builtin's output, not committed, fails it and names the files; a no-op change passes. |
 | S11 | `parity-check --jobs`, opt ways on optimizer changes, per-fixture times, `verify --quick` (§12) | Main parity with `--jobs 2` gives the same verdicts as `--jobs 1`, faster; the times are recorded here. A planted slowdown in one fixture is listed. |
