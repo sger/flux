@@ -235,32 +235,10 @@ fn dispatch(root: &Path, args: &[String]) -> Result<bool, String> {
             args.finish()?;
             rewrite::run_rewrite(root, &options)
         }
-        "fuzz" => {
-            if let Some(sub) = args.positional()? {
-                if sub != "reduce" {
-                    return Err(format!("unknown fuzz command {sub}\n{USAGE}"));
-                }
-                let case =
-                    args.positional()?.ok_or(format!("fuzz reduce: which case?\n{USAGE}"))?;
-                let options = fuzz::ReduceOptions {
-                    case,
-                    ways: args.value("--ways")?.unwrap_or_else(|| fuzz::DEFAULT_WAYS.to_string()),
-                    jobs: args.number("--jobs")?.unwrap_or(4).max(1),
-                    timeout: Duration::from_secs(args.number("--timeout")?.unwrap_or(10) as u64),
-                };
-                args.finish()?;
-                return fuzz::run_reduce(root, &options);
-            }
-            let options = fuzz::Options {
-                seed: args.number("--seed")?.unwrap_or(1) as u64,
-                count: args.number("--count")?.unwrap_or(50),
-                ways: args.value("--ways")?.unwrap_or_else(|| fuzz::DEFAULT_WAYS.to_string()),
-                jobs: args.number("--jobs")?.unwrap_or(1).max(1),
-                gen_only: args.flag("--gen-only"),
-            };
-            args.finish()?;
-            fuzz::run_fuzz(root, &options)
-        }
+        "fuzz" => match fuzz_command(&mut args)? {
+            FuzzCommand::Run(options) => fuzz::run_fuzz(root, &options),
+            FuzzCommand::Reduce(options) => fuzz::run_reduce(root, &options),
+        },
         "bisect-opt" => {
             let way = args.value("--way")?.unwrap_or_else(|| "vm_opt".to_string());
             let options = bisect::Options {
@@ -373,6 +351,38 @@ fn resolve(root: &Path, path: &str) -> PathBuf {
 
 /// The arguments after the command; each accessor removes what it reads, so
 /// `finish` can reject anything left over.
+enum FuzzCommand {
+    Run(fuzz::Options),
+    Reduce(fuzz::ReduceOptions),
+}
+
+/// `fuzz`'s arguments: a run, or `reduce` and its case.
+fn fuzz_command(args: &mut Args) -> Result<FuzzCommand, String> {
+    if let Some(sub) = args.positional()? {
+        if sub != "reduce" {
+            return Err(format!("unknown fuzz command {sub}\n{USAGE}"));
+        }
+        let case = args.positional()?.ok_or(format!("fuzz reduce: which case?\n{USAGE}"))?;
+        let options = fuzz::ReduceOptions {
+            case,
+            ways: args.value("--ways")?.unwrap_or_else(|| fuzz::DEFAULT_WAYS.to_string()),
+            jobs: args.number("--jobs")?.unwrap_or(4).max(1),
+            timeout: Duration::from_secs(args.number("--timeout")?.unwrap_or(10) as u64),
+        };
+        args.finish()?;
+        return Ok(FuzzCommand::Reduce(options));
+    }
+    let options = fuzz::Options {
+        seed: args.number("--seed")?.unwrap_or(1) as u64,
+        count: args.number("--count")?.unwrap_or(50),
+        ways: args.value("--ways")?.unwrap_or_else(|| fuzz::DEFAULT_WAYS.to_string()),
+        jobs: args.number("--jobs")?.unwrap_or(1).max(1),
+        gen_only: args.flag("--gen-only"),
+    };
+    args.finish()?;
+    Ok(FuzzCommand::Run(options))
+}
+
 struct Args(Vec<String>);
 
 impl Args {
