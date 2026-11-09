@@ -410,7 +410,13 @@ in one part doesn't flood the others:
   - **KI-175:** 104 of the 200 still stop with E000. A class method in an
     `if` or `match` that is an annotated `let`'s value is "answered with more
     than one dictionary". Even the prelude's `show` does it, and the fuzz run
-    moves those cases to `internal/`.
+    moves those cases to `internal/`. Fixed. The annotated `let` checked its
+    value and then inferred it, and both passes raised the value's
+    predicates. A constrained function called there compiled, and natively
+    printed the wrong value, because it was passed an extra dictionary. The
+    check pass now drops what it raised.
+  - **Parity** after that, on the 96 that compiled: all agree on all four
+    ways.
   - **The reducer:** for an internal error it compared only the first error
     line, which is the same for every E000, so a reduction could drift from
     one internal error to another. `judge` now includes the explanation
