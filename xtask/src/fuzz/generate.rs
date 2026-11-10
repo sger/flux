@@ -44,6 +44,17 @@
 //! A value holding a function is never printed whole, since a closure's
 //! printed form is the backend's own; `main` prints what it gives instead.
 //! Nor are a Map's `keys` or `values`, whose order is the hash's.
+//!
+//! `effects` (S17c) adds one or two user effects, helpers that declare and
+//! perform them, and handlers around a call of one, in helpers and in `main`,
+//! nested when the callee has two effects. A clause resumes once, gives a
+//! value without resuming, or does one or the other on a condition; it
+//! resumes with its parameter and a capture combined in an order that shows.
+//! Its open KIs: an effect has one operation (KI-185) of one parameter
+//! (KI-184); its name is never a builtin's (KI-114, KI-102); a lambda never
+//! performs or calls an effectful helper (KI-029); a handled expression is a
+//! call, bound to a `let` (KI-025). Left out: multi-shot resume, handlers with
+//! state, `Async` (KI-169, KI-144), and a clause that prints.
 
 use crate::rng::Rng;
 use crate::sweep::fnv64;
@@ -55,14 +66,16 @@ pub struct Parts {
     pub classes: bool,
     /// Records, closures as values, Arrays, Maps and Either (S17b).
     pub values: bool,
+    /// User effects, the helpers that perform them, and handlers (S17c).
+    pub effects: bool,
 }
 
 impl Parts {
-    pub const NONE: Parts = Parts { classes: false, values: false };
+    pub const NONE: Parts = Parts { classes: false, values: false, effects: false };
 
     /// `--with`'s names for the parts that are on, comma-separated.
     pub fn names(&self) -> String {
-        [(self.classes, "classes"), (self.values, "values")]
+        [(self.classes, "classes"), (self.values, "values"), (self.effects, "effects")]
             .into_iter()
             .filter_map(|(on, name)| on.then_some(name))
             .collect::<Vec<_>>()
@@ -76,8 +89,11 @@ impl Parts {
             match name {
                 "classes" => parts.classes = true,
                 "values" => parts.values = true,
+                "effects" => parts.effects = true,
                 other => {
-                    return Err(format!("unknown part `{other}`; the parts are: classes, values"));
+                    return Err(format!(
+                        "unknown part `{other}`; the parts are: classes, values, effects"
+                    ));
                 }
             }
         }
@@ -140,6 +156,18 @@ struct FnSig {
     recursive: bool,
     /// `Some` for a generic helper, with the class constraining its `T`.
     tparam: Option<Option<usize>>,
+    /// The effects in its row (S17c), by index in `Gen::effects`.
+    effects: Vec<usize>,
+}
+
+/// `effect Eff<n> { op<n> : (P) -> R }`: one operation of one parameter.
+/// Natively, a second operation runs the first one's clause (KI-185), and a
+/// second parameter is dropped (KI-184).
+struct EffectDef {
+    name: String,
+    op: String,
+    param: Ty,
+    ret: Ty,
 }
 
 struct Method {
@@ -197,6 +225,9 @@ pub fn program_with(seed: u64, case: usize, parts: &Parts) -> String {
     if parts.values {
         g.records();
     }
+    if parts.effects {
+        g.declare_effects();
+    }
     if parts.classes {
         g.classes();
     }
@@ -231,6 +262,12 @@ struct Gen<'r> {
     /// The helpers that return a closure over their arguments, by index in
     /// `fns`.
     closure_helpers: Vec<usize>,
+    effects: Vec<EffectDef>,
+    /// The effects the function being written may perform.
+    row: Vec<usize>,
+    /// While a lambda's body is written: it can't perform or call an
+    /// effectful function (KI-029).
+    in_lambda: bool,
     classes: Vec<ClassDef>,
     fns: Vec<FnSig>,
     vars: Vec<(String, Ty)>,
@@ -254,6 +291,9 @@ impl<'r> Gen<'r> {
             recs: Vec::new(),
             fun_tys: Vec::new(),
             closure_helpers: Vec::new(),
+            effects: Vec::new(),
+            row: Vec::new(),
+            in_lambda: false,
             classes: Vec::new(),
             fns: Vec::new(),
             vars: Vec::new(),
@@ -583,6 +623,8 @@ impl<'r> Gen<'r> {
                 self.generic_helper();
             } else if self.parts.values && self.chance(25) {
                 self.closure_helper();
+            } else if self.parts.effects && self.chance(40) {
+                self.effect_helper();
             } else {
                 self.plain_helper();
             }
@@ -631,7 +673,14 @@ impl<'r> Gen<'r> {
         });
         self.lines.push("}".into());
         let params = params.into_iter().map(|(_, t)| t).collect();
-        self.fns.push(FnSig { name, params, ret, recursive: false, tparam: Some(constraint) });
+        self.fns.push(FnSig {
+            name,
+            params,
+            ret,
+            recursive: false,
+            tparam: Some(constraint),
+            effects: Vec::new(),
+        });
     }
 
     /// Lets, then a call of one of class `c`'s methods returning `ret` on `x`,
@@ -683,7 +732,14 @@ impl<'r> Gen<'r> {
         self.vars.truncate(scope);
         self.lines.push("}".into());
         let params = params.into_iter().map(|(_, t)| t).collect();
-        self.fns.push(FnSig { name, params, ret, recursive: false, tparam: None });
+        self.fns.push(FnSig {
+            name,
+            params,
+            ret,
+            recursive: false,
+            tparam: None,
+            effects: Vec::new(),
+        });
     }
 
     /// `if n <= 0 { base } else { ... f(n - k, ...) ... }`, with one
@@ -720,7 +776,14 @@ impl<'r> Gen<'r> {
         self.vars.truncate(scope);
         self.lines.push("}".into());
         let params = params.into_iter().map(|(_, t)| t).collect();
-        self.fns.push(FnSig { name, params, ret, recursive: true, tparam: None });
+        self.fns.push(FnSig {
+            name,
+            params,
+            ret,
+            recursive: true,
+            tparam: None,
+            effects: Vec::new(),
+        });
     }
 
     fn main(&mut self) {
@@ -761,6 +824,13 @@ impl<'r> Gen<'r> {
     /// `let <name>: <ty> = <value>;` at `indent`, possibly over several lines.
     fn binding(&mut self, name: &str, ty: &Ty, depth: u32, indent: usize) {
         let pad = "    ".repeat(indent);
+        if self.parts.effects
+            && self.chance(35)
+            && let Some(handled) = self.handled(ty, depth)
+        {
+            self.lines.push(format!("{pad}let {name}: {} = {handled};", self.render(ty)));
+            return;
+        }
         let head = format!("{pad}let {name}: {} = ", self.render(ty));
         self.value(ty, depth, indent, head);
         let last = self.lines.last_mut().expect("value wrote a line");
@@ -993,6 +1063,7 @@ impl<'r> Gen<'r> {
 
     /// `\x -> body` with `x: param` in scope for the body.
     fn lambda(&mut self, params: &[Ty], body: &Ty, depth: u32) -> String {
+        let in_lambda = std::mem::replace(&mut self.in_lambda, true);
         let scope = self.vars.len();
         let names: Vec<String> = params
             .iter()
@@ -1004,6 +1075,7 @@ impl<'r> Gen<'r> {
             .collect();
         let e = self.expr(body, depth);
         self.vars.truncate(scope);
+        self.in_lambda = in_lambda;
         if self.parts.values {
             // Annotated, so a parameter's field or call is typed where it's
             // read, whatever the call around the lambda infers first.
@@ -1020,6 +1092,11 @@ impl<'r> Gen<'r> {
     fn call(&mut self, ty: &Ty, depth: u32) -> Option<String> {
         let found: Vec<usize> = (0..self.fns.len())
             .filter(|&i| !(self.no_struct && self.fns[i].params.iter().any(holds_rec)))
+            .filter(|&i| {
+                let effects = &self.fns[i].effects;
+                effects.is_empty()
+                    || (!self.in_lambda && effects.iter().all(|e| self.row.contains(e)))
+            })
             .filter(|&i| {
                 let f = &self.fns[i];
                 match f.tparam {
@@ -1207,6 +1284,14 @@ impl<'r> Gen<'r> {
         {
             return e;
         }
+        if self.parts.effects
+            && !self.row.is_empty()
+            && !self.in_lambda
+            && self.chance(12)
+            && let Some(e) = self.perform_expr(ty, d)
+        {
+            return e;
+        }
         match ty {
             Ty::Int => self.int_expr(d),
             Ty::Bool => self.bool_expr(d),
@@ -1249,6 +1334,167 @@ impl<'r> Gen<'r> {
                 }
             }
         }
+    }
+
+    // ---- S17c: user effects and handlers ----
+
+    /// One or two effects of one operation each.
+    fn declare_effects(&mut self) {
+        for _ in 0..1 + self.rng.below(2) {
+            let name = self.fresh("Eff");
+            let op = self.fresh("op");
+            let ret = self.scalar();
+            // Mostly of its result's type, so a clause can resume with its
+            // parameter and a capture combined.
+            let param = if self.chance(70) { ret.clone() } else { self.scalar() };
+            self.lines.push(format!("effect {name} {{"));
+            self.lines.push(format!(
+                "    {op} : ({}) -> {}",
+                self.render(&param),
+                self.render(&ret)
+            ));
+            self.lines.push("}".into());
+            self.effects.push(EffectDef { name, op, param, ret });
+        }
+        self.lines.push(String::new());
+    }
+
+    /// `fn f(..) -> R with Eff1[, Eff2] { let v = perform Eff1.op(..); ... }`:
+    /// it performs each effect of its row before anything else.
+    fn effect_helper(&mut self) {
+        let name = self.fresh("f");
+        let count = 1 + self.rng.below(2);
+        let params = self.params(count);
+        let ret = self.any_ty();
+        let mut effects = vec![self.rng.below(self.effects.len())];
+        if self.effects.len() > 1 && self.chance(40) {
+            effects = vec![0, 1];
+        }
+        let row: Vec<String> = effects.iter().map(|&e| self.effects[e].name.clone()).collect();
+        let sig = self.signature(&name, &params, &ret);
+        let sig = format!("{} with {} {{", sig.trim_end_matches(" {"), row.join(", "));
+        self.lines.push(sig);
+        let scope = self.vars.len();
+        self.vars.extend(params.iter().cloned());
+        let outer_row = std::mem::replace(&mut self.row, effects.clone());
+        for &e in &effects {
+            let (effect, op, param, ty) = {
+                let d = &self.effects[e];
+                (d.name.clone(), d.op.clone(), d.param.clone(), d.ret.clone())
+            };
+            let arg = self.expr(&param, MAX_DEPTH - 1);
+            let v = self.fresh("v");
+            self.lines
+                .push(format!("    let {v}: {} = perform {effect}.{op}({arg});", self.render(&ty)));
+            self.vars.push((v, ty));
+        }
+        self.block(&ret, MAX_DEPTH, 1);
+        self.row = outer_row;
+        self.vars.truncate(scope);
+        self.lines.push("}".into());
+        let params = params.into_iter().map(|(_, t)| t).collect();
+        self.fns.push(FnSig { name, params, ret, recursive: false, tparam: None, effects });
+    }
+
+    /// `perform E.op(e)` for an effect in the row whose operation gives `ty`.
+    fn perform_expr(&mut self, ty: &Ty, d: u32) -> Option<String> {
+        let fitting: Vec<usize> =
+            self.row.iter().copied().filter(|&e| self.effects[e].ret == *ty).collect();
+        if fitting.is_empty() {
+            return None;
+        }
+        let e = *self.pick(&fitting);
+        let (effect, op, param) = (
+            self.effects[e].name.clone(),
+            self.effects[e].op.clone(),
+            self.effects[e].param.clone(),
+        );
+        Some(format!("perform {effect}.{op}({})", self.expr(&param, d)))
+    }
+
+    /// `g(args) handle E1 { ... }`, or `do { g(args) handle E1 {..} } handle
+    /// E2 {..}`, for an effectful helper `g` returning `ty`: every effect of
+    /// its row handled, around a direct call (KI-025).
+    fn handled(&mut self, ty: &Ty, depth: u32) -> Option<String> {
+        let found: Vec<usize> = (0..self.fns.len())
+            .filter(|&i| !self.fns[i].effects.is_empty() && self.fns[i].ret == *ty)
+            .collect();
+        if found.is_empty() {
+            return None;
+        }
+        let f = *self.pick(&found);
+        let (name, params, effects) =
+            (self.fns[f].name.clone(), self.fns[f].params.clone(), self.fns[f].effects.clone());
+        let args: Vec<String> =
+            params.iter().map(|p| self.expr(p, depth.saturating_sub(1))).collect();
+        let mut text = format!("{name}({})", args.join(", "));
+        for (k, &e) in effects.iter().enumerate() {
+            let clause = self.clause(e, ty);
+            let effect = self.effects[e].name.clone();
+            text = if k == 0 {
+                format!("{text} handle {effect} {{ {clause} }}")
+            } else {
+                format!("do {{ {text} }} handle {effect} {{ {clause} }}")
+            };
+        }
+        Some(text)
+    }
+
+    /// A clause for effect `e` whose `handle` gives `ty`: it resumes once,
+    /// gives a `ty` without resuming, or does one or the other on a
+    /// condition. It never performs, nor prints. When its parameter has the
+    /// operation's result type it resumes with the parameter and a variable
+    /// in scope, a capture, combined so that their order shows.
+    fn clause(&mut self, e: usize, ty: &Ty) -> String {
+        let (op, param, ret) = (
+            self.effects[e].op.clone(),
+            self.effects[e].param.clone(),
+            self.effects[e].ret.clone(),
+        );
+        let p = self.fresh("p");
+        let outer_row = std::mem::take(&mut self.row);
+        let resumed = |g: &mut Self| -> String {
+            let e = g.expr(&ret, 1);
+            let capture: Vec<String> = g
+                .vars
+                .iter()
+                .filter(|(n, t)| *t == ret && *n != p)
+                .map(|(n, _)| n.clone())
+                .collect();
+            let value = if param == ret && !capture.is_empty() {
+                let k = g.pick(&capture).clone();
+                match ret {
+                    Ty::Int => format!("(({p} - {k}) + {e})"),
+                    Ty::Str => format!("(({p} + {k}) + {e})"),
+                    _ => format!("(({p} && !{k}) != {e})"),
+                }
+            } else {
+                e
+            };
+            format!("resume({value})")
+        };
+        let scope = self.vars.len();
+        let body = match self.rng.below(10) {
+            0..=5 => {
+                let body = resumed(self);
+                self.vars.push((p.clone(), param.clone()));
+                body
+            }
+            _ => {
+                self.vars.push((p.clone(), param.clone()));
+                let abort = self.expr(ty, 1);
+                if self.chance(50) {
+                    let cond = self.without_struct(|g| g.expr(&Ty::Bool, 1));
+                    let again = resumed(self);
+                    format!("if {cond} {{ {again} }} else {{ {abort} }}")
+                } else {
+                    abort
+                }
+            }
+        };
+        self.vars.truncate(scope);
+        self.row = outer_row;
+        format!("{op}(resume, {p}) -> {body}")
     }
 
     // ---- S17b: records, closures as values, Arrays, Maps and Either ----
@@ -1345,7 +1591,14 @@ impl<'r> Gen<'r> {
         self.lines.push("}".into());
         let params = params.into_iter().map(|(_, t)| t).collect();
         self.closure_helpers.push(self.fns.len());
-        self.fns.push(FnSig { name, params, ret, recursive: false, tparam: None });
+        self.fns.push(FnSig {
+            name,
+            params,
+            ret,
+            recursive: false,
+            tparam: None,
+            effects: Vec::new(),
+        });
     }
 
     fn without_struct<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
@@ -1443,7 +1696,9 @@ impl<'r> Gen<'r> {
                 format!("{n}: {}", self.render(t))
             })
             .collect();
+        let in_lambda = std::mem::replace(&mut self.in_lambda, true);
         let e = body(self);
+        self.in_lambda = in_lambda;
         self.vars.truncate(scope);
         format!("\\({}) -> {e}", shown.join(", "))
     }
@@ -1477,7 +1732,13 @@ impl<'r> Gen<'r> {
         let mut named: Vec<String> = self
             .fns
             .iter()
-            .filter(|f| f.tparam.is_none() && !f.recursive && f.params == params && f.ret == *ret)
+            .filter(|f| {
+                f.tparam.is_none()
+                    && !f.recursive
+                    && f.effects.is_empty()
+                    && f.params == params
+                    && f.ret == *ret
+            })
             .map(|f| f.name.clone())
             .collect();
         named.extend(self.field_paths(ty));
@@ -1938,8 +2199,9 @@ mod tests {
         }
     }
 
-    const CLASSES: Parts = Parts { classes: true, values: false };
-    const VALUES: Parts = Parts { classes: false, values: true };
+    const CLASSES: Parts = Parts { classes: true, values: false, effects: false };
+    const VALUES: Parts = Parts { classes: false, values: true, effects: false };
+    const EFFECTS: Parts = Parts { classes: false, values: false, effects: true };
 
     fn balanced(text: &str) -> bool {
         let mut depth = [0i32; 3];
@@ -1970,9 +2232,10 @@ mod tests {
         assert!(Parts::parse("classes,nope").is_err());
         assert_eq!(CLASSES.names(), "classes");
         assert_eq!(Parts::parse("values"), Ok(VALUES));
-        let both = Parts { classes: true, values: true };
+        let both = Parts { classes: true, values: true, effects: false };
         assert_eq!(Parts::parse("values, classes"), Ok(both));
         assert_eq!(both.names(), "classes,values");
+        assert_eq!(Parts::parse("effects"), Ok(EFFECTS));
     }
 
     #[test]
@@ -2064,7 +2327,7 @@ mod tests {
 
     #[test]
     fn a_values_program_is_one_program_per_seed_and_balanced() {
-        let both = Parts { classes: true, values: true };
+        let both = Parts { classes: true, values: true, effects: false };
         for (parts, with) in [(VALUES, "values"), (both, "classes,values")] {
             for case in 0..200 {
                 let text = program_with(2, case, &parts);
@@ -2190,5 +2453,65 @@ mod tests {
             calling >= 30,
             "only {calling} of 200 programs call a helper that returns a function"
         );
+    }
+
+    #[test]
+    fn an_effects_program_is_one_program_per_seed_and_balanced() {
+        let all = Parts { classes: true, values: true, effects: true };
+        for (parts, with) in [(EFFECTS, "effects"), (all, "classes,values,effects")] {
+            for case in 0..200 {
+                let text = program_with(2, case, &parts);
+                assert_eq!(text, program_with(2, case, &parts));
+                assert!(balanced(&text), "case {case}:\n{text}");
+                assert!(text.contains(&format!("--with {with}, case")), "case {case}");
+                assert!(
+                    text.contains("\nfn main() with IO {\n"),
+                    "case {case}: main has no user effect"
+                );
+            }
+        }
+    }
+
+    /// Each feature S17c adds shows up in a sample of programs, and the
+    /// rules it keeps from open KIs hold.
+    #[test]
+    fn effects_programs_use_every_form_and_keep_clear_of_their_known_issues() {
+        let all: String = (0..200).map(|case| program_with(1, case, &EFFECTS)).collect();
+        for (form, needle) in [
+            ("an effect", "\neffect Eff"),
+            ("a row", ") with Eff"),
+            ("a row of two", ", Eff"),
+            ("a perform", "perform Eff"),
+            ("a handler", " handle Eff"),
+            ("nested handlers", "do { "),
+            ("a resume", "-> resume("),
+            ("a conditional resume", "{ resume("),
+        ] {
+            assert!(all.contains(needle), "no {form} (`{needle}`) in 200 programs");
+        }
+        let clauses: Vec<&str> = all.split("(resume, ").skip(1).collect();
+        assert!(
+            clauses.iter().any(|c| {
+                let body = c.split_once(" -> ").unwrap().1;
+                !body.starts_with("resume(") && !body.starts_with("if ")
+            }),
+            "no clause that gives a value without resuming"
+        );
+        for line in all.lines() {
+            if let Some(op) = line.trim_start().strip_prefix("op") {
+                // KI-184, KI-185: one operation of one parameter.
+                let params = op.split_once(": (").map(|(_, rest)| rest.split(')').next().unwrap());
+                if let Some(params) = params {
+                    assert!(!params.contains(','), "{line}");
+                }
+            }
+            // KI-029: no `perform` after a lambda's arrow on the same line.
+            if let Some(at) = line.find("\\(") {
+                assert!(!line[at..].contains("perform "), "{line}");
+            }
+        }
+        for name in ["Console", "IO", "Async", "Process", "Env", "Clock", "Panic", "Div"] {
+            assert!(!all.contains(&format!("effect {name} ")), "an effect named {name}");
+        }
     }
 }
