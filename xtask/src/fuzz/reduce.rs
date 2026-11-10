@@ -95,7 +95,10 @@ pub fn run_reduce(root: &Path, options: &ReduceOptions) -> Result<bool, String> 
             return false;
         }
         let cache = out.join(format!("cache_{slot}"));
-        target.holds(root, &flux, &candidate.to_string_lossy(), options.timeout, Some(&cache))
+        let file = candidate.to_string_lossy();
+        shows(target.native(), |cached| {
+            target.holds(root, &flux, &file, options.timeout, cached.then_some(cache.as_path()))
+        })
     };
     let mut tester = Tester::new(&test, options.jobs);
     let lines: Vec<String> = text.lines().map(str::to_string).collect();
@@ -266,7 +269,18 @@ enum Target {
     Internal(String),
 }
 
+/// Whether a candidate still shows the bug, run with the slot's cache when
+/// `run` is given `true`.
+fn shows(_native: bool, run: impl Fn(bool) -> bool) -> bool {
+    run(true)
+}
+
 impl Target {
+    /// Whether one of its ways is native, whose runs a cache speeds up.
+    fn native(&self) -> bool {
+        matches!(self, Target::Mismatch { a, b, .. } if a.native() || b.native())
+    }
+
     fn holds(
         &self,
         root: &Path,
