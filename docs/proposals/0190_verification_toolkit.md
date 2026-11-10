@@ -444,8 +444,11 @@ in one part doesn't flood the others:
   deletes a set of lines; a deletion that splits a brace pair is widened to the
   lines the pair encloses. Code: `xtask/src/fuzz/reduce.rs`.
 - **Keeping a candidate:** the pair of ways that disagreed on the original
-  must still differ on the same stream (exit, stdout or stderr), and each way
-  must compile it exactly when it compiled the original. The pair is the one
+  must still differ on the same stream (exit, stdout or stderr), each way must
+  exit as it did on the original, and each way must compile it exactly when it
+  compiled the original. Without the exits, a case where native fails and the
+  VM runs slid to one where the VM fails and native runs (S17a's plant
+  reduced to KI-179). The pair is the one
   with the fewest native ways among those that disagree, so a bug the VM shows
   is reduced on the VM alone. The two ways run directly, not through
   `parity-check`, which would run every way per candidate; a native pair
@@ -456,6 +459,11 @@ in one part doesn't flood the others:
   candidates that do not parse. Before it, the reducer tries edits that keep
   the program well formed, as Perses and llvm-reduce do:
   - delete a whole top-level item;
+  - delete a class method together with its method in every instance of the
+    class, a contextual one included;
+  - delete a parameter a top-level function never reads, together with the
+    argument in its place at every call (none when the function is passed as
+    a value);
   - delete a statement, or a `match` arm when a later arm is a wildcard;
   - replace an `if` with one of its branches, or a `match` with one arm's
     value; a `match` with one arm whose pattern names the scrutinee or its
@@ -471,7 +479,11 @@ in one part doesn't flood the others:
 
   Line ddmin runs after the deleting passes and before the expressions pass,
   which tries the most candidates per line and should see the smallest
-  program. Rounds repeat until one changes nothing. A pass that keeps a
+  program. Last in each round, a function or instance method whose body is
+  one value is written on one line (`fn m(x) { "" }`). It doesn't make the
+  program smaller, but it makes the line count measure the program rather
+  than the generator's layout, which gives every body three lines. Rounds
+  repeat until one changes nothing. A pass that keeps a
   candidate goes on from there rather than starting over, which would retest
   every candidate before it.
 - **Cost:** candidates are tested `--jobs` at a time (default 4) and each
