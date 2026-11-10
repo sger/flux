@@ -416,11 +416,40 @@ in one part doesn't flood the others:
     printed the wrong value, because it was passed an extra dictionary. The
     check pass now drops what it raised.
   - **Parity** after that, on the 96 that compiled: all agree on all four
-    ways.
+    ways. With KI-175 fixed, all 200 compile and agree.
   - **The reducer:** for an internal error it compared only the first error
     line, which is the same for every E000, so a reduction could drift from
     one internal error to another. `judge` now includes the explanation
     line, with its positions masked.
+  - **KI-178:** on the VM, a class method named like a prelude function
+    (`first`) panics with "No instance of …" when `main` calls it. Natively,
+    or from any other function, it works. The generator names methods `m<n>`,
+    so it can't produce this; a probe written for the exit plant did.
+  - **KI-179:** without `--strict`, `[]` is accepted at any type
+    (`fn f(...) -> Bool { [] }`). The VM catches it at run time with E1004,
+    and natively nothing checks it. The reducer found it by drifting from
+    the plant, which is how the exit-status rule below came about.
+
+  **The exit test, met** on seed 1, 200 programs, all four ways:
+  - **Where the plant goes.** The first plant, in `emit_dict_globals`
+    (`src/compiler/passes/codegen.rs`), changed nothing. That's the AST
+    compiler's; the VM's CFG backend builds a dictionary from its Core
+    definition like any other. A plant on the definition doesn't work
+    natively either, because the simplifier inlines `__dict_*` into its
+    caller, which then builds its own tuple. So the plant goes on the read:
+    native lowering of a `TupleField` on a `__dict_*` variable swaps slots 0
+    and 1 (`src/lir/lower.rs`, the `AetherExpr` arm, since native lowers
+    Aether, not Core).
+  - **Found:** 22 of 200 mismatch, every one with a constrained helper.
+    Natively, 9 printed a different value, 10 stopped with a runtime error
+    and 3 crashed. The VM ran all of them.
+  - **Reduced:** `case_148`, 96 lines to 13, in 1:08; `case_2`, 60 lines to
+    11, in 0:33. Both still call a method through a constrained helper.
+    This took two reducer changes, both in §7. First, a mismatch keeps each
+    way's exit status; before that, `case_2` and `case_64` slid to KI-179.
+    Second, three passes: a class method with its instances' methods, an
+    unused parameter with its arguments, and a one-line body joined to its
+    `fn` line. Before them, `case_148` stopped at 24 lines.
 - **S17b, records and closures as values.** Named-field `data` (0152), field
   access and update; lambdas bound, returned from helpers, stored in lists and
   data and called later; Arrays, Maps with `Int` or `String` keys (KI-157),
