@@ -318,6 +318,42 @@ which isn't compiled, is the only place one is written.
 
 The fuzz generator writes operations of at most one parameter.
 
+### KI-185 — Natively, every operation of an effect runs its handler's first clause
+
+**Severity:** High (silent wrong output natively) · **Area:** Native effects, handler lowering · **Verified:** 2026-11-10 (f1d78295) · **From:** 0190 S17c (a probe of the forms the generator would write)
+
+```flux
+effect E {
+    a : (Int) -> Int
+    b : (Int) -> Int
+}
+
+fn g() -> Int with E {
+    let x: Int = perform E.a(1);
+    let y: Int = perform E.b(1);
+    ((x * 1000) + y)
+}
+
+fn main() with IO {
+    let v: Int = g() handle E { a(resume, n) -> resume(100), b(resume, n) -> resume(200) };
+    print(v);
+}
+```
+
+`vm` and `vm_opt` print `100200`; `llvm` and `llvm_opt` print `100100`:
+`perform E.b(1)` ran `a`'s clause. With `perform E.b` alone it's `200` against
+`100`. When the clauses' types differ (an `(Int) -> Int` and a
+`(String) -> Bool` operation), `b` resumes with `a`'s value, of `a`'s type.
+
+`lower_handle_aether` (`src/lir/lower.rs`) builds the handler's closure from
+`handlers[0]` alone (`lower_handler_clause_aether(effect, &handlers[0])`) and
+inserts it as the effect's one evidence entry, so whichever operation is
+performed, that clause runs. `lower_handle`, the Core path, does the same.
+`tests/parity/effect_tr_reader.flx` has a two-operation effect, but it binds
+the second operation's result to `_port` and never reads it, so it passes.
+
+The fuzz generator gives each effect one operation.
+
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
