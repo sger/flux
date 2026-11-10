@@ -288,6 +288,36 @@ programs don't show this. `reduce` inlined such a `let` (`let v = f14();
 print(v(0, 86))` became `print(f14()(0, 86))`), and the ways still differed on
 stdout.
 
+### KI-184 — Natively, an effect operation of two or more parameters gives its handle a closure
+
+**Severity:** High (silent wrong output natively) · **Area:** Native effects, `perform` lowering · **Verified:** 2026-11-10 (ae6dbc70) · **From:** 0190 S17c (a probe of the forms the generator would write)
+
+```flux
+effect Ask { ask : (Int, Int) -> Int }
+
+fn calc() -> Int with Ask { perform Ask.ask(2, 5) }
+
+fn main() with IO {
+    let v: Int = calc() handle Ask { ask(resume, n, m) -> resume((n - m)) };
+    print(v);
+}
+```
+
+`vm` and `vm_opt` print `-3`. `llvm` and `llvm_opt` print
+`<unknown obj=0xf5>`, a closure (printed as in [KI-182](#ki-182)), so `v`,
+declared `Int`, holds one. An aborting clause (`ask(resume, n, m) -> (n - m)`)
+and parameters of different types (`(Int, String) -> Int`) do the same. An
+operation of no parameter or of one works on all four ways.
+
+`lower_perform_aether` (`src/lir/lower.rs`) lowers only `args[0]` and passes
+`args.len()` as the arity beside it; the other arguments are dropped. The
+clause closure takes `(resume, n, m)`, so called with `(resume, n)` it gives
+back a closure that waits for `m`, and that becomes the handle's value. No
+parity fixture has an operation of two parameters; `lib/Flow/Effects.flx`,
+which isn't compiled, is the only place one is written.
+
+The fuzz generator writes operations of at most one parameter.
+
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
