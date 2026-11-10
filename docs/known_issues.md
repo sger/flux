@@ -202,6 +202,40 @@ doesn't say why.
 
 The fuzz generator names its records `Rec<n>`.
 
+### KI-181 — A named-field construction inside an `if` condition or a `match` scrutinee doesn't parse, even in parentheses or a call
+
+**Severity:** Low · **Area:** Parser, named fields (0152) · **Verified:** 2026-11-10 (86803c35) · **From:** 0190 S17b (a probe of the forms the generator would write)
+
+```flux
+data Rec5 { Rec5 { f6: Int, f7: String } }
+
+fn pos(r: Rec5) -> Bool { (r.f6 > 0) }
+
+fn main() with IO {
+    let a: Bool = if pos(Rec5 { f6: 1, f7: "z" }) {
+        true
+    } else {
+        false
+    };
+    print(a);
+}
+```
+
+This stops with `error[E073]: Missing Comma` ("Missing comma between
+arguments") at the construction. `match pos(Rec5 { … }) {` does the same,
+`match (Rec5 { … }) {` and `if ((Rec5 { … }).f6 > 0) {` stop with
+`E034 Missing Closing Delimiter`. Bound to a `let` first, each one works.
+
+An `if` condition and a `match` scrutinee turn off struct literals
+(`allow_struct_literal` in `src/syntax/parser/expression.rs`), so that the `{`
+of `if x {` isn't read as a construction. Nothing turns them back on inside
+parentheses, brackets or a call's arguments, where that `{` can't be the
+block's, so a construction nested anywhere in the condition is refused. A Map
+literal there (`if Map.has({1: "a"}, 1) {`) parses.
+
+The fuzz generator builds no record while it writes a condition or a
+scrutinee: a record there comes from a variable.
+
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
