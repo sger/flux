@@ -1157,4 +1157,21 @@ fn main() with IO {
         assert_eq!((a.name, b.name), ("vm", "llvm"));
         assert!(pick_pair(&ways, &[ran("1"), ran("1"), ran("1"), ran("1")]).is_none());
     }
+
+    /// A mismatch where the VM ran and native failed is not the same bug as
+    /// one where the VM failed and native ran, though both differ on exit:
+    /// a reduction that keeps only the stream slides from one to the other.
+    #[test]
+    fn a_mismatch_keeps_which_way_failed() {
+        let ran = |exit: i32| Ran {
+            finished: true,
+            exit,
+            stdout: String::new(),
+            stderr: String::new(),
+        };
+        let vm_ran = verdict(&ran(0), &ran(1)).unwrap();
+        let native_ran = verdict(&ran(1), &ran(0)).unwrap();
+        assert_eq!((vm_ran.stream, native_ran.stream), (Stream::Exit, Stream::Exit));
+        assert_ne!(vm_ran, native_ran);
+    }
 }
