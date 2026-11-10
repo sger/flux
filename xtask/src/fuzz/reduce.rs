@@ -68,7 +68,7 @@ pub fn run_reduce(root: &Path, options: &ReduceOptions) -> Result<bool, String> 
         parallel(&ways, options.jobs, |way| way.run(root, &flux, &file, options.timeout, None));
 
     let pair = pick_pair(&ways, &runs);
-    let internal = if pair.is_none() {
+    let internal = if pair.is_none_or(|(_, _, verdict)| verdict.compiled == (false, false)) {
         let ran = run_flux(root, &flux, &["--dump-core"], &file, options.timeout);
         match judge(ran.finished, ran.exit, &ran.stderr) {
             Compile::Internal(why) => Some(why),
@@ -241,9 +241,14 @@ fn pick_pair(ways: &[Way], runs: &[Ran]) -> Option<(Way, Way, Verdict)> {
 }
 
 /// What to reduce: a pair of ways that disagree, or else the compiler's
-/// failure on the case itself.
+/// failure on the case itself. When neither way of the pair compiles it,
+/// they differ only in their diagnostics, which any broken text can keep
+/// apart, so the compiler's failure comes first.
 fn choose(pair: Option<(Way, Way, Verdict)>, internal: Option<String>) -> Option<Target> {
     match (pair, internal) {
+        (Some((_, _, verdict)), Some(why)) if verdict.compiled == (false, false) => {
+            Some(Target::Internal(why))
+        }
         (Some((a, b, verdict)), _) => Some(Target::Mismatch { a, b, verdict }),
         (None, Some(why)) => Some(Target::Internal(why)),
         (None, None) => None,
