@@ -130,8 +130,8 @@ pub fn run_reduce(root: &Path, options: &ReduceOptions) -> Result<bool, String> 
 
 /// A way `reduce` can run: parity's plain and optimizer ways.
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct Way {
-    name: &'static str,
+pub(super) struct Way {
+    pub(super) name: &'static str,
     flags: &'static [&'static str],
 }
 
@@ -143,7 +143,7 @@ impl Way {
         Way { name: "llvm_opt", flags: &["--native", "--optimize"] },
     ];
 
-    fn parse(name: &str) -> Result<Way, String> {
+    pub(super) fn parse(name: &str) -> Result<Way, String> {
         let name = name.trim();
         Way::ALL
             .into_iter()
@@ -158,7 +158,7 @@ impl Way {
     /// Runs `file` this way. A native way given a `cache` builds the
     /// standard library into it once instead of on every run, which is most
     /// of a small program's native build.
-    fn run(
+    pub(super) fn run(
         &self,
         root: &Path,
         flux: &Path,
