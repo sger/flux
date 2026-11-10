@@ -354,6 +354,42 @@ the second operation's result to `_port` and never reads it, so it passes.
 
 The fuzz generator gives each effect one operation.
 
+### KI-186 — A handler clause that reads a value the handled call takes over stops the compiler with E999
+
+**Severity:** Medium (valid programs refused, with an internal error) · **Area:** Aether, ownership, effect handlers · **Verified:** 2026-11-10 (5fb02344) · **From:** 0190 S17c (`cargo xtask fuzz --seed 1 --with effects --gen-only`, case 65 of 200)
+
+```flux
+effect Eff { op : (Int) -> Int }
+
+fn f(s: String) -> String with Eff {
+    let x: Int = perform Eff.op(1);
+    s
+}
+
+fn run(n: Int) -> String {
+    let s: String = ("ab" + to_string(n));
+    f(s) handle Eff { op(resume, p) -> resume(len(s)) }
+}
+
+fn main() with IO {
+    print(run(3));
+}
+```
+
+On every way this stops with `error[E999]: Aether Verification Failed`: "the
+ownership plan for `run` is unsound … binder … is read after it was released"
+(`UsedAfterRelease`, after `lower_core_to_aether_program`). The same `let` in
+`main` does it too.
+
+It needs both: the handled call takes `s` over (here `f` returns it), and the
+clause reads `s`. With `f` only reading `s` (`(x + len(s))`), or with `s` a
+parameter of `run` rather than a `let`, it prints. A lambda that captures `s`
+in the same place (`f(s, \(n: Int) -> (n + len(s)))`) also works. So the
+plan releases `s` at the call, and doesn't count the clause, which reads it
+later, as a use.
+
+The verifier refuses the plan, so nothing runs wrong.
+
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
