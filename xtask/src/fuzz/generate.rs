@@ -2619,6 +2619,39 @@ mod tests {
         }
     }
 
+    /// Whether the signature `fn f(..) -> R ..` returns a function: `R`
+    /// has an arrow outside brackets.
+    fn returns_a_function(sig: &str) -> bool {
+        let mut depth = 0;
+        let mut params_closed = None;
+        for (i, c) in sig.char_indices() {
+            match c {
+                '(' | '<' | '[' => depth += 1,
+                ')' | '>' | ']' if !sig[..i].ends_with('-') => {
+                    depth -= 1;
+                    if depth == 0 && params_closed.is_none() {
+                        params_closed = Some(i);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let ret = &sig[params_closed.expect("a parameter list") + 1..];
+        let ret = ret.trim_start().strip_prefix("->").unwrap_or(ret);
+        let mut depth = 0;
+        let bytes = ret.as_bytes();
+        (0..bytes.len()).any(|i| {
+            match bytes[i] {
+                b'(' | b'<' | b'[' => depth += 1,
+                b')' | b']' => depth -= 1,
+                b'>' if i == 0 || bytes[i - 1] != b'-' => depth -= 1,
+                b'-' if depth == 0 && bytes.get(i + 1) == Some(&b'>') => return true,
+                _ => {}
+            }
+            false
+        })
+    }
+
     #[test]
     fn an_effects_program_is_one_program_per_seed_and_balanced() {
         let all = Parts { classes: true, values: true, effects: true };
@@ -2632,6 +2665,13 @@ mod tests {
                     text.contains("\nfn main() with IO {\n"),
                     "case {case}: main has no user effect"
                 );
+                for sig in text.lines().filter(|l| l.starts_with("fn ") && l.contains(" with Eff"))
+                {
+                    assert!(
+                        !returns_a_function(sig),
+                        "case {case}: the row goes to the function returned: {sig}"
+                    );
+                }
             }
         }
     }
