@@ -262,6 +262,9 @@ struct Gen<'r> {
     /// The helpers that return a closure over their arguments, by index in
     /// `fns`.
     closure_helpers: Vec<usize>,
+    /// The helpers that handle an effectful helper's effects with a clause
+    /// over their own parameters, by index in `fns`.
+    handler_helpers: Vec<usize>,
     effects: Vec<EffectDef>,
     /// The effects the function being written may perform.
     row: Vec<usize>,
@@ -291,6 +294,7 @@ impl<'r> Gen<'r> {
             recs: Vec::new(),
             fun_tys: Vec::new(),
             closure_helpers: Vec::new(),
+            handler_helpers: Vec::new(),
             effects: Vec::new(),
             row: Vec::new(),
             in_lambda: false,
@@ -624,10 +628,16 @@ impl<'r> Gen<'r> {
             } else if self.parts.values && self.chance(25) {
                 self.closure_helper();
             } else if self.parts.effects && self.chance(40) {
-                self.effect_helper();
+                self.effect_helper(false);
             } else {
                 self.plain_helper();
             }
+            self.lines.push(String::new());
+        }
+        if self.parts.effects {
+            self.effect_helper(true);
+            self.lines.push(String::new());
+            self.handler_helper(self.fns.len() - 1);
             self.lines.push(String::new());
         }
     }
@@ -806,6 +816,22 @@ impl<'r> Gen<'r> {
                 }
                 self.vars.push((name, ty));
             }
+        }
+        // Each handler helper is called, so its clause runs.
+        for f in self.handler_helpers.clone() {
+            let (callee, params, ty) =
+                (self.fns[f].name.clone(), self.fns[f].params.clone(), self.fns[f].ret.clone());
+            let args: Vec<String> = params.iter().map(|p| self.expr(p, 1)).collect();
+            let name = self.fresh("v");
+            self.lines.push(format!(
+                "    let {name}: {} = {callee}({});",
+                self.render(&ty),
+                args.join(", ")
+            ));
+            for shown in self.observe(&name, &ty) {
+                self.lines.push(format!("    print({shown});"));
+            }
+            self.vars.push((name, ty));
         }
         for _ in 0..3 + self.rng.below(MAX_MAIN_BINDINGS - 2) {
             let ty = self.any_ty();
@@ -1346,7 +1372,12 @@ impl<'r> Gen<'r> {
             let ret = self.scalar();
             // Mostly of its result's type, so a clause can resume with its
             // parameter and a capture combined.
-            let param = if self.chance(70) { ret.clone() } else { self.scalar() };
+            // The first always is, for the handler helper.
+            let param = if self.effects.is_empty() || self.chance(70) {
+                ret.clone()
+            } else {
+                self.scalar()
+            };
             self.lines.push(format!("effect {name} {{"));
             self.lines.push(format!(
                 "    {op} : ({}) -> {}",
@@ -1361,15 +1392,24 @@ impl<'r> Gen<'r> {
 
     /// `fn f(..) -> R with Eff1[, Eff2] { let v = perform Eff1.op(..); ... }`:
     /// it performs each effect of its row before anything else.
-    fn effect_helper(&mut self) {
+    ///
+    /// When `resumed`, its row is the first effect, whose operation takes
+    /// and gives an `R`, and it gives what it performed combined with
+    /// another value so that a different resumed value gives a different
+    /// result: a value resumed and then dropped can't show how the clause
+    /// computed it.
+    fn effect_helper(&mut self, resumed: bool) {
         let name = self.fresh("f");
         let count = 1 + self.rng.below(2);
         let params = self.params(count);
-        let ret = self.any_ty();
-        let mut effects = vec![self.rng.below(self.effects.len())];
-        if self.effects.len() > 1 && self.chance(40) {
-            effects = vec![0, 1];
-        }
+        let ret = if resumed { self.effects[0].ret.clone() } else { self.any_ty() };
+        let effects = if resumed {
+            vec![0]
+        } else if self.effects.len() > 1 && self.chance(40) {
+            vec![0, 1]
+        } else {
+            vec![self.rng.below(self.effects.len())]
+        };
         let row: Vec<String> = effects.iter().map(|&e| self.effects[e].name.clone()).collect();
         let sig = self.signature(&name, &params, &ret);
         let sig = format!("{} with {} {{", sig.trim_end_matches(" {"), row.join(", "));
@@ -1388,7 +1428,18 @@ impl<'r> Gen<'r> {
                 .push(format!("    let {v}: {} = perform {effect}.{op}({arg});", self.render(&ty)));
             self.vars.push((v, ty));
         }
-        self.block(&ret, MAX_DEPTH, 1);
+        if resumed {
+            // `e` doesn't read `v`, so that it can't cancel it: `(v - v)`.
+            let (v, _) = self.vars.pop().expect("it performed");
+            let e = self.expr(&ret, MAX_DEPTH - 1);
+            self.lines.push(match ret {
+                Ty::Int => format!("    ({v} - {e})"),
+                Ty::Str => format!("    ({v} + {e})"),
+                _ => format!("    ({v} != {e})"),
+            });
+        } else {
+            self.block(&ret, MAX_DEPTH, 1);
+        }
         self.row = outer_row;
         self.vars.truncate(scope);
         self.lines.push("}".into());
@@ -1454,24 +1505,18 @@ impl<'r> Gen<'r> {
         let p = self.fresh("p");
         let outer_row = std::mem::take(&mut self.row);
         let resumed = |g: &mut Self| -> String {
-            let e = g.expr(&ret, 1);
             let capture: Vec<String> = g
                 .vars
                 .iter()
                 .filter(|(n, t)| *t == ret && *n != p)
                 .map(|(n, _)| n.clone())
                 .collect();
-            let value = if param == ret && !capture.is_empty() {
+            if param == ret && !capture.is_empty() {
                 let k = g.pick(&capture).clone();
-                match ret {
-                    Ty::Int => format!("(({p} - {k}) + {e})"),
-                    Ty::Str => format!("(({p} + {k}) + {e})"),
-                    _ => format!("(({p} && !{k}) != {e})"),
-                }
+                g.resume_with(&p, &k, &ret)
             } else {
-                e
-            };
-            format!("resume({value})")
+                format!("resume({})", g.expr(&ret, 1))
+            }
         };
         let scope = self.vars.len();
         let body = match self.rng.below(10) {
@@ -1495,6 +1540,68 @@ impl<'r> Gen<'r> {
         self.vars.truncate(scope);
         self.row = outer_row;
         format!("{op}(resume, {p}) -> {body}")
+    }
+
+    /// `resume(((p - k) + e))`: the clause's parameter `p` and a capture `k`
+    /// combined so that their order shows (`+` on Strings, `p && !k` on
+    /// Bools), as in a closure helper.
+    fn resume_with(&mut self, p: &str, k: &str, ret: &Ty) -> String {
+        let e = self.expr(ret, 1);
+        match ret {
+            Ty::Int => format!("resume((({p} - {k}) + {e}))"),
+            Ty::Str => format!("resume((({p} + {k}) + {e}))"),
+            _ => format!("resume((({p} && !{k}) != {e}))"),
+        }
+    }
+
+    /// `fn h(a: R, ..) -> R { let v: R = g(..) handle E { op(resume, p) ->
+    /// resume(((p - a) + e)) }; v }`: a handler around `g`, an effectful
+    /// helper written `resumed`, whose clause resumes with its parameter and
+    /// the helper's own parameter `a`. `main` calls it, so the clause runs,
+    /// and `a` is known only at run time: a constant capture is folded into
+    /// the clause, and then binding the parameter and the capture the wrong
+    /// way round would print the same.
+    fn handler_helper(&mut self, g: usize) {
+        let (callee, gparams, ret) =
+            (self.fns[g].name.clone(), self.fns[g].params.clone(), self.fns[g].ret.clone());
+        let e = self.fns[g].effects[0];
+        let (effect, op) = (self.effects[e].name.clone(), self.effects[e].op.clone());
+        let name = self.fresh("f");
+        let a = (self.fresh("a"), ret.clone());
+        let count = self.rng.below(2);
+        let extra = self.params(count);
+        let params: Vec<(String, Ty)> = std::iter::once(a.clone()).chain(extra.clone()).collect();
+        self.lines.push(self.signature(&name, &params, &ret));
+        let scope = self.vars.len();
+        // The call reads only the other parameters, and the clause only `a`:
+        // a clause that reads a value the call takes over stops the compiler
+        // (KI-186).
+        self.vars.extend(extra);
+        let args: Vec<String> = gparams.iter().map(|p| self.expr(p, MAX_DEPTH - 1)).collect();
+        self.vars.truncate(scope);
+        // Nor does the rest of the resumed value read `a`, which could cancel
+        // the swap: `((p - a) + (a + a))` is `((a - p) + (p + p))`.
+        let p = self.fresh("p");
+        let body = self.resume_with(&p, &a.0, &ret);
+        let text = format!(
+            "{callee}({}) handle {effect} {{ {op}(resume, {p}) -> {body} }}",
+            args.join(", ")
+        );
+        let v = self.fresh("v");
+        self.lines.push(format!("    let {v}: {} = {text};", self.render(&ret)));
+        self.lines.push(format!("    {v}"));
+        self.vars.truncate(scope);
+        self.lines.push("}".into());
+        let params = params.into_iter().map(|(_, t)| t).collect();
+        self.handler_helpers.push(self.fns.len());
+        self.fns.push(FnSig {
+            name,
+            params,
+            ret,
+            recursive: false,
+            tparam: None,
+            effects: Vec::new(),
+        });
     }
 
     // ---- S17b: records, closures as values, Arrays, Maps and Either ----
@@ -2453,6 +2560,63 @@ mod tests {
             calling >= 30,
             "only {calling} of 200 programs call a helper that returns a function"
         );
+    }
+
+    /// A handler helper's clause resumes with its parameter and the helper's
+    /// own parameter, a capture known only at run time, in an order that
+    /// changes the value; and the helper it handles gives a result that
+    /// reads the value resumed.
+    #[test]
+    fn a_handler_helpers_clause_resumes_with_its_parameter_and_a_capture_in_order() {
+        for seed in 0..100 {
+            let mut rng = Rng::new(seed);
+            let mut g = Gen::new(&mut rng, EFFECTS);
+            g.declare_effects();
+            g.effect_helper(true);
+            let start = g.lines.len();
+            let resumed = g.lines[start - 3..start - 1].to_vec();
+            let v =
+                resumed[0].trim_start().strip_prefix("let ").unwrap().split(':').next().unwrap();
+            assert!(resumed[1].starts_with(&format!("    ({v} ")), "seed {seed}: {resumed:?}");
+            g.handler_helper(0);
+            let helper = g.lines[start..].join("\n");
+            let a = helper.split_once('(').unwrap().1.split(':').next().unwrap();
+            let p = helper.split_once("(resume, ").unwrap().1.split(')').next().unwrap();
+            assert!(
+                [format!("(({p} - {a})"), format!("(({p} + {a})"), format!("(({p} && !{a})")]
+                    .iter()
+                    .any(|combined| helper.contains(&format!("resume({combined}"))),
+                "seed {seed}:\n{helper}"
+            );
+        }
+    }
+
+    /// Every effects program has a handler helper, and `main` calls it, so
+    /// a clause that resumes with a run-time capture always runs.
+    #[test]
+    fn every_effects_program_calls_a_handler_helper() {
+        for case in 0..200 {
+            let text = program_with(1, case, &EFFECTS);
+            let (helpers, main) = text.split_once("\nfn main() with IO {\n").unwrap();
+            // `fn h(..) -> T {`, `let v: T = g(..) handle ..;`, `v`, `}`.
+            let names: Vec<&str> = helpers
+                .split("\n\n")
+                .filter_map(|f| {
+                    let lines: Vec<&str> = f.lines().collect();
+                    let [sig, handled, value, "}"] = lines[..] else { return None };
+                    let v = handled.strip_prefix("    let ")?.split(':').next()?;
+                    (sig.starts_with("fn ")
+                        && !sig.contains(" with ")
+                        && handled.contains(" handle Eff")
+                        && value == format!("    {v}"))
+                    .then(|| sig[3..].split('(').next().unwrap())
+                })
+                .collect();
+            assert!(
+                names.iter().any(|name| main.contains(&format!("{name}("))),
+                "case {case}: no handler helper that main calls\n{text}"
+            );
+        }
     }
 
     #[test]
