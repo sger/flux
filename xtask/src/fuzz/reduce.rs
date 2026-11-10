@@ -67,21 +67,26 @@ pub fn run_reduce(root: &Path, options: &ReduceOptions) -> Result<bool, String> 
     let runs =
         parallel(&ways, options.jobs, |way| way.run(root, &flux, &file, options.timeout, None));
 
-    let target = match pick_pair(&ways, &runs) {
-        Some((a, b, verdict)) => {
+    let pair = pick_pair(&ways, &runs);
+    let internal = if pair.is_none() {
+        let ran = run_flux(root, &flux, &["--dump-core"], &file, options.timeout);
+        match judge(ran.finished, ran.exit, &ran.stderr) {
+            Compile::Internal(why) => Some(why),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let target = match choose(pair, internal) {
+        Some(target @ Target::Mismatch { a, b, verdict }) => {
             println!("reducing on {} vs {}: they differ on {}", a.name, b.name, verdict.stream);
-            Target::Mismatch { a, b, verdict }
+            target
         }
-        None => {
-            let ran = run_flux(root, &flux, &["--dump-core"], &file, options.timeout);
-            match judge(ran.finished, ran.exit, &ran.stderr) {
-                Compile::Internal(why) => {
-                    println!("reducing an internal error: {why}");
-                    Target::Internal(why)
-                }
-                _ => return Err(format!("{}: every way agrees and it compiles", options.case)),
-            }
+        Some(Target::Internal(why)) => {
+            println!("reducing an internal error: {why}");
+            Target::Internal(why)
         }
+        None => return Err(format!("{}: every way agrees and it compiles", options.case)),
     };
 
     let test = |text: &str, slot: usize| {
@@ -233,6 +238,16 @@ fn pick_pair(ways: &[Way], runs: &[Ran]) -> Option<(Way, Way, Verdict)> {
     }
     pairs.sort_by_key(|pair| pair.0);
     pairs.into_iter().next().map(|(_, a, b, v)| (a, b, v))
+}
+
+/// What to reduce: a pair of ways that disagree, or else the compiler's
+/// failure on the case itself.
+fn choose(pair: Option<(Way, Way, Verdict)>, internal: Option<String>) -> Option<Target> {
+    match (pair, internal) {
+        (Some((a, b, verdict)), _) => Some(Target::Mismatch { a, b, verdict }),
+        (None, Some(why)) => Some(Target::Internal(why)),
+        (None, None) => None,
+    }
 }
 
 /// What a candidate must still show.
