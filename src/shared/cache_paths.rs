@@ -424,7 +424,9 @@ use sha2::{Digest, Sha256};
 /// unit may move a variable out in a `do` block that the function reads again (KI-116).
 /// Epoch 142: an annotated `let`'s value raises each predicate once; an epoch-141 unit
 /// may hold a constrained call there that passes one dictionary twice (KI-175).
-pub const CACHE_EPOCH: u16 = 142;
+/// Epoch 143: a user module imports the prelude as the entry file does; an epoch-142
+/// unit of one was compiled without those imports, its names resolved by order (KI-187).
+pub const CACHE_EPOCH: u16 = 143;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

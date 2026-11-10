@@ -149,6 +149,27 @@ pub(crate) fn validate_no_primops_import(
     out
 }
 
+/// The prelude's import lines, `(module name, line)`, for the standard modules
+/// present beside `entry_path`'s stdlib: what an entry file gets unless it
+/// imports the module itself, and each user module file too (KI-187).
+pub(crate) fn flow_prelude_imports(entry_path: &Path) -> Vec<(String, String)> {
+    let Some(flow_dir) = find_flow_dir(entry_path) else {
+        return Vec::new();
+    };
+    FLOW_PRELUDE_MODULES
+        .iter()
+        .filter(|(_, file_name)| flow_dir.join(file_name).exists())
+        .map(|&(module_name, _)| {
+            let exposing = if module_name == "Flow.Primops" {
+                format!("({})", FLOW_PRIMOPS_USER_FACING.join(", "))
+            } else {
+                "(..)".to_string()
+            };
+            (module_name.to_string(), format!("import {module_name} exposing {exposing}"))
+        })
+        .collect()
+}
+
 /// Injects Flow prelude imports for standard modules that are present but not explicitly imported.
 pub(crate) fn inject_flow_prelude(
     program: &mut Program,
@@ -156,9 +177,10 @@ pub(crate) fn inject_flow_prelude(
     native_mode: bool,
     entry_path: &Path,
 ) {
-    let Some(flow_dir) = find_flow_dir(entry_path) else {
+    let prelude = flow_prelude_imports(entry_path);
+    if prelude.is_empty() {
         return;
-    };
+    }
 
     let _ = native_mode;
     let interner = parser.interner();
@@ -174,21 +196,11 @@ pub(crate) fn inject_flow_prelude(
         })
         .collect();
 
-    let mut imports = Vec::new();
-    for &(module_name, file_name) in FLOW_PRELUDE_MODULES {
-        if existing_imports.iter().any(|s| s == module_name) {
-            continue;
-        }
-        if !flow_dir.join(file_name).exists() {
-            continue;
-        }
-        let exposing = if module_name == "Flow.Primops" {
-            format!("({})", FLOW_PRIMOPS_USER_FACING.join(", "))
-        } else {
-            "(..)".to_string()
-        };
-        imports.push(format!("import {module_name} exposing {exposing}"));
-    }
+    let imports: Vec<String> = prelude
+        .into_iter()
+        .filter(|(module_name, _)| !existing_imports.iter().any(|s| s == module_name))
+        .map(|(_, line)| line)
+        .collect();
 
     if imports.is_empty() {
         return;
@@ -320,8 +332,14 @@ pub(crate) fn load_module_graph_for_cache_info(
     let mut program = parser.parse_program();
     inject_flow_prelude(&mut program, &mut parser, false, Path::new(path));
     let interner = parser.take_interner();
-    let graph_result =
-        ModuleGraph::build_with_entry_and_roots(entry_path, &program, interner, &roots);
+    let roots: Vec<ModuleRoot> = roots.into_iter().map(ModuleRoot::unscoped).collect();
+    let graph_result = ModuleGraph::build_with_prelude(
+        entry_path,
+        &program,
+        interner,
+        &roots,
+        &flow_prelude_imports(entry_path),
+    );
     if !graph_result.diagnostics.is_empty() {
         return Err("module graph diagnostics present".to_string());
     }
