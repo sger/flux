@@ -1461,6 +1461,18 @@ fn main() with IO {
         assert!(delete_params(&lines(as_value)).is_empty(), "`g` is passed as a value");
     }
 
+    /// A native run of a candidate on the slot's cache can show a
+    /// difference the program doesn't have, when a cached object was built
+    /// for another program (KI-145); such a candidate isn't kept, so the
+    /// reduction can't drift onto it.
+    #[test]
+    fn a_candidate_that_shows_the_bug_only_with_a_cache_is_not_kept() {
+        assert!(!shows(true, |cached| cached), "only the cache shows it");
+        assert!(shows(true, |_| true));
+        assert!(!shows(true, |_| false));
+        assert!(shows(false, |cached| cached), "a VM way reads no cache");
+    }
+
     #[test]
     fn a_one_line_body_is_joined() {
         let program = lines(
