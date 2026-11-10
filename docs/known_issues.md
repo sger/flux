@@ -131,6 +131,49 @@ prelude function of the same name. A class method was not covered.
 
 The fuzz generator names its methods `m<n>`, so it can't produce this.
 
+### KI-179 — Without `--strict`, `[]` is accepted at any type, and natively nothing checks it
+
+**Severity:** High (silent wrong output natively) · **Area:** Type inference, runtime boundary checks, native backend · **Verified:** 2026-11-10 (0dd6c6cb) · **From:** 0190 S17a (`cargo xtask fuzz reduce` drifted onto it from a planted miscompile)
+
+```flux
+data D3 { C4, C5(String) }
+
+fn h(x: Int) -> Bool {
+    []
+}
+
+fn k(x: Int, y: D3) -> Bool {
+    true
+}
+
+fn main() with IO {
+    print(h(1))
+    print(k(1, []))
+}
+```
+
+Without `--strict` this compiles. A function declared `-> Bool` returns
+`[]`, and `[]` is passed where a `D3` is declared. Each run differs by backend:
+- **The VM** stops at run time with `error[E1004]: Type Error`, "a value with
+  the wrong runtime type", from the boundary check it puts at the return and
+  at the argument.
+- **Natively** there's no check. `h(1)` prints `[]` as its `Bool` result, and
+  `k(1, [])` prints `true`.
+
+`--strict` rejects both with `E425 Unresolved Boundary Type` ("cannot enforce
+runtime boundary check for unresolved expression type in function return
+expression", and "… in function contract argument"). So inference leaves `[]`'s
+type unresolved rather than unifying it with the declared type, and the default
+mode turns that into a runtime check. Natively that check isn't emitted. A
+generic or constrained function (`fn f<a: C>(x: a) -> Bool { [] }`) does the
+same.
+
+The fuzz generator writes `[]` only at list types, so its programs don't hit
+this. `cargo xtask fuzz reduce` does: it tries `[]` in place of an
+expression, keeps it while the two ways still differ, and so turned a planted
+dictionary miscompile into this (`case_2` and `case_64` of seed 1's run with
+classes).
+
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
