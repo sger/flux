@@ -704,6 +704,7 @@ fn literal_of(ty: &str) -> Option<String> {
         "Bool" => "false".to_string(),
         "String" => "\"\"".to_string(),
         _ if ty.starts_with("List<") => "[]".to_string(),
+        _ if ty.starts_with("Array<") => "[||]".to_string(),
         _ if ty.starts_with("Option<") => "None".to_string(),
         _ if ty.starts_with('(') && ty.ends_with(')') => {
             let parts = split_top_level(&ty[1..ty.len() - 1], ',', true);
