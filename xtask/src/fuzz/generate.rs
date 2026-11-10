@@ -1402,7 +1402,18 @@ impl<'r> Gen<'r> {
         let name = self.fresh("f");
         let count = 1 + self.rng.below(2);
         let params = self.params(count);
-        let ret = if resumed { self.effects[0].ret.clone() } else { self.any_ty() };
+        let ret = if resumed {
+            self.effects[0].ret.clone()
+        } else {
+            // Not a function type: `-> (Int) -> R with E` gives the row to
+            // the function returned, not to the helper.
+            loop {
+                let ty = self.any_ty();
+                if !matches!(ty, Ty::Fun(..)) {
+                    break ty;
+                }
+            }
+        };
         let effects = if resumed {
             vec![0]
         } else if self.effects.len() > 1 && self.chance(40) {
