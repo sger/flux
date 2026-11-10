@@ -525,6 +525,51 @@ in one part doesn't flood the others:
   helpers and in `main`. Around: KI-029 (no `perform` inside a lambda), KI-102
   and KI-114 (no effect named after a builtin), KI-032 (wrappers annotated).
   Multi-shot handlers come after.
+
+  As built (`cargo xtask fuzz --with effects`, cases in
+  `.verify/fuzz_<seed>_effects/`; it combines with `classes` and `values`):
+  - **Effects:** one or two `effect Eff<n> { op<n> : (P) -> R }` over
+    scalars, `P` mostly `R`. One operation of one parameter each (KI-185,
+    KI-184), and never a builtin's name (KI-114, KI-102).
+  - **Effectful helpers:** `fn f(..) -> R with Eff1[, Eff2]`, which performs
+    each effect of its row first and then may `perform` where a type fits, or
+    call another helper whose row is within its own. A lambda never does
+    either (KI-029).
+  - **Handlers:** a `let` anywhere (in `main`, in a pure helper, in an
+    effectful one) may be `g(args) handle Eff1 { clause }` for an effectful
+    `g`, nested in `do { } handle Eff2 { }` when `g` has two effects: a call,
+    bound to a `let` (KI-025), so every effect is handled before `main`.
+  - **Clauses:** they resume once, give the handle's type without resuming,
+    or one or the other on a condition. A clause resumes with its parameter
+    and a variable in scope combined in an order that shows (`p - k`), so a
+    clause that read the two swapped gives another value.
+  - Left out: multi-shot resume, handlers with state, `Async` (KI-169,
+    KI-144), and a clause that prints.
+
+  **What S17c found** before any program ran, probing each form on one
+  program and then compiling 200:
+  - **KI-184 (High):** natively, an operation of two parameters gives its
+    handle a closure: `lower_perform_aether` lowers only the first argument.
+  - **KI-185 (High):** natively, every operation of an effect runs its
+    handler's first clause: the handler is built from `handlers[0]` alone.
+    The one parity fixture with a two-operation effect never reads the second
+    one's result.
+  - **KI-186 (Medium):** a clause that reads a value the handled call takes
+    over stops the compiler with E999 (Aether, "read after it was released");
+    1 of the 200 programs.
+  - **The reducer:** on that case, `vm` and `vm_opt` printed different
+    diagnostics, so `reduce` took it for a mismatch and shrank it to a
+    program neither way could parse. When no way compiles a case, the
+    compiler's own failure now comes first (test-first).
+
+  Then 199 of 200 compile (the other is KI-186), 10 agree on `vm` and `llvm`,
+  and 50 with all three parts compile.
+
+  **The exit plant:** native lowering binds a clause's parameter and its first
+  capture to each other's values (`lower_handler_clause_aether`, outside
+  `Flow`). A capture the simplifier folds to a constant isn't one, so the plant
+  shows through a clause that captures a parameter or a computed value
+  (`9` against `-5`).
 - **S17d, async and modules.** Tasks whose results are awaited in a fixed order,
   and channels with one producer and one consumer, so the output doesn't depend
   on scheduling; a case can be a folder with a module file beside its `main`,
