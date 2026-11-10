@@ -379,7 +379,7 @@ const STEPS: &[(&str, Option<Pass>)] = &[
     ("inline", Some(inline_lets)),
     ("lines", None),
     ("expressions", Some(simplify_expressions)),
-    ("join", Some(join_bodies)),
+    ("join", Some(join_blocks)),
 ];
 
 /// `lines` reduced until a whole round changes nothing. `log` hears each
@@ -1007,6 +1007,9 @@ fn simplify_expressions(lines: &[String]) -> Vec<Vec<String>> {
                 found.push((end - start, i, text));
             }
         }
+        for (start, end) in interpolations(line).into_iter().filter(|(start, _)| *start >= from) {
+            found.push((end - start, i, format!("{}{}", &line[..start], &line[end..])));
+        }
     }
     found.sort_by_key(|(size, i, _)| (std::cmp::Reverse(*size), *i));
     found
@@ -1176,6 +1179,62 @@ fn joined_body(line: &str) -> Option<usize> {
 /// Each function or instance method whose body is one value written on its
 /// head's line: `fn m(x) { "" }`. An `if` or a `match` keeps its lines,
 /// which the passes that pick branches and arms read.
+/// Each `#{..}` piece of a string on `line`, as a byte range.
+fn interpolations(line: &str) -> Vec<(usize, usize)> {
+    let mut found = Vec::new();
+    let mut from = 0;
+    while let Some(at) = line[from..].find("#{").map(|i| i + from) {
+        let mut depth = 0;
+        let end = line[at + 1..].char_indices().find_map(|(i, c)| {
+            match c {
+                '{' => depth += 1,
+                '}' => depth -= 1,
+                _ => {}
+            }
+            (depth == 0).then_some(at + 1 + i + 1)
+        });
+        let Some(end) = end else { break };
+        found.push((at, end));
+        from = end;
+    }
+    found
+}
+
+/// `join_bodies` and `join_arms`.
+fn join_blocks(lines: &[String]) -> Vec<Vec<String>> {
+    let mut candidates = join_bodies(lines);
+    candidates.extend(join_arms(lines));
+    candidates
+}
+
+/// A block whose lines are each one arm, `pattern -> value,` (a `match`'s,
+/// mostly), put on the line that opens it: one statement on one line, which
+/// `inline` can then fold into where its `let` is read.
+fn join_arms(lines: &[String]) -> Vec<Vec<String>> {
+    brace_pairs(lines)
+        .into_iter()
+        .filter_map(|(open, close)| {
+            let head = lines[open].trim_end();
+            if !head.ends_with('{') || fn_name(head).is_some() || close == open + 1 {
+                return None;
+            }
+            let arms: Vec<&str> = lines[open + 1..close].iter().map(|l| l.trim()).collect();
+            let one_line =
+                |arm: &&str| arm.contains(" -> ") && arm.ends_with(',') && braces(arm).is_empty();
+            let tail = lines[close].trim();
+            if !arms.iter().all(one_line) || !tail.starts_with('}') {
+                return None;
+            }
+            let joined = arms.join(" ");
+            let joined = joined.strip_suffix(',').unwrap_or(&joined);
+            let mut candidate = lines[..open].to_vec();
+            candidate.push(format!("{head} {joined} {tail}"));
+            candidate.extend_from_slice(&lines[close + 1..]);
+            Some(candidate)
+        })
+        .collect()
+}
+
 fn join_bodies(lines: &[String]) -> Vec<Vec<String>> {
     brace_pairs(lines)
         .into_iter()
@@ -1489,6 +1548,42 @@ fn main() with IO {
             simplify_expressions(&joined).iter().any(|c| c[0] == "fn f(x: Int) -> Int { 1 }"),
             "a joined body is still simplified"
         );
+    }
+
+    /// A `match` whose arms are each one line goes on one line, so `inline`
+    /// can then fold the `let` it's bound to; one with an arm of its own
+    /// block keeps its lines.
+    #[test]
+    fn a_match_of_one_line_arms_is_joined() {
+        let program = lines(
+            "fn f(c: Int) -> String {\n    let v: String = match g(c) {\n        Some(p) -> \"#{p}\",\n        None -> \"\",\n    };\n    v\n}",
+        );
+        let candidates = join_arms(&program);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(
+            candidates[0][1],
+            "    let v: String = match g(c) { Some(p) -> \"#{p}\", None -> \"\" };"
+        );
+        assert_eq!(candidates[0].len(), 4);
+        let nested = lines(
+            "fn f(c: Int) -> Int {\n    match c {\n        1 -> if true {\n            2\n        } else {\n            3\n        },\n        _ -> 0,\n    }\n}",
+        );
+        assert!(join_arms(&nested).is_empty(), "an arm spans lines");
+        let body = lines("fn f(x: Int) -> Int {\n    x\n}");
+        assert!(join_arms(&body).is_empty(), "a function body is `join_bodies`' to join");
+    }
+
+    /// Each `#{..}` piece of a string can go on its own.
+    #[test]
+    fn an_interpolated_piece_is_dropped() {
+        let program = lines("    \"#{v.0}|#{f(\"bc\")}|#{0}\"");
+        let candidates: Vec<String> =
+            simplify_expressions(&program).into_iter().map(|c| c[0].clone()).collect();
+        for without in
+            ["    \"|#{f(\"bc\")}|#{0}\"", "    \"#{v.0}||#{0}\"", "    \"#{v.0}|#{f(\"bc\")}|\""]
+        {
+            assert!(candidates.iter().any(|c| c == without), "{without} not in {candidates:?}");
+        }
     }
 
     /// A class program whose bug needs one method and the helper that calls
