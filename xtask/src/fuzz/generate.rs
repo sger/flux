@@ -2932,6 +2932,44 @@ mod tests {
         }
     }
 
+    /// An arm of a `match` on a literal that fixes no type (`None`, `[]`,
+    /// `Left(..)`, `Right(..)`) reads none of its binders: a class method
+    /// called on one couldn't be resolved (E459).
+    #[test]
+    fn a_match_on_an_untyped_literal_reads_no_binder() {
+        for parts in [Parts { classes: true, values: true, ..Parts::NONE }, ALL] {
+            for case in 0..200 {
+                let text = program_with(1, case, &parts);
+                let lines: Vec<&str> = text.lines().collect();
+                for (i, line) in lines.iter().enumerate() {
+                    let Some(at) = line.find("match ") else { continue };
+                    let scrutinee = &line[at + 6..];
+                    if !["None {", "[] {", "Left(", "Right("]
+                        .iter()
+                        .any(|l| scrutinee.starts_with(l))
+                    {
+                        continue;
+                    }
+                    let indent = line.len() - line.trim_start().len();
+                    for arm in lines[i + 1..]
+                        .iter()
+                        .take_while(|l| l.len() - l.trim_start().len() > indent)
+                    {
+                        let Some((pattern, body)) = arm.trim().split_once(" -> ") else { continue };
+                        for binder in pattern
+                            .split(|c: char| !c.is_alphanumeric())
+                            .filter(|w| w.starts_with('p') && w[1..].parse::<u32>().is_ok())
+                        {
+                            let reads =
+                                body.split(|c: char| !c.is_alphanumeric()).any(|w| w == binder);
+                            assert!(!reads, "case {case}: {line}\n{arm}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn an_async_program_is_one_program_per_seed_and_balanced() {
         for (parts, with) in [(ASYNC, "async"), (ALL, "classes,values,effects,async")] {
