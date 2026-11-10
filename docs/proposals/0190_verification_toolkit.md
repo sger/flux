@@ -570,6 +570,35 @@ in one part doesn't flood the others:
   `Flow`). A capture the simplifier folds to a constant isn't one, so the plant
   shows through a clause that captures a parameter or a computed value
   (`9` against `-5`).
+
+  **The exit test, met** on seed 1, 200 programs, all four ways:
+  - **Clean:** 199 of 199 agree; the other is KI-186, and 0 generator
+    failures.
+  - **A gap the plant showed.** The first plant run caught 4 of 200. Of 80
+    clauses, 13 resumed with both their parameter and a variable, most
+    captures were constants the simplifier folds in, and the helper handled
+    often never read what it was resumed with (`(v - v)`, or nothing). Now
+    every effects program has a handler helper that `main` calls:
+    `fn h(a: R, ..) -> R { let v: R = g(..) handle Eff { op(resume, p) ->
+    resume(((p - a) + e)) }; v }`, around a helper `g` over the first effect
+    (whose parameter is always its result's type) that gives what it
+    performed combined with another value. Neither `e` reads the value it is
+    combined with, which would cancel the swap (`((p - a) + (a + a))`). The
+    call reads only `h`'s other parameters and the clause only `a`, so it
+    keeps clear of KI-186; a first version that didn't hit it in 27 of 200.
+  - **A generator bug the change showed:** with values on, an effectful
+    helper could return a function type, and `-> (Int) -> R with E` gives the
+    row to the function returned (E400 on its `perform`, E300 on a handle
+    around it): 2 of 50 programs with all three parts. Effectful helpers no
+    longer return one (test-first).
+  - **Found:** 154 of 199 mismatch. Most of the rest are Bool effects whose
+    parameter and capture happen to be equal. Each mismatch costs parity
+    about 80 seconds against 3 for a pass, in its layer-by-layer diagnosis,
+    so the run took 54 minutes against 2 clean.
+  - **Reduced:** four of the first five to 8 to 13 lines, each a clause that
+    gives its capture without resuming (`op(resume, p) -> a`), where the plant
+    gives it the parameter: `""` against `"bc"`, `23` against `48`. The fifth
+    drifted onto KI-182 (`print(\x -> 0)`), as in S17b.
 - **S17d, async and modules.** Tasks whose results are awaited in a fixed order,
   and channels with one producer and one consumer, so the output doesn't depend
   on scheduling; a case can be a folder with a module file beside its `main`,
