@@ -174,6 +174,34 @@ expression, keeps it while the two ways still differ, and so turned a planted
 dictionary miscompile into this (`case_2` and `case_64` of seed 1's run with
 classes).
 
+### KI-180 — A named-field constructor with no lowercase letter in its name can be declared but not built
+
+**Severity:** Low · **Area:** Parser, named fields (0152) · **Verified:** 2026-11-10 (db1babdc) · **From:** 0190 S17b (a probe of the forms the generator would write)
+
+```flux
+data R5 { R5 { f6: Int, f7: String } }
+
+fn main() with IO {
+    let r = R5 { f6: 1, f7: "x" };
+    print(r.f6);
+}
+```
+
+The declaration is accepted, but the construction is not parsed as one. It
+stops with `error[E082]: Constructor Arity Mismatch` ("Constructor `R5`
+expects 2 argument(s) but got 0"), and with an annotation (`let r: R5 = …`)
+with `E300`, the value's type being the constructor's function type. The same
+program with the constructor named `Rx`, `Pt` or `Rec5` prints `1`.
+
+`parse_prefix` (`src/syntax/parser/expression.rs`) takes `Name { … }` as a
+construction only when `is_pascal_case_ident` (`src/syntax/parser/mod.rs`)
+holds: an uppercase first letter and at least one lowercase letter, the rule
+that tells a module name like `Math` from a constant like `PI`. `R5`, `RGB` or
+`HTTP` fail it, so their named-field form can't be written, and the error
+doesn't say why.
+
+The fuzz generator names its records `Rec<n>`.
+
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
