@@ -1,0 +1,32 @@
+// Prelude functions called from inside a module: the module imports none of
+// them, as an entry file doesn't (KI-187).
+
+module ModulePrelude.Lists {
+    public fn mapped(xs: List<Int>) -> List<Int> {
+        map(xs, \x -> (x + 1))
+    }
+
+    public fn kept(xs: List<Int>) -> List<Int> {
+        filter(xs, \x -> (x > 1))
+    }
+
+    public fn folded(xs: List<Int>) -> Int {
+        fold(xs, 0, \(acc, x) -> ((acc * 10) + x))
+    }
+
+    public fn summed(xs: List<Int>) -> Int {
+        sum(xs)
+    }
+
+    public fn counted(xs: List<Int>) -> Int {
+        length(xs)
+    }
+
+    public fn reversed(xs: List<Int>) -> List<Int> {
+        reverse(xs)
+    }
+
+    public fn chosen(e: Either<Int, String>) -> String {
+        either(e, \(n: Int) -> to_string(n), \(s: String) -> s)
+    }
+}
