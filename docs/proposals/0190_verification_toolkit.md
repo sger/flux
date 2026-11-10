@@ -498,6 +498,28 @@ in one part doesn't flood the others:
   lambda the simplifier inlines has no closure, so the plant shows through a
   closure that outlives its scope: one a helper returns (`121` natively against
   `112`), or one stored in a list.
+
+  **The exit test, met** on seed 1, 200 programs, all four ways:
+  - **Clean:** 200 of 200 compile and agree, before and after the generator
+    change below.
+  - **A gap the plant showed.** The first plant run caught 2 of 200. Of 118
+    helpers returning a closure, 1 had a lambda reading two of its parameters,
+    and none was ever called: every function type was drawn fresh, so nothing
+    asked for a helper's result type. Now a returned closure combines two of
+    the helper's parameters in an order that shows (`a - b`, `a + b` on
+    Strings, `a && !b`), function types recur, and `main` binds and calls half
+    the closures helpers return: 50 of 200 programs call one, against 0.
+  - **Found:** 39 of 200 mismatch, the VM running all of them; natively about
+    34 printed another value, 2 crashed, 2 stopped with a runtime error, and 1
+    timed out.
+  - **Reduced:** `case_130`, 103 lines to 7: a lambda in `main` capturing two
+    Strings, called through a variable (`""` against `"bc"`).
+  - **Drift, twice, onto real bugs.** The reductions of the second run
+    (30, 41 and 43 lines, each to 4) all became `f()(…)`: `reduce` inlined
+    `let v = f(); print(v(…))`, and natively a chained call gives back the
+    closure (KI-183). One of the first run's printed a list of closures, which
+    natively shows as `<unknown obj=0xf5>` (KI-182). Each way exited as before,
+    so the exit-status rule couldn't tell; both bugs are filed.
 - **S17c, effects and handlers.** One or two user effects; helpers that declare
   and perform them; `handle` with clauses that resume once or don't resume, in
   helpers and in `main`. Around: KI-029 (no `perform` inside a lambda), KI-102
