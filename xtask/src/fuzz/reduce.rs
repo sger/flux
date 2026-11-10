@@ -4,8 +4,8 @@
 //! A mismatch is reduced on the cheapest pair of ways that disagree on the
 //! original, so a bug the VM shows never builds native code. A candidate is
 //! kept when the pair still differs on the same stream (exit, stdout or
-//! stderr) and each way still compiles it exactly when it compiled the
-//! original. The two ways run directly rather than through `parity-check`,
+//! stderr), each way still exits as it did on the original, and each way
+//! still compiles it exactly when it compiled the original. The two ways run directly rather than through `parity-check`,
 //! which would run every way per candidate. A case every way agrees on but
 //! the compiler fails on itself is reduced while it fails the same way.
 //!
@@ -192,6 +192,10 @@ struct Verdict {
     stream: Stream,
     /// Whether each way compiled it.
     compiled: (bool, bool),
+    /// Each way's `(finished, exit)`. Without it, a mismatch where native
+    /// fails and one where the VM fails both "differ on exit", and a
+    /// reduction can slide from one bug to another.
+    exits: ((bool, i32), (bool, i32)),
 }
 
 fn verdict(a: &Ran, b: &Ran) -> Option<Verdict> {
@@ -204,7 +208,11 @@ fn verdict(a: &Ran, b: &Ran) -> Option<Verdict> {
     } else {
         return None;
     };
-    Some(Verdict { stream, compiled: (!compile_errors(&a.stderr), !compile_errors(&b.stderr)) })
+    Some(Verdict {
+        stream,
+        compiled: (!compile_errors(&a.stderr), !compile_errors(&b.stderr)),
+        exits: ((a.finished, a.exit), (b.finished, b.exit)),
+    })
 }
 
 /// The pair to reduce on: the one with the fewest native ways among those
@@ -1163,12 +1171,8 @@ fn main() with IO {
     /// a reduction that keeps only the stream slides from one to the other.
     #[test]
     fn a_mismatch_keeps_which_way_failed() {
-        let ran = |exit: i32| Ran {
-            finished: true,
-            exit,
-            stdout: String::new(),
-            stderr: String::new(),
-        };
+        let ran =
+            |exit: i32| Ran { finished: true, exit, stdout: String::new(), stderr: String::new() };
         let vm_ran = verdict(&ran(0), &ran(1)).unwrap();
         let native_ran = verdict(&ran(1), &ran(0)).unwrap();
         assert_eq!((vm_ran.stream, native_ran.stream), (Stream::Exit, Stream::Exit));
