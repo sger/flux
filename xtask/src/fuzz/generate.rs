@@ -1045,9 +1045,20 @@ impl<'r> Gen<'r> {
                 }
             }
         }
+        // A literal like `None` fixes no type for what its arms bind, so a
+        // class method called on a binder couldn't be resolved (E459). Only
+        // a class method needs it, so programs without classes stay as they
+        // were.
+        let untyped = self.parts.classes
+            && (scrutinee == "None"
+                || scrutinee == "[]"
+                || scrutinee.starts_with("Left(")
+                || scrutinee.starts_with("Right("));
         for (pattern, binders) in arms {
             let scope = self.vars.len();
-            self.vars.extend(binders);
+            if !untyped {
+                self.vars.extend(binders);
+            }
             let body = self.expr(ty, depth - 1);
             self.vars.truncate(scope);
             self.lines.push(format!("{arm_pad}{pattern} -> {body},"));
