@@ -1278,19 +1278,34 @@ impl<'r> Gen<'r> {
         self.lines.push(String::new());
     }
 
-    /// `fn f(...) -> (A) -> R { \(x: A) -> ... }`: a closure over the
-    /// helper's parameters, returned to be called later.
+    /// `fn f(a: R, b: R, ...) -> (A) -> R { \(x: A) -> ((a - b) + e) }`: a
+    /// closure over two of the helper's parameters, returned to be called
+    /// later. It combines them so that their order shows: `-` on Ints, `+`
+    /// on Strings, `a && !b` on Bools. A closure that swapped its captures
+    /// would give another value, where `+` on Ints or `&&` would hide it.
     fn closure_helper(&mut self) {
         let name = self.fresh("f");
-        let count = 1 + self.rng.below(2);
-        let params = self.params(count);
         let ret = self.fun_ty();
         let Ty::Fun(fparams, fret) = &ret else { unreachable!("fun_ty is a Fun") };
         let (fparams, fret) = (fparams.clone(), (**fret).clone());
+        // Two parameters of the lambda's result type come first, so that the
+        // lambda can capture both and combine them in an order that shows.
+        let mut params = vec![(self.fresh("a"), fret.clone()), (self.fresh("a"), fret.clone())];
+        let extra = self.rng.below(2);
+        params.extend(self.params(extra));
         self.lines.push(self.signature(&name, &params, &ret));
         let scope = self.vars.len();
         self.vars.extend(params.iter().cloned());
-        let lambda = self.typed_lambda(&fparams, &fret, MAX_DEPTH);
+        let (a, b) = (params[0].0.clone(), params[1].0.clone());
+        let lambda = self.typed_lambda_with(&fparams, |g| {
+            let e = g.expr(&fret, MAX_DEPTH - 1);
+            match fret {
+                Ty::Int => format!("(({a} - {b}) + {e})"),
+                Ty::Str => format!("(({a} + {b}) + {e})"),
+                Ty::Bool => format!("(({a} && !{b}) != {e})"),
+                _ => unreachable!("a function type returns a scalar"),
+            }
+        });
         self.lines.push(format!("    {lambda}"));
         self.vars.truncate(scope);
         self.lines.push("}".into());
@@ -1375,6 +1390,15 @@ impl<'r> Gen<'r> {
 
     /// `\(x: A, y: B) -> e`, whose body may read anything in scope.
     fn typed_lambda(&mut self, params: &[Ty], ret: &Ty, depth: u32) -> String {
+        self.typed_lambda_with(params, |g| g.expr(ret, depth))
+    }
+
+    /// `\(x: A, y: B) -> <body>`, with the parameters in scope for `body`.
+    fn typed_lambda_with(
+        &mut self,
+        params: &[Ty],
+        body: impl FnOnce(&mut Self) -> String,
+    ) -> String {
         let scope = self.vars.len();
         let shown: Vec<String> = params
             .iter()
@@ -1384,7 +1408,7 @@ impl<'r> Gen<'r> {
                 format!("{n}: {}", self.render(t))
             })
             .collect();
-        let e = self.expr(ret, depth);
+        let e = body(self);
         self.vars.truncate(scope);
         format!("\\({}) -> {e}", shown.join(", "))
     }
@@ -2076,6 +2100,28 @@ mod tests {
                     assert!(!functions.iter().any(|f| f == arg), "case {case}: prints {arg}");
                 }
             }
+        }
+    }
+
+    /// A closure a helper returns reads two of the helper's parameters, in
+    /// an order that changes its value.
+    #[test]
+    fn a_returned_closure_combines_two_captures_in_order() {
+        for seed in 0..100 {
+            let mut rng = Rng::new(seed);
+            let mut g = Gen::new(&mut rng, VALUES);
+            g.closure_helper();
+            let (sig, body) = (g.lines[0].clone(), g.lines[1].clone());
+            let params = sig.split_once('(').unwrap().1;
+            let names: Vec<&str> =
+                params.split(", ").take(2).map(|p| p.split(':').next().unwrap()).collect();
+            let (a, b) = (names[0], names[1]);
+            assert!(
+                [format!("({a} - {b})"), format!("({a} + {b})"), format!("({a} && !{b})")]
+                    .iter()
+                    .any(|combined| body.contains(combined.as_str())),
+                "seed {seed}: {sig}\n{body}"
+            );
         }
     }
 }
