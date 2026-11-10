@@ -108,8 +108,8 @@ pub fn run_reduce(root: &Path, options: &ReduceOptions) -> Result<bool, String> 
         println!("  {step}: {n} lines ({} runs, {})", runs, format_duration(last.elapsed()));
         last = Instant::now();
     });
-    // The candidates' native runs share a cache; the result must show the
-    // bug without one.
+    // Each kept candidate showed the bug without a cache too; this checks
+    // the result as written.
     let min_text = join(&reduced);
     let check = out.join("check.flx");
     fs::write(&check, &min_text).map_err(|e| e.to_string())?;
@@ -270,9 +270,12 @@ enum Target {
 }
 
 /// Whether a candidate still shows the bug, run with the slot's cache when
-/// `run` is given `true`.
-fn shows(_native: bool, run: impl Fn(bool) -> bool) -> bool {
-    run(true)
+/// `run` is given `true`. A native way's cache can hold an object built for
+/// another program (KI-145) and show a difference the candidate doesn't
+/// have, so a candidate that shows it is run again without one: only those
+/// pay for a native build from scratch.
+fn shows(native: bool, run: impl Fn(bool) -> bool) -> bool {
+    run(true) && (!native || run(false))
 }
 
 impl Target {
