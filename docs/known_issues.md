@@ -255,6 +255,39 @@ The fuzz generator never prints a value that holds a function. `reduce` did:
 it replaced `map(v50, \g -> g("", ""))` with `v50`, and the two ways still
 differed on stdout, so a reduction of S17b's exit plant drifted onto this.
 
+### KI-183 — Natively, `f(a)(b)` gives back the closure `f(a)` returns, without calling it
+
+**Severity:** High (silent wrong output natively; a closure in an `Int`) · **Area:** Core, native calls · **Verified:** 2026-11-10 (e1531cc4) · **From:** 0190 S17b (`cargo xtask fuzz reduce` drifted onto it from the exit plant, 3 of 3 reductions)
+
+```flux
+fn adder(n: Int) -> (Int) -> Int { \(x: Int) -> (x + n) }
+
+fn main() with IO {
+    print(adder(10)(1));
+    let h: Int = adder(30)(1);
+    print(h);
+    let g: (Int) -> Int = adder(20);
+    print(g(1));
+}
+```
+
+The VM prints `11`, `31` and `21`, with and without `--optimize`. Natively
+the first two print `<unknown obj=0xf5>` (the closure, printed as in
+[KI-182](#ki-182)), so `h`, declared `Int`, holds a closure; the third prints
+`21`. `(adder(40))(1)` does the same, and so does a helper with no
+parameters (`zero()(1)`), except under `llvm_opt`, which inlines that one.
+
+Core already holds the chained call as one call with both arguments:
+`--dump-core` shows `adder(10, 1)` for a one-parameter `adder`. The VM applies
+the extra argument to what `adder(10)` returns. Native code makes a direct call
+with the extra argument, which is dropped, as it drops the extra arguments of
+[KI-146](#ki-146); here the program is valid.
+
+The fuzz generator binds a returned closure before calling it, so its
+programs don't show this. `reduce` inlined such a `let` (`let v = f14();
+print(v(0, 86))` became `print(f14()(0, 86))`), and the ways still differed on
+stdout.
+
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
