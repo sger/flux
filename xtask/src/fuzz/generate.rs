@@ -54,7 +54,19 @@
 //! (KI-184); its name is never a builtin's (KI-114, KI-102); a lambda never
 //! performs or calls an effectful helper (KI-029); a handled expression is a
 //! call, bound to a `let` (KI-025). Left out: multi-shot resume, handlers with
-//! state, `Async` (KI-169, KI-144), and a clause that prints.
+//! state, and a clause that prints.
+//!
+//! `async` (S17d) adds helpers with `Async` in their row: `both` over two of
+//! them, tasks spawned and then awaited in a fixed order, a channel sent to
+//! and drained within one fiber, and one a producer fills while a consumer
+//! drains it, under `both`. One body calls them all, and `main` runs it with
+//! the program's only `run_async` (KI-169) and prints what it gives. Only
+//! `main` prints, so nothing a fiber does on another worker prints (KI-144);
+//! what fibers send and give is combined in an order that shows, so the output
+//! doesn't depend on scheduling but on that order. Calls go through the
+//! modules' aliases, which check their arity (KI-146). Left out: anything
+//! timed (`sleep`, `timeout`, `race`, `select`), `yield_now`, worker counts,
+//! and a user effect inside an async helper.
 
 use crate::rng::Rng;
 use crate::sweep::fnv64;
@@ -68,18 +80,25 @@ pub struct Parts {
     pub values: bool,
     /// User effects, the helpers that perform them, and handlers (S17c).
     pub effects: bool,
+    /// Async helpers, tasks and channels, run by one `run_async` (S17d).
+    pub async_: bool,
 }
 
 impl Parts {
-    pub const NONE: Parts = Parts { classes: false, values: false, effects: false };
+    pub const NONE: Parts = Parts { classes: false, values: false, effects: false, async_: false };
 
     /// `--with`'s names for the parts that are on, comma-separated.
     pub fn names(&self) -> String {
-        [(self.classes, "classes"), (self.values, "values"), (self.effects, "effects")]
-            .into_iter()
-            .filter_map(|(on, name)| on.then_some(name))
-            .collect::<Vec<_>>()
-            .join(",")
+        [
+            (self.classes, "classes"),
+            (self.values, "values"),
+            (self.effects, "effects"),
+            (self.async_, "async"),
+        ]
+        .into_iter()
+        .filter_map(|(on, name)| on.then_some(name))
+        .collect::<Vec<_>>()
+        .join(",")
     }
 
     /// Reads `--with`'s value.
@@ -90,9 +109,10 @@ impl Parts {
                 "classes" => parts.classes = true,
                 "values" => parts.values = true,
                 "effects" => parts.effects = true,
+                "async" => parts.async_ = true,
                 other => {
                     return Err(format!(
-                        "unknown part `{other}`; the parts are: classes, values, effects"
+                        "unknown part `{other}`; the parts are: classes, values, effects, async"
                     ));
                 }
             }
@@ -232,6 +252,9 @@ pub fn program_with(seed: u64, case: usize, parts: &Parts) -> String {
         g.classes();
     }
     g.helpers();
+    if parts.async_ {
+        g.async_helpers();
+    }
     g.main();
     let with =
         if *parts == Parts::NONE { String::new() } else { format!(" --with {}", parts.names()) };
@@ -240,6 +263,11 @@ pub fn program_with(seed: u64, case: usize, parts: &Parts) -> String {
     );
     if parts.values {
         out.push_str("import Flow.Array as Array\nimport Flow.Map as Map\n\n");
+    }
+    if parts.async_ {
+        out.push_str(
+            "import Flow.Async as Async\nimport Flow.Task as Task\nimport Flow.Channel as Channel\n\n",
+        );
     }
     for line in &g.lines {
         out.push_str(line);
@@ -271,6 +299,12 @@ struct Gen<'r> {
     /// While a lambda's body is written: it can't perform or call an
     /// effectful function (KI-029).
     in_lambda: bool,
+    /// While an async helper is written: no handler, so no user effect, in
+    /// it (S17d leaves the two apart).
+    in_async: bool,
+    /// The function `main` runs with `run_async`, once the async helpers are
+    /// written.
+    async_body: Option<String>,
     classes: Vec<ClassDef>,
     fns: Vec<FnSig>,
     vars: Vec<(String, Ty)>,
@@ -298,6 +332,8 @@ impl<'r> Gen<'r> {
             effects: Vec::new(),
             row: Vec::new(),
             in_lambda: false,
+            in_async: false,
+            async_body: None,
             classes: Vec::new(),
             fns: Vec::new(),
             vars: Vec::new(),
@@ -798,6 +834,12 @@ impl<'r> Gen<'r> {
 
     fn main(&mut self) {
         self.lines.push("fn main() with IO {".into());
+        if let Some(body) = self.async_body.clone() {
+            let name = self.fresh("v");
+            self.lines.push(format!("    let {name}: String = Async.run_async({body});"));
+            self.lines.push(format!("    print({name});"));
+            self.vars.push((name, Ty::Str));
+        }
         // Half the closures that helpers return are bound here and called when
         // printed: built in one function, run in another.
         for f in self.closure_helpers.clone() {
@@ -851,6 +893,7 @@ impl<'r> Gen<'r> {
     fn binding(&mut self, name: &str, ty: &Ty, depth: u32, indent: usize) {
         let pad = "    ".repeat(indent);
         if self.parts.effects
+            && !self.in_async
             && self.chance(35)
             && let Some(handled) = self.handled(ty, depth)
         {
@@ -1615,6 +1658,204 @@ impl<'r> Gen<'r> {
         });
     }
 
+    // ---- S17d: async ----
+
+    /// `a` and `b` combined so that their order shows: `-` on Ints, `+` on
+    /// Strings, `a && !b` on Bools.
+    fn ordered(a: &str, b: &str, ty: &Ty) -> String {
+        match ty {
+            Ty::Int => format!("({a} - {b})"),
+            Ty::Str => format!("({a} + {b})"),
+            _ => format!("({a} && !{b})"),
+        }
+    }
+
+    fn none_value(ty: &Ty) -> &'static str {
+        match ty {
+            Ty::Int => "0",
+            Ty::Str => "\"\"",
+            _ => "false",
+        }
+    }
+
+    /// `fn f(params) -> R with Async {`.
+    fn async_signature(&self, name: &str, params: &[(String, Ty)], ret: &Ty) -> String {
+        let sig = self.signature(name, params, ret);
+        format!("{} with Async {{", sig.trim_end_matches(" {"))
+    }
+
+    /// The async helpers, and the body that calls each of them, which `main`
+    /// runs. Each form has a helper of its own and the body always calls it,
+    /// so every program runs every form.
+    fn async_helpers(&mut self) {
+        let in_async = std::mem::replace(&mut self.in_async, true);
+        let mut calls: Vec<(String, Ty)> = Vec::new();
+        let (left, right) = (self.async_value_helper(), self.async_value_helper());
+        let pair = Ty::Pair(Box::new(left.1.clone()), Box::new(right.1.clone()));
+        let both = format!("Async.both({}, {})", left.0, right.0);
+        for helper in [self.task_helper(), self.channel_helper(), self.pipe_helper()] {
+            calls.push(helper);
+        }
+        let name = self.fresh("f");
+        self.lines.push(self.async_signature(&name, &[], &Ty::Str));
+        let p = self.fresh("v");
+        self.lines.push(format!("    let {p}: {} = {both};", self.render(&pair)));
+        let mut shown = vec![format!("{p}.0"), format!("{p}.1")];
+        for (callee, ty) in calls {
+            let v = self.fresh("v");
+            let arg = self.expr(&ty, 1);
+            self.lines.push(format!("    let {v}: {} = {callee}({arg});", self.render(&ty)));
+            shown.push(v);
+        }
+        let text: Vec<String> = shown.iter().map(|v| format!("#{{{v}}}")).collect();
+        self.lines.push(format!("    \"{}\"", text.join("|")));
+        self.lines.push("}".into());
+        self.lines.push(String::new());
+        self.async_body = Some(name);
+        self.in_async = in_async;
+    }
+
+    /// `fn f() -> S with Async { ... }`: no parameters, so `both` takes it by
+    /// name rather than in a lambda (KI-029).
+    fn async_value_helper(&mut self) -> (String, Ty) {
+        let name = self.fresh("f");
+        let ty = self.scalar();
+        self.lines.push(self.async_signature(&name, &[], &ty));
+        self.block(&ty, MAX_DEPTH, 1);
+        self.lines.push("}".into());
+        self.lines.push(String::new());
+        (name, ty)
+    }
+
+    /// `fn f(b: S) -> S with Async`: two tasks spawned over pure values of
+    /// `b`, then awaited in order, their results combined in that order. A
+    /// task's body sees only `b`, a Sendable scalar.
+    fn task_helper(&mut self) -> (String, Ty) {
+        let name = self.fresh("f");
+        let ty = self.scalar();
+        let b = self.fresh("a");
+        self.lines.push(self.async_signature(&name, &[(b.clone(), ty.clone())], &ty));
+        let scope = self.vars.len();
+        self.vars.push((b, ty.clone()));
+        let mut tasks = Vec::new();
+        for _ in 0..2 {
+            let t = self.fresh("v");
+            let in_lambda = std::mem::replace(&mut self.in_lambda, true);
+            let e = self.expr(&ty, MAX_DEPTH - 1);
+            self.in_lambda = in_lambda;
+            self.lines.push(format!(
+                "    let {t}: Task<{}> = Task.spawn(fn() {{ {e} }});",
+                self.render(&ty)
+            ));
+            tasks.push(t);
+        }
+        let mut got = Vec::new();
+        for t in tasks {
+            let v = self.fresh("v");
+            self.lines.push(format!("    let {v}: {} = Task.await({t});", self.render(&ty)));
+            got.push(v);
+        }
+        self.lines.push(format!("    {}", Self::ordered(&got[0], &got[1], &ty)));
+        self.vars.truncate(scope);
+        self.lines.push("}".into());
+        self.lines.push(String::new());
+        (name, ty)
+    }
+
+    /// `fn f(b: S) -> S with Async`: a channel filled with two or three
+    /// values, closed, and drained in one fiber, what it gives combined in
+    /// the order received. Its capacity holds every value, so no send waits.
+    fn channel_helper(&mut self) -> (String, Ty) {
+        let name = self.fresh("f");
+        let ty = self.scalar();
+        let b = self.fresh("a");
+        self.lines.push(self.async_signature(&name, &[(b.clone(), ty.clone())], &ty));
+        let scope = self.vars.len();
+        self.vars.push((b, ty.clone()));
+        let count = 2 + self.rng.below(2);
+        let cap = count + self.rng.below(2);
+        let ch = self.fresh("v");
+        let shown = self.render(&ty);
+        self.lines.push(format!("    let {ch}: Channel<{shown}> = Channel.make({cap});"));
+        for _ in 0..count {
+            let e = self.expr(&ty, MAX_DEPTH - 1);
+            self.lines.push(format!("    Channel.send({ch}, {e});"));
+        }
+        self.lines.push(format!("    Channel.close({ch});"));
+        let mut got: Vec<String> = Vec::new();
+        for _ in 0..count {
+            let (v, x) = (self.fresh("v"), self.fresh("p"));
+            self.lines.push(format!("    let {v}: {shown} = match Channel.recv({ch}) {{"));
+            self.lines.push(format!("        Some({x}) -> {x},"));
+            self.lines.push(format!("        None -> {},", Self::none_value(&ty)));
+            self.lines.push("    };".into());
+            got.push(v);
+        }
+        let mut value = Self::ordered(&got[0], &got[1], &ty);
+        for v in &got[2..] {
+            value = Self::ordered(&value, v, &ty);
+        }
+        self.lines.push(format!("    {value}"));
+        self.vars.truncate(scope);
+        self.lines.push("}".into());
+        self.lines.push(String::new());
+        (name, ty)
+    }
+
+    /// `fn f(b: S) -> S with Async`: a producer sends two to four values over
+    /// a channel and closes it, while a consumer, under `both`, drains it and
+    /// combines what it gets in the order received.
+    fn pipe_helper(&mut self) -> (String, Ty) {
+        let name = self.fresh("f");
+        let ty = self.scalar();
+        let b = self.fresh("a");
+        let shown = self.render(&ty);
+        self.lines.push(self.async_signature(&name, &[(b.clone(), ty.clone())], &ty));
+        let scope = self.vars.len();
+        self.vars.push((b.clone(), ty.clone()));
+        let cap = 1 + self.rng.below(2);
+        let ch = self.fresh("v");
+        self.lines.push(format!("    let {ch}: Channel<{shown}> = Channel.make({cap});"));
+        let (produce, consume) = (self.fresh("f"), self.fresh("f"));
+        let n = self.fresh("n");
+        self.lines.push(format!("    fn {produce}({n}: Int) -> Int with Async {{"));
+        self.lines.push(format!("        if ({n} <= 0) {{"));
+        self.lines.push(format!("            Channel.close({ch});"));
+        self.lines.push("            0".into());
+        self.lines.push("        } else {".into());
+        self.vars.push((n.clone(), Ty::Int));
+        let e = self.expr(&ty, MAX_DEPTH - 1);
+        self.vars.pop();
+        self.lines.push(format!("            Channel.send({ch}, {e});"));
+        self.lines.push(format!("            {produce}(({n} - 1))"));
+        self.lines.push("        }".into());
+        self.lines.push("    }".into());
+        let (acc, x) = (self.fresh("a"), self.fresh("p"));
+        self.lines.push(format!("    fn {consume}({acc}: {shown}) -> {shown} with Async {{"));
+        self.lines.push(format!("        match Channel.recv({ch}) {{"));
+        self.lines
+            .push(format!("            Some({x}) -> {consume}({}),", Self::ordered(&acc, &x, &ty)));
+        self.lines.push(format!("            None -> {acc},"));
+        self.lines.push("        }".into());
+        self.lines.push("    }".into());
+        let (producer, consumer) = (self.fresh("f"), self.fresh("f"));
+        let count = 2 + self.rng.below(3);
+        self.lines.push(format!("    fn {producer}() -> Int with Async {{"));
+        self.lines.push(format!("        {produce}({count})"));
+        self.lines.push("    }".into());
+        self.lines.push(format!("    fn {consumer}() -> {shown} with Async {{"));
+        self.lines.push(format!("        {consume}({b})"));
+        self.lines.push("    }".into());
+        let p = self.fresh("v");
+        self.lines
+            .push(format!("    let {p}: (Int, {shown}) = Async.both({producer}, {consumer});"));
+        self.lines.push(format!("    {p}.1"));
+        self.vars.truncate(scope);
+        self.lines.push("}".into());
+        self.lines.push(String::new());
+        (name, ty)
+    }
+
     // ---- S17b: records, closures as values, Arrays, Maps and Either ----
 
     /// One of S17b's types.
@@ -2317,9 +2558,11 @@ mod tests {
         }
     }
 
-    const CLASSES: Parts = Parts { classes: true, values: false, effects: false };
-    const VALUES: Parts = Parts { classes: false, values: true, effects: false };
-    const EFFECTS: Parts = Parts { classes: false, values: false, effects: true };
+    const CLASSES: Parts = Parts { classes: true, ..Parts::NONE };
+    const VALUES: Parts = Parts { values: true, ..Parts::NONE };
+    const EFFECTS: Parts = Parts { effects: true, ..Parts::NONE };
+    const ASYNC: Parts = Parts { async_: true, ..Parts::NONE };
+    const ALL: Parts = Parts { classes: true, values: true, effects: true, async_: true };
 
     fn balanced(text: &str) -> bool {
         let mut depth = [0i32; 3];
@@ -2350,10 +2593,12 @@ mod tests {
         assert!(Parts::parse("classes,nope").is_err());
         assert_eq!(CLASSES.names(), "classes");
         assert_eq!(Parts::parse("values"), Ok(VALUES));
-        let both = Parts { classes: true, values: true, effects: false };
+        let both = Parts { classes: true, values: true, ..Parts::NONE };
         assert_eq!(Parts::parse("values, classes"), Ok(both));
         assert_eq!(both.names(), "classes,values");
         assert_eq!(Parts::parse("effects"), Ok(EFFECTS));
+        assert_eq!(Parts::parse("async"), Ok(ASYNC));
+        assert_eq!(ALL.names(), "classes,values,effects,async");
     }
 
     #[test]
@@ -2445,7 +2690,7 @@ mod tests {
 
     #[test]
     fn a_values_program_is_one_program_per_seed_and_balanced() {
-        let both = Parts { classes: true, values: true, effects: false };
+        let both = Parts { classes: true, values: true, ..Parts::NONE };
         for (parts, with) in [(VALUES, "values"), (both, "classes,values")] {
             for case in 0..200 {
                 let text = program_with(2, case, &parts);
@@ -2665,7 +2910,7 @@ mod tests {
 
     #[test]
     fn an_effects_program_is_one_program_per_seed_and_balanced() {
-        let all = Parts { classes: true, values: true, effects: true };
+        let all = Parts { async_: false, ..ALL };
         for (parts, with) in [(EFFECTS, "effects"), (all, "classes,values,effects")] {
             for case in 0..200 {
                 let text = program_with(2, case, &parts);
@@ -2683,6 +2928,89 @@ mod tests {
                         "case {case}: the row goes to the function returned: {sig}"
                     );
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn an_async_program_is_one_program_per_seed_and_balanced() {
+        for (parts, with) in [(ASYNC, "async"), (ALL, "classes,values,effects,async")] {
+            for case in 0..200 {
+                let text = program_with(2, case, &parts);
+                assert_eq!(text, program_with(2, case, &parts));
+                assert!(balanced(&text), "case {case}:\n{text}");
+                assert!(text.contains(&format!("--with {with}, case")), "case {case}");
+                assert!(text.contains("\nfn main() with IO {\n"), "case {case}");
+                // KI-169: one `run_async`.
+                assert_eq!(text.matches("Async.run_async(").count(), 1, "case {case}");
+            }
+        }
+    }
+
+    /// Each feature S17d adds shows up in a sample of programs, and the
+    /// rules it keeps hold: only `main` prints, no async call is inside a
+    /// lambda (KI-029), and nothing depends on timing.
+    #[test]
+    fn async_programs_use_every_form_and_keep_clear_of_their_known_issues() {
+        let all: String = (0..200).map(|case| program_with(1, case, &ASYNC)).collect();
+        for needle in [
+            "Async.both(",
+            "Task.spawn(fn() { ",
+            "Task.await(",
+            "Channel.make(",
+            "Channel.send(",
+            "Channel.recv(",
+            "Channel.close(",
+            "Async.run_async(",
+            ") -> Int with Async {",
+            ") -> String with Async {",
+            ") -> Bool with Async {",
+        ] {
+            assert!(all.contains(needle), "no `{needle}` in 200 programs");
+        }
+        for case in 0..200 {
+            let text = program_with(1, case, &ASYNC);
+            let (helpers, main) = text.split_once("\nfn main() with IO {\n").unwrap();
+            assert!(!helpers.contains("print("), "case {case}: a helper prints");
+            assert!(main.contains("Async.run_async("), "case {case}");
+            for line in text.lines() {
+                for lambda in ["fn() { ", "\\("] {
+                    if let Some(at) = line.find(lambda) {
+                        let body = &line[at..];
+                        for call in ["Async.", "Channel.", "Task.await", "Task.spawn"] {
+                            assert!(!body.contains(call), "case {case}: {line}");
+                        }
+                    }
+                }
+                for timed in ["sleep(", "timeout(", "race(", "yield_now(", "select", "workers"] {
+                    assert!(!line.contains(timed), "case {case}: {line}");
+                }
+            }
+        }
+    }
+
+    /// The body `main` runs calls every top-level async helper, so every
+    /// form runs.
+    #[test]
+    fn the_async_body_calls_every_async_helper() {
+        for case in 0..200 {
+            let text = program_with(1, case, &ASYNC);
+            let body_name =
+                text.split("Async.run_async(").nth(1).unwrap().split(')').next().unwrap();
+            let helpers: Vec<&str> = text
+                .lines()
+                .filter(|l| l.starts_with("fn ") && l.ends_with(" with Async {"))
+                .map(|l| l[3..].split('(').next().unwrap())
+                .collect();
+            let start = text.find(&format!("\nfn {body_name}(")).unwrap();
+            let body = &text[start..text[start..].find("\n}\n").unwrap() + start];
+            for helper in helpers.iter().filter(|h| **h != body_name) {
+                assert!(
+                    body.contains(&format!("{helper}("))
+                        || body.contains(&format!("{helper},"))
+                        || body.contains(&format!(" {helper})")),
+                    "case {case}: {body_name} never calls {helper}"
+                );
             }
         }
     }
