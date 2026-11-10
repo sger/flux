@@ -225,6 +225,12 @@ struct Gen<'r> {
     /// fields may be `Ty::Var`.
     gdata: Option<DataDef>,
     recs: Vec<RecDef>,
+    /// The function types drawn so far, so that one recurs: a helper's
+    /// result type is then asked for again, and its closure called.
+    fun_tys: Vec<Ty>,
+    /// The helpers that return a closure over their arguments, by index in
+    /// `fns`.
+    closure_helpers: Vec<usize>,
     classes: Vec<ClassDef>,
     fns: Vec<FnSig>,
     vars: Vec<(String, Ty)>,
@@ -246,6 +252,8 @@ impl<'r> Gen<'r> {
             data: Vec::new(),
             gdata: None,
             recs: Vec::new(),
+            fun_tys: Vec::new(),
+            closure_helpers: Vec::new(),
             classes: Vec::new(),
             fns: Vec::new(),
             vars: Vec::new(),
@@ -717,6 +725,25 @@ impl<'r> Gen<'r> {
 
     fn main(&mut self) {
         self.lines.push("fn main() with IO {".into());
+        // Half the closures that helpers return are bound here and called when
+        // printed: built in one function, run in another.
+        for f in self.closure_helpers.clone() {
+            if self.chance(50) {
+                let (callee, params, ty) =
+                    (self.fns[f].name.clone(), self.fns[f].params.clone(), self.fns[f].ret.clone());
+                let args: Vec<String> = params.iter().map(|p| self.expr(p, 1)).collect();
+                let name = self.fresh("v");
+                self.lines.push(format!(
+                    "    let {name}: {} = {callee}({});",
+                    self.render(&ty),
+                    args.join(", ")
+                ));
+                for shown in self.observe(&name, &ty) {
+                    self.lines.push(format!("    print({shown});"));
+                }
+                self.vars.push((name, ty));
+            }
+        }
         for _ in 0..3 + self.rng.below(MAX_MAIN_BINDINGS - 2) {
             let ty = self.any_ty();
             let name = self.fresh("v");
@@ -1246,9 +1273,16 @@ impl<'r> Gen<'r> {
         }
     }
 
+    /// A function type: one already drawn, more often than not, or a new one.
     fn fun_ty(&mut self) -> Ty {
+        if !self.fun_tys.is_empty() && self.chance(60) {
+            let known = self.fun_tys.clone();
+            return self.pick(&known).clone();
+        }
         let params = (0..1 + self.rng.below(2)).map(|_| self.scalar()).collect();
-        Ty::Fun(params, Box::new(self.scalar()))
+        let ty = Ty::Fun(params, Box::new(self.scalar()));
+        self.fun_tys.push(ty.clone());
+        ty
     }
 
     /// One or two record types of two or three fields: scalars, `Option<Int>`,
@@ -1310,6 +1344,7 @@ impl<'r> Gen<'r> {
         self.vars.truncate(scope);
         self.lines.push("}".into());
         let params = params.into_iter().map(|(_, t)| t).collect();
+        self.closure_helpers.push(self.fns.len());
         self.fns.push(FnSig { name, params, ret, recursive: false, tparam: None });
     }
 
@@ -1428,10 +1463,17 @@ impl<'r> Gen<'r> {
         paths
     }
 
-    /// A function value: a lambda, a record's field, or a helper's name. A
+    /// A function value: a helper's result, a lambda, a record's field, or a
+    /// helper's name. A
     /// generic or constrained helper is never one (KI-090), nor a recursive
     /// one, whose countdown only its callers bound.
     fn fun_expr(&mut self, params: &[Ty], ret: &Ty, ty: &Ty, d: u32) -> String {
+        // A helper that returns one, often a closure over its arguments.
+        if self.chance(40)
+            && let Some(call) = self.call(ty, d)
+        {
+            return call;
+        }
         let mut named: Vec<String> = self
             .fns
             .iter()
@@ -2123,5 +2165,30 @@ mod tests {
                 "seed {seed}: {sig}\n{body}"
             );
         }
+    }
+
+    /// A closure a helper returns is called: its function type recurs, so
+    /// something asks for it.
+    #[test]
+    fn returned_closures_are_called() {
+        let mut calling = 0;
+        for case in 0..200 {
+            let text = program_with(1, case, &VALUES);
+            let helpers: Vec<String> = text
+                .lines()
+                .filter(|l| l.starts_with("fn f") && l.contains(") -> (") && !l.ends_with(") {"))
+                .filter_map(|l| l[3..].split('(').next().map(str::to_string))
+                .collect();
+            let called = helpers.iter().any(|h| {
+                text.lines()
+                    .filter(|l| !l.starts_with("fn "))
+                    .any(|l| l.contains(&format!("{h}(")) || l.contains(&format!(" {h},")))
+            });
+            calling += usize::from(called);
+        }
+        assert!(
+            calling >= 30,
+            "only {calling} of 200 programs call a helper that returns a function"
+        );
     }
 }
