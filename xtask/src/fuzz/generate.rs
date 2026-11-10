@@ -67,6 +67,19 @@
 //! modules' aliases, which check their arity (KI-146). Left out: anything
 //! timed (`sleep`, `timeout`, `race`, `select`), `yield_now`, worker counts,
 //! and a user effect inside an async helper.
+//!
+//! `modules` (S17d) makes each case a folder: `main.flx` beside the module
+//! `M<n>.flx` it imports, which holds the program's data types and records
+//! and a few plain helpers, one of them two values of one type combined in
+//! an order that shows, which `main` always calls. `main` reaches the
+//! module's functions through an alias, `A<n>.f(..)`, or by their bare names
+//! when it exposes them, and its types and constructors only through
+//! `exposing`: a constructor through an alias fails natively (KI-103), and a
+//! qualified type can't be written (KI-023). Classes, instances, effects and
+//! the other helpers stay in `main`: a class in a module loses its default
+//! methods (KI-086), and an operator on a constrained type there fails on the
+//! VM (KI-076). One module per case (KI-056), named apart from `Main`,
+//! `Flow` and `Flume`, whose files are roots already.
 
 use crate::rng::Rng;
 use crate::sweep::fnv64;
@@ -82,10 +95,13 @@ pub struct Parts {
     pub effects: bool,
     /// Async helpers, tasks and channels, run by one `run_async` (S17d).
     pub async_: bool,
+    /// A module beside `main`, holding its data types and some helpers (S17d).
+    pub modules: bool,
 }
 
 impl Parts {
-    pub const NONE: Parts = Parts { classes: false, values: false, effects: false, async_: false };
+    pub const NONE: Parts =
+        Parts { classes: false, values: false, effects: false, async_: false, modules: false };
 
     /// `--with`'s names for the parts that are on, comma-separated.
     pub fn names(&self) -> String {
@@ -94,6 +110,7 @@ impl Parts {
             (self.values, "values"),
             (self.effects, "effects"),
             (self.async_, "async"),
+            (self.modules, "modules"),
         ]
         .into_iter()
         .filter_map(|(on, name)| on.then_some(name))
@@ -110,9 +127,10 @@ impl Parts {
                 "values" => parts.values = true,
                 "effects" => parts.effects = true,
                 "async" => parts.async_ = true,
+                "modules" => parts.modules = true,
                 other => {
                     return Err(format!(
-                        "unknown part `{other}`; the parts are: classes, values, effects, async"
+                        "unknown part `{other}`; the parts are: classes, values, effects, async, modules"
                     ));
                 }
             }
@@ -180,6 +198,20 @@ struct FnSig {
     effects: Vec<usize>,
 }
 
+/// The module a `modules` case's `main` imports. Its functions are the first
+/// `fns` of `Gen::fns`, since it's written first.
+struct ModuleDef {
+    name: String,
+    alias: String,
+    fns: usize,
+    /// The helper `main` always calls, by index in `Gen::fns`.
+    pair: usize,
+    /// Whether `main` exposes the functions too, and calls some bare.
+    exposed: bool,
+    /// Where the module's lines end in `Gen::lines`.
+    end: usize,
+}
+
 /// `effect Eff<n> { op<n> : (P) -> R }`: one operation of one parameter.
 /// Natively, a second operation runs the first one's clause (KI-185), and a
 /// second parameter is dropped (KI-184).
@@ -238,18 +270,35 @@ pub fn program(seed: u64, case: usize) -> String {
 }
 
 /// The files of `case` of `seed` with `parts` on, by path within the case:
-/// one, its program, until a part writes a module beside it.
+/// its program, or with `modules` the folder holding `main.flx` and its
+/// module.
 pub fn case_files(seed: u64, case: usize, parts: &Parts) -> Vec<(String, String)> {
-    vec![(format!("case_{case}.flx"), program_with(seed, case, parts))]
+    match build(seed, case, parts) {
+        (main, None) => vec![(format!("case_{case}.flx"), main)],
+        (main, Some((module, text))) => vec![
+            (format!("case_{case}/{module}.flx"), text),
+            (format!("case_{case}/main.flx"), main),
+        ],
+    }
 }
 
-/// The program for `case` of `seed` with `parts` on.
+/// The program for `case` of `seed` with `parts` on: with `modules`, its
+/// `main.flx`.
+#[cfg(test)]
 pub fn program_with(seed: u64, case: usize, parts: &Parts) -> String {
+    build(seed, case, parts).0
+}
+
+/// The program, and with `modules` its module's name and file.
+fn build(seed: u64, case: usize, parts: &Parts) -> (String, Option<(String, String)>) {
     let mut rng = Rng::new(seed ^ fnv64(format!("fuzz:{case}").as_bytes()));
     let mut g = Gen::new(&mut rng, *parts);
     g.data_types();
     if parts.values {
         g.records();
+    }
+    if parts.modules {
+        g.module_helpers();
     }
     if parts.effects {
         g.declare_effects();
@@ -267,19 +316,30 @@ pub fn program_with(seed: u64, case: usize, parts: &Parts) -> String {
     let mut out = format!(
         "// expect: any\n// Generated by cargo xtask fuzz --seed {seed}{with}, case {case}.\n\n"
     );
-    if parts.values {
-        out.push_str("import Flow.Array as Array\nimport Flow.Map as Map\n\n");
-    }
+    let values =
+        if parts.values { "import Flow.Array as Array\nimport Flow.Map as Map\n\n" } else { "" };
+    out.push_str(values);
     if parts.async_ {
         out.push_str(
             "import Flow.Async as Async\nimport Flow.Task as Task\nimport Flow.Channel as Channel\n\n",
         );
     }
-    for line in &g.lines {
+    let module = g.module.as_ref().map(|m| (m.name.clone(), m.end));
+    let start = module.as_ref().map_or(0, |(_, end)| *end);
+    if module.is_some() {
+        out.push_str(&g.module_imports());
+    }
+    for line in &g.lines[start..] {
         out.push_str(line);
         out.push('\n');
     }
-    out
+    let module = module.map(|(name, _)| {
+        let header = format!(
+            "// Generated by cargo xtask fuzz --seed {seed}{with}, case {case}: the module main.flx imports."
+        );
+        (name, g.module_file(values, &header))
+    });
+    (out, module)
 }
 
 struct Gen<'r> {
@@ -311,6 +371,8 @@ struct Gen<'r> {
     /// The function `main` runs with `run_async`, once the async helpers are
     /// written.
     async_body: Option<String>,
+    /// Once written, the module `main` imports (S17d).
+    module: Option<ModuleDef>,
     classes: Vec<ClassDef>,
     fns: Vec<FnSig>,
     vars: Vec<(String, Ty)>,
@@ -340,6 +402,7 @@ impl<'r> Gen<'r> {
             in_lambda: false,
             in_async: false,
             async_body: None,
+            module: None,
             classes: Vec::new(),
             fns: Vec::new(),
             vars: Vec::new(),
@@ -890,6 +953,19 @@ impl<'r> Gen<'r> {
             }
             self.vars.push((name, ty));
         }
+        // The module's pair helper, through the alias, on two values computed
+        // here.
+        if let Some(m) = &self.module {
+            let (alias, f) = (m.alias.clone(), m.pair);
+            let (callee, ty) = (self.fns[f].name.clone(), self.fns[f].ret.clone());
+            let (a, b) = (self.expr(&ty, 2), self.expr(&ty, 2));
+            let name = self.fresh("v");
+            self.lines.push(format!(
+                "    let {name}: {} = {alias}.{callee}({a}, {b});",
+                self.render(&ty)
+            ));
+            self.lines.push(format!("    print({name});"));
+        }
         self.lines.push("}".into());
     }
 
@@ -1195,8 +1271,8 @@ impl<'r> Gen<'r> {
             return None;
         }
         let f = *self.pick(&found);
-        let (name, mut params, recursive) =
-            (self.fns[f].name.clone(), self.fns[f].params.clone(), self.fns[f].recursive);
+        let name = self.fn_ref(f);
+        let (mut params, recursive) = (self.fns[f].params.clone(), self.fns[f].recursive);
         if self.fns[f].tparam.is_some() {
             let arg = match self.generic_fit(f, ty).expect("it matched above") {
                 Some(t) => t,
@@ -1675,6 +1751,98 @@ impl<'r> Gen<'r> {
         });
     }
 
+    // ---- S17d: modules ----
+
+    /// The module's helpers: one to three plain ones, then the pair helper.
+    /// Only the data types, records and these are written before, so they
+    /// are what the module holds.
+    fn module_helpers(&mut self) {
+        for _ in 0..1 + self.rng.below(3) {
+            self.plain_helper();
+            self.lines.push(String::new());
+        }
+        let pair = self.pair_helper();
+        let (name, alias) = (self.fresh("M"), self.fresh("A"));
+        let exposed = self.chance(50);
+        let end = self.lines.len();
+        self.module = Some(ModuleDef { name, alias, fns: self.fns.len(), pair, exposed, end });
+    }
+
+    /// `fn f(a: S, b: S) -> S { (a - b) }`: two values of one type combined
+    /// in an order that shows, so a call that passed them the other way
+    /// round would give another value.
+    fn pair_helper(&mut self) -> usize {
+        let name = self.fresh("f");
+        let ty = self.scalar();
+        let (a, b) = (self.fresh("a"), self.fresh("a"));
+        let params = vec![(a.clone(), ty.clone()), (b.clone(), ty.clone())];
+        self.lines.push(self.signature(&name, &params, &ty));
+        self.lines.push(format!("    {}", Self::ordered(&a, &b, &ty)));
+        self.lines.push("}".into());
+        self.lines.push(String::new());
+        self.fns.push(FnSig {
+            name,
+            params: vec![ty.clone(), ty.clone()],
+            ret: ty,
+            recursive: false,
+            tparam: None,
+            effects: Vec::new(),
+        });
+        self.fns.len() - 1
+    }
+
+    /// How code after the module names function `f`: a module function
+    /// through the alias, or, when `main` exposes them, sometimes bare.
+    fn fn_ref(&mut self, f: usize) -> String {
+        let name = self.fns[f].name.clone();
+        let Some((alias, count, exposed)) =
+            self.module.as_ref().map(|m| (m.alias.clone(), m.fns, m.exposed))
+        else {
+            return name;
+        };
+        if f >= count || (exposed && self.chance(50)) { name } else { format!("{alias}.{name}") }
+    }
+
+    /// The module's file, from its lines in `Gen::lines`, each top-level
+    /// item made `public`.
+    fn module_file(&self, imports: &str, header: &str) -> String {
+        let m = self.module.as_ref().expect("a module was written");
+        let mut out = format!("{header}\n\n{imports}module {} {{\n", m.name);
+        for line in &self.lines[..m.end] {
+            if line.is_empty() {
+                out.push('\n');
+            } else if line.starts_with("data ") || line.starts_with("fn ") {
+                out.push_str(&format!("    public {line}\n"));
+            } else {
+                out.push_str(&format!("    {line}\n"));
+            }
+        }
+        out.push_str("}\n");
+        out
+    }
+
+    /// `import M<n> as A<n>` and `import M<n> exposing (..)` with its types
+    /// and constructors, and its functions when exposed.
+    fn module_imports(&self) -> String {
+        let m = self.module.as_ref().expect("a module was written");
+        let mut names: Vec<String> = Vec::new();
+        for d in self.data.iter().chain(self.gdata.as_ref()) {
+            names.push(d.name.clone());
+            names.extend(d.ctors.iter().map(|c| c.name.clone()));
+        }
+        names.extend(self.recs.iter().map(|r| r.name.clone()));
+        if m.exposed {
+            names.extend(self.fns[..m.fns].iter().map(|f| f.name.clone()));
+        }
+        format!(
+            "import {} as {}\nimport {} exposing ({})\n\n",
+            m.name,
+            m.alias,
+            m.name,
+            names.join(", ")
+        )
+    }
+
     // ---- S17d: async ----
 
     /// `a` and `b` combined so that their order shows: `-` on Ints, `+` on
@@ -2105,18 +2273,17 @@ impl<'r> Gen<'r> {
         {
             return call;
         }
-        let mut named: Vec<String> = self
-            .fns
-            .iter()
-            .filter(|f| {
+        let fitting: Vec<usize> = (0..self.fns.len())
+            .filter(|&i| {
+                let f = &self.fns[i];
                 f.tparam.is_none()
                     && !f.recursive
                     && f.effects.is_empty()
                     && f.params == params
                     && f.ret == *ret
             })
-            .map(|f| f.name.clone())
             .collect();
+        let mut named: Vec<String> = fitting.into_iter().map(|f| self.fn_ref(f)).collect();
         named.extend(self.field_paths(ty));
         if named.is_empty() || self.chance(50) {
             self.typed_lambda(params, ret, d)
@@ -2579,7 +2746,10 @@ mod tests {
     const VALUES: Parts = Parts { values: true, ..Parts::NONE };
     const EFFECTS: Parts = Parts { effects: true, ..Parts::NONE };
     const ASYNC: Parts = Parts { async_: true, ..Parts::NONE };
-    const ALL: Parts = Parts { classes: true, values: true, effects: true, async_: true };
+    const ALL: Parts =
+        Parts { classes: true, values: true, effects: true, async_: true, modules: false };
+    const MODULES: Parts = Parts { modules: true, ..Parts::NONE };
+    const FIVE: Parts = Parts { modules: true, ..ALL };
 
     fn balanced(text: &str) -> bool {
         let mut depth = [0i32; 3];
@@ -2616,6 +2786,8 @@ mod tests {
         assert_eq!(Parts::parse("effects"), Ok(EFFECTS));
         assert_eq!(Parts::parse("async"), Ok(ASYNC));
         assert_eq!(ALL.names(), "classes,values,effects,async");
+        assert_eq!(Parts::parse("modules"), Ok(MODULES));
+        assert_eq!(FIVE.names(), "classes,values,effects,async,modules");
     }
 
     #[test]
@@ -3000,6 +3172,83 @@ mod tests {
                 assert_eq!(text.matches("Async.run_async(").count(), 1, "case {case}");
             }
         }
+    }
+
+    /// A `modules` case is a folder: the module, then `main.flx`, which
+    /// imports it by alias and exposes its types; one per seed, each file
+    /// balanced, also with every part on.
+    #[test]
+    fn a_modules_case_is_a_folder_of_main_and_its_module() {
+        for (parts, with) in [(MODULES, "modules"), (FIVE, "classes,values,effects,async,modules")]
+        {
+            for case in 0..200 {
+                let files = case_files(2, case, &parts);
+                assert_eq!(files, case_files(2, case, &parts));
+                let [(module_path, module), (main_path, main)] = &files[..] else {
+                    panic!("case {case}: {} files", files.len());
+                };
+                assert_eq!(main_path, &format!("case_{case}/main.flx"));
+                let name = module_path
+                    .strip_prefix(&format!("case_{case}/"))
+                    .and_then(|f| f.strip_suffix(".flx"))
+                    .unwrap();
+                assert!(
+                    name.starts_with('M') && name[1..].parse::<u32>().is_ok(),
+                    "case {case}: module {name}, never Main, Flow or Flume"
+                );
+                assert!(module.contains(&format!("\nmodule {name} {{\n")), "case {case}");
+                assert!(!module.contains("fn main"), "case {case}: parity would run it");
+                assert!(main.contains(&format!("--with {with}, case")), "case {case}");
+                assert!(main.contains(&format!("\nimport {name} as A")), "case {case}");
+                assert!(main.contains(&format!("\nimport {name} exposing (")), "case {case}");
+                assert!(balanced(main) && balanced(module), "case {case}:\n{module}\n{main}");
+            }
+        }
+    }
+
+    /// What `modules` writes, and the rules it keeps: every item in the
+    /// module public; no class, instance, effect or generic function in it
+    /// (KI-086, KI-076); no constructor through the alias (KI-103); and
+    /// `main` always calls the pair helper through the alias.
+    #[test]
+    fn modules_programs_use_every_form_and_keep_clear_of_their_known_issues() {
+        let (mut bare, mut records) = (false, false);
+        for case in 0..200 {
+            let files = case_files(1, case, &FIVE);
+            let (module, main) = (&files[0].1, &files[1].1);
+            let alias = main.split("\nimport M").nth(1).unwrap().split(" as ").nth(1).unwrap();
+            let alias = alias.lines().next().unwrap();
+            for line in module.lines() {
+                let item = line.strip_prefix("    ").unwrap_or("");
+                assert!(
+                    !item.starts_with("fn ") && !item.starts_with("data "),
+                    "case {case}: not public: {line}"
+                );
+                for kept_out in ["class ", "instance ", "effect "] {
+                    assert!(!item.starts_with(kept_out), "case {case}: {line}");
+                }
+                let generic =
+                    item.starts_with("public fn ") && item.split('(').next().unwrap().contains('<');
+                assert!(!generic, "case {case}: {line}");
+            }
+            for word in main.split(|c: char| !c.is_alphanumeric() && c != '.') {
+                if let Some(member) = word.strip_prefix(&format!("{alias}.")) {
+                    assert!(member.starts_with('f'), "case {case}: {word} through the alias");
+                }
+            }
+            let last_let = main.lines().rfind(|l| l.trim_start().starts_with("let ")).unwrap();
+            assert!(last_let.contains(&format!("= {alias}.f")), "case {case}: {last_let}");
+            let exposed = main.split(" exposing (").nth(1).unwrap().split(')').next().unwrap();
+            let functions: Vec<&str> = exposed.split(", ").filter(|n| n.starts_with('f')).collect();
+            bare |= functions.iter().any(|f| {
+                main.lines()
+                    .filter(|l| !l.starts_with("import"))
+                    .any(|l| l.contains(&format!("{f}(")) && !l.contains(&format!("{alias}.{f}(")))
+            });
+            records |= exposed.contains("Rec") && main.contains(" Rec");
+        }
+        assert!(bare, "no module function called by its bare name");
+        assert!(records, "no record from the module used in main");
     }
 
     /// Each feature S17d adds shows up in a sample of programs, and the
