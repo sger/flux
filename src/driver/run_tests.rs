@@ -8,7 +8,9 @@ use std::{fs, path::Path};
 use super::backend_policy::should_run_tests_native;
 use super::{
     flags::DriverFlags,
-    frontend::{collect_module_roots, inject_flow_prelude, validate_no_primops_import},
+    frontend::{
+        collect_module_roots, flow_prelude_imports, inject_flow_prelude, validate_no_primops_import,
+    },
     module_compile::{effective_module_strictness, tag_module_diagnostics},
     session::DriverSession,
     shared::{
@@ -401,8 +403,13 @@ pub(crate) fn run_test_file(path: &str, request: TestRunRequest<'_>) {
         Path::new(path),
     );
     let interner = parser.take_interner();
-    let graph_result =
-        ModuleGraph::build_with_entry_and_module_roots(entry_path, &program, interner, &roots);
+    let graph_result = ModuleGraph::build_with_prelude(
+        entry_path,
+        &program,
+        interner,
+        &roots,
+        &flow_prelude_imports(Path::new(path)),
+    );
     let mut graph_diags = graph_result.diagnostics;
     tag_and_attach_file(&mut graph_diags, DiagnosticPhase::ModuleGraph, path);
     all_diagnostics.extend(graph_diags);

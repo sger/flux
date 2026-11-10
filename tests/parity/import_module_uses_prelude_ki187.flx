@@ -1,6 +1,16 @@
 // parity: vm, llvm
 // expect: success
 // bug: a module file gets none of the prelude's imports, so natively its calls of map or fold are undefined, and on the VM either is (KI-187)
+// parity-expected-stdout-begin
+// [2, 3, 4]
+// [2, 3]
+// 123
+// 6
+// 3
+// [3, 2, 1]
+// "4"
+// "five"
+// parity-expected-stdout-end
 
 import ModulePrelude.Lists as Lists
 

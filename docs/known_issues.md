@@ -390,41 +390,6 @@ later, as a use.
 
 The verifier refuses the plan, so nothing runs wrong.
 
-### KI-187 — A module file gets none of the prelude's imports: natively its calls of `map` or `fold` are undefined
-
-**Severity:** Medium (valid programs refused) · **Area:** Module graph, prelude · **Verified:** 2026-11-10 (52cce2de) · **From:** 0190 S17d (`cargo xtask fuzz --seed 1 --with modules`, 7 of the first 10 cases)
-
-```flux
-// M1.flx, beside main.flx
-module M1 {
-    public fn f(xs: List<Int>) -> Int {
-        sum(map(xs, \x -> (x + 1)))
-    }
-}
-
-// main.flx
-import M1 as A
-fn main() with IO {
-    print(A.f([1, 2]))
-}
-```
-
-On `vm` this prints `5`; on `llvm` it stops with `error[E004]: Undefined
-Variable` ("I can't find a value named `sum`") in `M1.flx`. The same goes for
-`map`, `fold`, `filter`, `length` and `reverse`; `len` and `to_string`, which
-aren't the prelude's, work. `either` is undefined on both ways.
-
-The driver adds the prelude's imports (`import Flow.List exposing (..)` and the
-rest of `FLOW_PRELUDE_MODULES`) to the entry file only (`inject_flow_prelude`,
-`src/driver/frontend.rs`). A module file gets none. On the VM, whose `--no-cache`
-path compiles every module in one compiler, a name the prelude defined before
-the module was compiled resolves anyway, so it depends on the order: `Flow.Either`
-comes after the module, and `either` doesn't. Natively each module is compiled
-on its own, and none of them resolves.
-
-Fixture: `tests/parity/import_module_uses_prelude_ki187.flx`, beside
-`tests/parity/ModulePrelude/Lists.flx`.
-
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
@@ -3037,6 +3002,49 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-187 — A module file got none of the prelude's imports: natively its calls of `map` or `fold` were undefined — FIXED 2026-11-10
+
+**Severity:** Medium (valid programs refused) · **Area:** Module graph, prelude · **Verified:** 2026-11-10 (52cce2de) · **From:** 0190 S17d (`cargo xtask fuzz --seed 1 --with modules`, 7 of the first 10 cases)
+
+```flux
+// M1.flx, beside main.flx
+module M1 {
+    public fn f(xs: List<Int>) -> Int {
+        sum(map(xs, \x -> (x + 1)))
+    }
+}
+
+// main.flx
+import M1 as A
+fn main() with IO {
+    print(A.f([1, 2]))
+}
+```
+
+On `vm` this prints `5`; on `llvm` it stops with `error[E004]: Undefined
+Variable` ("I can't find a value named `sum`") in `M1.flx`. The same goes for
+`map`, `fold`, `filter`, `length` and `reverse`; `len` and `to_string`, which
+aren't the prelude's, work. `either` is undefined on both ways.
+
+The driver adds the prelude's imports (`import Flow.List exposing (..)` and the
+rest of `FLOW_PRELUDE_MODULES`) to the entry file only (`inject_flow_prelude`,
+`src/driver/frontend.rs`). A module file gets none. On the VM, whose `--no-cache`
+path compiles every module in one compiler, a name the prelude defined before
+the module was compiled resolves anyway, so it depends on the order: `Flow.Either`
+comes after the module, and `either` doesn't. Natively each module is compiled
+on its own, and none of them resolves.
+
+Fixture: `tests/parity/import_module_uses_prelude_ki187.flx`, beside
+`tests/parity/ModulePrelude/Lists.flx`.
+
+**Fixed** in the module graph (`build_with_prelude`, `src/syntax/module_graph/mod.rs`):
+each user module file gets the prelude's imports it doesn't make itself, the
+lines `flow_prelude_imports` gives the entry file, before its imports are
+resolved, so the prelude modules are also ordered before it. A module's own
+function of a prelude name still wins, as in an entry file. `CACHE_EPOCH` is 143,
+because an earlier unit of a user module was compiled without those imports.
+The fixture failed on `vm` and `llvm` before this and passes now.
 
 ### KI-175 — A class method or constrained call in an annotated `let`'s `if`, `match` or literal was given its dictionary twice — FIXED 2026-11-09
 
