@@ -41,6 +41,7 @@
 //!     original's output with parity-check; outputs in .verify/rewrite_<seed>/
 //! cargo xtask fuzz [--seed <n>] [--count <n>] [--ways <w,…>] [--jobs <n>]
 //!                  [--gen-only] [--with classes,values,effects,async]
+//!                  [--reruns <n>]
 //!     generate well-typed programs (default 50, from seed 1) and run the
 //!     ones that compile through parity-check (default vm,llvm,vm_opt,
 //!     llvm_opt); a program the compiler fails on is a compiler bug, one
@@ -50,7 +51,8 @@
 //!     closures as values, Arrays, Maps and Either, effects for user
 //!     effects and handlers, async for tasks and channels under one
 //!     run_async; outputs then in
-//!     .verify/fuzz_<seed>_<parts>/
+//!     .verify/fuzz_<seed>_<parts>/. --reruns runs each case the ways agree
+//!     on n more times on each way and reports one whose output changes
 //! cargo xtask fuzz reduce <case.flx> [--ways <w,…>] [--jobs <n>]
 //!                         [--timeout <seconds>]
 //!     shrink a case to a small program the cheapest pair of ways that
@@ -111,7 +113,7 @@ const USAGE: &str = "usage:
   cargo xtask prune [--keep <n>] [--keep-tag <tag>]... [--yes]
   cargo xtask census [--tag <tag>] [--base <tag>] [--jobs <n>] [--ways <w,...>] [--allow network] [<dir>...]
   cargo xtask rewrite [--kind reorder|rename|let-wrap|all] [--seed <n>] [--ways <w,...>] [--jobs <n>] [<dir|file>...]
-  cargo xtask fuzz [--seed <n>] [--count <n>] [--ways <w,...>] [--jobs <n>] [--gen-only] [--with classes,values,effects,async]
+  cargo xtask fuzz [--seed <n>] [--count <n>] [--ways <w,...>] [--jobs <n>] [--gen-only] [--with classes,values,effects,async] [--reruns <n>]
   cargo xtask fuzz reduce <case.flx> [--ways <w,...>] [--jobs <n>] [--timeout <seconds>]
   cargo xtask bisect-opt <fixture> [--way vm_opt|llvm_opt] [--timeout <seconds>] [--flux <path>]
   cargo xtask sanitize [--thread] [--ways <w,...>] [<dir>...]
@@ -382,6 +384,7 @@ fn fuzz_command(args: &mut Args) -> Result<FuzzCommand, String> {
             Some(names) => fuzz::Parts::parse(&names)?,
             None => fuzz::Parts::NONE,
         },
+        reruns: args.number("--reruns")?.unwrap_or(0),
     };
     args.finish()?;
     Ok(FuzzCommand::Run(options))
@@ -475,6 +478,11 @@ mod tests {
         assert!(run.parts.effects && !run.parts.values);
         let Ok(FuzzCommand::Run(run)) = fuzz(&["--with", "async"]) else { panic!("a run") };
         assert_eq!(run.parts, fuzz::Parts { async_: true, ..fuzz::Parts::NONE });
+        assert_eq!(run.reruns, 0);
+        let Ok(FuzzCommand::Run(run)) = fuzz(&["--with", "async", "--reruns", "10"]) else {
+            panic!("a run")
+        };
+        assert_eq!(run.reruns, 10);
         let Ok(FuzzCommand::Run(run)) = fuzz(&["--seed", "2"]) else { panic!("a run") };
         assert_eq!(run.parts, fuzz::Parts::NONE);
         assert!(fuzz(&["--with", "nope"]).is_err());

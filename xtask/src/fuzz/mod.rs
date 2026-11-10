@@ -9,6 +9,8 @@
 //! - `genfail/`: programs the compiler rejected with a diagnostic, each a
 //!   generator bug;
 //! - `mismatch/`: copies of the cases whose ways disagreed;
+//! - `varies/`: with `--reruns N`, copies of the cases whose output on one
+//!   way changed from one run to the next (0190 S17d);
 //! - `parity.log` and `summary.txt`.
 //!
 //! The copies sit outside `cases/` because parity-check sweeps a folder
@@ -32,6 +34,7 @@ use crate::verify::{cargo, flux_binary};
 
 pub use generate::Parts;
 use generate::program_with;
+use reduce::Way;
 pub use reduce::{ReduceOptions, run_reduce};
 
 pub const DEFAULT_WAYS: &str = "vm,llvm,vm_opt,llvm_opt";
@@ -57,6 +60,9 @@ pub struct Options {
     pub gen_only: bool,
     /// The parts of the language beyond S8's subset (`--with`, 0190 S17).
     pub parts: Parts,
+    /// Run each case every way agrees on this many more times on each way,
+    /// and report one whose output changes (`--reruns`, 0190 S17d).
+    pub reruns: usize,
 }
 
 /// `fuzz_<seed>`, or `fuzz_<seed>_<parts>` with parts on, so that runs of
@@ -78,12 +84,17 @@ pub fn run_fuzz(root: &Path, options: &Options) -> Result<bool, String> {
     let internal = out.join("internal");
     let genfail = out.join("genfail");
     let mismatch = out.join("mismatch");
-    for dir in [&cases, &internal, &genfail, &mismatch] {
+    let varies = out.join("varies");
+    for dir in [&cases, &internal, &genfail, &mismatch, &varies] {
         fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
     println!("outputs: {}", store::display(&out));
     let started = Instant::now();
-    let mut steps = Steps::new(if options.gen_only { 1 } else { 4 });
+    let mut steps = Steps::new(match (options.gen_only, options.reruns) {
+        (true, _) => 1,
+        (false, 0) => 4,
+        (false, _) => 5,
+    });
 
     steps.start(&format!("generate {} program(s) from seed {}", options.count, options.seed));
     let files: Vec<String> = (0..options.count).map(|i| format!("case_{i}.flx")).collect();
@@ -139,19 +150,72 @@ pub fn run_fuzz(root: &Path, options: &Options) -> Result<bool, String> {
         )
         .map_err(|e| e.to_string())?;
     }
+    let mut disagreeing = Vec::new();
     for line in &counts.failures {
         if let Some(path) = failing_file(line) {
             let from = root.join(path);
             let name = from.file_name().ok_or(format!("no file name in {line}"))?;
             fs::copy(&from, mismatch.join(name)).map_err(|e| format!("{}: {e}", from.display()))?;
+            disagreeing.push(name.to_string_lossy().into_owned());
         }
     }
 
+    let mut reran = None;
+    if options.reruns > 0 {
+        steps.start(&format!("rerun each agreeing case {} times on each way", options.reruns));
+        let ways = options.ways.split(',').map(Way::parse).collect::<Result<Vec<_>, _>>()?;
+        let agreeing: Vec<String> = files
+            .iter()
+            .filter(|f| cases.join(f).exists() && !disagreeing.contains(f))
+            .cloned()
+            .collect();
+        let found = parallel(&agreeing, crate::sweep::default_jobs(), |file| {
+            let cache = out.join("rerun_cache").join(file.trim_end_matches(".flx"));
+            let path = cases.join(file).to_string_lossy().into_owned();
+            let changed = ways.iter().find_map(|way| {
+                let runs: Vec<(bool, i32, String)> = (0..=options.reruns)
+                    .map(|_| {
+                        let ran = way.run(root, &flux, &path, TIMEOUT, Some(&cache));
+                        (ran.finished, ran.exit, ran.stdout)
+                    })
+                    .collect();
+                first_change(&runs).map(|run| format!("{}: run {run} differs", way.name))
+            });
+            let _ = fs::remove_dir_all(&cache);
+            changed
+        });
+        let mut changed = Vec::new();
+        for (file, why) in agreeing.iter().zip(found) {
+            if let Some(why) = why {
+                fs::copy(cases.join(file), varies.join(file))
+                    .map_err(|e| format!("{}: {e}", varies.join(file).display()))?;
+                changed.push(format!("{file}: {why}"));
+            }
+        }
+        let _ = fs::remove_dir_all(out.join("rerun_cache"));
+        reran = Some(Reran { agreeing: agreeing.len(), changed });
+    }
+
     let failures = Failures { compiler: &compiler_failures, generator: &generator_failures };
-    let summary = summary(options, files.len(), &failures, &counts, started.elapsed());
+    let summary =
+        summary(options, files.len(), &failures, &counts, reran.as_ref(), started.elapsed());
     write(&out.join("summary.txt"), &summary)?;
     print!("{summary}");
-    Ok(failed == 0 && counts.ok())
+    Ok(failed == 0 && counts.ok() && reran.is_none_or(|r| r.changed.is_empty()))
+}
+
+/// What `--reruns` found: how many cases it reran, and each one whose output
+/// changed, with the way and the run.
+struct Reran {
+    agreeing: usize,
+    changed: Vec<String>,
+}
+
+/// The first run, after the first, whose finish, exit or stdout isn't the
+/// first's.
+fn first_change(runs: &[(bool, i32, String)]) -> Option<usize> {
+    let first = runs.first()?;
+    runs.iter().position(|run| run != first)
 }
 
 /// How compiling one program went.
@@ -217,6 +281,7 @@ fn summary(
     generated: usize,
     failures: &Failures<'_>,
     counts: &ParityCounts,
+    reran: Option<&Reran>,
     took: Duration,
 ) -> String {
     let mut text = String::new();
@@ -251,6 +316,20 @@ fn summary(
     for line in &counts.failures {
         let _ = writeln!(text, "  {line}");
     }
+    if let Some(reran) = reran {
+        let _ = writeln!(
+            text,
+            "reruns: {} each on {}: {} of {} the same, {} vary (target 0)",
+            options.reruns,
+            options.ways,
+            reran.agreeing - reran.changed.len(),
+            reran.agreeing,
+            reran.changed.len()
+        );
+        for line in &reran.changed {
+            let _ = writeln!(text, "  {line}");
+        }
+    }
     let _ = writeln!(text, "took {}", format_duration(took));
     text
 }
@@ -278,6 +357,7 @@ mod tests {
             jobs: 1,
             gen_only: false,
             parts: Parts::NONE,
+            reruns: 0,
         };
         let counts = ParityCounts {
             mismatches: 1,
@@ -286,10 +366,39 @@ mod tests {
             ..ParityCounts::default()
         };
         let failures = Failures { compiler: &[], generator: &["case_0.flx: error[E001]".into()] };
-        let text = summary(&options, 3, &failures, &counts, Duration::ZERO);
+        let text = summary(&options, 3, &failures, &counts, None, Duration::ZERO);
+        assert!(!text.contains("reruns"));
         assert!(text.contains("internal compiler errors: 0\n"));
         assert!(text.contains("generator failures: 1 (target 0)\n  case_0.flx: error[E001]\n"));
         assert!(text.contains("parity: 1 of 2 agree, 1 MISMATCH, 0 EXPECTED_OUTPUT_MISMATCH, exit 1\n  MISMATCH c/case_2.flx\n"));
+    }
+
+    /// A case whose output changes on any rerun is reported with the run,
+    /// and one whose runs are all the same isn't.
+    #[test]
+    fn a_rerun_that_changes_is_found_and_listed() {
+        let run = |exit, out: &str| (true, exit, out.to_string());
+        assert_eq!(first_change(&[run(0, "1\n"), run(0, "1\n"), run(0, "1\n")]), None);
+        assert_eq!(first_change(&[run(0, "1\n"), run(0, "1\n"), run(0, "2\n")]), Some(2));
+        assert_eq!(first_change(&[run(0, "1\n"), run(1, "1\n")]), Some(1));
+        assert_eq!(first_change(&[run(0, "1\n"), (false, 0, "1\n".into())]), Some(1));
+        assert_eq!(first_change(&[]), None);
+        let options = Options {
+            seed: 1,
+            count: 2,
+            ways: "vm,llvm".into(),
+            jobs: 1,
+            gen_only: false,
+            parts: Parts::NONE,
+            reruns: 10,
+        };
+        let failures = Failures { compiler: &[], generator: &[] };
+        let reran = Reran { agreeing: 2, changed: vec!["case_1.flx: llvm: run 4 differs".into()] };
+        let text =
+            summary(&options, 2, &failures, &ParityCounts::default(), Some(&reran), Duration::ZERO);
+        assert!(text.contains(
+            "reruns: 10 each on vm,llvm: 1 of 2 the same, 1 vary (target 0)\n  case_1.flx: llvm: run 4 differs\n"
+        ));
     }
 
     #[test]
