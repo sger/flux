@@ -40,7 +40,7 @@
 //!     ways that cannot change its output, and check the copies against the
 //!     original's output with parity-check; outputs in .verify/rewrite_<seed>/
 //! cargo xtask fuzz [--seed <n>] [--count <n>] [--ways <w,…>] [--jobs <n>]
-//!                  [--gen-only] [--with classes,values,effects]
+//!                  [--gen-only] [--with classes,values,effects,async]
 //!     generate well-typed programs (default 50, from seed 1) and run the
 //!     ones that compile through parity-check (default vm,llvm,vm_opt,
 //!     llvm_opt); a program the compiler fails on is a compiler bug, one
@@ -48,7 +48,8 @@
 //!     .verify/fuzz_<seed>/. --with adds parts of the language (0190 S17):
 //!     classes for generics and type classes, values for records,
 //!     closures as values, Arrays, Maps and Either, effects for user
-//!     effects and handlers; outputs then in
+//!     effects and handlers, async for tasks and channels under one
+//!     run_async; outputs then in
 //!     .verify/fuzz_<seed>_<parts>/
 //! cargo xtask fuzz reduce <case.flx> [--ways <w,…>] [--jobs <n>]
 //!                         [--timeout <seconds>]
@@ -110,7 +111,7 @@ const USAGE: &str = "usage:
   cargo xtask prune [--keep <n>] [--keep-tag <tag>]... [--yes]
   cargo xtask census [--tag <tag>] [--base <tag>] [--jobs <n>] [--ways <w,...>] [--allow network] [<dir>...]
   cargo xtask rewrite [--kind reorder|rename|let-wrap|all] [--seed <n>] [--ways <w,...>] [--jobs <n>] [<dir|file>...]
-  cargo xtask fuzz [--seed <n>] [--count <n>] [--ways <w,...>] [--jobs <n>] [--gen-only] [--with classes,values,effects]
+  cargo xtask fuzz [--seed <n>] [--count <n>] [--ways <w,...>] [--jobs <n>] [--gen-only] [--with classes,values,effects,async]
   cargo xtask fuzz reduce <case.flx> [--ways <w,...>] [--jobs <n>] [--timeout <seconds>]
   cargo xtask bisect-opt <fixture> [--way vm_opt|llvm_opt] [--timeout <seconds>] [--flux <path>]
   cargo xtask sanitize [--thread] [--ways <w,...>] [<dir>...]
@@ -465,16 +466,15 @@ mod tests {
         let Ok(FuzzCommand::Run(run)) = fuzz(&["--with", "classes", "--seed", "2"]) else {
             panic!("a run");
         };
-        assert_eq!(
-            (run.seed, run.parts),
-            (2, fuzz::Parts { classes: true, values: false, effects: false })
-        );
+        assert_eq!((run.seed, run.parts), (2, fuzz::Parts { classes: true, ..fuzz::Parts::NONE }));
         let Ok(FuzzCommand::Run(run)) = fuzz(&["--with", "classes,values"]) else {
             panic!("a run");
         };
-        assert_eq!(run.parts, fuzz::Parts { classes: true, values: true, effects: false });
+        assert_eq!(run.parts, fuzz::Parts { classes: true, values: true, ..fuzz::Parts::NONE });
         let Ok(FuzzCommand::Run(run)) = fuzz(&["--with", "effects"]) else { panic!("a run") };
         assert!(run.parts.effects && !run.parts.values);
+        let Ok(FuzzCommand::Run(run)) = fuzz(&["--with", "async"]) else { panic!("a run") };
+        assert_eq!(run.parts, fuzz::Parts { async_: true, ..fuzz::Parts::NONE });
         let Ok(FuzzCommand::Run(run)) = fuzz(&["--seed", "2"]) else { panic!("a run") };
         assert_eq!(run.parts, fuzz::Parts::NONE);
         assert!(fuzz(&["--with", "nope"]).is_err());
