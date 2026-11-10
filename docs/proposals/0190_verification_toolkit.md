@@ -606,12 +606,103 @@ in one part doesn't flood the others:
   (native async; one `run_async` per program), KI-144, KI-103 (no constructor
   through a module alias), KI-110 and KI-146. KI-108 may have to be fixed first.
 
+  **Probes first.** KI-108's five channel programs that aren't HTTP examples
+  now print what the VM prints natively (two of them on 10 of 10 runs), so
+  KI-108 wasn't in the way and stays open for its HTTP examples only. Every
+  async and module form below ran the same on all four ways before the
+  generator wrote it. S17d became two parts, independent of each other, the
+  second changing the case layout for everything.
+
+  As built, `async` (`cargo xtask fuzz --with async`, cases in
+  `.verify/fuzz_<seed>_async/`):
+  - **One helper per form,** each with `Async` in its row, never called from
+    pure code and never handling a user effect: two of no parameters that
+    `both` takes by name (KI-029 rules out effectful lambdas); one that spawns
+    two tasks over its parameter and awaits them in order; one that fills a
+    channel with two or three values, closes it and drains it in one fiber;
+    and one where a local producer fills a channel while a local consumer
+    drains it, under `both`. What they give is combined in an order that shows
+    (`a - b`, `a + b` on Strings, `a && !b`).
+  - **One body calls them all,** and `main` runs it with the program's only
+    `run_async` (KI-169) and prints what it gives. Nothing else prints, so no
+    fiber prints from another worker (KI-144). Calls go through the modules'
+    aliases (`Async.both`, `Task.await`, `Channel.recv`), which check arity
+    (KI-146).
+  - Left out: anything timed (`sleep`, `timeout`, `race`, `select`),
+    `yield_now`, worker counts, and a user effect in an async helper.
+
+  As built, `modules` (`--with modules`; each case the folder
+  `case_<i>/` holding `main.flx` and `M<n>.flx`):
+  - **The module** holds the program's data types and records and one to
+    three plain helpers, then a pair helper, `fn f(a: S, b: S) -> S`, combining
+    its two parameters in an order that shows. Each item is `public`, and the
+    module file repeats the program's imports.
+  - **`main.flx`** imports it with `import M<n> as A<n>` and calls its
+    functions through the alias, or in half the programs by their bare names
+    too, exposed. Types and constructors come in only through `exposing`: a
+    constructor through an alias fails natively (KI-103), and a qualified
+    type can't be written (KI-023). `main` always calls the pair helper
+    through the alias.
+  - **Kept in `main`:** classes and instances (KI-086, KI-076), effects, and
+    the generic, effect, handler, closure and async helpers. One module per
+    case (KI-056), never named `Main`, `Flow` or `Flume`.
+  - **The pipeline** takes a case's entry (`case_<i>.flx` or
+    `case_<i>/main.flx`) and moves or copies a folder case whole.
+
+  `cargo xtask fuzz --reruns N` (new) runs each case every way agrees on N
+  more times on each way, a native way on a cache of the case's own; a case
+  whose finish, exit or stdout changes goes to `varies/`.
+
+  **What S17d found:**
+  - **KI-187 (Medium), fixed:** a module file got none of the prelude's
+    imports, which the driver gave the entry file only. Natively, each module
+    compiled on its own, its calls of `map`, `fold`, `filter`, `sum`, `length`
+    and `reverse` were undefined (E004); on the VM they resolved when the
+    prelude happened to be compiled first, and `either` didn't. 7 of the
+    first 10 modules cases, so it was fixed before the part's runs: the module
+    graph gives each user module the prelude's imports it doesn't make itself
+    (`build_with_prelude`), and `CACHE_EPOCH` is 143. Its verify run changed
+    no output: Core dumps only reordered, the class methods' fallback loads
+    one name more, and one call (`Flow.List.each`'s own, in `lib/Flume`) now
+    borrows the list it used to `dup` and leak. `compiler_allocs` grew 1.1 to
+    2.3 % on four examples that use modules.
+  - **A generator bug, older than S17d:** with classes on, `match None {
+    Some(p) -> m(p), .. }` gives `p` no type, so a class method called on it
+    can't be resolved (E459), in 2 of 50 programs with all four parts; such a
+    `match` now binds nothing its arms read.
+  - **The reducer** drifted onto KI-145 and stopped at 19 lines on the async
+    plant; see §7.
+
+  **The exit tests, met** on seed 1, all four ways:
+  - **`async`, clean:** 200 of 200 compile and agree, and with `--reruns 10`
+    all 200 print the same on every run of every way.
+  - **`async` plant:** native `buf_pop` (`runtime/c/channel.c`) gives the
+    newest value when two or more are buffered: `227` against `196` on the
+    probe, and 7 of the first 10 generated cases. After the reducer fixes, the
+    first five reduce to 12 lines each: two sends, and natively the first
+    receive gets the second value.
+  - **`modules`, clean:** after KI-187, 200 of 200 compile and agree, and all
+    200 print the same on 10 reruns of every way.
+  - **`modules` plant:** native `lower_call_expr_aether` swaps the first two
+    arguments of a direct call to a user module's function (`flux_M<n>_*`):
+    42 of 50 found. The first five reduce to 9 lines over the two files each:
+    a module function giving its first parameter, called through the alias,
+    natively given the second (`"bc"` against `""`).
+
 ### §7 The reducer
 
-- **`cargo xtask fuzz reduce <case.flx> [--ways W] [--jobs J] [--timeout S]`:**
+- **`cargo xtask fuzz reduce <case.flx | case folder> [--ways W] [--jobs J] [--timeout S]`:**
   delta debugging (ddmin) over lines, after the passes below. A candidate
   deletes a set of lines; a deletion that splits a brace pair is widened to the
   lines the pair encloses. Code: `xtask/src/fuzz/reduce.rs`.
+- **Folder cases (S17d).** A case is its files, `main.flx` first: one file, or
+  a folder (named by itself or its `main.flx`) holding `main.flx` and the module
+  beside it. Every candidate is written as a folder, so the module resolves.
+  Each file is reduced with the others held fixed, until a round changes none.
+  Before each round, the module is put into `main`: its imports `main` lacks,
+  then its items, no longer `public`, before `main`'s own, with `main`'s
+  imports of it gone and calls through the alias by their bare names. A bug
+  that survives that isn't about modules, and its case goes on as one file.
 - **Keeping a candidate:** the pair of ways that disagreed on the original
   must still differ on the same stream (exit, stdout or stderr), each way must
   exit as it did on the original, and each way must compile it exactly when it
@@ -644,25 +735,33 @@ in one part doesn't flood the others:
   - replace an expression (a bracketed group, a call or a string) with a
     literal, one of its operands, a call's argument, or a tuple's or list's
     element, largest first. Its type is not known, so a wrong one is turned
-    away by the compile check.
+    away by the compile check;
+  - drop a `#{..}` piece from a string (S17d).
 
   Line ddmin runs after the deleting passes and before the expressions pass,
   which tries the most candidates per line and should see the smallest
   program. Last in each round, a function or instance method whose body is
   one value is written on one line (`fn m(x) { "" }`). It doesn't make the
   program smaller, but it makes the line count measure the program rather
-  than the generator's layout, which gives every body three lines. Rounds
+  than the generator's layout, which gives every body three lines. A block
+whose lines are each one arm, a `match`'s mostly, goes on one line the same
+way, so `inline` can then fold the `let` it's bound to (S17d). Rounds
   repeat until one changes nothing. A pass that keeps a
   candidate goes on from there rather than starting over, which would retest
   every candidate before it.
 - **Cost:** candidates are tested `--jobs` at a time (default 4) and each
   distinct text once. Native candidates build the standard library into a
-  cache per job slot instead of on every run (about 0.8 s down to 0.3 s), and
-  the result is checked again with `--no-cache`. `--timeout` defaults to 10 s:
+  cache per job slot instead of on every run (about 0.8 s down to 0.3 s). A
+  candidate a native way keeps is run again without the cache before it's
+  kept: an object cached for one candidate can keep another program's
+  constructor tags (KI-145) and show a difference the candidate doesn't have,
+  which two of S17d's first five plant reductions drifted onto. The result is
+  checked again with `--no-cache` too. `--timeout` defaults to 10 s:
   a candidate can recurse forever, and a timeout kills what flux started as
   well as flux, since the built program would otherwise hold the output pipes
   open.
-- **Output:** `<case>.min.flx` beside the case, and the run's candidates in
+- **Output:** `<case>.min.flx` beside the case, or the folder `<case>.min/`
+  when the module is still needed, and the run's candidates in
   `.verify/reduce_<case>/`.
 - **Promotion:** a minimized case goes to `tests/parity/` with `// expect: success`
   and a `parity-expected-stdout` block taken from the way that is right. It goes in
