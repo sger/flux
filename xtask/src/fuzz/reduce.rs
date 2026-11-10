@@ -1489,4 +1489,26 @@ fn main() with IO {
         assert!(reduced.contains("fn f<a: K>(x: a) -> Int { m2(x) }"), "{reduced}");
         assert!(reduced.lines().count() <= 10, "{reduced}");
     }
+
+    /// When no way compiles the case, two ways that differ only differ in
+    /// their diagnostics, and any text that keeps them apart would do; the
+    /// compiler's own failure is the bug (an S17c case reduced to a broken
+    /// program that way).
+    #[test]
+    fn a_case_no_way_compiles_is_reduced_as_its_internal_error() {
+        let (vm, vm_opt) = (Way::ALL[0], Way::ALL[1]);
+        let diagnostics = Verdict {
+            stream: Stream::Stderr,
+            compiled: (false, false),
+            exits: ((true, 1), (true, 1)),
+        };
+        let why = "error[E999]: Aether Verification Failed".to_string();
+        let target = choose(Some((vm, vm_opt, diagnostics)), Some(why.clone()));
+        assert!(matches!(target, Some(Target::Internal(w)) if w == why));
+
+        let compiled = Verdict { compiled: (true, true), stream: Stream::Stdout, ..diagnostics };
+        let target = choose(Some((vm, vm_opt, compiled)), Some(why));
+        assert!(matches!(target, Some(Target::Mismatch { .. })), "a real mismatch is kept");
+        assert!(choose(None, None).is_none());
+    }
 }
