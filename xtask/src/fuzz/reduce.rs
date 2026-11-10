@@ -10,11 +10,15 @@
 //! the compiler fails on itself is reduced while it fails the same way.
 //!
 //! Passes that keep a program well formed go first, as Perses and llvm-reduce
-//! do: delete a top-level item, a statement or a match arm, replace a `let`'s
-//! value with a literal of its declared type, inline a `let` used once, and
-//! replace an expression with a literal or one of its parts. Line ddmin runs
-//! after them; a deletion that splits a brace pair is widened to the lines the
-//! pair encloses. Rounds repeat until one changes nothing.
+//! do: delete a top-level item, a class method with its method in every
+//! instance, a parameter nothing reads with its argument at every call, a
+//! statement or a match arm; replace a `let`'s value with a literal of its
+//! declared type, inline a `let` used once, and replace an expression with a
+//! literal or one of its parts. Line ddmin runs after them; a deletion that
+//! splits a brace pair is widened to the lines the pair encloses. Last, a
+//! function whose body is one line is written on one line, so the count
+//! measures the program rather than the generator's layout. Rounds repeat
+//! until one changes nothing.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
@@ -329,6 +333,8 @@ type Pass = fn(&[String]) -> Vec<Vec<String>>;
 /// the most runs per line: it should see the smallest program.
 const STEPS: &[(&str, Option<Pass>)] = &[
     ("items", Some(delete_items)),
+    ("methods", Some(delete_methods)),
+    ("params", Some(delete_params)),
     ("statements", Some(delete_statements)),
     ("arms", Some(delete_arms)),
     ("branches", Some(pick_branches)),
@@ -336,6 +342,7 @@ const STEPS: &[(&str, Option<Pass>)] = &[
     ("inline", Some(inline_lets)),
     ("lines", None),
     ("expressions", Some(simplify_expressions)),
+    ("join", Some(join_bodies)),
 ];
 
 /// `lines` reduced until a whole round changes nothing. `log` hears each
@@ -943,10 +950,20 @@ fn simplify_expressions(lines: &[String]) -> Vec<Vec<String>> {
     let mut found = Vec::new();
     for (i, line) in lines.iter().enumerate() {
         let head = line.trim_start();
-        if is_comment(line) || head.starts_with("fn ") || head.starts_with("data ") {
+        if is_comment(line) || head.starts_with("data ") {
             continue;
         }
-        for (start, end) in expressions(line) {
+        // A signature has nothing to simplify; a body `join_bodies` put on
+        // its line does.
+        let from = if head.starts_with("fn ") {
+            match joined_body(line) {
+                Some(at) => at,
+                None => continue,
+            }
+        } else {
+            0
+        };
+        for (start, end) in expressions(line).into_iter().filter(|(start, _)| *start >= from) {
             for replacement in replacements(&line[start..end]) {
                 let text = format!("{}{replacement}{}", &line[..start], &line[end..]);
                 found.push((end - start, i, text));
@@ -960,6 +977,182 @@ fn simplify_expressions(lines: &[String]) -> Vec<Vec<String>> {
             let mut candidate = lines.to_vec();
             candidate[i] = text;
             candidate
+        })
+        .collect()
+}
+
+/// The name at the start of `text`.
+fn leading_name(text: &str) -> &str {
+    let end = text.find(|c: char| !is_ident(c)).unwrap_or(text.len());
+    &text[..end]
+}
+
+/// The function a `fn` line declares or defines.
+fn fn_name(line: &str) -> Option<&str> {
+    let name = leading_name(line.trim_start().strip_prefix("fn ")?);
+    (!name.is_empty()).then_some(name)
+}
+
+/// The class an `instance` line implements: the head after `=>` when it has
+/// a context.
+fn instance_class(line: &str) -> Option<&str> {
+    let rest = line.strip_prefix("instance ")?;
+    let head = rest.split_once(" => ").map_or(rest, |(_, head)| head);
+    Some(leading_name(head))
+}
+
+/// Each method of a top-level class deleted together with its method in
+/// every instance of the class, a contextual one included. Neither can go
+/// alone: an instance defines what its class declares, and no more.
+fn delete_methods(lines: &[String]) -> Vec<Vec<String>> {
+    let depth = depths(lines);
+    let pairs = brace_pairs(lines);
+    let mut candidates = Vec::new();
+    for &(open, close) in &pairs {
+        if depth[open] != 0 {
+            continue;
+        }
+        let Some(class) = lines[open].strip_prefix("class ").map(leading_name) else {
+            continue;
+        };
+        for i in open + 1..close {
+            let Some(method) = fn_name(&lines[i]).filter(|_| depth[i] == 1) else {
+                continue;
+            };
+            let mut gone: BTreeSet<usize> = (i..=span_end(&pairs, i)).collect();
+            for &(start, end) in &pairs {
+                if depth[start] != 0 || instance_class(&lines[start]) != Some(class) {
+                    continue;
+                }
+                for j in start + 1..end {
+                    if depth[j] == 1 && fn_name(&lines[j]) == Some(method) {
+                        gone.extend(j..=span_end(&pairs, j));
+                    }
+                }
+            }
+            candidates.push(without(lines, &gone));
+        }
+    }
+    candidates
+}
+
+/// `text` with the `index`th comma-separated part of the group opened at
+/// byte `open` removed, or `None` when the group has no such part.
+fn drop_part(text: &str, open: usize, index: usize, in_type: bool) -> Option<String> {
+    let close = group_end(text, open)?;
+    let parts = split_top_level(&text[open + 1..close], ',', in_type);
+    if index >= parts.len() || parts[index].trim().is_empty() {
+        return None;
+    }
+    let kept: Vec<&str> = parts
+        .iter()
+        .enumerate()
+        .filter(|(at, _)| *at != index)
+        .map(|(_, part)| part.trim())
+        .collect();
+    Some(format!("{}({}){}", &text[..open], kept.join(", "), &text[close + 1..]))
+}
+
+/// Each parameter of a top-level function (but `main`) that its body never
+/// reads, deleted together with the argument in its place at every call.
+/// Every use of the function must be a call on one line; a function passed
+/// as a value, or a call over several lines, leaves it alone.
+fn delete_params(lines: &[String]) -> Vec<Vec<String>> {
+    let depth = depths(lines);
+    let pairs = brace_pairs(lines);
+    let mut candidates = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        if depth[i] != 0 || line.starts_with("fn main") {
+            continue;
+        }
+        let Some(name) = fn_name(line) else {
+            continue;
+        };
+        let Some(open) = line.find('(') else {
+            continue;
+        };
+        let Some(close) = group_end(line, open) else {
+            continue;
+        };
+        let params = split_top_level(&line[open + 1..close], ',', true);
+        let end = span_end(&pairs, i);
+        let body: Vec<&str> = std::iter::once(&line[close + 1..])
+            .chain(lines[i + 1..=end].iter().map(String::as_str))
+            .collect();
+        for (k, param) in params.iter().enumerate() {
+            let param_name = param.split(':').next().unwrap_or("").trim();
+            if param_name.is_empty() || !param_name.chars().all(is_ident) {
+                continue;
+            }
+            if body.iter().any(|text| !word_at(text, param_name).is_empty()) {
+                continue;
+            }
+            if let Some(candidate) = without_argument(lines, i, open, name, k) {
+                candidates.push(candidate);
+            }
+        }
+    }
+    candidates
+}
+
+/// `lines` with the `k`th parameter of the function `name` declared on line
+/// `decl` (its list opened at byte `open`) removed, and the `k`th argument
+/// of each call to it.
+fn without_argument(
+    lines: &[String],
+    decl: usize,
+    open: usize,
+    name: &str,
+    k: usize,
+) -> Option<Vec<String>> {
+    let mut candidate = lines.to_vec();
+    candidate[decl] = drop_part(&lines[decl], open, k, true)?;
+    for (j, line) in lines.iter().enumerate() {
+        if is_comment(line) {
+            continue;
+        }
+        let declared_at =
+            if j == decl { line.find("fn ").map(|at| at + "fn ".len()) } else { None };
+        for at in word_at(line, name).into_iter().rev() {
+            if Some(at) == declared_at {
+                continue;
+            }
+            let paren = at + name.len();
+            if !line[paren..].starts_with('(') {
+                return None;
+            }
+            candidate[j] = drop_part(&candidate[j], paren, k, false)?;
+        }
+    }
+    Some(candidate)
+}
+
+/// Where the body of a function written on one line starts, after its `{`.
+fn joined_body(line: &str) -> Option<usize> {
+    if !line.trim_end().ends_with('}') {
+        return None;
+    }
+    line.find(" { ").map(|at| at + " { ".len())
+}
+
+/// Each function or instance method whose body is one value written on its
+/// head's line: `fn m(x) { "" }`. An `if` or a `match` keeps its lines,
+/// which the passes that pick branches and arms read.
+fn join_bodies(lines: &[String]) -> Vec<Vec<String>> {
+    brace_pairs(lines)
+        .into_iter()
+        .filter(|&(open, close)| close == open + 2 && lines[close].trim() == "}")
+        .filter_map(|(open, close)| {
+            let head = lines[open].trim_end();
+            fn_name(head)?;
+            let body = lines[open + 1].trim();
+            if body.is_empty() || body.ends_with(';') || is_comment(body) || !head.ends_with('{') {
+                return None;
+            }
+            let mut candidate = lines[..open].to_vec();
+            candidate.push(format!("{head} {body} }}"));
+            candidate.extend_from_slice(&lines[close + 1..]);
+            Some(candidate)
         })
         .collect()
 }
@@ -1177,5 +1370,107 @@ fn main() with IO {
         let native_ran = verdict(&ran(1), &ran(0)).unwrap();
         assert_eq!((vm_ran.stream, native_ran.stream), (Stream::Exit, Stream::Exit));
         assert_ne!(vm_ran, native_ran);
+    }
+
+    const CLASSES: &str = "data D { C }
+class K<a> {
+    fn m1(x: a) -> Int
+    fn m2(x: a) -> Int
+}
+instance K<D> {
+    fn m1(x) {
+        1
+    }
+    fn m2(x) {
+        2
+    }
+}
+instance K<a> => K<Option<a>> {
+    fn m1(x) {
+        3
+    }
+    fn m2(x) {
+        4
+    }
+}
+fn f<a: K>(x: a, y: Int) -> Int {
+    m2(x)
+}
+fn main() with IO {
+    print(f(C, 5));
+    print(f(C, (1 + 2)));
+}";
+
+    #[test]
+    fn a_class_method_goes_with_its_instance_methods() {
+        let candidates = delete_methods(&lines(CLASSES));
+        assert_eq!(candidates.len(), 2, "one per class method");
+        let without_m1 = join(&candidates[0]);
+        assert!(!without_m1.contains("m1"), "{without_m1}");
+        assert_eq!(without_m1.matches("fn m2(").count(), 3, "{without_m1}");
+        assert!(without_m1.contains("instance K<a> => K<Option<a>> {\n    fn m2(x) {"));
+        let without_m2 = join(&candidates[1]);
+        assert_eq!(without_m2.matches("fn m2(").count(), 0, "{without_m2}");
+        assert!(without_m2.contains("    m2(x)\n"), "a call is the tester's to turn away");
+    }
+
+    #[test]
+    fn an_unused_parameter_goes_with_its_argument_at_each_call() {
+        let candidates = delete_params(&lines(CLASSES));
+        assert_eq!(candidates.len(), 1, "`x` is read, `y` is not");
+        let text = join(&candidates[0]);
+        assert!(text.contains("fn f<a: K>(x: a) -> Int {"), "{text}");
+        assert!(text.contains("print(f(C));\n    print(f(C));"), "{text}");
+
+        let as_value = "fn g(n: Int) -> Int {\n    0\n}\nfn main() with IO {\n    print(g(1));\n    print(map([1], g));\n}";
+        assert!(delete_params(&lines(as_value)).is_empty(), "`g` is passed as a value");
+    }
+
+    #[test]
+    fn a_one_line_body_is_joined() {
+        let program = lines(
+            "fn f(x: Int) -> Int {\n    x\n}\nfn main() with IO {\n    let v: Int = if true {\n        1\n    } else {\n        2\n    };\n    print(f(v));\n}",
+        );
+        let candidates = join_bodies(&program);
+        assert_eq!(candidates.len(), 1, "the `if`'s branches keep their lines");
+        assert!(join(&candidates[0]).starts_with("fn f(x: Int) -> Int { x }\nfn main"));
+        let joined = lines("fn f(x: Int) -> Int { (1 + 2) }");
+        assert!(
+            simplify_expressions(&joined).iter().any(|c| c[0] == "fn f(x: Int) -> Int { 1 }"),
+            "a joined body is still simplified"
+        );
+    }
+
+    /// A class program whose bug needs one method and the helper that calls
+    /// it reduces to them: the other method, the unused parameter and the
+    /// layout all go.
+    #[test]
+    fn a_class_program_reduces_to_the_method_it_calls() {
+        let shows_bug = |text: &str, _: usize| {
+            let declared = text.matches("fn m2(").count();
+            let params = text.find("fn f<").and_then(|at| {
+                let line = text[at..].lines().next()?;
+                Some(line.matches(':').count() - 1)
+            });
+            let args_match = params.is_some_and(|n| {
+                text.lines()
+                    .filter(|l| l.contains("print(f("))
+                    .all(|l| l.matches(',').count() + 1 == n)
+            });
+            text.matches('{').count() == text.matches('}').count()
+                && text.contains("class K<a> {\n    fn m2(x: a) -> Int\n")
+                && declared >= 2
+                && !text.contains(") {\n    }")
+                && !text.contains(") {\n}")
+                && text.matches("fn m1(").count().is_multiple_of(3)
+                && text.find("fn f<").is_some_and(|at| text[at..].contains("m2(x)"))
+                && text.contains("print(f(")
+                && args_match
+        };
+        let reduced = reduce_with(CLASSES, &shows_bug);
+        assert!(!reduced.contains("m1"), "{reduced}");
+        assert!(!reduced.contains("y: Int"), "{reduced}");
+        assert!(reduced.contains("fn f<a: K>(x: a) -> Int { m2(x) }"), "{reduced}");
+        assert!(reduced.lines().count() <= 10, "{reduced}");
     }
 }
