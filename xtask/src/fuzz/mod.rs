@@ -3,7 +3,9 @@
 //! are compared on programs nobody wrote as fixtures.
 //!
 //! A run's folder is `.verify/fuzz_<seed>/`, recreated each time:
-//! - `cases/case_<i>.flx`: the programs that compile, which parity-check runs;
+//! - `cases/case_<i>.flx`, or the folder `cases/case_<i>/` holding `main.flx`
+//!   and the module it imports: the programs that compile, which
+//!   parity-check runs;
 //! - `internal/`: programs the compiler failed on itself (a panic, a failed
 //!   IR or Aether check, a timeout), each a compiler bug;
 //! - `genfail/`: programs the compiler rejected with a diagnostic, each a
@@ -33,7 +35,7 @@ use crate::sweep::run_flux;
 use crate::verify::{cargo, flux_binary};
 
 pub use generate::Parts;
-use generate::program_with;
+use generate::case_files;
 use reduce::Way;
 pub use reduce::{ReduceOptions, run_reduce};
 
@@ -97,9 +99,17 @@ pub fn run_fuzz(root: &Path, options: &Options) -> Result<bool, String> {
     });
 
     steps.start(&format!("generate {} program(s) from seed {}", options.count, options.seed));
-    let files: Vec<String> = (0..options.count).map(|i| format!("case_{i}.flx")).collect();
-    for (i, file) in files.iter().enumerate() {
-        write(&cases.join(file), &program_with(options.seed, i, &options.parts))?;
+    let mut files: Vec<String> = Vec::new();
+    for i in 0..options.count {
+        let written = case_files(options.seed, i, &options.parts);
+        for (path, text) in &written {
+            let path = cases.join(path);
+            if let Some(dir) = path.parent() {
+                fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+            }
+            write(&path, text)?;
+        }
+        files.push(entry(&written));
     }
     if options.gen_only {
         return Ok(true);
@@ -125,8 +135,9 @@ pub fn run_fuzz(root: &Path, options: &Options) -> Result<bool, String> {
             Compile::Internal(why) => (&internal, &mut compiler_failures, why),
             Compile::Rejected(why) => (&genfail, &mut generator_failures, why),
         };
-        fs::rename(cases.join(file), to.join(file))
-            .map_err(|e| format!("{}: {e}", to.join(file).display()))?;
+        let root = case_root(file);
+        fs::rename(cases.join(root), to.join(root))
+            .map_err(|e| format!("{}: {e}", to.join(root).display()))?;
         list.push(format!("{file}: {why}"));
     }
     let failed = compiler_failures.len() + generator_failures.len();
@@ -154,9 +165,13 @@ pub fn run_fuzz(root: &Path, options: &Options) -> Result<bool, String> {
     for line in &counts.failures {
         if let Some(path) = failing_file(line) {
             let from = root.join(path);
-            let name = from.file_name().ok_or(format!("no file name in {line}"))?;
-            fs::copy(&from, mismatch.join(name)).map_err(|e| format!("{}: {e}", from.display()))?;
-            disagreeing.push(name.to_string_lossy().into_owned());
+            let within =
+                from.strip_prefix(root.join(&cases)).or_else(|_| from.strip_prefix(&cases));
+            let within =
+                within.map_err(|_| format!("{line}: not a case in {}", cases.display()))?;
+            let case = case_root(&within.to_string_lossy()).to_string();
+            copy_case(&cases.join(&case), &mismatch.join(&case))?;
+            disagreeing.push(case);
         }
     }
 
@@ -166,11 +181,11 @@ pub fn run_fuzz(root: &Path, options: &Options) -> Result<bool, String> {
         let ways = options.ways.split(',').map(Way::parse).collect::<Result<Vec<_>, _>>()?;
         let agreeing: Vec<String> = files
             .iter()
-            .filter(|f| cases.join(f).exists() && !disagreeing.contains(f))
+            .filter(|f| cases.join(f).exists() && !disagreeing.iter().any(|d| d == case_root(f)))
             .cloned()
             .collect();
         let found = parallel(&agreeing, crate::sweep::default_jobs(), |file| {
-            let cache = out.join("rerun_cache").join(file.trim_end_matches(".flx"));
+            let cache = out.join("rerun_cache").join(case_root(file).trim_end_matches(".flx"));
             let path = cases.join(file).to_string_lossy().into_owned();
             let changed = ways.iter().find_map(|way| {
                 let runs: Vec<(bool, i32, String)> = (0..=options.reruns)
@@ -187,8 +202,8 @@ pub fn run_fuzz(root: &Path, options: &Options) -> Result<bool, String> {
         let mut changed = Vec::new();
         for (file, why) in agreeing.iter().zip(found) {
             if let Some(why) = why {
-                fs::copy(cases.join(file), varies.join(file))
-                    .map_err(|e| format!("{}: {e}", varies.join(file).display()))?;
+                let case = case_root(file);
+                copy_case(&cases.join(case), &varies.join(case))?;
                 changed.push(format!("{file}: {why}"));
             }
         }
@@ -202,6 +217,41 @@ pub fn run_fuzz(root: &Path, options: &Options) -> Result<bool, String> {
     write(&out.join("summary.txt"), &summary)?;
     print!("{summary}");
     Ok(failed == 0 && counts.ok() && reran.is_none_or(|r| r.changed.is_empty()))
+}
+
+/// The file a case is run from: its one file, or the `main.flx` of its
+/// folder.
+fn entry(files: &[(String, String)]) -> String {
+    match files {
+        [(only, _)] => only.clone(),
+        _ => files
+            .iter()
+            .map(|(path, _)| path)
+            .find(|path| path.ends_with("/main.flx"))
+            .cloned()
+            .unwrap_or_else(|| files[0].0.clone()),
+    }
+}
+
+/// What a case's entry belongs to within `cases/`: the file itself, or the
+/// folder holding it with its module, which moves and is copied as a whole.
+fn case_root(entry: &str) -> &str {
+    entry.split('/').next().unwrap_or(entry)
+}
+
+/// Copies a case, a file or a folder, to `to`.
+fn copy_case(from: &Path, to: &Path) -> Result<(), String> {
+    if from.is_dir() {
+        fs::create_dir_all(to).map_err(|e| format!("{}: {e}", to.display()))?;
+        let read = fs::read_dir(from).map_err(|e| format!("{}: {e}", from.display()))?;
+        for item in read {
+            let item = item.map_err(|e| e.to_string())?;
+            copy_case(&item.path(), &to.join(item.file_name()))?;
+        }
+        Ok(())
+    } else {
+        fs::copy(from, to).map(|_| ()).map_err(|e| format!("{}: {e}", from.display()))
+    }
 }
 
 /// What `--reruns` found: how many cases it reran, and each one whose output
@@ -337,6 +387,34 @@ fn summary(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A case is its file, or the folder holding its `main.flx` and module;
+    /// a folder is moved and copied whole.
+    #[test]
+    fn a_case_is_its_file_or_its_folder() {
+        let one = vec![("case_3.flx".to_string(), String::new())];
+        assert_eq!(entry(&one), "case_3.flx");
+        let two = vec![
+            ("case_4/M5.flx".to_string(), String::new()),
+            ("case_4/main.flx".to_string(), String::new()),
+        ];
+        assert_eq!(entry(&two), "case_4/main.flx");
+        assert_eq!(case_root("case_3.flx"), "case_3.flx");
+        assert_eq!(case_root("case_4/main.flx"), "case_4");
+
+        let dir = std::env::temp_dir().join(format!("xtask_copy_case_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let from = dir.join("cases/case_4");
+        fs::create_dir_all(&from).unwrap();
+        fs::write(from.join("main.flx"), "fn main() with IO {}\n").unwrap();
+        fs::write(from.join("M5.flx"), "module M5 {}\n").unwrap();
+        let to: std::path::PathBuf = dir.join("mismatch/case_4");
+        fs::create_dir_all(dir.join("mismatch")).unwrap();
+        copy_case(&from, &to).unwrap();
+        assert_eq!(fs::read_to_string(to.join("M5.flx")).unwrap(), "module M5 {}\n");
+        assert!(to.join("main.flx").exists());
+        fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn reads_the_file_from_a_failing_verdict() {

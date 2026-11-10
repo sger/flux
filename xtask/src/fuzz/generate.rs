@@ -237,6 +237,12 @@ pub fn program(seed: u64, case: usize) -> String {
     program_with(seed, case, &Parts::NONE)
 }
 
+/// The files of `case` of `seed` with `parts` on, by path within the case:
+/// one, its program, until a part writes a module beside it.
+pub fn case_files(seed: u64, case: usize, parts: &Parts) -> Vec<(String, String)> {
+    vec![(format!("case_{case}.flx"), program_with(seed, case, parts))]
+}
+
 /// The program for `case` of `seed` with `parts` on.
 pub fn program_with(seed: u64, case: usize, parts: &Parts) -> String {
     let mut rng = Rng::new(seed ^ fnv64(format!("fuzz:{case}").as_bytes()));
