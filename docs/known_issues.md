@@ -1352,7 +1352,7 @@ arguments); plain `llvm` exits 0.
 
 ### KI-108 — Native async, channel and HTTP programs crash with a signal
 
-**Severity:** High · **Area:** Native backend, async runtime · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#106](https://forgejo.spirosgerokostas.com/sger/flux/issues/106)
+**Severity:** High · **Area:** Native backend, async runtime · **Verified:** 2026-11-10 (682a2c6b), channel rows only · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#106](https://forgejo.spirosgerokostas.com/sger/flux/issues/106)
 
 Each runs to completion on `vm` and `vm_opt`; natively it is killed:
 
@@ -1376,6 +1376,15 @@ native program terminated by signal 11 (SIGSEGV): invalid memory access
 The table is from the census, which runs four files at a time;
 `async_channels.flx` fails the same way run alone, and the others are not yet
 rechecked alone. Some may share a cause with [KI-009](#ki-009).
+
+**Rechecked 2026-11-10 (682a2c6b):** the five files that aren't HTTP
+examples (`async_channels.flx`, `async_channel.flx`,
+`reverse_async_replayed.flx`, `reverse_channel.flx`, `async_events.flx`) now
+print what the VM prints on `llvm` and `llvm_opt`, and `async_channels.flx`
+and `async_channel.flx` do so on 10 of 10 runs each. Which commit changed it
+isn't known; [KI-122](#ki-122)'s fix (403a62a7) is the likely one. The HTTP
+examples, which need a server, are not rechecked, so this stays open for them.
+0190 S17d's generated programs send values between fibers over channels.
 
 ### KI-109 — Natively, indexing fails with "index operator not supported: Object" in AoC 2025 day 8
 
