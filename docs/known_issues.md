@@ -236,6 +236,25 @@ literal there (`if Map.has({1: "a"}, 1) {`) parses.
 The fuzz generator builds no record while it writes a condition or a
 scrutinee: a record there comes from a variable.
 
+### KI-182 — Natively, a printed closure shows as `<unknown obj=0xf5>`
+
+**Severity:** Low · **Area:** C runtime, printing · **Verified:** 2026-11-10 (f087a142) · **From:** 0190 S17b (`cargo xtask fuzz reduce` drifted onto it)
+
+```flux
+fn main() with IO {
+    print([\(x: String, y: String) -> true | []]);
+}
+```
+
+The VM prints `[<closure>]` (`src/runtime/value.rs`). Natively the program
+prints `[<unknown obj=0xf5>]`: `flux_print_value` (`runtime/c/flux_rt.c`) has
+no case for `FLUX_OBJ_CLOSURE` (`0xF5`), so a closure falls through to the
+last branch. Printing a closure on its own, or in a record, does the same.
+
+The fuzz generator never prints a value that holds a function. `reduce` did:
+it replaced `map(v50, \g -> g("", ""))` with `v50`, and the two ways still
+differed on stdout, so a reduction of S17b's exit plant drifted onto this.
+
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
