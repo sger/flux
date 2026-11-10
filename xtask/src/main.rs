@@ -54,11 +54,12 @@
 //!     outputs then in
 //!     .verify/fuzz_<seed>_<parts>/. --reruns runs each case the ways agree
 //!     on n more times on each way and reports one whose output changes
-//! cargo xtask fuzz reduce <case.flx> [--ways <w,…>] [--jobs <n>]
+//! cargo xtask fuzz reduce <case.flx | case folder> [--ways <w,…>] [--jobs <n>]
 //!                         [--timeout <seconds>]
 //!     shrink a case to a small program the cheapest pair of ways that
 //!     disagreed on it still disagrees on the same way, or the compiler
-//!     still fails on the same way; writes <case>.min.flx beside it
+//!     still fails on the same way; writes <case>.min.flx beside it, or
+//!     the folder <case>.min/ when its module is still needed
 //! cargo xtask bisect-opt <fixture> [--way vm_opt|llvm_opt] [--timeout <seconds>]
 //!                        [--flux <path>]
 //!     find the optimizing rewrite that makes the opt way differ from the
@@ -115,7 +116,7 @@ const USAGE: &str = "usage:
   cargo xtask census [--tag <tag>] [--base <tag>] [--jobs <n>] [--ways <w,...>] [--allow network] [<dir>...]
   cargo xtask rewrite [--kind reorder|rename|let-wrap|all] [--seed <n>] [--ways <w,...>] [--jobs <n>] [<dir|file>...]
   cargo xtask fuzz [--seed <n>] [--count <n>] [--ways <w,...>] [--jobs <n>] [--gen-only] [--with classes,values,effects,async,modules] [--reruns <n>]
-  cargo xtask fuzz reduce <case.flx> [--ways <w,...>] [--jobs <n>] [--timeout <seconds>]
+  cargo xtask fuzz reduce <case.flx | case folder> [--ways <w,...>] [--jobs <n>] [--timeout <seconds>]
   cargo xtask bisect-opt <fixture> [--way vm_opt|llvm_opt] [--timeout <seconds>] [--flux <path>]
   cargo xtask sanitize [--thread] [--ways <w,...>] [<dir>...]
   cargo xtask scale [--flux <path>] [<test>...]

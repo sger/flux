@@ -45,8 +45,7 @@ pub struct ReduceOptions {
 
 pub fn run_reduce(root: &Path, options: &ReduceOptions) -> Result<bool, String> {
     let case = root.join(&options.case);
-    let text = fs::read_to_string(&case).map_err(|e| format!("{}: {e}", case.display()))?;
-    let stem = case.file_stem().and_then(|s| s.to_str()).ok_or("the case has no file name")?;
+    let (stem, beside, files) = read_case(&case)?;
     let out = store::store_root(root).join(format!("reduce_{stem}"));
     if out.exists() {
         fs::remove_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
@@ -61,9 +60,9 @@ pub fn run_reduce(root: &Path, options: &ReduceOptions) -> Result<bool, String> 
     }
     let flux = flux_binary(root);
     let ways = options.ways.split(',').map(Way::parse).collect::<Result<Vec<_>, _>>()?;
-    let original = out.join("original.flx");
-    fs::write(&original, &text).map_err(|e| e.to_string())?;
-    let file = original.to_string_lossy().into_owned();
+    let original = out.join("original");
+    write_case(&original, &files)?;
+    let file = original.join("main.flx").to_string_lossy().into_owned();
     let runs =
         parallel(&ways, options.jobs, |way| way.run(root, &flux, &file, options.timeout, None));
 
@@ -89,39 +88,37 @@ pub fn run_reduce(root: &Path, options: &ReduceOptions) -> Result<bool, String> 
         None => return Err(format!("{}: every way agrees and it compiles", options.case)),
     };
 
-    let test = |text: &str, slot: usize| {
-        let candidate = out.join(format!("candidate_{slot}.flx"));
-        if fs::write(&candidate, text).is_err() {
+    // Each candidate is a folder, so a module beside its `main.flx` resolves.
+    let test = |files: &Files, slot: usize| {
+        let candidate = out.join(format!("candidate_{slot}"));
+        if write_case(&candidate, files).is_err() {
             return false;
         }
         let cache = out.join(format!("cache_{slot}"));
-        let file = candidate.to_string_lossy();
+        let file = candidate.join("main.flx").to_string_lossy().into_owned();
         shows(target.native(), |cached| {
             target.holds(root, &flux, &file, options.timeout, cached.then_some(cache.as_path()))
         })
     };
-    let mut tester = Tester::new(&test, options.jobs);
-    let lines: Vec<String> = text.lines().map(str::to_string).collect();
-    let before = lines.len();
+    let before: usize = files.iter().map(|(_, l)| l.len()).sum();
     let mut last = Instant::now();
-    let reduced = reduce(lines, &mut tester, &mut |step, n, runs| {
+    let (reduced, runs) = reduce_case(files, &test, options.jobs, &mut |step, n, runs| {
         println!("  {step}: {n} lines ({} runs, {})", runs, format_duration(last.elapsed()));
         last = Instant::now();
     });
     // Each kept candidate showed the bug without a cache too; this checks
     // the result as written.
-    let min_text = join(&reduced);
-    let check = out.join("check.flx");
-    fs::write(&check, &min_text).map_err(|e| e.to_string())?;
-    let confirmed = target.holds(root, &flux, &check.to_string_lossy(), options.timeout, None);
+    let check = out.join("check");
+    write_case(&check, &reduced)?;
+    let file = check.join("main.flx").to_string_lossy().into_owned();
+    let confirmed = target.holds(root, &flux, &file, options.timeout, None);
 
-    let min = case.with_file_name(format!("{stem}.min.flx"));
-    fs::write(&min, &min_text).map_err(|e| format!("{}: {e}", min.display()))?;
+    let min = write_min(&beside, &stem, &reduced)?;
     println!(
         "{} -> {} lines in {} runs ({}): {}",
         before,
-        reduced.len(),
-        tester.runs,
+        reduced.iter().map(|(_, l)| l.len()).sum::<usize>(),
+        runs,
         format_duration(started.elapsed()),
         store::display(&min)
     );
@@ -368,6 +365,196 @@ type Pass = fn(&[String]) -> Vec<Vec<String>>;
 /// A round's steps, in order. Line ddmin goes before the expressions pass,
 /// which offers several replacements for every bracket group and so costs
 /// the most runs per line: it should see the smallest program.
+/// A case's files, by name within its folder, `main.flx` first.
+pub(crate) type Files = Vec<(String, Vec<String>)>;
+
+/// The case at `path`, a file, or a folder holding `main.flx` and its
+/// module (named by the folder or its `main.flx`): its name, the folder it
+/// sits in, and its files. A one-file case's one file is `main.flx`.
+fn read_case(path: &Path) -> Result<(String, std::path::PathBuf, Files), String> {
+    let read = |file: &Path| {
+        fs::read_to_string(file)
+            .map(|text| text.lines().map(str::to_string).collect::<Vec<_>>())
+            .map_err(|e| format!("{}: {e}", file.display()))
+    };
+    let folder = if path.is_dir() {
+        Some(path.to_path_buf())
+    } else if path.file_name().is_some_and(|n| n == "main.flx") {
+        path.parent().filter(|dir| flx_files(dir).len() > 1).map(Path::to_path_buf)
+    } else {
+        None
+    };
+    let named = |p: &Path, what: &str| {
+        p.file_stem()
+            .and_then(|s| s.to_str())
+            .map(str::to_string)
+            .ok_or_else(|| format!("{}: {what} has no name", p.display()))
+    };
+    let parent = |p: &Path| p.parent().map(Path::to_path_buf).unwrap_or_default();
+    match folder {
+        Some(dir) => {
+            let mut names = flx_files(&dir);
+            names.sort_by_key(|n| (n != "main.flx", n.clone()));
+            if names.first().is_none_or(|n| n != "main.flx") {
+                return Err(format!("{}: no main.flx", dir.display()));
+            }
+            let files = names
+                .into_iter()
+                .map(|n| Ok((n.clone(), read(&dir.join(&n))?)))
+                .collect::<Result<_, String>>()?;
+            Ok((named(&dir, "the folder")?, parent(&dir), files))
+        }
+        None => {
+            Ok((named(path, "the case")?, parent(path), vec![("main.flx".into(), read(path)?)]))
+        }
+    }
+}
+
+/// The `.flx` files directly in `dir`, by name.
+fn flx_files(dir: &Path) -> Vec<String> {
+    fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .filter_map(|e| e.ok())
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|n| n.ends_with(".flx"))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Writes `files` into `dir`, emptied first.
+fn write_case(dir: &Path, files: &Files) -> Result<(), String> {
+    let _ = fs::remove_dir_all(dir);
+    fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    for (name, lines) in files {
+        let path = dir.join(name);
+        fs::write(&path, join(lines)).map_err(|e| format!("{}: {e}", path.display()))?;
+    }
+    Ok(())
+}
+
+/// The reduced case beside the original: `<stem>.min.flx` when it's one
+/// file, or the folder `<stem>.min/`.
+fn write_min(beside: &Path, stem: &str, files: &Files) -> Result<std::path::PathBuf, String> {
+    let (file, folder) =
+        (beside.join(format!("{stem}.min.flx")), beside.join(format!("{stem}.min")));
+    let _ = fs::remove_file(&file);
+    let _ = fs::remove_dir_all(&folder);
+    if let [(_, lines)] = &files[..] {
+        fs::write(&file, join(lines)).map_err(|e| format!("{}: {e}", file.display()))?;
+        Ok(file)
+    } else {
+        write_case(&folder, files)?;
+        Ok(folder)
+    }
+}
+
+/// `files` reduced: each file with the others held fixed, until a round
+/// changes none of them, a module first put into `main` when the bug
+/// survives that. `test` gets the files and a slot; `log` hears each step,
+/// with the lines of all the files and the runs so far.
+pub(crate) fn reduce_case(
+    mut files: Files,
+    test: &(dyn Fn(&Files, usize) -> bool + Sync),
+    jobs: usize,
+    log: &mut dyn FnMut(&str, usize, usize),
+) -> (Files, usize) {
+    let total = |files: &Files| files.iter().map(|(_, l)| l.len()).sum::<usize>();
+    let mut runs = 0;
+    loop {
+        let round = files.clone();
+        if let Some(one) = inline_module(&files) {
+            runs += 1;
+            if test(&one, 0) {
+                files = one;
+                log("inline module", total(&files), runs);
+            }
+        }
+        for k in 0..files.len() {
+            let fixed = files.clone();
+            let others = total(&files) - files[k].1.len();
+            let test_k = |text: &str, slot: usize| {
+                let mut candidate = fixed.clone();
+                candidate[k].1 = text.lines().map(str::to_string).collect();
+                test(&candidate, slot)
+            };
+            let mut tester = Tester::new(&test_k, jobs);
+            let before = runs;
+            let reduced = reduce(files[k].1.clone(), &mut tester, &mut |step, n, r| {
+                log(step, n + others, before + r)
+            });
+            runs += tester.runs;
+            files[k].1 = reduced;
+        }
+        if files == round {
+            return (files, runs);
+        }
+    }
+}
+
+/// A two-file case as one: `main.flx` with the module's items put before
+/// its own, no longer `public`, the module's imports it lacks above them,
+/// its own imports of the module gone and the module's functions called by
+/// their bare names, not through the alias. `None` for a case of one file.
+pub(crate) fn inline_module(files: &[(String, Vec<String>)]) -> Option<Files> {
+    let [(_, module), (main_name, main)] = files else { return None };
+    let open = module.iter().position(|l| l.starts_with("module ") && l.ends_with('{'))?;
+    let name = module[open].strip_prefix("module ")?.trim_end_matches('{').trim().to_string();
+    let close = module.iter().rposition(|l| l == "}")?;
+    let imports_module = |line: &str| {
+        line == format!("import {name}") || line.starts_with(&format!("import {name} "))
+    };
+    let aliases: Vec<String> = main
+        .iter()
+        .filter(|l| imports_module(l))
+        .filter_map(|l| l.split(" as ").nth(1))
+        .map(|alias| alias.split_whitespace().next().unwrap_or(alias).to_string())
+        .collect();
+    let kept: Vec<String> = main.iter().filter(|l| !imports_module(l)).cloned().collect();
+    let mut inserted: Vec<String> = module[..open]
+        .iter()
+        .filter(|l| l.starts_with("import ") && !kept.contains(l))
+        .cloned()
+        .collect();
+    inserted.extend(module[open + 1..close].iter().map(|line| {
+        let line = line.strip_prefix("    ").unwrap_or(line);
+        line.strip_prefix("public ").unwrap_or(line).to_string()
+    }));
+    let is_item = |l: &String| {
+        ["fn ", "data ", "class ", "instance ", "effect ", "alias "]
+            .iter()
+            .any(|k| l.starts_with(k))
+    };
+    let at = kept.iter().position(is_item).unwrap_or(kept.len());
+    let mut joined: Vec<String> = kept[..at].to_vec();
+    joined.extend(inserted);
+    joined.extend(kept[at..].iter().cloned());
+    let joined = joined.into_iter().map(|line| unqualified(&line, &aliases)).collect();
+    Some(vec![(main_name.clone(), joined)])
+}
+
+/// `line` with each `<alias>.` that starts a name removed.
+fn unqualified(line: &str, aliases: &[String]) -> String {
+    let mut out = line.to_string();
+    for alias in aliases {
+        let dotted = format!("{alias}.");
+        let mut result = String::new();
+        let mut rest = out.as_str();
+        while let Some(at) = rest.find(&dotted) {
+            result.push_str(&rest[..at]);
+            // Part of a longer name, like `XA5.`: kept.
+            if result.chars().last().is_some_and(is_ident) {
+                result.push_str(&dotted);
+            }
+            rest = &rest[at + dotted.len()..];
+        }
+        result.push_str(rest);
+        out = result;
+    }
+    out
+}
+
 const STEPS: &[(&str, Option<Pass>)] = &[
     ("items", Some(delete_items)),
     ("methods", Some(delete_methods)),
@@ -1521,6 +1708,75 @@ fn main() with IO {
 
         let as_value = "fn g(n: Int) -> Int {\n    0\n}\nfn main() with IO {\n    print(g(1));\n    print(map([1], g));\n}";
         assert!(delete_params(&lines(as_value)).is_empty(), "`g` is passed as a value");
+    }
+
+    /// The module put into `main`: its imports `main` lacks, then its items,
+    /// no longer `public`, before `main`'s own; `main`'s imports of it gone,
+    /// and its calls through the alias by their bare names.
+    #[test]
+    fn a_module_inlined_into_main_is_one_file() {
+        let files = vec![
+            (
+                "M1.flx".to_string(),
+                lines(
+                    "// Generated.\n\nimport Flow.Array as Array\n\nmodule M1 {\n    public data D2 { C3 }\n\n    public fn f4(a: Int, b: Int) -> Int {\n        (a - b)\n    }\n}",
+                ),
+            ),
+            (
+                "main.flx".to_string(),
+                lines(
+                    "// expect: any\n\nimport M1 as A5\nimport M1 exposing (D2, C3)\n\nfn f6() -> Int {\n    A5.f4(1, 2)\n}\n\nfn main() with IO {\n    print(A5.f4(3, 1));\n    print(C3);\n}",
+                ),
+            ),
+        ];
+        let one = inline_module(&files).expect("a module to inline");
+        assert_eq!(one.len(), 1);
+        assert_eq!(one[0].0, "main.flx");
+        let text = join(&one[0].1);
+        for gone in ["module", "public ", "import M1", "A5."] {
+            assert!(!text.contains(gone), "{gone} in\n{text}");
+        }
+        assert!(text.contains("fn f4(a: Int, b: Int) -> Int {\n    (a - b)\n}"), "{text}");
+        assert!(text.contains("    f4(1, 2)\n") && text.contains("print(f4(3, 1));"), "{text}");
+        let at = |needle: &str| text.find(needle).unwrap_or_else(|| panic!("{needle}\n{text}"));
+        assert!(at("// expect: any") < at("import Flow.Array as Array"));
+        assert!(at("import Flow.Array as Array") < at("data D2 { C3 }"));
+        assert!(at("data D2 { C3 }") < at("fn f6()"));
+        assert!(inline_module(&files[1..]).is_none(), "one file has no module to inline");
+    }
+
+    /// A two-file case: each file is reduced with the other held fixed, and
+    /// a module the bug doesn't need is inlined, leaving one file.
+    #[test]
+    fn a_two_file_case_reduces_both_files_and_inlines_a_module_it_doesnt_need() {
+        let module = "module M1 {\n    public fn f2(n: Int) -> Int {\n        (n + 1)\n    }\n\n    public fn f3(a: Int, b: Int) -> Int {\n        (a - b)\n    }\n}";
+        let main = "import M1 as A4\n\nfn main() with IO {\n    let v5: Int = A4.f2(1);\n    print(v5);\n    print(A4.f3(9, 2));\n}";
+        let files: Files =
+            vec![("M1.flx".to_string(), lines(module)), ("main.flx".to_string(), lines(main))];
+        let braced = |files: &Files| {
+            files.iter().all(|(_, l)| {
+                let text = join(l);
+                text.matches('{').count() == text.matches('}').count()
+            })
+        };
+        let whole = |files: &Files| files.iter().map(|(_, l)| join(l)).collect::<String>();
+
+        let needs_module = |files: &Files, _: usize| {
+            let text = whole(files);
+            files.len() == 2
+                && braced(files)
+                && text.contains("fn f3(a: Int, b: Int) -> Int {")
+                && text.contains("(a - b)")
+                && text.contains("A4.f3(")
+        };
+        let (reduced, _) = reduce_case(files.clone(), &needs_module, 2, &mut |_, _, _| {});
+        assert_eq!(reduced.len(), 2);
+        assert!(!join(&reduced[0].1).contains("f2"), "{}", join(&reduced[0].1));
+        assert!(!join(&reduced[1].1).contains("f2"), "{}", join(&reduced[1].1));
+
+        let anywhere = |files: &Files, _: usize| braced(files) && whole(files).contains("(a - b)");
+        let (reduced, _) = reduce_case(files, &anywhere, 2, &mut |_, _, _| {});
+        assert_eq!(reduced.len(), 1, "{reduced:?}");
     }
 
     /// A native run of a candidate on the slot's cache can show a
