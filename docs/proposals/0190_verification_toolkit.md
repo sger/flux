@@ -454,6 +454,50 @@ in one part doesn't flood the others:
   access and update; lambdas bound, returned from helpers, stored in lists and
   data and called later; Arrays, Maps with `Int` or `String` keys (KI-157),
   `Either`. Still no Floats (KI-161 and the printed form).
+
+  As built (`cargo xtask fuzz --with values`, cases in
+  `.verify/fuzz_<seed>_values/`; `--with classes,values` combines both parts):
+  - **Records:** one or two single-constructor named-field types `Rec<n>` of
+    two or three fields (scalars, `Option<Int>`, at most one function). Built
+    with the fields in any order, read with `v.f`, updated with
+    `({ ...v, f: e })`, and matched with `Rec { f: p, ... }`.
+  - **Closures:** function types of one or two scalars. A function value is an
+    annotated lambda that may read anything in scope, a record's field, or a
+    non-generic helper's name. Helpers take and return them, sometimes a
+    helper's whole body is a lambda over its parameters, and lists and record
+    fields hold them. A function variable is called with exactly its arity
+    (KI-107).
+  - **Arrays and Maps:** through `import Flow.Array as Array` and
+    `import Flow.Map as Map` (KI-146): literals, `push`, `map`, `filter`,
+    `reverse`, `from_list`, `fold`, `length`, `get` and indexing (as
+    `Option`s, never `array_get`: KI-147); Map keys `Int` or `String` only
+    (KI-157), `set`, `delete`, `merge`, `size`, `has`, `get` and indexing.
+  - **Either:** `Left`/`Right`, a two-arm match, and `either` with two lambdas.
+  - **Printing:** a value holding a function is never printed whole (a
+    closure's printed form is the backend's own); `main` prints what it gives:
+    the call for a function, `map` over a list of them, the other fields of a
+    record. Never a Map's `keys` or `values`, whose order is the hash's.
+
+  **What S17b found** before any program was generated, probing each form the
+  generator would write on one program:
+  - **KI-180:** a named-field constructor whose name has no lowercase letter
+    (`R5`, `RGB`) can be declared but not built; the parser reads it as a
+    constant. The generator names records `Rec<n>`.
+  - **KI-181:** a record built anywhere inside an `if` condition or a `match`
+    scrutinee doesn't parse, even inside parentheses or a call's arguments. The
+    generator builds none there; a record in a condition comes from a
+    variable.
+
+  Then 200 programs of seed 1 (and 50 with `classes,values`) compile with no
+  rejection, and the first 10 agree on `vm` and `llvm`. A record prints
+  positionally (`Rec5(1, Some(2))`), as named fields are erased.
+
+  **The exit plant:** native lowering swaps the first two captures when a
+  lambda's closure is built (`src/lir/lower.rs`, the `AetherExpr::Lam` arm's
+  `MakeClosure`), outside `Flow` so the prelude's own closures stay right. A
+  lambda the simplifier inlines has no closure, so the plant shows through a
+  closure that outlives its scope: one a helper returns (`121` natively against
+  `112`), or one stored in a list.
 - **S17c, effects and handlers.** One or two user effects; helpers that declare
   and perform them; `handle` with clauses that resume once or don't resume, in
   helpers and in `main`. Around: KI-029 (no `perform` inside a lambda), KI-102
