@@ -156,6 +156,13 @@ impl Parser {
                 break;
             }
 
+            // Proposal 0201: without this, a block whose last line is
+            // `(x + y)` would call the line above, so statements would need
+            // `;` before such a line. Operators may still lead a line.
+            if self.peek_is_postfix_on_new_line() {
+                break;
+            }
+
             self.next_token();
             left = self.parse_infix(left)?;
         }
