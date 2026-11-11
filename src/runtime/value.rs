@@ -922,9 +922,10 @@ pub struct ArcHandlerFrame {
 /// `Continuation`, `HandlerDescriptor`, and `PerformDescriptor` are promoted
 /// by wrapping the cloned data in an `Arc`.
 ///
-/// Returns `Err` for internal VM sentinel values (`ReturnValue`,
-/// `HandlerDescriptor`, `PerformDescriptor`) that should never cross worker
-/// boundaries — callers must not promote fibers holding these.
+/// Returns `Err` only for `ReturnValue`, an internal VM sentinel that should
+/// never cross a worker boundary. Whether a descriptor may cross is the
+/// caller's decision: a task's constants need theirs (@KI-188), but a value
+/// sent to a task may not carry one.
 pub fn promote_value(value: &Value) -> Result<ArcValue, String> {
     Ok(match value {
         Value::Uninit => ArcValue::Uninit,

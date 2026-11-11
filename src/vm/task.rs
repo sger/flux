@@ -609,6 +609,12 @@ fn arc_value_is_none_or_uninit(value: &ArcValue) -> bool {
 }
 
 fn promote_task_constant(value: &Value) -> Result<ArcValue, String> {
+    // @KI-188: the task runs the program's own code, which installs its
+    // handlers and performs from these constants. The check below is for
+    // values sent to a task, which may not carry descriptors.
+    if let Value::HandlerDescriptor(_) | Value::PerformDescriptor(_) = value {
+        return promote_value(value);
+    }
     match validate_task_value(value).and_then(|_| promote_value(value)) {
         Ok(value) => Ok(value),
         Err(_) => Ok(ArcValue::None),
@@ -983,9 +989,6 @@ mod tests {
     use super::*;
     use crate::bytecode::bytecode::Bytecode;
     use crate::bytecode::op_code::OpCode;
-    use crate::runtime::handler_descriptor::HandlerDescriptor;
-    use crate::runtime::perform_descriptor::PerformDescriptor;
-    use crate::syntax::Identifier;
     use std::sync::{Arc, Barrier};
     use std::time::Duration;
 
