@@ -23,9 +23,35 @@ unanswered for another year.
 ## Conventions
 
 Each entry gets a stable `#KI-nnn` anchor so code comments and commit messages
-can point at it (`// see docs/known_issues.md#ki-003`). Numbers are never
-reused; resolved entries move to the bottom rather than being deleted, so a
-stale reference still resolves to an explanation.
+can point at it. Numbers are never reused; resolved entries move to the bottom
+rather than being deleted, so a stale reference still resolves to an
+explanation.
+
+### Marking the code
+
+Code that a known issue shaped carries the tag `@KI-nnn` in a comment, so
+`git grep -n "@KI-187"` lists every place the issue touches:
+
+```rust
+// @KI-187: a user module gets the prelude imports the entry file gets.
+```
+
+- **A fix** marks the code it changes or adds, at each site. A fix spread over
+  several files gets a tag in each.
+- **A workaround or an avoidance** for an open issue marks the code that steers
+  around it: a guard, a skip, a generator choice in `xtask/src/fuzz/`. When the
+  issue is fixed, the workaround and its tag go together.
+- A fix's tag stays after the issue is resolved, as long as the code it marks
+  is there, because it explains why that code has its shape.
+- The comment gives the reason in a line. The full story stays in this file.
+- The number must be an entry in this file. File the entry first, then tag
+  the code.
+- Tests aren't tagged. Their names end in `_kinnn`, and parity fixtures carry
+  the number in their header ([tests/README.md](../tests/README.md)).
+- The older form, a bare `(KI-034)` in prose, still points at its entry.
+  Change it to `@KI-034` when you work on that code.
+- A Fixed paragraph names the files it changed. Their tags lead to the exact
+  lines.
 
 Every entry states **how it was verified and when** — an unverified issue report
 ages into misinformation. Re-verify before acting on one.
