@@ -1,0 +1,13 @@
+// expect: compile_error
+// Expected: E300 Return Type Mismatch
+//   Proposal 0201's rule is about lines. On one line `5 (a, a)` is still a
+//   call of `5`, so the block ends with a `let`. Separate the two with `;`:
+//   `let a = 5; (a, a)`.
+
+fn f() -> (Int, Int) { //~ E300
+    let a = 5 (a, a) //~ E300
+}
+
+fn main() with IO {
+    print(f())
+}
