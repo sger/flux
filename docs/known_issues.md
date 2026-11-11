@@ -390,6 +390,108 @@ later, as a use.
 
 The verifier refuses the plan, so nothing runs wrong.
 
+### KI-190 — On the VM, a function declared to return a function stops with E1004 when its body is an unannotated lambda
+
+**Severity:** Medium (loud failure; annotating the lambda's parameter works around it) · **Area:** VM, runtime boundary checks · **Verified:** 2026-11-11 (30680987) · **From:** 0201 (writing its parity fixture)
+
+```flux
+fn curried(a: Int) -> (Int) -> Int { \b -> a + b }
+
+fn main() with IO {
+    let g = curried(1)
+    print(g(2))
+}
+```
+
+On the VM, with and without `--optimize`, this stops at run time with
+`error[E1004]: Type Error`, "this value has runtime type `Closure`", expected
+`(Int) -> Int`, pointing at `curried`'s signature. `--strict` doesn't reject it
+at compile time. Natively it prints `3`.
+
+It prints `3` on the VM too when any one thing changes:
+- the lambda's parameter is annotated: `\(b: Int) -> a + b`;
+- the return type is left out: `fn curried(a: Int) { \b -> a + b }`;
+- the lambda is bound first: `let f = \b -> a + b` and then `f`.
+
+`RuntimeType::matches_value` (`src/runtime/runtime_type.rs`) refuses a
+closure that has no `FunctionContract` when the expected function type has
+parameters, and a unit test pins that
+(`function_runtime_type_rejects_closure_missing_contract`). So the likely gap
+is that a lambda with unannotated parameters is compiled without a contract,
+although inference knows its type, and the return check then sees no contract.
+Not confirmed in the code.
+
+Calling the result straight away, `curried(1)(2)`, is KI-183 natively.
+
+### KI-191 — `flux fmt` indents the lines of a `"""` string, which changes the string
+
+**Severity:** High (formatting changes what a program prints, with no warning) · **Area:** Formatter (`src/syntax/formatter.rs`), LSP formatting · **Verified:** 2026-11-11 (30680987) · **From:** 0201 (formatting `examples/guide/newline_calls.flx`)
+
+```flux
+fn main() with IO {
+    let s = """
+ab
+"""
+    print(len(s))
+}
+```
+
+This prints `3`. After `flux fmt` the file reads
+
+```flux
+fn main() with IO {
+    let s = """
+    ab
+    """
+    print(len(s))
+}
+```
+
+and prints `11`: the string is now `"    ab\n    "`. A `"""` string has no
+indentation stripping, so every space the formatter adds becomes part of the
+value.
+
+`format_source` works line by line and re-indents each line by brace depth. It
+tracks block comments so it leaves their lines alone, but it doesn't track
+`"""` strings, so it indents their content and closing line like code. The
+editor's format command (`crates/flux-lsp/src/handlers/formatting.rs`) calls
+the same function, so formatting in VS Code changes the string too.
+
+### KI-192 — `flux fmt` indents every line one level too deep after a line that closes more brackets than it opens
+
+**Severity:** Low (output unchanged; the file's layout is wrong until its end) · **Area:** Formatter (`src/syntax/formatter.rs`) · **Verified:** 2026-11-11 (30680987) · **From:** 0201 (formatting `examples/guide/newline_calls.flx`)
+
+```flux
+fn f(x: Int) -> Int { x }
+fn main() with IO {
+    print(f(1)
+        + 2)
+    print(3)
+}
+```
+
+`flux fmt` leaves `print(3)` and the closing `}` one level too deep:
+
+```flux
+    print(f(1)
+        + 2)
+        print(3)
+    }
+```
+
+The program still prints `3` and `3`, and every later line in the file stays
+one level too deep.
+
+`brace_delta` counts the `{`, `(` and `[` a line opens minus the ones it closes
+(not counting closers at the start of the line), and returns
+`delta.max(0) as usize`. A line whose net is negative, like `+ 2)` here or
+`handle B { … })`, counts as 0 instead of -1, so the level opened on the
+`print(f(1)` line is never closed. Closers at the start of a line are handled,
+which is why `)` on a line of its own works.
+
+The formatter also puts lines that start with `|>`, `+` or `&&` at the
+block's indentation. That is a style choice, not this bug.
+
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
