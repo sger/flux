@@ -437,58 +437,6 @@ fn main() with IO {
 `Right(s)`, a user constructor `C(s, None)`, and a list `["", s, s]` passed
 through `map` do the same.
 
-### KI-188 — On the VM, a handler that runs inside a `Task.spawn` task stops with `expected HandlerDescriptor constant`
-
-**Severity:** Medium (valid programs stop with an error) · **Area:** VM tasks, effect handlers · **Verified:** 2026-11-11 (30680987) · **From:** the first full-generator hunt (`cargo xtask fuzz --seed 2 --count 200 --with classes,values,effects,async,modules`, 11 programs of 195: cases 7, 38, 39, 63, 76, 81, 108, 114, 138, 158 and 173)
-
-```flux
-import Flow.Async as Async
-import Flow.Task as Task
-
-effect Eff { op : (Int) -> Int }
-
-fn f() -> Int with Eff {
-    perform Eff.op(1)
-}
-
-fn g(a: Int) -> Int {
-    f() handle Eff { op(resume, p) -> resume(p + a) }
-}
-
-fn work() -> Int { g(10) }
-
-fn body() -> Int with Async {
-    let t: Task<Int> = Task.spawn(work);
-    Task.await(t)
-}
-
-fn main() with IO {
-    print(Async.run_async(body));
-}
-```
-
-Natively it prints `11`. On the VM, with or without `-O`, it stops before
-printing anything:
-
-```
-error[E1004]: AsyncError: Adt(AdtValue { constructor: "Panicked", fields: One(String("OpHandleDirect: expected HandlerDescriptor constant, got None")) })
-```
-
-A closure (`Task.spawn(fn() { g(10) })`) does the same. The same call works
-on the VM directly in `body`, or in a function run by `Async.both`, which
-keeps its fibers on one worker.
-
-The cause is in how a task gets the program's constants. The VM copies them
-for the task's thread through `promote_task_constant` (`src/vm/task.rs`),
-which runs `validate_task_value` first. That check is for the values a task
-is *sent*, and it refuses `HandlerDescriptor` and `PerformDescriptor`.
-`promote_task_constant` turns any refused constant into `None`, so the handle
-instruction in the task's code finds `None` where its descriptor was.
-`promote_value` itself can copy both descriptors (`ArcValue::HandlerDescriptor`,
-`ArcValue::PerformDescriptor`), and `worker_shared_state` uses it for
-constants. It has been like this since the VM first ran tasks on worker
-threads (c4a0a3c0, 2026-05-09).
-
 ### KI-189 — On the VM, a record update on a record type from another module gives back the record unchanged
 
 **Severity:** High (silent wrong output) · **Area:** VM, records, modules · **Verified:** 2026-11-11 (30680987) · **From:** the first full-generator hunt (`cargo xtask fuzz --seed 2 --count 200 --with classes,values,effects,async,modules`, cases 40 and 166)
@@ -3138,6 +3086,73 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-188 — On the VM, a handler that runs inside a `Task.spawn` task stopped with `expected HandlerDescriptor constant` — FIXED 2026-11-11
+
+**Severity:** Medium (valid programs stop with an error) · **Area:** VM tasks, effect handlers · **Verified:** 2026-11-11 (30680987) · **From:** the first full-generator hunt (`cargo xtask fuzz --seed 2 --count 200 --with classes,values,effects,async,modules`, 11 programs of 195: cases 7, 38, 39, 63, 76, 81, 108, 114, 138, 158 and 173)
+
+```flux
+import Flow.Async as Async
+import Flow.Task as Task
+
+effect Eff { op : (Int) -> Int }
+
+fn f() -> Int with Eff {
+    perform Eff.op(1)
+}
+
+fn g(a: Int) -> Int {
+    f() handle Eff { op(resume, p) -> resume(p + a) }
+}
+
+fn work() -> Int { g(10) }
+
+fn body() -> Int with Async {
+    let t: Task<Int> = Task.spawn(work);
+    Task.await(t)
+}
+
+fn main() with IO {
+    print(Async.run_async(body));
+}
+```
+
+Natively it prints `11`. On the VM, with or without `-O`, it stops before
+printing anything:
+
+```
+error[E1004]: AsyncError: Adt(AdtValue { constructor: "Panicked", fields: One(String("OpHandleDirect: expected HandlerDescriptor constant, got None")) })
+```
+
+A closure (`Task.spawn(fn() { g(10) })`) does the same. The same call works
+on the VM directly in `body`, or in a function run by `Async.both`, which
+keeps its fibers on one worker.
+
+The cause is in how a task gets the program's constants. The VM copies them
+for the task's thread through `promote_task_constant` (`src/vm/task.rs`),
+which runs `validate_task_value` first. That check is for the values a task
+is *sent*, and it refuses `HandlerDescriptor` and `PerformDescriptor`.
+`promote_task_constant` turns any refused constant into `None`, so the handle
+instruction in the task's code finds `None` where its descriptor was.
+`promote_value` itself can copy both descriptors (`ArcValue::HandlerDescriptor`,
+`ArcValue::PerformDescriptor`), and `worker_shared_state` uses it for
+constants. It has been like this since the VM first ran tasks on worker
+threads (c4a0a3c0, 2026-05-09).
+
+Fixture: `tests/parity/task_spawn_runs_handler_ki188.flx` (a resuming clause,
+the same through a closure, and a clause that never resumes, each in its own
+task). Unit test: `task_constants_keep_effect_descriptors_ki188`
+(`src/vm/task.rs`).
+
+**Fixed** in `promote_task_constant` (`src/vm/task.rs`): a constant
+`HandlerDescriptor` or `PerformDescriptor` is copied for the task with
+`promote_value`, as `worker_shared_state` already did for `Async.both`'s
+workers. The send check still applies to everything else, and to the values a
+task is sent. `promote_value`'s doc comment (`src/runtime/value.rs`), which
+said it refused descriptors, now says it refuses only `ReturnValue`. No cache
+key changes: the compiler's output is the same. The fixture and the unit test
+failed on the VM before this and pass now, and the hunt's 11 cases agree on
+all four ways.
 
 ### KI-187 — A module file got none of the prelude's imports: natively its calls of `map` or `fold` were undefined — FIXED 2026-11-10
 
