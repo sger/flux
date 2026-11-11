@@ -2,8 +2,8 @@
 - Start Date: 2026-11-11
 - Proposal PR:
 - Flux Issue:
-- Status: Draft
-- Relates to: [0027](0027_language_syntax_specification.md) (newline-separated syntax), [0014](implemented/0014_lexer_parser_code_review.md) (parser)
+- Status: Implemented (2026-11-11)
+- Relates to: [0027](../0027_language_syntax_specification.md) (newline-separated syntax), [0014](0014_lexer_parser_code_review.md) (parser)
 
 # Proposal 0201: A call does not continue onto the next line
 
@@ -146,8 +146,14 @@ not change, and no newline token is added.
 - Not to prefix uses: a `(` that starts a grouped expression or a tuple
   (`parse_grouped_expression`) and a `[` that starts a list literal. Those are
   what the new line begins.
-- Not to anything inside `( )`, `[ ]` or `{ }` delimiters. Arguments, list
-  elements and record fields are already separated by `,`.
+- Inside `( )`, `[ ]` and `{ }` delimiters too. The check is in the
+  expression loop, so it does not know whether it is inside an argument list,
+  a list literal or a block. In `foo(` followed by `bar` and `(1)` on two more
+  lines, `bar` ends and `(1)` is a second argument with no `,` before it, a
+  parse error. Kotlin ignores newlines inside parentheses, which would need a
+  nesting depth that every delimiter parser saves and restores. No file in
+  the corpus puts a `(` or `[` at the start of a line inside delimiters, so
+  the simpler rule costs nothing today.
 - Not to infix operators, `.`, `|>` or `handle`. A line that starts with one
   continues the expression, as today.
 
@@ -258,9 +264,11 @@ For the implementation, not this document:
    - controls: `f(1)(2)` and `xs[0][1]` on one line are still a curried call
      and a nested index; a `(` on the callee's line with arguments on later
      lines is one call; `|>`-, `+`- and `.`-led lines still continue.
-2. **Parity fixture** `tests/parity/newline_call_boundary.flx` (`// parity:
-   vm, llvm`), with the effectful `both_ops` case, the pure case and the
-   controls, written with `--bless`.
+2. **Parity fixture** `tests/parity/toplevel_newline_call_boundary.flx`
+   (`// parity: vm, llvm`), with the effectful `both_ops` case, the pure case
+   and the controls, written with `--bless`. `both_ops` performs two effects
+   of one operation each rather than one effect of two, so the fixture does
+   not also depend on KI-185's native fix.
 3. **Corpus:** `cargo xtask sweep` shows no change in output, and
    `cargo xtask verify <tag> --base <tag>` passes, since this changes how
    existing source parses.
