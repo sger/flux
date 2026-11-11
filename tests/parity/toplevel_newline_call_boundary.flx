@@ -3,6 +3,18 @@
 // bug: a `(` or `[` that starts a line was a call or an index on the line
 //      before, so a block whose last line is parenthesized was rejected with
 //      two E300 errors unless the line before ended in `;` (proposal 0201).
+// parity-expected-stdout-begin
+// 2003
+// 13
+// (5, 10)
+// [7, 8]
+// 30
+// Some(2)
+// 42
+// Some([3, 4])
+// [4, 9, 16]
+// 6
+// parity-expected-stdout-end
 
 // Two effects of one operation each, not one of two, so the fixture does not
 // also depend on KI-185's fix.
