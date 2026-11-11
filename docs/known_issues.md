@@ -492,6 +492,68 @@ which is why `)` on a line of its own works.
 The formatter also puts lines that start with `|>`, `+` or `&&` at the
 block's indentation. That is a style choice, not this bug.
 
+### KI-193 — Natively, a TCP operation that fails resumes its fiber with `None` instead of failing it
+
+**Severity:** High (a `String` is `None`, and the program prints it with no error) · **Area:** native runtime, async I/O (`src/runtime/async/native_abi.rs`) · **Verified:** 2026-11-11 (10722c37), on Windows, with the program below · **From:** Windows CI, where `native_http_server_tests::native_http_shutdown_now_closes_active_connection` failed on both tries
+
+```flux
+import Flow.Async exposing (..)
+import Flow.Tcp as Tcp
+
+fn body() -> String with Async, AsyncFail {
+    let listener = Tcp.listen("127.0.0.1", 24681)
+
+    fn server() -> String with Async {
+        let conn = Tcp.accept(listener)
+        let _wait = sleep(200)
+        Tcp.close(conn)
+        "server"
+    }
+
+    fn client() -> String with Async {
+        let conn = Tcp.connect("127.0.0.1", 24681)
+        Tcp.close(conn)
+        fn read_once() with Async {
+            Tcp.read(conn, 16)
+        }
+        result_or(timeout_result(500, read_once), "closed")
+    }
+
+    let pair = both(server, client)
+    pair.1
+}
+
+fn main() with IO {
+    print(run_async_with(with_worker_count(1), body))
+}
+```
+
+The VM prints `"closed"`: the read on a closed connection fails, so
+`timeout_result` gives `Err`. Natively it prints `None` and exits 0. With
+`"Ok(" + bytes` in place of `result_or`, the native run stops with
+`error[E1009]: 0` at `run_async_with`, a message that doesn't say what failed.
+
+The backend reports a failed operation as `CompletionPayload::Error`. The VM
+fails the waiting fiber with an `AsyncError` (`src/vm/core_dispatch.rs`, where
+it turns a completion into a `FiberOutcome`). Natively,
+`completion_payload_value` maps `Error` to `FLUX_NONE` along with `Unit`, and
+the fiber resumes with that value. So `Tcp.read`, typed `-> String`, hands
+`None` to code that treats it as a string. The same mapping covers every
+error the backend sends this way: connect, read, write, listen, accept and
+DNS lookups.
+
+The CI failure is this bug, reached through timing. `shutdown_now` closes the
+server's end of the open connection. When the handler has already read the
+request, the close ends the connection normally, the client's read gets `""`
+and the test sees `"closed"`, which is what happens locally (50 passing runs,
+30 of them with every core busy). On the slower Windows runner the test's
+fixed sleeps (client connects at 50 ms, shutdown at 100 ms) can let the close
+come while the request is still unread. Windows then resets the connection,
+the client's read fails, and the program printed `None` on both tries. That
+reading of the timing is not confirmed. The VM twin of this test orders its
+steps with channels (8e4e3b09); the native one still uses sleeps, and moving
+it to channels alone would hide this bug.
+
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
