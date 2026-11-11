@@ -1,0 +1,70 @@
+// parity: vm, llvm
+// expect: success
+// bug: a `(` or `[` that starts a line was a call or an index on the line
+//      before, so a block whose last line is parenthesized was rejected with
+//      two E300 errors unless the line before ended in `;` (proposal 0201).
+
+// Two effects of one operation each, not one of two, so the fixture does not
+// also depend on KI-185's fix.
+effect A { a : (Int) -> Int }
+effect B { b : (Int) -> Int }
+
+fn both_ops() -> Int with A, B {
+    let x: Int = perform A.a(1)
+    let y: Int = perform B.b(1)
+    ((x * 1000) + y)
+}
+
+fn area(w: Int, h: Int) -> Int {
+    let a = w * h
+    (a + 1)
+}
+
+fn pair_of(n: Int) -> (Int, Int) {
+    let m = n * 2
+    (n, m)
+}
+
+fn first_list(n: Int) -> List<Int> {
+    let m = n + 1
+    [n, m]
+}
+
+fn add(a: Int, b: Int) -> Int { a + b }
+
+fn main() with IO {
+    print(both_ops()
+        handle A { a(resume, n) -> resume(n + 1) }
+        handle B { b(resume, n) -> resume(n + 2) })
+    print(area(3, 4))
+    print(pair_of(5))
+    print(first_list(7))
+
+    // A call or an index opened on the callee's line may span lines.
+    let total = add(
+        10,
+        20,
+    )
+    print(total)
+    let xs = [1, 2, 3]
+    let item = xs[
+        1
+    ]
+    print(item)
+
+    // On one line, a call on a parenthesized function and an index still
+    // continue.
+    print((\x -> x + 1)(41))
+    let grid = [[1, 2], [3, 4]]
+    print(grid[1])
+
+    // Lines that start with an operator still continue.
+    let piped = [1, 2, 3, 4]
+        |> map(\x -> x * x)
+        |> filter(\x -> x > 1)
+    print(piped)
+    let sum = 1
+        + 2
+        + 3
+    print(sum)
+}

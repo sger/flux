@@ -20,6 +20,7 @@ fn parse(input: &str) -> (Program, Interner) {
 mod commas_and_tuples;
 mod lambdas;
 mod literals;
+mod newline_call_boundary;
 mod recovery_fixtures;
 mod semicolons_and_messages;
 mod statements;
