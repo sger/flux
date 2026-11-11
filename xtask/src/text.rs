@@ -79,6 +79,28 @@ impl Paint {
         self.wrap("1", text)
     }
 
+    pub fn bold_green(self, text: &str) -> String {
+        self.wrap("1;32", text)
+    }
+
+    pub fn bold_yellow(self, text: &str) -> String {
+        self.wrap("1;33", text)
+    }
+
+    /// A path's folder, as nextest shows a test's binary.
+    pub fn magenta(self, text: &str) -> String {
+        self.wrap("35", text)
+    }
+
+    /// A path's file name, as nextest shows a test's name.
+    pub fn blue(self, text: &str) -> String {
+        self.wrap("34", text)
+    }
+
+    pub fn cyan(self, text: &str) -> String {
+        self.wrap("36", text)
+    }
+
     /// A step heading: bold cyan.
     pub fn heading(self, text: &str) -> String {
         self.wrap("1;36", text)
