@@ -1,0 +1,23 @@
+---
+source: tests/error_fixtures/parser_error_fixtures_snapshots.rs
+---
+Fixture: examples/parser_errors/newline_brace_after_constructor.flx
+== compile ==
+failed (parse)
+== diagnostics ==
+error[E034]: Unexpected Token
+
+Expected field name in named constructor.
+
+  examples/parser_errors/newline_brace_after_constructor.flx:10:6
+   |
+10 |     {"a": 1}
+   |      ^^^
+
+Hint:
+  Named constructors use `Variant { field: value, ... }`.
+
+Note:
+  while parsing function `f`
+== stdout ==
+<not executed>

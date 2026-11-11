@@ -1,0 +1,36 @@
+---
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/newline_minus_continues_e300.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E300]: Return Type Mismatch
+
+The body of `f` does not match its declared return type.
+
+  examples/compiler_errors/newline_minus_continues_e300.flx:8:15
+   |
+ 8 | fn f() -> Int { //~ E300
+   |               ^^^^^^^^^^
+   |           --- `f` was declared to return `Int`
+ 9 |     let a = 5
+   | ^^^^^^^^^^^^^
+10 |     -1
+   | ^^^^^^
+11 | }
+   | ^
+   |
+help: Change return type to `Unit`
+   |
+8 | fn f() -> Unit { //~ E300
+  |           ~~~~
+
+Note:
+  declared return type: Int
+  body type: Unit
+
+Help:
+  Return a `Int` value from `f` or change its annotation.
+== stdout ==
+<not executed>
