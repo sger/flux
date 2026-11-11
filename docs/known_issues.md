@@ -416,6 +416,116 @@ later, as a use.
 
 The verifier refuses the plan, so nothing runs wrong.
 
+The first full-generator hunt (`cargo xtask fuzz --seed 2 --with
+classes,values,effects,async,modules`, 2026-11-11) hit it in 5 programs of
+200 (cases 70, 145, 159, 169 and 182), all in a handled `let` in `main`. There
+the call doesn't return the value: putting it in a constructor in the call's
+arguments is enough to take it over. Case 70 reduced to:
+
+```flux
+effect Eff { op : None -> String }
+
+fn f(a: Either<String, String>) -> String with Eff { "" }
+fn g() -> String { "" }
+
+fn main() with IO {
+    let s: String = g();
+    let v: String = f(Left(s)) handle Eff { op(resume, p) -> resume(s) };
+}
+```
+
+`Right(s)`, a user constructor `C(s, None)`, and a list `["", s, s]` passed
+through `map` do the same.
+
+### KI-188 — On the VM, a handler that runs inside a `Task.spawn` task stops with `expected HandlerDescriptor constant`
+
+**Severity:** Medium (valid programs stop with an error) · **Area:** VM tasks, effect handlers · **Verified:** 2026-11-11 (30680987) · **From:** the first full-generator hunt (`cargo xtask fuzz --seed 2 --count 200 --with classes,values,effects,async,modules`, 11 programs of 195: cases 7, 38, 39, 63, 76, 81, 108, 114, 138, 158 and 173)
+
+```flux
+import Flow.Async as Async
+import Flow.Task as Task
+
+effect Eff { op : (Int) -> Int }
+
+fn f() -> Int with Eff {
+    perform Eff.op(1)
+}
+
+fn g(a: Int) -> Int {
+    f() handle Eff { op(resume, p) -> resume(p + a) }
+}
+
+fn work() -> Int { g(10) }
+
+fn body() -> Int with Async {
+    let t: Task<Int> = Task.spawn(work);
+    Task.await(t)
+}
+
+fn main() with IO {
+    print(Async.run_async(body));
+}
+```
+
+Natively it prints `11`. On the VM, with or without `-O`, it stops before
+printing anything:
+
+```
+error[E1004]: AsyncError: Adt(AdtValue { constructor: "Panicked", fields: One(String("OpHandleDirect: expected HandlerDescriptor constant, got None")) })
+```
+
+A closure (`Task.spawn(fn() { g(10) })`) does the same. The same call works
+on the VM directly in `body`, or in a function run by `Async.both`, which
+keeps its fibers on one worker.
+
+The cause is in how a task gets the program's constants. The VM copies them
+for the task's thread through `promote_task_constant` (`src/vm/task.rs`),
+which runs `validate_task_value` first. That check is for the values a task
+is *sent*, and it refuses `HandlerDescriptor` and `PerformDescriptor`.
+`promote_task_constant` turns any refused constant into `None`, so the handle
+instruction in the task's code finds `None` where its descriptor was.
+`promote_value` itself can copy both descriptors (`ArcValue::HandlerDescriptor`,
+`ArcValue::PerformDescriptor`), and `worker_shared_state` uses it for
+constants. It has been like this since the VM first ran tasks on worker
+threads (c4a0a3c0, 2026-05-09).
+
+### KI-189 — On the VM, a record update on a record type from another module gives back the record unchanged
+
+**Severity:** High (silent wrong output) · **Area:** VM, records, modules · **Verified:** 2026-11-11 (30680987) · **From:** the first full-generator hunt (`cargo xtask fuzz --seed 2 --count 200 --with classes,values,effects,async,modules`, cases 40 and 166)
+
+`M1.flx`:
+
+```flux
+module M1 {
+    public data Rec { Rec { a: Int, b: Int } }
+}
+```
+
+`main.flx`, beside it:
+
+```flux
+import M1 exposing (Rec)
+
+fn main() with IO {
+    let v: Rec = Rec { a: 1, b: 2 };
+    let w: Rec = { ...v, b: 9 };
+    print(w.b);
+    print(w);
+}
+```
+
+Natively it prints `9` and `Rec(1, 9)`. On the VM it prints `2` and
+`Rec(1, 2)`, with no error: the update gives back `v` as it was.
+
+It happens wherever the update is written outside the module that declares
+the record: with `exposing` as here, through an alias (`import M1 as A`,
+`{ ...A.make(1), b: 5 }`), and for a generic record (`Box<a>`). A function
+inside `M1` that does the same update works on the VM, and so does the same
+record declared in `main.flx`, in any field order. Core lowers the update
+(`lower_spread_expression`, `src/core/lower_ast/expression.rs`) for both
+backends, and parity finds the shared layers equal, so the fault is on the
+VM's side. Its cause isn't known yet.
+
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
