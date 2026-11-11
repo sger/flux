@@ -1011,7 +1011,9 @@ fn promote_tail_calls(program: &mut LirProgram) {
         //   - all instructions are phi-bridge Copies (Copy where dst is a
         //     block param of a successor)
         //   - terminator is Return(param) or Return(copy_dst)
-        //   - OR terminator is Jump to another return-tail block
+        //   - OR terminator is Jump to another return-tail block whose param
+        //     it copies its own param into. A jump that forwards some other
+        //     value returns that value, not the call's result (KI-173).
         let mut is_return_tail = vec![false; num_blocks];
 
         // Collect which vars are block params (for phi-bridge detection).
@@ -1039,14 +1041,8 @@ fn promote_tail_calls(program: &mut LirProgram) {
                 LirTerminator::Return(v) if *v == param => {
                     is_return_tail[idx] = true;
                 }
-                LirTerminator::Return(v) => {
-                    // Check if param is copied to v.
-                    let copied_to_ret = block.instrs.iter().any(|instr| {
-                        matches!(instr, LirInstr::Copy { dst, src } if *src == param && *dst == *v)
-                    });
-                    if copied_to_ret {
-                        is_return_tail[idx] = true;
-                    }
+                LirTerminator::Return(v) if forwards(block, param, *v) => {
+                    is_return_tail[idx] = true;
                 }
                 _ => {}
             }
@@ -1073,7 +1069,10 @@ fn promote_tail_calls(program: &mut LirProgram) {
 
                 if let LirTerminator::Jump(target) = &block.terminator {
                     let target_idx = target.0 as usize;
-                    if target_idx < num_blocks && is_return_tail[target_idx] {
+                    if target_idx < num_blocks
+                        && is_return_tail[target_idx]
+                        && forwards(block, block.params[0], func.blocks[target_idx].params[0])
+                    {
                         is_return_tail[idx] = true;
                         changed = true;
                     }
@@ -1086,23 +1085,25 @@ fn promote_tail_calls(program: &mut LirProgram) {
 
         // Phase 2: promote eligible Call → TailCall.
         for idx in 0..num_blocks {
-            let should_promote = if let LirTerminator::Call { cont, yield_cont, kind, .. } =
-                &func.blocks[idx].terminator
-            {
-                let cont_idx = cont.0 as usize;
-                yield_cont.is_none()
-                    && cont_idx < num_blocks
-                    && is_return_tail[cont_idx]
-                    && matches!(
-                        kind,
-                        CallKind::Direct { .. }
-                            | CallKind::DirectClosure { .. }
-                            | CallKind::DirectExtern { .. }
-                    )
-                    && !call_kind_is_direct_async(kind, &async_funcs)
-            } else {
-                false
-            };
+            let should_promote =
+                if let LirTerminator::Call { dst, cont, yield_cont, kind, .. } =
+                    &func.blocks[idx].terminator
+                {
+                    let cont_idx = cont.0 as usize;
+                    yield_cont.is_none()
+                        && cont_idx < num_blocks
+                        && is_return_tail[cont_idx]
+                        && func.blocks[cont_idx].params == [*dst]
+                        && matches!(
+                            kind,
+                            CallKind::Direct { .. }
+                                | CallKind::DirectClosure { .. }
+                                | CallKind::DirectExtern { .. }
+                        )
+                        && !call_kind_is_direct_async(kind, &async_funcs)
+                } else {
+                    false
+                };
 
             if should_promote {
                 let old =
@@ -1114,6 +1115,14 @@ fn promote_tail_calls(program: &mut LirProgram) {
             }
         }
     }
+}
+
+/// Whether `block` leaves `from` in `to`: the last copy into `to` reads `from`.
+fn forwards(block: &LirBlock, from: LirVar, to: LirVar) -> bool {
+    block.instrs.iter().rev().find_map(|instr| match instr {
+        LirInstr::Copy { dst, src } if *dst == to => Some(*src == from),
+        _ => None,
+    }) == Some(true)
 }
 
 thread_local! {
@@ -6568,5 +6577,79 @@ mod tests {
             LirTerminator::Call { suppress_yield_check, .. } => assert!(!*suppress_yield_check),
             other => panic!("expected call terminator, got {other:?}"),
         }
+    }
+
+    /// `fn f(%0) { bb0: call f(%0) -> bb1;  bb1(%2): %3 = copy <forwarded>;
+    /// jmp bb2;  bb2(%3): ret %3 }`: the call's result is `%2`, and the join
+    /// `bb2` returns whatever `bb1` copies into it (KI-173).
+    fn call_then_join(forwarded: LirVar) -> crate::lir::LirProgram {
+        use crate::lir::{LirFuncId, LirFunction, LirInstr, LirProgram};
+        let block = |id: u32, params: Vec<LirVar>, instrs: Vec<LirInstr>, terminator| LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
+            id: BlockId(id),
+            params,
+            instrs,
+            terminator,
+        };
+        let (param, callee, result, joined) = (LirVar(0), LirVar(1), LirVar(2), LirVar(3));
+        let f = LirFunction {
+            debug: None,
+            name: "f".into(),
+            id: LirFuncId(0),
+            qualified_name: "f".into(),
+            is_dict_def: false,
+            params: vec![param],
+            blocks: vec![
+                block(
+                    0,
+                    Vec::new(),
+                    Vec::new(),
+                    LirTerminator::Call {
+                        dst: result,
+                        func: callee,
+                        args: vec![param],
+                        cont: BlockId(1),
+                        kind: CallKind::Direct { func_id: LirFuncId(0) },
+                        suppress_yield_check: false,
+                        yield_cont: None,
+                        held: None,
+                    },
+                ),
+                block(
+                    1,
+                    vec![result],
+                    vec![LirInstr::Copy { dst: joined, src: forwarded }],
+                    LirTerminator::Jump(BlockId(2)),
+                ),
+                block(2, vec![joined], Vec::new(), LirTerminator::Return(joined)),
+            ],
+            next_var: 4,
+            capture_vars: Vec::new(),
+            param_reps: vec![FluxRep::TaggedRep],
+            result_rep: FluxRep::TaggedRep,
+        };
+        let mut program = LirProgram::new();
+        program.push_function(f);
+        program
+    }
+
+    /// The join returns the parameter, not the call's result, so returning
+    /// the callee's result in its place is wrong.
+    #[test]
+    fn a_call_whose_result_is_dropped_before_the_join_stays_a_call() {
+        let mut program = call_then_join(LirVar(0));
+        super::promote_tail_calls(&mut program);
+        let terminator = &program.functions[0].blocks[0].terminator;
+        assert!(matches!(terminator, LirTerminator::Call { .. }), "{terminator:?}");
+    }
+
+    /// The join returns the call's result, so the call can be a tail call.
+    #[test]
+    fn a_call_whose_result_reaches_ret_through_a_join_is_a_tail_call() {
+        let mut program = call_then_join(LirVar(2));
+        super::promote_tail_calls(&mut program);
+        let terminator = &program.functions[0].blocks[0].terminator;
+        assert!(matches!(terminator, LirTerminator::TailCall { .. }), "{terminator:?}");
     }
 }

@@ -4,17 +4,21 @@
 //! A mismatch is reduced on the cheapest pair of ways that disagree on the
 //! original, so a bug the VM shows never builds native code. A candidate is
 //! kept when the pair still differs on the same stream (exit, stdout or
-//! stderr) and each way still compiles it exactly when it compiled the
-//! original. The two ways run directly rather than through `parity-check`,
+//! stderr), each way still exits as it did on the original, and each way
+//! still compiles it exactly when it compiled the original. The two ways run directly rather than through `parity-check`,
 //! which would run every way per candidate. A case every way agrees on but
 //! the compiler fails on itself is reduced while it fails the same way.
 //!
 //! Passes that keep a program well formed go first, as Perses and llvm-reduce
-//! do: delete a top-level item, a statement or a match arm, replace a `let`'s
-//! value with a literal of its declared type, inline a `let` used once, and
-//! replace an expression with a literal or one of its parts. Line ddmin runs
-//! after them; a deletion that splits a brace pair is widened to the lines the
-//! pair encloses. Rounds repeat until one changes nothing.
+//! do: delete a top-level item, a class method with its method in every
+//! instance, a parameter nothing reads with its argument at every call, a
+//! statement or a match arm; replace a `let`'s value with a literal of its
+//! declared type, inline a `let` used once, and replace an expression with a
+//! literal or one of its parts. Line ddmin runs after them; a deletion that
+//! splits a brace pair is widened to the lines the pair encloses. Last, a
+//! function whose body is one line is written on one line, so the count
+//! measures the program rather than the generator's layout. Rounds repeat
+//! until one changes nothing.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
@@ -41,8 +45,7 @@ pub struct ReduceOptions {
 
 pub fn run_reduce(root: &Path, options: &ReduceOptions) -> Result<bool, String> {
     let case = root.join(&options.case);
-    let text = fs::read_to_string(&case).map_err(|e| format!("{}: {e}", case.display()))?;
-    let stem = case.file_stem().and_then(|s| s.to_str()).ok_or("the case has no file name")?;
+    let (stem, beside, files) = read_case(&case)?;
     let out = store::store_root(root).join(format!("reduce_{stem}"));
     if out.exists() {
         fs::remove_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
@@ -57,59 +60,65 @@ pub fn run_reduce(root: &Path, options: &ReduceOptions) -> Result<bool, String> 
     }
     let flux = flux_binary(root);
     let ways = options.ways.split(',').map(Way::parse).collect::<Result<Vec<_>, _>>()?;
-    let original = out.join("original.flx");
-    fs::write(&original, &text).map_err(|e| e.to_string())?;
-    let file = original.to_string_lossy().into_owned();
+    let original = out.join("original");
+    write_case(&original, &files)?;
+    let file = original.join("main.flx").to_string_lossy().into_owned();
     let runs =
         parallel(&ways, options.jobs, |way| way.run(root, &flux, &file, options.timeout, None));
 
-    let target = match pick_pair(&ways, &runs) {
-        Some((a, b, verdict)) => {
+    let pair = pick_pair(&ways, &runs);
+    let internal = if pair.is_none_or(|(_, _, verdict)| verdict.compiled == (false, false)) {
+        let ran = run_flux(root, &flux, &["--dump-core"], &file, options.timeout);
+        match judge(ran.finished, ran.exit, &ran.stderr) {
+            Compile::Internal(why) => Some(why),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let target = match choose(pair, internal) {
+        Some(target @ Target::Mismatch { a, b, verdict }) => {
             println!("reducing on {} vs {}: they differ on {}", a.name, b.name, verdict.stream);
-            Target::Mismatch { a, b, verdict }
+            target
         }
-        None => {
-            let ran = run_flux(root, &flux, &["--dump-core"], &file, options.timeout);
-            match judge(ran.finished, ran.exit, &ran.stderr) {
-                Compile::Internal(why) => {
-                    println!("reducing an internal error: {why}");
-                    Target::Internal(why)
-                }
-                _ => return Err(format!("{}: every way agrees and it compiles", options.case)),
-            }
+        Some(Target::Internal(why)) => {
+            println!("reducing an internal error: {why}");
+            Target::Internal(why)
         }
+        None => return Err(format!("{}: every way agrees and it compiles", options.case)),
     };
 
-    let test = |text: &str, slot: usize| {
-        let candidate = out.join(format!("candidate_{slot}.flx"));
-        if fs::write(&candidate, text).is_err() {
+    // Each candidate is a folder, so a module beside its `main.flx` resolves.
+    let test = |files: &Files, slot: usize| {
+        let candidate = out.join(format!("candidate_{slot}"));
+        if write_case(&candidate, files).is_err() {
             return false;
         }
         let cache = out.join(format!("cache_{slot}"));
-        target.holds(root, &flux, &candidate.to_string_lossy(), options.timeout, Some(&cache))
+        let file = candidate.join("main.flx").to_string_lossy().into_owned();
+        shows(target.native(), |cached| {
+            target.holds(root, &flux, &file, options.timeout, cached.then_some(cache.as_path()))
+        })
     };
-    let mut tester = Tester::new(&test, options.jobs);
-    let lines: Vec<String> = text.lines().map(str::to_string).collect();
-    let before = lines.len();
+    let before: usize = files.iter().map(|(_, l)| l.len()).sum();
     let mut last = Instant::now();
-    let reduced = reduce(lines, &mut tester, &mut |step, n, runs| {
+    let (reduced, runs) = reduce_case(files, &test, options.jobs, &mut |step, n, runs| {
         println!("  {step}: {n} lines ({} runs, {})", runs, format_duration(last.elapsed()));
         last = Instant::now();
     });
-    // The candidates' native runs share a cache; the result must show the
-    // bug without one.
-    let min_text = join(&reduced);
-    let check = out.join("check.flx");
-    fs::write(&check, &min_text).map_err(|e| e.to_string())?;
-    let confirmed = target.holds(root, &flux, &check.to_string_lossy(), options.timeout, None);
+    // Each kept candidate showed the bug without a cache too; this checks
+    // the result as written.
+    let check = out.join("check");
+    write_case(&check, &reduced)?;
+    let file = check.join("main.flx").to_string_lossy().into_owned();
+    let confirmed = target.holds(root, &flux, &file, options.timeout, None);
 
-    let min = case.with_file_name(format!("{stem}.min.flx"));
-    fs::write(&min, &min_text).map_err(|e| format!("{}: {e}", min.display()))?;
+    let min = write_min(&beside, &stem, &reduced)?;
     println!(
         "{} -> {} lines in {} runs ({}): {}",
         before,
-        reduced.len(),
-        tester.runs,
+        reduced.iter().map(|(_, l)| l.len()).sum::<usize>(),
+        runs,
         format_duration(started.elapsed()),
         store::display(&min)
     );
@@ -121,8 +130,8 @@ pub fn run_reduce(root: &Path, options: &ReduceOptions) -> Result<bool, String> 
 
 /// A way `reduce` can run: parity's plain and optimizer ways.
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct Way {
-    name: &'static str,
+pub(super) struct Way {
+    pub(super) name: &'static str,
     flags: &'static [&'static str],
 }
 
@@ -134,7 +143,7 @@ impl Way {
         Way { name: "llvm_opt", flags: &["--native", "--optimize"] },
     ];
 
-    fn parse(name: &str) -> Result<Way, String> {
+    pub(super) fn parse(name: &str) -> Result<Way, String> {
         let name = name.trim();
         Way::ALL
             .into_iter()
@@ -149,7 +158,7 @@ impl Way {
     /// Runs `file` this way. A native way given a `cache` builds the
     /// standard library into it once instead of on every run, which is most
     /// of a small program's native build.
-    fn run(
+    pub(super) fn run(
         &self,
         root: &Path,
         flux: &Path,
@@ -192,6 +201,10 @@ struct Verdict {
     stream: Stream,
     /// Whether each way compiled it.
     compiled: (bool, bool),
+    /// Each way's `(finished, exit)`. Without it, a mismatch where native
+    /// fails and one where the VM fails both "differ on exit", and a
+    /// reduction can slide from one bug to another.
+    exits: ((bool, i32), (bool, i32)),
 }
 
 fn verdict(a: &Ran, b: &Ran) -> Option<Verdict> {
@@ -204,7 +217,11 @@ fn verdict(a: &Ran, b: &Ran) -> Option<Verdict> {
     } else {
         return None;
     };
-    Some(Verdict { stream, compiled: (!compile_errors(&a.stderr), !compile_errors(&b.stderr)) })
+    Some(Verdict {
+        stream,
+        compiled: (!compile_errors(&a.stderr), !compile_errors(&b.stderr)),
+        exits: ((a.finished, a.exit), (b.finished, b.exit)),
+    })
 }
 
 /// The pair to reduce on: the one with the fewest native ways among those
@@ -223,6 +240,21 @@ fn pick_pair(ways: &[Way], runs: &[Ran]) -> Option<(Way, Way, Verdict)> {
     pairs.into_iter().next().map(|(_, a, b, v)| (a, b, v))
 }
 
+/// What to reduce: a pair of ways that disagree, or else the compiler's
+/// failure on the case itself. When neither way of the pair compiles it,
+/// they differ only in their diagnostics, which any broken text can keep
+/// apart, so the compiler's failure comes first.
+fn choose(pair: Option<(Way, Way, Verdict)>, internal: Option<String>) -> Option<Target> {
+    match (pair, internal) {
+        (Some((_, _, verdict)), Some(why)) if verdict.compiled == (false, false) => {
+            Some(Target::Internal(why))
+        }
+        (Some((a, b, verdict)), _) => Some(Target::Mismatch { a, b, verdict }),
+        (None, Some(why)) => Some(Target::Internal(why)),
+        (None, None) => None,
+    }
+}
+
 /// What a candidate must still show.
 enum Target {
     Mismatch {
@@ -234,7 +266,21 @@ enum Target {
     Internal(String),
 }
 
+/// Whether a candidate still shows the bug, run with the slot's cache when
+/// `run` is given `true`. A native way's cache can hold an object built for
+/// another program (KI-145) and show a difference the candidate doesn't
+/// have, so a candidate that shows it is run again without one: only those
+/// pay for a native build from scratch.
+fn shows(native: bool, run: impl Fn(bool) -> bool) -> bool {
+    run(true) && (!native || run(false))
+}
+
 impl Target {
+    /// Whether one of its ways is native, whose runs a cache speeds up.
+    fn native(&self) -> bool {
+        matches!(self, Target::Mismatch { a, b, .. } if a.native() || b.native())
+    }
+
     fn holds(
         &self,
         root: &Path,
@@ -319,8 +365,200 @@ type Pass = fn(&[String]) -> Vec<Vec<String>>;
 /// A round's steps, in order. Line ddmin goes before the expressions pass,
 /// which offers several replacements for every bracket group and so costs
 /// the most runs per line: it should see the smallest program.
+/// A case's files, by name within its folder, `main.flx` first.
+pub(crate) type Files = Vec<(String, Vec<String>)>;
+
+/// The case at `path`, a file, or a folder holding `main.flx` and its
+/// module (named by the folder or its `main.flx`): its name, the folder it
+/// sits in, and its files. A one-file case's one file is `main.flx`.
+fn read_case(path: &Path) -> Result<(String, std::path::PathBuf, Files), String> {
+    let read = |file: &Path| {
+        fs::read_to_string(file)
+            .map(|text| text.lines().map(str::to_string).collect::<Vec<_>>())
+            .map_err(|e| format!("{}: {e}", file.display()))
+    };
+    let folder = if path.is_dir() {
+        Some(path.to_path_buf())
+    } else if path.file_name().is_some_and(|n| n == "main.flx") {
+        path.parent().filter(|dir| flx_files(dir).len() > 1).map(Path::to_path_buf)
+    } else {
+        None
+    };
+    let named = |p: &Path, what: &str| {
+        p.file_stem()
+            .and_then(|s| s.to_str())
+            .map(str::to_string)
+            .ok_or_else(|| format!("{}: {what} has no name", p.display()))
+    };
+    let parent = |p: &Path| p.parent().map(Path::to_path_buf).unwrap_or_default();
+    match folder {
+        Some(dir) => {
+            let mut names = flx_files(&dir);
+            names.sort_by_key(|n| (n != "main.flx", n.clone()));
+            if names.first().is_none_or(|n| n != "main.flx") {
+                return Err(format!("{}: no main.flx", dir.display()));
+            }
+            let files = names
+                .into_iter()
+                .map(|n| Ok((n.clone(), read(&dir.join(&n))?)))
+                .collect::<Result<_, String>>()?;
+            Ok((named(&dir, "the folder")?, parent(&dir), files))
+        }
+        None => {
+            Ok((named(path, "the case")?, parent(path), vec![("main.flx".into(), read(path)?)]))
+        }
+    }
+}
+
+/// The `.flx` files directly in `dir`, by name.
+fn flx_files(dir: &Path) -> Vec<String> {
+    fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .filter_map(|e| e.ok())
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|n| n.ends_with(".flx"))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Writes `files` into `dir`, emptied first.
+fn write_case(dir: &Path, files: &Files) -> Result<(), String> {
+    let _ = fs::remove_dir_all(dir);
+    fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    for (name, lines) in files {
+        let path = dir.join(name);
+        fs::write(&path, join(lines)).map_err(|e| format!("{}: {e}", path.display()))?;
+    }
+    Ok(())
+}
+
+/// The reduced case beside the original: `<stem>.min.flx` when it's one
+/// file, or the folder `<stem>.min/`.
+fn write_min(beside: &Path, stem: &str, files: &Files) -> Result<std::path::PathBuf, String> {
+    let (file, folder) =
+        (beside.join(format!("{stem}.min.flx")), beside.join(format!("{stem}.min")));
+    let _ = fs::remove_file(&file);
+    let _ = fs::remove_dir_all(&folder);
+    if let [(_, lines)] = &files[..] {
+        fs::write(&file, join(lines)).map_err(|e| format!("{}: {e}", file.display()))?;
+        Ok(file)
+    } else {
+        write_case(&folder, files)?;
+        Ok(folder)
+    }
+}
+
+/// `files` reduced: each file with the others held fixed, until a round
+/// changes none of them, a module first put into `main` when the bug
+/// survives that. `test` gets the files and a slot; `log` hears each step,
+/// with the lines of all the files and the runs so far.
+pub(crate) fn reduce_case(
+    mut files: Files,
+    test: &(dyn Fn(&Files, usize) -> bool + Sync),
+    jobs: usize,
+    log: &mut dyn FnMut(&str, usize, usize),
+) -> (Files, usize) {
+    let total = |files: &Files| files.iter().map(|(_, l)| l.len()).sum::<usize>();
+    let mut runs = 0;
+    loop {
+        let round = files.clone();
+        if let Some(one) = inline_module(&files) {
+            runs += 1;
+            if test(&one, 0) {
+                files = one;
+                log("inline module", total(&files), runs);
+            }
+        }
+        for k in 0..files.len() {
+            let fixed = files.clone();
+            let others = total(&files) - files[k].1.len();
+            let test_k = |text: &str, slot: usize| {
+                let mut candidate = fixed.clone();
+                candidate[k].1 = text.lines().map(str::to_string).collect();
+                test(&candidate, slot)
+            };
+            let mut tester = Tester::new(&test_k, jobs);
+            let before = runs;
+            let reduced = reduce(files[k].1.clone(), &mut tester, &mut |step, n, r| {
+                log(step, n + others, before + r)
+            });
+            runs += tester.runs;
+            files[k].1 = reduced;
+        }
+        if files == round {
+            return (files, runs);
+        }
+    }
+}
+
+/// A two-file case as one: `main.flx` with the module's items put before
+/// its own, no longer `public`, the module's imports it lacks above them,
+/// its own imports of the module gone and the module's functions called by
+/// their bare names, not through the alias. `None` for a case of one file.
+pub(crate) fn inline_module(files: &[(String, Vec<String>)]) -> Option<Files> {
+    let [(_, module), (main_name, main)] = files else { return None };
+    let open = module.iter().position(|l| l.starts_with("module ") && l.ends_with('{'))?;
+    let name = module[open].strip_prefix("module ")?.trim_end_matches('{').trim().to_string();
+    let close = module.iter().rposition(|l| l == "}")?;
+    let imports_module = |line: &str| {
+        line == format!("import {name}") || line.starts_with(&format!("import {name} "))
+    };
+    let aliases: Vec<String> = main
+        .iter()
+        .filter(|l| imports_module(l))
+        .filter_map(|l| l.split(" as ").nth(1))
+        .map(|alias| alias.split_whitespace().next().unwrap_or(alias).to_string())
+        .collect();
+    let kept: Vec<String> = main.iter().filter(|l| !imports_module(l)).cloned().collect();
+    let mut inserted: Vec<String> = module[..open]
+        .iter()
+        .filter(|l| l.starts_with("import ") && !kept.contains(l))
+        .cloned()
+        .collect();
+    inserted.extend(module[open + 1..close].iter().map(|line| {
+        let line = line.strip_prefix("    ").unwrap_or(line);
+        line.strip_prefix("public ").unwrap_or(line).to_string()
+    }));
+    let is_item = |l: &String| {
+        ["fn ", "data ", "class ", "instance ", "effect ", "alias "]
+            .iter()
+            .any(|k| l.starts_with(k))
+    };
+    let at = kept.iter().position(is_item).unwrap_or(kept.len());
+    let mut joined: Vec<String> = kept[..at].to_vec();
+    joined.extend(inserted);
+    joined.extend(kept[at..].iter().cloned());
+    let joined = joined.into_iter().map(|line| unqualified(&line, &aliases)).collect();
+    Some(vec![(main_name.clone(), joined)])
+}
+
+/// `line` with each `<alias>.` that starts a name removed.
+fn unqualified(line: &str, aliases: &[String]) -> String {
+    let mut out = line.to_string();
+    for alias in aliases {
+        let dotted = format!("{alias}.");
+        let mut result = String::new();
+        let mut rest = out.as_str();
+        while let Some(at) = rest.find(&dotted) {
+            result.push_str(&rest[..at]);
+            // Part of a longer name, like `XA5.`: kept.
+            if result.chars().last().is_some_and(is_ident) {
+                result.push_str(&dotted);
+            }
+            rest = &rest[at + dotted.len()..];
+        }
+        result.push_str(rest);
+        out = result;
+    }
+    out
+}
+
 const STEPS: &[(&str, Option<Pass>)] = &[
     ("items", Some(delete_items)),
+    ("methods", Some(delete_methods)),
+    ("params", Some(delete_params)),
     ("statements", Some(delete_statements)),
     ("arms", Some(delete_arms)),
     ("branches", Some(pick_branches)),
@@ -328,6 +566,7 @@ const STEPS: &[(&str, Option<Pass>)] = &[
     ("inline", Some(inline_lets)),
     ("lines", None),
     ("expressions", Some(simplify_expressions)),
+    ("join", Some(join_blocks)),
 ];
 
 /// `lines` reduced until a whole round changes nothing. `log` hears each
@@ -689,6 +928,7 @@ fn literal_of(ty: &str) -> Option<String> {
         "Bool" => "false".to_string(),
         "String" => "\"\"".to_string(),
         _ if ty.starts_with("List<") => "[]".to_string(),
+        _ if ty.starts_with("Array<") => "[||]".to_string(),
         _ if ty.starts_with("Option<") => "None".to_string(),
         _ if ty.starts_with('(') && ty.ends_with(')') => {
             let parts = split_top_level(&ty[1..ty.len() - 1], ',', true);
@@ -935,14 +1175,27 @@ fn simplify_expressions(lines: &[String]) -> Vec<Vec<String>> {
     let mut found = Vec::new();
     for (i, line) in lines.iter().enumerate() {
         let head = line.trim_start();
-        if is_comment(line) || head.starts_with("fn ") || head.starts_with("data ") {
+        if is_comment(line) || head.starts_with("data ") {
             continue;
         }
-        for (start, end) in expressions(line) {
+        // A signature has nothing to simplify; a body `join_bodies` put on
+        // its line does.
+        let from = if head.starts_with("fn ") {
+            match joined_body(line) {
+                Some(at) => at,
+                None => continue,
+            }
+        } else {
+            0
+        };
+        for (start, end) in expressions(line).into_iter().filter(|(start, _)| *start >= from) {
             for replacement in replacements(&line[start..end]) {
                 let text = format!("{}{replacement}{}", &line[..start], &line[end..]);
                 found.push((end - start, i, text));
             }
+        }
+        for (start, end) in interpolations(line).into_iter().filter(|(start, _)| *start >= from) {
+            found.push((end - start, i, format!("{}{}", &line[..start], &line[end..])));
         }
     }
     found.sort_by_key(|(size, i, _)| (std::cmp::Reverse(*size), *i));
@@ -952,6 +1205,238 @@ fn simplify_expressions(lines: &[String]) -> Vec<Vec<String>> {
             let mut candidate = lines.to_vec();
             candidate[i] = text;
             candidate
+        })
+        .collect()
+}
+
+/// The name at the start of `text`.
+fn leading_name(text: &str) -> &str {
+    let end = text.find(|c: char| !is_ident(c)).unwrap_or(text.len());
+    &text[..end]
+}
+
+/// The function a `fn` line declares or defines.
+fn fn_name(line: &str) -> Option<&str> {
+    let name = leading_name(line.trim_start().strip_prefix("fn ")?);
+    (!name.is_empty()).then_some(name)
+}
+
+/// The class an `instance` line implements: the head after `=>` when it has
+/// a context.
+fn instance_class(line: &str) -> Option<&str> {
+    let rest = line.strip_prefix("instance ")?;
+    let head = rest.split_once(" => ").map_or(rest, |(_, head)| head);
+    Some(leading_name(head))
+}
+
+/// Each method of a top-level class deleted together with its method in
+/// every instance of the class, a contextual one included. Neither can go
+/// alone: an instance defines what its class declares, and no more.
+fn delete_methods(lines: &[String]) -> Vec<Vec<String>> {
+    let depth = depths(lines);
+    let pairs = brace_pairs(lines);
+    let mut candidates = Vec::new();
+    for &(open, close) in &pairs {
+        if depth[open] != 0 {
+            continue;
+        }
+        let Some(class) = lines[open].strip_prefix("class ").map(leading_name) else {
+            continue;
+        };
+        for i in open + 1..close {
+            let Some(method) = fn_name(&lines[i]).filter(|_| depth[i] == 1) else {
+                continue;
+            };
+            let mut gone: BTreeSet<usize> = (i..=span_end(&pairs, i)).collect();
+            for &(start, end) in &pairs {
+                if depth[start] != 0 || instance_class(&lines[start]) != Some(class) {
+                    continue;
+                }
+                for j in start + 1..end {
+                    if depth[j] == 1 && fn_name(&lines[j]) == Some(method) {
+                        gone.extend(j..=span_end(&pairs, j));
+                    }
+                }
+            }
+            candidates.push(without(lines, &gone));
+        }
+    }
+    candidates
+}
+
+/// `text` with the `index`th comma-separated part of the group opened at
+/// byte `open` removed, or `None` when the group has no such part.
+fn drop_part(text: &str, open: usize, index: usize, in_type: bool) -> Option<String> {
+    let close = group_end(text, open)?;
+    let parts = split_top_level(&text[open + 1..close], ',', in_type);
+    if index >= parts.len() || parts[index].trim().is_empty() {
+        return None;
+    }
+    let kept: Vec<&str> = parts
+        .iter()
+        .enumerate()
+        .filter(|(at, _)| *at != index)
+        .map(|(_, part)| part.trim())
+        .collect();
+    Some(format!("{}({}){}", &text[..open], kept.join(", "), &text[close + 1..]))
+}
+
+/// Each parameter of a top-level function (but `main`) that its body never
+/// reads, deleted together with the argument in its place at every call.
+/// Every use of the function must be a call on one line; a function passed
+/// as a value, or a call over several lines, leaves it alone.
+fn delete_params(lines: &[String]) -> Vec<Vec<String>> {
+    let depth = depths(lines);
+    let pairs = brace_pairs(lines);
+    let mut candidates = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        if depth[i] != 0 || line.starts_with("fn main") {
+            continue;
+        }
+        let Some(name) = fn_name(line) else {
+            continue;
+        };
+        let Some(open) = line.find('(') else {
+            continue;
+        };
+        let Some(close) = group_end(line, open) else {
+            continue;
+        };
+        let params = split_top_level(&line[open + 1..close], ',', true);
+        let end = span_end(&pairs, i);
+        let body: Vec<&str> = std::iter::once(&line[close + 1..])
+            .chain(lines[i + 1..=end].iter().map(String::as_str))
+            .collect();
+        for (k, param) in params.iter().enumerate() {
+            let param_name = param.split(':').next().unwrap_or("").trim();
+            if param_name.is_empty() || !param_name.chars().all(is_ident) {
+                continue;
+            }
+            if body.iter().any(|text| !word_at(text, param_name).is_empty()) {
+                continue;
+            }
+            if let Some(candidate) = without_argument(lines, i, open, name, k) {
+                candidates.push(candidate);
+            }
+        }
+    }
+    candidates
+}
+
+/// `lines` with the `k`th parameter of the function `name` declared on line
+/// `decl` (its list opened at byte `open`) removed, and the `k`th argument
+/// of each call to it.
+fn without_argument(
+    lines: &[String],
+    decl: usize,
+    open: usize,
+    name: &str,
+    k: usize,
+) -> Option<Vec<String>> {
+    let mut candidate = lines.to_vec();
+    candidate[decl] = drop_part(&lines[decl], open, k, true)?;
+    for (j, line) in lines.iter().enumerate() {
+        if is_comment(line) {
+            continue;
+        }
+        let declared_at =
+            if j == decl { line.find("fn ").map(|at| at + "fn ".len()) } else { None };
+        for at in word_at(line, name).into_iter().rev() {
+            if Some(at) == declared_at {
+                continue;
+            }
+            let paren = at + name.len();
+            if !line[paren..].starts_with('(') {
+                return None;
+            }
+            candidate[j] = drop_part(&candidate[j], paren, k, false)?;
+        }
+    }
+    Some(candidate)
+}
+
+/// Where the body of a function written on one line starts, after its `{`.
+fn joined_body(line: &str) -> Option<usize> {
+    if !line.trim_end().ends_with('}') {
+        return None;
+    }
+    line.find(" { ").map(|at| at + " { ".len())
+}
+
+/// Each function or instance method whose body is one value written on its
+/// head's line: `fn m(x) { "" }`. An `if` or a `match` keeps its lines,
+/// which the passes that pick branches and arms read.
+/// Each `#{..}` piece of a string on `line`, as a byte range.
+fn interpolations(line: &str) -> Vec<(usize, usize)> {
+    let mut found = Vec::new();
+    let mut from = 0;
+    while let Some(at) = line[from..].find("#{").map(|i| i + from) {
+        let mut depth = 0;
+        let end = line[at + 1..].char_indices().find_map(|(i, c)| {
+            match c {
+                '{' => depth += 1,
+                '}' => depth -= 1,
+                _ => {}
+            }
+            (depth == 0).then_some(at + 1 + i + 1)
+        });
+        let Some(end) = end else { break };
+        found.push((at, end));
+        from = end;
+    }
+    found
+}
+
+/// `join_bodies` and `join_arms`.
+fn join_blocks(lines: &[String]) -> Vec<Vec<String>> {
+    let mut candidates = join_bodies(lines);
+    candidates.extend(join_arms(lines));
+    candidates
+}
+
+/// A block whose lines are each one arm, `pattern -> value,` (a `match`'s,
+/// mostly), put on the line that opens it: one statement on one line, which
+/// `inline` can then fold into where its `let` is read.
+fn join_arms(lines: &[String]) -> Vec<Vec<String>> {
+    brace_pairs(lines)
+        .into_iter()
+        .filter_map(|(open, close)| {
+            let head = lines[open].trim_end();
+            if !head.ends_with('{') || fn_name(head).is_some() || close == open + 1 {
+                return None;
+            }
+            let arms: Vec<&str> = lines[open + 1..close].iter().map(|l| l.trim()).collect();
+            let one_line =
+                |arm: &&str| arm.contains(" -> ") && arm.ends_with(',') && braces(arm).is_empty();
+            let tail = lines[close].trim();
+            if !arms.iter().all(one_line) || !tail.starts_with('}') {
+                return None;
+            }
+            let joined = arms.join(" ");
+            let joined = joined.strip_suffix(',').unwrap_or(&joined);
+            let mut candidate = lines[..open].to_vec();
+            candidate.push(format!("{head} {joined} {tail}"));
+            candidate.extend_from_slice(&lines[close + 1..]);
+            Some(candidate)
+        })
+        .collect()
+}
+
+fn join_bodies(lines: &[String]) -> Vec<Vec<String>> {
+    brace_pairs(lines)
+        .into_iter()
+        .filter(|&(open, close)| close == open + 2 && lines[close].trim() == "}")
+        .filter_map(|(open, close)| {
+            let head = lines[open].trim_end();
+            fn_name(head)?;
+            let body = lines[open + 1].trim();
+            if body.is_empty() || body.ends_with(';') || is_comment(body) || !head.ends_with('{') {
+                return None;
+            }
+            let mut candidate = lines[..open].to_vec();
+            candidate.push(format!("{head} {body} }}"));
+            candidate.extend_from_slice(&lines[close + 1..]);
+            Some(candidate)
         })
         .collect()
 }
@@ -1156,5 +1641,259 @@ fn main() with IO {
         let (a, b, _) = pick_pair(&ways, &runs).unwrap();
         assert_eq!((a.name, b.name), ("vm", "llvm"));
         assert!(pick_pair(&ways, &[ran("1"), ran("1"), ran("1"), ran("1")]).is_none());
+    }
+
+    /// A mismatch where the VM ran and native failed is not the same bug as
+    /// one where the VM failed and native ran, though both differ on exit:
+    /// a reduction that keeps only the stream slides from one to the other.
+    #[test]
+    fn a_mismatch_keeps_which_way_failed() {
+        let ran =
+            |exit: i32| Ran { finished: true, exit, stdout: String::new(), stderr: String::new() };
+        let vm_ran = verdict(&ran(0), &ran(1)).unwrap();
+        let native_ran = verdict(&ran(1), &ran(0)).unwrap();
+        assert_eq!((vm_ran.stream, native_ran.stream), (Stream::Exit, Stream::Exit));
+        assert_ne!(vm_ran, native_ran);
+    }
+
+    const CLASSES: &str = "data D { C }
+class K<a> {
+    fn m1(x: a) -> Int
+    fn m2(x: a) -> Int
+}
+instance K<D> {
+    fn m1(x) {
+        1
+    }
+    fn m2(x) {
+        2
+    }
+}
+instance K<a> => K<Option<a>> {
+    fn m1(x) {
+        3
+    }
+    fn m2(x) {
+        4
+    }
+}
+fn f<a: K>(x: a, y: Int) -> Int {
+    m2(x)
+}
+fn main() with IO {
+    print(f(C, 5));
+    print(f(C, (1 + 2)));
+}";
+
+    #[test]
+    fn a_class_method_goes_with_its_instance_methods() {
+        let candidates = delete_methods(&lines(CLASSES));
+        assert_eq!(candidates.len(), 2, "one per class method");
+        let without_m1 = join(&candidates[0]);
+        assert!(!without_m1.contains("m1"), "{without_m1}");
+        assert_eq!(without_m1.matches("fn m2(").count(), 3, "{without_m1}");
+        assert!(without_m1.contains("instance K<a> => K<Option<a>> {\n    fn m2(x) {"));
+        let without_m2 = join(&candidates[1]);
+        assert_eq!(without_m2.matches("fn m2(").count(), 0, "{without_m2}");
+        assert!(without_m2.contains("    m2(x)\n"), "a call is the tester's to turn away");
+    }
+
+    #[test]
+    fn an_unused_parameter_goes_with_its_argument_at_each_call() {
+        let candidates = delete_params(&lines(CLASSES));
+        assert_eq!(candidates.len(), 1, "`x` is read, `y` is not");
+        let text = join(&candidates[0]);
+        assert!(text.contains("fn f<a: K>(x: a) -> Int {"), "{text}");
+        assert!(text.contains("print(f(C));\n    print(f(C));"), "{text}");
+
+        let as_value = "fn g(n: Int) -> Int {\n    0\n}\nfn main() with IO {\n    print(g(1));\n    print(map([1], g));\n}";
+        assert!(delete_params(&lines(as_value)).is_empty(), "`g` is passed as a value");
+    }
+
+    /// The module put into `main`: its imports `main` lacks, then its items,
+    /// no longer `public`, before `main`'s own; `main`'s imports of it gone,
+    /// and its calls through the alias by their bare names.
+    #[test]
+    fn a_module_inlined_into_main_is_one_file() {
+        let files = vec![
+            (
+                "M1.flx".to_string(),
+                lines(
+                    "// Generated.\n\nimport Flow.Array as Array\n\nmodule M1 {\n    public data D2 { C3 }\n\n    public fn f4(a: Int, b: Int) -> Int {\n        (a - b)\n    }\n}",
+                ),
+            ),
+            (
+                "main.flx".to_string(),
+                lines(
+                    "// expect: any\n\nimport M1 as A5\nimport M1 exposing (D2, C3)\n\nfn f6() -> Int {\n    A5.f4(1, 2)\n}\n\nfn main() with IO {\n    print(A5.f4(3, 1));\n    print(C3);\n}",
+                ),
+            ),
+        ];
+        let one = inline_module(&files).expect("a module to inline");
+        assert_eq!(one.len(), 1);
+        assert_eq!(one[0].0, "main.flx");
+        let text = join(&one[0].1);
+        for gone in ["module", "public ", "import M1", "A5."] {
+            assert!(!text.contains(gone), "{gone} in\n{text}");
+        }
+        assert!(text.contains("fn f4(a: Int, b: Int) -> Int {\n    (a - b)\n}"), "{text}");
+        assert!(text.contains("    f4(1, 2)\n") && text.contains("print(f4(3, 1));"), "{text}");
+        let at = |needle: &str| text.find(needle).unwrap_or_else(|| panic!("{needle}\n{text}"));
+        assert!(at("// expect: any") < at("import Flow.Array as Array"));
+        assert!(at("import Flow.Array as Array") < at("data D2 { C3 }"));
+        assert!(at("data D2 { C3 }") < at("fn f6()"));
+        assert!(inline_module(&files[1..]).is_none(), "one file has no module to inline");
+    }
+
+    /// A two-file case: each file is reduced with the other held fixed, and
+    /// a module the bug doesn't need is inlined, leaving one file.
+    #[test]
+    fn a_two_file_case_reduces_both_files_and_inlines_a_module_it_doesnt_need() {
+        let module = "module M1 {\n    public fn f2(n: Int) -> Int {\n        (n + 1)\n    }\n\n    public fn f3(a: Int, b: Int) -> Int {\n        (a - b)\n    }\n}";
+        let main = "import M1 as A4\n\nfn main() with IO {\n    let v5: Int = A4.f2(1);\n    print(v5);\n    print(A4.f3(9, 2));\n}";
+        let files: Files =
+            vec![("M1.flx".to_string(), lines(module)), ("main.flx".to_string(), lines(main))];
+        let braced = |files: &Files| {
+            files.iter().all(|(_, l)| {
+                let text = join(l);
+                text.matches('{').count() == text.matches('}').count()
+            })
+        };
+        let whole = |files: &Files| files.iter().map(|(_, l)| join(l)).collect::<String>();
+
+        let needs_module = |files: &Files, _: usize| {
+            let text = whole(files);
+            files.len() == 2
+                && braced(files)
+                && text.contains("fn f3(a: Int, b: Int) -> Int {")
+                && text.contains("(a - b)")
+                && text.contains("A4.f3(")
+        };
+        let (reduced, _) = reduce_case(files.clone(), &needs_module, 2, &mut |_, _, _| {});
+        assert_eq!(reduced.len(), 2);
+        assert!(!join(&reduced[0].1).contains("f2"), "{}", join(&reduced[0].1));
+        assert!(!join(&reduced[1].1).contains("f2"), "{}", join(&reduced[1].1));
+
+        let anywhere = |files: &Files, _: usize| braced(files) && whole(files).contains("(a - b)");
+        let (reduced, _) = reduce_case(files, &anywhere, 2, &mut |_, _, _| {});
+        assert_eq!(reduced.len(), 1, "{reduced:?}");
+    }
+
+    /// A native run of a candidate on the slot's cache can show a
+    /// difference the program doesn't have, when a cached object was built
+    /// for another program (KI-145); such a candidate isn't kept, so the
+    /// reduction can't drift onto it.
+    #[test]
+    fn a_candidate_that_shows_the_bug_only_with_a_cache_is_not_kept() {
+        assert!(!shows(true, |cached| cached), "only the cache shows it");
+        assert!(shows(true, |_| true));
+        assert!(!shows(true, |_| false));
+        assert!(shows(false, |cached| cached), "a VM way reads no cache");
+    }
+
+    #[test]
+    fn a_one_line_body_is_joined() {
+        let program = lines(
+            "fn f(x: Int) -> Int {\n    x\n}\nfn main() with IO {\n    let v: Int = if true {\n        1\n    } else {\n        2\n    };\n    print(f(v));\n}",
+        );
+        let candidates = join_bodies(&program);
+        assert_eq!(candidates.len(), 1, "the `if`'s branches keep their lines");
+        assert!(join(&candidates[0]).starts_with("fn f(x: Int) -> Int { x }\nfn main"));
+        let joined = lines("fn f(x: Int) -> Int { (1 + 2) }");
+        assert!(
+            simplify_expressions(&joined).iter().any(|c| c[0] == "fn f(x: Int) -> Int { 1 }"),
+            "a joined body is still simplified"
+        );
+    }
+
+    /// A `match` whose arms are each one line goes on one line, so `inline`
+    /// can then fold the `let` it's bound to; one with an arm of its own
+    /// block keeps its lines.
+    #[test]
+    fn a_match_of_one_line_arms_is_joined() {
+        let program = lines(
+            "fn f(c: Int) -> String {\n    let v: String = match g(c) {\n        Some(p) -> \"#{p}\",\n        None -> \"\",\n    };\n    v\n}",
+        );
+        let candidates = join_arms(&program);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(
+            candidates[0][1],
+            "    let v: String = match g(c) { Some(p) -> \"#{p}\", None -> \"\" };"
+        );
+        assert_eq!(candidates[0].len(), 4);
+        let nested = lines(
+            "fn f(c: Int) -> Int {\n    match c {\n        1 -> if true {\n            2\n        } else {\n            3\n        },\n        _ -> 0,\n    }\n}",
+        );
+        assert!(join_arms(&nested).is_empty(), "an arm spans lines");
+        let body = lines("fn f(x: Int) -> Int {\n    x\n}");
+        assert!(join_arms(&body).is_empty(), "a function body is `join_bodies`' to join");
+    }
+
+    /// Each `#{..}` piece of a string can go on its own.
+    #[test]
+    fn an_interpolated_piece_is_dropped() {
+        let program = lines("    \"#{v.0}|#{f(\"bc\")}|#{0}\"");
+        let candidates: Vec<String> =
+            simplify_expressions(&program).into_iter().map(|c| c[0].clone()).collect();
+        for without in
+            ["    \"|#{f(\"bc\")}|#{0}\"", "    \"#{v.0}||#{0}\"", "    \"#{v.0}|#{f(\"bc\")}|\""]
+        {
+            assert!(candidates.iter().any(|c| c == without), "{without} not in {candidates:?}");
+        }
+    }
+
+    /// A class program whose bug needs one method and the helper that calls
+    /// it reduces to them: the other method, the unused parameter and the
+    /// layout all go.
+    #[test]
+    fn a_class_program_reduces_to_the_method_it_calls() {
+        let shows_bug = |text: &str, _: usize| {
+            let declared = text.matches("fn m2(").count();
+            let params = text.find("fn f<").and_then(|at| {
+                let line = text[at..].lines().next()?;
+                Some(line.matches(':').count() - 1)
+            });
+            let args_match = params.is_some_and(|n| {
+                text.lines()
+                    .filter(|l| l.contains("print(f("))
+                    .all(|l| l.matches(',').count() + 1 == n)
+            });
+            text.matches('{').count() == text.matches('}').count()
+                && text.contains("class K<a> {\n    fn m2(x: a) -> Int\n")
+                && declared >= 2
+                && !text.contains(") {\n    }")
+                && !text.contains(") {\n}")
+                && text.matches("fn m1(").count().is_multiple_of(3)
+                && text.find("fn f<").is_some_and(|at| text[at..].contains("m2(x)"))
+                && text.contains("print(f(")
+                && args_match
+        };
+        let reduced = reduce_with(CLASSES, &shows_bug);
+        assert!(!reduced.contains("m1"), "{reduced}");
+        assert!(!reduced.contains("y: Int"), "{reduced}");
+        assert!(reduced.contains("fn f<a: K>(x: a) -> Int { m2(x) }"), "{reduced}");
+        assert!(reduced.lines().count() <= 10, "{reduced}");
+    }
+
+    /// When no way compiles the case, two ways that differ only differ in
+    /// their diagnostics, and any text that keeps them apart would do; the
+    /// compiler's own failure is the bug (an S17c case reduced to a broken
+    /// program that way).
+    #[test]
+    fn a_case_no_way_compiles_is_reduced_as_its_internal_error() {
+        let (vm, vm_opt) = (Way::ALL[0], Way::ALL[1]);
+        let diagnostics = Verdict {
+            stream: Stream::Stderr,
+            compiled: (false, false),
+            exits: ((true, 1), (true, 1)),
+        };
+        let why = "error[E999]: Aether Verification Failed".to_string();
+        let target = choose(Some((vm, vm_opt, diagnostics)), Some(why.clone()));
+        assert!(matches!(target, Some(Target::Internal(w)) if w == why));
+
+        let compiled = Verdict { compiled: (true, true), stream: Stream::Stdout, ..diagnostics };
+        let target = choose(Some((vm, vm_opt, compiled)), Some(why));
+        assert!(matches!(target, Some(Target::Mismatch { .. })), "a real mismatch is kept");
+        assert!(choose(None, None).is_none());
     }
 }

@@ -307,6 +307,30 @@ fn test_non_value_tail_statement_does_not_emit_tail_call() {
     assert_eq!(result, Value::None);
 }
 
+/// `stack` is read in both arms, but the `do` block is in tail position, so
+/// nothing runs after its read: it can move `stack` into the new cell. Only a
+/// `do` block with code after it keeps the function's counts (KI-116).
+#[test]
+fn a_do_block_in_tail_position_moves_what_it_reads_once() {
+    let input = r#"
+        type Stack = Empty | Push(Int, Stack)
+        fn walk(xs, stack) {
+            match xs {
+                [h | t] -> do {
+                    let pushed = Push(h, stack);
+                    walk(t, pushed)
+                },
+                _ -> stack,
+            }
+        }
+        walk([1, 2, 3], Empty);
+    "#;
+
+    let bytecode = compile(input);
+    let asm = find_function_disassembly(&bytecode, 2);
+    assert!(asm.contains("OpConsumeLocal1"), "stack is copied, not moved:\n{asm}");
+}
+
 #[test]
 fn test_emits_consume_local_for_accumulator_tail_call() {
     let input = r#"

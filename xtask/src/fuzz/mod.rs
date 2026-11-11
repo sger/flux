@@ -3,12 +3,16 @@
 //! are compared on programs nobody wrote as fixtures.
 //!
 //! A run's folder is `.verify/fuzz_<seed>/`, recreated each time:
-//! - `cases/case_<i>.flx`: the programs that compile, which parity-check runs;
+//! - `cases/case_<i>.flx`, or the folder `cases/case_<i>/` holding `main.flx`
+//!   and the module it imports: the programs that compile, which
+//!   parity-check runs;
 //! - `internal/`: programs the compiler failed on itself (a panic, a failed
 //!   IR or Aether check, a timeout), each a compiler bug;
 //! - `genfail/`: programs the compiler rejected with a diagnostic, each a
 //!   generator bug;
 //! - `mismatch/`: copies of the cases whose ways disagreed;
+//! - `varies/`: with `--reruns N`, copies of the cases whose output on one
+//!   way changed from one run to the next (0190 S17d);
 //! - `parity.log` and `summary.txt`.
 //!
 //! The copies sit outside `cases/` because parity-check sweeps a folder
@@ -30,7 +34,9 @@ use crate::store;
 use crate::sweep::run_flux;
 use crate::verify::{cargo, flux_binary};
 
-pub use generate::program;
+pub use generate::Parts;
+use generate::case_files;
+use reduce::Way;
 pub use reduce::{ReduceOptions, run_reduce};
 
 pub const DEFAULT_WAYS: &str = "vm,llvm,vm_opt,llvm_opt";
@@ -54,10 +60,25 @@ pub struct Options {
     pub jobs: usize,
     /// Write the cases and stop.
     pub gen_only: bool,
+    /// The parts of the language beyond S8's subset (`--with`, 0190 S17).
+    pub parts: Parts,
+    /// Run each case every way agrees on this many more times on each way,
+    /// and report one whose output changes (`--reruns`, 0190 S17d).
+    pub reruns: usize,
+}
+
+/// `fuzz_<seed>`, or `fuzz_<seed>_<parts>` with parts on, so that runs of
+/// one seed with and without them keep their own cases.
+fn run_dir(options: &Options) -> String {
+    if options.parts == Parts::NONE {
+        format!("fuzz_{}", options.seed)
+    } else {
+        format!("fuzz_{}_{}", options.seed, options.parts.names().replace(',', "_"))
+    }
 }
 
 pub fn run_fuzz(root: &Path, options: &Options) -> Result<bool, String> {
-    let out = store::store_root(root).join(format!("fuzz_{}", options.seed));
+    let out = store::store_root(root).join(run_dir(options));
     if out.exists() {
         fs::remove_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
     }
@@ -65,17 +86,30 @@ pub fn run_fuzz(root: &Path, options: &Options) -> Result<bool, String> {
     let internal = out.join("internal");
     let genfail = out.join("genfail");
     let mismatch = out.join("mismatch");
-    for dir in [&cases, &internal, &genfail, &mismatch] {
+    let varies = out.join("varies");
+    for dir in [&cases, &internal, &genfail, &mismatch, &varies] {
         fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
     println!("outputs: {}", store::display(&out));
     let started = Instant::now();
-    let mut steps = Steps::new(if options.gen_only { 1 } else { 4 });
+    let mut steps = Steps::new(match (options.gen_only, options.reruns) {
+        (true, _) => 1,
+        (false, 0) => 4,
+        (false, _) => 5,
+    });
 
     steps.start(&format!("generate {} program(s) from seed {}", options.count, options.seed));
-    let files: Vec<String> = (0..options.count).map(|i| format!("case_{i}.flx")).collect();
-    for (i, file) in files.iter().enumerate() {
-        write(&cases.join(file), &program(options.seed, i))?;
+    let mut files: Vec<String> = Vec::new();
+    for i in 0..options.count {
+        let written = case_files(options.seed, i, &options.parts);
+        for (path, text) in &written {
+            let path = cases.join(path);
+            if let Some(dir) = path.parent() {
+                fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+            }
+            write(&path, text)?;
+        }
+        files.push(entry(&written));
     }
     if options.gen_only {
         return Ok(true);
@@ -101,8 +135,9 @@ pub fn run_fuzz(root: &Path, options: &Options) -> Result<bool, String> {
             Compile::Internal(why) => (&internal, &mut compiler_failures, why),
             Compile::Rejected(why) => (&genfail, &mut generator_failures, why),
         };
-        fs::rename(cases.join(file), to.join(file))
-            .map_err(|e| format!("{}: {e}", to.join(file).display()))?;
+        let root = case_root(file);
+        fs::rename(cases.join(root), to.join(root))
+            .map_err(|e| format!("{}: {e}", to.join(root).display()))?;
         list.push(format!("{file}: {why}"));
     }
     let failed = compiler_failures.len() + generator_failures.len();
@@ -126,19 +161,111 @@ pub fn run_fuzz(root: &Path, options: &Options) -> Result<bool, String> {
         )
         .map_err(|e| e.to_string())?;
     }
+    let mut disagreeing = Vec::new();
     for line in &counts.failures {
         if let Some(path) = failing_file(line) {
             let from = root.join(path);
-            let name = from.file_name().ok_or(format!("no file name in {line}"))?;
-            fs::copy(&from, mismatch.join(name)).map_err(|e| format!("{}: {e}", from.display()))?;
+            let within =
+                from.strip_prefix(root.join(&cases)).or_else(|_| from.strip_prefix(&cases));
+            let within =
+                within.map_err(|_| format!("{line}: not a case in {}", cases.display()))?;
+            let case = case_root(&within.to_string_lossy()).to_string();
+            copy_case(&cases.join(&case), &mismatch.join(&case))?;
+            disagreeing.push(case);
         }
     }
 
+    let mut reran = None;
+    if options.reruns > 0 {
+        steps.start(&format!("rerun each agreeing case {} times on each way", options.reruns));
+        let ways = options.ways.split(',').map(Way::parse).collect::<Result<Vec<_>, _>>()?;
+        let agreeing: Vec<String> = files
+            .iter()
+            .filter(|f| cases.join(f).exists() && !disagreeing.iter().any(|d| d == case_root(f)))
+            .cloned()
+            .collect();
+        let found = parallel(&agreeing, crate::sweep::default_jobs(), |file| {
+            let cache = out.join("rerun_cache").join(case_root(file).trim_end_matches(".flx"));
+            let path = cases.join(file).to_string_lossy().into_owned();
+            let changed = ways.iter().find_map(|way| {
+                let runs: Vec<(bool, i32, String)> = (0..=options.reruns)
+                    .map(|_| {
+                        let ran = way.run(root, &flux, &path, TIMEOUT, Some(&cache));
+                        (ran.finished, ran.exit, ran.stdout)
+                    })
+                    .collect();
+                first_change(&runs).map(|run| format!("{}: run {run} differs", way.name))
+            });
+            let _ = fs::remove_dir_all(&cache);
+            changed
+        });
+        let mut changed = Vec::new();
+        for (file, why) in agreeing.iter().zip(found) {
+            if let Some(why) = why {
+                let case = case_root(file);
+                copy_case(&cases.join(case), &varies.join(case))?;
+                changed.push(format!("{file}: {why}"));
+            }
+        }
+        let _ = fs::remove_dir_all(out.join("rerun_cache"));
+        reran = Some(Reran { agreeing: agreeing.len(), changed });
+    }
+
     let failures = Failures { compiler: &compiler_failures, generator: &generator_failures };
-    let summary = summary(options, files.len(), &failures, &counts, started.elapsed());
+    let summary =
+        summary(options, files.len(), &failures, &counts, reran.as_ref(), started.elapsed());
     write(&out.join("summary.txt"), &summary)?;
     print!("{summary}");
-    Ok(failed == 0 && counts.ok())
+    Ok(failed == 0 && counts.ok() && reran.is_none_or(|r| r.changed.is_empty()))
+}
+
+/// The file a case is run from: its one file, or the `main.flx` of its
+/// folder.
+fn entry(files: &[(String, String)]) -> String {
+    match files {
+        [(only, _)] => only.clone(),
+        _ => files
+            .iter()
+            .map(|(path, _)| path)
+            .find(|path| path.ends_with("/main.flx"))
+            .cloned()
+            .unwrap_or_else(|| files[0].0.clone()),
+    }
+}
+
+/// What a case's entry belongs to within `cases/`: the file itself, or the
+/// folder holding it with its module, which moves and is copied as a whole.
+fn case_root(entry: &str) -> &str {
+    entry.split('/').next().unwrap_or(entry)
+}
+
+/// Copies a case, a file or a folder, to `to`.
+fn copy_case(from: &Path, to: &Path) -> Result<(), String> {
+    if from.is_dir() {
+        fs::create_dir_all(to).map_err(|e| format!("{}: {e}", to.display()))?;
+        let read = fs::read_dir(from).map_err(|e| format!("{}: {e}", from.display()))?;
+        for item in read {
+            let item = item.map_err(|e| e.to_string())?;
+            copy_case(&item.path(), &to.join(item.file_name()))?;
+        }
+        Ok(())
+    } else {
+        fs::copy(from, to).map(|_| ()).map_err(|e| format!("{}: {e}", from.display()))
+    }
+}
+
+/// What `--reruns` found: how many cases it reran, and each one whose output
+/// changed, with the way and the run.
+struct Reran {
+    agreeing: usize,
+    changed: Vec<String>,
+}
+
+/// The first run, after the first, whose finish, exit or stdout isn't the
+/// first's.
+fn first_change(runs: &[(bool, i32, String)]) -> Option<usize> {
+    let first = runs.first()?;
+    runs.iter().position(|run| run != first)
 }
 
 /// How compiling one program went.
@@ -153,8 +280,20 @@ enum Compile {
 
 fn judge(finished: bool, exit: i32, stderr: &str) -> Compile {
     let first_error = || {
-        let line = stderr.lines().find(|l| l.contains("error[E") || l.contains("panicked at"));
-        line.or_else(|| stderr.lines().find(|l| !l.trim().is_empty())).unwrap_or("").trim().into()
+        let mut lines = stderr.lines();
+        let Some(line) = lines.find(|l| l.contains("error[E") || l.contains("panicked at")) else {
+            return stderr.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_string();
+        };
+        // Every internal compiler error has the same title; the line after
+        // it says which one, with its positions masked as lines move.
+        match lines.find(|l| !l.trim().is_empty()) {
+            Some(why) if line.contains("error[E000]") => {
+                let why: String =
+                    why.trim().chars().map(|c| if c.is_ascii_digit() { '#' } else { c }).collect();
+                format!("{}: {why}", line.trim())
+            }
+            _ => line.trim().to_string(),
+        }
     };
     let lower = stderr.to_lowercase();
     if !finished {
@@ -192,14 +331,20 @@ fn summary(
     generated: usize,
     failures: &Failures<'_>,
     counts: &ParityCounts,
+    reran: Option<&Reran>,
     took: Duration,
 ) -> String {
     let mut text = String::new();
     let compiled = generated - failures.compiler.len() - failures.generator.len();
     let failing = counts.mismatches + counts.expected;
+    let with = if options.parts == Parts::NONE {
+        String::new()
+    } else {
+        format!(", with {}", options.parts.names())
+    };
     let _ = writeln!(
         text,
-        "fuzz: seed {}, {} program(s), ways {}",
+        "fuzz: seed {}{with}, {} program(s), ways {}",
         options.seed, generated, options.ways
     );
     let _ = writeln!(text, "internal compiler errors: {}", failures.compiler.len());
@@ -221,6 +366,20 @@ fn summary(
     for line in &counts.failures {
         let _ = writeln!(text, "  {line}");
     }
+    if let Some(reran) = reran {
+        let _ = writeln!(
+            text,
+            "reruns: {} each on {}: {} of {} the same, {} vary (target 0)",
+            options.reruns,
+            options.ways,
+            reran.agreeing - reran.changed.len(),
+            reran.agreeing,
+            reran.changed.len()
+        );
+        for line in &reran.changed {
+            let _ = writeln!(text, "  {line}");
+        }
+    }
     let _ = writeln!(text, "took {}", format_duration(took));
     text
 }
@@ -228,6 +387,34 @@ fn summary(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A case is its file, or the folder holding its `main.flx` and module;
+    /// a folder is moved and copied whole.
+    #[test]
+    fn a_case_is_its_file_or_its_folder() {
+        let one = vec![("case_3.flx".to_string(), String::new())];
+        assert_eq!(entry(&one), "case_3.flx");
+        let two = vec![
+            ("case_4/M5.flx".to_string(), String::new()),
+            ("case_4/main.flx".to_string(), String::new()),
+        ];
+        assert_eq!(entry(&two), "case_4/main.flx");
+        assert_eq!(case_root("case_3.flx"), "case_3.flx");
+        assert_eq!(case_root("case_4/main.flx"), "case_4");
+
+        let dir = std::env::temp_dir().join(format!("xtask_copy_case_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let from = dir.join("cases/case_4");
+        fs::create_dir_all(&from).unwrap();
+        fs::write(from.join("main.flx"), "fn main() with IO {}\n").unwrap();
+        fs::write(from.join("M5.flx"), "module M5 {}\n").unwrap();
+        let to: std::path::PathBuf = dir.join("mismatch/case_4");
+        fs::create_dir_all(dir.join("mismatch")).unwrap();
+        copy_case(&from, &to).unwrap();
+        assert_eq!(fs::read_to_string(to.join("M5.flx")).unwrap(), "module M5 {}\n");
+        assert!(to.join("main.flx").exists());
+        fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn reads_the_file_from_a_failing_verdict() {
@@ -241,8 +428,15 @@ mod tests {
 
     #[test]
     fn a_summary_lists_each_failure() {
-        let options =
-            Options { seed: 1, count: 3, ways: DEFAULT_WAYS.into(), jobs: 1, gen_only: false };
+        let options = Options {
+            seed: 1,
+            count: 3,
+            ways: DEFAULT_WAYS.into(),
+            jobs: 1,
+            gen_only: false,
+            parts: Parts::NONE,
+            reruns: 0,
+        };
         let counts = ParityCounts {
             mismatches: 1,
             exit: 1,
@@ -250,10 +444,39 @@ mod tests {
             ..ParityCounts::default()
         };
         let failures = Failures { compiler: &[], generator: &["case_0.flx: error[E001]".into()] };
-        let text = summary(&options, 3, &failures, &counts, Duration::ZERO);
+        let text = summary(&options, 3, &failures, &counts, None, Duration::ZERO);
+        assert!(!text.contains("reruns"));
         assert!(text.contains("internal compiler errors: 0\n"));
         assert!(text.contains("generator failures: 1 (target 0)\n  case_0.flx: error[E001]\n"));
         assert!(text.contains("parity: 1 of 2 agree, 1 MISMATCH, 0 EXPECTED_OUTPUT_MISMATCH, exit 1\n  MISMATCH c/case_2.flx\n"));
+    }
+
+    /// A case whose output changes on any rerun is reported with the run,
+    /// and one whose runs are all the same isn't.
+    #[test]
+    fn a_rerun_that_changes_is_found_and_listed() {
+        let run = |exit, out: &str| (true, exit, out.to_string());
+        assert_eq!(first_change(&[run(0, "1\n"), run(0, "1\n"), run(0, "1\n")]), None);
+        assert_eq!(first_change(&[run(0, "1\n"), run(0, "1\n"), run(0, "2\n")]), Some(2));
+        assert_eq!(first_change(&[run(0, "1\n"), run(1, "1\n")]), Some(1));
+        assert_eq!(first_change(&[run(0, "1\n"), (false, 0, "1\n".into())]), Some(1));
+        assert_eq!(first_change(&[]), None);
+        let options = Options {
+            seed: 1,
+            count: 2,
+            ways: "vm,llvm".into(),
+            jobs: 1,
+            gen_only: false,
+            parts: Parts::NONE,
+            reruns: 10,
+        };
+        let failures = Failures { compiler: &[], generator: &[] };
+        let reran = Reran { agreeing: 2, changed: vec!["case_1.flx: llvm: run 4 differs".into()] };
+        let text =
+            summary(&options, 2, &failures, &ParityCounts::default(), Some(&reran), Duration::ZERO);
+        assert!(text.contains(
+            "reruns: 10 each on vm,llvm: 1 of 2 the same, 1 vary (target 0)\n  case_1.flx: llvm: run 4 differs\n"
+        ));
     }
 
     #[test]
@@ -277,5 +500,23 @@ mod tests {
         );
         assert_eq!(judge(true, 139, ""), Compile::Internal("exit 139: ".into()));
         assert_eq!(judge(true, 0, "warning[W001]: unused\n"), Compile::Ok);
+    }
+
+    /// Every internal compiler error has one title, so the reducer, which
+    /// keeps a candidate that fails the same way, needs the explanation to
+    /// tell two apart; not the site, which moves as lines go.
+    #[test]
+    fn internal_errors_differ_by_their_explanation_not_their_site() {
+        let ice = |site: &str, why: &str| {
+            format!(
+                "• 1 error • a.flx\nerror[E000]: Internal Compiler Error\n\n\
+                 lowering the site at {site} from its evidence: {why}\n\n  a.flx:{site}\n"
+            )
+        };
+        let many = "a method call answered with more than one dictionary";
+        let none = "a predicate it raised (Cls11) has no answer that can be built";
+        let one = judge(true, 1, &ice("7:46", many));
+        assert_eq!(one, judge(true, 1, &ice("3:12", many)));
+        assert_ne!(one, judge(true, 1, &ice("7:46", none)));
     }
 }

@@ -6,7 +6,8 @@ use std::{
 
 use crate as flux;
 use crate::driver::frontend::{
-    collect_module_roots, collect_roots, inject_flow_prelude, validate_no_primops_import,
+    collect_module_roots, collect_roots, flow_prelude_imports, inject_flow_prelude,
+    validate_no_primops_import,
 };
 use crate::driver::shared::tag_and_attach_file;
 use flux::{
@@ -106,6 +107,7 @@ pub(crate) fn build_program_context_from_source(
         );
         all_diagnostics.append(&mut primops_import_diags);
     }
+    let prelude = if trace_aether { Vec::new() } else { flow_prelude_imports(Path::new(path)) };
     if !trace_aether {
         inject_flow_prelude(&mut program, &mut parser, use_native_backend, Path::new(path));
     }
@@ -129,7 +131,7 @@ pub(crate) fn build_program_context_from_source(
         };
 
     let mut graph_result =
-        ModuleGraph::build_with_entry_and_module_roots(&entry_path, &program, interner, &roots);
+        ModuleGraph::build_with_prelude(&entry_path, &program, interner, &roots, &prelude);
     let parse_ms = parse_start.elapsed().as_secs_f64() * 1000.0;
     let mut graph_diags = std::mem::take(&mut graph_result.diagnostics);
     tag_and_attach_file(&mut graph_diags, flux::diagnostics::DiagnosticPhase::ModuleGraph, path);

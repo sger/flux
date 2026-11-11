@@ -42,40 +42,353 @@ Severity is about consequence, not effort:
 
 ## Open
 
-### KI-173 — Native code returned a call's result when the function returned something else
+### KI-176 — An uppercase type parameter breaks `deriving` on a generic type and an instance's context
 
-**Severity:** High · **Area:** native backend, tail calls · **Verified:** 2026-11-09 (ff00ea39; also main 0ea95cb4) · **From:** 0190 S8 (`cargo xtask fuzz --seed 1`, case 61)
+**Severity:** Medium · **Area:** Type classes, deriving · **Verified:** 2026-11-09 (2fe0af80) · **From:** 0190 S17a (`cargo xtask fuzz --with classes`, the generator's first version)
 
 ```flux
-fn f(n: Int) -> Int {
-    if (n <= 0) { n } else { let v: Int = f((n - 1)); n }
+data Box<T> { Full(T), Empty } deriving (Eq)
+
+fn main() with IO {
+    print(Full(1) == Full(1))
+}
+```
+
+On all four ways the compiler reports `E444 No Type Class Instance: No instance
+for Eq<T>`, at the top of the file. With `data Box<a>` it prints `true`. A
+contextual instance does the same: `instance Size<T> => Size<Box<T>>` whose
+method calls `size` on a `T` field gives `No instance for Size<T>`, and with `a`
+it runs. An uppercase parameter works on a function (`fn identity<T>(x: T)`),
+and nothing documents that it can't be used here. `cargo xtask fuzz` writes `a`
+until this is fixed.
+
+### KI-177 — A method call on a generic type's nullary constructor stops the compiler with E000
+
+**Severity:** Low · **Area:** Type classes, diagnostics · **Verified:** 2026-11-09 (2fe0af80) · **From:** 0190 S17a (`cargo xtask fuzz --with classes`)
+
+```flux
+data Box<a> { Full(a), Empty }
+
+class Size<a> {
+    fn size(x: a) -> Int
+}
+
+instance Size<Int> {
+    fn size(x) { x }
+}
+
+instance Size<a> => Size<Box<a>> {
+    fn size(x) { match x { Full(v) -> size(v), Empty -> 0 } }
 }
 
 fn main() with IO {
-    print(f(9))
+    print(size(Empty))
 }
 ```
 
-The VM prints `9`. `--native` prints `0`, with or without `--optimize`, and with no error.
-Core and the VM are right; the call is not in tail position. The LIR for the `else` branch is:
+Nothing fixes `Empty`'s `a`, so `Size<a>` has no answer. The program is wrong,
+but the compiler stops with `E000 Internal Compiler Error: ... a predicate it
+raised (Size) has no answer that can be built` on all four ways, where
+`E476 Ambiguous Type Variable` would say what to fix. With
+`let b: Box<Int> = Empty` before the call it prints `0`. `cargo xtask fuzz`
+only calls a method on a generic type's value through an annotated variable.
 
+### KI-178 — On the VM, a class method named like a prelude function panics when `main` calls it
+
+**Severity:** Medium · **Area:** VM, type classes, name resolution · **Verified:** 2026-11-10 (ea48361a) · **From:** 0190 S17a (a probe written while checking the exit plant)
+
+```flux
+class Two<a> {
+    fn first(x: a) -> Int
+    fn second(x: a) -> Int
+}
+
+instance Two<Int> {
+    fn first(x) { x + 1 }
+    fn second(x) { x + 100 }
+}
+
+fn main() with IO {
+    print(first(5))
+}
 ```
-bb3: ... tailcall f(%12)       ← was `call f(%12) -> bb4`
-bb4(%13): %6 = copy %0         ← forwards n, not the call's result %13
-          jmp bb1                (bb1 returns %6)
+
+On `vm` and `vm_opt` this stops with `error[E1009]: panic: No instance of
+Two.first for the given type`, at `first`, called from `main`. On `llvm` and
+`llvm_opt` it prints `6`. It needs both of these:
+- the method shares its name with a prelude function. The prelude has
+  `first` (`Flow.List`, `Flow.Array`, `Flow.Async`). `second(5)` in the same
+  program prints `105`, and so does a one-method class whose method is
+  `only`;
+- the call is in `main`. `fn helper() -> Int { first(5) }` called from `main`
+  prints `6` on the VM.
+
+Core keeps a panicking stub for each class method
+(`letrec first = λ__x0. panic("No instance of Two.first …")`), and the call in
+`main` reaches it on the VM. The VM compiles `main`'s body by its own path
+([KI-118](#ki-118)). [KI-091](#ki-091) fixed a user *function* losing to a
+prelude function of the same name. A class method was not covered.
+
+The fuzz generator names its methods `m<n>`, so it can't produce this.
+
+### KI-179 — Without `--strict`, `[]` is accepted at any type, and natively nothing checks it
+
+**Severity:** High (silent wrong output natively) · **Area:** Type inference, runtime boundary checks, native backend · **Verified:** 2026-11-10 (0dd6c6cb) · **From:** 0190 S17a (`cargo xtask fuzz reduce` drifted onto it from a planted miscompile)
+
+```flux
+data D3 { C4, C5(String) }
+
+fn h(x: Int) -> Bool {
+    []
+}
+
+fn k(x: Int, y: D3) -> Bool {
+    true
+}
+
+fn main() with IO {
+    print(h(1))
+    print(k(1, []))
+}
 ```
 
-`promote_tail_calls` (`src/lir/lower.rs`) turns a `Call` into a `TailCall` when its
-continuation block is a "return tail". Its fixed-point step accepts a block whose
-instructions are all copies into a successor's block parameter and that jumps to a return
-tail, but it doesn't check that the copy forwards the block's own parameter. `bb4` forwards
-`n` instead, so it was accepted, and `f` returned the innermost call's result.
+Without `--strict` this compiles. A function declared `-> Bool` returns
+`[]`, and `[]` is passed where a `D3` is declared. Each run differs by backend:
+- **The VM** stops at run time with `error[E1004]: Type Error`, "a value with
+  the wrong runtime type", from the boundary check it puts at the return and
+  at the argument.
+- **Natively** there's no check. `h(1)` prints `[]` as its `Bool` result, and
+  `k(1, [])` prints `true`.
 
-Likely fix: in the fixed-point step, require the block to copy its own parameter into the
-target's parameter. Any direct call is affected, not only a self call: with
-`fn g(n: Int) -> Int { n * 100 }` and `let v: Int = g((n - 1)); n` in the `else` branch,
-`--native` prints `800`, `g(8)`. A call whose argument is a parameter escapes, because the
-continuation then starts with a `drop`, which isn't a copy.
+`--strict` rejects both with `E425 Unresolved Boundary Type` ("cannot enforce
+runtime boundary check for unresolved expression type in function return
+expression", and "… in function contract argument"). So inference leaves `[]`'s
+type unresolved rather than unifying it with the declared type, and the default
+mode turns that into a runtime check. Natively that check isn't emitted. A
+generic or constrained function (`fn f<a: C>(x: a) -> Bool { [] }`) does the
+same.
+
+The fuzz generator writes `[]` only at list types, so its programs don't hit
+this. `cargo xtask fuzz reduce` does: it tries `[]` in place of an
+expression, keeps it while the two ways still differ, and so turned a planted
+dictionary miscompile into this (`case_2` and `case_64` of seed 1's run with
+classes).
+
+### KI-180 — A named-field constructor with no lowercase letter in its name can be declared but not built
+
+**Severity:** Low · **Area:** Parser, named fields (0152) · **Verified:** 2026-11-10 (db1babdc) · **From:** 0190 S17b (a probe of the forms the generator would write)
+
+```flux
+data R5 { R5 { f6: Int, f7: String } }
+
+fn main() with IO {
+    let r = R5 { f6: 1, f7: "x" };
+    print(r.f6);
+}
+```
+
+The declaration is accepted, but the construction is not parsed as one. It
+stops with `error[E082]: Constructor Arity Mismatch` ("Constructor `R5`
+expects 2 argument(s) but got 0"), and with an annotation (`let r: R5 = …`)
+with `E300`, the value's type being the constructor's function type. The same
+program with the constructor named `Rx`, `Pt` or `Rec5` prints `1`.
+
+`parse_prefix` (`src/syntax/parser/expression.rs`) takes `Name { … }` as a
+construction only when `is_pascal_case_ident` (`src/syntax/parser/mod.rs`)
+holds: an uppercase first letter and at least one lowercase letter, the rule
+that tells a module name like `Math` from a constant like `PI`. `R5`, `RGB` or
+`HTTP` fail it, so their named-field form can't be written, and the error
+doesn't say why.
+
+The fuzz generator names its records `Rec<n>`.
+
+### KI-181 — A named-field construction inside an `if` condition or a `match` scrutinee doesn't parse, even in parentheses or a call
+
+**Severity:** Low · **Area:** Parser, named fields (0152) · **Verified:** 2026-11-10 (86803c35) · **From:** 0190 S17b (a probe of the forms the generator would write)
+
+```flux
+data Rec5 { Rec5 { f6: Int, f7: String } }
+
+fn pos(r: Rec5) -> Bool { (r.f6 > 0) }
+
+fn main() with IO {
+    let a: Bool = if pos(Rec5 { f6: 1, f7: "z" }) {
+        true
+    } else {
+        false
+    };
+    print(a);
+}
+```
+
+This stops with `error[E073]: Missing Comma` ("Missing comma between
+arguments") at the construction. `match pos(Rec5 { … }) {` does the same,
+`match (Rec5 { … }) {` and `if ((Rec5 { … }).f6 > 0) {` stop with
+`E034 Missing Closing Delimiter`. Bound to a `let` first, each one works.
+
+An `if` condition and a `match` scrutinee turn off struct literals
+(`allow_struct_literal` in `src/syntax/parser/expression.rs`), so that the `{`
+of `if x {` isn't read as a construction. Nothing turns them back on inside
+parentheses, brackets or a call's arguments, where that `{` can't be the
+block's, so a construction nested anywhere in the condition is refused. A Map
+literal there (`if Map.has({1: "a"}, 1) {`) parses.
+
+The fuzz generator builds no record while it writes a condition or a
+scrutinee: a record there comes from a variable.
+
+### KI-182 — Natively, a printed closure shows as `<unknown obj=0xf5>`
+
+**Severity:** Low · **Area:** C runtime, printing · **Verified:** 2026-11-10 (f087a142) · **From:** 0190 S17b (`cargo xtask fuzz reduce` drifted onto it)
+
+```flux
+fn main() with IO {
+    print([\(x: String, y: String) -> true | []]);
+}
+```
+
+The VM prints `[<closure>]` (`src/runtime/value.rs`). Natively the program
+prints `[<unknown obj=0xf5>]`: `flux_print_value` (`runtime/c/flux_rt.c`) has
+no case for `FLUX_OBJ_CLOSURE` (`0xF5`), so a closure falls through to the
+last branch. Printing a closure on its own, or in a record, does the same.
+
+The fuzz generator never prints a value that holds a function. `reduce` did:
+it replaced `map(v50, \g -> g("", ""))` with `v50`, and the two ways still
+differed on stdout, so a reduction of S17b's exit plant drifted onto this.
+
+### KI-183 — Natively, `f(a)(b)` gives back the closure `f(a)` returns, without calling it
+
+**Severity:** High (silent wrong output natively; a closure in an `Int`) · **Area:** Core, native calls · **Verified:** 2026-11-10 (e1531cc4) · **From:** 0190 S17b (`cargo xtask fuzz reduce` drifted onto it from the exit plant, 3 of 3 reductions)
+
+```flux
+fn adder(n: Int) -> (Int) -> Int { \(x: Int) -> (x + n) }
+
+fn main() with IO {
+    print(adder(10)(1));
+    let h: Int = adder(30)(1);
+    print(h);
+    let g: (Int) -> Int = adder(20);
+    print(g(1));
+}
+```
+
+The VM prints `11`, `31` and `21`, with and without `--optimize`. Natively
+the first two print `<unknown obj=0xf5>` (the closure, printed as in
+[KI-182](#ki-182)), so `h`, declared `Int`, holds a closure; the third prints
+`21`. `(adder(40))(1)` does the same, and so does a helper with no
+parameters (`zero()(1)`), except under `llvm_opt`, which inlines that one.
+
+Core already holds the chained call as one call with both arguments:
+`--dump-core` shows `adder(10, 1)` for a one-parameter `adder`. The VM applies
+the extra argument to what `adder(10)` returns. Native code makes a direct call
+with the extra argument, which is dropped, as it drops the extra arguments of
+[KI-146](#ki-146); here the program is valid.
+
+The fuzz generator binds a returned closure before calling it, so its
+programs don't show this. `reduce` inlined such a `let` (`let v = f14();
+print(v(0, 86))` became `print(f14()(0, 86))`), and the ways still differed on
+stdout.
+
+### KI-184 — Natively, an effect operation of two or more parameters gives its handle a closure
+
+**Severity:** High (silent wrong output natively) · **Area:** Native effects, `perform` lowering · **Verified:** 2026-11-10 (ae6dbc70) · **From:** 0190 S17c (a probe of the forms the generator would write)
+
+```flux
+effect Ask { ask : (Int, Int) -> Int }
+
+fn calc() -> Int with Ask { perform Ask.ask(2, 5) }
+
+fn main() with IO {
+    let v: Int = calc() handle Ask { ask(resume, n, m) -> resume((n - m)) };
+    print(v);
+}
+```
+
+`vm` and `vm_opt` print `-3`. `llvm` and `llvm_opt` print
+`<unknown obj=0xf5>`, a closure (printed as in [KI-182](#ki-182)), so `v`,
+declared `Int`, holds one. An aborting clause (`ask(resume, n, m) -> (n - m)`)
+and parameters of different types (`(Int, String) -> Int`) do the same. An
+operation of no parameter or of one works on all four ways.
+
+`lower_perform_aether` (`src/lir/lower.rs`) lowers only `args[0]` and passes
+`args.len()` as the arity beside it; the other arguments are dropped. The
+clause closure takes `(resume, n, m)`, so called with `(resume, n)` it gives
+back a closure that waits for `m`, and that becomes the handle's value. No
+parity fixture has an operation of two parameters; `lib/Flow/Effects.flx`,
+which isn't compiled, is the only place one is written.
+
+The fuzz generator writes operations of at most one parameter.
+
+### KI-185 — Natively, every operation of an effect runs its handler's first clause
+
+**Severity:** High (silent wrong output natively) · **Area:** Native effects, handler lowering · **Verified:** 2026-11-10 (f1d78295) · **From:** 0190 S17c (a probe of the forms the generator would write)
+
+```flux
+effect E {
+    a : (Int) -> Int
+    b : (Int) -> Int
+}
+
+fn g() -> Int with E {
+    let x: Int = perform E.a(1);
+    let y: Int = perform E.b(1);
+    ((x * 1000) + y)
+}
+
+fn main() with IO {
+    let v: Int = g() handle E { a(resume, n) -> resume(100), b(resume, n) -> resume(200) };
+    print(v);
+}
+```
+
+`vm` and `vm_opt` print `100200`; `llvm` and `llvm_opt` print `100100`:
+`perform E.b(1)` ran `a`'s clause. With `perform E.b` alone it's `200` against
+`100`. When the clauses' types differ (an `(Int) -> Int` and a
+`(String) -> Bool` operation), `b` resumes with `a`'s value, of `a`'s type.
+
+`lower_handle_aether` (`src/lir/lower.rs`) builds the handler's closure from
+`handlers[0]` alone (`lower_handler_clause_aether(effect, &handlers[0])`) and
+inserts it as the effect's one evidence entry, so whichever operation is
+performed, that clause runs. `lower_handle`, the Core path, does the same.
+`tests/parity/effect_tr_reader.flx` has a two-operation effect, but it binds
+the second operation's result to `_port` and never reads it, so it passes.
+
+The fuzz generator gives each effect one operation.
+
+### KI-186 — A handler clause that reads a value the handled call takes over stops the compiler with E999
+
+**Severity:** Medium (valid programs refused, with an internal error) · **Area:** Aether, ownership, effect handlers · **Verified:** 2026-11-10 (5fb02344) · **From:** 0190 S17c (`cargo xtask fuzz --seed 1 --with effects --gen-only`, case 65 of 200)
+
+```flux
+effect Eff { op : (Int) -> Int }
+
+fn f(s: String) -> String with Eff {
+    let x: Int = perform Eff.op(1);
+    s
+}
+
+fn run(n: Int) -> String {
+    let s: String = ("ab" + to_string(n));
+    f(s) handle Eff { op(resume, p) -> resume(len(s)) }
+}
+
+fn main() with IO {
+    print(run(3));
+}
+```
+
+On every way this stops with `error[E999]: Aether Verification Failed`: "the
+ownership plan for `run` is unsound … binder … is read after it was released"
+(`UsedAfterRelease`, after `lower_core_to_aether_program`). The same `let` in
+`main` does it too.
+
+It needs both: the handled call takes `s` over (here `f` returns it), and the
+clause reads `s`. With `f` only reading `s` (`(x + len(s))`), or with `s` a
+parameter of `run` rather than a `let`, it prints. A lambda that captures `s`
+in the same place (`f(s, \(n: Int) -> (n + len(s)))`) also works. So the
+plan releases `s` at the call, and doesn't count the clause, which reads it
+later, as a use.
+
+The verifier refuses the plan, so nothing runs wrong.
 
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
@@ -869,33 +1182,6 @@ Not yet confirmed: the function appears to be inferred from its first use in
 the row of `main`'s context, and give `apply_n` a monomorphic function type
 whose runtime check the VM gets wrong.
 
-### KI-116 — On the VM, a variable read by a `let` inside a `do` block is uninitialised afterwards
-
-**Severity:** High · **Area:** VM, ownership · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S7, `cargo xtask rewrite --kind let-wrap` · **Issue:** [#114](https://forgejo.spirosgerokostas.com/sger/flux/issues/114)
-
-```flux
-fn main() with IO {
-    let x = 5
-    print(do { let t = x; t })   // 5
-    print(x)                     // <uninit> on the VM; 5 natively
-}
-```
-
-`vm` and `vm_opt` both print `<uninit>`; `llvm` prints `5`. In longer
-programs the uninitialised value either fails an operation (`E1009 Cannot add
-Uninit and Int values`, `E1009 read from uninitialized stack slot`,
-`E1004 primop len expected String`) or prints a wrong answer with no error:
-the let-wrapped `examples/guide/array_hash_combo.flx` prints `"unknown"` where
-it should print `"unwrap value Alice"`, and the let-wrapped
-`stdlib_pipelines.flx` counts an emptied list as `0` (`("eng", 0)` for
-`("eng", 3)`). In the full run (seed 1, ways `vm,vm_opt,llvm,llvm_opt`), 51 of
-the 192 let-wrapped copies of `tests/parity` and `examples/guide` give
-`MISMATCH`: in every one, `vm` and `vm_opt` differ from `llvm` and `llvm_opt`,
-which agree with each other. In the five checked against the expected output,
-the VM is wrong and native is right.
-
-Fixture: `tests/parity/do_block_let_keeps_its_source.flx`.
-
 ### KI-115 — A cached module with type-class instances is written differently from one run to the next
 
 **Severity:** Low · **Area:** VM bytecode cache · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) S6, `sweep --determinism --mode cache` · **Issue:** [#113](https://forgejo.spirosgerokostas.com/sger/flux/issues/113)
@@ -1066,7 +1352,7 @@ arguments); plain `llvm` exits 0.
 
 ### KI-108 — Native async, channel and HTTP programs crash with a signal
 
-**Severity:** High · **Area:** Native backend, async runtime · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#106](https://forgejo.spirosgerokostas.com/sger/flux/issues/106)
+**Severity:** High · **Area:** Native backend, async runtime · **Verified:** 2026-11-10 (682a2c6b), channel rows only · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#106](https://forgejo.spirosgerokostas.com/sger/flux/issues/106)
 
 Each runs to completion on `vm` and `vm_opt`; natively it is killed:
 
@@ -1090,6 +1376,15 @@ native program terminated by signal 11 (SIGSEGV): invalid memory access
 The table is from the census, which runs four files at a time;
 `async_channels.flx` fails the same way run alone, and the others are not yet
 rechecked alone. Some may share a cause with [KI-009](#ki-009).
+
+**Rechecked 2026-11-10 (682a2c6b):** the five files that aren't HTTP
+examples (`async_channels.flx`, `async_channel.flx`,
+`reverse_async_replayed.flx`, `reverse_channel.flx`, `async_events.flx`) now
+print what the VM prints on `llvm` and `llvm_opt`, and `async_channels.flx`
+and `async_channel.flx` do so on 10 of 10 runs each. Which commit changed it
+isn't known; [KI-122](#ki-122)'s fix (403a62a7) is the likely one. The HTTP
+examples, which need a server, are not rechecked, so this stays open for them.
+0190 S17d's generated programs send values between fibers over channels.
 
 ### KI-109 — Natively, indexing fails with "index operator not supported: Object" in AoC 2025 day 8
 
@@ -2707,6 +3002,290 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-187 — A module file got none of the prelude's imports: natively its calls of `map` or `fold` were undefined — FIXED 2026-11-10
+
+**Severity:** Medium (valid programs refused) · **Area:** Module graph, prelude · **Verified:** 2026-11-10 (52cce2de) · **From:** 0190 S17d (`cargo xtask fuzz --seed 1 --with modules`, 7 of the first 10 cases)
+
+```flux
+// M1.flx, beside main.flx
+module M1 {
+    public fn f(xs: List<Int>) -> Int {
+        sum(map(xs, \x -> (x + 1)))
+    }
+}
+
+// main.flx
+import M1 as A
+fn main() with IO {
+    print(A.f([1, 2]))
+}
+```
+
+On `vm` this prints `5`; on `llvm` it stops with `error[E004]: Undefined
+Variable` ("I can't find a value named `sum`") in `M1.flx`. The same goes for
+`map`, `fold`, `filter`, `length` and `reverse`; `len` and `to_string`, which
+aren't the prelude's, work. `either` is undefined on both ways.
+
+The driver adds the prelude's imports (`import Flow.List exposing (..)` and the
+rest of `FLOW_PRELUDE_MODULES`) to the entry file only (`inject_flow_prelude`,
+`src/driver/frontend.rs`). A module file gets none. On the VM, whose `--no-cache`
+path compiles every module in one compiler, a name the prelude defined before
+the module was compiled resolves anyway, so it depends on the order: `Flow.Either`
+comes after the module, and `either` doesn't. Natively each module is compiled
+on its own, and none of them resolves.
+
+Fixture: `tests/parity/import_module_uses_prelude_ki187.flx`, beside
+`tests/parity/ModulePrelude/Lists.flx`.
+
+**Fixed** in the module graph (`build_with_prelude`, `src/syntax/module_graph/mod.rs`):
+each user module file gets the prelude's imports it doesn't make itself, the
+lines `flow_prelude_imports` gives the entry file, before its imports are
+resolved, so the prelude modules are also ordered before it. A module's own
+function of a prelude name still wins, as in an entry file. `CACHE_EPOCH` is 143,
+because an earlier unit of a user module was compiled without those imports.
+The fixture failed on `vm` and `llvm` before this and passes now.
+
+### KI-175 — A class method or constrained call in an annotated `let`'s `if`, `match` or literal was given its dictionary twice — FIXED 2026-11-09
+
+**Severity:** High (silent wrong output natively; valid programs refused with `E000`) · **Area:** Type inference, dictionary passing · **Verified:** 2026-11-09 (2fe0af80) · **From:** 0190 S17a (`cargo xtask fuzz --seed 1 --with classes --gen-only`, then `--dump-core`)
+
+```flux
+fn render<a: Show>(x: a) -> String {
+    show(x)
+}
+
+fn label(b: Bool) -> String {
+    let s: String = if b { show(1) } else { "z" };
+    s
+}
+
+fn shown(b: Bool) -> String {
+    let u: String = if b { render(1) } else { "z" };
+    u
+}
+
+fn main() with IO {
+    print(label(true))
+    print(shown(true))
+}
+```
+
+`label` stopped the compiler on all four ways (`vm`, `llvm`, `vm_opt`,
+`llvm_opt`) with `E000 Internal Compiler Error: lowering the site at 6:27 from
+its evidence: a method call answered with more than one dictionary`. A `match`
+or a tuple, list or other literal in place of the `if` did it too, with any
+class method, the prelude's `show` as well as a user class's. `shown` compiled,
+and natively printed `"(<value>,)"` where the VM printed `"1"`. Without the
+annotation, or with no `if`, both print `"1"`.
+
+`infer_annotated_let_value` (`src/ast/type_infer/statement.rs`) checks a value
+that has a check rule (`benefits_from_check_propagation`) against the
+annotation, then infers it again. Both passes raised each class predicate in
+the value at the same `ExprId`. So a method call's site recorded `Show`
+twice, which `method_call_from_evidence` (`src/core/lower_ast/emit.rs`) read as
+two dictionaries. A constrained function's callee also recorded it twice, and
+the call passed both dictionaries ahead of its argument. The checked call
+argument and a recursive helper's refine pass had the same double pass, and
+were fixed in 2a7be643 by dropping what the extra pass raised. The annotated
+`let` was the third driver, and was missed.
+
+It was 104 of the first 200 programs with classes, which the fuzz run moved to
+`internal/`.
+
+**Fixed** in `infer_annotated_let_value`: the check pass runs in a capture
+window, and what it raised is dropped. The unifications it made stay, and the
+inference after it raises each predicate once. `CACHE_EPOCH` is 142 and the
+native cache ABI tag v35, because an earlier unit could hold a constrained
+call that passes an extra dictionary.
+`an_annotated_lets_checked_value_raises_its_predicates_once` in
+`tests/type_inference/typeclass_baseline_tests.rs` (an `if`, a `match`, a
+constrained call and a tuple, each raising its predicate twice) and
+`tests/parity/annotated_let_method_call_ki175.flx` (with
+`--ways vm,llvm,vm_opt,llvm_opt`) failed before this and pass now.
+
+### KI-116 — On the VM, a variable read by a `let` inside a `do` block was uninitialised afterwards — FIXED 2026-11-09
+
+**Severity:** High · **Area:** VM, ownership · **Verified:** 2026-11-09 (4d99ac21) · **From:** [0190](proposals/0190_verification_toolkit.md) S7, `cargo xtask rewrite --kind let-wrap` · **Issue:** [#114](https://forgejo.spirosgerokostas.com/sger/flux/issues/114)
+
+```flux
+fn main() with IO {
+    let x = 5
+    print(do { let t = x; t })   // 5
+    print(x)                     // <uninit> on the VM; 5 natively
+}
+```
+
+`vm` and `vm_opt` both print `<uninit>`; `llvm` prints `5`. In longer
+programs the uninitialised value either fails an operation (`E1009 Cannot add
+Uninit and Int values`, `E1009 read from uninitialized stack slot`,
+`E1004 primop len expected String`) or prints a wrong answer with no error:
+the let-wrapped `examples/guide/array_hash_combo.flx` prints `"unknown"` where
+it should print `"unwrap value Alice"`, and the let-wrapped
+`stdlib_pipelines.flx` counts an emptied list as `0` (`("eng", 0)` for
+`("eng", 3)`). In the full run (seed 1, ways `vm,vm_opt,llvm,llvm_opt`), 51 of
+the 192 let-wrapped copies of `tests/parity` and `examples/guide` give
+`MISMATCH`: in every one, `vm` and `vm_opt` differ from `llvm` and `llvm_opt`,
+which agree with each other. In the five checked against the expected output,
+the VM is wrong and native is right.
+
+A program with no `do` block hits it too under `--optimize`: the AST fold
+(`type_informed_fold`) turns `if true { let ...; e } else { ... }` into a `do`
+block, so any such branch with a `let` that reads an outer variable loses that
+variable on `vm_opt`. `cargo xtask fuzz` found 7 of these in 200 programs
+(seed 2: `<uninit>` printed, `E1009 Cannot add Uninit and String values`,
+`E1004`); after KI-174 and KI-173 were fixed, all 12 mismatches left in seed 1 were this. A closure that captures the lost variable reads
+`None`, with no error:
+
+```flux
+fn main() with IO {
+    let v25: String = "";
+    let v28: Int = do {
+        let v30: String = "Flux#{v25}";
+        1
+    };
+    print(([false] |> map(\x36 -> v25)));   // [None] on the VM; [""] natively
+}
+```
+
+The fuzz case it came from (seed 2, case 6, reduced to 11 lines) has
+`if true` in place of `do` and prints `[None]` only on `vm_opt`.
+
+After KI-174 was fixed, a block that returned the variable as its last
+expression lost it too, when the block sat in a branch:
+`let y = do { let t: Bool = true; x }; sum([x])` in an `else` gave `E1004`
+(seed 1, case 134).
+
+The VM compiles these functions from the AST (`src/compiler/`), not from the
+simplified Core, whose `f` was already `IAdd(x, x)`. The AST compiler turns a
+local's read into `OpConsumeLocal`, a move that clears the slot, when the
+local is read once in its function's use counts (`try_emit_consumed_param`).
+A `do` block compiled through `compile_block_with_tail_mode`, which counted
+the block's own statements and pushed those counts in place of the
+function's. Inside `do { let t = x; t }`, `x` is read once, so it was moved
+there, and the read after the block found `Uninit`. `compile_block` had
+already kept a parent's counts for `if` branches, and match arms merged into
+them since KI-001; the `do` block was the path left.
+
+**Fixed** in `src/compiler/expression.rs` and `statement.rs`: a `do` block
+keeps the enclosing counts, so a read in it is a move only when nothing after
+it reads the variable. Function bodies, and `if` branches and `do` blocks in
+tail position, still count their own statements, since nothing in their
+function runs after them. Keeping the function's counts in a tail-position `do`
+too made `tail_call_passes_on_a_field_ki163.flx` copy a stack it used to move,
+4000 more VM allocations, which verify's metrics caught.
+`a_do_block_in_tail_position_moves_what_it_reads_once` checks the move.
+`tests/parity/do_block_keeps_what_it_reads_ki116.flx`
+(a `let` that reads a parameter, the branch case, the closure case, and the
+folded `if true` under `vm_opt`) failed on `vm` before this and passes on all
+four ways now, and `tests/parity/do_block_let_keeps_its_source.flx` runs on
+every way with its KI-116 skip removed. All 70 mismatch cases left in seeds
+1 and 2 now agree between `vm` and `vm_opt`. Not known: why these functions
+took the AST path rather than the CFG one (see [KI-118](#ki-118)).
+
+
+### KI-173 — Native code returned a call's result when the function returned something else — FIXED 2026-11-09
+
+**Severity:** High · **Area:** native backend, tail calls · **Verified:** 2026-11-09 (ff00ea39; also main 0ea95cb4) · **From:** 0190 S8 (`cargo xtask fuzz --seed 1`, case 61)
+
+```flux
+fn f(n: Int) -> Int {
+    if (n <= 0) { n } else { let v: Int = f((n - 1)); n }
+}
+
+fn main() with IO {
+    print(f(9))
+}
+```
+
+The VM prints `9`. `--native` printed `0`, with or without `--optimize`, and with no error.
+Core and the VM are right; the call is not in tail position. The LIR for the `else` branch is:
+
+```
+bb3: ... tailcall f(%12)       ← was `call f(%12) -> bb4`
+bb4(%13): %6 = copy %0         ← forwards n, not the call's result %13
+          jmp bb1                (bb1 returns %6)
+```
+
+`promote_tail_calls` (`src/lir/lower.rs`) turns a `Call` into a `TailCall` when its
+continuation block is a "return tail". Its fixed-point step accepted a block whose
+instructions are all copies into a successor's block parameter and that jumps to a return
+tail, but it didn't check that the copy forwards the block's own parameter. `bb4` forwarded
+`n` instead, so it was accepted, and `f` returned the innermost call's result.
+
+Any direct call was affected, not only a self call: with
+`fn g(n: Int) -> Int { n * 100 }` and `let v: Int = g((n - 1)); n` in the `else` branch,
+`--native` printed `800`, `g(8)`. A call whose argument is a parameter escaped, because the
+continuation then started with a `drop`, which isn't a copy.
+
+**Fixed** in `promote_tail_calls`: a block that jumps to a return tail is one
+itself only when its last copy into the target's parameter reads its own
+parameter, and a call is promoted only when its continuation's parameter is the
+call's result. Recursion that does return its call's result is still a tail
+call: `tail_recursive_accumulator.flx` and `mutual_tail_recursion.flx`, 100000
+calls deep, pass natively. `tests/parity/tail_call_result_unused_ki173.flx`
+(the self and the `g` case) and
+`a_call_whose_result_is_dropped_before_the_join_stays_a_call` in
+`src/lir/lower.rs` failed before this and pass now.
+
+### KI-174 — `--optimize` rejected a valid program whose folded `if true` blocks had different types — FIXED 2026-11-09
+
+**Severity:** Medium · **Area:** Type inference, AST optimization · **Verified:** 2026-11-09 (4d99ac21) · **From:** 0190 S8 (`cargo xtask fuzz --seed 1` and `--seed 2`)
+
+```flux
+fn f() -> Int {
+    let n: Int = if true {
+        let t = 1;
+        t
+    } else {
+        0
+    };
+    n
+}
+
+fn g() -> String {
+    let s: String = if true {
+        let t = "a";
+        t
+    } else {
+        "b"
+    };
+    s
+}
+
+fn main() with IO {
+    print(f())
+    print(g())
+}
+```
+
+Without `--optimize` the program prints `1` and `"a"`. With `--optimize`, on
+both backends, it stopped with `E300 Annotation Type Mismatch` on `n`
+(annotated type `Int`, value type `String`). A declared return type gave
+`E300 Return Type Mismatch` instead.
+
+Under `--optimize`, `infer_final_program` (`src/compiler/mod.rs`) folds the
+program with `type_informed_fold` and infers it again. The fold replaces
+`if true { ... }` with its `then` block (`if false` with its `else`), and when
+that block has more than one statement, `block_to_expr`
+(`src/ast/type_informed_fold.rs`) wrapped it in a `DoBlock` with
+`id: ExprId::UNSET`. Every folded block in the program got that same id, so the
+second inference recorded all their types under one key and the last one won:
+`f`'s block was checked against `g`'s `String`. A one-statement block keeps its
+expression's own id and was not affected.
+
+It was the most common fuzz finding: 43 of 200 programs in seed 1 and 51 of
+200 in seed 2, which hid whatever else those programs would show on `vm_opt`
+and `llvm_opt`.
+
+**Fixed** in `src/ast/type_informed_fold.rs`: the `DoBlock` takes the id of the
+`if` it replaces, as the `if false` with no `else` case already did for the
+`None` it returns. `tests/parity/optimize_folded_blocks_ki174.flx` (with
+`--ways vm,llvm,vm_opt,llvm_opt`) and `optimize_types_each_folded_block_on_its_own`
+in `tests/integration/compiler_optimization_tests.rs` failed before this and
+pass now, and all 104 mismatch cases of seeds 1 and 2 compile with `--optimize`.
+Still open: [KI-105](#ki-105), the same second inference accepting a program it
+should reject.
 
 ### KI-172 — A `let` nobody read released a parameter its branch returned, uncounted — FIXED 2026-11-09
 

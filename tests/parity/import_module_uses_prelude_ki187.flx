@@ -1,0 +1,26 @@
+// parity: vm, llvm
+// expect: success
+// bug: a module file gets none of the prelude's imports, so natively its calls of map or fold are undefined, and on the VM either is (KI-187)
+// parity-expected-stdout-begin
+// [2, 3, 4]
+// [2, 3]
+// 123
+// 6
+// 3
+// [3, 2, 1]
+// "4"
+// "five"
+// parity-expected-stdout-end
+
+import ModulePrelude.Lists as Lists
+
+fn main() with IO {
+    print(Lists.mapped([1, 2, 3]))
+    print(Lists.kept([1, 2, 3]))
+    print(Lists.folded([1, 2, 3]))
+    print(Lists.summed([1, 2, 3]))
+    print(Lists.counted([1, 2, 3]))
+    print(Lists.reversed([1, 2, 3]))
+    print(Lists.chosen(Left(4)))
+    print(Lists.chosen(Right("five")))
+}

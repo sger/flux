@@ -40,17 +40,26 @@
 //!     ways that cannot change its output, and check the copies against the
 //!     original's output with parity-check; outputs in .verify/rewrite_<seed>/
 //! cargo xtask fuzz [--seed <n>] [--count <n>] [--ways <w,…>] [--jobs <n>]
-//!                  [--gen-only]
+//!                  [--gen-only] [--with classes,values,effects,async,modules]
+//!                  [--reruns <n>]
 //!     generate well-typed programs (default 50, from seed 1) and run the
 //!     ones that compile through parity-check (default vm,llvm,vm_opt,
 //!     llvm_opt); a program the compiler fails on is a compiler bug, one
 //!     it rejects with a diagnostic a generator bug; outputs in
-//!     .verify/fuzz_<seed>/
-//! cargo xtask fuzz reduce <case.flx> [--ways <w,…>] [--jobs <n>]
+//!     .verify/fuzz_<seed>/. --with adds parts of the language (0190 S17):
+//!     classes for generics and type classes, values for records,
+//!     closures as values, Arrays, Maps and Either, effects for user
+//!     effects and handlers, async for tasks and channels under one
+//!     run_async, modules for a module beside main (each case a folder);
+//!     outputs then in
+//!     .verify/fuzz_<seed>_<parts>/. --reruns runs each case the ways agree
+//!     on n more times on each way and reports one whose output changes
+//! cargo xtask fuzz reduce <case.flx | case folder> [--ways <w,…>] [--jobs <n>]
 //!                         [--timeout <seconds>]
 //!     shrink a case to a small program the cheapest pair of ways that
 //!     disagreed on it still disagrees on the same way, or the compiler
-//!     still fails on the same way; writes <case>.min.flx beside it
+//!     still fails on the same way; writes <case>.min.flx beside it, or
+//!     the folder <case>.min/ when its module is still needed
 //! cargo xtask bisect-opt <fixture> [--way vm_opt|llvm_opt] [--timeout <seconds>]
 //!                        [--flux <path>]
 //!     find the optimizing rewrite that makes the opt way differ from the
@@ -106,8 +115,8 @@ const USAGE: &str = "usage:
   cargo xtask prune [--keep <n>] [--keep-tag <tag>]... [--yes]
   cargo xtask census [--tag <tag>] [--base <tag>] [--jobs <n>] [--ways <w,...>] [--allow network] [<dir>...]
   cargo xtask rewrite [--kind reorder|rename|let-wrap|all] [--seed <n>] [--ways <w,...>] [--jobs <n>] [<dir|file>...]
-  cargo xtask fuzz [--seed <n>] [--count <n>] [--ways <w,...>] [--jobs <n>] [--gen-only]
-  cargo xtask fuzz reduce <case.flx> [--ways <w,...>] [--jobs <n>] [--timeout <seconds>]
+  cargo xtask fuzz [--seed <n>] [--count <n>] [--ways <w,...>] [--jobs <n>] [--gen-only] [--with classes,values,effects,async,modules] [--reruns <n>]
+  cargo xtask fuzz reduce <case.flx | case folder> [--ways <w,...>] [--jobs <n>] [--timeout <seconds>]
   cargo xtask bisect-opt <fixture> [--way vm_opt|llvm_opt] [--timeout <seconds>] [--flux <path>]
   cargo xtask sanitize [--thread] [--ways <w,...>] [<dir>...]
   cargo xtask scale [--flux <path>] [<test>...]
@@ -235,32 +244,10 @@ fn dispatch(root: &Path, args: &[String]) -> Result<bool, String> {
             args.finish()?;
             rewrite::run_rewrite(root, &options)
         }
-        "fuzz" => {
-            if let Some(sub) = args.positional()? {
-                if sub != "reduce" {
-                    return Err(format!("unknown fuzz command {sub}\n{USAGE}"));
-                }
-                let case =
-                    args.positional()?.ok_or(format!("fuzz reduce: which case?\n{USAGE}"))?;
-                let options = fuzz::ReduceOptions {
-                    case,
-                    ways: args.value("--ways")?.unwrap_or_else(|| fuzz::DEFAULT_WAYS.to_string()),
-                    jobs: args.number("--jobs")?.unwrap_or(4).max(1),
-                    timeout: Duration::from_secs(args.number("--timeout")?.unwrap_or(10) as u64),
-                };
-                args.finish()?;
-                return fuzz::run_reduce(root, &options);
-            }
-            let options = fuzz::Options {
-                seed: args.number("--seed")?.unwrap_or(1) as u64,
-                count: args.number("--count")?.unwrap_or(50),
-                ways: args.value("--ways")?.unwrap_or_else(|| fuzz::DEFAULT_WAYS.to_string()),
-                jobs: args.number("--jobs")?.unwrap_or(1).max(1),
-                gen_only: args.flag("--gen-only"),
-            };
-            args.finish()?;
-            fuzz::run_fuzz(root, &options)
-        }
+        "fuzz" => match fuzz_command(&mut args)? {
+            FuzzCommand::Run(options) => fuzz::run_fuzz(root, &options),
+            FuzzCommand::Reduce(options) => fuzz::run_reduce(root, &options),
+        },
         "bisect-opt" => {
             let way = args.value("--way")?.unwrap_or_else(|| "vm_opt".to_string());
             let options = bisect::Options {
@@ -373,6 +360,38 @@ fn resolve(root: &Path, path: &str) -> PathBuf {
 
 /// The arguments after the command; each accessor removes what it reads, so
 /// `finish` can reject anything left over.
+enum FuzzCommand {
+    Run(fuzz::Options),
+    Reduce(fuzz::ReduceOptions),
+}
+
+/// `fuzz`'s arguments: a run, or `reduce` and its case. The options are
+/// read before the case, since an option's value is not a flag either.
+fn fuzz_command(args: &mut Args) -> Result<FuzzCommand, String> {
+    if args.flag("reduce") {
+        let ways = args.value("--ways")?.unwrap_or_else(|| fuzz::DEFAULT_WAYS.to_string());
+        let jobs = args.number("--jobs")?.unwrap_or(4).max(1);
+        let timeout = Duration::from_secs(args.number("--timeout")?.unwrap_or(10) as u64);
+        let case = args.positional()?.ok_or(format!("fuzz reduce: which case?\n{USAGE}"))?;
+        args.finish()?;
+        return Ok(FuzzCommand::Reduce(fuzz::ReduceOptions { case, ways, jobs, timeout }));
+    }
+    let options = fuzz::Options {
+        seed: args.number("--seed")?.unwrap_or(1) as u64,
+        count: args.number("--count")?.unwrap_or(50),
+        ways: args.value("--ways")?.unwrap_or_else(|| fuzz::DEFAULT_WAYS.to_string()),
+        jobs: args.number("--jobs")?.unwrap_or(1).max(1),
+        gen_only: args.flag("--gen-only"),
+        parts: match args.value("--with")? {
+            Some(names) => fuzz::Parts::parse(&names)?,
+            None => fuzz::Parts::NONE,
+        },
+        reruns: args.number("--reruns")?.unwrap_or(0),
+    };
+    args.finish()?;
+    Ok(FuzzCommand::Run(options))
+}
+
 struct Args(Vec<String>);
 
 impl Args {
@@ -426,5 +445,66 @@ impl Args {
             Some(extra) => Err(format!("unexpected argument {extra}\n{USAGE}")),
             None => Ok(()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fuzz(args: &[&str]) -> Result<FuzzCommand, String> {
+        let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+        fuzz_command(&mut Args::new(&args))
+    }
+
+    #[test]
+    fn a_fuzz_option_value_is_not_a_subcommand() {
+        let Ok(FuzzCommand::Run(run)) = fuzz(&["--seed", "1", "--count", "200", "--jobs", "4"])
+        else {
+            panic!("a run");
+        };
+        assert_eq!((run.seed, run.count, run.jobs), (1, 200, 4));
+    }
+
+    #[test]
+    fn with_names_the_parts_a_run_adds() {
+        let Ok(FuzzCommand::Run(run)) = fuzz(&["--with", "classes", "--seed", "2"]) else {
+            panic!("a run");
+        };
+        assert_eq!((run.seed, run.parts), (2, fuzz::Parts { classes: true, ..fuzz::Parts::NONE }));
+        let Ok(FuzzCommand::Run(run)) = fuzz(&["--with", "classes,values"]) else {
+            panic!("a run");
+        };
+        assert_eq!(run.parts, fuzz::Parts { classes: true, values: true, ..fuzz::Parts::NONE });
+        let Ok(FuzzCommand::Run(run)) = fuzz(&["--with", "effects"]) else { panic!("a run") };
+        assert!(run.parts.effects && !run.parts.values);
+        let Ok(FuzzCommand::Run(run)) = fuzz(&["--with", "async"]) else { panic!("a run") };
+        assert_eq!(run.parts, fuzz::Parts { async_: true, ..fuzz::Parts::NONE });
+        assert_eq!(run.reruns, 0);
+        let Ok(FuzzCommand::Run(run)) = fuzz(&["--with", "async", "--reruns", "10"]) else {
+            panic!("a run")
+        };
+        assert_eq!(run.reruns, 10);
+        let Ok(FuzzCommand::Run(run)) = fuzz(&["--with", "async,modules"]) else { panic!("a run") };
+        assert_eq!(run.parts, fuzz::Parts { async_: true, modules: true, ..fuzz::Parts::NONE });
+        let Ok(FuzzCommand::Run(run)) = fuzz(&["--seed", "2"]) else { panic!("a run") };
+        assert_eq!(run.parts, fuzz::Parts::NONE);
+        assert!(fuzz(&["--with", "nope"]).is_err());
+    }
+
+    #[test]
+    fn reduce_takes_its_case_wherever_the_options_are() {
+        for args in [
+            &["reduce", "--ways", "vm,vm_opt", "case.flx"][..],
+            &["reduce", "case.flx", "--ways", "vm,vm_opt"],
+            &["--ways", "vm,vm_opt", "reduce", "case.flx"],
+        ] {
+            let Ok(FuzzCommand::Reduce(reduce)) = fuzz(args) else {
+                panic!("a reduce: {args:?}");
+            };
+            assert_eq!((reduce.case.as_str(), reduce.ways.as_str()), ("case.flx", "vm,vm_opt"));
+        }
+        assert!(fuzz(&["shrink", "case.flx"]).is_err());
+        assert!(fuzz(&["reduce"]).is_err());
     }
 }

@@ -418,7 +418,15 @@ use sha2::{Digest, Sha256};
 /// an epoch-137 unit holds the clone that copied each field and recursed (0200 C3).
 /// Epoch 139: an unused `let` owns the value it releases; an epoch-138 unit holds
 /// the plan that released a parameter its branch returned uncounted (KI-172).
-pub const CACHE_EPOCH: u16 = 139;
+/// Epoch 140: each block `--optimize` folds an `if` to has its own id; an epoch-139
+/// unit built with it may hold a block typed as another folded block (KI-174).
+/// Epoch 141: a `do` block keeps its function's use counts; an epoch-140 bytecode
+/// unit may move a variable out in a `do` block that the function reads again (KI-116).
+/// Epoch 142: an annotated `let`'s value raises each predicate once; an epoch-141 unit
+/// may hold a constrained call there that passes one dictionary twice (KI-175).
+/// Epoch 143: a user module imports the prelude as the entry file does; an epoch-142
+/// unit of one was compiled without those imports, its names resolved by order (KI-187).
+pub const CACHE_EPOCH: u16 = 143;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

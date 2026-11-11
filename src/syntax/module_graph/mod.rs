@@ -7,8 +7,9 @@ use std::{
 use crate::{
     diagnostics::{Diagnostic, position::Position},
     syntax::{
-        interner::Interner, module_graph::module_resolution::parse_program_with_interner,
-        program::Program,
+        interner::Interner, lexer::Lexer,
+        module_graph::module_resolution::parse_program_with_interner, parser::Parser,
+        program::Program, statement::Statement,
     },
 };
 
@@ -56,6 +57,37 @@ fn classify_module_kind(program: &Program, interner: &Interner) -> ModuleKind {
         Some(name) if name.starts_with("Flow.") => ModuleKind::FlowStdlib,
         _ => ModuleKind::User,
     }
+}
+
+/// `program` with the `prelude`'s import lines it doesn't import itself put
+/// before its own statements.
+fn with_prelude(
+    mut program: Program,
+    interner: Interner,
+    prelude: &[(String, String)],
+) -> (Program, Interner) {
+    let imported: Vec<String> = program
+        .statements
+        .iter()
+        .filter_map(|statement| match statement {
+            Statement::Import { name, .. } => interner.try_resolve(*name).map(str::to_string),
+            _ => None,
+        })
+        .collect();
+    let lines: Vec<&str> = prelude
+        .iter()
+        .filter(|(module, _)| !imported.contains(module))
+        .map(|(_, line)| line.as_str())
+        .collect();
+    if lines.is_empty() {
+        return (program, interner);
+    }
+    let mut parser = Parser::new(Lexer::new_with_interner(lines.join("\n"), interner));
+    let mut statements = parser.parse_program().statements;
+    let interner = parser.take_interner();
+    statements.append(&mut program.statements);
+    program.statements = statements;
+    (program, interner)
 }
 
 #[derive(Debug, Clone)]
@@ -115,6 +147,21 @@ impl ModuleGraph {
         interner: Interner,
         roots: &[ModuleRoot],
     ) -> GraphBuildResult {
+        Self::build_with_prelude(entry_path, entry_program, interner, roots, &[])
+    }
+
+    /// Build a graph in which each user module file gets the `prelude`'s
+    /// imports it doesn't make itself, as the driver gives them to the entry
+    /// file: `(module name, import line)` pairs. Without them a module's call
+    /// of `map` resolves on the VM only when the prelude happened to be
+    /// compiled first, and natively never (KI-187).
+    pub fn build_with_prelude(
+        entry_path: &Path,
+        entry_program: &Program,
+        interner: Interner,
+        roots: &[ModuleRoot],
+        prelude: &[(String, String)],
+    ) -> GraphBuildResult {
         let mut diagnostics = Vec::new();
         let mut failed_modules: HashSet<PathBuf> = HashSet::new();
         let (entry_id, entry_path) = ModuleId::from_path(entry_path);
@@ -140,6 +187,13 @@ impl ModuleGraph {
                 diagnostics.append(&mut parse_diagnostics);
 
                 match program {
+                    Some(program)
+                        if classify_module_kind(&program, &interner) == ModuleKind::User =>
+                    {
+                        let (program, returned_interner) = with_prelude(program, interner, prelude);
+                        interner = returned_interner;
+                        program
+                    }
                     Some(program) => program,
                     None => {
                         failed_modules.insert(canonical_path);
