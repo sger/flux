@@ -6,7 +6,7 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 use std::process::Command;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::outcome::format_duration;
 use crate::proc::run_tee;
@@ -41,17 +41,132 @@ impl Verdict {
         Self::ALL.into_iter().find(|v| v.word() == word)
     }
 
-    /// `line` with its verdict word coloured: pass green, skip yellow,
-    /// either mismatch red.
-    fn paint(self, paint: Paint, line: &str) -> String {
-        let word = self.word();
-        let painted = match self {
-            Self::Pass => paint.green(word),
-            Self::Skip => paint.yellow(word),
-            Self::Mismatch | Self::ExpectedOutputMismatch => paint.red(word),
-        };
-        format!("{painted}{}", &line[word.len()..])
+    /// `text` coloured as this verdict: pass green, skip yellow, either
+    /// mismatch red.
+    fn paint(self, paint: Paint, text: &str) -> String {
+        match self {
+            Self::Pass => paint.bold_green(text),
+            Self::Skip => paint.bold_yellow(text),
+            Self::Mismatch | Self::ExpectedOutputMismatch => paint.red(text),
+        }
     }
+}
+
+/// The column a verdict word is right-aligned in, as nextest aligns `PASS`.
+const WORD_COLUMN: usize = 12;
+
+/// A verdict line as nextest shows a test: the word right-aligned and
+/// coloured, the fixture's folder and file name, then anything after the
+/// path (a skip's reason) dimmed.
+fn verdict_line(paint: Paint, verdict: Verdict, line: &str) -> String {
+    let rest = line[verdict.word().len()..].trim_start();
+    let (path, note) = rest.split_once(' ').unwrap_or((rest, ""));
+    let word = verdict.paint(paint, &format!("{:>WORD_COLUMN$}", verdict.word()));
+    let mut shown = format!("{word} {}", fixture_path(paint, path));
+    if !note.is_empty() {
+        shown.push(' ');
+        shown.push_str(&paint.dim(note));
+    }
+    shown
+}
+
+/// `SKIP_WAY <path> <way>: <KI> <reason>` laid out as a verdict line, with
+/// the way and the KI picked out. A line in another shape stays as it was.
+fn skip_way_line(paint: Paint, line: &str) -> String {
+    let parts = line
+        .strip_prefix("SKIP_WAY ")
+        .and_then(|rest| rest.split_once(' '))
+        .and_then(|(path, rest)| rest.split_once(": ").map(|(way, why)| (path, way, why)));
+    let Some((path, way, why)) = parts else {
+        return paint.yellow(line);
+    };
+    let mut shown = format!(
+        "{} {} {}",
+        paint.bold_yellow(&format!("{:>WORD_COLUMN$}", "SKIP WAY")),
+        fixture_path(paint, path),
+        paint.bold(way)
+    );
+    let (ki, why) = match why.split_once(' ') {
+        Some((ki, rest)) if ki.starts_with("KI-") => (Some(ki), rest),
+        _ => (None, why),
+    };
+    if let Some(ki) = ki {
+        shown.push(' ');
+        shown.push_str(&paint.yellow(ki));
+    }
+    shown.push(' ');
+    shown.push_str(&paint.dim(why));
+    shown
+}
+
+/// One of `parity-check`'s own `[parity] <label>: <value>` lines: the tag
+/// cyan, the label bold, a closing `(…)` dimmed, and paths with `/`
+/// separators. A line without a label keeps the tag and plain text.
+fn parity_note_line(paint: Paint, line: &str) -> String {
+    if !paint.is_on() {
+        return line.to_string();
+    }
+    let rest = line.strip_prefix("[parity]").unwrap_or(line).trim_start().replace('\\', "/");
+    let tag = paint.cyan("[parity]");
+    let Some((label, value)) = rest.split_once(": ") else {
+        return format!("{tag} {rest}");
+    };
+    let (value, aside) = match value.rfind(" (") {
+        Some(at) if value.ends_with(')') => value.split_at(at),
+        _ => (value, ""),
+    };
+    format!("{tag} {}: {value}{}", paint.bold(label), paint.dim(aside))
+}
+
+/// A fixture's path with `/` separators, its folder magenta and its file
+/// name blue, as nextest colours a test's binary and name.
+fn fixture_path(paint: Paint, path: &str) -> String {
+    let path = path.replace('\\', "/");
+    match path.rsplit_once('/') {
+        Some((dir, name)) => format!("{}{}", paint.magenta(&format!("{dir}/")), paint.blue(name)),
+        None => paint.blue(&path),
+    }
+}
+
+/// How far a `parity-check` run has got, for the progress bar.
+#[derive(Clone, Copy, Debug, Default)]
+struct Tally {
+    done: usize,
+    total: Option<usize>,
+    passed: usize,
+    failing: usize,
+    skipped: usize,
+}
+
+/// The progress bar pinned under the verdicts, after nextest's:
+/// `     Running [ 00:00:19] ==========>          30/66: 28 passed, 1 failing, 1 skipped`.
+fn progress_bar(paint: Paint, tally: Tally, elapsed: Duration) -> String {
+    const WIDTH: usize = 30;
+    let secs = elapsed.as_secs();
+    let clock = format!("[ {:02}:{:02}:{:02}]", secs / 3600, secs / 60 % 60, secs % 60);
+    let (bar, count) = match tally.total {
+        Some(total) if total > 0 => {
+            let filled = (tally.done * WIDTH / total).min(WIDTH);
+            let bar = match filled {
+                0 => " ".repeat(WIDTH),
+                WIDTH => "=".repeat(WIDTH),
+                n => format!("{}>{}", "=".repeat(n - 1), " ".repeat(WIDTH - n)),
+            };
+            (bar, format!("{}/{total}", tally.done))
+        }
+        _ => (" ".repeat(WIDTH), tally.done.to_string()),
+    };
+    let failing = format!("{} failing", tally.failing);
+    let skipped = format!("{} skipped", tally.skipped);
+    format!(
+        "{} {clock} {} {}: {}, {}, {}",
+        paint.bold_green(&format!("{:>WORD_COLUMN$}", "Running")),
+        paint.cyan(&bar),
+        paint.bold(&count),
+        paint.green(&format!("{} passed", tally.passed)),
+        if tally.failing > 0 { paint.red(&failing) } else { failing },
+        if tally.skipped > 0 { paint.yellow(&skipped) } else { skipped },
+    )
 }
 
 /// What one `parity-check` run reported.
@@ -143,8 +258,7 @@ pub(crate) fn parity_with_env(
     let mut status = StatusLine::new(paint.is_on());
     let mut stdout = std::io::stdout();
     let mut counts = ParityCounts::default();
-    let mut fixtures = 0;
-    let mut total: Option<usize> = None;
+    let mut tally = Tally::default();
     let mut log_error = None;
     let exit = run_tee(
         Command::new(flux)
@@ -182,25 +296,25 @@ pub(crate) fn parity_with_env(
                 .and_then(|rest| rest.split_whitespace().next())
                 .and_then(|n| n.parse().ok())
             {
-                total = Some(n);
+                tally.total = Some(n);
             }
             let shown = if let Some(verdict) = Verdict::parse(&plain) {
-                fixtures += 1;
+                tally.done += 1;
+                match verdict {
+                    Verdict::Pass => tally.passed += 1,
+                    Verdict::Skip => tally.skipped += 1,
+                    Verdict::Mismatch | Verdict::ExpectedOutputMismatch => tally.failing += 1,
+                }
                 counts.tally(verdict, &plain);
-                let counter = progress(fixtures, total, started);
-                if verdict == Verdict::Pass && paint.is_on() {
-                    let failing = counts.mismatches + counts.expected;
-                    let file = tail(&plain["PASS ".len()..], 48);
-                    status.update(
-                        &mut stdout,
-                        &paint.dim(&format!("{counter} · {failing} failing · {file}")),
-                    );
-                    None
+                if paint.is_on() {
+                    Some(verdict_line(paint, verdict, &plain))
                 } else {
-                    Some(format!("{} {}", paint.dim(&counter), verdict.paint(paint, &plain)))
+                    // Piped, every verdict keeps its position, for a log
+                    // read later; there is no bar to show it.
+                    Some(format!("{} {plain}", progress(tally.done, tally.total, started)))
                 }
             } else if plain.starts_with("SKIP_WAY ") {
-                Some(paint.yellow(&plain))
+                Some(skip_way_line(paint, &plain))
             } else if plain.starts_with("UNEXPECTED_PASS ") {
                 counts.unexpected.push(plain.clone());
                 Some(paint.yellow(&plain))
@@ -210,7 +324,7 @@ pub(crate) fn parity_with_env(
                 counts.leaks.push(plain.clone());
                 None
             } else if plain.starts_with("[parity]") {
-                Some(paint.dim(&plain))
+                Some(parity_note_line(paint, &plain))
             } else if let Some(painted) = paint_summary_line(paint, &plain) {
                 Some(painted)
             } else if is_parity_line(&plain) {
@@ -221,6 +335,9 @@ pub(crate) fn parity_with_env(
             if let Some(text) = shown {
                 status.clear(&mut stdout);
                 println!("{text}");
+                if tally.total.is_some() {
+                    status.update(&mut stdout, &progress_bar(paint, tally, started.elapsed()));
+                }
             }
         },
     )?;
@@ -230,7 +347,8 @@ pub(crate) fn parity_with_env(
     }
     counts.exit = exit;
     let result = counts.describe();
-    let closing = format!("{dir}: {fixtures} fixture(s) in {}", format_duration(started.elapsed()));
+    let closing =
+        format!("{dir}: {} fixture(s) in {}", tally.done, format_duration(started.elapsed()));
     writeln!(log, "{closing} ({result})")?;
     println!("{closing} ({})", if counts.ok() { paint.green(&result) } else { paint.red(&result) });
     Ok(counts)
@@ -367,15 +485,80 @@ mod tests {
     }
 
     #[test]
-    fn colours_only_the_verdict_word() {
-        let on = Paint::always();
-        let line = "EXPECTED_OUTPUT_MISMATCH b.flx";
+    fn a_verdict_line_aligns_its_word_and_splits_the_path() {
+        let line = r"PASS tests/parity\a.flx";
+        let verdict = Verdict::parse(line).unwrap();
+        assert_eq!(verdict_line(Paint::plain(), verdict, line), "        PASS tests/parity/a.flx");
         assert_eq!(
-            Verdict::parse(line).unwrap().paint(on, line),
-            "\x1b[1;31mEXPECTED_OUTPUT_MISMATCH\x1b[0m b.flx"
+            verdict_line(Paint::always(), verdict, line),
+            "\x1b[1;32m        PASS\x1b[0m \x1b[35mtests/parity/\x1b[0m\x1b[34ma.flx\x1b[0m"
         );
-        let line = "PASS a.flx";
-        assert_eq!(Verdict::parse(line).unwrap().paint(on, line), "\x1b[32mPASS\x1b[0m a.flx");
+        let skip = "SKIP tests/parity_debug/b.flx (native debug parity skipped)";
+        assert_eq!(
+            verdict_line(Paint::plain(), Verdict::parse(skip).unwrap(), skip),
+            "        SKIP tests/parity_debug/b.flx (native debug parity skipped)"
+        );
+        let failed = "EXPECTED_OUTPUT_MISMATCH c.flx";
+        assert!(
+            verdict_line(Paint::always(), Verdict::parse(failed).unwrap(), failed)
+                .starts_with("\x1b[1;31mEXPECTED_OUTPUT_MISMATCH\x1b[0m")
+        );
+    }
+
+    #[test]
+    fn parity_check_notes_pick_out_their_label_and_aside() {
+        let on = Paint::always();
+        assert_eq!(
+            parity_note_line(
+                on,
+                r"[parity] binary vm: target/parity_vm/debug\flux.exe (stale -> rebuilt)"
+            ),
+            "\x1b[36m[parity]\x1b[0m \x1b[1mbinary vm\x1b[0m: target/parity_vm/debug/flux.exe\x1b[2m (stale -> rebuilt)\x1b[0m"
+        );
+        assert_eq!(
+            parity_note_line(on, "[parity] rebuilding VM binary in target/parity_vm"),
+            "\x1b[36m[parity]\x1b[0m rebuilding VM binary in target/parity_vm"
+        );
+        let plain = r"[parity] binary vm: target/parity_vm/debug\flux.exe (stale -> rebuilt)";
+        assert_eq!(parity_note_line(Paint::plain(), plain), plain);
+    }
+
+    #[test]
+    fn a_skipped_way_names_its_way_and_ki() {
+        let line = r"SKIP_WAY examples/type_classes\c.flx vm_opt: KI-102 the example's own effect";
+        assert_eq!(
+            skip_way_line(Paint::plain(), line),
+            "    SKIP WAY examples/type_classes/c.flx vm_opt KI-102 the example's own effect"
+        );
+        let no_ki = "SKIP_WAY d.flx llvm: native only on unix";
+        assert_eq!(
+            skip_way_line(Paint::plain(), no_ki),
+            "    SKIP WAY d.flx llvm native only on unix"
+        );
+        assert_eq!(skip_way_line(Paint::plain(), "SKIP_WAY odd"), "SKIP_WAY odd");
+    }
+
+    #[test]
+    fn the_progress_bar_fills_with_the_fixtures_done() {
+        let tally = Tally { done: 30, total: Some(60), passed: 28, failing: 1, skipped: 1 };
+        assert_eq!(
+            progress_bar(Paint::plain(), tally, Duration::from_secs(3725)),
+            format!(
+                "     Running [ 01:02:05] {}>{} 30/60: 28 passed, 1 failing, 1 skipped",
+                "=".repeat(14),
+                " ".repeat(15)
+            )
+        );
+        let start = Tally { total: Some(60), ..Tally::default() };
+        assert!(progress_bar(Paint::plain(), start, Duration::ZERO).contains(&" ".repeat(30)));
+        let done = Tally { done: 60, total: Some(60), passed: 60, ..Tally::default() };
+        assert!(progress_bar(Paint::plain(), done, Duration::ZERO).contains(&"=".repeat(30)));
+        // A count of zero failing stays plain; one is red.
+        assert!(
+            progress_bar(Paint::always(), tally, Duration::ZERO).contains("\x1b[1;31m1 failing")
+        );
+        let clean = Tally { failing: 0, ..tally };
+        assert!(progress_bar(Paint::always(), clean, Duration::ZERO).contains(", 0 failing, "));
     }
 
     #[test]
