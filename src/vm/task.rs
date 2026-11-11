@@ -983,6 +983,9 @@ mod tests {
     use super::*;
     use crate::bytecode::bytecode::Bytecode;
     use crate::bytecode::op_code::OpCode;
+    use crate::runtime::handler_descriptor::HandlerDescriptor;
+    use crate::runtime::perform_descriptor::PerformDescriptor;
+    use crate::syntax::Identifier;
     use std::sync::{Arc, Barrier};
     use std::time::Duration;
 
@@ -1030,6 +1033,52 @@ mod tests {
         match &first[0] {
             ArcValue::Function(shared) => assert!(Arc::ptr_eq(&function, shared)),
             _ => panic!("expected function constant"),
+        }
+    }
+
+    #[test]
+    fn task_constants_keep_effect_descriptors_ki188() {
+        use crate::runtime::handler_descriptor::HandlerDescriptor;
+        use crate::runtime::perform_descriptor::PerformDescriptor;
+        use crate::syntax::Identifier;
+
+        let handler_descriptor = Value::HandlerDescriptor(Rc::new(HandlerDescriptor {
+            effect: Identifier::new(10),
+            effect_name: "Eff".into(),
+            ops: vec![Identifier::new(11)],
+            op_names: vec!["op".into()],
+            has_state: false,
+            is_discard: false,
+        }));
+
+        let perform_descriptor = Value::PerformDescriptor(Rc::new(PerformDescriptor {
+            effect: Identifier::new(10),
+            op: Identifier::new(11),
+            effect_name: "Eff".into(),
+            op_name: "op".into(),
+        }));
+
+        let mut vm = VM::new(Bytecode {
+            instructions: vec![],
+            constants: vec![handler_descriptor, perform_descriptor],
+            debug_info: None,
+        });
+
+        let constants = vm.task_shared_constants().expect("task constants");
+        let kind = |v: &ArcValue| {
+            if matches!(v, ArcValue::None) { "None" } else { "another value" }
+        };
+
+        match &constants[0] {
+            ArcValue::HandlerDescriptor(desc) => {
+                assert_eq!(desc.effect, Identifier::new(10));
+                assert_eq!(desc.ops, vec![Identifier::new(11)]);
+            }
+            other => panic!("expected the handler descriptor, got {}", kind(other)),
+        }
+        match &constants[1] {
+            ArcValue::PerformDescriptor(desc) => assert_eq!(desc.op, Identifier::new(11)),
+            other => panic!("expected the perform descriptor, got {}", kind(other)),
         }
     }
 
