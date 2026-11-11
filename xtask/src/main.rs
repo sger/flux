@@ -4,7 +4,7 @@
 //! ```text
 //! cargo xtask verify <tag> [--base <tag> [--cmp | --cmp=structure] [--accept-metrics]]
 //!                    [--only <checks> | --skip <checks>] [--skip-suite] [--skip-sweeps]
-//!                    [--det-sample <n>]
+//!                    [--det-sample <n>] [--jobs <n>]
 //!     lint, the suite, the five corpus sweeps (each with a rerun of n files,
 //!     default 50, that must give the same dumps; compared with --base's, by
 //!     status and by dump; --cmp fails on any changed dump, --cmp=structure
@@ -15,7 +15,9 @@
 //!     fmt, clippy, suite, sweeps, parity, metrics, debug-build-parity,
 //!     debug-parity and heap-parity (--skip-suite and --skip-sweeps are
 //!     --skip suite and --skip sweeps); a run that skips a check says so
-//!     in its summary, since a merge needs them all; outputs in
+//!     in its summary, since a merge needs them all; --jobs sets how many
+//!     files the sweeps and parity steps run at once (default: cores - 2;
+//!     --jobs 1 checks parity fixtures one at a time); outputs in
 //!     .verify/<tag>/ (git-ignored; `store.rs`)
 //! cargo xtask sweep --out <dir> [--mode cfg|core|core-opt|aether|lir|cache] [--files <list>]
 //!                   [--jobs <n>] [--timeout <seconds>] [--flux <path>] [--determinism]
@@ -109,7 +111,7 @@ use std::time::Duration;
 use sweep::Mode;
 
 const USAGE: &str = "usage:
-  cargo xtask verify <tag> [--base <tag> [--cmp | --cmp=structure] [--accept-metrics]] [--only <checks> | --skip <checks>] [--skip-suite] [--skip-sweeps] [--det-sample <n>]
+  cargo xtask verify <tag> [--base <tag> [--cmp | --cmp=structure] [--accept-metrics]] [--only <checks> | --skip <checks>] [--skip-suite] [--skip-sweeps] [--det-sample <n>] [--jobs <n>]
   cargo xtask sweep --out <dir> [--mode cfg|core|core-opt|aether|lir|cache] [--files <list>] [--jobs <n>] [--timeout <seconds>] [--flux <path>] [--determinism]
   cargo xtask compare <base sweep dir> <head sweep dir> [--content]
   cargo xtask prune [--keep <n>] [--keep-tag <tag>]... [--yes]
@@ -177,6 +179,7 @@ fn dispatch(root: &Path, args: &[String]) -> Result<bool, String> {
                 cmp,
                 checks,
                 det_sample: args.number("--det-sample")?.unwrap_or(50),
+                jobs: args.number("--jobs")?.unwrap_or_else(sweep::default_jobs).max(1),
                 accept_metrics,
                 tag: args.positional()?.ok_or(USAGE)?,
             };
