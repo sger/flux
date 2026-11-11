@@ -1646,3 +1646,62 @@ fn nullary_class_methods_raise_their_predicates() {
 fn alias_qualified_class_method_calls_raise_their_predicates() {
     assert_lowers_from_evidence("eq_auditlog_example.flx");
 }
+
+/// An annotated `let` whose value has a check rule is checked against the
+/// annotation and then inferred; only one of those passes may raise its
+/// predicates (KI-175). A method call that raised its one predicate twice was
+/// read as answered by two dictionaries, an internal error.
+#[test]
+fn an_annotated_lets_checked_value_raises_its_predicates_once() {
+    let source = r#"
+class Sized<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sized<Int> {
+    fn size(x) { x }
+}
+
+fn measure<a: Sized>(x: a) -> Int { size(x) }
+
+fn method_in_if(b: Bool) -> Int {
+    let s: Int = if b { size(1) } else { 0 };
+    s
+}
+
+fn method_in_match(n: Int) -> Int {
+    let t: Int = match n {
+        0 -> size(7),
+        _ -> 2,
+    };
+    t
+}
+
+fn constrained_in_if(b: Bool) -> Int {
+    let u: Int = if b { measure(1) } else { 0 };
+    u
+}
+
+fn method_in_tuple() -> (Int, Int) {
+    let p: (Int, Int) = (size(2), 3);
+    p
+}
+
+fn main() {
+    method_in_if(true);
+    method_in_match(0);
+    constrained_in_if(true);
+    method_in_tuple()
+}
+"#;
+    let (program, mut compiler) = parse_source(source, "annotated_let_raises_once.flx");
+    let compiled = compiler.compile(&program);
+
+    let repeated = sites_raising_a_predicate_twice(compiler.evidence_map());
+    assert!(
+        repeated.is_empty(),
+        "each call in an annotated `let` raises its predicates once; \
+         repeated at (line, col, raised): {repeated:?}"
+    );
+    compiled.expect("program compiles");
+}

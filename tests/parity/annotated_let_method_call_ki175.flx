@@ -1,0 +1,62 @@
+// parity: vm, llvm
+// expect: success
+// bug: KI-175. An annotated `let` whose value is an `if`, a `match` or a
+//      literal is checked against the annotation and then inferred, and both
+//      passes raised each predicate in it. A method call then read its one
+//      predicate as two dictionaries, an internal error; a call to a
+//      constrained function passed an extra dictionary, so `llvm` printed
+//      `render(1)` as "(<value>,)". Run with `--ways vm,llvm,vm_opt,llvm_opt`.
+// parity-expected-stdout-begin
+// "1"
+// "z"
+// 14
+// 2
+// "1"
+// "z"
+// ("2", 3)
+// parity-expected-stdout-end
+
+class Sized<a> {
+    fn size(x: a) -> Int
+}
+
+instance Sized<Int> {
+    fn size(x) { x * 2 }
+}
+
+fn render<a: Show>(x: a) -> String {
+    show(x)
+}
+
+fn method_in_if(b: Bool) -> String {
+    let s: String = if b { show(1) } else { "z" };
+    s
+}
+
+fn method_in_match(n: Int) -> Int {
+    let t: Int = match n {
+        0 -> size(7),
+        _ -> 2,
+    };
+    t
+}
+
+fn constrained_in_if(b: Bool) -> String {
+    let u: String = if b { render(1) } else { "z" };
+    u
+}
+
+fn method_in_tuple() -> (String, Int) {
+    let p: (String, Int) = (show(2), 3);
+    p
+}
+
+fn main() with IO {
+    print(method_in_if(true))
+    print(method_in_if(false))
+    print(method_in_match(0))
+    print(method_in_match(1))
+    print(constrained_in_if(true))
+    print(constrained_in_if(false))
+    print(method_in_tuple())
+}

@@ -209,3 +209,40 @@ fn main() with IO {
     assert!(plain.ends_with("2\n10\n"), "plain run: {plain:?}");
     assert_eq!(run_flux("shadowed_literal_opt.flx", source, &["--optimize"]), plain);
 }
+
+/// `--optimize` folds `if true` to its `then` block and infers the program
+/// again. Two folded blocks of more than one statement shared one id, so the
+/// second inference typed `f`'s block with `g`'s `String` and rejected the
+/// program with E300 (KI-174).
+#[test]
+fn optimize_types_each_folded_block_on_its_own() {
+    let source = r#"
+fn f() -> Int {
+    let n: Int = if true {
+        let t = 1;
+        t
+    } else {
+        0
+    };
+    n
+}
+
+fn g() -> String {
+    let s: String = if true {
+        let t = "a";
+        t
+    } else {
+        "b"
+    };
+    s
+}
+
+fn main() with IO {
+    print(f())
+    print(g())
+}
+"#;
+    let plain = run_flux("folded_blocks.flx", source, &[]);
+    assert!(plain.ends_with("1\n\"a\"\n"), "plain run: {plain:?}");
+    assert_eq!(run_flux("folded_blocks_opt.flx", source, &["--optimize"]), plain);
+}

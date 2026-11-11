@@ -2126,7 +2126,7 @@ impl Compiler {
                 runtime_param_count,
                 effects,
                 param_effect_rows,
-                |compiler| compiler.compile_block_with_tail_mode_collect_errors(body, true),
+                |compiler| compiler.compile_block_with_tail_mode_collect_errors(body, true, false),
             );
             if body_errors.is_empty() {
                 if self.block_has_value_tail(body) {
@@ -2337,7 +2337,7 @@ impl Compiler {
 
             // Compile the function body.
             let body_errors = self.with_tail_position(true, |c| {
-                c.compile_block_with_tail_mode_collect_errors(entry.body, true)
+                c.compile_block_with_tail_mode_collect_errors(entry.body, true, false)
             });
             if self.block_has_value_tail(entry.body) {
                 if !self.is_last_instruction(OpCode::OpReturnValue)
@@ -2903,6 +2903,7 @@ impl Compiler {
         &mut self,
         block: &Block,
         allow_tail: bool,
+        inherit_counts: bool,
     ) -> Vec<Box<Diagnostic>> {
         // Predeclare nested function names so forward references and mutual
         // recursion work inside function bodies (mirrors top-level pass 1).
@@ -2937,10 +2938,16 @@ impl Compiler {
 
         let len = block.statements.len();
         let mut errors = Vec::new();
-        let mut consumable_counts = HashMap::new();
-        for statement in &block.statements {
-            self.collect_consumable_param_uses_statement(statement, &mut consumable_counts);
-        }
+        let consumable_counts = match self.current_consumable_local_use_counts() {
+            Some(parent) if inherit_counts => parent.clone(),
+            _ => {
+                let mut counts = HashMap::new();
+                for statement in &block.statements {
+                    self.collect_consumable_param_uses_statement(statement, &mut counts);
+                }
+                counts
+            }
+        };
 
         self.with_consumable_local_use_counts(consumable_counts, |compiler| {
             for item in &plan {
@@ -2997,18 +3004,24 @@ impl Compiler {
 
     /// Compile a block with tail position awareness for the last statement
     pub(super) fn compile_block_with_tail(&mut self, block: &Block) -> CompileResult<()> {
-        self.compile_block_with_tail_mode(block, true)
+        self.compile_block_with_tail_mode(block, true, false)
     }
 
     /// Compile a block using the tail-aware block machinery, optionally
     /// suppressing tail position for the final statement.
+    ///
+    /// With `inherit_counts`, the block keeps the enclosing scope's use
+    /// counts rather than counting its own statements, so a read in it is a
+    /// move only when nothing after the block reads the variable again.
     pub(super) fn compile_block_with_tail_mode(
         &mut self,
         block: &Block,
         allow_tail: bool,
+        inherit_counts: bool,
     ) -> CompileResult<()> {
-        let mut errors =
-            self.compile_block_with_tail_mode_collect_errors(block, allow_tail).into_iter();
+        let mut errors = self
+            .compile_block_with_tail_mode_collect_errors(block, allow_tail, inherit_counts)
+            .into_iter();
         if let Some(first) = errors.next() {
             for err in errors {
                 let mut diag = *err;

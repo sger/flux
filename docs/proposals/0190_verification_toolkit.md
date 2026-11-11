@@ -320,9 +320,9 @@ line names both counts.
   Floats, whose printed form differs between the backends. Each can return when
   its KI is fixed.
 - **Layout:** one statement per line, so the reducer (§7) can work line by line.
-- **Effects, type classes and async are out of scope.** Generating handlers needs
-  effect-row typing, and async needs deterministic scheduling across backends.
-  Both are listed under Future possibilities.
+- **Effects, type classes and async were out of scope for S8.** Generating handlers
+  needs effect-row typing, and async needs deterministic scheduling across
+  backends. S17 adds them, with generics, records and modules (below).
 - **`cargo xtask fuzz [--seed S] [--count N] [--ways W] [--jobs J] [--gen-only]`:**
   - It writes `<store>/fuzz_<seed>/cases/case_<i>.flx` (the store is verify's
     output folder, `.verify/`), recreated on each run. `--gen-only` stops there.
@@ -351,19 +351,364 @@ returned without counting it, and with the parameter borrowed the same plan
 passed the verifier and printed freed memory (KI-172, fixed before going on).
 Case 61 is a native miscompile: a call whose result nothing reads, before a join
 whose value comes from elsewhere, was made a tail call, so the function returned
-the callee's result (KI-173, open). A planted miscompile, the `--optimize` AST
+the callee's result (KI-173). A planted miscompile, the `--optimize` AST
 fold of `+` off by one when the left operand is 2 mod 5, made 47 of the 200
 mismatch, all on the opt ways only. That run took 9:51 with `--jobs 4`.
 
+**The clean runs.** Without the plant, seed 1 gave 46 mismatches and seed 2 gave
+58. Most were one new bug, KI-174: every multi-statement block the AST fold made
+from an `if true` had the same expression id, so the second inference under
+`--optimize` typed one block with another's type and rejected valid programs
+(43 and 51 cases). It hid the rest on the opt ways: KI-116, the VM moving a
+variable out in a `do` block that the function read again, which the fold now
+reached from ordinary code (12 and 7 cases), and KI-173. All three were fixed
+test-first, and seeds 1 and 2 then agreed on all four ways, 200 of 200 each, in
+about 2 minutes a run: most of the 9:51 had gone to diagnosing mismatches.
+
+**S17: whole programs.** S8's programs cover scalars, lists, options, pairs,
+positional `data`, pure helpers and `main`. S17 extends the generator in four
+parts, each designed around its open KIs, as S8 was, and each turned on with its
+own flag so that a seed's programs don't change when a part is added, and a bug
+in one part doesn't flood the others:
+
+- **S17a, generics and type classes.** Type parameters on helpers and `data`; a
+  class with one or two methods, instances for the generated data types,
+  `deriving` where it applies, helpers with a constraint (`<a: Show>`) called at
+  more than one type. Around: KI-162 (no tuple, Array, Either or `Ord` container
+  meets a constraint), KI-104 (no instance method calls itself, since parity runs
+  `--no-cache`), KI-076 and KI-086 (no class inside a `module` block).
+
+  As built (`cargo xtask fuzz --with classes`, cases in
+  `.verify/fuzz_<seed>_classes/`):
+  - **Types:** the data types may derive `Eq`, `Show` or both, and one generic
+    `data G<a>` holds `a` or scalars.
+  - **Classes:** one or two user classes of one to three methods `(x: a) -> R`,
+    or `(x: a, y: a) -> Bool`. Sometimes two methods share a type, so swapped
+    dictionary slots would still type-check, and sometimes one has a default
+    body.
+  - **Instances:** for some of Int, Bool, String and the data types. Their
+    methods call no class method (KI-104), and sometimes a contextual
+    `instance C<a> => C<G<a>>` calls the class's methods on an `a` field.
+  - **Helpers:** half are generic `fn f<a>` or constrained `fn f<a: C>`, fully
+    annotated (KI-101). A constrained one always ends in a call of one of its
+    class's methods on its `a` parameter, so its dictionary is used.
+  - **Expressions:** they also call class methods at any type with an instance,
+    `==` on data deriving `Eq`, and `show` on data deriving `Show`.
+  - **Unchanged without the flag:** a test pins the hash of seed 1's first 50
+    programs.
+
+  Left out: multi-parameter classes (KI-075, KI-073), superclasses,
+  instances of prelude classes for user types, and higher kinds.
+
+  **What S17a found** before parity ran, compiling seed 1's first 200 programs:
+  - **KI-176:** an uppercase type parameter (`data G<T> … deriving (Eq)`, or
+    `instance C<T> => C<G<T>>`) gives E444 where `a` works, so the generator
+    writes `a`.
+  - **KI-177:** `m(C10)`, a method on a generic type's nullary constructor,
+    stops the compiler with E000 rather than E476, so the generator calls
+    methods on the generic type only through an annotated variable.
+  - **KI-175:** 104 of the 200 still stop with E000. A class method in an
+    `if` or `match` that is an annotated `let`'s value is "answered with more
+    than one dictionary". Even the prelude's `show` does it, and the fuzz run
+    moves those cases to `internal/`. Fixed. The annotated `let` checked its
+    value and then inferred it, and both passes raised the value's
+    predicates. A constrained function called there compiled, and natively
+    printed the wrong value, because it was passed an extra dictionary. The
+    check pass now drops what it raised.
+  - **Parity** after that, on the 96 that compiled: all agree on all four
+    ways. With KI-175 fixed, all 200 compile and agree.
+  - **The reducer:** for an internal error it compared only the first error
+    line, which is the same for every E000, so a reduction could drift from
+    one internal error to another. `judge` now includes the explanation
+    line, with its positions masked.
+  - **KI-178:** on the VM, a class method named like a prelude function
+    (`first`) panics with "No instance of …" when `main` calls it. Natively,
+    or from any other function, it works. The generator names methods `m<n>`,
+    so it can't produce this; a probe written for the exit plant did.
+  - **KI-179:** without `--strict`, `[]` is accepted at any type
+    (`fn f(...) -> Bool { [] }`). The VM catches it at run time with E1004,
+    and natively nothing checks it. The reducer found it by drifting from
+    the plant, which is how the exit-status rule below came about.
+
+  **The exit test, met** on seed 1, 200 programs, all four ways:
+  - **Where the plant goes.** The first plant, in `emit_dict_globals`
+    (`src/compiler/passes/codegen.rs`), changed nothing. That's the AST
+    compiler's; the VM's CFG backend builds a dictionary from its Core
+    definition like any other. A plant on the definition doesn't work
+    natively either, because the simplifier inlines `__dict_*` into its
+    caller, which then builds its own tuple. So the plant goes on the read:
+    native lowering of a `TupleField` on a `__dict_*` variable swaps slots 0
+    and 1 (`src/lir/lower.rs`, the `AetherExpr` arm, since native lowers
+    Aether, not Core).
+  - **Found:** 22 of 200 mismatch, every one with a constrained helper.
+    Natively, 9 printed a different value, 10 stopped with a runtime error
+    and 3 crashed. The VM ran all of them.
+  - **Reduced:** `case_148`, 96 lines to 13, in 1:08; `case_2`, 60 lines to
+    11, in 0:33. Both still call a method through a constrained helper.
+    This took two reducer changes, both in §7. First, a mismatch keeps each
+    way's exit status; before that, `case_2` and `case_64` slid to KI-179.
+    Second, three passes: a class method with its instances' methods, an
+    unused parameter with its arguments, and a one-line body joined to its
+    `fn` line. Before them, `case_148` stopped at 24 lines.
+- **S17b, records and closures as values.** Named-field `data` (0152), field
+  access and update; lambdas bound, returned from helpers, stored in lists and
+  data and called later; Arrays, Maps with `Int` or `String` keys (KI-157),
+  `Either`. Still no Floats (KI-161 and the printed form).
+
+  As built (`cargo xtask fuzz --with values`, cases in
+  `.verify/fuzz_<seed>_values/`; `--with classes,values` combines both parts):
+  - **Records:** one or two single-constructor named-field types `Rec<n>` of
+    two or three fields (scalars, `Option<Int>`, at most one function). Built
+    with the fields in any order, read with `v.f`, updated with
+    `({ ...v, f: e })`, and matched with `Rec { f: p, ... }`.
+  - **Closures:** function types of one or two scalars. A function value is an
+    annotated lambda that may read anything in scope, a record's field, or a
+    non-generic helper's name. Helpers take and return them, sometimes a
+    helper's whole body is a lambda over its parameters, and lists and record
+    fields hold them. A function variable is called with exactly its arity
+    (KI-107).
+  - **Arrays and Maps:** through `import Flow.Array as Array` and
+    `import Flow.Map as Map` (KI-146): literals, `push`, `map`, `filter`,
+    `reverse`, `from_list`, `fold`, `length`, `get` and indexing (as
+    `Option`s, never `array_get`: KI-147); Map keys `Int` or `String` only
+    (KI-157), `set`, `delete`, `merge`, `size`, `has`, `get` and indexing.
+  - **Either:** `Left`/`Right`, a two-arm match, and `either` with two lambdas.
+  - **Printing:** a value holding a function is never printed whole (a
+    closure's printed form is the backend's own); `main` prints what it gives:
+    the call for a function, `map` over a list of them, the other fields of a
+    record. Never a Map's `keys` or `values`, whose order is the hash's.
+
+  **What S17b found** before any program was generated, probing each form the
+  generator would write on one program:
+  - **KI-180:** a named-field constructor whose name has no lowercase letter
+    (`R5`, `RGB`) can be declared but not built; the parser reads it as a
+    constant. The generator names records `Rec<n>`.
+  - **KI-181:** a record built anywhere inside an `if` condition or a `match`
+    scrutinee doesn't parse, even inside parentheses or a call's arguments. The
+    generator builds none there; a record in a condition comes from a
+    variable.
+
+  Then 200 programs of seed 1 (and 50 with `classes,values`) compile with no
+  rejection, and the first 10 agree on `vm` and `llvm`. A record prints
+  positionally (`Rec5(1, Some(2))`), as named fields are erased.
+
+  **The exit plant:** native lowering swaps the first two captures when a
+  lambda's closure is built (`src/lir/lower.rs`, the `AetherExpr::Lam` arm's
+  `MakeClosure`), outside `Flow` so the prelude's own closures stay right. A
+  lambda the simplifier inlines has no closure, so the plant shows through a
+  closure that outlives its scope: one a helper returns (`121` natively against
+  `112`), or one stored in a list.
+
+  **The exit test, met** on seed 1, 200 programs, all four ways:
+  - **Clean:** 200 of 200 compile and agree, before and after the generator
+    change below.
+  - **A gap the plant showed.** The first plant run caught 2 of 200. Of 118
+    helpers returning a closure, 1 had a lambda reading two of its parameters,
+    and none was ever called: every function type was drawn fresh, so nothing
+    asked for a helper's result type. Now a returned closure combines two of
+    the helper's parameters in an order that shows (`a - b`, `a + b` on
+    Strings, `a && !b`), function types recur, and `main` binds and calls half
+    the closures helpers return: 50 of 200 programs call one, against 0.
+  - **Found:** 39 of 200 mismatch, the VM running all of them; natively about
+    34 printed another value, 2 crashed, 2 stopped with a runtime error, and 1
+    timed out.
+  - **Reduced:** `case_130`, 103 lines to 7: a lambda in `main` capturing two
+    Strings, called through a variable (`""` against `"bc"`).
+  - **Drift, twice, onto real bugs.** The reductions of the second run
+    (30, 41 and 43 lines, each to 4) all became `f()(…)`: `reduce` inlined
+    `let v = f(); print(v(…))`, and natively a chained call gives back the
+    closure (KI-183). One of the first run's printed a list of closures, which
+    natively shows as `<unknown obj=0xf5>` (KI-182). Each way exited as before,
+    so the exit-status rule couldn't tell; both bugs are filed.
+- **S17c, effects and handlers.** One or two user effects; helpers that declare
+  and perform them; `handle` with clauses that resume once or don't resume, in
+  helpers and in `main`. Around: KI-029 (no `perform` inside a lambda), KI-102
+  and KI-114 (no effect named after a builtin), KI-032 (wrappers annotated).
+  Multi-shot handlers come after.
+
+  As built (`cargo xtask fuzz --with effects`, cases in
+  `.verify/fuzz_<seed>_effects/`; it combines with `classes` and `values`):
+  - **Effects:** one or two `effect Eff<n> { op<n> : (P) -> R }` over
+    scalars, `P` mostly `R`. One operation of one parameter each (KI-185,
+    KI-184), and never a builtin's name (KI-114, KI-102).
+  - **Effectful helpers:** `fn f(..) -> R with Eff1[, Eff2]`, which performs
+    each effect of its row first and then may `perform` where a type fits, or
+    call another helper whose row is within its own. A lambda never does
+    either (KI-029).
+  - **Handlers:** a `let` anywhere (in `main`, in a pure helper, in an
+    effectful one) may be `g(args) handle Eff1 { clause }` for an effectful
+    `g`, nested in `do { } handle Eff2 { }` when `g` has two effects: a call,
+    bound to a `let` (KI-025), so every effect is handled before `main`.
+  - **Clauses:** they resume once, give the handle's type without resuming,
+    or one or the other on a condition. A clause resumes with its parameter
+    and a variable in scope combined in an order that shows (`p - k`), so a
+    clause that read the two swapped gives another value.
+  - Left out: multi-shot resume, handlers with state, `Async` (KI-169,
+    KI-144), and a clause that prints.
+
+  **What S17c found** before any program ran, probing each form on one
+  program and then compiling 200:
+  - **KI-184 (High):** natively, an operation of two parameters gives its
+    handle a closure: `lower_perform_aether` lowers only the first argument.
+  - **KI-185 (High):** natively, every operation of an effect runs its
+    handler's first clause: the handler is built from `handlers[0]` alone.
+    The one parity fixture with a two-operation effect never reads the second
+    one's result.
+  - **KI-186 (Medium):** a clause that reads a value the handled call takes
+    over stops the compiler with E999 (Aether, "read after it was released");
+    1 of the 200 programs.
+  - **The reducer:** on that case, `vm` and `vm_opt` printed different
+    diagnostics, so `reduce` took it for a mismatch and shrank it to a
+    program neither way could parse. When no way compiles a case, the
+    compiler's own failure now comes first (test-first).
+
+  Then 199 of 200 compile (the other is KI-186), 10 agree on `vm` and `llvm`,
+  and 50 with all three parts compile.
+
+  **The exit plant:** native lowering binds a clause's parameter and its first
+  capture to each other's values (`lower_handler_clause_aether`, outside
+  `Flow`). A capture the simplifier folds to a constant isn't one, so the plant
+  shows through a clause that captures a parameter or a computed value
+  (`9` against `-5`).
+
+  **The exit test, met** on seed 1, 200 programs, all four ways:
+  - **Clean:** 199 of 199 agree; the other is KI-186, and 0 generator
+    failures.
+  - **A gap the plant showed.** The first plant run caught 4 of 200. Of 80
+    clauses, 13 resumed with both their parameter and a variable, most
+    captures were constants the simplifier folds in, and the helper handled
+    often never read what it was resumed with (`(v - v)`, or nothing). Now
+    every effects program has a handler helper that `main` calls:
+    `fn h(a: R, ..) -> R { let v: R = g(..) handle Eff { op(resume, p) ->
+    resume(((p - a) + e)) }; v }`, around a helper `g` over the first effect
+    (whose parameter is always its result's type) that gives what it
+    performed combined with another value. Neither `e` reads the value it is
+    combined with, which would cancel the swap (`((p - a) + (a + a))`). The
+    call reads only `h`'s other parameters and the clause only `a`, so it
+    keeps clear of KI-186; a first version that didn't hit it in 27 of 200.
+  - **A generator bug the change showed:** with values on, an effectful
+    helper could return a function type, and `-> (Int) -> R with E` gives the
+    row to the function returned (E400 on its `perform`, E300 on a handle
+    around it): 2 of 50 programs with all three parts. Effectful helpers no
+    longer return one (test-first).
+  - **Found:** 154 of 199 mismatch. Most of the rest are Bool effects whose
+    parameter and capture happen to be equal. Each mismatch costs parity
+    about 80 seconds against 3 for a pass, in its layer-by-layer diagnosis,
+    so the run took 54 minutes against 2 clean.
+  - **Reduced:** four of the first five to 8 to 13 lines, each a clause that
+    gives its capture without resuming (`op(resume, p) -> a`), where the plant
+    gives it the parameter: `""` against `"bc"`, `23` against `48`. The fifth
+    drifted onto KI-182 (`print(\x -> 0)`), as in S17b.
+- **S17d, async and modules.** Tasks whose results are awaited in a fixed order,
+  and channels with one producer and one consumer, so the output doesn't depend
+  on scheduling; a case can be a folder with a module file beside its `main`,
+  which the reducer then has to shrink as a whole. Around: KI-108 and KI-169
+  (native async; one `run_async` per program), KI-144, KI-103 (no constructor
+  through a module alias), KI-110 and KI-146. KI-108 may have to be fixed first.
+
+  **Probes first.** KI-108's five channel programs that aren't HTTP examples
+  now print what the VM prints natively (two of them on 10 of 10 runs), so
+  KI-108 wasn't in the way and stays open for its HTTP examples only. Every
+  async and module form below ran the same on all four ways before the
+  generator wrote it. S17d became two parts, independent of each other, the
+  second changing the case layout for everything.
+
+  As built, `async` (`cargo xtask fuzz --with async`, cases in
+  `.verify/fuzz_<seed>_async/`):
+  - **One helper per form,** each with `Async` in its row, never called from
+    pure code and never handling a user effect: two of no parameters that
+    `both` takes by name (KI-029 rules out effectful lambdas); one that spawns
+    two tasks over its parameter and awaits them in order; one that fills a
+    channel with two or three values, closes it and drains it in one fiber;
+    and one where a local producer fills a channel while a local consumer
+    drains it, under `both`. What they give is combined in an order that shows
+    (`a - b`, `a + b` on Strings, `a && !b`).
+  - **One body calls them all,** and `main` runs it with the program's only
+    `run_async` (KI-169) and prints what it gives. Nothing else prints, so no
+    fiber prints from another worker (KI-144). Calls go through the modules'
+    aliases (`Async.both`, `Task.await`, `Channel.recv`), which check arity
+    (KI-146).
+  - Left out: anything timed (`sleep`, `timeout`, `race`, `select`),
+    `yield_now`, worker counts, and a user effect in an async helper.
+
+  As built, `modules` (`--with modules`; each case the folder
+  `case_<i>/` holding `main.flx` and `M<n>.flx`):
+  - **The module** holds the program's data types and records and one to
+    three plain helpers, then a pair helper, `fn f(a: S, b: S) -> S`, combining
+    its two parameters in an order that shows. Each item is `public`, and the
+    module file repeats the program's imports.
+  - **`main.flx`** imports it with `import M<n> as A<n>` and calls its
+    functions through the alias, or in half the programs by their bare names
+    too, exposed. Types and constructors come in only through `exposing`: a
+    constructor through an alias fails natively (KI-103), and a qualified
+    type can't be written (KI-023). `main` always calls the pair helper
+    through the alias.
+  - **Kept in `main`:** classes and instances (KI-086, KI-076), effects, and
+    the generic, effect, handler, closure and async helpers. One module per
+    case (KI-056), never named `Main`, `Flow` or `Flume`.
+  - **The pipeline** takes a case's entry (`case_<i>.flx` or
+    `case_<i>/main.flx`) and moves or copies a folder case whole.
+
+  `cargo xtask fuzz --reruns N` (new) runs each case every way agrees on N
+  more times on each way, a native way on a cache of the case's own; a case
+  whose finish, exit or stdout changes goes to `varies/`.
+
+  **What S17d found:**
+  - **KI-187 (Medium), fixed:** a module file got none of the prelude's
+    imports, which the driver gave the entry file only. Natively, each module
+    compiled on its own, its calls of `map`, `fold`, `filter`, `sum`, `length`
+    and `reverse` were undefined (E004); on the VM they resolved when the
+    prelude happened to be compiled first, and `either` didn't. 7 of the
+    first 10 modules cases, so it was fixed before the part's runs: the module
+    graph gives each user module the prelude's imports it doesn't make itself
+    (`build_with_prelude`), and `CACHE_EPOCH` is 143. Its verify run changed
+    no output: Core dumps only reordered, the class methods' fallback loads
+    one name more, and one call (`Flow.List.each`'s own, in `lib/Flume`) now
+    borrows the list it used to `dup` and leak. `compiler_allocs` grew 1.1 to
+    2.3 % on four examples that use modules.
+  - **A generator bug, older than S17d:** with classes on, `match None {
+    Some(p) -> m(p), .. }` gives `p` no type, so a class method called on it
+    can't be resolved (E459), in 2 of 50 programs with all four parts; such a
+    `match` now binds nothing its arms read.
+  - **The reducer** drifted onto KI-145 and stopped at 19 lines on the async
+    plant; see §7.
+
+  **The exit tests, met** on seed 1, all four ways:
+  - **`async`, clean:** 200 of 200 compile and agree, and with `--reruns 10`
+    all 200 print the same on every run of every way.
+  - **`async` plant:** native `buf_pop` (`runtime/c/channel.c`) gives the
+    newest value when two or more are buffered: `227` against `196` on the
+    probe, and 7 of the first 10 generated cases. After the reducer fixes, the
+    first five reduce to 12 lines each: two sends, and natively the first
+    receive gets the second value.
+  - **`modules`, clean:** after KI-187, 200 of 200 compile and agree, and all
+    200 print the same on 10 reruns of every way.
+  - **`modules` plant:** native `lower_call_expr_aether` swaps the first two
+    arguments of a direct call to a user module's function (`flux_M<n>_*`):
+    42 of 50 found. The first five reduce to 9 lines over the two files each:
+    a module function giving its first parameter, called through the alias,
+    natively given the second (`"bc"` against `""`).
+
 ### §7 The reducer
 
-- **`cargo xtask fuzz reduce <case.flx> [--ways W] [--jobs J] [--timeout S]`:**
+- **`cargo xtask fuzz reduce <case.flx | case folder> [--ways W] [--jobs J] [--timeout S]`:**
   delta debugging (ddmin) over lines, after the passes below. A candidate
   deletes a set of lines; a deletion that splits a brace pair is widened to the
   lines the pair encloses. Code: `xtask/src/fuzz/reduce.rs`.
+- **Folder cases (S17d).** A case is its files, `main.flx` first: one file, or
+  a folder (named by itself or its `main.flx`) holding `main.flx` and the module
+  beside it. Every candidate is written as a folder, so the module resolves.
+  Each file is reduced with the others held fixed, until a round changes none.
+  Before each round, the module is put into `main`: its imports `main` lacks,
+  then its items, no longer `public`, before `main`'s own, with `main`'s
+  imports of it gone and calls through the alias by their bare names. A bug
+  that survives that isn't about modules, and its case goes on as one file.
 - **Keeping a candidate:** the pair of ways that disagreed on the original
-  must still differ on the same stream (exit, stdout or stderr), and each way
-  must compile it exactly when it compiled the original. The pair is the one
+  must still differ on the same stream (exit, stdout or stderr), each way must
+  exit as it did on the original, and each way must compile it exactly when it
+  compiled the original. Without the exits, a case where native fails and the
+  VM runs slid to one where the VM fails and native runs (S17a's plant
+  reduced to KI-179). The pair is the one
   with the fewest native ways among those that disagree, so a bug the VM shows
   is reduced on the VM alone. The two ways run directly, not through
   `parity-check`, which would run every way per candidate; a native pair
@@ -374,6 +719,11 @@ mismatch, all on the opt ways only. That run took 9:51 with `--jobs 4`.
   candidates that do not parse. Before it, the reducer tries edits that keep
   the program well formed, as Perses and llvm-reduce do:
   - delete a whole top-level item;
+  - delete a class method together with its method in every instance of the
+    class, a contextual one included;
+  - delete a parameter a top-level function never reads, together with the
+    argument in its place at every call (none when the function is passed as
+    a value);
   - delete a statement, or a `match` arm when a later arm is a wildcard;
   - replace an `if` with one of its branches, or a `match` with one arm's
     value; a `match` with one arm whose pattern names the scrutinee or its
@@ -385,21 +735,33 @@ mismatch, all on the opt ways only. That run took 9:51 with `--jobs 4`.
   - replace an expression (a bracketed group, a call or a string) with a
     literal, one of its operands, a call's argument, or a tuple's or list's
     element, largest first. Its type is not known, so a wrong one is turned
-    away by the compile check.
+    away by the compile check;
+  - drop a `#{..}` piece from a string (S17d).
 
   Line ddmin runs after the deleting passes and before the expressions pass,
   which tries the most candidates per line and should see the smallest
-  program. Rounds repeat until one changes nothing. A pass that keeps a
+  program. Last in each round, a function or instance method whose body is
+  one value is written on one line (`fn m(x) { "" }`). It doesn't make the
+  program smaller, but it makes the line count measure the program rather
+  than the generator's layout, which gives every body three lines. A block
+whose lines are each one arm, a `match`'s mostly, goes on one line the same
+way, so `inline` can then fold the `let` it's bound to (S17d). Rounds
+  repeat until one changes nothing. A pass that keeps a
   candidate goes on from there rather than starting over, which would retest
   every candidate before it.
 - **Cost:** candidates are tested `--jobs` at a time (default 4) and each
   distinct text once. Native candidates build the standard library into a
-  cache per job slot instead of on every run (about 0.8 s down to 0.3 s), and
-  the result is checked again with `--no-cache`. `--timeout` defaults to 10 s:
+  cache per job slot instead of on every run (about 0.8 s down to 0.3 s). A
+  candidate a native way keeps is run again without the cache before it's
+  kept: an object cached for one candidate can keep another program's
+  constructor tags (KI-145) and show a difference the candidate doesn't have,
+  which two of S17d's first five plant reductions drifted onto. The result is
+  checked again with `--no-cache` too. `--timeout` defaults to 10 s:
   a candidate can recurse forever, and a timeout kills what flux started as
   well as flux, since the built program would otherwise hold the output pipes
   open.
-- **Output:** `<case>.min.flx` beside the case, and the run's candidates in
+- **Output:** `<case>.min.flx` beside the case, or the folder `<case>.min/`
+  when the module is still needed, and the run's candidates in
   `.verify/reduce_<case>/`.
 - **Promotion:** a minimized case goes to `tests/parity/` with `// expect: success`
   and a `parity-expected-stdout` block taken from the way that is right. It goes in
@@ -929,17 +1291,22 @@ each joined to an open KI:
 | S14 | `lir::verify`, `--verify-each`, the `vm_verify` way (§14) | Unit tests per LIR rule. A planted malformed rewrite, not committed, fails `--verify-each` naming its pass, where plain parity shows only wrong output. Main parity under `vm_verify` has 0 failures, after fixes or KIs. |
 | S16 ✓ | The support census (§16): `ExitKind::Crash`, `--jobs`, `--census`, `requires: network`, `flux features`, `cargo xtask census` | Every file and way in the corpus is classified; every failure has a KI or a header fix, so the unfiled list is empty; the matrix is published. Plain parity over `tests/parity` gives the same verdicts as before, except crashes now reported as such. |
 | S15 | Live blocks at exit, the `llvm_heap` way, expected counts, `cargo xtask sanitize` (§15) | `llvm_heap` over `tests/parity` and `examples/aether` reports 0 leaks, after fixes or KIs. A planted missing `drop`, not committed, fails it with the allocation site. A removed reuse fails an `expect-reuse` fixture. |
+| S17 | Whole programs from the generator, in four parts (§6): S17a generics and type classes, S17b records and closures as values, S17c effects and handlers, S17d async and modules | For each part: 200 programs of one seed that use it compile with 0 generator failures; a planted miscompile in that part's lowering (a dictionary's methods swapped on one backend, a clause that resumes with the wrong value), not committed, is found within `--count 200` and reduces to at most 15 lines; every mismatch is fixed or filed. S17d's programs print the same output on 10 reruns of each way. |
 
 S1 comes first, since without it the later stages could fail silently. S2 and S3
 go together: the opt ways will find divergences, and S2 is how they are recorded
-while they are open. S9 needs S8. S6's shuffling and S11's counts need nothing else. The expected
+while they are open. S9 needs S8, and S17 needs both. S6's shuffling and S11's counts need nothing else. The expected
 counts in S15 use S11's `--metrics`. The rest are independent of each other.
 
 Stage numbers name the stages; they are not the order of work. The intended
-order is S16, S5, S6, S7, S13, S15, S8, S9, S14, S10, S11, S12: the census
+order is S16, S5, S6, S7, S13, S15, S8, S9, S17, S14, S10, S11, S12: the census
 first, since the goal is to know what works and what does not, then cheap
 invariants, then the tools that turn a found mismatch into a named cause (S13) and
-the check for the bugs parity cannot see (S15), then the generator.
+the check for the bugs parity cannot see (S15), then the generator. S17 follows
+S9 directly: in its first 400 programs S8's subset found three new bugs and
+reached a known one (KI-172 to KI-174, KI-116), and once they were fixed seeds 1
+to 3 found nothing, so the next bugs are in the parts of the language it doesn't
+generate.
 
 **Why this order.** The first four stages showed where the bugs are. Counting
 failures that were already printed (S1, S2) uncovered 11 of them, three of
@@ -1058,8 +1425,7 @@ which guards debug output that already agrees 21/21, goes last.
 ## Future possibilities
 [future-possibilities]: #future-possibilities
 
-- Generated effect handlers (state, exceptions, multi-shot) once the generator can
-  build effect rows.
+- Multi-shot handlers in generated programs, after S17c's single-shot ones.
 - Generated `-g` programs with generated `// dbg:` scripts, feeding debug parity.
 - A nightly or weekly fuzz run on the CI runners, with seeds recorded in the
   report.
