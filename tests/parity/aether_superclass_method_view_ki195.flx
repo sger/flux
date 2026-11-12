@@ -1,0 +1,47 @@
+// expect: success
+// bug: KI-195. A method read through a superclass slot of a dictionary
+//       (`let m = (let s = d.0 in s.0)`) was not taken for a view of the
+//       dictionary, so the dictionary was given to the recursive call
+//       without a copy, the base case released it, and natively each outer
+//       frame called a freed closure.
+// parity-expected-stdout-begin
+// Some(3)
+// Some(6)
+// parity-expected-stdout-end
+
+class S<a> {
+    fn app(x: a, y: a) -> a
+}
+
+class S<a> => M<a> {
+    fn emp() -> a
+}
+
+instance S<Int> {
+    fn app(x, y) { x + y }
+}
+
+instance S<a> => S<Option<a>> {
+    fn app(x, y) {
+        match x {
+            Some(u) -> match y { Some(v) -> Some(app(u, v)), _ -> x },
+            _ -> y
+        }
+    }
+}
+
+instance S<Option<a>> => M<Option<a>> {
+    fn emp() { None }
+}
+
+fn mconcat<a: M>(xs: List<a>) -> a {
+    match xs {
+        [h | t] -> app(h, mconcat(t)),
+        _ -> emp()
+    }
+}
+
+fn main() {
+    print(mconcat([Some(1), Some(2)]))
+    print(mconcat([Some(1), Some(2), Some(3)]))
+}
