@@ -1305,6 +1305,8 @@ pub struct Compiler {
     /// Imported monomorphic `__tc_*` schemes rebuilt from public instance metadata.
     imported_instance_method_schemes: HashMap<Symbol, Scheme>,
     imported_instance_method_native_symbols: HashMap<Symbol, String>,
+    /// Borrow signatures of imported `__tc_*` methods, keyed by mangled name.
+    imported_instance_method_borrow_signatures: HashMap<Symbol, BorrowSignature>,
     /// `ExprId`s of `Perform` nodes that were synthesized from direct user
     /// calls via the 0165 routing pass. Used by E400 / other effect
     /// diagnostics to render the user's call shape instead of the lowered
@@ -1852,6 +1854,7 @@ impl Compiler {
             pending_imported_public_instance_entries: Vec::new(),
             imported_instance_method_schemes: HashMap::new(),
             imported_instance_method_native_symbols: HashMap::new(),
+            imported_instance_method_borrow_signatures: HashMap::new(),
             routed_call_perform_ids: HashSet::new(),
             repl_mode: false,
             repl_session_schemes: HashMap::new(),
@@ -2502,6 +2505,12 @@ impl Compiler {
         }
         for (member_name, signature) in in_name_order(&interface.borrow_signatures) {
             let member = self.interner.intern(member_name);
+            // @KI-194: an instance method is not a member an importer can
+            // name; only its signature is wanted, for calls dispatch makes.
+            if crate::types::class_env::is_generated_instance_method(member_name) {
+                self.imported_instance_method_borrow_signatures.insert(member, signature.clone());
+                continue;
+            }
             let qualified = self.interner.intern_join(module_name, member);
             if !self.symbol_table.exists_in_current_scope(qualified) {
                 self.symbol_table.define(qualified, Span::default());
@@ -3060,6 +3069,12 @@ impl Compiler {
 
         let import_bindings = self.collect_import_module_bindings(program);
         let mut registry = BorrowRegistry::default();
+
+        // @KI-194: dispatch calls an imported instance method by its mangled
+        // name whatever the import exposes, and the name carries its module.
+        for (&name, signature) in &self.imported_instance_method_borrow_signatures {
+            registry.by_name.insert(name, signature.clone());
+        }
 
         for (binding, target_module) in import_bindings {
             for ((mod_name, member), signature) in &self.cached_member_borrow_signatures {

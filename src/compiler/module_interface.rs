@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
+use crate::core::CoreExpr;
 use crate::{
     aether::borrow_infer::BorrowSignature,
     bytecode::bytecode_cache::hash_bytes,
@@ -68,6 +69,21 @@ struct CanonicalExport<'a> {
     is_value: bool,
 }
 
+/// Whether `def` is the bare alias of a module-owned instance method: a call
+/// to `Module.name` with the same name, which an importer never reaches. It
+/// gives everything to that call, so its signature owns what the method
+/// itself only borrows.
+fn forwards_to_module_member(def: &crate::core::CoreDef) -> bool {
+    let CoreExpr::Lam { body, .. } = &def.expr else {
+        return false;
+    };
+    matches!(
+        body.as_ref(),
+        CoreExpr::App { func, .. }
+            if matches!(func.as_ref(), CoreExpr::MemberAccess { member, .. } if *member == def.name)
+    )
+}
+
 /// Build a module interface from post-Aether Core plus cached HM schemes.
 ///
 /// Proposal 0151, Phase 2: when `class_env` is `Some`, the interface
@@ -107,11 +123,23 @@ pub fn build_interface(
     }
 
     for def in &program.defs {
-        if def.is_anonymous() || visibility.get(&(module_sym, def.name)) != Some(&true) {
+        if def.is_anonymous() {
             continue;
         }
 
         let name = interner.resolve(def.name).to_string();
+        if visibility.get(&(module_sym, def.name)) != Some(&true) {
+            // @KI-194: instance methods are generated private, but an importer
+            // calls them by name. Without the signature it gives away what
+            // the method only borrows, and nobody releases it.
+            if crate::types::class_env::is_generated_instance_method(&name)
+                && !forwards_to_module_member(def)
+                && let Some(signature) = &def.borrow_signature
+            {
+                interface.borrow_signatures.insert(name, signature.clone());
+            }
+            continue;
+        }
         if let Some(scheme) = schemes.get(&(module_sym, def.name)) {
             interface.schemes.insert(name.clone(), scheme.clone());
         }
@@ -1044,6 +1072,76 @@ mod tests {
         assert!(!interface.borrow_signatures.contains_key("helper"));
         assert_eq!(interface.dependency_fingerprints.len(), 1);
         assert!(!interface.interface_fingerprint.is_empty());
+    }
+
+    /// An importer calls a private instance method by name, so its signature
+    /// is exported; the bare alias that forwards to `Module.name` is not the
+    /// method an importer reaches, and its signature owns everything.
+    #[test]
+    fn build_interface_exports_an_instance_methods_signature_not_its_alias_ki194() {
+        let mut interner = Interner::new();
+        let module = interner.intern("Flow.Monad");
+        let method = interner.intern("__tc_m10_4D_Monad_Option_bind");
+        let dict = interner.intern("d");
+        let lam = |body: CoreExpr| CoreExpr::Lam {
+            params: vec![CoreBinder::new(CoreBinderId(9), dict)],
+            param_types: vec![None],
+            result_ty: None,
+            body: Box::new(body),
+            span: Default::default(),
+        };
+        let unit = || CoreExpr::Lit(CoreLit::Unit, Default::default());
+        let forward = CoreExpr::App {
+            func: Box::new(CoreExpr::MemberAccess {
+                object: Box::new(unit()),
+                member: method,
+                span: Default::default(),
+            }),
+            args: vec![unit()],
+            span: Default::default(),
+        };
+        let mut program = CoreProgram {
+            defs: vec![
+                CoreDef::new(
+                    CoreBinder::new(CoreBinderId(0), method),
+                    lam(unit()),
+                    false,
+                    Default::default(),
+                ),
+                CoreDef::new(
+                    CoreBinder::new(CoreBinderId(1), method),
+                    lam(forward),
+                    false,
+                    Default::default(),
+                ),
+            ],
+            top_level_items: Vec::new(),
+        };
+        let borrowed = BorrowSignature::new(vec![BorrowMode::Borrowed], BorrowProvenance::Inferred);
+        program.defs[0].borrow_signature = Some(borrowed.clone());
+        program.defs[1].borrow_signature =
+            Some(BorrowSignature::new(vec![BorrowMode::Owned], BorrowProvenance::Inferred));
+
+        let interface = build_interface(
+            interner.resolve(module),
+            module,
+            &crate::bytecode::bytecode_cache::hash_bytes(b"module Flow.Monad {}"),
+            &compute_semantic_config_hash(false, false),
+            &program,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            None,
+            Vec::new(),
+            &interner,
+            None,
+        );
+
+        assert_eq!(
+            interface.borrow_signatures.get("__tc_m10_4D_Monad_Option_bind"),
+            Some(&borrowed)
+        );
+        assert!(!interface.schemes.contains_key("__tc_m10_4D_Monad_Option_bind"));
     }
 
     #[test]
