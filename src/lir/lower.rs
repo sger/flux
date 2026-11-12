@@ -3284,17 +3284,16 @@ impl<'a> FnLower<'a> {
             args: vec![],
         });
 
-        // 2. Build handler clause closure.
-        //    For single-operation effects (the common case), the handler
-        //    closure IS the clause: fn(resume, param0, ...) -> handler_body.
-        //    For multi-operation effects, we'd need a dispatch closure, but
-        //    for now we support single-operation effects.
+        // 2. Build the handler: the clause closure itself for one operation,
+        //    fn(resume, param0, ...) -> handler_body; a clause table for more.
         let handler_closure = if handlers.len() == 1 {
             self.lower_handler_clause(effect, &handlers[0])
         } else {
-            // Multi-operation: build the first handler for now.
-            // TODO: dispatch closure for multi-op effects.
-            self.lower_handler_clause(effect, &handlers[0])
+            let clauses: Vec<(Identifier, LirVar)> = handlers
+                .iter()
+                .map(|h| (h.operation, self.lower_handler_clause(effect, h)))
+                .collect();
+            self.make_clause_table(clauses)
         };
 
         // 3. Create fresh marker + insert evidence.
@@ -3376,7 +3375,15 @@ impl<'a> FnLower<'a> {
             args: vec![],
         });
 
-        let handler_closure = self.lower_handler_clause_aether(effect, &handlers[0]);
+        let handler_closure = if handlers.len() == 1 {
+            self.lower_handler_clause_aether(effect, &handlers[0])
+        } else {
+            let clauses: Vec<(Identifier, LirVar)> = handlers
+                .iter()
+                .map(|h| (h.operation, self.lower_handler_clause_aether(effect, h)))
+                .collect();
+            self.make_clause_table(clauses)
+        };
 
         let marker = self.fresh_var();
         self.emit(LirInstr::PrimCall {
@@ -3400,7 +3407,9 @@ impl<'a> FnLower<'a> {
         };
 
         let tail_resumptive = self.fresh_var();
-        let resumes_last = resumes_only_as_last_act(&handlers[0].body, handlers[0].resume.id);
+        // @KI-185: the entry has one flag for all its clauses, so it is set
+        // only when every clause resumes as its last act.
+        let resumes_last = handlers.iter().all(|h| resumes_only_as_last_act(&h.body, h.resume.id));
         self.emit(LirInstr::Const {
             dst: tail_resumptive,
             value: LirConst::Tagged(crate::lir::nanbox_tag_int(i64::from(resumes_last))),
@@ -3440,6 +3449,30 @@ impl<'a> FnLower<'a> {
         }
 
         result
+    }
+
+    /// The evidence entry of a handler of several operations holds this table,
+    /// `(op_tag0, clause0, op_tag1, clause1, ...)`, in place of one clause.
+    /// `flux_yield_to` and `flux_perform_direct` pick the clause whose tag is
+    /// the performed operation's, which `lower_perform_aether` passes in the
+    /// same encoding.
+    ///
+    /// @KI-185: the entry used to hold the first clause alone, so every
+    /// operation of the effect ran it.
+    fn make_clause_table(&mut self, clauses: Vec<(Identifier, LirVar)>) -> LirVar {
+        let mut elements = Vec::with_capacity(clauses.len() * 2);
+        for (operation, clause) in clauses {
+            let optag = self.fresh_var();
+            self.emit(LirInstr::Const {
+                dst: optag,
+                value: LirConst::Tagged(crate::lir::nanbox_tag_int(operation.as_u32() as i64)),
+            });
+            elements.push(optag);
+            elements.push(clause);
+        }
+        let table = self.fresh_var();
+        self.emit(LirInstr::MakeTuple { dst: table, elements });
+        table
     }
 
     fn lower_call_expr(&mut self, func: &CoreExpr, args: &[CoreExpr]) -> LirVar {

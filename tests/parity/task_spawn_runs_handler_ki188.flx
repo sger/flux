@@ -1,0 +1,50 @@
+// parity: vm, llvm
+// expect: success
+// bug: on the VM a handler that a Task.spawn task runs found no descriptor in the task's constants, so it stopped with "expected HandlerDescriptor constant" (KI-188)
+// parity-expected-stdout-begin
+// [11, 21, -1]
+// parity-expected-stdout-end
+import Flow.Async as Async
+import Flow.Task as Task
+
+effect Eff { op: (Int) -> Int }
+effect Fail { fail: (Int) -> Int }
+
+fn f() -> Int with Eff {
+    perform Eff.op(1)
+}
+
+// A clause that resumes: the VM's OpHandleDirect.
+fn g(a: Int) -> Int {
+    f() handle Eff { op(resume, p) -> resume(p + a) }
+}
+
+fn risky(n:Int ) -> Int with Fail {
+    if n > 5 {
+        perform Fail.fail(n)
+    } else {
+        n
+    }
+}
+
+// A clause that never resumes: the VM's OpHandle.
+fn safe(n: Int) -> Int {
+    risky(n) handle Fail { fail(resume, p) -> -1 }
+}
+
+fn named() -> Int { g(10)}
+fn aborted() -> Int { safe(9) }
+
+fn body() -> List<Int> with Async {
+    let a: Task<Int> = Task.spawn(named);
+    let b: Task<Int> = Task.spawn(fn() { g(20) });
+    let c: Task<Int> = Task.spawn(aborted);
+    let x: Int = Task.await(a);
+    let y: Int = Task.await(b);
+    let z: Int = Task.await(c);
+    [x, y, z]
+}
+
+fn main() with IO {
+    print(Async.run_async(body));
+}

@@ -23,9 +23,35 @@ unanswered for another year.
 ## Conventions
 
 Each entry gets a stable `#KI-nnn` anchor so code comments and commit messages
-can point at it (`// see docs/known_issues.md#ki-003`). Numbers are never
-reused; resolved entries move to the bottom rather than being deleted, so a
-stale reference still resolves to an explanation.
+can point at it. Numbers are never reused; resolved entries move to the bottom
+rather than being deleted, so a stale reference still resolves to an
+explanation.
+
+### Marking the code
+
+Code that a known issue shaped carries the tag `@KI-nnn` in a comment, so
+`git grep -n "@KI-187"` lists every place the issue touches:
+
+```rust
+// @KI-187: a user module gets the prelude imports the entry file gets.
+```
+
+- **A fix** marks the code it changes or adds, at each site. A fix spread over
+  several files gets a tag in each.
+- **A workaround or an avoidance** for an open issue marks the code that steers
+  around it: a guard, a skip, a generator choice in `xtask/src/fuzz/`. When the
+  issue is fixed, the workaround and its tag go together.
+- A fix's tag stays after the issue is resolved, as long as the code it marks
+  is there, because it explains why that code has its shape.
+- The comment gives the reason in a line. The full story stays in this file.
+- The number must be an entry in this file. File the entry first, then tag
+  the code.
+- Tests aren't tagged. Their names end in `_kinnn`, and parity fixtures carry
+  the number in their header ([tests/README.md](../tests/README.md)).
+- The older form, a bare `(KI-034)` in prose, still points at its entry.
+  Change it to `@KI-034` when you work on that code.
+- A Fixed paragraph names the files it changed. Their tags lead to the exact
+  lines.
 
 Every entry states **how it was verified and when** — an unverified issue report
 ages into misinformation. Re-verify before acting on one.
@@ -44,7 +70,7 @@ Severity is about consequence, not effort:
 
 ### KI-176 — An uppercase type parameter breaks `deriving` on a generic type and an instance's context
 
-**Severity:** Medium · **Area:** Type classes, deriving · **Verified:** 2026-11-09 (2fe0af80) · **From:** 0190 S17a (`cargo xtask fuzz --with classes`, the generator's first version)
+**Severity:** Medium · **Area:** Type classes, deriving · **Verified:** 2026-11-09 (2fe0af80) · **From:** 0190 S17a (`cargo xtask fuzz --with classes`, the generator's first version) · **Issue:** [#176](https://forgejo.spirosgerokostas.com/sger/flux/issues/176)
 
 ```flux
 data Box<T> { Full(T), Empty } deriving (Eq)
@@ -64,7 +90,7 @@ until this is fixed.
 
 ### KI-177 — A method call on a generic type's nullary constructor stops the compiler with E000
 
-**Severity:** Low · **Area:** Type classes, diagnostics · **Verified:** 2026-11-09 (2fe0af80) · **From:** 0190 S17a (`cargo xtask fuzz --with classes`)
+**Severity:** Low · **Area:** Type classes, diagnostics · **Verified:** 2026-11-09 (2fe0af80) · **From:** 0190 S17a (`cargo xtask fuzz --with classes`) · **Issue:** [#177](https://forgejo.spirosgerokostas.com/sger/flux/issues/177)
 
 ```flux
 data Box<a> { Full(a), Empty }
@@ -95,7 +121,7 @@ only calls a method on a generic type's value through an annotated variable.
 
 ### KI-178 — On the VM, a class method named like a prelude function panics when `main` calls it
 
-**Severity:** Medium · **Area:** VM, type classes, name resolution · **Verified:** 2026-11-10 (ea48361a) · **From:** 0190 S17a (a probe written while checking the exit plant)
+**Severity:** Medium · **Area:** VM, type classes, name resolution · **Verified:** 2026-11-10 (ea48361a) · **From:** 0190 S17a (a probe written while checking the exit plant) · **Issue:** [#178](https://forgejo.spirosgerokostas.com/sger/flux/issues/178)
 
 ```flux
 class Two<a> {
@@ -133,7 +159,7 @@ The fuzz generator names its methods `m<n>`, so it can't produce this.
 
 ### KI-179 — Without `--strict`, `[]` is accepted at any type, and natively nothing checks it
 
-**Severity:** High (silent wrong output natively) · **Area:** Type inference, runtime boundary checks, native backend · **Verified:** 2026-11-10 (0dd6c6cb) · **From:** 0190 S17a (`cargo xtask fuzz reduce` drifted onto it from a planted miscompile)
+**Severity:** High (silent wrong output natively) · **Area:** Type inference, runtime boundary checks, native backend · **Verified:** 2026-11-10 (0dd6c6cb) · **From:** 0190 S17a (`cargo xtask fuzz reduce` drifted onto it from a planted miscompile) · **Issue:** [#179](https://forgejo.spirosgerokostas.com/sger/flux/issues/179)
 
 ```flux
 data D3 { C4, C5(String) }
@@ -176,7 +202,7 @@ classes).
 
 ### KI-180 — A named-field constructor with no lowercase letter in its name can be declared but not built
 
-**Severity:** Low · **Area:** Parser, named fields (0152) · **Verified:** 2026-11-10 (db1babdc) · **From:** 0190 S17b (a probe of the forms the generator would write)
+**Severity:** Low · **Area:** Parser, named fields (0152) · **Verified:** 2026-11-10 (db1babdc) · **From:** 0190 S17b (a probe of the forms the generator would write) · **Issue:** [#180](https://forgejo.spirosgerokostas.com/sger/flux/issues/180)
 
 ```flux
 data R5 { R5 { f6: Int, f7: String } }
@@ -204,7 +230,7 @@ The fuzz generator names its records `Rec<n>`.
 
 ### KI-181 — A named-field construction inside an `if` condition or a `match` scrutinee doesn't parse, even in parentheses or a call
 
-**Severity:** Low · **Area:** Parser, named fields (0152) · **Verified:** 2026-11-10 (86803c35) · **From:** 0190 S17b (a probe of the forms the generator would write)
+**Severity:** Low · **Area:** Parser, named fields (0152) · **Verified:** 2026-11-10 (86803c35) · **From:** 0190 S17b (a probe of the forms the generator would write) · **Issue:** [#181](https://forgejo.spirosgerokostas.com/sger/flux/issues/181)
 
 ```flux
 data Rec5 { Rec5 { f6: Int, f7: String } }
@@ -238,7 +264,7 @@ scrutinee: a record there comes from a variable.
 
 ### KI-182 — Natively, a printed closure shows as `<unknown obj=0xf5>`
 
-**Severity:** Low · **Area:** C runtime, printing · **Verified:** 2026-11-10 (f087a142) · **From:** 0190 S17b (`cargo xtask fuzz reduce` drifted onto it)
+**Severity:** Low · **Area:** C runtime, printing · **Verified:** 2026-11-10 (f087a142) · **From:** 0190 S17b (`cargo xtask fuzz reduce` drifted onto it) · **Issue:** [#182](https://forgejo.spirosgerokostas.com/sger/flux/issues/182)
 
 ```flux
 fn main() with IO {
@@ -257,7 +283,7 @@ differed on stdout, so a reduction of S17b's exit plant drifted onto this.
 
 ### KI-183 — Natively, `f(a)(b)` gives back the closure `f(a)` returns, without calling it
 
-**Severity:** High (silent wrong output natively; a closure in an `Int`) · **Area:** Core, native calls · **Verified:** 2026-11-10 (e1531cc4) · **From:** 0190 S17b (`cargo xtask fuzz reduce` drifted onto it from the exit plant, 3 of 3 reductions)
+**Severity:** High (silent wrong output natively; a closure in an `Int`) · **Area:** Core, native calls · **Verified:** 2026-11-10 (e1531cc4) · **From:** 0190 S17b (`cargo xtask fuzz reduce` drifted onto it from the exit plant, 3 of 3 reductions) · **Issue:** [#183](https://forgejo.spirosgerokostas.com/sger/flux/issues/183)
 
 ```flux
 fn adder(n: Int) -> (Int) -> Int { \(x: Int) -> (x + n) }
@@ -290,7 +316,7 @@ stdout.
 
 ### KI-184 — Natively, an effect operation of two or more parameters gives its handle a closure
 
-**Severity:** High (silent wrong output natively) · **Area:** Native effects, `perform` lowering · **Verified:** 2026-11-10 (ae6dbc70) · **From:** 0190 S17c (a probe of the forms the generator would write)
+**Severity:** High (silent wrong output natively) · **Area:** Native effects, `perform` lowering · **Verified:** 2026-11-10 (ae6dbc70) · **From:** 0190 S17c (a probe of the forms the generator would write) · **Issue:** [#184](https://forgejo.spirosgerokostas.com/sger/flux/issues/184)
 
 ```flux
 effect Ask { ask : (Int, Int) -> Int }
@@ -318,45 +344,9 @@ which isn't compiled, is the only place one is written.
 
 The fuzz generator writes operations of at most one parameter.
 
-### KI-185 — Natively, every operation of an effect runs its handler's first clause
-
-**Severity:** High (silent wrong output natively) · **Area:** Native effects, handler lowering · **Verified:** 2026-11-10 (f1d78295) · **From:** 0190 S17c (a probe of the forms the generator would write)
-
-```flux
-effect E {
-    a : (Int) -> Int
-    b : (Int) -> Int
-}
-
-fn g() -> Int with E {
-    let x: Int = perform E.a(1);
-    let y: Int = perform E.b(1);
-    ((x * 1000) + y)
-}
-
-fn main() with IO {
-    let v: Int = g() handle E { a(resume, n) -> resume(100), b(resume, n) -> resume(200) };
-    print(v);
-}
-```
-
-`vm` and `vm_opt` print `100200`; `llvm` and `llvm_opt` print `100100`:
-`perform E.b(1)` ran `a`'s clause. With `perform E.b` alone it's `200` against
-`100`. When the clauses' types differ (an `(Int) -> Int` and a
-`(String) -> Bool` operation), `b` resumes with `a`'s value, of `a`'s type.
-
-`lower_handle_aether` (`src/lir/lower.rs`) builds the handler's closure from
-`handlers[0]` alone (`lower_handler_clause_aether(effect, &handlers[0])`) and
-inserts it as the effect's one evidence entry, so whichever operation is
-performed, that clause runs. `lower_handle`, the Core path, does the same.
-`tests/parity/effect_tr_reader.flx` has a two-operation effect, but it binds
-the second operation's result to `_port` and never reads it, so it passes.
-
-The fuzz generator gives each effect one operation.
-
 ### KI-186 — A handler clause that reads a value the handled call takes over stops the compiler with E999
 
-**Severity:** Medium (valid programs refused, with an internal error) · **Area:** Aether, ownership, effect handlers · **Verified:** 2026-11-10 (5fb02344) · **From:** 0190 S17c (`cargo xtask fuzz --seed 1 --with effects --gen-only`, case 65 of 200)
+**Severity:** Medium (valid programs refused, with an internal error) · **Area:** Aether, ownership, effect handlers · **Verified:** 2026-11-10 (5fb02344) · **From:** 0190 S17c (`cargo xtask fuzz --seed 1 --with effects --gen-only`, case 65 of 200) · **Issue:** [#186](https://forgejo.spirosgerokostas.com/sger/flux/issues/186)
 
 ```flux
 effect Eff { op : (Int) -> Int }
@@ -389,6 +379,64 @@ plan releases `s` at the call, and doesn't count the clause, which reads it
 later, as a use.
 
 The verifier refuses the plan, so nothing runs wrong.
+
+The first full-generator hunt (`cargo xtask fuzz --seed 2 --with
+classes,values,effects,async,modules`, 2026-11-11) hit it in 5 programs of
+200 (cases 70, 145, 159, 169 and 182), all in a handled `let` in `main`. There
+the call doesn't return the value: putting it in a constructor in the call's
+arguments is enough to take it over. Case 70 reduced to:
+
+```flux
+effect Eff { op : None -> String }
+
+fn f(a: Either<String, String>) -> String with Eff { "" }
+fn g() -> String { "" }
+
+fn main() with IO {
+    let s: String = g();
+    let v: String = f(Left(s)) handle Eff { op(resume, p) -> resume(s) };
+}
+```
+
+`Right(s)`, a user constructor `C(s, None)`, and a list `["", s, s]` passed
+through `map` do the same.
+
+### KI-189 — On the VM, a record update on a record type from another module gives back the record unchanged
+
+**Severity:** High (silent wrong output) · **Area:** VM, records, modules · **Verified:** 2026-11-11 (30680987) · **From:** the first full-generator hunt (`cargo xtask fuzz --seed 2 --count 200 --with classes,values,effects,async,modules`, cases 40 and 166) · **Issue:** [#188](https://forgejo.spirosgerokostas.com/sger/flux/issues/188)
+
+`M1.flx`:
+
+```flux
+module M1 {
+    public data Rec { Rec { a: Int, b: Int } }
+}
+```
+
+`main.flx`, beside it:
+
+```flux
+import M1 exposing (Rec)
+
+fn main() with IO {
+    let v: Rec = Rec { a: 1, b: 2 };
+    let w: Rec = { ...v, b: 9 };
+    print(w.b);
+    print(w);
+}
+```
+
+Natively it prints `9` and `Rec(1, 9)`. On the VM it prints `2` and
+`Rec(1, 2)`, with no error: the update gives back `v` as it was.
+
+It happens wherever the update is written outside the module that declares
+the record: with `exposing` as here, through an alias (`import M1 as A`,
+`{ ...A.make(1), b: 5 }`), and for a generic record (`Box<a>`). A function
+inside `M1` that does the same update works on the VM, and so does the same
+record declared in `main.flx`, in any field order. Core lowers the update
+(`lower_spread_expression`, `src/core/lower_ast/expression.rs`) for both
+backends, and parity finds the shared layers equal, so the fault is on the
+VM's side. Its cause isn't known yet.
 
 ### KI-190 — On the VM, a function declared to return a function stops with E1004 when its body is an unannotated lambda
 
@@ -556,7 +604,7 @@ it to channels alone would hide this bug.
 
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
-**Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
+**Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features` · **Issue:** [#170](https://forgejo.spirosgerokostas.com/sger/flux/issues/170)
 
 `vm_debug_tests::going_back_across_a_task` failed once in a full suite run, with the rest
 of the `debug` suite running around it:
@@ -579,7 +627,7 @@ failure was on a debug build, so they don't rule out a timing that only a slower
 
 ### KI-169 — Natively, the second `run_async` in a program finds no handler for a builtin effect
 
-**Severity:** Medium · **Area:** native runtime, async scheduler · **Verified:** 2026-11-04 (ad216569, and the same at 64381a24) · **From:** writing a fixture for KI-122 · **Issue:** [#165](https://forgejo.spirosgerokostas.com/sger/flux/issues/165)
+**Severity:** Medium · **Area:** native runtime, async scheduler · **Verified:** 2026-11-04 (ad216569, and the same at 64381a24) · **From:** writing a fixture for KI-122 · **Issue:** [#169](https://forgejo.spirosgerokostas.com/sger/flux/issues/169)
 
 ```flux
 import Flow.Async exposing (run_async)
@@ -613,7 +661,7 @@ Not yet known: why the second run doesn't see them.
 
 ### KI-166 — Natively, the first rebuilds under `-g` recompile the whole stdlib
 
-**Severity:** Low · **Area:** Native driver, module cache · **Verified:** 2026-11-04 (feaada41) · **From:** turning on the Aether contract for every build · **Issue:** [#162](https://forgejo.spirosgerokostas.com/sger/flux/issues/162)
+**Severity:** Low · **Area:** Native driver, module cache · **Verified:** 2026-11-04 (feaada41) · **From:** turning on the Aether contract for every build · **Issue:** [#166](https://forgejo.spirosgerokostas.com/sger/flux/issues/166)
 
 On a fresh cache, build a program natively, then change a comment in it before each
 further build. Modules compiled per build, counted from `Compiling` in the progress
@@ -639,7 +687,7 @@ interface changed)` for some modules. A default build keeps the two hashes equal
 
 ### KI-162 — A class constraint met by a tuple, an Array, an Either, or an `Ord` container stops the compiler with E000
 
-**Severity:** Medium · **Area:** type classes, Core lowering · **Verified:** 2026-11-02 (a4dece25), VM and native alike · **From:** checking `Ord` on tuples while deciding KI-157
+**Severity:** Medium · **Area:** type classes, Core lowering · **Verified:** 2026-11-02 (a4dece25), VM and native alike · **From:** checking `Ord` on tuples while deciding KI-157 · **Issue:** [#162](https://forgejo.spirosgerokostas.com/sger/flux/issues/162)
 
 ```flux
 fn bigger<a: Ord>(x: a, y: a) -> Bool {
@@ -682,7 +730,7 @@ relies on this for its `Hash` class having no methods.
 
 ### KI-161 — Natively, a Float literal used as an operand or argument leaks its box
 
-**Severity:** Medium · **Area:** LLVM emission, Floats · **Verified:** 2026-11-02 (66decd77) · **From:** the full verify after the Float counting fix (204a2c8e), whose new fixture `tests/parity/float_let_shared.flx` was the one file added to heap parity's leak list
+**Severity:** Medium · **Area:** LLVM emission, Floats · **Verified:** 2026-11-02 (66decd77) · **From:** the full verify after the Float counting fix (204a2c8e), whose new fixture `tests/parity/float_let_shared.flx` was the one file added to heap parity's leak list · **Issue:** [#161](https://forgejo.spirosgerokostas.com/sger/flux/issues/161)
 
 ```flux
 fn half(x: Float) -> Float {
@@ -710,8 +758,8 @@ why: a Float literal stays an operand (`aether_call[borrowed] half(3)`,
 (`LirConst::Float` in `src/lir/emit_llvm.rs`) boxes it with
 `flux_box_float_rt` at each use. A `let` bound to a literal is propagated
 into its uses, so `let a = 3.14` used twice leaks two boxes.
-`examples/guide/float.flx` leaks 4 blocks and `float_let_shared.flx` 6 (and
-KI-119's tuple), all literals; a loop over such code leaks without bound.
+`examples/guide/float.flx` leaks 4 blocks and `float_let_shared.flx` 6,
+all literals; a loop over such code leaks without bound.
 
 Likely fix: emit a Float literal as a static object with a sticky count, as
 `StaticObjects` already does for string literals, so it allocates nothing
@@ -719,7 +767,7 @@ and dropping it does nothing. That also saves an allocation per use.
 
 ### KI-159 — The sanitizer runs check only the C runtime, not generated code
 
-**Severity:** Medium · **Area:** native runtime, sanitizers · **Verified:** 2026-11-02 (c4019333), by reading the build and the emitted IR · **From:** inline reference counting (native runtime roadmap task 5b), an accepted gap
+**Severity:** Medium · **Area:** native runtime, sanitizers · **Verified:** 2026-11-02 (c4019333), by reading the build and the emitted IR · **From:** inline reference counting (native runtime roadmap task 5b), an accepted gap · **Issue:** [#159](https://forgejo.spirosgerokostas.com/sger/flux/issues/159)
 
 `cargo xtask sanitize` and `cargo xtask sanitize --thread` link each program
 against a runtime built with `-fsanitize` (`RuntimeVariant::defines` and
@@ -743,7 +791,7 @@ those variants, which makes the object cache depend on the variant.
 
 ### KI-158 — Two lldb tests fail now and then in a full sequential run of the `debug` suite
 
-**Severity:** Low · **Area:** tests, native debugger · **Verified:** 2026-11-02 (c4019333), macOS arm64, lldb-2103.0.34.407 · **From:** verification runs for the native runtime roadmap, tasks 5 and 6
+**Severity:** Low · **Area:** tests, native debugger · **Verified:** 2026-11-02 (c4019333), macOS arm64, lldb-2103.0.34.407 · **From:** verification runs for the native runtime roadmap, tasks 5 and 6 · **Issue:** [#158](https://forgejo.spirosgerokostas.com/sger/flux/issues/158)
 
 In five full runs of `cargo test --all-features --test debug --
 --test-threads=1` on 2026-11-01 and 2026-11-02, two failed, each on one test
@@ -762,7 +810,7 @@ the cause: lldb timing under load, or state left by an earlier test.
 
 ### KI-157 — A map key or ordering operand that is not an Int, Bool or String type-checks, then stops at run time
 
-**Severity:** Medium (was High until 2026-11-02: natively the answers were silently wrong) · **Area:** types, maps, native runtime · **Verified:** 2026-11-02 (c4019333, and the same at 4a97c60f) · **From:** planning static nullary constructors (native runtime roadmap task 6a)
+**Severity:** Medium (was High until 2026-11-02: natively the answers were silently wrong) · **Area:** types, maps, native runtime · **Verified:** 2026-11-02 (c4019333, and the same at 4a97c60f) · **From:** planning static nullary constructors (native runtime roadmap task 6a) · **Issue:** [#157](https://forgejo.spirosgerokostas.com/sger/flux/issues/157)
 
 **Now:** both backends stop with the same error. Natively, `Map.set`, `get`,
 `has` and `delete` refuse such a key with the VM's E1004, a map literal and
@@ -823,7 +871,7 @@ OCaml does; see proposal 0194.
 
 ### KI-155 — A self tail call with a constructor application as an argument is rejected with a bogus E082
 
-**Severity:** High · **Area:** compiler, tail calls · **Verified:** 2026-10-31 (ce4da5da) · **From:** writing a `lookup` benchmark for proposal 0193
+**Severity:** High · **Area:** compiler, tail calls · **Verified:** 2026-10-31 (ce4da5da) · **From:** writing a `lookup` benchmark for proposal 0193 · **Issue:** [#155](https://forgejo.spirosgerokostas.com/sger/flux/issues/155)
 
 ```flux
 type T = Nl | Cs(Int, T)
@@ -860,7 +908,7 @@ call that is not a self tail call and compiles.
 
 ### KI-154 — Compiling a module with about 1,000 functions or more takes time that grows with the square of their number
 
-**Severity:** Low · **Area:** CFG passes, compiler performance · **Verified:** 2026-10-31 (ce4da5da) · **From:** the `many_fns` test of `cargo xtask scale`
+**Severity:** Low · **Area:** CFG passes, compiler performance · **Verified:** 2026-10-31 (ce4da5da) · **From:** the `many_fns` test of `cargo xtask scale` · **Issue:** [#154](https://forgejo.spirosgerokostas.com/sger/flux/issues/154)
 
 A module of `n` one-line functions, `fn f0(x) { x + 0 }` up to
 `fn f<n-1>(x) { x + <n-1> }`, with a `main` that calls the last one. Compiled
@@ -890,7 +938,7 @@ validator copies it per block. Not yet confirmed with `--dump-cfg`.
 
 ### KI-153 — With a warm cache, `--native --emit-llvm` fails with an internal compiler error
 
-**Severity:** Medium · **Area:** native backend, module cache · **Verified:** 2026-10-31 (053941b3) · **From:** inspecting the LLVM for KI-148
+**Severity:** Medium · **Area:** native backend, module cache · **Verified:** 2026-10-31 (053941b3) · **From:** inspecting the LLVM for KI-148 · **Issue:** [#153](https://forgejo.spirosgerokostas.com/sger/flux/issues/153)
 
 `--native --emit-llvm` works on a cache that does not yet hold the stdlib, and
 fails on every later run that reads it:
@@ -917,7 +965,7 @@ artifact is missing the interned dictionary parameter name.
 
 ### KI-152 — A function with about 2,500 `let`s overflows the compiler's stack
 
-**Severity:** Medium · **Area:** Aether · **Verified:** 2026-10-31 (053941b3) · **From:** a scale probe for proposal 0192
+**Severity:** Medium · **Area:** Aether · **Verified:** 2026-10-31 (053941b3) · **From:** a scale probe for proposal 0192 · **Issue:** [#152](https://forgejo.spirosgerokostas.com/sger/flux/issues/152)
 
 One function made of a chain of `let`s, `let x1 = x0 + 1` and so on, compiles
 at 2,000 `let`s and crashes the compiler at 2,500:
@@ -948,7 +996,7 @@ would overflow next once Aether no longer does, and whether generated code
 
 ### KI-151 — Compiler allocations grow with the square of a function's length
 
-**Severity:** Low · **Area:** compiler performance · **Verified:** 2026-10-31 (053941b3) · **From:** a scale probe for proposal 0192
+**Severity:** Low · **Area:** compiler performance · **Verified:** 2026-10-31 (053941b3) · **From:** a scale probe for proposal 0192 · **Issue:** [#151](https://forgejo.spirosgerokostas.com/sger/flux/issues/151)
 
 With the same `let` chain as KI-152, `--metrics` counts the compiler's own
 allocations. Above an empty program:
@@ -975,7 +1023,7 @@ scale` fails until it is fixed.
 
 ### KI-148 — Natively, a self tail call that passes a literal to a borrowed parameter is not a jump, and a long loop overflows the stack
 
-**Severity:** Medium · **Area:** Aether, borrow inference, native backend · **Verified:** 2026-10-31 (027d5766) · **From:** adding `benchmarks/flux/sfib.flx`
+**Severity:** Medium · **Area:** Aether, borrow inference, native backend · **Verified:** 2026-10-31 (027d5766) · **From:** adding `benchmarks/flux/sfib.flx` · **Issue:** [#148](https://forgejo.spirosgerokostas.com/sger/flux/issues/148)
 
 A recursive tail call stops being compiled as a jump when it passes an `Int`
 literal to a parameter that borrow inference made borrowed. Each turn through
@@ -1022,7 +1070,7 @@ is in Aether, so it needs `cargo xtask verify`.
 
 ### KI-147 — The prelude's `array_get` is typed as returning the element, but returns an `Option`
 
-**Severity:** High · **Area:** stdlib, type inference, native backend · **Verified:** 2026-10-30 (9467a117) · **From:** fixing `benchmarks/flux/qsort.flx` (KI-146)
+**Severity:** High · **Area:** stdlib, type inference, native backend · **Verified:** 2026-10-30 (9467a117) · **From:** fixing `benchmarks/flux/qsort.flx` (KI-146) · **Issue:** [#147](https://forgejo.spirosgerokostas.com/sger/flux/issues/147)
 
 `Flow.Primops` declares `array_get<a>(arr: Array<a>, i: Int) -> a with Div`,
 and the prelude exposes it to every program. It is bound to the same
@@ -1057,7 +1105,7 @@ fix needs `cargo xtask verify`.
 
 ### KI-146 — A function imported unqualified can be called with too many arguments; natively the extras are dropped
 
-**Severity:** High · **Area:** type inference, imports, native backend · **Verified:** 2026-10-30 (5a875b85) · **From:** running `benchmarks/flux/qsort.flx` while repairing the benchmark scripts
+**Severity:** High · **Area:** type inference, imports, native backend · **Verified:** 2026-10-30 (5a875b85) · **From:** running `benchmarks/flux/qsort.flx` while repairing the benchmark scripts · **Issue:** [#146](https://forgejo.spirosgerokostas.com/sger/flux/issues/146)
 
 A call with too many arguments to a function that reached scope unqualified,
 through `exposing` or the auto-injected prelude, is not rejected at compile
@@ -1099,7 +1147,7 @@ an unqualified import loses the arity that the alias path keeps.
 
 ### KI-145 — Natively, a cached stdlib object keeps the constructor tags of the program that built it
 
-**Severity:** High · **Area:** native backend, module cache · **Verified:** 2026-10-30 · **From:** seeding each test's cache with a pre-built stdlib
+**Severity:** High · **Area:** native backend, module cache · **Verified:** 2026-10-30 · **From:** seeding each test's cache with a pre-built stdlib · **Issue:** [#145](https://forgejo.spirosgerokostas.com/sger/flux/issues/145)
 
 Every program in a project shares one cache, and a module's native object
 is reused by its cache key. The object for `Flow.Result` compiles the
@@ -1152,7 +1200,7 @@ answer here.
 
 ### KI-144 — On the VM, a fiber on a second worker cannot perform a builtin effect
 
-**Severity:** High · **Area:** VM runtime, async scheduler, effect handlers · **Verified:** 2026-10-29 · **From:** rewriting the flaky `multiworker_sleep_both_overlaps` test
+**Severity:** High · **Area:** VM runtime, async scheduler, effect handlers · **Verified:** 2026-10-29 · **From:** rewriting the flaky `multiworker_sleep_both_overlaps` test · **Issue:** [#144](https://forgejo.spirosgerokostas.com/sger/flux/issues/144)
 
 With `run_async_with_workers(n)` for `n > 1`, the VM runs fibers on `n - 1`
 extra OS threads (`flux-fiber-worker-{w}`, `src/vm/core_dispatch.rs`). A
@@ -1207,7 +1255,7 @@ the same way, and whether a fiber that steals or migrates between workers
 
 ### KI-138 — Natively, malformed JSON reports a different error from the VM
 
-**Severity:** Low · **Area:** native runtime, Flow.Json · **Verified:** 2026-10-28 · **From:** merging the VM and native JSON tests into one parity fixture · **Issue:** [#136](https://forgejo.spirosgerokostas.com/sger/flux/issues/136)
+**Severity:** Low · **Area:** native runtime, Flow.Json · **Verified:** 2026-10-28 · **From:** merging the VM and native JSON tests into one parity fixture · **Issue:** [#138](https://forgejo.spirosgerokostas.com/sger/flux/issues/138)
 
 The VM parses JSON in `src/runtime/json.rs` and native code in
 `runtime/c/json.c`. On malformed input they report different messages,
@@ -1229,7 +1277,7 @@ the failing test for a fix.
 
 ### KI-125 — `make -C runtime/c test` does not build
 
-**Severity:** Low · **Area:** native runtime, tests · **Verified:** 2026-10-21 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-0 · **Issue:** [#123](https://forgejo.spirosgerokostas.com/sger/flux/issues/123)
+**Severity:** Low · **Area:** native runtime, tests · **Verified:** 2026-10-21 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-0 · **Issue:** [#125](https://forgejo.spirosgerokostas.com/sger/flux/issues/125)
 
 `runtime/c/smoke_test.c` still uses the NaN-boxing API that c493978a replaced
 with pointer tagging (`flux_is_nanbox`, `flux_nanbox_tag`, `FLUX_TAG_*`,
@@ -1242,7 +1290,7 @@ debug heap, and the parity ways.
 
 ### KI-121 — Natively, a `let` value read in one branch and dead in the other is never dropped
 
-**Severity:** Medium · **Area:** Aether, drop insertion · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `--leak-check` runs · **Issue:** [#119](https://forgejo.spirosgerokostas.com/sger/flux/issues/119)
+**Severity:** Medium · **Area:** Aether, drop insertion · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `--leak-check` runs · **Issue:** [#121](https://forgejo.spirosgerokostas.com/sger/flux/issues/121)
 
 ```flux
 fn churn(n, keep) {
@@ -1263,28 +1311,9 @@ _]` in `main` (3 cells) and a tuple destructured with `let (a, b) = t` (1
 block). A variable passed twice in one call, owned first and borrowed
 second (`f(xs, xs)`), leaks the reference the borrowed position holds. Not checked on the VM, which frees through Rust's `Rc`.
 
-### KI-119 — Natively, a program that prints leaves a closure per `print` call
-
-**Severity:** Low · **Area:** LIR lowering, effect handlers · **Verified:** 2026-10-25 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `--leak-check` runs · **Issue:** [#117](https://forgejo.spirosgerokostas.com/sger/flux/issues/117)
-
-`fn main() { print(1) }` leaves 2 blocks live at exit under `flux --native
---leak-check`: a closure allocated at the `print` call, and a tuple
-allocated in the default handler arm (its `()` result). Three `print` calls
-leave three closures and still one tuple. A program that prints nothing
-leaks none of them.
-
-The closure is most likely the top-level function value a call builds for
-a borrowed use, which nothing releases (not traced yet); that goes when
-top-level closures are static (Perceus audit step 10). Until 2026-10-25 the handlers around `main` leaked too, two closures
-and their evidence: a `handle` now releases its clause and evidence when its
-body is done (Perceus audit R3).
-
-This is why `--leak-check` is a flag of its own and `--debug-heap` alone
-does not report leaks.
-
 ### KI-118 — On the VM, `main`'s own body is not run through the Core simplifier
 
-**Severity:** Low · **Area:** VM, optimizer coverage · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S13, the `--opt-bisect-limit` exit check · **Issue:** [#116](https://forgejo.spirosgerokostas.com/sger/flux/issues/116)
+**Severity:** Low · **Area:** VM, optimizer coverage · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S13, the `--opt-bisect-limit` exit check · **Issue:** [#118](https://forgejo.spirosgerokostas.com/sger/flux/issues/118)
 
 With a wrong `IAdd` fold planted in `src/core/passes/const_fold.rs`, active
 only under `--optimize`, `tests/parity/core_disciplined_inline.flx` printed:
@@ -1311,7 +1340,7 @@ the VM compiles `main` from instead.
 
 ### KI-117 — A top-level function written after its caller is typed from the call
 
-**Severity:** Medium · **Area:** Type and effect inference · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S7, `cargo xtask rewrite --kind reorder` · **Issue:** [#115](https://forgejo.spirosgerokostas.com/sger/flux/issues/115)
+**Severity:** Medium · **Area:** Type and effect inference · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S7, `cargo xtask rewrite --kind reorder` · **Issue:** [#117](https://forgejo.spirosgerokostas.com/sger/flux/issues/117)
 
 Moving a function below `main`, which calls it, changes whether the program
 compiles or runs. Top-level functions are predeclared, so the order should not
@@ -1348,7 +1377,7 @@ whose runtime check the VM gets wrong.
 
 ### KI-115 — A cached module with type-class instances is written differently from one run to the next
 
-**Severity:** Low · **Area:** VM bytecode cache · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) S6, `sweep --determinism --mode cache` · **Issue:** [#113](https://forgejo.spirosgerokostas.com/sger/flux/issues/113)
+**Severity:** Low · **Area:** VM bytecode cache · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) S6, `sweep --determinism --mode cache` · **Issue:** [#115](https://forgejo.spirosgerokostas.com/sger/flux/issues/115)
 
 ```
 $ cargo xtask sweep --determinism --mode cache --out .verify/det/cache
@@ -1384,7 +1413,7 @@ S6 fixed the other causes the check found:
 
 ### KI-114 — The VM runs a user effect named `Console` with the builtin handler; native reports it unhandled
 
-**Severity:** Medium · **Area:** Effects, VM · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) S5, which made untracked skips cite a KI · **Issue:** [#112](https://forgejo.spirosgerokostas.com/sger/flux/issues/112)
+**Severity:** Medium · **Area:** Effects, VM · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) S5, which made untracked skips cite a KI · **Issue:** [#114](https://forgejo.spirosgerokostas.com/sger/flux/issues/114)
 
 ```flux
 effect Console {
@@ -1420,7 +1449,7 @@ Parity records the fixture with
 
 ### KI-113 — A label whose span is in another file is drawn on the reporting file's lines
 
-**Severity:** Low · **Area:** Diagnostics rendering · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c3 · **Issue:** [#111](https://forgejo.spirosgerokostas.com/sger/flux/issues/111)
+**Severity:** Low · **Area:** Diagnostics rendering · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c3 · **Issue:** [#113](https://forgejo.spirosgerokostas.com/sger/flux/issues/113)
 
 ```
 $ flux --no-cache --root examples/type_system examples/type_system/failing/206_hm_stage2_generic_module_arg_mismatch.flx
@@ -1444,7 +1473,7 @@ quoted their own comment lines for the same reason.
 
 ### KI-112 — A module can use a type it does not import, when the module importing it does
 
-**Severity:** Medium · **Area:** Module system, name resolution · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#110](https://forgejo.spirosgerokostas.com/sger/flux/issues/110)
+**Severity:** Medium · **Area:** Module system, name resolution · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#112](https://forgejo.spirosgerokostas.com/sger/flux/issues/112)
 
 ```flux
 // lib/Flume/Fail.flx — no `import Flow.Result`
@@ -1467,7 +1496,7 @@ the reproduction; the fix there is `import Flow.Result`.
 
 ### KI-105 — `--optimize` hides type errors in branches it folds away
 
-**Severity:** High · **Area:** Type inference, AST optimization · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#103](https://forgejo.spirosgerokostas.com/sger/flux/issues/103)
+**Severity:** High · **Area:** Type inference, AST optimization · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#105](https://forgejo.spirosgerokostas.com/sger/flux/issues/105)
 
 ```flux
 // examples/type_system/failing/134_if_concrete_branch_mismatch.flx
@@ -1500,7 +1529,7 @@ holds for:
 
 ### KI-107 — Natively, calling a function through a variable with too few arguments is not an error
 
-**Severity:** Medium · **Area:** Native backend, calls · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#105](https://forgejo.spirosgerokostas.com/sger/flux/issues/105)
+**Severity:** Medium · **Area:** Native backend, calls · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#107](https://forgejo.spirosgerokostas.com/sger/flux/issues/107)
 
 ```flux
 // examples/runtime_errors/indirect_call_wrong_arity.flx
@@ -1516,7 +1545,7 @@ arguments); plain `llvm` exits 0.
 
 ### KI-108 — Native async, channel and HTTP programs crash with a signal
 
-**Severity:** High · **Area:** Native backend, async runtime · **Verified:** 2026-11-10 (682a2c6b), channel rows only · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#106](https://forgejo.spirosgerokostas.com/sger/flux/issues/106)
+**Severity:** High · **Area:** Native backend, async runtime · **Verified:** 2026-11-10 (682a2c6b), channel rows only · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#108](https://forgejo.spirosgerokostas.com/sger/flux/issues/108)
 
 Each runs to completion on `vm` and `vm_opt`; natively it is killed:
 
@@ -1552,7 +1581,7 @@ examples, which need a server, are not rechecked, so this stays open for them.
 
 ### KI-109 — Natively, indexing fails with "index operator not supported: Object" in AoC 2025 day 8
 
-**Severity:** Medium · **Area:** Native backend, indexing · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#107](https://forgejo.spirosgerokostas.com/sger/flux/issues/107)
+**Severity:** Medium · **Area:** Native backend, indexing · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#109](https://forgejo.spirosgerokostas.com/sger/flux/issues/109)
 
 ```
 $ flux --native --no-cache examples/aoc/2025/aoc_day8_part1.flx
@@ -1564,7 +1593,7 @@ error. Not yet reduced to the indexing expression involved.
 
 ### KI-110 — Natively, a module file without `main` that imports others fails to link
 
-**Severity:** Low · **Area:** Native backend, linking · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#108](https://forgejo.spirosgerokostas.com/sger/flux/issues/108)
+**Severity:** Low · **Area:** Native backend, linking · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#110](https://forgejo.spirosgerokostas.com/sger/flux/issues/110)
 
 ```
 $ flux --native --no-cache lib/Flume/Cli.flx
@@ -1579,7 +1608,7 @@ entry point.
 
 ### KI-111 — The VM rejects a closure where a function type over `Event` is expected
 
-**Severity:** Medium · **Area:** VM, runtime type checks, async · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#109](https://forgejo.spirosgerokostas.com/sger/flux/issues/109)
+**Severity:** Medium · **Area:** VM, runtime type checks, async · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#111](https://forgejo.spirosgerokostas.com/sger/flux/issues/111)
 
 ```
 $ flux --no-cache examples/async/24_event_composition.flx
@@ -1595,7 +1624,7 @@ boundary check on a closure passed where a function type is declared.
 
 ### KI-102 — A user effect named after a builtin suppresses the builtin's default handler on `--no-cache` VM runs
 
-**Severity:** Medium · **Area:** Effects, module compilation · **Verified:** 2026-10-16 · **From:** [0190](proposals/0190_verification_toolkit.md) S2 triage · **Issue:** [#100](https://forgejo.spirosgerokostas.com/sger/flux/issues/100)
+**Severity:** Medium · **Area:** Effects, module compilation · **Verified:** 2026-10-16 · **From:** [0190](proposals/0190_verification_toolkit.md) S2 triage · **Issue:** [#102](https://forgejo.spirosgerokostas.com/sger/flux/issues/102)
 
 ```
 $ flux --no-cache examples/type_classes/console_logger_example.flx
@@ -1636,7 +1665,7 @@ and the cached and native ways still compare.
 
 ### KI-104 — Under `--no-cache`, an instance method's call to itself passes a dictionary it does not take
 
-**Severity:** Medium · **Area:** Type classes, module compilation · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) S3 triage · **Issue:** [#102](https://forgejo.spirosgerokostas.com/sger/flux/issues/102)
+**Severity:** Medium · **Area:** Type classes, module compilation · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) S3 triage · **Issue:** [#104](https://forgejo.spirosgerokostas.com/sger/flux/issues/104)
 
 ```flux
 // examples/type_classes/FoldableRowPolyExample/Flow/Foldable.flx
@@ -1673,7 +1702,7 @@ Parity records the fixture with `// skip-way: vm, vm_strict, vm_opt: KI-104`.
 
 ### KI-103 — Natively, a constructor reached through a module alias fails at run time
 
-**Severity:** Medium · **Area:** Native backend, LIR lowering · **Verified:** 2026-10-16 · **From:** [0190](proposals/0190_verification_toolkit.md) S2 triage · **Issue:** [#101](https://forgejo.spirosgerokostas.com/sger/flux/issues/101)
+**Severity:** Medium · **Area:** Native backend, LIR lowering · **Verified:** 2026-10-16 · **From:** [0190](proposals/0190_verification_toolkit.md) S2 triage · **Issue:** [#103](https://forgejo.spirosgerokostas.com/sger/flux/issues/103)
 
 ```flux
 import ModuleMemberShadowsStub.Version as V
@@ -1715,7 +1744,7 @@ traced past that; the `MemberAccess` path above is the likely shared cause.
 
 ### KI-006 — I/O uses `String`, so binary data cannot round-trip
 
-**Severity:** Medium · **Area:** `Flow.Fs`, stdlib API surface · **From:** [0178](proposals/implemented/0178_os_capabilities_for_tooling.md) Q7
+**Severity:** Medium · **Area:** `Flow.Fs`, stdlib API surface · **From:** [0178](proposals/implemented/0178_os_capabilities_for_tooling.md) Q7 · **Issue:** [#6](https://forgejo.spirosgerokostas.com/sger/flux/issues/6)
 
 File I/O reads and writes `String`. `Flow.Http` already uses `Bytes` for
 response bodies, so the stdlib is inconsistent — and a binary file cannot survive
@@ -1727,7 +1756,7 @@ before the surface has real users, not after.
 
 ### KI-007 — No streaming reads for large files
 
-**Severity:** Low · **Area:** `Flow.Fs` · **From:** [0178](proposals/implemented/0178_os_capabilities_for_tooling.md) Q6
+**Severity:** Low · **Area:** `Flow.Fs` · **From:** [0178](proposals/implemented/0178_os_capabilities_for_tooling.md) Q6 · **Issue:** [#7](https://forgejo.spirosgerokostas.com/sger/flux/issues/7)
 
 `Flow.Fs.read_file` returns a whole `String`, so a file's full contents must fit
 in memory. `Crypto.sha256_file` streams internally and shows the shape a public
@@ -1735,14 +1764,14 @@ streaming API could take.
 
 ### KI-009 — TCP operations block the fiber scheduler
 
-**Severity:** Medium · **Area:** Runtime, `Flow.Tcp` · **Tracked by:** [0174](proposals/0174_async_effect_concurrency.md)
+**Severity:** Medium · **Area:** Runtime, `Flow.Tcp` · **Tracked by:** [0174](proposals/0174_async_effect_concurrency.md) · **Issue:** [#9](https://forgejo.spirosgerokostas.com/sger/flux/issues/9)
 
 TCP operations use blocking stdlib calls with no fiber-scheduler integration, so
 concurrent TCP tests are not yet possible. Needs the mio reactor wiring.
 
 ### KI-011 — Re-wrapping `Err(e)` into a `Result` with a different success type fails inference — FIXED, verified 2026-09-11
 
-**Severity:** Medium · **Area:** HM inference · **Verified:** 2026-08-24 · **Fixed:** verified 2026-09-11
+**Severity:** Medium · **Area:** HM inference · **Verified:** 2026-08-24 · **Fixed:** verified 2026-09-11 · **Issue:** [#11](https://forgejo.spirosgerokostas.com/sger/flux/issues/11)
 
 The standard error short-circuit — match a `Result`, pass `Err` through
 unchanged, produce a different success type — does not infer:
@@ -1812,7 +1841,7 @@ is a snapshot diff rather than a rediscovery.
 ---
 ### KI-023 — `exposing` cannot rename, so two modules' same-named types cannot both be used
 
-**Severity:** Low · **Area:** Module system · **Verified:** 2026-08-24
+**Severity:** Low · **Area:** Module system · **Verified:** 2026-08-24 · **Issue:** [#23](https://forgejo.spirosgerokostas.com/sger/flux/issues/23)
 
 A type may be written in a signature only by its bare name: a qualified type
 (`Manifest.Dep`) is a parse error in type position, so the only way to name an
@@ -1845,7 +1874,7 @@ modules carry a second `exposing` import beside their `as` alias.
 
 ### KI-025 — A stale bytecode cache can desync effect-operation symbols
 
-**Severity:** Medium · **Area:** Bytecode cache, effect handlers · **Verified:** 2026-08-24
+**Severity:** Medium · **Area:** Bytecode cache, effect handlers · **Verified:** 2026-08-24 · **Issue:** [#25](https://forgejo.spirosgerokostas.com/sger/flux/issues/25)
 
 Effect operations are identified at runtime by interned `Identifier` symbols.
 The cache stores raw symbol ids, which are meaningless in a fresh interner, so
@@ -1886,7 +1915,7 @@ in `Ok(f(x)) handle E { ... }`, does not install the handler over `f`.
 
 ### KI-032 — An unannotated wrapper over a row-polymorphic function does not infer
 
-**Severity:** Medium · **Area:** Effect rows, inference · **Verified:** 2026-08-24
+**Severity:** Medium · **Area:** Effect rows, inference · **Verified:** 2026-08-24 · **Issue:** [#32](https://forgejo.spirosgerokostas.com/sger/flux/issues/32)
 
 Making `Flow.List.map` / `filter` effect-row polymorphic
 (`f: ((a) -> b with |e)`) let them accept effectful functions, but it broke
@@ -1930,7 +1959,7 @@ polymorphism.
 
 ### KI-029 — A lambda cannot carry its enclosing function's effects
 
-**Severity:** Medium · **Area:** Effect rows, closures · **Verified:** 2026-08-24
+**Severity:** Medium · **Area:** Effect rows, closures · **Verified:** 2026-08-24 · **Issue:** [#29](https://forgejo.spirosgerokostas.com/sger/flux/issues/29)
 
 A lambda body is checked against the empty effect row, so calling an effectful
 function inside one fails even when the enclosing function declares that
@@ -1956,7 +1985,7 @@ the lambda existed only to close over extra arguments.
 
 ### KI-030 — Non-tail recursion overflows the VM at a depth the native backend survives
 
-**Severity:** Low · **Area:** VM, native backend, parity · **Verified:** 2026-08-24
+**Severity:** Low · **Area:** VM, native backend, parity · **Verified:** 2026-08-24 · **Issue:** [#30](https://forgejo.spirosgerokostas.com/sger/flux/issues/30)
 
 Flux has no loops, so every iteration is recursion. Tail-recursive functions are
 optimised on both backends, but *non-tail* recursion — the natural shape for
@@ -2039,7 +2068,7 @@ at any depth and every run was read as a failure. Re-measured with a top-level
 
 ### KI-027 — Match on a tuple of two `Result`s is reported non-exhaustive
 
-**Severity:** Low · **Area:** Exhaustiveness checking · **Verified:** 2026-08-24
+**Severity:** Low · **Area:** Exhaustiveness checking · **Verified:** 2026-08-24 · **Issue:** [#27](https://forgejo.spirosgerokostas.com/sger/flux/issues/27)
 
 ```flux
 match (ra, rb) {
@@ -2061,7 +2090,7 @@ position. The checker does not see that the wildcards close the space.
 
 ### KI-035 — `Flow.Http` has no TLS, so no HTTPS host is reachable
 
-**Severity:** High · **Area:** `Flow.Http`, runtime · **Verified:** 2026-08-25 · **From:** [0177](proposals/implemented/0177_package_manager.md) Phase 2 fetching
+**Severity:** High · **Area:** `Flow.Http`, runtime · **Verified:** 2026-08-25 · **From:** [0177](proposals/implemented/0177_package_manager.md) Phase 2 fetching · **Issue:** [#35](https://forgejo.spirosgerokostas.com/sger/flux/issues/35)
 
 `parse_url` ([../src/runtime/http/mod.rs:332](../src/runtime/http/mod.rs#L332))
 rejects any URL that does not begin with `http://`:
@@ -2093,7 +2122,7 @@ for a named function, not for a lambda literal.
 
 ### KI-036 — Linked modules used incompatible effect identities
 
-**Status:** Fixed · **Area:** effects, module linker · **Verified:** 2026-08-25 · **From:** [0177](proposals/implemented/0177_package_manager.md) `flux update`
+**Status:** Fixed · **Area:** effects, module linker · **Verified:** 2026-08-25 · **From:** [0177](proposals/implemented/0177_package_manager.md) `flux update` · **Issue:** [#36](https://forgejo.spirosgerokostas.com/sger/flux/issues/36)
 
 The VM linker originally preserved the compiler-local numeric identifiers in
 `HandlerDescriptor` and `PerformDescriptor` constants. Each module has its own
@@ -2120,7 +2149,7 @@ The package CLI also decodes quoted progress lines before reading the final
 
 ### KI-037 — `--no-cache` loads modules under bare names, colliding with local types
 
-**Severity:** Medium · **Area:** module graph, caching · **Verified:** 2026-08-25
+**Severity:** Medium · **Area:** module graph, caching · **Verified:** 2026-08-25 · **Issue:** [#37](https://forgejo.spirosgerokostas.com/sger/flux/issues/37)
 
 `flux --no-cache <file>` resolves the Flume module graph to 34 modules named
 `Cli`, `Roots`, `Plan`; the ordinary cached path resolves 36 named `Flume.Cli`,
@@ -2148,7 +2177,7 @@ exist — a misleading signal exactly when the cache is under suspicion.
 
 ### KI-070 — A lambda's parameter or return annotation cannot name an enclosing rigid type parameter — FIXED, verified 2026-09-11
 
-**Severity:** Medium · **Area:** Type inference, annotations · **Verified:** 2026-09-02 · **Fixed:** verified 2026-09-11 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** Medium · **Area:** Type inference, annotations · **Verified:** 2026-09-02 · **Fixed:** verified 2026-09-11 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md) · **Issue:** [#70](https://forgejo.spirosgerokostas.com/sger/flux/issues/70)
 
 ```flux
 fn outer<a>(x: a) -> a {
@@ -2199,7 +2228,7 @@ building `examples/generics/`. Pinned by
 
 ### KI-099 — Two modules' same-named types are one type at a use site
 
-**Severity:** Medium · **Area:** Types, type classes · **Verified:** 2026-10-08 · **From:** 0.0.8 Phase 1c
+**Severity:** Medium · **Area:** Types, type classes · **Verified:** 2026-10-08 · **From:** 0.0.8 Phase 1c · **Issue:** [#99](https://forgejo.spirosgerokostas.com/sger/flux/issues/99)
 
 `Two/Label.flx` declares `public class Label<a> { fn label(x: a) -> String }`.
 `Two/Shop.flx` and `Two/Game.flx` each declare their own `Item`, and give it
@@ -2239,7 +2268,7 @@ names.
 
 ### KI-101 — A bounded function without a complete signature cannot call itself
 
-**Severity:** Low · **Area:** Type inference, dictionary passing · **Verified:** 2026-10-11 · **From:** 0.0.8 plan, step 1e
+**Severity:** Low · **Area:** Type inference, dictionary passing · **Verified:** 2026-10-11 · **From:** 0.0.8 plan, step 1e · **Issue:** [#101](https://forgejo.spirosgerokostas.com/sger/flux/issues/101)
 
 ```flux
 fn has<a: Eq>(xs: List<a>, x: a) {
@@ -2265,7 +2294,7 @@ own parameters, as GHC's `AbsBinds` do.
 
 ### KI-100 — `flux bytecode` compiles one file, without its imports or the prelude
 
-**Severity:** Low · **Area:** CLI · **Verified:** 2026-10-08
+**Severity:** Low · **Area:** CLI · **Verified:** 2026-10-08 · **Issue:** [#100](https://forgejo.spirosgerokostas.com/sger/flux/issues/100)
 
 ```flux
 fn main() with IO {
@@ -2284,7 +2313,7 @@ graph as `flux` does, or document it as a single-file tool.
 
 ### KI-098 — A generalized helper used at two types loses its representation
 
-**Severity:** Low · **Area:** Core lowering, specialisation · **Verified:** 2026-09-10 · **From:** G5 / 0187 B1
+**Severity:** Low · **Area:** Core lowering, specialisation · **Verified:** 2026-09-10 · **From:** G5 / 0187 B1 · **Issue:** [#98](https://forgejo.spirosgerokostas.com/sger/flux/issues/98)
 
 Generalizing an unannotated definition (G5) replaces a concrete parameter type
 with a variable, and a variable carries no `FluxRep`. B1 restores it for a
@@ -2315,7 +2344,7 @@ it is scoped there rather than retrofitted onto B1.
 
 ### KI-097 — A top-level `Float` binding is recorded in Core as `List<Int>`
 
-**Severity:** Low · **Area:** Core lowering, `--dump-core` metadata · **Verified:** 2026-09-10
+**Severity:** Low · **Area:** Core lowering, `--dump-core` metadata · **Verified:** 2026-09-10 · **Issue:** [#97](https://forgejo.spirosgerokostas.com/sger/flux/issues/97)
 
 `examples/aether/verify_aether.flx` lowers `pi` to:
 
@@ -2337,7 +2366,7 @@ binding.
 
 ### KI-095 — A field predicate whose receiver is bound by a match arm is never determined — FIXED 2026-09-09
 
-**Severity:** Medium · **Area:** Type inference / proposal 0184 · **Verified:** 2026-09-09 · **Fixed:** 2026-09-09 · **From:** Proposal 0185 stage 5 (E1)
+**Severity:** Medium · **Area:** Type inference / proposal 0184 · **Verified:** 2026-09-09 · **Fixed:** 2026-09-09 · **From:** Proposal 0185 stage 5 (E1) · **Issue:** [#95](https://forgejo.spirosgerokostas.com/sger/flux/issues/95)
 
 `r.v` where `r` is bound by a *match arm* pattern reports `E490` even when the
 call site says exactly what the receiver is:
@@ -2420,7 +2449,7 @@ of this shape now infers a type where an epoch-47 compiler reported `E490`.
 
 ### KI-096 — A recursive group's predeclared monotype is never unified with what the member infers — FIXED 2026-09-09
 
-**Severity:** Medium · **Area:** Type inference / binding groups · **Verified:** 2026-09-09 · **Fixed:** 2026-09-09 · **From:** Proposal 0185 stage 5 (E1), second attempt
+**Severity:** Medium · **Area:** Type inference / binding groups · **Verified:** 2026-09-09 · **Fixed:** 2026-09-09 · **From:** Proposal 0185 stage 5 (E1), second attempt · **Issue:** [#96](https://forgejo.spirosgerokostas.com/sger/flux/issues/96)
 
 A member of a mutually recursive group is predeclared at `Scheme::mono(v)` so
 its siblings can refer to it. When that member is then inferred, its result is
@@ -2507,7 +2536,7 @@ pre-existing holes in what it copies, not defects in the conversion.
 
 ### KI-038 — VM slow-path arithmetic is unchecked
 
-**Severity:** High · **Area:** VM backend · **Verified:** 2026-08-26
+**Severity:** High · **Area:** VM backend · **Verified:** 2026-08-26 · **Issue:** [#38](https://forgejo.spirosgerokostas.com/sger/flux/issues/38)
 
 `src/vm/binary_ops.rs` uses plain `+`, `-`, and `*` on its slow path, while
 `src/vm/dispatch.rs` uses wrapping operations on the fast path. With Cargo's
@@ -2518,7 +2547,7 @@ path equivalent.
 
 ### KI-039 — Native integers truncate values that the VM boxes
 
-**Severity:** High · **Area:** VM/native parity · **Verified:** 2026-08-26
+**Severity:** High · **Area:** VM/native parity · **Verified:** 2026-08-26 · **Issue:** [#39](https://forgejo.spirosgerokostas.com/sger/flux/issues/39)
 
 The VM nanobox falls back to a heap box for integers outside its inline payload,
 but native `flux_tag_int` has no equivalent fallback. For example, `2^62`
@@ -2527,7 +2556,7 @@ printing that value under both backends.
 
 ### KI-040 — `i64::MIN / -1` is unguarded
 
-**Severity:** High · **Area:** arithmetic · **Verified:** 2026-08-26
+**Severity:** High · **Area:** arithmetic · **Verified:** 2026-08-26 · **Issue:** [#40](https://forgejo.spirosgerokostas.com/sger/flux/issues/40)
 
 The VM integer division path and native `sdiv` both leave the two's-complement
 minimum divided by `-1` unguarded. Reproduce with `(-9223372036854775807 - 1) /
@@ -2535,7 +2564,7 @@ minimum divided by `-1` unguarded. Reproduce with `(-9223372036854775807 - 1) /
 
 ### KI-041 — E1010 and E060 describe unwired overflow behavior
 
-**Severity:** Medium · **Area:** diagnostics · **Verified:** 2026-08-26
+**Severity:** Medium · **Area:** diagnostics · **Verified:** 2026-08-26 · **Issue:** [#41](https://forgejo.spirosgerokostas.com/sger/flux/issues/41)
 
 `INTEGER_OVERFLOW` (E1010) and `CONST_OVERFLOW` (E060) are registered and
 documented, but have no construction sites. Their documented behavior is not
@@ -2544,7 +2573,7 @@ both diagnostics; either wire the codes to defined semantics or remove them.
 
 ### KI-043 — Workspace field inheritance is incomplete
 
-**Severity:** Medium · **Area:** package manager, workspaces · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md)
+**Severity:** Medium · **Area:** package manager, workspaces · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md) · **Issue:** [#43](https://forgejo.spirosgerokostas.com/sger/flux/issues/43)
 
 Workspace member discovery, shared cache placement, shared lockfiles, and
 version inheritance are implemented. Members cannot yet inherit `license` or
@@ -2552,7 +2581,7 @@ common dependencies from the workspace root.
 
 ### KI-044 — Registry hosting and package naming policy are deferred
 
-**Severity:** Medium · **Area:** package registry · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md)
+**Severity:** Medium · **Area:** package registry · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md) · **Issue:** [#44](https://forgejo.spirosgerokostas.com/sger/flux/issues/44)
 
 Flux has no hosted registry yet, so registry ownership, naming, squatting rules,
 and the initial hosting policy remain undecided. This is intentionally deferred
@@ -2561,7 +2590,7 @@ available.
 
 ### KI-047 — Lockfile v1 serialization needs external compatibility validation
 
-**Severity:** Low · **Area:** package manager, lockfiles · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md)
+**Severity:** Low · **Area:** package manager, lockfiles · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md) · **Issue:** [#47](https://forgejo.spirosgerokostas.com/sger/flux/issues/47)
 
 The v1 lockfile has deterministic ordering, inline checksums, and format
 preservation, but it has not yet been validated against real multi-contributor
@@ -2570,7 +2599,7 @@ collected.
 
 ### KI-048 — Windows store path limits are not validated
 
-**Severity:** Medium · **Area:** package store, Windows · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md)
+**Severity:** Medium · **Area:** package store, Windows · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md) · **Issue:** [#48](https://forgejo.spirosgerokostas.com/sger/flux/issues/48)
 
 The store layout has not been tested against long package names, compiler ABI
 segments, and nested target paths on Windows. A path-shortening strategy may be
@@ -2587,7 +2616,7 @@ segments and target paths are still unmeasured.
 
 ### KI-049 — One-version-per-package remains a linker limitation
 
-**Severity:** Medium · **Area:** package resolver, linker · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md)
+**Severity:** Medium · **Area:** package resolver, linker · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md) · **Issue:** [#49](https://forgejo.spirosgerokostas.com/sger/flux/issues/49)
 
 The resolver permits only one version of a package name in a graph because the
 current linker uses flat global names. Per-package symbol mangling would be
@@ -2595,7 +2624,7 @@ required before semver-incompatible duplicate versions can be supported safely.
 
 ### KI-054 — An imported contextual instance method is declared one parameter short natively
 
-**Severity:** Low · **Area:** type classes, native backend · **Verified:** 2026-08-31 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** Low · **Area:** type classes, native backend · **Verified:** 2026-08-31 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md) · **Issue:** [#54](https://forgejo.spirosgerokostas.com/sger/flux/issues/54)
 
 `build_public_class_method_scheme`
 ([`src/compiler/mod.rs`](../src/compiler/mod.rs)) rebuilds an imported instance
@@ -2627,7 +2656,7 @@ if a code path started honouring the field.
 
 ### KI-055 — Native builds emit an unreferenced forwarding copy of every module-owned class method
 
-**Severity:** Low · **Area:** type classes, native backend · **Verified:** 2026-09-01 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** Low · **Area:** type classes, native backend · **Verified:** 2026-09-01 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md) · **Issue:** [#55](https://forgejo.spirosgerokostas.com/sger/flux/issues/55)
 
 A module-owned instance method is emitted twice: the real definition inside its
 module, and a file-scope bare-name forwarding alias
@@ -2672,7 +2701,7 @@ does not have to be re-derived.
 
 ### KI-056 — Two module files sharing a stem collide natively
 
-**Severity:** Medium · **Area:** native backend, module linking · **Verified:** 2026-09-01
+**Severity:** Medium · **Area:** native backend, module linking · **Verified:** 2026-09-01 · **Issue:** [#56](https://forgejo.spirosgerokostas.com/sger/flux/issues/56)
 
 Two modules in different directories whose *files* share a stem fail to link:
 
@@ -2704,7 +2733,7 @@ distinct stems to compile natively. The VM is unaffected.
 
 ### KI-068 — A bare `Compiler` cannot supply the standard classes' instance bodies
 
-**Severity:** Low · **Area:** type classes, embedding · **Verified:** 2026-09-02
+**Severity:** Low · **Area:** type classes, embedding · **Verified:** 2026-09-02 · **Issue:** [#68](https://forgejo.spirosgerokostas.com/sger/flux/issues/68)
 
 Proposal 0179 Stage 8 moved `Eq`, `Ord`, `Num`, `Show` and `Semigroup` out of
 Rust and into `lib/Flow/*.flx`, deleting the `builtin_method_body` generation
@@ -2743,7 +2772,7 @@ truth.
 
 ### KI-071 — An instance method captures unqualified calls to a module-level function of the same name
 
-**Severity:** High · **Area:** Type classes / name resolution · **Verified:** 2026-09-03 · **From:** Flume typeclass conversion
+**Severity:** High · **Area:** Type classes / name resolution · **Verified:** 2026-09-03 · **From:** Flume typeclass conversion · **Issue:** [#71](https://forgejo.spirosgerokostas.com/sger/flux/issues/71)
 
 > **Re-measured 2026-10-13: does not reproduce.** The program above, with
 > `Ver` wrapping an `Int` and `Ord<Ver>`'s `compare` returning `Int`, prints
@@ -2798,7 +2827,7 @@ of its 60 tests red.
 
 ### KI-073 — Result-directed selection is lost on native when routed through a constrained function
 
-**Severity:** High · **Area:** Type classes / native backend · **Verified:** 2026-09-03 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** High · **Area:** Type classes / native backend · **Verified:** 2026-09-03 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md) · **Issue:** [#73](https://forgejo.spirosgerokostas.com/sger/flux/issues/73)
 
 > **Re-measured 2026-10-13: fixed on native.** `via(42)` prints `"42"` on
 > both backends, and `syntax_tour.flx` passes VM↔LLVM parity. The Core path
@@ -2835,7 +2864,7 @@ which is deliberately **not** mirrored into `tests/parity/` until this is fixed.
 
 ### KI-074 — A lowercase class name is declarable but unusable in a `where` clause
 
-**Severity:** Low · **Area:** Parser · **Verified:** 2026-09-03 · **From:** syntax reference audit
+**Severity:** Low · **Area:** Parser · **Verified:** 2026-09-03 · **From:** syntax reference audit · **Issue:** [#74](https://forgejo.spirosgerokostas.com/sger/flux/issues/74)
 
 ```flux
 class sz<a> { fn size_of(x: a) -> Int }              // accepted
@@ -2858,7 +2887,7 @@ refusing the use is the one combination that should not stand.
 
 ### KI-075 — `<a: C>` on a multi-parameter class suggests an instance that cannot be written
 
-**Severity:** Low · **Area:** Diagnostics / type classes · **Verified:** 2026-09-03 · **From:** syntax reference audit
+**Severity:** Low · **Area:** Diagnostics / type classes · **Verified:** 2026-09-03 · **From:** syntax reference audit · **Issue:** [#75](https://forgejo.spirosgerokostas.com/sger/flux/issues/75)
 
 ```flux
 class Convert<a, b> { fn convert(x: a) -> b }
@@ -2880,7 +2909,7 @@ sugar reaches only one — rather than suggesting an impossible declaration.
 
 ### KI-076 — An operator on a class-constrained type parameter does not dispatch inside a `module` block
 
-**Severity:** High · **Area:** Type classes / dictionary passing · **Verified:** 2026-09-11 · **From:** Flume typeclass conversion
+**Severity:** High · **Area:** Type classes / dictionary passing · **Verified:** 2026-09-11 · **From:** Flume typeclass conversion · **Issue:** [#76](https://forgejo.spirosgerokostas.com/sger/flux/issues/76)
 
 > **Re-measured 2026-09-11: the symptom below is out of date.** The trap is no
 > longer `cannot compare Adt with OpLessThanOrEqual`. It is now
@@ -2936,7 +2965,7 @@ because `Version` cannot be sorted generically — with `List.sort_by`.
 
 ### KI-090 — A constrained function passed as a value loses its dictionary
 
-**Severity:** High · **Area:** Dictionary elaboration · **Verified:** 2026-09-07 · **From:** Proposal 0186
+**Severity:** High · **Area:** Dictionary elaboration · **Verified:** 2026-09-07 · **From:** Proposal 0186 · **Issue:** [#90](https://forgejo.spirosgerokostas.com/sger/flux/issues/90)
 
 Referencing a constrained function *as a value* rather than calling it does not
 supply its dictionary, so the callee invokes an arity it does not have:
@@ -3017,7 +3046,7 @@ types. Fixing that is the next step, not more work on evidence.
 
 ### KI-086 — A class declared inside a `module` loses its default method bodies
 
-**Severity:** High · **Area:** type classes, module interfaces · **Verified:** 2026-09-11 · **From:** Proposal 0186
+**Severity:** High · **Area:** type classes, module interfaces · **Verified:** 2026-09-11 · **From:** Proposal 0186 · **Issue:** [#86](https://forgejo.spirosgerokostas.com/sger/flux/issues/86)
 
 > **`--no-cache` hides failure 1** (measured 2026-09-11). On the same file:
 >
@@ -3112,7 +3141,7 @@ is a scope-construction fix in class collection.
 
 ### KI-084 — A bare `Compiler` cannot build a dictionary for a contextual prelude instance
 
-**Severity:** Low · **Area:** Compiler harness / LSP · **Verified:** 2026-09-04 · **From:** Proposal 0183
+**Severity:** Low · **Area:** Compiler harness / LSP · **Verified:** 2026-09-04 · **From:** Proposal 0183 · **Issue:** [#84](https://forgejo.spirosgerokostas.com/sger/flux/issues/84)
 
 A `Compiler` built directly — `Compiler::new_with_interner` plus
 `compile_with_opts`, with no module graph — rejects any program that needs a
@@ -3167,9 +3196,168 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 ## Resolved
 
+### KI-119 — Natively, a program that printed left a closure per `print` call — FIXED 2026-11-12
+
+**Severity:** Low · **Area:** LIR lowering, effect handlers · **Verified:** 2026-10-25 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `--leak-check` runs · **Issue:** [#119](https://forgejo.spirosgerokostas.com/sger/flux/issues/119)
+
+`fn main() { print(1) }` leaves 2 blocks live at exit under `flux --native
+--leak-check`: a closure allocated at the `print` call, and a tuple
+allocated in the default handler arm (its `()` result). Three `print` calls
+leave three closures and still one tuple. A program that prints nothing
+leaks none of them.
+
+The closure is most likely the top-level function value a call builds for
+a borrowed use, which nothing releases (not traced yet); that goes when
+top-level closures are static (Perceus audit step 10). Until 2026-10-25 the handlers around `main` leaked too, two closures
+and their evidence: a `handle` now releases its clause and evidence when its
+body is done (Perceus audit R3).
+
+This is why `--leak-check` is a flag of its own and `--debug-heap` alone
+does not report leaks.
+
+**Fixed** in `src/lir/emit_llvm.rs`. The closures were gone before this fix:
+`print(1)` left only the tuple, and a program of three `print`s left one
+block. A tuple whose elements are all constants is now a static object, as a
+constant constructor already was (`StaticObjects::tuple`, used by
+`emit_make_tuple`), so the `()` each `print` is answered with allocates
+nothing. `a_program_that_prints_leaves_nothing_live_ki119` failed with the
+tuple live and passes now. The debug-heap tests that pinned that block
+(`owned_clones`, `a_failed_file_operation_counts_the_path_its_error_holds`)
+now pin none, and one allocation fewer per `print`. Heap parity's leaking
+files fell from 177 to 20. The native ABI tag is v37. The same change keeps
+KI-185's clause tables off the heap.
+
+### KI-185 — Natively, every operation of an effect ran its handler's first clause — FIXED 2026-11-11
+
+**Severity:** High (silent wrong output natively) · **Area:** Native effects, handler lowering · **Verified:** 2026-11-10 (f1d78295) · **From:** 0190 S17c (a probe of the forms the generator would write) · **Issue:** [#185](https://forgejo.spirosgerokostas.com/sger/flux/issues/185)
+
+```flux
+effect E {
+    a : (Int) -> Int
+    b : (Int) -> Int
+}
+
+fn g() -> Int with E {
+    let x: Int = perform E.a(1);
+    let y: Int = perform E.b(1);
+    ((x * 1000) + y)
+}
+
+fn main() with IO {
+    let v: Int = g() handle E { a(resume, n) -> resume(100), b(resume, n) -> resume(200) };
+    print(v);
+}
+```
+
+`vm` and `vm_opt` print `100200`; `llvm` and `llvm_opt` print `100100`:
+`perform E.b(1)` ran `a`'s clause. With `perform E.b` alone it's `200` against
+`100`. When the clauses' types differ (an `(Int) -> Int` and a
+`(String) -> Bool` operation), `b` resumes with `a`'s value, of `a`'s type.
+
+`lower_handle_aether` (`src/lir/lower.rs`) builds the handler's closure from
+`handlers[0]` alone (`lower_handler_clause_aether(effect, &handlers[0])`) and
+inserts it as the effect's one evidence entry, so whichever operation is
+performed, that clause runs. `lower_handle`, the Core path, does the same.
+`tests/parity/effect_tr_reader.flx` has a two-operation effect, but it binds
+the second operation's result to `_port` and never reads it, so it passes.
+
+The fuzz generator gives each effect one operation.
+
+It was worse than first filed: a parameterized `State(0)` handler with `get`
+and `put` crashed natively with SIGSEGV, as `put`'s argument met `get`'s
+clause, which takes none.
+
+Fixture: `tests/parity/effect_multi_op_dispatch_ki185.flx` (two operations
+both performed, the second alone, operations of different types, one clause
+that aborts, and a parameterized `get`/`put`).
+
+**Fixed** in `src/lir/lower.rs` and `runtime/c/effects.c`. A handler of two or
+more clauses now gives its evidence entry a clause table, the tuple
+`(op_tag0, clause0, op_tag1, clause1, ...)` (`make_clause_table`), in both
+`lower_handle_aether` and `lower_handle`. `flux_yield_to` and
+`flux_perform_direct` pick the clause paired with the performed operation's
+tag (`evv_clause_for`), which they used to ignore. A handler of one clause keeps
+the clause itself in the entry, as before. The entry's tail-resumptive flag is
+set only when every clause resumes as its last act. The native ABI tag is v36,
+so a cached object built with the first-clause handler isn't reused. The
+fixture crashed on `llvm` and `llvm_opt` before this and passes on all four
+ways now, with no leak under `--leak-check`. When no clause captures anything,
+the table is a static object (`emit_make_tuple`, `src/lir/emit_llvm.rs`, native
+ABI tag v37). Three of the default handlers around `main` have several
+clauses (Env, FileSystem, Console). Built on the heap, their tables added
+three blocks to every `main() with IO`, which two pinned debug-heap counts
+caught.
+
+### KI-188 — On the VM, a handler that runs inside a `Task.spawn` task stopped with `expected HandlerDescriptor constant` — FIXED 2026-11-11
+
+**Severity:** Medium (valid programs stop with an error) · **Area:** VM tasks, effect handlers · **Verified:** 2026-11-11 (30680987) · **From:** the first full-generator hunt (`cargo xtask fuzz --seed 2 --count 200 --with classes,values,effects,async,modules`, 11 programs of 195: cases 7, 38, 39, 63, 76, 81, 108, 114, 138, 158 and 173) · **Issue:** [#189](https://forgejo.spirosgerokostas.com/sger/flux/issues/189)
+
+```flux
+import Flow.Async as Async
+import Flow.Task as Task
+
+effect Eff { op : (Int) -> Int }
+
+fn f() -> Int with Eff {
+    perform Eff.op(1)
+}
+
+fn g(a: Int) -> Int {
+    f() handle Eff { op(resume, p) -> resume(p + a) }
+}
+
+fn work() -> Int { g(10) }
+
+fn body() -> Int with Async {
+    let t: Task<Int> = Task.spawn(work);
+    Task.await(t)
+}
+
+fn main() with IO {
+    print(Async.run_async(body));
+}
+```
+
+Natively it prints `11`. On the VM, with or without `-O`, it stops before
+printing anything:
+
+```
+error[E1004]: AsyncError: Adt(AdtValue { constructor: "Panicked", fields: One(String("OpHandleDirect: expected HandlerDescriptor constant, got None")) })
+```
+
+A closure (`Task.spawn(fn() { g(10) })`) does the same. The same call works
+on the VM directly in `body`, or in a function run by `Async.both`, which
+keeps its fibers on one worker.
+
+The cause is in how a task gets the program's constants. The VM copies them
+for the task's thread through `promote_task_constant` (`src/vm/task.rs`),
+which runs `validate_task_value` first. That check is for the values a task
+is *sent*, and it refuses `HandlerDescriptor` and `PerformDescriptor`.
+`promote_task_constant` turns any refused constant into `None`, so the handle
+instruction in the task's code finds `None` where its descriptor was.
+`promote_value` itself can copy both descriptors (`ArcValue::HandlerDescriptor`,
+`ArcValue::PerformDescriptor`), and `worker_shared_state` uses it for
+constants. It has been like this since the VM first ran tasks on worker
+threads (c4a0a3c0, 2026-05-09).
+
+Fixture: `tests/parity/task_spawn_runs_handler_ki188.flx` (a resuming clause,
+the same through a closure, and a clause that never resumes, each in its own
+task). Unit test: `task_constants_keep_effect_descriptors_ki188`
+(`src/vm/task.rs`).
+
+**Fixed** in `promote_task_constant` (`src/vm/task.rs`): a constant
+`HandlerDescriptor` or `PerformDescriptor` is copied for the task with
+`promote_value`, as `worker_shared_state` already did for `Async.both`'s
+workers. The send check still applies to everything else, and to the values a
+task is sent. `promote_value`'s doc comment (`src/runtime/value.rs`), which
+said it refused descriptors, now says it refuses only `ReturnValue`. No cache
+key changes: the compiler's output is the same. The fixture and the unit test
+failed on the VM before this and pass now, and the hunt's 11 cases agree on
+all four ways.
+
 ### KI-187 — A module file got none of the prelude's imports: natively its calls of `map` or `fold` were undefined — FIXED 2026-11-10
 
-**Severity:** Medium (valid programs refused) · **Area:** Module graph, prelude · **Verified:** 2026-11-10 (52cce2de) · **From:** 0190 S17d (`cargo xtask fuzz --seed 1 --with modules`, 7 of the first 10 cases)
+**Severity:** Medium (valid programs refused) · **Area:** Module graph, prelude · **Verified:** 2026-11-10 (52cce2de) · **From:** 0190 S17d (`cargo xtask fuzz --seed 1 --with modules`, 7 of the first 10 cases) · **Issue:** [#187](https://forgejo.spirosgerokostas.com/sger/flux/issues/187)
 
 ```flux
 // M1.flx, beside main.flx
@@ -3212,7 +3400,7 @@ The fixture failed on `vm` and `llvm` before this and passes now.
 
 ### KI-175 — A class method or constrained call in an annotated `let`'s `if`, `match` or literal was given its dictionary twice — FIXED 2026-11-09
 
-**Severity:** High (silent wrong output natively; valid programs refused with `E000`) · **Area:** Type inference, dictionary passing · **Verified:** 2026-11-09 (2fe0af80) · **From:** 0190 S17a (`cargo xtask fuzz --seed 1 --with classes --gen-only`, then `--dump-core`)
+**Severity:** High (silent wrong output natively; valid programs refused with `E000`) · **Area:** Type inference, dictionary passing · **Verified:** 2026-11-09 (2fe0af80) · **From:** 0190 S17a (`cargo xtask fuzz --seed 1 --with classes --gen-only`, then `--dump-core`) · **Issue:** [#175](https://forgejo.spirosgerokostas.com/sger/flux/issues/175)
 
 ```flux
 fn render<a: Show>(x: a) -> String {
@@ -3270,7 +3458,7 @@ constrained call and a tuple, each raising its predicate twice) and
 
 ### KI-116 — On the VM, a variable read by a `let` inside a `do` block was uninitialised afterwards — FIXED 2026-11-09
 
-**Severity:** High · **Area:** VM, ownership · **Verified:** 2026-11-09 (4d99ac21) · **From:** [0190](proposals/0190_verification_toolkit.md) S7, `cargo xtask rewrite --kind let-wrap` · **Issue:** [#114](https://forgejo.spirosgerokostas.com/sger/flux/issues/114)
+**Severity:** High · **Area:** VM, ownership · **Verified:** 2026-11-09 (4d99ac21) · **From:** [0190](proposals/0190_verification_toolkit.md) S7, `cargo xtask rewrite --kind let-wrap` · **Issue:** [#116](https://forgejo.spirosgerokostas.com/sger/flux/issues/116)
 
 ```flux
 fn main() with IO {
@@ -3350,7 +3538,7 @@ took the AST path rather than the CFG one (see [KI-118](#ki-118)).
 
 ### KI-173 — Native code returned a call's result when the function returned something else — FIXED 2026-11-09
 
-**Severity:** High · **Area:** native backend, tail calls · **Verified:** 2026-11-09 (ff00ea39; also main 0ea95cb4) · **From:** 0190 S8 (`cargo xtask fuzz --seed 1`, case 61)
+**Severity:** High · **Area:** native backend, tail calls · **Verified:** 2026-11-09 (ff00ea39; also main 0ea95cb4) · **From:** 0190 S8 (`cargo xtask fuzz --seed 1`, case 61) · **Issue:** [#173](https://forgejo.spirosgerokostas.com/sger/flux/issues/173)
 
 ```flux
 fn f(n: Int) -> Int {
@@ -3394,7 +3582,7 @@ calls deep, pass natively. `tests/parity/tail_call_result_unused_ki173.flx`
 
 ### KI-174 — `--optimize` rejected a valid program whose folded `if true` blocks had different types — FIXED 2026-11-09
 
-**Severity:** Medium · **Area:** Type inference, AST optimization · **Verified:** 2026-11-09 (4d99ac21) · **From:** 0190 S8 (`cargo xtask fuzz --seed 1` and `--seed 2`)
+**Severity:** Medium · **Area:** Type inference, AST optimization · **Verified:** 2026-11-09 (4d99ac21) · **From:** 0190 S8 (`cargo xtask fuzz --seed 1` and `--seed 2`) · **Issue:** [#174](https://forgejo.spirosgerokostas.com/sger/flux/issues/174)
 
 ```flux
 fn f() -> Int {
@@ -3453,7 +3641,7 @@ should reject.
 
 ### KI-172 — A `let` nobody read released a parameter its branch returned, uncounted — FIXED 2026-11-09
 
-**Severity:** High (silent wrong output natively; valid programs refused with `E999`) · **Area:** Aether, dup/drop insertion · **Verified:** 2026-11-09 (b835e8df, and on main at 0ea95cb4) · **From:** 0190 S8, `cargo xtask fuzz --seed 1` (8 of its first 200 programs)
+**Severity:** High (silent wrong output natively; valid programs refused with `E999`) · **Area:** Aether, dup/drop insertion · **Verified:** 2026-11-09 (b835e8df, and on main at 0ea95cb4) · **From:** 0190 S8, `cargo xtask fuzz --seed 1` (8 of its first 200 programs) · **Issue:** [#172](https://forgejo.spirosgerokostas.com/sger/flux/issues/172)
 
 ```flux
 fn takes(s: String, b: Bool) -> Int {
@@ -3496,7 +3684,7 @@ through the `case`'s result, which is why `lends` passed it.
 
 ### KI-171 — A match arm that builds two constructors from two cells allocates one and frees the other
 
-**Severity:** Low · **Area:** Aether, reuse · **Verified:** 2026-11-05 (f75c8e51) · **From:** measuring what free-a-cell can still gain (0200)
+**Severity:** Low · **Area:** Aether, reuse · **Verified:** 2026-11-05 (f75c8e51) · **From:** measuring what free-a-cell can still gain (0200) · **Issue:** [#171](https://forgejo.spirosgerokostas.com/sger/flux/issues/171)
 
 `balance1` in `benchmarks/flux/rbtree.flx` rebuilds two nodes from the two it matched:
 
@@ -3530,7 +3718,7 @@ same tree passed as both arguments.
 
 ### KI-163 — Natively, a self tail call that lends a field of a matched owned value to a borrowed parameter is not a jump — FIXED 2026-11-04
 
-**Severity:** Medium · **Area:** Aether, borrow inference, native backend · **Verified:** 2026-11-02 (54dbde9d) · **From:** timing `benchmarks/flux/binarytrees_fbip.flx` for the binarytrees work, which dies with signal 10 at n=21 · **Issue:** [#159](https://forgejo.spirosgerokostas.com/sger/flux/issues/159)
+**Severity:** Medium · **Area:** Aether, borrow inference, native backend · **Verified:** 2026-11-02 (54dbde9d) · **From:** timing `benchmarks/flux/binarytrees_fbip.flx` for the binarytrees work, which dies with signal 10 at n=21 · **Issue:** [#163](https://forgejo.spirosgerokostas.com/sger/flux/issues/163)
 
 ```flux
 type Tree = Node(Tree, Tree) | Tip
@@ -3610,7 +3798,7 @@ them at 1,000,000 natively, where a frame per turn overflows the stack. KI-148 i
 
 ### KI-122 — Natively, the async runtime releases one of its own closures twice — FIXED 2026-10-25
 
-**Severity:** Medium · **Area:** native runtime, async scheduler · **Verified:** 2026-11-04 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `llvm_heap` run over `tests/parity` · **Issue:** [#120](https://forgejo.spirosgerokostas.com/sger/flux/issues/120)
+**Severity:** Medium · **Area:** native runtime, async scheduler · **Verified:** 2026-11-04 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `llvm_heap` run over `tests/parity` · **Issue:** [#122](https://forgejo.spirosgerokostas.com/sger/flux/issues/122)
 
 Two fixtures print the right output natively but stop on the debug heap:
 
@@ -3653,7 +3841,7 @@ value, so that the closure is on the heap on both `run_async` paths.
 
 ### KI-168 — A match on a value built in place ran its fields twice, never, or out of order — FIXED 2026-11-04
 
-**Severity:** High · **Area:** Core passes · **Verified:** 2026-11-04 · **From:** investigating KI-106 · **Issue:** [#164](https://forgejo.spirosgerokostas.com/sger/flux/issues/164)
+**Severity:** High · **Area:** Core passes · **Verified:** 2026-11-04 · **From:** investigating KI-106 · **Issue:** [#168](https://forgejo.spirosgerokostas.com/sger/flux/issues/168)
 
 ```flux
 fn noisy() with IO { print(1); 5 }
@@ -3692,7 +3880,7 @@ binarytrees, rbtree, rbtree_del, deriv, cfold, nqueens and qsort, with and witho
 
 ### KI-106 — A match on a known value skipped an arm it could not decide, so a later `_` won — FIXED 2026-11-04
 
-**Severity:** High · **Area:** Core passes · **Verified:** 2026-11-04 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#104](https://forgejo.spirosgerokostas.com/sger/flux/issues/104)
+**Severity:** High · **Area:** Core passes · **Verified:** 2026-11-04 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1 · **Issue:** [#106](https://forgejo.spirosgerokostas.com/sger/flux/issues/106)
 
 ```flux
 // examples/patterns/pattern_validation_happy_path.flx
@@ -3743,7 +3931,7 @@ covers the shapes on `vm`, `llvm` and `llvm_opt`. `CACHE_EPOCH` is 131.
 
 ### KI-167 — A temporary and a variable bound by a pattern could get the same binder id — FIXED 2026-11-04
 
-**Severity:** High · **Area:** Core passes, Aether · **Verified:** 2026-11-04 · **From:** `cargo xtask verify v1`, the first full run with the Aether contract on in every build (KI-165) · **Issue:** [#163](https://forgejo.spirosgerokostas.com/sger/flux/issues/163)
+**Severity:** High · **Area:** Core passes, Aether · **Verified:** 2026-11-04 · **From:** `cargo xtask verify v1`, the first full run with the Aether contract on in every build (KI-165) · **Issue:** [#167](https://forgejo.spirosgerokostas.com/sger/flux/issues/167)
 
 ```flux
 // Shared.flx, imported by a program with a `main`
@@ -3783,7 +3971,7 @@ unit can hold one of these plans.
 
 ### KI-164 — A unique cell whose arm builds no new cell is released field by field, because Aether cannot free a cell without its fields — FIXED 2026-11-04
 
-**Severity:** Low · **Area:** Aether, drop specialization, reuse · **Verified:** 2026-11-03 (f35b7705) · **From:** profiling `benchmarks/flux/binarytrees.flx` natively, where the drop walk is 34% of the run · **Issue:** [#160](https://forgejo.spirosgerokostas.com/sger/flux/issues/160)
+**Severity:** Low · **Area:** Aether, drop specialization, reuse · **Verified:** 2026-11-03 (f35b7705) · **From:** profiling `benchmarks/flux/binarytrees.flx` natively, where the drop walk is 34% of the run · **Issue:** [#164](https://forgejo.spirosgerokostas.com/sger/flux/issues/164)
 
 ```flux
 type Tree = Node(Tree, Tree) | Tip
@@ -3858,7 +4046,7 @@ The free itself is still a call to the runtime; 0189's status says why.
 
 ### KI-165 — Natively, a rebuild around a field's own field read it after a unique path released it — FIXED 2026-11-04
 
-**Severity:** High (silent wrong output, or a crash) · **Area:** Aether, reuse · **Verified:** 2026-11-04 (a4314aba, and the same at b21d7f89, before 0189 F3-5) · **From:** implementing 0189 F3-5 P1-2b · **Issue:** [#161](https://forgejo.spirosgerokostas.com/sger/flux/issues/161)
+**Severity:** High (silent wrong output, or a crash) · **Area:** Aether, reuse · **Verified:** 2026-11-04 (a4314aba, and the same at b21d7f89, before 0189 F3-5) · **From:** implementing 0189 F3-5 P1-2b · **Issue:** [#165](https://forgejo.spirosgerokostas.com/sger/flux/issues/165)
 
 ```flux
 type Item = Wrap(Item) | Leaf(String)
@@ -3902,7 +4090,7 @@ plain build refuses `peel`, `FLUX_AETHER_VERIFY=0` reproduces the output above, 
 
 ### KI-160 — Natively, an interpolated string with more than one part leaked its pieces — FIXED 2026-11-02
 
-**Severity:** Medium · **Area:** LLVM emission, strings · **Verified:** 2026-11-02 (c4019333, and the same at 4a97c60f) · **From:** re-running the native runtime roadmap's leak checks with `--leak-check`
+**Severity:** Medium · **Area:** LLVM emission, strings · **Verified:** 2026-11-02 (c4019333, and the same at 4a97c60f) · **From:** re-running the native runtime roadmap's leak checks with `--leak-check` · **Issue:** [#160](https://forgejo.spirosgerokostas.com/sger/flux/issues/160)
 
 ```flux
 fn size(i: Int) -> Int {
@@ -3952,7 +4140,7 @@ tuple. Heap parity's leaked blocks fell from 111,433 to 399.
 
 ### KI-156 — `&&` and `||` evaluated their right side before testing the left — FIXED 2026-10-31
 
-**Severity:** High · **Area:** Core lowering, both backends · **Verified fixed:** 2026-10-31, by the parity fixture below on both ways · **From:** the GHC backend comparison, while profiling nqueens
+**Severity:** High · **Area:** Core lowering, both backends · **Verified fixed:** 2026-10-31, by the parity fixture below on both ways · **From:** the GHC backend comparison, while profiling nqueens · **Issue:** [#156](https://forgejo.spirosgerokostas.com/sger/flux/issues/156)
 
 Core lowered `a && b` to `CorePrimOp::And` with both operands lowered first
 (`src/core/lower_ast/expression.rs`), so the right side always ran before
@@ -3982,7 +4170,7 @@ after it.
 
 ### KI-141 — A test's port could be taken between `free_port()` and the bind — FIXED 2026-10-29
 
-**Severity:** Medium · **Area:** tests, networking · **Verified fixed:** 2026-10-29, by reading the code and a test of the range; neither failure was reproduced locally · **From:** a one-off failure of `vm_http_server::shutdown_now_cancels_active_connection` in a full `cargo test-all` · **Issue:** [#139](https://forgejo.spirosgerokostas.com/sger/flux/issues/139)
+**Severity:** Medium · **Area:** tests, networking · **Verified fixed:** 2026-10-29, by reading the code and a test of the range; neither failure was reproduced locally · **From:** a one-off failure of `vm_http_server::shutdown_now_cancels_active_connection` in a full `cargo test-all` · **Issue:** [#141](https://forgejo.spirosgerokostas.com/sger/flux/issues/141)
 
 `free_port()` (`tests/support/scratch.rs`) bound port 0, read the port the
 OS chose, and closed the listener. The test's Flux program bound that port
@@ -4027,7 +4215,7 @@ the tests no longer need it.
 
 ### KI-136 — On Linux, lldb lost the frames a `resume` runs on top of — FIXED 2026-10-29
 
-**Severity:** Medium · **Area:** native debugging, native runtime, CI · **Verified fixed:** 2026-10-29 · **From:** the CI run of the verification-toolkit PR · **Issue:** [#134](https://forgejo.spirosgerokostas.com/sger/flux/issues/134)
+**Severity:** Medium · **Area:** native debugging, native runtime, CI · **Verified fixed:** 2026-10-29 · **From:** the CI run of the verification-toolkit PR · **Issue:** [#136](https://forgejo.spirosgerokostas.com/sger/flux/issues/136)
 
 Three debugger tests failed on Linux and passed on macOS and Windows:
 
@@ -4080,7 +4268,7 @@ removed.
 
 ### KI-053 — `--dump-core` and the other whole-program dumps report types from the wrong module — FIXED 2026-10-29
 
-**Severity:** Medium · **Area:** driver, diagnostics tooling · **Verified fixed:** 2026-10-29 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** Medium · **Area:** driver, diagnostics tooling · **Verified fixed:** 2026-10-29 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md) · **Issue:** [#53](https://forgejo.spirosgerokostas.com/sger/flux/issues/53)
 
 Every dump flag that needs a whole-program view — `--dump-core`, `--dump-aether`,
 `--dump-cfg`, `--dump-lir`, `--emit-llvm`, `--trace-aether` — concatenates the
@@ -4152,7 +4340,7 @@ Test: `emit_llvm_prints_ir_for_a_program_that_imports_the_prelude` in
 
 ### KI-135 — A handle's value was wrong when its body did work of its own in the handle's frame — FIXED 2026-10-28
 
-**Severity:** High · **Area:** effects, native backend, VM · **Verified fixed:** 2026-10-28 · **From:** KI-133 · **Issue:** [#133](https://forgejo.spirosgerokostas.com/sger/flux/issues/133)
+**Severity:** High · **Area:** effects, native backend, VM · **Verified fixed:** 2026-10-28 · **From:** KI-133 · **Issue:** [#135](https://forgejo.spirosgerokostas.com/sger/flux/issues/135)
 
 Filed as "natively, a panic in a handler clause is caught, then reported again
 at exit":
@@ -4205,7 +4393,7 @@ hung on it and native printed wrong values).
 
 ### KI-134 — Natively, an effect context snapshot shared values between threads uncounted — FIXED 2026-10-28
 
-**Severity:** High · **Area:** native runtime, async scheduler, effects · **Verified fixed:** 2026-10-28 · **From:** `cargo xtask sanitize --thread` · **Issue:** [#132](https://forgejo.spirosgerokostas.com/sger/flux/issues/132)
+**Severity:** High · **Area:** native runtime, async scheduler, effects · **Verified fixed:** 2026-10-28 · **From:** `cargo xtask sanitize --thread` · **Issue:** [#134](https://forgejo.spirosgerokostas.com/sger/flux/issues/134)
 
 ```
 $ FLUX_RT_SANITIZE=thread flux --native tests/parity/async_observable_ordering.flx
@@ -4244,7 +4432,7 @@ Test: `native_debug_heap_tests::effects::an_effect_context_crossing_threads_is_s
 
 ### KI-143 — A duplicate instance also reported a duplicate internal name, with no location — FIXED 2026-10-28
 
-**Severity:** Low · **Area:** diagnostics, type classes · **Verified fixed:** 2026-10-28 · **From:** moving `examples/compiler_errors` to `//~` annotations (proposal 0191) · **Issue:** [#141](https://forgejo.spirosgerokostas.com/sger/flux/issues/141)
+**Severity:** Low · **Area:** diagnostics, type classes · **Verified fixed:** 2026-10-28 · **From:** moving `examples/compiler_errors` to `//~` annotations (proposal 0191) · **Issue:** [#143](https://forgejo.spirosgerokostas.com/sger/flux/issues/143)
 
 ```flux
 class Sizeable<a> {
@@ -4283,7 +4471,7 @@ Test: `compiler_rules_tests::modules_and_matches::a_duplicate_instance_reports_n
 
 ### KI-142 — An error inside a lambda reported a false duplicate name in a later function — FIXED 2026-10-28
 
-**Severity:** Medium · **Area:** compiler, diagnostics · **Verified fixed:** 2026-10-28 · **From:** rewriting the HTTP server tests (KI-141) · **Issue:** [#140](https://forgejo.spirosgerokostas.com/sger/flux/issues/140)
+**Severity:** Medium · **Area:** compiler, diagnostics · **Verified fixed:** 2026-10-28 · **From:** rewriting the HTTP server tests (KI-141) · **Issue:** [#142](https://forgejo.spirosgerokostas.com/sger/flux/issues/142)
 
 ```flux
 fn apply(f: () -> Int) -> Int { f() }
@@ -4322,7 +4510,7 @@ Test: `compiler_rules_tests::modules_and_matches::an_error_inside_a_lambda_does_
 
 ### KI-140 — The CLI hid a specific effect-row error behind a generic E300 — FIXED 2026-10-28
 
-**Severity:** Low · **Area:** diagnostics, effect rows · **Verified fixed:** 2026-10-28 · **From:** KI-137 · **Issue:** [#138](https://forgejo.spirosgerokostas.com/sger/flux/issues/138)
+**Severity:** Low · **Area:** diagnostics, effect rows · **Verified fixed:** 2026-10-28 · **From:** KI-137 · **Issue:** [#140](https://forgejo.spirosgerokostas.com/sger/flux/issues/140)
 
 ```flux
 fn run_filtered(f: (() -> Int with IO - Console)) -> Int with IO - Console { f() }
@@ -4355,7 +4543,7 @@ Tests: `test_runner_cli::examples_manifest::*_ki140`; the fixtures are now
 
 ### KI-137 — Twenty failing fixtures were named for an error code the CLI does not report — FIXED 2026-10-28
 
-**Severity:** Low · **Area:** diagnostics, test fixtures · **Verified fixed:** 2026-10-28, by `cargo xtask tidy` · **From:** the test-suite review · **Issue:** [#135](https://forgejo.spirosgerokostas.com/sger/flux/issues/135)
+**Severity:** Low · **Area:** diagnostics, test fixtures · **Verified fixed:** 2026-10-28, by `cargo xtask tidy` · **From:** the test-suite review · **Issue:** [#137](https://forgejo.spirosgerokostas.com/sger/flux/issues/137)
 
 In 20 fixtures under `examples/`, the error code in the file name differed
 from the one the `expect-error:` header pinned and the CLI printed. A 21st,
@@ -4380,7 +4568,7 @@ no `// expect-error:` line lists.
 
 ### KI-139 — A failing `assert_eq` reported an unhandled Console effect instead of its message — FIXED 2026-10-28
 
-**Severity:** Medium · **Area:** effects, default handlers · **Verified fixed:** 2026-10-28, VM and native · **From:** checking `docs/guide/08_testing.md` against the runner · **Issue:** [#137](https://forgejo.spirosgerokostas.com/sger/flux/issues/137)
+**Severity:** Medium · **Area:** effects, default handlers · **Verified fixed:** 2026-10-28, VM and native · **From:** checking `docs/guide/08_testing.md` against the runner · **Issue:** [#139](https://forgejo.spirosgerokostas.com/sger/flux/issues/139)
 
 ```flux
 fn test_fails() {
@@ -4418,7 +4606,7 @@ Tests: `test_runner_cli::test_mode::*_ki139`, on the VM, natively, and for
 
 ### KI-133 — Natively, a caught panic leaked what a `handle` it skipped built — FIXED 2026-10-27
 
-**Severity:** Low · **Area:** native runtime, effects, LLVM emission · **Verified fixed:** 2026-10-27 · **From:** KI-126 · **Issue:** [#131](https://forgejo.spirosgerokostas.com/sger/flux/issues/131)
+**Severity:** Low · **Area:** native runtime, effects, LLVM emission · **Verified fixed:** 2026-10-27 · **From:** KI-126 · **Issue:** [#133](https://forgejo.spirosgerokostas.com/sger/flux/issues/133)
 
 ```flux
 effect Ask { ask : (Int) -> Int }
@@ -4467,7 +4655,7 @@ turn).
 
 ### KI-126 — Natively, a caught panic leaked what the frames it skipped held — FIXED 2026-10-27
 
-**Severity:** Low · **Area:** native runtime, panics, LLVM emission · **Verified fixed:** 2026-10-27 · **From:** the Perceus audit, R7 and C1 · **Issue:** [#124](https://forgejo.spirosgerokostas.com/sger/flux/issues/124)
+**Severity:** Low · **Area:** native runtime, panics, LLVM emission · **Verified fixed:** 2026-10-27 · **From:** the Perceus audit, R7 and C1 · **Issue:** [#126](https://forgejo.spirosgerokostas.com/sger/flux/issues/126)
 
 ```flux
 fn numbers(n) { [n, n + 1, n + 2] }
@@ -4517,7 +4705,7 @@ holding a list, none leaving a block per turn).
 
 ### KI-132 — Natively, a chain of calls that can suspend grew the program exponentially — FIXED 2026-10-27
 
-**Severity:** Medium · **Area:** LIR, continuation splitting · **Verified fixed:** 2026-10-27 · **From:** KI-130 · **Issue:** [#130](https://forgejo.spirosgerokostas.com/sger/flux/issues/130)
+**Severity:** Medium · **Area:** LIR, continuation splitting · **Verified fixed:** 2026-10-27 · **From:** KI-130 · **Issue:** [#132](https://forgejo.spirosgerokostas.com/sger/flux/issues/132)
 
 ```flux
 import Flow.Fs exposing (create_dir_all)
@@ -4554,7 +4742,7 @@ the first continuation's copy of call 2 uses call 2's continuation).
 
 ### KI-131 — Natively, a failed file operation's error freed the path it held twice — FIXED 2026-10-27
 
-**Severity:** High · **Area:** native runtime, file system · **Verified fixed:** 2026-10-27 · **From:** KI-130 · **Issue:** [#129](https://forgejo.spirosgerokostas.com/sger/flux/issues/129)
+**Severity:** High · **Area:** native runtime, file system · **Verified fixed:** 2026-10-27 · **From:** KI-130 · **Issue:** [#131](https://forgejo.spirosgerokostas.com/sger/flux/issues/131)
 
 ```flux
 import Flow.Fs exposing (remove_file)
@@ -4591,7 +4779,7 @@ the end with nothing left live).
 
 ### KI-130 — A call through a module alias was not seen as the call it is, and leaked natively — FIXED 2026-10-26
 
-**Severity:** Medium · **Area:** Core ANF, Aether, LIR lowering · **Verified fixed:** 2026-10-26 · **From:** KI-124 · **Issue:** [#128](https://forgejo.spirosgerokostas.com/sger/flux/issues/128)
+**Severity:** Medium · **Area:** Core ANF, Aether, LIR lowering · **Verified fixed:** 2026-10-26 · **From:** KI-124 · **Issue:** [#130](https://forgejo.spirosgerokostas.com/sger/flux/issues/130)
 
 ```flux
 import Flow.Map as Map
@@ -4633,7 +4821,7 @@ turn).
 
 ### KI-124 — Natively, a map's release freed its root and nothing under it — FIXED 2026-10-26
 
-**Severity:** Low · **Area:** native runtime, maps, Aether · **Verified fixed:** 2026-10-26 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-1 · **Issue:** [#122](https://forgejo.spirosgerokostas.com/sger/flux/issues/122)
+**Severity:** Low · **Area:** native runtime, maps, Aether · **Verified fixed:** 2026-10-26 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-1 · **Issue:** [#124](https://forgejo.spirosgerokostas.com/sger/flux/issues/124)
 
 ```flux
 fn turn(n) {
@@ -4683,7 +4871,7 @@ map functions by name, because of KI-130 (since fixed).
 
 ### KI-123 — Natively, an array released and promoted at most its first 255 elements — FIXED 2026-10-26
 
-**Severity:** Low · **Area:** native runtime, arrays · **Verified fixed:** 2026-10-26 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-1 · **Issue:** [#121](https://forgejo.spirosgerokostas.com/sger/flux/issues/121)
+**Severity:** Low · **Area:** native runtime, arrays · **Verified fixed:** 2026-10-26 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-1 · **Issue:** [#123](https://forgejo.spirosgerokostas.com/sger/flux/issues/123)
 
 An array of 256 lists, released natively, left the last list live; an array
 of 70000 left 69745. Sharing an array across threads stopped at the same
@@ -4712,7 +4900,7 @@ leaves what an array of one leaves), and
 
 ### KI-129 — Natively, a value was never released when a result computed from it was given away — FIXED 2026-10-26
 
-**Severity:** Medium · **Area:** Aether, drop insertion · **Verified fixed:** 2026-10-26 · **From:** KI-128, the stress fixture's leak · **Issue:** [#127](https://forgejo.spirosgerokostas.com/sger/flux/issues/127)
+**Severity:** Medium · **Area:** Aether, drop insertion · **Verified fixed:** 2026-10-26 · **From:** KI-128, the stress fixture's leak · **Issue:** [#129](https://forgejo.spirosgerokostas.com/sger/flux/issues/129)
 
 ```flux
 fn go(n) with IO {
@@ -4755,7 +4943,7 @@ program that prints leaves (KI-119).
 
 ### KI-128 — Natively, a value only lent to a call in tail position was never released — FIXED 2026-10-26
 
-**Severity:** Medium · **Area:** Aether, drop insertion, borrow inference · **Verified fixed:** 2026-10-26 · **From:** the Perceus audit, R5 and step 10 · **Issue:** [#126](https://forgejo.spirosgerokostas.com/sger/flux/issues/126)
+**Severity:** Medium · **Area:** Aether, drop insertion, borrow inference · **Verified fixed:** 2026-10-26 · **From:** the Perceus audit, R5 and step 10 · **Issue:** [#128](https://forgejo.spirosgerokostas.com/sger/flux/issues/128)
 
 Aether kept a value whose last use was a call in tail position, so that the
 call could stay a tail call. When the call only borrowed the value, nothing
@@ -4801,7 +4989,7 @@ Unit tests cover each shape in `insert.rs` and the inference rule in
 
 ### KI-127 — On the VM, a function with about a hundred `let`s computed a wrong result — FIXED 2026-10-26
 
-**Severity:** High · **Area:** VM, bytecode · **Verified fixed:** 2026-10-26 · **From:** the Perceus audit, step 10 · **Issue:** [#125](https://forgejo.spirosgerokostas.com/sger/flux/issues/125)
+**Severity:** High · **Area:** VM, bytecode · **Verified fixed:** 2026-10-26 · **From:** the Perceus audit, step 10 · **Issue:** [#127](https://forgejo.spirosgerokostas.com/sger/flux/issues/127)
 
 A function that binds many values with `let` gave a wrong answer on the
 VM, with no error, while native gave the right one:
@@ -4855,7 +5043,7 @@ with and without `--optimize`.
 
 ### KI-120 — Natively, every owned argument of a direct call was copied once too often — FIXED 2026-10-20
 
-**Severity:** Medium · **Area:** LIR lowering, call guards · **Verified fixed:** 2026-10-20 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `--leak-check` runs · **Issue:** [#118](https://forgejo.spirosgerokostas.com/sger/flux/issues/118)
+**Severity:** Medium · **Area:** LIR lowering, call guards · **Verified fixed:** 2026-10-20 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `--leak-check` runs · **Issue:** [#120](https://forgejo.spirosgerokostas.com/sger/flux/issues/120)
 
 `dup_owned_call_args` (`src/lir/lower.rs`, added in db7222b7 "fix aether
 examples") emits a `dup` of each argument passed `Owned` to a direct call, a
@@ -4897,7 +5085,7 @@ other heap fault. The debugger's reference counts in `native_debug_tests` and
 
 ### KI-004 — Native subprocess execution is POSIX-only — FIXED 2026-09-05
 
-**Severity:** Medium · **Area:** Native backend, `Flow.Process` · **Verified fixed:** 2026-09-05 · **From:** [0178](proposals/implemented/0178_os_capabilities_for_tooling.md) Q8
+**Severity:** Medium · **Area:** Native backend, `Flow.Process` · **Verified fixed:** 2026-09-05 · **From:** [0178](proposals/implemented/0178_os_capabilities_for_tooling.md) Q8 · **Issue:** [#4](https://forgejo.spirosgerokostas.com/sger/flux/issues/4)
 
 `flux_proc_run` returned `ENOSYS` on Windows instead of spawning, so every
 `Flow.Process.run` failed identically on the native backend whatever the
@@ -4940,7 +5128,7 @@ child every test spawns, and one set of expectations holds on both platforms.
 
 ### KI-072 — A constructor pattern is never checked against the scrutinee's type — FIXED 2026-09-03
 
-**Severity:** High · **Area:** Type inference / pattern matching · **Verified fixed:** 2026-09-03 · **From:** Flume typeclass conversion
+**Severity:** High · **Area:** Type inference / pattern matching · **Verified fixed:** 2026-09-03 · **From:** Flume typeclass conversion · **Issue:** [#72](https://forgejo.spirosgerokostas.com/sger/flux/issues/72)
 
 A `match` arm could name a constructor belonging to a completely unrelated type.
 It compiled clean and fell through to the wildcard.
@@ -5410,7 +5598,7 @@ rather than filtered output.
 
 ### KI-008 — The stdlib is found via a CWD-relative `lib/Flow` — FIXED 2026-08-23
 
-**Severity:** High · **Area:** Driver, tooling · **Verified:** 2026-08-23 · **From:** [0177](proposals/implemented/0177_package_manager.md)
+**Severity:** High · **Area:** Driver, tooling · **Verified:** 2026-08-23 · **From:** [0177](proposals/implemented/0177_package_manager.md) · **Issue:** [#8](https://forgejo.spirosgerokostas.com/sger/flux/issues/8)
 
 `inject_flow_prelude` resolved the stdlib as the bare relative path `lib/Flow`
 against the process CWD and **returned silently** when it was missing;
@@ -5446,7 +5634,7 @@ variable, runs a program that imports `Flow.List`. Regression tests:
 
 ### KI-010 — The test suite is flaky under load: tests share one on-disk cache — FIXED 2026-08-23
 
-**Severity:** High · **Area:** Test harness · **Verified:** 2026-08-23
+**Severity:** High · **Area:** Test harness · **Verified:** 2026-08-23 · **Issue:** [#10](https://forgejo.spirosgerokostas.com/sger/flux/issues/10)
 
 `cargo test --all --all-features` intermittently failed targets that passed in
 isolation. The failures moved between runs and looked unrelated, which made them
@@ -5494,7 +5682,7 @@ This is a stale-binary problem, not a JSON backend failure.
 
 ### KI-016 — An exported constructor field type kept its transparent alias — FIXED 2026-08-23
 
-**Severity:** High · **Area:** Module interfaces / HM inference · **Verified:** 2026-08-23
+**Severity:** High · **Area:** Module interfaces / HM inference · **Verified:** 2026-08-23 · **Issue:** [#16](https://forgejo.spirosgerokostas.com/sger/flux/issues/16)
 
 A `public data` field declared with a transparent alias was exported with the
 alias unexpanded, so an importing module saw the alias where inference had
@@ -5525,7 +5713,7 @@ for the fingerprint rather than read back. Covered by the
 
 ### KI-014 — A constructor imported from another module infers as a type variable — FIXED 2026-08-23
 
-**Severity:** High · **Area:** HM inference / module interfaces · **Verified:** 2026-08-23
+**Severity:** High · **Area:** HM inference / module interfaces · **Verified:** 2026-08-23 · **Issue:** [#14](https://forgejo.spirosgerokostas.com/sger/flux/issues/14)
 
 A constructor applied in a module other than the one declaring its ADT inferred
 as an unresolved type variable rather than the ADT type, so anything keyed on
@@ -5563,7 +5751,7 @@ inference; `CACHE_EPOCH` bumped 18 → 19. Regression test:
 
 ### KI-001 — A `let` read inside a `match` arm is `Uninit` after the match — FIXED 2026-08-23
 
-**Severity:** High · **Area:** VM backend, bytecode compiler · **Verified:** 2026-08-23
+**Severity:** High · **Area:** VM backend, bytecode compiler · **Verified:** 2026-08-23 · **Issue:** [#1](https://forgejo.spirosgerokostas.com/sger/flux/issues/1)
 
 On the VM backend, a `let` binding read inside a statement-position `match` arm
 was the VM's `Uninit` sentinel for the rest of the function — correct inside the
@@ -5611,7 +5799,7 @@ without the fix.
 
 ### KI-012 — Class dispatch fails for a value built by a named-field constructor — FIXED 2026-08-23
 
-**Severity:** High · **Area:** Type classes / dispatch · **Verified:** 2026-08-23
+**Severity:** High · **Area:** Type classes / dispatch · **Verified:** 2026-08-23 · **Issue:** [#12](https://forgejo.spirosgerokostas.com/sger/flux/issues/12)
 
 A class method applied to a value written with named-field syntax reached the
 no-instance panic stub instead of its instance:
@@ -5643,7 +5831,7 @@ made one arm appear to work.
 ---
 ### KI-042 — Package-store garbage collection policy is undecided
 
-**Severity:** Low · **Area:** package store · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md)
+**Severity:** Low · **Area:** package store · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md) · **Issue:** [#42](https://forgejo.spirosgerokostas.com/sger/flux/issues/42)
 
 The content-addressed store supports explicit `flux clean --store`, but it has
 no automatic LRU or reachability-based garbage collection. The policy can be
@@ -5651,14 +5839,14 @@ chosen after the store has real usage data.
 
 ### KI-045 — Registry yanking semantics are undecided
 
-**Severity:** Medium · **Area:** package registry · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md)
+**Severity:** Medium · **Area:** package registry · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md) · **Issue:** [#45](https://forgejo.spirosgerokostas.com/sger/flux/issues/45)
 
 The future registry has not settled whether and how versions can be yanked,
 including how a yanked version behaves when it is already present in a lockfile.
 
 ### KI-046 — Registry publish-age preference is undecided
 
-**Severity:** Low · **Area:** package registry, supply chain · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md)
+**Severity:** Low · **Area:** package registry, supply chain · **Verified:** 2026-08-26 · **From:** [0177](proposals/implemented/0177_package_manager.md) · **Issue:** [#46](https://forgejo.spirosgerokostas.com/sger/flux/issues/46)
 
 No default policy exists for preferring or delaying newly published versions.
 This remains a registry design question rather than a local package-manager
@@ -5666,7 +5854,7 @@ requirement.
 
 ### KI-050 — Same-class contextual instances dispatch the element to themselves — FIXED 2026-08-30
 
-**Severity:** High · **Area:** type classes, dictionary dispatch · **Verified:** 2026-08-30 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** High · **Area:** type classes, dictionary dispatch · **Verified:** 2026-08-30 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md) · **Issue:** [#50](https://forgejo.spirosgerokostas.com/sger/flux/issues/50)
 
 When an instance context names the *same* class as its head — the
 `instance Encode<a> => Encode<Option<a>>` shape used throughout
@@ -5733,7 +5921,7 @@ fixture in [KI-051](#ki-051).
 
 ### KI-051 — Cross-module contextual instances — FIXED 2026-08-31
 
-**Severity:** High · **Area:** type classes, module linking, native backend · **Verified:** 2026-08-31 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** High · **Area:** type classes, module linking, native backend · **Verified:** 2026-08-31 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md) · **Issue:** [#51](https://forgejo.spirosgerokostas.com/sger/flux/issues/51)
 
 ```flux
 import Flow.Json as Json
@@ -5837,7 +6025,7 @@ covers this path.
 
 ### KI-052 — A generic wrapper over a contextual instance loses its dictionary — FIXED 2026-08-31
 
-**Severity:** High · **Area:** type classes, dictionary elaboration · **Verified:** 2026-08-30 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** High · **Area:** type classes, dictionary elaboration · **Verified:** 2026-08-30 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md) · **Issue:** [#52](https://forgejo.spirosgerokostas.com/sger/flux/issues/52)
 
 Calling a contextual instance directly works, but forwarding to it through a
 generic function fails at runtime:
@@ -5901,7 +6089,7 @@ answer.
 
 ### KI-057 — A method reachable from two dictionaries always uses the first — FIXED 2026-09-01
 
-**Severity:** High · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-01 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** High · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-01 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md) · **Issue:** [#57](https://forgejo.spirosgerokostas.com/sger/flux/issues/57)
 
 A function holding two dictionaries for the same class, over *different* type
 variables, dispatches every call to the first of them:
@@ -5984,7 +6172,7 @@ AST path in `compiler/expression.rs` — and it resolves through a single
 
 ### KI-059 — `deriving` on a parameterized ADT produced a dictionary nothing defines — fixed 2026-09-02
 
-**Severity:** High · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** High · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md) · **Issue:** [#59](https://forgejo.spirosgerokostas.com/sger/flux/issues/59)
 
 A `deriving` clause on a data declaration that takes type parameters compiled
 its methods but not the evidence that reaches them:
@@ -6051,7 +6239,7 @@ tracked separately as [KI-069](#ki-069).
 
 ### KI-069 — A contextual instance cannot compare a field of its own head type — FIXED, verified 2026-09-11
 
-**Severity:** Medium · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-02 · **Fixed:** verified 2026-09-11 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** Medium · **Area:** type classes, dictionary elaboration · **Verified:** 2026-09-02 · **Fixed:** verified 2026-09-11 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md) · **Issue:** [#69](https://forgejo.spirosgerokostas.com/sger/flux/issues/69)
 
 A recursive parameterized ADT cannot get an `Eq` instance, derived or written
 by hand:
@@ -6110,7 +6298,7 @@ dictionary is a plain tuple.
 
 ### KI-060 — A module-scoped contextual instance cannot call its own method on its own head type — FIXED 2026-09-02
 
-**Severity:** High · **Area:** type classes, module-scoped instances · **Verified:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** High · **Area:** type classes, module-scoped instances · **Verified:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md) · **Issue:** [#60](https://forgejo.spirosgerokostas.com/sger/flux/issues/60)
 
 Inside a `module { }` block, a contextual instance whose method recurses through
 the class method *on the instance's own head type* reached the wrong dictionary:
@@ -6184,7 +6372,7 @@ and not `my_eq(h1, h2)`). `lib/Flow/Eq.flx` is written this way.
 
 ### KI-061 — A constrained function inside a module that calls a class method by name gets no dictionary — FIXED 2026-09-02
 
-**Severity:** High · **Area:** type classes, dictionary elaboration, modules · **Verified:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** High · **Area:** type classes, dictionary elaboration, modules · **Verified:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md) · **Issue:** [#61](https://forgejo.spirosgerokostas.com/sger/flux/issues/61)
 
 ```flux
 import Flow.Eq exposing (..)
@@ -6251,7 +6439,7 @@ convention, so a fresh caller would arrive one argument too many.
 
 ### KI-062 — The parity harness accepts a fixture that fails to compile on both backends — FIXED 2026-09-08
 
-**Severity:** Medium · **Area:** parity harness · **Verified:** 2026-09-01
+**Severity:** Medium · **Area:** parity harness · **Verified:** 2026-09-01 · **Issue:** [#62](https://forgejo.spirosgerokostas.com/sger/flux/issues/62)
 
 `tests/parity/primop_string_ops.flx` declares `expect: success` and uses `++`,
 which is not a Flux operator:
@@ -6293,7 +6481,7 @@ the fixture written to catch it passed.
 
 ### KI-063 — A user function named after a class method broke `--no-cache` — **fixed 2026-09-02**
 
-**Severity:** High · **Area:** type classes, compiler · **Verified:** 2026-09-02
+**Severity:** High · **Area:** type classes, compiler · **Verified:** 2026-09-02 · **Issue:** [#63](https://forgejo.spirosgerokostas.com/sger/flux/issues/63)
 
 A program defining a function named after a prelude class method failed to
 compile whenever the standard library was compiled rather than loaded from
@@ -6334,7 +6522,7 @@ the parity sweep runs with `--no-cache` in its `vm` and `llvm_strict` ways.
 
 ### KI-064 — A class over a partially applied type constructor could not be used across a module boundary — **fixed 2026-09-02**
 
-**Severity:** High · **Area:** type classes, parser · **Verified:** 2026-09-02
+**Severity:** High · **Area:** type classes, parser · **Verified:** 2026-09-02 · **Issue:** [#64](https://forgejo.spirosgerokostas.com/sger/flux/issues/64)
 
 `Either` takes two type parameters, so an `instance Functor<Either<l>>` head is
 *partially applied* — the only head of that shape in the stdlib. Two unrelated
@@ -6394,7 +6582,7 @@ head, `Either<String>`, as the matcher does.
 
 ### KI-065 — A module's own function was shadowed by a class-method dispatch stub — **fixed 2026-09-02**
 
-**Severity:** High · **Area:** type classes, name resolution · **Verified:** 2026-09-02
+**Severity:** High · **Area:** type classes, name resolution · **Verified:** 2026-09-02 · **Issue:** [#65](https://forgejo.spirosgerokostas.com/sger/flux/issues/65)
 
 A module that defines a function named after a class method reached the class's
 *dispatch stub* instead of its own function, from inside its own body:
@@ -6440,7 +6628,7 @@ than at a call site.
 
 ### KI-066 — A constrained function's operator resolved to nothing when its unit declared no instances — **fixed 2026-09-02**
 
-**Severity:** High · **Area:** type classes · **Verified:** 2026-09-02
+**Severity:** High · **Area:** type classes · **Verified:** 2026-09-02 · **Issue:** [#66](https://forgejo.spirosgerokostas.com/sger/flux/issues/66)
 
 Compiling `lib/Flow/Array.flx` on its own failed:
 
@@ -6481,7 +6669,7 @@ each `Flow.*` surface module through a bare `Compiler`.
 
 ### KI-067 — A locally declared class of a prelude name could not be named in a bound — **fixed 2026-09-02**
 
-**Severity:** Medium · **Area:** type classes · **Verified:** 2026-09-02
+**Severity:** Medium · **Area:** type classes · **Verified:** 2026-09-02 · **Issue:** [#67](https://forgejo.spirosgerokostas.com/sger/flux/issues/67)
 
 Declaring your own `class Eq` and then constraining on it was rejected:
 
@@ -6503,7 +6691,7 @@ the constraint then resolves through. Two classes of the same name that are
 
 ### KI-058 — A `let` annotation naming a rigid type parameter is rejected — FIXED 2026-09-02
 
-**Severity:** High · **Area:** Type inference, annotations · **Verified:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** High · **Area:** Type inference, annotations · **Verified:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md) · **Issue:** [#58](https://forgejo.spirosgerokostas.com/sger/flux/issues/58)
 
 Inside a generic function, annotating a `let` with the function's own type
 parameter was rejected even when trivially correct:
@@ -6613,7 +6801,7 @@ binder.
 
 ### KI-078 — An instance method calling a sibling method on its own head type gains a dictionary parameter — FIXED 2026-09-03
 
-**Severity:** High · **Area:** Type classes / constraint solving · **Verified:** 2026-09-03 · **From:** Phase 1 of the type-class audit
+**Severity:** High · **Area:** Type classes / constraint solving · **Verified:** 2026-09-03 · **From:** Phase 1 of the type-class audit · **Issue:** [#78](https://forgejo.spirosgerokostas.com/sger/flux/issues/78)
 
 A constraint on the instance's *own* head, raised inside one of its own
 methods, is generalized into a dictionary parameter instead of being
@@ -6679,7 +6867,7 @@ evidence in the superclass slot. `lib/Flow/Eq.flx` lost its `list_eq` /
 
 ### KI-079 — A stale bytecode cache runs a program the current compiler rejects — FIXED 2026-09-09
 
-**Severity:** Medium · **Area:** Build caching · **Verified:** 2026-09-03 · **Fixed:** 2026-09-09 · **From:** Phase 1 of the type-class audit
+**Severity:** Medium · **Area:** Build caching · **Verified:** 2026-09-03 · **Fixed:** 2026-09-09 · **From:** Phase 1 of the type-class audit · **Issue:** [#79](https://forgejo.spirosgerokostas.com/sger/flux/issues/79)
 
 The bytecode cache key covers the module's source hash and
 `CARGO_PKG_VERSION` ([artifact_store.rs](../src/driver/artifact_store.rs),
@@ -6729,7 +6917,7 @@ which fails on the previous behaviour with `Cached main` where it expects
 
 ### KI-082 — Generalizing an unannotated definition breaks two call sites — FIXED 2026-09-06
 
-**Severity:** Medium · **Area:** Type inference / dictionary elaboration · **Verified:** 2026-09-06 · **From:** Proposal 0183, R6
+**Severity:** Medium · **Area:** Type inference / dictionary elaboration · **Verified:** 2026-09-06 · **From:** Proposal 0183, R6 · **Issue:** [#82](https://forgejo.spirosgerokostas.com/sger/flux/issues/82)
 
 `finalize_and_bind_function_scheme` binds a function that declared no type
 parameters with `Scheme::mono`, so its inferred class obligations are never
@@ -6798,7 +6986,7 @@ Stage 3 for what survives of it.
 
 ### KI-091 — A user-defined function is shadowed by a prelude function of the same name — FIXED 2026-09-08
 
-**Severity:** High · **Area:** Name resolution, prelude · **Verified:** 2026-09-08
+**Severity:** High · **Area:** Name resolution, prelude · **Verified:** 2026-09-08 · **Issue:** [#91](https://forgejo.spirosgerokostas.com/sger/flux/issues/91)
 
 A top-level definition loses to a prelude function of the same name, so the
 name cannot be used at all:
@@ -6839,7 +7027,7 @@ territory.
 
 ### KI-092 — A type parameter used only in an effect row is reported as phantom — FIXED 2026-09-08
 
-**Severity:** Medium · **Area:** Type aliases, effect rows · **Verified:** 2026-09-08
+**Severity:** Medium · **Area:** Type aliases, effect rows · **Verified:** 2026-09-08 · **Issue:** [#92](https://forgejo.spirosgerokostas.com/sger/flux/issues/92)
 
 ```flux
 alias Handler<a, e> = (a) -> a with <Async | e>
@@ -6868,7 +7056,7 @@ all, which that error had been masking.
 
 ### KI-094 — A type alias carrying an effect row is unusable — FIXED 2026-09-09
 
-**Severity:** Medium · **Area:** Type aliases, effect rows · **Verified:** 2026-09-09
+**Severity:** Medium · **Area:** Type aliases, effect rows · **Verified:** 2026-09-09 · **Issue:** [#94](https://forgejo.spirosgerokostas.com/sger/flux/issues/94)
 
 Two separable defects, found behind [KI-092](#ki-092) once its `E308` stopped
 masking them. Only `tests/parity/type_alias_transparent.flx` exercises
@@ -6941,7 +7129,7 @@ fixture and both reproductions and asserts their output.
 
 ### KI-093 — A local binding named like an imported module is shadowed by the module — FIXED 2026-09-08
 
-**Severity:** High · **Area:** Name resolution, member access · **Verified:** 2026-09-08
+**Severity:** High · **Area:** Name resolution, member access · **Verified:** 2026-09-08 · **Issue:** [#93](https://forgejo.spirosgerokostas.com/sger/flux/issues/93)
 
 ```flux
 fn main() with IO {
@@ -6987,7 +7175,7 @@ design question rather than a defect, so it is recorded here rather than filed.
 
 ### KI-088 — A `fn` name cannot be shadowed, in two different broken ways — FIXED 2026-09-11
 
-**Severity:** Medium · **Area:** Name resolution, bytecode emission · **Verified:** 2026-09-11 · **From:** Proposal 0186
+**Severity:** Medium · **Area:** Name resolution, bytecode emission · **Verified:** 2026-09-11 · **From:** Proposal 0186 · **Issue:** [#88](https://forgejo.spirosgerokostas.com/sger/flux/issues/88)
 
 Originally filed as "a nested `fn` that shadows a top-level name is called at
 the outer function's type". Measuring it on 2026-09-08 showed the defect is
@@ -7222,7 +7410,7 @@ the 2026-09-11 fix, which was in bytecode emission.
 
 ### KI-087 — Mutually recursive nested functions separated by any statement were miscompiled — FIXED 2026-09-06, regressed, re-fixed 2026-09-08
 
-**Severity:** High · **Area:** Core lowering, VM codegen · **Verified:** 2026-09-08 · **From:** Proposal 0186
+**Severity:** High · **Area:** Core lowering, VM codegen · **Verified:** 2026-09-08 · **From:** Proposal 0186 · **Issue:** [#87](https://forgejo.spirosgerokostas.com/sger/flux/issues/87)
 
 > **The first fix introduced a worse bug.** Grouping by reference was correct,
 > but the new planner emitted each group at its *source position*, and both
@@ -7329,7 +7517,7 @@ here: it was green throughout the six sweeps the regression survived
 
 ### KI-085 — A call to a program's own function was dispatched as a class method — FIXED 2026-09-04
 
-**Severity:** High · **Area:** type classes, Core lowering, VM codegen · **Verified:** 2026-09-04 · **From:** Proposal 0183
+**Severity:** High · **Area:** type classes, Core lowering, VM codegen · **Verified:** 2026-09-04 · **From:** Proposal 0183 · **Issue:** [#85](https://forgejo.spirosgerokostas.com/sger/flux/issues/85)
 
 A bare call to a function the program itself defines was rewritten to a class
 method of the same name whenever an instance applied — a **silent wrong
@@ -7393,7 +7581,7 @@ fix covered only a sibling member of an enclosing module.
 
 ### KI-083 — A top-level `let` cannot call a constrained function — FIXED 2026-09-05
 
-**Severity:** Medium · **Area:** Core lowering / VM · **Verified:** 2026-09-05 · **From:** Proposal 0183, R6
+**Severity:** Medium · **Area:** Core lowering / VM · **Verified:** 2026-09-05 · **From:** Proposal 0183, R6 · **Issue:** [#83](https://forgejo.spirosgerokostas.com/sger/flux/issues/83)
 
 **Fixed.** The dictionary globals were stored only after the whole program had
 been compiled, so a top-level initializer — which runs at module load time —
@@ -7503,7 +7691,7 @@ definitions turns almost every top-level helper into a constrained one.
 
 ### KI-081 — A class-method call emits its instance's context at variables nothing binds — FIXED 2026-09-04
 
-**Severity:** Low · **Area:** Type classes / inference · **Verified:** 2026-09-04 · **From:** Proposal 0183, R6
+**Severity:** Low · **Area:** Type classes / inference · **Verified:** 2026-09-04 · **From:** Proposal 0183, R6 · **Issue:** [#81](https://forgejo.spirosgerokostas.com/sger/flux/issues/81)
 
 Resolving a direct class-method call looks up the generated mangled `__tc_*`
 function and instantiates its scheme, in order to constrain the caller's ambient
@@ -7542,7 +7730,7 @@ across all 1,305 programs in the repository.
 
 ### KI-080 — A match arm binds pattern variables against a fresh type, losing the scrutinee's type — FIXED 2026-09-04
 
-**Severity:** Medium · **Area:** Type classes / inference · **Verified:** 2026-09-04 · **From:** Proposal 0183, R6
+**Severity:** Medium · **Area:** Type classes / inference · **Verified:** 2026-09-04 · **From:** Proposal 0183, R6 · **Issue:** [#80](https://forgejo.spirosgerokostas.com/sger/flux/issues/80)
 
 A contextual instance's method body raises obligations over a type variable
 that is not the instance's own, so the context cannot discharge them. The
@@ -7665,7 +7853,7 @@ cover both directions.
 
 ### KI-077 — Superclass evidence for a contextual superclass instance is built from the wrong dictionary — FIXED 2026-09-03
 
-**Severity:** High · **Area:** Type classes / dictionary passing · **Verified:** 2026-09-03 · **From:** Phase 1 of the type-class audit
+**Severity:** High · **Area:** Type classes / dictionary passing · **Verified:** 2026-09-03 · **From:** Phase 1 of the type-class audit · **Issue:** [#77](https://forgejo.spirosgerokostas.com/sger/flux/issues/77)
 
 An instance whose superclass obligation is discharged by a *contextual*
 instance builds its superclass slot from whichever context dictionary names the
@@ -7715,7 +7903,7 @@ locks. Only the contextual case is broken.
 
 ### KI-015 — A class whose variable appears only in the return position cannot dispatch — FIXED
 
-**Severity:** Medium · **Area:** Type classes / dispatch · **Verified fixed:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md)
+**Severity:** Medium · **Area:** Type classes / dispatch · **Verified fixed:** 2026-09-02 · **From:** [0179](proposals/implemented/0179_typeclass_soundness_dictionary_passing_and_associated_types.md) · **Issue:** [#15](https://forgejo.spirosgerokostas.com/sger/flux/issues/15)
 
 Dispatch used to select an instance from the *first argument's* type, so a class
 whose type variable appeared only in the return position resolved against the
