@@ -472,8 +472,9 @@ fn rust_staticlib_path() -> Option<PathBuf> {
     RUST_STATICLIB.get_or_init(discover_rust_staticlib).clone()
 }
 
-fn discover_rust_staticlib() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
+/// The Cargo profile directory for `exe`, and the staticlib archives under it
+/// that could be the one to link, newest first.
+fn staticlib_candidates(exe: &Path) -> Option<(PathBuf, Vec<PathBuf>)> {
     let exe_dir = exe.parent()?;
 
     // Test binaries land in target/<profile>/deps/ while the main `flux`
@@ -485,6 +486,28 @@ fn discover_rust_staticlib() -> Option<PathBuf> {
     } else {
         (exe_dir.to_path_buf(), exe_dir.join("deps"))
     };
+
+    let mut candidates: Vec<PathBuf> = fs::read_dir(&deps_dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            let name = p.file_name().and_then(|f| f.to_str()).unwrap_or("");
+            (name.starts_with("libflux-") && name.ends_with(".a"))
+                || (name.starts_with("flux-") && name.ends_with(".lib"))
+        })
+        .collect();
+    candidates.sort_by_key(|p| {
+        fs::metadata(p).and_then(|m| m.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+    });
+    candidates.reverse(); // newest first
+    Some((profile_dir, candidates))
+}
+
+fn discover_rust_staticlib() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let (profile_dir, candidates) = staticlib_candidates(&exe)?;
 
     // The archive must export the sentinels proving it was built with
     // --features llvm (a feature-less build lacks flux_async_* symbols) and
@@ -531,22 +554,7 @@ fn discover_rust_staticlib() -> Option<PathBuf> {
         }
     }
 
-    // Slow fallback: scan deps/ newest-first.
-    let mut candidates: Vec<PathBuf> = fs::read_dir(&deps_dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| {
-            let name = p.file_name().and_then(|f| f.to_str()).unwrap_or("");
-            (name.starts_with("libflux-") && name.ends_with(".a"))
-                || (name.starts_with("flux-") && name.ends_with(".lib"))
-        })
-        .collect();
-    candidates.sort_by_key(|p| {
-        fs::metadata(p).and_then(|m| m.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH)
-    });
-    candidates.reverse(); // newest first
+    // Slow fallback: check each candidate, newest first.
     let found = candidates.into_iter().find(|p| has_sentinel(p))?;
 
     // Cache result. Next run uses the fast path unless the file disappears
