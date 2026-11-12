@@ -1,0 +1,79 @@
+// parity: vm, llvm
+// expect: success
+// bug: natively every operation of an effect ran its handler's first clause: a second operation got the first one's answer, of the first one's type, and a State handler's put crashed (KI-185)
+// parity-expected-stdout-begin
+// 100200
+// 200
+// "7|true"
+// -1
+// 15
+// parity-expected-stdout-end
+
+effect E {
+    a : (Int) -> Int
+    b : (Int) -> Int
+}
+
+fn both_ops() -> Int with E {
+    let x: Int = perform E.a(1);
+    let y: Int = perform E.b(1);
+    ((x * 1000) + y)
+}
+
+fn second_only() -> Int with E {
+    perform E.b(1)
+}
+
+// Operations of different types.
+effect Ask {
+    size : (Int) -> Int
+    check : (String) -> Bool
+}
+
+fn ask() -> String with Ask {
+    let n: Int = perform Ask.size(3);
+    let ok: Bool = perform Ask.check("x");
+    "#{n}|#{ok}"
+}
+
+// One clause resumes; the other aborts the handle.
+effect Guard {
+    get : (Int) -> Int
+    fail : (Int) -> Int
+}
+
+fn guarded() -> Int with Guard {
+    let x: Int = perform Guard.get(5);
+    if x > 3 { perform Guard.fail(x) } else { x }
+}
+
+// A parameterized handler whose clauses share one state.
+effect State {
+    get : () -> Int
+    put : (Int) -> Int
+}
+
+fn bump() -> Int with State {
+    let a: Int = perform State.get();
+    let _p: Int = perform State.put(a + 10);
+    let b: Int = perform State.get();
+    let _q: Int = perform State.put(b + 5);
+    perform State.get()
+}
+
+fn main() with IO {
+    print(both_ops() handle E { a(resume, n) -> resume(100), b(resume, n) -> resume(200) });
+    print(second_only() handle E { a(resume, n) -> resume(100), b(resume, n) -> resume(200) });
+    print(ask() handle Ask {
+            size(resume, k) -> resume(k + 4),
+            check(resume, s) -> resume(len(s) == 1)
+    });
+    print(guarded() handle Guard {
+            get(resume, n) -> resume(n * 2),
+            fail(resume, n) -> -1
+    });
+    print(bump() handle State(0) {
+            get(resume, s) -> resume(s, s),
+            put(resume, n, s) -> resume(n, n)
+    });
+}
