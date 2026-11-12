@@ -105,13 +105,19 @@ fn first(pair) {
     }
 }
 
+fn make(n) {
+    (n, 2)
+}
+
 fn main() {
-    first((10, 2))
+    first(make(10))
 }
 
 "#,
     );
 
+    // `make`'s tuple holds its parameter, so it is built; a tuple of
+    // constants would be a static object.
     assert!(
         rendered.contains("@flux_bump_alloc_filled(i32 24, i32 2, i32 243)"),
         "expected tuple construction"
