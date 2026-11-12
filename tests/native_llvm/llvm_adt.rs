@@ -364,6 +364,75 @@ fn main() {
     assert_eq!(leaves, 1, "{statics:#?}");
 }
 
+/// A tuple whose elements are all constants is one read-only object, as a
+/// constant constructor is. The clause table of a handler of several
+/// operations is such a tuple when no clause captures anything, so the
+/// default handlers wrapped around `main` allocate nothing for it (KI-185).
+#[test]
+fn constant_tuples_are_static_objects() {
+    let rendered = compile_to_llvm_ir(
+        r#"
+effect E {
+    a : (Int) -> Int
+    b : (Int) -> Int
+}
+
+fn both_ops() -> Int with E {
+    perform E.a(1) + perform E.b(1)
+}
+
+fn pair() { (1, "one") }
+fn nested() { ((1, 2), 3) }
+fn mixed(n) { ((1, 2), n) }
+fn handled() { both_ops() handle E { a(resume, n) -> resume(100), b(resume, n) -> resume(200) } }
+
+fn main() {
+    let a = pair();
+    let b = nested();
+    let c = mixed(4);
+    let d = handled();
+    0
+}
+"#,
+    );
+
+    let body = |name: &str| -> &str {
+        let define = rendered
+            .lines()
+            .find(|line| line.starts_with("define") && line.contains(&format!("_{name}(")))
+            .unwrap_or_else(|| panic!("no function {name}:\n{rendered}"));
+        let start = rendered.find(define).unwrap();
+        &rendered[start..start + rendered[start..].find("\n}").unwrap()]
+    };
+    for name in ["pair", "nested", "handled"] {
+        let body = body(name);
+        assert!(
+            !body.lines().any(|l| l.contains("@flux_bump_alloc_filled(") && l.contains("i32 243)")),
+            "{name} allocates a tuple:\n{body}"
+        );
+        assert!(body.contains("@flux.tuple."), "{name} names no static tuple:\n{body}");
+    }
+    // Only the outer tuple around `n` is built; its constant element is not.
+    let mixed = body("mixed");
+    assert_eq!(mixed.matches("@flux_bump_alloc_filled(").count(), 1, "{mixed}");
+
+    let statics: Vec<&str> =
+        rendered.lines().filter(|line| line.starts_with("@flux.tuple.")).collect();
+    for line in &statics {
+        assert!(line.contains("private constant"), "{line}");
+        assert!(line.contains("i32 1073741824"), "{line}");
+        assert!(line.contains("i8 243"), "{line}");
+    }
+    let nested = "ptr getelementptr inbounds (i8, ptr @flux.tuple.";
+    assert!(statics.iter().any(|line| line.contains(nested)), "no nested tuple:\n{statics:#?}");
+    // `(1, 2)` appears twice but is one object.
+    let inner = statics
+        .iter()
+        .filter(|line| line.contains("{i32, i8, i8, i16, i8, [3 x i8], i32, i64, i64}"))
+        .count();
+    assert_eq!(inner, 1, "{statics:#?}");
+}
+
 #[test]
 fn per_module_adt_owner_emits_ctor_name_helper_without_main() {
     let rendered = compile_per_module_llvm_ir(
