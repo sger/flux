@@ -13,7 +13,7 @@ use crate::{
 
 pub const NATIVE_MODULE_CACHE_FORMAT_VERSION: u16 = crate::shared::cache_paths::CACHE_EPOCH;
 const NATIVE_CACHE_ABI_TAG: &[u8] =
-    b"native-cache-abi-v35:a-constrained-call-in-a-typed-let-passes-each-dictionary-once";
+    b"native-cache-abi-v36:a-handler-of-several-operations-holds-a-clause-table";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NativeModuleArtifactMetadata {
