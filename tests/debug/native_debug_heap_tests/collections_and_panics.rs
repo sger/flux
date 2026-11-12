@@ -173,6 +173,52 @@ fn a_call_through_a_module_alias_releases_its_arguments() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+const DICTIONARY_PER_TURN: &str = r"import Flow.Monad
+
+fn chain<f: Monad>(x: f<Int>) -> f<Int> {
+    bind(fmap(x, fn(v) { v * 2 }), fn(v) { pure(v + 1) })
+}
+
+fn turn(n) {
+    TURN
+}
+
+fn count(n, total) {
+    if n == 0 { total } else { count(n - 1, total + turn(n)) }
+}
+
+fn main() with IO {
+    print(to_string(count(SIZE, 0)))
+}
+";
+
+/// A dictionary built for a call to an instance method of another module is
+/// released. The method borrows a context it never reads, but its signature
+/// did not reach the caller, which gave the dictionary away as to an unknown
+/// function: the `Applicative` tuple and its two closures per call.
+#[test]
+fn a_dictionary_given_to_an_imported_instance_method_is_released_ki194() {
+    let scratch = Scratch::new("debug-heap-dictionary");
+    let failures: Vec<String> = [
+        ("option_bind", "match bind(Some(n), fn(x) { Some(x + 1) }) { Some(v) -> v, None -> 0 }"),
+        ("list_bind", "len(bind([n], fn(x) { [x, x] }))"),
+        (
+            "either_bind",
+            r#"let e: Either<String, Int> = bind(Right(n), fn(x) { Right(x + 1) })
+    match e { Right(v) -> v, Left(_) -> 0 }"#,
+        ),
+        ("constrained", "match chain(Some(n)) { Some(v) -> v, None -> 0 }"),
+    ]
+    .into_iter()
+    .filter_map(|(name, body)| {
+        let program = DICTIONARY_PER_TURN.replace("TURN", body);
+        let (_, _, live) = per_thousand_cells(&scratch, name, &program);
+        (live != 0).then(|| format!("{name}: {live} blocks left live per 1000 turns"))
+    })
+    .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 const FAILED_FS_CALLS: &str = r#"import Flow.Fs as Fs
 import Flow.IoError as Io
 
