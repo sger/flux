@@ -3,7 +3,7 @@
 - Status: Implemented
 - Proposal PR: 
 - Flux Issue: 
-- See also: [0203](../0203_module_scoped_compile_failures.md). The cascade below applies within one file; what a failed module does to the other modules is in 0203.
+- See also: [0203](0203_module_scoped_compile_failures.md). The cascade below applies within one file; what a failed module does to the other modules is in 0203.
 
 # Proposal 0061: Stage-Aware Diagnostic Pipeline
 

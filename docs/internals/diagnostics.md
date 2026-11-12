@@ -53,6 +53,28 @@ Diagnostics are grouped under the matching header and sorted by:
 4. Severity (errors, warnings, notes, help)
 5. Message (lexicographic for stability)
 
+## Stage Filtering and Failed Modules
+
+Two rules decide which errors a multi-module compile reports.
+
+**Per file: the stage cascade** (proposal 0061). Within one file, a parse error hides that
+file's type and effect errors, and a type error hides its effect errors.
+`DiagnosticsAggregator::process_with_metadata` (`src/diagnostics/aggregator.rs`) groups the
+diagnostics by file and runs `apply_stage_filtering` on each group. A parse error in one file
+never hides an error in another. `--all-errors` turns the filter off.
+
+**Per module: failure scope** (proposal 0203). A module that fails to parse or validate is
+skipped, and so is every module that imports it, each with a `Module Skipped` note naming the
+dependency. Every other module is type-checked in the same run (`compile_modules`,
+`src/driver/run_program/modules.rs`). Only a graph that couldn't be built stops before type
+checking: an unresolved import, an import cycle, or a manifest error (`graph_failed` on
+`GraphBuildResult`). The entry counts as failed for any error found before type checking,
+including E083. Once a module has failed, stdlib modules that no remaining user module imports
+are not compiled.
+
+Nothing runs, dumps or reaches the native backend while any error exists, and the exit code is
+non-zero. The REPL and `flux test` keep their own loops (see 0203's unresolved questions).
+
 ## Summary Counts
 
 If there is more than one diagnostic, or both errors and warnings are present, a summary
