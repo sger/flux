@@ -1,0 +1,16 @@
+// root: examples/imports/module_failures
+// expect: compile_error
+
+// Proposal 0203: ParseBad fails to parse. TypeBad doesn't import it, so it is
+// still type-checked. This file imports ParseBad, so it is skipped.
+//
+// Run with:
+// cargo run -- --root examples/imports/module_failures examples/imports/module_failures/02_independent_imports.flx
+// Expected: E071 in ParseBad.flx, E300 in TypeBad.flx, and a Module Skipped
+// note for this file. Nothing runs.
+import ParseBad
+import TypeBad
+
+fn main() with IO {
+    print("ran")
+}
