@@ -428,7 +428,10 @@ use sha2::{Digest, Sha256};
 /// unit of one was compiled without those imports, its names resolved by order (KI-187).
 /// Epoch 144: a `(` or `[` that starts a line begins a new expression; an epoch-143
 /// unit with such a line holds it as a call or an index on the line before (0201).
-pub const CACHE_EPOCH: u16 = 144;
+/// Epoch 145: an interface exports its instance methods' borrow signatures, and a
+/// method read through a superclass slot copies its dictionary; an epoch-144 unit
+/// leaks what imported methods borrow (KI-194) or frees that dictionary early (KI-195).
+pub const CACHE_EPOCH: u16 = 145;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.

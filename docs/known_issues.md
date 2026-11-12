@@ -3196,6 +3196,128 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 ## Resolved
 
+### KI-194 — Natively, a dictionary given to an instance method from another module is never released — FIXED 2026-11-12
+
+**Severity:** Medium · **Area:** Aether, type classes, module interfaces (`src/compiler/module_interface.rs`, `src/compiler/mod.rs`) · **Verified:** 2026-11-12 (546896dd), `--native --debug-heap --leak-check` · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the heap-leak gate (filed there as KI-144 on `feat/heap-leak-gate`, which never merged)
+
+```flux
+import Flow.Monad
+
+fn main() {
+    let r = bind(Some(2), fn(x) { Some(x * 10) })
+    match r { Some(_) -> (), None -> () }
+}
+```
+
+leaves 3 blocks live at exit, all allocated at the call: the
+`Applicative<Option>` dictionary (a tuple) and its closures for `pure` and
+`ap`. Two calls leave 6. A function constrained by `Monad` and given
+`Some(2)` leaves 7. `Ord Int` given to a constrained function leaves none:
+its dictionary has no context, so it is a static object.
+
+Every `Applicative` and `Monad` instance in `lib/Flow/` is written with its
+superclass as a context, so its dictionary is built at each call and passed
+to the instance method `__tc_Monad_Option_bind`. That method never reads it,
+and borrow inference makes the parameter borrowed, so the method does not
+release it. The calling module does not see that signature. The interface
+exports borrow signatures only for public members, and instance methods are
+generated private. The caller falls back to the unknown callee's signature,
+all owned, gives the dictionary away and does not release it either. Within
+one module the caller sees the borrowed parameter and releases the
+dictionary after the call.
+
+Test: `a_dictionary_given_to_an_imported_instance_method_is_released_ki194`
+(`tests/debug/native_debug_heap_tests/collections_and_panics.rs`): per 1000
+calls, `bind` on Option left 4000 blocks live, on List and Either 3000, and
+a `Monad`-constrained function given `Some` 7000. Unit test:
+`build_interface_exports_an_instance_methods_signature_not_its_alias_ki194`
+(`src/compiler/module_interface.rs`).
+
+**Fixed** in `build_interface` (`src/compiler/module_interface.rs`): an
+interface also exports the borrow signature of each generated instance
+method. It leaves out the bare alias a module-owned method also has, which
+forwards to `Module.name` and so owns every argument. `preload_module_interface`
+keeps these signatures apart from the module's members, and
+`build_preloaded_borrow_registry` (`src/compiler/mod.rs`) gives them to every
+importer by name, whatever the import exposes. `CACHE_EPOCH` is 145. The test
+leaves 0 blocks per 1000 calls in every shape. Of the fixtures that leaked,
+`list_instances` (3 blocks), `option_instances` (3), `either_instances` (6)
+and `array_instances` (7) now leave none, `functor_applicative_monad` goes
+from 27 blocks to 1 and `semigroup_monoid` from 8 to 6. What is left there is
+an argument given through a dictionary's method closure to an instance
+method that only borrows it, such as the array in `chain([|3|])`; that is not
+filed yet. The fix made `semigroup_monoid` crash natively, which was KI-195,
+fixed first.
+
+### KI-195 — Natively, a method read out of a superclass dictionary is freed when the dictionary is given away — FIXED 2026-11-12
+
+**Severity:** High (a freed closure is called) · **Area:** Aether (`src/aether/insert.rs`) · **Verified:** 2026-11-12 (546896dd), `--native --debug-heap` · **From:** fixing KI-194, which made `tests/parity/semigroup_monoid.flx` crash natively
+
+```flux
+class S<a> {
+    fn app(x: a, y: a) -> a
+}
+
+class S<a> => M<a> {
+    fn emp() -> a
+}
+
+instance S<Int> {
+    fn app(x, y) { x + y }
+}
+
+instance S<a> => S<Option<a>> {
+    fn app(x, y) {
+        match x {
+            Some(u) -> match y { Some(v) -> Some(app(u, v)), _ -> x },
+            _ -> y
+        }
+    }
+}
+
+instance S<Option<a>> => M<Option<a>> {
+    fn emp() { None }
+}
+
+fn mconcat<a: M>(xs: List<a>) -> a {
+    match xs {
+        [h | t] -> app(h, mconcat(t)),
+        _ -> emp()
+    }
+}
+
+fn main() {
+    print(mconcat([Some(1), Some(2)]))
+}
+```
+
+The VM prints `Some(3)`. Natively, on the debug heap, the call to `app`
+stops with `wrong number of arguments: want=-559030611`: the closure it calls
+has been freed.
+
+`mconcat` reads `app` through the superclass slot of its dictionary, which
+dictionary elaboration writes as a nested `let`: `let m = (let s = d.0 in
+s.0)`. Aether takes a `let` for a view of its parent only when the right-hand
+side is a field of a variable, so `m` is not a view of `d`. The dictionary
+is then given to the recursive call without a copy, the base case releases
+it, and each outer frame calls the `app` it read before. With the same
+projection written as two `let`s, Aether copies the dictionary before the
+call.
+
+Dictionaries from another module hid this: KI-194's leak kept the inner
+dictionary alive.
+
+Fixture: `tests/parity/aether_superclass_method_view_ki195.flx`. Natively it
+exited with an access violation before the fix.
+
+**Fixed** in `src/aether/insert.rs`: `tuple_field_root` takes a `let` whose
+body reads a field of what it bound for a view of the variable at the bottom
+of the chain. `mconcat` now copies its dictionary before the recursive call
+and releases it after calling `app`, which is then no longer a tail call.
+The fixture prints the VM's output on all four ways, and the 29 parity
+fixtures with classes run on the debug heap with no fault. `CACHE_EPOCH` 145,
+shared with KI-194, covers the change.
+
 ### KI-119 — Natively, a program that printed left a closure per `print` call — FIXED 2026-11-12
 
 **Severity:** Low · **Area:** LIR lowering, effect handlers · **Verified:** 2026-10-25 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `--leak-check` runs · **Issue:** [#119](https://forgejo.spirosgerokostas.com/sger/flux/issues/119)
