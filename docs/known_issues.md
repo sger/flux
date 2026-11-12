@@ -344,42 +344,6 @@ which isn't compiled, is the only place one is written.
 
 The fuzz generator writes operations of at most one parameter.
 
-### KI-185 — Natively, every operation of an effect runs its handler's first clause
-
-**Severity:** High (silent wrong output natively) · **Area:** Native effects, handler lowering · **Verified:** 2026-11-10 (f1d78295) · **From:** 0190 S17c (a probe of the forms the generator would write) · **Issue:** [#185](https://forgejo.spirosgerokostas.com/sger/flux/issues/185)
-
-```flux
-effect E {
-    a : (Int) -> Int
-    b : (Int) -> Int
-}
-
-fn g() -> Int with E {
-    let x: Int = perform E.a(1);
-    let y: Int = perform E.b(1);
-    ((x * 1000) + y)
-}
-
-fn main() with IO {
-    let v: Int = g() handle E { a(resume, n) -> resume(100), b(resume, n) -> resume(200) };
-    print(v);
-}
-```
-
-`vm` and `vm_opt` print `100200`; `llvm` and `llvm_opt` print `100100`:
-`perform E.b(1)` ran `a`'s clause. With `perform E.b` alone it's `200` against
-`100`. When the clauses' types differ (an `(Int) -> Int` and a
-`(String) -> Bool` operation), `b` resumes with `a`'s value, of `a`'s type.
-
-`lower_handle_aether` (`src/lir/lower.rs`) builds the handler's closure from
-`handlers[0]` alone (`lower_handler_clause_aether(effect, &handlers[0])`) and
-inserts it as the effect's one evidence entry, so whichever operation is
-performed, that clause runs. `lower_handle`, the Core path, does the same.
-`tests/parity/effect_tr_reader.flx` has a two-operation effect, but it binds
-the second operation's result to `_port` and never reads it, so it passes.
-
-The fuzz generator gives each effect one operation.
-
 ### KI-186 — A handler clause that reads a value the handled call takes over stops the compiler with E999
 
 **Severity:** Medium (valid programs refused, with an internal error) · **Area:** Aether, ownership, effect handlers · **Verified:** 2026-11-10 (5fb02344) · **From:** 0190 S17c (`cargo xtask fuzz --seed 1 --with effects --gen-only`, case 65 of 200) · **Issue:** [#186](https://forgejo.spirosgerokostas.com/sger/flux/issues/186)
@@ -473,6 +437,7 @@ record declared in `main.flx`, in any field order. Core lowers the update
 (`lower_spread_expression`, `src/core/lower_ast/expression.rs`) for both
 backends, and parity finds the shared layers equal, so the fault is on the
 VM's side. Its cause isn't known yet.
+
 ### KI-190 — On the VM, a function declared to return a function stops with E1004 when its body is an unannotated lambda
 
 **Severity:** Medium (loud failure; annotating the lambda's parameter works around it) · **Area:** VM, runtime boundary checks · **Verified:** 2026-11-11 (30680987) · **From:** 0201 (writing its parity fixture)
@@ -793,8 +758,8 @@ why: a Float literal stays an operand (`aether_call[borrowed] half(3)`,
 (`LirConst::Float` in `src/lir/emit_llvm.rs`) boxes it with
 `flux_box_float_rt` at each use. A `let` bound to a literal is propagated
 into its uses, so `let a = 3.14` used twice leaks two boxes.
-`examples/guide/float.flx` leaks 4 blocks and `float_let_shared.flx` 6 (and
-KI-119's tuple), all literals; a loop over such code leaks without bound.
+`examples/guide/float.flx` leaks 4 blocks and `float_let_shared.flx` 6,
+all literals; a loop over such code leaks without bound.
 
 Likely fix: emit a Float literal as a static object with a sticky count, as
 `StaticObjects` already does for string literals, so it allocates nothing
@@ -1345,25 +1310,6 @@ Also leaking, cause not yet split from this one: a list matched with `[h |
 _]` in `main` (3 cells) and a tuple destructured with `let (a, b) = t` (1
 block). A variable passed twice in one call, owned first and borrowed
 second (`f(xs, xs)`), leaks the reference the borrowed position holds. Not checked on the VM, which frees through Rust's `Rc`.
-
-### KI-119 — Natively, a program that prints leaves a closure per `print` call
-
-**Severity:** Low · **Area:** LIR lowering, effect handlers · **Verified:** 2026-10-25 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `--leak-check` runs · **Issue:** [#119](https://forgejo.spirosgerokostas.com/sger/flux/issues/119)
-
-`fn main() { print(1) }` leaves 2 blocks live at exit under `flux --native
---leak-check`: a closure allocated at the `print` call, and a tuple
-allocated in the default handler arm (its `()` result). Three `print` calls
-leave three closures and still one tuple. A program that prints nothing
-leaks none of them.
-
-The closure is most likely the top-level function value a call builds for
-a borrowed use, which nothing releases (not traced yet); that goes when
-top-level closures are static (Perceus audit step 10). Until 2026-10-25 the handlers around `main` leaked too, two closures
-and their evidence: a `handle` now releases its clause and evidence when its
-body is done (Perceus audit R3).
-
-This is why `--leak-check` is a flag of its own and `--debug-heap` alone
-does not report leaks.
 
 ### KI-118 — On the VM, `main`'s own body is not run through the Core simplifier
 
@@ -3249,6 +3195,98 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-119 — Natively, a program that printed left a closure per `print` call — FIXED 2026-11-12
+
+**Severity:** Low · **Area:** LIR lowering, effect handlers · **Verified:** 2026-10-25 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `--leak-check` runs · **Issue:** [#119](https://forgejo.spirosgerokostas.com/sger/flux/issues/119)
+
+`fn main() { print(1) }` leaves 2 blocks live at exit under `flux --native
+--leak-check`: a closure allocated at the `print` call, and a tuple
+allocated in the default handler arm (its `()` result). Three `print` calls
+leave three closures and still one tuple. A program that prints nothing
+leaks none of them.
+
+The closure is most likely the top-level function value a call builds for
+a borrowed use, which nothing releases (not traced yet); that goes when
+top-level closures are static (Perceus audit step 10). Until 2026-10-25 the handlers around `main` leaked too, two closures
+and their evidence: a `handle` now releases its clause and evidence when its
+body is done (Perceus audit R3).
+
+This is why `--leak-check` is a flag of its own and `--debug-heap` alone
+does not report leaks.
+
+**Fixed** in `src/lir/emit_llvm.rs`. The closures were gone before this fix:
+`print(1)` left only the tuple, and a program of three `print`s left one
+block. A tuple whose elements are all constants is now a static object, as a
+constant constructor already was (`StaticObjects::tuple`, used by
+`emit_make_tuple`), so the `()` each `print` is answered with allocates
+nothing. `a_program_that_prints_leaves_nothing_live_ki119` failed with the
+tuple live and passes now. The debug-heap tests that pinned that block
+(`owned_clones`, `a_failed_file_operation_counts_the_path_its_error_holds`)
+now pin none, and one allocation fewer per `print`. Heap parity's leaking
+files fell from 177 to 20. The native ABI tag is v37. The same change keeps
+KI-185's clause tables off the heap.
+
+### KI-185 — Natively, every operation of an effect ran its handler's first clause — FIXED 2026-11-11
+
+**Severity:** High (silent wrong output natively) · **Area:** Native effects, handler lowering · **Verified:** 2026-11-10 (f1d78295) · **From:** 0190 S17c (a probe of the forms the generator would write) · **Issue:** [#185](https://forgejo.spirosgerokostas.com/sger/flux/issues/185)
+
+```flux
+effect E {
+    a : (Int) -> Int
+    b : (Int) -> Int
+}
+
+fn g() -> Int with E {
+    let x: Int = perform E.a(1);
+    let y: Int = perform E.b(1);
+    ((x * 1000) + y)
+}
+
+fn main() with IO {
+    let v: Int = g() handle E { a(resume, n) -> resume(100), b(resume, n) -> resume(200) };
+    print(v);
+}
+```
+
+`vm` and `vm_opt` print `100200`; `llvm` and `llvm_opt` print `100100`:
+`perform E.b(1)` ran `a`'s clause. With `perform E.b` alone it's `200` against
+`100`. When the clauses' types differ (an `(Int) -> Int` and a
+`(String) -> Bool` operation), `b` resumes with `a`'s value, of `a`'s type.
+
+`lower_handle_aether` (`src/lir/lower.rs`) builds the handler's closure from
+`handlers[0]` alone (`lower_handler_clause_aether(effect, &handlers[0])`) and
+inserts it as the effect's one evidence entry, so whichever operation is
+performed, that clause runs. `lower_handle`, the Core path, does the same.
+`tests/parity/effect_tr_reader.flx` has a two-operation effect, but it binds
+the second operation's result to `_port` and never reads it, so it passes.
+
+The fuzz generator gives each effect one operation.
+
+It was worse than first filed: a parameterized `State(0)` handler with `get`
+and `put` crashed natively with SIGSEGV, as `put`'s argument met `get`'s
+clause, which takes none.
+
+Fixture: `tests/parity/effect_multi_op_dispatch_ki185.flx` (two operations
+both performed, the second alone, operations of different types, one clause
+that aborts, and a parameterized `get`/`put`).
+
+**Fixed** in `src/lir/lower.rs` and `runtime/c/effects.c`. A handler of two or
+more clauses now gives its evidence entry a clause table, the tuple
+`(op_tag0, clause0, op_tag1, clause1, ...)` (`make_clause_table`), in both
+`lower_handle_aether` and `lower_handle`. `flux_yield_to` and
+`flux_perform_direct` pick the clause paired with the performed operation's
+tag (`evv_clause_for`), which they used to ignore. A handler of one clause keeps
+the clause itself in the entry, as before. The entry's tail-resumptive flag is
+set only when every clause resumes as its last act. The native ABI tag is v36,
+so a cached object built with the first-clause handler isn't reused. The
+fixture crashed on `llvm` and `llvm_opt` before this and passes on all four
+ways now, with no leak under `--leak-check`. When no clause captures anything,
+the table is a static object (`emit_make_tuple`, `src/lir/emit_llvm.rs`, native
+ABI tag v37). Three of the default handlers around `main` have several
+clauses (Env, FileSystem, Console). Built on the heap, their tables added
+three blocks to every `main() with IO`, which two pinned debug-heap counts
+caught.
 
 ### KI-188 — On the VM, a handler that runs inside a `Task.spawn` task stopped with `expected HandlerDescriptor constant` — FIXED 2026-11-11
 
