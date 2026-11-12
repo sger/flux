@@ -602,6 +602,59 @@ reading of the timing is not confirmed. The VM twin of this test orders its
 steps with channels (8e4e3b09); the native one still uses sleeps, and moving
 it to channels alone would hide this bug.
 
+### KI-196 — With Cargo 1.100, every native build fails to link because the Rust staticlib isn't found
+
+**Severity:** High (no native program builds) · **Area:** native linking (`src/llvm/pipeline.rs`, `discover_rust_staticlib`) · **Verified:** 2026-11-12 (0f5e4391), on macOS arm64 with cargo 1.100.0 (3acc79c0c 2026-11-05) · **From:** proposal 0204 S2, whose test needs a native link
+
+```sh
+cargo native tests/parity/adt_either_match.flx --no-cache
+```
+
+The link fails:
+
+```
+Undefined symbols for architecture arm64:
+  "_flux_print_backtrace", referenced from:
+      _flux_report_panic in libflux_rt.a[3](flux_rt.o)
+  "_flux_tape_arg", referenced from:
+      _flux_tape_start in libflux_rt.a[14](tape.o)
+```
+
+The C runtime calls into the Rust staticlib (`libflux.a`).
+`discover_rust_staticlib` looks for `libflux-<hash>.a` in
+`target/<profile>/deps/` and remembers the one it found in
+`flux-staticlib.path`. Cargo 1.100 puts hashed artifacts in
+`target/<profile>/build/<package>/<hash>/out/` and creates no `deps/`, so the
+search finds nothing and the program is linked without the staticlib. The
+uplifted `target/<profile>/libflux.a` is there, but the search never looks at
+it. Test binaries moved to `…/out/` too, so the code that maps a test binary's
+`deps/` directory back to the profile directory doesn't apply to them either.
+
+CI is not affected: `ci.yml` pins Rust 1.93.0. `release.yml` uses `@stable`.
+
+`build.rs` prunes old archives from `deps/` as well, so under the new layout
+nothing is pruned. Four `libflux-*.a` files of about 300 MB each were under
+`target/debug/build/flux/` here.
+
+Workaround: build with Rust 1.93.0.
+
+### KI-197 — Natively, the support object built by one compiler is linked by the next
+
+**Severity:** High (a program can link support code from an older compiler, with no error; not yet seen to change output) · **Area:** build caching, native (`src/driver/pipeline/native/mod.rs`, `compile_native_support_object`) · **Verified:** 2026-11-12 (e03df61b), by building one program natively under `FLUX_BUILD_ID=build-a`, then `build-b` · **From:** proposal 0204
+
+The support object holds the functions every native program links. The
+compiler emits it from an empty LIR program and caches it as
+`<cache>/native/flux_support_O0.o` (`_O2.o` with `-O`).
+`compile_native_support_object` reuses that file whenever it exists. Its name
+carries neither `compiler_build_id()` nor `CACHE_FORMAT`, so no cache key
+reaches it. The build under `build-b` linked the file `build-a` wrote (same
+inode, same modification time), where every module object was rebuilt. A
+change to the code the support object holds is linked stale until
+`flux clean`.
+
+Workaround: `flux clean`, or `--no-cache`, after a change to native code
+generation.
+
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features` · **Issue:** [#170](https://forgejo.spirosgerokostas.com/sger/flux/issues/170)
