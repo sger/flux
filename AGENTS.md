@@ -149,7 +149,10 @@ After that:
 - VM/LLVM parity: [`docs/internals/parity.md`](docs/internals/parity.md)
 - Proposals: [`docs/proposals/0000_index.md`](docs/proposals/0000_index.md) and
   the [template](docs/proposals/0000_template.md)
-- Known issues: [`docs/known_issues.md`](docs/known_issues.md)
+- Known issues: [`docs/known_issues.md`](docs/known_issues.md). Code that a
+  fix or a workaround for a known issue changes carries an `@KI-nnn` tag in a
+  comment; [Marking the code](docs/known_issues.md#marking-the-code) has the
+  rules.
 
 These are the same checks CI runs:
 

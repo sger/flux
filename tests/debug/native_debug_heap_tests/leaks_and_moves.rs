@@ -183,6 +183,28 @@ fn an_interpolation_frees_its_parts_and_joins() {
     assert!(!stderr.contains("leak:"), "{stderr}");
 }
 
+/// KI-119: the default handler around `main` answers each `print` with `()`,
+/// a tuple of no fields, which stayed live at exit. It is a constant, so it
+/// is a static object, and a program that prints leaves nothing.
+#[test]
+fn a_program_that_prints_leaves_nothing_live_ki119() {
+    let scratch = Scratch::new("debug-heap-print-ki119");
+    for (name, program, printed) in [
+        ("one_print", "fn main() {\n    print(1)\n}\n", "1\n"),
+        (
+            "three_prints",
+            "fn main() with IO {\n    print(1)\n    print(2)\n    print(3)\n}\n",
+            "1\n2\n3\n",
+        ),
+    ] {
+        let path = scratch.write(&format!("{name}.flx"), program);
+        let (stdout, stderr, code) =
+            run(&scratch, &path.to_string_lossy(), &["--native", "--leak-check"], None);
+        assert_eq!((stdout.as_str(), code), (printed, 0), "{name}: {stderr}");
+        assert!(!stderr.contains("leak:"), "{name}: {stderr}");
+    }
+}
+
 /// `--debug-heap` alone does not report leaks: nearly every program still
 /// leaks (KI-119, KI-121).
 #[test]

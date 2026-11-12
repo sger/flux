@@ -408,10 +408,32 @@ static int evv_lookup_by_marker(EvvArray *arr, int32_t marker) {
 }
 
 /*
+ * The clause to run for operation `optag`. A handler of one operation stores
+ * its clause in the entry; a handler of several stores a tuple
+ * (optag0, clause0, optag1, clause1, ...), made by the compiler's
+ * `make_clause_table`, and the clause is the one paired with `optag`.
+ * @KI-185: the entry used to hold the first clause alone, whichever
+ * operation was performed. Borrowed, as the entry's handler is.
+ */
+static int64_t evv_clause_for(int64_t handler, int64_t htag, int64_t optag) {
+    if (!flux_is_ptr(handler)) return handler;
+    void *ptr = flux_untag_ptr(handler);
+    if (flux_obj_tag(ptr) != FLUX_OBJ_TUPLE) return handler;
+    uint32_t arity = *(uint32_t *)((char *)ptr + 4);
+    int64_t *elems = (int64_t *)((char *)ptr + 8);
+    for (uint32_t i = 0; i + 1 < arity; i += 2) {
+        if (elems[i] == optag) return elems[i + 1];
+    }
+    flux_unhandled_effect("evv_clause_for", htag);
+    return 0;
+}
+
+/*
  * Perform an effect: set yield state and return sentinel.
  *
  * htag:  effect tag (tagged int)
- * optag: operation tag (tagged int) — currently unused for single-op dispatch
+ * optag: operation tag (tagged int), which picks the clause of a handler of
+ *        several operations (evv_clause_for)
  * arg:   the performed argument (tagged value)
  * arity: user-visible arity of the op (0 for `() -> T`, 1 for `A -> T`).
  *        Needed so flux_yield_prompt can call the clause with the correct
@@ -422,7 +444,6 @@ static int evv_lookup_by_marker(EvvArray *arr, int32_t marker) {
  * the sentinel + extend continuations as needed.
  */
 int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
-    (void)optag;  /* reserved for multi-op dispatch */
 
     EvvArray *arr = evv_unbox(flux_thread_ctx.current_evv);
     int idx = evv_lookup(arr, htag);
@@ -433,7 +454,7 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
 
     int64_t *entry = &arr->data[idx * EVV_ENTRY_WORDS];
     int32_t m = (int32_t)flux_untag_int(entry[EVV_MARKER_OFF]);
-    int64_t clause = entry[EVV_HANDLER_OFF];
+    int64_t clause = evv_clause_for(entry[EVV_HANDLER_OFF], htag, optag);
 
     /* The perform gives `arg` to the context: the caller holds no reference
      * of its own afterwards, so the context's is the only one, released by
@@ -569,7 +590,6 @@ int64_t flux_resume_mark_called_closure_entry(int64_t closure_raw, int64_t *args
 }
 
 int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t resume, int64_t arity) {
-    (void)optag;  /* reserved for multi-op dispatch */
 
     EvvArray *arr = evv_unbox(flux_thread_ctx.current_evv);
     int idx = evv_lookup(arr, htag);
@@ -580,7 +600,7 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
 
     int64_t *entry = &arr->data[idx * EVV_ENTRY_WORDS];
     int32_t marker = (int32_t)flux_untag_int(entry[EVV_MARKER_OFF]);
-    int64_t clause = entry[EVV_HANDLER_OFF];
+    int64_t clause = evv_clause_for(entry[EVV_HANDLER_OFF], htag, optag);
     int64_t state = entry[EVV_STATE_OFF];
     /* As in flux_yield_to: the clause's own reference to the state. */
     flux_dup(state);
