@@ -36,11 +36,23 @@ let next_score = score + 2
 print(next_score)   // 12
 ```
 
-Semicolons are optional at the top level. Both styles work:
+Semicolons are optional, at the top level and inside function bodies. Both
+styles work:
 
 ```flux
 let a = 1;   // with semicolon
 let b = 2    // without
+```
+
+A line that starts with `(` or `[` begins a new expression. To write a call
+or an index across lines, keep the `(` or `[` on the same line as the
+function or value:
+
+```flux
+let total = add(
+    a,
+    b,
+)
 ```
 
 > See [`examples/guide/variables.flx`](../../examples/guide/variables.flx) and [`examples/guide/semicolons.flx`](../../examples/guide/semicolons.flx).

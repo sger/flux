@@ -1,0 +1,349 @@
+// A line that starts with `(` or `[` begins a new expression (proposal 0201).
+// It is never a call or an index on the line above, so statements on their
+// own lines never need `;` between them.
+//
+// Programs that this rule rejects are in
+//   examples/parser_errors/newline_paren_in_call_args.flx
+//   examples/parser_errors/newline_brace_after_constructor.flx
+//   examples/compiler_errors/newline_minus_continues_e300.flx
+//   examples/compiler_errors/newline_same_line_call_e300.flx
+// parity-expected-stdout-begin
+// 13
+// 24
+// (5, 10)
+// (9,)
+// ()
+// -1
+// [7, 8]
+// []
+// 6
+// Some(10)
+// 4
+// 10
+// 11
+// 101
+// 42
+// 7
+// false
+// 2
+// 3
+// 4
+// false
+// (1, 2)
+// (0, 0)
+// (3, 3)
+// (5, 5)
+// 7
+// (2, 4)
+// 30
+// Some(3)
+// 15
+// 111
+// [(1, 2), (3, 4)]
+// [[1], [2, 3]]
+// [4, 16]
+// 0
+// true
+// 6
+// 2003
+// 42
+// Some(20)
+// (5, 5)
+// None
+// parity-expected-stdout-end
+
+effect A { a : (Int) -> Int }
+effect B { b : (Int) -> Int }
+
+fn add(a: Int, b: Int) -> Int { a + b }
+fn add3(a: Int, b: Int, c: Int) -> Int { a + b + c }
+fn seven() -> Int { 7 }
+
+// ============================================================================
+// 1. A block's last line may start with `(` or `[`
+// ============================================================================
+
+fn paren_value(w: Int, h: Int) -> Int {
+    let a = w * h
+    (a + 1)
+}
+
+fn nested_parens(n: Int) -> Int {
+    let m = n
+    ((m * 10) + (m * 2))
+}
+
+fn tuple_value(n: Int) -> (Int, Int) {
+    let m = n * 2
+    (n, m)
+}
+
+fn one_tuple(n: Int) -> (Int,) {
+    let m = n
+    (m,)
+}
+
+fn empty_tuple_value() {
+    let ignored = 1
+    ()
+}
+
+fn negative_value() -> Int {
+    let a = 5
+    (-1)                      // `-1` alone would continue: `5 - 1`
+}
+
+fn list_value(n: Int) -> List<Int> {
+    let m = n + 1
+    [n, m]
+}
+
+fn empty_list_value() -> List<Int> {
+    let n = 1
+    []
+}
+
+// ============================================================================
+// 2. Whatever ends the line above, a `(` line starts a new expression
+// ============================================================================
+
+fn after_perform() -> Int with A, B {
+    let x: Int = perform A.a(1)
+    let y: Int = perform B.b(1)
+    ((x * 1000) + y)
+}
+
+fn after_call() -> Int {
+    let s = add(1, 2)
+    (s * 2)
+}
+
+fn after_index() -> Option<Int> {
+    let xs = [10, 20]
+    let first = xs[0]
+    (first)
+}
+
+fn after_string() -> Int {
+    let s = "text"
+    (len(s))
+}
+
+fn after_multiline_string() -> Int {
+    let s = """
+two
+lines
+"""
+    (len(s))
+}
+
+fn after_if() -> Int {
+    let v = if true { 1 } else { 2 }
+    (v + 10)
+}
+
+fn after_match(o: Option<Int>) -> Int {
+    let v = match o {
+        Some(n) -> n,
+        _ -> 0,
+    }
+    (v + 100)
+}
+
+fn after_lambda() -> Int {
+    let inc = \x -> x + 1      // the lambda's body ends at the line break
+    (inc(41))
+}
+
+fn after_tuple_field() -> Int {
+    let t = (3, 4)
+    let a = t.0
+    (a + t.1)
+}
+
+fn after_boolean() -> Bool {
+    let flag = true
+    (flag && false)
+}
+
+fn after_comment() -> Int {
+    let a = 1                  // a comment does not join the lines
+    (a + 1)
+}
+
+fn after_blank_line() -> Int {
+    let a = 2
+
+    (a + 1)
+}
+
+fn after_block_comment() -> Int {
+    let a = 3
+    /* a comment
+       over two lines */
+    (a + 1)
+}
+
+fn bang_line() -> Bool {
+    let a = 5
+    !true                      // `!` is never infix, so this was new already
+}
+
+// ============================================================================
+// 3. Inside `if`, `match`, lambdas, `do` and nested functions
+// ============================================================================
+
+fn in_if(flag: Bool) -> (Int, Int) {
+    if flag {
+        let a = 1
+        (a, a + 1)
+    } else {
+        let z = 0
+        (z, z)
+    }
+}
+
+fn in_match_arm(o: Option<Int>) -> (Int, Int) {
+    match o {
+        Some(v) -> do {
+            let w = v
+            (w, w)
+        },
+        _ -> (5, 5),
+    }
+}
+
+fn in_nested_fn(n: Int) -> Int {
+    fn inner(m: Int) -> Int {
+        let k = m + 1
+        (k * 1)
+    }
+    let r = inner(n)
+    (r + 0)
+}
+
+// ============================================================================
+// 4. What still continues across lines
+// ============================================================================
+
+fn continues() with IO {
+    // A call or an index whose `(` or `[` is on the callee's line.
+    let total = add(
+        10,
+        20,
+    )
+    print(total)
+    let xs = [1, 2, 3]
+    let item = xs[
+        2
+    ]
+    print(item)
+
+    // Nested calls, each `(` on its callee's line.
+    print(add3(
+        add(1, 2),
+        add(
+            3,
+            4,
+        ),
+        5,
+    ))
+
+    // Elements and arguments that start with `(` or `[` after a `,`.
+    print(add3(
+        (100),
+        (10),
+        (1),
+    ))
+    print([
+        (1, 2),
+        (3, 4),
+    ])
+    print([
+        [1],
+        [2, 3],
+    ])
+
+    // Lines that start with an operator, `|>` or `.`.
+    let squares = [1, 2, 3, 4]
+        |> filter(\x -> x % 2 == 0)
+        |> map(\x -> x * x)
+    print(squares)
+    let sum = 1
+        + 2
+        - 3
+    print(sum)
+    let ok = 1 < 2
+        && 2 < 3
+        || false
+    print(ok)
+    let pair = (5, 6)
+    let second = pair
+        .1
+    print(second)
+
+    // `perform` and `handle` read their own `(` and effect name, so a line
+    // break before them is fine.
+    print(after_perform()
+        handle A { a(resume, n) -> resume(n + 1) }
+        handle B { b(resume, n) -> resume(n + 2) })
+}
+
+// ============================================================================
+// 5. On one line, `(` and `[` still call and index
+// ============================================================================
+
+fn same_line() with IO {
+    print((\x -> x + 1)(41))
+    print([10, 20, 30][1])
+    let a = 5; let b = (a, a)  // `;` separates two statements on one line
+    print(b)
+}
+
+// ============================================================================
+// 6. `;` on a block's last line still means "discard the value"
+// ============================================================================
+
+fn discard() -> Unit {
+    seven();                   // without `;` the body would be Int
+}
+
+fn main() with IO {
+    print(paren_value(3, 4))
+    print(nested_parens(2))
+    print(tuple_value(5))
+    print(one_tuple(9))
+    print(empty_tuple_value())
+    print(negative_value())
+    print(list_value(7))
+    print(empty_list_value())
+
+    print(after_call())
+    print(after_index())
+    print(after_string())
+    print(after_multiline_string())
+    print(after_if())
+    print(after_match(Some(1)))
+    print(after_lambda())
+    print(after_tuple_field())
+    print(after_boolean())
+    print(after_comment())
+    print(after_blank_line())
+    print(after_block_comment())
+    print(bang_line())
+
+    print(in_if(true))
+    print(in_if(false))
+    print(in_match_arm(Some(3)))
+    print(in_match_arm(None))
+    print(in_nested_fn(6))
+    let double = \n -> do {
+        let d = n * 2
+        (n, d)
+    }
+    print(double(2))
+
+    continues()
+    same_line()
+    print(discard())
+}
