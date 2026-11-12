@@ -602,23 +602,6 @@ reading of the timing is not confirmed. The VM twin of this test orders its
 steps with channels (8e4e3b09); the native one still uses sleeps, and moving
 it to channels alone would hide this bug.
 
-### KI-197 — Natively, the support object built by one compiler is linked by the next
-
-**Severity:** High (a program can link support code from an older compiler, with no error; not yet seen to change output) · **Area:** build caching, native (`src/driver/pipeline/native/mod.rs`, `compile_native_support_object`) · **Verified:** 2026-11-12 (e03df61b), by building one program natively under `FLUX_BUILD_ID=build-a`, then `build-b` · **From:** proposal 0204
-
-The support object holds the functions every native program links. The
-compiler emits it from an empty LIR program and caches it as
-`<cache>/native/flux_support_O0.o` (`_O2.o` with `-O`).
-`compile_native_support_object` reuses that file whenever it exists. Its name
-carries neither `compiler_build_id()` nor `CACHE_FORMAT`, so no cache key
-reaches it. The build under `build-b` linked the file `build-a` wrote (same
-inode, same modification time), where every module object was rebuilt. A
-change to the code the support object holds is linked stale until
-`flux clean`.
-
-Workaround: `flux clean`, or `--no-cache`, after a change to native code
-generation.
-
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features` · **Issue:** [#170](https://forgejo.spirosgerokostas.com/sger/flux/issues/170)
@@ -3212,6 +3195,31 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-197 — Natively, the support object built by one compiler is linked by the next — FIXED 2026-11-12
+
+**Severity:** High (a program can link support code from an older compiler, with no error; not yet seen to change output) · **Area:** build caching, native (`src/driver/pipeline/native/mod.rs`, `compile_native_support_object`) · **Verified:** 2026-11-12 (e03df61b), by building one program natively under `FLUX_BUILD_ID=build-a`, then `build-b` · **From:** proposal 0204
+
+The support object holds the functions every native program links. The
+compiler emits it from an empty LIR program and caches it as
+`<cache>/native/flux_support_O0.o` (`_O2.o` with `-O`).
+`compile_native_support_object` reuses that file whenever it exists. Its name
+carries neither `compiler_build_id()` nor `CACHE_FORMAT`, so no cache key
+reaches it. The build under `build-b` linked the file `build-a` wrote (same
+inode, same modification time), where every module object was rebuilt. A
+change to the code the support object holds is linked stale until
+`flux clean`.
+
+Test: `another_compiler_build_does_not_link_the_cached_support_object_ki197`
+in `tests/native_llvm/native_shared_cache_tests.rs` builds under two
+`FLUX_BUILD_ID`s and checks that the second leaves a support object the first
+didn't write. Before the fix it found only the first one's.
+
+**Fixed** in `src/llvm/module_cache.rs` and
+`src/driver/pipeline/native/mod.rs`. `support_object_path` names the file
+`flux_support_<level>-<16 hex of the build id>.o`, and
+`compile_native_support_object` uses it rather than its own copy of the old
+names. Each build leaves its own object in the cache until `flux clean`.
 
 ### KI-196 — With Cargo 1.100, every native build fails to link because the Rust staticlib isn't found — FIXED 2026-11-12
 
