@@ -1,0 +1,15 @@
+// parity-expected-stdout-begin
+// parity-expected-stdout-end
+// root: examples/type_system
+// expect: compile_error
+
+// A parse error skips only its own module (proposal 0203). The entry fails to
+// parse (E071) and is skipped; its import Stage150Type parsed, so it is still
+// type-checked and reports its E300. The entry's own type errors, if it had
+// any, are not looked for, as per-file stage filtering (0061) says.
+
+import Stage150Type
+
+fn main() -> Unit {
+    let broken = "unterminated
+} //~^ E071

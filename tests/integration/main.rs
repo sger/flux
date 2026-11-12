@@ -17,6 +17,7 @@ mod module_graph_tests;
 mod module_linking_integration_tests;
 mod module_local_shadowing_tests;
 mod module_scoped_classes_tests;
+mod module_scoped_failures_tests;
 mod mutual_recursion;
 mod named_field_class_dispatch_tests;
 mod operators;

@@ -33,6 +33,44 @@ pub(crate) struct CompileModulesRequest<'a> {
     pub(crate) all_diagnostics: &'a mut Vec<Diagnostic>,
 }
 
+/// Drops the stdlib modules no remaining user module needs, once some module
+/// has failed (proposal 0203). The failed modules and the modules importing
+/// them are skipped, and every other user module is still type-checked, but a
+/// stdlib module only matters to the user modules that import it. Without
+/// this an entry with a parse error would compile the whole stdlib and check
+/// nothing. User modules all stay, so a skipped one still gets its note.
+fn keep_modules_still_needed<'g>(
+    ordered: Vec<&'g ModuleNode>,
+    failed: &HashSet<PathBuf>,
+) -> Vec<&'g ModuleNode> {
+    // `ordered` is topological, so a module's imports come before it.
+    let mut unusable: HashSet<&PathBuf> = failed.iter().collect();
+    for node in &ordered {
+        if node.imports.iter().any(|dep| unusable.contains(&dep.target_path)) {
+            unusable.insert(&node.path);
+        }
+    }
+    let by_path: HashMap<&PathBuf, &ModuleNode> =
+        ordered.iter().map(|node| (&node.path, *node)).collect();
+    let mut needed: HashSet<&PathBuf> = HashSet::new();
+    let mut pending: Vec<&PathBuf> = ordered
+        .iter()
+        .filter(|node| node.kind != ModuleKind::FlowStdlib && !unusable.contains(&node.path))
+        .map(|node| &node.path)
+        .collect();
+    while let Some(path) = pending.pop() {
+        if needed.insert(path)
+            && let Some(node) = by_path.get(path)
+        {
+            pending.extend(node.imports.iter().map(|dep| &dep.target_path));
+        }
+    }
+    ordered
+        .into_iter()
+        .filter(|node| node.kind != ModuleKind::FlowStdlib || needed.contains(&node.path))
+        .collect()
+}
+
 pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
     let entry_canonical = std::fs::canonicalize(request.entry_path).ok();
     let entry_module_kind = request.graph.entry_node().map(|node| node.kind).unwrap_or_default();
@@ -51,14 +89,18 @@ pub(crate) fn compile_modules(request: CompileModulesRequest<'_>) {
     let mut ordered_nodes = request.graph.topo_order();
     sort_stdlib_first(&mut ordered_nodes, |node| node.kind);
 
-    let seq_total = ordered_nodes.len();
-    let mut seq_completed = 0usize;
     let mut failed: HashSet<PathBuf> = request.failed_modules.clone();
     if request.entry_has_errors
         && let Ok(canon) = std::fs::canonicalize(request.entry_path)
     {
         failed.insert(canon);
     }
+    if !failed.is_empty() {
+        ordered_nodes = keep_modules_still_needed(ordered_nodes, &failed);
+    }
+
+    let seq_total = ordered_nodes.len();
+    let mut seq_completed = 0usize;
 
     for node in ordered_nodes {
         if request.entry_has_errors

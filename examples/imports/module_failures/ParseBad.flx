@@ -1,0 +1,8 @@
+// root: examples/imports/module_failures
+
+// Helper: fails to parse (E071, an unterminated string).
+module ParseBad {
+    public fn p() -> Int {
+        let s = "unterminated
+    }
+}

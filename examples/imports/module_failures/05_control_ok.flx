@@ -1,0 +1,12 @@
+// root: examples/imports/module_failures
+// parity-expected-stdout-begin
+// "ran"
+// parity-expected-stdout-end
+
+// Control for the other examples here: no errors anywhere, so it runs.
+//
+// Run with:
+// cargo run -- --root examples/imports/module_failures examples/imports/module_failures/05_control_ok.flx
+fn main() with IO {
+    print("ran")
+}

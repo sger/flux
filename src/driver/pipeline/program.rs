@@ -73,6 +73,7 @@ struct RunContext {
     module_count: usize,
     is_multimodule: bool,
     entry_has_errors: bool,
+    graph_failed: bool,
 }
 
 /// Determines whether dump handling needs a whole-program merged view.
@@ -184,6 +185,7 @@ fn finish_run_context(request: RunProgramRequest<'_>, context: ProgramContext) -
 
     let module_count = graph_result.graph.module_count();
     let is_multimodule = module_count > 1;
+    let graph_failed = graph_result.graph_failed;
 
     #[cfg(feature = "llvm")]
     if should_prewarm_toolchain(request.flags) {
@@ -215,7 +217,18 @@ fn finish_run_context(request: RunProgramRequest<'_>, context: ProgramContext) -
         module_count,
         is_multimodule,
         entry_has_errors,
+        graph_failed,
     }
+}
+
+/// Whether the run stops before any module is type-checked. Only a graph that
+/// couldn't be built does (an unresolved import, a cycle, a bad manifest). A
+/// module that failed to parse, the entry included, is skipped by
+/// `compile_modules` along with the modules that import it, and the others
+/// are still checked, so their errors are reported in the same run (proposal
+/// 0203).
+fn stops_before_compiling(ctx: &RunContext) -> bool {
+    ctx.graph_failed && has_error_diagnostics(&ctx.all_diagnostics)
 }
 
 /// Attempts the cached parallel VM execution path for eligible multimodule runs.
@@ -411,9 +424,10 @@ pub(crate) fn run_file(request: RunProgramRequest<'_>) {
     }
     match prepare_run_context(request) {
         Ok(mut ctx) => {
-            if has_error_diagnostics(&ctx.all_diagnostics) {
+            if stops_before_compiling(&ctx) {
                 emit_compile_diagnostics_or_exit(&ctx, request);
             }
+            let frontend_failed = has_error_diagnostics(&ctx.all_diagnostics);
 
             crate::driver::debug_session::configure(request.flags);
             crate::driver::replay_session::prepare(
@@ -424,8 +438,10 @@ pub(crate) fn run_file(request: RunProgramRequest<'_>) {
             );
 
             // The fast path executes the program, so `build` / `check` must
-            // not take it.
-            if !request.flags.runtime.check_only && try_run_parallel_vm_fast_path(&mut ctx, request)
+            // not take it, and neither may a run with errors still to report.
+            if !request.flags.runtime.check_only
+                && !frontend_failed
+                && try_run_parallel_vm_fast_path(&mut ctx, request)
             {
                 return;
             }
@@ -482,7 +498,7 @@ pub(crate) fn run_file(request: RunProgramRequest<'_>) {
 pub(crate) fn run_from_source(request: RunProgramRequest<'_>, source: String) {
     match prepare_run_context_from_source(request, source) {
         Ok(mut ctx) => {
-            if has_error_diagnostics(&ctx.all_diagnostics) {
+            if stops_before_compiling(&ctx) {
                 emit_compile_diagnostics_or_exit(&ctx, request);
             }
             compile_modules_for_run(&mut ctx, request);

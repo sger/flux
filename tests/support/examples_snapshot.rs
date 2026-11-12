@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use flux::diagnostics::{Diagnostic, DiagnosticsAggregator};
+use flux::diagnostics::{Diagnostic, DiagnosticsAggregator, quality::module_skipped_note};
 use flux::{
     compiler::Compiler,
     syntax::{
@@ -350,9 +350,14 @@ pub fn build_transcript_with_options(
     let mut program = parser.parse_program();
 
     let mut diagnostics: Vec<Diagnostic> = std::mem::take(&mut parser.errors);
+    let entry_failed = !diagnostics.is_empty();
     let mut compile_status = String::from("ok");
 
-    if diagnostics.is_empty() {
+    // As the driver does (proposal 0203): the graph is built even when the
+    // entry failed to parse, only a graph that couldn't be built stops before
+    // type checking, and a module that failed is skipped with the modules
+    // importing it while every other module is still compiled.
+    {
         inject_flow_prelude(&mut program, &mut parser);
         let roots = collect_roots(fixture, workspace_root, fixture_rel, &header_roots);
 
@@ -360,13 +365,18 @@ pub fn build_transcript_with_options(
 
         let graph_result =
             ModuleGraph::build_with_entry_and_roots(fixture, &program, interner, &roots);
-        if !graph_result.diagnostics.is_empty() {
-            diagnostics.extend(graph_result.diagnostics);
+        let graph_had_diagnostics = !graph_result.diagnostics.is_empty();
+        diagnostics.extend(graph_result.diagnostics);
+        if graph_result.graph_failed {
             compile_status = String::from("failed (module)");
         } else {
             let mut compiler = Compiler::new_with_interner(fixture_rel, graph_result.interner);
             // The graph keys modules by canonical path.
             let entry_path = fs::canonicalize(fixture).unwrap_or_else(|_| fixture.to_path_buf());
+            let mut failed = graph_result.failed_modules;
+            if entry_failed {
+                failed.insert(entry_path.clone());
+            }
             let mut ordered_nodes = graph_result.graph.topo_order();
             ordered_nodes.sort_by_key(|node| {
                 if node.kind == flux::syntax::module_graph::ModuleKind::FlowStdlib { 0 } else { 1 }
@@ -374,6 +384,20 @@ pub fn build_transcript_with_options(
             let nodes_by_path: std::collections::HashMap<_, _> =
                 ordered_nodes.iter().map(|node| (node.path.clone(), node)).collect();
             for node in &ordered_nodes {
+                if entry_failed && node.path == entry_path {
+                    continue;
+                }
+                if let Some(dep) = node.imports.iter().find(|dep| failed.contains(&dep.target_path))
+                {
+                    failed.insert(node.path.clone());
+                    let display = node.path.to_string_lossy().to_string();
+                    diagnostics.push(module_skipped_note(
+                        display.clone(),
+                        display,
+                        dep.name.clone(),
+                    ));
+                    continue;
+                }
                 // Mirror the driver (`src/driver/run_program/modules.rs`): one
                 // shared compiler, but each module's dependencies preloaded
                 // before it compiles, and every stdlib module preloaded for a
@@ -407,14 +431,19 @@ pub fn build_transcript_with_options(
                         }
                     }
                     diagnostics.append(&mut diags);
-                    break;
+                    failed.insert(node.path.clone());
                 }
             }
-            if !diagnostics.is_empty() {
+            if entry_failed {
+                compile_status = String::from("failed (parse)");
+            } else if graph_had_diagnostics {
+                compile_status = String::from("failed (module)");
+            } else if !diagnostics.is_empty() {
                 compile_status = String::from("failed (compile)");
             }
         }
-    } else {
+    }
+    if entry_failed && compile_status == "failed (module)" {
         compile_status = String::from("failed (parse)");
     }
 

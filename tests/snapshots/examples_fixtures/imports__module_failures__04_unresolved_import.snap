@@ -1,0 +1,21 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/imports/module_failures/04_unresolved_import.flx
+== compile ==
+failed (module)
+== diagnostics ==
+error[E018]: Import Not Found
+
+Cannot find module `NoSuchModule` to import.
+
+  examples/imports/module_failures/04_unresolved_import.flx:10:1
+   |
+10 | import NoSuchModule
+   | ^
+
+Hint:
+  Check that: 1) The module file exists (e.g., `NoSuchModule.flx`), 2) The file is in a module root directory (current dir or ./src by default), 3) The module path matches the file structure (e.g., `Foo.Bar` → `Foo/Bar.flx`). Use `--root` flag to add more search paths.
+  Looked for module `NoSuchModule` under roots: examples/imports/module_failures, src, lib (imported from examples/imports/module_failures/04_unresolved_import.flx).
+== stdout ==
+<not executed>

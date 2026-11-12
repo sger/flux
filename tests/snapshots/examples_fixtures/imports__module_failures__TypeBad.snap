@@ -1,0 +1,27 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/imports/module_failures/TypeBad.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E300]: Annotation Type Mismatch
+
+The value of `x` does not match its type annotation.
+
+  examples/imports/module_failures/TypeBad.flx:6:23
+  |
+6 |         let x: Bool = 42
+  |                       ^^
+  |                       -- this value has type `Int`
+
+  |                ---- but `x` was annotated as `Bool`
+
+Note:
+  annotated type: Bool
+  value type: Int
+
+Help:
+  Booleans are not numeric in Flux. Use `true` or `false` here.
+== stdout ==
+<not executed>

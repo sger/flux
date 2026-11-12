@@ -123,6 +123,12 @@ pub struct GraphBuildResult {
     pub diagnostics: Vec<Diagnostic>,
     /// Canonical paths of modules that failed to parse or validate.
     pub failed_modules: HashSet<PathBuf>,
+    /// An import resolved to no module, or the imports form a cycle, so the
+    /// graph is missing modules or edges. Unlike a module in
+    /// `failed_modules`, which is skipped with the modules importing it, a
+    /// failed graph stops the compile before any module is type-checked
+    /// (proposal 0203).
+    pub graph_failed: bool,
 }
 
 impl ModuleGraph {
@@ -164,6 +170,7 @@ impl ModuleGraph {
     ) -> GraphBuildResult {
         let mut diagnostics = Vec::new();
         let mut failed_modules: HashSet<PathBuf> = HashSet::new();
+        let mut graph_failed = false;
         let (entry_id, entry_path) = ModuleId::from_path(entry_path);
         let roots = normalize_roots(roots);
 
@@ -218,6 +225,7 @@ impl ModuleGraph {
                 }
                 Err(mut diags) => {
                     diagnostics.append(&mut diags);
+                    graph_failed = true;
                     Vec::new()
                 }
             };
@@ -244,6 +252,7 @@ impl ModuleGraph {
             Ok(order) => order,
             Err(diag) => {
                 diagnostics.push(*diag);
+                graph_failed = true;
                 Vec::new()
             }
         };
@@ -253,6 +262,7 @@ impl ModuleGraph {
             interner,
             diagnostics,
             failed_modules,
+            graph_failed,
         }
     }
 

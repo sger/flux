@@ -224,6 +224,44 @@ fn import_cycle_is_error() {
     let result = ModuleGraph::build_with_entry_and_roots(&entry_path, &program, interner, &[root]);
     assert!(!result.diagnostics.is_empty(), "expected diagnostics");
     assert_eq!(first_code(&result.diagnostics), "E021");
+    assert!(result.graph_failed, "a cycle leaves no order to compile in");
+}
+
+/// Proposal 0203: an import that resolves to nothing fails the graph, which
+/// stops the compile before any module is type-checked.
+#[test]
+fn unresolved_import_fails_the_graph() {
+    let root_scratch = Scratch::new("unresolved_import");
+    let root = root_scratch.path().to_path_buf();
+    let entry_path = root.join("Main.flx");
+    let entry_source = "import NoSuchModule\n1;";
+    write_file(&entry_path, entry_source);
+    let (program, interner) = parse_program(entry_source);
+
+    let result = ModuleGraph::build_with_entry_and_roots(&entry_path, &program, interner, &[root]);
+    assert_eq!(first_code(&result.diagnostics), "E018");
+    assert!(result.graph_failed);
+}
+
+/// Proposal 0203: a module that fails to parse or validate is a module
+/// failure, not a graph failure. It goes to `failed_modules`, and the driver
+/// skips it with the modules importing it and checks the rest.
+#[test]
+fn a_module_that_fails_to_parse_or_validate_does_not_fail_the_graph() {
+    let root_scratch = Scratch::new("module_failures");
+    let root = root_scratch.path().to_path_buf();
+    write_file(&root.join("Broken.flx"), "module Broken { fn value() { let s = \"open } }");
+    write_file(&root.join("Data").join("List.flx"), "module Data.Other { fn value() { 1; } }");
+    let entry_path = root.join("Main.flx");
+    let entry_source = "import Broken\nimport Data.List\n1;";
+    write_file(&entry_path, entry_source);
+    let (program, interner) = parse_program(entry_source);
+
+    let result = ModuleGraph::build_with_entry_and_roots(&entry_path, &program, interner, &[root]);
+    let codes: Vec<_> = result.diagnostics.iter().filter_map(|d| d.code()).collect();
+    assert!(codes.contains(&"E071") && codes.contains(&"E024"), "{codes:?}");
+    assert_eq!(result.failed_modules.len(), 2, "{:?}", result.failed_modules);
+    assert!(!result.graph_failed);
 }
 
 #[test]

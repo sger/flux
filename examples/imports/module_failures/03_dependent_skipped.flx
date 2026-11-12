@@ -1,0 +1,15 @@
+// root: examples/imports/module_failures
+// expect: compile_error
+
+// Proposal 0203: UsesParseBad imports ParseBad, which fails to parse, so
+// UsesParseBad and this file are skipped unchecked.
+//
+// Run with:
+// cargo run -- --root examples/imports/module_failures examples/imports/module_failures/03_dependent_skipped.flx
+// Expected: E071 in ParseBad.flx and Module Skipped notes for UsesParseBad.flx
+// and this file. UsesParseBad's own E300 is not reported.
+import UsesParseBad
+
+fn main() with IO {
+    print("ran")
+}

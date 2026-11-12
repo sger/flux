@@ -1,0 +1,47 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/imports/module_failures/02_independent_imports.flx
+== compile ==
+failed (module)
+== diagnostics ==
+Note: Module Skipped
+
+I skipped module `examples/imports/module_failures/02_independent_imports.flx` because its dependency `ParseBad` already has errors.
+
+
+error[E071]: Unterminated String
+
+String literal is missing closing quote.
+
+  examples/imports/module_failures/ParseBad.flx:6:17
+  |
+6 |         let s = "unterminated
+  |                 ^^^^^^^^^^^^^
+
+Hint:
+  Add a closing " at the end of the string.
+
+
+error[E300]: Annotation Type Mismatch
+
+The value of `x` does not match its type annotation.
+
+  examples/imports/module_failures/TypeBad.flx:6:23
+  |
+6 |         let x: Bool = 42
+  |                       ^^
+  |                       -- this value has type `Int`
+
+  |                ---- but `x` was annotated as `Bool`
+
+Note:
+  annotated type: Bool
+  value type: Int
+
+Help:
+  Booleans are not numeric in Flux. Use `true` or `false` here.
+
+Found 2 errors and 1 note across 3 modules.
+== stdout ==
+<not executed>
