@@ -384,7 +384,39 @@ fn unquote(text: &str) -> String {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use super::{flume_path, parse_records, unquote};
+    use super::{flume_path, parse_records, read_cached_roots, unquote, write_cached_roots};
+    use crate::{shared::cache_paths::compiler_build_id, syntax::module_graph::ModuleRoot};
+
+    /// Root resolution is compiler code, so an entry written by another build
+    /// may hold roots this one would resolve differently (proposal 0204).
+    #[test]
+    fn a_roots_entry_from_another_compiler_build_is_not_read() {
+        let scratch = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-scratch")
+            .join(format!("flux-roots-build-id-{}", std::process::id()));
+        let project = scratch.join("app");
+        std::fs::create_dir_all(project.join("src")).expect("project dir");
+        std::fs::write(project.join("flux.toml"), "[package]\nname = \"app\"\n").expect("manifest");
+        let cache_file = scratch.join("cache").join("roots.txt");
+        let roots = vec![ModuleRoot {
+            path: project.join("src"),
+            namespace: Some("App".to_string()),
+            package: Some("app".to_string()),
+        }];
+
+        write_cached_roots(&cache_file, &project, &roots);
+        let read_back = read_cached_roots(&cache_file, &project).expect("own entry reads back");
+        assert_eq!(read_back.len(), 1);
+
+        // Stand-in for an entry an older build wrote: same text, other build id.
+        let text = std::fs::read_to_string(&cache_file).expect("entry");
+        std::fs::write(&cache_file, text.replace(compiler_build_id(), "another-build"))
+            .expect("rewrite entry");
+        let stale = read_cached_roots(&cache_file, &project);
+        let _ = std::fs::remove_dir_all(&scratch);
+        assert!(stale.is_none(), "read an entry written by another build: {stale:?}");
+    }
 
     #[test]
     fn parses_ok_records_into_scoped_roots() {
