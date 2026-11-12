@@ -602,6 +602,36 @@ reading of the timing is not confirmed. The VM twin of this test orders its
 steps with channels (8e4e3b09); the native one still uses sleeps, and moving
 it to channels alone would hide this bug.
 
+### KI-194 — Natively, a dictionary given to an instance method from another module is never released
+
+**Severity:** Medium · **Area:** Aether, type classes, module interfaces (`src/compiler/module_interface.rs`, `src/compiler/mod.rs`) · **Verified:** 2026-11-12 (546896dd), `--native --debug-heap --leak-check` · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the heap-leak gate (filed there as KI-144 on `feat/heap-leak-gate`, which never merged)
+
+```flux
+import Flow.Monad
+
+fn main() {
+    let r = bind(Some(2), fn(x) { Some(x * 10) })
+    match r { Some(_) -> (), None -> () }
+}
+```
+
+leaves 3 blocks live at exit, all allocated at the call: the
+`Applicative<Option>` dictionary (a tuple) and its closures for `pure` and
+`ap`. Two calls leave 6. A function constrained by `Monad` and given
+`Some(2)` leaves 7. `Ord Int` given to a constrained function leaves none:
+its dictionary has no context, so it is a static object.
+
+Every `Applicative` and `Monad` instance in `lib/Flow/` is written with its
+superclass as a context, so its dictionary is built at each call and passed
+to the instance method `__tc_Monad_Option_bind`. That method never reads it,
+and borrow inference makes the parameter borrowed, so the method does not
+release it. The calling module does not see that signature. The interface
+exports borrow signatures only for public members, and instance methods are
+generated private. The caller falls back to the unknown callee's signature,
+all owned, gives the dictionary away and does not release it either. Within
+one module the caller sees the borrowed parameter and releases the
+dictionary after the call.
+
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features` · **Issue:** [#170](https://forgejo.spirosgerokostas.com/sger/flux/issues/170)
