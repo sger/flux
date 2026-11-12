@@ -201,10 +201,7 @@ fn main() with IO {
 fn a_failed_file_operation_counts_the_path_its_error_holds() {
     let scratch = Scratch::new("debug-heap-failed-fs");
     let (allocs, frees, live) = stats_of(&scratch, "failed_fs.flx", FAILED_FS_CALLS);
-    assert_eq!(
-        live, 1,
-        "{allocs} allocated, {frees} freed: only the block every program that prints leaves should be live (KI-119)"
-    );
+    assert_eq!(live, 0, "{allocs} allocated, {frees} freed");
 }
 
 const PANIC_PER_TURN: &str = r#"import Flow.Assert exposing (try_catch)

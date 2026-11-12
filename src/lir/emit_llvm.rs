@@ -679,8 +679,8 @@ const MAX_SCANNED_FIELDS: usize = 255;
 const FLUX_OBJ_STRING_TAG: i128 = 0xF1;
 
 /// Values that are the same every time they are made: string literals, the
-/// closures of functions that capture nothing, and constructors whose fields
-/// are all such values or immediates. Each is one read-only object outside
+/// closures of functions that capture nothing, and constructors and tuples
+/// whose fields are all such values or immediates. Each is one read-only object outside
 /// the heap, with a sticky count, so making one allocates nothing and copying
 /// or releasing it does nothing. Reuse needs a count of one, so a static
 /// object is never written.
@@ -691,6 +691,8 @@ struct StaticObjects {
     closures: BTreeMap<String, (GlobalId, usize)>,
     /// Keyed by constructor tag and fields.
     ctors: BTreeMap<(i32, Vec<StaticWord>), GlobalId>,
+    /// Keyed by fields.
+    tuples: BTreeMap<Vec<StaticWord>, GlobalId>,
 }
 
 /// A word a static object can hold.
@@ -728,6 +730,11 @@ impl StaticObjects {
             .clone()
     }
 
+    fn tuple(&mut self, fields: Vec<StaticWord>) -> GlobalId {
+        let next = self.tuples.len();
+        self.tuples.entry(fields).or_insert_with(|| GlobalId(format!("flux.tuple.{next}"))).clone()
+    }
+
     fn emit(self, module: &mut LlvmModule) {
         let int =
             |bits: u32, value: i128| (LlvmType::Integer(bits), LlvmConst::Int { bits, value });
@@ -747,6 +754,12 @@ impl StaticObjects {
             thread_local: None,
             value: Some(LlvmConst::Struct { packed: false, fields }),
             attrs: vec![", align 8".to_string()],
+        };
+        let word = |word: StaticWord| match word {
+            StaticWord::Imm(value) => int(64, value as i128),
+            StaticWord::Object(global) => {
+                (LlvmType::Ptr, LlvmConst::GlobalOffset { global, offset: STATIC_HEADER_SIZE })
+            }
         };
         for (text, name) in self.strings {
             // FluxString: its own tag byte, three pad bytes, the length,
@@ -786,12 +799,17 @@ impl StaticObjects {
             // FluxAdt: the constructor tag, the field count, the fields.
             let mut fields = header(crate::llvm::codegen::FLUX_OBJ_ADT as i128, words.len());
             fields.extend([int(32, tag as i128), int(32, words.len() as i128)]);
-            fields.extend(words.into_iter().map(|word| match word {
-                StaticWord::Imm(value) => int(64, value as i128),
-                StaticWord::Object(global) => {
-                    (LlvmType::Ptr, LlvmConst::GlobalOffset { global, offset: STATIC_HEADER_SIZE })
-                }
-            }));
+            fields.extend(words.into_iter().map(word));
+            module.globals.push(object(name, fields));
+        }
+        for (words, name) in self.tuples {
+            // FluxTuple: its own tag byte, three pad bytes, the arity, the
+            // fields; the layout `emit_make_tuple` builds on the heap.
+            let tag = crate::llvm::codegen::FLUX_OBJ_TUPLE as i128;
+            let mut fields = header(tag, words.len());
+            fields.extend([int(8, tag), (bytes(3), LlvmConst::ZeroInit)]);
+            fields.push(int(32, words.len() as i128));
+            fields.extend(words.into_iter().map(word));
             module.globals.push(object(name, fields));
         }
     }
@@ -2891,6 +2909,22 @@ impl<'a> FnEmitter<'a> {
 
     /// Builds `{i8 0xF3, pad, i32 arity, fields}` the same way.
     fn emit_make_tuple(&mut self, dst: LirVar, elements: &[LirVar]) {
+        // @KI-185: the clause table of a handler of several operations is a
+        // tuple of operation tags and clauses; when no clause captures
+        // anything it is static, so the default handlers around `main` don't
+        // allocate one each.
+        // @KI-119: the `()` a default handler answers `print` with is a tuple
+        // of no fields, so it is static too and nothing is left live at exit.
+        let words: Option<Vec<StaticWord>> = if elements.len() <= MAX_SCANNED_FIELDS {
+            elements.iter().map(|element| self.static_word(*element)).collect()
+        } else {
+            None
+        };
+        if let Some(words) = words {
+            let gid = self.statics.tuple(words);
+            self.emit_static_ref(dst, gid);
+            return;
+        }
         let obj_tag = crate::llvm::codegen::FLUX_OBJ_TUPLE;
         let mem = self.emit_filled_block(elements.len(), obj_tag);
         self.emit_store_at(
