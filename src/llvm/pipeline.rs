@@ -476,28 +476,49 @@ fn rust_staticlib_path() -> Option<PathBuf> {
 /// that could be the one to link, newest first.
 fn staticlib_candidates(exe: &Path) -> Option<(PathBuf, Vec<PathBuf>)> {
     let exe_dir = exe.parent()?;
+    let name_of = |dir: &Path| dir.file_name().and_then(|n| n.to_str()).map(str::to_owned);
 
-    // Test binaries land in target/<profile>/deps/ while the main `flux`
-    // binary lands in target/<profile>/. Normalise so `profile_dir` always
-    // points at target/<profile>/ and `deps_dir` at target/<profile>/deps/.
-    let (profile_dir, deps_dir) = if exe_dir.file_name().and_then(|n| n.to_str()) == Some("deps") {
-        let profile = exe_dir.parent()?;
-        (profile.to_path_buf(), exe_dir.to_path_buf())
+    // The main `flux` binary lands in target/<profile>/. Test binaries land in
+    // target/<profile>/deps/, or since Cargo 1.100 in
+    // target/<profile>/build/<package>/<hash>/out/.
+    // @KI-196: recognise the build-dir layout as well as deps/.
+    let build_dir = exe_dir.parent().and_then(Path::parent).and_then(Path::parent);
+    let profile_dir = if name_of(exe_dir).as_deref() == Some("deps") {
+        exe_dir.parent()?.to_path_buf()
+    } else if name_of(exe_dir).as_deref() == Some("out")
+        && build_dir.and_then(name_of).as_deref() == Some("build")
+    {
+        build_dir?.parent()?.to_path_buf()
     } else {
-        (exe_dir.to_path_buf(), exe_dir.join("deps"))
+        exe_dir.to_path_buf()
     };
 
-    let mut candidates: Vec<PathBuf> = fs::read_dir(&deps_dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| {
-            let name = p.file_name().and_then(|f| f.to_str()).unwrap_or("");
-            (name.starts_with("libflux-") && name.ends_with(".a"))
-                || (name.starts_with("flux-") && name.ends_with(".lib"))
-        })
-        .collect();
+    let is_hashed_archive = |p: &Path| {
+        let name = p.file_name().and_then(|f| f.to_str()).unwrap_or("");
+        (name.starts_with("libflux-") && name.ends_with(".a"))
+            || (name.starts_with("flux-") && name.ends_with(".lib"))
+    };
+    let archives_in = |dir: &Path| -> Vec<PathBuf> {
+        fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| is_hashed_archive(p))
+            .collect()
+    };
+
+    // @KI-196: the build-dir layout has no deps/. Its archives sit in each
+    // build/flux/<hash>/out/, and Cargo also copies the newest to the profile.
+    let mut candidates = archives_in(&profile_dir.join("deps"));
+    for out in fs::read_dir(profile_dir.join("build").join("flux")).into_iter().flatten().flatten()
+    {
+        candidates.extend(archives_in(&out.path().join("out")));
+    }
+    let uplifted = profile_dir.join(if cfg!(windows) { "flux.lib" } else { "libflux.a" });
+    if uplifted.is_file() {
+        candidates.push(uplifted);
+    }
     candidates.sort_by_key(|p| {
         fs::metadata(p).and_then(|m| m.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH)
     });
