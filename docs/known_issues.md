@@ -632,6 +632,64 @@ all owned, gives the dictionary away and does not release it either. Within
 one module the caller sees the borrowed parameter and releases the
 dictionary after the call.
 
+### KI-195 — Natively, a method read out of a superclass dictionary is freed when the dictionary is given away
+
+**Severity:** High (a freed closure is called) · **Area:** Aether (`src/aether/insert.rs`) · **Verified:** 2026-11-12 (546896dd), `--native --debug-heap` · **From:** fixing KI-194, which made `tests/parity/semigroup_monoid.flx` crash natively
+
+```flux
+class S<a> {
+    fn app(x: a, y: a) -> a
+}
+
+class S<a> => M<a> {
+    fn emp() -> a
+}
+
+instance S<Int> {
+    fn app(x, y) { x + y }
+}
+
+instance S<a> => S<Option<a>> {
+    fn app(x, y) {
+        match x {
+            Some(u) -> match y { Some(v) -> Some(app(u, v)), _ -> x },
+            _ -> y
+        }
+    }
+}
+
+instance S<Option<a>> => M<Option<a>> {
+    fn emp() { None }
+}
+
+fn mconcat<a: M>(xs: List<a>) -> a {
+    match xs {
+        [h | t] -> app(h, mconcat(t)),
+        _ -> emp()
+    }
+}
+
+fn main() {
+    print(mconcat([Some(1), Some(2)]))
+}
+```
+
+The VM prints `Some(3)`. Natively, on the debug heap, the call to `app`
+stops with `wrong number of arguments: want=-559030611`: the closure it calls
+has been freed.
+
+`mconcat` reads `app` through the superclass slot of its dictionary, which
+dictionary elaboration writes as a nested `let`: `let m = (let s = d.0 in
+s.0)`. Aether takes a `let` for a view of its parent only when the right-hand
+side is a field of a variable, so `m` is not a view of `d`. The dictionary
+is then given to the recursive call without a copy, the base case releases
+it, and each outer frame calls the `app` it read before. With the same
+projection written as two `let`s, Aether copies the dictionary before the
+call.
+
+Dictionaries from another module hid this: KI-194's leak kept the inner
+dictionary alive.
+
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features` · **Issue:** [#170](https://forgejo.spirosgerokostas.com/sger/flux/issues/170)
