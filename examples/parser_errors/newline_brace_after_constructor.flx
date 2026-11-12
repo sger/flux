@@ -1,0 +1,17 @@
+// expect: compile_error
+// Proposal 0201's rule covers `(` and `[` only. A capitalized name followed by
+// `{` is still read as a named constructor, `Point { x: 1 }`, even when the
+// `{` is on the next line, so the map literal below becomes a constructor
+// body. End the line above with `;` to start a new expression.
+
+data Color { Red, Green }
+
+fn f() -> Int {
+    let c = Red
+    {"a": 1} //~ E034
+    1
+}
+
+fn main() with IO {
+    print(f())
+}

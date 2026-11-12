@@ -266,6 +266,14 @@ impl Parser {
         Span::new(start, self.current_token.end_position)
     }
 
+    /// Returns whether the peek token is a `(` or `[` that starts a later line
+    /// than the current token ends on, so it begins a new expression rather
+    /// than calling or indexing the current one (proposal 0201).
+    pub(super) fn peek_is_postfix_on_new_line(&self) -> bool {
+        matches!(self.peek_token.token_type, TokenType::LParen | TokenType::LBracket)
+            && self.peek_token.position.line > self.current_token.end_position.line
+    }
+
     /// Returns whether `token_type` ends an expression in the current grammar.
     pub(super) fn is_expression_terminator(&self, token_type: TokenType) -> bool {
         matches!(
