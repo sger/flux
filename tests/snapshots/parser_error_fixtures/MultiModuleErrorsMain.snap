@@ -422,6 +422,11 @@ error[E034]: Unexpected Token
 Hint:
   Replace `end` with `}`.
 
-Found 28 errors across 5 modules.
+
+Note: Module Skipped
+
+I skipped module `examples/parser_errors/MultiModuleErrorsMain.flx` because its dependency `MultiAnnotationErrors` already has errors.
+
+Found 28 errors and 1 note across 6 modules.
 == stdout ==
 <not executed>

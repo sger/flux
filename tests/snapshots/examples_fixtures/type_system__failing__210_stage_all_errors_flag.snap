@@ -5,16 +5,38 @@ Fixture: examples/type_system/failing/210_stage_all_errors_flag.flx
 == compile ==
 failed (parse)
 == diagnostics ==
+error[E300]: Annotation Type Mismatch
+
+The value of `x` does not match its type annotation.
+
+  examples/type_system/failing/Stage150Type.flx:10:23
+   |
+10 |         let x: Bool = 42
+   |                       ^^
+   |                       -- this value has type `Int`
+
+   |                ---- but `x` was annotated as `Bool`
+
+Note:
+  annotated type: Bool
+  value type: Int
+
+Help:
+  Booleans are not numeric in Flux. Use `true` or `false` here.
+
+
 error[E071]: Unterminated String
 
 String literal is missing closing quote.
 
-  examples/type_system/failing/210_stage_all_errors_flag.flx:11:18
+  examples/type_system/failing/210_stage_all_errors_flag.flx:13:18
    |
-11 |     let broken = "unterminated
+13 |     let broken = "unterminated
    |                  ^^^^^^^^^^^^^
 
 Hint:
   Add a closing " at the end of the string.
+
+Found 2 errors across 2 modules.
 == stdout ==
 <not executed>

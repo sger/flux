@@ -32,6 +32,11 @@ Strict mode cannot enforce runtime boundary check for unresolved expression type
 Hint:
   Use concrete types (or additional annotations) so HM can resolve this expression.
 
-Found 2 errors.
+
+Note: Module Skipped
+
+I skipped module `examples/type_system/failing/189_contextual_boundary_unresolved_strict_e425.flx` because its dependency `TypeSystem.HmGenericModule` already has errors.
+
+Found 2 errors and 1 note across 2 modules.
 == stdout ==
 <not executed>

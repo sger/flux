@@ -1,0 +1,14 @@
+// root: examples/imports/module_failures
+// expect: compile_error
+
+// Proposal 0203: the entry fails to parse, and its import TypeBad is still
+// type-checked.
+//
+// Run with:
+// cargo run -- --root examples/imports/module_failures examples/imports/module_failures/01_entry_parse_error.flx
+// Expected: E071 in this file and E300 in TypeBad.flx, on the VM and native.
+import TypeBad
+
+fn main() with IO {
+    let s = "unterminated
+}

@@ -1,0 +1,32 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/imports/module_failures/03_dependent_skipped.flx
+== compile ==
+failed (module)
+== diagnostics ==
+Note: Module Skipped
+
+I skipped module `examples/imports/module_failures/03_dependent_skipped.flx` because its dependency `UsesParseBad` already has errors.
+
+
+error[E071]: Unterminated String
+
+String literal is missing closing quote.
+
+  examples/imports/module_failures/ParseBad.flx:6:17
+  |
+6 |         let s = "unterminated
+  |                 ^^^^^^^^^^^^^
+
+Hint:
+  Add a closing " at the end of the string.
+
+
+Note: Module Skipped
+
+I skipped module `examples/imports/module_failures/UsesParseBad.flx` because its dependency `ParseBad` already has errors.
+
+Found 1 error and 2 notes across 3 modules.
+== stdout ==
+<not executed>

@@ -1,0 +1,12 @@
+// root: examples/imports/module_failures
+
+// Helper: imports ParseBad and has its own type error (E300). That error is
+// never reported, because a module whose import failed is skipped unchecked.
+import ParseBad
+
+module UsesParseBad {
+    public fn u() -> Int {
+        let y: Bool = 7
+        1
+    }
+}

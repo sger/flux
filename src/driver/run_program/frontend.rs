@@ -91,14 +91,18 @@ pub(crate) fn build_program_context_from_source(
     tag_and_attach_file(&mut parse_warnings, flux::diagnostics::DiagnosticPhase::Parse, path);
     all_diagnostics.append(&mut parse_warnings);
 
-    let entry_has_errors = !parser.errors.is_empty();
-    if entry_has_errors {
+    let parse_failed = !parser.errors.is_empty();
+    if parse_failed {
         tag_and_attach_file(&mut parser.errors, flux::diagnostics::DiagnosticPhase::Parse, path);
         all_diagnostics.append(&mut parser.errors);
     }
 
     let mut program = program;
     let mut primops_import_diags = validate_no_primops_import(&program, parser.interner(), path);
+    // Any error in the entry before type checking makes it a failed module,
+    // which `compile_modules` skips (proposal 0203). The run used to stop on
+    // every error before compiling, so an E083 alone never needed this.
+    let entry_has_errors = parse_failed || !primops_import_diags.is_empty();
     if !primops_import_diags.is_empty() {
         tag_and_attach_file(
             &mut primops_import_diags,
@@ -113,12 +117,14 @@ pub(crate) fn build_program_context_from_source(
     }
 
     let interner = parser.take_interner();
+    let mut manifest_failed = false;
     // Package roots come from the Flux manifest resolver when the entry file
     // belongs to a project; otherwise these are the unscoped script-mode roots.
     let roots =
         match collect_module_roots(&entry_path, extra_roots, roots_only, cache_layout.root()) {
             Ok(roots) => roots,
             Err(message) => {
+                manifest_failed = true;
                 // Keep the unscoped roots so the stdlib still resolves: without
                 // them the manifest error is buried under a cascade of missing
                 // `Flow.*` imports.
@@ -132,6 +138,9 @@ pub(crate) fn build_program_context_from_source(
 
     let mut graph_result =
         ModuleGraph::build_with_prelude(&entry_path, &program, interner, &roots, &prelude);
+    // A manifest that doesn't resolve leaves the roots unknown, so the graph
+    // can't be trusted either (proposal 0203).
+    graph_result.graph_failed |= manifest_failed;
     let parse_ms = parse_start.elapsed().as_secs_f64() * 1000.0;
     let mut graph_diags = std::mem::take(&mut graph_result.diagnostics);
     tag_and_attach_file(&mut graph_diags, flux::diagnostics::DiagnosticPhase::ModuleGraph, path);

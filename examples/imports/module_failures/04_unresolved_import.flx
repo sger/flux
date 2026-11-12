@@ -1,0 +1,15 @@
+// root: examples/imports/module_failures
+// expect: compile_error
+
+// Proposal 0203: an import that resolves to nothing breaks the module graph,
+// which still stops the compile before any module is type-checked.
+//
+// Run with:
+// cargo run -- --root examples/imports/module_failures examples/imports/module_failures/04_unresolved_import.flx
+// Expected: only E018 in this file. TypeBad is not checked.
+import NoSuchModule
+import TypeBad
+
+fn main() with IO {
+    print("ran")
+}
