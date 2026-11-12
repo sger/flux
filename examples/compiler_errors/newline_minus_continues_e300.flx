@@ -1,0 +1,15 @@
+// expect: compile_error
+// Expected: E300 Return Type Mismatch
+//   A line that starts with `-` continues the line above, as every operator
+//   does, so the body is `let a = 5 - 1` and the block ends with a `let`.
+//   Proposal 0201 changed this for `(` and `[` only. Write `(-1)`, or end the
+//   line above with `;`.
+
+fn f() -> Int { //~ E300
+    let a = 5
+    -1
+}
+
+fn main() with IO {
+    print(f())
+}

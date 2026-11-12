@@ -32,7 +32,7 @@ use crate::metrics;
 use crate::outcome::{
     Outcome, Steps, TOTAL, format_duration, parse_summary_file, summary_is_partial,
 };
-use crate::parity::{ParityCounts, parity, parity_with_env};
+use crate::parity::{ParityCounts, parity_with_env};
 use crate::proc::{run, run_tee};
 use crate::store;
 use crate::sweep::{self, Mode};
@@ -49,6 +49,8 @@ pub struct Options {
     /// How many files each sweep reruns to check its dumps are reproducible
     /// (0190 §9); 0 checks none.
     pub det_sample: usize,
+    /// How many files the sweeps and the parity steps run at once.
+    pub jobs: usize,
     /// Pass the metrics step when counts are worse than `--base`'s, noting
     /// them instead, for a change that costs them on purpose (0190 §12).
     pub accept_metrics: bool,
@@ -381,7 +383,7 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
                     out_dir: out.join(dir),
                     mode: *mode,
                     files: None,
-                    jobs: sweep::default_jobs(),
+                    jobs: options.jobs,
                     timeout: Duration::from_secs(120),
                     flux: flux.clone(),
                 },
@@ -489,7 +491,8 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
             writeln!(log, "=== {dir}").map_err(io)?;
             // The vm and vm_opt runs write their counts, for the metrics step.
             let part = out.join(format!("metrics_{n}.tsv"));
-            let extra = ["--metrics".to_string(), part.to_string_lossy().into_owned()];
+            let mut extra = vec!["--metrics".to_string(), part.to_string_lossy().into_owned()];
+            extra.extend(jobs_args(options.jobs));
             let run = parity_with_env(root, &flux, dir, MAIN_WAYS, true, &mut log, &[], &extra)
                 .map_err(io)?;
             if run.exit != 0 {
@@ -537,8 +540,18 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
         println!("every guide example built natively with and without -g; output must agree");
         let log_path = out.join("parity_g.txt");
         let mut log = open_log(&log_path).map_err(io)?;
-        let counts =
-            parity(root, &flux, "examples/guide", "llvm,llvm_g", true, &mut log).map_err(io)?;
+        let jobs = jobs_args(options.jobs);
+        let counts = parity_with_env(
+            root,
+            &flux,
+            "examples/guide",
+            "llvm,llvm_g",
+            true,
+            &mut log,
+            &[],
+            &jobs,
+        )
+        .map_err(io)?;
         record_parity(&mut outcome, "debug build parity", &counts, &log_path, started);
     }
 
@@ -549,9 +562,18 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
         println!("each // dbg: script run in the VM debugger and in lldb; transcripts must agree");
         let log_path = out.join("parity_debug.txt");
         let mut log = open_log(&log_path).map_err(io)?;
-        let counts =
-            parity(root, &flux, "tests/parity_debug", "vm_debug,llvm_debug", true, &mut log)
-                .map_err(io)?;
+        let jobs = jobs_args(options.jobs);
+        let counts = parity_with_env(
+            root,
+            &flux,
+            "tests/parity_debug",
+            "vm_debug,llvm_debug",
+            true,
+            &mut log,
+            &[],
+            &jobs,
+        )
+        .map_err(io)?;
         record_parity(&mut outcome, "debug parity", &counts, &log_path, started);
     }
 
@@ -572,7 +594,10 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
         for dir in dirs {
             println!("{}", Paint::detect().bold(&format!("=== {dir}")));
             writeln!(log, "=== {dir}").map_err(io)?;
-            let run = parity(root, &flux, dir, "llvm,llvm_heap", true, &mut log).map_err(io)?;
+            let jobs = jobs_args(options.jobs);
+            let run =
+                parity_with_env(root, &flux, dir, "llvm,llvm_heap", true, &mut log, &[], &jobs)
+                    .map_err(io)?;
             if run.exit != 0 {
                 failed_runs += 1;
             }
@@ -808,7 +833,7 @@ fn check_determinism(
     let started = steps.start(&step);
     let sample = sweep::determinism_sample(results, options.det_sample);
     let differing =
-        sweep::recheck(root, dir, mode, &sample, sweep::default_jobs(), Duration::from_secs(120));
+        sweep::recheck(root, dir, mode, &sample, options.jobs, Duration::from_secs(120));
     let took = started.elapsed();
     println!("took {}", format_duration(took));
     let entry = outcome.record(
@@ -830,6 +855,13 @@ fn check_determinism(
 /// `--optimize`, so a miscompile shows up as a difference from the plain way
 /// (0190 S3).
 const MAIN_WAYS: &str = "vm,vm_cached,vm_strict,vm_opt,llvm,llvm_opt";
+
+/// `parity-check`'s arguments for checking `jobs` fixtures at once. It still
+/// prints and records them in file order, so logs and counts compare with a
+/// run of any other width.
+fn jobs_args(jobs: usize) -> [String; 2] {
+    ["--jobs".to_string(), jobs.max(1).to_string()]
+}
 
 /// The folder a sweep in `mode` writes to, in a run's folder.
 fn sweep_dir(mode: Mode) -> String {
@@ -945,6 +977,7 @@ mod tests {
                 checks: choose_checks(&list(only), &list(skip), base.is_some(), Cmp::Off, false)
                     .expect("valid checks"),
                 det_sample: 50,
+                jobs: 1,
                 accept_metrics: false,
             }
         };
@@ -1049,6 +1082,7 @@ mod tests {
             cmp: Cmp::Off,
             checks,
             det_sample: 50,
+            jobs: 1,
             accept_metrics: false,
         };
         assert!(options(choose("", "", false).unwrap(), None).not_run().is_empty());

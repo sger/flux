@@ -426,7 +426,9 @@ use sha2::{Digest, Sha256};
 /// may hold a constrained call there that passes one dictionary twice (KI-175).
 /// Epoch 143: a user module imports the prelude as the entry file does; an epoch-142
 /// unit of one was compiled without those imports, its names resolved by order (KI-187).
-pub const CACHE_EPOCH: u16 = 143;
+/// Epoch 144: a `(` or `[` that starts a line begins a new expression; an epoch-143
+/// unit with such a line holds it as a call or an index on the line before (0201).
+pub const CACHE_EPOCH: u16 = 144;
 
 /// Identity of the *build* that produced this compiler, not just its released
 /// version number.
