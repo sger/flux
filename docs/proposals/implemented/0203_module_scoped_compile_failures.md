@@ -2,8 +2,8 @@
 - Start Date: 2026-11-12
 - Proposal PR:
 - Flux Issue:
-- Status: Draft
-- Relates to: [0061](implemented/0061_stage_aware_diagnostic_pipeline.md) (the Parse > Type > Effect cascade, per file; kept as it is), [0081](implemented/0081_diagnostic_taxonomy.md) (categorises the `Module Skipped` note this proposal reuses), [0139](implemented/0139_incremental_module_caching.md) (the `module: skipped` log for an upstream error), [0059](implemented/0059_parser_error_experience.md) and [0060](implemented/0060_parser_diagnostics_hm_typechecker_hardening.md) (recovery inside one file; out of scope here), [0190](0190_verification_toolkit.md) (S16's open question on fixture 207)
+- Status: Implemented
+- Relates to: [0061](0061_stage_aware_diagnostic_pipeline.md) (the Parse > Type > Effect cascade, per file; kept as it is), [0081](0081_diagnostic_taxonomy.md) (categorises the `Module Skipped` note this proposal reuses), [0139](0139_incremental_module_caching.md) (the `module: skipped` log for an upstream error), [0059](0059_parser_error_experience.md) and [0060](0060_parser_diagnostics_hm_typechecker_hardening.md) (recovery inside one file; out of scope here), [0190](../0190_verification_toolkit.md) (S16's open question on fixture 207)
 
 # Proposal 0203: Module-scoped compile failures
 
@@ -141,13 +141,20 @@ entry file before type checking makes the entry a failed module**.
 
 ### §3 The module loop
 
-No change to `compile_modules`. It already:
+`compile_modules` already:
 
 - puts a failed entry into `failed` and skips it;
 - starts `failed` from `failed_modules`;
 - skips modules whose imports are in `failed`, adds them, and pushes `module_skipped_note`
   (`src/diagnostics/quality.rs:366`);
 - type-checks the rest in topological order, stdlib first.
+
+It needs one addition. Once some module has failed, a stdlib module is compiled only if a user
+module that is still checked imports it, directly or through other modules
+(`keep_modules_still_needed`). Without this, a one-file script with a typo would compile the
+whole stdlib, with `--no-cache` printing a progress line for each module, and check nothing. A
+compile with no failures is unaffected, because the entry imports, through the prelude, every
+module in the graph.
 
 ### §4 After the loop
 
@@ -165,8 +172,7 @@ when there are no frontend errors.
 - Exit codes: any error exits non-zero.
 - The REPL paths (`program.rs:525`, `534`, `638`, `643`): a REPL entry is one unit with nothing
   to keep going to.
-- `flux test` already compiles past an import with a parse error (`src/driver/run_tests.rs:381-497`).
-  Its entry parse error still exits at once (line 84); see Unresolved questions.
+- `flux test` keeps its own loop; see Unresolved questions.
 
 ### §6 The snapshot harness
 
@@ -246,9 +252,14 @@ because its unit is the module and it doesn't recover inside one.
 ## Unresolved questions
 [unresolved-questions]: #unresolved-questions
 
-- `flux test` exits at once on an entry parse error (`run_tests.rs:84`), but keeps going past an
-  import with a parse error. Should its entry follow §2, so a test file with a parse error still
-  shows its imports' errors? Do it in the same change if it's small; otherwise in a follow-up.
+- `flux test` has its own loop (`run_test_file`, `src/driver/run_tests.rs`), which this proposal
+  doesn't change. It differs from §1–§3 in two ways:
+  - it exits at once on an entry parse error (`emit_parse_diagnostics_or_exit`), but keeps going
+    past an import with a parse error;
+  - it doesn't stop on a failed graph, so after an E018 it compiles the rest.
+
+  Bringing it in line means restructuring that loop, so it is a follow-up, not part of this
+  change.
 - Should the summary line ("Found 1 error and 1 note across 2 modules") also say how many modules
   were skipped, or are the per-module notes enough?
 
