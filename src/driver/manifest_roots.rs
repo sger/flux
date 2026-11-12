@@ -228,14 +228,14 @@ fn roots_cache_path(cache_dir: &Path, project_dir: &Path) -> PathBuf {
     cache_dir.join("manifest").join(format!("roots-{}.txt", hex(&key[..8])))
 }
 
-/// A cache entry: the epoch, then one line per manifest fingerprint, then the
+/// A cache entry: the header, then one line per manifest fingerprint, then the
 /// records themselves. Reading it back re-checks every fingerprint, so editing
 /// *any* manifest in the dependency graph invalidates the entry.
 fn read_cached_roots(cache_file: &Path, project_dir: &Path) -> Option<Vec<ModuleRoot>> {
     let lock_path = project_dir.join("flux.lock");
     let text = std::fs::read_to_string(cache_file).ok()?;
     let mut lines = text.lines();
-    if lines.next()? != epoch_line() {
+    if lines.next()? != header_line() {
         return None;
     }
 
@@ -274,7 +274,7 @@ fn write_cached_roots(cache_file: &Path, project_dir: &Path, roots: &[ModuleRoot
     }
 
     let mut out = String::new();
-    out.push_str(&epoch_line());
+    out.push_str(&header_line());
     out.push('\n');
 
     // The lockfile is an input, not an output, as far as caching goes: it
@@ -319,9 +319,15 @@ fn write_cached_roots(cache_file: &Path, project_dir: &Path, roots: &[ModuleRoot
     let _ = std::fs::write(cache_file, out);
 }
 
-/// Entries are invalidated wholesale when the cache epoch moves.
-fn epoch_line() -> String {
-    format!("epoch {}", crate::shared::cache_paths::CACHE_EPOCH)
+/// The first line of an entry. An entry from another cache format or another
+/// compiler build is not read, since root resolution is compiler code
+/// (proposal 0204).
+fn header_line() -> String {
+    format!(
+        "epoch {} build {}",
+        crate::shared::cache_paths::CACHE_EPOCH,
+        crate::shared::cache_paths::compiler_build_id()
+    )
 }
 
 fn manifest_fingerprint(path: &Path) -> Option<String> {
