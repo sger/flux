@@ -5,6 +5,19 @@ Fixture: examples/parser_errors/missing_module_closing_brace.flx
 == compile ==
 failed (parse)
 == diagnostics ==
+error[E024]: Module Path Mismatch
+
+Module name `Math` doesn't match file path `examples/parser_errors/missing_module_closing_brace.flx`.
+
+  examples/parser_errors/missing_module_closing_brace.flx:6:1
+  |
+6 | module Math {
+  | ^
+
+Hint:
+  Rename the module or move the file to match.
+
+
 error[E076]: Missing Closing Delimiter
 
 Expected a closing `}` to match this opening `{`.
@@ -16,5 +29,7 @@ Expected a closing `}` to match this opening `{`.
 
 Note:
   while parsing module `Math`
+
+Found 2 errors.
 == stdout ==
 <not executed>

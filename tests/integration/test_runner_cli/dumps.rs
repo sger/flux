@@ -403,50 +403,31 @@ fn test_native_using_modules_program_links_without_user_adts() {
     );
 }
 
+/// Proposal 0203: an entry that fails to parse is skipped, and the module it
+/// imports is still type-checked, with or without `--all-errors`. The flag
+/// lifts stage filtering inside a file; it doesn't make the skipped entry's
+/// type errors appear.
 #[test]
-fn all_errors_flag_does_not_cross_entry_parse_failure_in_run_mode() {
+fn an_entry_parse_failure_skips_only_the_entry_with_or_without_all_errors() {
     let file = example_path("type_system/failing/210_stage_all_errors_flag.flx");
 
-    let default_output = run_flux(&["--no-cache", "--strict", file.to_str().unwrap()]);
-    let default_text = combined_output(&default_output);
-    assert!(
-        !default_output.status.success(),
-        "expected fixture to fail in default mode, output:\n{}",
-        default_text
-    );
-    assert!(
-        default_text.contains("error[E071]"),
-        "expected entry parse diagnostic in default mode, output:\n{}",
-        default_text
-    );
-    assert!(
-        !default_text.contains("error[E300]"),
-        "entry parse failure should stop before imported type diagnostics, output:\n{}",
-        default_text
-    );
-    assert!(
-        !default_text.contains("Downstream Errors Suppressed"),
-        "did not expect a cross-module suppression note in default mode, output:\n{}",
-        default_text
-    );
-
-    let all_output = run_flux(&["--no-cache", "--all-errors", file.to_str().unwrap()]);
-    let all_text = combined_output(&all_output);
-    assert!(
-        !all_output.status.success(),
-        "expected fixture to fail with --all-errors, output:\n{}",
-        all_text
-    );
-    assert!(
-        all_text.contains("error[E071]"),
-        "expected entry parse diagnostic with --all-errors, output:\n{}",
-        all_text
-    );
-    assert!(
-        !all_text.contains("error[E300]"),
-        "--all-errors should not typecheck imports after an entry parse failure, output:\n{}",
-        all_text
-    );
+    for args in [&["--no-cache", "--strict"][..], &["--no-cache", "--all-errors"][..]] {
+        let mut args = args.to_vec();
+        args.push(file.to_str().unwrap());
+        let output = run_flux(&args);
+        let text = combined_output(&output);
+        assert!(!output.status.success(), "expected {args:?} to fail, output:\n{text}");
+        assert!(text.contains("error[E071]"), "{args:?}: no entry parse error, output:\n{text}");
+        assert!(
+            text.contains("error[E300]") && text.contains("Stage150Type.flx"),
+            "{args:?}: the import was not type-checked, output:\n{text}"
+        );
+        assert_eq!(text.matches("error[").count(), 2, "{args:?}: output:\n{text}");
+        assert!(
+            !text.contains("Downstream Errors Suppressed"),
+            "{args:?}: no type error was suppressed, output:\n{text}"
+        );
+    }
 }
 
 #[test]
