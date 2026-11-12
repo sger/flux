@@ -15,6 +15,8 @@
 // "   check_positive(5) = positive"
 // "   check_positive(-5) = not positive"
 // "   outer(5) = 15"
+// "   area_plus_one(3, 4) = 13"
+// "   add across lines = 8"
 // ""
 // "4. Style comparison:"
 // ""
@@ -37,6 +39,7 @@
 // "Parser Note:"
 // "  Newlines are not separate tokens"
 // "  Parser progress separates statements"
+// "  A ( or [ that starts a line begins a new expression"
 // ""
 // "Recommendation:"
 // "  Pick one style and stay consistent"
@@ -49,6 +52,7 @@ fn main() with IO {
     // Rule 1: Semicolons are OPTIONAL for common statement forms
     // Rule 2: Trailing semicolons are also accepted
     // Rule 3: This parser is not newline-token based, so same-line forms can parse too
+    // Rule 4: A `(` or `[` that starts a line begins a new expression
 
     print("=== Semicolon Demonstration ===")
     print("")
@@ -124,6 +128,20 @@ fn main() with IO {
         inner(10)               // OPTIONAL semicolon (last)
     }
     print("   outer(5) = " + to_string(outer(5)))
+
+    // ---- A line that starts with `(` ----
+    fn area_plus_one(w, h) {
+        let a = w * h
+        (a + 1)                 // the block's value, not a call on `w * h`
+    }
+    print("   area_plus_one(3, 4) = " + to_string(area_plus_one(3, 4)))
+
+    // ---- A call across lines: `(` stays on the callee's line ----
+    let sum = add(
+        5,
+        3,
+    )
+    print("   add across lines = " + to_string(sum))
     print("")
 
     // ============================================================================
@@ -166,6 +184,7 @@ fn main() with IO {
     print("Parser Note:")
     print("  Newlines are not separate tokens")
     print("  Parser progress separates statements")
+    print("  A ( or [ that starts a line begins a new expression")
     print("")
     print("Recommendation:")
     print("  Pick one style and stay consistent")

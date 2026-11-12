@@ -1,0 +1,58 @@
+---
+source: tests/error_fixtures/compiler_error_fixtures_snapshots.rs
+---
+Fixture: examples/compiler_errors/newline_same_line_call_e300.flx
+== compile ==
+failed (compile)
+== diagnostics ==
+error[E300]: Return Type Mismatch
+
+The body of `f` does not match its declared return type.
+
+  examples/compiler_errors/newline_same_line_call_e300.flx:7:22
+  |
+7 | fn f() -> (Int, Int) { //~ E300
+  |                      ^^^^^^^^^^
+  |           ---------- `f` was declared to return `(Int, Int)`
+8 |     let a = 5 (a, a) //~ E300
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+9 | }
+  | ^
+   |
+help: Change return type to `Unit`
+   |
+7 | fn f() -> Unit { //~ E300
+  |           ~~~~
+
+Note:
+  declared return type: (Int, Int)
+  body type: Unit
+
+Help:
+  Return a `(Int, Int)` value from `f` or change its annotation.
+
+
+error[E300]: Argument Type Mismatch
+
+I found the wrong type in the 1st argument to this function.
+
+  examples/compiler_errors/newline_same_line_call_e300.flx:8:13
+  |
+8 |     let a = 5 (a, a)
+  |             ^^^^^^^^
+  |             -------- this argument has type `(_, _) -> _ with |_`
+
+  |             -------- this call argument produces the conflicting type
+
+Note:
+  expected argument type: Int
+  found argument type: (_, _) -> _ with |_
+  the actual argument type is inferred from this expression
+  the actual argument type is inferred from this expression
+
+Help:
+  Pass a `Int` value as the 1st argument.
+
+Found 2 errors.
+== stdout ==
+<not executed>

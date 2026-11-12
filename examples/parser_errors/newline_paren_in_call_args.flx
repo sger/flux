@@ -1,0 +1,15 @@
+// expect: compile_error
+// A `(` that starts a line begins a new expression inside call arguments too
+// (proposal 0201), so `bar` ends at the line break and `(1)` is a second
+// argument with no `,` before it. Keep the `(` on the callee's line:
+// `bar(1)`.
+
+fn foo(x: Int) -> Int { x }
+fn bar(x: Int) -> Int { x }
+
+fn main() with IO {
+    print(foo( //~ E076
+        bar
+        (1)
+    ))
+}
