@@ -324,8 +324,8 @@ fn write_cached_roots(cache_file: &Path, project_dir: &Path, roots: &[ModuleRoot
 /// (proposal 0204).
 fn header_line() -> String {
     format!(
-        "epoch {} build {}",
-        crate::shared::cache_paths::CACHE_EPOCH,
+        "format {} build {}",
+        crate::shared::cache_paths::CACHE_FORMAT,
         crate::shared::cache_paths::compiler_build_id()
     )
 }

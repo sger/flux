@@ -16,7 +16,7 @@ use crate::{
     types::scheme::Scheme,
 };
 
-pub const MODULE_INTERFACE_FORMAT_VERSION: u16 = crate::shared::cache_paths::CACHE_EPOCH;
+pub const MODULE_INTERFACE_FORMAT_VERSION: u16 = crate::shared::cache_paths::CACHE_FORMAT;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DependencyFingerprint {
