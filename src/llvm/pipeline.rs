@@ -1254,10 +1254,47 @@ fn check_output(tool: &'static str, output: &std::process::Output) -> Result<(),
 mod tests {
     use super::{
         CToolchain, RuntimeVariant, archive_is_up_to_date, create_archive, detect_c_toolchain,
-        native_build_base_dir,
+        native_build_base_dir, staticlib_candidates,
     };
     use std::path::{Path, PathBuf};
     use std::process::Command;
+
+    /// Cargo 1.100 builds into target/<profile>/build/<package>/<hash>/out/ and
+    /// has no deps/. A test binary lives in such an out/ directory too.
+    #[test]
+    fn staticlib_candidates_under_the_build_dir_layout_ki196() {
+        let profile = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-scratch")
+            .join(format!("flux-staticlib-layout-{}", std::process::id()))
+            .join("debug");
+        let hashed = profile.join("build").join("flux").join("h1").join("out");
+        let tests_out = profile.join("build").join("flux").join("h2").join("out");
+        std::fs::create_dir_all(&hashed).expect("hashed dir");
+        std::fs::create_dir_all(&tests_out).expect("test binary dir");
+        let (hashed_archive, uplifted) = if cfg!(windows) {
+            (hashed.join("flux-h1.lib"), profile.join("flux.lib"))
+        } else {
+            (hashed.join("libflux-h1.a"), profile.join("libflux.a"))
+        };
+        std::fs::write(&hashed_archive, []).expect("hashed archive");
+        std::fs::write(&uplifted, []).expect("uplifted archive");
+
+        let main_exe = profile.join("flux");
+        let test_exe = tests_out.join("native_llvm-h2");
+        let found = [&main_exe, &test_exe].map(|exe| staticlib_candidates(exe));
+        let _ = std::fs::remove_dir_all(profile.parent().unwrap());
+
+        for (exe, result) in [&main_exe, &test_exe].iter().zip(found) {
+            let (profile_dir, candidates) = result.expect("candidates");
+            assert_eq!(profile_dir, profile, "profile directory for {}", exe.display());
+            assert!(
+                candidates.contains(&hashed_archive) && candidates.contains(&uplifted),
+                "{} found {candidates:?}",
+                exe.display()
+            );
+        }
+    }
 
     /// Compiles a one-function C file to `<dir>/<stem>.o` (`.obj` for `cl`).
     fn compile_member(toolchain: &CToolchain, dir: &Path, stem: &str) -> Option<PathBuf> {
