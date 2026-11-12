@@ -84,6 +84,11 @@ Note:
 Help:
   Write match arms as `match x { pattern -> body, ... }`.
 
-Found 5 errors across 3 modules.
+
+Note: Module Skipped
+
+I skipped module `examples/parser_errors/modules_many_errors/Main.flx` because its dependency `BrokenEffect` already has errors.
+
+Found 5 errors and 1 note across 4 modules.
 == stdout ==
 <not executed>

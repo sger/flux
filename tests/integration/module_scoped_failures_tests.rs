@@ -48,8 +48,8 @@ fn run(tag: &str, modules: &[(&str, &str)], entry: &str, native: bool) -> Ran {
     if native { run.native().run() } else { run.run() }
 }
 
-/// The error codes in `stderr`, each with the file its diagnostic names, in
-/// the order printed.
+/// The error codes in `stderr`, each with the file its diagnostic names,
+/// sorted: the aggregator orders files by path, which these tests don't check.
 fn reported(stderr: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut code: Option<String> = None;
@@ -67,6 +67,7 @@ fn reported(stderr: &str) -> Vec<String> {
             }
         }
     }
+    out.sort();
     out
 }
 
