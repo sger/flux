@@ -221,10 +221,7 @@ fn plan_expr(
             // Track field→parent for TupleField access (e.g. `let total = st.2`).
             // This prevents the parent from being dropped while the field
             // binder is still live (use-after-free on borrowed field).
-            let view = if let CoreExpr::TupleField { object, .. } = rhs.as_ref()
-                && let CoreExpr::Var { var: obj_var, .. } = object.as_ref()
-                && let Some(parent_id) = obj_var.binder
-            {
+            let view = if let Some(parent_id) = tuple_field_root(&rhs) {
                 scope.views.insert(var.id);
                 field_parents
                     .insert(var.id, FieldParent { parent: parent_id, tag: None, pattern: false });
@@ -1622,6 +1619,27 @@ fn release_owner(
         ReleasePath { whole: aliases.clone(), aliases, lent_result, position, matched: None };
     let body = release.after(body, &path, scope);
     (body, release.released)
+}
+
+/// The variable `expr` reads a field out of, through any number of fields:
+/// `t.1`, or a `let` whose body reads a field of what it bound, as in
+/// `let s = d.0 in s.0`.
+///
+/// @KI-195: dictionary elaboration reads a superclass method in that nested
+/// form. Taking only `t.1` for a view left the method unconnected to the
+/// dictionary, which could then be given away and freed while the method
+/// was still to be called.
+fn tuple_field_root(expr: &CoreExpr) -> Option<CoreBinderId> {
+    match expr {
+        CoreExpr::TupleField { object, .. } => match object.as_ref() {
+            CoreExpr::Var { var, .. } => var.binder,
+            _ => None,
+        },
+        CoreExpr::Let { var, rhs, body, .. } if tuple_field_root(body) == Some(var.id) => {
+            tuple_field_root(rhs)
+        }
+        _ => None,
+    }
 }
 
 /// Whether evaluating `expr` makes a value with a reference of its own: a
