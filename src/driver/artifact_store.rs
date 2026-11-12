@@ -20,7 +20,8 @@ use crate::{
     shared::{cache_paths, hex},
 };
 
-/// The ABI namespace is separate from the user-visible compiler version.
+/// Frozen. `unit_hash` also feeds `compiler_build_id()`, which covers code
+/// changes, so bump it only under the `CACHE_FORMAT` rule (proposal 0204).
 pub(crate) const COMPILER_ABI: &str = "flux-fxmc-26";
 
 pub(crate) fn store_root() -> PathBuf {
@@ -50,7 +51,7 @@ pub(crate) fn unit_hash(
 ) -> String {
     let (package, relative) = package_identity(source_path);
     let mut hasher = Sha256::new();
-    feed(&mut hasher, "format", &cache_paths::CACHE_EPOCH.to_string());
+    feed(&mut hasher, "format", &cache_paths::CACHE_FORMAT.to_string());
     feed(&mut hasher, "compiler-abi", COMPILER_ABI);
     feed(&mut hasher, "compiler-version", cache_paths::compiler_build_id());
     feed(&mut hasher, "backend", backend_name(backend));

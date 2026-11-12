@@ -11,7 +11,9 @@ use crate::{
     types::module_interface::{DependencyFingerprint, DependencyMissReason},
 };
 
-pub const NATIVE_MODULE_CACHE_FORMAT_VERSION: u16 = crate::shared::cache_paths::CACHE_EPOCH;
+pub const NATIVE_MODULE_CACHE_FORMAT_VERSION: u16 = crate::shared::cache_paths::CACHE_FORMAT;
+/// Frozen. The metadata's `compiler_version` check covers code changes, so
+/// bump it only under the `CACHE_FORMAT` rule (proposal 0204).
 const NATIVE_CACHE_ABI_TAG: &[u8] = b"native-cache-abi-v37:a-tuple-of-constants-is-a-static-object";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
