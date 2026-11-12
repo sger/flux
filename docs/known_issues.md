@@ -602,42 +602,6 @@ reading of the timing is not confirmed. The VM twin of this test orders its
 steps with channels (8e4e3b09); the native one still uses sleeps, and moving
 it to channels alone would hide this bug.
 
-### KI-196 — With Cargo 1.100, every native build fails to link because the Rust staticlib isn't found
-
-**Severity:** High (no native program builds) · **Area:** native linking (`src/llvm/pipeline.rs`, `discover_rust_staticlib`) · **Verified:** 2026-11-12 (0f5e4391), on macOS arm64 with cargo 1.100.0 (3acc79c0c 2026-11-05) · **From:** proposal 0204 S2, whose test needs a native link
-
-```sh
-cargo native tests/parity/adt_either_match.flx --no-cache
-```
-
-The link fails:
-
-```
-Undefined symbols for architecture arm64:
-  "_flux_print_backtrace", referenced from:
-      _flux_report_panic in libflux_rt.a[3](flux_rt.o)
-  "_flux_tape_arg", referenced from:
-      _flux_tape_start in libflux_rt.a[14](tape.o)
-```
-
-The C runtime calls into the Rust staticlib (`libflux.a`).
-`discover_rust_staticlib` looks for `libflux-<hash>.a` in
-`target/<profile>/deps/` and remembers the one it found in
-`flux-staticlib.path`. Cargo 1.100 puts hashed artifacts in
-`target/<profile>/build/<package>/<hash>/out/` and creates no `deps/`, so the
-search finds nothing and the program is linked without the staticlib. The
-uplifted `target/<profile>/libflux.a` is there, but the search never looks at
-it. Test binaries moved to `…/out/` too, so the code that maps a test binary's
-`deps/` directory back to the profile directory doesn't apply to them either.
-
-CI is not affected: `ci.yml` pins Rust 1.93.0. `release.yml` uses `@stable`.
-
-`build.rs` prunes old archives from `deps/` as well, so under the new layout
-nothing is pruned. Four `libflux-*.a` files of about 300 MB each were under
-`target/debug/build/flux/` here.
-
-Workaround: build with Rust 1.93.0.
-
 ### KI-197 — Natively, the support object built by one compiler is linked by the next
 
 **Severity:** High (a program can link support code from an older compiler, with no error; not yet seen to change output) · **Area:** build caching, native (`src/driver/pipeline/native/mod.rs`, `compile_native_support_object`) · **Verified:** 2026-11-12 (e03df61b), by building one program natively under `FLUX_BUILD_ID=build-a`, then `build-b` · **From:** proposal 0204
@@ -3248,6 +3212,52 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-196 — With Cargo 1.100, every native build fails to link because the Rust staticlib isn't found — FIXED 2026-11-12
+
+**Severity:** High (no native program builds) · **Area:** native linking (`src/llvm/pipeline.rs`, `discover_rust_staticlib`) · **Verified:** 2026-11-12 (0f5e4391), on macOS arm64 with cargo 1.100.0 (3acc79c0c 2026-11-05) · **From:** proposal 0204 S2, whose test needs a native link
+
+```sh
+cargo native tests/parity/adt_either_match.flx --no-cache
+```
+
+The link fails:
+
+```
+Undefined symbols for architecture arm64:
+  "_flux_print_backtrace", referenced from:
+      _flux_report_panic in libflux_rt.a[3](flux_rt.o)
+  "_flux_tape_arg", referenced from:
+      _flux_tape_start in libflux_rt.a[14](tape.o)
+```
+
+The C runtime calls into the Rust staticlib (`libflux.a`).
+`discover_rust_staticlib` looks for `libflux-<hash>.a` in
+`target/<profile>/deps/` and remembers the one it found in
+`flux-staticlib.path`. Cargo 1.100 puts hashed artifacts in
+`target/<profile>/build/<package>/<hash>/out/` and creates no `deps/`, so the
+search finds nothing and the program is linked without the staticlib. The
+uplifted `target/<profile>/libflux.a` is there, but the search never looks at
+it. Test binaries moved to `…/out/` too, so the code that maps a test binary's
+`deps/` directory back to the profile directory doesn't apply to them either.
+
+CI is not affected: `ci.yml` pins Rust 1.93.0. `release.yml` uses `@stable`.
+
+`build.rs` prunes old archives from `deps/` as well, so under the new layout
+nothing is pruned. Four `libflux-*.a` files of about 300 MB each were under
+`target/debug/build/flux/` here.
+
+Test: `staticlib_candidates_under_the_build_dir_layout_ki196` in
+`src/llvm/pipeline.rs` lays out a fake profile directory the way Cargo 1.100
+does, and checks the candidates from the compiler's path and from a test
+binary's. Before the fix it found no archives.
+
+**Fixed** in `src/llvm/pipeline.rs`. `staticlib_candidates` maps a binary in
+`build/<package>/<hash>/out/` to its profile directory, and lists the archives
+in `deps/`, in each `build/flux/<hash>/out/`, and the uplifted `libflux.a`
+(`flux.lib` on Windows), newest first. The sentinel check and the sidecar are
+unchanged. `build.rs` still prunes only `deps/`, so old archives under
+`build/flux/` are not removed.
 
 ### KI-194 — Natively, a dictionary given to an instance method from another module is never released — FIXED 2026-11-12
 
