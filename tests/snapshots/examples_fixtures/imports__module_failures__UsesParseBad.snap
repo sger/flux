@@ -1,0 +1,27 @@
+---
+source: tests/examples/examples_fixtures_snapshots.rs
+---
+Fixture: examples/imports/module_failures/UsesParseBad.flx
+== compile ==
+failed (module)
+== diagnostics ==
+error[E071]: Unterminated String
+
+String literal is missing closing quote.
+
+  examples/imports/module_failures/ParseBad.flx:6:17
+  |
+6 |         let s = "unterminated
+  |                 ^^^^^^^^^^^^^
+
+Hint:
+  Add a closing " at the end of the string.
+
+
+Note: Module Skipped
+
+I skipped module `examples/imports/module_failures/UsesParseBad.flx` because its dependency `ParseBad` already has errors.
+
+Found 1 error and 1 note across 2 modules.
+== stdout ==
+<not executed>

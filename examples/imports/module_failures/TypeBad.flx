@@ -1,0 +1,9 @@
+// root: examples/imports/module_failures
+
+// Helper: parses, and has one type error (E300).
+module TypeBad {
+    public fn bad() -> Int {
+        let x: Bool = 42
+        1
+    }
+}
