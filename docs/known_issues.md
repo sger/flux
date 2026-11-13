@@ -3196,6 +3196,110 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 ## Resolved
 
+### KI-198 — With Cargo 1.100, the debug adapter tests can't find the flux binary — FIXED 2026-11-13
+
+**Severity:** Medium (20 of the 21 tests fail loudly) · **Area:** the `flux-dap` tests (`crates/flux-dap/tests/dap_tests.rs`, `flux_bin`) · **Verified:** 2026-11-13 (9b51cbf1), on macOS arm64 with cargo 1.100.0 · **From:** `cargo xtask verify cache-format`, whose tests step failed in `-p flux-dap --test dap_tests`
+
+Every test that launches a program fails at the launch request:
+
+```
+cannot start `…/target/debug/build/flux-dap/49ddc6a7d8df9007/flux`: No such file or directory (os error 2)
+```
+
+`flux_bin` takes the `flux` binary from the profile directory, which it finds
+two levels above the test binary, on the assumption that test binaries run
+from `target/<profile>/deps/`. Cargo 1.100 puts them in
+`target/<profile>/build/<package>/<hash>/out/`, so two levels up is
+`build/flux-dap/<hash>/`. When the binary is missing there, the helper builds
+it with `--target-dir` set to the parent of that folder, which puts a
+complete build in `target/debug/build/flux-dap/debug/` (1.5 GB here), and
+the binary still isn't where the helper looks. The same layout change broke
+the native link (KI-196).
+
+CI is not affected: `ci.yml` pins Rust 1.93.0.
+
+Test: the 20 failing tests in `dap_tests` are the test. `flux_bin` is test
+code, so no separate test was added. All 21 pass after the fix, and run
+directly with `target/debug/flux` deleted, the helper rebuilds it where it
+looks and leaves no tree under `build/flux-dap/`.
+
+**Fixed** in `crates/flux-dap/tests/dap_tests.rs`. `flux_bin` takes the profile
+directory from the test binary's own directory: its parent for `deps/`, the
+folder above `build/` for `build/<package>/<hash>/out/`, as
+`staticlib_candidates` does for KI-196, and the directory itself otherwise. The
+fallback build's `--target-dir` is the parent of that profile directory.
+
+### KI-197 — Natively, the support object built by one compiler is linked by the next — FIXED 2026-11-12
+
+**Severity:** High (a program can link support code from an older compiler, with no error; not yet seen to change output) · **Area:** build caching, native (`src/driver/pipeline/native/mod.rs`, `compile_native_support_object`) · **Verified:** 2026-11-12 (e03df61b), by building one program natively under `FLUX_BUILD_ID=build-a`, then `build-b` · **From:** proposal 0204
+
+The support object holds the functions every native program links. The
+compiler emits it from an empty LIR program and caches it as
+`<cache>/native/flux_support_O0.o` (`_O2.o` with `-O`).
+`compile_native_support_object` reuses that file whenever it exists. Its name
+carries neither `compiler_build_id()` nor `CACHE_FORMAT`, so no cache key
+reaches it. The build under `build-b` linked the file `build-a` wrote (same
+inode, same modification time), where every module object was rebuilt. A
+change to the code the support object holds is linked stale until
+`flux clean`.
+
+Test: `another_compiler_build_does_not_link_the_cached_support_object_ki197`
+in `tests/native_llvm/native_shared_cache_tests.rs` builds under two
+`FLUX_BUILD_ID`s and checks that the second leaves a support object the first
+didn't write. Before the fix it found only the first one's.
+
+**Fixed** in `src/llvm/module_cache.rs` and
+`src/driver/pipeline/native/mod.rs`. `support_object_path` names the file
+`flux_support_<level>-<16 hex of the build id>.o`, and
+`compile_native_support_object` uses it rather than its own copy of the old
+names. Each build leaves its own object in the cache until `flux clean`.
+
+### KI-196 — With Cargo 1.100, every native build fails to link because the Rust staticlib isn't found — FIXED 2026-11-12
+
+**Severity:** High (no native program builds) · **Area:** native linking (`src/llvm/pipeline.rs`, `discover_rust_staticlib`) · **Verified:** 2026-11-12 (0f5e4391), on macOS arm64 with cargo 1.100.0 (3acc79c0c 2026-11-05) · **From:** proposal 0204 S2, whose test needs a native link
+
+```sh
+cargo native tests/parity/adt_either_match.flx --no-cache
+```
+
+The link fails:
+
+```
+Undefined symbols for architecture arm64:
+  "_flux_print_backtrace", referenced from:
+      _flux_report_panic in libflux_rt.a[3](flux_rt.o)
+  "_flux_tape_arg", referenced from:
+      _flux_tape_start in libflux_rt.a[14](tape.o)
+```
+
+The C runtime calls into the Rust staticlib (`libflux.a`).
+`discover_rust_staticlib` looks for `libflux-<hash>.a` in
+`target/<profile>/deps/` and remembers the one it found in
+`flux-staticlib.path`. Cargo 1.100 puts hashed artifacts in
+`target/<profile>/build/<package>/<hash>/out/` and creates no `deps/`, so the
+search finds nothing and the program is linked without the staticlib. The
+uplifted `target/<profile>/libflux.a` is there, but the search never looks at
+it. Test binaries moved to `…/out/` too, so the code that maps a test binary's
+`deps/` directory back to the profile directory doesn't apply to them either.
+
+CI is not affected: `ci.yml` pins Rust 1.93.0. `release.yml` uses `@stable`.
+
+`build.rs` prunes old archives from `deps/` as well, so under the new layout
+nothing is pruned. Four `libflux-*.a` files of about 300 MB each were under
+`target/debug/build/flux/` here.
+
+Test: `staticlib_candidates_under_the_build_dir_layout_ki196` in
+`src/llvm/pipeline.rs` lays out a fake profile directory the way Cargo 1.100
+does, and checks the candidates from the compiler's path and from a test
+binary's. Before the fix it found no archives.
+
+**Fixed** in `src/llvm/pipeline.rs`. `staticlib_candidates` maps a binary in
+`build/<package>/<hash>/out/` to its profile directory, and lists the archives
+in `deps/`, in each `build/flux/<hash>/out/`, and the uplifted `libflux.a`
+(`flux.lib` on Windows), newest first. The sentinel check and the sidecar are
+unchanged. `build.rs` still prunes only `deps/`, so old archives under
+`build/flux/` are not removed.
+
 ### KI-194 — Natively, a dictionary given to an instance method from another module is never released — FIXED 2026-11-12
 
 **Severity:** Medium · **Area:** Aether, type classes, module interfaces (`src/compiler/module_interface.rs`, `src/compiler/mod.rs`) · **Verified:** 2026-11-12 (546896dd), `--native --debug-heap --leak-check` · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the heap-leak gate (filed there as KI-144 on `feat/heap-leak-gate`, which never merged)

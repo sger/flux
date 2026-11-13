@@ -11,7 +11,9 @@ use crate::{
     types::module_interface::{DependencyFingerprint, DependencyMissReason},
 };
 
-pub const NATIVE_MODULE_CACHE_FORMAT_VERSION: u16 = crate::shared::cache_paths::CACHE_EPOCH;
+pub const NATIVE_MODULE_CACHE_FORMAT_VERSION: u16 = crate::shared::cache_paths::CACHE_FORMAT;
+/// Frozen. The metadata's `compiler_version` check covers code changes, so
+/// bump it only under the `CACHE_FORMAT` rule (proposal 0204).
 const NATIVE_CACHE_ABI_TAG: &[u8] = b"native-cache-abi-v37:a-tuple-of-constants-is-a-static-object";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -240,14 +242,17 @@ fn object_ext() -> &'static str {
     if cfg!(windows) { "obj" } else { "o" }
 }
 
+/// The cached support object for this compiler build and optimization level.
 pub fn support_object_path(cache_layout: &cache_paths::CacheLayout, optimize: bool) -> PathBuf {
-    cache_layout.native_dir().join(if optimize {
-        if cfg!(windows) { "flux_support_O2.obj" } else { "flux_support_O2.o" }
-    } else if cfg!(windows) {
-        "flux_support_O0.obj"
-    } else {
-        "flux_support_O0.o"
-    })
+    // @KI-197: the compiler emits this object and the file is reused whenever
+    // it exists, so the build id in its name is the only key that reaches it.
+    let build = hex::encode(&hash_bytes(cache_paths::compiler_build_id().as_bytes()));
+    let level = if optimize { "O2" } else { "O0" };
+    cache_layout.native_dir().join(format!(
+        "flux_support_{level}-{}.{}",
+        &build[..16],
+        object_ext()
+    ))
 }
 
 #[cfg(test)]

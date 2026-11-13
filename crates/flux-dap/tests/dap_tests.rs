@@ -24,9 +24,23 @@ fn flux_bin() -> &'static Path {
         if let Some(bin) = std::env::var_os("FLUX_BIN") {
             return PathBuf::from(bin);
         }
-        // tests run from <target>/<profile>/deps/
+        // Tests run from <target>/<profile>/deps/, or since Cargo 1.100 from
+        // <target>/<profile>/build/<package>/<hash>/out/.
+        // @KI-198: two levels up is the profile only in the deps/ layout.
         let exe = std::env::current_exe().expect("test executable");
-        let profile_dir = exe.parent().and_then(Path::parent).expect("target dir");
+        let exe_dir = exe.parent().expect("test executable's directory");
+        let name_of =
+            |dir: &Path| dir.file_name().and_then(|name| name.to_str()).map(str::to_owned);
+        let build_dir = exe_dir.parent().and_then(Path::parent).and_then(Path::parent);
+        let profile_dir = if name_of(exe_dir).as_deref() == Some("deps") {
+            exe_dir.parent().expect("target dir")
+        } else if name_of(exe_dir).as_deref() == Some("out")
+            && build_dir.and_then(name_of).as_deref() == Some("build")
+        {
+            build_dir.and_then(Path::parent).expect("target dir")
+        } else {
+            exe_dir
+        };
         let bin = profile_dir.join(format!("flux{}", std::env::consts::EXE_SUFFIX));
         if !bin.exists() {
             let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");

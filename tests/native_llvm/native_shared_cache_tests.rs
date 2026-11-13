@@ -155,3 +155,47 @@ fn a_fixture_prints_the_same_with_and_without_the_cache() {
         assert_eq!(run(false), run(true), "native: {native}");
     }
 }
+
+/// The support object is compiler output, so a build by another compiler must
+/// not link the one this cache holds. `FLUX_BUILD_ID` stands in for a rebuilt
+/// compiler, as in the KI-079 tests (KI-197).
+#[test]
+fn another_compiler_build_does_not_link_the_cached_support_object_ki197() {
+    let scratch = Scratch::new("support-object-build-id");
+    scratch.write("main.flx", "fn main() with IO {\n    print(1)\n}\n");
+    let native_dir = scratch.cache_dir().join("native");
+    let support_objects = || -> Vec<(std::path::PathBuf, std::time::SystemTime)> {
+        std::fs::read_dir(&native_dir)
+            .expect("native cache dir")
+            .flatten()
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with("flux_support"))
+            .map(|entry| (entry.path(), entry.metadata().and_then(|m| m.modified()).unwrap()))
+            .collect()
+    };
+    let build = |build_id: &str| {
+        let output = Command::new(env!("CARGO_BIN_EXE_flux"))
+            .current_dir(scratch.path())
+            .args(["main.flx", "--native"])
+            .args(scratch.cache_args())
+            .env("FLUX_BUILD_ID", build_id)
+            .env("FLUX_HOME", scratch.join("flux-home"))
+            .env("NO_COLOR", "1")
+            .output()
+            .expect("run flux");
+        assert!(
+            output.status.success(),
+            "flux under {build_id} failed:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+
+    build("build-a");
+    let after_a = support_objects();
+    assert!(!after_a.is_empty(), "build-a cached no support object");
+    build("build-b");
+    let after_b = support_objects();
+    assert!(
+        after_b.iter().any(|object| !after_a.contains(object)),
+        "build-b linked the support object build-a wrote: {after_b:?}"
+    );
+}
