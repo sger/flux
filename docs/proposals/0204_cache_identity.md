@@ -2,7 +2,7 @@
 - Start Date: 2026-11-12
 - Proposal PR:
 - Flux Issue:
-- Status: Draft
+- Status: Partially Implemented (S1 and S2; S3 open)
 - Relates to: [0139](implemented/0139_incremental_module_caching.md) (the module cache this keys), [0177](implemented/0177_package_manager.md) (the shared store and the roots cache), KI-079 (the build id)
 
 # Proposal 0204: Cache identity without a hand-bumped epoch
@@ -124,8 +124,8 @@ manifests and the lockfile and costs little.
 
 The object's file name carries a short hash of `compiler_build_id()`, in both
 `compile_native_support_object` and `support_object_path`, which `flux cache`
-uses. This is a known issue and is fixed test-first: a native test builds under
-two `FLUX_BUILD_ID`s and checks that the second doesn't link the first's object.
+uses. This was KI-197, fixed test-first: a native test builds under two
+`FLUX_BUILD_ID`s and checks that the second doesn't link the first's object.
 
 ### §4 The build id
 
@@ -186,9 +186,6 @@ The GHC references are from a local checkout at `aefa0c1b90` (2026-08-16).
 ## Unresolved questions
 [unresolved-questions]: #unresolved-questions
 
-- Native links in one development checkout fail with undefined `flux_tape_*`
-  and `flux_print_backtrace`, because `target/debug/deps/` has no `libflux-*.a`.
-  §3's test needs a working native link, so the cause must be found first.
 - Whether to remove the frozen tags later, at a release that invalidates every
   cache anyway.
 
@@ -202,6 +199,17 @@ The GHC references are from a local checkout at `aefa0c1b90` (2026-08-16).
 ## Stages
 [stages]: #stages
 
-- **S1:** §1 and §2.
-- **S2:** §3, as a known issue, test-first.
-- **S3:** §4.
+- **S1, done 2026-11-12:** §1 and §2. The roots cache test came first
+  (`f15fa6c0`), then the fix (`1fd4e92a`), then the rename and the frozen tags
+  (`0f5e4391`).
+- **S2, done 2026-11-12:** §3, as KI-197 (`c31fcada`). Its native test needed a
+  working native link, and that turned out to be KI-196: Cargo 1.100 puts its
+  build artifacts in `target/<profile>/build/<package>/<hash>/out/` and has no
+  `deps/`, where the compiler looked for the Rust staticlib (`e443125c`).
+- **S3, open:** §4.
+
+Follow-ups from S2, outside this proposal:
+- `build.rs` prunes old staticlib archives only in `deps/`, so under Cargo
+  1.100 the archives under `target/<profile>/build/flux/` are never removed.
+- `ci.yml` pins Rust 1.93.0 and `release.yml` uses `@stable`, so a toolchain
+  change such as KI-196 reaches a release before CI sees it.
