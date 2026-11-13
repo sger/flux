@@ -453,8 +453,8 @@ impl VM {
     fn build_array(&mut self, start: usize, end: usize) -> Value {
         // Move values out of stack to avoid Rc refcount overhead
         let mut elements = Vec::with_capacity(end - start);
-        for i in start..end {
-            let s = std::mem::replace(&mut self.stack[i], slot::uninit());
+        for cell in &mut self.stack[start..end] {
+            let s = std::mem::replace(cell, slot::uninit());
             elements.push(slot::from_slot(s));
         }
         leak_detector::record_array();
@@ -463,8 +463,8 @@ impl VM {
 
     fn build_tuple(&mut self, start: usize, end: usize) -> Value {
         let mut elements = Vec::with_capacity(end - start);
-        for i in start..end {
-            let s = std::mem::replace(&mut self.stack[i], slot::uninit());
+        for cell in &mut self.stack[start..end] {
+            let s = std::mem::replace(cell, slot::uninit());
             elements.push(slot::from_slot(s));
         }
         leak_detector::record_tuple();
@@ -532,8 +532,8 @@ impl VM {
     fn clear_stack_range(&mut self, new_sp: usize, old_sp: usize) {
         debug_assert!(new_sp <= old_sp);
         debug_assert!(old_sp <= self.stack.len());
-        for i in new_sp..old_sp {
-            let _ = std::mem::replace(&mut self.stack[i], slot::uninit());
+        for cell in &mut self.stack[new_sp..old_sp] {
+            let _ = std::mem::replace(cell, slot::uninit());
         }
         #[cfg(debug_assertions)]
         self.debug_assert_stack_invariant();
