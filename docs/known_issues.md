@@ -602,30 +602,6 @@ reading of the timing is not confirmed. The VM twin of this test orders its
 steps with channels (8e4e3b09); the native one still uses sleeps, and moving
 it to channels alone would hide this bug.
 
-### KI-198 — With Cargo 1.100, the debug adapter tests can't find the flux binary
-
-**Severity:** Medium (20 of the 21 tests fail loudly) · **Area:** the `flux-dap` tests (`crates/flux-dap/tests/dap_tests.rs`, `flux_bin`) · **Verified:** 2026-11-13 (9b51cbf1), on macOS arm64 with cargo 1.100.0 · **From:** `cargo xtask verify cache-format`, whose tests step failed in `-p flux-dap --test dap_tests`
-
-Every test that launches a program fails at the launch request:
-
-```
-cannot start `…/target/debug/build/flux-dap/49ddc6a7d8df9007/flux`: No such file or directory (os error 2)
-```
-
-`flux_bin` takes the `flux` binary from the profile directory, which it finds
-two levels above the test binary, on the assumption that test binaries run
-from `target/<profile>/deps/`. Cargo 1.100 puts them in
-`target/<profile>/build/<package>/<hash>/out/`, so two levels up is
-`build/flux-dap/<hash>/`. When the binary is missing there, the helper builds
-it with `--target-dir` set to the parent of that folder, which puts a
-complete build in `target/debug/build/flux-dap/debug/` (1.5 GB here), and
-the binary still isn't where the helper looks. The same layout change broke
-the native link (KI-196).
-
-CI is not affected: `ci.yml` pins Rust 1.93.0.
-
-Workaround: set `FLUX_BIN` to the `flux` binary, or build with Rust 1.93.0.
-
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features` · **Issue:** [#170](https://forgejo.spirosgerokostas.com/sger/flux/issues/170)
@@ -3219,6 +3195,39 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-198 — With Cargo 1.100, the debug adapter tests can't find the flux binary — FIXED 2026-11-13
+
+**Severity:** Medium (20 of the 21 tests fail loudly) · **Area:** the `flux-dap` tests (`crates/flux-dap/tests/dap_tests.rs`, `flux_bin`) · **Verified:** 2026-11-13 (9b51cbf1), on macOS arm64 with cargo 1.100.0 · **From:** `cargo xtask verify cache-format`, whose tests step failed in `-p flux-dap --test dap_tests`
+
+Every test that launches a program fails at the launch request:
+
+```
+cannot start `…/target/debug/build/flux-dap/49ddc6a7d8df9007/flux`: No such file or directory (os error 2)
+```
+
+`flux_bin` takes the `flux` binary from the profile directory, which it finds
+two levels above the test binary, on the assumption that test binaries run
+from `target/<profile>/deps/`. Cargo 1.100 puts them in
+`target/<profile>/build/<package>/<hash>/out/`, so two levels up is
+`build/flux-dap/<hash>/`. When the binary is missing there, the helper builds
+it with `--target-dir` set to the parent of that folder, which puts a
+complete build in `target/debug/build/flux-dap/debug/` (1.5 GB here), and
+the binary still isn't where the helper looks. The same layout change broke
+the native link (KI-196).
+
+CI is not affected: `ci.yml` pins Rust 1.93.0.
+
+Test: the 20 failing tests in `dap_tests` are the test. `flux_bin` is test
+code, so no separate test was added. All 21 pass after the fix, and run
+directly with `target/debug/flux` deleted, the helper rebuilds it where it
+looks and leaves no tree under `build/flux-dap/`.
+
+**Fixed** in `crates/flux-dap/tests/dap_tests.rs`. `flux_bin` takes the profile
+directory from the test binary's own directory: its parent for `deps/`, the
+folder above `build/` for `build/<package>/<hash>/out/`, as
+`staticlib_candidates` does for KI-196, and the directory itself otherwise. The
+fallback build's `--target-dir` is the parent of that profile directory.
 
 ### KI-197 — Natively, the support object built by one compiler is linked by the next — FIXED 2026-11-12
 
