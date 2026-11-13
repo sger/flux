@@ -87,15 +87,9 @@ pub(crate) fn compile_native_support_object(
         let _ = std::fs::create_dir_all(&dir);
         dir.join(if cfg!(windows) { "flux_support.obj" } else { "flux_support.o" })
     } else {
-        let dir = cache_layout.native_dir();
-        let _ = std::fs::create_dir_all(&dir);
-        dir.join(if enable_optimize {
-            if cfg!(windows) { "flux_support_O2.obj" } else { "flux_support_O2.o" }
-        } else if cfg!(windows) {
-            "flux_support_O0.obj"
-        } else {
-            "flux_support_O0.o"
-        })
+        let _ = std::fs::create_dir_all(cache_layout.native_dir());
+        // @KI-197: one name for the cached object, keyed by the build id.
+        crate::llvm::module_cache::support_object_path(cache_layout, enable_optimize)
     };
 
     if !no_cache && object_path.exists() {

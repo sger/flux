@@ -20,7 +20,7 @@ use cache_validation::{
 };
 
 const MAGIC: &[u8; 4] = b"FXBC";
-const FORMAT_VERSION: u16 = crate::shared::cache_paths::CACHE_EPOCH;
+const FORMAT_VERSION: u16 = crate::shared::cache_paths::CACHE_FORMAT;
 
 pub struct BytecodeCache {
     dir: PathBuf,

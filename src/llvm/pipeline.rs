@@ -472,19 +472,63 @@ fn rust_staticlib_path() -> Option<PathBuf> {
     RUST_STATICLIB.get_or_init(discover_rust_staticlib).clone()
 }
 
+/// The Cargo profile directory for `exe`, and the staticlib archives under it
+/// that could be the one to link, newest first.
+fn staticlib_candidates(exe: &Path) -> Option<(PathBuf, Vec<PathBuf>)> {
+    let exe_dir = exe.parent()?;
+    let name_of = |dir: &Path| dir.file_name().and_then(|n| n.to_str()).map(str::to_owned);
+
+    // The main `flux` binary lands in target/<profile>/. Test binaries land in
+    // target/<profile>/deps/, or since Cargo 1.100 in
+    // target/<profile>/build/<package>/<hash>/out/.
+    // @KI-196: recognise the build-dir layout as well as deps/.
+    let build_dir = exe_dir.parent().and_then(Path::parent).and_then(Path::parent);
+    let profile_dir = if name_of(exe_dir).as_deref() == Some("deps") {
+        exe_dir.parent()?.to_path_buf()
+    } else if name_of(exe_dir).as_deref() == Some("out")
+        && build_dir.and_then(name_of).as_deref() == Some("build")
+    {
+        build_dir?.parent()?.to_path_buf()
+    } else {
+        exe_dir.to_path_buf()
+    };
+
+    let is_hashed_archive = |p: &Path| {
+        let name = p.file_name().and_then(|f| f.to_str()).unwrap_or("");
+        (name.starts_with("libflux-") && name.ends_with(".a"))
+            || (name.starts_with("flux-") && name.ends_with(".lib"))
+    };
+    let archives_in = |dir: &Path| -> Vec<PathBuf> {
+        fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| is_hashed_archive(p))
+            .collect()
+    };
+
+    // @KI-196: the build-dir layout has no deps/. Its archives sit in each
+    // build/flux/<hash>/out/, and Cargo also copies the newest to the profile.
+    let mut candidates = archives_in(&profile_dir.join("deps"));
+    for out in fs::read_dir(profile_dir.join("build").join("flux")).into_iter().flatten().flatten()
+    {
+        candidates.extend(archives_in(&out.path().join("out")));
+    }
+    let uplifted = profile_dir.join(if cfg!(windows) { "flux.lib" } else { "libflux.a" });
+    if uplifted.is_file() {
+        candidates.push(uplifted);
+    }
+    candidates.sort_by_key(|p| {
+        fs::metadata(p).and_then(|m| m.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+    });
+    candidates.reverse(); // newest first
+    Some((profile_dir, candidates))
+}
+
 fn discover_rust_staticlib() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
-    let exe_dir = exe.parent()?;
-
-    // Test binaries land in target/<profile>/deps/ while the main `flux`
-    // binary lands in target/<profile>/. Normalise so `profile_dir` always
-    // points at target/<profile>/ and `deps_dir` at target/<profile>/deps/.
-    let (profile_dir, deps_dir) = if exe_dir.file_name().and_then(|n| n.to_str()) == Some("deps") {
-        let profile = exe_dir.parent()?;
-        (profile.to_path_buf(), exe_dir.to_path_buf())
-    } else {
-        (exe_dir.to_path_buf(), exe_dir.join("deps"))
-    };
+    let (profile_dir, candidates) = staticlib_candidates(&exe)?;
 
     // The archive must export the sentinels proving it was built with
     // --features llvm (a feature-less build lacks flux_async_* symbols) and
@@ -531,22 +575,7 @@ fn discover_rust_staticlib() -> Option<PathBuf> {
         }
     }
 
-    // Slow fallback: scan deps/ newest-first.
-    let mut candidates: Vec<PathBuf> = fs::read_dir(&deps_dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| {
-            let name = p.file_name().and_then(|f| f.to_str()).unwrap_or("");
-            (name.starts_with("libflux-") && name.ends_with(".a"))
-                || (name.starts_with("flux-") && name.ends_with(".lib"))
-        })
-        .collect();
-    candidates.sort_by_key(|p| {
-        fs::metadata(p).and_then(|m| m.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH)
-    });
-    candidates.reverse(); // newest first
+    // Slow fallback: check each candidate, newest first.
     let found = candidates.into_iter().find(|p| has_sentinel(p))?;
 
     // Cache result. Next run uses the fast path unless the file disappears
@@ -1246,10 +1275,47 @@ fn check_output(tool: &'static str, output: &std::process::Output) -> Result<(),
 mod tests {
     use super::{
         CToolchain, RuntimeVariant, archive_is_up_to_date, create_archive, detect_c_toolchain,
-        native_build_base_dir,
+        native_build_base_dir, staticlib_candidates,
     };
     use std::path::{Path, PathBuf};
     use std::process::Command;
+
+    /// Cargo 1.100 builds into target/<profile>/build/<package>/<hash>/out/ and
+    /// has no deps/. A test binary lives in such an out/ directory too.
+    #[test]
+    fn staticlib_candidates_under_the_build_dir_layout_ki196() {
+        let profile = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-scratch")
+            .join(format!("flux-staticlib-layout-{}", std::process::id()))
+            .join("debug");
+        let hashed = profile.join("build").join("flux").join("h1").join("out");
+        let tests_out = profile.join("build").join("flux").join("h2").join("out");
+        std::fs::create_dir_all(&hashed).expect("hashed dir");
+        std::fs::create_dir_all(&tests_out).expect("test binary dir");
+        let (hashed_archive, uplifted) = if cfg!(windows) {
+            (hashed.join("flux-h1.lib"), profile.join("flux.lib"))
+        } else {
+            (hashed.join("libflux-h1.a"), profile.join("libflux.a"))
+        };
+        std::fs::write(&hashed_archive, []).expect("hashed archive");
+        std::fs::write(&uplifted, []).expect("uplifted archive");
+
+        let main_exe = profile.join("flux");
+        let test_exe = tests_out.join("native_llvm-h2");
+        let found = [&main_exe, &test_exe].map(|exe| staticlib_candidates(exe));
+        let _ = std::fs::remove_dir_all(profile.parent().unwrap());
+
+        for (exe, result) in [&main_exe, &test_exe].iter().zip(found) {
+            let (profile_dir, candidates) = result.expect("candidates");
+            assert_eq!(profile_dir, profile, "profile directory for {}", exe.display());
+            assert!(
+                candidates.contains(&hashed_archive) && candidates.contains(&uplifted),
+                "{} found {candidates:?}",
+                exe.display()
+            );
+        }
+    }
 
     /// Compiles a one-function C file to `<dir>/<stem>.o` (`.obj` for `cl`).
     fn compile_member(toolchain: &CToolchain, dir: &Path, stem: &str) -> Option<PathBuf> {

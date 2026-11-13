@@ -183,9 +183,9 @@ fn build_or_wait_for_template() -> Option<PathBuf> {
     }
 }
 
-/// Names the template after the `flux` binary and the stdlib sources. Cache
-/// entries are keyed by build already, but `flux_support_O0.o` is not, so a
-/// template from an older build could hand a test a stale object.
+/// Names the template after the `flux` binary and the stdlib sources. Every
+/// cache entry is keyed by the build, so a template from another build would
+/// hold only misses.
 fn template_key() -> String {
     let mut hasher = std::hash::DefaultHasher::new();
     let mut stamp = |path: &Path| {

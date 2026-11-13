@@ -24,7 +24,7 @@ use crate::{
 };
 
 const MAGIC: &[u8; 4] = b"FXMC";
-const FORMAT_VERSION: u16 = crate::shared::cache_paths::CACHE_EPOCH;
+const FORMAT_VERSION: u16 = crate::shared::cache_paths::CACHE_FORMAT;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ModuleCacheLoadError {

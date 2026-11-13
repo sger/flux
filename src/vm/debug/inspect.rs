@@ -312,7 +312,7 @@ impl<'a> Inspector<'a> {
             frame.index = out.len();
             out.push((source, frame));
         };
-        for index in first..=last {
+        for (index, frame) in vm.frames.iter().enumerate().take(last + 1).skip(first) {
             if let Some(suspension) = control
                 .suspensions
                 .iter()
@@ -353,7 +353,7 @@ impl<'a> Inspector<'a> {
                     ),
                 );
             }
-            let function = &vm.frames[index].closure.function;
+            let function = &frame.closure.function;
             let info = function.debug_info.as_ref();
             let mut name = function_name(info, index);
             let mut artificial = is_artificial(info.and_then(|info| info.name.as_deref()));
