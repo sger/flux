@@ -77,6 +77,10 @@ pub struct BorrowRegistry {
     pub unknown_callee_signature: BorrowSignature,
     /// Each function's consuming clone (proposal 0200), for call sites to choose.
     pub owned_clones: HashMap<CoreBinderId, OwnedClone>,
+    /// The primop each unbound library function called by name becomes
+    /// natively (`CorePrimOp::for_unbound_call`), so Aether knows what such
+    /// a call returns.
+    pub library_primops: HashMap<Identifier, crate::core::CorePrimOp>,
 }
 
 /// A consuming copy of a function, and the parameters it owns that the original
@@ -94,6 +98,7 @@ impl Default for BorrowRegistry {
             by_name: HashMap::new(),
             by_member_access: HashMap::new(),
             owned_clones: HashMap::new(),
+            library_primops: HashMap::new(),
             unknown_callee_signature: BorrowSignature::new(Vec::new(), BorrowProvenance::Unknown),
         }
     }
@@ -282,6 +287,11 @@ fn register_explicit_named_fallbacks(
     }
 
     for (name, arity) in unresolved_callees {
+        if let Some(op) = interner.and_then(|interner| {
+            crate::core::CorePrimOp::for_unbound_call(interner.resolve(name), arity)
+        }) {
+            registry.library_primops.insert(name, op);
+        }
         if let Some(interner) = interner
             && let Some(borrows) =
                 crate::core::CorePrimOp::resolve_borrow_info(interner.resolve(name))

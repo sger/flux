@@ -1417,6 +1417,33 @@ impl CorePrimOp {
         Some(op)
     }
 
+    /// The primop a call to the unbound function `name` becomes natively: LIR
+    /// emits it as a direct `PrimCall`, and Aether reads what the call returns
+    /// from it, so the two agree on the function's result.
+    pub fn for_unbound_call(name: &str, arity: usize) -> Option<Self> {
+        Self::from_library_name(name, arity).or_else(|| Self::from_name(name, arity))
+    }
+
+    /// The primop a `Flow.*` library function, or its builtin spelling,
+    /// names; tried before [`Self::from_name`].
+    fn from_library_name(name: &str, arity: usize) -> Option<Self> {
+        // Strip module prefix (e.g. "Flow.List.first" → "first")
+        let short = name.rsplit('.').next().unwrap_or(name);
+        match (name, short, arity) {
+            ("Flow.Map.get", _, 2) | (_, "map_get", 2) => Some(CorePrimOp::HamtGet),
+            ("Flow.Map.set", _, 3) | (_, "map_set", 3) => Some(CorePrimOp::HamtSet),
+            ("Flow.Map.delete", _, 2) | (_, "map_delete", 2) => Some(CorePrimOp::HamtDelete),
+            ("Flow.Map.merge", _, 2) | (_, "map_merge", 2) => Some(CorePrimOp::HamtMerge),
+            ("Flow.Map.keys", _, 1) | (_, "map_keys", 1) => Some(CorePrimOp::HamtKeys),
+            ("Flow.Map.values", _, 1) | (_, "map_values", 1) => Some(CorePrimOp::HamtValues),
+            ("Flow.Map.size", _, 1) | (_, "map_size", 1) => Some(CorePrimOp::HamtSize),
+            ("Flow.Map.has", _, 2) | (_, "map_has", 2) => Some(CorePrimOp::HamtContains),
+            (_, "safe_div", 2) => Some(CorePrimOp::SafeDiv),
+            (_, "safe_mod", 2) => Some(CorePrimOp::SafeMod),
+            _ => None,
+        }
+    }
+
     /// Resolve a function name + arity to a `CorePrimOp`, if it names a
     /// built-in primitive.  Used by the bytecode compiler to emit `OpPrimOp`.
     pub fn from_name(name: &str, arity: usize) -> Option<Self> {
