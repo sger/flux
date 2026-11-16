@@ -302,6 +302,168 @@ fn a_value_read_only_in_an_if_argument_is_released_ki199() {
     }
 }
 
+/// The result of a runtime primop that makes a new value, or counts its
+/// argument again, is released: when bound, and when the value it was made
+/// from is released after it (KI-201). `safe_div` and `safe_mod` reach Aether
+/// as runtime calls rather than primops.
+#[test]
+fn the_results_of_runtime_primops_are_released_ki201() {
+    let scratch = Scratch::new("debug-heap-runtime-primops-ki201");
+    for (name, program) in [
+        (
+            "array_push_printed",
+            r#"fn main() {
+    let arr = [|1, 2, 3|]
+    print(array_push(arr, 4))
+    print(len(arr))
+}
+"#,
+        ),
+        (
+            "array_push_of_a_let",
+            r#"fn main() {
+    let b = array_push([|1, 2, 3|], 4)
+    print(len(b))
+}
+"#,
+        ),
+        (
+            "array_concat",
+            r#"fn main() {
+    let c = array_concat([|1|], [|2, 3|])
+    print(c)
+}
+"#,
+        ),
+        (
+            "array_slice",
+            r#"fn main() {
+    let a = [|1, 2, 3, 4|]
+    let s = array_slice(a, 1, 3)
+    print(s)
+}
+"#,
+        ),
+        (
+            "array_set",
+            r#"fn main() {
+    let a = [|1, 2, 3|]
+    let b = array_set(a, 0, 9)
+    print(b)
+    print(a)
+}
+"#,
+        ),
+        (
+            "safe_div_of_a_neg",
+            r#"fn main() {
+    print(safe_div(-15, 3))
+}
+"#,
+        ),
+        (
+            "safe_div_let_then_match",
+            r#"fn main() {
+    let result = safe_div(100, 4)
+    match result {
+        Some(v) -> print(v),
+        None -> print("none"),
+    }
+}
+"#,
+        ),
+        (
+            "safe_mod",
+            r#"fn main() {
+    let r = safe_mod(-7, 3)
+    print(r)
+}
+"#,
+        ),
+        (
+            "substring_compared",
+            r#"fn starts(s: String, p: String) -> Bool {
+    substring(s, 0, len(p)) == p
+}
+
+fn main() {
+    print(starts("hello", "he"))
+}
+"#,
+        ),
+        (
+            "substring_pushed",
+            r#"fn main() {
+    let s = "abc"
+    let a = array_push([||], substring(s, 0, 1))
+    print(a)
+}
+"#,
+        ),
+        (
+            "string_slice",
+            r#"fn main() {
+    let src = "hello" + " world"
+    let s = string_slice(src, 0, 5)
+    print(s)
+}
+"#,
+        ),
+        (
+            "split",
+            r#"fn main() {
+    let src = "a,b" + ",c"
+    let parts = split(src, ",")
+    print(parts)
+}
+"#,
+        ),
+        (
+            "trim",
+            r#"fn main() {
+    let src = "  hi" + "  "
+    let t = trim(src)
+    print(t)
+}
+"#,
+        ),
+        (
+            "upper",
+            r#"fn main() {
+    let src = "h" + "i"
+    let u = upper(src)
+    print(u)
+}
+"#,
+        ),
+        (
+            "lower",
+            r#"fn main() {
+    let src = "H" + "I"
+    let l = lower(src)
+    print(l)
+}
+"#,
+        ),
+        (
+            "replace",
+            r#"fn main() {
+    let src = "a-b" + "-c"
+    let r = replace(src, "-", "+")
+    print(r)
+}
+"#,
+        ),
+    ] {
+        let path = scratch.write(&format!("{name}.flx"), program);
+        let path = path.to_string_lossy();
+        let (vm, _, _) = run(&scratch, &path, &["--vm"], None);
+        let (stdout, stderr, code) = run(&scratch, &path, &["--native", "--leak-check"], None);
+        assert_eq!((stdout.as_str(), code), (vm.as_str(), 0), "{name}: {stderr}");
+        assert!(!stderr.contains("leak:"), "{name}: {stderr}");
+    }
+}
+
 /// `--debug-heap` alone does not report leaks: nearly every program still
 /// leaks (KI-119, KI-121).
 #[test]
