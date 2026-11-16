@@ -659,84 +659,6 @@ guard because some runtime results point into an argument without a
 reference of their own (the `owned_unknown` comment), so the fix belongs in
 `alias_of`, not in removing the guard.
 
-### KI-200 — Floats: `x + 0.0` and `x * 0.0` are simplified away, giving IEEE-wrong results and dropping the operand's effects
-
-**Severity:** High (silent wrong output; natively an effect never runs) · **Area:** Core simplification (`src/core/passes/algebraic.rs`) · **Verified:** 2026-11-16 (c79016e8), on both ways, with and without `-O`, and with `--opt-bisect-limit 0` · **From:** writing the KI-161 tests
-
-```flux
-fn neg_zero() -> Float {
-    -0.0
-}
-
-fn main() with IO {
-    let x = neg_zero()
-    print(x)
-    print(x + 0.0)
-    print(0.0 + x)
-    print(x - 0.0)
-    print(1.0 / (x + 0.0))
-}
-```
-
-IEEE 754 gives `-0`, `0`, `0`, `-0`, `inf`. The VM prints that. Natively:
-
-```text
-$ flux add_zero.flx --native
--0
--0
--0
--0
--inf
-```
-
-`neg3() * 0.0` and `0.0 * neg3()` natively print `0` and `0` (IEEE: `-0`,
-`-0`), and `(1.0 / zero()) * 0.0` prints `0` (IEEE: NaN). An operand with an
-effect is not evaluated at all:
-
-```flux
-fn loud() -> Int with IO {
-    print("side")
-    3
-}
-
-fn main() with IO {
-    print(loud() * 0)
-}
-```
-
-The VM prints `"side"` then `0`. Natively only `0` is printed; `Float` does
-the same with `* 0.0`. Every one of these natively prints what the VM prints
-under `--opt-bisect-limit 0`, and `--opt-bisect-limit -1` lists only
-`algebraic_simplify` rewrites (`FAdd`, `FSub`, `FMul`, `IMul`) in `main`.
-
-With literals on both sides the VM is wrong too: in
-`fn zeros() -> Float { 0.0 + -0.0 }`, `zeros()` prints `-0` and
-`1.0 / zeros()` prints `-inf` on both ways, and `0`, `inf` under
-`--opt-bisect-limit 0`. Why the VM's run is unaffected when the rewrite is in
-`main` isn't known: the VM's compile fires the same rewrites there
-(`--opt-bisect-limit -1`), but they don't change what it prints. The dump
-flags don't show this, as every `--dump-*` lowers the merged program, the
-native path's input.
-
-**The cause.** `algebraic_simplify` rewrites, before ANF, so an operand can
-be any expression:
-
-- `x + 0.0 → x` and `0.0 + x → x`: wrong for `x = -0.0`, since
-  `-0.0 + 0.0` is `+0.0`.
-- `x * 0.0 → 0.0` and `0.0 * x → 0.0`: wrong for a negative `x` (`-0.0`),
-  `±inf` and NaN (NaN), and `x` is dropped unevaluated.
-- `x * 0 → 0` and `0 * x → 0` on Ints: right value, but `x` is dropped
-  unevaluated, with its effects.
-- The guards test `*v == 0.0`, which a `-0.0` literal also passes; whether one
-  reaches the pass wasn't checked. `x - 0.0 → x`, `x * 1.0`, `x / 1.0` and
-  `1.0 * x` are IEEE-exact.
-
-**Likely fix:** keep only the exact Float rules, matching zero by its bits
-(`x - (+0.0)`, `x + (-0.0)`), and drop an operand only when it is a variable
-or a literal. Koka folds no Float arithmetic at all: its `float64` operators
-are inline C (`lib/std/num/float64.kk`), and its only arithmetic peepholes
-are for Int, in the C backend.
-
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
@@ -3293,6 +3215,98 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-200 — Floats: `x + 0.0` and `x * 0.0` were simplified away, giving IEEE-wrong results and dropping the operand's effects — FIXED 2026-11-16
+
+**Severity:** High (silent wrong output; natively an effect never ran) · **Area:** Core simplification (`src/core/passes/algebraic.rs`) · **Verified:** 2026-11-16 (c79016e8), on both ways, with and without `-O`, and with `--opt-bisect-limit 0` · **From:** writing the KI-161 tests
+
+```flux
+fn neg_zero() -> Float {
+    -0.0
+}
+
+fn main() with IO {
+    let x = neg_zero()
+    print(x)
+    print(x + 0.0)
+    print(0.0 + x)
+    print(x - 0.0)
+    print(1.0 / (x + 0.0))
+}
+```
+
+IEEE 754 gives `-0`, `0`, `0`, `-0`, `inf`. The VM printed that. Natively:
+
+```text
+$ flux add_zero.flx --native
+-0
+-0
+-0
+-0
+-inf
+```
+
+`neg3() * 0.0` and `0.0 * neg3()` natively printed `0` and `0` (IEEE: `-0`,
+`-0`), and `(1.0 / zero()) * 0.0` printed `0` (IEEE: NaN). An operand with an
+effect was not evaluated at all:
+
+```flux
+fn loud() -> Int with IO {
+    print("side")
+    3
+}
+
+fn main() with IO {
+    print(loud() * 0)
+}
+```
+
+The VM printed `"side"` then `0`. Natively only `0` was printed; `Float` did
+the same with `* 0.0`. Every one of these natively printed what the VM
+printed under `--opt-bisect-limit 0`, and `--opt-bisect-limit -1` listed only
+`algebraic_simplify` rewrites (`FAdd`, `FSub`, `FMul`, `IMul`) in `main`.
+
+With literals on both sides the VM was wrong too: in
+`fn zeros() -> Float { 0.0 + -0.0 }`, `zeros()` printed `-0` and
+`1.0 / zeros()` printed `-inf` on both ways, and `0`, `inf` under
+`--opt-bisect-limit 0`. Why the VM's run was unaffected when the rewrite was
+in `main` isn't known: the VM's compile fired the same rewrites there
+(`--opt-bisect-limit -1`), but they didn't change what it printed. The dump
+flags don't show this, as every `--dump-*` lowers the merged program, the
+native path's input.
+
+**The cause.** `algebraic_simplify` rewrites before ANF, so an operand can be
+any expression:
+
+- `x + 0.0 → x` and `0.0 + x → x`: wrong for `x = -0.0`, since
+  `-0.0 + 0.0` is `+0.0`.
+- `x * 0.0 → 0.0` and `0.0 * x → 0.0`: wrong for a negative `x` (`-0.0`),
+  `±inf` and NaN (NaN), and `x` was dropped unevaluated.
+- `x * 0 → 0` and `0 * x → 0` on Ints: right value, but `x` was dropped
+  unevaluated, with its effects.
+- The guards tested `*v == 0.0`, which a `-0.0` literal also passes; whether
+  one reaches the pass wasn't checked.
+
+Koka folds no Float arithmetic at all: its `float64` operators are inline C
+(`lib/std/num/float64.kk`), and its only arithmetic peepholes are for Int, in
+the C backend.
+
+Test: `tests/parity/arith_float_identities_ki200.flx` pins the IEEE output,
+signs shown through `1.0 / …`, and that `loud() * 0` and `loud_f() * 0.0`
+still print. Before the fix the VM and native disagreed on it, and the VM's
+first line was `-inf` for `inf`; after it both print the expected block. Unit
+tests in `src/core/passes/tests.rs`:
+`algebraic_simplify_keeps_ieee_float_results_ki200` and
+`algebraic_simplify_evaluates_a_dropped_operand_with_effects_ki200` failed on
+`x + 0.0` and `f() * 0` before the fix.
+
+**Fixed** in `src/core/passes/algebraic.rs`. The Float rules left are the
+exact ones: `x + (-0.0)`, `(-0.0) + x` and `x - (+0.0)` become `x`, matching
+the zero by its bits, and `* 1.0`, `1.0 *` and `/ 1.0` as before. `x + 0.0`,
+`0.0 + x` and `x * 0.0` are kept. A rule that discards an operand (`x * 0`,
+`0 * x`, `x mod 1`, `x && false`, `x || true`) applies only when the operand
+is pure (`helpers::is_pure`). `const_fold`, which computes with Rust's `f64`,
+still folds `0.0 + -0.0`, now to `+0.0`.
 
 ### KI-161 — Natively, a Float literal used as an operand or argument leaked its box — FIXED 2026-11-16
 
