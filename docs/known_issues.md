@@ -728,43 +728,6 @@ the components the rule already found, or narrow the rule to the instances
 that exist (an error at type checking instead of the E000). Proposal 0194
 relies on this for its `Hash` class having no methods.
 
-### KI-161 — Natively, a Float literal used as an operand or argument leaks its box
-
-**Severity:** Medium · **Area:** LLVM emission, Floats · **Verified:** 2026-11-02 (66decd77) · **From:** the full verify after the Float counting fix (204a2c8e), whose new fixture `tests/parity/float_let_shared.flx` was the one file added to heap parity's leak list · **Issue:** [#161](https://forgejo.spirosgerokostas.com/sger/flux/issues/161)
-
-```flux
-fn half(x: Float) -> Float {
-    x * 0.5
-}
-
-fn main() {
-    let h = half(3.0)
-    if h > 1.0 { 0 } else { 1 }
-}
-```
-
-```text
-$ flux half.flx --native --leak-check
-leak: 3 blocks still live at exit
-  a Float (8 bytes) allocated at main (half.flx:6:13)
-  a Float (8 bytes) allocated at half (half.flx:2:5)
-  a Float (8 bytes) allocated at main (half.flx:7:8)
-```
-
-One box per literal: the `3.0` lent to `half`, the `0.5` in `x * 0.5`, and
-the `1.0` in the comparison. The result `h` is freed. The Aether dump shows
-why: a Float literal stays an operand (`aether_call[borrowed] half(3)`,
-`FCmpGt(h, 1)`), so no binder owns it and nothing drops it, but emission
-(`LirConst::Float` in `src/lir/emit_llvm.rs`) boxes it with
-`flux_box_float_rt` at each use. A `let` bound to a literal is propagated
-into its uses, so `let a = 3.14` used twice leaks two boxes.
-`examples/guide/float.flx` leaks 4 blocks and `float_let_shared.flx` 6,
-all literals; a loop over such code leaks without bound.
-
-Likely fix: emit a Float literal as a static object with a sticky count, as
-`StaticObjects` already does for string literals, so it allocates nothing
-and dropping it does nothing. That also saves an allocation per use.
-
 ### KI-159 — The sanitizer runs check only the C runtime, not generated code
 
 **Severity:** Medium · **Area:** native runtime, sanitizers · **Verified:** 2026-11-02 (c4019333), by reading the build and the emitted IR · **From:** inline reference counting (native runtime roadmap task 5b), an accepted gap · **Issue:** [#159](https://forgejo.spirosgerokostas.com/sger/flux/issues/159)
@@ -3195,6 +3158,59 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-161 — Natively, a Float literal used as an operand or argument leaked its box — FIXED 2026-11-16
+
+**Severity:** Medium · **Area:** LLVM emission, Floats · **Verified:** 2026-11-02 (66decd77) · **From:** the full verify after the Float counting fix (204a2c8e), whose new fixture `tests/parity/float_let_shared.flx` was the one file added to heap parity's leak list · **Issue:** [#161](https://forgejo.spirosgerokostas.com/sger/flux/issues/161)
+
+```flux
+fn half(x: Float) -> Float {
+    x * 0.5
+}
+
+fn main() {
+    let h = half(3.0)
+    if h > 1.0 { 0 } else { 1 }
+}
+```
+
+```text
+$ flux half.flx --native --leak-check
+leak: 3 blocks still live at exit
+  a Float (8 bytes) allocated at main (half.flx:6:13)
+  a Float (8 bytes) allocated at half (half.flx:2:5)
+  a Float (8 bytes) allocated at main (half.flx:7:8)
+```
+
+One box per literal: the `3.0` lent to `half`, the `0.5` in `x * 0.5`, and
+the `1.0` in the comparison. The result `h` is freed. The Aether dump shows
+why: a Float literal stays an operand (`aether_call[borrowed] half(3)`,
+`FCmpGt(h, 1)`), so no binder owns it and nothing drops it, but emission
+(`LirConst::Float` in `src/lir/emit_llvm.rs`) boxes it with
+`flux_box_float_rt` at each use. A `let` bound to a literal is propagated
+into its uses, so `let a = 3.14` used twice leaks two boxes.
+`examples/guide/float.flx` leaks 4 blocks and `float_let_shared.flx` 6,
+all literals; a loop over such code leaks without bound.
+
+Likely fix: emit a Float literal as a static object with a sticky count, as
+`StaticObjects` already does for string literals, so it allocates nothing
+and dropping it does nothing. That also saves an allocation per use.
+
+Test: `float_literals_leave_nothing_live_ki161` in
+`tests/debug/native_debug_heap_tests/leaks_and_moves.rs` runs four programs
+under `--native --leak-check`: the one above, a `let` bound to a literal and
+used twice, a loop that adds a literal 100 times, and a literal inside a
+constructor. Before the fix the first reported 3 blocks; after it all four
+leave nothing and print what the VM prints.
+`float_literals_are_static_objects_ki161` in `tests/native_llvm/llvm_adt.rs`
+checks the emitted IR: no literal is boxed, and a literal used in two
+functions is one object.
+
+**Fixed** in `src/lir/emit_llvm.rs`. `StaticObjects` emits each distinct Float
+literal, keyed by its bits, as one read-only `{header, double}` object with a
+sticky count, as it does for string literals, and `emit_const` refers to it.
+Using a literal allocates nothing and dropping it does nothing. A constructor
+or tuple whose fields include one is now static too.
 
 ### KI-198 — With Cargo 1.100, the debug adapter tests can't find the flux binary — FIXED 2026-11-13
 
