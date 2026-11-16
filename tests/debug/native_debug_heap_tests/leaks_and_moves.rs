@@ -205,6 +205,42 @@ fn a_program_that_prints_leaves_nothing_live_ki119() {
     }
 }
 
+/// KI-161: a Float literal used as an operand or an argument is owned by no
+/// binder, so nothing drops it; boxed at each use, it leaked once per use,
+/// and once per iteration in a loop. A constructor of constants holding one
+/// is checked too, since it becomes a constant itself.
+#[test]
+fn float_literals_leave_nothing_live_ki161() {
+    let scratch = Scratch::new("debug-heap-float-literals-ki161");
+    for (name, program) in [
+        (
+            "operand_and_argument",
+            "fn half(x: Float) -> Float {\n    x * 0.5\n}\n\n\
+             fn main() {\n    let h = half(3.0)\n    if h > 1.0 { 0 } else { 1 }\n}\n",
+        ),
+        ("let_used_twice", "fn main() {\n    let a = 3.14\n    print(a + a)\n}\n"),
+        (
+            "in_a_loop",
+            "fn go(n: Int, acc: Float) -> Float {\n    \
+             if n == 0 { acc } else { go(n - 1, acc + 0.5) }\n}\n\n\
+             fn main() {\n    print(go(100, 0.0))\n}\n",
+        ),
+        (
+            "in_a_constructor",
+            "fn pick(o: Option<Float>) -> Float {\n    match o {\n        \
+             Some(x) -> x,\n        None -> -1.0,\n    }\n}\n\n\
+             fn main() {\n    print(pick(Some(1.5)))\n}\n",
+        ),
+    ] {
+        let path = scratch.write(&format!("{name}.flx"), program);
+        let path = path.to_string_lossy();
+        let (vm, _, _) = run(&scratch, &path, &["--vm"], None);
+        let (stdout, stderr, code) = run(&scratch, &path, &["--native", "--leak-check"], None);
+        assert_eq!((stdout.as_str(), code), (vm.as_str(), 0), "{name}: {stderr}");
+        assert!(!stderr.contains("leak:"), "{name}: {stderr}");
+    }
+}
+
 /// `--debug-heap` alone does not report leaks: nearly every program still
 /// leaks (KI-119, KI-121).
 #[test]

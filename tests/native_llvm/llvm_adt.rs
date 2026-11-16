@@ -439,6 +439,54 @@ fn main() {
     assert_eq!(inner, 1, "{statics:#?}");
 }
 
+/// A Float literal is one read-only object, as a string literal is: using it
+/// allocates nothing and dropping it does nothing, so a literal no binder
+/// owns no longer leaks a box at each use (KI-161).
+#[test]
+fn float_literals_are_static_objects_ki161() {
+    let rendered = compile_to_llvm_ir(
+        r#"
+fn half(x: Float) -> Float { x * 0.5 }
+fn more(x: Float) -> Float { x * 0.5 + 0.25 }
+
+fn main() {
+    let a = half(3.0);
+    let b = more(1.0);
+    0
+}
+"#,
+    );
+
+    let body = |name: &str| -> &str {
+        let define = rendered
+            .lines()
+            .find(|line| line.starts_with("define") && line.contains(&format!("_{name}(")))
+            .unwrap_or_else(|| panic!("no function {name}:\n{rendered}"));
+        let start = rendered.find(define).unwrap();
+        &rendered[start..start + rendered[start..].find("\n}").unwrap()]
+    };
+    // The products and sums are boxed inside `flux_fmul` and `flux_fadd`;
+    // the functions themselves box nothing.
+    for name in ["half", "more", "main"] {
+        let body = body(name);
+        assert!(!body.contains("@flux_box_float_rt("), "{name} boxes a literal:\n{body}");
+        assert!(body.contains("@flux.float."), "{name} names no static Float:\n{body}");
+    }
+
+    let statics: Vec<&str> =
+        rendered.lines().filter(|line| line.starts_with("@flux.float.")).collect();
+    for line in &statics {
+        assert!(line.contains("private constant"), "{line}");
+        assert!(line.contains("i32 1073741824"), "{line}");
+        assert!(line.contains("i8 248"), "{line}");
+    }
+    // 0.5, 0.25, 3.0 and 1.0: `0.5` is used in two functions but is one
+    // object. The payload is the double's bits.
+    assert_eq!(statics.len(), 4, "{statics:#?}");
+    let bits = format!("i64 {}}}", 0.25f64.to_bits() as i64);
+    assert!(statics.iter().any(|line| line.contains(&bits)), "no {bits}:\n{statics:#?}");
+}
+
 #[test]
 fn per_module_adt_owner_emits_ctor_name_helper_without_main() {
     let rendered = compile_per_module_llvm_ir(
