@@ -602,53 +602,6 @@ reading of the timing is not confirmed. The VM twin of this test orders its
 steps with channels (8e4e3b09); the native one still uses sleeps, and moving
 it to channels alone would hide this bug.
 
-### KI-201 — Natively, the results of `substring`, `array_push`, `safe_div` and other runtime primops are never released
-
-**Severity:** Medium (a leak per call) · **Area:** Aether, drop insertion (`src/aether/insert.rs`) · **Verified:** 2026-11-16 (edeb0653), `--native --leak-check` · **From:** the heap-leak gate (0190 S15), first filed as KI-147 on `heap-leak-gate-renumbered`, never merged; its interpolation case was fixed by KI-160
-
-```flux
-fn main() {
-    let result = safe_div(100, 4)
-    match result {
-        Some(v) -> print(v),
-        None -> print("none"),
-    }
-}
-```
-
-```text
-$ flux safe_div_let.flx --native --leak-check
-25
-leak: 1 block still live at exit
-  a constructor value (16 bytes) allocated at main (safe_div_let.flx:2:18)
-```
-
-The exit code is 3. The same happens with `substring(s, 0, len(p)) == p` (the
-substring), `print(array_push(arr, 4))` (the new array), `print(safe_div(-15,
-3))`, `let r = safe_mod(-7, 3)`, and the results of `array_concat`,
-`array_slice`, `array_set`, `split`, `trim`, `upper`, `lower` and `replace`
-when their argument is a value the function owns, such as a built string or
-an array literal. `array_push([||], substring(s, 0, 1))` leaves both the
-substring and the array. In the parity fixtures it is the 1 block of
-`primop_collection_ops.flx`, the 2 of `safe_arithmetic.flx`, and most of the
-11 of `primop_string_ops.flx` (through `Flow.String.starts_with`, `ends_with`,
-`chars` and `str_contains`). The VM prints the same and is not affected.
-
-**The cause.** `fresh_result` in `src/aether/insert.rs` lists the primops
-whose result has a reference of its own; any other runtime result is taken
-for a value that may point into an argument without one. Such a value is
-never released when bound (`owner` needs `produces_fresh_value`), and when an
-owner it was computed from is released after it, the release walker copies
-it first (`let t = ArrayPush(a, 4) in dup t in drop a in t`): one reference
-too many. The runtime functions behind these primops all return a new object
-or an argument counted again (`flux_array_push`, array.c:145;
-`flux_string_slice`, string.c:89, which `flux_substring` calls; `flux_safe_div`
-and `flux_safe_mod`, flux_rt.c:2184, through `flux_wrap_some`). `safe_div` and
-`safe_mod` reach Aether as calls to a base runtime function, not as primops
-(`primop_promote` doesn't list them; LIR maps them by name), so a fix has to
-cover that form too. KI-124 (map operations) and KI-129 (built strings) were
-the same gap for other primops.
-
 ### KI-202 — Natively, a call through `import Flow.String` as `String.join(…)` hands over arguments the function only borrows
 
 **Severity:** Medium (a leak per call with a fresh argument) · **Area:** Aether, callee signatures (`src/aether/borrow_infer.rs`) · **Verified:** 2026-11-16 (402ff25c), `--native --leak-check` and `--dump-aether` · **From:** fixing KI-201, the 1 block `tests/parity/primop_string_ops.flx` still leaves
@@ -3235,6 +3188,76 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-201 — Natively, the results of `substring`, `array_push`, `safe_div` and other runtime primops were never released — FIXED 2026-11-16
+
+**Severity:** Medium (a leak per call) · **Area:** Aether, drop insertion (`src/aether/insert.rs`) · **Verified:** 2026-11-16 (edeb0653), `--native --leak-check` · **From:** the heap-leak gate (0190 S15), first filed as KI-147 on `heap-leak-gate-renumbered`, never merged; its interpolation case was fixed by KI-160
+
+```flux
+fn main() {
+    let result = safe_div(100, 4)
+    match result {
+        Some(v) -> print(v),
+        None -> print("none"),
+    }
+}
+```
+
+```text
+$ flux safe_div_let.flx --native --leak-check
+25
+leak: 1 block still live at exit
+  a constructor value (16 bytes) allocated at main (safe_div_let.flx:2:18)
+```
+
+The exit code is 3. The same happens with `substring(s, 0, len(p)) == p` (the
+substring), `print(array_push(arr, 4))` (the new array), `print(safe_div(-15,
+3))`, `let r = safe_mod(-7, 3)`, and the results of `array_concat`,
+`array_slice`, `array_set`, `split`, `trim`, `upper`, `lower` and `replace`
+when their argument is a value the function owns, such as a built string or
+an array literal. `array_push([||], substring(s, 0, 1))` leaves both the
+substring and the array. In the parity fixtures it is the 1 block of
+`primop_collection_ops.flx`, the 2 of `safe_arithmetic.flx`, and most of the
+11 of `primop_string_ops.flx` (through `Flow.String.starts_with`, `ends_with`,
+`chars` and `str_contains`). The VM prints the same and is not affected.
+
+**The cause.** `fresh_result` in `src/aether/insert.rs` lists the primops
+whose result has a reference of its own; any other runtime result is taken
+for a value that may point into an argument without one. Such a value is
+never released when bound (`owner` needs `produces_fresh_value`), and when an
+owner it was computed from is released after it, the release walker copies
+it first (`let t = ArrayPush(a, 4) in dup t in drop a in t`): one reference
+too many. The runtime functions behind these primops all return a new object
+or an argument counted again (`flux_array_push`, array.c:145;
+`flux_string_slice`, string.c:89, which `flux_substring` calls; `flux_safe_div`
+and `flux_safe_mod`, flux_rt.c:2184, through `flux_wrap_some`). `safe_div` and
+`safe_mod` reach Aether as calls to a base runtime function, not as primops
+(`primop_promote` doesn't list them; LIR maps them by name), so a fix has to
+cover that form too. KI-124 (map operations) and KI-129 (built strings) were
+the same gap for other primops.
+
+Test: `the_results_of_runtime_primops_are_released_ki201` in
+`tests/debug/native_debug_heap_tests/leaks_and_moves.rs` runs 16 programs
+under `--native --leak-check` and compares their output with the VM's, one
+or two per primop above. Before the fix it failed on `array_push_printed`
+(1 block, exit code 3); 15 of the 16 leaked when run alone. `string_slice`
+did not: it resolves to a Flux function, whose results were already fresh,
+and stays in the test as a check that nothing is freed too early.
+
+**Fixed** in `src/aether/insert.rs`: `primop_result_is_fresh` holds the one
+list of primops whose runtime result has a reference of its own, now with
+`ArrayPush`, `ArrayConcat`, `ArraySlice`, `ArraySet`, `StringSlice`,
+`Substring`, `Split`, `Trim`, `Upper`, `Lower`, `Replace`, `SafeDiv` and
+`SafeMod`, each checked against its C function. A call to an unbound name is
+looked up the way LIR lowers it: `CorePrimOp::for_unbound_call` (moved from
+LIR's `resolve_library_primop` plus its `from_name` fallback, so the two
+can't disagree), recorded per name in the borrow registry's
+`library_primops`. The I/O, channel, task and JSON primops are not in the
+list; most return fresh values too, but none was in this issue's
+reproducers. 11 Aether snapshots gained the same drops in `Flow.String`
+(`starts_with`, `ends_with`, `chars`, `str_contains`) and were accepted.
+`primop_collection_ops.flx` and `safe_arithmetic.flx` now leak nothing, and
+`primop_string_ops.flx` leaks 1 block, down from 11: that one is KI-202.
 
 ### KI-199 — Natively, a value read only inside an `if` passed as an argument was never released — FIXED 2026-11-16
 
