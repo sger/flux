@@ -632,6 +632,37 @@ array literal or a built string, is never released. Where the call loses
 `join`'s signature (the `String` name against `by_member_access`) is not
 traced yet.
 
+### KI-203 — Natively, reading a member of a record literal leaves an `Option` live
+
+**Severity:** Low (a leak per read) · **Area:** LIR, member access on a map (`src/lir/lower.rs`) · **Verified:** 2026-11-16 (e6e73b08), `--native --leak-check` · **From:** the heap-leak gate (0190 S15), first filed as KI-149 on `heap-leak-gate-renumbered`, never merged
+
+```flux
+fn main() {
+    let m = { "square": fn(x) { x * x } }
+    print(m.square(5))
+}
+```
+
+```text
+$ flux call_member.flx --native --leak-check
+25
+leak: 1 block still live at exit
+  a constructor value (16 bytes) allocated at main (call_member.flx:3:11)
+```
+
+The exit code is 3. Each read leaves one block: two calls through `m.square`
+leave 2, and a function that reads `m.f` on each of 10 turns leaves 10. Seen
+in `tests/parity/import_member_access.flx` and
+`examples/namespaces/namespace_member_access_ok.flx`. The VM prints the same.
+
+**The cause.** A record literal is a map, and LIR lowers a read of one of its
+members to `HamtGet` and then `Unwrap`: `flux_hamt_get_option` returns a new
+`Some` holding a counted copy of the value, and `flux_unwrap` copies the
+payload again and returns it. Nothing releases the `Some`. The block is that
+`Some`, allocated where the member is read. Both lowerings have it: the
+`CoreExpr::MemberAccess` arm of `lower_expr` and the `AetherExpr::MemberAccess`
+arm of `lower_expr_aether`, which the native path uses.
+
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
