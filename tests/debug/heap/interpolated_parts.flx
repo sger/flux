@@ -3,7 +3,7 @@
 // and the joins between them must be released as the next join copies them.
 // A compound part is written by the runtime, which turns each element into a
 // string of its own first. Nothing prints (KI-119), so nothing should be live
-// at exit. No part is a Float literal, which leaks on its own (KI-161).
+// at exit.
 
 fn tag(name: String, i: Int) -> String {
     "#{name}-#{i}"
