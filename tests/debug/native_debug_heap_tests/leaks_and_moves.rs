@@ -464,6 +464,60 @@ fn main() {
     }
 }
 
+/// Reading a member of a record literal, a map, releases the `Some` the
+/// lookup made: one was left per read (KI-203).
+#[test]
+fn a_value_read_from_a_record_literal_releases_its_option_ki203() {
+    let scratch = Scratch::new("debug-heap-record-member-ki203");
+    for (name, program) in [
+        (
+            "call_member",
+            r#"fn main() {
+    let m = { "square": fn(x) { x * x } }
+    print(m.square(5))
+}
+"#,
+        ),
+        (
+            "call_member_twice",
+            r#"fn main() {
+    let m = { "square": fn(x) { x * x } }
+    print(m.square(5))
+    print(m.square(6))
+}
+"#,
+        ),
+        (
+            "two_members",
+            r#"fn main() {
+    let m = { "inc": fn(x) { x + 1 }, "dec": fn(x) { x - 1 } }
+    print(m.inc(5))
+    print(m.dec(5))
+}
+"#,
+        ),
+        (
+            "member_in_a_loop",
+            r#"fn go(n: Int, acc: Int) -> Int {
+    let m = { "f": fn(x) { x + 1 } }
+    if n == 0 { acc } else { go(n - 1, m.f(acc)) }
+}
+
+fn main() {
+    print(go(10, 0))
+}
+"#,
+        ),
+    ] {
+        let path = scratch.write(&format!("{name}.flx"), program);
+        let path = path.to_string_lossy();
+        let (vm, _, _) = run(&scratch, &path, &["--vm"], None);
+        let (stdout, stderr, code) = run(&scratch, &path, &["--native", "--leak-check"], None);
+        assert_eq!((stdout.as_str(), code), (vm.as_str(), 0), "{name}: {stderr}");
+        assert!(!stderr.contains("leak:"), "{name}: {stderr}");
+    }
+}
+
 /// `--debug-heap` alone does not report leaks: nearly every program still
 /// leaks (KI-119, KI-121).
 #[test]
