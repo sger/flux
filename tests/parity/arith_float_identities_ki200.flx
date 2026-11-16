@@ -1,0 +1,58 @@
+// parity: vm, llvm
+// expect: success
+// bug: KI-200. The algebraic pass rewrote x + 0.0 and 0.0 + x to x, which is
+//       wrong for x = -0.0, and x * 0.0 to 0.0, which is wrong for a negative
+//       or infinite x and never evaluated x: an operand with an effect, as in
+//       loud() * 0, did not run. Signs are shown through 1.0 / ..., which is
+//       inf or -inf; NaN is left out, since the ways print it differently.
+// parity-expected-stdout-begin
+// inf
+// inf
+// inf
+// -inf
+// -inf
+// -inf
+// "side"
+// 0
+// "side_f"
+// 0
+// -3
+// -3
+// parity-expected-stdout-end
+
+fn neg_zero() -> Float {
+    -0.0
+}
+
+fn neg3() -> Float {
+    -3.0
+}
+
+fn zeros() -> Float {
+    0.0 + -0.0
+}
+
+fn loud() -> Int with IO {
+    print("side")
+    3
+}
+
+fn loud_f() -> Float with IO {
+    print("side_f")
+    3.0
+}
+
+fn main() with IO {
+    let x = neg_zero()
+    print(1.0 / zeros())
+    print(1.0 / (x + 0.0))
+    print(1.0 / (0.0 + x))
+    print(1.0 / (x - 0.0))
+    print(1.0 / (neg3() * 0.0))
+    print(1.0 / (0.0 * neg3()))
+    print(loud() * 0)
+    print(loud_f() * 0.0)
+    let y = neg3()
+    print(y * 1.0)
+    print(y / 1.0)
+}
