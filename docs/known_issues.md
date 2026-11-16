@@ -602,63 +602,6 @@ reading of the timing is not confirmed. The VM twin of this test orders its
 steps with channels (8e4e3b09); the native one still uses sleeps, and moving
 it to channels alone would hide this bug.
 
-### KI-199 — Natively, a value read only inside an `if` passed as an argument is never released
-
-**Severity:** Medium (a leak that grows with every call) · **Area:** Aether, drop insertion (`src/aether/insert.rs`) · **Verified:** 2026-11-16 (c79016e8), `--native --leak-check` · **From:** writing the KI-161 tests, where `print(if h > 1.0 { 0 } else { 1 })` left the product `h` live
-
-```flux
-fn nums(n: Int) -> List<Int> {
-    [n, n + 1, n + 2]
-}
-
-fn keep_int(n: Int) -> Int {
-    n
-}
-
-fn main() {
-    let xs = nums(1)
-    keep_int(if len(xs) > 1 { 0 } else { 1 })
-}
-```
-
-```text
-$ flux if_arg.flx --native --leak-check
-leak: 3 blocks still live at exit
-  a constructor value (24 bytes) allocated at nums (if_arg.flx:2:5)
-  a constructor value (24 bytes) allocated at nums (if_arg.flx:2:5)
-  a constructor value (24 bytes) allocated at nums (if_arg.flx:2:5)
-```
-
-The exit code is 3. A function that does the same with `print` in place of
-`keep_int`, called 10 times, leaves 30 blocks: 3 per call. The emitted
-`flux_main` calls `flux_nums` and `flux_rt_len` and has no drop of the list
-at all. Not affected: the same `if` bound with `let r = if …` first and then
-passed, and `print(len(xs) > 1)`. String arms (`if … { "a" } else { "b" }`)
-leak the same way.
-
-**The cause** is the one KI-129 had, in a shape its fix doesn't cover. Core
-binds the argument to a temporary,
-`%t = (let c = (let n = Len(xs) in ICmpGt(n, 1)) in case c of true → 0 | _ → 1)`.
-That temporary has no rep (`TaggedRep`; `--dump-core=debug` prints no
-annotation), where `let r = if …` gets `r:Int`. In `src/aether/insert.rs`:
-
-- `alias_of` takes the temporary for a value that may point into `xs`: its rep
-  needs counting, its value mentions `xs`, and neither `returns_scalar` (a
-  top-level primop only) nor `produces_fresh_value` (a `case` of Int
-  literals isn't fresh) sees that every path ends in an Int.
-- It is given to the call owned, so `plan_expr` puts it in
-  `scope.owned_unknown`.
-- `aliases_owned_unknown` then makes `release_owner` return without a
-  release, and nothing else drops `xs`.
-
-**Likely fix**, as KI-129's was: `alias_of` skips a value that is a scalar on
-every path, such as a `case` whose arms all end in an Int or Bool literal or
-a scalar primop. Koka's Perceus pass (`src/Backend/C/Parc.hs`) has no alias
-set to get wrong: it places drops by liveness alone. Flux keeps the alias
-guard because some runtime results point into an argument without a
-reference of their own (the `owned_unknown` comment), so the fix belongs in
-`alias_of`, not in removing the guard.
-
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
@@ -3215,6 +3158,78 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-199 — Natively, a value read only inside an `if` passed as an argument was never released — FIXED 2026-11-16
+
+**Severity:** Medium (a leak that grows with every call) · **Area:** Aether, drop insertion (`src/aether/insert.rs`) · **Verified:** 2026-11-16 (c79016e8), `--native --leak-check` · **From:** writing the KI-161 tests, where `print(if h > 1.0 { 0 } else { 1 })` left the product `h` live
+
+```flux
+fn nums(n: Int) -> List<Int> {
+    [n, n + 1, n + 2]
+}
+
+fn keep_int(n: Int) -> Int {
+    n
+}
+
+fn main() {
+    let xs = nums(1)
+    keep_int(if len(xs) > 1 { 0 } else { 1 })
+}
+```
+
+```text
+$ flux if_arg.flx --native --leak-check
+leak: 3 blocks still live at exit
+  a constructor value (24 bytes) allocated at nums (if_arg.flx:2:5)
+  a constructor value (24 bytes) allocated at nums (if_arg.flx:2:5)
+  a constructor value (24 bytes) allocated at nums (if_arg.flx:2:5)
+```
+
+The exit code is 3. A function that does the same with `print` in place of
+`keep_int`, called 10 times, leaves 30 blocks: 3 per call. The emitted
+`flux_main` calls `flux_nums` and `flux_rt_len` and has no drop of the list
+at all. Not affected: the same `if` bound with `let r = if …` first and then
+passed, and `print(len(xs) > 1)`. String arms (`if … { "a" } else { "b" }`)
+leak the same way.
+
+**The cause** is the one KI-129 had, in a shape its fix doesn't cover. Core
+binds the argument to a temporary,
+`%t = (let c = (let n = Len(xs) in ICmpGt(n, 1)) in case c of true → 0 | _ → 1)`.
+That temporary has no rep (`TaggedRep`; `--dump-core=debug` prints no
+annotation), where `let r = if …` gets `r:Int`. In `src/aether/insert.rs`:
+
+- `alias_of` takes the temporary for a value that may point into `xs`: its rep
+  needs counting, its value mentions `xs`, and neither `returns_scalar` (a
+  top-level primop only) nor `produces_fresh_value` (a `case` of Int
+  literals isn't fresh) sees that every path ends in an Int.
+- It is given to the call owned, so `plan_expr` puts it in
+  `scope.owned_unknown`.
+- `aliases_owned_unknown` then makes `release_owner` return without a
+  release, and nothing else drops `xs`.
+
+Koka's Perceus pass (`src/Backend/C/Parc.hs`) has no alias set to get wrong:
+it places drops by liveness alone. Flux keeps the alias guard because some
+runtime results point into an argument without a reference of their own (the
+`owned_unknown` comment), so the fix is in `alias_of`, not in removing the
+guard.
+
+Test: `a_value_read_only_in_an_if_argument_is_released_ki199` in
+`tests/debug/native_debug_heap_tests/leaks_and_moves.rs` runs five programs
+under `--native --leak-check` and compares their output with the VM's: the
+reproducer, String arms, the `print` form called 10 times, an arm that gives
+the owner away, and a `match` whose arm copies the field it returns. Before
+the fix the reproducer left 3 blocks live (exit code 3), the loop 30, and the
+`match` 2 (its `None` arm is a literal, so not every arm copied).
+
+**Fixed** in `src/aether/insert.rs`: `alias_of` asks `may_point_into`, which
+looks only at what each path of the right-hand side ends in, through lets,
+matches, dups and drops. A literal, a scalar runtime result, a fresh value or
+a value its block copied (`dup v in … v`, KI-129's rule, now checked per path)
+points into nothing; any other end that names an alias may. What a path reads
+along the way, such as the `if` condition, no longer counts. The three callers
+(`aliases_owned_unknown`, and the release walker's `at_returns` and
+`after_last_use`) all use it. No Aether snapshot changed.
 
 ### KI-200 — Floats: `x + 0.0` and `x * 0.0` were simplified away, giving IEEE-wrong results and dropping the operand's effects — FIXED 2026-11-16
 
