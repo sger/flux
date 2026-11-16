@@ -68,31 +68,6 @@ const OBJ_TAG_TUPLE: u8 = 4;
 #[allow(dead_code)]
 const OBJ_TAG_CLOSURE: u8 = 5;
 
-// ── Library function → PrimOp resolution ────────────────────────────────────
-//
-// Maps unbound function names (from Flow.* prelude modules) to CorePrimOp
-// variants that have C runtime implementations.  This allows the LIR to emit
-// direct PrimCall instructions instead of GetGlobal + closure Call, which is
-// essential for native compilation where the VM globals table is unavailable.
-
-fn resolve_library_primop(name: &str, arity: usize) -> Option<CorePrimOp> {
-    // Strip module prefix (e.g. "Flow.List.first" → "first")
-    let short = name.rsplit('.').next().unwrap_or(name);
-    match (name, short, arity) {
-        ("Flow.Map.get", _, 2) | (_, "map_get", 2) => Some(CorePrimOp::HamtGet),
-        ("Flow.Map.set", _, 3) | (_, "map_set", 3) => Some(CorePrimOp::HamtSet),
-        ("Flow.Map.delete", _, 2) | (_, "map_delete", 2) => Some(CorePrimOp::HamtDelete),
-        ("Flow.Map.merge", _, 2) | (_, "map_merge", 2) => Some(CorePrimOp::HamtMerge),
-        ("Flow.Map.keys", _, 1) | (_, "map_keys", 1) => Some(CorePrimOp::HamtKeys),
-        ("Flow.Map.values", _, 1) | (_, "map_values", 1) => Some(CorePrimOp::HamtValues),
-        ("Flow.Map.size", _, 1) | (_, "map_size", 1) => Some(CorePrimOp::HamtSize),
-        ("Flow.Map.has", _, 2) | (_, "map_has", 2) => Some(CorePrimOp::HamtContains),
-        (_, "safe_div", 2) => Some(CorePrimOp::SafeDiv),
-        (_, "safe_mod", 2) => Some(CorePrimOp::SafeMod),
-        _ => None,
-    }
-}
-
 fn peel_function_type(ty: &CoreType) -> Option<(&[CoreType], &CoreType)> {
     match ty {
         CoreType::Function(params, ret) => Some((params.as_slice(), ret.as_ref())),
@@ -3481,8 +3456,7 @@ impl<'a> FnLower<'a> {
             _ => None,
         };
         if let Some(ref name) = resolved_name
-            && let Some(op) = resolve_library_primop(name, args.len())
-                .or_else(|| CorePrimOp::from_name(name, args.len()))
+            && let Some(op) = CorePrimOp::for_unbound_call(name, args.len())
         {
             let arg_vars: Vec<LirVar> = args.iter().map(|a| self.lower_expr(a)).collect();
             let dst = self.fresh_var();
@@ -3646,8 +3620,7 @@ impl<'a> FnLower<'a> {
             return result;
         }
         if let Some(name) = self.global_var_names.get(&func_var).cloned()
-            && let Some(op) = resolve_library_primop(&name, arg_vars.len())
-                .or_else(|| CorePrimOp::from_name(&name, arg_vars.len()))
+            && let Some(op) = CorePrimOp::for_unbound_call(&name, arg_vars.len())
         {
             let dst = self.fresh_var();
             self.emit(LirInstr::PrimCall { dst: Some(dst), op, args: arg_vars });
@@ -3689,8 +3662,7 @@ impl<'a> FnLower<'a> {
             _ => None,
         };
         if let Some(ref name) = resolved_name
-            && let Some(op) = resolve_library_primop(name, args.len())
-                .or_else(|| CorePrimOp::from_name(name, args.len()))
+            && let Some(op) = CorePrimOp::for_unbound_call(name, args.len())
         {
             let arg_vars: Vec<LirVar> = args.iter().map(|a| self.lower_expr_aether(a)).collect();
             let dst = self.fresh_var();
@@ -3847,8 +3819,7 @@ impl<'a> FnLower<'a> {
             return result;
         }
         if let Some(name) = self.global_var_names.get(&func_var).cloned()
-            && let Some(op) = resolve_library_primop(&name, arg_vars.len())
-                .or_else(|| CorePrimOp::from_name(&name, arg_vars.len()))
+            && let Some(op) = CorePrimOp::for_unbound_call(&name, arg_vars.len())
         {
             let dst = self.fresh_var();
             self.emit(LirInstr::PrimCall { dst: Some(dst), op, args: arg_vars });

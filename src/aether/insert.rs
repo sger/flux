@@ -1662,13 +1662,36 @@ fn fresh_result(
         // Natively every Float is a new heap box: a literal, a negation, or
         // the result of float arithmetic.
         CoreExpr::Lit(CoreLit::Float(_), _) => true,
-        CoreExpr::PrimOp { op, .. }
-            if *op == CorePrimOp::Neg
-                || crate::core::passes::primop_result_rep(op) == FluxRep::FloatRep =>
-        {
-            true
+        CoreExpr::PrimOp { op, .. } => primop_result_is_fresh(op),
+        CoreExpr::App { func, .. } | CoreExpr::AetherCall { func, .. } => {
+            calls_flux(func, registry) || calls_fresh_library_primop(func, registry)
         }
-        CoreExpr::PrimOp { op, .. } => matches!(
+        CoreExpr::Let { var, rhs, body, .. } | CoreExpr::LetRec { var, rhs, body, .. } => {
+            // Holding an owned call result across cleanup does not turn it
+            // into a view of the arguments that were lent to the call.
+            let inserted = fresh_result(rhs, registry, fresh) && fresh.insert(var.id);
+            let result = fresh_result(body, registry, fresh);
+            if inserted {
+                fresh.remove(&var.id);
+            }
+            result
+        }
+        CoreExpr::LetRecGroup { body, .. }
+        | CoreExpr::Dup { body, .. }
+        | CoreExpr::Drop { body, .. } => fresh_result(body, registry, fresh),
+        CoreExpr::Case { alts, .. } => {
+            alts.iter().all(|alt| fresh_result(&alt.rhs, registry, fresh))
+        }
+        _ => false,
+    }
+}
+
+/// Whether the runtime function behind `op` returns a value with a reference
+/// of its own: a new object, or an argument counted again.
+fn primop_result_is_fresh(op: &CorePrimOp) -> bool {
+    *op == CorePrimOp::Neg
+        || crate::core::passes::primop_result_rep(op) == FluxRep::FloatRep
+        || matches!(
             op,
             CorePrimOp::MakeList
                 | CorePrimOp::MakeArray
@@ -1693,25 +1716,34 @@ fn fresh_result(
                 | CorePrimOp::HamtMerge
                 | CorePrimOp::HamtKeys
                 | CorePrimOp::HamtValues
-        ),
-        CoreExpr::App { func, .. } | CoreExpr::AetherCall { func, .. } => {
-            calls_flux(func, registry)
-        }
-        CoreExpr::Let { var, rhs, body, .. } | CoreExpr::LetRec { var, rhs, body, .. } => {
-            // Holding an owned call result across cleanup does not turn it
-            // into a view of the arguments that were lent to the call.
-            let inserted = fresh_result(rhs, registry, fresh) && fresh.insert(var.id);
-            let result = fresh_result(body, registry, fresh);
-            if inserted {
-                fresh.remove(&var.id);
-            }
-            result
-        }
-        CoreExpr::LetRecGroup { body, .. }
-        | CoreExpr::Dup { body, .. }
-        | CoreExpr::Drop { body, .. } => fresh_result(body, registry, fresh),
-        CoreExpr::Case { alts, .. } => {
-            alts.iter().all(|alt| fresh_result(&alt.rhs, registry, fresh))
+                // @KI-201: a new array or string (array.c, string.c,
+                // `flux_split`, `flux_trim`, `flux_upper`, `flux_lower`), or
+                // the argument counted again (`flux_array_set`,
+                // `flux_replace`). Taken for views, they were never released.
+                | CorePrimOp::ArrayPush
+                | CorePrimOp::ArrayConcat
+                | CorePrimOp::ArraySlice
+                | CorePrimOp::ArraySet
+                | CorePrimOp::StringSlice
+                | CorePrimOp::Substring
+                | CorePrimOp::Split
+                | CorePrimOp::Trim
+                | CorePrimOp::Upper
+                | CorePrimOp::Lower
+                | CorePrimOp::Replace
+                // A new `Some` (`flux_wrap_some`), or `None`, an immediate.
+                | CorePrimOp::SafeDiv
+                | CorePrimOp::SafeMod
+        )
+}
+
+/// Whether `func` names an unbound library function that LIR turns into a
+/// primop with a fresh result (`safe_div`, `map_set`): Aether sees the call,
+/// not the primop.
+fn calls_fresh_library_primop(func: &CoreExpr, registry: Option<&BorrowRegistry>) -> bool {
+    match (func, registry) {
+        (CoreExpr::Var { var, .. }, Some(reg)) if var.binder.is_none() => {
+            reg.library_primops.get(&var.name).is_some_and(primop_result_is_fresh)
         }
         _ => false,
     }
