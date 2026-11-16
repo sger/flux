@@ -649,6 +649,36 @@ and `flux_safe_mod`, flux_rt.c:2184, through `flux_wrap_some`). `safe_div` and
 cover that form too. KI-124 (map operations) and KI-129 (built strings) were
 the same gap for other primops.
 
+### KI-202 — Natively, a call through `import Flow.String` as `String.join(…)` hands over arguments the function only borrows
+
+**Severity:** Medium (a leak per call with a fresh argument) · **Area:** Aether, callee signatures (`src/aether/borrow_infer.rs`) · **Verified:** 2026-11-16 (402ff25c), `--native --leak-check` and `--dump-aether` · **From:** fixing KI-201, the 1 block `tests/parity/primop_string_ops.flx` still leaves
+
+```flux
+import Flow.String
+
+fn main() {
+    print(String.join([|"x", "y", "z"|], "-"))
+}
+```
+
+```text
+$ flux join_import_short.flx --native --leak-check
+"x-y-z"
+leak: 1 block still live at exit
+  an Array (40 bytes) allocated at main (join_import_short.flx:4:23)
+```
+
+`main` calls `aether_call[owned, owned] String.join(…)`, but `join` borrows
+`arr`: its body releases it on no path. Every `String.*` call in
+`primop_string_ops.flx` is planned all-owned the same way. Written
+`import Flow.String as S` and `S.join(…)`, or `Flow.String.join(…)`, the call
+is `aether_call[borrowed, borrowed]` and nothing leaks. The same program
+without the import also leaks. A literal String argument shows nothing,
+since it is a static object; an argument with a count of its own, such as an
+array literal or a built string, is never released. Where the call loses
+`join`'s signature (the `String` name against `by_member_access`) is not
+traced yet.
+
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
