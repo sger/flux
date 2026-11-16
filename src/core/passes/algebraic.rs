@@ -1,13 +1,21 @@
+use super::helpers::is_pure;
 use crate::core::{CoreExpr, CoreLit, CorePrimOp};
 use crate::shared::opt_bisect;
+
+/// The bits of `+0.0` and `-0.0`, which compare equal as floats.
+const POS_ZERO: u64 = 0;
+const NEG_ZERO: u64 = 0x8000_0000_0000_0000;
 
 /// Apply small backend-neutral algebraic rewrites over Core expressions.
 ///
 /// Scope: **identity-driven simplifications** where one operand is a literal
 /// but the other can be an arbitrary subexpression — `x + 0 → x`, `x * 1 → x`,
-/// `x * 0 → 0`, `x mod 1 → 0`, and their float counterparts. These rewrites
-/// hold without evaluating `x`, so they fire in situations `constant_fold`
-/// cannot reach.
+/// `x * 0 → 0`, `x mod 1 → 0`, and the Float identities IEEE 754 makes exact.
+/// These fire in situations `constant_fold` cannot reach.
+///
+/// The pass runs before ANF, so `x` can be a call: a rewrite that discards
+/// `x` applies only when `x` is pure. A Float rewrite must give the same bits
+/// for every `x`, `-0.0`, the infinities and NaN included.
 ///
 /// Companion pass: [`super::constant_fold`] handles the complementary case
 /// where **every** operand is a literal — that pass computes the result at
@@ -25,18 +33,31 @@ pub fn algebraic_simplify(expr: CoreExpr) -> CoreExpr {
                 | (CorePrimOp::IDiv, [lhs, CoreExpr::Lit(CoreLit::Int(1), _)]) => lhs.clone(),
                 (CorePrimOp::IAdd, [CoreExpr::Lit(CoreLit::Int(0), _), rhs])
                 | (CorePrimOp::IMul, [CoreExpr::Lit(CoreLit::Int(1), _), rhs]) => rhs.clone(),
-                (CorePrimOp::IMul, [_, CoreExpr::Lit(CoreLit::Int(0), _)])
-                | (CorePrimOp::IMul, [CoreExpr::Lit(CoreLit::Int(0), _), _]) => {
-                    CoreExpr::Lit(CoreLit::Int(0), span)
-                }
-                (CorePrimOp::IMod, [_, CoreExpr::Lit(CoreLit::Int(1), _)]) => {
+                // @KI-200: these discard an operand, which may be a call.
+                (CorePrimOp::IMul, [x, CoreExpr::Lit(CoreLit::Int(0), _)])
+                | (CorePrimOp::IMul, [CoreExpr::Lit(CoreLit::Int(0), _), x])
+                | (CorePrimOp::IMod, [x, CoreExpr::Lit(CoreLit::Int(1), _)])
+                    if is_pure(x) =>
+                {
                     CoreExpr::Lit(CoreLit::Int(0), span)
                 }
 
-                (CorePrimOp::FAdd, [lhs, CoreExpr::Lit(CoreLit::Float(v), _)]) if *v == 0.0 => {
+                // @KI-200: `-0.0 + 0.0` is `+0.0`, so adding `+0.0` is not an
+                // identity, and `x * 0.0` is `-0.0` or NaN for some `x`. Only
+                // adding `-0.0` and subtracting `+0.0` keep every `x`.
+                (CorePrimOp::FAdd, [lhs, CoreExpr::Lit(CoreLit::Float(v), _)])
+                    if v.to_bits() == NEG_ZERO =>
+                {
                     lhs.clone()
                 }
-                (CorePrimOp::FSub, [lhs, CoreExpr::Lit(CoreLit::Float(v), _)]) if *v == 0.0 => {
+                (CorePrimOp::FAdd, [CoreExpr::Lit(CoreLit::Float(v), _), rhs])
+                    if v.to_bits() == NEG_ZERO =>
+                {
+                    rhs.clone()
+                }
+                (CorePrimOp::FSub, [lhs, CoreExpr::Lit(CoreLit::Float(v), _)])
+                    if v.to_bits() == POS_ZERO =>
+                {
                     lhs.clone()
                 }
                 (CorePrimOp::FMul, [lhs, CoreExpr::Lit(CoreLit::Float(v), _)]) if *v == 1.0 => {
@@ -45,17 +66,8 @@ pub fn algebraic_simplify(expr: CoreExpr) -> CoreExpr {
                 (CorePrimOp::FDiv, [lhs, CoreExpr::Lit(CoreLit::Float(v), _)]) if *v == 1.0 => {
                     lhs.clone()
                 }
-                (CorePrimOp::FAdd, [CoreExpr::Lit(CoreLit::Float(v), _), rhs]) if *v == 0.0 => {
-                    rhs.clone()
-                }
                 (CorePrimOp::FMul, [CoreExpr::Lit(CoreLit::Float(v), _), rhs]) if *v == 1.0 => {
                     rhs.clone()
-                }
-                (CorePrimOp::FMul, [_, CoreExpr::Lit(CoreLit::Float(v), _)]) if *v == 0.0 => {
-                    CoreExpr::Lit(CoreLit::Float(0.0), span)
-                }
-                (CorePrimOp::FMul, [CoreExpr::Lit(CoreLit::Float(v), _), _]) if *v == 0.0 => {
-                    CoreExpr::Lit(CoreLit::Float(0.0), span)
                 }
 
                 (CorePrimOp::Not, [CoreExpr::PrimOp { op: CorePrimOp::Not, args: inner, .. }])
@@ -73,8 +85,14 @@ pub fn algebraic_simplify(expr: CoreExpr) -> CoreExpr {
                 {
                     rhs.clone()
                 }
-                (CorePrimOp::And, [_, CoreExpr::Lit(CoreLit::Bool(false), _)])
-                | (CorePrimOp::And, [CoreExpr::Lit(CoreLit::Bool(false), _), _]) => {
+                // The left operand runs first, so the right one may be skipped;
+                // the left one is discarded only when pure (@KI-200).
+                (CorePrimOp::And, [CoreExpr::Lit(CoreLit::Bool(false), _), _]) => {
+                    CoreExpr::Lit(CoreLit::Bool(false), span)
+                }
+                (CorePrimOp::And, [lhs, CoreExpr::Lit(CoreLit::Bool(false), _)])
+                    if is_pure(lhs) =>
+                {
                     CoreExpr::Lit(CoreLit::Bool(false), span)
                 }
                 (CorePrimOp::Or, [lhs, CoreExpr::Lit(CoreLit::Bool(false), _)])
@@ -87,8 +105,10 @@ pub fn algebraic_simplify(expr: CoreExpr) -> CoreExpr {
                 {
                     rhs.clone()
                 }
-                (CorePrimOp::Or, [_, CoreExpr::Lit(CoreLit::Bool(true), _)])
-                | (CorePrimOp::Or, [CoreExpr::Lit(CoreLit::Bool(true), _), _]) => {
+                (CorePrimOp::Or, [CoreExpr::Lit(CoreLit::Bool(true), _), _]) => {
+                    CoreExpr::Lit(CoreLit::Bool(true), span)
+                }
+                (CorePrimOp::Or, [lhs, CoreExpr::Lit(CoreLit::Bool(true), _)]) if is_pure(lhs) => {
                     CoreExpr::Lit(CoreLit::Bool(true), span)
                 }
                 _ => return CoreExpr::PrimOp { op, args, span },
