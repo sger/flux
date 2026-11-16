@@ -602,6 +602,141 @@ reading of the timing is not confirmed. The VM twin of this test orders its
 steps with channels (8e4e3b09); the native one still uses sleeps, and moving
 it to channels alone would hide this bug.
 
+### KI-199 — Natively, a value read only inside an `if` passed as an argument is never released
+
+**Severity:** Medium (a leak that grows with every call) · **Area:** Aether, drop insertion (`src/aether/insert.rs`) · **Verified:** 2026-11-16 (c79016e8), `--native --leak-check` · **From:** writing the KI-161 tests, where `print(if h > 1.0 { 0 } else { 1 })` left the product `h` live
+
+```flux
+fn nums(n: Int) -> List<Int> {
+    [n, n + 1, n + 2]
+}
+
+fn keep_int(n: Int) -> Int {
+    n
+}
+
+fn main() {
+    let xs = nums(1)
+    keep_int(if len(xs) > 1 { 0 } else { 1 })
+}
+```
+
+```text
+$ flux if_arg.flx --native --leak-check
+leak: 3 blocks still live at exit
+  a constructor value (24 bytes) allocated at nums (if_arg.flx:2:5)
+  a constructor value (24 bytes) allocated at nums (if_arg.flx:2:5)
+  a constructor value (24 bytes) allocated at nums (if_arg.flx:2:5)
+```
+
+The exit code is 3. A function that does the same with `print` in place of
+`keep_int`, called 10 times, leaves 30 blocks: 3 per call. The emitted
+`flux_main` calls `flux_nums` and `flux_rt_len` and has no drop of the list
+at all. Not affected: the same `if` bound with `let r = if …` first and then
+passed, and `print(len(xs) > 1)`. String arms (`if … { "a" } else { "b" }`)
+leak the same way.
+
+**The cause** is the one KI-129 had, in a shape its fix doesn't cover. Core
+binds the argument to a temporary,
+`%t = (let c = (let n = Len(xs) in ICmpGt(n, 1)) in case c of true → 0 | _ → 1)`.
+That temporary has no rep (`TaggedRep`; `--dump-core=debug` prints no
+annotation), where `let r = if …` gets `r:Int`. In `src/aether/insert.rs`:
+
+- `alias_of` takes the temporary for a value that may point into `xs`: its rep
+  needs counting, its value mentions `xs`, and neither `returns_scalar` (a
+  top-level primop only) nor `produces_fresh_value` (a `case` of Int
+  literals isn't fresh) sees that every path ends in an Int.
+- It is given to the call owned, so `plan_expr` puts it in
+  `scope.owned_unknown`.
+- `aliases_owned_unknown` then makes `release_owner` return without a
+  release, and nothing else drops `xs`.
+
+**Likely fix**, as KI-129's was: `alias_of` skips a value that is a scalar on
+every path, such as a `case` whose arms all end in an Int or Bool literal or
+a scalar primop. Koka's Perceus pass (`src/Backend/C/Parc.hs`) has no alias
+set to get wrong: it places drops by liveness alone. Flux keeps the alias
+guard because some runtime results point into an argument without a
+reference of their own (the `owned_unknown` comment), so the fix belongs in
+`alias_of`, not in removing the guard.
+
+### KI-200 — Floats: `x + 0.0` and `x * 0.0` are simplified away, giving IEEE-wrong results and dropping the operand's effects
+
+**Severity:** High (silent wrong output; natively an effect never runs) · **Area:** Core simplification (`src/core/passes/algebraic.rs`) · **Verified:** 2026-11-16 (c79016e8), on both ways, with and without `-O`, and with `--opt-bisect-limit 0` · **From:** writing the KI-161 tests
+
+```flux
+fn neg_zero() -> Float {
+    -0.0
+}
+
+fn main() with IO {
+    let x = neg_zero()
+    print(x)
+    print(x + 0.0)
+    print(0.0 + x)
+    print(x - 0.0)
+    print(1.0 / (x + 0.0))
+}
+```
+
+IEEE 754 gives `-0`, `0`, `0`, `-0`, `inf`. The VM prints that. Natively:
+
+```text
+$ flux add_zero.flx --native
+-0
+-0
+-0
+-0
+-inf
+```
+
+`neg3() * 0.0` and `0.0 * neg3()` natively print `0` and `0` (IEEE: `-0`,
+`-0`), and `(1.0 / zero()) * 0.0` prints `0` (IEEE: NaN). An operand with an
+effect is not evaluated at all:
+
+```flux
+fn loud() -> Int with IO {
+    print("side")
+    3
+}
+
+fn main() with IO {
+    print(loud() * 0)
+}
+```
+
+The VM prints `"side"` then `0`. Natively only `0` is printed; `Float` does
+the same with `* 0.0`. Every one of these natively prints what the VM prints
+under `--opt-bisect-limit 0`, and `--opt-bisect-limit -1` lists only
+`algebraic_simplify` rewrites (`FAdd`, `FSub`, `FMul`, `IMul`) in `main`.
+
+With literals on both sides the VM is wrong too: in
+`fn zeros() -> Float { 0.0 + -0.0 }`, `zeros()` prints `-0` and
+`1.0 / zeros()` prints `-inf` on both ways, and `0`, `inf` under
+`--opt-bisect-limit 0`. Why the VM's run is unaffected when the rewrite is in
+`main` isn't known: the VM's compile fires the same rewrites there
+(`--opt-bisect-limit -1`), but they don't change what it prints. The dump
+flags don't show this, as every `--dump-*` lowers the merged program, the
+native path's input.
+
+**The cause.** `algebraic_simplify` rewrites, before ANF, so an operand can
+be any expression:
+
+- `x + 0.0 → x` and `0.0 + x → x`: wrong for `x = -0.0`, since
+  `-0.0 + 0.0` is `+0.0`.
+- `x * 0.0 → 0.0` and `0.0 * x → 0.0`: wrong for a negative `x` (`-0.0`),
+  `±inf` and NaN (NaN), and `x` is dropped unevaluated.
+- `x * 0 → 0` and `0 * x → 0` on Ints: right value, but `x` is dropped
+  unevaluated, with its effects.
+- The guards test `*v == 0.0`, which a `-0.0` literal also passes; whether one
+  reaches the pass wasn't checked. `x - 0.0 → x`, `x * 1.0`, `x / 1.0` and
+  `1.0 * x` are IEEE-exact.
+
+**Likely fix:** keep only the exact Float rules, matching zero by its bits
+(`x - (+0.0)`, `x + (-0.0)`), and drop an operand only when it is a variable
+or a literal. Koka folds no Float arithmetic at all: its `float64` operators
+are inline C (`lib/std/num/float64.kk`), and its only arithmetic peepholes
+are for Int, in the C backend.
+
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
