@@ -241,6 +241,67 @@ fn float_literals_leave_nothing_live_ki161() {
     }
 }
 
+/// A value read only in an `if` condition is released when the `if` is
+/// passed as an argument (KI-199). So is the owner when one arm gives it away
+/// or copies a field of it; the debug heap faults if it goes too soon.
+#[test]
+fn a_value_read_only_in_an_if_argument_is_released_ki199() {
+    let scratch = Scratch::new("debug-heap-if-argument-ki199");
+    let nums = "fn nums(n: Int) -> List<Int> {\n    [n, n + 1, n + 2]\n}\n\n";
+    let leak_free = [
+        (
+            "int_arms",
+            format!(
+                "{nums}fn keep_int(n: Int) -> Int {{\n    n\n}}\n\n\
+                 fn main() {{\n    let xs = nums(1)\n    \
+                 keep_int(if len(xs) > 1 {{ 0 }} else {{ 1 }})\n}}\n"
+            ),
+        ),
+        (
+            "string_arms",
+            format!(
+                "{nums}fn main() {{\n    let xs = nums(1)\n    \
+                 print(if len(xs) > 1 {{ \"a\" }} else {{ \"b\" }})\n}}\n"
+            ),
+        ),
+        (
+            "per_call",
+            format!(
+                "{nums}fn check(n: Int) with IO {{\n    let xs = nums(n)\n    \
+                 print(if len(xs) > 1 {{ \"a\" }} else {{ \"b\" }})\n}}\n\n\
+                 fn go(n: Int) with IO {{\n    if n > 0 {{\n        check(n)\n        \
+                 go(n - 1)\n    }}\n}}\n\n\
+                 fn main() with IO {{\n    go(10)\n}}\n"
+            ),
+        ),
+        (
+            "arm_returns_owner",
+            format!(
+                "{nums}fn total(ys: List<Int>) -> Int {{\n    match ys {{\n        \
+                 [h | t] -> h + total(t),\n        _ -> 0,\n    }}\n}}\n\n\
+                 fn main() {{\n    let xs = nums(1)\n    \
+                 print(total(if len(xs) > 1 {{ xs }} else {{ [] }}))\n}}\n"
+            ),
+        ),
+        (
+            "arm_returns_field",
+            "fn name(n: Int) -> Option<String> {\n    \
+             if n > 0 { Some(\"n=#{n}\") } else { None }\n}\n\n\
+             fn main() {\n    let o = name(3)\n    print(match o {\n        \
+             Some(s) -> s,\n        None -> \"none\",\n    })\n}\n"
+                .to_string(),
+        ),
+    ];
+    for (name, program) in &leak_free {
+        let path = scratch.write(&format!("{name}.flx"), program);
+        let path = path.to_string_lossy();
+        let (vm, _, _) = run(&scratch, &path, &["--vm"], None);
+        let (stdout, stderr, code) = run(&scratch, &path, &["--native", "--leak-check"], None);
+        assert_eq!((stdout.as_str(), code), (vm.as_str(), 0), "{name}: {stderr}");
+        assert!(!stderr.contains("leak:"), "{name}: {stderr}");
+    }
+}
+
 /// `--debug-heap` alone does not report leaks: nearly every program still
 /// leaks (KI-119, KI-121).
 #[test]
