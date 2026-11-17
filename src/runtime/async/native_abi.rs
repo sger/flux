@@ -595,11 +595,11 @@ impl NativeRun {
                     self.push_ready(fiber);
                 }
                 FiberOutcome::Error(err) => {
-                    self.complete_fiber(
-                        fiber.id,
-                        FiberOutcome::Error(err),
-                        fiber.home_worker as u32,
-                    );
+                    let (id, home_worker) = (fiber.id, fiber.home_worker as u32);
+                    // @KI-206: the fiber never resumes, so its continuation and
+                    // effect context are released here; dropping it leaked them.
+                    release_cancelled_fiber(fiber);
+                    self.complete_fiber(id, FiberOutcome::Error(err), home_worker);
                 }
             }
             return;
@@ -648,11 +648,10 @@ impl NativeRun {
                     fiber_trace::emit(FiberEvent::Resume { fid, worker, request_id: req });
                 }
                 FiberOutcome::Error(err) => {
-                    self.complete_fiber(
-                        fiber.id,
-                        FiberOutcome::Error(err),
-                        fiber.home_worker as u32,
-                    );
+                    let (id, home_worker) = (fiber.id, fiber.home_worker as u32);
+                    // @KI-206: as in `park`, the fiber never resumes.
+                    release_cancelled_fiber(fiber);
+                    self.complete_fiber(id, FiberOutcome::Error(err), home_worker);
                 }
             }
         } else if self.cancelled_requests.remove(&req) {
