@@ -663,6 +663,66 @@ payload again and returns it. Nothing releases the `Some`. The block is that
 `CoreExpr::MemberAccess` arm of `lower_expr` and the `AetherExpr::MemberAccess`
 arm of `lower_expr_aether`, which the native path uses.
 
+### KI-204 — Natively, a value read from a record literal and only borrowed is never released
+
+**Severity:** Low (a leak per read of a counted value) · **Area:** Aether and LIR, member access on a map (`src/aether/insert.rs`, `src/lir/lower.rs`) · **Verified:** 2026-11-17 (with the KI-203 fix), `--native --leak-check` and `--dump-lir` · **From:** fixing KI-203
+
+```flux
+fn main() {
+    let m = { "name": "a" + "b" }
+    print(m.name == "ab")
+}
+```
+
+```text
+$ flux payload_string.flx --native --leak-check
+true
+leak: 1 block still live at exit
+  a String (16 bytes) allocated at main (payload_string.flx:2:23)
+```
+
+The two sides disagree about who owns what a member read returns. LIR
+lowers `m.name` to `HamtGet` and `Unwrap`, and `flux_unwrap` returns the
+value with a reference of its own. Aether plans the read as a value that
+may point into the map without one (`MemberAccess` is not fresh, so its
+binder is never released). In the LIR above, the string `Unwrap` returns
+(`%21`) goes to `Eq` and is never dropped; dropping the map gives back only
+the map's reference. When the value is called instead, as in
+`m.square(5)`, Aether also copies it before it releases the map
+(`dup %19` then `drop %16`). The KI-203 lambdas show nothing because a
+lambda that captures nothing is a static object.
+
+Making Aether count a member read as fresh needs it to follow LIR's choice
+first: before the map lookup, LIR returns a binder whose name is the
+member's, or an extern symbol, and neither adds a reference.
+
+### KI-205 — Natively, calling a capturing closure stored in a record literal fails with a wrong argument count
+
+**Severity:** High (a program the VM runs fails natively) · **Area:** native backend, closures read from a map · **Verified:** 2026-11-17 (e6e73b08 and with the KI-203 fix), `--native` · **From:** a probe for KI-204
+
+```flux
+fn main() {
+    let k = 3
+    let m = { "add": fn(x) { x + k } }
+    print(m.add(5))
+}
+```
+
+```text
+$ flux payload_closure.flx --vm
+8
+$ flux payload_closure.flx --native
+error[E1000]: wrong number of arguments: want=2, got=1
+
+  payload_closure.flx:4:11
+```
+
+The exit code is 1. Binding the lambda with `let add = fn(x) { x + k }`
+first and storing `add` fails the same way. A lambda that captures nothing
+works (the KI-203 programs). The cause is not traced yet: `want=2` suggests
+the call reaches the lambda's function with its captured `k` as a parameter
+but without the closure that supplies it.
+
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
