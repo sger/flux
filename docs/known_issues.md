@@ -632,37 +632,6 @@ array literal or a built string, is never released. Where the call loses
 `join`'s signature (the `String` name against `by_member_access`) is not
 traced yet.
 
-### KI-203 — Natively, reading a member of a record literal leaves an `Option` live
-
-**Severity:** Low (a leak per read) · **Area:** LIR, member access on a map (`src/lir/lower.rs`) · **Verified:** 2026-11-16 (e6e73b08), `--native --leak-check` · **From:** the heap-leak gate (0190 S15), first filed as KI-149 on `heap-leak-gate-renumbered`, never merged
-
-```flux
-fn main() {
-    let m = { "square": fn(x) { x * x } }
-    print(m.square(5))
-}
-```
-
-```text
-$ flux call_member.flx --native --leak-check
-25
-leak: 1 block still live at exit
-  a constructor value (16 bytes) allocated at main (call_member.flx:3:11)
-```
-
-The exit code is 3. Each read leaves one block: two calls through `m.square`
-leave 2, and a function that reads `m.f` on each of 10 turns leaves 10. Seen
-in `tests/parity/import_member_access.flx` and
-`examples/namespaces/namespace_member_access_ok.flx`. The VM prints the same.
-
-**The cause.** A record literal is a map, and LIR lowers a read of one of its
-members to `HamtGet` and then `Unwrap`: `flux_hamt_get_option` returns a new
-`Some` holding a counted copy of the value, and `flux_unwrap` copies the
-payload again and returns it. Nothing releases the `Some`. The block is that
-`Some`, allocated where the member is read. Both lowerings have it: the
-`CoreExpr::MemberAccess` arm of `lower_expr` and the `AetherExpr::MemberAccess`
-arm of `lower_expr_aether`, which the native path uses.
-
 ### KI-204 — Natively, a value read from a record literal and only borrowed is never released
 
 **Severity:** Low (a leak per read of a counted value) · **Area:** Aether and LIR, member access on a map (`src/aether/insert.rs`, `src/lir/lower.rs`) · **Verified:** 2026-11-17 (with the KI-203 fix), `--native --leak-check` and `--dump-lir` · **From:** fixing KI-203
@@ -3279,6 +3248,50 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-203 — Natively, reading a member of a record literal left an `Option` live — FIXED 2026-11-17
+
+**Severity:** Low (a leak per read) · **Area:** LIR, member access on a map (`src/lir/lower.rs`) · **Verified:** 2026-11-16 (e6e73b08), `--native --leak-check` · **From:** the heap-leak gate (0190 S15), first filed as KI-149 on `heap-leak-gate-renumbered`, never merged
+
+```flux
+fn main() {
+    let m = { "square": fn(x) { x * x } }
+    print(m.square(5))
+}
+```
+
+```text
+$ flux call_member.flx --native --leak-check
+25
+leak: 1 block still live at exit
+  a constructor value (16 bytes) allocated at main (call_member.flx:3:11)
+```
+
+The exit code is 3. Each read leaves one block: two calls through `m.square`
+leave 2, and a function that reads `m.f` on each of 10 turns leaves 10. Seen
+in `tests/parity/import_member_access.flx` and
+`examples/namespaces/namespace_member_access_ok.flx`. The VM prints the same.
+
+**The cause.** A record literal is a map, and LIR lowers a read of one of its
+members to `HamtGet` and then `Unwrap`: `flux_hamt_get_option` returns a new
+`Some` holding a counted copy of the value, and `flux_unwrap` copies the
+payload again and returns it. Nothing releases the `Some`. The block is that
+`Some`, allocated where the member is read. Both lowerings have it: the
+`CoreExpr::MemberAccess` arm of `lower_expr` and the `AetherExpr::MemberAccess`
+arm of `lower_expr_aether`, which the native path uses.
+
+Test: `a_value_read_from_a_record_literal_releases_its_option_ki203` in
+`tests/debug/native_debug_heap_tests/leaks_and_moves.rs` runs four programs
+under `--native --leak-check` and compares their output with the VM's: the
+reproducer, two reads, two members, and 10 reads in a recursive function.
+Before the fix the reproducer left 1 block (exit code 3) and the loop 10.
+
+**Fixed** in `src/lir/lower.rs`: both lowerings drop the `Some` right after
+the `Unwrap`, which has already counted the value it returns, so what the
+read gives back keeps the reference it had. `import_member_access.flx` and
+`namespace_member_access_ok.flx` now leak nothing. Found on the way: KI-204
+(a counted value read this way and only borrowed still leaks) and KI-205 (a
+capturing closure read this way fails natively).
 
 ### KI-201 — Natively, the results of `substring`, `array_push`, `safe_div` and other runtime primops were never released — FIXED 2026-11-16
 
