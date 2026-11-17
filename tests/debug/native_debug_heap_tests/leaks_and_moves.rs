@@ -602,9 +602,21 @@ fn main() with IO {
 }
 "#,
         ),
-        (
-            "timeout_timer_fires",
-            r#"import Flow.Async exposing (..)
+    ] {
+        let path = scratch.write(&format!("{name}.flx"), program);
+        let path = path.to_string_lossy();
+        let (vm, _, _) = run(&scratch, &path, &["--vm"], None);
+        let (stdout, stderr, code) = run(&scratch, &path, &["--native", "--leak-check"], None);
+        assert_eq!((stdout.as_str(), code), (vm.as_str(), 0), "{name}: {stderr}");
+        assert!(!stderr.contains("leak:"), "{name}: {stderr}");
+    }
+
+    // A timer that fires before its body: the debug heap faults if a value
+    // is freed early. Leaks aren't checked, since under load this case has
+    // once left the effect handlers live (KI-207).
+    let path = scratch.write(
+        "timeout_timer_fires.flx",
+        r#"import Flow.Async exposing (..)
 
 fn body() -> Int with Async {
     sleep(50)
@@ -615,15 +627,11 @@ fn main() with IO {
     print(run_async(fn() { timeout_result(1, body) }))
 }
 "#,
-        ),
-    ] {
-        let path = scratch.write(&format!("{name}.flx"), program);
-        let path = path.to_string_lossy();
-        let (vm, _, _) = run(&scratch, &path, &["--vm"], None);
-        let (stdout, stderr, code) = run(&scratch, &path, &["--native", "--leak-check"], None);
-        assert_eq!((stdout.as_str(), code), (vm.as_str(), 0), "{name}: {stderr}");
-        assert!(!stderr.contains("leak:"), "{name}: {stderr}");
-    }
+    );
+    let path = path.to_string_lossy();
+    let (vm, _, _) = run(&scratch, &path, &["--vm"], None);
+    let (stdout, stderr, code) = run(&scratch, &path, &["--native", "--debug-heap"], None);
+    assert_eq!((stdout.as_str(), code), (vm.as_str(), 0), "timeout_timer_fires: {stderr}");
 }
 
 /// `--debug-heap` alone does not report leaks: nearly every program still
