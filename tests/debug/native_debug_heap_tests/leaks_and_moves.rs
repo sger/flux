@@ -518,6 +518,114 @@ fn main() {
     }
 }
 
+/// A fiber waiting on a timeout, `race` or `both` whose body panics is woken
+/// with the error and released: its continuation and the effect handlers its
+/// context holds were left live (KI-206). A body that returns and a timer
+/// that fires check that nothing is freed early.
+#[test]
+fn a_fiber_woken_with_an_error_releases_its_continuation_ki206() {
+    let scratch = Scratch::new("debug-heap-fiber-error-wake-ki206");
+    for (name, program) in [
+        (
+            "timeout_body_panics",
+            r#"import Flow.Async exposing (..)
+
+fn body() -> Int with Async {
+    panic("boom")
+}
+
+fn main() with IO {
+    print(run_async(fn() { timeout_result(100, body) }))
+}
+"#,
+        ),
+        (
+            "timeout_body_panics_three_times",
+            r#"import Flow.Async exposing (..)
+
+fn body() -> Int with Async {
+    panic("boom")
+}
+
+fn main() with IO {
+    print(run_async(fn() { timeout_result(100, body) }))
+    print(run_async(fn() { timeout_result(100, body) }))
+    print(run_async(fn() { timeout_result(100, body) }))
+}
+"#,
+        ),
+        (
+            "race_child_panics",
+            r#"import Flow.Async exposing (..)
+
+fn bad() -> Int with Async {
+    panic("boom")
+}
+
+fn slow() -> Int with Async {
+    sleep(50)
+    1
+}
+
+fn main() with IO {
+    print(run_async(fn() { try(fn() { race(bad, slow) }) }))
+}
+"#,
+        ),
+        (
+            "both_child_panics",
+            r#"import Flow.Async exposing (..)
+
+fn bad() -> Int with Async {
+    panic("boom")
+}
+
+fn good() -> Int with Async {
+    1
+}
+
+fn main() with IO {
+    print(run_async(fn() { try(fn() { both(good, bad) }) }))
+}
+"#,
+        ),
+        (
+            "timeout_body_returns",
+            r#"import Flow.Async exposing (..)
+
+fn body() -> Int with Async {
+    7
+}
+
+fn main() with IO {
+    print(run_async(fn() { timeout_result(100, body) }))
+}
+"#,
+        ),
+        (
+            "timeout_timer_fires",
+            r#"import Flow.Async exposing (..)
+
+fn body() -> Int with Async {
+    sleep(50)
+    7
+}
+
+fn main() with IO {
+    print(run_async(fn() { timeout_result(1, body) }))
+}
+"#,
+        ),
+    ] {
+        let path = scratch.write(&format!("{name}.flx"), program);
+        let path = path.to_string_lossy();
+        let (vm, _, _) = run(&scratch, &path, &["--vm"], None);
+        let (stdout, stderr, code) = run(&scratch, &path, &["--native", "--leak-check"], None);
+        assert_eq!((stdout.as_str(), code), (vm.as_str(), 0), "{name}: {stderr}");
+        assert!(!stderr.contains("leak:"), "{name}: {stderr}");
+    }
+}
+
 /// `--debug-heap` alone does not report leaks: nearly every program still
 /// leaks (KI-119, KI-121).
 #[test]
