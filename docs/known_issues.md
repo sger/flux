@@ -692,6 +692,34 @@ works (the KI-203 programs). The cause is not traced yet: `want=2` suggests
 the call reaches the lambda's function with its captured `k` as a parameter
 but without the closure that supplies it.
 
+### KI-207 — Natively, a timeout whose timer fires before its sleeping body once left the effect handlers live
+
+**Severity:** Low (one sighting, under load) · **Area:** native async runtime, cancellation (`src/runtime/async/native_abi.rs`) · **Verified:** 2026-11-17 (71548be9), one failure in a full serial `cargo test --all-features --workspace` run · **From:** the KI-206 test
+
+```flux
+import Flow.Async exposing (..)
+
+fn body() -> Int with Async {
+    sleep(50)
+    7
+}
+
+fn main() with IO {
+    print(run_async(fn() { timeout_result(1, body) }))
+}
+```
+
+In the full run this printed `Err(TimedOut)` and then
+`leak: 5 blocks still live at exit`: five effect handlers (56 to 248 bytes)
+allocated at `main` (line 8), the vectors an `EffectSnapshot` holds, with no
+continuation beside them. The exit code was 3. It did not happen again in 30
+runs one after another, in 300 runs of the built binary 50 at a time with
+`FLUX_LEAK_CHECK=1`, or in 10 runs of the test. The timer path wakes the
+waiting fiber with `Value(None)` and cancels the sleeping body; the KI-206
+change (the `Error` branches of `wake` and `park`) is not on it. Which
+cancellation path drops a fiber's snapshot is not traced. The KI-206 test
+checks this program for early frees only (`--debug-heap`, no leak check).
+
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
@@ -3302,8 +3330,9 @@ Test: `a_fiber_woken_with_an_error_releases_its_continuation_ki206` in
 `tests/debug/native_debug_heap_tests/leaks_and_moves.rs` runs six programs
 under `--native --leak-check` and compares their output with the VM's: the
 reproducer, three runs of it, `race` and `both` with a panicking child, and
-a timeout whose body returns and one whose timer fires. Before the fix the
-reproducer left 9 blocks (exit code 3).
+a timeout whose body returns; a timeout whose timer fires is checked for
+early frees only, since it once leaked under load (KI-207). Before the fix
+the reproducer left 9 blocks (exit code 3).
 
 **Fixed** in `src/runtime/async/native_abi.rs`: the error branches of
 `NativeRun::wake` and `NativeRun::park` release the fiber with
