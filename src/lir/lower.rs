@@ -2454,6 +2454,9 @@ impl<'a> FnLower<'a> {
                     op: CorePrimOp::Unwrap,
                     args: vec![option_result],
                 });
+                // @KI-203: `Unwrap` counted the value it returns, so the
+                // `Some` the lookup made is released here; it was left live.
+                self.emit(LirInstr::Drop { val: option_result });
                 dst
             }
 
@@ -3016,6 +3019,9 @@ impl<'a> FnLower<'a> {
                     op: CorePrimOp::Unwrap,
                     args: vec![option_result],
                 });
+                // @KI-203: `Unwrap` counted the value it returns, so the
+                // `Some` the lookup made is released here; it was left live.
+                self.emit(LirInstr::Drop { val: option_result });
                 dst
             }
             AetherExpr::TupleField { object, index, .. } => {
