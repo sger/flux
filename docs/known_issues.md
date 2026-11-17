@@ -692,6 +692,55 @@ works (the KI-203 programs). The cause is not traced yet: `want=2` suggests
 the call reaches the lambda's function with its captured `k` as a parameter
 but without the closure that supplies it.
 
+### KI-206 — Natively, a fiber woken with an error never releases its continuation or effect context
+
+**Severity:** Medium (a leak per failed wait; `timeout_result`, `race`, `both` and `first_of` with a panicking body) · **Area:** native async runtime (`src/runtime/async/native_abi.rs`) · **Verified:** 2026-11-17 (a1a811fc), `--native --leak-check` · **From:** the heap-leak gate (0190 S15), first filed as KI-150 on `heap-leak-gate-renumbered`, never merged
+
+```flux
+import Flow.Async exposing (..)
+
+fn body() -> Int with Async {
+    panic("boom")
+}
+
+fn main() with IO {
+    print(run_async(fn() { timeout_result(100, body) }))
+}
+```
+
+```text
+$ flux timeout_body_panics.flx --native --leak-check
+Err(Panicked("boom"))
+leak: 9 blocks still live at exit
+  an effect handler (56 bytes) allocated at main (timeout_body_panics.flx:7:1)
+  an effect handler (104 bytes) allocated at main (timeout_body_panics.flx:7:1)
+  an effect handler (152 bytes) allocated at main (timeout_body_panics.flx:7:1)
+  an effect handler (200 bytes) allocated at main (timeout_body_panics.flx:7:1)
+  an effect handler (248 bytes) allocated at main (timeout_body_panics.flx:7:1)
+  a closure (24 bytes) allocated at fiber_timeout_prim (lib/Flow/Async.flx:121:15)
+  a closure (24 bytes) allocated at the runtime
+  an Array (32 bytes) allocated at the runtime
+  a closure (48 bytes) allocated at the runtime
+```
+
+Three such runs leave 17 blocks. `try(fn() { race(bad, slow) })` and
+`try(fn() { both(good, bad) })` with a panicking `bad` leave 10 each. A body
+that returns, or a timer that fires first, leaves nothing. In
+`tests/parity/async_try_panic.flx` it is the last case, 4 blocks. The VM
+prints the same.
+
+**The cause.** The fiber that calls `fiber_timeout_prim` (`fiber_both_prim`,
+…) suspends, keeping `Work::Resume { continuation }` and an `EffectSnapshot`.
+The continuation is the 48-byte closure `compose_into_closure` (effects.c)
+builds over an array of the two continuations that unwound (24 bytes each),
+and the snapshot holds the effect handlers. When the body fails,
+`apply_await_events` wakes the request with `FiberOutcome::Error`, and
+`NativeRun::wake`'s error branch hands the fiber's id to `complete_fiber` and
+drops the `Fiber`, which has no `Drop`: neither is released. `park` does the
+same for an error that arrives before the fiber has parked. On success
+`execute_fiber` calls `release_finished_fiber`, and `wake`'s cancelled branch
+calls `release_cancelled_fiber`.
+
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
