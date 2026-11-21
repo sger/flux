@@ -92,6 +92,21 @@ pub struct Options {
     pub jobs: usize,
     pub timeout: Duration,
     pub flux: PathBuf,
+    /// Compile each file under `--shuffle-seed <n>` (0190 §9). In
+    /// `determinism`, only the second sweep takes it.
+    pub shuffle_seed: Option<u64>,
+}
+
+/// The seed `sweep --determinism --shuffle` uses without `--shuffle-seed`.
+pub const DEFAULT_SHUFFLE_SEED: u64 = 1;
+
+/// `mode`'s flags, plus `--shuffle-seed <n>` under a seed.
+pub fn flags_with_seed(mode: Mode, seed: Option<u64>) -> Vec<String> {
+    let mut flags: Vec<String> = mode.flags().iter().map(|flag| flag.to_string()).collect();
+    if let Some(seed) = seed {
+        flags.extend(["--shuffle-seed".to_string(), seed.to_string()]);
+    }
+    flags
 }
 
 pub fn default_jobs() -> usize {
@@ -324,7 +339,9 @@ pub fn run(root: &Path, options: &Options) -> Result<Vec<FileResult>, String> {
     let flux = compiler_in(out_dir);
     fs::copy(&options.flux, &flux).map_err(|e| format!("copying the compiler: {e}"))?;
 
-    let flags = options.mode.flags();
+    let flags = flags_with_seed(options.mode, options.shuffle_seed);
+    let flags: Vec<&str> = flags.iter().map(String::as_str).collect();
+    let flags = flags.as_slice();
     println!(
         "sweep: {} files, mode {}, {} jobs; each runs\n  $ flux --no-cache --quiet {} <file>\n  out: {}",
         files.len(),
@@ -365,6 +382,10 @@ pub fn run(root: &Path, options: &Options) -> Result<Vec<FileResult>, String> {
 /// and compares the two by content. Any difference means a dump depends on
 /// something other than its input, such as `HashMap` order, and makes
 /// `--cmp` unreliable. Returns whether the two agreed.
+///
+/// With `shuffle_seed`, the second sweep compiles under that seed (0190 §9).
+/// A shuffled order may number things differently but must build the same
+/// program, so only a `structure` difference fails.
 pub fn determinism(root: &Path, options: &Options) -> Result<bool, String> {
     let with_suffix = |suffix: &str| {
         let mut name = options.out_dir.as_os_str().to_owned();
@@ -372,15 +393,26 @@ pub fn determinism(root: &Path, options: &Options) -> Result<bool, String> {
         PathBuf::from(name)
     };
     let (a, b) = (with_suffix("_a"), with_suffix("_b"));
+    let seed = options.shuffle_seed;
+    if let Some(seed) = seed {
+        println!("second sweep shuffled: --shuffle-seed {seed}");
+    }
     let mut files = 0;
-    for dir in [&a, &b] {
-        let results = run(root, &Options { out_dir: dir.clone(), ..options.clone() })?;
+    for (dir, shuffle_seed) in [(&a, None), (&b, seed)] {
+        let results =
+            run(root, &Options { out_dir: dir.clone(), shuffle_seed, ..options.clone() })?;
         files = results.len();
     }
-    let comparison = crate::compare::run(root, &a, &b, true)?;
-    let deterministic = !comparison.failed && comparison.changed.is_empty();
+    let comparison = crate::compare::run(root, &a, &b, true, seed)?;
+    let deterministic = runs_agree(&comparison, seed.is_some());
     if deterministic {
         println!("deterministic: {files} files, mode {}", options.mode.name());
+    } else if let Some(seed) = seed {
+        println!(
+            "NOT order-independent: {} dump(s) build a different program under --shuffle-seed {seed}; see {}",
+            comparison.changed.len() - comparison.numbering,
+            crate::compare::Comparison::diff_file(&b).display()
+        );
     } else {
         println!(
             "NOT deterministic: {} dump(s) differ between two runs of the same compiler; see {}",
@@ -389,6 +421,13 @@ pub fn determinism(root: &Path, options: &Options) -> Result<bool, String> {
         );
     }
     Ok(deterministic)
+}
+
+/// Whether `determinism`'s two sweeps agree: no change at all, or under a
+/// shuffle only changes of numbering.
+fn runs_agree(comparison: &crate::compare::Comparison, shuffled: bool) -> bool {
+    let allowed = if shuffled { comparison.numbering } else { 0 };
+    !comparison.failed && comparison.changed.len() == allowed
 }
 
 /// The files `--mode cache` runs when no `--files` list is given: parity
@@ -559,7 +598,8 @@ pub fn determinism_sample(results: &[FileResult], n: usize) -> Vec<&FileResult> 
 
 /// Reruns `sample` with the compiler the sweep in `out_dir` kept, `jobs` at
 /// a time, and returns each file whose dump is not the one the sweep
-/// hashed, with both hashes.
+/// hashed, with both hashes. With `seed`, the reruns compile under
+/// `--shuffle-seed` (0190 §9).
 pub fn recheck(
     root: &Path,
     out_dir: &Path,
@@ -567,17 +607,19 @@ pub fn recheck(
     sample: &[&FileResult],
     jobs: usize,
     timeout: Duration,
+    seed: Option<u64>,
 ) -> Vec<(String, DumpHash, DumpHash)> {
     let flux = compiler_in(out_dir);
+    let flags = flags_with_seed(mode, seed);
+    let flags: Vec<&str> = flags.iter().map(String::as_str).collect();
     let next = AtomicUsize::new(0);
     let differing = Mutex::new(Vec::new());
     thread::scope(|scope| {
         for _ in 0..jobs.clamp(1, sample.len().max(1)) {
             scope.spawn(|| {
                 while let Some(first) = sample.get(next.fetch_add(1, Ordering::Relaxed)) {
-                    let again = DumpHash::of(
-                        &run_flux(root, &flux, mode.flags(), &first.file, timeout).stdout,
-                    );
+                    let again =
+                        DumpHash::of(&run_flux(root, &flux, &flags, &first.file, timeout).stdout);
                     if !again.same_dump(&first.dump) {
                         let entry = (first.file.clone(), first.dump, again);
                         differing.lock().unwrap().push(entry);
@@ -734,6 +776,30 @@ fn write_outputs(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_shuffle_seed_is_passed_to_flux_after_the_modes_flags() {
+        assert_eq!(flags_with_seed(Mode::Core, None), vec!["--dump-core"]);
+        assert_eq!(
+            flags_with_seed(Mode::Core, Some(7)),
+            vec!["--dump-core", "--shuffle-seed", "7"]
+        );
+    }
+
+    #[test]
+    fn under_a_shuffle_only_a_change_of_program_fails() {
+        let numbering = crate::compare::Comparison {
+            changed: vec!["a.flx".into()],
+            numbering: 1,
+            ..Default::default()
+        };
+        let structure =
+            crate::compare::Comparison { changed: vec!["a.flx".into()], ..Default::default() };
+        assert!(runs_agree(&numbering, true));
+        assert!(!runs_agree(&numbering, false));
+        assert!(!runs_agree(&structure, true));
+        assert!(runs_agree(&crate::compare::Comparison::default(), false));
+    }
 
     #[cfg(unix)]
     #[test]
