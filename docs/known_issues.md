@@ -768,6 +768,111 @@ module qualifier, skip the global, extern and binder lookups and lower the
 read as `HamtGet` and `Unwrap`. The KI-202 fix makes the same test on the
 Aether side, in `resolve_member_access_callee`.
 
+### KI-209 — Natively, the value `Json.parse` returns is never released
+
+**Severity:** Medium (a leak per parse, of the whole parsed value) · **Area:** Aether, primop results (`src/aether/insert.rs`), `Flow.Json` · **Verified:** 2026-11-21 (ffdf8a13), `--native --leak-check` · **From:** heap parity in `cargo xtask verify main`
+
+```flux
+import Flow.Json as Json
+
+fn main() with IO {
+    print(Json.stringify(Json.parse("1")))
+}
+```
+
+```text
+$ flux json_parse.flx --native --leak-check
+"1"
+leak: 2 blocks still live at exit
+  a constructor value (16 bytes) allocated at json_parse_prim (lib/Flow/Json.flx:41:15)
+  a constructor value (16 bytes) allocated at json_parse_prim (lib/Flow/Json.flx:41:15)
+```
+
+The exit code is 3. `let r = Json.parse("[1, 2]")` then `Json.stringify(r)`
+leaves 6 blocks, and ten parses of `{"a": "b"}` in a recursive function leave
+50, 5 per parse. `Json.stringify(Json.int(5))` leaves nothing, so the leak is
+on the parse side. The VM prints the same. In heap parity it is all of
+`json_derived_codecs.flx` (10 blocks), `json_derived_decode_errors.flx` (41),
+`json_parse_stringify_sorts_keys.flx` (26),
+`json_int_decode_rejects_fractions.flx` (2) and
+`json_integer_round_trip.flx` (2).
+
+Likely cause, not traced: `json_parse_prim` is `primop JsonParse`
+(`lib/Flow/Json.flx:41`), and `flux_json_parse` (`runtime/c/json.c`) builds a
+new value (`json_make_adt`). `primop_result_is_fresh` in `src/aether/insert.rs`
+lists neither `JsonParse` nor `JsonStringify`, so Aether takes the result for
+a view, as it did for the primops KI-201 fixed. The counts fit the parsed
+value's root keeping one reference too many: the `JsonOk` and everything under
+it stay live. `flux_json_stringify` also returns a new string
+(`flux_string_new`) but shows no leak in these programs. The entry program's
+`--dump-aether` does not include `Flow.Json`, so the plan around the primop is
+not seen yet.
+
+### KI-210 — Natively, a field read from a constructor a call returns leaves the constructor live
+
+**Severity:** Low (a leak per read) · **Area:** Aether, named-field access (proposal 0152 lowers it to a match; `src/core/lower_ast/expression.rs`, `src/aether/insert.rs`) · **Verified:** 2026-11-21 (ffdf8a13), `--native --leak-check` · **From:** heap parity in `cargo xtask verify main`, the 1 block of `tests/parity/imported_constructor_types.flx` (`Shapes.tagged("tag").label + "!"`)
+
+```flux
+data Tagged { Tagged { label: String } }
+
+fn tagged(label: String) -> Tagged {
+    Tagged { label: label }
+}
+
+fn main() with IO {
+    print(tagged("tag").label + "!")
+}
+```
+
+```text
+$ flux call_field.flx --native --leak-check
+"tag!"
+leak: 1 block still live at exit
+  a constructor value (16 bytes) allocated at tagged (call_field.flx:4:5)
+```
+
+The exit code is 3. `print(len(tagged("tag").label))` leaves the same block.
+Bound first, `let t = tagged("tag")` then `print(t.label + "!")`, nothing
+leaks. The VM prints the same. Not traced: `try_lower_adt_field_access`
+lowers the read to a match on the call's result, and the temporary that holds
+the result is most likely never released, a shape like KI-199's `if`
+argument. The heap-leak gate filed a related case as KI-148 on
+`heap-leak-gate-renumbered` (a field of a matched value given to `print`),
+which never merged.
+
+### KI-211 — Natively, an argument given through a dictionary to an instance method that only borrows it is never released
+
+**Severity:** Low (a leak per call with a counted argument) · **Area:** Aether, type classes (borrow signatures behind dictionary methods) · **Verified:** 2026-11-21 (ffdf8a13), `--native --leak-check` · **From:** left unfiled by the KI-194 fix; heap parity in `cargo xtask verify main`, `tests/parity/functor_applicative_monad.flx` (1 block) and `semigroup_monoid.flx` (6)
+
+```flux
+fn twice<a: Semigroup>(x: a) -> a {
+    append(x, x)
+}
+
+fn main() {
+    print(twice("a" + "b"))
+}
+```
+
+```text
+$ flux semigroup_twice.flx --native --leak-check
+"abab"
+leak: 1 block still live at exit
+  a String (16 bytes) allocated at main (semigroup_twice.flx:6:17)
+```
+
+The exit code is 3. `chain([|3|])` from `functor_applicative_monad.flx`
+(`bind(fmap(x, …), …)` under `f: Monad`) leaves the array the same way.
+`chain([1, 2])` with a `List` leaves nothing, and neither does calling
+`append("a" + "b", "c")` directly. The VM prints the same. The KI-194 entry
+describes it: an argument given through a dictionary's method closure to an
+instance method that only borrows it, such as `Semigroup<String>`'s
+`append`, which calls `concat_strings`. Most likely the shape of KI-202: a
+call through a closure hands its arguments over, as an unknown callee owns
+them, so the caller does not release the argument, and the instance method,
+which only borrows it, does not release it either. Why a `List` argument is
+released is not traced.
+
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features` · **Issue:** [#170](https://forgejo.spirosgerokostas.com/sger/flux/issues/170)
