@@ -6,3 +6,4 @@ pub mod hex;
 pub mod opt_bisect;
 pub mod paths;
 pub mod scc;
+pub mod shuffle;
