@@ -1282,6 +1282,66 @@ fn algebraic_simplify_removes_int_identity() {
     assert!(matches!(result, CoreExpr::Var { .. }));
 }
 
+fn binary(op: CorePrimOp, lhs: CoreExpr, rhs: CoreExpr) -> CoreExpr {
+    CoreExpr::PrimOp { op, args: vec![lhs, rhs], span: s() }
+}
+
+fn float(f: f64) -> CoreExpr {
+    CoreExpr::Lit(CoreLit::Float(f), s())
+}
+
+/// KI-200: only the Float identities IEEE 754 makes exact are applied.
+/// `-0.0 + 0.0` is `+0.0`, so `x + 0.0` is not `x`; `x * 0.0` is `-0.0` for
+/// a negative `x` and NaN for an infinite one.
+#[test]
+fn algebraic_simplify_keeps_ieee_float_results_ki200() {
+    let x = binder(0, Interner::new().intern("x"));
+    let kept = [
+        ("x + 0.0", binary(CorePrimOp::FAdd, var_ref(x), float(0.0))),
+        ("0.0 + x", binary(CorePrimOp::FAdd, float(0.0), var_ref(x))),
+        ("x - (-0.0)", binary(CorePrimOp::FSub, var_ref(x), float(-0.0))),
+        ("x * 0.0", binary(CorePrimOp::FMul, var_ref(x), float(0.0))),
+        ("0.0 * x", binary(CorePrimOp::FMul, float(0.0), var_ref(x))),
+    ];
+    for (name, expr) in kept {
+        let result = algebraic_simplify(expr);
+        assert!(matches!(result, CoreExpr::PrimOp { .. }), "{name} became {result:?}");
+    }
+    let simplified = [
+        ("x + (-0.0)", binary(CorePrimOp::FAdd, var_ref(x), float(-0.0))),
+        ("(-0.0) + x", binary(CorePrimOp::FAdd, float(-0.0), var_ref(x))),
+        ("x - 0.0", binary(CorePrimOp::FSub, var_ref(x), float(0.0))),
+        ("x * 1.0", binary(CorePrimOp::FMul, var_ref(x), float(1.0))),
+        ("x / 1.0", binary(CorePrimOp::FDiv, var_ref(x), float(1.0))),
+    ];
+    for (name, expr) in simplified {
+        let result = algebraic_simplify(expr);
+        assert!(matches!(result, CoreExpr::Var { .. }), "{name} became {result:?}");
+    }
+}
+
+/// KI-200: an identity that discards an operand applies only when the
+/// operand is pure. The pass runs before ANF, so an operand can be a call
+/// whose effects the program still has to run.
+#[test]
+fn algebraic_simplify_evaluates_a_dropped_operand_with_effects_ki200() {
+    let mut interner = Interner::new();
+    let f = binder(0, interner.intern("f"));
+    let y = binder(1, interner.intern("y"));
+    let call = || CoreExpr::App { func: Box::new(var_ref(f)), args: Vec::new(), span: s() };
+    let kept = [
+        ("f() * 0", binary(CorePrimOp::IMul, call(), int(0))),
+        ("0 * f()", binary(CorePrimOp::IMul, int(0), call())),
+        ("f() mod 1", binary(CorePrimOp::IMod, call(), int(1))),
+    ];
+    for (name, expr) in kept {
+        let result = algebraic_simplify(expr);
+        assert!(matches!(result, CoreExpr::PrimOp { .. }), "{name} became {result:?}");
+    }
+    let result = algebraic_simplify(binary(CorePrimOp::IMul, var_ref(y), int(0)));
+    assert!(matches!(result, CoreExpr::Lit(CoreLit::Int(0), _)), "y * 0 became {result:?}");
+}
+
 #[test]
 fn primop_effect_class_distinguishes_pure_can_fail_and_has_effect() {
     assert_eq!(helpers::primop_effect_class(&CorePrimOp::IAdd), helpers::PrimOpEffectClass::Pure);

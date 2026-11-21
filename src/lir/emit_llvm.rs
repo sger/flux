@@ -678,8 +678,8 @@ const STATIC_HEADER_SIZE: i64 = 8;
 const MAX_SCANNED_FIELDS: usize = 255;
 const FLUX_OBJ_STRING_TAG: i128 = 0xF1;
 
-/// Values that are the same every time they are made: string literals, the
-/// closures of functions that capture nothing, and constructors and tuples
+/// Values that are the same every time they are made: string and Float
+/// literals, the closures of functions that capture nothing, and constructors and tuples
 /// whose fields are all such values or immediates. Each is one read-only object outside
 /// the heap, with a sticky count, so making one allocates nothing and copying
 /// or releasing it does nothing. Reuse needs a count of one, so a static
@@ -687,6 +687,8 @@ const FLUX_OBJ_STRING_TAG: i128 = 0xF1;
 #[derive(Default)]
 struct StaticObjects {
     strings: BTreeMap<String, GlobalId>,
+    /// Keyed by the double's bits, so 0.0 and -0.0 are two objects.
+    floats: BTreeMap<u64, GlobalId>,
     /// Keyed by the function pointer the closure calls, with its arity.
     closures: BTreeMap<String, (GlobalId, usize)>,
     /// Keyed by constructor tag and fields.
@@ -711,6 +713,11 @@ impl StaticObjects {
             .entry(text.to_string())
             .or_insert_with(|| GlobalId(format!("flux.str.{next}")))
             .clone()
+    }
+
+    fn float(&mut self, bits: u64) -> GlobalId {
+        let next = self.floats.len();
+        self.floats.entry(bits).or_insert_with(|| GlobalId(format!("flux.float.{next}"))).clone()
     }
 
     fn closure(&mut self, fn_ptr: String, arity: usize) -> GlobalId {
@@ -780,6 +787,13 @@ impl StaticObjects {
                     },
                 ),
             ]);
+            module.globals.push(object(name, fields));
+        }
+        for (bits, name) in self.floats {
+            // The `{header, double}` `flux_box_float` builds; the double is
+            // written as its bits, which need no decimal form.
+            let mut fields = header(FLUX_OBJ_FLOAT as i128, 0);
+            fields.push(int(64, bits as i64 as i128));
             module.globals.push(object(name, fields));
         }
         for (fn_ptr, (name, arity)) in self.closures {
@@ -2191,22 +2205,10 @@ impl<'a> FnEmitter<'a> {
                 });
             }
             LirConst::Float(f) => {
-                // Floats are heap-boxed: call flux_box_float_rt at runtime.
-                let bits = f.to_bits() as i64;
-                let dbl_tmp = self.tmp();
-                self.emit(LlvmInstr::Cast {
-                    dst: dbl_tmp.clone(),
-                    op: LlvmValueKind::Bitcast,
-                    from_ty: LlvmType::i64(),
-                    operand: self.i64_const(bits),
-                    to_ty: LlvmType::Double,
-                });
-                self.call_c(
-                    Some(self.var_local(dst)),
-                    "flux_box_float_rt",
-                    vec![(LlvmType::Double, LlvmOperand::Local(dbl_tmp))],
-                    LlvmType::i64(),
-                );
+                // @KI-161: a literal operand has no binder to drop it, so a
+                // box made at each use leaked; a static object needs no drop.
+                let gid = self.statics.float(f.to_bits());
+                self.emit_static_ref(dst, gid);
             }
             LirConst::Bool(b) => {
                 // In worker mode, emit raw 0/1; otherwise tagged constants.

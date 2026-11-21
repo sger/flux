@@ -3519,6 +3519,17 @@ lam(arr) ->
     aether_call[owned, owned] pi_go#927(0, <sym:4001768>#1768)
   drop pi_go#927 in
     <sym:7000000>#4026531840
+── fn split_ints ──
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  FreshAllocs: 0
+  verifier: ok
+lam(s, sep) ->
+  let parts =
+    Split(s#932, sep#933)
+  let <sym:7000000> =
+    aether_call[borrowed] parse_ints#925(parts#934)
+  drop parts#934 in
+    <sym:7000000>#4026531840
 ── fn gcd ──
   Dups: 0  Drops: 3  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
@@ -3674,8 +3685,52 @@ lam(xs, ys) ->
     _ ->
       drop xs#1250 in
         ys#1251
+── fn starts_with ──
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  FreshAllocs: 0
+  verifier: ok
+lam(s, prefix) ->
+  let plen =
+    Len(prefix#1285)
+  let <sym:4001801> =
+    let <sym:4001800> =
+      Len(s#1284)
+    ICmpGt(plen#1286, <sym:4001800>#1800)
+  case <sym:4001801>#1801 of
+    true ->
+      false
+    _ ->
+      let <sym:4001802> =
+        Substring(s#1284, 0, plen#1286)
+      let <sym:7000000> =
+        Eq(<sym:4001802>#1802, prefix#1285)
+      drop <sym:4001802>#1802 in
+        <sym:7000000>#4026531840
+── fn ends_with ──
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  FreshAllocs: 0
+  verifier: ok
+lam(s, suffix) ->
+  let slen =
+    Len(s#1288)
+  let plen =
+    Len(suffix#1289)
+  let <sym:4001803> =
+    ICmpGt(plen#1290, slen#1291)
+  case <sym:4001803>#1803 of
+    true ->
+      false
+    _ ->
+      let <sym:4001805> =
+        let <sym:4001804> =
+          ISub(slen#1291, plen#1290)
+        Substring(s#1288, <sym:4001804>#1804, slen#1291)
+      let <sym:7000000> =
+        Eq(<sym:4001805>#1805, suffix#1289)
+      drop <sym:4001805>#1805 in
+        <sym:7000000>#4026531840
 ── fn chars ──
-  Dups: 0  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 0  Drops: 5  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(s) ->
@@ -3697,7 +3752,10 @@ lam(s) ->
               let <sym:4001809> =
                 IAdd(i#1295, 1)
               Substring(s#1293, i#1295, <sym:4001809>#1809)
-            aether_call[borrowed, borrowed] Array.push(result#1296, <sym:4001810>#1810)
+            let <sym:7000001> =
+              aether_call[borrowed, borrowed] Array.push(result#1296, <sym:4001810>#1810)
+            drop <sym:4001810>#1810 in
+              <sym:7000001>#4026531841
             drop result#1296 in
           drop i#1295 in
               aether_call[owned, owned] chars_go#1294(<sym:4001808>#1808, <sym:4001811>#1811)
@@ -3778,7 +3836,7 @@ lam(arr, sep) ->
           drop <sym:4001822>#1822 in
               ""
 ── fn str_contains ──
-  Dups: 0  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 0  Drops: 5  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(s, needle) ->
@@ -3808,7 +3866,10 @@ lam(s, needle) ->
                   let <sym:4001826> =
                     IAdd(i#1318, nlen#1319)
                   Substring(s#1315, i#1318, <sym:4001826>#1826)
-                Eq(<sym:4001827>#1827, needle#1316)
+                let <sym:7000001> =
+                  Eq(<sym:4001827>#1827, needle#1316)
+                drop <sym:4001827>#1827 in
+                  <sym:7000001>#4026531841
               case <sym:4001828>#1828 of
                 true ->
                   drop i#1318 in
@@ -3947,7 +4008,7 @@ lam() ->
         aether_call[owned] __resume_default#1379(<sym:4001884>#1884)
 
 ── Total ──
-  Dups: 213  Drops: 581  Reuses: 20  DropSpecs: 45  BorrowedCallGuards: 16  FBIP: fbip(54)  FreeShells: 29  Yields: 11  Handles: 5  HandlerArms: 11
+  Dups: 213  Drops: 586  Reuses: 20  DropSpecs: 45  BorrowedCallGuards: 16  FBIP: fbip(54)  FreeShells: 29  Yields: 11  Handles: 5  HandlerArms: 11
   FreshAllocs: 54
 
 [ 1 of 18] Compiling  Add
