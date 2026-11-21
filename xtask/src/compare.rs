@@ -168,8 +168,16 @@ impl Comparison {
 const SHOWN_DIFFS: usize = 20;
 
 /// Compares the sweeps in two directories, by status and, with `content`,
-/// by dump, and prints the report.
-pub fn run(root: &Path, base: &Path, head: &Path, content: bool) -> Result<Comparison, String> {
+/// by dump, and prints the report. `head_seed` is the `--shuffle-seed` the
+/// head sweep compiled under, so a shown difference is regenerated the same
+/// way (0190 §9).
+pub fn run(
+    root: &Path,
+    base: &Path,
+    head: &Path,
+    content: bool,
+    head_seed: Option<u64>,
+) -> Result<Comparison, String> {
     let (base_sweep, head_sweep) = (read_sweep(base)?, read_sweep(head)?);
     let report = compare(&base_sweep, &head_sweep);
     println!("base: {}", base.display());
@@ -195,7 +203,7 @@ pub fn run(root: &Path, base: &Path, head: &Path, content: bool) -> Result<Compa
     );
     for file in comparison.changed.iter().take(SHOWN_DIFFS) {
         println!("  {file}  [{}]", change(file).name());
-        match show_difference(root, base, head, mode, file) {
+        match show_difference(root, base, head, mode, file, head_seed) {
             Ok(lines) => lines.iter().for_each(|line| println!("    {line}")),
             Err(e) => println!("    {e}"),
         }
@@ -291,15 +299,18 @@ fn show_difference(
     head: &Path,
     mode: Mode,
     file: &str,
+    head_seed: Option<u64>,
 ) -> Result<Vec<String>, String> {
-    let dump = |dir: &Path| {
+    let dump = |dir: &Path, seed: Option<u64>| {
         let flux = sweep::compiler_in(dir);
         if !flux.is_file() {
             return Err(format!("no compiler kept in {}", dir.display()));
         }
-        Ok(sweep::run_flux(root, &flux, mode.flags(), file, Duration::from_secs(120)).stdout)
+        let flags = sweep::flags_with_seed(mode, seed);
+        let flags: Vec<&str> = flags.iter().map(String::as_str).collect();
+        Ok(sweep::run_flux(root, &flux, &flags, file, Duration::from_secs(120)).stdout)
     };
-    let (before, after) = (dump(base)?, dump(head)?);
+    let (before, after) = (dump(base, None)?, dump(head, head_seed)?);
     let Some(diff) = first_difference(&before, &after) else {
         return Ok(vec![
             "rerun gives equal dumps: the hash differed, so the output is not deterministic"

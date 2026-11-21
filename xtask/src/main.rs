@@ -21,8 +21,12 @@
 //!     .verify/<tag>/ (git-ignored; `store.rs`)
 //! cargo xtask sweep --out <dir> [--mode cfg|core|core-opt|aether|lir|cache] [--files <list>]
 //!                   [--jobs <n>] [--timeout <seconds>] [--flux <path>] [--determinism]
+//!                   [--shuffle] [--shuffle-seed <n>]
 //!     compile every .flx file under examples/, tests/ and lib/; with
 //!     --determinism, twice into <dir>_a and <dir>_b, which must agree;
+//!     --shuffle (seed 1, or --shuffle-seed) compiles the second sweep under
+//!     flux's --shuffle-seed, and only a change of program fails, not one of
+//!     numbering (0190 §9);
 //!     --mode cache --determinism runs each tests/parity program twice with
 //!     an empty cache and compares the caches written
 //! cargo xtask prune [--keep <n>] [--keep-tag <tag>]... [--yes]
@@ -112,7 +116,7 @@ use sweep::Mode;
 
 const USAGE: &str = "usage:
   cargo xtask verify <tag> [--base <tag> [--cmp | --cmp=structure] [--accept-metrics]] [--only <checks> | --skip <checks>] [--skip-suite] [--skip-sweeps] [--det-sample <n>] [--jobs <n>]
-  cargo xtask sweep --out <dir> [--mode cfg|core|core-opt|aether|lir|cache] [--files <list>] [--jobs <n>] [--timeout <seconds>] [--flux <path>] [--determinism]
+  cargo xtask sweep --out <dir> [--mode cfg|core|core-opt|aether|lir|cache] [--files <list>] [--jobs <n>] [--timeout <seconds>] [--flux <path>] [--determinism] [--shuffle] [--shuffle-seed <n>]
   cargo xtask compare <base sweep dir> <head sweep dir> [--content]
   cargo xtask prune [--keep <n>] [--keep-tag <tag>]... [--yes]
   cargo xtask census [--tag <tag>] [--base <tag>] [--jobs <n>] [--ways <w,...>] [--allow network] [<dir>...]
@@ -203,13 +207,26 @@ fn dispatch(root: &Path, args: &[String]) -> Result<bool, String> {
                     .value("--flux")?
                     .map(|f| resolve(root, &f))
                     .unwrap_or_else(|| verify::flux_binary(root)),
+                shuffle_seed: None,
             };
             let determinism = args.flag("--determinism");
+            let shuffle = args.flag("--shuffle");
+            let seed = args.number("--shuffle-seed")?.map(|n| n as u64);
             args.finish()?;
+            let options = sweep::Options {
+                shuffle_seed: (shuffle || seed.is_some())
+                    .then(|| seed.unwrap_or(sweep::DEFAULT_SHUFFLE_SEED)),
+                ..options
+            };
             if cache {
                 if !determinism {
                     return Err(format!(
                         "--mode cache only checks determinism: add --determinism\n{USAGE}"
+                    ));
+                }
+                if options.shuffle_seed.is_some() {
+                    return Err(format!(
+                        "--mode cache runs programs and has no dumps to shuffle\n{USAGE}"
                     ));
                 }
                 return sweep::cache_determinism(root, &options);
@@ -226,7 +243,7 @@ fn dispatch(root: &Path, args: &[String]) -> Result<bool, String> {
             let head = args.positional()?.ok_or(USAGE)?;
             args.finish()?;
             let comparison =
-                compare::run(root, &resolve(root, &base), &resolve(root, &head), content)?;
+                compare::run(root, &resolve(root, &base), &resolve(root, &head), content, None)?;
             Ok(!comparison.failed && comparison.changed.is_empty())
         }
         "census" => {

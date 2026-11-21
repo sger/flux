@@ -221,10 +221,10 @@ impl Options {
 /// How many numbered steps a run with `options` takes; the summary is not one.
 fn step_count(options: &Options) -> usize {
     let sweeps = if options.runs(Check::Sweeps) {
-        // Each sweep and its determinism check, the internal-error tally,
-        // and each comparison.
+        // Each sweep and its two determinism checks (plain and shuffled), the
+        // internal-error tally, and each comparison.
         let compares = if options.base.is_some() { SWEEPS.len() } else { 0 };
-        let checks = if options.det_sample > 0 { SWEEPS.len() } else { 0 };
+        let checks = if options.det_sample > 0 { 2 * SWEEPS.len() } else { 0 };
         SWEEPS.len() + checks + 1 + compares
     } else {
         0
@@ -386,6 +386,7 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
                     jobs: options.jobs,
                     timeout: Duration::from_secs(120),
                     flux: flux.clone(),
+                    shuffle_seed: None,
                 },
             )?;
             let took = started.elapsed();
@@ -427,7 +428,7 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
                     outcome.note(&step, line, None);
                     continue;
                 }
-                match compare::run(root, &base_dir, &head_dir, true) {
+                match compare::run(root, &base_dir, &head_dir, true, None) {
                     Ok(comparison) => {
                         let changed = comparison.changed.len();
                         let fails_on_content = options.cmp.fails(&comparison);
@@ -833,7 +834,7 @@ fn check_determinism(
     let started = steps.start(&step);
     let sample = sweep::determinism_sample(results, options.det_sample);
     let differing =
-        sweep::recheck(root, dir, mode, &sample, options.jobs, Duration::from_secs(120));
+        sweep::recheck(root, dir, mode, &sample, options.jobs, Duration::from_secs(120), None);
     let took = started.elapsed();
     println!("took {}", format_duration(took));
     let entry = outcome.record(
@@ -849,6 +850,50 @@ fn check_determinism(
             format!("{file} [{}]", compare::Change::of(first, again).name())
         })
         .collect();
+
+    // The same sample compiled under a seed from the tag, so a run can be
+    // replayed: another visit order may renumber, never build another program.
+    let seed = shuffle_seed(&options.tag);
+    let step = format!("determinism {} shuffled (seed {seed})", mode.name());
+    let started = steps.start(&step);
+    let differing = sweep::recheck(
+        root,
+        dir,
+        mode,
+        &sample,
+        options.jobs,
+        Duration::from_secs(120),
+        Some(seed),
+    );
+    let changed: Vec<_> = differing
+        .iter()
+        .filter(|(_, first, again)| compare::Change::of(first, again) != compare::Change::Numbering)
+        .collect();
+    let took = started.elapsed();
+    println!("took {}", format_duration(took));
+    let entry = outcome.record(
+        &step,
+        changed.is_empty(),
+        format!(
+            "{step} ({} of {} rerun file(s) build a different program)",
+            changed.len(),
+            sample.len()
+        ),
+        took,
+    );
+    entry.details = changed
+        .iter()
+        .take(MAX_DETAILS)
+        .map(|(file, first, again)| {
+            format!("{file} [{}]", compare::Change::of(first, again).name())
+        })
+        .collect();
+}
+
+/// The `--shuffle-seed` verify's shuffled determinism check uses: taken from
+/// the tag, so a run's failure replays with the same seed (0190 §9).
+fn shuffle_seed(tag: &str) -> u64 {
+    sweep::fnv64(tag.as_bytes())
 }
 
 /// The main parity step's ways. The opt ways run every fixture under
@@ -950,6 +995,13 @@ mod tests {
     }
 
     #[test]
+    fn the_shuffled_check_takes_its_seed_from_the_tag() {
+        assert_eq!(shuffle_seed("s6"), shuffle_seed("s6"));
+        assert_ne!(shuffle_seed("s6"), shuffle_seed("s7"));
+        assert_eq!(shuffle_seed("s6"), sweep::fnv64(b"s6"));
+    }
+
+    #[test]
     fn leaking_files_are_noted_without_their_prefix() {
         let lines = ["LEAK a.flx llvm_heap: 5 blocks live at exit, first x".to_string()];
         assert_eq!(
@@ -985,11 +1037,11 @@ mod tests {
         assert_eq!(step_count(&options(&[], &["suite", "sweeps"], None)), 6);
         // With a base, the counts are compared too.
         assert_eq!(step_count(&options(&[], &["sweeps"], Some("main"))), 7);
-        // Five sweeps, each with its determinism check, and the
-        // internal-error tally.
-        assert_eq!(step_count(&options(&[], &[], None)), 17);
+        // Five sweeps, each with its two determinism checks (plain and
+        // shuffled), and the internal-error tally.
+        assert_eq!(step_count(&options(&[], &[], None)), 22);
         // And five comparisons with the base, and the counts'.
-        assert_eq!(step_count(&options(&[], &["suite"], Some("main"))), 23);
+        assert_eq!(step_count(&options(&[], &["suite"], Some("main"))), 28);
         let unchecked = Options { det_sample: 0, ..options(&[], &[], None) };
         assert_eq!(step_count(&unchecked), 12);
         // One parity check needs the compiler built first.
