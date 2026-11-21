@@ -692,6 +692,11 @@ works (the KI-203 programs). The cause is not traced yet: `want=2` suggests
 the call reaches the lambda's function with its captured `k` as a parameter
 but without the closure that supplies it.
 
+Re-verified 2026-11-21 (c9962f32): the capture is not the cause; the member
+name is. `{ "add": fn(x) { x + 1 } }` with `m.add(5)` fails the same way,
+and `{ "plus": fn(x) { x + k } }` with `m.plus(5)` prints 8 natively. LIR
+resolves `add` as the library's `add` before it looks in the map: KI-208.
+
 ### KI-207 — Natively, a timeout whose timer fires before its sleeping body once left the effect handlers live
 
 **Severity:** Low (one sighting, under load) · **Area:** native async runtime, cancellation (`src/runtime/async/native_abi.rs`) · **Verified:** 2026-11-17 (71548be9), one failure in a full serial `cargo test --all-features --workspace` run · **From:** the KI-206 test
@@ -719,6 +724,49 @@ waiting fiber with `Value(None)` and cancels the sleeping body; the KI-206
 change (the `Error` branches of `wake` and `park`) is not on it. Which
 cancellation path drops a fiber's snapshot is not traced. The KI-206 test
 checks this program for early frees only (`--debug-heap`, no leak check).
+
+### KI-208 — Natively, a record member named like a library function is called as that function
+
+**Severity:** High (silent wrong output) · **Area:** LIR, member access (`src/lir/lower.rs`) · **Verified:** 2026-11-21 (c9962f32), `--native` with `--dump-core`, `--dump-aether` and `--dump-lir` · **From:** a control program for the KI-202 fix
+
+```flux
+fn main() {
+    let m = { "reverse": fn(x) { x + 1 } }
+    print(m.reverse(1))
+}
+```
+
+```text
+$ flux member_reverse.flx --vm
+2
+$ flux member_reverse.flx --native
+[]
+```
+
+The exit code is 0. With `"map"` in place of `"reverse"` the native run
+fails with `error[E1000]: wrong number of arguments: want=2, got=1` (exit
+code 1), and with `"add"` the same: that is KI-205. `"square"` and `"plus"`
+work, with or without captured variables. The record's own name doesn't
+matter: `m`, `Lst` and `List` behave alike.
+
+**The cause.** Core and Aether are right: `main` reads `%t487.reverse` from
+the `MakeHash` value and calls what the read returns. LIR goes wrong. Both
+member-access arms in `src/lir/lower.rs` (`CoreExpr::MemberAccess` in
+`lower_expr` and `AetherExpr::MemberAccess` in `lower_expr_aether`) try
+module-style resolution before the map lookup: a global named
+`object.member`, a global named after the member alone, an extern symbol for
+the qualified name, then a binder of the member's name in `name_binder_map`.
+None of them checks that the object is a bound value. For the program above,
+the LIR builds the map, drops it unread, and calls `get_global(101)` with
+the 1. `Flow.List.reverse` given an Int returns `[]`, and `map` reaches a
+two-parameter function with one argument. The AST compiler guards the same
+shape for a bound name (KI-093, `resolve_module_name_from_expr`). KI-204
+meets the same lookup order from the ownership side.
+
+Likely fix: when the object is a variable with a binder, a value and not a
+module qualifier, skip the global, extern and binder lookups and lower the
+read as `HamtGet` and `Unwrap`. The KI-202 fix makes the same test on the
+Aether side, in `resolve_member_access_callee`.
 
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
