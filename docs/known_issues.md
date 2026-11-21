@@ -602,6 +602,277 @@ reading of the timing is not confirmed. The VM twin of this test orders its
 steps with channels (8e4e3b09); the native one still uses sleeps, and moving
 it to channels alone would hide this bug.
 
+### KI-202 — Natively, a call through `import Flow.String` as `String.join(…)` hands over arguments the function only borrows
+
+**Severity:** Medium (a leak per call with a fresh argument) · **Area:** Aether, callee signatures (`src/aether/borrow_infer.rs`) · **Verified:** 2026-11-16 (402ff25c), `--native --leak-check` and `--dump-aether` · **From:** fixing KI-201, the 1 block `tests/parity/primop_string_ops.flx` still leaves
+
+```flux
+import Flow.String
+
+fn main() {
+    print(String.join([|"x", "y", "z"|], "-"))
+}
+```
+
+```text
+$ flux join_import_short.flx --native --leak-check
+"x-y-z"
+leak: 1 block still live at exit
+  an Array (40 bytes) allocated at main (join_import_short.flx:4:23)
+```
+
+`main` calls `aether_call[owned, owned] String.join(…)`, but `join` borrows
+`arr`: its body releases it on no path. Every `String.*` call in
+`primop_string_ops.flx` is planned all-owned the same way. Written
+`import Flow.String as S` and `S.join(…)`, or `Flow.String.join(…)`, the call
+is `aether_call[borrowed, borrowed]` and nothing leaks. The same program
+without the import also leaks. A literal String argument shows nothing,
+since it is a static object; an argument with a count of its own, such as an
+array literal or a built string, is never released. Where the call loses
+`join`'s signature (the `String` name against `by_member_access`) is not
+traced yet.
+
+### KI-204 — Natively, a value read from a record literal and only borrowed is never released
+
+**Severity:** Low (a leak per read of a counted value) · **Area:** Aether and LIR, member access on a map (`src/aether/insert.rs`, `src/lir/lower.rs`) · **Verified:** 2026-11-17 (with the KI-203 fix), `--native --leak-check` and `--dump-lir` · **From:** fixing KI-203
+
+```flux
+fn main() {
+    let m = { "name": "a" + "b" }
+    print(m.name == "ab")
+}
+```
+
+```text
+$ flux payload_string.flx --native --leak-check
+true
+leak: 1 block still live at exit
+  a String (16 bytes) allocated at main (payload_string.flx:2:23)
+```
+
+The two sides disagree about who owns what a member read returns. LIR
+lowers `m.name` to `HamtGet` and `Unwrap`, and `flux_unwrap` returns the
+value with a reference of its own. Aether plans the read as a value that
+may point into the map without one (`MemberAccess` is not fresh, so its
+binder is never released). In the LIR above, the string `Unwrap` returns
+(`%21`) goes to `Eq` and is never dropped; dropping the map gives back only
+the map's reference. When the value is called instead, as in
+`m.square(5)`, Aether also copies it before it releases the map
+(`dup %19` then `drop %16`). The KI-203 lambdas show nothing because a
+lambda that captures nothing is a static object.
+
+Making Aether count a member read as fresh needs it to follow LIR's choice
+first: before the map lookup, LIR returns a binder whose name is the
+member's, or an extern symbol, and neither adds a reference.
+
+### KI-205 — Natively, calling a capturing closure stored in a record literal fails with a wrong argument count
+
+**Severity:** High (a program the VM runs fails natively) · **Area:** native backend, closures read from a map · **Verified:** 2026-11-17 (e6e73b08 and with the KI-203 fix), `--native` · **From:** a probe for KI-204
+
+```flux
+fn main() {
+    let k = 3
+    let m = { "add": fn(x) { x + k } }
+    print(m.add(5))
+}
+```
+
+```text
+$ flux payload_closure.flx --vm
+8
+$ flux payload_closure.flx --native
+error[E1000]: wrong number of arguments: want=2, got=1
+
+  payload_closure.flx:4:11
+```
+
+The exit code is 1. Binding the lambda with `let add = fn(x) { x + k }`
+first and storing `add` fails the same way. A lambda that captures nothing
+works (the KI-203 programs). The cause is not traced yet: `want=2` suggests
+the call reaches the lambda's function with its captured `k` as a parameter
+but without the closure that supplies it.
+
+Re-verified 2026-11-21 (c9962f32): the capture is not the cause; the member
+name is. `{ "add": fn(x) { x + 1 } }` with `m.add(5)` fails the same way,
+and `{ "plus": fn(x) { x + k } }` with `m.plus(5)` prints 8 natively. LIR
+resolves `add` as the library's `add` before it looks in the map: KI-208.
+
+### KI-207 — Natively, a timeout whose timer fires before its sleeping body once left the effect handlers live
+
+**Severity:** Low (one sighting, under load) · **Area:** native async runtime, cancellation (`src/runtime/async/native_abi.rs`) · **Verified:** 2026-11-17 (71548be9), one failure in a full serial `cargo test --all-features --workspace` run · **From:** the KI-206 test
+
+```flux
+import Flow.Async exposing (..)
+
+fn body() -> Int with Async {
+    sleep(50)
+    7
+}
+
+fn main() with IO {
+    print(run_async(fn() { timeout_result(1, body) }))
+}
+```
+
+In the full run this printed `Err(TimedOut)` and then
+`leak: 5 blocks still live at exit`: five effect handlers (56 to 248 bytes)
+allocated at `main` (line 8), the vectors an `EffectSnapshot` holds, with no
+continuation beside them. The exit code was 3. It did not happen again in 30
+runs one after another, in 300 runs of the built binary 50 at a time with
+`FLUX_LEAK_CHECK=1`, or in 10 runs of the test. The timer path wakes the
+waiting fiber with `Value(None)` and cancels the sleeping body; the KI-206
+change (the `Error` branches of `wake` and `park`) is not on it. Which
+cancellation path drops a fiber's snapshot is not traced. The KI-206 test
+checks this program for early frees only (`--debug-heap`, no leak check).
+
+### KI-208 — Natively, a record member named like a library function is called as that function
+
+**Severity:** High (silent wrong output) · **Area:** LIR, member access (`src/lir/lower.rs`) · **Verified:** 2026-11-21 (c9962f32), `--native` with `--dump-core`, `--dump-aether` and `--dump-lir` · **From:** a control program for the KI-202 fix
+
+```flux
+fn main() {
+    let m = { "reverse": fn(x) { x + 1 } }
+    print(m.reverse(1))
+}
+```
+
+```text
+$ flux member_reverse.flx --vm
+2
+$ flux member_reverse.flx --native
+[]
+```
+
+The exit code is 0. With `"map"` in place of `"reverse"` the native run
+fails with `error[E1000]: wrong number of arguments: want=2, got=1` (exit
+code 1), and with `"add"` the same: that is KI-205. `"square"` and `"plus"`
+work, with or without captured variables. The record's own name doesn't
+matter: `m`, `Lst` and `List` behave alike.
+
+**The cause.** Core and Aether are right: `main` reads `%t487.reverse` from
+the `MakeHash` value and calls what the read returns. LIR goes wrong. Both
+member-access arms in `src/lir/lower.rs` (`CoreExpr::MemberAccess` in
+`lower_expr` and `AetherExpr::MemberAccess` in `lower_expr_aether`) try
+module-style resolution before the map lookup: a global named
+`object.member`, a global named after the member alone, an extern symbol for
+the qualified name, then a binder of the member's name in `name_binder_map`.
+None of them checks that the object is a bound value. For the program above,
+the LIR builds the map, drops it unread, and calls `get_global(101)` with
+the 1. `Flow.List.reverse` given an Int returns `[]`, and `map` reaches a
+two-parameter function with one argument. The AST compiler guards the same
+shape for a bound name (KI-093, `resolve_module_name_from_expr`). KI-204
+meets the same lookup order from the ownership side.
+
+Likely fix: when the object is a variable with a binder, a value and not a
+module qualifier, skip the global, extern and binder lookups and lower the
+read as `HamtGet` and `Unwrap`. The KI-202 fix makes the same test on the
+Aether side, in `resolve_member_access_callee`.
+
+### KI-209 — Natively, the value `Json.parse` returns is never released
+
+**Severity:** Medium (a leak per parse, of the whole parsed value) · **Area:** Aether, primop results (`src/aether/insert.rs`), `Flow.Json` · **Verified:** 2026-11-21 (ffdf8a13), `--native --leak-check` · **From:** heap parity in `cargo xtask verify main`
+
+```flux
+import Flow.Json as Json
+
+fn main() with IO {
+    print(Json.stringify(Json.parse("1")))
+}
+```
+
+```text
+$ flux json_parse.flx --native --leak-check
+"1"
+leak: 2 blocks still live at exit
+  a constructor value (16 bytes) allocated at json_parse_prim (lib/Flow/Json.flx:41:15)
+  a constructor value (16 bytes) allocated at json_parse_prim (lib/Flow/Json.flx:41:15)
+```
+
+The exit code is 3. `let r = Json.parse("[1, 2]")` then `Json.stringify(r)`
+leaves 6 blocks, and ten parses of `{"a": "b"}` in a recursive function leave
+50, 5 per parse. `Json.stringify(Json.int(5))` leaves nothing, so the leak is
+on the parse side. The VM prints the same. In heap parity it is all of
+`json_derived_codecs.flx` (10 blocks), `json_derived_decode_errors.flx` (41),
+`json_parse_stringify_sorts_keys.flx` (26),
+`json_int_decode_rejects_fractions.flx` (2) and
+`json_integer_round_trip.flx` (2).
+
+Likely cause, not traced: `json_parse_prim` is `primop JsonParse`
+(`lib/Flow/Json.flx:41`), and `flux_json_parse` (`runtime/c/json.c`) builds a
+new value (`json_make_adt`). `primop_result_is_fresh` in `src/aether/insert.rs`
+lists neither `JsonParse` nor `JsonStringify`, so Aether takes the result for
+a view, as it did for the primops KI-201 fixed. The counts fit the parsed
+value's root keeping one reference too many: the `JsonOk` and everything under
+it stay live. `flux_json_stringify` also returns a new string
+(`flux_string_new`) but shows no leak in these programs. The entry program's
+`--dump-aether` does not include `Flow.Json`, so the plan around the primop is
+not seen yet.
+
+### KI-210 — Natively, a field read from a constructor a call returns leaves the constructor live
+
+**Severity:** Low (a leak per read) · **Area:** Aether, named-field access (proposal 0152 lowers it to a match; `src/core/lower_ast/expression.rs`, `src/aether/insert.rs`) · **Verified:** 2026-11-21 (ffdf8a13), `--native --leak-check` · **From:** heap parity in `cargo xtask verify main`, the 1 block of `tests/parity/imported_constructor_types.flx` (`Shapes.tagged("tag").label + "!"`)
+
+```flux
+data Tagged { Tagged { label: String } }
+
+fn tagged(label: String) -> Tagged {
+    Tagged { label: label }
+}
+
+fn main() with IO {
+    print(tagged("tag").label + "!")
+}
+```
+
+```text
+$ flux call_field.flx --native --leak-check
+"tag!"
+leak: 1 block still live at exit
+  a constructor value (16 bytes) allocated at tagged (call_field.flx:4:5)
+```
+
+The exit code is 3. `print(len(tagged("tag").label))` leaves the same block.
+Bound first, `let t = tagged("tag")` then `print(t.label + "!")`, nothing
+leaks. The VM prints the same. Not traced: `try_lower_adt_field_access`
+lowers the read to a match on the call's result, and the temporary that holds
+the result is most likely never released, a shape like KI-199's `if`
+argument. The heap-leak gate filed a related case as KI-148 on
+`heap-leak-gate-renumbered` (a field of a matched value given to `print`),
+which never merged.
+
+### KI-211 — Natively, an argument given through a dictionary to an instance method that only borrows it is never released
+
+**Severity:** Low (a leak per call with a counted argument) · **Area:** Aether, type classes (borrow signatures behind dictionary methods) · **Verified:** 2026-11-21 (ffdf8a13), `--native --leak-check` · **From:** left unfiled by the KI-194 fix; heap parity in `cargo xtask verify main`, `tests/parity/functor_applicative_monad.flx` (1 block) and `semigroup_monoid.flx` (6)
+
+```flux
+fn twice<a: Semigroup>(x: a) -> a {
+    append(x, x)
+}
+
+fn main() {
+    print(twice("a" + "b"))
+}
+```
+
+```text
+$ flux semigroup_twice.flx --native --leak-check
+"abab"
+leak: 1 block still live at exit
+  a String (16 bytes) allocated at main (semigroup_twice.flx:6:17)
+```
+
+The exit code is 3. `chain([|3|])` from `functor_applicative_monad.flx`
+(`bind(fmap(x, …), …)` under `f: Monad`) leaves the array the same way.
+`chain([1, 2])` with a `List` leaves nothing, and neither does calling
+`append("a" + "b", "c")` directly. The VM prints the same. The KI-194 entry
+describes it: an argument given through a dictionary's method closure to an
+instance method that only borrows it, such as `Semigroup<String>`'s
+`append`, which calls `concat_strings`. Most likely the shape of KI-202: a
+call through a closure hands its arguments over, as an unknown callee owns
+them, so the caller does not release the argument, and the instance method,
+which only borrows it, does not release it either. Why a `List` argument is
+released is not traced.
+
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
@@ -727,43 +998,6 @@ Not decided: declare the missing instances in Flux, build the dictionary from
 the components the rule already found, or narrow the rule to the instances
 that exist (an error at type checking instead of the E000). Proposal 0194
 relies on this for its `Hash` class having no methods.
-
-### KI-161 — Natively, a Float literal used as an operand or argument leaks its box
-
-**Severity:** Medium · **Area:** LLVM emission, Floats · **Verified:** 2026-11-02 (66decd77) · **From:** the full verify after the Float counting fix (204a2c8e), whose new fixture `tests/parity/float_let_shared.flx` was the one file added to heap parity's leak list
-
-```flux
-fn half(x: Float) -> Float {
-    x * 0.5
-}
-
-fn main() {
-    let h = half(3.0)
-    if h > 1.0 { 0 } else { 1 }
-}
-```
-
-```text
-$ flux half.flx --native --leak-check
-leak: 3 blocks still live at exit
-  a Float (8 bytes) allocated at main (half.flx:6:13)
-  a Float (8 bytes) allocated at half (half.flx:2:5)
-  a Float (8 bytes) allocated at main (half.flx:7:8)
-```
-
-One box per literal: the `3.0` lent to `half`, the `0.5` in `x * 0.5`, and
-the `1.0` in the comparison. The result `h` is freed. The Aether dump shows
-why: a Float literal stays an operand (`aether_call[borrowed] half(3)`,
-`FCmpGt(h, 1)`), so no binder owns it and nothing drops it, but emission
-(`LirConst::Float` in `src/lir/emit_llvm.rs`) boxes it with
-`flux_box_float_rt` at each use. A `let` bound to a literal is propagated
-into its uses, so `let a = 3.14` used twice leaks two boxes.
-`examples/guide/float.flx` leaks 4 blocks and `float_let_shared.flx` 6,
-all literals; a loop over such code leaks without bound.
-
-Likely fix: emit a Float literal as a static object with a sticky count, as
-`StaticObjects` already does for string literals, so it allocates nothing
-and dropping it does nothing. That also saves an allocation per use.
 
 ### KI-159 — The sanitizer runs check only the C runtime, not generated code
 
@@ -3195,6 +3429,403 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-206 — Natively, a fiber woken with an error never released its continuation or effect context — FIXED 2026-11-17
+
+**Severity:** Medium (a leak per failed wait; `timeout_result`, `race`, `both` and `first_of` with a panicking body) · **Area:** native async runtime (`src/runtime/async/native_abi.rs`) · **Verified:** 2026-11-17 (a1a811fc), `--native --leak-check` · **From:** the heap-leak gate (0190 S15), first filed as KI-150 on `heap-leak-gate-renumbered`, never merged
+
+```flux
+import Flow.Async exposing (..)
+
+fn body() -> Int with Async {
+    panic("boom")
+}
+
+fn main() with IO {
+    print(run_async(fn() { timeout_result(100, body) }))
+}
+```
+
+```text
+$ flux timeout_body_panics.flx --native --leak-check
+Err(Panicked("boom"))
+leak: 9 blocks still live at exit
+  an effect handler (56 bytes) allocated at main (timeout_body_panics.flx:7:1)
+  an effect handler (104 bytes) allocated at main (timeout_body_panics.flx:7:1)
+  an effect handler (152 bytes) allocated at main (timeout_body_panics.flx:7:1)
+  an effect handler (200 bytes) allocated at main (timeout_body_panics.flx:7:1)
+  an effect handler (248 bytes) allocated at main (timeout_body_panics.flx:7:1)
+  a closure (24 bytes) allocated at fiber_timeout_prim (lib/Flow/Async.flx:121:15)
+  a closure (24 bytes) allocated at the runtime
+  an Array (32 bytes) allocated at the runtime
+  a closure (48 bytes) allocated at the runtime
+```
+
+Three such runs leave 17 blocks. `try(fn() { race(bad, slow) })` and
+`try(fn() { both(good, bad) })` with a panicking `bad` leave 10 each. A body
+that returns, or a timer that fires first, leaves nothing. In
+`tests/parity/async_try_panic.flx` it is the last case, 4 blocks. The VM
+prints the same.
+
+**The cause.** The fiber that calls `fiber_timeout_prim` (`fiber_both_prim`,
+…) suspends, keeping `Work::Resume { continuation }` and an `EffectSnapshot`.
+The continuation is the 48-byte closure `compose_into_closure` (effects.c)
+builds over an array of the two continuations that unwound (24 bytes each),
+and the snapshot holds the effect handlers. When the body fails,
+`apply_await_events` wakes the request with `FiberOutcome::Error`, and
+`NativeRun::wake`'s error branch hands the fiber's id to `complete_fiber` and
+drops the `Fiber`, which has no `Drop`: neither is released. `park` does the
+same for an error that arrives before the fiber has parked. On success
+`execute_fiber` calls `release_finished_fiber`, and `wake`'s cancelled branch
+calls `release_cancelled_fiber`.
+
+Test: `a_fiber_woken_with_an_error_releases_its_continuation_ki206` in
+`tests/debug/native_debug_heap_tests/leaks_and_moves.rs` runs six programs
+under `--native --leak-check` and compares their output with the VM's: the
+reproducer, three runs of it, `race` and `both` with a panicking child, and
+a timeout whose body returns; a timeout whose timer fires is checked for
+early frees only, since it once leaked under load (KI-207). Before the fix
+the reproducer left 9 blocks (exit code 3).
+
+**Fixed** in `src/runtime/async/native_abi.rs`: the error branches of
+`NativeRun::wake` and `NativeRun::park` release the fiber with
+`release_cancelled_fiber`, as `wake`'s cancelled branch does, before
+`complete_fiber` passes the error on. `async_try_panic.flx` leaks nothing.
+The four panicking programs and the fixture ran clean 120 times with 1, 2
+and 4 workers (`FLUX_WORKERS`), and `cargo xtask sanitize --thread` reports
+nothing on them; whether a run took `park`'s branch rather than `wake`'s
+can't be seen from outside.
+
+### KI-203 — Natively, reading a member of a record literal left an `Option` live — FIXED 2026-11-17
+
+**Severity:** Low (a leak per read) · **Area:** LIR, member access on a map (`src/lir/lower.rs`) · **Verified:** 2026-11-16 (e6e73b08), `--native --leak-check` · **From:** the heap-leak gate (0190 S15), first filed as KI-149 on `heap-leak-gate-renumbered`, never merged
+
+```flux
+fn main() {
+    let m = { "square": fn(x) { x * x } }
+    print(m.square(5))
+}
+```
+
+```text
+$ flux call_member.flx --native --leak-check
+25
+leak: 1 block still live at exit
+  a constructor value (16 bytes) allocated at main (call_member.flx:3:11)
+```
+
+The exit code is 3. Each read leaves one block: two calls through `m.square`
+leave 2, and a function that reads `m.f` on each of 10 turns leaves 10. Seen
+in `tests/parity/import_member_access.flx` and
+`examples/namespaces/namespace_member_access_ok.flx`. The VM prints the same.
+
+**The cause.** A record literal is a map, and LIR lowers a read of one of its
+members to `HamtGet` and then `Unwrap`: `flux_hamt_get_option` returns a new
+`Some` holding a counted copy of the value, and `flux_unwrap` copies the
+payload again and returns it. Nothing releases the `Some`. The block is that
+`Some`, allocated where the member is read. Both lowerings have it: the
+`CoreExpr::MemberAccess` arm of `lower_expr` and the `AetherExpr::MemberAccess`
+arm of `lower_expr_aether`, which the native path uses.
+
+Test: `a_value_read_from_a_record_literal_releases_its_option_ki203` in
+`tests/debug/native_debug_heap_tests/leaks_and_moves.rs` runs four programs
+under `--native --leak-check` and compares their output with the VM's: the
+reproducer, two reads, two members, and 10 reads in a recursive function.
+Before the fix the reproducer left 1 block (exit code 3) and the loop 10.
+
+**Fixed** in `src/lir/lower.rs`: both lowerings drop the `Some` right after
+the `Unwrap`, which has already counted the value it returns, so what the
+read gives back keeps the reference it had. `import_member_access.flx` and
+`namespace_member_access_ok.flx` now leak nothing. Found on the way: KI-204
+(a counted value read this way and only borrowed still leaks) and KI-205 (a
+capturing closure read this way fails natively).
+
+### KI-201 — Natively, the results of `substring`, `array_push`, `safe_div` and other runtime primops were never released — FIXED 2026-11-16
+
+**Severity:** Medium (a leak per call) · **Area:** Aether, drop insertion (`src/aether/insert.rs`) · **Verified:** 2026-11-16 (edeb0653), `--native --leak-check` · **From:** the heap-leak gate (0190 S15), first filed as KI-147 on `heap-leak-gate-renumbered`, never merged; its interpolation case was fixed by KI-160
+
+```flux
+fn main() {
+    let result = safe_div(100, 4)
+    match result {
+        Some(v) -> print(v),
+        None -> print("none"),
+    }
+}
+```
+
+```text
+$ flux safe_div_let.flx --native --leak-check
+25
+leak: 1 block still live at exit
+  a constructor value (16 bytes) allocated at main (safe_div_let.flx:2:18)
+```
+
+The exit code is 3. The same happens with `substring(s, 0, len(p)) == p` (the
+substring), `print(array_push(arr, 4))` (the new array), `print(safe_div(-15,
+3))`, `let r = safe_mod(-7, 3)`, and the results of `array_concat`,
+`array_slice`, `array_set`, `split`, `trim`, `upper`, `lower` and `replace`
+when their argument is a value the function owns, such as a built string or
+an array literal. `array_push([||], substring(s, 0, 1))` leaves both the
+substring and the array. In the parity fixtures it is the 1 block of
+`primop_collection_ops.flx`, the 2 of `safe_arithmetic.flx`, and most of the
+11 of `primop_string_ops.flx` (through `Flow.String.starts_with`, `ends_with`,
+`chars` and `str_contains`). The VM prints the same and is not affected.
+
+**The cause.** `fresh_result` in `src/aether/insert.rs` lists the primops
+whose result has a reference of its own; any other runtime result is taken
+for a value that may point into an argument without one. Such a value is
+never released when bound (`owner` needs `produces_fresh_value`), and when an
+owner it was computed from is released after it, the release walker copies
+it first (`let t = ArrayPush(a, 4) in dup t in drop a in t`): one reference
+too many. The runtime functions behind these primops all return a new object
+or an argument counted again (`flux_array_push`, array.c:145;
+`flux_string_slice`, string.c:89, which `flux_substring` calls; `flux_safe_div`
+and `flux_safe_mod`, flux_rt.c:2184, through `flux_wrap_some`). `safe_div` and
+`safe_mod` reach Aether as calls to a base runtime function, not as primops
+(`primop_promote` doesn't list them; LIR maps them by name), so a fix has to
+cover that form too. KI-124 (map operations) and KI-129 (built strings) were
+the same gap for other primops.
+
+Test: `the_results_of_runtime_primops_are_released_ki201` in
+`tests/debug/native_debug_heap_tests/leaks_and_moves.rs` runs 16 programs
+under `--native --leak-check` and compares their output with the VM's, one
+or two per primop above. Before the fix it failed on `array_push_printed`
+(1 block, exit code 3); 15 of the 16 leaked when run alone. `string_slice`
+did not: it resolves to a Flux function, whose results were already fresh,
+and stays in the test as a check that nothing is freed too early.
+
+**Fixed** in `src/aether/insert.rs`: `primop_result_is_fresh` holds the one
+list of primops whose runtime result has a reference of its own, now with
+`ArrayPush`, `ArrayConcat`, `ArraySlice`, `ArraySet`, `StringSlice`,
+`Substring`, `Split`, `Trim`, `Upper`, `Lower`, `Replace`, `SafeDiv` and
+`SafeMod`, each checked against its C function. A call to an unbound name is
+looked up the way LIR lowers it: `CorePrimOp::for_unbound_call` (moved from
+LIR's `resolve_library_primop` plus its `from_name` fallback, so the two
+can't disagree), recorded per name in the borrow registry's
+`library_primops`. The I/O, channel, task and JSON primops are not in the
+list; most return fresh values too, but none was in this issue's
+reproducers. 11 Aether snapshots gained the same drops in `Flow.String`
+(`starts_with`, `ends_with`, `chars`, `str_contains`) and were accepted.
+`primop_collection_ops.flx` and `safe_arithmetic.flx` now leak nothing, and
+`primop_string_ops.flx` leaks 1 block, down from 11: that one is KI-202.
+
+### KI-199 — Natively, a value read only inside an `if` passed as an argument was never released — FIXED 2026-11-16
+
+**Severity:** Medium (a leak that grows with every call) · **Area:** Aether, drop insertion (`src/aether/insert.rs`) · **Verified:** 2026-11-16 (c79016e8), `--native --leak-check` · **From:** writing the KI-161 tests, where `print(if h > 1.0 { 0 } else { 1 })` left the product `h` live
+
+```flux
+fn nums(n: Int) -> List<Int> {
+    [n, n + 1, n + 2]
+}
+
+fn keep_int(n: Int) -> Int {
+    n
+}
+
+fn main() {
+    let xs = nums(1)
+    keep_int(if len(xs) > 1 { 0 } else { 1 })
+}
+```
+
+```text
+$ flux if_arg.flx --native --leak-check
+leak: 3 blocks still live at exit
+  a constructor value (24 bytes) allocated at nums (if_arg.flx:2:5)
+  a constructor value (24 bytes) allocated at nums (if_arg.flx:2:5)
+  a constructor value (24 bytes) allocated at nums (if_arg.flx:2:5)
+```
+
+The exit code is 3. A function that does the same with `print` in place of
+`keep_int`, called 10 times, leaves 30 blocks: 3 per call. The emitted
+`flux_main` calls `flux_nums` and `flux_rt_len` and has no drop of the list
+at all. Not affected: the same `if` bound with `let r = if …` first and then
+passed, and `print(len(xs) > 1)`. String arms (`if … { "a" } else { "b" }`)
+leak the same way.
+
+**The cause** is the one KI-129 had, in a shape its fix doesn't cover. Core
+binds the argument to a temporary,
+`%t = (let c = (let n = Len(xs) in ICmpGt(n, 1)) in case c of true → 0 | _ → 1)`.
+That temporary has no rep (`TaggedRep`; `--dump-core=debug` prints no
+annotation), where `let r = if …` gets `r:Int`. In `src/aether/insert.rs`:
+
+- `alias_of` takes the temporary for a value that may point into `xs`: its rep
+  needs counting, its value mentions `xs`, and neither `returns_scalar` (a
+  top-level primop only) nor `produces_fresh_value` (a `case` of Int
+  literals isn't fresh) sees that every path ends in an Int.
+- It is given to the call owned, so `plan_expr` puts it in
+  `scope.owned_unknown`.
+- `aliases_owned_unknown` then makes `release_owner` return without a
+  release, and nothing else drops `xs`.
+
+Koka's Perceus pass (`src/Backend/C/Parc.hs`) has no alias set to get wrong:
+it places drops by liveness alone. Flux keeps the alias guard because some
+runtime results point into an argument without a reference of their own (the
+`owned_unknown` comment), so the fix is in `alias_of`, not in removing the
+guard.
+
+Test: `a_value_read_only_in_an_if_argument_is_released_ki199` in
+`tests/debug/native_debug_heap_tests/leaks_and_moves.rs` runs five programs
+under `--native --leak-check` and compares their output with the VM's: the
+reproducer, String arms, the `print` form called 10 times, an arm that gives
+the owner away, and a `match` whose arm copies the field it returns. Before
+the fix the reproducer left 3 blocks live (exit code 3), the loop 30, and the
+`match` 2 (its `None` arm is a literal, so not every arm copied).
+
+**Fixed** in `src/aether/insert.rs`: `alias_of` asks `may_point_into`, which
+looks only at what each path of the right-hand side ends in, through lets,
+matches, dups and drops. A literal, a scalar runtime result, a fresh value or
+a value its block copied (`dup v in … v`, KI-129's rule, now checked per path)
+points into nothing; any other end that names an alias may. What a path reads
+along the way, such as the `if` condition, no longer counts. The three callers
+(`aliases_owned_unknown`, and the release walker's `at_returns` and
+`after_last_use`) all use it. No Aether snapshot changed.
+
+### KI-200 — Floats: `x + 0.0` and `x * 0.0` were simplified away, giving IEEE-wrong results and dropping the operand's effects — FIXED 2026-11-16
+
+**Severity:** High (silent wrong output; natively an effect never ran) · **Area:** Core simplification (`src/core/passes/algebraic.rs`) · **Verified:** 2026-11-16 (c79016e8), on both ways, with and without `-O`, and with `--opt-bisect-limit 0` · **From:** writing the KI-161 tests
+
+```flux
+fn neg_zero() -> Float {
+    -0.0
+}
+
+fn main() with IO {
+    let x = neg_zero()
+    print(x)
+    print(x + 0.0)
+    print(0.0 + x)
+    print(x - 0.0)
+    print(1.0 / (x + 0.0))
+}
+```
+
+IEEE 754 gives `-0`, `0`, `0`, `-0`, `inf`. The VM printed that. Natively:
+
+```text
+$ flux add_zero.flx --native
+-0
+-0
+-0
+-0
+-inf
+```
+
+`neg3() * 0.0` and `0.0 * neg3()` natively printed `0` and `0` (IEEE: `-0`,
+`-0`), and `(1.0 / zero()) * 0.0` printed `0` (IEEE: NaN). An operand with an
+effect was not evaluated at all:
+
+```flux
+fn loud() -> Int with IO {
+    print("side")
+    3
+}
+
+fn main() with IO {
+    print(loud() * 0)
+}
+```
+
+The VM printed `"side"` then `0`. Natively only `0` was printed; `Float` did
+the same with `* 0.0`. Every one of these natively printed what the VM
+printed under `--opt-bisect-limit 0`, and `--opt-bisect-limit -1` listed only
+`algebraic_simplify` rewrites (`FAdd`, `FSub`, `FMul`, `IMul`) in `main`.
+
+With literals on both sides the VM was wrong too: in
+`fn zeros() -> Float { 0.0 + -0.0 }`, `zeros()` printed `-0` and
+`1.0 / zeros()` printed `-inf` on both ways, and `0`, `inf` under
+`--opt-bisect-limit 0`. Why the VM's run was unaffected when the rewrite was
+in `main` isn't known: the VM's compile fired the same rewrites there
+(`--opt-bisect-limit -1`), but they didn't change what it printed. The dump
+flags don't show this, as every `--dump-*` lowers the merged program, the
+native path's input.
+
+**The cause.** `algebraic_simplify` rewrites before ANF, so an operand can be
+any expression:
+
+- `x + 0.0 → x` and `0.0 + x → x`: wrong for `x = -0.0`, since
+  `-0.0 + 0.0` is `+0.0`.
+- `x * 0.0 → 0.0` and `0.0 * x → 0.0`: wrong for a negative `x` (`-0.0`),
+  `±inf` and NaN (NaN), and `x` was dropped unevaluated.
+- `x * 0 → 0` and `0 * x → 0` on Ints: right value, but `x` was dropped
+  unevaluated, with its effects.
+- The guards tested `*v == 0.0`, which a `-0.0` literal also passes; whether
+  one reaches the pass wasn't checked.
+
+Koka folds no Float arithmetic at all: its `float64` operators are inline C
+(`lib/std/num/float64.kk`), and its only arithmetic peepholes are for Int, in
+the C backend.
+
+Test: `tests/parity/arith_float_identities_ki200.flx` pins the IEEE output,
+signs shown through `1.0 / …`, and that `loud() * 0` and `loud_f() * 0.0`
+still print. Before the fix the VM and native disagreed on it, and the VM's
+first line was `-inf` for `inf`; after it both print the expected block. Unit
+tests in `src/core/passes/tests.rs`:
+`algebraic_simplify_keeps_ieee_float_results_ki200` and
+`algebraic_simplify_evaluates_a_dropped_operand_with_effects_ki200` failed on
+`x + 0.0` and `f() * 0` before the fix.
+
+**Fixed** in `src/core/passes/algebraic.rs`. The Float rules left are the
+exact ones: `x + (-0.0)`, `(-0.0) + x` and `x - (+0.0)` become `x`, matching
+the zero by its bits, and `* 1.0`, `1.0 *` and `/ 1.0` as before. `x + 0.0`,
+`0.0 + x` and `x * 0.0` are kept. A rule that discards an operand (`x * 0`,
+`0 * x`, `x mod 1`, `x && false`, `x || true`) applies only when the operand
+is pure (`helpers::is_pure`). `const_fold`, which computes with Rust's `f64`,
+still folds `0.0 + -0.0`, now to `+0.0`.
+
+### KI-161 — Natively, a Float literal used as an operand or argument leaked its box — FIXED 2026-11-16
+
+**Severity:** Medium · **Area:** LLVM emission, Floats · **Verified:** 2026-11-02 (66decd77) · **From:** the full verify after the Float counting fix (204a2c8e), whose new fixture `tests/parity/float_let_shared.flx` was the one file added to heap parity's leak list
+
+```flux
+fn half(x: Float) -> Float {
+    x * 0.5
+}
+
+fn main() {
+    let h = half(3.0)
+    if h > 1.0 { 0 } else { 1 }
+}
+```
+
+```text
+$ flux half.flx --native --leak-check
+leak: 3 blocks still live at exit
+  a Float (8 bytes) allocated at main (half.flx:6:13)
+  a Float (8 bytes) allocated at half (half.flx:2:5)
+  a Float (8 bytes) allocated at main (half.flx:7:8)
+```
+
+One box per literal: the `3.0` lent to `half`, the `0.5` in `x * 0.5`, and
+the `1.0` in the comparison. The result `h` is freed. The Aether dump shows
+why: a Float literal stays an operand (`aether_call[borrowed] half(3)`,
+`FCmpGt(h, 1)`), so no binder owns it and nothing drops it, but emission
+(`LirConst::Float` in `src/lir/emit_llvm.rs`) boxes it with
+`flux_box_float_rt` at each use. A `let` bound to a literal is propagated
+into its uses, so `let a = 3.14` used twice leaks two boxes.
+`examples/guide/float.flx` leaks 4 blocks and `float_let_shared.flx` 6,
+all literals; a loop over such code leaks without bound.
+
+Likely fix: emit a Float literal as a static object with a sticky count, as
+`StaticObjects` already does for string literals, so it allocates nothing
+and dropping it does nothing. That also saves an allocation per use.
+
+Test: `float_literals_leave_nothing_live_ki161` in
+`tests/debug/native_debug_heap_tests/leaks_and_moves.rs` runs four programs
+under `--native --leak-check`: the one above, a `let` bound to a literal and
+used twice, a loop that adds a literal 100 times, and a literal inside a
+constructor. Before the fix the first reported 3 blocks; after it all four
+leave nothing and print what the VM prints.
+`float_literals_are_static_objects_ki161` in `tests/native_llvm/llvm_adt.rs`
+checks the emitted IR: no literal is boxed, and a literal used in two
+functions is one object.
+
+**Fixed** in `src/lir/emit_llvm.rs`. `StaticObjects` emits each distinct Float
+literal, keyed by its bits, as one read-only `{header, double}` object with a
+sticky count, as it does for string literals, and `emit_const` refers to it.
+Using a literal allocates nothing and dropping it does nothing. A constructor
+or tuple whose fields include one is now static too.
 
 ### KI-198 — With Cargo 1.100, the debug adapter tests can't find the flux binary — FIXED 2026-11-13
 

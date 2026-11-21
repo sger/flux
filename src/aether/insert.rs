@@ -1662,13 +1662,36 @@ fn fresh_result(
         // Natively every Float is a new heap box: a literal, a negation, or
         // the result of float arithmetic.
         CoreExpr::Lit(CoreLit::Float(_), _) => true,
-        CoreExpr::PrimOp { op, .. }
-            if *op == CorePrimOp::Neg
-                || crate::core::passes::primop_result_rep(op) == FluxRep::FloatRep =>
-        {
-            true
+        CoreExpr::PrimOp { op, .. } => primop_result_is_fresh(op),
+        CoreExpr::App { func, .. } | CoreExpr::AetherCall { func, .. } => {
+            calls_flux(func, registry) || calls_fresh_library_primop(func, registry)
         }
-        CoreExpr::PrimOp { op, .. } => matches!(
+        CoreExpr::Let { var, rhs, body, .. } | CoreExpr::LetRec { var, rhs, body, .. } => {
+            // Holding an owned call result across cleanup does not turn it
+            // into a view of the arguments that were lent to the call.
+            let inserted = fresh_result(rhs, registry, fresh) && fresh.insert(var.id);
+            let result = fresh_result(body, registry, fresh);
+            if inserted {
+                fresh.remove(&var.id);
+            }
+            result
+        }
+        CoreExpr::LetRecGroup { body, .. }
+        | CoreExpr::Dup { body, .. }
+        | CoreExpr::Drop { body, .. } => fresh_result(body, registry, fresh),
+        CoreExpr::Case { alts, .. } => {
+            alts.iter().all(|alt| fresh_result(&alt.rhs, registry, fresh))
+        }
+        _ => false,
+    }
+}
+
+/// Whether the runtime function behind `op` returns a value with a reference
+/// of its own: a new object, or an argument counted again.
+fn primop_result_is_fresh(op: &CorePrimOp) -> bool {
+    *op == CorePrimOp::Neg
+        || crate::core::passes::primop_result_rep(op) == FluxRep::FloatRep
+        || matches!(
             op,
             CorePrimOp::MakeList
                 | CorePrimOp::MakeArray
@@ -1693,25 +1716,34 @@ fn fresh_result(
                 | CorePrimOp::HamtMerge
                 | CorePrimOp::HamtKeys
                 | CorePrimOp::HamtValues
-        ),
-        CoreExpr::App { func, .. } | CoreExpr::AetherCall { func, .. } => {
-            calls_flux(func, registry)
-        }
-        CoreExpr::Let { var, rhs, body, .. } | CoreExpr::LetRec { var, rhs, body, .. } => {
-            // Holding an owned call result across cleanup does not turn it
-            // into a view of the arguments that were lent to the call.
-            let inserted = fresh_result(rhs, registry, fresh) && fresh.insert(var.id);
-            let result = fresh_result(body, registry, fresh);
-            if inserted {
-                fresh.remove(&var.id);
-            }
-            result
-        }
-        CoreExpr::LetRecGroup { body, .. }
-        | CoreExpr::Dup { body, .. }
-        | CoreExpr::Drop { body, .. } => fresh_result(body, registry, fresh),
-        CoreExpr::Case { alts, .. } => {
-            alts.iter().all(|alt| fresh_result(&alt.rhs, registry, fresh))
+                // @KI-201: a new array or string (array.c, string.c,
+                // `flux_split`, `flux_trim`, `flux_upper`, `flux_lower`), or
+                // the argument counted again (`flux_array_set`,
+                // `flux_replace`). Taken for views, they were never released.
+                | CorePrimOp::ArrayPush
+                | CorePrimOp::ArrayConcat
+                | CorePrimOp::ArraySlice
+                | CorePrimOp::ArraySet
+                | CorePrimOp::StringSlice
+                | CorePrimOp::Substring
+                | CorePrimOp::Split
+                | CorePrimOp::Trim
+                | CorePrimOp::Upper
+                | CorePrimOp::Lower
+                | CorePrimOp::Replace
+                // A new `Some` (`flux_wrap_some`), or `None`, an immediate.
+                | CorePrimOp::SafeDiv
+                | CorePrimOp::SafeMod
+        )
+}
+
+/// Whether `func` names an unbound library function that LIR turns into a
+/// primop with a fresh result (`safe_div`, `map_set`): Aether sees the call,
+/// not the primop.
+fn calls_fresh_library_primop(func: &CoreExpr, registry: Option<&BorrowRegistry>) -> bool {
+    match (func, registry) {
+        (CoreExpr::Var { var, .. }, Some(reg)) if var.binder.is_none() => {
+            reg.library_primops.get(&var.name).is_some_and(primop_result_is_fresh)
         }
         _ => false,
     }
@@ -1755,22 +1787,68 @@ fn mentions(expr: &CoreExpr, binders: &BTreeSet<CoreBinderId>) -> bool {
     super::free_vars::collect_free_vars_aether(expr).iter().any(|id| binders.contains(id))
 }
 
-/// The binder a `let` adds to `aliases`: one whose value is computed from
-/// an alias without being made fresh may point into it. An unboxed value,
-/// a runtime result that is always an Int or a Bool, or a result its block
-/// already copied points into nothing.
+/// The binder a `let` adds to `aliases`: one whose value may point into an
+/// alias (`may_point_into`). An unboxed value points into nothing.
 fn alias_of(
     var: &CoreBinder,
     rhs: &CoreExpr,
     aliases: &BTreeSet<CoreBinderId>,
     registry: Option<&BorrowRegistry>,
 ) -> Option<CoreBinderId> {
-    (var.rep.needs_rc()
-        && !returns_scalar(rhs)
-        && mentions(rhs, aliases)
-        && !produces_fresh_value(rhs, registry)
-        && !counted_result(rhs))
-    .then_some(var.id)
+    (var.rep.needs_rc() && may_point_into(rhs, aliases, registry)).then_some(var.id)
+}
+
+/// Whether the value of `expr` may point into an alias without a reference
+/// of its own. Only what each path ends in is looked at: a literal, a
+/// runtime result that is always an Int or a Bool, a fresh value, or a
+/// result its block already copied points into nothing.
+///
+/// @KI-199: an alias read along the way, as in the condition of
+/// `if len(xs) > 1 { 0 } else { 1 }`, is not part of the value. Taking it
+/// for one put the `if` in `owned_unknown` when it was given away, and the
+/// owner was never released.
+fn may_point_into(
+    expr: &CoreExpr,
+    aliases: &BTreeSet<CoreBinderId>,
+    registry: Option<&BorrowRegistry>,
+) -> bool {
+    match expr {
+        CoreExpr::Lit(_, _) => false,
+        CoreExpr::Let { var, rhs, body, .. } | CoreExpr::LetRec { var, rhs, body, .. } => {
+            match alias_of(var, rhs, aliases, registry) {
+                Some(alias) => {
+                    let mut inner = aliases.clone();
+                    inner.insert(alias);
+                    may_point_into(body, &inner, registry)
+                }
+                None => may_point_into(body, aliases, registry),
+            }
+        }
+        CoreExpr::Case { scrutinee, alts, .. } => {
+            let matched = mentions(scrutinee, aliases);
+            alts.iter().any(|alt| {
+                if matched {
+                    let mut arm = aliases.clone();
+                    arm.extend(counted_pat_binders(&alt.pat));
+                    may_point_into(&alt.rhs, &arm, registry)
+                } else {
+                    may_point_into(&alt.rhs, aliases, registry)
+                }
+            })
+        }
+        // `dup v in … v`: the release walker writes that when it releases
+        // what the value might point into, so the value holds a reference of
+        // its own (KI-129).
+        CoreExpr::Dup { var, body, .. } if ends_in(body, var) => false,
+        CoreExpr::Dup { body, .. } | CoreExpr::Drop { body, .. } => {
+            may_point_into(body, aliases, registry)
+        }
+        _ => {
+            mentions(expr, aliases)
+                && !returns_scalar(expr)
+                && !produces_fresh_value(expr, registry)
+        }
+    }
 }
 
 /// The names a pattern over an alias adds to `aliases`: an unboxed field, as
@@ -1790,22 +1868,6 @@ fn collect_counted_pat_binders(pat: &crate::core::CorePat, out: &mut Vec<CoreBin
             }
         }
         _ => {}
-    }
-}
-
-/// Whether `expr` ends in a value it copied itself, `dup v in … v`: the
-/// release walker writes that when it releases what the value might point
-/// into, so the value holds a reference of its own (KI-129).
-fn counted_result(expr: &CoreExpr) -> bool {
-    match expr {
-        CoreExpr::Dup { var, body, .. } => ends_in(body, var),
-        CoreExpr::Let { body, .. }
-        | CoreExpr::LetRec { body, .. }
-        | CoreExpr::Drop { body, .. } => counted_result(body),
-        CoreExpr::Case { alts, .. } => {
-            !alts.is_empty() && alts.iter().all(|alt| counted_result(&alt.rhs))
-        }
-        _ => false,
     }
 }
 
@@ -4144,9 +4206,12 @@ mod tests {
     fn a_result_its_block_copied_is_counted() {
         let mut interner = Interner::new();
         let [k, l] = [(1, "k"), (2, "l")].map(|(id, name)| binder(&mut interner, id, name));
+        let field =
+            || CoreExpr::TupleField { object: Box::new(var(k)), index: 0, span: Span::default() };
+        let aliases = std::collections::BTreeSet::from([k.id]);
         let counted = let_in(
             l,
-            CoreExpr::PrimOp { op: CorePrimOp::Len, args: vec![var(k)], span: Span::default() },
+            field(),
             CoreExpr::Dup {
                 var: CoreVarRef::resolved(&l),
                 body: Box::new(CoreExpr::Drop {
@@ -4157,13 +4222,9 @@ mod tests {
                 span: Span::default(),
             },
         );
-        assert!(super::counted_result(&counted));
-        let uncounted = let_in(
-            l,
-            CoreExpr::PrimOp { op: CorePrimOp::Len, args: vec![var(k)], span: Span::default() },
-            var(l),
-        );
-        assert!(!super::counted_result(&uncounted));
+        assert!(!super::may_point_into(&counted, &aliases, None));
+        let uncounted = let_in(l, field(), var(l));
+        assert!(super::may_point_into(&uncounted, &aliases, None));
     }
 
     /// `case xs of ys -> ys` ends in `xs` itself, so a binding of it is

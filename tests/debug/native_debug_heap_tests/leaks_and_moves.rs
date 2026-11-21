@@ -205,6 +205,435 @@ fn a_program_that_prints_leaves_nothing_live_ki119() {
     }
 }
 
+/// KI-161: a Float literal used as an operand or an argument is owned by no
+/// binder, so nothing drops it; boxed at each use, it leaked once per use,
+/// and once per iteration in a loop. A constructor of constants holding one
+/// is checked too, since it becomes a constant itself.
+#[test]
+fn float_literals_leave_nothing_live_ki161() {
+    let scratch = Scratch::new("debug-heap-float-literals-ki161");
+    for (name, program) in [
+        (
+            "operand_and_argument",
+            "fn half(x: Float) -> Float {\n    x * 0.5\n}\n\n\
+             fn main() {\n    let h = half(3.0)\n    if h > 1.0 { 0 } else { 1 }\n}\n",
+        ),
+        ("let_used_twice", "fn main() {\n    let a = 3.14\n    print(a + a)\n}\n"),
+        (
+            "in_a_loop",
+            "fn go(n: Int, acc: Float) -> Float {\n    \
+             if n == 0 { acc } else { go(n - 1, acc + 0.5) }\n}\n\n\
+             fn main() {\n    print(go(100, 0.0))\n}\n",
+        ),
+        (
+            "in_a_constructor",
+            "fn pick(o: Option<Float>) -> Float {\n    match o {\n        \
+             Some(x) -> x,\n        None -> -1.0,\n    }\n}\n\n\
+             fn main() {\n    print(pick(Some(1.5)))\n}\n",
+        ),
+    ] {
+        let path = scratch.write(&format!("{name}.flx"), program);
+        let path = path.to_string_lossy();
+        let (vm, _, _) = run(&scratch, &path, &["--vm"], None);
+        let (stdout, stderr, code) = run(&scratch, &path, &["--native", "--leak-check"], None);
+        assert_eq!((stdout.as_str(), code), (vm.as_str(), 0), "{name}: {stderr}");
+        assert!(!stderr.contains("leak:"), "{name}: {stderr}");
+    }
+}
+
+/// A value read only in an `if` condition is released when the `if` is
+/// passed as an argument (KI-199). So is the owner when one arm gives it away
+/// or copies a field of it; the debug heap faults if it goes too soon.
+#[test]
+fn a_value_read_only_in_an_if_argument_is_released_ki199() {
+    let scratch = Scratch::new("debug-heap-if-argument-ki199");
+    let nums = "fn nums(n: Int) -> List<Int> {\n    [n, n + 1, n + 2]\n}\n\n";
+    let leak_free = [
+        (
+            "int_arms",
+            format!(
+                "{nums}fn keep_int(n: Int) -> Int {{\n    n\n}}\n\n\
+                 fn main() {{\n    let xs = nums(1)\n    \
+                 keep_int(if len(xs) > 1 {{ 0 }} else {{ 1 }})\n}}\n"
+            ),
+        ),
+        (
+            "string_arms",
+            format!(
+                "{nums}fn main() {{\n    let xs = nums(1)\n    \
+                 print(if len(xs) > 1 {{ \"a\" }} else {{ \"b\" }})\n}}\n"
+            ),
+        ),
+        (
+            "per_call",
+            format!(
+                "{nums}fn check(n: Int) with IO {{\n    let xs = nums(n)\n    \
+                 print(if len(xs) > 1 {{ \"a\" }} else {{ \"b\" }})\n}}\n\n\
+                 fn go(n: Int) with IO {{\n    if n > 0 {{\n        check(n)\n        \
+                 go(n - 1)\n    }}\n}}\n\n\
+                 fn main() with IO {{\n    go(10)\n}}\n"
+            ),
+        ),
+        (
+            "arm_returns_owner",
+            format!(
+                "{nums}fn total(ys: List<Int>) -> Int {{\n    match ys {{\n        \
+                 [h | t] -> h + total(t),\n        _ -> 0,\n    }}\n}}\n\n\
+                 fn main() {{\n    let xs = nums(1)\n    \
+                 print(total(if len(xs) > 1 {{ xs }} else {{ [] }}))\n}}\n"
+            ),
+        ),
+        (
+            "arm_returns_field",
+            "fn name(n: Int) -> Option<String> {\n    \
+             if n > 0 { Some(\"n=#{n}\") } else { None }\n}\n\n\
+             fn main() {\n    let o = name(3)\n    print(match o {\n        \
+             Some(s) -> s,\n        None -> \"none\",\n    })\n}\n"
+                .to_string(),
+        ),
+    ];
+    for (name, program) in &leak_free {
+        let path = scratch.write(&format!("{name}.flx"), program);
+        let path = path.to_string_lossy();
+        let (vm, _, _) = run(&scratch, &path, &["--vm"], None);
+        let (stdout, stderr, code) = run(&scratch, &path, &["--native", "--leak-check"], None);
+        assert_eq!((stdout.as_str(), code), (vm.as_str(), 0), "{name}: {stderr}");
+        assert!(!stderr.contains("leak:"), "{name}: {stderr}");
+    }
+}
+
+/// The result of a runtime primop that makes a new value, or counts its
+/// argument again, is released: when bound, and when the value it was made
+/// from is released after it (KI-201). `safe_div` and `safe_mod` reach Aether
+/// as runtime calls rather than primops.
+#[test]
+fn the_results_of_runtime_primops_are_released_ki201() {
+    let scratch = Scratch::new("debug-heap-runtime-primops-ki201");
+    for (name, program) in [
+        (
+            "array_push_printed",
+            r#"fn main() {
+    let arr = [|1, 2, 3|]
+    print(array_push(arr, 4))
+    print(len(arr))
+}
+"#,
+        ),
+        (
+            "array_push_of_a_let",
+            r#"fn main() {
+    let b = array_push([|1, 2, 3|], 4)
+    print(len(b))
+}
+"#,
+        ),
+        (
+            "array_concat",
+            r#"fn main() {
+    let c = array_concat([|1|], [|2, 3|])
+    print(c)
+}
+"#,
+        ),
+        (
+            "array_slice",
+            r#"fn main() {
+    let a = [|1, 2, 3, 4|]
+    let s = array_slice(a, 1, 3)
+    print(s)
+}
+"#,
+        ),
+        (
+            "array_set",
+            r#"fn main() {
+    let a = [|1, 2, 3|]
+    let b = array_set(a, 0, 9)
+    print(b)
+    print(a)
+}
+"#,
+        ),
+        (
+            "safe_div_of_a_neg",
+            r#"fn main() {
+    print(safe_div(-15, 3))
+}
+"#,
+        ),
+        (
+            "safe_div_let_then_match",
+            r#"fn main() {
+    let result = safe_div(100, 4)
+    match result {
+        Some(v) -> print(v),
+        None -> print("none"),
+    }
+}
+"#,
+        ),
+        (
+            "safe_mod",
+            r#"fn main() {
+    let r = safe_mod(-7, 3)
+    print(r)
+}
+"#,
+        ),
+        (
+            "substring_compared",
+            r#"fn starts(s: String, p: String) -> Bool {
+    substring(s, 0, len(p)) == p
+}
+
+fn main() {
+    print(starts("hello", "he"))
+}
+"#,
+        ),
+        (
+            "substring_pushed",
+            r#"fn main() {
+    let s = "abc"
+    let a = array_push([||], substring(s, 0, 1))
+    print(a)
+}
+"#,
+        ),
+        (
+            "string_slice",
+            r#"fn main() {
+    let src = "hello" + " world"
+    let s = string_slice(src, 0, 5)
+    print(s)
+}
+"#,
+        ),
+        (
+            "split",
+            r#"fn main() {
+    let src = "a,b" + ",c"
+    let parts = split(src, ",")
+    print(parts)
+}
+"#,
+        ),
+        (
+            "trim",
+            r#"fn main() {
+    let src = "  hi" + "  "
+    let t = trim(src)
+    print(t)
+}
+"#,
+        ),
+        (
+            "upper",
+            r#"fn main() {
+    let src = "h" + "i"
+    let u = upper(src)
+    print(u)
+}
+"#,
+        ),
+        (
+            "lower",
+            r#"fn main() {
+    let src = "H" + "I"
+    let l = lower(src)
+    print(l)
+}
+"#,
+        ),
+        (
+            "replace",
+            r#"fn main() {
+    let src = "a-b" + "-c"
+    let r = replace(src, "-", "+")
+    print(r)
+}
+"#,
+        ),
+    ] {
+        let path = scratch.write(&format!("{name}.flx"), program);
+        let path = path.to_string_lossy();
+        let (vm, _, _) = run(&scratch, &path, &["--vm"], None);
+        let (stdout, stderr, code) = run(&scratch, &path, &["--native", "--leak-check"], None);
+        assert_eq!((stdout.as_str(), code), (vm.as_str(), 0), "{name}: {stderr}");
+        assert!(!stderr.contains("leak:"), "{name}: {stderr}");
+    }
+}
+
+/// Reading a member of a record literal, a map, releases the `Some` the
+/// lookup made: one was left per read (KI-203).
+#[test]
+fn a_value_read_from_a_record_literal_releases_its_option_ki203() {
+    let scratch = Scratch::new("debug-heap-record-member-ki203");
+    for (name, program) in [
+        (
+            "call_member",
+            r#"fn main() {
+    let m = { "square": fn(x) { x * x } }
+    print(m.square(5))
+}
+"#,
+        ),
+        (
+            "call_member_twice",
+            r#"fn main() {
+    let m = { "square": fn(x) { x * x } }
+    print(m.square(5))
+    print(m.square(6))
+}
+"#,
+        ),
+        (
+            "two_members",
+            r#"fn main() {
+    let m = { "inc": fn(x) { x + 1 }, "dec": fn(x) { x - 1 } }
+    print(m.inc(5))
+    print(m.dec(5))
+}
+"#,
+        ),
+        (
+            "member_in_a_loop",
+            r#"fn go(n: Int, acc: Int) -> Int {
+    let m = { "f": fn(x) { x + 1 } }
+    if n == 0 { acc } else { go(n - 1, m.f(acc)) }
+}
+
+fn main() {
+    print(go(10, 0))
+}
+"#,
+        ),
+    ] {
+        let path = scratch.write(&format!("{name}.flx"), program);
+        let path = path.to_string_lossy();
+        let (vm, _, _) = run(&scratch, &path, &["--vm"], None);
+        let (stdout, stderr, code) = run(&scratch, &path, &["--native", "--leak-check"], None);
+        assert_eq!((stdout.as_str(), code), (vm.as_str(), 0), "{name}: {stderr}");
+        assert!(!stderr.contains("leak:"), "{name}: {stderr}");
+    }
+}
+
+/// A fiber waiting on a timeout, `race` or `both` whose body panics is woken
+/// with the error and released: its continuation and the effect handlers its
+/// context holds were left live (KI-206). A body that returns and a timer
+/// that fires check that nothing is freed early.
+#[test]
+fn a_fiber_woken_with_an_error_releases_its_continuation_ki206() {
+    let scratch = Scratch::new("debug-heap-fiber-error-wake-ki206");
+    for (name, program) in [
+        (
+            "timeout_body_panics",
+            r#"import Flow.Async exposing (..)
+
+fn body() -> Int with Async {
+    panic("boom")
+}
+
+fn main() with IO {
+    print(run_async(fn() { timeout_result(100, body) }))
+}
+"#,
+        ),
+        (
+            "timeout_body_panics_three_times",
+            r#"import Flow.Async exposing (..)
+
+fn body() -> Int with Async {
+    panic("boom")
+}
+
+fn main() with IO {
+    print(run_async(fn() { timeout_result(100, body) }))
+    print(run_async(fn() { timeout_result(100, body) }))
+    print(run_async(fn() { timeout_result(100, body) }))
+}
+"#,
+        ),
+        (
+            "race_child_panics",
+            r#"import Flow.Async exposing (..)
+
+fn bad() -> Int with Async {
+    panic("boom")
+}
+
+fn slow() -> Int with Async {
+    sleep(50)
+    1
+}
+
+fn main() with IO {
+    print(run_async(fn() { try(fn() { race(bad, slow) }) }))
+}
+"#,
+        ),
+        (
+            "both_child_panics",
+            r#"import Flow.Async exposing (..)
+
+fn bad() -> Int with Async {
+    panic("boom")
+}
+
+fn good() -> Int with Async {
+    1
+}
+
+fn main() with IO {
+    print(run_async(fn() { try(fn() { both(good, bad) }) }))
+}
+"#,
+        ),
+        (
+            "timeout_body_returns",
+            r#"import Flow.Async exposing (..)
+
+fn body() -> Int with Async {
+    7
+}
+
+fn main() with IO {
+    print(run_async(fn() { timeout_result(100, body) }))
+}
+"#,
+        ),
+    ] {
+        let path = scratch.write(&format!("{name}.flx"), program);
+        let path = path.to_string_lossy();
+        let (vm, _, _) = run(&scratch, &path, &["--vm"], None);
+        let (stdout, stderr, code) = run(&scratch, &path, &["--native", "--leak-check"], None);
+        assert_eq!((stdout.as_str(), code), (vm.as_str(), 0), "{name}: {stderr}");
+        assert!(!stderr.contains("leak:"), "{name}: {stderr}");
+    }
+
+    // A timer that fires before its body: the debug heap faults if a value
+    // is freed early. Leaks aren't checked, since under load this case has
+    // once left the effect handlers live (KI-207).
+    let path = scratch.write(
+        "timeout_timer_fires.flx",
+        r#"import Flow.Async exposing (..)
+
+fn body() -> Int with Async {
+    sleep(50)
+    7
+}
+
+fn main() with IO {
+    print(run_async(fn() { timeout_result(1, body) }))
+}
+"#,
+    );
+    let path = path.to_string_lossy();
+    let (vm, _, _) = run(&scratch, &path, &["--vm"], None);
+    let (stdout, stderr, code) = run(&scratch, &path, &["--native", "--debug-heap"], None);
+    assert_eq!((stdout.as_str(), code), (vm.as_str(), 0), "timeout_timer_fires: {stderr}");
+}
+
 /// `--debug-heap` alone does not report leaks: nearly every program still
 /// leaks (KI-119, KI-121).
 #[test]
