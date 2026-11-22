@@ -1161,18 +1161,84 @@ rustc's `-Zvalidate-mir`, Swift's `-sil-verify-all` and Scala's `-Ycheck:all`
 run their checker after *every* pass, so a broken pass is named where it breaks
 the IR rather than seen later as wrong output.
 
-- **`lir::verify`** (`src/lir/verify.rs`): every block ends in one terminator;
-  every value is defined before it is used on every path; branch targets
-  exist; call arities match their callee; `dup` and `drop` apply only to
-  heap-typed values.
-- **`--verify-each`** (hidden): Core lint after each Core pass, not only each
-  round; `verify_contract` after each Aether pass; `validate_ir` after each CFG
-  pass; `lir::verify` after lowering and after each LIR pass. The error names
-  the pass that ran last. Off by default, since it multiplies checking cost.
-- **Where it runs:** a `vm_verify` parity way (the VM pipeline with
-  `--verify-each --optimize`), which verify includes when the diff touches a
-  pass; every fuzz run (§6); and the reducer's oracle (§7), so a lint failure
-  can be reduced like a mismatch.
+- **`lir::verify`** (`src/lir/verify.rs`, built 2026-11-22). LIR has no
+  types and keeps its terminator in a field of its own, so "one terminator per
+  block" holds by construction. The rules, each a `Rule` an error names:
+  - `blocks`: a function has blocks, and `blocks[i].id` is `i`, which the
+    emitter indexes by;
+  - `target`: every branch, call continuation and match arm names a block
+    that exists;
+  - `callee` and `arity`: a direct call, a direct closure call and a closure
+    name a function the program has, and pass the parameters and captures it
+    takes (the emitter panicked on an unknown one);
+  - `redefined`: a variable is defined once. A block parameter is the
+    exception: each predecessor writes it with a `Copy`, which the emitter
+    turns into a phi, and a call's result may be its continuation's
+    parameter. It may also be the function's own parameter, since
+    `cont_split` names a continuation's resume parameter after the block it
+    resumes in;
+  - `use before definition`: a forward must-analysis over the reachable
+    blocks. Unreachable ones are skipped, because `promote_tail_calls` leaves
+    a promoted call's continuation behind with a parameter nothing defines.
+    Of what a call holds across it, only `owned` and `scoped` must be
+    defined: `lent` is everything lowering had in scope, which `cont_split`
+    narrows to the live variables;
+  - `join`: every reachable edge into a block with parameters writes each of
+    them. Without the `Copy` the phi has no value from that predecessor;
+  - `reference count on a raw word`: `dup`, `drop`, `FreeShell`, `IsUnique`
+    and `DropReuse` never take a word LIR made raw (an untagged integer,
+    float or boolean, a raw pointer, a constructor tag, raw arithmetic, or a
+    `Copy` of one). This is narrower than "only heap-typed values": the
+    runtime checks a tagged word's tag, so a `dup` of a tagged `Int` is
+    legal, and a raw word is what it would misread as a pointer.
+- **`--verify-each`** (hidden; `FLUX_VERIFY_EACH=1`; `src/shared/verify_each.rs`).
+  It turns the module cache off, since a cached module skips the passes.
+  - Core: lint (`lint_core_expr`, with every top-level binder in scope) after
+    each of the simplifier's ten passes and the three normalization passes,
+    beside the Aether contract check those already had. `E998` "after
+    `<pass>` in `<definition>`".
+  - Aether: the contract after `insert_dup_drop`, `drop_spec`, `fusion`,
+    `reuse`, `reuse_spec`, `held` and, for a consuming clone,
+    `share_with_original`. Before `reuse` a unique path that has not disposed
+    of its cell yet is not a failure, because `reuse` is the pass that reuses
+    or frees it. The passes return plain expressions, so the first failure is
+    kept and `lower_with_clone_names` reports it, `E999` "after `<pass>`".
+  - CFG: `validate_ir` already ran after every CFG pass. Its failure was a
+    warning with no code and no pass, which parity did not count as a crash.
+    It is now an error on every build, `E997` "The CFG IR is invalid after
+    `<pass>`", and parity counts `E997` as a crash.
+  - LIR: `lir::verify` after lowering, `promote_tail_calls`,
+    `run_async_outline` and `cont_split`, `E997` "The LIR is invalid after
+    `<stage>`". The compiler stops before emitting LLVM from a broken LIR.
+- **Where it runs.** Two parity ways, `vm_verify` and `llvm_verify`
+  (`--optimize --verify-each`), each compared with its opt way; a skip of the
+  opt way carries over. The VM never builds LIR, so without `llvm_verify` the
+  LIR checks would not run in parity. verify runs both in every main parity
+  step rather than only when the diff touches a pass, for the reason §12
+  dropped the same gating for the opt ways. `cargo xtask fuzz` runs them by
+  default, and the reducer has both ways, so a check that fails makes its
+  way differ from the opt way and reduces like a mismatch.
+- **What the first run found (2026-11-22).** Checked: `tests/parity`,
+  `examples/type_classes`, `examples/generics`, `tests/flux` and
+  `examples/aether` under `vm_opt,vm_verify,llvm_opt,llvm_verify`, plus every
+  one of those files natively with `--verify-each` by hand. Result: 334
+  fixtures, 0 mismatches and no compiler bug. What the first runs did turn
+  up was rules wrong about the IR, each fixed with a unit test:
+  - Aether's "a unique path disposes of its cell" failed after `drop_spec`
+    in the standard library. `reuse` is the pass that disposes of the cell,
+    so the rule waits for it.
+  - A continuation's resume parameter is also its block's parameter.
+  - A call's `lent` list is not a list of live variables.
+
+  A planted bug, not committed, shows what `--verify-each` buys: LIR
+  lowering forgetting one edge's `Copy` into a join parameter. Plain native
+  builds stop in clang with "PHINode should have one entry for each
+  predecessor", which names nothing in Flux. `--verify-each` stops with
+  `E997` "[join] in `pick_pick`, block 2: the edge to block 1 does not write
+  its parameter v3", after `lowering`.
+- **Cost.** Over `tests/parity` with 13 jobs, `vm_verify` took 0:07 and
+  `llvm_verify` 0:53, against 0:50 for `llvm_opt`. So the two ways add about
+  as much as the native opt way does.
 - **Types are out of scope here.** A typed Core lint, which re-checks every
   binder's annotation and every application against Core's types, as GHC's
   does, is a larger change that needs its own proposal. It is listed under
@@ -1359,7 +1425,7 @@ each joined to an open KI:
 | S11 ✓ | `parity-check --jobs` (built in S16) and verify's `--jobs`; `flux --metrics`, `metrics.tsv` and the `metrics` step with `--accept-metrics`; `verify --quick` became `--only`/`--skip`; opt ways only on optimizer changes dropped (§12) | Main parity with `--jobs 1` and with the default gives the same verdicts, the default faster; the times are recorded here. A planted extra VM allocation, not committed, fails the `metrics` step until `--accept-metrics`. (2:44 against 15:00, 332 verdicts the same; the plant made 528 `vm_allocs` counts worse. Found KI-212: async run counts depend on scheduling.) |
 | S12 | `// dbg-check:` (§5), checks added to all 21 debug fixtures | Debug parity 21/21. Changing one expected local makes both the parity run and `parity_debug_tests` fail. |
 | S13 ✓ | `--opt-bisect-limit` and `cargo xtask bisect-opt` (§13) | A planted wrong rewrite in one Core pass, not committed, makes a fixture mismatch under `vm_opt`; `bisect-opt` names that rewrite. With `-1`, the rewrite count is the same on every run. (A wrong `IAdd` fold, opt-only, named as `constant_fold: fold IAdd in f` in 11 runs; `-1` gives identical lines on two runs, VM and native. `verify s13` passed with 0 mismatches.) |
-| S14 | `lir::verify`, `--verify-each`, the `vm_verify` way (§14) | Unit tests per LIR rule. A planted malformed rewrite, not committed, fails `--verify-each` naming its pass, where plain parity shows only wrong output. Main parity under `vm_verify` has 0 failures, after fixes or KIs. |
+| S14 | `lir::verify`, `--verify-each`, the `vm_verify` and `llvm_verify` ways; an invalid CFG is an internal error, `E997` (§14) | Unit tests per LIR rule. A planted malformed rewrite, not committed, fails `--verify-each` naming its pass, where plain parity shows only wrong output. Main parity under `vm_verify` has 0 failures, after fixes or KIs. (334 fixtures under both verify ways, 0 mismatches. The plant, a join `Copy` LIR lowering forgets, stops plain native builds in clang with an LLVM error; `--verify-each` names the edge, after `lowering`.) |
 | S16 ✓ | The support census (§16): `ExitKind::Crash`, `--jobs`, `--census`, `requires: network`, `flux features`, `cargo xtask census` | Every file and way in the corpus is classified; every failure has a KI or a header fix, so the unfiled list is empty; the matrix is published. Plain parity over `tests/parity` gives the same verdicts as before, except crashes now reported as such. |
 | S15 | Live blocks at exit, the `llvm_heap` way, expected counts, `cargo xtask sanitize` (§15) | `llvm_heap` over `tests/parity` and `examples/aether` reports 0 leaks, after fixes or KIs. A planted missing `drop`, not committed, fails it with the allocation site. A removed reuse fails an `expect-reuse` fixture. |
 | S17 | Whole programs from the generator, in four parts (§6): S17a generics and type classes, S17b records and closures as values, S17c effects and handlers, S17d async and modules | For each part: 200 programs of one seed that use it compile with 0 generator failures; a planted miscompile in that part's lowering (a dictionary's methods swapped on one backend, a clause that resumes with the wrong value), not committed, is found within `--count 200` and reduces to at most 15 lines; every mismatch is fixed or filed. S17d's programs print the same output on 10 reruns of each way. |
