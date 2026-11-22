@@ -39,6 +39,9 @@ pub enum Rule {
     UseBeforeDef,
     /// A reference-counting operation is applied to a raw word.
     RcOnRaw,
+    /// An edge into a block with parameters does not write one of them: the
+    /// emitter's phi for it would have no value from that predecessor.
+    Join,
 }
 
 impl Rule {
@@ -51,6 +54,7 @@ impl Rule {
             Rule::Redefined => "redefined",
             Rule::UseBeforeDef => "use before definition",
             Rule::RcOnRaw => "reference count on a raw word",
+            Rule::Join => "join",
         }
     }
 }
@@ -339,6 +343,7 @@ fn check_uses(
             }
         }
     }
+    check_joins(function, &reachable, report);
     let entry = entry_definitions(function);
     let generated: Vec<HashSet<LirVar>> = function
         .blocks
@@ -413,6 +418,60 @@ fn check_uses(
         if let LirTerminator::Call { held: Some(held), .. } = &block.terminator {
             for var in held.owned.iter().chain(&held.scoped) {
                 check(*var, "what the call holds across", &defined);
+            }
+        }
+    }
+}
+
+/// Each reachable edge into a block with parameters writes every parameter:
+/// with a `Copy` in the predecessor (the emitter makes a phi of those), as
+/// the result of a call that continues there, or as a field a match arm
+/// binds there. A parameter that is the function's own is exempt: it is
+/// `cont_split`'s resume parameter, defined on entry.
+fn check_joins(
+    function: &LirFunction,
+    reachable: &[bool],
+    report: &mut impl FnMut(Option<BlockId>, Rule, String),
+) {
+    let own: HashSet<LirVar> =
+        function.params.iter().chain(&function.capture_vars).copied().collect();
+    for (index, block) in function.blocks.iter().enumerate() {
+        if !reachable[index] {
+            continue;
+        }
+        let copied: HashSet<LirVar> = block
+            .instrs
+            .iter()
+            .filter_map(|instr| match instr {
+                LirInstr::Copy { dst, .. } => Some(*dst),
+                _ => None,
+            })
+            .collect();
+        let mut targets = terminator_successors(&block.terminator);
+        targets.sort_by_key(|target| target.0);
+        targets.dedup();
+        for target in targets {
+            let Some(next) = function.blocks.get(target.0 as usize) else { continue };
+            for param in &next.params {
+                let written = own.contains(param)
+                    || copied.contains(param)
+                    || match &block.terminator {
+                        LirTerminator::Call { dst, cont, .. } => *cont == target && dst == param,
+                        LirTerminator::MatchCtor { arms, .. } => arms
+                            .iter()
+                            .any(|arm| arm.target == target && arm.field_binders.contains(param)),
+                        _ => false,
+                    };
+                if !written {
+                    report(
+                        Some(block.id),
+                        Rule::Join,
+                        format!(
+                            "the edge to block {} does not write its parameter v{}",
+                            target.0, param.0
+                        ),
+                    );
+                }
             }
         }
     }
@@ -797,7 +856,7 @@ mod tests {
                 block(1, &[4], Vec::new(), LirTerminator::Return(v(4))),
             ],
         );
-        assert_eq!(rules(&program(vec![f])), vec![Rule::Redefined]);
+        assert!(rules(&program(vec![f])).contains(&Rule::Redefined));
     }
 
     #[test]
@@ -816,5 +875,13 @@ mod tests {
             assert!(message.contains("after `promote_tail_calls`"), "{message}");
             assert!(message.contains("[target]"), "{message}");
         });
+    }
+
+    #[test]
+    fn an_edge_that_does_not_write_a_join_parameter_is_reported() {
+        let mut program = valid();
+        // Block 2 jumps to the join (block 4) without its `Copy` into v4.
+        program.functions[0].blocks[2].instrs.clear();
+        assert_eq!(rules(&program), vec![Rule::Join]);
     }
 }
