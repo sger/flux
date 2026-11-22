@@ -989,34 +989,61 @@ purpose. What they must not change is behaviour.
 
 ### §12 Run time
 
-verify takes about 22 minutes; main parity is 15 of them, and `parity-check`
-runs one fixture at a time.
+verify took about 22 minutes when this was written; main parity was 15 of
+them, and `parity-check` ran one fixture at a time. With S11 built, a full run
+took 13:57 (2026-11-21, `s6shuffle`): the suite 6:01, the five sweeps with
+their determinism checks about 2:30, main parity 3:13, heap parity 1:24 and
+the two debug parities 0:26. The suite is now the largest step.
 
-- **Parallel fixtures** (moved into S16, which needs them first).
-  `parity-check --jobs N` runs N fixtures at once, each
-  with its own ways in sequence, and prints verdicts in fixture order. verify
-  passes `--jobs 2` by default and `--jobs` overrides it. Native builds are
-  heavy, so the default stays low on purpose.
-- **Opt ways when they matter.** `vm_opt` and `llvm_opt` run when the diff
-  against the base touches the optimizer (`src/core/passes/`, `src/aether/`),
-  under `--opt`, or when no base is given. Otherwise the summary notes that they
-  were skipped. This answers the open question from §3.
+- **Parallel fixtures** (built in S16, which needed them first).
+  `parity-check --jobs N` runs N fixtures at once, each with its own ways in
+  sequence, and prints verdicts in fixture order. verify passes `--jobs` to the
+  sweeps and to every parity step. The default was meant to be 2, since native
+  builds are heavy, but the cores − 2 the sweeps already used turned out to fit
+  (2026-11-11), and `--jobs` overrides it.
+- **Opt ways when they matter.** *Dropped (2026-11-22).* The plan was to run
+  `vm_opt` and `llvm_opt` only when the diff against the base touched the
+  optimizer (`src/core/passes/`, `src/aether/`), under `--opt`, or with no
+  base. Two things changed:
+  - With `--jobs`, the whole main parity step takes about 3 minutes, so
+    skipping the opt ways would save under one.
+  - The opt-only bugs S8 found were outside that list. KI-174 was an id clash
+    in the AST fold that type inference then tripped on, and KI-116 a move in
+    the VM's bytecode compiler (`src/compiler/`) that only the fold's output
+    reached in ordinary code. Neither touched `src/core/passes/` or
+    `src/aether/`.
+
+  The opt ways stay in every run, which settles §3's "for now".
 - **Per-fixture counts, not times.** Wall time is noisy, which is why
   rustc-perf compares instruction counts and GHC keeps per-test metrics with
   acceptance windows. A hidden `--metrics <file>` flag makes `flux` write
-  numbers that are the same on every run:
-  - Core size after optimization, and the number of `dup`, `drop` and reuse
-    sites in Aether;
-  - bytecode size;
-  - the VM's executed instruction count and allocation count, from
-    `src/runtime/leak_detector.rs`'s counters (§15).
+  numbers that are the same on every run of the same compiler:
+  - over the program's own functions: `core_size` after optimization, and
+    Aether's `aether_allocs`, `aether_dups`, `aether_drops` and
+    `aether_reuses`;
+  - `bytecode_bytes`, the instructions compiled from the entry file;
+  - `vm_instructions`, the instructions the VM dispatched, and `vm_allocs`,
+    the allocations during the run, from a counting global allocator that only
+    the `flux` binary installs (`src/alloc_count.rs`);
+  - `compiler_allocs`, the allocations before the program runs.
+
+  A program that starts worker VMs records no run counts, since which VM runs
+  which task depends on scheduling.
 
   `parity-check --metrics` collects them per fixture on the `vm` and `vm_opt`
-  ways. verify keeps them in `<run>/metrics.tsv` and, with `--base`, fails on a
-  fixture whose count grows beyond its metric's tolerance (0% for Core size and
-  instruction count, which are exact) unless the run passes
-  `--accept-metrics`, which records the new values as accepted. Wall time
-  stays in the summary as a coarse signal.
+  ways. verify keeps them in `<run>/metrics.tsv` and, with `--base`, compares
+  them in a `metrics` step (`xtask/src/metrics.rs`):
+  - a count is worse when it moves past its metric's tolerance in its bad
+    direction: every count is exact except `vm_allocs` and
+    `compiler_allocs`, which may move by 1%, and `aether_reuses` is worse when
+    it drops, not when it grows;
+  - a count only one side has, from a new fixture, is counted but not judged;
+  - every changed count is listed in `<run>/metrics_diff.txt`;
+  - a worse count fails the step unless the run passes `--accept-metrics`,
+    which lists them as accepted instead;
+  - a base run from before S11 has no counts, and the step says so and passes.
+
+  Wall time stays in the summary as a coarse signal.
 - **A quick tier.** `verify --quick` runs fmt, clippy, the build, the three
   sweeps with determinism sampling, and main parity over `tests/parity` only.
   It is the check while working; the full verify is the check before a merge.
@@ -1309,7 +1336,7 @@ each joined to an open KI:
 | S8 ✓ | The generator and `cargo xtask fuzz` (§6) | Unit tests: the same seed gives the same text; 200 seeds compile with 0 generator failures (an ignored test that runs `flux --dump-core`). A planted miscompile under `--optimize`, not committed, is found within `--count 200`. (200 of 200 compile with 0 generator failures and 0 internal errors; the run itself is the compile check, so there is no ignored test. The planted `+` fold made 47 of 200 mismatch. Found KI-172 and KI-173.) |
 | S9 ✓ | `cargo xtask fuzz reduce` (§7) | The planted miscompile's case shrinks to at most 10 lines. Reducer unit tests on a fake oracle. (69 lines to 3 in 0:25. 12 unit tests: the passes on their own, and ddmin, the whole reducer and the tester on fake oracles. Found on the way: a timeout left the program flux built running.) |
 | S10 | `verify --behaviour` (§11) | A planted change to a `print` builtin's output, not committed, fails it and names the files; a no-op change passes. |
-| S11 | `parity-check --jobs`, opt ways on optimizer changes, per-fixture times, `verify --quick` (§12) | Main parity with `--jobs 2` gives the same verdicts as `--jobs 1`, faster; the times are recorded here. A planted slowdown in one fixture is listed. |
+| S11 | `parity-check --jobs` (built in S16) and verify's `--jobs`; `flux --metrics`, `metrics.tsv` and the `metrics` step with `--accept-metrics`; `verify --quick` became `--only`/`--skip`; opt ways only on optimizer changes dropped (§12) | Main parity with `--jobs 1` and with the default gives the same verdicts, the default faster; the times are recorded here. A planted extra VM allocation, not committed, fails the `metrics` step until `--accept-metrics`. |
 | S12 | `// dbg-check:` (§5), checks added to all 21 debug fixtures | Debug parity 21/21. Changing one expected local makes both the parity run and `parity_debug_tests` fail. |
 | S13 ✓ | `--opt-bisect-limit` and `cargo xtask bisect-opt` (§13) | A planted wrong rewrite in one Core pass, not committed, makes a fixture mismatch under `vm_opt`; `bisect-opt` names that rewrite. With `-1`, the rewrite count is the same on every run. (A wrong `IAdd` fold, opt-only, named as `constant_fold: fold IAdd in f` in 11 runs; `-1` gives identical lines on two runs, VM and native. `verify s13` passed with 0 mismatches.) |
 | S14 | `lir::verify`, `--verify-each`, the `vm_verify` way (§14) | Unit tests per LIR rule. A planted malformed rewrite, not committed, fails `--verify-each` naming its pass, where plain parity shows only wrong output. Main parity under `vm_verify` has 0 failures, after fixes or KIs. |
@@ -1346,7 +1373,7 @@ which guards debug output that already agrees 21/21, goes last.
 - **verify gets slower.** Two more ways in the main parity step, full dumps on
   disk, and expected checks. The content comparison itself is cheap. The opt ways
   are not: §3 records the cost, and the ways can move to an opt-in flag if it is
-  too high.
+  too high. With `--jobs` (§12) they cost under a minute, so they stay on.
 - **Disk use.** Each run keeps a folder, `.verify/<tag>/`, at the repository
   root. `.gitignore` lists `.verify/`, so nothing in it is ever committed; `FLUX_VERIFY_OUT` moves it elsewhere. Sweeps keep dump hashes, not
   dumps, plus the compiler they ran (about 20 MB). `cargo xtask prune --keep <n>
@@ -1435,8 +1462,6 @@ which guards debug output that already agrees 21/21, goes last.
 ## Unresolved questions
 [unresolved-questions]: #unresolved-questions
 
-- Which paths count as the optimizer for §12, and whether a change outside
-  them (for example in type inference) should still run the opt ways.
 - Whether `UNEXPECTED_PASS` (§8) should fail verify on `main`, where the fix
   cannot be on another branch.
 - Whether `rewrite` (§10) should handle fixtures with modules, by rewriting each
