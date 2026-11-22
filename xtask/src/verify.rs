@@ -10,6 +10,8 @@
 //! - `sweep_core-opt/`: ... with `--optimize --dump-core`
 //! - `parity.txt`: vm, vm_cached, vm_strict, vm_opt, vm_verify, llvm,
 //!   llvm_opt and llvm_verify compared
+//! - `behaviour.txt`: with `--base`, each fixture's vm run with the base's
+//!   kept compiler against this one's (0190 §11)
 //! - `parity_g.txt`: the guide natively with and without `-g`
 //! - `parity_debug.txt`: the VM debugger and lldb compared
 //! - `parity_heap.txt`: native runs on the debug heap against plain ones,
@@ -91,20 +93,30 @@ pub enum Check {
     Parity,
     /// The counts from parity's vm runs against the base's.
     Metrics,
+    /// Each fixture's vm run with the base's kept compiler against ours:
+    /// stdout and exit kind must not change (0190 §11).
+    Behaviour,
     DebugBuildParity,
     DebugParity,
     HeapParity,
 }
 
 impl Check {
+    /// Whether the check compares with `--base`'s run, so a run without one
+    /// leaves it out.
+    fn needs_base(self) -> bool {
+        matches!(self, Check::Metrics | Check::Behaviour)
+    }
+
     /// Every check, in the order a run takes them.
-    pub const ALL: [Check; 9] = [
+    pub const ALL: [Check; 10] = [
         Check::Fmt,
         Check::Clippy,
         Check::Suite,
         Check::Sweeps,
         Check::Parity,
         Check::Metrics,
+        Check::Behaviour,
         Check::DebugBuildParity,
         Check::DebugParity,
         Check::HeapParity,
@@ -122,6 +134,7 @@ impl Check {
             Check::Sweeps => "sweeps",
             Check::Parity => "parity",
             Check::Metrics => "metrics",
+            Check::Behaviour => "behaviour",
             Check::DebugBuildParity => "debug-build-parity",
             Check::DebugParity => "debug-parity",
             Check::HeapParity => "heap-parity",
@@ -159,9 +172,10 @@ pub fn choose_checks(
     let checks: Vec<Check> = Check::ALL
         .into_iter()
         .filter(|check| if only.is_empty() { !skip.contains(check) } else { only.contains(check) })
-        // Without a base there are no counts to compare with, so a full
-        // run leaves metrics out; only naming it is an error.
-        .filter(|check| *check != Check::Metrics || base || only.contains(check))
+        // Without a base there are no counts and no compiler to compare
+        // with, so a full run leaves metrics and behaviour out; only naming
+        // one is an error.
+        .filter(|check| !check.needs_base() || base || only.contains(check))
         .collect();
     let runs = |check| checks.contains(&check);
     if checks.is_empty() {
@@ -169,6 +183,9 @@ pub fn choose_checks(
     }
     if runs(Check::Metrics) && !base {
         return Err("metrics compares the counts with --base's, so it needs --base".into());
+    }
+    if runs(Check::Behaviour) && !base {
+        return Err("behaviour runs the base's kept compiler, so it needs --base".into());
     }
     if runs(Check::Metrics) && !runs(Check::Parity) {
         return Err("metrics compares the counts parity writes, so it needs parity".into());
@@ -197,7 +214,7 @@ impl Options {
     fn not_run(&self) -> Vec<Check> {
         Check::ALL
             .into_iter()
-            .filter(|check| *check != Check::Metrics || self.base.is_some())
+            .filter(|check| !check.needs_base() || self.base.is_some())
             .filter(|check| !self.runs(*check))
             .collect()
     }
@@ -209,6 +226,7 @@ impl Options {
             && [
                 Check::Sweeps,
                 Check::Parity,
+                Check::Behaviour,
                 Check::DebugBuildParity,
                 Check::DebugParity,
                 Check::HeapParity,
@@ -236,6 +254,7 @@ fn step_count(options: &Options) -> usize {
     let later = [
         Check::Parity,
         Check::Metrics,
+        Check::Behaviour,
         Check::DebugBuildParity,
         Check::DebugParity,
         Check::HeapParity,
@@ -534,6 +553,17 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
         }
     }
 
+    // The base's compiler on every fixture (0190 §11): a change must not
+    // alter what a program prints or how it exits, even where the backends
+    // still agree with each other.
+    if options.runs(Check::Behaviour)
+        && let (Some(base), Some(base_out)) = (&options.base, &base_out)
+    {
+        let started = steps.start(&format!("behaviour against {base}"));
+        behaviour_step(root, &flux, options, base, base_out, &out, &mut outcome, started)
+            .map_err(io)?;
+    }
+
     // A debug build runs as a plain one does (0188 S9c): every guide
     // example prints the same natively with and without `-g`.
     if options.runs(Check::DebugBuildParity) {
@@ -629,6 +659,77 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
     }
 
     Ok(finish(&mut outcome, &out, base_out.as_deref(), options))
+}
+
+/// The directories the behaviour check runs: main parity's, the guide and
+/// Aether's examples.
+const BEHAVIOUR_DIRS: [&str; 6] = [
+    "examples/type_classes",
+    "examples/generics",
+    "tests/flux",
+    "tests/parity",
+    "examples/guide",
+    "examples/aether",
+];
+
+/// The behaviour check (0190 §11): each fixture's `vm` run again with the
+/// compiler `base`'s cfg sweep kept, through `parity-check --behaviour-of`.
+/// Both compilers read this checkout's `lib/Flow`, so a change to the
+/// library itself is not compared.
+#[allow(clippy::too_many_arguments)]
+fn behaviour_step(
+    root: &Path,
+    flux: &Path,
+    options: &Options,
+    base: &str,
+    base_out: &Path,
+    out: &Path,
+    outcome: &mut Outcome,
+    started: Instant,
+) -> std::io::Result<()> {
+    let base_flux = sweep::compiler_in(&base_out.join(sweep_dir(Mode::Cfg)));
+    if !base_flux.exists() {
+        let line = format!("behaviour: {base} kept no compiler (run its sweeps)");
+        println!("{line}");
+        outcome.record("behaviour", false, line, started.elapsed());
+        return Ok(());
+    }
+    println!(
+        "each fixture on the VM with {base}'s compiler and with this one; stdout and exit kind must agree"
+    );
+    let log_path = out.join("behaviour.txt");
+    let mut log = open_log(&log_path)?;
+    let mut counts = ParityCounts::default();
+    let mut failed_runs = 0;
+    for dir in BEHAVIOUR_DIRS {
+        println!("{}", Paint::detect().bold(&format!("=== {dir}")));
+        writeln!(log, "=== {dir}")?;
+        let mut extra =
+            vec!["--behaviour-of".to_string(), base_flux.to_string_lossy().into_owned()];
+        extra.extend(jobs_args(options.jobs));
+        let run = parity_with_env(root, flux, dir, "vm", true, &mut log, &[], &extra)?;
+        if run.exit != 0 {
+            failed_runs += 1;
+        }
+        counts.absorb(run);
+    }
+    let took = started.elapsed();
+    println!("took {}", format_duration(took));
+    let differ = counts.mismatches + counts.expected;
+    let ok = differ == 0 && failed_runs == 0;
+    let entry = outcome.record(
+        "behaviour",
+        ok,
+        format!(
+            "behaviour against {base} ({differ} file(s) behave differently, {failed_runs} of {} dir(s) exited non-zero)",
+            BEHAVIOUR_DIRS.len()
+        ),
+        took,
+    );
+    if !ok {
+        entry.details = capped(&counts.failures, &log_path);
+    }
+    Ok(())
 }
 
 /// Records a one-directory parity step, listing its failures when it failed.
@@ -1036,13 +1137,14 @@ mod tests {
         };
         // fmt+clippy, suite or build, then four parity steps.
         assert_eq!(step_count(&options(&[], &["suite", "sweeps"], None)), 6);
-        // With a base, the counts are compared too.
-        assert_eq!(step_count(&options(&[], &["sweeps"], Some("main"))), 7);
+        // With a base, the counts are compared too, and the base's compiler
+        // runs every fixture again.
+        assert_eq!(step_count(&options(&[], &["sweeps"], Some("main"))), 8);
         // Five sweeps, each with its two determinism checks (plain and
         // shuffled), and the internal-error tally.
         assert_eq!(step_count(&options(&[], &[], None)), 22);
-        // And five comparisons with the base, and the counts'.
-        assert_eq!(step_count(&options(&[], &["suite"], Some("main"))), 28);
+        // And five comparisons with the base, the counts' and behaviour.
+        assert_eq!(step_count(&options(&[], &["suite"], Some("main"))), 29);
         let unchecked = Options { det_sample: 0, ..options(&[], &[], None) };
         assert_eq!(step_count(&unchecked), 12);
         // One parity check needs the compiler built first.
@@ -1059,12 +1161,13 @@ mod tests {
     }
 
     #[test]
-    fn with_no_flags_every_check_runs_and_metrics_only_with_a_base() {
+    fn with_no_flags_every_check_runs_and_metrics_and_behaviour_only_with_a_base() {
         let all = choose("", "", true).unwrap();
         assert_eq!(all, Check::ALL);
         let without_base = choose("", "", false).unwrap();
         assert!(!without_base.contains(&Check::Metrics));
-        assert_eq!(without_base.len(), Check::ALL.len() - 1);
+        assert!(!without_base.contains(&Check::Behaviour));
+        assert_eq!(without_base.len(), Check::ALL.len() - 2);
     }
 
     #[test]
@@ -1102,6 +1205,10 @@ mod tests {
         assert!(error("", "parity", true).contains("needs parity"));
         // Skipping metrics with a base is fine: the counts are only kept.
         assert!(choose("", "metrics", true).is_ok());
+        // Behaviour runs the base's compiler, and needs nothing else.
+        assert!(error("behaviour", "", false).contains("needs --base"));
+        assert_eq!(choose("behaviour", "", true).unwrap(), [Check::Behaviour]);
+        assert!(choose("", "behaviour", true).is_ok());
     }
 
     #[test]

@@ -979,13 +979,44 @@ function written after `main`, made 78 reordered copies stop compiling
 `--cmp` (§4) fails on any dump change, but most refactors change dumps on
 purpose. What they must not change is behaviour.
 
-- **`verify --base <tag> --behaviour`** runs every parity fixture once more,
-  with the base sweep's kept compiler on the `vm` way, and compares stdout and
-  exit kind with the head's `vm` run. A difference fails the step and names the
-  file, with the first differing line.
-- It needs no expected output, so it covers every fixture, including the ones
-  that only check that the backends agree. When both compilers are wrong in the
-  same way it shows nothing, which parity already accepts.
+- **The `behaviour` check** (built 2026-11-22) runs every fixture once more on
+  the `vm` way, with the compiler the base run's cfg sweep kept
+  (`.verify/<base>/sweep_cfg/flux`), and compares it with this compiler's
+  `vm` run:
+  - It compares stdout and exit kind, not stderr, since a change may reword
+    a diagnostic on purpose.
+  - A difference fails the step and names the file, with the first lines
+    that differ.
+  - It runs in every verify with `--base`, as `metrics` does. `--skip
+    behaviour` leaves it out, and naming it without `--base` is an error.
+    The plan was a `--behaviour` flag, but at 0:18 for 394 fixtures it costs
+    too little to be opt-in.
+  - A base run without sweeps kept no compiler, and the step fails saying so.
+- **How:** `parity-check --behaviour-of <compiler>` runs the base compiler
+  after the ways, through parity's own handling. A `// skip-way:` of `vm`
+  skips it too, `// stdout: varies` compares exits only, and timeouts and
+  normalized stdout are parity's. It covers main parity's four directories,
+  `examples/guide` and `examples/aether`, with the log in
+  `<run>/behaviour.txt`.
+- **No expected output needed.** So it covers every fixture, including the
+  ones that only check that the backends agree, and it catches a change that
+  breaks both backends the same way, which parity cannot see. When both
+  compilers are wrong in the same way it shows nothing, which parity
+  already accepts.
+- **The library is shared.** Both compilers read this checkout's
+  `lib/Flow`, since a compiler finds it by walking up from the entry file.
+  So a change to the library itself is not compared, and a base compiler
+  that cannot compile the head's library fails every file.
+- **The exit check (2026-11-22, base `s14`):**
+  - On the unchanged branch, 394 fixtures and 0 differ.
+  - A planted parser change, `42` parsed as `43`, not committed, makes both
+    backends print 43, and the check fails on 46 files, each with its first
+    line (`-42` / `+43`).
+  - Main parity caught 27 of them, through the fixtures' expected output.
+    Of the other 19, seven have no expected output (six in
+    `examples/type_classes`, one in `tests/flux`), and twelve are in
+    directories main parity does not run (ten in the guide, two in
+    `examples/aether`).
 
 ### §12 Run time
 
@@ -1421,7 +1452,7 @@ each joined to an open KI:
 | S7 ✓ | `cargo xtask rewrite` with `reorder`, then `rename` and `let-wrap` (§10) | Every rewrite of `tests/parity` and `examples/guide` compiles and matches; each mismatch is fixed or filed as a KI. A planted order bug, not committed, is caught by `reorder`: predeclaration forgetting the functions written after `main` (78 copies no longer compile, against 1). (Undoing the S4 lowering fix, planned here first, changes only numbering, so no output; S6's determinism sample catches it. `binding_groups` in source order, planned next, changes nothing `reorder` touches: it orders statements inside blocks, not top-level items.) |
 | S8 ✓ | The generator and `cargo xtask fuzz` (§6) | Unit tests: the same seed gives the same text; 200 seeds compile with 0 generator failures (an ignored test that runs `flux --dump-core`). A planted miscompile under `--optimize`, not committed, is found within `--count 200`. (200 of 200 compile with 0 generator failures and 0 internal errors; the run itself is the compile check, so there is no ignored test. The planted `+` fold made 47 of 200 mismatch. Found KI-172 and KI-173.) |
 | S9 ✓ | `cargo xtask fuzz reduce` (§7) | The planted miscompile's case shrinks to at most 10 lines. Reducer unit tests on a fake oracle. (69 lines to 3 in 0:25. 12 unit tests: the passes on their own, and ddmin, the whole reducer and the tester on fake oracles. Found on the way: a timeout left the program flux built running.) |
-| S10 | `verify --behaviour` (§11) | A planted change to a `print` builtin's output, not committed, fails it and names the files; a no-op change passes. |
+| S10 ✓ | The `behaviour` check, with `--base` on every verify, via `parity-check --behaviour-of` (§11) | A planted change to a `print` builtin's output, not committed, fails it and names the files; a no-op change passes. (No-op: 394 fixtures, 0 differ. A planted parser change, `42` parsed as `43`, failed 46 files with their first differing lines; main parity caught 27, through expected output. `verify s10 --base s14 --cmp` passed, behaviour 0 files in 0:20.) |
 | S11 ✓ | `parity-check --jobs` (built in S16) and verify's `--jobs`; `flux --metrics`, `metrics.tsv` and the `metrics` step with `--accept-metrics`; `verify --quick` became `--only`/`--skip`; opt ways only on optimizer changes dropped (§12) | Main parity with `--jobs 1` and with the default gives the same verdicts, the default faster; the times are recorded here. A planted extra VM allocation, not committed, fails the `metrics` step until `--accept-metrics`. (2:44 against 15:00, 332 verdicts the same; the plant made 528 `vm_allocs` counts worse. Found KI-212: async run counts depend on scheduling.) |
 | S12 | `// dbg-check:` (§5), checks added to all 21 debug fixtures | Debug parity 21/21. Changing one expected local makes both the parity run and `parity_debug_tests` fail. |
 | S13 ✓ | `--opt-bisect-limit` and `cargo xtask bisect-opt` (§13) | A planted wrong rewrite in one Core pass, not committed, makes a fixture mismatch under `vm_opt`; `bisect-opt` names that rewrite. With `-1`, the rewrite count is the same on every run. (A wrong `IAdd` fold, opt-only, named as `constant_fold: fold IAdd in f` in 11 runs; `-1` gives identical lines on two runs, VM and native. `verify s13` passed with 0 mismatches.) |
