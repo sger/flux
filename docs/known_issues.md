@@ -873,6 +873,45 @@ them, so the caller does not release the argument, and the instance method,
 which only borrows it, does not release it either. Why a `List` argument is
 released is not traced.
 
+### KI-212 — verify's metrics step fails on async programs whose run counts depend on scheduling
+
+**Severity:** Low (a false failure, passed with `--accept-metrics`) · **Area:** `flux --metrics` run counts, verify's `metrics` step · **Verified:** 2026-11-22 (415aca98) · **From:** [0190](proposals/0190_verification_toolkit.md) S11 exit check
+
+```text
+$ cargo xtask verify s11a --base s6shuffle --only parity,metrics
+FAIL metrics (1 count(s) worse than s6shuffle, 0 better, 0 only on one side)
+worse   tests/parity/async_select_loser_watchers_reclaimed.flx vm_opt vm_instructions 33493 -> 33543 (+0.1%)
+```
+
+Nothing changed between the two runs. `vm_instructions` is judged exactly
+(0190 §12), but for this fixture it depends on timing. It loops 100 times
+over a `select` whose `after 1` arm races a channel that never sends:
+
+| run (2026-11-21 to 22) | `vm_opt` `vm_instructions` |
+|---|---|
+| main, s11a, s11j1, s11plant | 33543 |
+| s6shuffle, s11accept | 33493 |
+
+The `vm` way gave 33543 in all six. Twelve runs one after another, and 26
+run at once, gave 33543 every time, so the other value shows up only now and
+then, under verify's load. s6shuffle's "1 count better" against main was the
+same flake.
+
+`tests/parity/assert_throws_one_arg_native.flx`, which spawns a task and
+cancels it, shows the other half. `flux --metrics` leaves the run counts out
+when a program started a worker VM, and whether one starts depends on timing
+too. s11a and s11j1 have no `vm_instructions` or `vm_allocs` row for it;
+main, s11plant and s11accept have one. Under load, 1 of 26 runs wrote them.
+The comparison counts a row only one side has without judging it, so this
+fixture only adds to "only on one side".
+
+The run counts skip programs that start worker VMs
+(`add_run_metrics`, `src/driver/run_program/backend/vm.rs`). They also need
+to skip a program that waits on the async runtime at all (timers, `select`,
+a task that may run inline or on a worker), or the comparison needs a
+tolerance for those. Until then, a metrics step that fails only on
+`async_*` or task fixtures' run counts is this issue.
+
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features` · **Issue:** [#170](https://forgejo.spirosgerokostas.com/sger/flux/issues/170)
