@@ -128,6 +128,9 @@ pub struct FixtureMeta {
     /// What Aether must achieve, from `// expect-reuse:` and
     /// `// expect-allocs:`, checked against `flux --metrics` (0190 §15).
     pub expected_counts: Vec<ExpectedCount>,
+    /// What each debug way's reduced transcript must show, from
+    /// `// dbg-check:` lines (0190 §5).
+    pub debug_checks: Vec<String>,
 }
 
 /// A count a fixture states, such as `// expect-reuse: >= 1`.
@@ -235,6 +238,7 @@ impl Default for FixtureMeta {
             expected_stdout: None,
             expected_stderr: None,
             expected_counts: Vec::new(),
+            debug_checks: Vec::new(),
         }
     }
 }
@@ -255,6 +259,7 @@ pub fn parse_fixture_meta_allowing(path: &Path, allowed: &[String]) -> FixtureMe
     };
 
     let mut meta = directory_defaults(path);
+    meta.debug_checks = super::debug::debug_checks(&content);
     let mut collecting_block: Option<ExpectedBlockKind> = None;
     let mut expected_block_lines: Vec<String> = Vec::new();
 

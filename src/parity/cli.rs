@@ -676,6 +676,7 @@ fn check_one(file: &Path, config: &Config) -> CheckedFile {
             stdout_varies: fixture_meta.stdout_varies,
             check_skips: config.check_skips,
             expected_counts: &fixture_meta.expected_counts,
+            debug_checks: &fixture_meta.debug_checks,
             collect_metrics: config.metrics.is_some(),
         },
     );
@@ -890,6 +891,8 @@ struct CheckOpts<'a> {
     check_skips: bool,
     /// `// expect-reuse:` and `// expect-allocs:`, checked once the ways pass.
     expected_counts: &'a [ExpectedCount],
+    /// `// dbg-check:` lines, checked on each debug way's transcript.
+    debug_checks: &'a [String],
     /// `--metrics`: the `vm` and `vm_opt` ways write their counts.
     collect_metrics: bool,
 }
@@ -1313,6 +1316,8 @@ fn judge(
             expected: ExitKind::Success.to_string(),
             actual: format!("{}: {}", failed.way, failed.exit_kind),
         }
+    } else if let Some(failed) = first_failed_debug_check(run_results, opts.debug_checks) {
+        failed
     } else if let Some(expected_stdout) = opts.expected_stdout.filter(|_| !opts.stdout_varies) {
         let expected = expected_stdout.trim();
         let actual = run_results
@@ -1327,6 +1332,28 @@ fn judge(
     } else {
         Verdict::Pass
     }
+}
+
+/// The first `// dbg-check:` line a debug way's transcript does not show, as
+/// the way and the check. Each debugger is checked on its own, so a change
+/// that breaks both alike, which their comparison cannot see, fails here.
+fn first_failed_debug_check(
+    run_results: &[super::RunResult],
+    checks: &[String],
+) -> Option<Verdict> {
+    run_results.iter().filter(|run| run.way.is_debug()).find_map(|run| {
+        let index = super::debug::first_failed_check(&run.normalized_stdout, checks)?;
+        Some(Verdict::ExpectedOutputMismatch {
+            expected: format!(
+                "{}: // dbg-check: {} (check {} of {})",
+                run.way,
+                checks[index],
+                index + 1,
+                checks.len()
+            ),
+            actual: run.normalized_stdout.clone(),
+        })
+    })
 }
 
 /// Behaviour against the base compiler (0190 §11): stdout and exit kind, not
@@ -2251,6 +2278,7 @@ mod tests {
             stdout_varies: false,
             check_skips: true,
             expected_counts: &[],
+            debug_checks: &[],
             collect_metrics: false,
         }
     }
@@ -2712,6 +2740,32 @@ mod tests {
         let mut varying_base = result(Way::Vm, ExitKind::Success, "12:01", "");
         varying_base.normalized_stdout.clear();
         assert!(behaviour_details(&varying_head, &varying_base).is_empty());
+    }
+
+    /// Each debugger is held to the `// dbg-check:` lines on its own, so the
+    /// one whose transcript lacks a check is the one named (0190 §5).
+    #[test]
+    fn a_debug_check_names_the_way_whose_transcript_lacks_it() {
+        let ways = [Way::VmDebug, Way::LlvmDebug];
+        let checks = vec!["stop f a.flx:3".to_string(), "x = 1".to_string()];
+        let opts = CheckOpts { debug_checks: &checks, ..plain_opts(&ways) };
+        let runs = |native: &str| {
+            vec![
+                result(Way::VmDebug, ExitKind::Success, "stop f a.flx:3\nx = 1\nfinished", ""),
+                result(Way::LlvmDebug, ExitKind::Success, native, ""),
+            ]
+        };
+        let shown = runs("stop f a.flx:3\ny = 2\nx = 1\nfinished");
+        assert!(matches!(judge(&shown, vec![], &opts), Verdict::Pass));
+        let Verdict::ExpectedOutputMismatch { expected, .. } =
+            judge(&runs("stop f a.flx:3\nx = 10\nfinished"), vec![], &opts)
+        else {
+            panic!("a missing check fails");
+        };
+        assert_eq!(expected, "llvm_debug: // dbg-check: x = 1 (check 2 of 2)");
+        let unchecked = plain_opts(&ways);
+        let other = runs("stop f a.flx:3\nx = 10\nfinished");
+        assert!(matches!(judge(&other, vec![], &unchecked), Verdict::Pass));
     }
 
     #[test]

@@ -49,6 +49,30 @@ pub fn debug_script(source: &str) -> Vec<String> {
         .collect()
 }
 
+/// What a fixture's `// dbg-check:` lines say each debugger must show (0190
+/// §5), in order. They are read from every line, as `// dbg:` lines are, and
+/// sit at the end of the file: the script names line numbers, so lines added
+/// above the program would move it.
+pub fn debug_checks(source: &str) -> Vec<String> {
+    source
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("// dbg-check:"))
+        .map(|check| check.trim().to_string())
+        .filter(|check| !check.is_empty())
+        .collect()
+}
+
+/// The index of the first check `transcript` (a reduced one) does not show,
+/// as FileCheck's `CHECK` lines match: in order, each on a later line than
+/// the check before it. A check is a whole line, not part of one, so `a = 1`
+/// does not pass for `a = 10`. Lines between checks are allowed, which is
+/// what lets one blessed list hold for both debuggers: native code may show
+/// a variable the VM has moved, or a handler's frame under a tail resume.
+pub fn first_failed_check(transcript: &str, checks: &[String]) -> Option<usize> {
+    let mut lines = transcript.lines().map(str::trim);
+    checks.iter().position(|check| !lines.any(|line| line == check))
+}
+
 /// Runs `file`'s debug script under `way` (`vm_debug` or `llvm_debug`).
 pub fn run_debug_way(
     vm_binary: &Path,
@@ -661,6 +685,28 @@ mod tests {
     fn a_fixture_scripts_its_session_in_dbg_lines() {
         let source = "// dbg: break 3\n// dbg: continue\n//dbg: no\n// dbg:\nfn main() {}\n";
         assert_eq!(debug_script(source), ["break 3", "continue"]);
+    }
+
+    #[test]
+    fn checks_are_their_own_lines_apart_from_the_script() {
+        let source = "// dbg: break 3\n// dbg: continue\nfn main() {}\n\n// dbg-check: stop main a.flx:3\n//   dbg-check: no\n// dbg-check:\n// dbg-check:   finished  \n";
+        assert_eq!(debug_checks(source), ["stop main a.flx:3", "finished"]);
+        assert_eq!(debug_script(source), ["break 3", "continue"]);
+    }
+
+    fn checks(lines: &[&str]) -> Vec<String> {
+        lines.iter().map(|line| line.to_string()).collect()
+    }
+
+    #[test]
+    fn checks_match_whole_lines_in_order_with_others_between() {
+        let vm = checks(&["stop area a.flx:3", "h = 4", "w = 3", ".0 = 3", "finished"]);
+        let native = "stop area a.flx:3\nframe <handler Get> a.flx:9\nh = 4\nshape = Rect(3, 4)\nw = 3\n  .0 = 3\nfinished";
+        assert_eq!(first_failed_check(native, &vm), None);
+        assert_eq!(first_failed_check("stop area a.flx:3\nh = 5\nw = 3\nfinished", &vm), Some(1));
+        assert_eq!(first_failed_check("stop area a.flx:3\nh = 4\nfinished", &vm), Some(2));
+        assert_eq!(first_failed_check("stop area a.flx:3\nw = 3\nh = 4\nfinished", &vm), Some(2));
+        assert_eq!(first_failed_check("a = 10", &checks(&["a = 1"])), Some(0));
     }
 
     #[test]
