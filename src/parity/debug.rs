@@ -801,6 +801,34 @@ finished";
         assert_eq!(normalize_lldb(lldb), expected);
     }
 
+    /// `locals` then `print` show two groups of values on both debuggers,
+    /// each sorted on its own, so `// dbg-check:` lines blessed from the VM's
+    /// transcript hold in lldb's order too.
+    #[test]
+    fn each_command_s_values_are_their_own_group_on_both() {
+        let vm = "\
+> locals
+xs = [1, 2]
+pair = (9, \"x\")
+> print pair
+pair = (9, \"x\")
+  .0 = 9
+  .1 = \"x\"
+";
+        let lldb = "\
+(lldb) flux locals
+pair = (9, \"x\")
+xs = [1, 2]
+(lldb) flux print pair
+pair = (9, \"x\")
+  .0 = 9
+  .1 = \"x\"
+";
+        let expected = "pair = (9, \"x\")\nxs = [1, 2]\npair = (9, \"x\")\n  .0 = 9\n  .1 = \"x\"";
+        assert_eq!(normalize_lldb(lldb), expected);
+        assert_eq!(normalize_vm(vm), expected);
+    }
+
     fn run(way: Way, stdout: &str) -> RunResult {
         RunResult {
             way,
