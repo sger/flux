@@ -24,3 +24,8 @@ fn main() with IO {
     let tree = make(2)
     print(check_tree(tree))
 }
+
+// dbg-check: stop check_tree owned_clone_frames.flx:15
+// dbg-check: frame check_tree owned_clone_frames.flx:15
+// dbg-check: frame main owned_clone_frames.flx:25
+// dbg-check: finished

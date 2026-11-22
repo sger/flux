@@ -29,3 +29,10 @@ fn body() -> Int with Async {
 fn main() with IO {
     print(run_async(body))
 }
+
+// dbg-check: stop quick async_race.flx:20 thread 3
+// dbg-check: thread 1 main [waiting race (threads 2, 3)] async_race.flx:25
+// dbg-check: thread 2 slow [waiting sleep 200 ms] async_race.flx:13
+// dbg-check: thread 3 quick [stopped] async_race.flx:20
+// dbg-check: frame slow async_race.flx:13
+// dbg-check: finished

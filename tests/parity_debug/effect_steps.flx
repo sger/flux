@@ -37,3 +37,17 @@ fn main() with IO {
     }
     print(to_string(result))
 }
+
+// dbg-check: stop decide effect_steps.flx:25
+// dbg-check: stop <handler Flip.flip> effect_steps.flx:36
+// dbg-check: frame <handler Flip.flip> effect_steps.flx:36
+// dbg-check: frame decide effect_steps.flx:25
+// dbg-check: frame twice effect_steps.flx:30
+// dbg-check: frame main effect_steps.flx:35
+// dbg-check: stop decide effect_steps.flx:26
+// dbg-check: stop twice effect_steps.flx:31
+// dbg-check: frame twice effect_steps.flx:31
+// dbg-check: frame <handler Flip.flip> effect_steps.flx:36
+// dbg-check: frame main effect_steps.flx:35
+// dbg-check: stop decide effect_steps.flx:26
+// dbg-check: finished

@@ -29,3 +29,11 @@ fn main() with IO {
     }
     print(to_string(result))
 }
+
+// dbg-check: stop <handler Fail.raise> effect_discard.flx:28
+// dbg-check: frame <handler Fail.raise> effect_discard.flx:28
+// dbg-check: frame safe_div effect_discard.flx:15
+// dbg-check: frame compute effect_discard.flx:22
+// dbg-check: frame main effect_discard.flx:27
+// dbg-check: handler Fail
+// dbg-check: finished

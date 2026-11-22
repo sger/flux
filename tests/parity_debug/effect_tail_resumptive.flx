@@ -27,3 +27,15 @@ fn main() with IO {
     }
     print(to_string(total))
 }
+
+// dbg-check: stop <handler Log.log> effect_tail_resumptive.flx:26
+// dbg-check: frame <handler Log.log> effect_tail_resumptive.flx:26
+// dbg-check: frame work effect_tail_resumptive.flx:19
+// dbg-check: frame main effect_tail_resumptive.flx:25
+// dbg-check: handler Log
+// dbg-check: stop work effect_tail_resumptive.flx:20
+// dbg-check: frame work effect_tail_resumptive.flx:20
+// dbg-check: frame main effect_tail_resumptive.flx:25
+// dbg-check: a = 5
+// dbg-check: n = 20
+// dbg-check: finished

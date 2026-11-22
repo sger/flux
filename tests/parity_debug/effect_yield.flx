@@ -33,3 +33,22 @@ fn main() with IO {
     }
     print(to_string(result))
 }
+
+// dbg-check: stop <handler Flip.flip> effect_yield.flx:32
+// dbg-check: frame <handler Flip.flip> effect_yield.flx:32
+// dbg-check: frame decide effect_yield.flx:21
+// dbg-check: frame twice effect_yield.flx:26
+// dbg-check: frame main effect_yield.flx:31
+// dbg-check: stop decide effect_yield.flx:22
+// dbg-check: frame decide effect_yield.flx:22
+// dbg-check: frame twice effect_yield.flx:26
+// dbg-check: frame <handler Flip.flip> effect_yield.flx:32
+// dbg-check: frame main effect_yield.flx:31
+// dbg-check: b = true
+// dbg-check: stop decide effect_yield.flx:22
+// dbg-check: frame decide effect_yield.flx:22
+// dbg-check: frame twice effect_yield.flx:26
+// dbg-check: frame <handler Flip.flip> effect_yield.flx:32
+// dbg-check: frame main effect_yield.flx:31
+// dbg-check: b = false
+// dbg-check: finished
