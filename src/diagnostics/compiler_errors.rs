@@ -880,6 +880,16 @@ pub const CORE_LINT_FAILURE: ErrorCode = ErrorCode {
     hint: Some("This is a compiler bug. Inspect --dump-core around the failing stage."),
 };
 
+/// A backend IR (CFG or LIR) broke its structural rules after a pass
+/// (proposal 0190 §14).
+pub const IR_VERIFY_FAILURE: ErrorCode = ErrorCode {
+    code: "E997",
+    title: "IR VERIFICATION FAILED",
+    error_type: ErrorType::Compiler,
+    message: "The {} IR is invalid after `{}`.",
+    hint: Some("This is a compiler bug. The pass named ran last before the IR broke."),
+};
+
 // Type class errors (E440–E449)
 
 pub const DUPLICATE_CLASS: ErrorCode = ErrorCode {

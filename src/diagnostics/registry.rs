@@ -106,6 +106,7 @@ pub const ERROR_CODES: &[ErrorCode] = &[
     // Strict-types errors (E430+)
     STRICT_TYPES_ANY_INFERRED,
     CORE_LINT_FAILURE,
+    IR_VERIFY_FAILURE,
     // Type class errors (E440–E449)
     DUPLICATE_CLASS,
     INSTANCE_UNKNOWN_CLASS,
@@ -220,7 +221,7 @@ pub fn default_diagnostic_category(code: &str) -> Option<DiagnosticCategory> {
         "E073" => Some(DiagnosticCategory::ParserSeparator),
         "E076" => Some(DiagnosticCategory::ParserDelimiter),
         "E423" => Some(DiagnosticCategory::TypeInference),
-        "E426" => Some(DiagnosticCategory::Internal),
+        "E426" | "E997" => Some(DiagnosticCategory::Internal),
         "E056" | "E300" | "E301" | "E430" | "E440" | "E441" | "E442" | "E443" | "E444" | "E445"
         | "E446" | "E447" | "E448" | "E449" | "E450" | "E451" | "E452" | "E453" | "E455"
         | "E454" | "E456" | "E459" | "E472" | "E473" | "E474" | "E475" | "E476" => {
