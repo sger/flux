@@ -2,7 +2,7 @@
 - Start Date: 2026-10-16
 - Proposal PR:
 - Flux Issue:
-- Status: In progress: S1–S7, S13 and S16 done, S15 next, on `feat/verification-toolkit`
+- Status: Implemented: S1–S17 done (2026-11-22)
 - Depends on: [0138](implemented/0138_flux_parity_ways.md) (parity ways and `flux parity-check`), [0188](0188_flux_debugger.md) S6b (the debug parity harness, `// dbg:` fixtures)
 - Relates to: [0188](0188_flux_debugger.md) S9c (`llvm_g` and the guide in `xtask verify`)
 
@@ -1351,6 +1351,42 @@ The checks:
   `runtime/c` with AddressSanitizer and UndefinedBehaviorSanitizer and runs the
   native ways over `tests/parity`, as Lean's CI runs a sanitizer job.
 
+**As built (S15, finished 2026-11-22).** The debug heap's live-block list and
+`--leak-check` (exit 3, up to ten blocks with their sites), the `llvm_heap`
+way and verify's heap parity step, `// expect-reuse:` and `// expect-allocs:`,
+and `cargo xtask sanitize` were built in October, alongside the leak fixes
+that 0189 and the Perceus audit (rows PA and PF) set the order of. Two things
+differ from the plan:
+- **The VM has no leak check.** Its values are Rust `Rc`s, which Rust frees
+  whatever Aether's drops say, so a VM leak could only be an `Rc` cycle or
+  state kept at exit, never a missing drop. A VM `--leak-check` and a
+  `vm_heap` way would test Rust, not Aether, so they were dropped; `llvm_heap`
+  is the leak check.
+- **A leak fails unless a marker allows it.** `// expect-leak: <way> <= <n>:
+  KI-nnn` (also as a `parity.dir` line) allows a heap way up to `n` blocks at
+  exit, citing an open known issue, as a skip must. A leak with no marker, or
+  more blocks than its marker allows, is `EXPECTED_OUTPUT_MISMATCH` naming the
+  first block's allocation site. A file's own marker that no longer leaks
+  reports `UNEXPECTED_PASS` under `--check-skips`. This was written in October
+  (`feat/heap-leak-gate`) while nearly every program leaked, and merged once
+  only nine files did: `tests/parity/parity.dir` marks them under KI-202,
+  KI-209, KI-210 and KI-211, and `examples/aether` leaks nothing.
+
+The exit, checked 2026-11-22 with neither plant committed:
+- `llvm_heap` over `tests/parity` and `examples/aether`: 213 files, 0
+  mismatches, the nine marked leaks, no stale marker. Heap ways take
+  `--timeout 60`, as verify passes: the debug heap records a stack at every
+  allocation, and two allocation stress tests take over 20 seconds on it.
+- A planted missing drop (LIR lowering forgets every drop in `main`) fails 44
+  files, each with its first allocation site, such as `4 blocks live at exit,
+  first a String (16 bytes) allocated at main (aether_dead_let_ki172.flx:35:17)`.
+- A planted lost reuse (a list cell is never reused, in `reuse.rs` and
+  `reuse_analysis.rs`) fails 8 of the 22 `examples/aether` fixtures through
+  their `expect-reuse` counts, such as `aether_reuses is 0` against
+  `// expect-reuse: 1` in `bench_reuse.flx`, while every program still
+  prints the same. Removing the reuse pass whole is not a usable plant: the
+  Aether verifier rejects the plan (`ShellNotDisposed`) before parity runs.
+
 ### §16 Support census
 
 The checks above guard what is already tested. They do not say what Flux
@@ -1505,8 +1541,8 @@ each joined to an open KI:
 | S13 ✓ | `--opt-bisect-limit` and `cargo xtask bisect-opt` (§13) | A planted wrong rewrite in one Core pass, not committed, makes a fixture mismatch under `vm_opt`; `bisect-opt` names that rewrite. With `-1`, the rewrite count is the same on every run. (A wrong `IAdd` fold, opt-only, named as `constant_fold: fold IAdd in f` in 11 runs; `-1` gives identical lines on two runs, VM and native. `verify s13` passed with 0 mismatches.) |
 | S14 ✓ | `lir::verify`, `--verify-each`, the `vm_verify` and `llvm_verify` ways; an invalid CFG is an internal error, `E997` (§14) | Unit tests per LIR rule. A planted malformed rewrite, not committed, fails `--verify-each` naming its pass, where plain parity shows only wrong output. Main parity under `vm_verify` has 0 failures, after fixes or KIs. (334 fixtures under both verify ways, 0 mismatches. The plant, a join `Copy` LIR lowering forgets, stops plain native builds in clang with an LLVM error; `--verify-each` names the edge, after `lowering`. `verify s14 --base main --cmp` passed: 0 changed dumps, main parity 0 MISMATCH with both verify ways, in 3:26.) |
 | S16 ✓ | The support census (§16): `ExitKind::Crash`, `--jobs`, `--census`, `requires: network`, `flux features`, `cargo xtask census` | Every file and way in the corpus is classified; every failure has a KI or a header fix, so the unfiled list is empty; the matrix is published. Plain parity over `tests/parity` gives the same verdicts as before, except crashes now reported as such. |
-| S15 | Live blocks at exit, the `llvm_heap` way, expected counts, `cargo xtask sanitize` (§15) | `llvm_heap` over `tests/parity` and `examples/aether` reports 0 leaks, after fixes or KIs. A planted missing `drop`, not committed, fails it with the allocation site. A removed reuse fails an `expect-reuse` fixture. |
-| S17 | Whole programs from the generator, in four parts (§6): S17a generics and type classes, S17b records and closures as values, S17c effects and handlers, S17d async and modules | For each part: 200 programs of one seed that use it compile with 0 generator failures; a planted miscompile in that part's lowering (a dictionary's methods swapped on one backend, a clause that resumes with the wrong value), not committed, is found within `--count 200` and reduces to at most 15 lines; every mismatch is fixed or filed. S17d's programs print the same output on 10 reruns of each way. |
+| S15 ✓ | Live blocks at exit, the `llvm_heap` way, expected counts, `cargo xtask sanitize` (§15) | `llvm_heap` over `tests/parity` and `examples/aether` reports 0 leaks, after fixes or KIs. A planted missing `drop`, not committed, fails it with the allocation site. A removed reuse fails an `expect-reuse` fixture. (213 files, 0 mismatches; the nine files that still leak carry `expect-leak` markers citing KI-202 and KI-209 to KI-211, and an unmarked leak now fails. A planted missing drop in `main` fails 44 files with their sites; a planted lost list reuse fails 8 `expect-reuse` fixtures. The VM leak check was dropped: the VM frees by Rust's `Rc`.) |
+| S17 ✓ | Whole programs from the generator, in four parts (§6): S17a generics and type classes, S17b records and closures as values, S17c effects and handlers, S17d async and modules | For each part: 200 programs of one seed that use it compile with 0 generator failures; a planted miscompile in that part's lowering (a dictionary's methods swapped on one backend, a clause that resumes with the wrong value), not committed, is found within `--count 200` and reduces to at most 15 lines; every mismatch is fixed or filed. S17d's programs print the same output on 10 reruns of each way. (S17a: plant found in 22 of 200, reduced to 13 and 11 lines, KI-175 fixed. S17b: 200 of 200 agree, plant found in 39 of 200, reduced to 7 lines, KI-180 to KI-183 filed. S17c: 199 of 199 agree with one internal error filed as KI-186, plant found in 154 of 199, reduced to 8 to 13 lines. S17d: `--with async` and `--with modules` each 200 of 200 agree with 0 varying over 10 reruns; their plants reduce to 12 and 9 lines; KI-187 fixed.) |
 
 S1 comes first, since without it the later stages could fail silently. S2 and S3
 go together: the opt ways will find divergences, and S2 is how they are recorded
