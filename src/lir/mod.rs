@@ -20,6 +20,7 @@ pub mod emit_llvm;
 pub mod liveness;
 pub mod lower;
 pub mod run_async_outline;
+pub mod verify;
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
