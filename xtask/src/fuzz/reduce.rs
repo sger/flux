@@ -128,7 +128,9 @@ pub fn run_reduce(root: &Path, options: &ReduceOptions) -> Result<bool, String> 
     Ok(confirmed)
 }
 
-/// A way `reduce` can run: parity's plain and optimizer ways.
+/// A way `reduce` can run: parity's plain, optimizer and verify ways. A
+/// check that fails under `--verify-each` makes its way differ from the opt
+/// way, so it reduces like a mismatch (0190 §14).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Way {
     pub(super) name: &'static str,
@@ -136,11 +138,13 @@ pub(super) struct Way {
 }
 
 impl Way {
-    const ALL: [Way; 4] = [
+    const ALL: [Way; 6] = [
         Way { name: "vm", flags: &[] },
         Way { name: "vm_opt", flags: &["--optimize"] },
         Way { name: "llvm", flags: &["--native"] },
         Way { name: "llvm_opt", flags: &["--native", "--optimize"] },
+        Way { name: "vm_verify", flags: &["--optimize", "--verify-each"] },
+        Way { name: "llvm_verify", flags: &["--native", "--optimize", "--verify-each"] },
     ];
 
     pub(super) fn parse(name: &str) -> Result<Way, String> {
@@ -148,7 +152,11 @@ impl Way {
         Way::ALL
             .into_iter()
             .find(|way| way.name == name)
-            .ok_or_else(|| format!("fuzz reduce: unknown way {name} (vm, vm_opt, llvm, llvm_opt)"))
+            .ok_or_else(|| {
+                format!(
+                    "fuzz reduce: unknown way {name} (vm, vm_opt, llvm, llvm_opt, vm_verify, llvm_verify)"
+                )
+            })
     }
 
     fn native(&self) -> bool {
@@ -1633,14 +1641,14 @@ fn main() with IO {
             stdout: stdout.to_string(),
             stderr: String::new(),
         };
-        let ways = Way::ALL;
+        let ways = &Way::ALL[..4];
         let runs = [ran("1"), ran("2"), ran("1"), ran("2")];
-        let (a, b, v) = pick_pair(&ways, &runs).unwrap();
+        let (a, b, v) = pick_pair(ways, &runs).unwrap();
         assert_eq!((a.name, b.name, v.stream), ("vm", "vm_opt", Stream::Stdout));
         let runs = [ran("1"), ran("1"), ran("2"), ran("2")];
-        let (a, b, _) = pick_pair(&ways, &runs).unwrap();
+        let (a, b, _) = pick_pair(ways, &runs).unwrap();
         assert_eq!((a.name, b.name), ("vm", "llvm"));
-        assert!(pick_pair(&ways, &[ran("1"), ran("1"), ran("1"), ran("1")]).is_none());
+        assert!(pick_pair(ways, &[ran("1"), ran("1"), ran("1"), ran("1")]).is_none());
     }
 
     /// A mismatch where the VM ran and native failed is not the same bug as

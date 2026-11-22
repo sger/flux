@@ -50,7 +50,8 @@
 //!                  [--reruns <n>]
 //!     generate well-typed programs (default 50, from seed 1) and run the
 //!     ones that compile through parity-check (default vm,llvm,vm_opt,
-//!     llvm_opt); a program the compiler fails on is a compiler bug, one
+//!     llvm_opt,vm_verify,llvm_verify; the verify ways check each IR after
+//!     every pass, 0190 §14); a program the compiler fails on is a compiler bug, one
 //!     it rejects with a diagnostic a generator bug; outputs in
 //!     .verify/fuzz_<seed>/. --with adds parts of the language (0190 S17):
 //!     classes for generics and type classes, values for records,

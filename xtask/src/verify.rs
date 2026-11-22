@@ -8,8 +8,8 @@
 //! - `sweep_cfg/`: every example compiled with `--dump-cfg`
 //! - `sweep_core/`: ... with `--dump-core`
 //! - `sweep_core-opt/`: ... with `--optimize --dump-core`
-//! - `parity.txt`: vm, vm_cached, vm_strict, vm_opt, llvm and llvm_opt
-//!   compared
+//! - `parity.txt`: vm, vm_cached, vm_strict, vm_opt, vm_verify, llvm,
+//!   llvm_opt and llvm_verify compared
 //! - `parity_g.txt`: the guide natively with and without `-g`
 //! - `parity_debug.txt`: the VM debugger and lldb compared
 //! - `parity_heap.txt`: native runs on the debug heap against plain ones,
@@ -479,7 +479,7 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
     if options.runs(Check::Parity) {
         let started = steps.start("parity");
         println!(
-            "each fixture runs on the VM (fresh, cached, strict, optimized) and natively (plain, optimized); their outputs must agree"
+            "each fixture runs on the VM (fresh, cached, strict, optimized, checked) and natively (plain, optimized, checked); their outputs must agree"
         );
         let log_path = out.join("parity.txt");
         let mut log = open_log(&log_path).map_err(io)?;
@@ -898,8 +898,9 @@ fn shuffle_seed(tag: &str) -> u64 {
 
 /// The main parity step's ways. The opt ways run every fixture under
 /// `--optimize`, so a miscompile shows up as a difference from the plain way
-/// (0190 S3).
-const MAIN_WAYS: &str = "vm,vm_cached,vm_strict,vm_opt,llvm,llvm_opt";
+/// (0190 S3); the verify ways check each IR after every pass, so a broken
+/// pass is named (§14).
+const MAIN_WAYS: &str = "vm,vm_cached,vm_strict,vm_opt,vm_verify,llvm,llvm_opt,llvm_verify";
 
 /// `parity-check`'s arguments for checking `jobs` fixtures at once. It still
 /// prints and records them in file order, so logs and counts compare with a
