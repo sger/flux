@@ -96,13 +96,15 @@ fn one_line(text: &str) -> String {
 }
 
 /// Whether `way` is one the file's `// parity:` line allows. A line naming a
-/// plain way allows its optimized and debug-heap ways too: `// parity: vm`
-/// rules out the native ways, not the optimizer or the debug heap.
+/// plain way allows its optimized, debug-heap and checked ways too:
+/// `// parity: vm` rules out the native ways, not the optimizer, the debug
+/// heap or the IR checks.
 pub fn way_allowed(meta: &FixtureMeta, way: Way) -> bool {
     !meta.declared_ways
         || meta.ways.contains(&way)
         || meta.ways.contains(&way.non_opt())
         || meta.ways.contains(&way.non_heap())
+        || meta.ways.contains(&way.non_verify().non_opt())
 }
 
 /// What the census knows about one checked file.
@@ -501,5 +503,13 @@ mod tests {
         let stderr = "[ 1 of 18] Compiling Add\n[cfg→vm] Running\nerror[E300]: mismatch\n• 1 error • x.flx\n";
         assert_eq!(first_line(stderr), "error[E300]: mismatch");
         assert_eq!(first_line("[ 1 of 2] x\nsegfault\n"), "segfault");
+    }
+
+    #[test]
+    fn a_parity_line_naming_a_plain_way_allows_its_verify_way() {
+        let vm_only =
+            FixtureMeta { ways: vec![Way::Vm], declared_ways: true, ..Default::default() };
+        assert!(way_allowed(&vm_only, Way::VmVerify));
+        assert!(!way_allowed(&vm_only, Way::LlvmVerify));
     }
 }

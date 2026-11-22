@@ -181,6 +181,9 @@ cargo run -- parity-check tests/parity --ways vm,vm_opt,llvm,llvm_opt
 # The debug heap: llvm_heap must match llvm; leaks are counted (LEAK lines)
 cargo run -- parity-check tests/parity --ways llvm,llvm_heap
 
+# IR checks after every pass: each verify way must match its opt way
+cargo run --features llvm -- parity-check tests/parity --ways vm_opt,vm_verify,llvm_opt,llvm_verify
+
 # With Core/Aether checkpoint capture
 cargo run -- parity-check tests/parity --capture-core --capture-aether
 
@@ -334,6 +337,22 @@ cargo run --features llvm -- path/to/failing.flx --native --debug-heap
 The allocation site names the value; the free site is where ownership went
 wrong. `--dump-aether=debug` shows the Dups and Drops Aether placed there.
 
+### 9. For IR-check failures
+
+`vm_verify` and `llvm_verify` run the optimized build with `--verify-each`
+(proposal 0190 §14), which checks each IR after every pass instead of at a
+few points. Core lint (`E998`) and Aether's contract (`E999`) run after each
+Core and Aether pass, the CFG validator (`E997`) after each CFG pass, and
+`lir::verify` (`E997`) after LIR lowering and each LIR pass. The error names
+the pass that ran last, which is where to look:
+
+```bash
+cargo run --features llvm -- path/to/failing.flx --native --optimize --verify-each
+```
+
+A verify way compares with its opt way, so a fixture that skips `vm_opt` or
+`llvm_opt` skips the verify way with the same KI.
+
 A `heap_mode_mismatch` without a fault means the program behaves differently
 on the debug heap, for example a timeout from the slower allocator.
 
@@ -343,6 +362,6 @@ program leaks today ([KI-119](../../docs/known_issues.md#ki-119),
 [KI-121](../../docs/known_issues.md#ki-121)); a fix for those should bring
 the count down.
 
-### 9. Leave a regression fixture
+### 10. Leave a regression fixture
 
 Once fixed, add a minimal `.flx` file to `tests/parity/` following the naming convention above.

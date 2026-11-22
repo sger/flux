@@ -221,16 +221,20 @@ fn binary_for<'a>(vm_binary: &'a Path, llvm_binary: &'a Path, way: Way) -> &'a P
     }
 }
 
-/// The compile-mode flags `way` adds: `--strict` for a strict way and
-/// `--optimize` for an opt way. A dump captured for the way passes them too,
-/// so it shows what that way compiled.
+/// The compile-mode flags `way` adds: `--strict` for a strict way,
+/// `--optimize` for an opt way, and `--optimize --verify-each` for a checked
+/// way. A dump captured for the way passes them too, so it shows what that
+/// way compiled.
 fn mode_args(way: Way) -> Vec<String> {
     let mut args = Vec::new();
     if way.is_strict() {
         args.push("--strict".to_string());
     }
-    if way.is_opt() {
+    if way.is_opt() || way.is_verify() {
         args.push("--optimize".to_string());
+    }
+    if way.is_verify() {
+        args.push("--verify-each".to_string());
     }
     args
 }
