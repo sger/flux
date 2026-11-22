@@ -10,6 +10,7 @@ Flux uses stable error codes for all diagnostics. Codes are prefixed `E` (error)
 |-------|----------|--------|
 | `E001–E060` | Compiler — semantic checks | `compiler_errors.rs` |
 | `E061–E070` | Internal compiler errors (ICE) | `compiler_errors.rs` |
+| `E997–E999` | IR verification (compiler bugs) | `compiler_errors.rs`, `core/passes/mod.rs` |
 | `E071–E077` | Lexer / parser errors | `compiler_errors.rs` |
 | `E440–E459`, `E476–E492` | Type classes and instances | `compiler_errors.rs` |
 | `E472–E475` | Kind checking (Proposal 0179 Stage 1) | `compiler_errors.rs` |
@@ -194,6 +195,18 @@ These indicate a bug in the compiler, not user code:
 | <a id="e068"></a>`E068` | `ICE_TEMP_SYMBOL_RIGHT_PATTERN` |
 | <a id="e069"></a>`E069` | `ICE_TEMP_SYMBOL_LEFT_BINDING` |
 | <a id="e070"></a>`E070` | `ICE_TEMP_SYMBOL_RIGHT_BINDING` |
+
+### IR verification
+
+Also compiler bugs: an IR broke its structural rules after a pass. Each
+message names the pass that ran last. `--verify-each` runs the checks after
+every pass instead of at a few points (proposal 0190 §14).
+
+| Code | Constant | Description |
+|------|----------|-------------|
+| <a id="e997"></a>`E997` | `IR_VERIFY_FAILURE` | The CFG (after each CFG pass) or the LIR (under `--verify-each`) is invalid |
+| <a id="e998"></a>`E998` | `CORE_LINT_FAILURE` | Core lint failed after a simplification round, normalization, or (under `--verify-each`) a Core pass |
+| <a id="e999"></a>`E999` | (built in `core/passes/mod.rs`) | Aether verification failed: the ownership plan is unsound. FBIP NOT PROVABLE also uses E999, as an ordinary error |
 
 ### Lexer / Parser
 
