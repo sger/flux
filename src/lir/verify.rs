@@ -136,8 +136,12 @@ pub fn take_stage_failure() -> Option<crate::diagnostics::Diagnostic> {
 }
 
 fn verify_function(program: &LirProgram, function: &LirFunction, errors: &mut Vec<LirVerifyError>) {
+    // Lowering names a function `def_<n>` until it is emitted; the qualified
+    // name is the one a reader can find.
+    let name =
+        if function.qualified_name.is_empty() { &function.name } else { &function.qualified_name };
     let mut report = |block: Option<BlockId>, rule: Rule, message: String| {
-        errors.push(LirVerifyError { function: function.name.clone(), block, rule, message });
+        errors.push(LirVerifyError { function: name.clone(), block, rule, message });
     };
     if function.blocks.is_empty() {
         report(None, Rule::Blocks, "the function has no blocks".into());
