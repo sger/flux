@@ -10,10 +10,12 @@
 //!     status and by dump; --cmp fails on any changed dump, --cmp=structure
 //!     only on one that is more than renumbered) and parity, whose vm and
 //!     vm_opt runs keep their counts in metrics.tsv; with --base, a count
-//!     worse than the base's fails, unless --accept-metrics (`metrics.rs`);
+//!     worse than the base's fails, unless --accept-metrics (`metrics.rs`),
+//!     and each fixture runs on the VM again with the base's kept compiler,
+//!     whose stdout and exit kind must match (behaviour, 0190 §11);
 //!     --only runs just the checks it names and --skip all but those, from
-//!     fmt, clippy, suite, sweeps, parity, metrics, debug-build-parity,
-//!     debug-parity and heap-parity (--skip-suite and --skip-sweeps are
+//!     fmt, clippy, suite, sweeps, parity, metrics, behaviour,
+//!     debug-build-parity, debug-parity and heap-parity (--skip-suite and --skip-sweeps are
 //!     --skip suite and --skip sweeps); a run that skips a check says so
 //!     in its summary, since a merge needs them all; --jobs sets how many
 //!     files the sweeps and parity steps run at once (default: cores - 2;
