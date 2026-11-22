@@ -106,6 +106,18 @@ f(1, 2, 3)         //~ E056 E300
   ```
   // expect-reuse: 3
   ```
+- `expect-leak:` — `<way>[, <way>…] <= <n>: <reason>`. A heap way
+  (`llvm_heap`) runs the program with `--leak-check`, and a block still live
+  at exit fails the fixture unless this line allows it: at most `n` blocks on
+  that way, with a reason that names the open known issue (`KI-nnn`), as a
+  skip's must. The bound keeps a second leak from hiding behind the first.
+  A line in the file or for the file in `parity.dir` that no longer leaks
+  reports `UNEXPECTED_PASS` under `--check-skips`; an unscoped `parity.dir`
+  line, which covers fixtures that never leak, does not.
+
+  ```
+  json_derived_codecs.flx: expect-leak: llvm_heap <= 10: KI-209
+  ```
 - `skip:` — a reason to skip the whole fixture. It is still listed as `SKIP`.
   Use it only when no way can run the fixture, for example when it needs the
   network.
@@ -121,8 +133,8 @@ f(1, 2, 3)         //~ E056 E300
   ```
 
   Two flags keep skips honest; `cargo xtask verify` passes both.
-  - `--known-issues docs/known_issues.md`: every KI a `skip:` or `skip-way:`
-    reason names must be open there. One under `## Resolved`, or whose heading
+  - `--known-issues docs/known_issues.md`: every KI a `skip:`, `skip-way:`
+    or `expect-leak:` reason names must be open there. One under `## Resolved`, or whose heading
     says FIXED, fails the fixture. A `skip:` that names no KI is not checked.
   - `--check-skips`: the skipped ways run too, outside the verdict. One that
     would now pass prints `UNEXPECTED_PASS <file> <way>: KI-nnn may be fixed`,
