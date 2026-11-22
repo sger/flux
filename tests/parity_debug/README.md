@@ -57,10 +57,34 @@ natively with the same value. Native code may still hold a value the VM
 has moved out of its slot, so the native side may show more; a value native
 code has freed (`<dropped>`) counts as not shown.
 
+Each fixture ends with `// dbg-check:` lines (proposal 0190 §5) that say
+what each debugger must show, checked on each way on its own, so a change
+that breaks both alike still fails:
+
+```flux
+// dbg-check: stop <lambda closures.flx:13:31> closures.flx:14
+// dbg-check: offset = 10 (captured)
+// dbg-check: x = 1
+// dbg-check: frame main closures.flx:13
+```
+
+- Each check is a whole line of the reduced transcript, matched in order,
+  each on a later line than the one before it. Lines between checks are
+  allowed, so native code may show more, as above.
+- They go at the end of the file: the script names line numbers, and lines
+  added above the program would move it.
+- `--bless` writes them from the VM debugger's transcript, when both
+  debuggers agree. After a change that means to alter what a session shows,
+  run it again and read the diff:
+  ```sh
+  flux parity-check tests/parity_debug --ways vm_debug,llvm_debug --bless
+  ```
+- `parity_debug_tests` fails a fixture without checks.
+
 Writing a fixture:
 
 - Put the `// dbg:` lines in the header, and count lines from the top of
-  the file: a breakpoint on a comment or a blank line moves to the next line
+  the file (bless the checks last): a breakpoint on a comment or a blank line moves to the next line
   with code on the VM, and resolves nowhere in lldb.
 - One statement per line; stepping is by line.
 - Look at values while the program still uses them: both backends release a

@@ -147,13 +147,27 @@ note.
 // dbg: break 14
 // dbg: continue
 // dbg: locals
-// dbg-check: stop closures.flx:14
-// dbg-check: moved = 11
-// dbg-check: offset = 10
+// dbg: bt
+…
+fn main() {
+    let offset = 10
+    let shifted = map([1, 2], \x -> {
+        let moved = x + offset
+        …
+}
+
+// dbg-check: stop <lambda closures.flx:13:31> closures.flx:14
+// dbg-check: offset = 10 (captured)
+// dbg-check: x = 1
+// dbg-check: frame <lambda closures.flx:13:31> closures.flx:14
+// dbg-check: frame <library>
+// dbg-check: frame main closures.flx:13
 ```
 
-Both engines must still agree with each other. Each must also contain the
-`dbg-check` lines in order.
+Both engines must still agree with each other. Each must also show the
+`dbg-check` lines in order, each as a whole line of its reduced transcript.
+`--bless` writes them from the VM debugger's transcript, at the end of the
+file, where they move none of the lines the script names.
 
 ### Fuzzing
 
@@ -279,6 +293,39 @@ line names both counts.
 - **Coverage:** all 21 existing fixtures gain checks for their stops, the frames of
   each `bt`, and the locals of each `locals`. The format is documented in
   `tests/parity_debug/README.md`.
+
+**As built (S12, 2026-11-22).** Three things differ from the plan above:
+- **The checks go at the end of the file, not in the header.** A script's
+  `// dbg: break 14` names a line, so lines added above the program would move
+  it. They are read from every line, as `// dbg:` lines are
+  (`debug::debug_checks`).
+- **A check is a whole line of the reduced transcript (both trimmed), not a
+  substring.** A check `a = 1` would otherwise pass for `a = 10`. The rest is
+  FileCheck's rule: in order, each on a later line than the check before it
+  (`debug::first_failed_check`). The lines between are what lets one list hold
+  for both debuggers: native code may show a variable the VM has moved, or a
+  handler's frame under a tail resume, as `outputs_match` allows.
+- **The checks are blessed, not written by hand.** `parity-check --bless`
+  writes vm_debug's reduced transcript as the checks when both debuggers
+  succeed and agree, replacing the block the file ended with. It refuses a
+  file with a check anywhere else. So each fixture pins its whole transcript:
+  stops, frames, variables, threads, handlers and `finished`.
+
+Where they are checked:
+- In parity, `judge` checks each debug way on its own once the two agree. The
+  first check one lacks gives `EXPECTED_OUTPUT_MISMATCH`, which reads
+  `<way>: // dbg-check: <check> (check n of m)` against that way's transcript.
+  A skipped `llvm_debug` (no lldb) is not checked.
+- `parity_debug_tests` applies the same checks. It also fails a fixture with
+  none, so a new fixture is pinned when it is added.
+
+Blessing found one reducer bug. The VM's transcript sorted the values of
+`locals` and of a `print` after it as one group, where lldb's prompt ends a
+group at each command. `outputs_match` compares a run of values as a set, so
+it never showed. `normalize_vm` now ends a group at each `> command` echo.
+
+The 22 fixtures (one was added after this section was written) gained 190
+check lines. The checks add no runs, so debug parity costs what it did.
 
 ### §6 The generator
 
@@ -1454,7 +1501,7 @@ each joined to an open KI:
 | S9 ✓ | `cargo xtask fuzz reduce` (§7) | The planted miscompile's case shrinks to at most 10 lines. Reducer unit tests on a fake oracle. (69 lines to 3 in 0:25. 12 unit tests: the passes on their own, and ddmin, the whole reducer and the tester on fake oracles. Found on the way: a timeout left the program flux built running.) |
 | S10 ✓ | The `behaviour` check, with `--base` on every verify, via `parity-check --behaviour-of` (§11) | A planted change to a `print` builtin's output, not committed, fails it and names the files; a no-op change passes. (No-op: 394 fixtures, 0 differ. A planted parser change, `42` parsed as `43`, failed 46 files with their first differing lines; main parity caught 27, through expected output. `verify s10 --base s14 --cmp` passed, behaviour 0 files in 0:20.) |
 | S11 ✓ | `parity-check --jobs` (built in S16) and verify's `--jobs`; `flux --metrics`, `metrics.tsv` and the `metrics` step with `--accept-metrics`; `verify --quick` became `--only`/`--skip`; opt ways only on optimizer changes dropped (§12) | Main parity with `--jobs 1` and with the default gives the same verdicts, the default faster; the times are recorded here. A planted extra VM allocation, not committed, fails the `metrics` step until `--accept-metrics`. (2:44 against 15:00, 332 verdicts the same; the plant made 528 `vm_allocs` counts worse. Found KI-212: async run counts depend on scheduling.) |
-| S12 | `// dbg-check:` (§5), checks added to all 21 debug fixtures | Debug parity 21/21. Changing one expected local makes both the parity run and `parity_debug_tests` fail. |
+| S12 ✓ | `// dbg-check:` (§5), checks added to all 21 debug fixtures | Debug parity 21/21. Changing one expected local makes both the parity run and `parity_debug_tests` fail. (22 fixtures, blessed by `--bless`, 22/22. Changing `x = 1` to `x = 7` in `closures.flx` gives `EXPECTED_OUTPUT_MISMATCH` naming `vm_debug` and check 3 of 10, and fails `parity_debug_tests` with the same check. Found a VM reducer bug that merged the values of consecutive commands into one sorted group.) |
 | S13 ✓ | `--opt-bisect-limit` and `cargo xtask bisect-opt` (§13) | A planted wrong rewrite in one Core pass, not committed, makes a fixture mismatch under `vm_opt`; `bisect-opt` names that rewrite. With `-1`, the rewrite count is the same on every run. (A wrong `IAdd` fold, opt-only, named as `constant_fold: fold IAdd in f` in 11 runs; `-1` gives identical lines on two runs, VM and native. `verify s13` passed with 0 mismatches.) |
 | S14 ✓ | `lir::verify`, `--verify-each`, the `vm_verify` and `llvm_verify` ways; an invalid CFG is an internal error, `E997` (§14) | Unit tests per LIR rule. A planted malformed rewrite, not committed, fails `--verify-each` naming its pass, where plain parity shows only wrong output. Main parity under `vm_verify` has 0 failures, after fixes or KIs. (334 fixtures under both verify ways, 0 mismatches. The plant, a join `Copy` LIR lowering forgets, stops plain native builds in clang with an LLVM error; `--verify-each` names the edge, after `lowering`. `verify s14 --base main --cmp` passed: 0 changed dumps, main parity 0 MISMATCH with both verify ways, in 3:26.) |
 | S16 ✓ | The support census (§16): `ExitKind::Crash`, `--jobs`, `--census`, `requires: network`, `flux features`, `cargo xtask census` | Every file and way in the corpus is classified; every failure has a KI or a header fix, so the unfiled list is empty; the matrix is published. Plain parity over `tests/parity` gives the same verdicts as before, except crashes now reported as such. |
@@ -1544,7 +1591,8 @@ which guards debug output that already agrees 21/21, goes last.
 - **rustc, `tests/debuginfo`.** `gdb-command`/`gdb-check` and
   `lldb-command`/`lldb-check` directives in the test source. This is the model for
   §5.
-- **LLVM, FileCheck.** The ordered-substring semantics used by `dbg-check`.
+- **LLVM, FileCheck.** The in-order matching used by `dbg-check`, which
+  matches whole lines where FileCheck matches substrings (§5).
 - **test262 and test262.fyi.** Each JavaScript conformance test lists the
   features it uses; every engine runs the whole suite, and the results are
   shown per feature and per engine. The model for §16's matrix and its
