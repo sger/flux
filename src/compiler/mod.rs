@@ -6469,12 +6469,21 @@ impl Compiler {
         // Pass None for globals_map so ALL functions are lowered to LIR
         // functions (no GetGlobal). In native mode there's no VM globals
         // table, so every function must be compiled into the LLVM module.
+        let _ = crate::lir::verify::take_stage_failure();
         let lir = crate::lir::lower::lower_aether_program_with_interner(
             &aether,
             Some(&self.interner),
             None,
         );
-        Ok(crate::lir::emit_llvm::emit_llvm_module(&lir))
+        // `--verify-each` (0190 §14): stop before emitting from a broken LIR.
+        if let Some(error) = crate::lir::verify::take_stage_failure() {
+            return Err(error);
+        }
+        let module = crate::lir::emit_llvm::emit_llvm_module(&lir);
+        match crate::lir::verify::take_stage_failure() {
+            Some(error) => Err(error),
+            None => Ok(module),
+        }
     }
 
     /// Lower a single module through LIR to an LLVM IR module while resolving
@@ -6524,6 +6533,7 @@ impl Compiler {
             .iter()
             .map(|(name, tag)| (self.sym(*name).to_string(), *tag))
             .collect();
+        let _ = crate::lir::verify::take_stage_failure();
         let lir = crate::lir::lower::lower_aether_program_with_interner_and_externs(
             &aether,
             Some(&self.interner),
@@ -6533,6 +6543,10 @@ impl Compiler {
             emit_main,
             entry_qualifier.as_deref(),
         );
+        // `--verify-each` (0190 §14): stop before emitting from a broken LIR.
+        if let Some(error) = crate::lir::verify::take_stage_failure() {
+            return Err(error);
+        }
         // `-g`: lines, variables and types, as DWARF and, on MSVC targets,
         // CodeView for the PDB (0188 S11). Without it, lines alone, so a
         // panic can name the Flux frames it crossed (0188 S10a).
@@ -6548,6 +6562,9 @@ impl Compiler {
             false,
             debug.as_ref(),
         );
+        if let Some(error) = crate::lir::verify::take_stage_failure() {
+            return Err(error);
+        }
         // Name the module after its source, which the object file records.
         module.source_filename = Some(self.file_path.clone());
         Ok(module)

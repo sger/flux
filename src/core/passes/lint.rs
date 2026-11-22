@@ -71,6 +71,19 @@ pub fn lint_core_def(def: &CoreDef) -> Result<(), Vec<CoreLintError>> {
     if errors.is_empty() { Ok(()) } else { Err(errors) }
 }
 
+/// Verify one definition's body as `lint_core_program` does: every top-level
+/// binder in `top_level` is in scope. The body is passed on its own because
+/// `--verify-each` checks it between passes, while it is out of its
+/// definition (0190 §14).
+pub fn lint_core_expr(
+    expr: &CoreExpr,
+    top_level: &HashSet<CoreBinderId>,
+) -> Result<(), Vec<CoreLintError>> {
+    let mut errors = Vec::new();
+    lint_expr(expr, &mut top_level.clone(), &mut errors);
+    if errors.is_empty() { Ok(()) } else { Err(errors) }
+}
+
 /// Recursively lint a Core expression, maintaining the in-scope binder set.
 fn lint_expr(
     expr: &CoreExpr,

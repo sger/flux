@@ -88,6 +88,49 @@ pub fn verify_program(program: &LirProgram) -> Result<(), Vec<LirVerifyError>> {
     if errors.is_empty() { Ok(()) } else { Err(errors) }
 }
 
+thread_local! {
+    /// The first stage after which the program failed [`verify_program`],
+    /// under `--verify-each`.
+    static STAGE_FAILURE: std::cell::RefCell<Option<(&'static str, Vec<LirVerifyError>)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Under `--verify-each`, verifies `program` after `stage` and keeps the
+/// first failure. Lowering and the LIR passes return plain programs, so the
+/// caller that can return an error reports it ([`take_stage_failure`]).
+pub fn check_stage(program: &LirProgram, stage: &'static str) {
+    if !crate::shared::verify_each::is_active() {
+        return;
+    }
+    STAGE_FAILURE.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if slot.is_none()
+            && let Err(errors) = verify_program(program)
+        {
+            *slot = Some((stage, errors));
+        }
+    });
+}
+
+/// The failure [`check_stage`] kept since the last call, as an `E997`
+/// diagnostic naming the stage.
+pub fn take_stage_failure() -> Option<crate::diagnostics::Diagnostic> {
+    use crate::diagnostics::{
+        DiagnosticBuilder, DiagnosticPhase, compiler_errors::IR_VERIFY_FAILURE, diagnostic_for,
+    };
+    let (stage, errors) = STAGE_FAILURE.with(|slot| slot.borrow_mut().take())?;
+    let detail: Vec<String> = errors.iter().map(|error| format!("  {error}")).collect();
+    Some(
+        diagnostic_for(&IR_VERIFY_FAILURE)
+            .with_message(format!(
+                "The LIR is invalid after `{stage}`, {} violation(s):\n{}",
+                errors.len(),
+                detail.join("\n")
+            ))
+            .with_phase(DiagnosticPhase::Validation),
+    )
+}
+
 fn verify_function(program: &LirProgram, function: &LirFunction, errors: &mut Vec<LirVerifyError>) {
     let mut report = |block: Option<BlockId>, rule: Rule, message: String| {
         errors.push(LirVerifyError { function: function.name.clone(), block, rule, message });
@@ -239,10 +282,14 @@ fn check_definitions(
         }
     }
     // A variable the entry of a block defines must not also be defined by an
-    // instruction or be a parameter of the function.
+    // instruction. It may be the function's own parameter: `cont_split` names
+    // a continuation's resume parameter after the block it resumes in, so the
+    // copied blocks read it with no `Copy`.
+    let entry: HashSet<LirVar> =
+        function.params.iter().chain(&function.capture_vars).copied().collect();
     for block in &function.blocks {
         for var in &block.params {
-            if seen.contains_key(var) {
+            if seen.contains_key(var) && !entry.contains(var) {
                 report(
                     Some(block.id),
                     Rule::Redefined,
@@ -360,8 +407,11 @@ fn check_uses(
         for var in terminator_uses(&block.terminator) {
             check(var, "the terminator", &defined);
         }
+        // `lent` is every variable lowering had in scope, which `cont_split`
+        // narrows to the live ones; only the references the frame owns must
+        // exist on this path.
         if let LirTerminator::Call { held: Some(held), .. } = &block.terminator {
-            for var in held.owned.iter().chain(&held.lent).chain(&held.scoped) {
+            for var in held.owned.iter().chain(&held.scoped) {
                 check(*var, "what the call holds across", &defined);
             }
         }
@@ -718,5 +768,53 @@ mod tests {
             ],
         );
         assert_eq!(rules(&program(vec![f])), Vec::<Rule>::new());
+    }
+
+    #[test]
+    fn a_block_parameter_may_be_the_functions_own_parameter() {
+        // A continuation `cont_split` made: its resume parameter v4 is named
+        // after the parameter of the block it resumes in.
+        let f = function(
+            1,
+            "f$cont$0",
+            &[4],
+            vec![
+                block(0, &[], Vec::new(), LirTerminator::Jump(BlockId(1))),
+                block(1, &[4], Vec::new(), LirTerminator::Return(v(4))),
+            ],
+        );
+        assert_eq!(rules(&program(vec![f])), Vec::<Rule>::new());
+    }
+
+    #[test]
+    fn a_block_parameter_an_instruction_also_defines_is_reported() {
+        let f = function(
+            1,
+            "f",
+            &[0],
+            vec![
+                block(0, &[], vec![constant(4)], LirTerminator::Jump(BlockId(1))),
+                block(1, &[4], Vec::new(), LirTerminator::Return(v(4))),
+            ],
+        );
+        assert_eq!(rules(&program(vec![f])), vec![Rule::Redefined]);
+    }
+
+    #[test]
+    fn verify_each_names_the_lir_stage_that_broke_the_program() {
+        let mut broken = valid();
+        broken.functions[0].blocks[2].terminator = LirTerminator::Jump(BlockId(40));
+        check_stage(&broken, "promote_tail_calls");
+        assert!(take_stage_failure().is_none(), "nothing is checked without the flag");
+        crate::shared::verify_each::with_enabled(|| {
+            check_stage(&valid(), "lowering");
+            check_stage(&broken, "promote_tail_calls");
+            check_stage(&broken, "cont_split");
+            let error = take_stage_failure().expect("the broken program is kept");
+            assert_eq!(error.code(), Some("E997"));
+            let message = error.message().unwrap_or_default();
+            assert!(message.contains("after `promote_tail_calls`"), "{message}");
+            assert!(message.contains("[target]"), "{message}");
+        });
     }
 }

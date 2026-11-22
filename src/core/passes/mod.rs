@@ -46,6 +46,8 @@ pub use inliner::inline_lets;
 pub use primop_promote::promote_builtins;
 pub use specialize::specialize_known_shapes;
 
+use std::collections::HashSet;
+
 use crate::core::{CoreExpr, CoreLit, CorePat, CoreProgram};
 use crate::diagnostics::compiler_errors::CORE_LINT_FAILURE;
 use crate::diagnostics::{
@@ -168,6 +170,7 @@ fn run_semantic_core_passes_with_optional_interner(
         // replace this heuristic with a per-pass `changed: bool` flag.
         let size_before: usize = program.defs.iter().map(|d| helpers::expr_size(&d.expr)).sum();
 
+        let scope = lint_scope(program);
         // Definitions are simplified one at a time, so their order must not
         // matter; `--shuffle-seed` varies it to check (0190 §9).
         for index in crate::shared::shuffle::visit_order(program.defs.len(), "core-simplify") {
@@ -175,25 +178,25 @@ fn run_semantic_core_passes_with_optional_interner(
             opt_bisect::set_def(|| opt_bisect::def_name(def.name, interner));
             let e = std::mem::replace(&mut def.expr, sentinel.clone());
             let e = beta_reduce(e);
-            verify_aether_contract_stage(def, &e, "beta_reduce")?;
+            check_pass(def, &e, "beta_reduce", scope.as_ref(), interner)?;
             let e = case_of_case(e);
-            verify_aether_contract_stage(def, &e, "case_of_case")?;
+            check_pass(def, &e, "case_of_case", scope.as_ref(), interner)?;
             let e = case_of_known_constructor(e);
-            verify_aether_contract_stage(def, &e, "case_of_known_constructor")?;
+            check_pass(def, &e, "case_of_known_constructor", scope.as_ref(), interner)?;
             let e = call_and_case_canonicalize(e);
-            verify_aether_contract_stage(def, &e, "call_and_case_canonicalize")?;
+            check_pass(def, &e, "call_and_case_canonicalize", scope.as_ref(), interner)?;
             let e = specialize_known_shapes(e);
-            verify_aether_contract_stage(def, &e, "specialize_known_shapes")?;
+            check_pass(def, &e, "specialize_known_shapes", scope.as_ref(), interner)?;
             let e = algebraic_simplify(e);
-            verify_aether_contract_stage(def, &e, "algebraic_simplify")?;
+            check_pass(def, &e, "algebraic_simplify", scope.as_ref(), interner)?;
             let e = constant_fold(e);
-            verify_aether_contract_stage(def, &e, "constant_fold")?;
+            check_pass(def, &e, "constant_fold", scope.as_ref(), interner)?;
             let e = disciplined_inline(e);
-            verify_aether_contract_stage(def, &e, "disciplined_inline")?;
+            check_pass(def, &e, "disciplined_inline", scope.as_ref(), interner)?;
             let e = inline_lets(e);
-            verify_aether_contract_stage(def, &e, "inline_lets")?;
+            check_pass(def, &e, "inline_lets", scope.as_ref(), interner)?;
             let e = elim_dead_let(e);
-            verify_aether_contract_stage(def, &e, "elim_dead_let")?;
+            check_pass(def, &e, "elim_dead_let", scope.as_ref(), interner)?;
             def.expr = e;
         }
 
@@ -254,17 +257,18 @@ fn run_semantic_core_passes_with_optional_interner(
     }
 
     // ── Stage 2: Normalization passes (run once) ─────────────────────────
+    let scope = lint_scope(program);
     // The order may change the fresh binders `next_id` hands out, never the
     // program (0190 §9).
     for index in crate::shared::shuffle::visit_order(program.defs.len(), "core-normalize") {
         let def = &mut program.defs[index];
         let e = std::mem::replace(&mut def.expr, sentinel.clone());
         let e = evidence_pass(e, &mut next_id);
-        verify_aether_contract_stage(def, &e, "evidence_pass")?;
+        check_pass(def, &e, "evidence_pass", scope.as_ref(), interner)?;
         let e = handle_body_frames(e);
-        verify_aether_contract_stage(def, &e, "handle_body_frames")?;
+        check_pass(def, &e, "handle_body_frames", scope.as_ref(), interner)?;
         let e = anf_normalize(e, &mut next_id);
-        verify_aether_contract_stage(def, &e, "anf_normalize")?;
+        check_pass(def, &e, "anf_normalize", scope.as_ref(), interner)?;
         def.expr = e;
     }
     // After the evidence pass, so an arity counts the dictionaries it adds.
@@ -516,26 +520,61 @@ fn core_lint_stage(
     interner: Option<&Interner>,
 ) -> Result<(), Diagnostic> {
     if let Err(errors) = lint::lint_core_program(program) {
-        let detail = errors
-            .iter()
-            .map(|e| {
-                let def = e
-                    .def_name
-                    .map(|n| {
-                        let resolved = interner.and_then(|i| i.try_resolve(n)).unwrap_or("?");
-                        format!(" in `{resolved}`")
-                    })
-                    .unwrap_or_default();
-                format!("  [{:?}]{def} {}", e.kind, e.message)
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        return Err(diagnostic_for(&CORE_LINT_FAILURE)
-            .with_message(format!(
-                "Core IR has {} structural violation(s) after `{stage}`:\n{detail}",
-                errors.len()
-            ))
-            .with_phase(DiagnosticPhase::Validation));
+        return Err(core_lint_failure(&errors, &format!("`{stage}`"), interner));
+    }
+    Ok(())
+}
+
+fn core_lint_failure(
+    errors: &[lint::CoreLintError],
+    after: &str,
+    interner: Option<&Interner>,
+) -> Diagnostic {
+    let detail = errors
+        .iter()
+        .map(|e| {
+            let def = e
+                .def_name
+                .map(|n| {
+                    let resolved = interner.and_then(|i| i.try_resolve(n)).unwrap_or("?");
+                    format!(" in `{resolved}`")
+                })
+                .unwrap_or_default();
+            format!("  [{:?}]{def} {}", e.kind, e.message)
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    diagnostic_for(&CORE_LINT_FAILURE)
+        .with_message(format!(
+            "Core IR has {} structural violation(s) after {after}:\n{detail}",
+            errors.len()
+        ))
+        .with_phase(DiagnosticPhase::Validation)
+}
+
+/// The top-level binders, all in scope in every definition, when
+/// `--verify-each` lints each definition after each pass (0190 §14).
+fn lint_scope(program: &CoreProgram) -> Option<HashSet<crate::core::CoreBinderId>> {
+    crate::shared::verify_each::is_active()
+        .then(|| program.defs.iter().map(|def| def.binder.id).collect())
+}
+
+/// After each Core pass on one definition: Aether's contract, and under
+/// `--verify-each` (`scope` is `Some`) Core lint as well, naming the pass.
+#[allow(clippy::result_large_err)]
+fn check_pass(
+    def: &crate::core::CoreDef,
+    expr: &CoreExpr,
+    pass: &'static str,
+    scope: Option<&HashSet<crate::core::CoreBinderId>>,
+    interner: Option<&Interner>,
+) -> Result<(), Diagnostic> {
+    verify_aether_contract_stage(def, expr, pass)?;
+    if let Some(scope) = scope
+        && let Err(errors) = lint::lint_core_expr(expr, scope)
+    {
+        let name = interner.and_then(|i| i.try_resolve(def.name)).unwrap_or("?");
+        return Err(core_lint_failure(&errors, &format!("`{pass}` in `{name}`"), interner));
     }
     Ok(())
 }
@@ -575,7 +614,7 @@ fn aether_contract_error_core(
     aether_contract_error_common("this definition", def.span, stage, errors)
 }
 
-fn aether_contract_error_aether(
+pub(crate) fn aether_contract_error_aether(
     def: &crate::aether::AetherDef,
     stage: &'static str,
     errors: &[crate::aether::verify::AetherError],
@@ -593,7 +632,7 @@ fn aether_contract_error_aether(
     aether_contract_error_common(&subject, def.span, stage, errors)
 }
 
-fn aether_contract_error_common(
+pub(crate) fn aether_contract_error_common(
     subject: &str,
     def_span: crate::diagnostics::position::Span,
     stage: &'static str,

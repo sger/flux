@@ -167,6 +167,7 @@ pub fn emit_llvm_module_with_debug(
     let outlined_program =
         crate::lir::run_async_outline::outline_excess_run_async_with_sites(program.clone());
     let program = &outlined_program;
+    crate::lir::verify::check_stage(program, "run_async_outline");
 
     // Proposal 0162 Phase 3 slice 3b-ii: when `FLUX_YIELD_CHECKS=1`, run
     // the continuation-splitting pre-pass to synthesize per-call-site
@@ -190,6 +191,7 @@ pub fn emit_llvm_module_with_debug(
             program.clone(),
             force_yield_checks,
         );
+        crate::lir::verify::check_stage(&owned_program, "cont_split");
         &owned_program
     } else {
         program
