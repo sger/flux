@@ -319,8 +319,9 @@ pub(crate) fn parity_with_env(
                 counts.unexpected.push(plain.clone());
                 Some(paint.yellow(&plain))
             } else if plain.starts_with("LEAK ") {
-                // Nearly every file leaks for now (KI-119, KI-121): kept
-                // for the note and the log, not scrolled past.
+                // A leak no marker allows also arrives as a failing verdict;
+                // the ones a marker allows are kept for the note and the
+                // log, not scrolled past.
                 counts.leaks.push(plain.clone());
                 None
             } else if plain.starts_with("[parity]") {

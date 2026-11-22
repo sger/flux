@@ -609,13 +609,13 @@ pub fn run_verify(root: &Path, options: &Options) -> Result<bool, String> {
     }
 
     // The debug heap (0190 S15): each native run again on a heap that stops
-    // at a use after free and names the blocks live at exit. A fault or a
-    // different result fails; a leak is a note while nearly every program
-    // leaks (KI-119, KI-121).
+    // at a use after free and names the blocks live at exit. A fault, a
+    // different result or a leak no `expect-leak` marker allows fails; the
+    // leaks a marker allows are listed in a note.
     if options.runs(Check::HeapParity) {
         let started = steps.start("heap parity");
         println!(
-            "each fixture natively on the plain heap and on the debug heap; output must agree, leaks are counted"
+            "each fixture natively on the plain heap and on the debug heap; output must agree, and a leak needs an expect-leak marker"
         );
         let log_path = out.join("parity_heap.txt");
         let mut log = open_log(&log_path).map_err(io)?;

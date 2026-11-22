@@ -1,0 +1,11 @@
+# Leaks the llvm_heap way finds that a known issue tracks. A leak with no
+# line here, or more blocks than its line allows, fails heap parity.
+functor_applicative_monad.flx: expect-leak: llvm_heap <= 1: KI-211
+imported_constructor_types.flx: expect-leak: llvm_heap <= 1: KI-210
+json_derived_codecs.flx: expect-leak: llvm_heap <= 10: KI-209
+json_derived_decode_errors.flx: expect-leak: llvm_heap <= 41: KI-209
+json_int_decode_rejects_fractions.flx: expect-leak: llvm_heap <= 2: KI-209
+json_integer_round_trip.flx: expect-leak: llvm_heap <= 2: KI-209
+json_parse_stringify_sorts_keys.flx: expect-leak: llvm_heap <= 26: KI-209
+primop_string_ops.flx: expect-leak: llvm_heap <= 1: KI-202
+semigroup_monoid.flx: expect-leak: llvm_heap <= 6: KI-211
