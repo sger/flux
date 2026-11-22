@@ -1007,47 +1007,49 @@ fn lower_with_clone_names(
         _ => Vec::new(),
     };
 
-    let mut defs: Vec<AetherDef> = semantic_core
-        .defs
-        .iter()
-        .cloned()
-        .map(|def| {
-            // Only a bisected run (0190 §13) names its definitions.
-            let bisected =
-                opt_bisect::is_active().then(|| opt_bisect::def_name(def.name, interner));
-            if let Some(name) = &bisected {
-                opt_bisect::set_def(|| name.clone());
-            }
-            let expr = run_aether_def_with_registry(
-                AetherExpr::from_core(def.expr),
-                &borrow_registry,
-                def.borrow_signature.as_ref(),
+    let lower = |def: crate::core::CoreDef| {
+        // Only a bisected run (0190 §13) names its definitions.
+        let bisected = opt_bisect::is_active().then(|| opt_bisect::def_name(def.name, interner));
+        if let Some(name) = &bisected {
+            opt_bisect::set_def(|| name.clone());
+        }
+        let expr = run_aether_def_with_registry(
+            AetherExpr::from_core(def.expr),
+            &borrow_registry,
+            def.borrow_signature.as_ref(),
+        );
+        // `cargo xtask bisect-opt` diffs one definition between two
+        // limits.
+        if let (Some(interner), Some(name)) = (interner, &bisected)
+            && opt_bisect::shows(name)
+        {
+            eprintln!(
+                "opt-bisect-show: aether {name}\n{}\nopt-bisect-show: end",
+                display::display_expr_readable(&expr, interner)
             );
-            // `cargo xtask bisect-opt` diffs one definition between two
-            // limits.
-            if let (Some(interner), Some(name)) = (interner, &bisected)
-                && opt_bisect::shows(name)
-            {
-                eprintln!(
-                    "opt-bisect-show: aether {name}\n{}\nopt-bisect-show: end",
-                    display::display_expr_readable(&expr, interner)
-                );
-            }
-            AetherDef {
-                name: def.name,
-                binder: def.binder,
-                expr,
-                is_dict_def: def.is_dict_def,
-                borrow_signature: def.borrow_signature,
-                result_ty: def.result_ty,
-                is_anonymous: def.is_anonymous,
-                is_recursive: def.is_recursive,
-                fip: def.fip,
-                span: def.span,
-                owned_clone_of: None,
-            }
-        })
-        .collect();
+        }
+        AetherDef {
+            name: def.name,
+            binder: def.binder,
+            expr,
+            is_dict_def: def.is_dict_def,
+            borrow_signature: def.borrow_signature,
+            result_ty: def.result_ty,
+            is_anonymous: def.is_anonymous,
+            is_recursive: def.is_recursive,
+            fip: def.fip,
+            span: def.span,
+            owned_clone_of: None,
+        }
+    };
+    // Each definition is planned against the same registry, so their order
+    // must not matter; `--shuffle-seed` varies it, and each result goes back
+    // in its own place (0190 §9).
+    let mut lowered: Vec<Option<AetherDef>> = (0..semantic_core.defs.len()).map(|_| None).collect();
+    for index in crate::shared::shuffle::visit_order(semantic_core.defs.len(), "aether-lower") {
+        lowered[index] = Some(lower(semantic_core.defs[index].clone()));
+    }
+    let mut defs: Vec<AetherDef> = lowered.into_iter().flatten().collect();
 
     owned_clone::keep_reached(&defs, &mut clones);
     defs.append(&mut clones);

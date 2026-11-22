@@ -824,16 +824,30 @@ fixed. Two checks keep skips honest:
   `core` does; §13 records the measured cost. LLVM IR stays a future
   possibility, since it needs the native toolchain.
 - **Shuffled internal order.** A hidden `--shuffle-seed <n>` flag (in
-  `FLUX_SHUFFLE_SEED` too) reorders, by seed, what the compiler iterates in an
-  order that should not matter: the top-level items handed to each pass, and
-  the members of any `HashMap` or `HashSet` that a pass iterates, through one
-  `ordered_iter` helper that sorts normally and shuffles under the flag. Go's
-  `ssa/check/seed` does the same for its SSA passes. `sweep --determinism
-  --shuffle` runs the second sweep under a seed, and verify's determinism
-  sample uses a seed taken from the run's tag. A difference then shows on every
-  run instead of by chance, as S4's did. Converting the iteration sites is the
-  bulk of the work; it starts with `src/core/to_ir/`, `src/types/class_env.rs`
-  and `src/core/passes/dict_elaborate.rs`.
+  `FLUX_SHUFFLE_SEED` too) changes, by seed, the order in which passes visit
+  the program's definitions, an order that should not matter
+  (`src/shared/shuffle.rs`, `visit_order`). Go's `ssa/check/seed` does the
+  same for its SSA passes.
+  - **Where:** the Core simplification round and the normalization loop
+    (`src/core/passes/mod.rs`), and Aether planning (`src/aether/mod.rs`).
+    Each result goes back in its own place, so the program keeps its order and
+    only the numbers handed out can change. CFG and LIR lowering are left
+    alone: there, the order a definition is lowered in is its place in the
+    output, so a shuffle would change the dump on every run.
+  - **Map iteration is not shuffled.** std's `HashMap` and `HashSet` already
+    change their order from one process to the next, which is how S4 and S6
+    found their bugs. A map whose order reaches output must be sorted, not
+    shuffled. `ordered` (sorted normally, permuted under a seed) is there for
+    a loop whose order should not matter, and nothing uses it yet.
+  - **Comparing.** Another visit order may renumber but must build the same
+    program, so a shuffled run is judged by the normalized hash: `numbering`
+    passes and `structure` fails. `sweep --determinism --shuffle` runs the
+    second sweep under seed 1, or `--shuffle-seed <n>`. After its plain rerun,
+    verify's determinism sample reruns the same files under a seed taken from
+    the run's tag (`determinism <mode> shuffled (seed n)`), so a failure
+    replays with that seed.
+  - **Off where order must hold:** under `--opt-bisect-limit`, which numbers
+    rewrites in definition order; and a seeded build uses no module cache.
 - **Bytecode cache determinism.** `vm_cached` runs read the cache written by an
   earlier run. `sweep --determinism --mode cache` runs each program twice, each
   time with an empty `--cache-dir` and `FLUX_HOME` at the same path, and
@@ -870,6 +884,16 @@ fixed. Two checks keep skips honest:
 
 Together they add about 45 s to a run. The cache check, which verify does not
 run, takes about 70 s over `tests/parity`.
+
+**What the shuffle found** (2026-11-21, seed 1, 1,664 files per mode). No
+definition order changed a program. `cfg`, `core` and `core-opt` were
+unchanged. The readable Core dump numbers temporaries as they appear, so the
+renumbering under the seed does not show there; with `--dump-core=debug` it
+does, normalized away. `aether` renumbered 1,031 files, all `numbering`. A
+planted dependence, not committed, was caught on 4 of 25 files as
+`structure`: Aether left the first definition it visited unplanned. Each
+shuffled sweep costs what a plain one does (cfg 0:40, core 0:24, core-opt
+0:34, aether 0:29). Verify's shuffled sample adds 1 to 3 s per mode.
 
 ### §10 Semantics-preserving rewrites
 
