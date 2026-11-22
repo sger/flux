@@ -14,3 +14,9 @@ fn main() with IO {
     print(to_string(ratio(10, 2)))
     print(to_string(ratio(10, zero)))
 }
+
+// dbg-check: stop ratio exception_division.flx:8
+// dbg-check: exception division by zero
+// dbg-check: frame ratio exception_division.flx:8
+// dbg-check: frame main exception_division.flx:15
+// dbg-check: finished

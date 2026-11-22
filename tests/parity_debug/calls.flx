@@ -26,3 +26,19 @@ fn main() {
     let total = sum_squares(3, 4)
     print(total)
 }
+
+// dbg-check: stop square calls.flx:15
+// dbg-check: x = 3
+// dbg-check: frame square calls.flx:15
+// dbg-check: frame sum_squares calls.flx:20
+// dbg-check: frame main calls.flx:26
+// dbg-check: stop square calls.flx:16
+// dbg-check: frame square calls.flx:16
+// dbg-check: frame sum_squares calls.flx:20
+// dbg-check: frame main calls.flx:26
+// dbg-check: x = 3
+// dbg-check: y = 9
+// dbg-check: stop sum_squares calls.flx:21
+// dbg-check: stop square calls.flx:15
+// dbg-check: x = 4
+// dbg-check: finished

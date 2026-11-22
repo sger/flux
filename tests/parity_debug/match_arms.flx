@@ -20,3 +20,10 @@ fn area(shape) {
 fn main() {
     print(area(Circle(2)) + area(Rect(3, 4)))
 }
+
+// dbg-check: stop area match_arms.flx:16
+// dbg-check: h = 4
+// dbg-check: w = 3
+// dbg-check: frame area match_arms.flx:16
+// dbg-check: frame main match_arms.flx:21
+// dbg-check: finished

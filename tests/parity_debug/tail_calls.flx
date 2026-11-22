@@ -20,3 +20,15 @@ fn count(n, total) {
 fn main() {
     print(count(3, 0))
 }
+
+// dbg-check: stop count tail_calls.flx:13
+// dbg-check: n = 3
+// dbg-check: total = 0
+// dbg-check: frame count tail_calls.flx:13
+// dbg-check: frame main tail_calls.flx:21
+// dbg-check: stop count tail_calls.flx:13
+// dbg-check: n = 2
+// dbg-check: total = 3
+// dbg-check: frame count tail_calls.flx:13
+// dbg-check: frame main tail_calls.flx:21
+// dbg-check: finished

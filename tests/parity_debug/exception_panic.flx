@@ -21,3 +21,10 @@ fn main() with IO {
     let xs = [1, 2, 3]
     print(to_string(total(xs)))
 }
+
+// dbg-check: stop check exception_panic.flx:9
+// dbg-check: exception panic
+// dbg-check: frame check exception_panic.flx:9
+// dbg-check: frame total exception_panic.flx:16
+// dbg-check: frame main exception_panic.flx:22
+// dbg-check: finished

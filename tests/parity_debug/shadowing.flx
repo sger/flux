@@ -17,3 +17,7 @@ fn pick(o) {
 fn main() {
     print(pick(Some(5)))
 }
+
+// dbg-check: stop pick shadowing.flx:11
+// dbg-check: x = 5
+// dbg-check: finished

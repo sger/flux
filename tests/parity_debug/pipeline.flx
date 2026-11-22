@@ -22,3 +22,9 @@ fn main() {
     print(result)
     print(start)
 }
+
+// dbg-check: stop main pipeline.flx:20
+// dbg-check: stop main pipeline.flx:21
+// dbg-check: frame main pipeline.flx:21
+// dbg-check: start = 5
+// dbg-check: finished
