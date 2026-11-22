@@ -1061,6 +1061,26 @@ the two debug parities 0:26. The suite is now the largest step.
   - **Quick tier:** this replaces the quick-tier flag, since a preset over
     these names gives the same thing if one is ever wanted.
 
+**The S11 exit check (2026-11-22).** These were `--only parity,metrics` runs
+on main at 415aca98, 13 jobs by default, each after a build.
+- **Jobs:**
+  - main parity took 2:44 with the default and 15:00 with `--jobs 1`, about
+    5½ times faster;
+  - both gave the same 332 verdicts, 0 MISMATCH.
+- **Planted allocation:** one extra `Box` per 16 VM instructions, in
+  `src/vm/dispatch.rs`, not committed.
+  - Parity stayed clean.
+  - The `metrics` step against the unplanted run failed with 528 counts worse,
+    all `vm_allocs` on `vm` and `vm_opt`, for example
+    `ki_098_baseline_one_instantiation.flx` 2834 → 2945 (+3.9%).
+  - With `--accept-metrics` it passed, listing them.
+- **Not clean:** the unplanted run itself failed `metrics` against s6shuffle
+  on one count, `async_select_loser_watchers_reclaimed.flx`'s `vm_opt`
+  `vm_instructions`, 33493 → 33543. That count depends on scheduling, and so
+  does whether a task-spawning fixture writes run counts at all. Filed as
+  KI-212; until it is fixed, a metrics failure only on async fixtures' run
+  counts is that issue.
+
 ### §13 Optimization bisection
 
 An opt-way mismatch (§3) says the optimizer broke a program, not which of its
@@ -1336,7 +1356,7 @@ each joined to an open KI:
 | S8 ✓ | The generator and `cargo xtask fuzz` (§6) | Unit tests: the same seed gives the same text; 200 seeds compile with 0 generator failures (an ignored test that runs `flux --dump-core`). A planted miscompile under `--optimize`, not committed, is found within `--count 200`. (200 of 200 compile with 0 generator failures and 0 internal errors; the run itself is the compile check, so there is no ignored test. The planted `+` fold made 47 of 200 mismatch. Found KI-172 and KI-173.) |
 | S9 ✓ | `cargo xtask fuzz reduce` (§7) | The planted miscompile's case shrinks to at most 10 lines. Reducer unit tests on a fake oracle. (69 lines to 3 in 0:25. 12 unit tests: the passes on their own, and ddmin, the whole reducer and the tester on fake oracles. Found on the way: a timeout left the program flux built running.) |
 | S10 | `verify --behaviour` (§11) | A planted change to a `print` builtin's output, not committed, fails it and names the files; a no-op change passes. |
-| S11 | `parity-check --jobs` (built in S16) and verify's `--jobs`; `flux --metrics`, `metrics.tsv` and the `metrics` step with `--accept-metrics`; `verify --quick` became `--only`/`--skip`; opt ways only on optimizer changes dropped (§12) | Main parity with `--jobs 1` and with the default gives the same verdicts, the default faster; the times are recorded here. A planted extra VM allocation, not committed, fails the `metrics` step until `--accept-metrics`. |
+| S11 ✓ | `parity-check --jobs` (built in S16) and verify's `--jobs`; `flux --metrics`, `metrics.tsv` and the `metrics` step with `--accept-metrics`; `verify --quick` became `--only`/`--skip`; opt ways only on optimizer changes dropped (§12) | Main parity with `--jobs 1` and with the default gives the same verdicts, the default faster; the times are recorded here. A planted extra VM allocation, not committed, fails the `metrics` step until `--accept-metrics`. (2:44 against 15:00, 332 verdicts the same; the plant made 528 `vm_allocs` counts worse. Found KI-212: async run counts depend on scheduling.) |
 | S12 | `// dbg-check:` (§5), checks added to all 21 debug fixtures | Debug parity 21/21. Changing one expected local makes both the parity run and `parity_debug_tests` fail. |
 | S13 ✓ | `--opt-bisect-limit` and `cargo xtask bisect-opt` (§13) | A planted wrong rewrite in one Core pass, not committed, makes a fixture mismatch under `vm_opt`; `bisect-opt` names that rewrite. With `-1`, the rewrite count is the same on every run. (A wrong `IAdd` fold, opt-only, named as `constant_fold: fold IAdd in f` in 11 runs; `-1` gives identical lines on two runs, VM and native. `verify s13` passed with 0 mismatches.) |
 | S14 | `lir::verify`, `--verify-each`, the `vm_verify` way (§14) | Unit tests per LIR rule. A planted malformed rewrite, not committed, fails `--verify-each` naming its pass, where plain parity shows only wrong output. Main parity under `vm_verify` has 0 failures, after fixes or KIs. |
