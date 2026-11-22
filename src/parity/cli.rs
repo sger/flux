@@ -281,6 +281,10 @@ impl Block {
 /// an error only has an existing stderr block replaced, since most pin codes
 /// alone. Anything else that failed stays failed. A blessed result passes.
 fn bless(result: &mut ParityResult, allow: &[String]) {
+    if result.results.iter().any(|run| run.way.is_debug()) {
+        bless_debug_checks(result);
+        return;
+    }
     let meta = parse_fixture_meta_allowing(&result.file, allow);
     let runs = &result.results;
     let Some(first) = runs.first() else {
@@ -334,6 +338,85 @@ fn bless(result: &mut ParityResult, allow: &[String]) {
         eprintln!("[parity] blessed {}", file.display());
     }
     result.verdict = Verdict::Pass;
+}
+
+/// How a failed `// dbg-check:` reads in an `ExpectedOutputMismatch`, after
+/// the way's name.
+const DEBUG_CHECK: &str = ": // dbg-check: ";
+
+/// `--bless` for a debug fixture: writes vm_debug's reduced transcript as
+/// its `// dbg-check:` lines, when both debuggers ran, succeeded and agree,
+/// and the checks are all that failed. Never an expected-stdout block: the
+/// script names line numbers, and a block in the header would move the
+/// program under it.
+fn bless_debug_checks(result: &mut ParityResult) {
+    let runs = &result.results;
+    let file = result.file.clone();
+    let Some(vm) = runs.iter().find(|run| run.way == Way::VmDebug) else {
+        return;
+    };
+    if !runs.iter().any(|run| run.way == Way::LlvmDebug) {
+        eprintln!("[parity] cannot bless {}: llvm_debug did not run", file.display());
+        return;
+    }
+    let checks_are_the_only_problem = match &result.verdict {
+        Verdict::Pass => true,
+        Verdict::ExpectedOutputMismatch { expected, .. } => expected.contains(DEBUG_CHECK),
+        _ => false,
+    };
+    if !checks_are_the_only_problem || runs.iter().any(|run| run.exit_kind != ExitKind::Success) {
+        return;
+    }
+    let checks: Vec<&str> = vm.normalized_stdout.lines().map(str::trim).collect();
+    let Ok(source) = fs::read_to_string(&file) else {
+        return;
+    };
+    let blessed = match with_debug_checks(&source, &checks) {
+        Ok(blessed) => blessed,
+        Err(reason) => {
+            eprintln!("[parity] cannot bless {}: {reason}", file.display());
+            return;
+        }
+    };
+    if blessed != source {
+        if let Err(err) = fs::write(&file, &blessed) {
+            eprintln!("[parity] cannot bless {}: {err}", file.display());
+            return;
+        }
+        eprintln!("[parity] blessed the dbg-check lines of {}", file.display());
+    }
+    result.verdict = Verdict::Pass;
+}
+
+/// `source` with `checks` as its last lines, `// dbg-check: <check>` each,
+/// after one blank line, in place of the checks it ended with. A check
+/// anywhere else is refused: rewriting it there could move the program.
+fn with_debug_checks(source: &str, checks: &[&str]) -> Result<String, String> {
+    let is_check = |line: &&str| line.trim().starts_with("// dbg-check:");
+    let is_blank = |line: &&str| line.trim().is_empty();
+    let mut lines: Vec<&str> = source.lines().collect();
+    while lines.last().is_some_and(is_blank) {
+        lines.pop();
+    }
+    let trailing = lines.iter().rev().take_while(|line| is_check(line)).count();
+    lines.truncate(lines.len() - trailing);
+    if lines.iter().any(is_check) {
+        return Err("its `// dbg-check:` lines must be the last lines of the file".to_string());
+    }
+    while lines.last().is_some_and(is_blank) {
+        lines.pop();
+    }
+    let mut out: Vec<String> = lines.iter().map(|line| line.to_string()).collect();
+    let checks: Vec<&&str> = checks.iter().filter(|check| !check.is_empty()).collect();
+    if !checks.is_empty() {
+        out.push(String::new());
+        out.extend(checks.iter().map(|check| format!("// dbg-check: {check}")));
+    }
+    let mut text = out.join("\n");
+    if source.ends_with('\n') {
+        text.push('\n');
+    }
+    Ok(text)
 }
 
 /// Rewrites an annotated fixture's `//~` annotations to match what its ways
@@ -1345,7 +1428,7 @@ fn first_failed_debug_check(
         let index = super::debug::first_failed_check(&run.normalized_stdout, checks)?;
         Some(Verdict::ExpectedOutputMismatch {
             expected: format!(
-                "{}: // dbg-check: {} (check {} of {})",
+                "{}{DEBUG_CHECK}{} (check {} of {})",
                 run.way,
                 checks[index],
                 index + 1,
@@ -2063,6 +2146,47 @@ mod tests {
     fn bless_adds_no_stderr_block() {
         let source = "// expect: compile_error\nfn main() {}\n";
         assert_eq!(with_expected_block(source, Block::Stderr, "error", false), None);
+    }
+
+    #[test]
+    fn debug_checks_are_blessed_as_the_last_lines() {
+        let program = "// dbg: break 3\n// dbg: continue\nfn main() {\n    print(1)\n}\n";
+        let added = with_debug_checks(program, &["stop main a.flx:3", "", "finished"]).unwrap();
+        assert_eq!(
+            added,
+            format!("{program}\n// dbg-check: stop main a.flx:3\n// dbg-check: finished\n")
+        );
+        let replaced = with_debug_checks(&format!("{added}\n\n"), &["finished"]).unwrap();
+        assert_eq!(replaced, format!("{program}\n// dbg-check: finished\n"));
+        let no_newline = with_debug_checks("fn main() {}", &["finished"]).unwrap();
+        assert_eq!(no_newline, "fn main() {}\n\n// dbg-check: finished");
+        let in_header = format!("// dbg-check: finished\n{program}");
+        assert!(with_debug_checks(&in_header, &["finished"]).is_err());
+    }
+
+    /// A debug fixture whose transcripts agree exactly gets its checks, not
+    /// an expected-stdout block in its header, which would move its lines.
+    #[test]
+    fn a_debug_fixture_is_blessed_with_checks_not_a_stdout_block() {
+        let dir = std::env::temp_dir().join(format!("flux-bless-debug-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("session.flx");
+        let program = "// dbg: break 2\nfn main() {\n    print(1)\n}\n";
+        fs::write(&file, program).unwrap();
+        let transcript = "stop main session.flx:2\nfinished";
+        let mut result = parity_result(vec![
+            result(Way::VmDebug, ExitKind::Success, transcript, ""),
+            result(Way::LlvmDebug, ExitKind::Success, transcript, ""),
+        ]);
+        result.file = file.clone();
+        bless(&mut result, &[]);
+        let blessed = fs::read_to_string(&file).unwrap();
+        let _ = fs::remove_dir_all(&dir);
+        assert_eq!(
+            blessed,
+            format!("{program}\n// dbg-check: stop main session.flx:2\n// dbg-check: finished\n")
+        );
+        assert!(matches!(result.verdict, Verdict::Pass));
     }
 
     #[test]
@@ -3594,7 +3718,8 @@ Options:
   --bless                When every way ran and agrees, write what they printed into the
                          fixture: its stdout block (added if missing) for a fixture that
                          expects success, or its existing stderr block for one that expects
-                         an error
+                         an error; a debug fixture gets vm_debug's transcript as its
+                         `// dbg-check:` lines, at the end of the file
   --annotate             Move each passing fixture from `// expect-error:` lines to `//~`
                          annotations on the lines its errors are reported on, dropping its
                          stderr block when a snapshot pins the same text (proposal 0191)
