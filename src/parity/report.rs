@@ -217,6 +217,12 @@ pub fn diagnose_mismatch(details: &[MismatchDetail]) -> Option<&'static str> {
     let has_strict = details.iter().any(|d| matches!(d, MismatchDetail::StrictModeMismatch { .. }));
     let has_opt = details.iter().any(|d| matches!(d, MismatchDetail::OptModeMismatch { .. }));
 
+    // The base compiler's run differs: the change altered what the program
+    // does, even where the backends agree with each other (0190 §11).
+    if details.iter().any(|d| matches!(d, MismatchDetail::BehaviourMismatch { .. })) {
+        return Some("the program behaves differently from the base compiler's");
+    }
+
     // A check after a pass failed, or the checked build differs: the check
     // names the pass that broke the IR (0190 §14).
     if details.iter().any(|d| matches!(d, MismatchDetail::VerifyModeMismatch { .. })) {
@@ -447,6 +453,10 @@ fn print_mismatch_detail(detail: &MismatchDetail) {
         }
         MismatchDetail::HeapFault { way, message } => {
             println!("  {} {way}: {message}", cyan("heap_fault:"));
+        }
+        MismatchDetail::BehaviourMismatch { field, base, head } => {
+            println!("  {} the base compiler differs on {field}", cyan("behaviour_mismatch:"));
+            print_inline_diff("base".to_string(), base, "vm".to_string(), head);
         }
         MismatchDetail::VerifyModeMismatch { plain_way, verify_way, field, plain, verify } => {
             println!(

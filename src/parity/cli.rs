@@ -7,6 +7,8 @@
 //!   --ways <w1,w2,...>     Ways to compare (default: vm,llvm)
 //!   --vm-binary <path>     Path to VM flux binary
 //!   --llvm-binary <path>   Path to native flux binary
+//!   --behaviour-of <path>  Run the vm way again with this compiler; stdout and
+//!                          exit kind must match the vm run's (0190 §11)
 //!   --timeout <secs>       Timeout per file per way (default: 20)
 //!   --root <path>          Module root (forwarded to flux)
 //!   --jobs <n>             Files checked at once (default: 1)
@@ -84,6 +86,11 @@ pub fn run_parity_check(args: &[String]) {
              Build with: CARGO_TARGET_DIR=target/parity_native cargo build --features llvm",
             config.llvm_binary.display()
         );
+        std::process::exit(1);
+    }
+
+    if let Some(base) = config.behaviour_of.as_ref().filter(|base| !base.exists()) {
+        eprintln!("Error: --behaviour-of compiler not found at {}", base.display());
         std::process::exit(1);
     }
 
@@ -644,6 +651,7 @@ fn check_one(file: &Path, config: &Config) -> CheckedFile {
             ways: &effective_ways,
             vm_binary: &config.vm_binary,
             llvm_binary: &config.llvm_binary,
+            behaviour_of: config.behaviour_of.as_deref(),
             extra_args: &extra_args,
             timeout: config.timeout,
             capture_core: config.capture_core,
@@ -840,6 +848,8 @@ struct CheckOpts<'a> {
     ways: &'a [Way],
     vm_binary: &'a Path,
     llvm_binary: &'a Path,
+    /// `--behaviour-of`: the compiler whose `vm` run must behave as ours.
+    behaviour_of: Option<&'a Path>,
     extra_args: &'a [String],
     timeout: Duration,
     capture_core: bool,
@@ -1058,6 +1068,18 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
             opts.compare_surfaces_only,
             opts.expect,
         );
+    }
+
+    // `--behaviour-of` (0190 §11): the same `vm` run with the base compiler.
+    if let Some(base) = opts.behaviour_of
+        && let Some(head) = run_results.iter().find(|run| run.way == Way::Vm)
+    {
+        let mut base_run =
+            run_way(base, opts.llvm_binary, file, Way::Vm, opts.extra_args, opts.timeout);
+        if opts.stdout_varies {
+            base_run.normalized_stdout.clear();
+        }
+        details.extend(behaviour_details(head, &base_run));
     }
 
     let mut verdict = judge(&run_results, details, opts);
@@ -1305,6 +1327,28 @@ fn judge(
     } else {
         Verdict::Pass
     }
+}
+
+/// Behaviour against the base compiler (0190 §11): stdout and exit kind, not
+/// stderr, since a change may reword a diagnostic on purpose. A fixture whose
+/// stdout varies has it cleared on both sides, so only its exit counts.
+fn behaviour_details(head: &super::RunResult, base: &super::RunResult) -> Vec<MismatchDetail> {
+    let mut details = Vec::new();
+    if head.exit_kind != base.exit_kind {
+        details.push(MismatchDetail::BehaviourMismatch {
+            field: "exit_kind".to_string(),
+            base: base.exit_kind.to_string(),
+            head: head.exit_kind.to_string(),
+        });
+    }
+    if head.normalized_stdout != base.normalized_stdout {
+        details.push(MismatchDetail::BehaviourMismatch {
+            field: "stdout".to_string(),
+            base: base.normalized_stdout.clone(),
+            head: head.normalized_stdout.clone(),
+        });
+    }
+    details
 }
 
 /// Optimizer parity: each opt way against its unoptimized counterpart. The
@@ -2182,6 +2226,7 @@ mod tests {
             ways,
             vm_binary: Path::new("flux"),
             llvm_binary: Path::new("flux"),
+            behaviour_of: None,
             extra_args: &[],
             timeout: Duration::from_secs(1),
             capture_core: false,
@@ -2642,6 +2687,42 @@ mod tests {
             labels,
             ["verify exit_kind: llvm_opt vs llvm_verify", "verify stderr: llvm_opt vs llvm_verify"]
         );
+    }
+
+    /// The base compiler's run counts on stdout and exit kind, not stderr,
+    /// which a change may reword on purpose (0190 §11).
+    #[test]
+    fn behaviour_compares_stdout_and_exit_kind_but_not_stderr() {
+        let head = result(Way::Vm, ExitKind::Success, "1\n2", "warning: a");
+        let labels = |base: &super::super::RunResult| -> Vec<String> {
+            behaviour_details(&head, base).iter().map(mismatch_detail_label).collect()
+        };
+        assert!(labels(&result(Way::Vm, ExitKind::Success, "1\n2", "warning: b")).is_empty());
+        assert_eq!(
+            labels(&result(Way::Vm, ExitKind::Success, "1\n3", "")),
+            ["behaviour stdout: base vs vm"]
+        );
+        assert_eq!(
+            labels(&result(Way::Vm, ExitKind::RuntimeError, "1\n2", "error[E1009]: x")),
+            ["behaviour exit_kind: base vs vm"]
+        );
+        // `// stdout: varies` clears both sides' stdout before comparing.
+        let mut varying_head = result(Way::Vm, ExitKind::Success, "12:00", "");
+        varying_head.normalized_stdout.clear();
+        let mut varying_base = result(Way::Vm, ExitKind::Success, "12:01", "");
+        varying_base.normalized_stdout.clear();
+        assert!(behaviour_details(&varying_head, &varying_base).is_empty());
+    }
+
+    #[test]
+    fn behaviour_of_needs_the_vm_way() {
+        let args = |list: &[&str]| -> Vec<String> { list.iter().map(|a| a.to_string()).collect() };
+        let config =
+            parse_args(&args(&["t.flx", "--ways", "vm,llvm", "--behaviour-of", "base/flux"]))
+                .expect("valid with vm");
+        assert_eq!(config.behaviour_of, Some(PathBuf::from("base/flux")));
+        assert!(parse_args(&args(&["t.flx", "--ways", "llvm", "--behaviour-of", "b"])).is_err());
+        assert!(parse_args(&args(&["t.flx", "--behaviour-of", "b"])).is_err());
     }
 
     #[test]
@@ -3112,6 +3193,9 @@ struct Config {
     ways: Option<Vec<Way>>,
     vm_binary: PathBuf,
     llvm_binary: PathBuf,
+    /// `--behaviour-of`: another compiler, run on the `vm` way after the
+    /// ways, whose stdout and exit kind must match the `vm` run's (0190 §11).
+    behaviour_of: Option<PathBuf>,
     timeout: Duration,
     extra_args: Vec<String>,
     /// When true, capture `--dump-core` per way and compare Core IR.
@@ -3162,6 +3246,7 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
     let mut ways: Option<Vec<Way>> = None;
     let mut vm_binary = default_vm_binary();
     let mut llvm_binary = default_llvm_binary();
+    let mut behaviour_of: Option<PathBuf> = None;
     let mut timeout_secs = DEFAULT_TIMEOUT_SECS;
     let mut extra_args = Vec::new();
     let mut capture_core = false;
@@ -3205,6 +3290,11 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
                     return Err("--llvm-binary requires a path".to_string());
                 }
                 llvm_binary = PathBuf::from(&args[i]);
+            }
+            "--behaviour-of" => {
+                i += 1;
+                let path = args.get(i).ok_or("--behaviour-of requires a compiler path")?;
+                behaviour_of = Some(PathBuf::from(path));
             }
             "--timeout" => {
                 i += 1;
@@ -3337,6 +3427,11 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
     if paths.is_empty() {
         return Err("missing file or directory argument".to_string());
     }
+    if behaviour_of.is_some() && !ways.as_ref().is_some_and(|ways| ways.contains(&Way::Vm)) {
+        return Err(
+            "--behaviour-of compares with the vm way's run, so --ways must include vm".to_string()
+        );
+    }
 
     if explain {
         capture_core = true;
@@ -3379,6 +3474,7 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
         ways,
         vm_binary,
         llvm_binary,
+        behaviour_of,
         timeout: Duration::from_secs(timeout_secs),
         extra_args,
         capture_core,
@@ -3426,6 +3522,8 @@ Options:
   --save-debug-dir <p>   Save the first non-pass result's artifacts under <p>
   --vm-binary <path>     Path to VM binary (default: {})
   --llvm-binary <path>   Path to native binary (default: {})
+  --behaviour-of <path>  Run the vm way again with this compiler (a base build) and
+                         compare its stdout and exit kind with the vm run's
   --timeout <secs>       Timeout per file per way (default: {DEFAULT_TIMEOUT_SECS})
   --root <path>          Module root (forwarded to flux, can repeat)
   --jobs <n>             Check n files at once; results still print in file order (default: 1)
@@ -3974,6 +4072,7 @@ fn mismatch_detail_label(detail: &MismatchDetail) -> String {
         MismatchDetail::VerifyModeMismatch { plain_way, verify_way, field, .. } => {
             format!("verify {field}: {plain_way} vs {verify_way}")
         }
+        MismatchDetail::BehaviourMismatch { field, .. } => format!("behaviour {field}: base vs vm"),
     }
 }
 
