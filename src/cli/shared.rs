@@ -92,6 +92,8 @@ pub(crate) struct ParsedCliExecutionFlags {
     pub(crate) roots_only: bool,
     pub(crate) test_mode: bool,
     pub(crate) all_errors: bool,
+    /// Hidden: check each IR after every pass (0190 §14).
+    pub(crate) verify_each: bool,
 }
 
 /// Grouped boolean and mode-like CLI flags extracted from argv.
@@ -235,6 +237,7 @@ pub(crate) fn extract_cli_flag_groups(args: &mut Vec<String>) -> ParsedCliFlags 
             "--debug-heap" => flags.backend.debug_heap = remove_bool_flag(args, i),
             "--leak-check" => flags.backend.leak_check = remove_bool_flag(args, i),
             "--no-cache" => flags.execution.no_cache = remove_bool_flag(args, i),
+            "--verify-each" => flags.execution.verify_each = remove_bool_flag(args, i),
             "--deps" => flags.execution.clean_deps = remove_bool_flag(args, i),
             "--store" => flags.execution.clean_store = remove_bool_flag(args, i),
             "--offline" => flags.execution.offline = remove_bool_flag(args, i),
@@ -431,6 +434,7 @@ pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions
     );
     crate::shared::opt_bisect::configure(values.command.opt_bisect_limit);
     crate::shared::shuffle::configure(values.command.shuffle_seed);
+    crate::shared::verify_each::configure(parsed.execution.verify_each);
     DriverFlags {
         backend: DriverBackendFlags {
             selected: Backend::Vm,
@@ -485,8 +489,11 @@ pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions
         cache: DriverCacheFlags {
             cache_dir: values.paths.cache_dir,
             // A shuffled build must not write a cache that unshuffled runs
-            // read, nor read one an unshuffled run wrote (0190 §9).
-            no_cache: parsed.execution.no_cache || crate::shared::shuffle::is_active(),
+            // read, nor read one an unshuffled run wrote (0190 §9). A checked
+            // build must run every pass, which a cached module skips (§14).
+            no_cache: parsed.execution.no_cache
+                || crate::shared::shuffle::is_active()
+                || crate::shared::verify_each::is_active(),
             clean_deps: parsed.execution.clean_deps,
             clean_store: parsed.execution.clean_store,
             offline: parsed.execution.offline,
@@ -707,6 +714,16 @@ mod tests {
 
         assert_eq!(parsed.backend.use_llvm, Some(true));
         assert!(parsed.dumps.dump_lir_llvm);
+        assert_eq!(args, vec!["flux".to_string(), "file.flx".to_string()]);
+    }
+
+    #[test]
+    fn verify_each_is_taken_from_the_arguments() {
+        let mut args = vec!["flux".into(), "file.flx".into(), "--verify-each".into()];
+
+        let parsed = extract_cli_flag_groups(&mut args);
+
+        assert!(parsed.execution.verify_each);
         assert_eq!(args, vec!["flux".to_string(), "file.flx".to_string()]);
     }
 

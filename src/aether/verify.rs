@@ -2117,6 +2117,37 @@ mod tests {
         assert!(contract_errors(&one_branch).contains(&AetherErrorKind::ShellNotDisposed));
     }
 
+    /// `--verify-each` checks the plan after each Aether pass and keeps the
+    /// first failure with the pass that made it (0190 §14). Before `reuse`,
+    /// a unique path that has not disposed of its cell yet is not a failure.
+    #[test]
+    fn verify_each_keeps_the_first_aether_pass_that_breaks_the_contract() {
+        use crate::aether::{checked, take_pass_failure};
+        let kept = shell_case(&mut Interner::new(), |shell| {
+            let Shell { f, h, .. } = *shell;
+            give(f, v(h))
+        });
+        let twice = shell_case(&mut Interner::new(), |shell| {
+            let Shell { xs, h, t, .. } = *shell;
+            free_shell(xs, reuse(xs, CoreTag::Cons, vec![v(h), v(t)]))
+        });
+        crate::shared::verify_each::with_enabled(|| {
+            let _ = take_pass_failure();
+            let _ = checked(kept.clone(), "fusion", None);
+            assert!(take_pass_failure().is_none());
+            let _ = checked(kept.clone(), "reuse", None);
+            let (pass, errors) = take_pass_failure().expect("reuse leaves the cell undisposed");
+            assert_eq!(pass, "reuse");
+            assert!(errors.iter().any(|e| e.kind == AetherErrorKind::ShellNotDisposed));
+            // A double release is wrong after any pass, and the first is kept.
+            let _ = checked(twice.clone(), "drop_spec", None);
+            let _ = checked(kept, "reuse", None);
+            assert_eq!(take_pass_failure().map(|(pass, _)| pass), Some("drop_spec"));
+        });
+        let _ = checked(twice, "reuse", None);
+        assert!(take_pass_failure().is_none(), "nothing is checked without the flag");
+    }
+
     /// `filter`'s unique path: the cell is freed first, then `h`, which the
     /// arm now owns, is copied for each use and released at the end.
     #[test]

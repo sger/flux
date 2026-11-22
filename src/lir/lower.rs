@@ -793,7 +793,9 @@ pub fn lower_program_with_interner_and_externs(
 
     // Post-pass: promote Call → TailCall where the result flows directly
     // to a Return with no intervening side effects.
+    super::verify::check_stage(&lir, "lowering");
     promote_tail_calls(&mut lir);
+    super::verify::check_stage(&lir, "promote_tail_calls");
 
     lir
 }
@@ -957,7 +959,9 @@ fn lower_aether_program_inner(
         lir.push_function(func);
     }
 
+    super::verify::check_stage(&lir, "lowering");
     promote_tail_calls(&mut lir);
+    super::verify::check_stage(&lir, "promote_tail_calls");
     lir
 }
 
