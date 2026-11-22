@@ -554,6 +554,13 @@ pub enum MismatchDetail {
         plain: String,
         verify: String,
     },
+    /// The `vm` run with `--behaviour-of`'s compiler, the base's, differed in
+    /// stdout or exit kind from the `vm` run (0190 §11).
+    BehaviourMismatch {
+        field: String,
+        base: String,
+        head: String,
+    },
     /// The debug heap stopped the program at a use after free.
     HeapFault {
         way: Way,
