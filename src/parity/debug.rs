@@ -216,7 +216,12 @@ pub fn normalize_vm(transcript: &str) -> String {
     let mut out = Transcript::default();
     for line in transcript.lines() {
         let line = line.trim_end();
-        if let Some(rest) = line.strip_prefix("stopped: ") {
+        // `> <command>` echoes each command: a group of values ends there,
+        // as it does at lldb's `(lldb)` prompt, so `locals` and a `print`
+        // after it are sorted apart on both.
+        if line.starts_with("> ") {
+            out.end_group();
+        } else if let Some(rest) = line.strip_prefix("stopped: ") {
             // stopped: <reason> at <file>:<l>:<c> in <fn> ([thread <t>, ]position <n>)
             push_stop(&mut out, rest);
         } else if let Some(thread) = parse_thread(line) {
