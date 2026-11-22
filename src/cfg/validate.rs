@@ -480,6 +480,56 @@ mod tests {
         assert!(validate_ir(&program).is_err());
     }
 
+    /// An invalid CFG is the compiler's bug: an error with an internal code,
+    /// so parity counts it as a crash, naming the pass that ran last (0190
+    /// §14). It was a warning with neither.
+    #[test]
+    fn an_invalid_cfg_is_an_internal_error_naming_the_pass() {
+        let mut program = IrProgram {
+            top_level_items: Vec::new(),
+            functions: vec![IrFunction {
+                id: FunctionId(0),
+                name: None,
+                params: Vec::new(),
+                parameter_types: Vec::new(),
+                return_type_annotation: None,
+                effects: Vec::new(),
+                captures: Vec::new(),
+                body_span: crate::diagnostics::position::Span::default(),
+                ret_type: IrType::Tagged,
+                blocks: vec![IrBlock {
+                    id: BlockId(0),
+                    params: Vec::new(),
+                    instrs: Vec::new(),
+                    terminator: IrTerminator::Return(IrVar(42), IrMetadata::empty()),
+                }],
+                entry: BlockId(0),
+                origin: IrFunctionOrigin::ModuleTopLevel,
+                metadata: IrMetadata::empty(),
+                inferred_param_types: Vec::new(),
+                inferred_return_type: None,
+            }],
+            entry: FunctionId(0),
+            globals: Vec::new(),
+            global_bindings: Vec::new(),
+            hm_expr_types: HashMap::new(),
+            core: None,
+        };
+
+        let error = crate::cfg::passes::run_ir_pass_pipeline(
+            &mut program,
+            &crate::cfg::passes::IrPassContext,
+        )
+        .unwrap_err();
+        assert_eq!(error.code(), Some("E997"));
+        assert_eq!(error.severity(), crate::diagnostics::types::Severity::Error);
+        assert!(
+            error.message().is_some_and(|m| m.contains("after `dead_block_elimination`")),
+            "{:?}",
+            error.message()
+        );
+    }
+
     #[test]
     fn rejects_param_rep_mismatch_against_inferred_semantic_type() {
         let program = IrProgram {
