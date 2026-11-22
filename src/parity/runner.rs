@@ -820,14 +820,14 @@ const CRASH_MARKERS: &[&str] = &[
 ];
 
 /// Whether a run's failure is the compiler's own: a crash marker, an internal
-/// error code (E061–E070, E998), or no exit code at all (a signal).
+/// error code (E061–E070, E997, E998), or no exit code at all (a signal).
 fn is_crash(code: i32, stderr: &str) -> bool {
     if code == -1 {
         return true;
     }
     let lower = stderr.to_lowercase();
     CRASH_MARKERS.iter().any(|marker| lower.contains(marker))
-        || error_codes(stderr).any(|n| (61..=70).contains(&n) || n == 998)
+        || error_codes(stderr).any(|n| (61..=70).contains(&n) || n == 997 || n == 998)
 }
 
 /// The numbers of every `error[E…]` code in `stderr`.
@@ -938,6 +938,7 @@ mod tests {
             (101, "thread 'main' panicked at src/lir/lower.rs:1685:9:\nunbound binder"),
             (1, "error[E063]: INTERNAL COMPILER ERROR\n"),
             (1, "error[E998]: Core lint failure after `simplification`"),
+            (1, "error[E997]: IR Verification Failed\nThe CFG IR is invalid after `local_cse`"),
             (1, "error[E999]: Aether Verification Failed\n"),
             (1, "native lowering failed for main.flx: oops"),
             (1, "llvm module pipeline failed: verifier"),

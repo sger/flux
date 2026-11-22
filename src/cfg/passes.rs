@@ -19,25 +19,48 @@ pub fn run_ir_pass_pipeline(
     // code that references variables defined in predecessor blocks that are
     // no longer reachable (e.g. the fail-block of a wildcard match arm).
     dead_block_elimination(program);
-    validate_ir(program)?;
+    validate_after(program, "dead_block_elimination")?;
     canonicalize_cfg(program);
-    validate_ir(program)?;
+    validate_after(program, "canonicalize_cfg")?;
     constant_fold(program);
     // constant_fold can fold conditional branches into unconditional jumps,
     // leaving the dead branch target unreachable.  Eliminate those blocks
     // before the validator runs so it does not reject dead code that
     // references variables defined only in the (now-removed) predecessor.
     dead_block_elimination(program);
-    validate_ir(program)?;
+    validate_after(program, "constant_fold")?;
     local_cse(program);
-    validate_ir(program)?;
+    validate_after(program, "local_cse")?;
     tail_call_introduction(program);
-    validate_ir(program)?;
+    validate_after(program, "tail_call_introduction")?;
     intern_unit_adts(program);
-    validate_ir(program)?;
+    validate_after(program, "intern_unit_adts")?;
     type_directed_unboxing(program);
-    validate_ir(program)?;
+    validate_after(program, "type_directed_unboxing")?;
     Ok(())
+}
+
+/// [`validate_ir`] after `pass`. An invalid CFG is the compiler's bug, so it
+/// is an internal error naming the pass (0190 §14); parity counts its code as
+/// a crash.
+#[allow(clippy::result_large_err)]
+fn validate_after(
+    program: &IrProgram,
+    pass: &'static str,
+) -> Result<(), crate::diagnostics::Diagnostic> {
+    use crate::diagnostics::{
+        DiagnosticBuilder, DiagnosticPhase, compiler_errors::IR_VERIFY_FAILURE, diagnostic_for,
+    };
+    validate_ir(program).map_err(|invalid| {
+        let detail = invalid.message().unwrap_or(invalid.title()).to_string();
+        let error = diagnostic_for(&IR_VERIFY_FAILURE)
+            .with_message(format!("The CFG IR is invalid after `{pass}`: {detail}"))
+            .with_phase(DiagnosticPhase::Validation);
+        match invalid.span() {
+            Some(span) => error.with_span(span),
+            None => error,
+        }
+    })
 }
 
 fn canonicalize_cfg(program: &mut IrProgram) {
