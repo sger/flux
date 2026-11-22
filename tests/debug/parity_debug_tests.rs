@@ -1,7 +1,8 @@
 //! Debug parity (proposal 0188 S6): each fixture in `tests/parity_debug/`
 //! scripts a debugging session in its `// dbg:` lines. The session runs in
 //! the VM debugger and, on a `-g` native build, in lldb; the two reduced
-//! transcripts must agree (`flux::parity::debug::outputs_match`).
+//! transcripts must agree (`flux::parity::debug::outputs_match`), and each
+//! must show the fixture's `// dbg-check:` lines (0190 §5).
 //!
 //! `flux parity-check tests/parity_debug --ways vm_debug,llvm_debug` runs
 //! the same check. A machine without lldb skips with a note; CI installs it.
@@ -12,7 +13,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use flux::parity::debug::{NATIVE_DEBUG_SKIPPED, outputs_match, run_debug_way};
+use flux::parity::debug::{
+    NATIVE_DEBUG_SKIPPED, debug_checks, first_failed_check, outputs_match, run_debug_way,
+};
 use flux::parity::{ExitKind, Way};
 
 fn fixtures() -> Vec<PathBuf> {
@@ -56,7 +59,31 @@ fn the_vm_and_native_debuggers_agree() {
     let failures: Vec<String> = runs
         .into_iter()
         .filter_map(|(file, vm, native)| {
-            if native.stderr.contains(NATIVE_DEBUG_SKIPPED) {
+            let source = std::fs::read_to_string(file).expect("a debug fixture");
+            let checks = debug_checks(&source);
+            if checks.is_empty() {
+                return Some(format!(
+                    "{}: has no `// dbg-check:` lines (run parity-check --bless)",
+                    file.display()
+                ));
+            }
+            let native_skipped = native.stderr.contains(NATIVE_DEBUG_SKIPPED);
+            let checked = if native_skipped { vec![&vm] } else { vec![&vm, &native] };
+            for run in checked {
+                if let Some(index) = first_failed_check(&run.normalized_stdout, &checks) {
+                    return Some(format!(
+                        "{}: {} does not show `// dbg-check: {}` (check {} of {}):\n{}{}",
+                        file.display(),
+                        run.way,
+                        checks[index],
+                        index + 1,
+                        checks.len(),
+                        run.normalized_stdout,
+                        run.stderr
+                    ));
+                }
+            }
+            if native_skipped {
                 eprintln!("note: {}; skipping {}", native.stderr, file.display());
                 return None;
             }
@@ -77,5 +104,9 @@ fn the_vm_and_native_debuggers_agree() {
             })
         })
         .collect();
-    assert!(failures.is_empty(), "the debuggers disagree:\n\n{}", failures.join("\n\n"));
+    assert!(
+        failures.is_empty(),
+        "the debuggers disagree or miss a check:\n\n{}",
+        failures.join("\n\n")
+    );
 }
