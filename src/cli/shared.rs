@@ -141,6 +141,8 @@ pub(crate) struct CliCommandValueOptions {
     pub(crate) debug_engine: Option<String>,
     /// `--opt-bisect-limit <n>` (hidden; proposal 0190 §13).
     pub(crate) opt_bisect_limit: Option<i64>,
+    /// `--shuffle-seed <n>` (hidden; proposal 0190 §9).
+    pub(crate) shuffle_seed: Option<u64>,
     /// `--metrics <file>` (hidden; proposal 0190 §15).
     pub(crate) metrics_path: Option<PathBuf>,
     /// `--stats-json <file>` (hidden).
@@ -165,6 +167,7 @@ impl Default for CliCommandValueOptions {
             debug_script: None,
             debug_engine: None,
             opt_bisect_limit: None,
+            shuffle_seed: None,
             metrics_path: None,
             stats_json_path: None,
         }
@@ -364,6 +367,16 @@ pub(crate) fn extract_cli_value_options(args: &mut Vec<String>) -> Result<CliVal
             values.command.opt_bisect_limit = Some(limit);
             continue;
         }
+        if let Some(seed) = consume_named_value_option(
+            args,
+            &mut i,
+            "--shuffle-seed",
+            "Usage: flux <file.flx> --shuffle-seed <n>",
+            parse_shuffle_seed,
+        )? {
+            values.command.shuffle_seed = Some(seed);
+            continue;
+        }
         if let Some(path) = consume_named_value_option(
             args,
             &mut i,
@@ -417,6 +430,7 @@ pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions
         parsed.execution.locked,
     );
     crate::shared::opt_bisect::configure(values.command.opt_bisect_limit);
+    crate::shared::shuffle::configure(values.command.shuffle_seed);
     DriverFlags {
         backend: DriverBackendFlags {
             selected: Backend::Vm,
@@ -470,7 +484,9 @@ pub(crate) fn build_driver_flags(parsed: ParsedCliFlags, values: CliValueOptions
         },
         cache: DriverCacheFlags {
             cache_dir: values.paths.cache_dir,
-            no_cache: parsed.execution.no_cache,
+            // A shuffled build must not write a cache that unshuffled runs
+            // read, nor read one an unshuffled run wrote (0190 §9).
+            no_cache: parsed.execution.no_cache || crate::shared::shuffle::is_active(),
             clean_deps: parsed.execution.clean_deps,
             clean_store: parsed.execution.clean_store,
             offline: parsed.execution.offline,
@@ -636,6 +652,12 @@ fn parse_opt_bisect_limit(value: String) -> Result<i64, String> {
     i64::from_str(&value).ok().filter(|n| *n >= -1).ok_or_else(|| {
         "Error: --opt-bisect-limit expects -1 or a non-negative integer.".to_string()
     })
+}
+
+/// Parses the `--shuffle-seed` payload: any non-negative integer.
+fn parse_shuffle_seed(value: String) -> Result<u64, String> {
+    u64::from_str(&value)
+        .map_err(|_| "Error: --shuffle-seed expects a non-negative integer.".to_string())
 }
 
 #[cfg(test)]

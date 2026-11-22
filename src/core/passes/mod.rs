@@ -168,7 +168,10 @@ fn run_semantic_core_passes_with_optional_interner(
         // replace this heuristic with a per-pass `changed: bool` flag.
         let size_before: usize = program.defs.iter().map(|d| helpers::expr_size(&d.expr)).sum();
 
-        for def in &mut program.defs {
+        // Definitions are simplified one at a time, so their order must not
+        // matter; `--shuffle-seed` varies it to check (0190 §9).
+        for index in crate::shared::shuffle::visit_order(program.defs.len(), "core-simplify") {
+            let def = &mut program.defs[index];
             opt_bisect::set_def(|| opt_bisect::def_name(def.name, interner));
             let e = std::mem::replace(&mut def.expr, sentinel.clone());
             let e = beta_reduce(e);
@@ -251,7 +254,10 @@ fn run_semantic_core_passes_with_optional_interner(
     }
 
     // ── Stage 2: Normalization passes (run once) ─────────────────────────
-    for def in &mut program.defs {
+    // The order may change the fresh binders `next_id` hands out, never the
+    // program (0190 §9).
+    for index in crate::shared::shuffle::visit_order(program.defs.len(), "core-normalize") {
+        let def = &mut program.defs[index];
         let e = std::mem::replace(&mut def.expr, sentinel.clone());
         let e = evidence_pass(e, &mut next_id);
         verify_aether_contract_stage(def, &e, "evidence_pass")?;
