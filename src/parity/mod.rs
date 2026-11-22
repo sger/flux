@@ -102,6 +102,12 @@ pub enum Way {
     /// The native backend on the debug heap with `--leak-check`: a use after
     /// free fails, and blocks still live at exit are counted (0190 S15).
     LlvmHeap,
+    /// The VM with `--optimize --verify-each`: each IR is checked after
+    /// every pass, so a broken pass is named (0190 §14).
+    VmVerify,
+    /// The native backend with `--optimize --verify-each`, which also
+    /// verifies the LIR the VM never builds.
+    LlvmVerify,
 }
 
 impl fmt::Display for Way {
@@ -119,13 +125,15 @@ impl fmt::Display for Way {
             Self::VmOpt => write!(f, "vm_opt"),
             Self::LlvmOpt => write!(f, "llvm_opt"),
             Self::LlvmHeap => write!(f, "llvm_heap"),
+            Self::VmVerify => write!(f, "vm_verify"),
+            Self::LlvmVerify => write!(f, "llvm_verify"),
         }
     }
 }
 
 impl Way {
     /// Every way, in the order a run reports them.
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 14] = [
         Self::Vm,
         Self::Llvm,
         Self::VmCached,
@@ -138,6 +146,8 @@ impl Way {
         Self::VmOpt,
         Self::LlvmOpt,
         Self::LlvmHeap,
+        Self::VmVerify,
+        Self::LlvmVerify,
     ];
 
     pub fn parse(s: &str) -> Option<Self> {
@@ -154,6 +164,8 @@ impl Way {
             "vm_opt" => Some(Self::VmOpt),
             "llvm_opt" => Some(Self::LlvmOpt),
             "llvm_heap" => Some(Self::LlvmHeap),
+            "vm_verify" => Some(Self::VmVerify),
+            "llvm_verify" => Some(Self::LlvmVerify),
             _ => None,
         }
     }
@@ -219,18 +231,38 @@ impl Way {
         }
     }
 
+    /// Whether this way checks each IR after every pass (`--verify-each`,
+    /// with `--optimize`, so every pass runs).
+    pub fn is_verify(self) -> bool {
+        matches!(self, Self::VmVerify | Self::LlvmVerify)
+    }
+
+    /// The way a checked way must behave like: the same optimized build
+    /// without the checks.
+    pub fn non_verify(self) -> Self {
+        match self {
+            Self::VmVerify => Self::VmOpt,
+            Self::LlvmVerify => Self::LlvmOpt,
+            other => other,
+        }
+    }
+
     pub fn backend_id(self) -> BackendId {
         match self {
-            Self::Vm | Self::VmCached | Self::VmStrict | Self::VmDebug | Self::VmOpt => {
-                BackendId::Vm
-            }
+            Self::Vm
+            | Self::VmCached
+            | Self::VmStrict
+            | Self::VmDebug
+            | Self::VmOpt
+            | Self::VmVerify => BackendId::Vm,
             Self::Llvm
             | Self::LlvmCached
             | Self::LlvmStrict
             | Self::LlvmDebug
             | Self::LlvmG
             | Self::LlvmOpt
-            | Self::LlvmHeap => BackendId::Llvm,
+            | Self::LlvmHeap
+            | Self::LlvmVerify => BackendId::Llvm,
         }
     }
 }
@@ -513,6 +545,15 @@ pub enum MismatchDetail {
         plain: String,
         heap: String,
     },
+    /// A checked way (`--verify-each`) disagreed with the same optimized
+    /// build unchecked: most often a check failed, which names the pass.
+    VerifyModeMismatch {
+        plain_way: Way,
+        verify_way: Way,
+        field: String,
+        plain: String,
+        verify: String,
+    },
     /// The debug heap stopped the program at a use after free.
     HeapFault {
         way: Way,
@@ -568,6 +609,23 @@ mod tests {
         assert!(!Way::LlvmHeap.is_opt() && !Way::LlvmHeap.is_cached());
         for way in Way::ALL.into_iter().filter(|way| !way.is_heap()) {
             assert_eq!(way.non_heap(), way, "{way}");
+        }
+    }
+
+    #[test]
+    fn the_verify_ways_pair_with_their_opt_way() {
+        for (verify, opt, backend) in [
+            (Way::VmVerify, Way::VmOpt, BackendId::Vm),
+            (Way::LlvmVerify, Way::LlvmOpt, BackendId::Llvm),
+        ] {
+            assert!(verify.is_verify() && !opt.is_verify());
+            assert_eq!(verify.non_verify(), opt);
+            assert_eq!(verify.backend_id(), backend);
+            // Not an opt way: opt ways pair with the plain way.
+            assert!(!verify.is_opt());
+        }
+        for way in Way::ALL.into_iter().filter(|way| !way.is_verify()) {
+            assert_eq!(way.non_verify(), way, "{way}");
         }
     }
 }

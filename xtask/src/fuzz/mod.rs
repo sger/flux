@@ -39,7 +39,9 @@ use generate::case_files;
 use reduce::Way;
 pub use reduce::{ReduceOptions, run_reduce};
 
-pub const DEFAULT_WAYS: &str = "vm,llvm,vm_opt,llvm_opt";
+/// The verify ways check each IR after every pass, so a broken pass is named
+/// rather than seen as a mismatch (0190 §14).
+pub const DEFAULT_WAYS: &str = "vm,llvm,vm_opt,llvm_opt,vm_verify,llvm_verify";
 
 /// A generated program is small; one that takes this long to compile is a
 /// finding in itself.
@@ -49,8 +51,13 @@ const TIMEOUT: Duration = Duration::from_secs(60);
 /// of the front-end half of `CRASH_MARKERS` in `src/parity/runner.rs`, which
 /// xtask can't import; E999 is matched by its title because FBIP's E999 is an
 /// ordinary diagnostic.
-const INTERNAL_MARKERS: &[&str] =
-    &["panicked at", "internal compiler error", "core lint failure", "aether verification failed"];
+const INTERNAL_MARKERS: &[&str] = &[
+    "panicked at",
+    "internal compiler error",
+    "core lint failure",
+    "aether verification failed",
+    "ir verification failed",
+];
 
 pub struct Options {
     pub seed: u64,

@@ -1700,3 +1700,40 @@ fn bisect_gates_the_let_inliners() {
     bisect_gates(disciplined_inline, &unused);
     bisect_gates(elim_dead_let, &unused);
 }
+
+/// `--verify-each` lints a definition after each Core pass, naming the pass
+/// and the definition (0190 §14). Without it only Aether's contract runs.
+#[test]
+fn verify_each_names_the_core_pass_after_which_lint_fails() {
+    let mut interner = Interner::new();
+    let f = interner.intern("f");
+    let ghost = interner.intern("ghost");
+    let f_binder = binder(1, f);
+    let def = CoreDef {
+        binder_types: Default::default(),
+        name: f,
+        binder: f_binder,
+        expr: CoreExpr::Lit(CoreLit::Unit, s()),
+        is_dict_def: false,
+        borrow_signature: None,
+        result_ty: None,
+        is_anonymous: false,
+        is_recursive: false,
+        fip: None,
+        span: s(),
+    };
+    // A variable bound nowhere, as a pass that lost a binding would leave.
+    let broken = var_ref(binder(99, ghost));
+    let scope: HashSet<CoreBinderId> = [f_binder.id].into_iter().collect();
+
+    let error =
+        check_pass(&def, &broken, "inline_lets", Some(&scope), Some(&interner)).unwrap_err();
+    assert_eq!(error.code(), Some("E998"));
+    let message = error.message().unwrap_or_default();
+    assert!(message.contains("after `inline_lets` in `f`"), "{message}");
+    assert!(check_pass(&def, &broken, "inline_lets", None, Some(&interner)).is_ok());
+
+    let empty = CoreProgram { defs: Vec::new(), top_level_items: Vec::new() };
+    assert!(lint_scope(&empty).is_none());
+    crate::shared::verify_each::with_enabled(|| assert!(lint_scope(&empty).is_some()));
+}

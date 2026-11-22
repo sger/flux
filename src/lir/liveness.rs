@@ -189,7 +189,7 @@ fn visit_terminator_defs_and_uses(term: &LirTerminator, live: &mut HashSet<LirVa
 }
 
 /// Return the single SSA def produced by an instruction, if any.
-fn instr_def(instr: &LirInstr) -> Option<LirVar> {
+pub(crate) fn instr_def(instr: &LirInstr) -> Option<LirVar> {
     match instr {
         LirInstr::Load { dst, .. }
         | LirInstr::Alloc { dst, .. }
@@ -323,7 +323,7 @@ pub(crate) fn terminator_uses(term: &LirTerminator) -> Vec<LirVar> {
 }
 
 /// Successor block ids for a terminator.
-fn terminator_successors(term: &LirTerminator) -> Vec<BlockId> {
+pub(crate) fn terminator_successors(term: &LirTerminator) -> Vec<BlockId> {
     match term {
         LirTerminator::Return(_) | LirTerminator::TailCall { .. } | LirTerminator::Unreachable => {
             Vec::new()

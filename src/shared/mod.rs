@@ -7,3 +7,4 @@ pub mod opt_bisect;
 pub mod paths;
 pub mod scc;
 pub mod shuffle;
+pub mod verify_each;

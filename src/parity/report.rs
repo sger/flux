@@ -217,6 +217,12 @@ pub fn diagnose_mismatch(details: &[MismatchDetail]) -> Option<&'static str> {
     let has_strict = details.iter().any(|d| matches!(d, MismatchDetail::StrictModeMismatch { .. }));
     let has_opt = details.iter().any(|d| matches!(d, MismatchDetail::OptModeMismatch { .. }));
 
+    // A check after a pass failed, or the checked build differs: the check
+    // names the pass that broke the IR (0190 §14).
+    if details.iter().any(|d| matches!(d, MismatchDetail::VerifyModeMismatch { .. })) {
+        return Some("an IR check after a pass failed (rerun with --verify-each)");
+    }
+
     // An optimized way that disagrees with its own unoptimized run is a
     // miscompile, whatever else differs alongside it.
     if has_opt {
@@ -314,6 +320,10 @@ pub fn cargo_run_for_way(way: Way, file: &str) -> String {
         Way::LlvmHeap => {
             format!("cargo run --features llvm -- {file} --native --leak-check --no-cache")
         }
+        Way::VmVerify => format!("cargo run -- {file} --optimize --verify-each --no-cache"),
+        Way::LlvmVerify => format!(
+            "cargo run --features llvm -- {file} --native --optimize --verify-each --no-cache"
+        ),
     }
 }
 
@@ -437,6 +447,18 @@ fn print_mismatch_detail(detail: &MismatchDetail) {
         }
         MismatchDetail::HeapFault { way, message } => {
             println!("  {} {way}: {message}", cyan("heap_fault:"));
+        }
+        MismatchDetail::VerifyModeMismatch { plain_way, verify_way, field, plain, verify } => {
+            println!(
+                "  {} {plain_way} vs {verify_way} differ on {field}",
+                cyan("verify_mode_mismatch:")
+            );
+            print_inline_diff(
+                format!("{plain_way}"),
+                plain,
+                format!("{verify_way} (--verify-each)"),
+                verify,
+            );
         }
     }
 }

@@ -918,11 +918,15 @@ impl CheckOpts<'_> {
 /// Splits `ways` into those to run and the `skip_ways` that remove one of
 /// them. A skip naming a way that was not requested is not reported.
 fn apply_skip_ways(ways: &[Way], skip_ways: &[SkipWay]) -> (Vec<Way>, Vec<SkipWay>) {
-    // A heap way is the plain build on the debug heap: what makes the plain
-    // way fail fails it too, so its skip carries over with the same KI.
+    // A heap way is the plain build on the debug heap, and a verify way the
+    // optimized build checked: what makes the way under it fail fails it
+    // too, so its skip carries over with the same KI.
     let carried = skip_ways.iter().flat_map(|skip| {
         ways.iter()
-            .filter(move |way| way.is_heap() && way.non_heap() == skip.way)
+            .filter(move |way| {
+                (way.is_heap() && way.non_heap() == skip.way)
+                    || (way.is_verify() && way.non_verify() == skip.way)
+            })
             .map(move |&way| SkipWay { way, reason: skip.reason.clone() })
     });
     let skipped: Vec<SkipWay> =
@@ -1235,6 +1239,7 @@ fn judge(
 
     details.extend(collect_opt_mode_details(run_results));
     details.extend(collect_heap_mode_details(run_results));
+    details.extend(collect_verify_mode_details(run_results));
 
     if !details.is_empty() {
         Verdict::Mismatch { details }
@@ -1312,6 +1317,21 @@ fn collect_opt_mode_details(run_results: &[super::RunResult]) -> Vec<MismatchDet
             field: field.to_string(),
             unopt: unopt.1,
             opt: opt.1,
+        }
+    })
+}
+
+/// Checked parity (0190 §14): each verify way against the same optimized
+/// build unchecked. The checks must not change what a program does; when one
+/// fails, its error names the pass.
+fn collect_verify_mode_details(run_results: &[super::RunResult]) -> Vec<MismatchDetail> {
+    collect_paired_details(run_results, Way::is_verify, Way::non_verify, |field, plain, verify| {
+        MismatchDetail::VerifyModeMismatch {
+            plain_way: plain.0,
+            verify_way: verify.0,
+            field: field.to_string(),
+            plain: plain.1,
+            verify: verify.1,
         }
     })
 }
@@ -2606,6 +2626,33 @@ mod tests {
         assert!(collect_opt_mode_details(&run_results).is_empty());
     }
 
+    /// A check after a pass that fails makes the verify way crash where its
+    /// opt way runs (0190 §14).
+    #[test]
+    fn a_verify_way_must_behave_like_its_opt_way() {
+        let run_results = vec![
+            result(Way::VmOpt, ExitKind::Success, "3", ""),
+            result(Way::VmVerify, ExitKind::Success, "3", ""),
+            result(Way::LlvmOpt, ExitKind::Success, "3", ""),
+            result(Way::LlvmVerify, ExitKind::Crash, "", "error[E997]: IR Verification Failed"),
+        ];
+        let labels: Vec<String> =
+            collect_verify_mode_details(&run_results).iter().map(mismatch_detail_label).collect();
+        assert_eq!(
+            labels,
+            ["verify exit_kind: llvm_opt vs llvm_verify", "verify stderr: llvm_opt vs llvm_verify"]
+        );
+    }
+
+    #[test]
+    fn a_skip_of_an_opt_way_also_skips_its_verify_way() {
+        let skip = |way| SkipWay { way, reason: "KI-1".to_string() };
+        let (run, skipped) =
+            apply_skip_ways(&[Way::VmOpt, Way::VmVerify, Way::LlvmVerify], &[skip(Way::VmOpt)]);
+        assert_eq!(run, [Way::LlvmVerify]);
+        assert_eq!(skipped, [skip(Way::VmOpt), skip(Way::VmVerify)]);
+    }
+
     fn counts(lines: &[&str]) -> Vec<ExpectedCount> {
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -3362,6 +3409,8 @@ Options:
                          llvm_g (native with -g); vm_opt, llvm_opt (with --optimize);
                          llvm_heap (native with --leak-check: a use after free
                          fails, blocks live at exit print LEAK lines);
+                         vm_verify, llvm_verify (with --optimize --verify-each:
+                         each IR is checked after every pass);
                          vm_debug, llvm_debug (scripted debug sessions)
   --show <filter>        Show only: pass, fail, or all (default: all)
   --capture-core         Capture --dump-core per way and compare Core IR
@@ -3922,6 +3971,9 @@ fn mismatch_detail_label(detail: &MismatchDetail) -> String {
             format!("heap {field}: {plain_way} vs {heap_way}")
         }
         MismatchDetail::HeapFault { way, .. } => format!("heap_fault: {way}"),
+        MismatchDetail::VerifyModeMismatch { plain_way, verify_way, field, .. } => {
+            format!("verify {field}: {plain_way} vs {verify_way}")
+        }
     }
 }
 

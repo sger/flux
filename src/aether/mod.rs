@@ -889,12 +889,53 @@ pub fn run_aether_pass(expr: CoreExpr) -> AetherExpr {
 
 /// Run the full Aether pipeline on a backend-only Aether expression.
 pub fn run_aether_expr(expr: AetherExpr) -> AetherExpr {
-    let expr = insert::insert_dup_drop_aether(expr);
-    let expr = drop_spec::specialize_drops_aether(expr);
-    let expr = fusion::fuse_dup_drop_aether(expr);
-    let expr = reuse::insert_reuse_aether(expr);
-    let expr = reuse_spec::specialize_reuse_aether(expr);
-    held::annotate_owned_after(expr)
+    let expr = checked(insert::insert_dup_drop_aether(expr), "insert_dup_drop", None);
+    let expr = checked(drop_spec::specialize_drops_aether(expr), "drop_spec", None);
+    let expr = checked(fusion::fuse_dup_drop_aether(expr), "fusion", None);
+    let expr = checked(reuse::insert_reuse_aether(expr), "reuse", None);
+    let expr = checked(reuse_spec::specialize_reuse_aether(expr), "reuse_spec", None);
+    checked(held::annotate_owned_after(expr), "held", None)
+}
+
+thread_local! {
+    /// The first Aether pass whose result broke the contract, and how, under
+    /// `--verify-each` (0190 §14).
+    static PASS_FAILURE: std::cell::RefCell<Option<(&'static str, Vec<verify::AetherError>)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Under `--verify-each`, checks `expr` against Aether's contract after `pass`
+/// and keeps the first failure. The passes return plain expressions, so the
+/// caller that can return an error reports it ([`take_pass_failure`]).
+fn checked(
+    expr: AetherExpr,
+    pass: &'static str,
+    signature: Option<&borrow_infer::BorrowSignature>,
+) -> AetherExpr {
+    if crate::shared::verify_each::is_active() {
+        PASS_FAILURE.with(|slot| {
+            let mut slot = slot.borrow_mut();
+            if slot.is_none()
+                && let Err(mut errors) = verify::verify_def_contract_aether(&expr, signature)
+            {
+                // `drop_spec` opens a unique path whose cell `reuse` then
+                // reuses or frees, so before `reuse` a path that has not
+                // disposed of its cell yet is not a broken plan.
+                if matches!(pass, "insert_dup_drop" | "drop_spec" | "fusion") {
+                    errors.retain(|error| error.kind != verify::AetherErrorKind::ShellNotDisposed);
+                }
+                if !errors.is_empty() {
+                    *slot = Some((pass, errors));
+                }
+            }
+        });
+    }
+    expr
+}
+
+/// The first failure [`checked`] kept since the last call, if any.
+pub(crate) fn take_pass_failure() -> Option<(&'static str, Vec<verify::AetherError>)> {
+    PASS_FAILURE.with(|slot| slot.borrow_mut().take())
 }
 
 /// Run the Aether pipeline with a borrow registry for cross-function
@@ -923,7 +964,11 @@ pub fn run_aether_def_with_registry(
     registry: &borrow_infer::BorrowRegistry,
     signature: Option<&borrow_infer::BorrowSignature>,
 ) -> AetherExpr {
-    held::annotate_owned_after(plan_def_until_held(expr, registry, signature))
+    checked(
+        held::annotate_owned_after(plan_def_until_held(expr, registry, signature)),
+        "held",
+        signature,
+    )
 }
 
 /// [`run_aether_def_with_registry`] for the consuming clone of `original`: its
@@ -936,8 +981,12 @@ pub(super) fn run_aether_clone_def(
     original: &CoreBinder,
 ) -> AetherExpr {
     let expr = plan_def_until_held(expr, registry, Some(signature));
-    let expr = owned_clone::share_with_original(expr, original, registry, signature);
-    held::annotate_owned_after(expr)
+    let expr = checked(
+        owned_clone::share_with_original(expr, original, registry, signature),
+        "share_with_original",
+        Some(signature),
+    );
+    checked(held::annotate_owned_after(expr), "held", Some(signature))
 }
 
 fn plan_def_until_held(
@@ -954,11 +1003,15 @@ fn plan_def_until_held(
             .collect(),
         _ => Default::default(),
     };
-    let expr = insert::insert_dup_drop_for_def(expr, registry, borrowed_params);
-    let expr = drop_spec::specialize_drops_aether(expr);
-    let expr = fusion::fuse_dup_drop_aether(expr);
-    let expr = reuse::insert_reuse_aether(expr);
-    reuse_spec::specialize_reuse_aether(expr)
+    let expr = checked(
+        insert::insert_dup_drop_for_def(expr, registry, borrowed_params),
+        "insert_dup_drop",
+        signature,
+    );
+    let expr = checked(drop_spec::specialize_drops_aether(expr), "drop_spec", signature);
+    let expr = checked(fusion::fuse_dup_drop_aether(expr), "fusion", signature);
+    let expr = checked(reuse::insert_reuse_aether(expr), "reuse", signature);
+    checked(reuse_spec::specialize_reuse_aether(expr), "reuse_spec", signature)
 }
 
 /// [`lower_core_to_aether_program`] for a native build, which also makes consuming
@@ -993,6 +1046,9 @@ fn lower_with_clone_names(
     >,
 ) -> Result<(AetherProgram, Vec<crate::diagnostics::Diagnostic>), crate::diagnostics::Diagnostic> {
     let mut warnings = Vec::new();
+    // A failure kept by an earlier pipeline run that nobody reported must
+    // not be blamed on this program.
+    let _ = take_pass_failure();
     let mut semantic_core = core.clone();
     let mut borrow_registry = borrow_infer::infer_borrow_modes_with_preloaded(
         &mut semantic_core,
@@ -1006,6 +1062,14 @@ fn lower_with_clone_names(
         }
         _ => Vec::new(),
     };
+    if let Some((pass, errors)) = take_pass_failure() {
+        return Err(crate::core::passes::aether_contract_error_common(
+            "a consuming clone",
+            Default::default(),
+            pass,
+            &errors,
+        ));
+    }
 
     let lower = |def: crate::core::CoreDef| {
         // Only a bisected run (0190 §13) names its definitions.
@@ -1047,7 +1111,13 @@ fn lower_with_clone_names(
     // in its own place (0190 §9).
     let mut lowered: Vec<Option<AetherDef>> = (0..semantic_core.defs.len()).map(|_| None).collect();
     for index in crate::shared::shuffle::visit_order(semantic_core.defs.len(), "aether-lower") {
-        lowered[index] = Some(lower(semantic_core.defs[index].clone()));
+        let def = lower(semantic_core.defs[index].clone());
+        if let Some((pass, errors)) = take_pass_failure() {
+            return Err(crate::core::passes::aether_contract_error_aether(
+                &def, pass, &errors, interner,
+            ));
+        }
+        lowered[index] = Some(def);
     }
     let mut defs: Vec<AetherDef> = lowered.into_iter().flatten().collect();
 
