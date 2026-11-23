@@ -3475,8 +3475,8 @@ result that leaves `int64_t` is undefined behaviour, and so is
 While native Ints are 63-bit, only `flux_rt_mul` can overflow: two 63-bit
 operands always add, subtract, negate and divide within 64 bits. The KI-039
 flip lets an operand be a full 64-bit value, and then every operation can.
-Calling the runtime directly shows it. `runtime/c/int_arith_test.c` against
-the runtime built with UndefinedBehaviorSanitizer stops at:
+Calling the runtime directly shows it. `runtime/c/tests/int_arith_test.c`
+against the runtime built with UndefinedBehaviorSanitizer stops at:
 
 ```text
 runtime/c/flux_rt.c:2074:43: runtime error: signed integer overflow:
@@ -3492,10 +3492,9 @@ helpers `flux_int_add`, `flux_int_sub`, `flux_int_mul`, `flux_int_neg`,
 `flux_int_abs`, `flux_int_div` and `flux_int_rem` (`runtime/c/flux_rt.h`).
 They work in `uint64_t`, and a divisor of `-1` gives the negation or `0`
 without dividing, as `src/shared/int_arith.rs` does. Each function listed
-above uses them (`runtime/c/flux_rt.c`). Tests:
-`c_runtime_int_arithmetic_wraps_ki219` and
-`c_runtime_int_arithmetic_has_no_signed_overflow_ki219`, which runs
-`runtime/c/int_arith_test.c` against the sanitized runtime. Division of
+above uses them (`runtime/c/flux_rt.c`). Tests: the cases in
+`runtime/c/tests/int_arith_test.c`, run as
+`c_runtime_tests::int_arith_ki219::<case>::{plain,sanitize}`. Division of
 `INT64_MIN` by `-1` cannot be built until an Int can be a full 64-bit value.
 
 
@@ -3518,7 +3517,9 @@ it with the runtime's own flags and links it as a native Flux program is
 linked, the Rust staticlib included. The runtime's `main` calls the test's
 `flux_main`, and the test supplies the `flux_call_closure_c` that codegen
 would. `smoke_test.c` uses the pointer-tag API, and `make test` runs the
-cargo test. Test: `the_c_runtime_smoke_test_passes`.
+cargo test. Later the same day the C tests moved to `runtime/c/tests/` and
+became one cargo test per case (`flux_test.h`); the smoke test's cases run as
+`c_runtime_tests::smoke::<case>::plain`.
 
 
 ### KI-218 — Natively, a shift by 64 or more, or by a negative amount, is undefined — FIXED 2026-11-23

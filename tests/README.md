@@ -65,6 +65,13 @@ Which folder a phase's tests go in:
    several phases, put it with the phase it is most likely to break.
 3. **A Flux test file for `flux --test`** goes in `flux/`, with a Rust test
    that runs it through `support/stdlib_fixture.rs` or `run_flux_test`.
+4. **A test that calls the C runtime directly** is a `TEST` case in a C file
+   in `runtime/c/tests/` ([`flux_test.h`](../runtime/c/tests/flux_test.h) has
+   the macros). List the case in that file's `c_tests!` call in
+   `native_llvm/c_runtime_tests.rs`, with the runtime variants to run it on
+   (`plain`, `sanitize`, `debug_heap`). Each case and variant is then its own
+   test, such as `c_runtime_tests::smoke::tag_int::plain`. A new file needs
+   its own `c_tests!` call.
 
 Each folder is one test binary, named after the folder, and each Rust file in
 it is a module of that binary. A new file needs a line in its folder's

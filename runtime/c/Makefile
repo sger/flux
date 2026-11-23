@@ -55,11 +55,11 @@ shared: $(OBJS)
 clean:
 	rm -f $(OBJS) $(LIB) $(SHARED_LIB)
 
-# ── Smoke test ───────────────────────────────────────────────────────
+# ── C runtime tests ───────────────────────────────────────────────────────
 #
-# The smoke test calls into the Rust side of the runtime, so it is built
-# and linked the way a native Flux program is, by
-# tests/native_llvm/c_runtime_tests.rs. This target runs that test.
+# The tests in tests/ call into the Rust side of the runtime, so they are
+# built and linked the way a native Flux program is, by
+# tests/native_llvm/c_runtime_tests.rs. This target runs them.
 
 test:
 	cargo test --manifest-path ../../Cargo.toml --features llvm --test native_llvm c_runtime
