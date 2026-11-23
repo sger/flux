@@ -163,6 +163,25 @@ fn main(x, y) {
     assert!(rendered.contains(" ashr i64 "), "expected integer ashr");
 }
 
+/// Int division and remainder run inline: the zero check panics out of
+/// line, and the common path makes no call into the C runtime.
+#[test]
+fn int_division_runs_without_a_runtime_call() {
+    let ll = compile_to_llvm_ir(
+        r#"
+fn quot(x: Int, y: Int) -> Int { x / y }
+fn rem(x: Int, y: Int) -> Int { x % y }
+"#,
+    );
+    for name in ["flux_quot", "flux_rem"] {
+        let text = llvm_function_text(&ll, name);
+        assert!(
+            !text.contains("flux_rt_div_loc") && !text.contains("flux_rt_mod_loc"),
+            "{name} calls the C runtime:\n{text}"
+        );
+    }
+}
+
 #[test]
 fn emitted_factorial_module_verifies_with_opt_when_available() {
     if Command::new("opt").arg("--version").output().is_err() {

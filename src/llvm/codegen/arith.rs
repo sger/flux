@@ -20,6 +20,8 @@ pub fn emit_arith(module: &mut LlvmModule) {
     emit_imul(module);
     emit_idiv(module);
     emit_imod(module);
+    emit_int_div_at(module, "flux_idiv_at", LlvmValueKind::SDiv);
+    emit_int_div_at(module, "flux_imod_at", LlvmValueKind::SRem);
     emit_ineg(module);
     emit_fadd(module);
     emit_fsub(module);
@@ -57,6 +59,130 @@ fn emit_idiv(module: &mut LlvmModule) {
 
 fn emit_imod(module: &mut LlvmModule) {
     emit_checked_div_helper(module, "flux_imod", LlvmValueKind::SRem, "Division by zero");
+}
+
+/// The C runtime's panic for a zero divisor, with the source position in
+/// its message. It never returns, but it unwinds to an enclosing `try`, so
+/// it is not `nounwind`.
+const DIVISION_BY_ZERO_PANIC: &str = "flux_panic_division_by_zero_at";
+
+/// Emit `name(a, b, line, column)`, division (`SDiv`) or remainder (`SRem`)
+/// of two raw Ints, inlined into each caller so the common path makes no
+/// call. A zero divisor panics out of line with the position. A divisor of
+/// -1 is replaced by 1, because `sdiv` and `srem` of the minimum by -1 are
+/// undefined in LLVM: the remainder by 1 is the 0 that Int's wrapping gives,
+/// and the quotient is `0 - a`, which wraps the minimum to itself (KI-040).
+fn emit_int_div_at(module: &mut LlvmModule, name: &str, op: LlvmValueKind) {
+    if has_function(module, name) {
+        return;
+    }
+    if !module.declarations.iter().any(|d| d.name.0 == DIVISION_BY_ZERO_PANIC) {
+        module.declarations.push(LlvmDecl {
+            linkage: Linkage::External,
+            name: GlobalId(DIVISION_BY_ZERO_PANIC.into()),
+            sig: LlvmFunctionSig {
+                ret: LlvmType::Void,
+                params: vec![LlvmType::i64(), LlvmType::i64()],
+                varargs: false,
+                call_conv: CallConv::Ccc,
+            },
+            attrs: vec!["noreturn".into(), "cold".into()],
+        });
+    }
+    let i64_const = |value: i128| LlvmOperand::Const(LlvmConst::Int { bits: 64, value });
+    let is_div = matches!(op, LlvmValueKind::SDiv);
+    let mut safe = vec![
+        LlvmInstr::Icmp {
+            dst: LlvmLocal("is_minus_one".into()),
+            op: LlvmCmpOp::Eq,
+            ty: LlvmType::i64(),
+            lhs: local("b"),
+            rhs: i64_const(-1),
+        },
+        LlvmInstr::Select {
+            dst: LlvmLocal("divisor".into()),
+            cond_ty: LlvmType::i1(),
+            cond: local("is_minus_one"),
+            value_ty: LlvmType::i64(),
+            then_value: i64_const(1),
+            else_value: local("b"),
+        },
+        LlvmInstr::Binary {
+            dst: LlvmLocal(if is_div { "quotient" } else { "result" }.into()),
+            op,
+            ty: LlvmType::i64(),
+            lhs: local("a"),
+            rhs: local("divisor"),
+        },
+    ];
+    if is_div {
+        safe.push(LlvmInstr::Binary {
+            dst: LlvmLocal("negated".into()),
+            op: LlvmValueKind::Sub,
+            ty: LlvmType::i64(),
+            lhs: i64_const(0),
+            rhs: local("a"),
+        });
+        safe.push(LlvmInstr::Select {
+            dst: LlvmLocal("result".into()),
+            cond_ty: LlvmType::i1(),
+            cond: local("is_minus_one"),
+            value_ty: LlvmType::i64(),
+            then_value: local("negated"),
+            else_value: local("quotient"),
+        });
+    }
+    module.functions.push(LlvmFunction {
+        linkage: linkage_internal(),
+        name: flux_arith_symbol(name),
+        sig: LlvmFunctionSig {
+            ret: LlvmType::i64(),
+            params: vec![LlvmType::i64(); 4],
+            varargs: false,
+            call_conv: CallConv::Fastcc,
+        },
+        params: ["a", "b", "line", "column"].map(|p| LlvmLocal(p.into())).to_vec(),
+        attrs: helper_attrs(),
+        blocks: vec![
+            LlvmBlock {
+                label: LabelId("entry".into()),
+                instrs: vec![LlvmInstr::Icmp {
+                    dst: LlvmLocal("is_zero".into()),
+                    op: LlvmCmpOp::Eq,
+                    ty: LlvmType::i64(),
+                    lhs: local("b"),
+                    rhs: i64_const(0),
+                }],
+                term: LlvmTerminator::CondBr {
+                    cond_ty: LlvmType::i1(),
+                    cond: local("is_zero"),
+                    then_label: LabelId("zero".into()),
+                    else_label: LabelId("safe".into()),
+                },
+            },
+            LlvmBlock {
+                label: LabelId("zero".into()),
+                instrs: vec![LlvmInstr::Call {
+                    dst: None,
+                    tail: false,
+                    call_conv: Some(CallConv::Ccc),
+                    ret_ty: LlvmType::Void,
+                    callee: LlvmOperand::Global(GlobalId(DIVISION_BY_ZERO_PANIC.into())),
+                    args: vec![
+                        (LlvmType::i64(), local("line")),
+                        (LlvmType::i64(), local("column")),
+                    ],
+                    attrs: vec![],
+                }],
+                term: LlvmTerminator::Unreachable,
+            },
+            LlvmBlock {
+                label: LabelId("safe".into()),
+                instrs: safe,
+                term: LlvmTerminator::Ret { ty: LlvmType::i64(), value: local("result") },
+            },
+        ],
+    });
 }
 
 /// Emit a tagged integer binary helper with a zero-divisor check.

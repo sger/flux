@@ -2092,7 +2092,7 @@ int64_t flux_rt_div(int64_t a, int64_t b) {
     return flux_tag_int(flux_untag_int(a) / rb);
 }
 
-static void flux_panic_division_by_zero_at(int64_t line, int64_t column) {
+void flux_panic_division_by_zero_at(int64_t line, int64_t column) {
     char buf[64];
     int len = snprintf(buf, sizeof(buf), "Division by zero @%lld:%lld",
                        (long long)line, (long long)column);

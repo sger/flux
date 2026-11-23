@@ -2090,8 +2090,9 @@ impl<'a> FnEmitter<'a> {
         });
     }
 
-    /// Emit integer division with a zero-divisor guard.
-    /// Tags raw values, calls `flux_rt_div` (which panics on zero), and untags the result.
+    /// Integer division of raw Ints, through the inlined `flux_idiv_at`
+    /// prelude helper: a zero check that panics with the position, and no
+    /// runtime call on the common path.
     fn emit_idiv_call(
         &mut self,
         dst: LirVar,
@@ -2099,10 +2100,10 @@ impl<'a> FnEmitter<'a> {
         b: LirVar,
         span: crate::diagnostics::position::Span,
     ) {
-        self.emit_checked_int_op(dst, a, b, span, "flux_rt_div_loc");
+        self.emit_int_div_at(dst, a, b, span, "flux_idiv_at");
     }
 
-    /// Emit integer modulo with a zero-divisor guard.
+    /// Integer remainder of raw Ints, through `flux_imod_at`.
     fn emit_irem_call(
         &mut self,
         dst: LirVar,
@@ -2110,76 +2111,29 @@ impl<'a> FnEmitter<'a> {
         b: LirVar,
         span: crate::diagnostics::position::Span,
     ) {
-        self.emit_checked_int_op(dst, a, b, span, "flux_rt_mod_loc");
+        self.emit_int_div_at(dst, a, b, span, "flux_imod_at");
     }
 
-    /// Tag raw integers, call a C runtime function, and untag the result.
-    fn emit_checked_int_op(
+    fn emit_int_div_at(
         &mut self,
         dst: LirVar,
         a: LirVar,
         b: LirVar,
         span: crate::diagnostics::position::Span,
-        c_name: &str,
+        helper: &str,
     ) {
-        // Reserve a fresh counter slot so multiple checked ops in the same
-        // LLVM function don't collide on `dz0_…` SSA names.
-        let n = self.next_tmp;
-        self.next_tmp += 1;
-        // Tag: (raw << 1) | 1
-        let a_tag = LlvmLocal(format!("dz{n}_a_tag"));
-        let a_tag2 = LlvmLocal(format!("dz{n}_a_tag2"));
-        self.emit(LlvmInstr::Binary {
-            dst: a_tag.clone(),
-            op: LlvmValueKind::Shl,
-            ty: LlvmType::i64(),
-            lhs: self.var(a),
-            rhs: self.i64_const(1),
-        });
-        self.emit(LlvmInstr::Binary {
-            dst: a_tag2.clone(),
-            op: LlvmValueKind::Or,
-            ty: LlvmType::i64(),
-            lhs: LlvmOperand::Local(a_tag),
-            rhs: self.i64_const(1),
-        });
-        let b_tag = LlvmLocal(format!("dz{n}_b_tag"));
-        let b_tag2 = LlvmLocal(format!("dz{n}_b_tag2"));
-        self.emit(LlvmInstr::Binary {
-            dst: b_tag.clone(),
-            op: LlvmValueKind::Shl,
-            ty: LlvmType::i64(),
-            lhs: self.var(b),
-            rhs: self.i64_const(1),
-        });
-        self.emit(LlvmInstr::Binary {
-            dst: b_tag2.clone(),
-            op: LlvmValueKind::Or,
-            ty: LlvmType::i64(),
-            lhs: LlvmOperand::Local(b_tag),
-            rhs: self.i64_const(1),
-        });
-        // Call the C runtime function (which checks for zero).
-        let tagged_result = LlvmLocal(format!("dz{n}_result"));
+        let result = self.var_local(dst);
         self.call_c(
-            Some(tagged_result.clone()),
-            c_name,
+            Some(result),
+            helper,
             vec![
-                (LlvmType::i64(), LlvmOperand::Local(a_tag2)),
-                (LlvmType::i64(), LlvmOperand::Local(b_tag2)),
+                (LlvmType::i64(), self.var(a)),
+                (LlvmType::i64(), self.var(b)),
                 (LlvmType::i64(), self.i64_const(span.start.line as i64)),
                 (LlvmType::i64(), self.i64_const((span.start.column + 1) as i64)),
             ],
             LlvmType::i64(),
         );
-        // Untag: result >> 1  (arithmetic shift right)
-        self.emit(LlvmInstr::Binary {
-            dst: self.var_local(dst),
-            op: LlvmValueKind::AShr,
-            ty: LlvmType::i64(),
-            lhs: LlvmOperand::Local(tagged_result),
-            rhs: self.i64_const(1),
-        });
     }
 
     fn emit_const(&mut self, dst: LirVar, value: &LirConst) {
@@ -3959,6 +3913,7 @@ fn is_fastcc_prelude_helper(name: &str) -> bool {
         | "flux_tag_boxed_ptr" | "flux_untag_boxed_ptr"
         // Integer arithmetic
         | "flux_iadd" | "flux_isub" | "flux_imul" | "flux_idiv" | "flux_imod" | "flux_ineg"
+        | "flux_idiv_at" | "flux_imod_at"
         // Float arithmetic
         | "flux_fadd" | "flux_fsub" | "flux_fmul" | "flux_fdiv" | "flux_fmod" | "flux_fneg"
         // Polymorphic arithmetic (mixed int/float)

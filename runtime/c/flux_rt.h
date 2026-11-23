@@ -806,6 +806,9 @@ int64_t flux_rt_sub(int64_t a, int64_t b);
 int64_t flux_rt_mul(int64_t a, int64_t b);
 int64_t flux_rt_div(int64_t a, int64_t b);
 int64_t flux_rt_mod(int64_t a, int64_t b);
+/* Native Int division calls this for a zero divisor: the message carries
+ * the source position. It does not return. */
+void    flux_panic_division_by_zero_at(int64_t line, int64_t column);
 int64_t flux_rt_div_loc(int64_t a, int64_t b, int64_t line, int64_t column);
 int64_t flux_rt_mod_loc(int64_t a, int64_t b, int64_t line, int64_t column);
 int64_t flux_rt_neg(int64_t a);
