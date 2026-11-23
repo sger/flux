@@ -1599,8 +1599,8 @@ impl<'a> FnEmitter<'a> {
             LirInstr::IAnd { dst, a, b } => self.emit_binop(*dst, LlvmValueKind::And, *a, *b),
             LirInstr::IOr { dst, a, b } => self.emit_binop(*dst, LlvmValueKind::Or, *a, *b),
             LirInstr::IXor { dst, a, b } => self.emit_binop(*dst, LlvmValueKind::Xor, *a, *b),
-            LirInstr::IShl { dst, a, b } => self.emit_binop(*dst, LlvmValueKind::Shl, *a, *b),
-            LirInstr::IShr { dst, a, b } => self.emit_binop(*dst, LlvmValueKind::AShr, *a, *b),
+            LirInstr::IShl { dst, a, b } => self.emit_shift(*dst, LlvmValueKind::Shl, *a, *b),
+            LirInstr::IShr { dst, a, b } => self.emit_shift(*dst, LlvmValueKind::AShr, *a, *b),
 
             LirInstr::ICmp { dst, op, a, b } => {
                 let cmp_op = match op {
@@ -2087,6 +2087,27 @@ impl<'a> FnEmitter<'a> {
             ty: LlvmType::i64(),
             lhs: self.var(a),
             rhs: self.var(b),
+        });
+    }
+
+    // @KI-218: LLVM makes a shift by 64 or more, or by a negative amount,
+    // poison. The VM and the constant folders take the amount modulo 64, so
+    // native code masks it too; x86-64 folds the `and` into the shift.
+    fn emit_shift(&mut self, dst: LirVar, op: LlvmValueKind, a: LirVar, b: LirVar) {
+        let amount = self.tmp();
+        self.emit(LlvmInstr::Binary {
+            dst: amount.clone(),
+            op: LlvmValueKind::And,
+            ty: LlvmType::i64(),
+            lhs: self.var(b),
+            rhs: self.i64_const(63),
+        });
+        self.emit(LlvmInstr::Binary {
+            dst: self.var_local(dst),
+            op,
+            ty: LlvmType::i64(),
+            lhs: self.var(a),
+            rhs: LlvmOperand::Local(amount),
         });
     }
 
