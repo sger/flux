@@ -917,6 +917,32 @@ a task that may run inline or on a worker), or the comparison needs a
 tolerance for those. Until then, a metrics step that fails only on
 `async_*` or task fixtures' run counts is this issue.
 
+### KI-219 — The C runtime's Int arithmetic overflows a signed `int64_t`, which C leaves undefined
+
+**Severity:** Low (no Flux program is known to reach it today; every operation can at the KI-039 flip) · **Area:** C runtime arithmetic (`runtime/c/flux_rt.c`) · **Verified:** 2026-11-23 (cf3f863c) · **From:** the KI-039 plan's arithmetic audit
+
+`flux_rt_add`, `flux_rt_sub`, `flux_rt_mul`, `flux_rt_div`, `flux_rt_mod`,
+`flux_rt_neg`, their `_loc` forms, `flux_safe_div`, `flux_safe_mod` and
+`flux_abs` compute on the untagged `int64_t` with C's signed operators. A
+result that leaves `int64_t` is undefined behaviour, and so is
+`INT64_MIN / -1`, which also traps on x86-64. Int wraps on every backend
+(`src/shared/int_arith.rs`), so these must wrap too.
+
+While native Ints are 63-bit, only `flux_rt_mul` can overflow: two 63-bit
+operands always add, subtract, negate and divide within 64 bits. The KI-039
+flip lets an operand be a full 64-bit value, and then every operation can.
+Calling the runtime directly shows it. `runtime/c/int_arith_test.c` against
+the runtime built with UndefinedBehaviorSanitizer stops at:
+
+```text
+runtime/c/flux_rt.c:2074:43: runtime error: signed integer overflow:
+3037000500 * 3037000500 cannot be represented in type 'int64_t'
+```
+
+No Flux program tried reaches these functions for Ints: Int-typed code uses
+inline LLVM arithmetic, and code constrained by `Num` calls `Num<Int>`'s
+typed methods.
+
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
