@@ -1520,6 +1520,34 @@ mod tests {
         (program, types, interner)
     }
 
+    fn parse_and_infer_full(
+        src: &str,
+    ) -> (crate::syntax::program::Program, crate::ast::type_infer::InferProgramResult, Interner)
+    {
+        let mut parser = Parser::new(Lexer::new(src));
+        let program = parser.parse_program();
+        let mut interner = parser.take_interner();
+        let flow_sym = interner.intern("Flow");
+        let hm = infer_program(
+            &program,
+            &interner,
+            InferProgramConfig {
+                file_path: None,
+                preloaded_base_schemes: HashMap::new(),
+                preloaded_module_member_schemes: HashMap::new(),
+                task_module_bindings: std::collections::HashSet::new(),
+                task_spawn_exposed: false,
+                known_flow_names: std::collections::HashSet::new(),
+                flow_module_symbol: flow_sym,
+                preloaded_effect_op_signatures: HashMap::new(),
+                effect_row_aliases: HashMap::new(),
+                class_env: None,
+                preloaded_adt_data: Vec::new(),
+            },
+        );
+        (program, hm, interner)
+    }
+
     fn collect_primops(
         program: &crate::syntax::program::Program,
         types: &HashMap<ExprId, InferType>,
@@ -1737,6 +1765,43 @@ fn main() {
             panic!("twice is not a lambda: {:?}", def.expr);
         };
         assert_ne!(params[0].rep, crate::core::FluxRep::IntRep, "{:?}", params[0]);
+    }
+
+    /// KI-217: a module function's parameters came from a bare-name lookup
+    /// in the final type environment, which returns the last binding of that
+    /// name, here the top-level `size(x: Int)`. `M.size` takes Strings.
+    #[test]
+    fn a_module_function_takes_its_own_scheme_not_a_same_named_one_ki217() {
+        let src = r#"
+module M {
+    public fn size(x) { (x, x) }
+}
+fn size(n: Int) -> Int { n }
+fn main() {
+    M.size("s")
+}
+"#;
+        let (prog, hm, mut interner) = parse_and_infer_full(src);
+        let size = interner.intern("size");
+        let core =
+            lower_program_ast_full(&prog, &hm.expr_types, Some(&interner), Some(&hm.type_env));
+        let pair = core
+            .defs
+            .iter()
+            .filter(|def| def.name == size)
+            .find_map(|def| match &def.expr {
+                CoreExpr::Lam { params, body, .. }
+                    if matches!(
+                        body.as_ref(),
+                        CoreExpr::PrimOp { op: CorePrimOp::MakeTuple, .. }
+                    ) =>
+                {
+                    Some(params[0].clone())
+                }
+                _ => None,
+            })
+            .expect("M.size");
+        assert_ne!(pair.rep, crate::core::FluxRep::IntRep, "{pair:?}");
     }
 
     #[test]
