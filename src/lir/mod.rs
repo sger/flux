@@ -54,8 +54,12 @@ pub struct BlockId(pub u32);
 /// Literal constant values that can appear inline in LIR instructions.
 #[derive(Debug, Clone, PartialEq)]
 pub enum LirConst {
-    /// Raw signed 64-bit integer (before tagging).
+    /// A raw Int: the word holds the number itself, untagged.
     Int(i64),
+    /// An Int literal outside the 63 bits a uniform word holds inline.
+    /// @KI-039: emitted as the truncated tagged word `(n << 1) | 1` until
+    /// native code boxes Ints that do not fit.
+    BigInt(i64),
     /// IEEE 754 double (before boxing).
     Float(f64),
     /// Boolean value.

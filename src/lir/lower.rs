@@ -3231,7 +3231,7 @@ impl<'a> FnLower<'a> {
                 {
                     LirConst::Tagged(crate::lir::nanbox_tag_int(n))
                 } else {
-                    LirConst::Int(n)
+                    LirConst::BigInt(n)
                 }
             }
             CoreLit::Float(f) => LirConst::Float(*f),
@@ -4168,7 +4168,10 @@ impl<'a> FnLower<'a> {
         });
 
         let arity = self.fresh_var();
-        self.emit(LirInstr::Const { dst: arity, value: LirConst::Int(args.len() as i64) });
+        self.emit(LirInstr::Const {
+            dst: arity,
+            value: LirConst::Tagged(crate::lir::nanbox_tag_int(args.len() as i64)),
+        });
 
         let result = self.fresh_var();
         let use_yield_path = (native_yield_checks_enabled()
@@ -4252,7 +4255,10 @@ impl<'a> FnLower<'a> {
         });
 
         let arity = self.fresh_var();
-        self.emit(LirInstr::Const { dst: arity, value: LirConst::Int(args.len() as i64) });
+        self.emit(LirInstr::Const {
+            dst: arity,
+            value: LirConst::Tagged(crate::lir::nanbox_tag_int(args.len() as i64)),
+        });
 
         let result = self.fresh_var();
         let use_yield_path = (native_yield_checks_enabled()
@@ -6347,6 +6353,47 @@ mod tests {
             consts.contains(&crate::lir::LirConst::Tagged(crate::lir::nanbox_tag_int(value))),
             "{consts:?}"
         );
+    }
+
+    /// KI-039: a literal outside 63 bits is a `BigInt`, which native code
+    /// will box; until then it is truncated, as before.
+    #[test]
+    fn a_literal_outside_63_bits_is_a_big_int_ki039() {
+        use crate::aether::{AetherDef, AetherProgram};
+        let span = Span::default();
+        let [f, x] = [1, 2].map(|id| mk_binder(id, Identifier::new(id)));
+        let value = 1i64 << 62;
+        let expr = AetherExpr::Lam {
+            params: vec![x],
+            param_types: vec![],
+            result_ty: None,
+            body: Box::new(AetherExpr::Lit(CoreLit::Int(value), span)),
+            span,
+        };
+        let def = AetherDef::from_core(CoreDef::new(
+            f,
+            CoreExpr::Lit(CoreLit::Int(0), span),
+            false,
+            span,
+        ));
+        let def = AetherDef { expr, ..def };
+        let program = AetherProgram::new(
+            CoreProgram { defs: Vec::new(), top_level_items: Vec::new() },
+            vec![def],
+            Vec::new(),
+        );
+        let lowered = super::lower_aether_program(&program);
+        let consts: Vec<_> = lowered
+            .functions
+            .iter()
+            .flat_map(|func| func.blocks.iter())
+            .flat_map(|block| block.instrs.iter())
+            .filter_map(|instr| match instr {
+                crate::lir::LirInstr::Const { value, .. } => Some(value.clone()),
+                _ => None,
+            })
+            .collect();
+        assert!(consts.contains(&crate::lir::LirConst::BigInt(value)), "{consts:?}");
     }
 
     /// `case xs of [h | t] -> drop_spec xs { unique -> free_shell xs in h,

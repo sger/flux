@@ -260,6 +260,44 @@ fn factorial(n, acc) {
     );
 }
 
+/// `LirConst::Int` is a raw word, emitted as the number itself. A
+/// `BigInt` literal keeps the truncated tagged word until big Ints are
+/// boxed (KI-039).
+#[test]
+fn an_int_constant_is_raw_and_a_big_int_keeps_its_tagged_word() {
+    let big = 1i64 << 62;
+    let mut program = LirProgram::new();
+    program.push_function(LirFunction {
+        name: "consts".to_string(),
+        id: LirFuncId(1),
+        qualified_name: "consts".to_string(),
+        is_dict_def: false,
+        params: Vec::new(),
+        blocks: vec![LirBlock {
+            id: BlockId(0),
+            params: Vec::new(),
+            instrs: vec![
+                LirInstr::Const { dst: LirVar(0), value: LirConst::Int(5) },
+                LirInstr::Const { dst: LirVar(1), value: LirConst::BigInt(big) },
+            ],
+            terminator: LirTerminator::Return(LirVar(1)),
+            locs: Vec::new(),
+            term_loc: Default::default(),
+        }],
+        next_var: 2,
+        capture_vars: Vec::new(),
+        param_reps: Vec::new(),
+        raw_ints: std::collections::HashSet::new(),
+        result_rep: FluxRep::TaggedRep,
+        debug: None,
+    });
+    let ll = emit_llvm_ir(&program);
+    let consts = llvm_function_text(&ll, "flux_consts");
+    assert!(consts.contains("add i64 5, 0"), "{consts}");
+    let tagged = (big << 1) | 1;
+    assert!(consts.contains(&format!("add i64 {tagged}, 0")), "{consts}");
+}
+
 /// A walk that takes each cell apart (KI-164's `nodes`, binarytrees'
 /// `check_tree` clone) frees one on every node. On macOS arm64 the common
 /// case, a chunk block on the thread that owns the heap, goes back on its

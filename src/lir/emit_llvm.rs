@@ -2013,7 +2013,9 @@ impl<'a> FnEmitter<'a> {
 
     fn emit_const(&mut self, dst: LirVar, value: &LirConst) {
         let word = match value {
-            LirConst::Int(n) => Some((*n << 1) | 1),
+            // A raw word is never a uniform one, so no static object holds it.
+            LirConst::Int(_) => None,
+            LirConst::BigInt(n) => Some((*n << 1) | 1),
             LirConst::Bool(b) => Some(if *b { FLUX_TRUE } else { FLUX_FALSE }),
             LirConst::None => Some(FLUX_NONE),
             LirConst::EmptyList => Some(FLUX_EMPTY_LIST),
@@ -2025,6 +2027,15 @@ impl<'a> FnEmitter<'a> {
         }
         match value {
             LirConst::Int(n) => {
+                self.emit(LlvmInstr::Binary {
+                    dst: self.var_local(dst),
+                    op: LlvmValueKind::Add,
+                    ty: LlvmType::i64(),
+                    lhs: self.i64_const(*n),
+                    rhs: self.i64_const(0),
+                });
+            }
+            LirConst::BigInt(n) => {
                 let value = (*n << 1) | 1;
                 self.emit(LlvmInstr::Binary {
                     dst: self.var_local(dst),

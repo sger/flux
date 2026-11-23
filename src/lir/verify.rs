@@ -16,7 +16,8 @@ use std::fmt;
 
 use super::liveness::{instr_def, instr_uses, terminator_successors, terminator_uses};
 use super::{
-    BlockId, CallKind, LirFuncId, LirFunction, LirInstr, LirProgram, LirTerminator, LirVar,
+    BlockId, CallKind, LirConst, LirFuncId, LirFunction, LirInstr, LirProgram, LirTerminator,
+    LirVar,
 };
 
 /// The rule a [`LirVerifyError`] broke.
@@ -734,7 +735,8 @@ fn raw_result(instr: &LirInstr) -> Option<LirVar> {
         | LirInstr::IShr { dst, .. }
         | LirInstr::ICmp { dst, .. }
         | LirInstr::IsUnique { dst, .. }
-        | LirInstr::DropReuse { dst, .. } => Some(*dst),
+        | LirInstr::DropReuse { dst, .. }
+        | LirInstr::Const { dst, value: LirConst::Int(_) } => Some(*dst),
         _ => None,
     }
 }
@@ -783,8 +785,9 @@ mod tests {
         LirVar(n)
     }
 
+    /// A defined uniform word: the tagged Int 1.
     fn constant(dst: u32) -> LirInstr {
-        LirInstr::Const { dst: v(dst), value: LirConst::Int(1) }
+        LirInstr::Const { dst: v(dst), value: LirConst::Tagged(crate::lir::nanbox_tag_int(1)) }
     }
 
     fn program(functions: Vec<LirFunction>) -> LirProgram {
@@ -1165,6 +1168,17 @@ mod tests {
             ],
         );
         assert_eq!(rules(&program(vec![f])), vec![Rule::JoinReps]);
+    }
+
+    /// `LirConst::Int` is a raw word: arithmetic takes it, a return does not.
+    #[test]
+    fn a_raw_int_constant_is_raw() {
+        let raw_const = LirInstr::Const { dst: v(2), value: LirConst::Int(5) };
+        let sum = LirInstr::IAdd { dst: v(3), a: v(1), b: v(2) };
+        let program = single(vec![untag(), raw_const.clone(), sum], LirTerminator::Return(v(0)));
+        assert_eq!(rules(&program), Vec::<Rule>::new());
+        let program = single(vec![raw_const], LirTerminator::Return(v(2)));
+        assert_eq!(rules(&program), vec![Rule::RawInUniform]);
     }
 
     /// A parameter `raw_ints` declares takes a raw word, and only a raw one.
