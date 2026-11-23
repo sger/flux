@@ -1,8 +1,8 @@
 # Testing
 
 The suite has two tiers. Use the fast tier while you work and the full tier
-before you push. CI runs the full tier. Where tests live and how to write them
-is in [`tests/README.md`](tests/README.md).
+before you push. CI runs the full tier. [`tests/README.md`](tests/README.md)
+explains where tests live and how to write them.
 
 The tiers need [cargo-nextest](https://nexte.st): `cargo install cargo-nextest`.
 
@@ -37,6 +37,7 @@ Widen the run as you get more confident, and stop when you are.
 2. Fixing one failing test: `cargo test-fast -E 'test(/name/)'`.
 3. Before committing: `cargo test-fast`.
 4. Before pushing: `cargo test-all` and the doctests.
+5. Before merging: `cargo xtask verify` (see [Before merging](#before-merging)).
 
 Times measured on an Apple M2 Pro (12 cores), with the build already cached:
 
@@ -50,6 +51,21 @@ Times measured on an Apple M2 Pro (12 cores), with the build already cached:
 
 A change to one source file rebuilds the compiler in about 30s. Backend
 changes stay slow because each native test compiles and links a real program.
+
+## Before merging
+
+The tests can't show that the VM and the native backend print the same
+output for every program, so a change runs one more check before it merges:
+
+```sh
+cargo xtask verify my-change --base main
+```
+
+It runs the CI gates and compiles every example, comparing the result with a
+run on `main`. It runs the parity fixtures on both backends, with and without
+the optimizer, and checks native programs for memory errors. It takes about
+15 minutes. [`docs/internals/verification.md`](docs/internals/verification.md)
+explains each step and what to do when one fails.
 
 ## Seeing where the time goes
 
@@ -103,7 +119,7 @@ that branch. It then runs the tests for the matching phases.
   pipeline driver in `src/compiler/`, shared code) runs `cargo test-fast` instead.
 
 The whole compiler is one crate. Cargo sees every test as depending on every
-source file, so this selection is a judgement, not a guarantee. A change in one
+source file, so this selection is a judgment, not a guarantee. A change in one
 phase can break a test filed under another. `cargo test-all` is the check that counts.
 
 To see what would run without running it, pass `--dry-run`. To ask about
@@ -134,5 +150,5 @@ writes a JUnit report to `target/nextest/ci/junit.xml`.
 
 To spread the suite over several runners, add a partition to the matrix and
 pass `--partition hash:<n>/<total>` to `cargo test-all`. Each shard builds the
-tests separately, unless the build is shared through `cargo nextest archive`.
-So check that a shard actually finishes sooner before you turn it on.
+tests separately, unless the build is shared through `cargo nextest archive`,
+so check that a shard finishes sooner before you turn it on.
