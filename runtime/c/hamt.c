@@ -91,8 +91,11 @@ static uint64_t hamt_hash(int64_t key) {
             return fnv1a_bytes((const uint8_t *)data, len);
         }
     }
-    /* For non-string keys, hash the raw i64 bytes. */
-    uint64_t k = (uint64_t)key;
+    /* For non-string keys, hash the raw i64 bytes. @KI-039: a BIGINT box
+     * hashes as the tagged word its value would have, so it is hashed by
+     * value and inline keys keep the hash they had. */
+    uint64_t k = flux_is_bigint(key) ? ((uint64_t)flux_untag_int(key) << 1) | 1
+                                     : (uint64_t)key;
     return fnv1a_bytes((const uint8_t *)&k, 8);
 }
 
@@ -108,8 +111,15 @@ static uint32_t compressed_index(uint32_t bitmap, uint32_t slot) {
 
 static int keys_equal(int64_t a, int64_t b) {
     if (a == b) return 1;
-    /* For boxed string values, compare by content. */
-    if (flux_is_ptr(a) && flux_is_ptr(b)) {
+    /* @KI-039: Ints by value, whichever form each has. */
+    if (flux_is_int(a) && flux_is_int(b)) {
+        return flux_untag_int(a) == flux_untag_int(b);
+    }
+    /* Strings by content. flux_string_eq reads any pointer as a string, so
+     * it is only handed two. */
+    if (flux_is_ptr(a) && flux_is_ptr(b)
+        && flux_obj_tag(flux_untag_ptr(a)) == FLUX_OBJ_STRING
+        && flux_obj_tag(flux_untag_ptr(b)) == FLUX_OBJ_STRING) {
         return flux_string_eq(a, b);
     }
     return 0;

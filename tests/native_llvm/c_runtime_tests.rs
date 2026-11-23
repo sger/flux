@@ -208,5 +208,23 @@ c_tests!(
         neg_and_abs_wrap,
         div_by_minus_one_negates,
         mod_by_minus_one_is_zero,
+        boxed_min_by_minus_one,
+        boxed_max_plus_one,
+    ]
+);
+
+c_tests!(
+    bigint_ki039,
+    "bigint_test.c",
+    [plain, sanitize, debug_heap],
+    [
+        canonical_form,
+        a_box_is_an_int,
+        equal_by_value,
+        ordered_by_value,
+        map_key_by_value,
+        prints_as_its_value,
+        json_writes_its_value,
+        dup_and_drop,
     ]
 );

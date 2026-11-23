@@ -665,8 +665,8 @@ void flux_gc_free(void *ptr) {
  * ADT:        { int32_t ctor_tag, int32_t field_count, i64 fields[] }
  *   → prefix = 8 bytes = 1 word, fields at offset 1
  *
- * BigInt:     { uint8_t tag, pad[7], int64_t value }
- *   → 0 scannable fields (value is raw int, not a tagged pointer)
+ * BigInt:     { int64_t value }, tagged FLUX_OBJ_BIGINT in the header
+ *   → 0 scannable fields (value is a raw int, not a tagged word)
  */
 static int flux_scan_offset(uint8_t obj_tag) {
     switch (obj_tag) {

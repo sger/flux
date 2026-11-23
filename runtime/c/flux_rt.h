@@ -19,7 +19,8 @@
  *   8  = Uninit
  *   10 = YieldSentinel
  *
- * Floats are heap-boxed: pointer to { FluxHeader, double }.
+ * Floats are heap-boxed: pointer to { FluxHeader, double }. An Int outside
+ * 63 bits will be one too, { FluxHeader, int64_t } (see flux_make_int).
  */
 
 #ifndef FLUX_RT_H
@@ -45,16 +46,62 @@ extern "C" {
 
 /* ── Inline pointer-tag helpers ────────────────────────────────────── */
 
+static inline int flux_is_ptr(int64_t val) {
+    return !(val & 1) && (uint64_t)val >= FLUX_MIN_PTR;
+}
+
+/* Pointer tagging is zero-cost: heap pointers are naturally even. */
+static inline int64_t flux_tag_ptr(void *ptr) {
+    return (int64_t)(uintptr_t)ptr;
+}
+
+static inline void *flux_untag_ptr(int64_t val) {
+    return (void *)(uintptr_t)val;
+}
+
+/* ── Heap object type tags ──────────────────────────────────────────── */
+/*
+ * Every heap object's FluxHeader carries a uint8_t type tag, so that
+ * flux_print and the rest of the runtime can tell the object kind.
+ */
+
+/* Tags are chosen to not collide with ADT constructor tags (0-255). */
+#define FLUX_OBJ_STRING   0xF1
+#define FLUX_OBJ_ADT      0xF2
+#define FLUX_OBJ_TUPLE    0xF3
+#define FLUX_OBJ_ARRAY    0xF4
+#define FLUX_OBJ_CLOSURE  0xF5
+#define FLUX_OBJ_BIGINT   0xF6
+#define FLUX_OBJ_EVIDENCE 0xF7
+#define FLUX_OBJ_FLOAT    0xF8
+#define FLUX_OBJ_THUNK    0xF9
+#define FLUX_OBJ_MAP      0xFA
+
+static inline uint8_t flux_obj_tag(void *ptr) {
+    /* Read obj_tag from the FluxHeader at ptr - 8.
+     * Layout: { i32 refcount, u8 scan_fsize, u8 obj_tag, u8 progress, u8 size_class }
+     * obj_tag is at offset 5 within the header. */
+    return *((uint8_t *)ptr - 3);
+}
+
+void *flux_gc_alloc_header(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag);
+
+/* ── Ints ───────────────────────────────────────────────────────────── */
+
 /* 63-bit signed integer range (±4.6 quintillion). */
 #define FLUX_MAX_INLINE_INT  ((int64_t)((1LL << 62) - 1))
 #define FLUX_MIN_INLINE_INT  ((int64_t)(-(1LL << 62)))
 
-static inline int flux_is_int(int64_t val) {
-    return (int)(val & 1);
+/* @KI-039: an Int outside 63 bits is a BIGINT box, { FluxHeader, int64_t },
+ * and one inside is always inline, so equal Ints have the same form. The
+ * runtime reads both forms; nothing makes a box until native code reads
+ * one too, when producers switch from flux_tag_int to flux_make_int. */
+static inline int flux_is_bigint(int64_t val) {
+    return flux_is_ptr(val) && flux_obj_tag(flux_untag_ptr(val)) == FLUX_OBJ_BIGINT;
 }
 
-static inline int flux_is_ptr(int64_t val) {
-    return !(val & 1) && (uint64_t)val >= FLUX_MIN_PTR;
+static inline int flux_is_int(int64_t val) {
+    return (val & 1) || flux_is_bigint(val);
 }
 
 static inline int64_t flux_tag_int(int64_t raw) {
@@ -64,7 +111,21 @@ static inline int64_t flux_tag_int(int64_t raw) {
 }
 
 static inline int64_t flux_untag_int(int64_t val) {
-    return val >> 1;  /* arithmetic right shift — sign-extends */
+    if (val & 1) return val >> 1;  /* arithmetic right shift — sign-extends */
+    if (flux_is_bigint(val)) {
+        int64_t raw;
+        memcpy(&raw, flux_untag_ptr(val), sizeof(raw));
+        return raw;
+    }
+    return val >> 1;
+}
+
+/* The canonical Int for `raw`: inline when it fits 63 bits, else a box. */
+static inline int64_t flux_make_int(int64_t raw) {
+    if (raw >= FLUX_MIN_INLINE_INT && raw <= FLUX_MAX_INLINE_INT) return flux_tag_int(raw);
+    void *mem = flux_gc_alloc_header(sizeof(raw), 0, FLUX_OBJ_BIGINT);
+    memcpy(mem, &raw, sizeof(raw));
+    return flux_tag_ptr(mem);
 }
 
 /* @KI-219: Int wraps on every backend (src/shared/int_arith.rs), but a
@@ -100,15 +161,6 @@ static inline int64_t flux_int_rem(int64_t a, int64_t b) {
     return b == -1 ? 0 : a % b;
 }
 
-/* Pointer tagging is zero-cost: heap pointers are naturally even. */
-static inline int64_t flux_tag_ptr(void *ptr) {
-    return (int64_t)(uintptr_t)ptr;
-}
-
-static inline void *flux_untag_ptr(int64_t val) {
-    return (void *)(uintptr_t)val;
-}
-
 /* Booleans */
 static inline int64_t flux_make_bool(int b) {
     return b ? FLUX_TRUE : FLUX_FALSE;
@@ -119,10 +171,8 @@ static inline int64_t flux_make_none(void) { return FLUX_NONE; }
 static inline int64_t flux_make_empty_list(void) { return FLUX_EMPTY_LIST; }
 
 /* Float boxing — floats are heap-allocated { FluxHeader, double }. */
-void *flux_gc_alloc_header(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag);
-
 static inline int64_t flux_box_float(double f) {
-    void *mem = flux_gc_alloc_header(sizeof(double), 0, 0xF8 /* FLUX_OBJ_FLOAT */);
+    void *mem = flux_gc_alloc_header(sizeof(double), 0, FLUX_OBJ_FLOAT);
     memcpy(mem, &f, sizeof(double));
     return flux_tag_ptr(mem);
 }
@@ -131,32 +181,6 @@ static inline double flux_unbox_float(int64_t val) {
     double f;
     memcpy(&f, flux_untag_ptr(val), sizeof(double));
     return f;
-}
-
-/* ── Heap object type tags ──────────────────────────────────────────── */
-/*
- * Every heap-allocated object starts with a uint8_t type tag so that
- * flux_print (and future GC) can identify the object kind at runtime.
- * The tag occupies the first byte; the remaining layout is type-specific.
- */
-
-/* Tags are chosen to not collide with ADT constructor tags (0-255). */
-#define FLUX_OBJ_STRING   0xF1
-#define FLUX_OBJ_ADT      0xF2
-#define FLUX_OBJ_TUPLE    0xF3
-#define FLUX_OBJ_ARRAY    0xF4
-#define FLUX_OBJ_CLOSURE  0xF5
-#define FLUX_OBJ_BIGINT   0xF6
-#define FLUX_OBJ_EVIDENCE 0xF7
-#define FLUX_OBJ_FLOAT    0xF8
-#define FLUX_OBJ_THUNK    0xF9
-#define FLUX_OBJ_MAP      0xFA
-
-static inline uint8_t flux_obj_tag(void *ptr) {
-    /* Read obj_tag from the FluxHeader at ptr - 8.
-     * Layout: { i32 refcount, u8 scan_fsize, u8 obj_tag, u8 progress, u8 size_class }
-     * obj_tag is at offset 5 within the header. */
-    return *((uint8_t *)ptr - 3);
 }
 
 /* Thunk detection — thunks are heap pointers with FLUX_OBJ_THUNK tag. */
@@ -188,7 +212,6 @@ static inline int flux_val_is_float(int64_t val) {
 void  flux_gc_init(size_t heap_size);
 void  flux_gc_shutdown(void);
 void *flux_gc_alloc(uint32_t size);
-void *flux_gc_alloc_header(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag);
 void *flux_bump_alloc_slow(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag);
 void *flux_bump_alloc_slow_filled(uint32_t payload_size, uint8_t scan_fsize, uint8_t obj_tag);
 void  flux_gc_free(void *ptr);

@@ -2250,6 +2250,10 @@ int64_t flux_hamt_get_option(int64_t map, int64_t key) {
 int64_t flux_rt_eq(int64_t a, int64_t b) {
     /* Fast path: bitwise equal (same int, bool, None, or same pointer). */
     if (a == b) return flux_make_bool(1);
+    /* @KI-039: two Ints are equal by value, whichever form each has. */
+    if (flux_is_int(a) && flux_is_int(b)) {
+        return flux_make_bool(flux_untag_int(a) == flux_untag_int(b));
+    }
     /* Heap pointer structural equality. */
     if (flux_is_ptr(a) && flux_is_ptr(b)) {
         void *pa = flux_untag_ptr(a);
@@ -2346,10 +2350,15 @@ static int flux_string_cmp(int64_t a, int64_t b) {
  * would be compared here by its address, so it is refused the same way
  * (KI-157). `opcode` is the VM's name for the operator; it writes `<` as
  * `OpGreaterThan` with the operands swapped. */
+static int is_ordered_box(int64_t v) {
+    /* @KI-039: a BIGINT box is an Int, ordered by value. */
+    return flux_val_is_string(v) || flux_val_is_float(v) || flux_is_bigint(v);
+}
+
 static void check_ordered(int64_t a, int64_t b, const char *opcode) {
     int64_t odd = 0;
-    if (flux_is_ptr(a) && !flux_val_is_string(a) && !flux_val_is_float(a)) odd = a;
-    else if (flux_is_ptr(b) && !flux_val_is_string(b) && !flux_val_is_float(b)) odd = b;
+    if (flux_is_ptr(a) && !is_ordered_box(a)) odd = a;
+    else if (flux_is_ptr(b) && !is_ordered_box(b)) odd = b;
     if (odd) {
         flux_runtime_error("cannot compare %s with %s",
                            flux_value_kind_name(odd), opcode);

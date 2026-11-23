@@ -73,6 +73,26 @@ TEST(mod_by_minus_one_is_zero) {
     }
 }
 
+/* A BIGINT box can hold the operands a 63-bit Int can't (KI-039). Results
+ * are still tagged inline until the flip, so they are compared that way. */
+TEST(boxed_min_by_minus_one) {
+    int64_t min = flux_make_int(INT64_MIN);
+    int64_t minus_one = flux_tag_int(-1);
+    ASSERT_EQ_WORD(flux_rt_div(min, minus_one), flux_tag_int(INT64_MIN));
+    ASSERT_EQ_WORD(flux_rt_mod(min, minus_one), flux_tag_int(0));
+    ASSERT_EQ_WORD(flux_rt_neg(min), flux_tag_int(INT64_MIN));
+    ASSERT_EQ_WORD(flux_abs(min), flux_tag_int(INT64_MIN));
+    flux_drop(min);
+}
+
+TEST(boxed_max_plus_one) {
+    int64_t max = flux_make_int(INT64_MAX);
+    ASSERT_EQ_WORD(flux_rt_add(max, flux_tag_int(1)), flux_tag_int(INT64_MIN));
+    ASSERT_EQ_WORD(flux_rt_sub(flux_tag_int(-2), max), flux_tag_int(wrap_sub(-2, INT64_MAX)));
+    ASSERT_EQ_WORD(flux_rt_mul(max, max), flux_tag_int(1));
+    flux_drop(max);
+}
+
 FLUX_TESTS_BEGIN
     CASE(add_wraps)
     CASE(sub_wraps)
@@ -80,4 +100,6 @@ FLUX_TESTS_BEGIN
     CASE(neg_and_abs_wrap)
     CASE(div_by_minus_one_negates)
     CASE(mod_by_minus_one_is_zero)
+    CASE(boxed_min_by_minus_one)
+    CASE(boxed_max_plus_one)
 FLUX_TESTS_END
