@@ -4,6 +4,7 @@
 mod support;
 
 mod bitwise_primop_native_tests;
+mod c_runtime_tests;
 mod effect_multi_shot_tests;
 mod llvm_adt;
 mod llvm_closures;

@@ -1,8 +1,9 @@
 /*
  * smoke_test.c — Minimal tests for the Flux C runtime.
  *
- * Exercises GC, NaN-boxing, strings, HAMT, and basic I/O.
- * Build: see Makefile `make test`.
+ * Exercises tagging, allocation, strings, the HAMT and stackless drop.
+ * tests/native_llvm/c_runtime_tests.rs builds it against the runtime and
+ * runs it: the runtime's main() calls flux_main() below.
  */
 
 #include "flux_rt.h"
@@ -23,9 +24,9 @@ static int tests_passed = 0;
     } \
 } while (0)
 
-/* ── NaN-box round-trip tests ───────────────────────────────────────── */
+/* ── Tagging round-trip tests ───────────────────────────────────────── */
 
-static void test_nanbox_int(void) {
+static void test_tag_int(void) {
     int64_t v0 = flux_tag_int(0);
     ASSERT(flux_untag_int(v0) == 0, "tag/untag int 0");
 
@@ -42,24 +43,22 @@ static void test_nanbox_int(void) {
     ASSERT(flux_untag_int(vneg_big) == -999999, "tag/untag int -999999");
 }
 
-static void test_nanbox_bool(void) {
+static void test_tag_bool(void) {
     int64_t t = flux_make_bool(1);
     int64_t f = flux_make_bool(0);
-    ASSERT(flux_is_nanbox(t), "bool true is nanbox");
-    ASSERT(flux_is_nanbox(f), "bool false is nanbox");
-    ASSERT(flux_nanbox_tag(t) == FLUX_TAG_BOOLEAN, "bool true tag");
-    ASSERT(flux_nanbox_tag(f) == FLUX_TAG_BOOLEAN, "bool false tag");
-    ASSERT(((uint64_t)t & FLUX_PAYLOAD_MASK) == 1, "bool true payload");
-    ASSERT(((uint64_t)f & FLUX_PAYLOAD_MASK) == 0, "bool false payload");
+    ASSERT(t == FLUX_TRUE, "bool true");
+    ASSERT(f == FLUX_FALSE, "bool false");
+    ASSERT(!flux_is_ptr(t) && !flux_is_int(t), "bool true is neither ptr nor int");
+    ASSERT(!flux_is_ptr(f) && !flux_is_int(f), "bool false is neither ptr nor int");
 }
 
-static void test_nanbox_none(void) {
+static void test_tag_none(void) {
     int64_t n = flux_make_none();
-    ASSERT(flux_is_nanbox(n), "none is nanbox");
-    ASSERT(flux_nanbox_tag(n) == FLUX_TAG_NONE, "none tag");
+    ASSERT(n == FLUX_NONE, "none");
+    ASSERT(!flux_is_ptr(n) && !flux_is_int(n), "none is neither ptr nor int");
 }
 
-static void test_nanbox_ptr(void) {
+static void test_tag_ptr(void) {
     /* Allocate something and round-trip through tag/untag. */
     int64_t *obj = (int64_t *)flux_gc_alloc(16);
     obj[0] = 0xDEADBEEF;
@@ -142,9 +141,9 @@ static void test_hamt_basic(void) {
     ASSERT(flux_untag_int(flux_hamt_size(map)) == 0, "original map unchanged");
 
     /* Contains. */
-    ASSERT(((uint64_t)flux_hamt_contains(map2, key1) & FLUX_PAYLOAD_MASK) == 1, "contains existing");
+    ASSERT(flux_hamt_contains(map2, key1) == FLUX_TRUE, "contains existing");
     int64_t key2 = flux_tag_int(2);
-    ASSERT(((uint64_t)flux_hamt_contains(map2, key2) & FLUX_PAYLOAD_MASK) == 0, "not contains missing");
+    ASSERT(flux_hamt_contains(map2, key2) == FLUX_FALSE, "not contains missing");
 }
 
 static void test_hamt_multiple(void) {
@@ -259,15 +258,22 @@ static void test_stackless_drop_single_field(void) {
     ASSERT(1, "stackless drop of 200K nested Some did not crash");
 }
 
-/* ── Main ───────────────────────────────────────────────────────────── */
+/* ── Entry ──────────────────────────────────────────────────────────── */
 
-int main(void) {
-    flux_rt_init();
+/* Codegen defines the closure trampoline; nothing here calls a closure. */
+int64_t flux_call_closure_c(int64_t closure, int64_t *args, int32_t nargs) {
+    (void)closure;
+    (void)args;
+    (void)nargs;
+    fprintf(stderr, "FAIL: smoke test called a closure\n");
+    exit(1);
+}
 
-    test_nanbox_int();
-    test_nanbox_bool();
-    test_nanbox_none();
-    test_nanbox_ptr();
+int64_t flux_main(void) {
+    test_tag_int();
+    test_tag_bool();
+    test_tag_none();
+    test_tag_ptr();
     test_gc_basic();
     test_string_basic();
     test_string_concat();
@@ -281,8 +287,7 @@ int main(void) {
     test_stackless_drop_tree();
     test_stackless_drop_single_field();
 
-    flux_rt_shutdown();
-
     printf("%d/%d tests passed\n", tests_passed, tests_run);
-    return (tests_passed == tests_run) ? 0 : 1;
+    if (tests_passed != tests_run) exit(1);
+    return FLUX_NONE;
 }

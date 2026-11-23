@@ -4,7 +4,7 @@
 #   make              Build libflux_rt.a (static library)
 #   make shared       Build libflux_rt.so / libflux_rt.dylib
 #   make clean        Remove build artifacts
-#   make test         Build and run the smoke test
+#   make test         Build and run the C runtime tests (through cargo)
 #
 # Variables:
 #   CC          C compiler (default: cc)
@@ -53,18 +53,13 @@ shared: $(OBJS)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:
-	rm -f $(OBJS) $(LIB) $(SHARED_LIB) smoke_test smoke_test.o
+	rm -f $(OBJS) $(LIB) $(SHARED_LIB)
 
 # ── Smoke test ───────────────────────────────────────────────────────
 #
-# Compile a minimal program that exercises the runtime.
-# The test provides its own main() so we compile flux_rt.c without
-# the default main() by defining FLUX_RT_NO_MAIN.
+# The smoke test calls into the Rust side of the runtime, so it is built
+# and linked the way a native Flux program is, by
+# tests/native_llvm/c_runtime_tests.rs. This target runs that test.
 
-test: $(LIB) smoke_test.c
-	$(CC) $(CFLAGS) -DFLUX_RT_NO_MAIN -c -o flux_rt_nomain.o flux_rt.c
-	$(AR) rcs libflux_rt_nomain.a rc.o flux_rt_nomain.o string.o hamt.o effects.o array.o
-	$(CC) $(CFLAGS) -o smoke_test smoke_test.c -L. -lflux_rt_nomain $(LDFLAGS)
-	./smoke_test
-	@echo "smoke test passed"
-	@rm -f flux_rt_nomain.o libflux_rt_nomain.a smoke_test
+test:
+	cargo test --manifest-path ../../Cargo.toml --features llvm --test native_llvm c_runtime
