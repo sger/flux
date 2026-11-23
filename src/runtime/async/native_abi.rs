@@ -1163,14 +1163,23 @@ fn next_scope_id() -> u64 {
     NEXT_SCOPE_ID.fetch_add(1, Ordering::Relaxed)
 }
 
+/// The inline Int word for `raw`. @KI-039: an Int beyond 63 bits is a heap
+/// BIGINT box, but what this file tags (request ids, race indices, TCP
+/// handles, file sizes, times in ms) is a counter or a size that never gets
+/// near that, so it stays inline and needs no allocation.
 fn tag_int(raw: u64) -> i64 {
+    debug_assert!(raw < 1 << 62, "{raw} needs a BIGINT box");
     ((raw as i64) << 1) | 1
 }
 
-fn untag_int(value: i64) -> u64 {
+/// The request id `tag_int` made for a suspended fiber: always inline.
+fn untag_request_id(value: i64) -> u64 {
+    debug_assert!(value & 1 == 1, "request id {value:#x} is not an inline Int");
     (value >> 1) as u64
 }
 
+/// Whether `value` is a heap ADT (header tag 0xF2), as a fiber's error value
+/// is. A BIGINT box (0xF6) is an Int, so it is not one.
 fn is_adt_value(value: i64) -> bool {
     if (value & 1) != 0 || (value as u64) < 12 {
         return false;
@@ -1235,7 +1244,7 @@ fn execute_fiber(handle: &RunHandle, worker: usize, mut fiber: Fiber, cb: FluxAs
     let mut state = handle.shared.state.lock().expect("native async state poisoned");
     state.running_fibers.remove(&fiber.id);
     if unsafe { (cb.is_suspended)() } != 0 {
-        let request = untag_int(unsafe { (cb.current_request)() });
+        let request = untag_request_id(unsafe { (cb.current_request)() });
         let continuation = unsafe { (cb.compose_conts)() };
         unsafe {
             (cb.clear_suspend)();
@@ -1971,6 +1980,30 @@ mod tests {
         let local = run.pop_ready_or_steal(0).expect("worker 0 runs ordered child");
         assert_eq!(local.id, ordered);
         release_cancelled_fiber(local);
+    }
+
+    /// A word pointing just past an 8-byte header whose type tag byte
+    /// (payload - 3) is `tag`, laid out as the C runtime's FluxHeader.
+    fn tagged_block(block: &mut [u64; 2], tag: u8) -> i64 {
+        block[0] = (tag as u64) << 40;
+        &block[1] as *const u64 as i64
+    }
+
+    #[test]
+    fn only_an_adt_block_is_an_adt_value_ki039() {
+        let mut adt = [0u64; 2];
+        let mut bigint = [0u64; 2];
+        assert!(is_adt_value(tagged_block(&mut adt, 0xF2)));
+        assert!(!is_adt_value(tagged_block(&mut bigint, 0xF6)));
+        assert!(!is_adt_value(tag_int(7)));
+        assert!(!is_adt_value(FLUX_NONE));
+    }
+
+    #[test]
+    fn request_ids_round_trip_inline_ki039() {
+        for id in [0, 1, 42, u32::MAX as u64, (1 << 62) - 1] {
+            assert_eq!(untag_request_id(tag_int(id)), id);
+        }
     }
 }
 
