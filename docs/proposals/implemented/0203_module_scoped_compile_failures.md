@@ -72,9 +72,9 @@ errors." After a parse error, the exit above means the loop is never reached.
 
 ### How it got this way
 
-- `057d5d78` (2026-02-14, "unify cross-module diagnostic reporting") added `entry_has_errors`,
+- `7baa4242` (2026-02-14, "unify cross-module diagnostic reporting") added `entry_has_errors`,
   `failed_modules` and the `MODULE SKIPPED` note, for the behaviour this proposal asks for.
-- `475948fe` (2026-04-26) added the exit. Its changelog entry
+- `b08a038b` (2026-04-26) added the exit. Its changelog entry
   (`changes/2026-04-26-import-cycle-diagnostics.md`) says "Stopped module-resolution failures
   from cascading into later type and backend diagnostics."
 - The target was a broken graph. The check it used, any error-severity diagnostic, also caught
@@ -128,7 +128,7 @@ the two kinds of failure, though it doesn't say so in its result:
 `GraphBuildResult` gets a field that records whether a graph failure happened, set where those
 diagnostics are pushed. The driver's rule is then:
 
-1. Graph failure: emit the diagnostics and exit, as `475948fe` intended. No type checking.
+1. Graph failure: emit the diagnostics and exit, as `b08a038b` intended. No type checking.
 2. Otherwise go on to `compile_modules_for_run`, whatever module failures there were.
 
 ### §2 The entry

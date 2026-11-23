@@ -32,7 +32,7 @@ No refinement types and no solver: 0135 Phase 4 stays future work.
 
 `lib/Flow/NonZero.flx` declares `data NonZero { NonZero(Int) }` without `public`.
 0151 says such a type's constructors "are invisible outside the module".
-Checked 2026-11-03 at b21d7f89:
+Checked 2026-11-03 at ab5485d7:
 
 | Program | Result |
 |---|---|

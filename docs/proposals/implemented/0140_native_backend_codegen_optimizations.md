@@ -470,7 +470,7 @@ The remaining 1.3x gap to GHC would be due to:
 | Constructor reuse | `kk_block_drop_reuse()` | `DropReuse` LIR instruction | Similar design |
 
 > **Note** (2026-11-02): this table is Flux as it was when the proposal was
-> written. Since then pointer tagging (c493978a) has replaced NaN-boxing, and
+> written. Since then pointer tagging (e6efaa38) has replaced NaN-boxing, and
 > the tail-call row was never true: a LIR tail call becomes an LLVM `tail call`
 > (`promote_tail_calls` in `src/lir/lower.rs`), a hint LLVM may ignore, and
 > Flux emits no `musttail`. [KI-148](../../known_issues.md#ki-148) is a self

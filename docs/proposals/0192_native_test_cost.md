@@ -29,7 +29,7 @@ dynamic runtime library for test links (it shortens the 5%, not the 86%).
 
 ### Where a native build's time goes
 
-Measured on 2026-10-31, commit `21f7d95d`, macOS on Apple silicon, release
+Measured on 2026-10-31, commit `5ddd7d38`, macOS on Apple silicon, release
 `flux`. Each of the 147 parity fixtures that run natively was built and run
 twice with `--native --stats-json` (added the same day),
 against one cache already holding the stdlib, as a test with a seeded cache

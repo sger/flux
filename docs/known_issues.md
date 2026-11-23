@@ -70,7 +70,7 @@ Severity is about consequence, not effort:
 
 ### KI-176 — An uppercase type parameter breaks `deriving` on a generic type and an instance's context
 
-**Severity:** Medium · **Area:** Type classes, deriving · **Verified:** 2026-11-09 (2fe0af80) · **From:** 0190 S17a (`cargo xtask fuzz --with classes`, the generator's first version)
+**Severity:** Medium · **Area:** Type classes, deriving · **Verified:** 2026-11-09 (e5af0ad4) · **From:** 0190 S17a (`cargo xtask fuzz --with classes`, the generator's first version)
 
 ```flux
 data Box<T> { Full(T), Empty } deriving (Eq)
@@ -90,7 +90,7 @@ until this is fixed.
 
 ### KI-177 — A method call on a generic type's nullary constructor stops the compiler with E000
 
-**Severity:** Low · **Area:** Type classes, diagnostics · **Verified:** 2026-11-09 (2fe0af80) · **From:** 0190 S17a (`cargo xtask fuzz --with classes`)
+**Severity:** Low · **Area:** Type classes, diagnostics · **Verified:** 2026-11-09 (e5af0ad4) · **From:** 0190 S17a (`cargo xtask fuzz --with classes`)
 
 ```flux
 data Box<a> { Full(a), Empty }
@@ -121,7 +121,7 @@ only calls a method on a generic type's value through an annotated variable.
 
 ### KI-178 — On the VM, a class method named like a prelude function panics when `main` calls it
 
-**Severity:** Medium · **Area:** VM, type classes, name resolution · **Verified:** 2026-11-10 (ea48361a) · **From:** 0190 S17a (a probe written while checking the exit plant)
+**Severity:** Medium · **Area:** VM, type classes, name resolution · **Verified:** 2026-11-10 (864adfcd) · **From:** 0190 S17a (a probe written while checking the exit plant)
 
 ```flux
 class Two<a> {
@@ -159,7 +159,7 @@ The fuzz generator names its methods `m<n>`, so it can't produce this.
 
 ### KI-179 — Without `--strict`, `[]` is accepted at any type, and natively nothing checks it
 
-**Severity:** High (silent wrong output natively) · **Area:** Type inference, runtime boundary checks, native backend · **Verified:** 2026-11-10 (0dd6c6cb) · **From:** 0190 S17a (`cargo xtask fuzz reduce` drifted onto it from a planted miscompile)
+**Severity:** High (silent wrong output natively) · **Area:** Type inference, runtime boundary checks, native backend · **Verified:** 2026-11-10 (cf4eeb66) · **From:** 0190 S17a (`cargo xtask fuzz reduce` drifted onto it from a planted miscompile)
 
 ```flux
 data D3 { C4, C5(String) }
@@ -202,7 +202,7 @@ classes).
 
 ### KI-180 — A named-field constructor with no lowercase letter in its name can be declared but not built
 
-**Severity:** Low · **Area:** Parser, named fields (0152) · **Verified:** 2026-11-10 (db1babdc) · **From:** 0190 S17b (a probe of the forms the generator would write)
+**Severity:** Low · **Area:** Parser, named fields (0152) · **Verified:** 2026-11-10 (297052b5) · **From:** 0190 S17b (a probe of the forms the generator would write)
 
 ```flux
 data R5 { R5 { f6: Int, f7: String } }
@@ -230,7 +230,7 @@ The fuzz generator names its records `Rec<n>`.
 
 ### KI-181 — A named-field construction inside an `if` condition or a `match` scrutinee doesn't parse, even in parentheses or a call
 
-**Severity:** Low · **Area:** Parser, named fields (0152) · **Verified:** 2026-11-10 (86803c35) · **From:** 0190 S17b (a probe of the forms the generator would write)
+**Severity:** Low · **Area:** Parser, named fields (0152) · **Verified:** 2026-11-10 (28304368) · **From:** 0190 S17b (a probe of the forms the generator would write)
 
 ```flux
 data Rec5 { Rec5 { f6: Int, f7: String } }
@@ -264,7 +264,7 @@ scrutinee: a record there comes from a variable.
 
 ### KI-182 — Natively, a printed closure shows as `<unknown obj=0xf5>`
 
-**Severity:** Low · **Area:** C runtime, printing · **Verified:** 2026-11-10 (f087a142) · **From:** 0190 S17b (`cargo xtask fuzz reduce` drifted onto it)
+**Severity:** Low · **Area:** C runtime, printing · **Verified:** 2026-11-10 (d6bbac07) · **From:** 0190 S17b (`cargo xtask fuzz reduce` drifted onto it)
 
 ```flux
 fn main() with IO {
@@ -283,7 +283,7 @@ differed on stdout, so a reduction of S17b's exit plant drifted onto this.
 
 ### KI-183 — Natively, `f(a)(b)` gives back the closure `f(a)` returns, without calling it
 
-**Severity:** High (silent wrong output natively; a closure in an `Int`) · **Area:** Core, native calls · **Verified:** 2026-11-10 (e1531cc4) · **From:** 0190 S17b (`cargo xtask fuzz reduce` drifted onto it from the exit plant, 3 of 3 reductions)
+**Severity:** High (silent wrong output natively; a closure in an `Int`) · **Area:** Core, native calls · **Verified:** 2026-11-10 (ab7801a3) · **From:** 0190 S17b (`cargo xtask fuzz reduce` drifted onto it from the exit plant, 3 of 3 reductions)
 
 ```flux
 fn adder(n: Int) -> (Int) -> Int { \(x: Int) -> (x + n) }
@@ -316,7 +316,7 @@ stdout.
 
 ### KI-184 — Natively, an effect operation of two or more parameters gives its handle a closure
 
-**Severity:** High (silent wrong output natively) · **Area:** Native effects, `perform` lowering · **Verified:** 2026-11-10 (ae6dbc70) · **From:** 0190 S17c (a probe of the forms the generator would write)
+**Severity:** High (silent wrong output natively) · **Area:** Native effects, `perform` lowering · **Verified:** 2026-11-10 (1661346e) · **From:** 0190 S17c (a probe of the forms the generator would write)
 
 ```flux
 effect Ask { ask : (Int, Int) -> Int }
@@ -346,7 +346,7 @@ The fuzz generator writes operations of at most one parameter.
 
 ### KI-186 — A handler clause that reads a value the handled call takes over stops the compiler with E999
 
-**Severity:** Medium (valid programs refused, with an internal error) · **Area:** Aether, ownership, effect handlers · **Verified:** 2026-11-10 (5fb02344) · **From:** 0190 S17c (`cargo xtask fuzz --seed 1 --with effects --gen-only`, case 65 of 200)
+**Severity:** Medium (valid programs refused, with an internal error) · **Area:** Aether, ownership, effect handlers · **Verified:** 2026-11-10 (97685ab1) · **From:** 0190 S17c (`cargo xtask fuzz --seed 1 --with effects --gen-only`, case 65 of 200)
 
 ```flux
 effect Eff { op : (Int) -> Int }
@@ -403,7 +403,7 @@ through `map` do the same.
 
 ### KI-189 — On the VM, a record update on a record type from another module gives back the record unchanged
 
-**Severity:** High (silent wrong output) · **Area:** VM, records, modules · **Verified:** 2026-11-11 (30680987) · **From:** the first full-generator hunt (`cargo xtask fuzz --seed 2 --count 200 --with classes,values,effects,async,modules`, cases 40 and 166)
+**Severity:** High (silent wrong output) · **Area:** VM, records, modules · **Verified:** 2026-11-11 (f3e8e651) · **From:** the first full-generator hunt (`cargo xtask fuzz --seed 2 --count 200 --with classes,values,effects,async,modules`, cases 40 and 166)
 
 `M1.flx`:
 
@@ -440,7 +440,7 @@ VM's side. Its cause isn't known yet.
 
 ### KI-190 — On the VM, a function declared to return a function stops with E1004 when its body is an unannotated lambda
 
-**Severity:** Medium (loud failure; annotating the lambda's parameter works around it) · **Area:** VM, runtime boundary checks · **Verified:** 2026-11-11 (30680987) · **From:** 0201 (writing its parity fixture)
+**Severity:** Medium (loud failure; annotating the lambda's parameter works around it) · **Area:** VM, runtime boundary checks · **Verified:** 2026-11-11 (f3e8e651) · **From:** 0201 (writing its parity fixture)
 
 ```flux
 fn curried(a: Int) -> (Int) -> Int { \b -> a + b }
@@ -473,7 +473,7 @@ Calling the result straight away, `curried(1)(2)`, is KI-183 natively.
 
 ### KI-191 — `flux fmt` indents the lines of a `"""` string, which changes the string
 
-**Severity:** High (formatting changes what a program prints, with no warning) · **Area:** Formatter (`src/syntax/formatter.rs`), LSP formatting · **Verified:** 2026-11-11 (30680987) · **From:** 0201 (formatting `examples/guide/newline_calls.flx`)
+**Severity:** High (formatting changes what a program prints, with no warning) · **Area:** Formatter (`src/syntax/formatter.rs`), LSP formatting · **Verified:** 2026-11-11 (f3e8e651) · **From:** 0201 (formatting `examples/guide/newline_calls.flx`)
 
 ```flux
 fn main() with IO {
@@ -507,7 +507,7 @@ the same function, so formatting in VS Code changes the string too.
 
 ### KI-192 — `flux fmt` indents every line one level too deep after a line that closes more brackets than it opens
 
-**Severity:** Low (output unchanged; the file's layout is wrong until its end) · **Area:** Formatter (`src/syntax/formatter.rs`) · **Verified:** 2026-11-11 (30680987) · **From:** 0201 (formatting `examples/guide/newline_calls.flx`)
+**Severity:** Low (output unchanged; the file's layout is wrong until its end) · **Area:** Formatter (`src/syntax/formatter.rs`) · **Verified:** 2026-11-11 (f3e8e651) · **From:** 0201 (formatting `examples/guide/newline_calls.flx`)
 
 ```flux
 fn f(x: Int) -> Int { x }
@@ -542,7 +542,7 @@ block's indentation. That is a style choice, not this bug.
 
 ### KI-193 — Natively, a TCP operation that fails resumes its fiber with `None` instead of failing it
 
-**Severity:** High (a `String` is `None`, and the program prints it with no error) · **Area:** native runtime, async I/O (`src/runtime/async/native_abi.rs`) · **Verified:** 2026-11-11 (10722c37), on Windows, with the program below · **From:** Windows CI, where `native_http_server_tests::native_http_shutdown_now_closes_active_connection` failed on both tries
+**Severity:** High (a `String` is `None`, and the program prints it with no error) · **Area:** native runtime, async I/O (`src/runtime/async/native_abi.rs`) · **Verified:** 2026-11-11 (5cd4870b), on Windows, with the program below · **From:** Windows CI, where `native_http_server_tests::native_http_shutdown_now_closes_active_connection` failed on both tries
 
 ```flux
 import Flow.Async exposing (..)
@@ -599,12 +599,12 @@ fixed sleeps (client connects at 50 ms, shutdown at 100 ms) can let the close
 come while the request is still unread. Windows then resets the connection,
 the client's read fails, and the program printed `None` on both tries. That
 reading of the timing is not confirmed. The VM twin of this test orders its
-steps with channels (8e4e3b09); the native one still uses sleeps, and moving
+steps with channels (4f110103); the native one still uses sleeps, and moving
 it to channels alone would hide this bug.
 
 ### KI-202 — Natively, a call through `import Flow.String` as `String.join(…)` hands over arguments the function only borrows
 
-**Severity:** Medium (a leak per call with a fresh argument) · **Area:** Aether, callee signatures (`src/aether/borrow_infer.rs`) · **Verified:** 2026-11-16 (402ff25c), `--native --leak-check` and `--dump-aether` · **From:** fixing KI-201, the 1 block `tests/parity/primop_string_ops.flx` still leaves
+**Severity:** Medium (a leak per call with a fresh argument) · **Area:** Aether, callee signatures (`src/aether/borrow_infer.rs`) · **Verified:** 2026-11-16 (81959a17), `--native --leak-check` and `--dump-aether` · **From:** fixing KI-201, the 1 block `tests/parity/primop_string_ops.flx` still leaves
 
 ```flux
 import Flow.String
@@ -667,7 +667,7 @@ member's, or an extern symbol, and neither adds a reference.
 
 ### KI-205 — Natively, calling a capturing closure stored in a record literal fails with a wrong argument count
 
-**Severity:** High (a program the VM runs fails natively) · **Area:** native backend, closures read from a map · **Verified:** 2026-11-17 (e6e73b08 and with the KI-203 fix), `--native` · **From:** a probe for KI-204
+**Severity:** High (a program the VM runs fails natively) · **Area:** native backend, closures read from a map · **Verified:** 2026-11-17 (43521fdf and with the KI-203 fix), `--native` · **From:** a probe for KI-204
 
 ```flux
 fn main() {
@@ -692,14 +692,14 @@ works (the KI-203 programs). The cause is not traced yet: `want=2` suggests
 the call reaches the lambda's function with its captured `k` as a parameter
 but without the closure that supplies it.
 
-Re-verified 2026-11-21 (c9962f32): the capture is not the cause; the member
+Re-verified 2026-11-21 (5430211a): the capture is not the cause; the member
 name is. `{ "add": fn(x) { x + 1 } }` with `m.add(5)` fails the same way,
 and `{ "plus": fn(x) { x + k } }` with `m.plus(5)` prints 8 natively. LIR
 resolves `add` as the library's `add` before it looks in the map: KI-208.
 
 ### KI-207 — Natively, a timeout whose timer fires before its sleeping body once left the effect handlers live
 
-**Severity:** Low (one sighting, under load) · **Area:** native async runtime, cancellation (`src/runtime/async/native_abi.rs`) · **Verified:** 2026-11-17 (71548be9), one failure in a full serial `cargo test --all-features --workspace` run · **From:** the KI-206 test
+**Severity:** Low (one sighting, under load) · **Area:** native async runtime, cancellation (`src/runtime/async/native_abi.rs`) · **Verified:** 2026-11-17 (2a93cf2e), one failure in a full serial `cargo test --all-features --workspace` run · **From:** the KI-206 test
 
 ```flux
 import Flow.Async exposing (..)
@@ -727,7 +727,7 @@ checks this program for early frees only (`--debug-heap`, no leak check).
 
 ### KI-208 — Natively, a record member named like a library function is called as that function
 
-**Severity:** High (silent wrong output) · **Area:** LIR, member access (`src/lir/lower.rs`) · **Verified:** 2026-11-21 (c9962f32), `--native` with `--dump-core`, `--dump-aether` and `--dump-lir` · **From:** a control program for the KI-202 fix
+**Severity:** High (silent wrong output) · **Area:** LIR, member access (`src/lir/lower.rs`) · **Verified:** 2026-11-21 (5430211a), `--native` with `--dump-core`, `--dump-aether` and `--dump-lir` · **From:** a control program for the KI-202 fix
 
 ```flux
 fn main() {
@@ -770,7 +770,7 @@ Aether side, in `resolve_member_access_callee`.
 
 ### KI-209 — Natively, the value `Json.parse` returns is never released
 
-**Severity:** Medium (a leak per parse, of the whole parsed value) · **Area:** Aether, primop results (`src/aether/insert.rs`), `Flow.Json` · **Verified:** 2026-11-21 (ffdf8a13), `--native --leak-check` · **From:** heap parity in `cargo xtask verify main`
+**Severity:** Medium (a leak per parse, of the whole parsed value) · **Area:** Aether, primop results (`src/aether/insert.rs`), `Flow.Json` · **Verified:** 2026-11-21 (888c7c73), `--native --leak-check` · **From:** heap parity in `cargo xtask verify main`
 
 ```flux
 import Flow.Json as Json
@@ -810,7 +810,7 @@ not seen yet.
 
 ### KI-210 — Natively, a field read from a constructor a call returns leaves the constructor live
 
-**Severity:** Low (a leak per read) · **Area:** Aether, named-field access (proposal 0152 lowers it to a match; `src/core/lower_ast/expression.rs`, `src/aether/insert.rs`) · **Verified:** 2026-11-21 (ffdf8a13), `--native --leak-check` · **From:** heap parity in `cargo xtask verify main`, the 1 block of `tests/parity/imported_constructor_types.flx` (`Shapes.tagged("tag").label + "!"`)
+**Severity:** Low (a leak per read) · **Area:** Aether, named-field access (proposal 0152 lowers it to a match; `src/core/lower_ast/expression.rs`, `src/aether/insert.rs`) · **Verified:** 2026-11-21 (888c7c73), `--native --leak-check` · **From:** heap parity in `cargo xtask verify main`, the 1 block of `tests/parity/imported_constructor_types.flx` (`Shapes.tagged("tag").label + "!"`)
 
 ```flux
 data Tagged { Tagged { label: String } }
@@ -842,7 +842,7 @@ which never merged.
 
 ### KI-211 — Natively, an argument given through a dictionary to an instance method that only borrows it is never released
 
-**Severity:** Low (a leak per call with a counted argument) · **Area:** Aether, type classes (borrow signatures behind dictionary methods) · **Verified:** 2026-11-21 (ffdf8a13), `--native --leak-check` · **From:** left unfiled by the KI-194 fix; heap parity in `cargo xtask verify main`, `tests/parity/functor_applicative_monad.flx` (1 block) and `semigroup_monoid.flx` (6)
+**Severity:** Low (a leak per call with a counted argument) · **Area:** Aether, type classes (borrow signatures behind dictionary methods) · **Verified:** 2026-11-21 (888c7c73), `--native --leak-check` · **From:** left unfiled by the KI-194 fix; heap parity in `cargo xtask verify main`, `tests/parity/functor_applicative_monad.flx` (1 block) and `semigroup_monoid.flx` (6)
 
 ```flux
 fn twice<a: Semigroup>(x: a) -> a {
@@ -875,7 +875,7 @@ released is not traced.
 
 ### KI-212 — verify's metrics step fails on async programs whose run counts depend on scheduling
 
-**Severity:** Low (a false failure, passed with `--accept-metrics`) · **Area:** `flux --metrics` run counts, verify's `metrics` step · **Verified:** 2026-11-22 (415aca98) · **From:** [0190](proposals/0190_verification_toolkit.md) S11 exit check
+**Severity:** Low (a false failure, passed with `--accept-metrics`) · **Area:** `flux --metrics` run counts, verify's `metrics` step · **Verified:** 2026-11-22 (c0614e97) · **From:** [0190](proposals/0190_verification_toolkit.md) S11 exit check
 
 ```text
 $ cargo xtask verify s11a --base s6shuffle --only parity,metrics
@@ -942,7 +942,7 @@ failure was on a debug build, so they don't rule out a timing that only a slower
 
 ### KI-169 — Natively, the second `run_async` in a program finds no handler for a builtin effect
 
-**Severity:** Medium · **Area:** native runtime, async scheduler · **Verified:** 2026-11-04 (ad216569, and the same at 64381a24) · **From:** writing a fixture for KI-122
+**Severity:** Medium · **Area:** native runtime, async scheduler · **Verified:** 2026-11-04 (f3ab11e3, and the same at e73d1c60) · **From:** writing a fixture for KI-122
 
 ```flux
 import Flow.Async exposing (run_async)
@@ -976,7 +976,7 @@ Not yet known: why the second run doesn't see them.
 
 ### KI-166 — Natively, the first rebuilds under `-g` recompile the whole stdlib
 
-**Severity:** Low · **Area:** Native driver, module cache · **Verified:** 2026-11-04 (feaada41) · **From:** turning on the Aether contract for every build
+**Severity:** Low · **Area:** Native driver, module cache · **Verified:** 2026-11-04 (c5c821eb) · **From:** turning on the Aether contract for every build
 
 On a fresh cache, build a program natively, then change a comment in it before each
 further build. Modules compiled per build, counted from `Compiling` in the progress
@@ -1002,7 +1002,7 @@ interface changed)` for some modules. A default build keeps the two hashes equal
 
 ### KI-162 — A class constraint met by a tuple, an Array, an Either, or an `Ord` container stops the compiler with E000
 
-**Severity:** Medium · **Area:** type classes, Core lowering · **Verified:** 2026-11-02 (a4dece25), VM and native alike · **From:** checking `Ord` on tuples while deciding KI-157
+**Severity:** Medium · **Area:** type classes, Core lowering · **Verified:** 2026-11-02 (916a4647), VM and native alike · **From:** checking `Ord` on tuples while deciding KI-157
 
 ```flux
 fn bigger<a: Ord>(x: a, y: a) -> Bool {
@@ -1045,7 +1045,7 @@ relies on this for its `Hash` class having no methods.
 
 ### KI-159 — The sanitizer runs check only the C runtime, not generated code
 
-**Severity:** Medium · **Area:** native runtime, sanitizers · **Verified:** 2026-11-02 (c4019333), by reading the build and the emitted IR · **From:** inline reference counting (native runtime roadmap task 5b), an accepted gap
+**Severity:** Medium · **Area:** native runtime, sanitizers · **Verified:** 2026-11-02 (5f30cb65), by reading the build and the emitted IR · **From:** inline reference counting (native runtime roadmap task 5b), an accepted gap
 
 `cargo xtask sanitize` and `cargo xtask sanitize --thread` link each program
 against a runtime built with `-fsanitize` (`RuntimeVariant::defines` and
@@ -1053,7 +1053,7 @@ against a runtime built with `-fsanitize` (`RuntimeVariant::defines` and
 LLVM IR as in any other build and is not instrumented, so nothing it does
 there is checked. That code now does work the runtime used to do:
 
-- Since 9b2a49c2, `flux_dup_inline` and `flux_drop_inline` change a
+- Since 16fb23a1, `flux_dup_inline` and `flux_drop_inline` change a
   thread-local count in place and call `flux_dup` or `flux_drop` only for a
   shared count, a free, or a count of 0 or below. TSan found KI-134's race
   inside `flux_drop`; the same race through the inline path goes unreported.
@@ -1069,7 +1069,7 @@ those variants, which makes the object cache depend on the variant.
 
 ### KI-158 — Two lldb tests fail now and then in a full sequential run of the `debug` suite
 
-**Severity:** Low · **Area:** tests, native debugger · **Verified:** 2026-11-02 (c4019333), macOS arm64, lldb-2103.0.34.407 · **From:** verification runs for the native runtime roadmap, tasks 5 and 6
+**Severity:** Low · **Area:** tests, native debugger · **Verified:** 2026-11-02 (5f30cb65), macOS arm64, lldb-2103.0.34.407 · **From:** verification runs for the native runtime roadmap, tasks 5 and 6
 
 In five full runs of `cargo test --all-features --test debug --
 --test-threads=1` on 2026-11-01 and 2026-11-02, two failed, each on one test
@@ -1077,9 +1077,9 @@ and each time in `assert_lines` (`tests/debug/native_debug_tests.rs:643`),
 which means an expected line was missing from the lldb session's output:
 
 - `native_debug_tests::a_caught_panic_stops_at_the_call_to_panic`, in the
-  run for 9b2a49c2;
+  run for 16fb23a1;
 - `native_debug_tests::lldb_runs_a_replay_to_an_event_and_back`, in the run
-  for bbaebee0.
+  for 5987158e.
 
 Both passed 5 of 5 times when re-run alone straight after, and 10 of 10 each
 on 2026-11-02; the other three full runs passed. The failing runs kept only
@@ -1088,7 +1088,7 @@ the cause: lldb timing under load, or state left by an earlier test.
 
 ### KI-157 — A map key or ordering operand that is not an Int, Bool or String type-checks, then stops at run time
 
-**Severity:** Medium (was High until 2026-11-02: natively the answers were silently wrong) · **Area:** types, maps, native runtime · **Verified:** 2026-11-02 (c4019333, and the same at 4a97c60f) · **From:** planning static nullary constructors (native runtime roadmap task 6a)
+**Severity:** Medium (was High until 2026-11-02: natively the answers were silently wrong) · **Area:** types, maps, native runtime · **Verified:** 2026-11-02 (5f30cb65, and the same at bffb591b) · **From:** planning static nullary constructors (native runtime roadmap task 6a)
 
 **Now:** both backends stop with the same error. Natively, `Map.set`, `get`,
 `has` and `delete` refuse such a key with the VM's E1004, a map literal and
@@ -1149,7 +1149,7 @@ OCaml does; see proposal 0194.
 
 ### KI-155 — A self tail call with a constructor application as an argument is rejected with a bogus E082
 
-**Severity:** High · **Area:** compiler, tail calls · **Verified:** 2026-10-31 (ce4da5da) · **From:** writing a `lookup` benchmark for proposal 0193
+**Severity:** High · **Area:** compiler, tail calls · **Verified:** 2026-10-31 (522c064c) · **From:** writing a `lookup` benchmark for proposal 0193
 
 ```flux
 type T = Nl | Cs(Int, T)
@@ -1186,7 +1186,7 @@ call that is not a self tail call and compiles.
 
 ### KI-154 — Compiling a module with about 1,000 functions or more takes time that grows with the square of their number
 
-**Severity:** Low · **Area:** CFG passes, compiler performance · **Verified:** 2026-10-31 (ce4da5da) · **From:** the `many_fns` test of `cargo xtask scale`
+**Severity:** Low · **Area:** CFG passes, compiler performance · **Verified:** 2026-10-31 (522c064c) · **From:** the `many_fns` test of `cargo xtask scale`
 
 A module of `n` one-line functions, `fn f0(x) { x + 0 }` up to
 `fn f<n-1>(x) { x + <n-1> }`, with a `main` that calls the last one. Compiled
@@ -1216,7 +1216,7 @@ validator copies it per block. Not yet confirmed with `--dump-cfg`.
 
 ### KI-153 — With a warm cache, `--native --emit-llvm` fails with an internal compiler error
 
-**Severity:** Medium · **Area:** native backend, module cache · **Verified:** 2026-10-31 (053941b3) · **From:** inspecting the LLVM for KI-148
+**Severity:** Medium · **Area:** native backend, module cache · **Verified:** 2026-10-31 (42673992) · **From:** inspecting the LLVM for KI-148
 
 `--native --emit-llvm` works on a cache that does not yet hold the stdlib, and
 fails on every later run that reads it:
@@ -1243,7 +1243,7 @@ artifact is missing the interned dictionary parameter name.
 
 ### KI-152 — A function with about 2,500 `let`s overflows the compiler's stack
 
-**Severity:** Medium · **Area:** Aether · **Verified:** 2026-10-31 (053941b3) · **From:** a scale probe for proposal 0192
+**Severity:** Medium · **Area:** Aether · **Verified:** 2026-10-31 (42673992) · **From:** a scale probe for proposal 0192
 
 One function made of a chain of `let`s, `let x1 = x0 + 1` and so on, compiles
 at 2,000 `let`s and crashes the compiler at 2,500:
@@ -1274,7 +1274,7 @@ would overflow next once Aether no longer does, and whether generated code
 
 ### KI-151 — Compiler allocations grow with the square of a function's length
 
-**Severity:** Low · **Area:** compiler performance · **Verified:** 2026-10-31 (053941b3) · **From:** a scale probe for proposal 0192
+**Severity:** Low · **Area:** compiler performance · **Verified:** 2026-10-31 (42673992) · **From:** a scale probe for proposal 0192
 
 With the same `let` chain as KI-152, `--metrics` counts the compiler's own
 allocations. Above an empty program:
@@ -1301,7 +1301,7 @@ scale` fails until it is fixed.
 
 ### KI-148 — Natively, a self tail call that passes a literal to a borrowed parameter is not a jump, and a long loop overflows the stack
 
-**Severity:** Medium · **Area:** Aether, borrow inference, native backend · **Verified:** 2026-10-31 (027d5766) · **From:** adding `benchmarks/flux/sfib.flx`
+**Severity:** Medium · **Area:** Aether, borrow inference, native backend · **Verified:** 2026-10-31 (7361fb04) · **From:** adding `benchmarks/flux/sfib.flx`
 
 A recursive tail call stops being compiled as a jump when it passes an `Int`
 literal to a parameter that borrow inference made borrowed. Each turn through
@@ -1348,12 +1348,12 @@ is in Aether, so it needs `cargo xtask verify`.
 
 ### KI-147 — The prelude's `array_get` is typed as returning the element, but returns an `Option`
 
-**Severity:** High · **Area:** stdlib, type inference, native backend · **Verified:** 2026-10-30 (9467a117) · **From:** fixing `benchmarks/flux/qsort.flx` (KI-146)
+**Severity:** High · **Area:** stdlib, type inference, native backend · **Verified:** 2026-10-30 (900ed8f0) · **From:** fixing `benchmarks/flux/qsort.flx` (KI-146)
 
 `Flow.Primops` declares `array_get<a>(arr: Array<a>, i: Int) -> a with Div`,
 and the prelude exposes it to every program. It is bound to the same
 `primop ArrayGet` as `Flow.Array.get`, which is declared `-> Option<a>`.
-Since 1a678147 the primop returns `Some(x)`, or `None` out of range, on both
+Since 38c050d1 the primop returns `Some(x)`, or `None` out of range, on both
 backends. The type checker therefore accepts code that uses the `Option` as
 an element:
 
@@ -1372,7 +1372,7 @@ and only the declared type is wrong.
 `benchmarks/flux/qsort.flx` used `array_get` this way. Its checksum came out
 as `114980667603374` natively, against `3569966470400` from the Python
 version. It now reads through `Flow.Array.get` and `unwrap_or` instead
-(9467a117). The only other user is `examples/primop/arrays.flx`, which only
+(900ed8f0). The only other user is `examples/primop/arrays.flx`, which only
 prints the result.
 
 Open question: which signature is meant. `-> Option<a>` matches what the
@@ -1383,7 +1383,7 @@ fix needs `cargo xtask verify`.
 
 ### KI-146 — A function imported unqualified can be called with too many arguments; natively the extras are dropped
 
-**Severity:** High · **Area:** type inference, imports, native backend · **Verified:** 2026-10-30 (5a875b85) · **From:** running `benchmarks/flux/qsort.flx` while repairing the benchmark scripts
+**Severity:** High · **Area:** type inference, imports, native backend · **Verified:** 2026-10-30 (ea3fda4b) · **From:** running `benchmarks/flux/qsort.flx` while repairing the benchmark scripts
 
 A call with too many arguments to a function that reached scope unqualified,
 through `exposing` or the auto-injected prelude, is not rejected at compile
@@ -1415,9 +1415,9 @@ thing: `let xs: Array<Int> = concat([|1|], [|2|])` gives E300 "this value has
 type `List<_>`" instead of E056.
 
 `benchmarks/flux/qsort.flx` calls bare `concat` on arrays. That has meant
-`Flow.List.concat` since arrays left the prelude (6a06441c), so the program
+`Flow.List.concat` since arrays left the prelude (80e4cd24), so the program
 failed with that E300 on both backends. It now calls `Flow.Array.concat`
-(9467a117), which it needed whatever the fix here: once this is fixed the old
+(900ed8f0), which it needed whatever the fix here: once this is fixed the old
 call is an E056.
 
 Not yet known: whether too few arguments are caught on the same path, and why
@@ -1557,7 +1557,7 @@ the failing test for a fix.
 
 **Severity:** Low · **Area:** native runtime, tests · **Verified:** 2026-10-21 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-0
 
-`runtime/c/smoke_test.c` still uses the NaN-boxing API that c493978a replaced
+`runtime/c/smoke_test.c` still uses the NaN-boxing API that e6efaa38 replaced
 with pointer tagging (`flux_is_nanbox`, `flux_nanbox_tag`, `FLUX_TAG_*`,
 `FLUX_PAYLOAD_MASK`), so it no longer compiles. Past that, it would not link
 either: `flux_rt.c` now calls the Rust side (the async, replay and backtrace
@@ -1823,7 +1823,7 @@ arguments); plain `llvm` exits 0.
 
 ### KI-108 — Native async, channel and HTTP programs crash with a signal
 
-**Severity:** High · **Area:** Native backend, async runtime · **Verified:** 2026-11-10 (682a2c6b), channel rows only · **From:** [0190](proposals/0190_verification_toolkit.md) census c1
+**Severity:** High · **Area:** Native backend, async runtime · **Verified:** 2026-11-10 (1bbd32f7), channel rows only · **From:** [0190](proposals/0190_verification_toolkit.md) census c1
 
 Each runs to completion on `vm` and `vm_opt`; natively it is killed:
 
@@ -1848,12 +1848,12 @@ The table is from the census, which runs four files at a time;
 `async_channels.flx` fails the same way run alone, and the others are not yet
 rechecked alone. Some may share a cause with [KI-009](#ki-009).
 
-**Rechecked 2026-11-10 (682a2c6b):** the five files that aren't HTTP
+**Rechecked 2026-11-10 (1bbd32f7):** the five files that aren't HTTP
 examples (`async_channels.flx`, `async_channel.flx`,
 `reverse_async_replayed.flx`, `reverse_channel.flx`, `async_events.flx`) now
 print what the VM prints on `llvm` and `llvm_opt`, and `async_channels.flx`
 and `async_channel.flx` do so on 10 of 10 runs each. Which commit changed it
-isn't known; [KI-122](#ki-122)'s fix (403a62a7) is the likely one. The HTTP
+isn't known; [KI-122](#ki-122)'s fix (6afe53eb) is the likely one. The HTTP
 examples, which need a server, are not rechecked, so this stays open for them.
 0190 S17d's generated programs send values between fibers over channels.
 
@@ -2284,7 +2284,7 @@ when the function performs effects.
 can pass a native build and fail under the VM. The boundary is high enough
 (between 300k and 400k frames) that ordinary programs do not reach it.
 
-**Native has a limit too, and it isn't reported.** Verified 2026-11-05 (f75c8e51):
+**Native has a limit too, and it isn't reported.** Verified 2026-11-05 (acaa176b):
 `benchmarks/flux/cfold.flx` with `mk_expr(21, 1)` recurses too deeply in `append_add`.
 n=20 runs. At n=21 the VM reports `E1009`, while the native binary dies with signal 10, with
 no message and with a 64 MB stack limit as well; `lldb` shows `EXC_BAD_ACCESS` at the stack
@@ -2533,7 +2533,7 @@ fn main() with IO {
 }
 ```
 
-Both instances compile. Since `8180dea2`, each instance head records the
+Both instances compile. Since `583471b7`, each instance head records the
 module that defines it, so the two instances have different keys and
 different dictionaries. A **type**, though, is still its bare name
 (`TypeConstructor::Adt(Symbol)`). At the use site, `Shop.Item` and
@@ -3054,7 +3054,7 @@ truth.
 
 > **Re-measured 2026-10-13: does not reproduce.** The program above, with
 > `Ver` wrapping an `Int` and `Ord<Ver>`'s `compare` returning `Int`, prints
-> `true` on the VM and on native, with no crash (checked at `6f742a78`).
+> `true` on the VM and on native, with no crash (checked at `6e2030b0`).
 > Which change stopped it was not bisected. The likely one is 0.0.8's step 1e:
 > lowering now builds a class-method call only where inference raised a
 > `MethodCall` predicate, and inference resolves the bare `compare` to the
@@ -3110,7 +3110,7 @@ of its 60 tests red.
 > **Re-measured 2026-10-13: fixed on native.** `via(42)` prints `"42"` on
 > both backends, and `syntax_tour.flx` passes VM↔LLVM parity. The Core path
 > that per-module LLVM uses lowers its dictionaries from evidence since
-> `f24b88a8` (0.0.8 step 1e), so the `where` bound's dictionary reaches
+> `22f1002c` (0.0.8 step 1e), so the `where` bound's dictionary reaches
 > `convert`. Phase 3 mirrors the fixture into `tests/parity/` and marks this
 > fixed.
 
@@ -3476,7 +3476,7 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 ### KI-206 — Natively, a fiber woken with an error never released its continuation or effect context — FIXED 2026-11-17
 
-**Severity:** Medium (a leak per failed wait; `timeout_result`, `race`, `both` and `first_of` with a panicking body) · **Area:** native async runtime (`src/runtime/async/native_abi.rs`) · **Verified:** 2026-11-17 (a1a811fc), `--native --leak-check` · **From:** the heap-leak gate (0190 S15), first filed as KI-150 on `heap-leak-gate-renumbered`, never merged
+**Severity:** Medium (a leak per failed wait; `timeout_result`, `race`, `both` and `first_of` with a panicking body) · **Area:** native async runtime (`src/runtime/async/native_abi.rs`) · **Verified:** 2026-11-17 (f81f0827), `--native --leak-check` · **From:** the heap-leak gate (0190 S15), first filed as KI-150 on `heap-leak-gate-renumbered`, never merged
 
 ```flux
 import Flow.Async exposing (..)
@@ -3542,7 +3542,7 @@ can't be seen from outside.
 
 ### KI-203 — Natively, reading a member of a record literal left an `Option` live — FIXED 2026-11-17
 
-**Severity:** Low (a leak per read) · **Area:** LIR, member access on a map (`src/lir/lower.rs`) · **Verified:** 2026-11-16 (e6e73b08), `--native --leak-check` · **From:** the heap-leak gate (0190 S15), first filed as KI-149 on `heap-leak-gate-renumbered`, never merged
+**Severity:** Low (a leak per read) · **Area:** LIR, member access on a map (`src/lir/lower.rs`) · **Verified:** 2026-11-16 (43521fdf), `--native --leak-check` · **From:** the heap-leak gate (0190 S15), first filed as KI-149 on `heap-leak-gate-renumbered`, never merged
 
 ```flux
 fn main() {
@@ -3586,7 +3586,7 @@ capturing closure read this way fails natively).
 
 ### KI-201 — Natively, the results of `substring`, `array_push`, `safe_div` and other runtime primops were never released — FIXED 2026-11-16
 
-**Severity:** Medium (a leak per call) · **Area:** Aether, drop insertion (`src/aether/insert.rs`) · **Verified:** 2026-11-16 (edeb0653), `--native --leak-check` · **From:** the heap-leak gate (0190 S15), first filed as KI-147 on `heap-leak-gate-renumbered`, never merged; its interpolation case was fixed by KI-160
+**Severity:** Medium (a leak per call) · **Area:** Aether, drop insertion (`src/aether/insert.rs`) · **Verified:** 2026-11-16 (322baafc), `--native --leak-check` · **From:** the heap-leak gate (0190 S15), first filed as KI-147 on `heap-leak-gate-renumbered`, never merged; its interpolation case was fixed by KI-160
 
 ```flux
 fn main() {
@@ -3656,7 +3656,7 @@ reproducers. 11 Aether snapshots gained the same drops in `Flow.String`
 
 ### KI-199 — Natively, a value read only inside an `if` passed as an argument was never released — FIXED 2026-11-16
 
-**Severity:** Medium (a leak that grows with every call) · **Area:** Aether, drop insertion (`src/aether/insert.rs`) · **Verified:** 2026-11-16 (c79016e8), `--native --leak-check` · **From:** writing the KI-161 tests, where `print(if h > 1.0 { 0 } else { 1 })` left the product `h` live
+**Severity:** Medium (a leak that grows with every call) · **Area:** Aether, drop insertion (`src/aether/insert.rs`) · **Verified:** 2026-11-16 (ec0c94ab), `--native --leak-check` · **From:** writing the KI-161 tests, where `print(if h > 1.0 { 0 } else { 1 })` left the product `h` live
 
 ```flux
 fn nums(n: Int) -> List<Int> {
@@ -3728,7 +3728,7 @@ along the way, such as the `if` condition, no longer counts. The three callers
 
 ### KI-200 — Floats: `x + 0.0` and `x * 0.0` were simplified away, giving IEEE-wrong results and dropping the operand's effects — FIXED 2026-11-16
 
-**Severity:** High (silent wrong output; natively an effect never ran) · **Area:** Core simplification (`src/core/passes/algebraic.rs`) · **Verified:** 2026-11-16 (c79016e8), on both ways, with and without `-O`, and with `--opt-bisect-limit 0` · **From:** writing the KI-161 tests
+**Severity:** High (silent wrong output; natively an effect never ran) · **Area:** Core simplification (`src/core/passes/algebraic.rs`) · **Verified:** 2026-11-16 (ec0c94ab), on both ways, with and without `-O`, and with `--opt-bisect-limit 0` · **From:** writing the KI-161 tests
 
 ```flux
 fn neg_zero() -> Float {
@@ -3820,7 +3820,7 @@ still folds `0.0 + -0.0`, now to `+0.0`.
 
 ### KI-161 — Natively, a Float literal used as an operand or argument leaked its box — FIXED 2026-11-16
 
-**Severity:** Medium · **Area:** LLVM emission, Floats · **Verified:** 2026-11-02 (66decd77) · **From:** the full verify after the Float counting fix (204a2c8e), whose new fixture `tests/parity/float_let_shared.flx` was the one file added to heap parity's leak list
+**Severity:** Medium · **Area:** LLVM emission, Floats · **Verified:** 2026-11-02 (8b79c199) · **From:** the full verify after the Float counting fix (c17e5308), whose new fixture `tests/parity/float_let_shared.flx` was the one file added to heap parity's leak list
 
 ```flux
 fn half(x: Float) -> Float {
@@ -3873,7 +3873,7 @@ or tuple whose fields include one is now static too.
 
 ### KI-198 — With Cargo 1.100, the debug adapter tests can't find the flux binary — FIXED 2026-11-13
 
-**Severity:** Medium (20 of the 21 tests fail loudly) · **Area:** the `flux-dap` tests (`crates/flux-dap/tests/dap_tests.rs`, `flux_bin`) · **Verified:** 2026-11-13 (9b51cbf1), on macOS arm64 with cargo 1.100.0 · **From:** `cargo xtask verify cache-format`, whose tests step failed in `-p flux-dap --test dap_tests`
+**Severity:** Medium (20 of the 21 tests fail loudly) · **Area:** the `flux-dap` tests (`crates/flux-dap/tests/dap_tests.rs`, `flux_bin`) · **Verified:** 2026-11-13 (f504f369), on macOS arm64 with cargo 1.100.0 · **From:** `cargo xtask verify cache-format`, whose tests step failed in `-p flux-dap --test dap_tests`
 
 Every test that launches a program fails at the launch request:
 
@@ -3906,7 +3906,7 @@ fallback build's `--target-dir` is the parent of that profile directory.
 
 ### KI-197 — Natively, the support object built by one compiler is linked by the next — FIXED 2026-11-12
 
-**Severity:** High (a program can link support code from an older compiler, with no error; not yet seen to change output) · **Area:** build caching, native (`src/driver/pipeline/native/mod.rs`, `compile_native_support_object`) · **Verified:** 2026-11-12 (e03df61b), by building one program natively under `FLUX_BUILD_ID=build-a`, then `build-b` · **From:** proposal 0204
+**Severity:** High (a program can link support code from an older compiler, with no error; not yet seen to change output) · **Area:** build caching, native (`src/driver/pipeline/native/mod.rs`, `compile_native_support_object`) · **Verified:** 2026-11-12 (9fb96b89), by building one program natively under `FLUX_BUILD_ID=build-a`, then `build-b` · **From:** proposal 0204
 
 The support object holds the functions every native program links. The
 compiler emits it from an empty LIR program and caches it as
@@ -3931,7 +3931,7 @@ names. Each build leaves its own object in the cache until `flux clean`.
 
 ### KI-196 — With Cargo 1.100, every native build fails to link because the Rust staticlib isn't found — FIXED 2026-11-12
 
-**Severity:** High (no native program builds) · **Area:** native linking (`src/llvm/pipeline.rs`, `discover_rust_staticlib`) · **Verified:** 2026-11-12 (0f5e4391), on macOS arm64 with cargo 1.100.0 (3acc79c0c 2026-11-05) · **From:** proposal 0204 S2, whose test needs a native link
+**Severity:** High (no native program builds) · **Area:** native linking (`src/llvm/pipeline.rs`, `discover_rust_staticlib`) · **Verified:** 2026-11-12 (67319093), on macOS arm64 with cargo 1.100.0 (3acc79c0c 2026-11-05) · **From:** proposal 0204 S2, whose test needs a native link
 
 ```sh
 cargo native tests/parity/adt_either_match.flx --no-cache
@@ -3977,7 +3977,7 @@ unchanged. `build.rs` still prunes only `deps/`, so old archives under
 
 ### KI-194 — Natively, a dictionary given to an instance method from another module is never released — FIXED 2026-11-12
 
-**Severity:** Medium · **Area:** Aether, type classes, module interfaces (`src/compiler/module_interface.rs`, `src/compiler/mod.rs`) · **Verified:** 2026-11-12 (546896dd), `--native --debug-heap --leak-check` · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the heap-leak gate (filed there as KI-144 on `feat/heap-leak-gate`, which never merged)
+**Severity:** Medium · **Area:** Aether, type classes, module interfaces (`src/compiler/module_interface.rs`, `src/compiler/mod.rs`) · **Verified:** 2026-11-12 (c6ba32a0), `--native --debug-heap --leak-check` · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the heap-leak gate (filed there as KI-144 on `feat/heap-leak-gate`, which never merged)
 
 ```flux
 import Flow.Monad
@@ -4030,7 +4030,7 @@ fixed first.
 
 ### KI-195 — Natively, a method read out of a superclass dictionary is freed when the dictionary is given away — FIXED 2026-11-12
 
-**Severity:** High (a freed closure is called) · **Area:** Aether (`src/aether/insert.rs`) · **Verified:** 2026-11-12 (546896dd), `--native --debug-heap` · **From:** fixing KI-194, which made `tests/parity/semigroup_monoid.flx` crash natively
+**Severity:** High (a freed closure is called) · **Area:** Aether (`src/aether/insert.rs`) · **Verified:** 2026-11-12 (c6ba32a0), `--native --debug-heap` · **From:** fixing KI-194, which made `tests/parity/semigroup_monoid.flx` crash natively
 
 ```flux
 class S<a> {
@@ -4130,7 +4130,7 @@ KI-185's clause tables off the heap.
 
 ### KI-185 — Natively, every operation of an effect ran its handler's first clause — FIXED 2026-11-11
 
-**Severity:** High (silent wrong output natively) · **Area:** Native effects, handler lowering · **Verified:** 2026-11-10 (f1d78295) · **From:** 0190 S17c (a probe of the forms the generator would write)
+**Severity:** High (silent wrong output natively) · **Area:** Native effects, handler lowering · **Verified:** 2026-11-10 (65b12a39) · **From:** 0190 S17c (a probe of the forms the generator would write)
 
 ```flux
 effect E {
@@ -4191,7 +4191,7 @@ caught.
 
 ### KI-188 — On the VM, a handler that runs inside a `Task.spawn` task stopped with `expected HandlerDescriptor constant` — FIXED 2026-11-11
 
-**Severity:** Medium (valid programs stop with an error) · **Area:** VM tasks, effect handlers · **Verified:** 2026-11-11 (30680987) · **From:** the first full-generator hunt (`cargo xtask fuzz --seed 2 --count 200 --with classes,values,effects,async,modules`, 11 programs of 195: cases 7, 38, 39, 63, 76, 81, 108, 114, 138, 158 and 173)
+**Severity:** Medium (valid programs stop with an error) · **Area:** VM tasks, effect handlers · **Verified:** 2026-11-11 (f3e8e651) · **From:** the first full-generator hunt (`cargo xtask fuzz --seed 2 --count 200 --with classes,values,effects,async,modules`, 11 programs of 195: cases 7, 38, 39, 63, 76, 81, 108, 114, 138, 158 and 173)
 
 ```flux
 import Flow.Async as Async
@@ -4239,7 +4239,7 @@ instruction in the task's code finds `None` where its descriptor was.
 `promote_value` itself can copy both descriptors (`ArcValue::HandlerDescriptor`,
 `ArcValue::PerformDescriptor`), and `worker_shared_state` uses it for
 constants. It has been like this since the VM first ran tasks on worker
-threads (c4a0a3c0, 2026-05-09).
+threads (0ee0cb30, 2026-05-09).
 
 Fixture: `tests/parity/task_spawn_runs_handler_ki188.flx` (a resuming clause,
 the same through a closure, and a clause that never resumes, each in its own
@@ -4258,7 +4258,7 @@ all four ways.
 
 ### KI-187 — A module file got none of the prelude's imports: natively its calls of `map` or `fold` were undefined — FIXED 2026-11-10
 
-**Severity:** Medium (valid programs refused) · **Area:** Module graph, prelude · **Verified:** 2026-11-10 (52cce2de) · **From:** 0190 S17d (`cargo xtask fuzz --seed 1 --with modules`, 7 of the first 10 cases)
+**Severity:** Medium (valid programs refused) · **Area:** Module graph, prelude · **Verified:** 2026-11-10 (99514af2) · **From:** 0190 S17d (`cargo xtask fuzz --seed 1 --with modules`, 7 of the first 10 cases)
 
 ```flux
 // M1.flx, beside main.flx
@@ -4301,7 +4301,7 @@ The fixture failed on `vm` and `llvm` before this and passes now.
 
 ### KI-175 — A class method or constrained call in an annotated `let`'s `if`, `match` or literal was given its dictionary twice — FIXED 2026-11-09
 
-**Severity:** High (silent wrong output natively; valid programs refused with `E000`) · **Area:** Type inference, dictionary passing · **Verified:** 2026-11-09 (2fe0af80) · **From:** 0190 S17a (`cargo xtask fuzz --seed 1 --with classes --gen-only`, then `--dump-core`)
+**Severity:** High (silent wrong output natively; valid programs refused with `E000`) · **Area:** Type inference, dictionary passing · **Verified:** 2026-11-09 (e5af0ad4) · **From:** 0190 S17a (`cargo xtask fuzz --seed 1 --with classes --gen-only`, then `--dump-core`)
 
 ```flux
 fn render<a: Show>(x: a) -> String {
@@ -4340,7 +4340,7 @@ twice, which `method_call_from_evidence` (`src/core/lower_ast/emit.rs`) read as
 two dictionaries. A constrained function's callee also recorded it twice, and
 the call passed both dictionaries ahead of its argument. The checked call
 argument and a recursive helper's refine pass had the same double pass, and
-were fixed in 2a7be643 by dropping what the extra pass raised. The annotated
+were fixed in 7acdee10 by dropping what the extra pass raised. The annotated
 `let` was the third driver, and was missed.
 
 It was 104 of the first 200 programs with classes, which the fuzz run moved to
@@ -4359,7 +4359,7 @@ constrained call and a tuple, each raising its predicate twice) and
 
 ### KI-116 — On the VM, a variable read by a `let` inside a `do` block was uninitialised afterwards — FIXED 2026-11-09
 
-**Severity:** High · **Area:** VM, ownership · **Verified:** 2026-11-09 (4d99ac21) · **From:** [0190](proposals/0190_verification_toolkit.md) S7, `cargo xtask rewrite --kind let-wrap`
+**Severity:** High · **Area:** VM, ownership · **Verified:** 2026-11-09 (a0cac745) · **From:** [0190](proposals/0190_verification_toolkit.md) S7, `cargo xtask rewrite --kind let-wrap`
 
 ```flux
 fn main() with IO {
@@ -4439,7 +4439,7 @@ took the AST path rather than the CFG one (see [KI-118](#ki-118)).
 
 ### KI-173 — Native code returned a call's result when the function returned something else — FIXED 2026-11-09
 
-**Severity:** High · **Area:** native backend, tail calls · **Verified:** 2026-11-09 (ff00ea39; also main 0ea95cb4) · **From:** 0190 S8 (`cargo xtask fuzz --seed 1`, case 61)
+**Severity:** High · **Area:** native backend, tail calls · **Verified:** 2026-11-09 (bbd1a7dc; also main b2ee86ac) · **From:** 0190 S8 (`cargo xtask fuzz --seed 1`, case 61)
 
 ```flux
 fn f(n: Int) -> Int {
@@ -4483,7 +4483,7 @@ calls deep, pass natively. `tests/parity/tail_call_result_unused_ki173.flx`
 
 ### KI-174 — `--optimize` rejected a valid program whose folded `if true` blocks had different types — FIXED 2026-11-09
 
-**Severity:** Medium · **Area:** Type inference, AST optimization · **Verified:** 2026-11-09 (4d99ac21) · **From:** 0190 S8 (`cargo xtask fuzz --seed 1` and `--seed 2`)
+**Severity:** Medium · **Area:** Type inference, AST optimization · **Verified:** 2026-11-09 (a0cac745) · **From:** 0190 S8 (`cargo xtask fuzz --seed 1` and `--seed 2`)
 
 ```flux
 fn f() -> Int {
@@ -4542,7 +4542,7 @@ should reject.
 
 ### KI-172 — A `let` nobody read released a parameter its branch returned, uncounted — FIXED 2026-11-09
 
-**Severity:** High (silent wrong output natively; valid programs refused with `E999`) · **Area:** Aether, dup/drop insertion · **Verified:** 2026-11-09 (b835e8df, and on main at 0ea95cb4) · **From:** 0190 S8, `cargo xtask fuzz --seed 1` (8 of its first 200 programs)
+**Severity:** High (silent wrong output natively; valid programs refused with `E999`) · **Area:** Aether, dup/drop insertion · **Verified:** 2026-11-09 (d6566f10, and on main at b2ee86ac) · **From:** 0190 S8, `cargo xtask fuzz --seed 1` (8 of its first 200 programs)
 
 ```flux
 fn takes(s: String, b: Bool) -> Int {
@@ -4559,7 +4559,7 @@ fn lends(s: String, b: Bool) -> Int {
 The plans were `drop s; let unused = case b of true -> s | _ -> "y"; drop unused; 1`
 for `takes`, and `let unused = case … s …; drop unused; Len(s)` for `lends`.
 `takes` read `s` after releasing it and released it twice. Since every build
-checks the plan (03b9072c, KI-165) it is refused with `E999 Aether Verification
+checks the plan (5f3e694b, KI-165) it is refused with `E999 Aether Verification
 Failed`; main builds it unchecked, and with a heap string the `llvm_heap` way
 crashes. `lends` passed the checker: `s` was borrowed, and `drop unused` released
 the caller's reference. Called with the last reference, `--native --debug-heap`
@@ -4585,7 +4585,7 @@ through the `case`'s result, which is why `lends` passed it.
 
 ### KI-171 — A match arm that builds two constructors from two cells allocates one and frees the other
 
-**Severity:** Low · **Area:** Aether, reuse · **Verified:** 2026-11-05 (f75c8e51) · **From:** measuring what free-a-cell can still gain (0200)
+**Severity:** Low · **Area:** Aether, reuse · **Verified:** 2026-11-05 (acaa176b) · **From:** measuring what free-a-cell can still gain (0200)
 
 `balance1` in `benchmarks/flux/rbtree.flx` rebuilds two nodes from the two it matched:
 
@@ -4619,7 +4619,7 @@ same tree passed as both arguments.
 
 ### KI-163 — Natively, a self tail call that lends a field of a matched owned value to a borrowed parameter is not a jump — FIXED 2026-11-04
 
-**Severity:** Medium · **Area:** Aether, borrow inference, native backend · **Verified:** 2026-11-02 (54dbde9d) · **From:** timing `benchmarks/flux/binarytrees_fbip.flx` for the binarytrees work, which dies with signal 10 at n=21
+**Severity:** Medium · **Area:** Aether, borrow inference, native backend · **Verified:** 2026-11-02 (a822b557) · **From:** timing `benchmarks/flux/binarytrees_fbip.flx` for the binarytrees work, which dies with signal 10 at n=21
 
 ```flux
 type Tree = Node(Tree, Tree) | Tip
@@ -4724,16 +4724,16 @@ the blocking pool. Simpler `run_async` programs
 those paths. On the plain heap the freed block is still readable, which is
 why `llvm` passes. Both fixtures carry `skip-way: llvm_heap KI-122`.
 
-**Fixed** by 403a62a7, on 2026-10-25, though the entry stayed open until `cargo xtask
-verify` reported the skipped ways passing. Bisecting 331 commits between 64381a24 and
-bf31e39e found it. The extra release was in neither place this entry suspected:
+**Fixed** by 6afe53eb, on 2026-10-25, though the entry stayed open until `cargo xtask
+verify` reported the skipped ways passing. Bisecting 331 commits between e73d1c60 and
+f3ab11e3 found it. The extra release was in neither place this entry suspected:
 `flux_compose_trampoline_closure_entry` (`runtime/c/effects.c`) passed
 `flux_yield_extend` the array's own reference to an outer continuation, which the
 context gave away and the array then released again. That commit adds a `flux_dup` first.
 
-The `flux_dup` alone is the fix. Added to 403a62a7's parent, it clears the error from
-every fixture below; removed at ad216569, `E1009` comes back on all of them, 3 runs out
-of 3. So the debug heap still detects this, and 5d0afdba, which made capture-free
+The `flux_dup` alone is the fix. Added to 6afe53eb's parent, it clears the error from
+every fixture below; removed at f3ab11e3, `E1009` comes back on all of them, 3 runs out
+of 3. So the debug heap still detects this, and 6d374da3, which made capture-free
 closures static a day later, didn't hide it.
 
 The two fixtures run on the heap way again. `async_capturing_action_ki122.flx` and
@@ -4872,7 +4872,7 @@ unit can hold one of these plans.
 
 ### KI-164 — A unique cell whose arm builds no new cell is released field by field, because Aether cannot free a cell without its fields — FIXED 2026-11-04
 
-**Severity:** Low · **Area:** Aether, drop specialization, reuse · **Verified:** 2026-11-03 (f35b7705) · **From:** profiling `benchmarks/flux/binarytrees.flx` natively, where the drop walk is 34% of the run
+**Severity:** Low · **Area:** Aether, drop specialization, reuse · **Verified:** 2026-11-03 (d0a845e4) · **From:** profiling `benchmarks/flux/binarytrees.flx` natively, where the drop walk is 34% of the run
 
 ```flux
 type Tree = Node(Tree, Tree) | Tip
@@ -4930,12 +4930,12 @@ owned where the caller hands over its last reference. Both are in Aether, so
 they need `cargo xtask verify`. Not yet known: whether that inference change
 costs programs that keep the value after the call.
 
-**Fixed** in `src/aether/reuse.rs` (07cdfc77, 1efad94a): `AetherExpr::FreeShell`
+**Fixed** in `src/aether/reuse.rs` (11fa0b28, af23d4de): `AetherExpr::FreeShell`
 frees a cell's block without its fields, and a unique path uses it on each path
 that does not reuse the cell, before any call on that path. A `Case` guard, a
 call or an impure primop before the branch keeps the plain release, since past a
 call a multi-shot resume may have copied the cell. Re-verified 2026-11-04 at
-debdb73b: the program above reports `DropSpecs: 1` and `FreeShells: 1`, prints
+23c02b27: the program above reports `DropSpecs: 1` and `FreeShells: 1`, prints
 `1048575` on both backends, and keeps its debug-heap counts
 (`allocs=2097157 frees=2097156 live=1`, the block still live being KI-119's
 tuple). `nodes` at depth 22 went from 77 to 64 ms.
@@ -4947,7 +4947,7 @@ The free itself is still a call to the runtime; 0189's status says why.
 
 ### KI-165 — Natively, a rebuild around a field's own field read it after a unique path released it — FIXED 2026-11-04
 
-**Severity:** High (silent wrong output, or a crash) · **Area:** Aether, reuse · **Verified:** 2026-11-04 (a4314aba, and the same at b21d7f89, before 0189 F3-5) · **From:** implementing 0189 F3-5 P1-2b
+**Severity:** High (silent wrong output, or a crash) · **Area:** Aether, reuse · **Verified:** 2026-11-04 (ceaa54c9, and the same at ab5485d7, before 0189 F3-5) · **From:** implementing 0189 F3-5 P1-2b
 
 ```flux
 type Item = Wrap(Item) | Leaf(String)
@@ -4991,7 +4991,7 @@ plain build refuses `peel`, `FLUX_AETHER_VERIFY=0` reproduces the output above, 
 
 ### KI-160 — Natively, an interpolated string with more than one part leaked its pieces — FIXED 2026-11-02
 
-**Severity:** Medium · **Area:** LLVM emission, strings · **Verified:** 2026-11-02 (c4019333, and the same at 4a97c60f) · **From:** re-running the native runtime roadmap's leak checks with `--leak-check`
+**Severity:** Medium · **Area:** LLVM emission, strings · **Verified:** 2026-11-02 (5f30cb65, and the same at bffb591b) · **From:** re-running the native runtime roadmap's leak checks with `--leak-check`
 
 ```flux
 fn size(i: Int) -> Int {
@@ -5085,7 +5085,7 @@ and replay.
 
 The failure that led here took 0.46 s and passed on every rerun, which fits
 this race; its output was not kept. The same test's timing race (fixed sleeps
-instead of ordering) was fixed in 8e4e3b09, and the other tests in
+instead of ordering) was fixed in 4f110103, and the other tests in
 `vm_http_server.rs` in the commit after it.
 
 On 2026-10-29 Windows CI hung in
@@ -5226,7 +5226,7 @@ files therefore contain a call that no compiled program makes, which is worth
 knowing before reading one as evidence.
 
 **The fix.** Each module is shifted past the expression ids of the ones
-merged before it. `2d1a7203` did that in `merge_programs`
+merged before it. `8f8f1470` did that in `merge_programs`
 (`src/driver/pipeline/program.rs`), which the dumps use. `--emit-llvm` and
 `--native --trace-aether` had their own merge, which did not shift, and
 once lowering began checking that a site's evidence was raised by that site,
@@ -5946,7 +5946,7 @@ with and without `--optimize`.
 
 **Severity:** Medium · **Area:** LIR lowering, call guards · **Verified fixed:** 2026-10-20 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `--leak-check` runs
 
-`dup_owned_call_args` (`src/lir/lower.rs`, added in db7222b7 "fix aether
+`dup_owned_call_args` (`src/lir/lower.rs`, added in 8bee7446 "fix aether
 examples") emits a `dup` of each argument passed `Owned` to a direct call, a
 primop or a constructor. Nothing drops that extra reference: Aether already
 hands the callee the caller's reference. For
@@ -7474,7 +7474,7 @@ Regression coverage:
 `tests/integration/module_scoped_classes_tests.rs` asserts the parse directly,
 and `tests/parity/either_instances.flx` runs the whole chain five ways.
 
-**A third gap, found 2026-10-11** (`9ccf1214`). The matcher fix covered
+**A third gap, found 2026-10-11** (`f13da20d`). The matcher fix covered
 instance resolution, not unification. `unify` still could not solve `f<a>`
 against `Either<String, Int>`. A unit compile resolved the calls by matching,
 but re-inferring a merged program (for `--dump-core`) left `fmap`, `pure` and

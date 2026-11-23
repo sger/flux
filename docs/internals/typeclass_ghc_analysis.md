@@ -188,7 +188,7 @@ identity from then on.
   evidence can name the outer function's variable, which is in scope because
   the inner bindings sit inside the outer lambda.
 
-**Flux, after `3ec726b8`, `ff893fc5` and `c0778b4a`.**
+**Flux, after `bcfa97ea`, `6170fac7` and `e6feaa96`.**
 
 | GHC | Flux |
 |---|---|
@@ -204,7 +204,7 @@ the one elaboration produces today:
 1. its type mentions only variables the definition quantified;
 2. its class carries a dictionary.
 
-**Why a lookup by name was wrong.** Until `c0778b4a`, lowering found the
+**Why a lookup by name was wrong.** Until `e6feaa96`, lowering found the
 enclosing definition's givens by looking its scheme up by name
 (`scheme_for_current_function`). That failed in three ways:
 - **It depended on the entry point.** The CFG path passes no module member

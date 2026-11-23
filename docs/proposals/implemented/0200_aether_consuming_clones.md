@@ -52,7 +52,7 @@ consumes it, and a match does not). The caller, `sum_trees`, then releases
 the tree with `flux_drop`, which walks it again (`flux_drop_free_recx`,
 `runtime/c/rc.c`).
 
-On the native build at f35b7705 (2026-11-03, n=21, macOS arm64), the profile
+On the native build at d0a845e4 (2026-11-03, n=21, macOS arm64), the profile
 is:
 
 | Where | Share |
@@ -68,9 +68,9 @@ Making `check_tree`'s parameter owned removes the second walk, since each
 call frees the cell it took apart. A throwaway build that forced it owned was
 24% slower (2,576 → 3,197 ms), because a unique cell that builds nothing had
 no way to be freed without its fields: each call copied both children and
-released the cell (KI-164). 0189 F3-5 fixed that (07cdfc77).
+released the cell (KI-164). 0189 F3-5 fixed that (11fa0b28).
 
-Forcing the parameter owned on top of 07cdfc77 is not enough by itself: the
+Forcing the parameter owned on top of 11fa0b28 is not enough by itself: the
 arm still does not claim its cell (see "The arm has to claim its cell"
 below), so `check_tree` copies each child at its call and releases `tree`
 after both calls, and nothing frees a cell as it is read. A throwaway build
@@ -80,7 +80,7 @@ this proposal wants, and measures the most it can gain on binarytrees
 
 | Build | Median |
 |---|---|
-| 07cdfc77 | 2,663 ms |
+| 11fa0b28 | 2,663 ms |
 | `check_tree` owned, arms claim | 2,422 ms (−9%) |
 
 `flux_drop` is gone from that profile. What is left is `check_tree` (57% of
@@ -89,7 +89,7 @@ samples, mostly waiting on memory), `make_tree` (27%), `flux_free_shell`
 free). An inline shell free and uniqueness check (0189 F3-5 follow-up P1-3)
 target the last two.
 
-Measured again at f75c8e51 (2026-11-05, n=21, instructions and output compared
+Measured again at acaa176b (2026-11-05, n=21, instructions and output compared
 across 5 and 7 interleaved runs), the same throwaway is 7–11% faster than the
 compiler without it: 2.38–2.39 s, about 1.25× GHC (1.90–1.91 s), at 20% more
 instructions. So the time saved is memory access, not path length. The two runs
@@ -302,16 +302,16 @@ commit before it in interleaved runs.
 
 | Step | Commits | Measured |
 |---|---|---|
-| C0 | `67406f2d` | the fixture and its baselines |
-| C1b | `21bd5012`, `c02bec7a` | binarytrees_fbip -4.9% instructions; deriv +0.1%; the rest unchanged |
-| C1 | `e86c2085` | nothing calls it yet; no output changed |
-| C2 | `ab89616a` | binarytrees (n = 21) 2,840 to 2,400 ms (-15.5%) at 19.8% more instructions: the second walk over memory is gone |
-| P1-3 (0189) | `fd45b5b9` | the inline shell free on macOS arm64: binarytrees 2,400 to 2,200 ms, -6.6% instructions; deriv +0.2% |
-| C3 | `378116f5` | a shared tree walked by the clone: -69% instructions, below the borrowed walk. binarytrees 2,200 to 1,970 ms, -21.5% instructions, since every static `Node(Tip, Tip)` leaf took the shared path |
-| C4 | `8ee8c6c5`, `e991ef06`, `f35361d2` | lldb, DAP and DWARF tests of the clone's frames; the debug parity harness reads `$own` frames as their original |
+| C0 | `9aae7539` | the fixture and its baselines |
+| C1b | `5eafab6e`, `30b185b1` | binarytrees_fbip -4.9% instructions; deriv +0.1%; the rest unchanged |
+| C1 | `c9e18494` | nothing calls it yet; no output changed |
+| C2 | `f88f47f3` | binarytrees (n = 21) 2,840 to 2,400 ms (-15.5%) at 19.8% more instructions: the second walk over memory is gone |
+| P1-3 (0189) | `ccf82221` | the inline shell free on macOS arm64: binarytrees 2,400 to 2,200 ms, -6.6% instructions; deriv +0.2% |
+| C3 | `a619cef6` | a shared tree walked by the clone: -69% instructions, below the borrowed walk. binarytrees 2,200 to 1,970 ms, -21.5% instructions, since every static `Node(Tip, Tip)` leaf took the shared path |
+| C4 | `47c194ef`, `e3f174f5`, `109d16fe` | lldb, DAP and DWARF tests of the clone's frames; the debug parity harness reads `$own` frames as their original |
 
 In all, binarytrees at n = 21 went from 2,808 ms before this proposal (task
-B, `f35b7705`) to 1,914 ms. GHC 9.10.3 `-O2` takes 1,827 ms on the same
+B, `d0a845e4`) to 1,914 ms. GHC 9.10.3 `-O2` takes 1,827 ms on the same
 machine (hyperfine, 10 runs each): 1.05× its time, at 47.4 G instructions
 to its 50.7 G. Every code step passed `cargo xtask verify` against the one
 before it, and C2, P1-3 and C3 also passed ASan/UBSan and TSan.

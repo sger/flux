@@ -25,7 +25,7 @@ consumes each owned parameter exactly once. Five steps:
 5. Optionally, native code drops the runtime fallback that the check has
    just shown is dead.
 
-Line numbers below are as of b21d7f89.
+Line numbers below are as of ab5485d7.
 
 ## Motivation
 [motivation]: #motivation
@@ -68,7 +68,7 @@ after Aether transformation, not before". The code does the opposite.
 - **Static constructors count as allocations.** `is_heap_tag`
   (`src/aether/mod.rs:712`) is true for every named tag, but natively a nullary
   constructor or one whose fields are all constants is one static object
-  (4cac2164, bbaebee0; `src/lir/emit_llvm.rs:668-699`). `Black` and `Leaf` cost
+  (d9ef0aa0, 5987158e; `src/lir/emit_llvm.rs:668-699`). `Black` and `Leaf` cost
   nothing.
 - **Some allocations are not counted.** `Lam` (480) builds a closure, and
   allocating primops are not counted either.

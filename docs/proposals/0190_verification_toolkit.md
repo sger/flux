@@ -1140,7 +1140,7 @@ the two debug parities 0:26. The suite is now the largest step.
     these names gives the same thing if one is ever wanted.
 
 **The S11 exit check (2026-11-22).** These were `--only parity,metrics` runs
-on main at 415aca98, 13 jobs by default, each after a build.
+on main at c0614e97, 13 jobs by default, each after a build.
 - **Jobs:**
   - main parity took 2:44 with the default and 15:00 with `--jobs 1`, about
     5½ times faster;

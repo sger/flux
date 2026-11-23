@@ -346,11 +346,11 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
     - The fix follows GHC, where a given is an evidence variable with an
       identity and the definition stores its own parameter list
       ([analysis §2](../internals/typeclass_ghc_analysis.md#how-a-given-is-identified)).
-    - `3ec726b8` gives every `Statement::Function` an id.
-    - `ff893fc5` makes `FromGiven` name its owner (`GivenRef { definition,
+    - `bcfa97ea` gives every `Statement::Function` an id.
+    - `6170fac7` makes `FromGiven` name its owner (`GivenRef { definition,
       index }`) and records each definition's dictionary parameters in
       `EvidenceMap`.
-    - `c0778b4a` makes lowering read a given's parameter through its owner.
+    - `e6feaa96` makes lowering read a given's parameter through its owner.
       `scheme_for_current_function` is no longer read by the emitter.
     - `Flow.Eq` via cfg now reports `agree 5`, the same as via core. Every unit
       gets the same emitter answer on both paths.
@@ -374,7 +374,7 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
     - It is a defect of the path 1e deletes, so no separate fix is planned.
   - **`--dump-*` surfaces read other expressions' types.** `merge_programs`
     concatenated separately parsed modules whose `ExprId`s overlapped, and the
-    merged program's type table is keyed by `ExprId`. **Fixed** in `2d1a7203`:
+    merged program's type table is keyed by `ExprId`. **Fixed** in `8f8f1470`:
     each module is shifted past the ids of the ones before it.
     - Until then, `aether_cli_snapshots` (half of the precision gate, rule 7)
       recorded collision-dependent types. Re-blessing showed miscompiles in
@@ -409,16 +409,16 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
 
     | Commit | Fix |
     |---|---|
-    | `38b7cf71` | A module-qualified call's evidence is read at the member access, where inference keys it |
-    | `e0164d47`, `8180dea2` | An instance's dictionary key comes from its `type_key`, and an instance head carries the module that defines it (see 1g) |
-    | `92b77777` | A synthesized `Sendable` instance is as public as its ADT |
-    | `b515f918` | A binding under the monomorphism restriction no longer quantifies a constrained variable (GHC's rule). Unbuildable went from 135 to 73 |
-    | `0353f2d9` | Report fixes: operators lowered to primitives count as `operator`, cloned default-method bodies are paired apart, and default-span sites get `generated` |
-    | `3d063793` | A marker predicate's evidence is `Marker`, whether it holds structurally or stays unsolved |
-    | `cd33d470` | Early returns unify with the return type, and code after a block's own `return` is not its value |
-    | `404207d5` | Numeric defaulting recognises `Flow.Num` |
-    | `fe2ab5b7` | Sole-candidate improvement (0179 Stage 4): `Convert<Int, ?b>` takes `?b` from the one instance whose known arguments match |
-    | `657b79b5` | A call's predicate over a type nothing determines is E459, not a guessed `Int`. Eight tests gained annotations, and `generics/working/rejects/ambiguous_empty_literal.flx` pins it |
+    | `dacbca2f` | A module-qualified call's evidence is read at the member access, where inference keys it |
+    | `7f47ba6e`, `583471b7` | An instance's dictionary key comes from its `type_key`, and an instance head carries the module that defines it (see 1g) |
+    | `f873c8b8` | A synthesized `Sendable` instance is as public as its ADT |
+    | `b683c324` | A binding under the monomorphism restriction no longer quantifies a constrained variable (GHC's rule). Unbuildable went from 135 to 73 |
+    | `bbaf22a0` | Report fixes: operators lowered to primitives count as `operator`, cloned default-method bodies are paired apart, and default-span sites get `generated` |
+    | `e78b6ad8` | A marker predicate's evidence is `Marker`, whether it holds structurally or stays unsolved |
+    | `458b4681` | Early returns unify with the return type, and code after a block's own `return` is not its value |
+    | `5ee3fb00` | Numeric defaulting recognises `Flow.Num` |
+    | `47a0c30b` | Sole-candidate improvement (0179 Stage 4): `Convert<Int, ?b>` takes `?b` from the one instance whose known arguments match |
+    | `05c080c6` | A call's predicate over a type nothing determines is E459, not a guessed `Int`. Eight tests gained annotations, and `generics/working/rejects/ambiguous_empty_literal.flx` pins it |
 
   - **What is left, and who answers it:**
 
@@ -472,17 +472,17 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
 
   | Commit | What it does |
   |---|---|
-  | `6b52e38d`, `9d39c28f` | The evidence map follows the program being lowered |
-  | `615effdc` | Lowering creates the dictionary parameters |
-  | `ea663af5` | A dictionary named only from a superclass slot is defined |
-  | `a8f21fc6` | A method call answered by a parameter reads it |
+  | `457bc91f`, `02e49364` | The evidence map follows the program being lowered |
+  | `63e7cd65` | Lowering creates the dictionary parameters |
+  | `3cf46b39` | A dictionary named only from a superclass slot is defined |
+  | `eb65c011` | A method call answered by a parameter reads it |
 
-  - **`6b52e38d`, `9d39c28f`: the evidence map follows the program being
+  - **`457bc91f`, `02e49364`: the evidence map follows the program being
     lowered.** Dumps and whole-program LLVM re-infer a merged or regenerated
     program. Its evidence is now solved again too (`solve_class_constraints`),
     and the `--optimize` paths re-infer before folding. On the `--dump-core`
     path, `mismatched` went from 2165 to 0 and `unreached` from 1679 to 0.
-  - **`615effdc`: lowering creates the parameters** from
+  - **`63e7cd65`: lowering creates the parameters** from
     `definition(id).params`, with the canonical names (`__dict_Eq`,
     `__dict_Eq_1`). Elaboration finds them by name and adds none of its own.
     - Only top-level and module definitions, the ones elaboration covers.
@@ -496,12 +496,12 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
     - Generated instance functions keep their explicit `__dict_*` parameters.
       Each evidence parameter is matched to the explicit one with its
       canonical name, never by position.
-  - **`ea663af5`, found by the next step:** elaboration defined only the
+  - **`3cf46b39`, found by the next step:** elaboration defined only the
     dictionaries a program named itself. So `__dict_Sizeable_Int`, named only
     from `__dict_Measurable_Int`'s superclass slot, was never defined, and
     reading the slot failed with `Uninit`. Pinned by
     `type_classes/superclass_slot_dictionary.flx`.
-  - **`a8f21fc6`: a method call whose evidence is a parameter reads it** from
+  - **`eb65c011`: a method call whose evidence is a parameter reads it** from
     that parameter's binder: superclass slots, then the method's slot.
     - The old path's dispatch to "the only instance in sight" went from 51
       sites to 1.
@@ -510,7 +510,7 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
       main file's `Sized<String>` is never used. The Core path is now right.
       The VM compiles module members through the CFG path, where they have no
       scheme, so it waits for 1e.
-    - **Fixed in 1e (`7911d863`):** the VM compiles a module's members from
+    - **Fixed in 1e (`0359381a`):** the VM compiles a module's members from
       their IR, and the fixture moved to `generics/working/accepts/`.
   - **Moved to 1e:**
     - parameters for nested bounded functions, since their callers pass
@@ -566,37 +566,37 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
   and `--optimize --dump-core`, and parity on vm, vm_cached, vm_strict and
   llvm.
   - **No exception was needed.** The five `Flow.List` helpers were annotated
-    with their bounds (`53fe6bc1`), so they have evidence.
-  - **`--optimize`** (`659886cf`, `38f346c8`, `72370d3e`, `31c88bb5`,
-    `8a72e3e9`): the five files compile, and each lowering path now folds the
+    with their bounds (`35fe5307`), so they have evidence.
+  - **`--optimize`** (`4a1241e9`, `dd261303`, `7301b8f6`, `278ce73a`,
+    `0edcde35`): the five files compile, and each lowering path now folds the
     program before its final inference, so its evidence is solved for the
     program it lowers. `unreached` went from 1100 to 0 and `mismatched` to 0.
   - **The merged re-inference** was not a merging problem. `count` lost to a
     module member that stopped its dispatch stub being generated
-    (`5c4d8e69`). `fmap`, `pure` and `bind` on `Either` were a unifier gap
+    (`bea4ca49`). `fmap`, `pure` and `bind` on `Either` were a unifier gap
     KI-064 left: `f<a>` did not unify with `Either<String, Int>` as
-    `f = Either<String>` (`9ccf1214`).
+    `f = Either<String>` (`f13da20d`).
   - **Calls that raised no predicate.** Before lowering could fail closed, a
     unit compile left some class-method calls without evidence, so LLVM
     called the dispatch stub. The causes: the bare name of an imported class's
-    method was unbound (`2889dbed`); nullary methods (`mempty()`, `77a989f1`);
+    method was unbound (`751cdba9`); nullary methods (`mempty()`, `3dbf1138`);
     and calls qualified by a module alias or by the class's own module
-    (`0c75c2e0`, `32a9673e`). `bfa6d220` counts such a call as `unraised`
+    (`9299262a`, `82e058b4`). `ab361ce8` counts such a call as `unraised`
     and makes it an internal error, and the count went to 0.
-  - **Emit machinery:** `142d1425` (binder resolution keeps a dictionary
-    binder lowering set), then `2d029422`, `ccd4e374` and `c312b6fa`, all
+  - **Emit machinery:** `3a0d1ee0` (binder resolution keeps a dictionary
+    binder lowering set), then `a6b8f32e`, `62a953da` and `09448347`, all
     behind a shadow mode.
-  - **The Core path** (dumps and per-module LLVM) switched in `f24b88a8`.
+  - **The Core path** (dumps and per-module LLVM) switched in `22f1002c`.
     `syntax_tour` and `where_constraint_multi_param` now pass on LLVM.
-  - **The CFG path** (the VM) switched in `617146c6`, with a guard that each
+  - **The CFG path** (the VM) switched in `e7c737c8`, with a guard that each
     function's dictionary count matches its scheme. A top-level ambiguous
-    predicate is E459 (`d3cd8484`) instead of an internal error. A lowering
+    predicate is E459 (`3c6ccea4`) instead of an internal error. A lowering
     error is reported only when the unit has no error of its own, so lowering
     no longer pre-empts a real diagnostic.
   - **Module members on the VM** had never been compiled from IR. Linking
-    them (`7911d863`) needed a scope fix (`a824abdf`) and private members'
-    schemes (`0af5c3f7`). `sole_instance_dispatch` now runs on the VM.
-  - **Shadow mode went** in `3d393681`: `EvidenceMode`, the evidence diff
+    them (`0359381a`) needed a scope fix (`5300e7fc`) and private members'
+    schemes (`08133318`). `sole_instance_dispatch` now runs on the VM.
+  - **Shadow mode went** in `7c7b261c`: `EvidenceMode`, the evidence diff
     report and `FLUX_DBG_EVIDENCE_DIFF`, and lowering's old call-site
     dispatch.
 - [x] **1f. Delete deletion group 1 (C6).**
@@ -610,23 +610,23 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
   - The dictionary uses of `scheme_for_current_function`:
     `current_context_dictionary` and the `def_schemes` that
     `record_def_scheme` collects for elaboration. The emitter stopped reading
-    the scheme by name in `c0778b4a`.
+    the scheme by name in `e6feaa96`.
   - Keep `build_instance_dictionaries` and `build_contextual_dictionary_expr`.
     They build dictionary *values*; they don't choose instances.
   - Leave deletion group 2, the ~920 lines on the AST path, alone. It waits on
     E3's open question: whether the AST bytecode fallback can be retired.
 
   **Done 2026-10-13**, about 4,100 lines:
-  - `3d393681` deleted lowering's half: the `try_resolve_class_call*` and
+  - `7c7b261c` deleted lowering's half: the `try_resolve_class_call*` and
     `resolve_direct_class_call_dict_args*` family,
     `resolve_dict_args_for_call`, `resolve_dict_args_for_module_member_call`
     and `param_method_call`, with the shadow machinery.
-  - `4839b53a` deleted elaboration's half: `rewrite_constrained_functions`,
+  - `7d1b1c3d` deleted elaboration's half: `rewrite_constrained_functions`,
     `insert_dict_args_at_call_sites`, `resolve_dict_arg`,
     `build_caller_dict_map`, `choose_candidate`, `def_schemes`,
     `record_def_scheme` and `scheme_for_current_function`.
     `dict_elaborate.rs` now only defines the dictionaries a program names.
-  - `6f742a78` removed 1g's last fallback. It is not an internal error, as
+  - `6e2030b0` removed 1g's last fallback. It is not an internal error, as
     planned: it only ran for an instance declaration that collection had
     already rejected with its own diagnostic (E447, for example). Such a
     declaration now generates no instance methods. Its dispatch stubs stay,
@@ -643,7 +643,7 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
   - `dict_elaborate.rs`
   - `lower_ast/mod.rs`
 
-  **Done in `e0164d47` and `8180dea2`.** Checked 2026-10-08 with
+  **Done in `7f47ba6e` and `583471b7`.** Checked 2026-10-08 with
   `rg 'dictionary_name\(|instance_type_key\(' src`: every non-test caller
   passes an `InstanceDef.type_key`.
   - One fallback is left. `class_dispatch.rs` re-renders a key for an
@@ -666,11 +666,11 @@ show_all = λ__dict_Enc. λxs. enc(__dict_Enc_List(__dict_Enc), xs)
   read. This tests the claim that Track C fixes KI-076, KI-071 and KI-073 at the
   root. Record which ones moved.
 
-**Which ones moved** (re-run 2026-10-13, at `6f742a78`):
+**Which ones moved** (re-run 2026-10-13, at `6e2030b0`):
 
 | KI | VM | LLVM | Moved |
 |---|---|---|---|
-| [KI-073](../known_issues.md#ki-073) | `"42"` | `"42"` | **Fixed** by `f24b88a8`. `syntax_tour` passes parity. |
+| [KI-073](../known_issues.md#ki-073) | `"42"` | `"42"` | **Fixed** by `22f1002c`. `syntax_tour` passes parity. |
 | [KI-071](../known_issues.md#ki-071) | `true` | `true` | **Does not reproduce.** No crash, and both backends agree. |
 | [KI-076](../known_issues.md#ki-076) | E1000 | `9` | **LLVM only.** The VM still fails; see the KI. |
 

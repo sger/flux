@@ -200,12 +200,12 @@ The GHC references are from a local checkout at `aefa0c1b90` (2026-08-16).
 [stages]: #stages
 
 - **S1, done 2026-11-12:** §1 and §2. The roots cache test came first
-  (`f15fa6c0`), then the fix (`1fd4e92a`), then the rename and the frozen tags
-  (`0f5e4391`).
-- **S2, done 2026-11-12:** §3, as KI-197 (`c31fcada`). Its native test needed a
+  (`4534e7e2`), then the fix (`00319db7`), then the rename and the frozen tags
+  (`67319093`).
+- **S2, done 2026-11-12:** §3, as KI-197 (`096ca5f1`). Its native test needed a
   working native link, and that turned out to be KI-196: Cargo 1.100 puts its
   build artifacts in `target/<profile>/build/<package>/<hash>/out/` and has no
-  `deps/`, where the compiler looked for the Rust staticlib (`e443125c`).
+  `deps/`, where the compiler looked for the Rust staticlib (`56e86721`).
 - **S3, open:** §4.
 
 Follow-ups from S2, outside this proposal:

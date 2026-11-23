@@ -60,7 +60,7 @@ cell's match copies the tail and releases the cell. The pair measures that
 cost against none at all.
 
 Flux infers the first and has no way to write the second. On 2026-10-31
-(`ce4da5da`), `--dump-aether` on a Flux port of `lookup` shows
+(`522c064c`), `--dump-aether` on a Flux port of `lookup` shows
 `aether_call[borrowed, borrowed] lookup(rest, pred)` and no copy or release
 of a list cell during the walk. That is the borrowed version. A Flux function
 that walks the list the same way but is owned has to do something else with

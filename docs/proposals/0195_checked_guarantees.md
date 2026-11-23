@@ -32,7 +32,7 @@ The tracks run in this order, T1 to T4. Each is useful on its own.
 
 Each of the four properties is partly built, and in each case a doc, a comment
 or a dump claims more than the build checks. Checked 2026-11-03 on
-`perf/native-runtime-roadmap` (b21d7f89):
+`perf/native-runtime-roadmap` (ab5485d7):
 
 - **T1.** `@fip` and `@fbip` parse, reach Aether and have a fixpoint analysis.
   But the build checks the Core *before* Aether (`src/aether/mod.rs:992`,

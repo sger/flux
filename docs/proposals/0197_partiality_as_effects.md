@@ -40,7 +40,7 @@ information without changing the result type.
 
 ### The labels exist, and are switched off
 
-Checked 2026-11-03 at b21d7f89:
+Checked 2026-11-03 at ab5485d7:
 
 - `Div`, `Exn` and `Panic` are declared (`src/syntax/builtin_effects.rs:52-72`,
   documented in `lib/Flow/Effects.flx:40-42`). `Exn` is reserved and rejected in

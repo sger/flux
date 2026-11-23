@@ -993,7 +993,7 @@ Ranked by severity; complete as of this writing.
       report types from the wrong module. Not generics; it is the instrument
       used to *read* generics dumps, which is why it is on this list.
       **Fixed**: every merged view shifts each module's expression ids
-      (`2d1a7203` for the dumps; `--emit-llvm` and `--trace-aether` since).
+      (`8f8f1470` for the dumps; `--emit-llvm` and `--trace-aether` since).
 
 ### Low
 

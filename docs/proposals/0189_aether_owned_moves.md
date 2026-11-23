@@ -32,7 +32,7 @@ leaks, never crashes. The debug heap (0188 S10c) checks each step.
 
 **Where the tree is (2026-10-21).**
 - The copy is already gone. 0190 S15 removed `dup_owned_call_args` for Flux
-  calls and for C primops (8e7000c9, KI-120), ahead of F3-1 to F3-3.
+  calls and for C primops (1f4a82b7, KI-120), ahead of F3-1 to F3-3.
 - One hazard below was live on that commit (V6). A Flux function returns an
   array element, the array is then given to a call that releases it, and the
   element reads as freed memory (`fn get0(a) { a[0] }`, then `discard(a)`).
@@ -46,8 +46,8 @@ leaks, never crashes. The debug heap (0188 S10c) checks each step.
 
 The steps below are ordered around these facts.
 
-**Where the tree is (2026-11-03, b21d7f89).**
-- F3-4 has landed. 7754b423 removed the match-time pin: `emit_match_ctor`
+**Where the tree is (2026-11-03, ab5485d7).**
+- F3-4 has landed. 1a3813f4 removed the match-time pin: `emit_match_ctor`
   loads each field an arm binds into a local and no longer copies it.
 - Most of F3-3 is in. A claiming arm copies the fields it uses and then
   drops the cell (the `Node` arm of KI-164's `nodes` shows
@@ -58,7 +58,7 @@ The steps below are ordered around these facts.
   statistics are not yet taken from the unique body.
 - F3-5 is in, apart from its optional `push`/`concat` item. On the unique path
   `rewrite_mode` releases every field the arm was not handed, and since
-  07cdfc77 and 1efad94a `FreeShell` frees the cell alone on each path that does
+  11fa0b28 and af23d4de `FreeShell` frees the cell alone on each path that does
   not reuse it, before any call on that path (KI-164). A call or a guard before
   the branch keeps the plain release. KI-164's `nodes(make(20))` went from
   `DropSpecs: 0` to `DropSpecs: 1` and keeps `allocs=2097157 frees=2097156
@@ -75,12 +75,12 @@ The steps below are ordered around these facts.
   threads can share it and it can't name the owner. Other hosts keep the
   call.
 
-  Instructions retired against `ab89616a` (C2), 5–7 interleaved runs:
+  Instructions retired against `f88f47f3` (C2), 5–7 interleaved runs:
   binarytrees -6.6% (2,400 to 2,200 ms, faster in all 7 pairs),
   binarytrees_fbip -19.8%, `nodes` -4.6%, `deriv` +0.2%, the rest within
   0.3%. Two earlier versions did not pass. Pushing through
   `llvm.threadlocal.address` gave `deriv` +5.4%, as on 2026-11-04 against
-  1efad94a: the lookup is speculatable, so LLVM hoists its thunk call into
+  af23d4de: the lookup is speculatable, so LLVM hoists its thunk call into
   `mul`'s entry, where `mul(left, mul(right, g))` makes it on every call; and
   binarytrees gained only 1.9%, since the thunk still ran on every free.
   Keeping the owner's thread and heap in two globals gave `deriv` +1.7%,
@@ -97,8 +97,8 @@ The steps below are ordered around these facts.
 The debug heap found two reference-count bugs in Aether, fixed on
 `feat/debugger`:
 
-- **F1** (b0c230d8): a value dropped twice in nested matches.
-- **F2** (7645f84f): about 51 stdlib functions were inferred to *borrow* a
+- **F1** (b31caa92): a value dropped twice in nested matches.
+- **F2** (fb550155): about 51 stdlib functions were inferred to *borrow* a
   parameter they actually released, by reusing it in place or dropping it. The
   caller's guard released it again.
 
@@ -254,8 +254,8 @@ every step can only add references, so at worst it leaks.
 | F3-1 | **The C runtime counts what it returns and shares** (V6, V7). Copy the value `array_get`, `hamt_get_option`, `flux_rt_index` (tuples and lists) and `unwrap` hand out; the elements `set`, `push`, `concat`, `slice` and `reverse` share, and the value `set` and `push` store; the key and value `hamt_set` stores; what `hamt_keys` and `hamt_values` collect; and an argument handed back unchanged (`set` out of range or given something other than an array, `reverse` of an empty array, `replace` with nothing to replace, `string_concat`, `hamt_delete` of a missing key, `hamt_merge` with an empty map). The raw views `array_at` and `hamt_get` stay uncounted for the runtime's own use, and `unwrap_or`, `ho_find` and the sorts are not reached from LIR; nor is `reverse`, which is counted anyway and has no fixture. Fixtures call the bare primops (`array_push`, `map_set`, …), since the `Flow` wrappers leak their argument (KI-121) and that hides V7. | fixes a live use after free (V6, through `Index`) |
 | F3-2 | **Views are copied before an owned use** (V1–V5): rule 3 in `plan_var`; captures and handler values planned as lent; a copy for out-of-scope binders; continuations copy their captures on entry. Landed so far: F3-2.0, the `ViewConsumed` check under `FLUX_AETHER_VERIFY=1` (101 on `verify_aether.flx`); F3-2a, pattern fields and `let x = t.i` are views, copied before an owned use and never released (a dead `let x = t.0` used to release the field), and a bare `t.i` given away is copied through a temporary. Since drop_spec now splits more arms, its unique path also looks for a reuse past a `let` (`forwarded_child` kept its reuse), and `MissedReuse` no longer looks at the shared path. F3-2b, a capture is lent inside its lambda, and a handler clause's `resume`, arguments and state inside the clause (a local loop no longer releases itself, a closure returning its capture copies it); the unique-path reuse fallback is kept only when it releases the cell nowhere, since an arm that does not reuse it still owns its fields. A clause's outer captures are not lent yet. | leaks only |
 | F3-3 | **Arms claim their value** (mostly landed; see "Where the tree is")**:** the claim in `insert.rs`; the shared path keeps its drop; the LIR rewrites a claimed cell in place unconditionally (`claimed_tokens`); the verifier's single-release check counts the shared side's drop, and a new `ViewConsumed` check is added; fbip statistics are taken from the unique body. | leaks only (the pin still holds) |
-| F3-4 | **The match-time pin goes** (landed, 7754b423)**:** `emit_match_ctor` no longer copies the fields an arm binds, now that the planner copies every field it uses (F3-2). A LIR safety net copies an owned argument that is a field, member or global read. (Removing `dup_owned_call_args` was done early, in 8e7000c9.) Before the pin goes: drop_spec's unique path must keep a copy for a nested field and for each use after the first; and a field's copy must run before its cell's release, which today comes first at the head of the arm (safe only through drop_spec's shared path or the pin). | this is the step the oracles exist for |
-| F3-5 | **The remaining leaks:** free the cell on a unique path that does not reuse it (a new `flux_free_shell`, debug-heap aware); drop unused fields at the unique path's entry; release the matched cell on the shared path, which `rewrite_mode` strips the drop from in both modes; `push`/`concat` may consume their source instead of copying its elements (optional since the primop pin is gone). Done except the optional `push`/`concat` item: the shell free landed in 07cdfc77 and 1efad94a. It is safe only before any call on its path: past a call that can suspend, a multi-shot resume copies its captures (9e64d3a9), so the cell may no longer be unique, and a worker-mode function skips counting, so it skips the free too. | no |
+| F3-4 | **The match-time pin goes** (landed, 1a3813f4)**:** `emit_match_ctor` no longer copies the fields an arm binds, now that the planner copies every field it uses (F3-2). A LIR safety net copies an owned argument that is a field, member or global read. (Removing `dup_owned_call_args` was done early, in 1f4a82b7.) Before the pin goes: drop_spec's unique path must keep a copy for a nested field and for each use after the first; and a field's copy must run before its cell's release, which today comes first at the head of the arm (safe only through drop_spec's shared path or the pin). | this is the step the oracles exist for |
+| F3-5 | **The remaining leaks:** free the cell on a unique path that does not reuse it (a new `flux_free_shell`, debug-heap aware); drop unused fields at the unique path's entry; release the matched cell on the shared path, which `rewrite_mode` strips the drop from in both modes; `push`/`concat` may consume their source instead of copying its elements (optional since the primop pin is gone). Done except the optional `push`/`concat` item: the shell free landed in 11fa0b28 and af23d4de. It is safe only before any call on its path: past a call that can suspend, a multi-shot resume copies its captures (3566229b), so the cell may no longer be unique, and a worker-mode function skips counting, so it skips the free too. | no |
 
 ### Checks at every step
 
