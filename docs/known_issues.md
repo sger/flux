@@ -917,31 +917,6 @@ a task that may run inline or on a worker), or the comparison needs a
 tolerance for those. Until then, a metrics step that fails only on
 `async_*` or task fixtures' run counts is this issue.
 
-### KI-218 — Natively, a shift by 64 or more, or by a negative amount, is undefined
-
-**Severity:** High (a wrong value or a crash with `--optimize`) · **Area:** native code for `bit_shl` and `bit_shr` (`src/lir/emit_llvm.rs`) · **Verified:** 2026-11-23 (641d53c0) · **From:** the KI-039 plan's arithmetic audit
-
-```flux
-fn amount(n: Int) -> Int {
-    if n <= 0 { n } else { 1 + amount(n - 1) }
-}
-
-fn main() with IO {
-    print(bit_shl(3, amount(65)))
-    print(bit_shl(2, amount(-1)))
-}
-```
-
-The VM prints `6` and `0`: it takes the amount modulo 64
-(`masked_shift_amount` in `src/vm/core_dispatch.rs`), as do both constant
-folders. Native code emits a bare LLVM `shl` or `ashr` on the raw amount,
-and LLVM makes the result poison when the amount is 64 or more, or negative.
-With `--native --optimize` the second line prints `<unknown obj=0xcd>` and
-the program then exits with an access violation. Without `--optimize` it
-prints the VM's numbers only because x86-64's shift instructions mask the
-amount to 6 bits themselves. The amounts come through a recursive function
-because a literal amount is folded, with the mask, before code generation.
-
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
@@ -3498,6 +3473,39 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-218 — Natively, a shift by 64 or more, or by a negative amount, is undefined — FIXED 2026-11-23
+
+**Severity:** High (a wrong value or a crash with `--optimize`) · **Area:** native code for `bit_shl` and `bit_shr` (`src/lir/emit_llvm.rs`) · **Verified:** 2026-11-23 (641d53c0) · **From:** the KI-039 plan's arithmetic audit
+
+```flux
+fn amount(n: Int) -> Int {
+    if n <= 0 { n } else { 1 + amount(n - 1) }
+}
+
+fn main() with IO {
+    print(bit_shl(3, amount(65)))
+    print(bit_shl(2, amount(-1)))
+}
+```
+
+The VM prints `6` and `0`: it takes the amount modulo 64
+(`masked_shift_amount` in `src/vm/core_dispatch.rs`), as do both constant
+folders. Native code emits a bare LLVM `shl` or `ashr` on the raw amount,
+and LLVM makes the result poison when the amount is 64 or more, or negative.
+With `--native --optimize` the second line prints `<unknown obj=0xcd>` and
+the program then exits with an access violation. Without `--optimize` it
+prints the VM's numbers only because x86-64's shift instructions mask the
+amount to 6 bits themselves. The amounts come through a recursive function
+because a literal amount is folded, with the mask, before code generation.
+
+**Fixed 2026-11-23.** Native code ANDs the amount with 63 before `shl` and
+`ashr` (`emit_shift` in `src/lir/emit_llvm.rs`). x86-64 folds the `and`
+into the shift instruction, so it costs nothing. Tests:
+`lowers_bitwise_primops_to_integer_llvm_ops`, which checks that every shift
+by a run-time amount is masked, and
+`tests/parity/arith_int_shift_amount_masked_ki218.flx`.
+
 
 ### KI-217 — A module function takes the type of whatever is last bound to its name — FIXED 2026-11-23
 
