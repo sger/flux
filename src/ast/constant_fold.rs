@@ -1,7 +1,7 @@
 use crate::ast::fold::{self, Folder};
 use crate::core::CorePrimOp;
 use crate::diagnostics::position::Span;
-use crate::shared::opt_bisect;
+use crate::shared::{int_arith, opt_bisect};
 use crate::syntax::expression::ExprId;
 use crate::syntax::interner::Interner;
 use crate::syntax::{expression::Expression, program::Program};
@@ -71,11 +71,17 @@ fn try_fold_infix(
         (Expression::Integer { value: a, .. }, Expression::Integer { value: b, .. }) => {
             let (a, b) = (*a, *b);
             match operator {
-                "+" => Some(Expression::Integer { value: a + b, span, id }),
-                "-" => Some(Expression::Integer { value: a - b, span, id }),
-                "*" => Some(Expression::Integer { value: a * b, span, id }),
-                "/" if b != 0 => Some(Expression::Integer { value: a / b, span, id }),
-                "%" if b != 0 => Some(Expression::Integer { value: a % b, span, id }),
+                // @KI-040: a folded Int means what it means at run time:
+                // it wraps, and MIN / -1 is MIN.
+                "+" => Some(Expression::Integer { value: int_arith::add(a, b), span, id }),
+                "-" => Some(Expression::Integer { value: int_arith::sub(a, b), span, id }),
+                "*" => Some(Expression::Integer { value: int_arith::mul(a, b), span, id }),
+                "/" if b != 0 => {
+                    Some(Expression::Integer { value: int_arith::div(a, b), span, id })
+                }
+                "%" if b != 0 => {
+                    Some(Expression::Integer { value: int_arith::rem(a, b), span, id })
+                }
                 "==" => Some(Expression::Boolean { value: a == b, span, id }),
                 "!=" => Some(Expression::Boolean { value: a != b, span, id }),
                 "<" => Some(Expression::Boolean { value: a < b, span, id }),
@@ -125,7 +131,7 @@ fn try_fold_prefix(
 ) -> Option<Expression> {
     match (operator, right) {
         ("-", Expression::Integer { value, .. }) => {
-            Some(Expression::Integer { value: -value, span, id })
+            Some(Expression::Integer { value: int_arith::neg(*value), span, id })
         }
         ("-", Expression::Float { value, .. }) => {
             Some(Expression::Float { value: -value, span, id })
@@ -161,7 +167,7 @@ fn try_fold_pure_primop_call(
     match op {
         CorePrimOp::Abs => match arguments.first()? {
             Expression::Integer { value, .. } => {
-                Some(Expression::Integer { value: value.abs(), span, id })
+                Some(Expression::Integer { value: int_arith::abs(*value), span, id })
             }
             Expression::Float { value, .. } => {
                 Some(Expression::Float { value: value.abs(), span, id })

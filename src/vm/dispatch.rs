@@ -492,14 +492,15 @@ impl VM {
                                 if *r == 0 {
                                     None // fall through to full handler for error
                                 } else {
-                                    Some(Value::Integer(l / r))
+                                    // @KI-040: MIN / -1 is MIN.
+                                    Some(Value::Integer(int_arith::div(*l, *r)))
                                 }
                             }
                             OpCode::OpMod => {
                                 if *r == 0 {
                                     None
                                 } else {
-                                    Some(Value::Integer(l % r))
+                                    Some(Value::Integer(int_arith::rem(*l, *r)))
                                 }
                             }
                             _ => None,

@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::shared::int_arith;
 use crate::types::{infer_type::InferType, type_constructor::TypeConstructor};
 
 use super::{
@@ -210,11 +211,22 @@ fn fold_expr(expr: &IrExpr, consts: &HashMap<IrVar, IrConst>) -> Option<IrConst>
     match expr {
         IrExpr::Binary(op, lhs, rhs) => match (consts.get(lhs), consts.get(rhs)) {
             (Some(IrConst::Int(lhs)), Some(IrConst::Int(rhs))) => match op {
-                IrBinaryOp::Add | IrBinaryOp::IAdd => Some(IrConst::Int(lhs.wrapping_add(*rhs))),
-                IrBinaryOp::Sub | IrBinaryOp::ISub => Some(IrConst::Int(lhs.wrapping_sub(*rhs))),
-                IrBinaryOp::Mul | IrBinaryOp::IMul => Some(IrConst::Int(lhs.wrapping_mul(*rhs))),
-                IrBinaryOp::Div | IrBinaryOp::IDiv if *rhs != 0 => Some(IrConst::Int(lhs / rhs)),
-                IrBinaryOp::Mod | IrBinaryOp::IMod if *rhs != 0 => Some(IrConst::Int(lhs % rhs)),
+                // @KI-040: MIN / -1 is MIN and MIN % -1 is 0.
+                IrBinaryOp::Add | IrBinaryOp::IAdd => {
+                    Some(IrConst::Int(int_arith::add(*lhs, *rhs)))
+                }
+                IrBinaryOp::Sub | IrBinaryOp::ISub => {
+                    Some(IrConst::Int(int_arith::sub(*lhs, *rhs)))
+                }
+                IrBinaryOp::Mul | IrBinaryOp::IMul => {
+                    Some(IrConst::Int(int_arith::mul(*lhs, *rhs)))
+                }
+                IrBinaryOp::Div | IrBinaryOp::IDiv if *rhs != 0 => {
+                    Some(IrConst::Int(int_arith::div(*lhs, *rhs)))
+                }
+                IrBinaryOp::Mod | IrBinaryOp::IMod if *rhs != 0 => {
+                    Some(IrConst::Int(int_arith::rem(*lhs, *rhs)))
+                }
                 IrBinaryOp::Eq => Some(IrConst::Bool(lhs == rhs)),
                 IrBinaryOp::NotEq => Some(IrConst::Bool(lhs != rhs)),
                 IrBinaryOp::Lt => Some(IrConst::Bool(lhs < rhs)),

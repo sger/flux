@@ -25,8 +25,9 @@ impl VM {
                     OpCode::OpAdd => int_arith::add(*l, *r),
                     OpCode::OpSub => int_arith::sub(*l, *r),
                     OpCode::OpMul => int_arith::mul(*l, *r),
-                    OpCode::OpDiv => l / r,
-                    OpCode::OpMod => l % r,
+                    // @KI-040: MIN / -1 is MIN and MIN % -1 is 0.
+                    OpCode::OpDiv => int_arith::div(*l, *r),
+                    OpCode::OpMod => int_arith::rem(*l, *r),
                     _ => return Err(format!("unknown integer operator: {:?}", op)),
                 };
                 self.push(Value::Integer(result))

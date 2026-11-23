@@ -1,5 +1,5 @@
 use crate::core::{CoreAlt, CoreExpr, CoreLit, CorePrimOp};
-use crate::shared::opt_bisect;
+use crate::shared::{int_arith, opt_bisect};
 
 use super::helpers::{bind_pattern, select_known_arm};
 
@@ -54,20 +54,22 @@ fn fold_primop(
     use CoreLit::{Bool, Float, Int};
     use CorePrimOp::*;
     Some(match (op, args) {
+        // @KI-040: a folded Int means what it means at run time: it wraps,
+        // and MIN / -1 is MIN.
         (IAdd | Add, [CoreExpr::Lit(Int(a), _), CoreExpr::Lit(Int(b), _)]) => {
-            CoreExpr::Lit(Int(a + b), span)
+            CoreExpr::Lit(Int(int_arith::add(*a, *b)), span)
         }
         (ISub | Sub, [CoreExpr::Lit(Int(a), _), CoreExpr::Lit(Int(b), _)]) => {
-            CoreExpr::Lit(Int(a - b), span)
+            CoreExpr::Lit(Int(int_arith::sub(*a, *b)), span)
         }
         (IMul | Mul, [CoreExpr::Lit(Int(a), _), CoreExpr::Lit(Int(b), _)]) => {
-            CoreExpr::Lit(Int(a * b), span)
+            CoreExpr::Lit(Int(int_arith::mul(*a, *b)), span)
         }
         (IDiv | Div, [CoreExpr::Lit(Int(a), _), CoreExpr::Lit(Int(b), _)]) if *b != 0 => {
-            CoreExpr::Lit(Int(a / b), span)
+            CoreExpr::Lit(Int(int_arith::div(*a, *b)), span)
         }
         (IMod | Mod, [CoreExpr::Lit(Int(a), _), CoreExpr::Lit(Int(b), _)]) if *b != 0 => {
-            CoreExpr::Lit(Int(a % b), span)
+            CoreExpr::Lit(Int(int_arith::rem(*a, *b)), span)
         }
         (FAdd | Add, [CoreExpr::Lit(Float(a), _), CoreExpr::Lit(Float(b), _)]) => {
             CoreExpr::Lit(Float(a + b), span)

@@ -3005,14 +3005,23 @@ pub fn execute_core_primop(
         IDiv => int2_result(
             &args,
             |a, b| {
-                if b == 0 { Err("division by zero".into()) } else { Ok(Value::Integer(a / b)) }
+                if b == 0 {
+                    Err("division by zero".into())
+                } else {
+                    // @KI-040: MIN / -1 is MIN.
+                    Ok(Value::Integer(int_arith::div(a, b)))
+                }
             },
             "idiv",
         ),
         IMod => int2_result(
             &args,
             |a, b| {
-                if b == 0 { Err("modulo by zero".into()) } else { Ok(Value::Integer(a % b)) }
+                if b == 0 {
+                    Err("modulo by zero".into())
+                } else {
+                    Ok(Value::Integer(int_arith::rem(a, b)))
+                }
             },
             "imod",
         ),
@@ -4517,7 +4526,7 @@ fn safe_arith_div(args: &[Value]) -> Result<Value, String> {
             if *b == 0 {
                 Ok(Value::None)
             } else {
-                Ok(Value::Some(Rc::new(Value::Integer(a / b))))
+                Ok(Value::Some(Rc::new(Value::Integer(int_arith::div(*a, *b)))))
             }
         }
         (Value::Float(a), Value::Float(b)) => {
@@ -4555,7 +4564,7 @@ fn safe_arith_mod(args: &[Value]) -> Result<Value, String> {
             if *b == 0 {
                 Ok(Value::None)
             } else {
-                Ok(Value::Some(Rc::new(Value::Integer(a % b))))
+                Ok(Value::Some(Rc::new(Value::Integer(int_arith::rem(*a, *b)))))
             }
         }
         (Value::Float(a), Value::Float(b)) => {
