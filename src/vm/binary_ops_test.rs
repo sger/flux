@@ -94,6 +94,16 @@ fn core(op: crate::core::CorePrimOp, args: Vec<i64>) -> Value {
     super::core_dispatch::execute_core_primop(&mut vm, op, args).unwrap()
 }
 
+/// The VM holds every Int the same way, so the boxing primops of native raw
+/// Ints return their argument.
+#[test]
+fn int_boxing_primops_are_the_identity_on_the_vm() {
+    use crate::core::CorePrimOp::*;
+    for op in [BoxInt, UnboxInt, UnboxIntMove] {
+        assert_eq!(core(op, vec![i64::MIN]), Value::Integer(i64::MIN), "{op:?}");
+    }
+}
+
 #[test]
 fn core_primops_wrap_ki038() {
     use crate::core::CorePrimOp::*;

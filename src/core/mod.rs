@@ -877,7 +877,17 @@ pub enum CorePrimOp {
     /// The argument vector is passed to `execvp` directly — there is no shell,
     /// so quoting is not a concern and injection is not possible.
     ProcRun = 244,
-    // ── Next free ID: 245 ─────────────────────────────────────────────
+
+    // ── Int boxing (native raw Ints, KI-039) ──────────────────────────
+    // Compiler-only: the native backend's explicit boxing pass makes them,
+    // and no source name reaches them. Each takes one Int.
+    /// A raw Int as a uniform word. The result is fresh.
+    BoxInt = 245,
+    /// A uniform word's Int, raw. Borrows its argument.
+    UnboxInt = 246,
+    /// A uniform word's Int, raw. Consumes its argument.
+    UnboxIntMove = 247,
+    // ── Next free ID: 248 ─────────────────────────────────────────────
 }
 
 impl CorePrimOp {
@@ -1262,6 +1272,9 @@ impl CorePrimOp {
             242 => EnvCwd,
             243 => EnvHomeDir,
             244 => ProcRun,
+            245 => BoxInt,
+            246 => UnboxInt,
+            247 => UnboxIntMove,
             51 => WriteFile,
             52 => ReadStdin,
             53 => ReadLines,
@@ -1696,6 +1709,9 @@ impl CorePrimOp {
             | EnvHomeDir => 0,
             Abs
             | ArrayLen
+            | BoxInt
+            | UnboxInt
+            | UnboxIntMove
             | DebugTrace
             | IsArray
             | IsBool
@@ -1960,6 +1976,8 @@ impl CorePrimOp {
             Self::MakeTuple | Self::MakeList | Self::MakeArray | Self::MakeHash => true,
             Self::Panic | Self::FiberFail => index == 0,
             Self::TaskSpawnMove => index == 0,
+            // The box it reads goes with it, released by the unboxing.
+            Self::UnboxIntMove => index == 0,
             Self::TaskSpawnScopedMove
             | Self::ChanSendMove
             | Self::ChanTrySendMove
@@ -2375,6 +2393,22 @@ mod tests {
 
     use crate::syntax::{lexer::Lexer, parser::Parser};
     use crate::types::{infer_type::InferType, type_constructor::TypeConstructor};
+
+    /// The boxing primops come only from the native boxing pass: each takes
+    /// one Int, survives a round trip through its id, and has no source name.
+    #[test]
+    fn the_int_boxing_primops_are_compiler_only() {
+        use super::CorePrimOp;
+        for op in [CorePrimOp::BoxInt, CorePrimOp::UnboxInt, CorePrimOp::UnboxIntMove] {
+            assert_eq!(CorePrimOp::from_id(op.id()), Some(op));
+            assert_eq!(op.arity(), 1, "{op:?}");
+        }
+        for name in ["box_int", "unbox_int", "unbox_int_move", "BoxInt", "UnboxInt"] {
+            assert_eq!(CorePrimOp::from_name(name, 1), None, "{name}");
+        }
+        assert!(CorePrimOp::UnboxIntMove.takes_arg(0));
+        assert!(!CorePrimOp::UnboxInt.takes_arg(0));
+    }
 
     #[test]
     fn core_facade_lowers_typed_program() {

@@ -3284,6 +3284,8 @@ pub fn execute_core_primop(
 
         // ── Type tag inspection ───────────────────────────────────────
         IsInt => Ok(Value::Boolean(matches!(args[0], Value::Integer(_)))),
+        // The VM holds every Int the same way, so boxing returns its argument.
+        BoxInt | UnboxInt | UnboxIntMove => Ok(args[0].clone()),
         IsFloat => Ok(Value::Boolean(matches!(args[0], Value::Float(_)))),
         IsString => Ok(Value::Boolean(matches!(args[0], Value::String(_)))),
         IsBool => Ok(Value::Boolean(matches!(args[0], Value::Boolean(_)))),

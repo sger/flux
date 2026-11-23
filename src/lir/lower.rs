@@ -4342,6 +4342,14 @@ impl<'a> FnLower<'a> {
         span: crate::diagnostics::position::Span,
     ) -> LirVar {
         match op {
+            // @KI-039: every Int is a tagged word in LIR until raw Ints land,
+            // so boxing and unboxing copy it.
+            CorePrimOp::BoxInt | CorePrimOp::UnboxInt | CorePrimOp::UnboxIntMove => {
+                let dst = self.fresh_var();
+                self.emit(LirInstr::Copy { dst, src: arg_vars[0] });
+                self.int_vars.insert(dst);
+                dst
+            }
             // Typed integer arithmetic → inline LIR instructions.
             // Untag operands, compute, retag result.
             CorePrimOp::IAdd => self.lower_int_binop(LirIntOp::Add, &arg_vars, span),
@@ -6245,6 +6253,54 @@ mod tests {
             op: crate::core::CorePrimOp::Add,
             args: vec![left, right],
             span: Span::default(),
+        }
+    }
+
+    /// Every Int is a tagged word in LIR until raw Ints land, so each boxing
+    /// primop lowers to a copy of its argument.
+    #[test]
+    fn the_int_boxing_primops_lower_to_copies() {
+        use crate::aether::{AetherDef, AetherProgram};
+        use crate::core::CorePrimOp;
+        let span = Span::default();
+        for op in [CorePrimOp::BoxInt, CorePrimOp::UnboxInt, CorePrimOp::UnboxIntMove] {
+            let [f, x] = [1, 2].map(|id| mk_binder(id, Identifier::new(id)));
+            let expr = AetherExpr::Lam {
+                params: vec![x],
+                param_types: vec![],
+                result_ty: None,
+                body: Box::new(AetherExpr::PrimOp {
+                    op,
+                    args: vec![AetherExpr::bound_var(x, span)],
+                    span,
+                }),
+                span,
+            };
+            let def = AetherDef::from_core(CoreDef::new(
+                f,
+                CoreExpr::Lit(CoreLit::Int(0), span),
+                false,
+                span,
+            ));
+            let program = AetherProgram::new(
+                CoreProgram { defs: Vec::new(), top_level_items: Vec::new() },
+                vec![AetherDef { expr, ..def }],
+                Vec::new(),
+            );
+            let lowered = super::lower_aether_program(&program);
+            let function = &lowered.functions[0];
+            let param = function.params[0];
+            let instrs: Vec<_> = function.blocks.iter().flat_map(|b| b.instrs.iter()).collect();
+            assert!(
+                instrs
+                    .iter()
+                    .any(|i| matches!(i, crate::lir::LirInstr::Copy { src, .. } if *src == param)),
+                "{op:?}: {instrs:?}"
+            );
+            assert!(
+                !instrs.iter().any(|i| matches!(i, crate::lir::LirInstr::PrimCall { .. })),
+                "{op:?}: {instrs:?}"
+            );
         }
     }
 

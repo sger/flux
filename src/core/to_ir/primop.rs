@@ -331,6 +331,12 @@ impl<'a> super::fn_ctx::FnCtx<'a> {
                     metadata: meta,
                 });
             }
+            // The VM holds every Int the same way, so boxing is a copy. The
+            // native boxing pass that makes these never runs for the VM.
+            CorePrimOp::BoxInt | CorePrimOp::UnboxInt | CorePrimOp::UnboxIntMove => {
+                let v = self.lower_expr(&args[0]);
+                self.emit(IrInstr::Assign { dest, expr: IrExpr::Var(v), metadata: meta });
+            }
             CorePrimOp::Interpolate => {
                 let parts: Vec<IrStringPart> = args
                     .iter()

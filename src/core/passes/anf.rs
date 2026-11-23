@@ -221,7 +221,10 @@ pub fn primop_result_rep(op: &CorePrimOp) -> FluxRep {
         | CorePrimOp::BitOr
         | CorePrimOp::BitXor
         | CorePrimOp::BitShl
-        | CorePrimOp::BitShr => FluxRep::IntRep,
+        | CorePrimOp::BitShr
+        | CorePrimOp::UnboxInt
+        | CorePrimOp::UnboxIntMove => FluxRep::IntRep,
+        CorePrimOp::BoxInt => FluxRep::TaggedRep,
 
         // Typed float arithmetic → FloatRep
         CorePrimOp::FAdd

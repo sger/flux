@@ -3771,6 +3771,9 @@ fn is_fastcc_prelude_helper(name: &str) -> bool {
 fn primop_c_name(op: &CorePrimOp) -> String {
     // First try the promoted primop name → builtin mapping.
     let flux_name = match op {
+        CorePrimOp::BoxInt | CorePrimOp::UnboxInt | CorePrimOp::UnboxIntMove => {
+            unreachable!("LIR lowers {op:?} itself; it is never a runtime call")
+        }
         CorePrimOp::Print => "print",
         CorePrimOp::Println => "println",
         // Emit the unprefixed Flux name; the lower loop prepends `flux_`.

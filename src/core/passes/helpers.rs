@@ -429,6 +429,8 @@ pub(crate) fn is_primop_pure(op: &CorePrimOp) -> bool {
         }
         // Safe arithmetic (Proposal 0135) — total, always returns Option
         CorePrimOp::SafeDiv | CorePrimOp::SafeMod => true,
+        // Int boxing only changes how an Int is held.
+        CorePrimOp::BoxInt | CorePrimOp::UnboxInt | CorePrimOp::UnboxIntMove => true,
         // Constructors — always pure
         CorePrimOp::MakeList
         | CorePrimOp::MakeArray

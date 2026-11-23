@@ -1690,6 +1690,8 @@ fn fresh_result(
 /// of its own: a new object, or an argument counted again.
 fn primop_result_is_fresh(op: &CorePrimOp) -> bool {
     *op == CorePrimOp::Neg
+        // A new uniform word: an inline Int, or a box of its own.
+        || *op == CorePrimOp::BoxInt
         || crate::core::passes::primop_result_rep(op) == FluxRep::FloatRep
         || matches!(
             op,
@@ -3830,6 +3832,54 @@ mod tests {
         let rewritten = insert_dup_drop_with_registry(lam(vec![n], sum), &registry);
         assert_eq!(crate::aether::collect_stats(&rewritten).dups, 0, "{rewritten:?}");
         assert_eq!(drops_of(&rewritten, n.id), 1, "{rewritten:?}");
+        assert_contract(&rewritten);
+    }
+
+    fn prim(op: CorePrimOp, arg: CoreBinder) -> CoreExpr {
+        CoreExpr::PrimOp { op, args: vec![var(arg)], span: Span::default() }
+    }
+
+    /// `lam(x) -> UnboxIntMove(x)`: the primop takes `x`, so nothing else
+    /// releases it.
+    #[test]
+    fn an_unbox_that_moves_takes_its_argument() {
+        let mut interner = Interner::new();
+        let x = binder(&mut interner, 1, "x");
+        let registry = release_registry(&mut interner);
+        let body = prim(CorePrimOp::UnboxIntMove, x);
+        let rewritten = insert_dup_drop_with_registry(lam(vec![x], body), &registry);
+        assert_eq!(drops_of(&rewritten, x.id), 0, "{rewritten:?}");
+        assert_eq!(crate::aether::collect_stats(&rewritten).dups, 0, "{rewritten:?}");
+        assert_contract(&rewritten);
+    }
+
+    /// `lam(x) -> UnboxInt(x)`: the primop only reads `x`, which is released
+    /// after it.
+    #[test]
+    fn an_unbox_borrows_its_argument() {
+        let mut interner = Interner::new();
+        let x = binder(&mut interner, 1, "x");
+        let registry = release_registry(&mut interner);
+        let body = prim(CorePrimOp::UnboxInt, x);
+        let rewritten = insert_dup_drop_with_registry(lam(vec![x], body), &registry);
+        assert_eq!(drops_of(&rewritten, x.id), 1, "{rewritten:?}");
+        assert_contract(&rewritten);
+    }
+
+    /// `lam(n) -> let b = BoxInt(n); let t = len(b); t`, `n` a raw Int. The
+    /// box is a fresh value, so it is released after its last read.
+    #[test]
+    fn a_box_is_a_fresh_value() {
+        let mut interner = Interner::new();
+        let n = CoreBinder::with_rep(CoreBinderId(1), interner.intern("n"), FluxRep::IntRep);
+        let b = binder(&mut interner, 2, "b");
+        let t = CoreBinder::with_rep(CoreBinderId(3), interner.intern("t"), FluxRep::IntRep);
+        let registry = release_registry(&mut interner);
+        let read = call(interner.intern("len"), vec![var(b)]);
+        let body = let_in(b, prim(CorePrimOp::BoxInt, n), let_in(t, read, var(t)));
+        let rewritten = insert_dup_drop_with_registry(lam(vec![n], body), &registry);
+        assert_eq!(drops_of(&rewritten, b.id), 1, "{rewritten:?}");
+        assert!(released_after(&rewritten, b.id, t.id), "{rewritten:?}");
         assert_contract(&rewritten);
     }
 
