@@ -440,6 +440,40 @@ mod tests {
     }
 
     #[test]
+    fn folds_min_divided_by_minus_one_ki040() {
+        let mut program = single_block_program(vec![
+            IrInstr::Assign {
+                dest: IrVar(0),
+                expr: IrExpr::Const(IrConst::Int(i64::MIN)),
+                metadata: IrMetadata::empty(),
+            },
+            IrInstr::Assign {
+                dest: IrVar(1),
+                expr: IrExpr::Const(IrConst::Int(-1)),
+                metadata: IrMetadata::empty(),
+            },
+            IrInstr::Assign {
+                dest: IrVar(2),
+                expr: IrExpr::Binary(IrBinaryOp::IDiv, IrVar(0), IrVar(1)),
+                metadata: IrMetadata::empty(),
+            },
+            IrInstr::Assign {
+                dest: IrVar(3),
+                expr: IrExpr::Binary(IrBinaryOp::IMod, IrVar(0), IrVar(1)),
+                metadata: IrMetadata::empty(),
+            },
+        ]);
+
+        run_ir_pass_pipeline(&mut program, &IrPassContext).unwrap();
+        let instrs = &program.functions[0].blocks[0].instrs;
+        assert!(matches!(
+            instrs[2],
+            IrInstr::Assign { expr: IrExpr::Const(IrConst::Int(i64::MIN)), .. }
+        ));
+        assert!(matches!(instrs[3], IrInstr::Assign { expr: IrExpr::Const(IrConst::Int(0)), .. }));
+    }
+
+    #[test]
     fn interns_nullary_adt_constructors() {
         let mut interner = Interner::new();
         let mut program = single_block_program(vec![IrInstr::Assign {

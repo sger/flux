@@ -1,0 +1,20 @@
+// expect: success
+// skip-way: llvm, llvm_opt: KI-039 native code keeps an Int in 63 bits
+// bug: KI-040. `MIN / -1` is MIN and `MIN % -1` is 0, as Int wraps. The VM
+//       panicked in Rust on both, and so did the compiler when a constant
+//       folder saw them as literals (`/` and `%` panic on those operands in
+//       every build).
+
+fn div(a: Int, b: Int) -> Int { a / b }
+
+fn rem(a: Int, b: Int) -> Int { a % b }
+
+fn main() with IO {
+    print((-9223372036854775807 - 1) / -1)
+    print((-9223372036854775807 - 1) % -1)
+    let min = div(-9223372036854775807, 1) - 1
+    print(div(min, -1))
+    print(rem(min, -1))
+    print(div(7, -2))
+    print(rem(-7, 2))
+}

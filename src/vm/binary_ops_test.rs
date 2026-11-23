@@ -103,3 +103,22 @@ fn core_primops_wrap_ki038() {
     assert_eq!(core(Neg, vec![i64::MIN]), Value::Integer(i64::MIN));
     assert_eq!(core(Abs, vec![i64::MIN]), Value::Integer(i64::MIN));
 }
+
+// KI-040: `MIN / -1` is MIN and `MIN % -1` is 0. Rust's `/` and `%` panic on
+// those operands whatever the overflow-check setting.
+
+#[test]
+fn slow_path_min_div_neg_one_ki040() {
+    assert_eq!(binary(OpCode::OpDiv, i64::MIN, -1), Value::Integer(i64::MIN));
+    assert_eq!(binary(OpCode::OpMod, i64::MIN, -1), Value::Integer(0));
+}
+
+#[test]
+fn core_primops_min_div_neg_one_ki040() {
+    use crate::core::CorePrimOp::*;
+    assert_eq!(core(IDiv, vec![i64::MIN, -1]), Value::Integer(i64::MIN));
+    assert_eq!(core(IMod, vec![i64::MIN, -1]), Value::Integer(0));
+    let some = |v| Value::Some(std::rc::Rc::new(Value::Integer(v)));
+    assert_eq!(core(SafeDiv, vec![i64::MIN, -1]), some(i64::MIN));
+    assert_eq!(core(SafeMod, vec![i64::MIN, -1]), some(0));
+}

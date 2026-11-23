@@ -287,3 +287,25 @@ pub fn constant_fold_with_interner(program: Program, interner: &Interner) -> Pro
     let mut folder = ConstantFolder { interner: Some(interner) };
     folder.fold_program(program)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn int(value: i64) -> Expression {
+        Expression::Integer { value, span: Span::default(), id: ExprId(0) }
+    }
+
+    fn folded(left: i64, operator: &str, right: i64) -> Option<i64> {
+        match try_fold_infix(&int(left), operator, &int(right), Span::default(), ExprId(0))? {
+            Expression::Integer { value, .. } => Some(value),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn folds_min_divided_by_minus_one_ki040() {
+        assert_eq!(folded(i64::MIN, "/", -1), Some(i64::MIN));
+        assert_eq!(folded(i64::MIN, "%", -1), Some(0));
+    }
+}

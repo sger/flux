@@ -159,3 +159,26 @@ fn fold_case(scrutinee: &CoreExpr, alts: &[CoreAlt]) -> Option<CoreExpr> {
     let (alt, bindings) = select_known_arm(scrutinee, alts)?;
     Some(constant_fold(bind_pattern(alt.rhs.clone(), bindings, alt.span)))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::diagnostics::position::Span;
+
+    fn lit(value: i64) -> CoreExpr {
+        CoreExpr::Lit(CoreLit::Int(value), Span::default())
+    }
+
+    fn folded(op: CorePrimOp, a: i64, b: i64) -> Option<i64> {
+        match fold_primop(op, &[lit(a), lit(b)], Span::default())? {
+            CoreExpr::Lit(CoreLit::Int(value), _) => Some(value),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn folds_min_divided_by_minus_one_ki040() {
+        assert_eq!(folded(CorePrimOp::IDiv, i64::MIN, -1), Some(i64::MIN));
+        assert_eq!(folded(CorePrimOp::IMod, i64::MIN, -1), Some(0));
+    }
+}
