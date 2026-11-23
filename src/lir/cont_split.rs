@@ -333,6 +333,7 @@ fn synthesize_continuation(
             inline_sites: debug.inline_sites.clone(),
         }
     });
+    let raw_ints = carried_raw_ints(parent, &synth_blocks, &capture_vars, site.dst);
     let synthesized = LirFunction {
         debug,
         name: qualified_name.clone(),
@@ -344,6 +345,7 @@ fn synthesize_continuation(
         next_var,
         capture_vars: capture_vars.clone(),
         param_reps: vec![FluxRep::TaggedRep; 1],
+        raw_ints,
         result_rep: parent.result_rep,
     };
 
@@ -451,6 +453,35 @@ fn terminator_successors(term: &LirTerminator) -> Vec<BlockId> {
     }
 }
 
+/// The parent's raw Ints that the continuation's copied blocks define
+/// themselves: a block parameter, an instruction's result or a call's. The
+/// resume value and the captures reach the continuation through the closure,
+/// as uniform words, so they are left out.
+fn carried_raw_ints(
+    parent: &LirFunction,
+    blocks: &[LirBlock],
+    captures: &[LirVar],
+    resume: LirVar,
+) -> std::collections::HashSet<LirVar> {
+    if parent.raw_ints.is_empty() {
+        return std::collections::HashSet::new();
+    }
+    let mut defined: std::collections::HashSet<LirVar> = std::collections::HashSet::new();
+    for block in blocks {
+        defined.extend(block.params.iter().copied());
+        defined.extend(block.instrs.iter().filter_map(liveness::instr_def));
+        if let LirTerminator::Call { dst, .. } = &block.terminator {
+            defined.insert(*dst);
+        }
+    }
+    parent
+        .raw_ints
+        .iter()
+        .copied()
+        .filter(|var| defined.contains(var) && *var != resume && !captures.contains(var))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -468,6 +499,7 @@ mod tests {
             next_var: 0,
             capture_vars: Vec::new(),
             param_reps: Vec::new(),
+            raw_ints: std::collections::HashSet::new(),
             result_rep: FluxRep::TaggedRep,
         }
     }
@@ -633,6 +665,62 @@ mod tests {
             "{:?}",
             entry.instrs
         );
+    }
+
+    /// A raw Int the continuation's own blocks define stays raw there. A
+    /// captured one and the resume value reach it through the closure as
+    /// uniform words, so they are not carried.
+    #[test]
+    fn a_continuation_keeps_the_raw_ints_its_blocks_define() {
+        let mut program = LirProgram::new();
+        let mut f = empty_function(0, "f");
+        let [v_func, v_arg, v_dst, v_raw] = [0, 1, 2, 3].map(LirVar);
+        f.params = vec![v_func, v_arg];
+        let call = |dst, cont| LirTerminator::Call {
+            dst,
+            func: v_func,
+            args: Vec::new(),
+            cont: BlockId(cont),
+            kind: CallKind::Indirect { async_capable: false },
+            suppress_yield_check: false,
+            yield_cont: None,
+            held: None,
+        };
+        // A call's continuation block takes its result as its parameter.
+        for (id, params, instrs, terminator) in [
+            (0, Vec::new(), Vec::new(), call(v_dst, 1)),
+            (1, vec![v_dst], Vec::new(), call(v_raw, 2)),
+            (
+                2,
+                vec![v_raw],
+                vec![LirInstr::IAdd { dst: LirVar(4), a: v_arg, b: v_raw }],
+                LirTerminator::Return(v_dst),
+            ),
+        ] {
+            f.blocks.push(LirBlock {
+                locs: Vec::new(),
+                term_loc: Default::default(),
+                id: BlockId(id),
+                params,
+                instrs,
+                terminator,
+            });
+        }
+        f.raw_ints = [v_arg, v_dst, v_raw].into_iter().collect();
+        f.next_var = 5;
+        program.push_function(f);
+
+        let live = liveness::compute(&program.functions[0]);
+        let site = CallSite {
+            block_id: BlockId(0),
+            dst: v_dst,
+            cont: BlockId(1),
+            synth_id: LirFuncId(100),
+            held: None,
+        };
+        let (synth, _, _, _) = synthesize_continuation(&program, 0, &site, &live).unwrap();
+        assert_eq!(synth.capture_vars, vec![v_func, v_arg]);
+        assert_eq!(synth.raw_ints, [v_raw].into_iter().collect());
     }
 
     /// A capture the frame owns moves into the continuation, and each resume

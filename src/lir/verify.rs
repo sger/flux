@@ -572,6 +572,7 @@ mod tests {
             next_var: 100,
             capture_vars: Vec::new(),
             param_reps: Vec::new(),
+            raw_ints: std::collections::HashSet::new(),
             result_rep: FluxRep::TaggedRep,
         }
     }

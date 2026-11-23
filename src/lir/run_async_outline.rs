@@ -294,6 +294,7 @@ fn make_primcall_helper(id: LirFuncId, qualified_name: String, arity: usize) -> 
         next_var: arity as u32 + 1,
         capture_vars: Vec::new(),
         param_reps: vec![FluxRep::TaggedRep; arity],
+        raw_ints: std::collections::HashSet::new(),
         result_rep: FluxRep::TaggedRep,
     }
 }
@@ -329,6 +330,7 @@ fn make_direct_call_helper(
         next_var: arity as u32 + 1,
         capture_vars: Vec::new(),
         param_reps: vec![FluxRep::TaggedRep; arity],
+        raw_ints: std::collections::HashSet::new(),
         result_rep: FluxRep::TaggedRep,
     }
 }
@@ -368,6 +370,7 @@ mod tests {
             next_var: 1,
             capture_vars: Vec::new(),
             param_reps: Vec::new(),
+            raw_ints: std::collections::HashSet::new(),
             result_rep: FluxRep::TaggedRep,
         }
     }
@@ -407,6 +410,7 @@ mod tests {
             next_var: 109,
             capture_vars: Vec::new(),
             param_reps: Vec::new(),
+            raw_ints: std::collections::HashSet::new(),
             result_rep: FluxRep::TaggedRep,
         });
 

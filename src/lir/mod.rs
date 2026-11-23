@@ -514,6 +514,12 @@ pub struct LirFunction {
     pub param_reps: Vec<crate::core::FluxRep>,
     /// Return type representation (from CoreDef::result_ty).
     pub result_rep: crate::core::FluxRep,
+    /// Variables that hold a raw Int although no instruction made them raw:
+    /// a raw parameter or a raw call result. The verifier takes these with
+    /// the words it sees made raw (`UntagInt`, the `I*` ops and the like)
+    /// when it checks that a raw word never reaches a slot that holds a
+    /// uniform one.
+    pub raw_ints: std::collections::HashSet<LirVar>,
     /// Its name and place for a debugger, when lowering knew them.
     pub debug: Option<LirFnDebug>,
 }

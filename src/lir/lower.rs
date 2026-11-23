@@ -1300,6 +1300,7 @@ impl<'a> FnLower<'a> {
                 next_var: 0,
                 capture_vars: Vec::new(),
                 param_reps: Vec::new(),
+                raw_ints: std::collections::HashSet::new(),
                 result_rep: crate::core::FluxRep::TaggedRep,
             },
             current_block: 0,
@@ -1911,6 +1912,7 @@ impl<'a> FnLower<'a> {
                         next_var: 0,
                         capture_vars: Vec::new(),
                         param_reps: Vec::new(),
+                        raw_ints: std::collections::HashSet::new(),
                         result_rep: match rhs.as_ref() {
                             CoreExpr::Lam { result_ty, .. } => {
                                 lambda_result_rep(result_ty.as_ref())
@@ -2113,6 +2115,7 @@ impl<'a> FnLower<'a> {
                         next_var: 0,
                         capture_vars: Vec::new(),
                         param_reps: Vec::new(),
+                        raw_ints: std::collections::HashSet::new(),
                         result_rep: lambda_result_rep(result_ty.as_ref()),
                     });
                     temp_program.func_index.insert(synthetic_id, func_idx);
@@ -2643,6 +2646,7 @@ impl<'a> FnLower<'a> {
                         next_var: 0,
                         capture_vars: Vec::new(),
                         param_reps: Vec::new(),
+                        raw_ints: std::collections::HashSet::new(),
                         result_rep: match rhs.as_ref() {
                             AetherExpr::Lam { result_ty, .. } => {
                                 lambda_result_rep(result_ty.as_ref())
@@ -2813,6 +2817,7 @@ impl<'a> FnLower<'a> {
                         next_var: 0,
                         capture_vars: Vec::new(),
                         param_reps: Vec::new(),
+                        raw_ints: std::collections::HashSet::new(),
                         result_rep: lambda_result_rep(result_ty.as_ref()),
                     });
                     temp_program.func_index.insert(synthetic_id, func_idx);
@@ -6688,6 +6693,7 @@ mod tests {
             next_var: 4,
             capture_vars: Vec::new(),
             param_reps: vec![FluxRep::TaggedRep],
+            raw_ints: std::collections::HashSet::new(),
             result_rep: FluxRep::TaggedRep,
         };
         let mut program = LirProgram::new();

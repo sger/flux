@@ -290,6 +290,7 @@ fn a_shell_free_pushes_an_owned_chunk_block_inline() {
         next_var: 2,
         capture_vars: Vec::new(),
         param_reps: Vec::new(),
+        raw_ints: std::collections::HashSet::new(),
         result_rep: FluxRep::TaggedRep,
         debug: None,
     });
@@ -363,6 +364,7 @@ fn outlines_excess_run_async_with_calls_before_llvm_rendering() {
         next_var: 13,
         capture_vars: Vec::new(),
         param_reps: Vec::new(),
+        raw_ints: std::collections::HashSet::new(),
         result_rep: FluxRep::TaggedRep,
         debug: None,
     });
