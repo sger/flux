@@ -1,0 +1,19 @@
+// expect: success
+// bug: KI-039. A boxed native Int converts to a string, interpolates and
+//       parses back like any other Int.
+// parity-expected-stdout-begin
+// "9223372036854775807"
+// "max is 9223372036854775807, past it is -9223372036854775808"
+// 9223372036854775807
+// -9223372036854775808
+// 4611686018427387904
+// parity-expected-stdout-end
+
+fn main() with IO {
+    let max = 9223372036854775807
+    print(to_string(max))
+    print("max is #{max}, past it is #{max + 1}")
+    print(parse_int("9223372036854775807"))
+    print(parse_int("-9223372036854775808"))
+    print(parse_int("4611686018427387904"))
+}

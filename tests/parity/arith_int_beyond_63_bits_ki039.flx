@@ -1,0 +1,32 @@
+// expect: success
+// bug: KI-039. `Int` is 64 bits, but native code kept it in 63: a literal
+//       outside [-2^62, 2^62) was truncated when compiled, so 2^62 printed
+//       negative and the largest Int printed -1. Native code now boxes an
+//       Int that doesn't fit inline.
+// parity-expected-stdout-begin
+// 4611686018427387903
+// 4611686018427387904
+// -4611686018427387904
+// -4611686018427387905
+// 9223372036854775807
+// -9223372036854775808
+// Some(4611686018427387904)
+// [4611686018427387904, 1, -9223372036854775807]
+// (9223372036854775807, 2)
+// Wrap(9223372036854775807)
+// parity-expected-stdout-end
+
+data Wrap { Wrap(Int) }
+
+fn main() with IO {
+    print(4611686018427387903)
+    print(4611686018427387904)
+    print(-4611686018427387904)
+    print(-4611686018427387905)
+    print(9223372036854775807)
+    print(-9223372036854775807 - 1)
+    print(Some(4611686018427387904))
+    print([4611686018427387904, 1, -9223372036854775807])
+    print((9223372036854775807, 2))
+    print(Wrap(9223372036854775807))
+}

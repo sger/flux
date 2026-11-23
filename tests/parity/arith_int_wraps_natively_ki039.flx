@@ -1,0 +1,44 @@
+// expect: success
+// bug: KI-039. Arithmetic whose result leaves 63 bits gave the wrong number
+//       natively, because the result was re-tagged into 63 bits. Typed
+//       functions, a class-constrained one (the untyped path through the
+//       runtime) and a loop that crosses 2^62 must all print the VM's 64-bit
+//       results.
+// parity-expected-stdout-begin
+// -9223372036854775808
+// 4611686018427387904
+// -2
+// -9223372036854775808
+// -9223372036854775808
+// -2
+// 2305843009213693952
+// 4611686018427387904
+// -9223372036854775808
+// -4611686018427387904
+// parity-expected-stdout-end
+
+fn plus(a: Int, b: Int) -> Int { a + b }
+
+fn times(a: Int, b: Int) -> Int { a * b }
+
+fn negate(a: Int) -> Int { -a }
+
+fn twice<a: Num>(x: a) -> a { x + x }
+
+fn doubling(x: Int, n: Int) -> Int {
+    if n == 0 { x } else { doubling(x * 2, n - 1) }
+}
+
+fn main() with IO {
+    let max = 9223372036854775807
+    print(plus(max, 1))
+    print(plus(4611686018427387903, 1))
+    print(times(max, 2))
+    print(negate(plus(max, 1)))
+    print(twice(4611686018427387904))
+    print(twice(9223372036854775807))
+    print(doubling(1, 61))
+    print(doubling(1, 62))
+    print(doubling(1, 63))
+    print(doubling(3, 62))
+}

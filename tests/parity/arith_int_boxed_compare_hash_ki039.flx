@@ -1,0 +1,46 @@
+// expect: success
+// bug: KI-039. An Int outside 63 bits is boxed natively, and must still
+//       compare, match, sort and key a map like any other Int: two boxes of
+//       the same value are equal, and a value hashes the same however it was
+//       made.
+// parity-expected-stdout-begin
+// true
+// false
+// true
+// true
+// "two to the 62"
+// "max"
+// "other"
+// Some("first")
+// Some("small")
+// [-9223372036854775807, -3, 3, 4611686018427387904, 9223372036854775807]
+// parity-expected-stdout-end
+
+import Flow.Map as Map
+import Flow.List as List
+
+fn big(n: Int) -> Int { n * 4611686018427387904 }
+
+fn describe(n: Int) -> String {
+    match n {
+        9223372036854775807 -> "max",
+        4611686018427387904 -> "two to the 62",
+        _ -> "other",
+    }
+}
+
+fn main() with IO {
+    let a = big(1)
+    let b = 4611686018427387903 + 1
+    print(a == b)
+    print(a == big(1) + 1)
+    print(a > 4611686018427387903)
+    print(-9223372036854775807 < big(-1))
+    print(describe(b))
+    print(describe(9223372036854775806 + 1))
+    print(describe(5))
+    let m = Map.set(Map.set({}, a, "first"), 7, "small")
+    print(Map.get(m, b))
+    print(Map.get(m, 7))
+    print(List.sort([b, 3, -9223372036854775807, 9223372036854775807, -3]))
+}

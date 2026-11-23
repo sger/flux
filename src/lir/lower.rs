@@ -6241,6 +6241,51 @@ mod tests {
         }
     }
 
+    /// KI-039: native code holds an Int inline in 63 bits, so a literal of
+    /// 2^50, past the VM's inline range but well inside native's, is an
+    /// inline constant.
+    #[test]
+    fn a_literal_inside_63_bits_is_inline_ki039() {
+        use crate::aether::{AetherDef, AetherProgram};
+        let span = Span::default();
+        let [f, x] = [1, 2].map(|id| mk_binder(id, Identifier::new(id)));
+        let value = 1i64 << 50;
+        let expr = AetherExpr::Lam {
+            params: vec![x],
+            param_types: vec![],
+            result_ty: None,
+            body: Box::new(AetherExpr::Lit(CoreLit::Int(value), span)),
+            span,
+        };
+        let def = AetherDef::from_core(CoreDef::new(
+            f,
+            CoreExpr::Lit(CoreLit::Int(0), span),
+            false,
+            span,
+        ));
+        let def = AetherDef { expr, ..def };
+        let program = AetherProgram::new(
+            CoreProgram { defs: Vec::new(), top_level_items: Vec::new() },
+            vec![def],
+            Vec::new(),
+        );
+        let lowered = super::lower_aether_program(&program);
+        let consts: Vec<_> = lowered
+            .functions
+            .iter()
+            .flat_map(|func| func.blocks.iter())
+            .flat_map(|block| block.instrs.iter())
+            .filter_map(|instr| match instr {
+                crate::lir::LirInstr::Const { value, .. } => Some(value.clone()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            consts.contains(&crate::lir::LirConst::Tagged(crate::lir::nanbox_tag_int(value))),
+            "{consts:?}"
+        );
+    }
+
     /// `case xs of [h | t] -> drop_spec xs { unique -> free_shell xs in h,
     /// shared -> dup h in drop xs in h }`: the cell's block is freed alone,
     /// on the path the uniqueness check takes, and nowhere else.
