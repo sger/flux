@@ -60,3 +60,46 @@ fn invalid_operation_errors() {
 
     assert!(vm.execute_binary_operation(OpCode::OpSub).is_err());
 }
+
+// KI-038: Int is 64-bit two's complement and `+ - *`, negation and `abs` wrap
+// on every VM path. These pass in a build with overflow checks off whatever
+// the code does; they catch an unchecked operation in a build with them on.
+
+fn binary(op: OpCode, l: i64, r: i64) -> Value {
+    let mut vm = new_vm();
+    vm.push(Value::Integer(l)).unwrap();
+    vm.push(Value::Integer(r)).unwrap();
+    vm.execute_binary_operation(op).unwrap();
+    vm.pop().unwrap()
+}
+
+#[test]
+fn slow_path_add_wraps_ki038() {
+    assert_eq!(binary(OpCode::OpAdd, i64::MAX, 1), Value::Integer(i64::MIN));
+}
+
+#[test]
+fn slow_path_sub_wraps_ki038() {
+    assert_eq!(binary(OpCode::OpSub, i64::MIN, 1), Value::Integer(i64::MAX));
+}
+
+#[test]
+fn slow_path_mul_wraps_ki038() {
+    assert_eq!(binary(OpCode::OpMul, i64::MAX, 2), Value::Integer(-2));
+}
+
+fn core(op: crate::core::CorePrimOp, args: Vec<i64>) -> Value {
+    let mut vm = new_vm();
+    let args = args.into_iter().map(Value::Integer).collect();
+    super::core_dispatch::execute_core_primop(&mut vm, op, args).unwrap()
+}
+
+#[test]
+fn core_primops_wrap_ki038() {
+    use crate::core::CorePrimOp::*;
+    assert_eq!(core(IAdd, vec![i64::MAX, 1]), Value::Integer(i64::MIN));
+    assert_eq!(core(ISub, vec![i64::MIN, 1]), Value::Integer(i64::MAX));
+    assert_eq!(core(IMul, vec![i64::MAX, 2]), Value::Integer(-2));
+    assert_eq!(core(Neg, vec![i64::MIN]), Value::Integer(i64::MIN));
+    assert_eq!(core(Abs, vec![i64::MIN]), Value::Integer(i64::MIN));
+}

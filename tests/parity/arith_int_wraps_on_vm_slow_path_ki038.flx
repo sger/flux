@@ -1,0 +1,33 @@
+// expect: success
+// skip-way: llvm, llvm_opt: KI-039 native code keeps an Int in 63 bits
+// bug: KI-038. `Int` is a 64-bit two's-complement integer, so `+`, `-`, `*`
+//       and negation wrap. The VM's slow paths (a sum of two locals, a sum
+//       with a constant, negation) used plain Rust operators, which panic in
+//       a build with overflow checks on.
+// parity-expected-stdout-begin
+// -9223372036854775808
+// 9223372036854775807
+// -2
+// -9223372036854775808
+// -9223372036854775808
+// parity-expected-stdout-end
+
+fn add(a: Int, b: Int) -> Int { a + b }
+
+fn sub(a: Int, b: Int) -> Int { a - b }
+
+fn mul(a: Int, b: Int) -> Int { a * b }
+
+fn inc(a: Int) -> Int { a + 1 }
+
+fn neg(a: Int) -> Int { -a }
+
+fn main() with IO {
+    let max = 9223372036854775807
+    let min = neg(max) - 1
+    print(add(max, 1))
+    print(sub(min, 1))
+    print(mul(max, 2))
+    print(inc(max))
+    print(neg(min))
+}
