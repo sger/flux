@@ -1886,7 +1886,8 @@ int64_t flux_abs(int64_t n) {
         return flux_box_float(d < 0 ? -d : d);
     }
     int64_t raw = flux_untag_int(n);
-    return flux_tag_int(raw < 0 ? -raw : raw);
+    /* @KI-219: wraps instead of overflowing. */
+    return flux_tag_int(flux_int_abs(raw));
 }
 
 int64_t flux_min(int64_t a, int64_t b) {
@@ -2045,7 +2046,8 @@ int64_t flux_rt_add(int64_t a, int64_t b) {
     if (!flux_is_int(a) || !flux_is_int(b)) {
         return flux_invalid_binary_op_error("add", 3, a, b);
     }
-    return flux_tag_int(flux_untag_int(a) + flux_untag_int(b));
+    /* @KI-219: wraps instead of overflowing. */
+    return flux_tag_int(flux_int_add(flux_untag_int(a), flux_untag_int(b)));
 }
 
 int64_t flux_rt_sub(int64_t a, int64_t b) {
@@ -2058,7 +2060,8 @@ int64_t flux_rt_sub(int64_t a, int64_t b) {
     if (!flux_is_int(a) || !flux_is_int(b)) {
         return flux_invalid_binary_op_error("subtract", 8, a, b);
     }
-    return flux_tag_int(flux_untag_int(a) - flux_untag_int(b));
+    /* @KI-219: wraps instead of overflowing. */
+    return flux_tag_int(flux_int_sub(flux_untag_int(a), flux_untag_int(b)));
 }
 
 int64_t flux_rt_mul(int64_t a, int64_t b) {
@@ -2071,7 +2074,8 @@ int64_t flux_rt_mul(int64_t a, int64_t b) {
     if (!flux_is_int(a) || !flux_is_int(b)) {
         return flux_invalid_binary_op_error("multiply", 8, a, b);
     }
-    return flux_tag_int(flux_untag_int(a) * flux_untag_int(b));
+    /* @KI-219: wraps instead of overflowing. */
+    return flux_tag_int(flux_int_mul(flux_untag_int(a), flux_untag_int(b)));
 }
 
 int64_t flux_rt_div(int64_t a, int64_t b) {
@@ -2089,7 +2093,8 @@ int64_t flux_rt_div(int64_t a, int64_t b) {
         flux_panic(flux_string_new("Division by zero", 16));
         return flux_tag_int(0); /* unreachable */
     }
-    return flux_tag_int(flux_untag_int(a) / rb);
+    /* @KI-219: wraps instead of overflowing. */
+    return flux_tag_int(flux_int_div(flux_untag_int(a), rb));
 }
 
 void flux_panic_division_by_zero_at(int64_t line, int64_t column) {
@@ -2118,7 +2123,8 @@ int64_t flux_rt_div_loc(int64_t a, int64_t b, int64_t line, int64_t column) {
         flux_panic_division_by_zero_at(line, column);
         return flux_tag_int(0); /* unreachable */
     }
-    return flux_tag_int(flux_untag_int(a) / rb);
+    /* @KI-219: wraps instead of overflowing. */
+    return flux_tag_int(flux_int_div(flux_untag_int(a), rb));
 }
 
 int64_t flux_rt_mod(int64_t a, int64_t b) {
@@ -2136,7 +2142,8 @@ int64_t flux_rt_mod(int64_t a, int64_t b) {
         flux_panic(flux_string_new("Division by zero", 16));
         return flux_tag_int(0); /* unreachable */
     }
-    return flux_tag_int(flux_untag_int(a) % rb);
+    /* @KI-219: wraps instead of overflowing. */
+    return flux_tag_int(flux_int_rem(flux_untag_int(a), rb));
 }
 
 int64_t flux_rt_mod_loc(int64_t a, int64_t b, int64_t line, int64_t column) {
@@ -2154,7 +2161,8 @@ int64_t flux_rt_mod_loc(int64_t a, int64_t b, int64_t line, int64_t column) {
         flux_panic_division_by_zero_at(line, column);
         return flux_tag_int(0); /* unreachable */
     }
-    return flux_tag_int(flux_untag_int(a) % rb);
+    /* @KI-219: wraps instead of overflowing. */
+    return flux_tag_int(flux_int_rem(flux_untag_int(a), rb));
 }
 
 int64_t flux_rt_neg(int64_t a) {
@@ -2164,7 +2172,8 @@ int64_t flux_rt_neg(int64_t a) {
     if (!flux_is_int(a)) {
         return flux_invalid_unary_op_error("negate", 6, a);
     }
-    return flux_tag_int(-flux_untag_int(a));
+    /* @KI-219: wraps instead of overflowing. */
+    return flux_tag_int(flux_int_neg(flux_untag_int(a)));
 }
 
 /* ── Some-wrapping helper ───────────────────────────────────────────── */
@@ -2189,7 +2198,8 @@ int64_t flux_safe_div(int64_t a, int64_t b) {
     }
     int64_t rb = flux_untag_int(b);
     if (rb == 0) return flux_make_none();
-    return flux_wrap_some(flux_tag_int(flux_untag_int(a) / rb));
+    /* @KI-219: wraps instead of overflowing. */
+    return flux_wrap_some(flux_tag_int(flux_int_div(flux_untag_int(a), rb)));
 }
 
 int64_t flux_safe_mod(int64_t a, int64_t b) {
@@ -2200,7 +2210,8 @@ int64_t flux_safe_mod(int64_t a, int64_t b) {
     }
     int64_t rb = flux_untag_int(b);
     if (rb == 0) return flux_make_none();
-    return flux_wrap_some(flux_tag_int(flux_untag_int(a) % rb));
+    /* @KI-219: wraps instead of overflowing. */
+    return flux_wrap_some(flux_tag_int(flux_int_rem(flux_untag_int(a), rb)));
 }
 
 int64_t flux_make_left(int64_t val) {

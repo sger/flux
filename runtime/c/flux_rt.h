@@ -67,6 +67,39 @@ static inline int64_t flux_untag_int(int64_t val) {
     return val >> 1;  /* arithmetic right shift — sign-extends */
 }
 
+/* @KI-219: Int wraps on every backend (src/shared/int_arith.rs), but a
+ * signed overflow is undefined in C, and so is INT64_MIN / -1. These
+ * compute in uint64_t, which wraps by definition, and give a divisor of -1
+ * its wrapped answer instead of dividing. */
+static inline int64_t flux_int_add(int64_t a, int64_t b) {
+    return (int64_t)((uint64_t)a + (uint64_t)b);
+}
+
+static inline int64_t flux_int_sub(int64_t a, int64_t b) {
+    return (int64_t)((uint64_t)a - (uint64_t)b);
+}
+
+static inline int64_t flux_int_mul(int64_t a, int64_t b) {
+    return (int64_t)((uint64_t)a * (uint64_t)b);
+}
+
+static inline int64_t flux_int_neg(int64_t a) {
+    return (int64_t)(0 - (uint64_t)a);
+}
+
+static inline int64_t flux_int_abs(int64_t a) {
+    return a < 0 ? flux_int_neg(a) : a;
+}
+
+/* The divisor must not be 0; callers report that themselves. */
+static inline int64_t flux_int_div(int64_t a, int64_t b) {
+    return b == -1 ? flux_int_neg(a) : a / b;
+}
+
+static inline int64_t flux_int_rem(int64_t a, int64_t b) {
+    return b == -1 ? 0 : a % b;
+}
+
 /* Pointer tagging is zero-cost: heap pointers are naturally even. */
 static inline int64_t flux_tag_ptr(void *ptr) {
     return (int64_t)(uintptr_t)ptr;
