@@ -917,40 +917,6 @@ a task that may run inline or on a worker), or the comparison needs a
 tolerance for those. Until then, a metrics step that fails only on
 `async_*` or task fixtures' run counts is this issue.
 
-### KI-217 — A module function takes the type of whatever is last bound to its name
-
-**Severity:** High (a value can go uncounted; natively it may be freed early or leak) · **Area:** Core lowering, function signatures (`src/core/lower_ast/mod.rs`) · **Verified:** 2026-11-23 (8af421b5) · **From:** the raw-Int design for KI-039, which needs `IntRep` to mean a certain Int
-
-```flux
-// Twins.flx
-module Twins {
-    public fn with_worker_count(x) { [x, x] }
-}
-
-// main.flx
-import Twins
-import Flow.Async exposing (..)
-
-fn main() with IO {
-    let s = "a" + "b"
-    print(Twins.with_worker_count(s))
-    print(s)
-}
-```
-
-`--dump-core=debug` shows `Twins.with_worker_count` as `λx:Int.
-MakeList(x, x)`: its parameter has the type of `Flow.Async.with_worker_count`,
-which takes an `Int`. The native code for it stores `x` into both list cells
-without counting it again. The runs tried so far still print the right
-output, because the drops happen to balance, but nothing guarantees that.
-
-`bind_fn_params`, `lambda_signature_from_function_name` and
-`full_function_core_type_from_name` look a function's scheme up by its bare
-name in the final type environment, which returns the last binding of that
-name. A module's own scope is closed by then, so a module function can get
-a same-named exposed, prelude or top-level function's scheme. The only guard
-is that the parameter counts match.
-
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
@@ -3507,6 +3473,52 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-217 — A module function takes the type of whatever is last bound to its name — FIXED 2026-11-23
+
+**Severity:** High (a value can go uncounted; natively it may be freed early or leak) · **Area:** Core lowering, function signatures (`src/core/lower_ast/mod.rs`) · **Verified:** 2026-11-23 (8af421b5) · **From:** the raw-Int design for KI-039, which needs `IntRep` to mean a certain Int
+
+```flux
+// Twins.flx
+module Twins {
+    public fn with_worker_count(x) { [x, x] }
+}
+
+// main.flx
+import Twins
+import Flow.Async exposing (..)
+
+fn main() with IO {
+    let s = "a" + "b"
+    print(Twins.with_worker_count(s))
+    print(s)
+}
+```
+
+`--dump-core=debug` shows `Twins.with_worker_count` as `λx:Int.
+MakeList(x, x)`: its parameter has the type of `Flow.Async.with_worker_count`,
+which takes an `Int`. The native code for it stores `x` into both list cells
+without counting it again. The runs tried so far still print the right
+output, because the drops happen to balance, but nothing guarantees that.
+
+`bind_fn_params`, `lambda_signature_from_function_name` and
+`full_function_core_type_from_name` look a function's scheme up by its bare
+name in the final type environment, which returns the last binding of that
+name. A module's own scope is closed by then, so a module function can get
+a same-named exposed, prelude or top-level function's scheme. The only guard
+is that the parameter counts match.
+
+**Fixed 2026-11-23.** Inside a module, Core lowering takes a function's
+scheme from the member schemes inference recorded while the module's scope
+was open, keyed by module and name (`function_scheme` in
+`src/core/lower_ast/mod.rs`), and never from the bare name. The compiler
+hands them over from the same inference run as the program it lowers
+(`lowering_public_member_schemes` and `lowering_private_member_schemes` in
+`src/compiler/mod.rs`). `Twins.with_worker_count` keeps a uniform parameter,
+and module functions now get their real parameter types on every path,
+which also removes Dup and Drop that their Int parameters never needed.
+Test: `a_module_function_takes_its_own_scheme_not_a_same_named_one_ki217`.
+
 
 ### KI-216 — A generic function called once at `Int` and also passed as a value gets an `Int` parameter — FIXED 2026-11-23
 
