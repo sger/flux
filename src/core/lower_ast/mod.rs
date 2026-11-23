@@ -1677,6 +1677,53 @@ fn main() {
         assert!(last.binder.is_some(), "expected lexical x reference to be resolved");
     }
 
+    /// KI-216: `twice` is called directly at Int but also passed as a value,
+    /// so Strings reach it too. Specialising it to its one direct call gave
+    /// its parameter `IntRep`, and Aether then stored a String twice without
+    /// counting it again.
+    #[test]
+    fn a_function_also_used_as_a_value_is_not_specialised_ki216() {
+        let src = r#"
+fn apply(f, v) { f(v) }
+fn twice(x) { (x, x) }
+fn main() {
+    let a = twice(1)
+    apply(twice, "s")
+}
+"#;
+        let mut parser = Parser::new(Lexer::new(src));
+        let prog = parser.parse_program();
+        let mut interner = parser.take_interner();
+        let flow_sym = interner.intern("Flow");
+        let hm = infer_program(
+            &prog,
+            &interner,
+            InferProgramConfig {
+                file_path: None,
+                preloaded_base_schemes: HashMap::new(),
+                preloaded_module_member_schemes: HashMap::new(),
+                task_module_bindings: std::collections::HashSet::new(),
+                task_spawn_exposed: false,
+                known_flow_names: std::collections::HashSet::new(),
+                flow_module_symbol: flow_sym,
+                preloaded_effect_op_signatures: HashMap::new(),
+                effect_row_aliases: HashMap::new(),
+                class_env: None,
+                preloaded_adt_data: Vec::new(),
+            },
+        );
+        let twice = interner.intern("twice");
+        // With the type environment, as the compiler lowers: the parameter
+        // reps come from each function's scheme under its specialisation.
+        let core =
+            lower_program_ast_full(&prog, &hm.expr_types, Some(&interner), Some(&hm.type_env));
+        let def = core.defs.iter().find(|def| def.name == twice).expect("twice");
+        let CoreExpr::Lam { params, .. } = &def.expr else {
+            panic!("twice is not a lambda: {:?}", def.expr);
+        };
+        assert_ne!(params[0].rep, crate::core::FluxRep::IntRep, "{:?}", params[0]);
+    }
+
     #[test]
     fn lower_ast_leaves_external_name_unbound() {
         let src = r#"

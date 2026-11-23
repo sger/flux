@@ -1,0 +1,18 @@
+// expect: success
+// bug: KI-216. `twice` is called directly at Int and also passed to
+//       `List.map` over Strings. Specialising it to its one direct call gave
+//       its parameter `IntRep`, so Aether stored each String twice without
+//       counting it again, and native code freed it twice.
+// parity-expected-stdout-begin
+// (1, 1)
+// [("ab", "ab"), ("cd", "cd")]
+// parity-expected-stdout-end
+
+import Flow.List as List
+
+fn twice(x) { (x, x) }
+
+fn main() with IO {
+    print(twice(1))
+    print(List.map(["a" + "b", "c" + "d"], twice))
+}
