@@ -410,8 +410,10 @@ fn run_linker(
                 cmd.arg(format!("/LIBPATH:{}", dir.display()));
                 cmd.arg(runtime.file_name());
             }
-            // Link the C runtime and kernel libraries.
-            cmd.args(["libcmt.lib", "kernel32.lib"]);
+            // Link the C runtime and kernel libraries. Rust's std (in the
+            // staticlib) takes WaitOnAddress and WakeByAddress* from
+            // synchronization.lib.
+            cmd.args(["libcmt.lib", "kernel32.lib", "synchronization.lib"]);
             let output = cmd.output()?;
             check_output(if use_lld { "lld-link" } else { "link" }, &output)
         }
@@ -438,7 +440,7 @@ fn run_linker(
                 cmd.args(["-Wl,/subsystem:console", "-Wl,/STACK:67108864"]);
                 // The Rust staticlib linked for native async pulls in small
                 // portions of `std` that reference these Windows system libs.
-                cmd.args(["-luserenv", "-lntdll"]);
+                cmd.args(["-luserenv", "-lntdll", "-lsynchronization"]);
                 cmd.args(
                     windows_debug_args(exe_path, debug, use_lld)
                         .into_iter()
