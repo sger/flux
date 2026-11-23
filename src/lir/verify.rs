@@ -42,6 +42,16 @@ pub enum Rule {
     /// An edge into a block with parameters does not write one of them: the
     /// emitter's phi for it would have no value from that predecessor.
     Join,
+    /// A raw word reaches a place that holds a uniform one: a stored value,
+    /// a field, an element, a capture, a call argument, a returned value.
+    RawInUniform,
+    /// A uniform word reaches a place that needs a raw one: raw arithmetic,
+    /// a tag operation's input, an address, a branch condition, a raw
+    /// parameter.
+    UniformInRaw,
+    /// The values copied into one block parameter are raw on some edges and
+    /// uniform on others.
+    JoinReps,
 }
 
 impl Rule {
@@ -55,6 +65,9 @@ impl Rule {
             Rule::UseBeforeDef => "use before definition",
             Rule::RcOnRaw => "reference count on a raw word",
             Rule::Join => "join",
+            Rule::RawInUniform => "raw word in a uniform place",
+            Rule::UniformInRaw => "uniform word in a raw place",
+            Rule::JoinReps => "join of raw and uniform words",
         }
     }
 }
@@ -225,6 +238,7 @@ fn verify_function(program: &LirProgram, function: &LirFunction, errors: &mut Ve
     check_definitions(function, &mut report);
     check_uses(function, &exists, &mut report);
     check_counting(function, &mut report);
+    check_reps(program, function, &mut report);
 }
 
 fn missing(id: LirFuncId, what: &str) -> String {
@@ -481,12 +495,10 @@ fn check_joins(
     }
 }
 
-/// `dup`, `drop`, `FreeShell`, `IsUnique` and `DropReuse` never take a word
-/// LIR made raw: an untagged integer, float or boolean, a raw pointer, a
-/// constructor tag, or the result of raw arithmetic. The runtime would read
-/// it as a pointer.
-fn check_counting(function: &LirFunction, report: &mut impl FnMut(Option<BlockId>, Rule, String)) {
-    let mut raw: HashSet<LirVar> = HashSet::new();
+/// The words LIR made raw in `function`: what [`raw_result`] instructions
+/// define, what `raw_ints` declares, and every copy of either.
+fn raw_words(function: &LirFunction) -> HashSet<LirVar> {
+    let mut raw: HashSet<LirVar> = function.raw_ints.iter().copied().collect();
     for block in &function.blocks {
         for instr in &block.instrs {
             if let Some(var) = raw_result(instr) {
@@ -508,6 +520,15 @@ fn check_counting(function: &LirFunction, report: &mut impl FnMut(Option<BlockId
             }
         }
     }
+    raw
+}
+
+/// `dup`, `drop`, `FreeShell`, `IsUnique` and `DropReuse` never take a word
+/// LIR made raw: an untagged integer, float or boolean, a raw pointer, a
+/// constructor tag, or the result of raw arithmetic. The runtime would read
+/// it as a pointer.
+fn check_counting(function: &LirFunction, report: &mut impl FnMut(Option<BlockId>, Rule, String)) {
+    let raw = raw_words(function);
     for block in &function.blocks {
         for instr in &block.instrs {
             let (val, what) = match instr {
@@ -525,6 +546,170 @@ fn check_counting(function: &LirFunction, report: &mut impl FnMut(Option<BlockId
                     format!("{what} of v{}, which is raw", val.0),
                 );
             }
+        }
+    }
+}
+
+/// What a place needs of the word that reaches it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Rep {
+    Raw,
+    Uniform,
+}
+
+/// Every operand reaches a place that needs a raw word or one that needs a
+/// uniform word, as the tables below say, and the copies into a block
+/// parameter agree on which.
+fn check_reps(
+    program: &LirProgram,
+    function: &LirFunction,
+    report: &mut impl FnMut(Option<BlockId>, Rule, String),
+) {
+    let raw = raw_words(function);
+    for block in &function.blocks {
+        let at = Some(block.id);
+        for instr in &block.instrs {
+            if let LirInstr::Copy { dst, src } = instr
+                && raw.contains(dst) != raw.contains(src)
+            {
+                report(
+                    at,
+                    Rule::JoinReps,
+                    format!("v{} is copied into v{}, and only one of them is raw", src.0, dst.0),
+                );
+            }
+            for (var, need, place) in instr_operand_reps(instr) {
+                check_rep(&raw, at, var, need, place, report);
+            }
+        }
+        for (var, need, place) in terminator_operand_reps(program, &block.terminator) {
+            check_rep(&raw, at, var, need, place, report);
+        }
+    }
+}
+
+fn check_rep(
+    raw: &HashSet<LirVar>,
+    at: Option<BlockId>,
+    var: LirVar,
+    need: Rep,
+    place: &str,
+    report: &mut impl FnMut(Option<BlockId>, Rule, String),
+) {
+    match (need, raw.contains(&var)) {
+        (Rep::Uniform, true) => {
+            report(at, Rule::RawInUniform, format!("{place} v{} is raw", var.0))
+        }
+        (Rep::Raw, false) => {
+            report(at, Rule::UniformInRaw, format!("{place} v{} is not raw", var.0))
+        }
+        _ => {}
+    }
+}
+
+/// What each operand of `instr` must be. Reference counting is
+/// `check_counting`'s, and a `Copy` is checked as a join.
+fn instr_operand_reps(instr: &LirInstr) -> Vec<(LirVar, Rep, &'static str)> {
+    use Rep::{Raw, Uniform};
+    let all = |vars: &[LirVar], need: Rep, place: &'static str| {
+        vars.iter().map(|var| (*var, need, place)).collect::<Vec<_>>()
+    };
+    match instr {
+        LirInstr::Load { ptr, .. } | LirInstr::StoreI32 { ptr, .. } => {
+            vec![(*ptr, Raw, "the address")]
+        }
+        LirInstr::Store { ptr, val, .. } => {
+            vec![(*ptr, Raw, "the address"), (*val, Uniform, "the stored value")]
+        }
+        LirInstr::TagInt { raw, .. }
+        | LirInstr::TagFloat { raw, .. }
+        | LirInstr::TagBool { raw, .. } => vec![(*raw, Raw, "the word to tag")],
+        LirInstr::TagPtr { ptr, .. } => vec![(*ptr, Raw, "the pointer to tag")],
+        LirInstr::UntagInt { val, .. }
+        | LirInstr::UntagFloat { val, .. }
+        | LirInstr::UntagBool { val, .. }
+        | LirInstr::UntagPtr { val, .. }
+        | LirInstr::GetTag { val, .. } => vec![(*val, Uniform, "the word to untag")],
+        LirInstr::IAdd { a, b, .. }
+        | LirInstr::ISub { a, b, .. }
+        | LirInstr::IMul { a, b, .. }
+        | LirInstr::IDiv { a, b, .. }
+        | LirInstr::IRem { a, b, .. }
+        | LirInstr::IAnd { a, b, .. }
+        | LirInstr::IOr { a, b, .. }
+        | LirInstr::IXor { a, b, .. }
+        | LirInstr::IShl { a, b, .. }
+        | LirInstr::IShr { a, b, .. }
+        | LirInstr::ICmp { a, b, .. } => vec![(*a, Raw, "the operand"), (*b, Raw, "the operand")],
+        LirInstr::PrimCall { args, .. } => all(args, Uniform, "the primop argument"),
+        LirInstr::MakeClosure { captures, .. } => all(captures, Uniform, "the capture"),
+        LirInstr::MakeArray { elements, .. }
+        | LirInstr::MakeTuple { elements, .. }
+        | LirInstr::MakeList { elements, .. } => all(elements, Uniform, "the element"),
+        LirInstr::MakeHash { pairs, .. } => all(pairs, Uniform, "the key or value"),
+        LirInstr::Interpolate { parts, .. } => all(parts, Uniform, "the part"),
+        LirInstr::MakeCtor { fields, .. } => all(fields, Uniform, "the field"),
+        LirInstr::TupleGet { tuple, .. } => vec![(*tuple, Uniform, "the tuple")],
+        LirInstr::Dup { .. }
+        | LirInstr::Drop { .. }
+        | LirInstr::FreeShell { .. }
+        | LirInstr::IsUnique { .. }
+        | LirInstr::DropReuse { .. }
+        | LirInstr::Copy { .. }
+        | LirInstr::Alloc { .. }
+        | LirInstr::MakeExternClosure { .. }
+        | LirInstr::Const { .. }
+        | LirInstr::GetGlobal { .. } => Vec::new(),
+    }
+}
+
+/// What each operand of `terminator` must be. A known call's argument is
+/// raw where its callee declares the parameter raw. A `Switch` is left
+/// alone: lowering emits none.
+fn terminator_operand_reps(
+    program: &LirProgram,
+    terminator: &LirTerminator,
+) -> Vec<(LirVar, Rep, &'static str)> {
+    use Rep::{Raw, Uniform};
+    let call = |func: &LirVar, args: &[LirVar], kind: &CallKind| {
+        let callee = match kind {
+            CallKind::Direct { func_id } | CallKind::DirectClosure { func_id, .. } => {
+                program.func_by_id(*func_id)
+            }
+            _ => None,
+        };
+        let mut reps = vec![(*func, Uniform, "the callee")];
+        for (index, arg) in args.iter().enumerate() {
+            let raw = callee
+                .and_then(|callee| callee.params.get(index))
+                .is_some_and(|param| callee.is_some_and(|c| c.raw_ints.contains(param)));
+            reps.push((*arg, if raw { Raw } else { Uniform }, "the argument"));
+        }
+        if let CallKind::DirectClosure { captures, .. } = kind {
+            reps.extend(captures.iter().map(|var| (*var, Uniform, "the capture")));
+        }
+        reps
+    };
+    match terminator {
+        LirTerminator::Return(var) => vec![(*var, Uniform, "the returned value")],
+        LirTerminator::Branch { cond, .. } => vec![(*cond, Raw, "the condition")],
+        LirTerminator::MatchCtor { scrutinee, .. } => {
+            vec![(*scrutinee, Uniform, "the matched value")]
+        }
+        LirTerminator::TailCall { func, args, kind } => call(func, args, kind),
+        LirTerminator::Call { func, args, kind, yield_cont, held, .. } => {
+            let mut reps = call(func, args, kind);
+            if let Some(cont) = yield_cont {
+                reps.extend(cont.captures.iter().map(|var| (*var, Uniform, "the yield capture")));
+            }
+            if let Some(held) = held {
+                let held_vars = held.owned.iter().chain(&held.lent).chain(&held.scoped);
+                reps.extend(held_vars.map(|var| (*var, Uniform, "the reference held across")));
+            }
+            reps
+        }
+        LirTerminator::Switch { .. } | LirTerminator::Jump(_) | LirTerminator::Unreachable => {
+            Vec::new()
         }
     }
 }
@@ -557,6 +742,7 @@ fn raw_result(instr: &LirInstr) -> Option<LirVar> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::CorePrimOp;
     use crate::core::FluxRep;
     use crate::lir::{CtorArm, CtorTag, HeldAcross, LirBlock, LirConst};
 
@@ -809,6 +995,215 @@ mod tests {
         assert_eq!(rules(&program), vec![Rule::RcOnRaw]);
     }
 
+    /// `f(v0)` in one block, and `g(v0)` returning its parameter, for the
+    /// representation rules. `v0` is uniform, as every parameter is unless
+    /// `raw_ints` says otherwise.
+    fn single(instrs: Vec<LirInstr>, terminator: LirTerminator) -> LirProgram {
+        let g =
+            function(2, "g", &[0], vec![block(0, &[], Vec::new(), LirTerminator::Return(v(0)))]);
+        let f = function(1, "f", &[0], vec![block(0, &[], instrs, terminator)]);
+        program(vec![f, g])
+    }
+
+    /// `v1`, the raw Int `UntagInt` makes of `v0`.
+    fn untag() -> LirInstr {
+        LirInstr::UntagInt { dst: v(1), val: v(0) }
+    }
+
+    #[test]
+    fn a_raw_word_in_a_uniform_place_is_reported() {
+        let ret = || LirTerminator::Return(v(0));
+        let direct = CallKind::Direct { func_id: LirFuncId(2) };
+        let cases: Vec<(&str, Vec<LirInstr>, LirTerminator)> = vec![
+            (
+                "a tuple element",
+                vec![LirInstr::MakeTuple { dst: v(2), elements: vec![v(1)] }],
+                ret(),
+            ),
+            (
+                "a constructor field",
+                vec![LirInstr::MakeCtor {
+                    dst: v(2),
+                    ctor_tag: 1,
+                    ctor_name: None,
+                    fields: vec![v(1)],
+                    field_reps: Vec::new(),
+                }],
+                ret(),
+            ),
+            (
+                "a primop argument",
+                vec![LirInstr::PrimCall { dst: None, op: CorePrimOp::Println, args: vec![v(1)] }],
+                ret(),
+            ),
+            (
+                "a stored value",
+                vec![
+                    LirInstr::Alloc { dst: v(2), size: 8, scan_fields: 1, obj_tag: 0 },
+                    LirInstr::Store { ptr: v(2), offset: 0, val: v(1) },
+                ],
+                ret(),
+            ),
+            ("a returned value", Vec::new(), LirTerminator::Return(v(1))),
+            (
+                "a uniform argument",
+                Vec::new(),
+                LirTerminator::TailCall { func: v(0), args: vec![v(1)], kind: direct.clone() },
+            ),
+        ];
+        for (what, mut instrs, terminator) in cases {
+            instrs.insert(0, untag());
+            assert_eq!(rules(&single(instrs, terminator)), vec![Rule::RawInUniform], "{what}");
+        }
+    }
+
+    #[test]
+    fn a_raw_word_held_or_captured_across_a_call_is_reported() {
+        for (held, yield_cont) in [
+            (Some(Box::new(HeldAcross { owned: vec![v(1)], ..Default::default() })), None),
+            (
+                None,
+                Some(crate::lir::YieldCont {
+                    func: LirFuncId(2),
+                    captures: vec![v(1)],
+                    moved: Vec::new(),
+                }),
+            ),
+        ] {
+            let g = function(
+                2,
+                "g",
+                &[0],
+                vec![block(0, &[], Vec::new(), LirTerminator::Return(v(0)))],
+            );
+            let f = function(
+                1,
+                "f",
+                &[0],
+                vec![
+                    block(
+                        0,
+                        &[],
+                        vec![untag()],
+                        LirTerminator::Call {
+                            dst: v(3),
+                            func: v(0),
+                            args: vec![v(0)],
+                            cont: BlockId(1),
+                            kind: CallKind::Direct { func_id: LirFuncId(2) },
+                            suppress_yield_check: false,
+                            yield_cont: yield_cont.clone(),
+                            held: held.clone(),
+                        },
+                    ),
+                    block(1, &[3], Vec::new(), LirTerminator::Return(v(3))),
+                ],
+            );
+            assert_eq!(rules(&program(vec![f, g])), vec![Rule::RawInUniform]);
+        }
+    }
+
+    #[test]
+    fn a_uniform_word_in_a_raw_place_is_reported() {
+        let ret = || LirTerminator::Return(v(0));
+        let cases: Vec<(&str, Vec<LirInstr>, LirTerminator)> = vec![
+            ("raw arithmetic", vec![LirInstr::IAdd { dst: v(2), a: v(0), b: v(1) }], ret()),
+            ("a tag's input", vec![LirInstr::TagInt { dst: v(2), raw: v(0) }], ret()),
+            ("an address", vec![LirInstr::Load { dst: v(2), ptr: v(0), offset: 0 }], ret()),
+            (
+                "a branch condition",
+                Vec::new(),
+                LirTerminator::Branch {
+                    cond: v(0),
+                    then_block: BlockId(0),
+                    else_block: BlockId(0),
+                },
+            ),
+        ];
+        for (what, mut instrs, terminator) in cases {
+            instrs.insert(0, untag());
+            assert_eq!(rules(&single(instrs, terminator)), vec![Rule::UniformInRaw], "{what}");
+        }
+    }
+
+    /// `v3` is raw from one edge and uniform from the other.
+    #[test]
+    fn a_join_of_raw_and_uniform_words_is_reported() {
+        let f = function(
+            1,
+            "f",
+            &[0],
+            vec![
+                block(
+                    0,
+                    &[],
+                    vec![untag(), LirInstr::UntagBool { dst: v(2), val: v(0) }],
+                    LirTerminator::Branch {
+                        cond: v(2),
+                        then_block: BlockId(1),
+                        else_block: BlockId(2),
+                    },
+                ),
+                block(
+                    1,
+                    &[],
+                    vec![LirInstr::Copy { dst: v(3), src: v(1) }],
+                    LirTerminator::Jump(BlockId(3)),
+                ),
+                block(
+                    2,
+                    &[],
+                    vec![LirInstr::Copy { dst: v(3), src: v(0) }],
+                    LirTerminator::Jump(BlockId(3)),
+                ),
+                block(
+                    3,
+                    &[3],
+                    vec![LirInstr::TagInt { dst: v(4), raw: v(3) }],
+                    LirTerminator::Return(v(4)),
+                ),
+            ],
+        );
+        assert_eq!(rules(&program(vec![f])), vec![Rule::JoinReps]);
+    }
+
+    /// A parameter `raw_ints` declares takes a raw word, and only a raw one.
+    #[test]
+    fn a_raw_parameter_takes_a_raw_argument() {
+        let with_arg = |arg: u32| {
+            let mut g = function(
+                2,
+                "g",
+                &[0],
+                vec![block(
+                    0,
+                    &[],
+                    vec![LirInstr::TagInt { dst: v(1), raw: v(0) }],
+                    LirTerminator::Return(v(1)),
+                )],
+            );
+            g.raw_ints.insert(v(0));
+            let f = function(
+                1,
+                "f",
+                &[0],
+                vec![block(
+                    0,
+                    &[],
+                    vec![untag()],
+                    LirTerminator::TailCall {
+                        func: v(0),
+                        args: vec![v(arg)],
+                        kind: CallKind::Direct { func_id: LirFuncId(2) },
+                    },
+                )],
+            );
+            rules(&program(vec![f, g]))
+        };
+        assert_eq!(with_arg(1), Vec::<Rule>::new());
+        assert_eq!(with_arg(0), vec![Rule::UniformInRaw]);
+    }
+
     #[test]
     fn a_loop_is_checked_to_a_fixed_point() {
         // block 1 loops on itself, reading v1 that block 0 defines.
@@ -817,13 +1212,18 @@ mod tests {
             "f",
             &[0],
             vec![
-                block(0, &[], vec![constant(1)], LirTerminator::Jump(BlockId(1))),
+                block(
+                    0,
+                    &[],
+                    vec![constant(1), LirInstr::UntagBool { dst: v(2), val: v(0) }],
+                    LirTerminator::Jump(BlockId(1)),
+                ),
                 block(
                     1,
                     &[],
                     vec![LirInstr::Dup { val: v(1) }],
                     LirTerminator::Branch {
-                        cond: v(0),
+                        cond: v(2),
                         then_block: BlockId(1),
                         else_block: BlockId(2),
                     },
