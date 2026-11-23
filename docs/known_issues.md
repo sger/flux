@@ -917,33 +917,6 @@ a task that may run inline or on a worker), or the comparison needs a
 tolerance for those. Until then, a metrics step that fails only on
 `async_*` or task fixtures' run counts is this issue.
 
-### KI-216 — A generic function called once at `Int` and also passed as a value gets an `Int` parameter
-
-**Severity:** High (natively a value is freed twice, or leaks) · **Area:** Core lowering, specialisation (proposal 0187, `src/core/lower_ast/mod.rs`) · **Verified:** 2026-11-23 (8f5e4d77) · **From:** the raw-Int design for KI-039, which needs `IntRep` to mean a certain Int
-
-```flux
-import Flow.List as List
-
-fn twice(x) { (x, x) }
-
-fn main() with IO {
-    print(twice(1))
-    print(List.map(["a" + "b", "c" + "d"], twice))
-}
-```
-
-The VM prints `(1, 1)` and `[("ab", "ab"), ("cd", "cd")]`. Natively the
-program prints the same and then stops with `error[E1009]: use after free:
-dropping a String that was already freed`.
-
-Specialisation lowers a generic function at the one type its direct calls
-give it. `CallSiteInstantiations` (`src/core/lower_ast/mod.rs`) counts only
-calls whose callee is the function's name, so `twice` passed to `List.map`
-is not seen, and its parameter is lowered as `x:Int`. Aether gives an `Int`
-binder no reference counts, so it stores each String twice without counting
-it again, and both tuple fields release it. `docs/proposals/0187_specialisation.md`
-names the function-as-value case as excluded, but the code does not check it.
-
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
@@ -3500,6 +3473,41 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-216 — A generic function called once at `Int` and also passed as a value gets an `Int` parameter — FIXED 2026-11-23
+
+**Severity:** High (natively a value is freed twice, or leaks) · **Area:** Core lowering, specialisation (proposal 0187, `src/core/lower_ast/mod.rs`) · **Verified:** 2026-11-23 (8f5e4d77) · **From:** the raw-Int design for KI-039, which needs `IntRep` to mean a certain Int
+
+```flux
+import Flow.List as List
+
+fn twice(x) { (x, x) }
+
+fn main() with IO {
+    print(twice(1))
+    print(List.map(["a" + "b", "c" + "d"], twice))
+}
+```
+
+The VM prints `(1, 1)` and `[("ab", "ab"), ("cd", "cd")]`. Natively the
+program prints the same and then stops with `error[E1009]: use after free:
+dropping a String that was already freed`.
+
+Specialisation lowers a generic function at the one type its direct calls
+give it. `CallSiteInstantiations` (`src/core/lower_ast/mod.rs`) counts only
+calls whose callee is the function's name, so `twice` passed to `List.map`
+is not seen, and its parameter is lowered as `x:Int`. Aether gives an `Int`
+binder no reference counts, so it stores each String twice without counting
+it again, and both tuple fields release it. `docs/proposals/0187_specialisation.md`
+names the function-as-value case as excluded, but the code does not check it.
+
+**Fixed 2026-11-23.** The call-site collector (`CallSiteInstantiations` in
+`src/core/lower_ast/mod.rs`) walks only the arguments of a call to a user
+function, and a user function named anywhere else counts as a value, which
+leaves it with no single instantiation. `twice` keeps a uniform parameter.
+Tests: `a_function_also_used_as_a_value_is_not_specialised_ki216` and
+`tests/parity/poly_specialised_fn_used_as_value_ki216.flx`.
+
 
 ### KI-206 — Natively, a fiber woken with an error never released its continuation or effect context — FIXED 2026-11-17
 
