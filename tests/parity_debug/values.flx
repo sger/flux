@@ -24,3 +24,16 @@ fn inspect_all(n, name, flag, ratio, xs, pair, opt, arr, p) with IO {
 fn main() with IO {
     inspect_all(7, "flux", true, 2.5, [1, 2, 3], (9, "x"), Some(4), [|1, 2|], Point { x: 1, y: 2 })
 }
+
+// dbg-check: stop inspect_all values.flx:20
+// dbg-check: pair = (9, "x")
+// dbg-check: xs = [1, 2, 3]
+// dbg-check: pair = (9, "x")
+// dbg-check: .0 = 9
+// dbg-check: .1 = "x"
+// dbg-check: xs = [1, 2, 3]
+// dbg-check: .0 = 1
+// dbg-check: .1 = 2
+// dbg-check: .2 = 3
+// dbg-check: xs.1 = 2
+// dbg-check: finished

@@ -25,3 +25,10 @@ fn body() -> Int with Async {
 fn main() with IO {
     print(run_async(body))
 }
+
+// dbg-check: stop work async_timeout.flx:15 thread 2
+// dbg-check: thread 1 main [waiting timeout 500 ms (thread 2)] async_timeout.flx:20
+// dbg-check: thread 2 work [stopped] async_timeout.flx:15
+// dbg-check: stop body async_timeout.flx:21
+// dbg-check: got = Some(21)
+// dbg-check: finished

@@ -27,3 +27,9 @@ fn body() -> Int with Async {
 fn main() with IO {
     print(run_async(body))
 }
+
+// dbg-check: stop <library> thread 2
+// dbg-check: exception fiber failure
+// dbg-check: thread 1 main [waiting try (thread 2)] async_fail.flx:24
+// dbg-check: thread 2 attempt [stopped] <library>
+// dbg-check: finished

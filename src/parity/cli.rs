@@ -24,8 +24,9 @@ use std::time::{Duration, SystemTime};
 
 use super::census;
 use super::fixture::{
-    Expect, ExpectedCount, FixtureMeta, ModuleError, SkipWay, annotations_inside_tokens,
-    converted_source, parse_fixture_meta, parse_fixture_meta_allowing, with_annotations,
+    Expect, ExpectLeak, ExpectedCount, FixtureMeta, ModuleError, SkipWay,
+    annotations_inside_tokens, converted_source, parse_fixture_meta, parse_fixture_meta_allowing,
+    with_annotations,
 };
 use super::known_issues;
 use super::normalize::normalize_stderr;
@@ -281,6 +282,10 @@ impl Block {
 /// an error only has an existing stderr block replaced, since most pin codes
 /// alone. Anything else that failed stays failed. A blessed result passes.
 fn bless(result: &mut ParityResult, allow: &[String]) {
+    if result.results.iter().any(|run| run.way.is_debug()) {
+        bless_debug_checks(result);
+        return;
+    }
     let meta = parse_fixture_meta_allowing(&result.file, allow);
     let runs = &result.results;
     let Some(first) = runs.first() else {
@@ -334,6 +339,85 @@ fn bless(result: &mut ParityResult, allow: &[String]) {
         eprintln!("[parity] blessed {}", file.display());
     }
     result.verdict = Verdict::Pass;
+}
+
+/// How a failed `// dbg-check:` reads in an `ExpectedOutputMismatch`, after
+/// the way's name.
+const DEBUG_CHECK: &str = ": // dbg-check: ";
+
+/// `--bless` for a debug fixture: writes vm_debug's reduced transcript as
+/// its `// dbg-check:` lines, when both debuggers ran, succeeded and agree,
+/// and the checks are all that failed. Never an expected-stdout block: the
+/// script names line numbers, and a block in the header would move the
+/// program under it.
+fn bless_debug_checks(result: &mut ParityResult) {
+    let runs = &result.results;
+    let file = result.file.clone();
+    let Some(vm) = runs.iter().find(|run| run.way == Way::VmDebug) else {
+        return;
+    };
+    if !runs.iter().any(|run| run.way == Way::LlvmDebug) {
+        eprintln!("[parity] cannot bless {}: llvm_debug did not run", file.display());
+        return;
+    }
+    let checks_are_the_only_problem = match &result.verdict {
+        Verdict::Pass => true,
+        Verdict::ExpectedOutputMismatch { expected, .. } => expected.contains(DEBUG_CHECK),
+        _ => false,
+    };
+    if !checks_are_the_only_problem || runs.iter().any(|run| run.exit_kind != ExitKind::Success) {
+        return;
+    }
+    let checks: Vec<&str> = vm.normalized_stdout.lines().map(str::trim).collect();
+    let Ok(source) = fs::read_to_string(&file) else {
+        return;
+    };
+    let blessed = match with_debug_checks(&source, &checks) {
+        Ok(blessed) => blessed,
+        Err(reason) => {
+            eprintln!("[parity] cannot bless {}: {reason}", file.display());
+            return;
+        }
+    };
+    if blessed != source {
+        if let Err(err) = fs::write(&file, &blessed) {
+            eprintln!("[parity] cannot bless {}: {err}", file.display());
+            return;
+        }
+        eprintln!("[parity] blessed the dbg-check lines of {}", file.display());
+    }
+    result.verdict = Verdict::Pass;
+}
+
+/// `source` with `checks` as its last lines, `// dbg-check: <check>` each,
+/// after one blank line, in place of the checks it ended with. A check
+/// anywhere else is refused: rewriting it there could move the program.
+fn with_debug_checks(source: &str, checks: &[&str]) -> Result<String, String> {
+    let is_check = |line: &&str| line.trim().starts_with("// dbg-check:");
+    let is_blank = |line: &&str| line.trim().is_empty();
+    let mut lines: Vec<&str> = source.lines().collect();
+    while lines.last().is_some_and(is_blank) {
+        lines.pop();
+    }
+    let trailing = lines.iter().rev().take_while(|line| is_check(line)).count();
+    lines.truncate(lines.len() - trailing);
+    if lines.iter().any(is_check) {
+        return Err("its `// dbg-check:` lines must be the last lines of the file".to_string());
+    }
+    while lines.last().is_some_and(is_blank) {
+        lines.pop();
+    }
+    let mut out: Vec<String> = lines.iter().map(|line| line.to_string()).collect();
+    let checks: Vec<&&str> = checks.iter().filter(|check| !check.is_empty()).collect();
+    if !checks.is_empty() {
+        out.push(String::new());
+        out.extend(checks.iter().map(|check| format!("// dbg-check: {check}")));
+    }
+    let mut text = out.join("\n");
+    if source.ends_with('\n') {
+        text.push('\n');
+    }
+    Ok(text)
 }
 
 /// Rewrites an annotated fixture's `//~` annotations to match what its ways
@@ -676,7 +760,9 @@ fn check_one(file: &Path, config: &Config) -> CheckedFile {
             stdout_varies: fixture_meta.stdout_varies,
             check_skips: config.check_skips,
             expected_counts: &fixture_meta.expected_counts,
+            debug_checks: &fixture_meta.debug_checks,
             collect_metrics: config.metrics.is_some(),
+            expected_leaks: &fixture_meta.expected_leaks,
         },
     );
     let rows = if config.census.is_some() {
@@ -890,8 +976,12 @@ struct CheckOpts<'a> {
     check_skips: bool,
     /// `// expect-reuse:` and `// expect-allocs:`, checked once the ways pass.
     expected_counts: &'a [ExpectedCount],
+    /// `// dbg-check:` lines, checked on each debug way's transcript.
+    debug_checks: &'a [String],
     /// `--metrics`: the `vm` and `vm_opt` ways write their counts.
     collect_metrics: bool,
+    /// `// expect-leak:`, checked once the ways pass.
+    expected_leaks: &'a [ExpectLeak],
 }
 
 impl CheckOpts<'_> {
@@ -1083,6 +1173,9 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
     }
 
     let mut verdict = judge(&run_results, details, opts);
+    if matches!(verdict, Verdict::Pass) && !opts.census {
+        verdict = judge_leaks(&run_results, opts.expected_leaks);
+    }
     if matches!(verdict, Verdict::Pass) && !opts.expected_counts.is_empty() && !opts.census {
         let vm_counts = if ways.contains(&Way::Vm) {
             metrics
@@ -1096,7 +1189,9 @@ fn check_file(file: &Path, opts: &CheckOpts<'_>) -> ParityResult {
         verdict = judge_counts(opts.expected_counts, vm_counts);
     }
     let unexpected_passes = if opts.check_skips && matches!(verdict, Verdict::Pass) {
-        skipped_ways_that_pass(file, opts, &mut run_results, &skipped_ways)
+        let mut passing = leaks_that_went(&run_results, opts.expected_leaks);
+        passing.extend(skipped_ways_that_pass(file, opts, &mut run_results, &skipped_ways));
+        passing
     } else {
         Vec::new()
     };
@@ -1141,6 +1236,43 @@ fn judge_counts(
         }
     }
     Verdict::Pass
+}
+
+/// The heap ways' leaks against the fixture's `// expect-leak:` markers:
+/// `Pass`, or the first leak no marker allows.
+fn judge_leaks(run_results: &[super::RunResult], expected: &[ExpectLeak]) -> Verdict {
+    for run in run_results {
+        let Some(leak) = &run.leak else {
+            continue;
+        };
+        let marker = expected.iter().find(|marker| marker.way == run.way);
+        if marker.is_some_and(|marker| leak.blocks <= marker.at_most) {
+            continue;
+        }
+        let blocks = if leak.blocks == 1 { "block" } else { "blocks" };
+        return Verdict::ExpectedOutputMismatch {
+            expected: match marker {
+                Some(marker) => format!(
+                    "at most {} block(s) live at exit on {} ({})",
+                    marker.at_most, run.way, marker.reason
+                ),
+                None => format!("no blocks live at exit on {}", run.way),
+            },
+            actual: format!("{} {blocks} live at exit, first {}", leak.blocks, leak.first_site),
+        };
+    }
+    Verdict::Pass
+}
+
+/// The fixture's own `// expect-leak:` markers whose way ran and left
+/// nothing live, so their issue may be fixed. A folder's marker is left out.
+fn leaks_that_went(run_results: &[super::RunResult], expected: &[ExpectLeak]) -> Vec<SkipWay> {
+    expected
+        .iter()
+        .filter(|marker| !marker.folder_wide)
+        .filter(|marker| run_results.iter().any(|run| run.way == marker.way && run.leak.is_none()))
+        .map(|marker| SkipWay { way: marker.way, reason: marker.reason.clone() })
+        .collect()
 }
 
 /// `--check-skips`: runs each skipped way and judges it alongside the ways
@@ -1313,6 +1445,8 @@ fn judge(
             expected: ExitKind::Success.to_string(),
             actual: format!("{}: {}", failed.way, failed.exit_kind),
         }
+    } else if let Some(failed) = first_failed_debug_check(run_results, opts.debug_checks) {
+        failed
     } else if let Some(expected_stdout) = opts.expected_stdout.filter(|_| !opts.stdout_varies) {
         let expected = expected_stdout.trim();
         let actual = run_results
@@ -1327,6 +1461,28 @@ fn judge(
     } else {
         Verdict::Pass
     }
+}
+
+/// The first `// dbg-check:` line a debug way's transcript does not show, as
+/// the way and the check. Each debugger is checked on its own, so a change
+/// that breaks both alike, which their comparison cannot see, fails here.
+fn first_failed_debug_check(
+    run_results: &[super::RunResult],
+    checks: &[String],
+) -> Option<Verdict> {
+    run_results.iter().filter(|run| run.way.is_debug()).find_map(|run| {
+        let index = super::debug::first_failed_check(&run.normalized_stdout, checks)?;
+        Some(Verdict::ExpectedOutputMismatch {
+            expected: format!(
+                "{}{DEBUG_CHECK}{} (check {} of {})",
+                run.way,
+                checks[index],
+                index + 1,
+                checks.len()
+            ),
+            actual: run.normalized_stdout.clone(),
+        })
+    })
 }
 
 /// Behaviour against the base compiler (0190 §11): stdout and exit kind, not
@@ -2039,6 +2195,47 @@ mod tests {
     }
 
     #[test]
+    fn debug_checks_are_blessed_as_the_last_lines() {
+        let program = "// dbg: break 3\n// dbg: continue\nfn main() {\n    print(1)\n}\n";
+        let added = with_debug_checks(program, &["stop main a.flx:3", "", "finished"]).unwrap();
+        assert_eq!(
+            added,
+            format!("{program}\n// dbg-check: stop main a.flx:3\n// dbg-check: finished\n")
+        );
+        let replaced = with_debug_checks(&format!("{added}\n\n"), &["finished"]).unwrap();
+        assert_eq!(replaced, format!("{program}\n// dbg-check: finished\n"));
+        let no_newline = with_debug_checks("fn main() {}", &["finished"]).unwrap();
+        assert_eq!(no_newline, "fn main() {}\n\n// dbg-check: finished");
+        let in_header = format!("// dbg-check: finished\n{program}");
+        assert!(with_debug_checks(&in_header, &["finished"]).is_err());
+    }
+
+    /// A debug fixture whose transcripts agree exactly gets its checks, not
+    /// an expected-stdout block in its header, which would move its lines.
+    #[test]
+    fn a_debug_fixture_is_blessed_with_checks_not_a_stdout_block() {
+        let dir = std::env::temp_dir().join(format!("flux-bless-debug-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("session.flx");
+        let program = "// dbg: break 2\nfn main() {\n    print(1)\n}\n";
+        fs::write(&file, program).unwrap();
+        let transcript = "stop main session.flx:2\nfinished";
+        let mut result = parity_result(vec![
+            result(Way::VmDebug, ExitKind::Success, transcript, ""),
+            result(Way::LlvmDebug, ExitKind::Success, transcript, ""),
+        ]);
+        result.file = file.clone();
+        bless(&mut result, &[]);
+        let blessed = fs::read_to_string(&file).unwrap();
+        let _ = fs::remove_dir_all(&dir);
+        assert_eq!(
+            blessed,
+            format!("{program}\n// dbg-check: stop main session.flx:2\n// dbg-check: finished\n")
+        );
+        assert!(matches!(result.verdict, Verdict::Pass));
+    }
+
+    #[test]
     fn a_blessed_block_reads_back_as_written() {
         let dir = std::env::temp_dir().join(format!("flux-bless-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
@@ -2251,7 +2448,9 @@ mod tests {
             stdout_varies: false,
             check_skips: true,
             expected_counts: &[],
+            debug_checks: &[],
             collect_metrics: false,
+            expected_leaks: &[],
         }
     }
 
@@ -2714,6 +2913,32 @@ mod tests {
         assert!(behaviour_details(&varying_head, &varying_base).is_empty());
     }
 
+    /// Each debugger is held to the `// dbg-check:` lines on its own, so the
+    /// one whose transcript lacks a check is the one named (0190 §5).
+    #[test]
+    fn a_debug_check_names_the_way_whose_transcript_lacks_it() {
+        let ways = [Way::VmDebug, Way::LlvmDebug];
+        let checks = vec!["stop f a.flx:3".to_string(), "x = 1".to_string()];
+        let opts = CheckOpts { debug_checks: &checks, ..plain_opts(&ways) };
+        let runs = |native: &str| {
+            vec![
+                result(Way::VmDebug, ExitKind::Success, "stop f a.flx:3\nx = 1\nfinished", ""),
+                result(Way::LlvmDebug, ExitKind::Success, native, ""),
+            ]
+        };
+        let shown = runs("stop f a.flx:3\ny = 2\nx = 1\nfinished");
+        assert!(matches!(judge(&shown, vec![], &opts), Verdict::Pass));
+        let Verdict::ExpectedOutputMismatch { expected, .. } =
+            judge(&runs("stop f a.flx:3\nx = 10\nfinished"), vec![], &opts)
+        else {
+            panic!("a missing check fails");
+        };
+        assert_eq!(expected, "llvm_debug: // dbg-check: x = 1 (check 2 of 2)");
+        let unchecked = plain_opts(&ways);
+        let other = runs("stop f a.flx:3\nx = 10\nfinished");
+        assert!(matches!(judge(&other, vec![], &unchecked), Verdict::Pass));
+    }
+
     #[test]
     fn behaviour_of_needs_the_vm_way() {
         let args = |list: &[&str]| -> Vec<String> { list.iter().map(|a| a.to_string()).collect() };
@@ -2782,6 +3007,68 @@ mod tests {
             verdict,
             Verdict::ExpectedOutputMismatch { actual, .. } if actual == "error[E1]: x"
         ));
+    }
+
+    fn leaking(way: Way, blocks: usize) -> super::super::RunResult {
+        super::super::RunResult {
+            leak: Some(super::super::LeakReport {
+                blocks,
+                first_site: "a tuple (8 bytes) allocated at main (f.flx:1:1)".to_string(),
+            }),
+            ..result(way, ExitKind::Success, "1", "")
+        }
+    }
+
+    fn marker(way: Way, at_most: usize, folder_wide: bool) -> ExpectLeak {
+        ExpectLeak { way, at_most, reason: "KI-119 the unit tuple".to_string(), folder_wide }
+    }
+
+    #[test]
+    fn an_unmarked_leak_fails() {
+        let runs = [result(Way::Llvm, ExitKind::Success, "1", ""), leaking(Way::LlvmHeap, 2)];
+        let Verdict::ExpectedOutputMismatch { expected, actual } = judge_leaks(&runs, &[]) else {
+            panic!("expected a mismatch");
+        };
+        assert_eq!(expected, "no blocks live at exit on llvm_heap");
+        assert_eq!(
+            actual,
+            "2 blocks live at exit, first a tuple (8 bytes) allocated at main (f.flx:1:1)"
+        );
+    }
+
+    #[test]
+    fn a_marked_leak_passes_within_its_bound_only() {
+        let runs = [leaking(Way::LlvmHeap, 1)];
+        let within = [marker(Way::LlvmHeap, 1, true)];
+        assert!(matches!(judge_leaks(&runs, &within), Verdict::Pass));
+
+        let runs = [leaking(Way::LlvmHeap, 2)];
+        let Verdict::ExpectedOutputMismatch { expected, .. } = judge_leaks(&runs, &within) else {
+            panic!("a leak over its bound fails");
+        };
+        assert_eq!(
+            expected,
+            "at most 1 block(s) live at exit on llvm_heap (KI-119 the unit tuple)"
+        );
+    }
+
+    #[test]
+    fn a_marker_covers_its_own_way_only() {
+        let runs = [leaking(Way::LlvmHeap, 1)];
+        let other_way = [marker(Way::Llvm, 5, false)];
+        assert!(matches!(judge_leaks(&runs, &other_way), Verdict::ExpectedOutputMismatch { .. }));
+    }
+
+    #[test]
+    fn a_files_marker_with_no_leak_left_may_be_fixed() {
+        let clean = [result(Way::LlvmHeap, ExitKind::Success, "1", "")];
+        let own = [marker(Way::LlvmHeap, 1, false)];
+        let went = leaks_that_went(&clean, &own);
+        assert_eq!(went.len(), 1);
+        assert_eq!(went[0].way, Way::LlvmHeap);
+        // A folder's marker also covers fixtures that never leak.
+        assert!(leaks_that_went(&clean, &[marker(Way::LlvmHeap, 1, true)]).is_empty());
+        assert!(leaks_that_went(&[leaking(Way::LlvmHeap, 1)], &own).is_empty());
     }
 
     fn heap_labels(run_results: &[super::super::RunResult]) -> Vec<String> {
@@ -3540,7 +3827,8 @@ Options:
   --bless                When every way ran and agrees, write what they printed into the
                          fixture: its stdout block (added if missing) for a fixture that
                          expects success, or its existing stderr block for one that expects
-                         an error
+                         an error; a debug fixture gets vm_debug's transcript as its
+                         `// dbg-check:` lines, at the end of the file
   --annotate             Move each passing fixture from `// expect-error:` lines to `//~`
                          annotations on the lines its errors are reported on, dropping its
                          stderr block when a snapshot pins the same text (proposal 0191)

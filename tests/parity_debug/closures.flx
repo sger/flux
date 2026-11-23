@@ -17,3 +17,14 @@ fn main() {
     print(shifted)
     print(offset)
 }
+
+// dbg-check: stop <lambda closures.flx:13:31> closures.flx:14
+// dbg-check: offset = 10 (captured)
+// dbg-check: x = 1
+// dbg-check: frame <lambda closures.flx:13:31> closures.flx:14
+// dbg-check: frame <library>
+// dbg-check: frame main closures.flx:13
+// dbg-check: stop <lambda closures.flx:13:31> closures.flx:14
+// dbg-check: offset = 10 (captured)
+// dbg-check: x = 2
+// dbg-check: finished

@@ -25,3 +25,16 @@ fn main() {
     })(2)
     println(n + m)
 }
+
+// dbg-check: stop <lambda inlined_lambda.flx:18:14> inlined_lambda.flx:20
+// dbg-check: frame <lambda inlined_lambda.flx:18:14> inlined_lambda.flx:20
+// dbg-check: frame main inlined_lambda.flx:18
+// dbg-check: y = 40
+// dbg-check: stop main inlined_lambda.flx:22
+// dbg-check: frame main inlined_lambda.flx:22
+// dbg-check: n = 41
+// dbg-check: stop <lambda inlined_lambda.flx:22:14> inlined_lambda.flx:24
+// dbg-check: frame <lambda inlined_lambda.flx:22:14> inlined_lambda.flx:24
+// dbg-check: frame main inlined_lambda.flx:22
+// dbg-check: stop main inlined_lambda.flx:26
+// dbg-check: finished

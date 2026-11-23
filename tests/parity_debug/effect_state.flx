@@ -37,3 +37,18 @@ fn main() with IO {
     }
     print(to_string(result))
 }
+
+// dbg-check: stop <handler Counter.next> effect_state.flx:36
+// dbg-check: frame <handler Counter.next> effect_state.flx:36
+// dbg-check: frame count_twice effect_state.flx:24
+// dbg-check: frame main effect_state.flx:32
+// dbg-check: handler Counter state = 0
+// dbg-check: stop <handler Log.log> effect_state.flx:33
+// dbg-check: frame <handler Log.log> effect_state.flx:33
+// dbg-check: frame count_twice effect_state.flx:25
+// dbg-check: frame main effect_state.flx:32
+// dbg-check: handler Log
+// dbg-check: handler Counter state = 1
+// dbg-check: stop <handler Counter.next> effect_state.flx:36
+// dbg-check: handler Counter state = 1
+// dbg-check: finished

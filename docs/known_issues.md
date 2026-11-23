@@ -897,6 +897,11 @@ run at once, gave 33543 every time, so the other value shows up only now and
 then, under verify's load. s6shuffle's "1 count better" against main was the
 same flake.
 
+The `vm` way flakes too. `cargo xtask verify s15 --base s10` (2026-11-22)
+failed metrics on `async_select_loser_watchers_reclaimed.flx vm
+vm_instructions 33493 -> 33543`: the base run, s10, had the rare value on
+`vm`. The branch changed only `src/parity/`, xtask, tests and docs.
+
 `tests/parity/assert_throws_one_arg_native.flx`, which spawns a task and
 cancels it, shows the other half. `flux --metrics` leaves the run counts out
 when a program started a worker VM, and whether one starts depends on timing
