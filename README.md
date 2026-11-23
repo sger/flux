@@ -224,6 +224,9 @@ cargo test --all --all-features
   `cargo xtask tidy` (formatting and the test layout); before a push they
   refuse uncommitted changes and run tidy and clippy. The second makes
   `git blame` skip commits that only reformat.
+- Before a change merges, run `cargo xtask verify <tag> --base main`.
+  [`docs/internals/verification.md`](docs/internals/verification.md) explains
+  what it checks and what to do when a step fails.
 - Using an LLM or coding agent? Read the [LLM usage policy](docs/llm_policy.md).
   Agents follow [`AGENTS.md`](AGENTS.md).
 

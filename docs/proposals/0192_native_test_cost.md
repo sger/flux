@@ -3,7 +3,7 @@
 - Proposal PR:
 - Flux Issue:
 - Status: Draft
-- Relates to: [0190](0190_verification_toolkit.md) (`--metrics`, deterministic counts)
+- Relates to: [0190](implemented/0190_verification_toolkit.md) (`--metrics`, deterministic counts)
 
 # Proposal 0192: What native tests cost, and what to do about it
 
