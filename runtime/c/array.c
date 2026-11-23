@@ -186,31 +186,3 @@ int64_t flux_array_slice(int64_t arr_val, int64_t start_val, int64_t end_val) {
     flux_dup_range(arr->elements + start, slice_len);
     return flux_array_new(arr->elements + start, (int32_t)slice_len);
 }
-
-int64_t flux_array_reverse(int64_t arr_val) {
-    FluxArray *arr = array_ptr(arr_val);
-    if (!arr || arr->len == 0) {
-        flux_dup(arr_val);
-        return arr_val;
-    }
-    FluxArray *new_arr = alloc_array(arr->len);
-    new_arr->len = arr->len;
-    for (uint32_t i = 0; i < arr->len; i++) {
-        new_arr->elements[i] = arr->elements[arr->len - 1 - i];
-    }
-    flux_dup_range(new_arr->elements, new_arr->len);
-    return array_tag(new_arr);
-}
-
-int64_t flux_array_contains(int64_t arr_val, int64_t value) {
-    FluxArray *arr = array_ptr(arr_val);
-    if (!arr) return flux_make_bool(0);
-    for (uint32_t i = 0; i < arr->len; i++) {
-        if (arr->elements[i] == value) return flux_make_bool(1);
-        /* String equality check for boxed values. */
-        if (flux_is_ptr(arr->elements[i]) && flux_is_ptr(value)) {
-            if (flux_string_eq(arr->elements[i], value)) return flux_make_bool(1);
-        }
-    }
-    return flux_make_bool(0);
-}

@@ -4238,26 +4238,14 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         "flux_free_shell" => (LlvmType::Void, vec![LlvmType::i64()]),
         "flux_drop_reuse" => (LlvmType::Ptr, vec![LlvmType::i64(), LlvmType::i32()]),
         // Collection helpers
-        "flux_try" | "flux_array_reverse" | "flux_sort_default" | "flux_flatten" => {
-            (LlvmType::i64(), vec![LlvmType::i64()])
-        }
+        "flux_try" => (LlvmType::i64(), vec![LlvmType::i64()]),
         "flux_rt_div_loc" | "flux_rt_mod_loc" => (
             LlvmType::i64(),
             vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64(), LlvmType::i64()],
         ),
-        "flux_safe_div"
-        | "flux_safe_mod"
-        | "flux_array_contains"
-        | "flux_ho_sort_by"
-        | "flux_ho_map"
-        | "flux_ho_filter"
-        | "flux_ho_any"
-        | "flux_ho_all"
-        | "flux_ho_each"
-        | "flux_ho_find"
-        | "flux_ho_count"
-        | "flux_ho_flat_map"
-        | "flux_zip" => (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()]),
+        "flux_safe_div" | "flux_safe_mod" => {
+            (LlvmType::i64(), vec![LlvmType::i64(), LlvmType::i64()])
+        }
         // Effect handlers (Koka-style yield model)
         "flux_evv_get" => (LlvmType::i64(), vec![]),
         "flux_evv_set" => (LlvmType::Void, vec![LlvmType::i64()]),

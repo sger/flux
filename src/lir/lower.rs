@@ -379,7 +379,7 @@ fn collect_module_paths(
                 && func_name != "main"
             {
                 // Entry-file functions get qualified to avoid collisions
-                // with C runtime primops (e.g., flux_sum in libflux_rt.a).
+                // with C runtime primops (e.g., flux_split in libflux_rt.a).
                 // The main function is excluded — it must remain "main" for
                 // the C runtime entry point.
                 //
@@ -434,7 +434,7 @@ fn is_generated_symbol_name(name: &str) -> bool {
 ///
 /// `entry_qualifier`: optional prefix for entry-file functions that have no
 /// `module` declaration. Prevents LLVM symbol collisions with C runtime primops
-/// (e.g., a user's `fn sum` would collide with `flux_sum` in libflux_rt.a
+/// (e.g., a user's `fn split` would collide with `flux_split` in libflux_rt.a
 /// without qualification).
 fn build_qualified_names(
     program: &CoreProgram,
@@ -504,7 +504,7 @@ fn build_qualified_names(
     // Step 3: Assign fallback names for defs not found in any module
     // (entry-file functions, anonymous lambdas, letrec bindings, etc.)
     // Entry-file functions get qualified with `entry_qualifier` to avoid
-    // symbol collisions with C runtime primops like `flux_sum`.
+    // symbol collisions with C runtime primops like `flux_split`.
     for def in &program.defs {
         if result.contains_key(&def.binder.id) {
             continue;

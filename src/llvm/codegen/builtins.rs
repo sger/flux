@@ -176,21 +176,9 @@ static BUILTIN_MAPPINGS: &[BuiltinMapping] = &[
         returns_value: true,
     },
     BuiltinMapping {
-        flux_name: "reverse",
-        c_name: "flux_array_reverse",
-        arity: 1,
-        returns_value: true,
-    },
-    BuiltinMapping {
         flux_name: "slice",
         c_name: "flux_array_slice",
         arity: 3,
-        returns_value: true,
-    },
-    BuiltinMapping {
-        flux_name: "contains",
-        c_name: "flux_array_contains",
-        arity: 2,
         returns_value: true,
     },
     // HAMT extended
@@ -238,19 +226,7 @@ static BUILTIN_MAPPINGS: &[BuiltinMapping] = &[
     BuiltinMapping { flux_name: "len", c_name: "flux_rt_len", arity: 1, returns_value: true },
     BuiltinMapping { flux_name: "length", c_name: "flux_rt_len", arity: 1, returns_value: true },
     BuiltinMapping { flux_name: "size", c_name: "flux_hamt_size", arity: 1, returns_value: true },
-    BuiltinMapping {
-        flux_name: "contains",
-        c_name: "flux_array_contains",
-        arity: 2,
-        returns_value: true,
-    },
     BuiltinMapping { flux_name: "push", c_name: "flux_array_push", arity: 2, returns_value: true },
-    BuiltinMapping {
-        flux_name: "reverse",
-        c_name: "flux_array_reverse",
-        arity: 1,
-        returns_value: true,
-    },
     BuiltinMapping {
         flux_name: "concat",
         c_name: "flux_array_concat",
@@ -383,22 +359,6 @@ static BUILTIN_MAPPINGS: &[BuiltinMapping] = &[
         arity: 3,
         returns_value: true,
     },
-    // Higher-order functions (call closures via flux_call_closure_c trampoline)
-    BuiltinMapping { flux_name: "map", c_name: "flux_ho_map", arity: 2, returns_value: true },
-    BuiltinMapping { flux_name: "filter", c_name: "flux_ho_filter", arity: 2, returns_value: true },
-    BuiltinMapping { flux_name: "any", c_name: "flux_ho_any", arity: 2, returns_value: true },
-    BuiltinMapping { flux_name: "all", c_name: "flux_ho_all", arity: 2, returns_value: true },
-    BuiltinMapping { flux_name: "fold", c_name: "flux_ho_fold", arity: 3, returns_value: true },
-    BuiltinMapping { flux_name: "each", c_name: "flux_ho_each", arity: 2, returns_value: true },
-    BuiltinMapping { flux_name: "find", c_name: "flux_ho_find", arity: 2, returns_value: true },
-    BuiltinMapping {
-        flux_name: "sort_by",
-        c_name: "flux_ho_sort_by",
-        arity: 2,
-        returns_value: true,
-    },
-    BuiltinMapping { flux_name: "zip", c_name: "flux_zip", arity: 2, returns_value: true },
-    BuiltinMapping { flux_name: "sum", c_name: "flux_sum", arity: 1, returns_value: true },
     BuiltinMapping {
         flux_name: "starts_with",
         c_name: "flux_starts_with",
@@ -411,7 +371,6 @@ static BUILTIN_MAPPINGS: &[BuiltinMapping] = &[
         arity: 2,
         returns_value: true,
     },
-    BuiltinMapping { flux_name: "count", c_name: "flux_ho_count", arity: 2, returns_value: true },
     // Deep structural comparison (used by Flow.Assert)
     BuiltinMapping { flux_name: "cmp_eq", c_name: "flux_rt_eq", arity: 2, returns_value: true },
     BuiltinMapping { flux_name: "cmp_ne", c_name: "flux_rt_neq", arity: 2, returns_value: true },

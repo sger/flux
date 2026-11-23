@@ -6549,8 +6549,8 @@ impl Compiler {
         let emit_main = emit_entry_main || has_named_main;
         // Derive an entry qualifier from the file path to prevent symbol
         // collisions with C runtime primops. E.g. "examples/day06.flx"
-        // yields qualifier "day06", so user's `fn sum` becomes `flux_day06_sum`
-        // instead of `flux_sum` (which clashes with libflux_rt.a).
+        // yields qualifier "day06", so user's `fn split` becomes `flux_day06_split`
+        // instead of `flux_split` (which clashes with libflux_rt.a).
         let entry_qualifier = std::path::Path::new(&self.file_path)
             .file_stem()
             .and_then(|s| s.to_str())
