@@ -917,6 +917,40 @@ a task that may run inline or on a worker), or the comparison needs a
 tolerance for those. Until then, a metrics step that fails only on
 `async_*` or task fixtures' run counts is this issue.
 
+### KI-217 — A module function takes the type of whatever is last bound to its name
+
+**Severity:** High (a value can go uncounted; natively it may be freed early or leak) · **Area:** Core lowering, function signatures (`src/core/lower_ast/mod.rs`) · **Verified:** 2026-11-23 (8af421b5) · **From:** the raw-Int design for KI-039, which needs `IntRep` to mean a certain Int
+
+```flux
+// Twins.flx
+module Twins {
+    public fn with_worker_count(x) { [x, x] }
+}
+
+// main.flx
+import Twins
+import Flow.Async exposing (..)
+
+fn main() with IO {
+    let s = "a" + "b"
+    print(Twins.with_worker_count(s))
+    print(s)
+}
+```
+
+`--dump-core=debug` shows `Twins.with_worker_count` as `λx:Int.
+MakeList(x, x)`: its parameter has the type of `Flow.Async.with_worker_count`,
+which takes an `Int`. The native code for it stores `x` into both list cells
+without counting it again. The runs tried so far still print the right
+output, because the drops happen to balance, but nothing guarantees that.
+
+`bind_fn_params`, `lambda_signature_from_function_name` and
+`full_function_core_type_from_name` look a function's scheme up by its bare
+name in the final type environment, which returns the last binding of that
+name. A module's own scope is closed by then, so a module function can get
+a same-named exposed, prelude or top-level function's scheme. The only guard
+is that the parameter counts match.
+
 ### KI-170 — A VM debugger session going back across a task can stop with a replay divergence
 
 **Severity:** Low · **Area:** VM debugger, replay · **Verified:** 2026-11-05 (one sighting, on the KI-163 change) · **From:** a full run of `cargo test --all --all-features`
