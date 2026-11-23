@@ -60,6 +60,8 @@ declare ccc void @flux_panic(i64) nounwind
 
 declare ccc i64 @flux_string_new(ptr, i32) nounwind
 
+declare ccc void @flux_panic_division_by_zero_at(i64, i64) noreturn cold
+
 declare ccc i64 @flux_box_float_rt(double) nounwind
 
 declare ccc double @flux_unbox_float_rt(i64) nounwind
@@ -364,6 +366,36 @@ panic:
 safe:
   %result_raw = srem i64 %a_raw, %b_raw
   %result = call fastcc i64 @flux_tag_int(i64 %result_raw)
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_idiv_at(i64 %a, i64 %b, i64 %line, i64 %column) alwaysinline uwtable {
+entry:
+  %is_zero = icmp eq i64 %b, 0
+  br i1 %is_zero, label %zero, label %safe
+zero:
+  call ccc void @flux_panic_division_by_zero_at(i64 %line, i64 %column)
+  unreachable
+safe:
+  %is_minus_one = icmp eq i64 %b, -1
+  %divisor = select i1 %is_minus_one, i64 1, i64 %b
+  %quotient = sdiv i64 %a, %divisor
+  %negated = sub i64 0, %a
+  %result = select i1 %is_minus_one, i64 %negated, i64 %quotient
+  ret i64 %result
+}
+
+define internal fastcc i64 @flux_imod_at(i64 %a, i64 %b, i64 %line, i64 %column) alwaysinline uwtable {
+entry:
+  %is_zero = icmp eq i64 %b, 0
+  br i1 %is_zero, label %zero, label %safe
+zero:
+  call ccc void @flux_panic_division_by_zero_at(i64 %line, i64 %column)
+  unreachable
+safe:
+  %is_minus_one = icmp eq i64 %b, -1
+  %divisor = select i1 %is_minus_one, i64 1, i64 %b
+  %result = srem i64 %a, %divisor
   ret i64 %result
 }
 
