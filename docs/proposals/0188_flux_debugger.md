@@ -373,9 +373,10 @@ their arguments.
 - One `DIFile`, the module's source.
 
 As built in S5, the worker/wrapper split differs from the table below:
-`flux_X` is not a thin wrapper but a second full emission of the body, so
-`flux_X`, `flux_X$w` and `flux_X$dc` all get real subprograms with the Flux
-name, and a line breakpoint resolves to more than one location. The closure
+`flux_X` is not a thin wrapper but a full emission of the body, so `flux_X`
+and `flux_X$dc` both get real subprograms with the Flux name, and a line
+breakpoint can resolve to more than one location. The `flux_X$w` workers of
+proposal 0140 Phase 10 are no longer emitted: nothing called them. The closure
 entry wrappers and outlined `run_async` helpers get no subprogram, so a
 debugger steps through them like library code built without `-g`. Lambdas
 and local functions are `<lambda file:line:col>`, handler clauses
@@ -386,7 +387,7 @@ Every function symbol gets a `DISubprogram`, according to its kind:
 
 | Symbol | Source (`emit_llvm.rs`) | `DISubprogram` |
 |---|---|---|
-| `flux_X$w` (worker) | `:230` | The real body. `name` is the Flux name. As built, there is no `linkageName`: with one, lldb names frames by the symbol (`flux_app_square`) instead of `name`. |
+| `flux_X$w` (worker) | removed | No longer emitted (0140 Phase 10). As built, a subprogram has no `linkageName`: with one, lldb names frames by the symbol (`flux_app_square`) instead of `name`. |
 | `flux_X`, closure wrappers | `:208`, `:279`, `:548` | `DIFlagArtificial`, line-0 locations, so stepping passes through. |
 | `flux_X$dc` | `:254` | The real body. |
 | `{parent}$cont${block}` (`src/lir/cont_split.rs:264`) | | `name` is the parent's; `scopeLine` is the resume span. Shown as "parent (resumed after perform at L:C)". |
@@ -475,8 +476,12 @@ As built in S6a. The original plan (an untagging `DIExpression` for Ints,
   of one of these typedefs of `int64_t`:
   - `FluxValue`: a tagged value;
   - `FluxCaptured`: a tagged value the closure captured;
-  - `FluxInt`, `FluxBool`: a raw Int or Bool in an unboxed `$w` worker;
-  - `FluxWord`: a worker word whose representation lowering did not know.
+  - `FluxInt`, `FluxBool`: a raw Int or Bool;
+  - `FluxWord`: a raw word whose representation lowering did not know.
+
+  Only the unboxed `$w` workers had raw words, and they are no longer
+  emitted, so the compiler emits only `FluxValue` and `FluxCaptured` until
+  raw Ints land (KI-039). `flux_lldb.py` still reads all five.
   DWARF cannot describe pointer tagging or the sentinels (None=0, False=2,
   True=4, EmptyList=6), so **`tools/lldb/flux_lldb.py` is the main way
   native values are printed**, as planned.
@@ -557,7 +562,7 @@ changes. As built in S11:
   in `flux_rt.lib.flags`, and a change to them rebuilds the runtime. The Rust
   staticlib carries CodeView from its own debug profile.
 - **Names:** use the `DISubprogram` `name` (`Flow.List.map`,
-  `<lambda app.flx:12:5>`). Visual Studio shows `name`, not the `flux_*$w`
+  `<lambda app.flx:12:5>`). Visual Studio shows `name`, not the `flux_*`
   linkage symbol. Artificial wrappers keep `DIFlagArtificial`; Visual Studio
   shows them, but with line 0 and no source.
 - **lldb on Windows:** lldb reads the PDB, and `flux_lldb.py` loads, but it

@@ -389,6 +389,12 @@ Both GHC (3-bit pointer tags), Koka (1-bit, `kklib/include/kklib.h:900-1005`), a
 
 ### Phase 10: Worker/Wrapper unboxing (GHC's demand analysis)
 
+**Status: removed.** As built, Phase 10 emitted a worker `flux_X$w` beside
+`flux_X` for every function whose parameters and result were Int, but only
+another worker called one and no wrapper did, so no program ran them. They
+are no longer emitted. The raw-Int work for KI-039 replaces them with a
+worker/wrapper that callers use.
+
 **Current Flux:** Every value is NaN-boxed. A function `fn add(a: Int, b: Int) -> Int` receives NaN-boxed values, untags them, computes, and retags. For tight loops, the untag/retag overhead per iteration is significant.
 
 **GHC approach:** Strictness/demand analysis identifies functions that always evaluate their arguments. The Worker/Wrapper transformation splits:
