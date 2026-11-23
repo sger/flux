@@ -246,21 +246,36 @@ impl<'ast> crate::ast::visit::Visitor<'ast> for CallSiteInstantiations<'_> {
 
     fn visit_expr(&mut self, expr: &'ast crate::syntax::expression::Expression) {
         use crate::syntax::expression::Expression;
-        if let Expression::Call { function, .. } = expr
+        if let Expression::Call { function, arguments, .. } = expr
             && let Expression::Identifier { name, .. } = function.as_ref()
             && self.user_fns.contains(name)
-            && Some(*name) != self.enclosing
-            && let Some(callee_ty) = self.hm_expr_types.get(&function.expr_id())
         {
-            match self.seen.get(name) {
-                None => {
-                    self.seen.insert(*name, Seen::One(callee_ty.clone()));
+            if Some(*name) != self.enclosing
+                && let Some(callee_ty) = self.hm_expr_types.get(&function.expr_id())
+            {
+                match self.seen.get(name) {
+                    None => {
+                        self.seen.insert(*name, Seen::One(callee_ty.clone()));
+                    }
+                    Some(Seen::One(first)) if first != callee_ty => {
+                        self.seen.insert(*name, Seen::Conflicting);
+                    }
+                    _ => {}
                 }
-                Some(Seen::One(first)) if first != callee_ty => {
-                    self.seen.insert(*name, Seen::Conflicting);
-                }
-                _ => {}
             }
+            // The callee is a call, not a value: only the arguments are walked.
+            for argument in arguments {
+                self.visit_expr(argument);
+            }
+            return;
+        }
+        // @KI-216: a function named anywhere but as a callee is a value, and a
+        // value can be called at any type, so its call sites don't decide its
+        // parameters' reps.
+        if let Expression::Identifier { name, .. } = expr
+            && self.user_fns.contains(name)
+        {
+            self.seen.insert(*name, Seen::Conflicting);
         }
         if let Expression::Identifier { name, .. } = expr
             && let Some(enclosing) = self.enclosing
