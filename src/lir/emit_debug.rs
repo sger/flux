@@ -17,7 +17,6 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::core::FluxRep;
 use crate::llvm::ir::{
     BlockDebug, CallConv, FunctionDebug, GlobalId, LlvmConst, LlvmFunction, LlvmInstr, LlvmLocal,
     LlvmOperand, LlvmType, ModuleDebug,
@@ -27,8 +26,7 @@ use super::{LirFnKind, LirFunction, LirInlineSite, LirLoc, LirVarKind};
 
 /// What a debug slot holds before its variable is bound. `flux_lldb.py`
 /// hides such a variable. The markers are even, so no tagged Int, and far
-/// above any user-space address, so no pointer; a worker's raw Int could
-/// hold one, but is unlikely to.
+/// above any user-space address, so no pointer.
 pub const UNBOUND_MARKER: i64 = 0x0DEB_0DEB_0000_0004;
 /// What a debug slot holds once its value has been dropped.
 pub const DROPPED_MARKER: i64 = 0x0DEB_0DEB_0000_0002;
@@ -250,8 +248,6 @@ impl DebugBuilder {
         if debug.vars.is_empty() || emitted.blocks.is_empty() {
             return;
         }
-        // The worker variant keeps Ints and Bools raw.
-        let worker = emitted.name.0.ends_with("$w");
         let defined: std::collections::HashSet<&str> = emitted
             .params
             .iter()
@@ -278,16 +274,10 @@ impl DebugBuilder {
                 continue;
             }
             let param = func.params.iter().position(|param| *param == var.var);
-            let rep = match (var.kind, param) {
-                (LirVarKind::Param, Some(position)) => {
-                    func.param_reps.get(position).copied().unwrap_or(var.rep)
-                }
-                _ => var.rep,
-            };
-            let ty = if var.kind == LirVarKind::Captured && !worker {
+            let ty = if var.kind == LirVarKind::Captured {
                 self.word_type("FluxCaptured")
             } else {
-                self.var_type(worker, rep)
+                self.word_type("FluxValue")
             };
             let arg = match (var.kind, param) {
                 (LirVarKind::Param, Some(position)) => format!("arg: {}, ", position + 1),
@@ -411,18 +401,6 @@ impl DebugBuilder {
         }
     }
 
-    /// The DWARF type of a variable represented as `rep`. Every value is a
-    /// 64-bit word, and its typedef tells `flux_lldb.py` how to read it.
-    fn var_type(&mut self, worker: bool, rep: FluxRep) -> u32 {
-        let name = match (worker, rep) {
-            (true, FluxRep::IntRep) => "FluxInt",
-            (true, FluxRep::BoolRep) => "FluxBool",
-            (true, FluxRep::BoxedRep) | (false, _) => "FluxValue",
-            (true, _) => "FluxWord",
-        };
-        self.word_type(name)
-    }
-
     /// The typedef `name` of a 64-bit word.
     fn word_type(&mut self, name: &'static str) -> u32 {
         if let Some(node) = self.types.get(name) {
@@ -485,7 +463,7 @@ impl DebugBuilder {
         ));
         let mut retained = vec![ctor];
 
-        let value = self.var_type(false, FluxRep::TaggedRep);
+        let value = self.word_type("FluxValue");
         let mut declared: Vec<(&String, &Vec<Option<String>>)> =
             program.constructor_fields.iter().collect();
         declared.sort();
