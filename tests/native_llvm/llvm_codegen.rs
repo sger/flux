@@ -203,6 +203,33 @@ fn rem(x: Int, y: Int) -> Int { x % y }
     }
 }
 
+/// A function over Ints is emitted once. Proposal 0140's `$w` worker copy
+/// was never called by anything but another worker, so it only added code
+/// and a second debug location for each line.
+#[test]
+fn an_int_function_has_no_unused_worker_copy() {
+    let ran = crate::support::flux_runner::flux_source(
+        r#"
+fn add(x: Int, y: Int) -> Int { x + y }
+
+fn main() with IO {
+    print(add(1, 2))
+}
+"#,
+        "no_worker_copy",
+    )
+    .native()
+    .no_cache()
+    .args(&["--emit-llvm"])
+    .run();
+    assert!(ran.success, "--emit-llvm failed:\n{}", ran.stderr);
+    let ll = &ran.stdout;
+    assert!(ll.contains("_add("), "no add function in the emitted IR:\n{ll}");
+    let workers: Vec<&str> =
+        ll.lines().filter(|line| line.starts_with("define") && line.contains("$w(")).collect();
+    assert!(workers.is_empty(), "worker copies emitted: {workers:?}");
+}
+
 #[test]
 fn emitted_factorial_module_verifies_with_opt_when_available() {
     if Command::new("opt").arg("--version").output().is_err() {
