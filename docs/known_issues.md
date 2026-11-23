@@ -1553,19 +1553,6 @@ Repro: `tests/parity/json_escapes_and_malformed_input.flx` skips its
 `llvm` and `llvm_opt` ways for this issue. Deleting that `skip-way:` line is
 the failing test for a fix.
 
-### KI-125 — `make -C runtime/c test` does not build
-
-**Severity:** Low · **Area:** native runtime, tests · **Verified:** 2026-10-21 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-0
-
-`runtime/c/smoke_test.c` still uses the NaN-boxing API that e6efaa38 replaced
-with pointer tagging (`flux_is_nanbox`, `flux_nanbox_tag`, `FLUX_TAG_*`,
-`FLUX_PAYLOAD_MASK`), so it no longer compiles. Past that, it would not link
-either: `flux_rt.c` now calls the Rust side (the async, replay and backtrace
-entry points), `tape.c`, and `flux_call_closure_c`, which codegen emits, and
-none of these are in `libflux_rt_nomain.a`. CI does not run it. The C
-runtime is tested through Flux programs instead: `tests/native_llvm`, the
-debug heap, and the parity ways.
-
 ### KI-121 — Natively, a `let` value read in one branch and dead in the other is never dropped
 
 **Severity:** Medium · **Area:** Aether, drop insertion · **Verified:** 2026-10-18 · **From:** [0190](proposals/implemented/0190_verification_toolkit.md) S15, the first `--leak-check` runs
@@ -3473,6 +3460,28 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-125 — `make -C runtime/c test` does not build — FIXED 2026-11-23
+
+**Severity:** Low · **Area:** native runtime, tests · **Verified:** 2026-10-21 · **From:** [0189](proposals/0189_aether_owned_moves.md) F3-0
+
+`runtime/c/smoke_test.c` still uses the NaN-boxing API that e6efaa38 replaced
+with pointer tagging (`flux_is_nanbox`, `flux_nanbox_tag`, `FLUX_TAG_*`,
+`FLUX_PAYLOAD_MASK`), so it no longer compiles. Past that, it would not link
+either: `flux_rt.c` now calls the Rust side (the async, replay and backtrace
+entry points), `tape.c`, and `flux_call_closure_c`, which codegen emits, and
+none of these are in `libflux_rt_nomain.a`. CI does not run it. The C
+runtime is tested through Flux programs instead: `tests/native_llvm`, the
+debug heap, and the parity ways.
+
+**Fixed 2026-11-23.** `tests/native_llvm/c_runtime_tests.rs` builds the
+smoke test with `build_c_program` (`src/llvm/pipeline.rs`), which compiles
+it with the runtime's own flags and links it as a native Flux program is
+linked, the Rust staticlib included. The runtime's `main` calls the test's
+`flux_main`, and the test supplies the `flux_call_closure_c` that codegen
+would. `smoke_test.c` uses the pointer-tag API, and `make test` runs the
+cargo test. Test: `the_c_runtime_smoke_test_passes`.
+
 
 ### KI-218 — Natively, a shift by 64 or more, or by a negative amount, is undefined — FIXED 2026-11-23
 
