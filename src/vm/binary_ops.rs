@@ -6,6 +6,7 @@ use crate::{
         position::{Position, Span},
     },
     runtime::value::Value,
+    shared::int_arith,
 };
 
 use super::VM;
@@ -19,10 +20,11 @@ impl VM {
                 if *r == 0 && (op == OpCode::OpDiv || op == OpCode::OpMod) {
                     return Err(self.runtime_error_enhanced(&DIVISION_BY_ZERO_RUNTIME, &[]));
                 }
+                // @KI-038: Int wraps on this path too, as on the fast path.
                 let result = match op {
-                    OpCode::OpAdd => l + r,
-                    OpCode::OpSub => l - r,
-                    OpCode::OpMul => l * r,
+                    OpCode::OpAdd => int_arith::add(*l, *r),
+                    OpCode::OpSub => int_arith::sub(*l, *r),
+                    OpCode::OpMul => int_arith::mul(*l, *r),
                     OpCode::OpDiv => l / r,
                     OpCode::OpMod => l % r,
                     _ => return Err(format!("unknown integer operator: {:?}", op)),

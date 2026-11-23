@@ -11,6 +11,7 @@ use crate::{
         value::format_value,
         value::{AdtFields, AdtValue, Value},
     },
+    shared::int_arith,
 };
 
 use super::VM;
@@ -484,9 +485,9 @@ impl VM {
                     let r_val = self.stack_get(r_idx);
                     let fast = match (&l_val, &r_val) {
                         (Value::Integer(l), Value::Integer(r)) => match op {
-                            OpCode::OpAdd => Some(Value::Integer(l.wrapping_add(*r))),
-                            OpCode::OpSub => Some(Value::Integer(l.wrapping_sub(*r))),
-                            OpCode::OpMul => Some(Value::Integer(l.wrapping_mul(*r))),
+                            OpCode::OpAdd => Some(Value::Integer(int_arith::add(*l, *r))),
+                            OpCode::OpSub => Some(Value::Integer(int_arith::sub(*l, *r))),
+                            OpCode::OpMul => Some(Value::Integer(int_arith::mul(*l, *r))),
                             OpCode::OpDiv => {
                                 if *r == 0 {
                                     None // fall through to full handler for error
@@ -569,7 +570,8 @@ impl VM {
                 let idx = self.sp - 1;
                 let operand = self.stack_take(idx);
                 match operand {
-                    Value::Integer(val) => self.stack_set(idx, Value::Integer(-val)),
+                    // @KI-038: negating MIN wraps to MIN.
+                    Value::Integer(val) => self.stack_set(idx, Value::Integer(int_arith::neg(val))),
                     Value::Float(val) => self.stack_set(idx, Value::Float(-val)),
                     _ => {
                         return Err(Self::negation_type_err(&operand));

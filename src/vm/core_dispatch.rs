@@ -17,6 +17,7 @@ use crate::runtime::r#async::fiber_trace::{self, FiberEvent};
 use crate::runtime::hamt as rc_hamt;
 use crate::runtime::hash_key::HashKey;
 use crate::runtime::value::{Value, format_value};
+use crate::shared::int_arith;
 use crate::vm::fiber_debug::Blocked;
 
 // ── TCP handle table (proposal 0174 Phase 1b-vii) ────────────────────────────
@@ -2997,9 +2998,10 @@ pub fn execute_core_primop(
 
     match op {
         // ── Typed integer arithmetic ──────────────────────────────────
-        IAdd => int2(&args, |a, b| Value::Integer(a + b), "iadd"),
-        ISub => int2(&args, |a, b| Value::Integer(a - b), "isub"),
-        IMul => int2(&args, |a, b| Value::Integer(a * b), "imul"),
+        // @KI-038: Int wraps, as on the bytecode fast path.
+        IAdd => int2(&args, |a, b| Value::Integer(int_arith::add(a, b)), "iadd"),
+        ISub => int2(&args, |a, b| Value::Integer(int_arith::sub(a, b)), "isub"),
+        IMul => int2(&args, |a, b| Value::Integer(int_arith::mul(a, b)), "imul"),
         IDiv => int2_result(
             &args,
             |a, b| {
@@ -3052,14 +3054,15 @@ pub fn execute_core_primop(
 
         // ── Numeric helpers ───────────────────────────────────────────
         Abs => match &args[0] {
-            Value::Integer(v) => Ok(Value::Integer(v.abs())),
+            // @KI-038: abs(MIN) wraps to MIN.
+            Value::Integer(v) => Ok(Value::Integer(int_arith::abs(*v))),
             Value::Float(v) => Ok(Value::Float(v.abs())),
             other => Err(terr("abs", "Number", other)),
         },
         Min => numeric_min_max(&args, "min", true),
         Max => numeric_min_max(&args, "max", false),
         Neg => match &args[0] {
-            Value::Integer(v) => Ok(Value::Integer(-v)),
+            Value::Integer(v) => Ok(Value::Integer(int_arith::neg(*v))),
             Value::Float(v) => Ok(Value::Float(-v)),
             other => Err(terr("neg", "Number", other)),
         },
