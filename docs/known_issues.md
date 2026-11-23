@@ -875,7 +875,7 @@ released is not traced.
 
 ### KI-212 — verify's metrics step fails on async programs whose run counts depend on scheduling
 
-**Severity:** Low (a false failure, passed with `--accept-metrics`) · **Area:** `flux --metrics` run counts, verify's `metrics` step · **Verified:** 2026-11-22 (c0614e97) · **From:** [0190](proposals/0190_verification_toolkit.md) S11 exit check
+**Severity:** Low (a false failure, passed with `--accept-metrics`) · **Area:** `flux --metrics` run counts, verify's `metrics` step · **Verified:** 2026-11-22 (c0614e97) · **From:** [0190](proposals/implemented/0190_verification_toolkit.md) S11 exit check
 
 ```text
 $ cargo xtask verify s11a --base s6shuffle --only parity,metrics
@@ -1568,7 +1568,7 @@ debug heap, and the parity ways.
 
 ### KI-121 — Natively, a `let` value read in one branch and dead in the other is never dropped
 
-**Severity:** Medium · **Area:** Aether, drop insertion · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `--leak-check` runs
+**Severity:** Medium · **Area:** Aether, drop insertion · **Verified:** 2026-10-18 · **From:** [0190](proposals/implemented/0190_verification_toolkit.md) S15, the first `--leak-check` runs
 
 ```flux
 fn churn(n, keep) {
@@ -1591,7 +1591,7 @@ second (`f(xs, xs)`), leaks the reference the borrowed position holds. Not check
 
 ### KI-118 — On the VM, `main`'s own body is not run through the Core simplifier
 
-**Severity:** Low · **Area:** VM, optimizer coverage · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S13, the `--opt-bisect-limit` exit check
+**Severity:** Low · **Area:** VM, optimizer coverage · **Verified:** 2026-10-18 · **From:** [0190](proposals/implemented/0190_verification_toolkit.md) S13, the `--opt-bisect-limit` exit check
 
 With a wrong `IAdd` fold planted in `src/core/passes/const_fold.rs`, active
 only under `--optimize`, `tests/parity/core_disciplined_inline.flx` printed:
@@ -1618,7 +1618,7 @@ the VM compiles `main` from instead.
 
 ### KI-117 — A top-level function written after its caller is typed from the call
 
-**Severity:** Medium · **Area:** Type and effect inference · **Verified:** 2026-10-18 · **From:** [0190](proposals/0190_verification_toolkit.md) S7, `cargo xtask rewrite --kind reorder`
+**Severity:** Medium · **Area:** Type and effect inference · **Verified:** 2026-10-18 · **From:** [0190](proposals/implemented/0190_verification_toolkit.md) S7, `cargo xtask rewrite --kind reorder`
 
 Moving a function below `main`, which calls it, changes whether the program
 compiles or runs. Top-level functions are predeclared, so the order should not
@@ -1655,7 +1655,7 @@ whose runtime check the VM gets wrong.
 
 ### KI-115 — A cached module with type-class instances is written differently from one run to the next
 
-**Severity:** Low · **Area:** VM bytecode cache · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) S6, `sweep --determinism --mode cache`
+**Severity:** Low · **Area:** VM bytecode cache · **Verified:** 2026-10-17 · **From:** [0190](proposals/implemented/0190_verification_toolkit.md) S6, `sweep --determinism --mode cache`
 
 ```
 $ cargo xtask sweep --determinism --mode cache --out .verify/det/cache
@@ -1691,7 +1691,7 @@ S6 fixed the other causes the check found:
 
 ### KI-114 — The VM runs a user effect named `Console` with the builtin handler; native reports it unhandled
 
-**Severity:** Medium · **Area:** Effects, VM · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) S5, which made untracked skips cite a KI
+**Severity:** Medium · **Area:** Effects, VM · **Verified:** 2026-10-17 · **From:** [0190](proposals/implemented/0190_verification_toolkit.md) S5, which made untracked skips cite a KI
 
 ```flux
 effect Console {
@@ -1727,7 +1727,7 @@ Parity records the fixture with
 
 ### KI-113 — A label whose span is in another file is drawn on the reporting file's lines
 
-**Severity:** Low · **Area:** Diagnostics rendering · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c3
+**Severity:** Low · **Area:** Diagnostics rendering · **Verified:** 2026-10-17 · **From:** [0190](proposals/implemented/0190_verification_toolkit.md) census c3
 
 ```
 $ flux --no-cache --root examples/type_system examples/type_system/failing/206_hm_stage2_generic_module_arg_mismatch.flx
@@ -1751,7 +1751,7 @@ quoted their own comment lines for the same reason.
 
 ### KI-112 — A module can use a type it does not import, when the module importing it does
 
-**Severity:** Medium · **Area:** Module system, name resolution · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1
+**Severity:** Medium · **Area:** Module system, name resolution · **Verified:** 2026-10-17 · **From:** [0190](proposals/implemented/0190_verification_toolkit.md) census c1
 
 ```flux
 // lib/Flume/Fail.flx — no `import Flow.Result`
@@ -1774,7 +1774,7 @@ the reproduction; the fix there is `import Flow.Result`.
 
 ### KI-105 — `--optimize` hides type errors in branches it folds away
 
-**Severity:** High · **Area:** Type inference, AST optimization · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1
+**Severity:** High · **Area:** Type inference, AST optimization · **Verified:** 2026-10-17 · **From:** [0190](proposals/implemented/0190_verification_toolkit.md) census c1
 
 ```flux
 // examples/type_system/failing/134_if_concrete_branch_mismatch.flx
@@ -1807,7 +1807,7 @@ holds for:
 
 ### KI-107 — Natively, calling a function through a variable with too few arguments is not an error
 
-**Severity:** Medium · **Area:** Native backend, calls · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1
+**Severity:** Medium · **Area:** Native backend, calls · **Verified:** 2026-10-17 · **From:** [0190](proposals/implemented/0190_verification_toolkit.md) census c1
 
 ```flux
 // examples/runtime_errors/indirect_call_wrong_arity.flx
@@ -1823,7 +1823,7 @@ arguments); plain `llvm` exits 0.
 
 ### KI-108 — Native async, channel and HTTP programs crash with a signal
 
-**Severity:** High · **Area:** Native backend, async runtime · **Verified:** 2026-11-10 (1bbd32f7), channel rows only · **From:** [0190](proposals/0190_verification_toolkit.md) census c1
+**Severity:** High · **Area:** Native backend, async runtime · **Verified:** 2026-11-10 (1bbd32f7), channel rows only · **From:** [0190](proposals/implemented/0190_verification_toolkit.md) census c1
 
 Each runs to completion on `vm` and `vm_opt`; natively it is killed:
 
@@ -1859,7 +1859,7 @@ examples, which need a server, are not rechecked, so this stays open for them.
 
 ### KI-109 — Natively, indexing fails with "index operator not supported: Object" in AoC 2025 day 8
 
-**Severity:** Medium · **Area:** Native backend, indexing · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1
+**Severity:** Medium · **Area:** Native backend, indexing · **Verified:** 2026-10-17 · **From:** [0190](proposals/implemented/0190_verification_toolkit.md) census c1
 
 ```
 $ flux --native --no-cache examples/aoc/2025/aoc_day8_part1.flx
@@ -1871,7 +1871,7 @@ error. Not yet reduced to the indexing expression involved.
 
 ### KI-110 — Natively, a module file without `main` that imports others fails to link
 
-**Severity:** Low · **Area:** Native backend, linking · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1
+**Severity:** Low · **Area:** Native backend, linking · **Verified:** 2026-10-17 · **From:** [0190](proposals/implemented/0190_verification_toolkit.md) census c1
 
 ```
 $ flux --native --no-cache lib/Flume/Cli.flx
@@ -1886,7 +1886,7 @@ entry point.
 
 ### KI-111 — The VM rejects a closure where a function type over `Event` is expected
 
-**Severity:** Medium · **Area:** VM, runtime type checks, async · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1
+**Severity:** Medium · **Area:** VM, runtime type checks, async · **Verified:** 2026-10-17 · **From:** [0190](proposals/implemented/0190_verification_toolkit.md) census c1
 
 ```
 $ flux --no-cache examples/async/24_event_composition.flx
@@ -1902,7 +1902,7 @@ boundary check on a closure passed where a function type is declared.
 
 ### KI-102 — A user effect named after a builtin suppresses the builtin's default handler on `--no-cache` VM runs
 
-**Severity:** Medium · **Area:** Effects, module compilation · **Verified:** 2026-10-16 · **From:** [0190](proposals/0190_verification_toolkit.md) S2 triage
+**Severity:** Medium · **Area:** Effects, module compilation · **Verified:** 2026-10-16 · **From:** [0190](proposals/implemented/0190_verification_toolkit.md) S2 triage
 
 ```
 $ flux --no-cache examples/type_classes/console_logger_example.flx
@@ -1943,7 +1943,7 @@ and the cached and native ways still compare.
 
 ### KI-104 — Under `--no-cache`, an instance method's call to itself passes a dictionary it does not take
 
-**Severity:** Medium · **Area:** Type classes, module compilation · **Verified:** 2026-10-17 · **From:** [0190](proposals/0190_verification_toolkit.md) S3 triage
+**Severity:** Medium · **Area:** Type classes, module compilation · **Verified:** 2026-10-17 · **From:** [0190](proposals/implemented/0190_verification_toolkit.md) S3 triage
 
 ```flux
 // examples/type_classes/FoldableRowPolyExample/Flow/Foldable.flx
@@ -1980,7 +1980,7 @@ Parity records the fixture with `// skip-way: vm, vm_strict, vm_opt: KI-104`.
 
 ### KI-103 — Natively, a constructor reached through a module alias fails at run time
 
-**Severity:** Medium · **Area:** Native backend, LIR lowering · **Verified:** 2026-10-16 · **From:** [0190](proposals/0190_verification_toolkit.md) S2 triage
+**Severity:** Medium · **Area:** Native backend, LIR lowering · **Verified:** 2026-10-16 · **From:** [0190](proposals/implemented/0190_verification_toolkit.md) S2 triage
 
 ```flux
 import ModuleMemberShadowsStub.Version as V
@@ -3977,7 +3977,7 @@ unchanged. `build.rs` still prunes only `deps/`, so old archives under
 
 ### KI-194 — Natively, a dictionary given to an instance method from another module is never released — FIXED 2026-11-12
 
-**Severity:** Medium · **Area:** Aether, type classes, module interfaces (`src/compiler/module_interface.rs`, `src/compiler/mod.rs`) · **Verified:** 2026-11-12 (c6ba32a0), `--native --debug-heap --leak-check` · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the heap-leak gate (filed there as KI-144 on `feat/heap-leak-gate`, which never merged)
+**Severity:** Medium · **Area:** Aether, type classes, module interfaces (`src/compiler/module_interface.rs`, `src/compiler/mod.rs`) · **Verified:** 2026-11-12 (c6ba32a0), `--native --debug-heap --leak-check` · **From:** [0190](proposals/implemented/0190_verification_toolkit.md) S15, the heap-leak gate (filed there as KI-144 on `feat/heap-leak-gate`, which never merged)
 
 ```flux
 import Flow.Monad
@@ -4099,7 +4099,7 @@ shared with KI-194, covers the change.
 
 ### KI-119 — Natively, a program that printed left a closure per `print` call — FIXED 2026-11-12
 
-**Severity:** Low · **Area:** LIR lowering, effect handlers · **Verified:** 2026-10-25 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `--leak-check` runs
+**Severity:** Low · **Area:** LIR lowering, effect handlers · **Verified:** 2026-10-25 · **From:** [0190](proposals/implemented/0190_verification_toolkit.md) S15, the first `--leak-check` runs
 
 `fn main() { print(1) }` leaves 2 blocks live at exit under `flux --native
 --leak-check`: a closure allocated at the `print` call, and a tuple
@@ -4359,7 +4359,7 @@ constrained call and a tuple, each raising its predicate twice) and
 
 ### KI-116 — On the VM, a variable read by a `let` inside a `do` block was uninitialised afterwards — FIXED 2026-11-09
 
-**Severity:** High · **Area:** VM, ownership · **Verified:** 2026-11-09 (a0cac745) · **From:** [0190](proposals/0190_verification_toolkit.md) S7, `cargo xtask rewrite --kind let-wrap`
+**Severity:** High · **Area:** VM, ownership · **Verified:** 2026-11-09 (a0cac745) · **From:** [0190](proposals/implemented/0190_verification_toolkit.md) S7, `cargo xtask rewrite --kind let-wrap`
 
 ```flux
 fn main() with IO {
@@ -4699,7 +4699,7 @@ them at 1,000,000 natively, where a frame per turn overflows the stack. KI-148 i
 
 ### KI-122 — Natively, the async runtime releases one of its own closures twice — FIXED 2026-10-25
 
-**Severity:** Medium · **Area:** native runtime, async scheduler · **Verified:** 2026-11-04 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `llvm_heap` run over `tests/parity`
+**Severity:** Medium · **Area:** native runtime, async scheduler · **Verified:** 2026-11-04 · **From:** [0190](proposals/implemented/0190_verification_toolkit.md) S15, the first `llvm_heap` run over `tests/parity`
 
 Two fixtures print the right output natively but stop on the debug heap:
 
@@ -4781,7 +4781,7 @@ binarytrees, rbtree, rbtree_del, deriv, cfold, nqueens and qsort, with and witho
 
 ### KI-106 — A match on a known value skipped an arm it could not decide, so a later `_` won — FIXED 2026-11-04
 
-**Severity:** High · **Area:** Core passes · **Verified:** 2026-11-04 · **From:** [0190](proposals/0190_verification_toolkit.md) census c1
+**Severity:** High · **Area:** Core passes · **Verified:** 2026-11-04 · **From:** [0190](proposals/implemented/0190_verification_toolkit.md) census c1
 
 ```flux
 // examples/patterns/pattern_validation_happy_path.flx
@@ -5944,7 +5944,7 @@ with and without `--optimize`.
 
 ### KI-120 — Natively, every owned argument of a direct call was copied once too often — FIXED 2026-10-20
 
-**Severity:** Medium · **Area:** LIR lowering, call guards · **Verified fixed:** 2026-10-20 · **From:** [0190](proposals/0190_verification_toolkit.md) S15, the first `--leak-check` runs
+**Severity:** Medium · **Area:** LIR lowering, call guards · **Verified fixed:** 2026-10-20 · **From:** [0190](proposals/implemented/0190_verification_toolkit.md) S15, the first `--leak-check` runs
 
 `dup_owned_call_args` (`src/lir/lower.rs`, added in 8bee7446 "fix aether
 examples") emits a `dup` of each argument passed `Owned` to a direct call, a

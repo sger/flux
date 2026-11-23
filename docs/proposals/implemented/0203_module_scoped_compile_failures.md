@@ -3,7 +3,7 @@
 - Proposal PR:
 - Flux Issue:
 - Status: Implemented
-- Relates to: [0061](0061_stage_aware_diagnostic_pipeline.md) (the Parse > Type > Effect cascade, per file; kept as it is), [0081](0081_diagnostic_taxonomy.md) (categorises the `Module Skipped` note this proposal reuses), [0139](0139_incremental_module_caching.md) (the `module: skipped` log for an upstream error), [0059](0059_parser_error_experience.md) and [0060](0060_parser_diagnostics_hm_typechecker_hardening.md) (recovery inside one file; out of scope here), [0190](../0190_verification_toolkit.md) (S16's open question on fixture 207)
+- Relates to: [0061](0061_stage_aware_diagnostic_pipeline.md) (the Parse > Type > Effect cascade, per file; kept as it is), [0081](0081_diagnostic_taxonomy.md) (categorises the `Module Skipped` note this proposal reuses), [0139](0139_incremental_module_caching.md) (the `module: skipped` log for an upstream error), [0059](0059_parser_error_experience.md) and [0060](0060_parser_diagnostics_hm_typechecker_hardening.md) (recovery inside one file; out of scope here), [0190](0190_verification_toolkit.md) (S16's open question on fixture 207)
 
 # Proposal 0203: Module-scoped compile failures
 

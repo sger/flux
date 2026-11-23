@@ -4,7 +4,7 @@
 - Flux Issue:
 - Status: Implemented
 - Depends on: [0138](0138_flux_parity_ways.md) (parity ways and `flux parity-check`)
-- Relates to: [0190](../0190_verification_toolkit.md) (the verification toolkit, which runs `parity-check` in `cargo xtask verify`)
+- Relates to: [0190](0190_verification_toolkit.md) (the verification toolkit, which runs `parity-check` in `cargo xtask verify`)
 
 # Proposal 0191: Expected errors tied to a source line
 

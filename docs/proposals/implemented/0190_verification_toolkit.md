@@ -3,8 +3,8 @@
 - Proposal PR:
 - Flux Issue:
 - Status: Implemented: S1–S17 done (2026-11-22)
-- Depends on: [0138](implemented/0138_flux_parity_ways.md) (parity ways and `flux parity-check`), [0188](0188_flux_debugger.md) S6b (the debug parity harness, `// dbg:` fixtures)
-- Relates to: [0188](0188_flux_debugger.md) S9c (`llvm_g` and the guide in `xtask verify`)
+- Depends on: [0138](0138_flux_parity_ways.md) (parity ways and `flux parity-check`), [0188](../0188_flux_debugger.md) S6b (the debug parity harness, `// dbg:` fixtures)
+- Relates to: [0188](../0188_flux_debugger.md) S9c (`llvm_g` and the guide in `xtask verify`)
 
 # Proposal 0190: Verification toolkit — failing parity, optimizer ways, dump comparison, fuzzing
 
@@ -999,12 +999,12 @@ Inputs) does for C compilers.
 for all three kinds). 190 of the 195 fixtures could be rewritten. `rename`
 found nothing in its 162 copies. Two bugs and one rewriter bug:
 
-- **[KI-116](../known_issues.md#ki-116)**, from `let-wrap`. On the VM, a
+- **[KI-116](../../known_issues.md#ki-116)**, from `let-wrap`. On the VM, a
   variable read by `let t = x` inside a `do` block is uninitialised afterwards.
   47 of the 190 copies fail, some with wrong output and no error.
-- **[KI-117](../known_issues.md#ki-117)**, from `reorder`. A function written
+- **[KI-117](../../known_issues.md#ki-117)**, from `reorder`. A function written
   after its caller is typed from the call, giving a spurious `E400` in one copy
-  and the VM's closure check ([KI-111](../known_issues.md#ki-111)) in two.
+  and the VM's closure check ([KI-111](../../known_issues.md#ki-111)) in two.
 - **A rewriter bug:** `let (x, y) = …` was taken for a call to `let` and
   wrapped. The fix came with its test.
 
@@ -1214,7 +1214,7 @@ rewrites in the fixtures' own code; the inliners and the AST constant fold
 lead, and Core constant folding fires there 7 times.
 The exit check planted a wrong `IAdd` fold, active only under `--optimize`.
 `parity-check tests/parity --ways vm,vm_opt` reported no mismatch, which led to
-[KI-118](../known_issues.md#ki-118): on the VM, `main`'s own body does not go
+[KI-118](../../known_issues.md#ki-118): on the VM, `main`'s own body does not go
 through the Core simplifier, and the fixture that should have caught the plant
 has all its code in `main`. With the same code in a function
 (`tests/parity/core_inline_outside_main.flx`), `bisect-opt` named the planted
