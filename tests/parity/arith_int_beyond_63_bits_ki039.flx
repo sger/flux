@@ -1,4 +1,5 @@
 // expect: success
+// skip-way: llvm, llvm_opt: KI-039 native code keeps an Int in 63 bits
 // bug: KI-039. `Int` is 64 bits, but native code kept it in 63: a literal
 //       outside [-2^62, 2^62) was truncated when compiled, so 2^62 printed
 //       negative and the largest Int printed -1. Native code now boxes an

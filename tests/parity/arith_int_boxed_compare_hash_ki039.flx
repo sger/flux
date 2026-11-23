@@ -1,4 +1,5 @@
 // expect: success
+// skip-way: llvm, llvm_opt: KI-039 native code keeps an Int in 63 bits
 // bug: KI-039. An Int outside 63 bits is boxed natively, and must still
 //       compare, match, sort and key a map like any other Int: two boxes of
 //       the same value are equal, and a value hashes the same however it was

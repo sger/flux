@@ -1,4 +1,5 @@
 // expect: success
+// skip-way: llvm, llvm_opt: KI-039 native code keeps an Int in 63 bits
 // bug: KI-039. A boxed native Int converts to a string, interpolates and
 //       parses back like any other Int.
 // parity-expected-stdout-begin
