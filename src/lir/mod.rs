@@ -818,6 +818,13 @@ impl Default for LirProgram {
 
 // ── Pointer-tag helpers for LIR constants ───────────────────────────────────
 
+/// The Ints a native word holds inline: 63 bits, the range of
+/// `FLUX_MIN_INLINE_INT..=FLUX_MAX_INLINE_INT` in `runtime/c/flux_rt.h`. The
+/// VM's NaN box holds fewer (`runtime::nanbox`), so its range must not be used
+/// here.
+pub const NATIVE_MIN_INLINE_INT: i64 = -(1 << 62);
+pub const NATIVE_MAX_INLINE_INT: i64 = (1 << 62) - 1;
+
 /// Produce a pre-tagged pointer-tagged integer literal (inline).
 /// Encoding: `(raw << 1) | 1` — LSB=1 marks an integer.
 /// Used for effect tags and other small compile-time constants.

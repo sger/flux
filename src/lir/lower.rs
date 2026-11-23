@@ -3219,7 +3219,9 @@ impl<'a> FnLower<'a> {
         let value = match lit {
             CoreLit::Int(n) => {
                 let n = *n;
-                if (crate::runtime::nanbox::MIN_INLINE_INT..=crate::runtime::nanbox::MAX_INLINE_INT)
+                // @KI-039: every literal in 63 bits is inline natively, not
+                // only those the VM's NaN box holds inline.
+                if (crate::lir::NATIVE_MIN_INLINE_INT..=crate::lir::NATIVE_MAX_INLINE_INT)
                     .contains(&n)
                 {
                     LirConst::Tagged(crate::lir::nanbox_tag_int(n))
