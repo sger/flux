@@ -998,42 +998,8 @@ pub fn ensure_runtime_lib(
     let _lock = RuntimeBuildLock::acquire(runtime_c_dir)?;
 
     // The compile flags, kept beside the library so a change to them
-    // rebuilds it, as a changed source does. Debuggers read the runtime's
-    // debug information too: DWARF, or CodeView on Windows, where clang's
-    // `-g` already gives it and `cl` needs `/Z7` (0188 S11).
-    let mut flags: Vec<&str> = match &toolchain {
-        CToolchain::Msvc { .. } => vec!["/nologo", "/c", "/O2", "/W3", "/Z7"],
-        CToolchain::Gcc { .. } => vec!["-std=c11", "-Wall", "-O2", "-g", "-c"],
-    };
-    // A caught panic unwinds through the runtime's own frames between a try
-    // and the Flux code it calls (KI-126), which needs their unwind tables.
-    // `-fexceptions` makes that unwind release what an effect prompt holds
-    // (KI-133).
-    if matches!(toolchain, CToolchain::Gcc { .. }) && !cfg!(windows) {
-        flags.push("-funwind-tables");
-        flags.push("-fexceptions");
-    }
-    // GCC moves a function's cold blocks to a `.cold` part away from it.
-    // lldb-18 takes the function to span everything from its start to that
-    // part's end, so a runtime function laid out between them, such as the
-    // compose trampoline, unwinds with the split function's rules and the
-    // backtrace stops there (KI-136). Clang does not split by default and
-    // rejects the flag.
-    if let CToolchain::Gcc { cc, .. } = &toolchain
-        && !cc_is_clang(cc)
-    {
-        flags.push("-fno-reorder-blocks-and-partition");
-    }
-    // On Windows, the C runtime uses MS SEH (`__try` / `__except` /
-    // `RaiseException`) to unwind across LLVM-emitted Flux frames
-    // — Windows `longjmp` walks the SEH chain and trips on
-    // STATUS_BAD_FUNCTION_TABLE when LLVM `.pdata` is incomplete.
-    // Strict `-std=c11` disables MS extensions; re-enable them so
-    // clang actually generates SEH unwind info for `__try`.
-    if matches!(toolchain, CToolchain::Gcc { .. }) && cfg!(windows) {
-        flags.extend(["-fms-extensions", "-fms-compatibility"]);
-    }
-    flags.extend(variant.defines(matches!(toolchain, CToolchain::Msvc { .. })));
+    // rebuilds it, as a changed source does.
+    let flags = runtime_compile_flags(&toolchain, variant);
     let flags_stamp = flags.join(" ");
     let flags_path = runtime_c_dir.join(format!("{lib_name}.flags"));
     let same_flags = std::fs::read_to_string(&flags_path).is_ok_and(|kept| kept == flags_stamp);
@@ -1078,27 +1044,25 @@ pub fn ensure_runtime_lib(
         "sha256.c",
         "tape.c",
     ];
+    let obj_ext = match &toolchain {
+        CToolchain::Msvc { .. } => ".obj",
+        CToolchain::Gcc { .. } if cfg!(windows) => ".obj",
+        CToolchain::Gcc { .. } => ".o",
+    };
     let mut obj_files = Vec::new();
+    for c_file in &c_files {
+        let src = runtime_c_dir.join(c_file);
+        if !src.exists() {
+            continue;
+        }
+        let obj = runtime_c_dir
+            .join(c_file.replace(".c", &format!("{}{obj_ext}", variant.object_suffix())));
+        compile_c_object(&toolchain, &flags, &src, &obj, runtime_c_dir, "runtime")?;
+        obj_files.push(obj);
+    }
 
     match &toolchain {
-        CToolchain::Msvc { cc, lib_tool } => {
-            for c_file in &c_files {
-                let src = runtime_c_dir.join(c_file);
-                if !src.exists() {
-                    continue;
-                }
-                let obj = runtime_c_dir
-                    .join(c_file.replace(".c", &format!("{}.obj", variant.object_suffix())));
-                let output = Command::new(cc)
-                    .args(&flags)
-                    .arg(format!("/Fo{}", obj.display()))
-                    .arg(&src)
-                    .arg(format!("/I{}", runtime_c_dir.display()))
-                    .output()?;
-                check_output("cl (runtime)", &output)?;
-                obj_files.push(obj);
-            }
-
+        CToolchain::Msvc { lib_tool, .. } => {
             let mut cmd = Command::new(lib_tool);
             cmd.args(["/nologo"]).arg(format!("/OUT:{}", lib_path.display()));
             for obj in &obj_files {
@@ -1107,26 +1071,7 @@ pub fn ensure_runtime_lib(
             let output = cmd.output()?;
             check_output("lib (runtime)", &output)?;
         }
-        CToolchain::Gcc { cc, ar } => {
-            let obj_ext = if cfg!(windows) { ".obj" } else { ".o" };
-            for c_file in &c_files {
-                let src = runtime_c_dir.join(c_file);
-                if !src.exists() {
-                    continue;
-                }
-                let obj = runtime_c_dir
-                    .join(c_file.replace(".c", &format!("{}{obj_ext}", variant.object_suffix())));
-                let output = Command::new(cc)
-                    .args(&flags)
-                    .arg("-o")
-                    .arg(&obj)
-                    .arg(&src)
-                    .arg(format!("-I{}", runtime_c_dir.display()))
-                    .output()?;
-                check_output("cc (runtime)", &output)?;
-                obj_files.push(obj);
-            }
-
+        CToolchain::Gcc { ar, .. } => {
             let mut cmd = Command::new(ar);
             cmd.args(["rcs"]).arg(&lib_path);
             for obj in &obj_files {
@@ -1144,6 +1089,108 @@ pub fn ensure_runtime_lib(
     std::fs::write(&flags_path, flags_stamp)?;
 
     Ok(())
+}
+
+/// Builds a C program against the C runtime and links it as a Flux program
+/// is linked: the runtime's `main` calls the `flux_main` that `sources`
+/// define. The runtime's own C tests are built this way, so they compile
+/// with the runtime's flags and see the same link as native programs.
+pub fn build_c_program(
+    sources: &[PathBuf],
+    runtime_c_dir: &Path,
+    variant: RuntimeVariant,
+    exe_path: &Path,
+) -> Result<(), PipelineError> {
+    ensure_runtime_lib(runtime_c_dir, variant)?;
+    let toolchain = detect_c_toolchain()?;
+    let flags = runtime_compile_flags(&toolchain, variant);
+    let work_dir = unique_native_work_dir()?;
+    let mut objects = Vec::new();
+    for src in sources {
+        let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("program");
+        let obj = work_dir.join(format!("{stem}.obj"));
+        compile_c_object(&toolchain, &flags, src, &obj, runtime_c_dir, "C program")?;
+        objects.push(obj);
+    }
+    let linked = run_linker(&objects, exe_path, Some(runtime_c_dir), variant, false);
+    let staged: Vec<&Path> = objects.iter().map(PathBuf::as_path).collect();
+    cleanup_native_work_dir(&work_dir, &staged);
+    linked
+}
+
+/// The flags every C file of the runtime, and every C program built against
+/// it, is compiled with.
+fn runtime_compile_flags(toolchain: &CToolchain, variant: RuntimeVariant) -> Vec<&'static str> {
+    // Debuggers read the runtime's debug information too: DWARF, or CodeView
+    // on Windows, where clang's `-g` already gives it and `cl` needs `/Z7`
+    // (0188 S11).
+    let mut flags: Vec<&'static str> = match toolchain {
+        CToolchain::Msvc { .. } => vec!["/nologo", "/c", "/O2", "/W3", "/Z7"],
+        CToolchain::Gcc { .. } => vec!["-std=c11", "-Wall", "-O2", "-g", "-c"],
+    };
+    // A caught panic unwinds through the runtime's own frames between a try
+    // and the Flux code it calls (KI-126), which needs their unwind tables.
+    // `-fexceptions` makes that unwind release what an effect prompt holds
+    // (KI-133).
+    if matches!(toolchain, CToolchain::Gcc { .. }) && !cfg!(windows) {
+        flags.push("-funwind-tables");
+        flags.push("-fexceptions");
+    }
+    // GCC moves a function's cold blocks to a `.cold` part away from it.
+    // lldb-18 takes the function to span everything from its start to that
+    // part's end, so a runtime function laid out between them, such as the
+    // compose trampoline, unwinds with the split function's rules and the
+    // backtrace stops there (KI-136). Clang does not split by default and
+    // rejects the flag.
+    if let CToolchain::Gcc { cc, .. } = &toolchain
+        && !cc_is_clang(cc)
+    {
+        flags.push("-fno-reorder-blocks-and-partition");
+    }
+    // On Windows, the C runtime uses MS SEH (`__try` / `__except` /
+    // `RaiseException`) to unwind across LLVM-emitted Flux frames
+    // — Windows `longjmp` walks the SEH chain and trips on
+    // STATUS_BAD_FUNCTION_TABLE when LLVM `.pdata` is incomplete.
+    // Strict `-std=c11` disables MS extensions; re-enable them so
+    // clang actually generates SEH unwind info for `__try`.
+    if matches!(toolchain, CToolchain::Gcc { .. }) && cfg!(windows) {
+        flags.extend(["-fms-extensions", "-fms-compatibility"]);
+    }
+    flags.extend(variant.defines(matches!(toolchain, CToolchain::Msvc { .. })));
+    flags
+}
+
+/// Compiles one C file to an object, with the runtime's headers in reach.
+fn compile_c_object(
+    toolchain: &CToolchain,
+    flags: &[&str],
+    src: &Path,
+    obj: &Path,
+    include_dir: &Path,
+    what: &'static str,
+) -> Result<(), PipelineError> {
+    let output = match toolchain {
+        CToolchain::Msvc { cc, .. } => Command::new(cc)
+            .args(flags)
+            .arg(format!("/Fo{}", obj.display()))
+            .arg(src)
+            .arg(format!("/I{}", include_dir.display()))
+            .output()?,
+        CToolchain::Gcc { cc, .. } => Command::new(cc)
+            .args(flags)
+            .arg("-o")
+            .arg(obj)
+            .arg(src)
+            .arg(format!("-I{}", include_dir.display()))
+            .output()?,
+    };
+    let tool = match (toolchain, what) {
+        (CToolchain::Msvc { .. }, "runtime") => "cl (runtime)",
+        (CToolchain::Gcc { .. }, "runtime") => "cc (runtime)",
+        (CToolchain::Msvc { .. }, _) => "cl",
+        (CToolchain::Gcc { .. }, _) => "cc",
+    };
+    check_output(tool, &output)
 }
 
 /// Cross-process lock protecting the generated C runtime in `runtime/c`.
