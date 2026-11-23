@@ -466,9 +466,12 @@ mod tests {
 
         run_ir_pass_pipeline(&mut program, &IrPassContext).unwrap();
         let instrs = &program.functions[0].blocks[0].instrs;
+        // MIN / -1 folds to MIN, which a later pass may spell as the
+        // variable already holding that constant.
         assert!(matches!(
             instrs[2],
             IrInstr::Assign { expr: IrExpr::Const(IrConst::Int(i64::MIN)), .. }
+                | IrInstr::Assign { expr: IrExpr::Var(IrVar(0)), .. }
         ));
         assert!(matches!(instrs[3], IrInstr::Assign { expr: IrExpr::Const(IrConst::Int(0)), .. }));
     }
