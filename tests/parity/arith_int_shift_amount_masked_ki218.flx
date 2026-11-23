@@ -1,0 +1,28 @@
+// expect: success
+// bug: KI-218. A shift takes its amount modulo 64, as the VM and the constant
+//       folders do. Native code shifted by the raw amount, which LLVM treats
+//       as poison for 64 and above or a negative amount. The amounts come
+//       from a recursive function so that no constant folder sees them.
+// parity-expected-stdout-begin
+// 3
+// 6
+// 0
+// -8
+// -4
+// -1
+// 0
+// parity-expected-stdout-end
+
+fn amount(n: Int) -> Int {
+    if n <= 0 { n } else { 1 + amount(n - 1) }
+}
+
+fn main() with IO {
+    print(bit_shl(3, amount(64)))
+    print(bit_shl(3, amount(65)))
+    print(bit_shl(2, amount(-1)))
+    print(bit_shr(-8, amount(64)))
+    print(bit_shr(-8, amount(65)))
+    print(bit_shr(-8, amount(-1)))
+    print(bit_shr(8, amount(-1)))
+}

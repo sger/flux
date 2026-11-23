@@ -161,6 +161,27 @@ fn main(x, y) {
     assert!(rendered.contains(" xor i64 "), "expected integer xor");
     assert!(rendered.contains(" shl i64 "), "expected integer shl");
     assert!(rendered.contains(" ashr i64 "), "expected integer ashr");
+
+    // LLVM makes a shift by 64 or more, or by a negative amount, poison. The
+    // VM takes the amount modulo 64, so native code must mask it first (KI-218).
+    let masked: std::collections::HashSet<&str> = rendered
+        .lines()
+        .filter_map(|line| {
+            let (dst, rhs) = line.trim().split_once(" = and i64 ")?;
+            rhs.ends_with(", 63").then_some(dst)
+        })
+        .collect();
+    let variable_shifts: Vec<&str> = rendered
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.contains(" = shl i64 ") || line.contains(" = ashr i64 "))
+        .filter(|line| line.rsplit(", ").next().is_some_and(|amount| amount.starts_with('%')))
+        .collect();
+    assert!(!variable_shifts.is_empty(), "expected shifts by a run-time amount");
+    for shift in variable_shifts {
+        let amount = shift.rsplit(", ").next().unwrap_or_default();
+        assert!(masked.contains(amount), "shift amount is not masked to 6 bits: {shift}");
+    }
 }
 
 /// Int division and remainder run inline: the zero check panics out of
