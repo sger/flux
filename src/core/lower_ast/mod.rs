@@ -764,12 +764,15 @@ impl<'a> AstLowerer<'a> {
         if let Some(scheme) = self.function_scheme(fn_name) {
             let param_types = scheme.infer_type.param_types();
             if param_types.len() == parameters.len() && !param_types.is_empty() {
-                let param_types: Vec<InferType> = match self.active_subst.as_ref() {
-                    Some(subst) => {
-                        param_types.iter().map(|ty| ty.apply_type_subst(subst)).collect()
-                    }
-                    None => param_types.to_vec(),
-                };
+                let param_types: std::borrow::Cow<'_, [InferType]> =
+                    match self.active_subst.as_ref() {
+                        Some(subst) => param_types
+                            .iter()
+                            .map(|ty| ty.apply_type_subst(subst))
+                            .collect::<Vec<_>>()
+                            .into(),
+                        None => param_types.into(),
+                    };
                 return parameters
                     .iter()
                     .zip(param_types.iter())

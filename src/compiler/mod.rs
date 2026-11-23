@@ -1125,6 +1125,9 @@ pub(super) struct HandlerScope {
     pub evidence_symbols: Option<Vec<Symbol>>,
 }
 
+/// Public and private member schemes, keyed by `(module, member)`.
+type LoweringMemberSchemes = (HashMap<(Symbol, Symbol), Scheme>, HashMap<(Symbol, Symbol), Scheme>);
+
 #[derive(Clone)]
 pub struct Compiler {
     constants: Vec<Value>,
@@ -1243,12 +1246,14 @@ pub struct Compiler {
     /// can use type schemes from previously-compiled modules. Keyed by
     /// `(module_name, member_name)`.
     pub(super) cached_member_schemes: HashMap<(Symbol, Symbol), Scheme>,
-    /// @KI-217: the member schemes of the inference whose types the program
-    /// being lowered carries, public (imported modules' included) and
-    /// private. Core lowering types a module function by these, never by
-    /// the bare name. Kept apart from the maps above, which other passes read.
-    pub(super) lowering_public_member_schemes: HashMap<(Symbol, Symbol), Scheme>,
-    pub(super) lowering_private_member_schemes: HashMap<(Symbol, Symbol), Scheme>,
+    /// @KI-217: Core lowering types a module function by the member schemes
+    /// of the inference whose types the program carries, never by the bare
+    /// name. A unit's own inference leaves them in `cached_member_schemes`
+    /// and `private_member_schemes`, so this is `None` and nothing is copied.
+    /// Lowering a program prepared by another inference sets it to that
+    /// inference's (public, private) maps, kept apart because other passes
+    /// read the maps above.
+    pub(super) lowering_member_schemes_override: Option<LoweringMemberSchemes>,
     pub(super) cached_member_borrow_signatures: HashMap<(Symbol, Symbol), BorrowSignature>,
     pub(super) cached_member_runtime_contracts: HashMap<(Symbol, Symbol), FunctionContract>,
     /// True when HM type inference produced diagnostics. Used to block CFG path
@@ -1834,8 +1839,7 @@ impl Compiler {
             contextual_function_contracts: HashMap::new(),
             private_member_schemes: HashMap::new(),
             cached_member_schemes: HashMap::new(),
-            lowering_public_member_schemes: HashMap::new(),
-            lowering_private_member_schemes: HashMap::new(),
+            lowering_member_schemes_override: None,
             cached_member_borrow_signatures: HashMap::new(),
             cached_member_runtime_contracts: HashMap::new(),
             has_hm_diagnostics: false,
@@ -1973,8 +1977,8 @@ impl Compiler {
     fn apply_hm_final(&mut self, hm_final: &InferProgramResult) {
         self.type_env = hm_final.type_env.clone();
         self.hm_expr_types = hm_final.expr_types.clone();
-        self.lowering_public_member_schemes = hm_final.module_member_schemes.clone();
-        self.lowering_private_member_schemes = hm_final.private_member_schemes.clone();
+        self.lowering_member_schemes_override =
+            Some((hm_final.module_member_schemes.clone(), hm_final.private_member_schemes.clone()));
         // The program being lowered may not be the one the unit's inference
         // solved (a merged program has its ids shifted), so its evidence is
         // solved again with the types above. The diagnostics are dropped: each
@@ -2007,10 +2011,11 @@ impl Compiler {
     /// those of imported modules) and private, for lowering module functions
     /// by their own types (KI-217).
     pub(super) fn module_member_schemes(&self) -> crate::core::lower_ast::ModuleMemberSchemes<'_> {
-        crate::core::lower_ast::ModuleMemberSchemes {
-            public: &self.lowering_public_member_schemes,
-            private: &self.lowering_private_member_schemes,
-        }
+        let (public, private) = match &self.lowering_member_schemes_override {
+            Some((public, private)) => (public, private),
+            None => (&self.cached_member_schemes, &self.private_member_schemes),
+        };
+        crate::core::lower_ast::ModuleMemberSchemes { public, private }
     }
 
     #[allow(clippy::result_large_err)]

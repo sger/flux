@@ -43,8 +43,7 @@ impl Compiler {
         }
         self.warnings.clear();
         self.private_member_schemes.clear();
-        self.lowering_public_member_schemes.clear();
-        self.lowering_private_member_schemes.clear();
+        self.lowering_member_schemes_override = None;
         self.file_scope_symbols.clear();
         self.imported_modules.clear();
         self.unit_function_names.clear();
