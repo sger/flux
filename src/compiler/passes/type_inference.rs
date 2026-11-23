@@ -37,6 +37,8 @@ impl Compiler {
         self.hm_expr_types = hm_final.expr_types;
         let module_member_schemes = hm_final.module_member_schemes;
         self.private_member_schemes = hm_final.private_member_schemes;
+        self.lowering_public_member_schemes = module_member_schemes.clone();
+        self.lowering_private_member_schemes = self.private_member_schemes.clone();
         self.cached_member_schemes.extend(module_member_schemes.clone());
         let class_constraints: WantedConstraints = hm_final.class_constraints;
         let class_method_calls = hm_final.class_method_calls;

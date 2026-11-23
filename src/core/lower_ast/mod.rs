@@ -115,6 +115,7 @@ pub fn lower_program_ast_with_class_env(
         effect_op_sigs,
         class_env,
         None,
+        None,
     )
     .0
 }
@@ -126,6 +127,7 @@ pub fn lower_program_ast_with_class_env(
 /// no dictionaries are passed at all. Dictionary parameters, arguments and
 /// method calls come from it alone (0.0.8 plan, step 1e), and a site it gives
 /// no usable answer for is one of the returned internal errors.
+#[allow(clippy::too_many_arguments)]
 pub fn lower_program_ast_with_evidence(
     program: &Program,
     hm_expr_types: &HashMap<ExprId, InferType>,
@@ -134,9 +136,11 @@ pub fn lower_program_ast_with_evidence(
     effect_op_sigs: Option<&EffectOpSigs>,
     class_env: Option<&crate::types::class_env::ClassEnv>,
     evidence: Option<&crate::types::evidence::EvidenceMap>,
+    member_schemes: Option<ModuleMemberSchemes<'_>>,
 ) -> (CoreProgram, Vec<crate::diagnostics::Diagnostic>) {
     let mut lowerer =
         AstLowerer::new(hm_expr_types, interner, type_env, effect_op_sigs, class_env, evidence);
+    lowerer.member_schemes = member_schemes;
     lowerer.collect_ctor_field_names(program);
     lowerer.collect_local_function_names(program);
     lowerer.collect_specializations(program);
@@ -198,6 +202,14 @@ fn with_dict_params(
     };
     dict_params.extend(params);
     (dict_params, param_types)
+}
+
+/// The schemes type inference recorded for each module member while the
+/// module's scope was open: `(module, name)` to scheme, public and private.
+#[derive(Clone, Copy)]
+pub struct ModuleMemberSchemes<'a> {
+    pub public: &'a HashMap<(Identifier, Identifier), crate::types::scheme::Scheme>,
+    pub private: &'a HashMap<(Identifier, Identifier), crate::types::scheme::Scheme>,
 }
 
 /// Call-site instantiations seen for one name.
@@ -332,6 +344,8 @@ pub(super) struct AstLowerer<'a> {
     pub(super) next_body_constrained: Option<Identifier>,
     pub(super) current_function_name: Option<Identifier>,
     current_module_name: Option<Identifier>,
+    /// Each module member's own scheme, when the caller has them (KI-217).
+    member_schemes: Option<ModuleMemberSchemes<'a>>,
     /// Proposal 0152: variant name → declared field names in declaration
     /// order. Used to desugar named-field constructor expressions, spread
     /// expressions, and named-field patterns into positional form.
@@ -398,6 +412,7 @@ impl<'a> AstLowerer<'a> {
             next_body_constrained: None,
             current_function_name: None,
             current_module_name: None,
+            member_schemes: None,
             ctor_field_names: std::collections::HashMap::new(),
             adt_variants: std::collections::HashMap::new(),
             ctor_field_types: std::collections::HashMap::new(),
@@ -718,13 +733,35 @@ impl<'a> AstLowerer<'a> {
 
     /// Look up a function's parameter types from the TypeEnv and create
     /// typed binders. Falls back to untyped binders if TypeEnv is unavailable.
+    /// The scheme of the function named `fn_name` that is being lowered.
+    ///
+    /// @KI-217: a module function's scheme is the one inference recorded for
+    /// it as a member of its module. The final type environment's binding of
+    /// the bare name is whatever was bound last under that name, an exposed,
+    /// prelude or top-level function's, so it is never used inside a module;
+    /// without member schemes the function's parameters stay untyped.
+    fn function_scheme(
+        &self,
+        fn_name: crate::syntax::Identifier,
+    ) -> Option<&'a crate::types::scheme::Scheme> {
+        match self.current_module_name {
+            Some(module) => self.member_schemes.and_then(|members| {
+                members
+                    .public
+                    .get(&(module, fn_name))
+                    .or_else(|| members.private.get(&(module, fn_name)))
+            }),
+            None => self.type_env.and_then(|env| env.lookup(fn_name)),
+        }
+    }
+
     fn bind_fn_params(
         &mut self,
         fn_name: crate::syntax::Identifier,
         parameters: &[crate::syntax::Identifier],
     ) -> Vec<CoreBinder> {
         // Try to get parameter types from the function's HM scheme.
-        if let Some(scheme) = self.type_env.and_then(|env| env.lookup(fn_name)) {
+        if let Some(scheme) = self.function_scheme(fn_name) {
             let param_types = scheme.infer_type.param_types();
             if param_types.len() == parameters.len() && !param_types.is_empty() {
                 let param_types: Vec<InferType> = match self.active_subst.as_ref() {
@@ -793,7 +830,7 @@ impl<'a> AstLowerer<'a> {
         fn_name: crate::syntax::Identifier,
     ) -> (Vec<Option<super::CoreType>>, Option<super::CoreType>) {
         self.lambda_signature_from_infer_type(
-            self.type_env.and_then(|env| env.lookup(fn_name)).map(|scheme| &scheme.infer_type),
+            self.function_scheme(fn_name).map(|scheme| &scheme.infer_type),
         )
     }
 
@@ -801,8 +838,7 @@ impl<'a> AstLowerer<'a> {
         &self,
         fn_name: crate::syntax::Identifier,
     ) -> Option<super::CoreType> {
-        self.type_env
-            .and_then(|env| env.lookup(fn_name))
+        self.function_scheme(fn_name)
             .and_then(|scheme| super::CoreType::try_from_infer(&scheme.infer_type))
     }
 
@@ -1796,7 +1832,7 @@ fn main() {
                         CoreExpr::PrimOp { op: CorePrimOp::MakeTuple, .. }
                     ) =>
                 {
-                    Some(params[0].clone())
+                    Some(params[0])
                 }
                 _ => None,
             })

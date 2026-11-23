@@ -1243,6 +1243,12 @@ pub struct Compiler {
     /// can use type schemes from previously-compiled modules. Keyed by
     /// `(module_name, member_name)`.
     pub(super) cached_member_schemes: HashMap<(Symbol, Symbol), Scheme>,
+    /// @KI-217: the member schemes of the inference whose types the program
+    /// being lowered carries, public (imported modules' included) and
+    /// private. Core lowering types a module function by these, never by
+    /// the bare name. Kept apart from the maps above, which other passes read.
+    pub(super) lowering_public_member_schemes: HashMap<(Symbol, Symbol), Scheme>,
+    pub(super) lowering_private_member_schemes: HashMap<(Symbol, Symbol), Scheme>,
     pub(super) cached_member_borrow_signatures: HashMap<(Symbol, Symbol), BorrowSignature>,
     pub(super) cached_member_runtime_contracts: HashMap<(Symbol, Symbol), FunctionContract>,
     /// True when HM type inference produced diagnostics. Used to block CFG path
@@ -1828,6 +1834,8 @@ impl Compiler {
             contextual_function_contracts: HashMap::new(),
             private_member_schemes: HashMap::new(),
             cached_member_schemes: HashMap::new(),
+            lowering_public_member_schemes: HashMap::new(),
+            lowering_private_member_schemes: HashMap::new(),
             cached_member_borrow_signatures: HashMap::new(),
             cached_member_runtime_contracts: HashMap::new(),
             has_hm_diagnostics: false,
@@ -1965,6 +1973,8 @@ impl Compiler {
     fn apply_hm_final(&mut self, hm_final: &InferProgramResult) {
         self.type_env = hm_final.type_env.clone();
         self.hm_expr_types = hm_final.expr_types.clone();
+        self.lowering_public_member_schemes = hm_final.module_member_schemes.clone();
+        self.lowering_private_member_schemes = hm_final.private_member_schemes.clone();
         // The program being lowered may not be the one the unit's inference
         // solved (a merged program has its ids shifted), so its evidence is
         // solved again with the types above. The diagnostics are dropped: each
@@ -1993,6 +2003,16 @@ impl Compiler {
     /// lowered, before any Core pass, in `pre_pass_core` when given: the
     /// debug-info model describes the program as the user wrote it. Returns
     /// with it the lambdas a debug build's simplifier inlined.
+    /// The schemes inference recorded for each module member, public (with
+    /// those of imported modules) and private, for lowering module functions
+    /// by their own types (KI-217).
+    pub(super) fn module_member_schemes(&self) -> crate::core::lower_ast::ModuleMemberSchemes<'_> {
+        crate::core::lower_ast::ModuleMemberSchemes {
+            public: &self.lowering_public_member_schemes,
+            private: &self.lowering_private_member_schemes,
+        }
+    }
+
     #[allow(clippy::result_large_err)]
     fn lower_core_from_program_capturing(
         &self,
@@ -2015,6 +2035,7 @@ impl Compiler {
             None,
             class_env_ref,
             Some(&self.evidence_map),
+            Some(self.module_member_schemes()),
         );
         if let Some(mut error) = errors.into_iter().next() {
             error.set_file(self.file_path.clone());
@@ -6447,6 +6468,7 @@ impl Compiler {
             Some(&self.type_env),
             class_env_ref,
             Some(&self.evidence_map),
+            Some(self.module_member_schemes()),
             None,
         )?;
         crate::cfg::run_ir_pass_pipeline(&mut ir_program, &crate::cfg::IrPassContext)?;

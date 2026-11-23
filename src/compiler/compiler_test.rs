@@ -2357,6 +2357,7 @@ fn lower_emitting(
         None,
         Some(&compiler.class_env),
         Some(evidence),
+        Some(compiler.module_member_schemes()),
     )
 }
 

@@ -27,6 +27,7 @@ impl Compiler {
             Some(&self.type_env),
             class_env_ref,
             Some(&self.evidence_map),
+            Some(self.module_member_schemes()),
             capture,
         ) {
             Ok(program) => program,

@@ -2849,7 +2849,7 @@ lam(__dict_m7_466C6F772E4571_Eq, xs, key) ->
       drop __dict_m7_466C6F772E4571_Eq#660 in
           None
 ── fn enumerate_go ──
-  Dups: 4  Drops: 5  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
+  Dups: 2  Drops: 2  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(xs, i) ->
@@ -2858,30 +2858,27 @@ lam(xs, i) ->
       drop_specialized xs#669 {
         unique ->
           let <sym:4001683> =
-            MakeTuple(dup i#670 in i#670, h#671)
+            MakeTuple(i#670, h#671)
           let <sym:4001685> =
             let <sym:4001684> =
               IAdd(i#670, 1)
             aether_call[owned, owned] enumerate_go#668(t#672, <sym:4001684>#1684)
-          drop i#670 in
-            reuse xs#669 as Cons(<sym:4001683>#1683, <sym:4001685>#1685)
+          reuse xs#669 as Cons(<sym:4001683>#1683, <sym:4001685>#1685)
         shared ->
           dup h#671 in
             dup t#672 in
               drop xs#669 in
                 let <sym:4001683> =
-                  MakeTuple(dup i#670 in i#670, h#671)
+                  MakeTuple(i#670, h#671)
                 let <sym:4001685> =
                   let <sym:4001684> =
                     IAdd(i#670, 1)
                   aether_call[owned, owned] enumerate_go#668(t#672, <sym:4001684>#1684)
-                drop i#670 in
-                  Cons(<sym:4001683>#1683, <sym:4001685>#1685)
+                Cons(<sym:4001683>#1683, <sym:4001685>#1685)
       }
     _ ->
-        drop xs#669 in
-      drop i#670 in
-          Nil
+      drop xs#669 in
+        Nil
 ── fn intersperse_rest ──
   Dups: 4  Drops: 3  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(3)
   FreshAllocs: 3
@@ -3981,7 +3978,7 @@ lam() ->
         aether_call[owned] __resume_default#1363(<sym:4001867>#1867)
 
 ── Total ──
-  Dups: 206  Drops: 584  Reuses: 17  DropSpecs: 43  BorrowedCallGuards: 15  FBIP: fbip(55)  FreeShells: 29  Yields: 11  Handles: 5  HandlerArms: 11
+  Dups: 204  Drops: 581  Reuses: 17  DropSpecs: 43  BorrowedCallGuards: 15  FBIP: fbip(55)  FreeShells: 29  Yields: 11  Handles: 5  HandlerArms: 11
   FreshAllocs: 55
 
 [ 1 of 18] Compiling  Add

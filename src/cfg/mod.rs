@@ -52,7 +52,7 @@ pub fn lower_program_to_ir_with_interner_and_warnings(
     hm_expr_types: &HashMap<ExprId, InferType>,
     interner: Option<&Interner>,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
-    lower_program_to_ir_impl(program, hm_expr_types, interner, false, None, None, None, None)
+    lower_program_to_ir_impl(program, hm_expr_types, interner, false, None, None, None, None, None)
 }
 
 #[allow(clippy::result_large_err)]
@@ -62,7 +62,17 @@ pub fn lower_program_to_ir_with_optimize(
     interner: Option<&Interner>,
     optimize: bool,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
-    lower_program_to_ir_impl(program, hm_expr_types, interner, optimize, None, None, None, None)
+    lower_program_to_ir_impl(
+        program,
+        hm_expr_types,
+        interner,
+        optimize,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
 }
 
 /// Lower with TypeEnv for typed parameter binders (Phase 7).
@@ -82,6 +92,7 @@ pub fn lower_program_to_ir_typed(
     type_env: Option<&crate::types::type_env::TypeEnv>,
     class_env: Option<&crate::types::class_env::ClassEnv>,
     evidence: Option<&crate::types::evidence::EvidenceMap>,
+    member_schemes: Option<crate::core::lower_ast::ModuleMemberSchemes<'_>>,
     pre_pass_core: Option<&mut Option<crate::core::CoreProgram>>,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
     lower_program_to_ir_impl(
@@ -92,6 +103,7 @@ pub fn lower_program_to_ir_typed(
         type_env,
         class_env,
         evidence,
+        member_schemes,
         pre_pass_core,
     )
 }
@@ -105,6 +117,7 @@ fn lower_program_to_ir_impl(
     type_env: Option<&crate::types::type_env::TypeEnv>,
     class_env: Option<&crate::types::class_env::ClassEnv>,
     evidence: Option<&crate::types::evidence::EvidenceMap>,
+    member_schemes: Option<crate::core::lower_ast::ModuleMemberSchemes<'_>>,
     pre_pass_core: Option<&mut Option<crate::core::CoreProgram>>,
 ) -> Result<(IrProgram, Vec<Diagnostic>), Diagnostic> {
     // 0.0.8 plan step 1e: dictionary parameters, arguments and method calls
@@ -118,6 +131,7 @@ fn lower_program_to_ir_impl(
         None,
         class_env,
         evidence,
+        member_schemes,
     );
     if let Some(error) = errors.into_iter().next() {
         return Err(error);

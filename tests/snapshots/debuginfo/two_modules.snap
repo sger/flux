@@ -7,16 +7,16 @@ quadruple [fn] @5:10
 triple [fn] @10:10
   param x: ? @10:10
 double [fn] @14:10
-  param x: ? @14:10
+  param x: Int @14:10
 square [fn] @18:10
-  param x: ? @18:10
+  param x: Int @18:10
 cube [fn] @22:10
-  param x: ? @22:10
+  param x: Int @22:10
 call_another_function [fn] @26:10
 isEven [fn] @31:10
-  param n: ? @31:10
+  param n: Int @31:10
 isOdd [fn] @36:10
-  param n: ? @36:10
+  param n: Int @36:10
 _private_function [fn] @41:3
 calling_private_from_public_function [fn] @45:10
   let __tmp_2000001: ? @46:5 (artificial)
