@@ -68,6 +68,43 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-220 — A counted value read by a handler's initial state is released too early
+
+**Severity:** Medium (the compiler stops with E999) · **Area:** Aether Dup/Drop insertion (`src/aether/insert.rs`) · **Verified:** 2026-11-24 (72574a16) · **From:** the KI-039 plan's `explicit_boxing` step, where a native debug-heap test hit it once Int parameters became counted
+
+```flux
+effect Counter {
+    next : () -> Int
+}
+
+fn count_twice() -> Int with Counter {
+    let a = perform Counter.next()
+    a + perform Counter.next()
+}
+
+fn words(s: String) {
+    [s, s]
+}
+
+fn attempt(s: String) -> Int {
+    count_twice() handle Counter(words(s)) {
+        next(resume, state) -> resume(len(state), [s | state])
+    }
+}
+
+fn main() with IO {
+    print(attempt("a"))
+}
+```
+
+Both backends stop with `E999 Aether Verification Failed`: `s` is read after
+it was released. Aether plans the expression that gives a `handle` its
+initial state (`Counter(words(s))`) as if nothing ran after it, and leaves
+what it reads out of the variables the `handle` needs. So `s` is not kept
+for that read: here the clause consumes `s` first, and when the clause does
+not use `s`, Aether drops `s` before the `handle` instead. Only a counted
+value shows it: an Int or Bool read there was never counted.
+
 ### KI-176 — An uppercase type parameter breaks `deriving` on a generic type and an instance's context
 
 **Severity:** Medium · **Area:** Type classes, deriving · **Verified:** 2026-11-09 (e5af0ad4) · **From:** 0190 S17a (`cargo xtask fuzz --with classes`, the generator's first version)
