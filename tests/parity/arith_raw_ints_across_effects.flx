@@ -1,0 +1,77 @@
+// parity: vm, llvm, llvm_verify, llvm_heap
+// expect: success
+// bug: native code keeps an Int let raw, and boxes it where a uniform word is
+//       needed. Each function here needs one: a let live across a perform
+//       resumed once and twice, a closure that captures one, a join, a match
+//       on Int literals, and Int handler state.
+// parity-expected-stdout-begin
+// 113
+// 63
+// 33
+// 14
+// 12
+// "one"
+// "zero"
+// 35
+// parity-expected-stdout-end
+
+effect Ask {
+    ask : () -> Int
+}
+
+effect Flip {
+    flip : () -> Bool
+}
+
+effect Counter {
+    next : () -> Int
+}
+
+fn across_once(n: Int) -> Int with Ask {
+    let base = n * 3 + 1
+    let got = perform Ask.ask()
+    base + got
+}
+
+fn across_twice(n: Int) -> Int with Flip {
+    let base = n * 10
+    let b = perform Flip.flip()
+    if b { base + 1 } else { base + 2 }
+}
+
+fn captured(n: Int) -> Int {
+    let k = n + 5
+    let bump = \(x: Int) -> x + k
+    bump(1) + bump(2)
+}
+
+fn joined(n: Int, flag: Bool) -> Int {
+    let r: Int = if flag { 7 } else { n + 1 }
+    r * 2
+}
+
+fn named(n: Int) -> String {
+    match n % 4 {
+        0 -> "zero",
+        1 -> "one",
+        2 -> "two",
+        _ -> "many",
+    }
+}
+
+fn count() -> Int with Counter {
+    let a = perform Counter.next()
+    let b = perform Counter.next()
+    a * 10 + b
+}
+
+fn main() with IO {
+    print(across_once(4) handle Ask { ask(resume) -> resume(100) })
+    print(across_twice(3) handle Flip { flip(resume) -> resume(true) + resume(false) })
+    print(captured(10))
+    print(joined(5, true))
+    print(joined(5, false))
+    print(named(9))
+    print(named(12))
+    print(count() handle Counter(3) { next(resume, state) -> resume(state, state + 2) })
+}
