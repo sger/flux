@@ -68,6 +68,40 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-221 — On the VM, a function whose body is a `handle` with a computed initial state returns the state
+
+**Severity:** High (a wrong answer, silently) · **Area:** VM lowering of `handle` · **Verified:** 2026-11-24 (d019178e) · **From:** the KI-039 plan's `explicit_boxing` step, while writing the KI-220 fixture
+
+```flux
+effect Counter {
+    next : () -> Int
+}
+
+fn count_twice() -> Int with Counter {
+    let a = perform Counter.next()
+    a + perform Counter.next()
+}
+
+fn start() {
+    [1, 2]
+}
+
+fn counted() -> Int {
+    count_twice() handle Counter(start()) {
+        next(resume, state) -> resume(len(state), state)
+    }
+}
+
+fn main() with IO {
+    print(counted())
+}
+```
+
+Native code prints `4`. The VM prints `[1, 2]`, the handler's initial state,
+with or without `--optimize`. The VM prints `4` when the state is a literal
+(`Counter([1, 2])`), and when the `handle` is bound with `let` rather than
+being the function's result. The cause is not investigated yet.
+
 ### KI-220 — A counted value read by a handler's initial state is released too early
 
 **Severity:** Medium (the compiler stops with E999) · **Area:** Aether Dup/Drop insertion (`src/aether/insert.rs`) · **Verified:** 2026-11-24 (72574a16) · **From:** the KI-039 plan's `explicit_boxing` step, where a native debug-heap test hit it once Int parameters became counted
