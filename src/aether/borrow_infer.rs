@@ -595,8 +595,13 @@ fn pattern_variables(pat: &crate::core::CorePat, out: &mut Vec<CoreBinderId>) {
 /// Whether evaluating `expr` makes a value with a reference of its own: a
 /// constructor, a closure, a collection literal, an Int box, or what a Flux
 /// function returns. A runtime function's result can be a view of an argument.
+/// A `let` chain gives what its tail gives, as when explicit boxing binds a
+/// call's boxed arguments around the call.
 fn makes_fresh_value(expr: &CoreExpr, registry: &BorrowRegistry) -> bool {
     match expr {
+        CoreExpr::Let { body, .. }
+        | CoreExpr::LetRec { body, .. }
+        | CoreExpr::LetRecGroup { body, .. } => makes_fresh_value(body, registry),
         CoreExpr::Con { .. } | CoreExpr::Lam { .. } => true,
         CoreExpr::PrimOp { op, .. } => matches!(
             op,
