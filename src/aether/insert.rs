@@ -1027,19 +1027,6 @@ fn plan_expr(
             }
         }
         CoreExpr::Handle { body, effect, parameter, handlers, span } => {
-            // The handle gives its state to the runtime, which releases it
-            // with the handler.
-            let parameter_plan = parameter.map(|p| {
-                plan_expr(
-                    *p,
-                    tail_env.clone(),
-                    ValueDemand::Owned,
-                    TailPosition::NonTail,
-                    registry,
-                    scope,
-                    field_parents,
-                )
-            });
             let body_plan = plan_expr(
                 *body,
                 tail_env.clone(),
@@ -1102,6 +1089,23 @@ fn plan_expr(
 
             let joined = join_branch_envs(&incoming_envs);
 
+            // @KI-220: the initial state is computed before the body and the
+            // clauses run, so what they need stays live across it. The handle
+            // gives the state to the runtime, which releases it with the
+            // handler.
+            let parameter_plan = parameter.map(|p| {
+                plan_expr(
+                    *p,
+                    joined.clone(),
+                    ValueDemand::Owned,
+                    TailPosition::NonTail,
+                    registry,
+                    scope,
+                    field_parents,
+                )
+            });
+            let env_before = parameter_plan.as_ref().map_or(joined, |plan| plan.env_before.clone());
+
             AetherPlan {
                 expr: CoreExpr::Handle {
                     body: Box::new(body_plan.expr),
@@ -1110,7 +1114,7 @@ fn plan_expr(
                     handlers: planned_handlers,
                     span,
                 },
-                env_before: joined,
+                env_before,
             }
         }
         CoreExpr::Dup { var, body, span } => {
