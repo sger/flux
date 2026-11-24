@@ -100,6 +100,9 @@ struct Source {
     /// A function parameter: its raw copy may consume it, which makes the
     /// parameter owned, so a caller's fresh box moves in.
     movable: bool,
+    /// Whether its type says Int. A uniform parameter of another type is a
+    /// source only for the raw reads Int operations already make of it.
+    int: bool,
 }
 
 type Lets = Vec<(CoreBinder, CoreExpr)>;
@@ -160,8 +163,28 @@ impl Boxer {
         Some(index)
     }
 
+    /// A function parameter. A uniform one that `I*` operations read is an
+    /// Int too, though its binder doesn't say so: its raw reads share one
+    /// unbox at entry, as an `IntRep` parameter's do, so a parameter read
+    /// only raw is owned and a self tail call passing a fresh box stays one.
+    fn param_source(&mut self, binder: &mut CoreBinder) -> Option<usize> {
+        if binder.rep != FluxRep::TaggedRep {
+            return self.source(binder, true);
+        }
+        self.sources.push(Source {
+            tagged: *binder,
+            raw: None,
+            read_uniform: false,
+            movable: true,
+            int: false,
+        });
+        let index = self.sources.len() - 1;
+        self.env.insert(binder.id, Slot::Source(index));
+        Some(index)
+    }
+
     fn new_source(&mut self, tagged: CoreBinder, movable: bool) -> usize {
-        self.sources.push(Source { tagged, raw: None, read_uniform: false, movable });
+        self.sources.push(Source { tagged, raw: None, read_uniform: false, movable, int: true });
         self.sources.len() - 1
     }
 
@@ -230,7 +253,11 @@ impl Boxer {
                 CoreExpr::Lit(CoreLit::Int(_), _) => true,
                 CoreExpr::Var { var, .. } => {
                     any_var = true;
-                    matches!(self.slot(var), Slot::Raw(_) | Slot::Source(_))
+                    match self.slot(var) {
+                        Slot::Raw(_) => true,
+                        Slot::Source(index) => self.sources[index].int,
+                        Slot::Uniform => false,
+                    }
                 }
                 _ => false,
             });
@@ -338,6 +365,23 @@ impl Boxer {
                 {
                     var.rep = primop_result_rep(&self.typed_op(*op, args));
                 }
+                // An Int a call or a read hands back stays the uniform word it
+                // came as, and is unboxed only for its raw uses: a binder
+                // that only goes back out (`let r = f(x); r`) must leave the
+                // call last, or it is no longer a tail call.
+                if var.rep == FluxRep::IntRep
+                    && let Some(fresh) = self.uniform_producer(&rhs)
+                {
+                    let mut lets = Vec::new();
+                    let rhs = self.rhs(*rhs, Rep::Uniform, &mut lets);
+                    let source = self.source(&mut var, fresh);
+                    let body = self.expr(*body, want);
+                    let body = self.with_raw_copies(source.as_slice(), body);
+                    return wrap(
+                        lets,
+                        CoreExpr::Let { var, rhs: Box::new(rhs), body: Box::new(body), span },
+                    );
+                }
                 let rhs_want = if var.rep == FluxRep::IntRep { Rep::Raw } else { Rep::Uniform };
                 let mut lets = Vec::new();
                 let rhs = self.rhs(*rhs, rhs_want, &mut lets);
@@ -384,6 +428,29 @@ impl Boxer {
                 let handle = CoreExpr::Handle { body, effect, parameter, handlers, span };
                 wrap(lets, self.convert(handle, Rep::Uniform, want, false))
             }
+        }
+    }
+
+    /// Whether `expr` gives a uniform word, and if so whether Aether owns it,
+    /// so an unbox may consume it. A `let` chain gives what its tail gives.
+    fn uniform_producer(&self, expr: &CoreExpr) -> Option<bool> {
+        match expr {
+            CoreExpr::App { func, .. } => {
+                Some(matches!(func.as_ref(), CoreExpr::Var { var, .. } if var.binder.is_some()))
+            }
+            CoreExpr::Con { .. } => Some(true),
+            CoreExpr::PrimOp { op, args, .. } => {
+                let op = self.typed_op(*op, args);
+                (!gives_raw(op)).then_some(op == CorePrimOp::BoxInt)
+            }
+            CoreExpr::Perform { .. }
+            | CoreExpr::Handle { .. }
+            | CoreExpr::MemberAccess { .. }
+            | CoreExpr::TupleField { .. } => Some(false),
+            CoreExpr::Let { body, .. }
+            | CoreExpr::LetRec { body, .. }
+            | CoreExpr::LetRecGroup { body, .. } => self.uniform_producer(body),
+            _ => None,
         }
     }
 
@@ -477,7 +544,7 @@ impl Boxer {
         let bound: Vec<_> = params.iter().map(|param| param.id).collect();
         let (restore, mut sources) = self.capture(&body, &bound, span, lets);
         for param in &mut params {
-            sources.extend(self.source(param, true));
+            sources.extend(self.param_source(param));
         }
         let body = self.expr(body, Rep::Uniform);
         let body = self.with_raw_copies(&sources, body);
@@ -533,6 +600,13 @@ impl Boxer {
             };
             let tagged = match slot {
                 Slot::Uniform => continue,
+                // The closure holds the parameter itself, as any uniform word.
+                Slot::Source(outer) if !self.sources[outer].int => {
+                    self.uniform_read(outer);
+                    restore.push((id, slot));
+                    self.env.insert(id, Slot::Uniform);
+                    continue;
+                }
                 Slot::Raw(name) => {
                     let boxed = self.mint(FluxRep::TaggedRep, Some(name));
                     let raw = CoreExpr::Var { var: CoreVarRef { name, binder: Some(id) }, span };

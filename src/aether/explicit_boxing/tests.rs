@@ -276,20 +276,73 @@ fn a_call_result_bound_as_an_int_is_consumed_by_its_unbox() {
     let body = let_(r, call(vec![v(x)]), op(CorePrimOp::IAdd, vec![v(r), int(1)]));
     assert_eq!(
         boxed(vec![x], body),
-        "\\(v1) -> let v2:I = let v902 = g(v1); UnboxIntMove(v902); \
-         let v903:I = IAdd(v2, 1); BoxInt(v903)"
+        "\\(v1) -> let v2 = g(v1); let v902:I = UnboxIntMove(v2); \
+         let v903:I = IAdd(v902, 1); BoxInt(v903)"
     );
 }
 
 #[test]
-fn a_length_bound_as_an_int_is_borrowed_by_its_unbox() {
+fn a_call_result_bound_as_an_int_and_returned_stays_the_call_result() {
+    // fn f(x) = { let r: Int = g(x); r }: unboxing `r` and boxing it again
+    // would leave work after the call, so it would not be a tail call.
+    let (x, r) = (tagged(1), int_binder(2));
+    let body = let_(r, call(vec![v(x)]), v(r));
+    assert_eq!(boxed(vec![x], body), "\\(v1) -> let v2 = g(v1); v2");
+}
+
+#[test]
+fn a_length_bound_as_an_int_and_passed_on_is_not_unboxed() {
     // A runtime length is a uniform word, though ANF types its temp IntRep.
     let (text, len) = (tagged(1), int_binder(2));
     let body = let_(len, op(CorePrimOp::StringLength, vec![v(text)]), call(vec![v(len)]));
+    assert_eq!(boxed(vec![text], body), "\\(v1) -> let v2 = StringLength(v1); g(v2)");
+}
+
+#[test]
+fn a_length_bound_as_an_int_is_borrowed_by_its_unbox() {
+    // A length is not a value Aether owns, so its unbox only borrows it.
+    let (text, len) = (tagged(1), int_binder(2));
+    let body = let_(
+        len,
+        op(CorePrimOp::StringLength, vec![v(text)]),
+        op(CorePrimOp::IAdd, vec![v(len), int(1)]),
+    );
     assert_eq!(
         boxed(vec![text], body),
-        "\\(v1) -> let v2:I = let v902 = StringLength(v1); UnboxInt(v902); \
-         let v903 = BoxInt(v2); g(v903)"
+        "\\(v1) -> let v2 = StringLength(v1); let v902:I = UnboxInt(v2); \
+         let v903:I = IAdd(v902, 1); BoxInt(v903)"
+    );
+}
+
+#[test]
+fn a_uniform_parameter_read_only_by_int_operations_is_consumed_by_one_unbox() {
+    // fn f(n) = n + n, where the binder says Tagged but ANF typed the op.
+    let n = tagged(1);
+    let body = op(CorePrimOp::IAdd, vec![v(n), v(n)]);
+    assert_eq!(
+        boxed(vec![n], body),
+        "\\(v1) -> let v902:I = UnboxIntMove(v1); let v903:I = IAdd(v902, v902); BoxInt(v903)"
+    );
+}
+
+#[test]
+fn a_uniform_parameter_keeps_generic_arithmetic_generic() {
+    // The binder doesn't say Int, so `Add` on it may be a Float's or a String's.
+    let (x, sum) = (tagged(1), tagged(2));
+    let body = let_(sum, op(CorePrimOp::Add, vec![v(x), int(1)]), v(sum));
+    assert_eq!(boxed(vec![x], body), "\\(v1) -> let v2 = Add(v1, 1); v2");
+}
+
+#[test]
+fn a_lambda_capturing_a_uniform_parameter_holds_the_parameter() {
+    // fn f(n) = { let k = fn(y) { n + 1 }; k }, the op typed by ANF.
+    let (n, k, y) = (tagged(1), tagged(2), tagged(3));
+    let inner = lam(vec![y], op(CorePrimOp::IAdd, vec![v(n), int(1)]));
+    let body = let_(k, inner, v(k));
+    assert_eq!(
+        boxed(vec![n], body),
+        "\\(v1) -> let v2 = \\(v3) -> let v902:I = UnboxInt(v1); \
+         let v903:I = IAdd(v902, 1); BoxInt(v903); v2"
     );
 }
 
