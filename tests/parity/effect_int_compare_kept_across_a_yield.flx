@@ -1,0 +1,21 @@
+// parity: vm, llvm, llvm_verify
+// expect: success
+// bug: a comparison of two Ints, kept across a call that may yield and then
+//       branched on. Natively the branch reused the comparison's raw i1, so
+//       the continuation captured a raw word: llvm_verify refused the LIR
+//       (fuzz seed 1, case 44).
+// parity-expected-stdout-begin
+// "small"
+// ["x"]
+// parity-expected-stdout-end
+
+import Flow.Array as Array
+
+fn main() with IO {
+    let total: Int = Array.fold([|"a", "b", "c"|], 0, \(n: Int, s: String) -> n + len(s))
+    let small: Bool = total <= (5, "").0
+    let kept: List<String> = filter(["x"], \(s: String) -> true)
+    let shown = if small { "small" } else { "big" }
+    print(shown)
+    print(kept)
+}
