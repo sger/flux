@@ -723,6 +723,79 @@ mod tests {
         assert_eq!(synth.raw_ints, [v_raw].into_iter().collect());
     }
 
+    /// A raw word live across the call reaches the continuation boxed: the
+    /// closure holds the box under a capture of its own, and the entry
+    /// unboxes it into the word the copied blocks read. Nothing counts it.
+    #[test]
+    fn a_raw_capture_is_unboxed_at_the_continuations_entry() {
+        let mut program = LirProgram::new();
+        let mut f = empty_function(0, "f");
+        let [v_func, v_word, v_dst, v_sum] = [0, 1, 2, 3].map(LirVar);
+        f.params = vec![v_func, v_word];
+        f.blocks.push(LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
+            id: BlockId(0),
+            params: Vec::new(),
+            instrs: Vec::new(),
+            terminator: LirTerminator::Call {
+                dst: v_dst,
+                func: v_func,
+                args: Vec::new(),
+                cont: BlockId(1),
+                kind: CallKind::Indirect { async_capable: true },
+                suppress_yield_check: false,
+                yield_cont: None,
+                held: None,
+            },
+        });
+        f.blocks.push(LirBlock {
+            locs: Vec::new(),
+            term_loc: Default::default(),
+            id: BlockId(1),
+            params: Vec::new(),
+            instrs: vec![
+                LirInstr::IAdd { dst: v_sum, a: v_word, b: v_word },
+                LirInstr::BoxInt { dst: LirVar(4), raw: v_sum },
+            ],
+            terminator: LirTerminator::Return(LirVar(4)),
+        });
+        f.raw_ints = [v_word].into_iter().collect();
+        f.next_var = 5;
+        program.push_function(f);
+
+        let live = liveness::compute(&program.functions[0]);
+        let site = CallSite {
+            block_id: BlockId(0),
+            dst: v_dst,
+            cont: BlockId(1),
+            synth_id: LirFuncId(100),
+            held: None,
+        };
+        let (synth, captures, moved, _) =
+            synthesize_continuation(&program, 0, &site, &live).unwrap();
+        // The frame stores the word; the closure's slot is a box of it.
+        assert_eq!(captures, vec![v_word]);
+        assert!(moved.is_empty());
+        let boxed = synth.capture_vars[0];
+        assert!(boxed.0 >= 5, "a fresh capture: {:?}", synth.capture_vars);
+        assert!(synth.next_var > boxed.0);
+        let entry = &synth.blocks[0].instrs;
+        assert!(
+            entry.iter().any(|instr| matches!(
+                instr,
+                LirInstr::UnboxInt { dst, val, release: false } if *dst == v_word && *val == boxed
+            )),
+            "{entry:?}"
+        );
+        assert!(
+            !entry.iter().any(
+                |instr| matches!(instr, LirInstr::Dup { val } if *val == v_word || *val == boxed)
+            ),
+            "{entry:?}"
+        );
+    }
+
     /// A capture the frame owns moves into the continuation, and each resume
     /// copies it; one it only reads is read from the closure. A capture
     /// lowering made on its own is copied and kept, as before.
