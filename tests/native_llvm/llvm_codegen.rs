@@ -583,7 +583,7 @@ fn main() with IO {
     );
     assert!(!lir.contains("tag_int("), "{lir}");
     assert_eq!(lir.matches("unbox_int_move(").count(), 2, "{lir}");
-    assert_eq!(lir.matches("box_int(").count() - lir.matches("unbox_int").count(), 1, "{lir}");
+    assert_eq!(lir.matches("= box_int(").count(), 1, "{lir}");
     assert!(lir.contains("const Int(2)"), "{lir}");
 }
 

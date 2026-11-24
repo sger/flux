@@ -2,10 +2,12 @@
 //! IR is named where it breaks it rather than seen later as a wrong program
 //! or an LLVM error.
 //!
-//! LIR has no static types: every value is a tagged word, and the runtime
-//! checks a word's tag before counting it. So the reference-counting rule
-//! here is narrower than "only on heap values": a `dup` of a tagged `Int` is
-//! legal, and what this rejects is counting a word LIR itself made raw.
+//! LIR has no static types: a value is a uniform tagged word unless
+//! `raw_ints` or the instruction that defines it makes it raw, and the
+//! runtime checks a uniform word's tag before counting it. So the
+//! reference-counting rule here is narrower than "only on heap values": a
+//! `dup` of a tagged `Int` is legal, and what this rejects is counting a raw
+//! word, which the runtime could take for a pointer.
 //!
 //! Definitions before uses are checked on reachable blocks only:
 //! `promote_tail_calls` leaves a promoted call's continuation behind, with

@@ -80,6 +80,16 @@ fn rep_from_semantic_type(ty: Option<&CoreType>) -> FluxRep {
     ty.map(FluxRep::from_core_type).unwrap_or(FluxRep::TaggedRep)
 }
 
+/// A parameter's rep. Where Ints are raw words, explicit_boxing has made
+/// every parameter uniform, and the binder says so; elsewhere the type does.
+fn param_rep(
+    raw_ints_enabled: bool,
+    param: &CoreBinder,
+    ty: Option<&crate::core::CoreType>,
+) -> crate::core::FluxRep {
+    if raw_ints_enabled { param.rep } else { rep_for_typed_binder(param, ty) }
+}
+
 fn rep_for_typed_binder(binder: &CoreBinder, ty: Option<&CoreType>) -> FluxRep {
     ty.map(FluxRep::from_core_type).unwrap_or(binder.rep)
 }
@@ -723,13 +733,6 @@ pub fn lower_program_with_interner_and_externs(
         name_binder_map.entry(def.name).or_default().push(def.binder.id);
     }
 
-    // Build set of function binders known to return Int for local type propagation.
-    let int_return_binders: HashSet<CoreBinderId> = program
-        .defs
-        .iter()
-        .filter(|def| matches!(def.result_ty, Some(crate::core::CoreType::Int)))
-        .map(|def| def.binder.id)
-        .collect();
     let parameterized_effects_in_program = collect_parameterized_effects(program);
     let async_effect_binders =
         collect_async_effect_binders(&program.defs, &program.top_level_items, interner);
@@ -748,7 +751,7 @@ pub fn lower_program_with_interner_and_externs(
             globals_map,
             extern_symbols,
             top_level_value_map: &top_level_value_map,
-            int_return_binders: &int_return_binders,
+            raw_ints_enabled: false,
             parameterized_effects_in_program: &parameterized_effects_in_program,
             async_effect_binders: &async_effect_binders,
         };
@@ -769,7 +772,7 @@ pub fn lower_program_with_interner_and_externs(
             globals_map,
             extern_symbols,
             top_level_value_map: &top_level_value_map,
-            int_return_binders: &int_return_binders,
+            raw_ints_enabled: false,
             parameterized_effects_in_program: &parameterized_effects_in_program,
             async_effect_binders: &async_effect_binders,
         };
@@ -785,7 +788,7 @@ pub fn lower_program_with_interner_and_externs(
             &name_binder_map,
             &binder_func_map,
             &qualified_names,
-            &int_return_binders,
+            false,
             &parameterized_effects_in_program,
         );
         lir.push_function(func);
@@ -895,12 +898,6 @@ fn lower_aether_program_inner(
         name_binder_map.entry(def.name).or_default().push(def.binder.id);
     }
 
-    let int_return_binders: HashSet<CoreBinderId> = program
-        .defs()
-        .iter()
-        .filter(|def| matches!(def.result_ty, Some(crate::core::CoreType::Int)))
-        .map(|def| def.binder.id)
-        .collect();
     let parameterized_effects_in_program = collect_parameterized_effects_aether(program);
     let async_effect_binders =
         collect_async_effect_binders(&program.core.defs, &program.top_level_items, interner);
@@ -918,7 +915,7 @@ fn lower_aether_program_inner(
             globals_map,
             extern_symbols,
             top_level_value_map: &top_level_value_map,
-            int_return_binders: &int_return_binders,
+            raw_ints_enabled: true,
             parameterized_effects_in_program: &parameterized_effects_in_program,
             async_effect_binders: &async_effect_binders,
         };
@@ -937,7 +934,7 @@ fn lower_aether_program_inner(
             globals_map,
             extern_symbols,
             top_level_value_map: &top_level_value_map,
-            int_return_binders: &int_return_binders,
+            raw_ints_enabled: true,
             parameterized_effects_in_program: &parameterized_effects_in_program,
             async_effect_binders: &async_effect_binders,
         };
@@ -953,7 +950,7 @@ fn lower_aether_program_inner(
             &name_binder_map,
             &binder_func_map,
             &qualified_names,
-            &int_return_binders,
+            true,
             &parameterized_effects_in_program,
         );
         lir.push_function(func);
@@ -1203,17 +1200,22 @@ struct FnLower<'a> {
     /// Maps CoreBinderId → top-level non-function rhs so native lowering can
     /// use the value directly instead of fabricating a closure placeholder.
     top_level_value_map: &'a HashMap<CoreBinderId, &'a CoreExpr>,
-    /// Variables known to hold tagged integers at this point in lowering.
-    /// Used for local type propagation: when a generic `Add` sees both
-    /// operands in this set, it emits `IAdd` instead of a C runtime call.
-    int_vars: HashSet<LirVar>,
     /// Maps a TagBool destination to its raw i1 source.  When UntagBool is
     /// emitted on a variable in this map, we emit Copy instead of the
     /// full untag, eliminating the TagBool→UntagBool round-trip (Phase 6,
     /// Proposal 0140).
     bool_raw_source: HashMap<LirVar, LirVar>,
-    /// Function binders whose return type is known to be Int.
-    int_return_binders: &'a HashSet<CoreBinderId>,
+    /// The value of each Int literal lowered here, so a raw position can
+    /// take a raw constant in place of the uniform one.
+    lit_ints: HashMap<LirVar, i64>,
+    /// Whether the expression being lowered gives a raw word: the right side
+    /// of an `IntRep` let, and the tails it reaches. Taken on entry by each
+    /// expression; only tail positions pass it on.
+    want_raw: bool,
+    /// Whether an `IntRep` binder is a raw word here. Only Aether programs,
+    /// which explicit_boxing has made explicit, have them; dictionaries,
+    /// which it skips, and the Core-to-LIR path keep every Int tagged.
+    raw_ints_enabled: bool,
     /// Effects currently handled by a parameterized handler. Native lowering
     /// must use the yield path for these even when FLUX_YIELD_CHECKS is off,
     /// because the direct identity-resume fallback has no state slot.
@@ -1263,8 +1265,8 @@ struct FnLowerCtx<'a> {
     binder_func_id_map: &'a HashMap<CoreBinderId, LirFuncId>,
     qualified_names: &'a HashMap<CoreBinderId, String>,
     top_level_value_map: &'a HashMap<CoreBinderId, &'a CoreExpr>,
-    /// Function binders known to return Int (from `CoreDef::result_ty`).
-    int_return_binders: &'a HashSet<CoreBinderId>,
+    /// See `FnLower::raw_ints_enabled`.
+    raw_ints_enabled: bool,
     parameterized_effects_in_program: &'a HashSet<Identifier>,
     async_indirect_calls: bool,
 }
@@ -1315,8 +1317,9 @@ impl<'a> FnLower<'a> {
             binder_func_id_map: ctx.binder_func_id_map,
             qualified_names: ctx.qualified_names,
             top_level_value_map: ctx.top_level_value_map,
-            int_vars: HashSet::new(),
-            int_return_binders: ctx.int_return_binders,
+            raw_ints_enabled: ctx.raw_ints_enabled,
+            lit_ints: HashMap::new(),
+            want_raw: false,
             bool_raw_source: HashMap::new(),
             active_parameterized_effects: HashSet::new(),
             handle_evidence: Vec::new(),
@@ -1578,6 +1581,8 @@ impl<'a> FnLower<'a> {
     fn emit_copy_to_join_param(&mut self, val: LirVar, target_block: BlockId) {
         let target_idx = target_block.0 as usize;
         if let Some(&param) = self.func.blocks[target_idx].params.first() {
+            // Every arm gives the join's word: raw for a raw join.
+            let val = if self.is_raw(param) { self.as_raw(val) } else { self.as_uniform(val) };
             self.emit(LirInstr::Copy { dst: param, src: val });
         }
     }
@@ -1616,8 +1621,13 @@ impl<'a> FnLower<'a> {
         else {
             return;
         };
-        let rep =
-            if self.int_vars.contains(&var) { crate::core::FluxRep::IntRep } else { binder.rep };
+        let rep = if self.is_raw(var) {
+            crate::core::FluxRep::IntRep
+        } else if binder.rep == crate::core::FluxRep::IntRep {
+            crate::core::FluxRep::TaggedRep
+        } else {
+            binder.rep
+        };
         if aether_fault_target().is_some_and(|(_, target)| target == name) {
             self.faulted_vars.insert(var);
         }
@@ -1684,7 +1694,7 @@ impl<'a> FnLower<'a> {
     // ── Expression lowering ──────────────────────────────────────────
 
     /// Lower a `CoreExpr` and return the `LirVar` holding the result.
-    /// The result is always a tagged i64 value.
+    /// The result is a uniform word unless it is marked raw (`is_raw`).
     /// The location of a node with `span`: its own, with the inlined lambda
     /// it belongs to, if any, or, for a node the compiler made without one,
     /// the enclosing node's.
@@ -1961,7 +1971,7 @@ impl<'a> FnLower<'a> {
                                 binder_func_id_map: self.binder_func_id_map,
                                 qualified_names: self.qualified_names,
                                 top_level_value_map: self.top_level_value_map,
-                                int_return_binders: self.int_return_binders,
+                                raw_ints_enabled: self.raw_ints_enabled,
                                 parameterized_effects_in_program: self
                                     .parameterized_effects_in_program,
                                 async_indirect_calls: self.async_indirect_calls,
@@ -2040,7 +2050,8 @@ impl<'a> FnLower<'a> {
                             let pv = inner.fresh_var();
                             inner.bind_param(param, pv);
                             inner.func.params.push(pv);
-                            inner.func.param_reps.push(rep_for_typed_binder(
+                            inner.func.param_reps.push(param_rep(
+                                inner.raw_ints_enabled,
                                 param,
                                 param_types.get(index).and_then(|ty| ty.as_ref()),
                             ));
@@ -2140,7 +2151,7 @@ impl<'a> FnLower<'a> {
                             binder_func_id_map: self.binder_func_id_map,
                             qualified_names: self.qualified_names,
                             top_level_value_map: self.top_level_value_map,
-                            int_return_binders: self.int_return_binders,
+                            raw_ints_enabled: self.raw_ints_enabled,
                             parameterized_effects_in_program: self.parameterized_effects_in_program,
                             async_indirect_calls: self.async_indirect_calls,
                         },
@@ -2193,7 +2204,8 @@ impl<'a> FnLower<'a> {
                         let pv = inner.fresh_var();
                         inner.bind_param(param, pv);
                         inner.func.params.push(pv);
-                        inner.func.param_reps.push(rep_for_typed_binder(
+                        inner.func.param_reps.push(param_rep(
+                            inner.raw_ints_enabled,
                             param,
                             param_types.get(index).and_then(|ty| ty.as_ref()),
                         ));
@@ -2270,7 +2282,7 @@ impl<'a> FnLower<'a> {
                             binder_func_id_map: self.binder_func_id_map,
                             qualified_names: self.qualified_names,
                             top_level_value_map: self.top_level_value_map,
-                            int_return_binders: self.int_return_binders,
+                            raw_ints_enabled: self.raw_ints_enabled,
                             parameterized_effects_in_program: self.parameterized_effects_in_program,
                             async_indirect_calls: self.async_indirect_calls,
                         },
@@ -2294,7 +2306,8 @@ impl<'a> FnLower<'a> {
                         let pv = inner.fresh_var();
                         inner.bind_param(param, pv);
                         inner.func.params.push(pv);
-                        inner.func.param_reps.push(rep_for_typed_binder(
+                        inner.func.param_reps.push(param_rep(
+                            inner.raw_ints_enabled,
                             param,
                             param_types.get(index).and_then(|ty| ty.as_ref()),
                         ));
@@ -2512,6 +2525,8 @@ impl<'a> FnLower<'a> {
     }
 
     fn lower_expr_aether_here(&mut self, expr: &AetherExpr) -> LirVar {
+        // Only the tail positions below pass the want on.
+        let want = std::mem::take(&mut self.want_raw);
         match expr {
             AetherExpr::Lit(lit, _) => self.lower_lit(lit),
             AetherExpr::Var { var, .. } => {
@@ -2544,7 +2559,7 @@ impl<'a> FnLower<'a> {
                             binder_func_id_map: self.binder_func_id_map,
                             qualified_names: self.qualified_names,
                             top_level_value_map: self.top_level_value_map,
-                            int_return_binders: self.int_return_binders,
+                            raw_ints_enabled: self.raw_ints_enabled,
                             parameterized_effects_in_program: self.parameterized_effects_in_program,
                             async_indirect_calls: self.async_indirect_calls,
                         },
@@ -2563,7 +2578,8 @@ impl<'a> FnLower<'a> {
                         let pv = inner.fresh_var();
                         inner.bind_param(param, pv);
                         inner.func.params.push(pv);
-                        inner.func.param_reps.push(rep_for_typed_binder(
+                        inner.func.param_reps.push(param_rep(
+                            inner.raw_ints_enabled,
                             param,
                             param_types.get(index).and_then(|ty| ty.as_ref()),
                         ));
@@ -2602,9 +2618,11 @@ impl<'a> FnLower<'a> {
                 Some(owned_after),
             ),
             AetherExpr::Let { var, rhs, body, .. } => {
-                let rhs_var = self.lower_expr_aether(rhs);
+                let raw = self.raw_ints_enabled && var.rep == crate::core::FluxRep::IntRep;
+                let rhs_var = self.lower_tail_aether(rhs, raw);
+                let rhs_var = if raw { self.as_raw(rhs_var) } else { self.as_uniform(rhs_var) };
                 self.bind_source(var, rhs_var, LirVarKind::Let);
-                self.lower_expr_aether(body)
+                self.lower_tail_aether(body, want)
             }
             AetherExpr::LetRecGroup { bindings, body, .. } => {
                 let group_binder_ids: HashSet<CoreBinderId> =
@@ -2692,7 +2710,7 @@ impl<'a> FnLower<'a> {
                                 binder_func_id_map: self.binder_func_id_map,
                                 qualified_names: self.qualified_names,
                                 top_level_value_map: self.top_level_value_map,
-                                int_return_binders: self.int_return_binders,
+                                raw_ints_enabled: self.raw_ints_enabled,
                                 parameterized_effects_in_program: self
                                     .parameterized_effects_in_program,
                                 async_indirect_calls: self.async_indirect_calls,
@@ -2763,7 +2781,8 @@ impl<'a> FnLower<'a> {
                             let pv = inner.fresh_var();
                             inner.bind_param(param, pv);
                             inner.func.params.push(pv);
-                            inner.func.param_reps.push(rep_for_typed_binder(
+                            inner.func.param_reps.push(param_rep(
+                                inner.raw_ints_enabled,
                                 param,
                                 param_types.get(index).and_then(|ty| ty.as_ref()),
                             ));
@@ -2795,7 +2814,7 @@ impl<'a> FnLower<'a> {
                         self.direct_func_vars.insert(dst, entry.synthetic_id);
                     }
                 }
-                self.lower_expr_aether(body)
+                self.lower_tail_aether(body, want)
             }
             AetherExpr::LetRec { var, rhs, body, .. } => {
                 if let AetherExpr::Lam { params, param_types, result_ty, body: lam_body, .. } =
@@ -2841,7 +2860,7 @@ impl<'a> FnLower<'a> {
                             binder_func_id_map: self.binder_func_id_map,
                             qualified_names: self.qualified_names,
                             top_level_value_map: self.top_level_value_map,
-                            int_return_binders: self.int_return_binders,
+                            raw_ints_enabled: self.raw_ints_enabled,
                             parameterized_effects_in_program: self.parameterized_effects_in_program,
                             async_indirect_calls: self.async_indirect_calls,
                         },
@@ -2881,7 +2900,8 @@ impl<'a> FnLower<'a> {
                         let pv = inner.fresh_var();
                         inner.bind_param(param, pv);
                         inner.func.params.push(pv);
-                        inner.func.param_reps.push(rep_for_typed_binder(
+                        inner.func.param_reps.push(param_rep(
+                            inner.raw_ints_enabled,
                             param,
                             param_types.get(index).and_then(|ty| ty.as_ref()),
                         ));
@@ -2908,18 +2928,20 @@ impl<'a> FnLower<'a> {
                     } else {
                         self.direct_func_vars.insert(dst, synthetic_id);
                     }
-                    self.lower_expr_aether(body)
+                    self.lower_tail_aether(body, want)
                 } else {
                     let placeholder = self.fresh_var();
                     self.emit(LirInstr::Const { dst: placeholder, value: LirConst::None });
                     self.bind(var.id, placeholder);
                     let rhs_var = self.lower_expr_aether(rhs);
                     self.bind_source(var, rhs_var, LirVarKind::Let);
-                    self.lower_expr_aether(body)
+                    self.lower_tail_aether(body, want)
                 }
             }
             AetherExpr::PrimOp { op, args, span } => self.lower_primop_aether(*op, args, *span),
-            AetherExpr::Case { scrutinee, alts, .. } => self.lower_case_aether(scrutinee, alts),
+            AetherExpr::Case { scrutinee, alts, .. } => {
+                self.lower_case_aether(scrutinee, alts, want)
+            }
             AetherExpr::Con { tag, fields, .. } => self.lower_con_from_aether(tag, fields),
             AetherExpr::Return { value, .. } => {
                 let val = self.lower_expr_aether(value);
@@ -3048,23 +3070,32 @@ impl<'a> FnLower<'a> {
             AetherExpr::Dup { var, body, .. } => {
                 if let Some(binder) = var.binder {
                     let v = self.lookup(binder);
+                    // Aether never counts an Int binder: a raw word read as a
+                    // pointer would be followed.
+                    debug_assert!(!self.is_raw(v), "dup of the raw word {v}");
                     self.emit(LirInstr::Dup { val: v });
                 }
-                self.lower_expr_aether(body)
+                self.lower_tail_aether(body, want)
             }
             AetherExpr::Drop { var, body, .. } => {
                 if let Some(binder) = var.binder {
                     let v = self.lookup(binder);
+                    // Aether never counts an Int binder: a raw word read as a
+                    // pointer would be followed.
+                    debug_assert!(!self.is_raw(v), "drop of the raw word {v}");
                     self.emit(LirInstr::Drop { val: v });
                 }
-                self.lower_expr_aether(body)
+                self.lower_tail_aether(body, want)
             }
             AetherExpr::FreeShell { var, body, .. } => {
                 if let Some(binder) = var.binder {
                     let v = self.lookup(binder);
+                    // Aether never counts an Int binder: a raw word read as a
+                    // pointer would be followed.
+                    debug_assert!(!self.is_raw(v), "freeshell of the raw word {v}");
                     self.emit(LirInstr::FreeShell { val: v });
                 }
-                self.lower_expr_aether(body)
+                self.lower_tail_aether(body, want)
             }
             AetherExpr::Reuse { token, tag, fields, field_mask, .. } => {
                 let field_vars: Vec<LirVar> =
@@ -3226,7 +3257,9 @@ impl<'a> FnLower<'a> {
 
     fn lower_lit(&mut self, lit: &CoreLit) -> LirVar {
         let dst = self.fresh_var();
-        let is_int = matches!(lit, CoreLit::Int(_));
+        if let CoreLit::Int(n) = lit {
+            self.lit_ints.insert(dst, *n);
+        }
         let value = match lit {
             CoreLit::Int(n) => {
                 let n = *n;
@@ -3249,10 +3282,59 @@ impl<'a> FnLower<'a> {
             CoreLit::Unit => LirConst::None,
         };
         self.emit(LirInstr::Const { dst, value });
-        if is_int {
-            self.int_vars.insert(dst);
-        }
         dst
+    }
+
+    // ── Raw Ints (KI-039) ────────────────────────────────────────────
+
+    /// Whether `var` holds a raw word.
+    fn is_raw(&self, var: LirVar) -> bool {
+        self.func.raw_ints.contains(&var)
+    }
+
+    fn mark_raw(&mut self, var: LirVar) {
+        self.func.raw_ints.insert(var);
+    }
+
+    /// `var` as a raw word. A literal becomes a raw constant. Anything else
+    /// explicit_boxing has already unboxed; a uniform Int that reaches here
+    /// all the same is unboxed, which is right, if slower.
+    fn as_raw(&mut self, var: LirVar) -> LirVar {
+        if self.is_raw(var) {
+            return var;
+        }
+        let dst = self.fresh_var();
+        match self.lit_ints.get(&var) {
+            Some(&n) => self.emit(LirInstr::Const { dst, value: LirConst::Int(n) }),
+            None => self.emit(LirInstr::UnboxInt { dst, val: var, release: false }),
+        }
+        self.mark_raw(dst);
+        dst
+    }
+
+    /// `var` as a uniform word: a raw one is boxed.
+    fn as_uniform(&mut self, var: LirVar) -> LirVar {
+        if !self.is_raw(var) {
+            return var;
+        }
+        let dst = self.fresh_var();
+        self.emit(LirInstr::BoxInt { dst, raw: var });
+        dst
+    }
+
+    /// Lowers `expr` in a tail position: it gives a raw word if the
+    /// expression it ends wanted one.
+    fn lower_tail_aether(&mut self, expr: &AetherExpr, want_raw: bool) -> LirVar {
+        self.want_raw = want_raw;
+        self.lower_expr_aether(expr)
+    }
+
+    /// Lowers a `match` arm for the join `join`, which takes raw words if
+    /// its parameter is raw.
+    fn lower_arm_aether(&mut self, rhs: &AetherExpr, join: BlockId) -> LirVar {
+        let want_raw =
+            self.func.blocks[join.0 as usize].params.first().is_some_and(|p| self.is_raw(*p));
+        self.lower_tail_aether(rhs, want_raw)
     }
 
     // ── Effect handler lowering (Proposal 0134) ─────────────────────
@@ -3502,16 +3584,16 @@ impl<'a> FnLower<'a> {
             return dst;
         }
 
-        let (direct_func_id, callee_binder) = match func {
+        let direct_func_id = match func {
             CoreExpr::Var { var, .. } if var.binder.is_some() => {
                 let bid = var.binder.unwrap();
                 let preferred = self.prefer_same_module_binder(bid, var.name);
-                (self.binder_func_id_map.get(&preferred).copied(), Some(preferred))
+                self.binder_func_id_map.get(&preferred).copied()
             }
-            CoreExpr::Var { var, .. } if var.binder.is_none() => self
-                .direct_same_module_func_for_name(var.name)
-                .map_or((None, None), |(func_id, binder)| (Some(func_id), Some(binder))),
-            _ => (None, None),
+            CoreExpr::Var { var, .. } if var.binder.is_none() => {
+                self.direct_same_module_func_for_name(var.name).map(|(func_id, _)| func_id)
+            }
+            _ => None,
         };
         let direct_external_symbol = if direct_func_id.is_none() {
             match func {
@@ -3557,12 +3639,6 @@ impl<'a> FnLower<'a> {
                 held: None,
             });
             self.switch_to_block(cont_idx);
-            // Mark result as integer if the callee is known to return Int.
-            if let Some(bid) = callee_binder
-                && self.int_return_binders.contains(&bid)
-            {
-                self.int_vars.insert(result);
-            }
             return result;
         }
 
@@ -3586,11 +3662,6 @@ impl<'a> FnLower<'a> {
                 held: None,
             });
             self.switch_to_block(cont_idx);
-            if let Some(bid) = callee_binder
-                && self.int_return_binders.contains(&bid)
-            {
-                self.int_vars.insert(result);
-            }
             return result;
         }
 
@@ -3708,16 +3779,16 @@ impl<'a> FnLower<'a> {
             return dst;
         }
 
-        let (direct_func_id, callee_binder) = match func {
+        let direct_func_id = match func {
             AetherExpr::Var { var, .. } if var.binder.is_some() => {
                 let bid = var.binder.unwrap();
                 let preferred = self.prefer_same_module_binder(bid, var.name);
-                (self.binder_func_id_map.get(&preferred).copied(), Some(preferred))
+                self.binder_func_id_map.get(&preferred).copied()
             }
-            AetherExpr::Var { var, .. } if var.binder.is_none() => self
-                .direct_same_module_func_for_name(var.name)
-                .map_or((None, None), |(func_id, binder)| (Some(func_id), Some(binder))),
-            _ => (None, None),
+            AetherExpr::Var { var, .. } if var.binder.is_none() => {
+                self.direct_same_module_func_for_name(var.name).map(|(func_id, _)| func_id)
+            }
+            _ => None,
         };
         let direct_external_symbol = if direct_func_id.is_none() {
             match func {
@@ -3765,11 +3836,6 @@ impl<'a> FnLower<'a> {
             });
             self.switch_to_block(cont_idx);
             self.drop_protected_borrowed_call_args(&protected_borrowed_args);
-            if let Some(bid) = callee_binder
-                && self.int_return_binders.contains(&bid)
-            {
-                self.int_vars.insert(result);
-            }
             return result;
         }
 
@@ -3905,8 +3971,13 @@ impl<'a> FnLower<'a> {
             .filter_map(|binder| self.env.get(binder).copied())
             .chain(guarded.iter().copied())
             .collect();
-        let mut lent: Vec<LirVar> =
-            self.env.values().copied().filter(|var| !owned.contains(var)).collect();
+        // A raw word is not counted, so nothing holds it across the call.
+        let mut lent: Vec<LirVar> = self
+            .env
+            .values()
+            .copied()
+            .filter(|var| !owned.contains(var) && !self.is_raw(*var))
+            .collect();
         lent.sort_by_key(|var| var.0);
         lent.dedup();
         Box::new(HeldAcross { owned, lent, scoped: self.handle_evidence.clone() })
@@ -3965,7 +4036,7 @@ impl<'a> FnLower<'a> {
                 binder_func_id_map: self.binder_func_id_map,
                 qualified_names: self.qualified_names,
                 top_level_value_map: self.top_level_value_map,
-                int_return_binders: self.int_return_binders,
+                raw_ints_enabled: self.raw_ints_enabled,
                 parameterized_effects_in_program: self.parameterized_effects_in_program,
                 async_indirect_calls: self.async_indirect_calls,
             },
@@ -4072,7 +4143,7 @@ impl<'a> FnLower<'a> {
                 binder_func_id_map: self.binder_func_id_map,
                 qualified_names: self.qualified_names,
                 top_level_value_map: self.top_level_value_map,
-                int_return_binders: self.int_return_binders,
+                raw_ints_enabled: self.raw_ints_enabled,
                 parameterized_effects_in_program: self.parameterized_effects_in_program,
                 async_indirect_calls: self.async_indirect_calls,
             },
@@ -4354,12 +4425,24 @@ impl<'a> FnLower<'a> {
         span: crate::diagnostics::position::Span,
     ) -> LirVar {
         match op {
-            // @KI-039: every Int is a tagged word in LIR until raw Ints land,
-            // so boxing and unboxing copy it.
+            CorePrimOp::BoxInt if self.raw_ints_enabled => {
+                let raw = self.as_raw(arg_vars[0]);
+                let dst = self.fresh_var();
+                self.emit(LirInstr::BoxInt { dst, raw });
+                dst
+            }
+            CorePrimOp::UnboxInt | CorePrimOp::UnboxIntMove if self.raw_ints_enabled => {
+                let val = self.as_uniform(arg_vars[0]);
+                let dst = self.fresh_var();
+                let release = op == CorePrimOp::UnboxIntMove;
+                self.emit(LirInstr::UnboxInt { dst, val, release });
+                self.mark_raw(dst);
+                dst
+            }
+            // Where every Int is a tagged word, boxing and unboxing copy it.
             CorePrimOp::BoxInt | CorePrimOp::UnboxInt | CorePrimOp::UnboxIntMove => {
                 let dst = self.fresh_var();
                 self.emit(LirInstr::Copy { dst, src: arg_vars[0] });
-                self.int_vars.insert(dst);
                 dst
             }
             // Typed integer arithmetic → inline LIR instructions.
@@ -4525,44 +4608,6 @@ impl<'a> FnLower<'a> {
                 result
             }
 
-            // Generic arithmetic → specialize to inline integer ops when both
-            // operands are known integers (local type propagation, Phase 5).
-            CorePrimOp::Add
-                if arg_vars.len() == 2
-                    && self.int_vars.contains(&arg_vars[0])
-                    && self.int_vars.contains(&arg_vars[1]) =>
-            {
-                self.lower_int_binop(LirIntOp::Add, &arg_vars, span)
-            }
-            CorePrimOp::Sub
-                if arg_vars.len() == 2
-                    && self.int_vars.contains(&arg_vars[0])
-                    && self.int_vars.contains(&arg_vars[1]) =>
-            {
-                self.lower_int_binop(LirIntOp::Sub, &arg_vars, span)
-            }
-            CorePrimOp::Mul
-                if arg_vars.len() == 2
-                    && self.int_vars.contains(&arg_vars[0])
-                    && self.int_vars.contains(&arg_vars[1]) =>
-            {
-                self.lower_int_binop(LirIntOp::Mul, &arg_vars, span)
-            }
-            CorePrimOp::Div
-                if arg_vars.len() == 2
-                    && self.int_vars.contains(&arg_vars[0])
-                    && self.int_vars.contains(&arg_vars[1]) =>
-            {
-                self.lower_int_binop(LirIntOp::Div, &arg_vars, span)
-            }
-            CorePrimOp::Mod
-                if arg_vars.len() == 2
-                    && self.int_vars.contains(&arg_vars[0])
-                    && self.int_vars.contains(&arg_vars[1]) =>
-            {
-                self.lower_int_binop(LirIntOp::Rem, &arg_vars, span)
-            }
-
             // Everything else → C runtime call via PrimCall.
             _ => {
                 let dst = self.fresh_var();
@@ -4572,17 +4617,23 @@ impl<'a> FnLower<'a> {
         }
     }
 
-    /// Lower typed integer binary op: untag → compute → retag.
+    /// Lower typed integer binary op. On raw words it is the operation
+    /// alone; where Ints are tagged words, untag → compute → retag.
     fn lower_int_binop(
         &mut self,
         int_op: LirIntOp,
         args: &[LirVar],
         span: crate::diagnostics::position::Span,
     ) -> LirVar {
-        let a_raw = self.fresh_var();
-        let b_raw = self.fresh_var();
-        self.emit(LirInstr::UntagInt { dst: a_raw, val: args[0] });
-        self.emit(LirInstr::UntagInt { dst: b_raw, val: args[1] });
+        let (a_raw, b_raw) = if self.raw_ints_enabled {
+            (self.as_raw(args[0]), self.as_raw(args[1]))
+        } else {
+            let a_raw = self.fresh_var();
+            let b_raw = self.fresh_var();
+            self.emit(LirInstr::UntagInt { dst: a_raw, val: args[0] });
+            self.emit(LirInstr::UntagInt { dst: b_raw, val: args[1] });
+            (a_raw, b_raw)
+        };
 
         let result_raw = self.fresh_var();
         let instr = match int_op {
@@ -4598,19 +4649,28 @@ impl<'a> FnLower<'a> {
             LirIntOp::Shr => LirInstr::IShr { dst: result_raw, a: a_raw, b: b_raw },
         };
         self.emit(instr);
+        if self.raw_ints_enabled {
+            self.mark_raw(result_raw);
+            return result_raw;
+        }
 
         let dst = self.fresh_var();
         self.emit(LirInstr::TagInt { dst, raw: result_raw });
-        self.int_vars.insert(dst);
         dst
     }
 
-    /// Lower typed integer comparison: untag → ICmp → retag as bool.
+    /// Lower typed integer comparison: compare the raw words (untagging
+    /// them first where Ints are tagged), and tag the result as a Bool.
     fn lower_int_cmp(&mut self, cmp_op: CmpOp, args: &[LirVar]) -> LirVar {
-        let a_raw = self.fresh_var();
-        let b_raw = self.fresh_var();
-        self.emit(LirInstr::UntagInt { dst: a_raw, val: args[0] });
-        self.emit(LirInstr::UntagInt { dst: b_raw, val: args[1] });
+        let (a_raw, b_raw) = if self.raw_ints_enabled {
+            (self.as_raw(args[0]), self.as_raw(args[1]))
+        } else {
+            let a_raw = self.fresh_var();
+            let b_raw = self.fresh_var();
+            self.emit(LirInstr::UntagInt { dst: a_raw, val: args[0] });
+            self.emit(LirInstr::UntagInt { dst: b_raw, val: args[1] });
+            (a_raw, b_raw)
+        };
 
         let cmp_result = self.fresh_var();
         self.emit(LirInstr::ICmp { dst: cmp_result, op: cmp_op, a: a_raw, b: b_raw });
@@ -4671,11 +4731,17 @@ impl<'a> FnLower<'a> {
         result_var
     }
 
-    fn lower_case_aether(&mut self, scrutinee: &AetherExpr, alts: &[AetherAlt]) -> LirVar {
+    /// Lowers a `match`. With `want_raw` its arms join raw words.
+    fn lower_case_aether(
+        &mut self,
+        scrutinee: &AetherExpr,
+        alts: &[AetherAlt],
+        want_raw: bool,
+    ) -> LirVar {
         let scrut = self.lower_expr_aether(scrutinee);
 
         if alts.len() == 1 {
-            return self.lower_single_alt_aether(scrut, &alts[0]);
+            return self.lower_single_alt_aether(scrut, &alts[0], want_raw);
         }
 
         if alts.iter().any(|alt| alt.guard.is_some()) {
@@ -4683,6 +4749,9 @@ impl<'a> FnLower<'a> {
             let join_id = self.func.blocks[join_idx].id;
             let result_var = self.fresh_var();
             self.func.blocks[join_idx].params.push(result_var);
+            if want_raw {
+                self.mark_raw(result_var);
+            }
             self.lower_case_chain_aether(scrut, alts, join_id);
             self.switch_to_block(join_idx);
             return result_var;
@@ -4692,6 +4761,9 @@ impl<'a> FnLower<'a> {
         let join_id = self.func.blocks[join_idx].id;
         let result_var = self.fresh_var();
         self.func.blocks[join_idx].params.push(result_var);
+        if want_raw {
+            self.mark_raw(result_var);
+        }
 
         let has_lit = alts.iter().any(|a| matches!(a.pat, CorePat::Lit(_)));
         let has_con = alts
@@ -4703,7 +4775,7 @@ impl<'a> FnLower<'a> {
         } else if has_con {
             self.lower_case_con_aether(scrut, alts, join_id);
         } else {
-            let val = self.lower_single_alt_aether(scrut, &alts[0]);
+            let val = self.lower_single_alt_aether(scrut, &alts[0], want_raw);
             self.emit(LirInstr::Copy { dst: result_var, src: val });
             self.set_terminator(LirTerminator::Jump(join_id));
             self.switch_to_block(join_idx);
@@ -4725,12 +4797,17 @@ impl<'a> FnLower<'a> {
         self.lower_expr(&alt.rhs)
     }
 
-    fn lower_single_alt_aether(&mut self, scrut: LirVar, alt: &AetherAlt) -> LirVar {
+    fn lower_single_alt_aether(
+        &mut self,
+        scrut: LirVar,
+        alt: &AetherAlt,
+        want_raw: bool,
+    ) -> LirVar {
         self.bind_pattern(scrut, &alt.pat);
         if let Some(guard) = &alt.guard {
             let _guard_val = self.lower_expr_aether(guard);
         }
-        self.lower_expr_aether(&alt.rhs)
+        self.lower_tail_aether(&alt.rhs, want_raw)
     }
 
     fn lower_case_lit_aether(&mut self, scrut: LirVar, alts: &[AetherAlt], join_block: BlockId) {
@@ -4746,16 +4823,7 @@ impl<'a> FnLower<'a> {
                         self.emit(LirInstr::UntagBool { dst: raw, val: scrut });
                         (raw, true)
                     } else {
-                        let lit_var = self.lower_lit(lit);
-                        let cmp = self.fresh_var();
-                        self.emit(LirInstr::PrimCall {
-                            dst: Some(cmp),
-                            op: CorePrimOp::CmpEq,
-                            args: vec![scrut, lit_var],
-                        });
-                        let raw = self.fresh_var();
-                        self.emit(LirInstr::UntagBool { dst: raw, val: cmp });
-                        (raw, false)
+                        (self.literal_test(scrut, lit), false)
                     };
 
                     let then_idx = self.new_block();
@@ -4771,7 +4839,7 @@ impl<'a> FnLower<'a> {
 
                     self.switch_to_block(then_idx);
                     self.bind_pattern(scrut, &alt.pat);
-                    let val = self.lower_expr_aether(&alt.rhs);
+                    let val = self.lower_arm_aether(&alt.rhs, join_block);
                     self.emit_copy_to_join_param(val, join_block);
                     self.set_terminator(LirTerminator::Jump(join_block));
 
@@ -4779,13 +4847,17 @@ impl<'a> FnLower<'a> {
                 }
                 CorePat::Wildcard | CorePat::Var(_) => {
                     self.bind_pattern(scrut, &alt.pat);
-                    let val = self.lower_expr_aether(&alt.rhs);
+                    let val = self.lower_arm_aether(&alt.rhs, join_block);
                     self.emit_copy_to_join_param(val, join_block);
                     self.set_terminator(LirTerminator::Jump(join_block));
                     return;
                 }
                 _ => {
-                    let val = self.lower_single_alt_aether(scrut, alt);
+                    let want_raw = self.func.blocks[join_block.0 as usize]
+                        .params
+                        .first()
+                        .is_some_and(|p| self.is_raw(*p));
+                    let val = self.lower_single_alt_aether(scrut, alt, want_raw);
                     self.emit_copy_to_join_param(val, join_block);
                     self.set_terminator(LirTerminator::Jump(join_block));
                 }
@@ -4812,16 +4884,7 @@ impl<'a> FnLower<'a> {
                         self.emit(LirInstr::UntagBool { dst: raw, val: scrut });
                         (raw, true)
                     } else {
-                        let lit_var = self.lower_lit(lit);
-                        let cmp = self.fresh_var();
-                        self.emit(LirInstr::PrimCall {
-                            dst: Some(cmp),
-                            op: CorePrimOp::CmpEq,
-                            args: vec![scrut, lit_var],
-                        });
-                        let raw = self.fresh_var();
-                        self.emit(LirInstr::UntagBool { dst: raw, val: cmp });
-                        (raw, false)
+                        (self.literal_test(scrut, lit), false)
                     };
 
                     let then_idx = self.new_block();
@@ -5070,7 +5133,7 @@ impl<'a> FnLower<'a> {
                 }
             }
 
-            let val = self.lower_expr_aether(&alt.rhs);
+            let val = self.lower_arm_aether(&alt.rhs, join_block);
             self.emit_copy_to_join_param(val, join_block);
             self.set_terminator(LirTerminator::Jump(join_block));
         }
@@ -5202,9 +5265,34 @@ impl<'a> FnLower<'a> {
             self.switch_to_block(body_idx);
         }
 
-        let val = self.lower_expr_aether(&alt.rhs);
+        let val = self.lower_arm_aether(&alt.rhs, join_block);
         self.emit_copy_to_join_param(val, join_block);
         self.set_terminator(LirTerminator::Jump(join_block));
+    }
+
+    /// The raw `i1` of `scrut == lit`, for a literal other than a Bool. A raw
+    /// Int is compared as a word; anything else asks the runtime.
+    fn literal_test(&mut self, scrut: LirVar, lit: &CoreLit) -> LirVar {
+        if let CoreLit::Int(n) = lit
+            && self.is_raw(scrut)
+        {
+            let lit_raw = self.fresh_var();
+            self.emit(LirInstr::Const { dst: lit_raw, value: LirConst::Int(*n) });
+            self.mark_raw(lit_raw);
+            let raw = self.fresh_var();
+            self.emit(LirInstr::ICmp { dst: raw, op: CmpOp::Eq, a: scrut, b: lit_raw });
+            return raw;
+        }
+        let lit_var = self.lower_lit(lit);
+        let cmp = self.fresh_var();
+        self.emit(LirInstr::PrimCall {
+            dst: Some(cmp),
+            op: CorePrimOp::CmpEq,
+            args: vec![scrut, lit_var],
+        });
+        let raw = self.fresh_var();
+        self.emit(LirInstr::UntagBool { dst: raw, val: cmp });
+        raw
     }
 
     fn emit_pattern_check(
@@ -5219,15 +5307,7 @@ impl<'a> FnLower<'a> {
                 self.set_terminator(LirTerminator::Jump(success));
             }
             CorePat::Lit(lit) => {
-                let lit_var = self.lower_lit(lit);
-                let cmp = self.fresh_var();
-                self.emit(LirInstr::PrimCall {
-                    dst: Some(cmp),
-                    op: CorePrimOp::CmpEq,
-                    args: vec![scrut, lit_var],
-                });
-                let raw_cmp = self.fresh_var();
-                self.emit(LirInstr::UntagBool { dst: raw_cmp, val: cmp });
+                let raw_cmp = self.literal_test(scrut, lit);
                 self.set_terminator(LirTerminator::Branch {
                     cond: raw_cmp,
                     then_block: success,
@@ -5451,7 +5531,8 @@ struct LowerDefCtx<'a> {
     globals_map: Option<&'a HashMap<String, usize>>,
     extern_symbols: Option<&'a HashMap<String, ImportedNativeSymbol>>,
     top_level_value_map: &'a HashMap<CoreBinderId, &'a CoreExpr>,
-    int_return_binders: &'a HashSet<CoreBinderId>,
+    /// See `FnLower::raw_ints_enabled`.
+    raw_ints_enabled: bool,
     parameterized_effects_in_program: &'a HashSet<Identifier>,
     async_effect_binders: &'a HashSet<CoreBinderId>,
 }
@@ -5486,7 +5567,7 @@ fn lower_def(def: &CoreDef, ctx: LowerDefCtx<'_>) -> LirFunction {
             binder_func_id_map: ctx.binder_func_map,
             qualified_names: ctx.qualified_names,
             top_level_value_map: ctx.top_level_value_map,
-            int_return_binders: ctx.int_return_binders,
+            raw_ints_enabled: ctx.raw_ints_enabled,
             parameterized_effects_in_program: ctx.parameterized_effects_in_program,
             async_indirect_calls: ctx.async_effect_binders.contains(&def.binder.id),
         },
@@ -5518,7 +5599,8 @@ fn lower_def(def: &CoreDef, ctx: LowerDefCtx<'_>) -> LirFunction {
                 let pv = ctx.fresh_var();
                 ctx.bind_param(param, pv);
                 ctx.func.params.push(pv);
-                ctx.func.param_reps.push(rep_for_typed_binder(
+                ctx.func.param_reps.push(param_rep(
+                    ctx.raw_ints_enabled,
                     param,
                     param_types.get(index).and_then(|ty| ty.as_ref()),
                 ));
@@ -5539,6 +5621,8 @@ fn lower_aether_def(def: &crate::aether::AetherDef, ctx: LowerDefCtx<'_>) -> Lir
     let debug_name = format!("def_{}", def.binder.id.0);
     let qualified_name =
         lir_symbol_name_for_def(def.binder.id, def.is_anonymous, ctx.qualified_names, &debug_name);
+    let is_dict_def =
+        def.is_dict_def || crate::types::class_env::is_dictionary_name(&qualified_name);
     let mut ctx = FnLower::new(
         debug_name,
         func_id,
@@ -5552,13 +5636,14 @@ fn lower_aether_def(def: &crate::aether::AetherDef, ctx: LowerDefCtx<'_>) -> Lir
             binder_func_id_map: ctx.binder_func_map,
             qualified_names: ctx.qualified_names,
             top_level_value_map: ctx.top_level_value_map,
-            int_return_binders: ctx.int_return_binders,
+            // explicit_boxing leaves dictionaries alone, so their Ints stay
+            // tagged words.
+            raw_ints_enabled: ctx.raw_ints_enabled && !is_dict_def,
             parameterized_effects_in_program: ctx.parameterized_effects_in_program,
             async_indirect_calls: ctx.async_effect_binders.contains(&def.binder.id),
         },
     );
-    ctx.func.is_dict_def =
-        def.is_dict_def || crate::types::class_env::is_dictionary_name(&ctx.func.qualified_name);
+    ctx.func.is_dict_def = is_dict_def;
     let name =
         if def.is_anonymous { ctx.func.qualified_name.clone() } else { ctx.name_of(def.name) };
     ctx.place(LirFnKind::Named(name), LirLoc::from_span(def.span));
@@ -5574,7 +5659,8 @@ fn lower_aether_def(def: &crate::aether::AetherDef, ctx: LowerDefCtx<'_>) -> Lir
                 let pv = ctx.fresh_var();
                 ctx.bind_param(param, pv);
                 ctx.func.params.push(pv);
-                ctx.func.param_reps.push(rep_for_typed_binder(
+                ctx.func.param_reps.push(param_rep(
+                    ctx.raw_ints_enabled,
                     param,
                     param_types.get(index).and_then(|ty| ty.as_ref()),
                 ));
@@ -5600,7 +5686,7 @@ fn lower_synthetic_main_core(
     name_binder_map: &HashMap<crate::syntax::Identifier, Vec<CoreBinderId>>,
     binder_func_map: &HashMap<CoreBinderId, LirFuncId>,
     qualified_names: &HashMap<CoreBinderId, String>,
-    int_return_binders: &HashSet<CoreBinderId>,
+    raw_ints_enabled: bool,
     parameterized_effects_in_program: &HashSet<Identifier>,
 ) -> LirFunction {
     let synthetic_id = LirFuncId(
@@ -5620,7 +5706,7 @@ fn lower_synthetic_main_core(
             binder_func_id_map: binder_func_map,
             qualified_names,
             top_level_value_map: &empty_values,
-            int_return_binders,
+            raw_ints_enabled,
             parameterized_effects_in_program,
             async_indirect_calls: false,
         },
@@ -5657,7 +5743,7 @@ fn lower_synthetic_main_aether(
     name_binder_map: &HashMap<crate::syntax::Identifier, Vec<CoreBinderId>>,
     binder_func_map: &HashMap<CoreBinderId, LirFuncId>,
     qualified_names: &HashMap<CoreBinderId, String>,
-    int_return_binders: &HashSet<CoreBinderId>,
+    raw_ints_enabled: bool,
     parameterized_effects_in_program: &HashSet<Identifier>,
 ) -> LirFunction {
     let synthetic_id = LirFuncId(
@@ -5677,7 +5763,7 @@ fn lower_synthetic_main_aether(
             binder_func_id_map: binder_func_map,
             qualified_names,
             top_level_value_map: &empty_values,
-            int_return_binders,
+            raw_ints_enabled,
             parameterized_effects_in_program,
             async_indirect_calls: false,
         },
@@ -6273,10 +6359,11 @@ mod tests {
         }
     }
 
-    /// Every Int is a tagged word in LIR until raw Ints land, so each boxing
-    /// primop lowers to a copy of its argument.
+    /// In an Aether program an Int let is a raw word, so the boxing primops
+    /// lower to the instructions that box and unbox one; an unbox that
+    /// consumes its word says so.
     #[test]
-    fn the_int_boxing_primops_lower_to_copies() {
+    fn the_int_boxing_primops_lower_to_the_box_and_unbox_instructions() {
         use crate::aether::{AetherDef, AetherProgram};
         use crate::core::CorePrimOp;
         let span = Span::default();
@@ -6308,12 +6395,17 @@ mod tests {
             let function = &lowered.functions[0];
             let param = function.params[0];
             let instrs: Vec<_> = function.blocks.iter().flat_map(|b| b.instrs.iter()).collect();
-            assert!(
-                instrs
-                    .iter()
-                    .any(|i| matches!(i, crate::lir::LirInstr::Copy { src, .. } if *src == param)),
-                "{op:?}: {instrs:?}"
-            );
+            let lowered_to = |i: &&crate::lir::LirInstr| match (op, i) {
+                (CorePrimOp::BoxInt, crate::lir::LirInstr::BoxInt { .. }) => true,
+                (CorePrimOp::UnboxInt, crate::lir::LirInstr::UnboxInt { val, release, .. }) => {
+                    *val == param && !*release
+                }
+                (CorePrimOp::UnboxIntMove, crate::lir::LirInstr::UnboxInt { val, release, .. }) => {
+                    *val == param && *release
+                }
+                _ => false,
+            };
+            assert!(instrs.iter().any(lowered_to), "{op:?}: {instrs:?}");
             assert!(
                 !instrs.iter().any(|i| matches!(i, crate::lir::LirInstr::PrimCall { .. })),
                 "{op:?}: {instrs:?}"

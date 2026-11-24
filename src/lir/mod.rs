@@ -87,8 +87,9 @@ pub enum CmpOp {
 
 // ── Instructions ─────────────────────────────────────────────────────────────
 
-/// A single LIR instruction.  All instructions operate on `LirVar` SSA values
-/// representing pointer-tagged `i64` words (the Flux runtime representation).
+/// A single LIR instruction.  All instructions operate on `LirVar` SSA values,
+/// each an `i64` word. A word is uniform (pointer-tagged, the Flux runtime
+/// representation) unless the function's `raw_ints` makes it a raw `Int`.
 #[derive(Debug, Clone)]
 pub enum LirInstr {
     // ── Memory ──────────────────────────────────────────────────────

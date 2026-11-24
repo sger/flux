@@ -268,6 +268,8 @@ impl DebugBuilder {
         // The declares of variables of inlined lambdas, which need a location
         // inlined as their scope is (0188 S9c).
         let mut inlined_declares = Vec::new();
+        // A raw Int is a plain number, which flux_lldb.py shows as `FluxInt`.
+        let raw = crate::lir::verify::raw_words(func);
         for (index, var) in debug.vars.iter().enumerate() {
             let value = format!("v{}", var.var.0);
             if !defined.contains(value.as_str()) {
@@ -276,6 +278,8 @@ impl DebugBuilder {
             let param = func.params.iter().position(|param| *param == var.var);
             let ty = if var.kind == LirVarKind::Captured {
                 self.word_type("FluxCaptured")
+            } else if raw.contains(&var.var) {
+                self.word_type("FluxInt")
             } else {
                 self.word_type("FluxValue")
             };
