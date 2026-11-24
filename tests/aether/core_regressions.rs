@@ -127,16 +127,19 @@ fn lowered_core_and_interner(src: impl AsRef<str>) -> (AetherProgram, Interner) 
     (aether, interner)
 }
 
-/// How many `Dup`s of a binder named `name` the program holds.
-fn dups_named(core: &AetherProgram, interner: &Interner, name: &str) -> usize {
+/// Copies of `name` on the unique paths of drop-specialized matches, where
+/// the matched cell is reused and its fields are owned.
+fn unique_path_dups_named(core: &AetherProgram, interner: &Interner, name: &str) -> usize {
     let name = interner.lookup(name).unwrap_or_else(|| panic!("the program binds `{name}`"));
     core.defs
         .iter()
-        .map(|def| {
-            count_matching(
-                &def.expr,
+        .flat_map(|def| collect_core_exprs(&def.expr))
+        .filter_map(|expr| match expr {
+            CoreExpr::DropSpecialized { unique_body, .. } => Some(count_matching(
+                unique_body,
                 &|expr| matches!(expr, CoreExpr::Dup { var, .. } if var.name == name),
-            )
+            )),
+            _ => None,
         })
         .sum()
 }
@@ -233,9 +236,10 @@ fn main() { borrow_then_return(#[1, 2, 3], 42) }
 
 #[test]
 fn recursive_borrow_signature_stays_precise() {
-    // array_len borrows its argument, so my_len borrows xs too.
-    // Both params of `loop` are Borrowed: xs is forwarded to borrowing my_len,
-    // and n is only used in PrimOp positions.
+    // array_len borrows its argument, so my_len borrows xs too, and `loop`
+    // borrows xs: it only forwards it to borrowing my_len. `n` is an Int box
+    // that `loop` consumes to read it, so the box `n - 1` moves into the
+    // recursive call with nothing to release after it.
     let src = r#"
 fn my_len(xs) { array_len(xs) }
 fn loop(xs, n) {
@@ -250,7 +254,7 @@ fn main() { loop(#[1, 2, 3], 3) }
         sig.params,
         vec![
             flux::aether::borrow_infer::BorrowMode::Borrowed,
-            flux::aether::borrow_infer::BorrowMode::Borrowed,
+            flux::aether::borrow_infer::BorrowMode::Owned,
         ]
     );
 }
@@ -269,14 +273,15 @@ fn main() { even(#[1, 2, 3], 4) }
 "#;
     let core = lowered_core(src);
     // defs[0] is my_len (helper), defs[1..2] are even/odd
-    // array_len borrows its arg, so my_len borrows xs, so even/odd borrow xs too.
+    // array_len borrows its arg, so my_len borrows xs, so even/odd borrow xs
+    // too. Each consumes its Int box `n`, as `loop` does above.
     for def in core.defs.iter().skip(1).take(2) {
         let sig = def.borrow_signature.as_ref().expect("borrow signature");
         assert_eq!(
             sig.params,
             vec![
                 flux::aether::borrow_infer::BorrowMode::Borrowed,
-                flux::aether::borrow_infer::BorrowMode::Borrowed,
+                flux::aether::borrow_infer::BorrowMode::Owned,
             ]
         );
     }
@@ -293,11 +298,12 @@ fn main() { loop(\x -> x + 1, 3) }
     let core = lowered_core(src);
     let loop_def = core.defs.first().expect("loop def");
     let sig = loop_def.borrow_signature.as_ref().expect("borrow signature");
+    // `f` is forwarded, so borrowed; the Int box `n` is consumed.
     assert_eq!(
         sig.params,
         vec![
             flux::aether::borrow_infer::BorrowMode::Borrowed,
-            flux::aether::borrow_infer::BorrowMode::Borrowed,
+            flux::aether::borrow_infer::BorrowMode::Owned,
         ]
     );
 }
@@ -320,7 +326,7 @@ fn main() { even(\x -> x + 1, 4) }
             sig.params,
             vec![
                 flux::aether::borrow_infer::BorrowMode::Borrowed,
-                flux::aether::borrow_infer::BorrowMode::Borrowed,
+                flux::aether::borrow_infer::BorrowMode::Owned,
             ]
         );
     }
@@ -690,22 +696,22 @@ fn maintained_drop_spec_branchy_fixture_emits_reuse_inside_drop_specialized() {
 }
 
 #[test]
-fn maintained_drop_spec_recursive_fixture_skips_drop_specialized_for_int_elements() {
-    // Phase 7e: `h` in [h | t] is IntRep (typed pattern binders), so it is
-    // never copied. `t` is, where it is given away (0189 F3-2a), so the arm
-    // may still be drop-specialized for it.
+fn maintained_drop_spec_recursive_fixture_copies_an_int_element_only_for_its_second_use() {
+    // `h` in [h | t] is an Int field: a uniform word, counted like `t`. Where
+    // the cell is unique and reused, `h` moves into it and is copied only for
+    // the arm that uses it twice.
     let src = std::fs::read_to_string("examples/aether/drop_spec_recursive.flx")
         .expect("fixture should exist");
     let (core, interner) = lowered_core_and_interner(src);
     assert_eq!(
-        dups_named(&core, &interner, "h"),
-        0,
-        "typed pattern binders (IntRep) keep integer list elements uncounted"
+        unique_path_dups_named(&core, &interner, "h"),
+        1,
+        "the reused cell's Int element is copied once, for its second use"
     );
 }
 
 #[test]
-fn maintained_drop_spec_branchy_fixture_keeps_unique_path_dup_free() {
+fn maintained_drop_spec_branchy_fixture_copies_less_on_the_unique_path() {
     let src = std::fs::read_to_string("examples/aether/drop_spec_branchy.flx")
         .expect("fixture should exist");
     let core = lowered_core(src);
@@ -720,20 +726,21 @@ fn maintained_drop_spec_branchy_fixture_keeps_unique_path_dup_free() {
                     .into_iter()
                     .filter(|inner| matches!(inner, CoreExpr::Dup { .. }))
                     .count();
-                unique_dups == 0 && shared_dups >= 1
+                unique_dups < shared_dups
             }
             _ => false,
         });
     assert!(
         found,
-        "expected maintained branchy drop-spec fixture to leave the unique path dup-free while preserving shared-path dups"
+        "expected maintained branchy drop-spec fixture to copy fewer fields on the unique path than on the shared path"
     );
 }
 
 #[test]
-fn maintained_drop_spec_recursive_fixture_has_no_dups_for_int_elements() {
-    // Phase 7e: with typed pattern binders, `h` is IntRep and needs no dup/drop.
-    // DropSpecialized is gone, so we just verify that dups are minimal overall.
+fn maintained_drop_spec_recursive_fixture_keeps_dups_minimal() {
+    // In `rec_copy_or_keep`, the unique path copies `h` once, for its second
+    // use; the shared path copies `h` and `t` out of the cell it does not
+    // own, and `h` again for the arm that uses it twice. `main` copies once.
     let src = std::fs::read_to_string("examples/aether/drop_spec_recursive.flx")
         .expect("fixture should exist");
     let core = lowered_core(src);
@@ -743,9 +750,10 @@ fn maintained_drop_spec_recursive_fixture_has_no_dups_for_int_elements() {
         .flat_map(|def| collect_core_exprs(&def.expr))
         .filter(|expr| matches!(expr, CoreExpr::Dup { .. }))
         .count();
-    // Typed binders eliminate dups for IntRep pattern variables. The remaining
-    // dups (if any) are for boxed values like the list tail or closures.
-    assert!(total_dups <= 2, "typed pattern binders should minimize dups; got {total_dups}");
+    assert!(
+        total_dups <= 5,
+        "a match on a list cell should copy only what it shares; got {total_dups}"
+    );
 }
 
 #[test]
@@ -769,9 +777,9 @@ fn main() { keep_right_only(Node(Red, Leaf, 5, Leaf)) }
 }
 
 #[test]
-fn drop_spec_list_multiuse_field_skips_drop_specialized_for_int_elements() {
-    // Phase 7e: `h` in `[h | t]` is IntRep (from typed pattern binders), so
-    // however often it is used it is never copied.
+fn drop_spec_list_multiuse_field_copies_an_int_element_only_for_its_second_use() {
+    // `h` in `[h | t]` is an Int field, a uniform word: on the unique path it
+    // moves into the reused cell, and its second use is a copy.
     let src = r#"
 fn copy_head(xs) {
     match xs {
@@ -783,9 +791,9 @@ fn main() { copy_head([1, 2, 3]) }
 "#;
     let (core, interner) = lowered_core_and_interner(src);
     assert_eq!(
-        dups_named(&core, &interner, "h"),
-        0,
-        "typed pattern binders (IntRep) keep integer list elements uncounted"
+        unique_path_dups_named(&core, &interner, "h"),
+        1,
+        "the reused cell's Int element is copied once, for its second use"
     );
 }
 
@@ -837,8 +845,8 @@ fn main() with IO { shadow_in_handler(41) }
 }
 
 #[test]
-fn drop_spec_branchy_list_update_skips_drop_specialized_for_int_elements() {
-    // Phase 7e: `h` is IntRep, so it is never copied.
+fn drop_spec_branchy_list_update_copies_an_int_element_only_for_its_second_use() {
+    // `h` is an Int field, a uniform word: only the copying arm copies it.
     let src = r#"
 fn copy_or_keep_head(xs, copy) {
     match xs {
@@ -850,9 +858,9 @@ fn main() { copy_or_keep_head([1, 2, 3], true) }
 "#;
     let (core, interner) = lowered_core_and_interner(src);
     assert_eq!(
-        dups_named(&core, &interner, "h"),
-        0,
-        "typed pattern binders (IntRep) keep integer list elements uncounted"
+        unique_path_dups_named(&core, &interner, "h"),
+        1,
+        "the reused cell's Int element is copied once, for its second use"
     );
 }
 
@@ -891,8 +899,8 @@ fn main() { keep_or_dup_left(Node(Red, Leaf, 5, Leaf), false) }
 }
 
 #[test]
-fn drop_spec_recursive_update_skips_drop_specialized_for_int_elements() {
-    // Phase 7e: `h` is IntRep, so it is never copied.
+fn drop_spec_recursive_update_copies_an_int_element_only_for_its_second_use() {
+    // `h` is an Int field, a uniform word: only the copying arm copies it.
     let src = r#"
 fn rec_copy_or_keep(xs, choose) {
     match xs {
@@ -904,9 +912,9 @@ fn main() { rec_copy_or_keep([1, 2, 3], false) }
 "#;
     let (core, interner) = lowered_core_and_interner(src);
     assert_eq!(
-        dups_named(&core, &interner, "h"),
-        0,
-        "typed pattern binders (IntRep) keep integer list elements uncounted"
+        unique_path_dups_named(&core, &interner, "h"),
+        1,
+        "the reused cell's Int element is copied once, for its second use"
     );
 }
 
@@ -1416,12 +1424,12 @@ fn queue_workload_fixture_claims_match_current_core_shape() {
                 CoreExpr::AetherCall { arg_modes, .. }
                     if arg_modes == &[
                         flux::aether::borrow_infer::BorrowMode::Owned,
-                        flux::aether::borrow_infer::BorrowMode::Borrowed,
+                        flux::aether::borrow_infer::BorrowMode::Owned,
                         flux::aether::borrow_infer::BorrowMode::Owned,
                     ]
             )
         }),
-        "queue rotate_sum should keep the iteration count borrowed through recursion"
+        "queue rotate_sum should move its Int counters into the recursive call"
     );
 }
 
@@ -1531,9 +1539,12 @@ fn opt_corpus_negative_fixture_stays_conservative_on_intended_shapes() {
     let core = lowered_core(src);
     let exprs = core.defs.iter().flat_map(|def| collect_core_exprs(&def.expr)).collect::<Vec<_>>();
 
+    // `y` in [y | ys] is an Int field, a counted uniform word, so the near
+    // miss's match is drop-specialized and its unique path reuses `xs` for
+    // one of the two lists. The wrapper itself stays fresh (below).
     assert!(
-        exprs.iter().filter(|expr| matches!(expr, CoreExpr::Reuse { .. })).count() == 1,
-        "negative corpus should keep reuse limited to the single exact fresh_tree path"
+        exprs.iter().filter(|expr| matches!(expr, CoreExpr::Reuse { .. })).count() == 2,
+        "negative corpus should keep reuse to fresh_tree's exact path and the near miss's unique path"
     );
     assert!(
         !exprs.iter().any(|expr| {
@@ -1547,10 +1558,6 @@ fn opt_corpus_negative_fixture_stays_conservative_on_intended_shapes() {
         }),
         "negative corpus should keep the forwarding near-miss fresh"
     );
-    // Phase 7e: with typed pattern binders, `y` in [y | ys] is IntRep (from
-    // List<Int>), so DropSpecialized is no longer needed — no dup/drop divergence.
-    // DropSpecialized may or may not be present depending on other functions.
-    // The key invariant is that reuse stays limited and near-miss stays fresh.
 }
 
 #[test]

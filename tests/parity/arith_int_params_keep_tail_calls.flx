@@ -1,0 +1,52 @@
+// parity: vm, llvm
+// expect: success
+// bug: An Int parameter is a box its function unboxes, and an Int argument a
+//      box its caller makes. Each loop below runs two million times, so it
+//      overflows the stack if boxing costs it its tail call.
+// parity-expected-stdout-begin
+// 2000000
+// 0
+// 4000000
+// 2000000
+// 7
+// "done"
+// parity-expected-stdout-end
+
+// Both parameters are read only as Ints.
+fn count_down(n: Int, acc: Int) -> Int {
+    if n == 0 { acc } else { count_down(n - 1, acc + 1) }
+}
+
+// The second parameter is never read.
+fn skip(n: Int, unused: Int) -> Int {
+    if n == 0 { 0 } else { skip(n - 1, n) }
+}
+
+// The accumulator goes through a closure call, which takes and returns
+// uniform words.
+fn loop_with(f, n: Int, acc: Int) -> Int {
+    if n == 0 { acc } else { loop_with(f, n - 1, f(acc)) }
+}
+
+// A mutually recursive pair.
+fn ping(n: Int, acc: Int) -> Int {
+    if n == 0 { acc } else { pong(n - 1, acc + 1) }
+}
+
+fn pong(n: Int, acc: Int) -> Int {
+    if n == 0 { acc } else { ping(n - 1, acc + 1) }
+}
+
+// Generic in `x`, used at two types, so `x` stays a uniform word.
+fn hold<a>(x: a, n: Int) -> a {
+    if n == 0 { x } else { hold(x, n - 1) }
+}
+
+fn main() with IO {
+    print(count_down(2000000, 0))
+    print(skip(2000000, 0))
+    print(loop_with(\v -> v + 2, 2000000, 0))
+    print(ping(2000000, 0))
+    print(hold(7, 2000000))
+    print(hold("done", 2000000))
+}

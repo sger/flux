@@ -25,8 +25,6 @@ pub mod callee;
 pub mod check_fbip;
 pub mod display;
 pub mod drop_spec;
-// Wired into the pipeline once the pass exists.
-#[allow(dead_code)]
 pub mod explicit_boxing;
 pub mod fbip_analysis;
 pub mod free_vars;
@@ -1053,6 +1051,7 @@ fn lower_with_clone_names(
     // not be blamed on this program.
     let _ = take_pass_failure();
     let mut semantic_core = core.clone();
+    explicit_boxing::run(&mut semantic_core, interner)?;
     let mut borrow_registry = borrow_infer::infer_borrow_modes_with_preloaded(
         &mut semantic_core,
         interner,

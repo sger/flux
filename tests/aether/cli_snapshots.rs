@@ -293,18 +293,24 @@ fn aether_counts(dump: &str, name: &str) -> Option<String> {
 }
 
 #[test]
-fn int_and_bool_values_are_not_reference_counted() {
+fn raw_int_and_bool_values_are_not_reference_counted() {
     let file = example_path("aether/scalar_rc.flx");
     let dump = run_flux(&["--dump-aether", file.to_str().unwrap()]);
-    for name in ["count_true", "keys_above", "root_entry"] {
+    // Arithmetic, comparisons and call results stay raw or Bool: nothing to
+    // copy or release.
+    for name in ["count_true", "keys_above"] {
         if let Some(counts) = aether_counts(&dump, name) {
             assert!(counts.starts_with("Dups: 0  Drops: 0 "), "{name}: {counts}\n{dump}");
         }
     }
-    // `build` releases its nested `build_go` closure, and nothing else: not
-    // the closure's Int parameters.
+    // The Int field goes into a tuple as the uniform word it is in the
+    // tree, so it is copied out of the borrowed tree; the Bool is not.
+    let counts = aether_counts(&dump, "root_entry").unwrap_or_default();
+    assert!(counts.starts_with("Dups: 1  Drops: 0 "), "root_entry: {counts}\n{dump}");
+    // `build` releases its nested `build_go` closure, and `build_go` its two
+    // Int parameters on the path that does not pass them on.
     let counts = aether_counts(&dump, "build").unwrap_or_default();
-    assert!(counts.starts_with("Dups: 0  Drops: 1 "), "build: {counts}\n{dump}");
+    assert!(counts.starts_with("Dups: 0  Drops: 3 "), "build: {counts}\n{dump}");
 }
 
 #[test]

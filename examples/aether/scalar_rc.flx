@@ -1,10 +1,10 @@
 /*
-Aether fixture: Int and Bool values are never reference counted.
+Aether fixture: raw Int and Bool values are never reference counted.
 
 Each function below handles only integers and booleans apart from the tree it
-walks, so its Aether dump should copy and release nothing but tree nodes: no
-dup or drop on a call's Int result, an IAdd result, an Int or Bool constructor
-field, or a nested function's Int parameters.
+walks. Arithmetic, comparisons and Int call results are raw or Bool, so they
+are never copied or released. An Int that stays a uniform word, a field read
+out of the tree or a parameter passed on, is counted like any uniform word.
 */
 
 // parity-expected-stdout-begin
