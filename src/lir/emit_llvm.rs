@@ -2914,7 +2914,7 @@ impl<'a> FnEmitter<'a> {
         &mut self,
         yield_cont: Option<&YieldCont>,
     ) -> (Vec<LlvmInstr>, LlvmTerminator) {
-        let Some(YieldCont { func: func_id, captures, moved }) = yield_cont else {
+        let Some(YieldCont { func: func_id, captures, moved, boxed }) = yield_cont else {
             return (
                 Vec::new(),
                 LlvmTerminator::Ret {
@@ -2988,9 +2988,34 @@ impl<'a> FnEmitter<'a> {
                     base: LlvmOperand::Local(cap_arr.clone()),
                     indices: vec![(LlvmType::i32(), self.i32_const(i as i32))],
                 });
+                // A raw word goes into the closure as its box, which the
+                // continuation unboxes at its entry. @KI-039: a box is a
+                // tagged word, as `BoxInt` emits, until native code boxes
+                // big Ints.
+                let value = if boxed.contains(cap) {
+                    let shifted = self.tmp();
+                    instrs.push(LlvmInstr::Binary {
+                        dst: shifted.clone(),
+                        op: LlvmValueKind::Shl,
+                        ty: LlvmType::i64(),
+                        lhs: self.var(*cap),
+                        rhs: self.i64_const(1),
+                    });
+                    let tagged = self.tmp();
+                    instrs.push(LlvmInstr::Binary {
+                        dst: tagged.clone(),
+                        op: LlvmValueKind::Or,
+                        ty: LlvmType::i64(),
+                        lhs: LlvmOperand::Local(shifted),
+                        rhs: self.i64_const(1),
+                    });
+                    LlvmOperand::Local(tagged)
+                } else {
+                    self.var(*cap)
+                };
                 instrs.push(LlvmInstr::Store {
                     ty: LlvmType::i64(),
-                    value: self.var(*cap),
+                    value,
                     ptr: LlvmOperand::Local(gep),
                     align: Some(8),
                 });

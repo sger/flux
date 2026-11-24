@@ -99,7 +99,7 @@ pub fn split_continuations_with_options(mut program: LirProgram, force: bool) ->
                     // Attempt synthesis first so we only burn a synthetic id
                     // when the synthesis actually produces a function.
                     let cont = synthesize_continuation(&program, func_idx, &site, &live).map(
-                        |(mut synthesized, captures, moved, blocks)| {
+                        |(mut synthesized, captures, moved, boxed, blocks)| {
                             let synth_id = program.alloc_synthetic_func_id();
                             site.synth_id = synth_id;
                             synthesized.id = synth_id;
@@ -120,7 +120,7 @@ pub fn split_continuations_with_options(mut program: LirProgram, force: bool) ->
                                 })
                                 .collect();
                             origins.insert(new_idx, Origin { func: key.0, blocks });
-                            YieldCont { func: synth_id, captures, moved }
+                            YieldCont { func: synth_id, captures, moved, boxed }
                         },
                     );
                     made.insert(key, cont.clone());
@@ -207,12 +207,14 @@ fn collect_call_sites(
     sites
 }
 
-/// A synthesized continuation: `(function, live_capture_vars, moved, blocks)`.
-type Synthesized = (LirFunction, Vec<LirVar>, Vec<LirVar>, HashMap<BlockId, BlockId>);
+/// A synthesized continuation: `(function, live_capture_vars, moved, boxed,
+/// blocks)`.
+type Synthesized = (LirFunction, Vec<LirVar>, Vec<LirVar>, Vec<LirVar>, HashMap<BlockId, BlockId>);
 
 /// Synthesize a continuation LirFunction for one call site. Returns
-/// `(function, live_capture_vars, moved, blocks)`, where `moved` are the
-/// frame's own references among the captures and `blocks` maps each copied
+/// `(function, live_capture_vars, moved, boxed, blocks)`, where `moved` are
+/// the frame's own references among the captures, `boxed` the raw words among
+/// them, and `blocks` maps each copied
 /// block's new id to its id in the parent, or `None` if the cont subgraph is
 /// trivial enough that no synthesis is required.
 fn synthesize_continuation(
@@ -258,6 +260,28 @@ fn synthesize_continuation(
     let capture_vars: Vec<LirVar> =
         live_capture_set.iter().copied().filter(|v| *v != site.dst).collect();
 
+    // A closure holds uniform words, so a raw word reaches it boxed, under a
+    // capture of its own. The entry unboxes it into the word the copied
+    // blocks read; the closure keeps the box, so every resume reads it.
+    let raw = crate::lir::verify::raw_words(parent);
+    let boxed: Vec<LirVar> = capture_vars.iter().copied().filter(|v| raw.contains(v)).collect();
+    let mut next_var = parent.next_var;
+    let mut unboxes = Vec::new();
+    let closure_vars: Vec<LirVar> = capture_vars
+        .iter()
+        .map(|&var| {
+            if !boxed.contains(&var) {
+                return var;
+            }
+            let slot = LirVar(next_var);
+            next_var += 1;
+            unboxes.push(LirInstr::UnboxInt { dst: var, val: slot, release: false });
+            slot
+        })
+        .collect();
+    let counted: Vec<LirVar> =
+        capture_vars.iter().copied().filter(|v| !boxed.contains(v)).collect();
+
     // The native emitter relies on the invariant `blocks[i].id == BlockId(i)`
     // — its per-function reachability walk indexes `blocks` by `BlockId.0`.
     // The reachable slice from the parent has sparse/non-zero ids (cont may
@@ -282,8 +306,9 @@ fn synthesize_continuation(
     // the remapped cont. The copied blocks follow the parent's plan for one
     // run, which releases them, and a multi-shot handler runs them once per
     // resume (0189 V4, audit M4). The closure keeps its own references.
-    let (moved, copies) = frame_references(site.held.as_ref(), &capture_vars);
-    let entry_instrs: Vec<LirInstr> = copies.into_iter().map(|val| LirInstr::Dup { val }).collect();
+    let (moved, copies) = frame_references(site.held.as_ref(), &counted);
+    let entry_instrs: Vec<LirInstr> =
+        unboxes.into_iter().chain(copies.into_iter().map(|val| LirInstr::Dup { val })).collect();
     let entry_block = LirBlock {
         locs: Vec::new(),
         term_loc: Default::default(),
@@ -306,8 +331,7 @@ fn synthesize_continuation(
 
     // `next_var` must stay above every LirVar used inside the slice so that
     // the synthesized function can allocate fresh vars if a later pass needs
-    // to. The safest upper bound is the parent's own next_var.
-    let next_var = parent.next_var;
+    // to: the parent's own next_var, past the box slots taken above.
 
     let qualified_name = format!("{}$cont${}", parent.qualified_name, site.block_id.0);
     // To a debugger this is still the parent, resumed after the call.
@@ -333,7 +357,7 @@ fn synthesize_continuation(
             inline_sites: debug.inline_sites.clone(),
         }
     });
-    let raw_ints = carried_raw_ints(parent, &synth_blocks, &capture_vars, site.dst);
+    let raw_ints = carried_raw_ints(parent, &synth_blocks, &closure_vars, site.dst);
     let synthesized = LirFunction {
         debug,
         name: qualified_name.clone(),
@@ -343,7 +367,7 @@ fn synthesize_continuation(
         params: vec![site.dst],
         blocks: synth_blocks,
         next_var,
-        capture_vars: capture_vars.clone(),
+        capture_vars: closure_vars,
         param_reps: vec![FluxRep::TaggedRep; 1],
         raw_ints,
         result_rep: parent.result_rep,
@@ -360,7 +384,7 @@ fn synthesize_continuation(
         .filter(|(old, _)| *old != BlockId(u32::MAX))
         .map(|(old, new)| (new, old))
         .collect();
-    Some((synthesized, capture_vars, moved, blocks))
+    Some((synthesized, capture_vars, moved, boxed, blocks))
 }
 
 /// The frame's own references among `captures`, once per reference, and
@@ -553,7 +577,7 @@ mod tests {
             synth_id: LirFuncId(100),
             held: None,
         };
-        let (synth, captures, _, _) = synthesize_continuation(&program, 0, &site, &live)
+        let (synth, captures, _, _, _) = synthesize_continuation(&program, 0, &site, &live)
             .expect("synthesize should produce a function");
 
         // Capture set excludes dst (dst reaches the synth fn via its resume
@@ -646,7 +670,7 @@ mod tests {
             synth_id: LirFuncId(100),
             held: None,
         };
-        let (synth, captures, moved, _) =
+        let (synth, captures, moved, _, _) =
             synthesize_continuation(&program, 0, &site, &live).unwrap();
         // Lowering said nothing about what the frame holds: it keeps it all.
         assert!(moved.is_empty());
@@ -667,9 +691,9 @@ mod tests {
         );
     }
 
-    /// A raw Int the continuation's own blocks define stays raw there. A
-    /// captured one and the resume value reach it through the closure as
-    /// uniform words, so they are not carried.
+    /// A raw Int the continuation's own blocks define stays raw there, and so
+    /// does a captured one, which its entry unboxes. The resume value reaches
+    /// it through the closure as a uniform word, so it is not carried.
     #[test]
     fn a_continuation_keeps_the_raw_ints_its_blocks_define() {
         let mut program = LirProgram::new();
@@ -718,9 +742,10 @@ mod tests {
             synth_id: LirFuncId(100),
             held: None,
         };
-        let (synth, _, _, _) = synthesize_continuation(&program, 0, &site, &live).unwrap();
-        assert_eq!(synth.capture_vars, vec![v_func, v_arg]);
-        assert_eq!(synth.raw_ints, [v_raw].into_iter().collect());
+        let (synth, _, _, boxed, _) = synthesize_continuation(&program, 0, &site, &live).unwrap();
+        assert_eq!(boxed, vec![v_arg]);
+        assert_eq!(synth.capture_vars, vec![v_func, LirVar(5)]);
+        assert_eq!(synth.raw_ints, [v_arg, v_raw].into_iter().collect());
     }
 
     /// A raw word live across the call reaches the continuation boxed: the
@@ -772,7 +797,7 @@ mod tests {
             synth_id: LirFuncId(100),
             held: None,
         };
-        let (synth, captures, moved, _) =
+        let (synth, captures, moved, _, _) =
             synthesize_continuation(&program, 0, &site, &live).unwrap();
         // The frame stores the word; the closure's slot is a box of it.
         assert_eq!(captures, vec![v_word]);
@@ -844,7 +869,7 @@ mod tests {
             synth_id: LirFuncId(100),
             held: Some(HeldAcross { owned: vec![v_own], lent: vec![v_lent], scoped: Vec::new() }),
         };
-        let (synth, captures, moved, _) =
+        let (synth, captures, moved, _, _) =
             synthesize_continuation(&program, 0, &site, &live).unwrap();
 
         assert_eq!(captures, vec![v_own, v_lent, v_tmp]);

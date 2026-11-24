@@ -497,8 +497,9 @@ fn check_joins(
 }
 
 /// The words LIR made raw in `function`: what [`raw_result`] instructions
-/// define, what `raw_ints` declares, and every copy of either.
-fn raw_words(function: &LirFunction) -> HashSet<LirVar> {
+/// define, what `raw_ints` declares, and every copy of either. `cont_split`
+/// reads it too, to box what a yield carries.
+pub(crate) fn raw_words(function: &LirFunction) -> HashSet<LirVar> {
     let mut raw: HashSet<LirVar> = function.raw_ints.iter().copied().collect();
     for block in &function.blocks {
         for instr in &block.instrs {
@@ -703,7 +704,10 @@ fn terminator_operand_reps(
         LirTerminator::Call { func, args, kind, yield_cont, held, .. } => {
             let mut reps = call(func, args, kind);
             if let Some(cont) = yield_cont {
-                reps.extend(cont.captures.iter().map(|var| (*var, Uniform, "the yield capture")));
+                reps.extend(cont.captures.iter().map(|var| {
+                    let rep = if cont.boxed.contains(var) { Raw } else { Uniform };
+                    (*var, rep, "the yield capture")
+                }));
             }
             if let Some(held) = held {
                 let held_vars = held.owned.iter().chain(&held.lent).chain(&held.scoped);
@@ -1073,6 +1077,7 @@ mod tests {
                     func: LirFuncId(2),
                     captures: vec![v(1)],
                     moved: Vec::new(),
+                    boxed: Vec::new(),
                 }),
             ),
         ] {
@@ -1106,6 +1111,53 @@ mod tests {
                 ],
             );
             assert_eq!(rules(&program(vec![f, g])), vec![Rule::RawInUniform]);
+        }
+    }
+
+    /// A yield stores a capture it boxes as a box: the frame's word is raw,
+    /// and a uniform one listed there is a mistake.
+    #[test]
+    fn a_yield_boxes_the_raw_captures_it_lists() {
+        for (word, boxed, expected) in [
+            (untag(), vec![v(1)], Vec::new()),
+            (untag(), Vec::new(), vec![Rule::RawInUniform]),
+            (LirInstr::Copy { dst: v(1), src: v(0) }, vec![v(1)], vec![Rule::UniformInRaw]),
+        ] {
+            let g = function(
+                2,
+                "g",
+                &[0],
+                vec![block(0, &[], Vec::new(), LirTerminator::Return(v(0)))],
+            );
+            let f = function(
+                1,
+                "f",
+                &[0],
+                vec![
+                    block(
+                        0,
+                        &[],
+                        vec![word],
+                        LirTerminator::Call {
+                            dst: v(3),
+                            func: v(0),
+                            args: vec![v(0)],
+                            cont: BlockId(1),
+                            kind: CallKind::Direct { func_id: LirFuncId(2) },
+                            suppress_yield_check: false,
+                            yield_cont: Some(crate::lir::YieldCont {
+                                func: LirFuncId(2),
+                                captures: vec![v(1)],
+                                moved: Vec::new(),
+                                boxed,
+                            }),
+                            held: None,
+                        },
+                    ),
+                    block(1, &[3], Vec::new(), LirTerminator::Return(v(3))),
+                ],
+            );
+            assert_eq!(rules(&program(vec![f, g])), expected);
         }
     }
 

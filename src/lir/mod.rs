@@ -282,6 +282,10 @@ pub struct YieldCont {
     /// resume copies them again, because the rest of the frame releases
     /// them. A borrowed capture is only read, from the closure.
     pub moved: Vec<LirVar>,
+    /// The raw words among `captures`. The yield stores each as a box, and
+    /// the continuation unboxes it at its entry, since a closure holds
+    /// uniform words. The closure owns the box, so nothing counts the word.
+    pub boxed: Vec<LirVar>,
 }
 
 /// The terminator of a basic block — exactly one per block.
