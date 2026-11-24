@@ -541,3 +541,95 @@ fn emit_llvm_prints_ir_for_a_program_that_imports_the_prelude() {
     assert!(ran.success, "--emit-llvm failed:\n{}", ran.stderr);
     assert!(ran.stdout.contains("define "), "no function in the emitted IR:\n{}", ran.stdout);
 }
+
+/// `name`'s LIR in `source`, as `flux --native --dump-lir` prints it.
+fn lir_of(source: &str, label: &str, name: &str) -> String {
+    let ran = crate::support::flux_runner::flux_source(source, label)
+        .native()
+        .no_cache()
+        .args(&["--dump-lir"])
+        .run();
+    assert!(ran.success, "--dump-lir failed:\n{}", ran.stderr);
+    let header = format!("fn {name} [");
+    let lines: Vec<&str> = ran
+        .stdout
+        .lines()
+        .skip_while(|line| !line.starts_with(&header))
+        .take_while(|line| *line != "}")
+        .collect();
+    assert!(!lines.is_empty(), "no `{name}` in the LIR:\n{}", ran.stdout);
+    lines.join("\n")
+}
+
+/// An Int let is a raw word natively: a chain of Int operations on lets
+/// neither untags nor tags between them. The parameters are unboxed once,
+/// the result is boxed once, and the literal operand is a raw constant.
+#[test]
+fn int_arithmetic_on_lets_has_no_tag_or_untag_between_operations() {
+    let lir = lir_of(
+        r#"
+fn mix(x: Int, y: Int) -> Int {
+    let a = x * 2
+    let b = a + y
+    b - 1
+}
+
+fn main() with IO {
+    print(mix(3, 4))
+}
+"#,
+        "raw_int_chain",
+        "mix",
+    );
+    assert!(!lir.contains("tag_int("), "{lir}");
+    assert_eq!(lir.matches("unbox_int_move(").count(), 2, "{lir}");
+    assert_eq!(lir.matches("box_int(").count() - lir.matches("unbox_int").count(), 1, "{lir}");
+    assert!(lir.contains("const Int(2)"), "{lir}");
+}
+
+/// Both arms of an Int let's `if` give a raw word: the literal arm is a raw
+/// constant, and nothing is tagged on the way into the join.
+#[test]
+fn an_int_join_takes_raw_words_from_both_arms() {
+    let lir = lir_of(
+        r#"
+fn pick(n: Int, flag: Bool) -> Int {
+    let r: Int = if flag { 7 } else { n + 1 }
+    r * 2
+}
+
+fn main() with IO {
+    print(pick(5, false))
+}
+"#,
+        "raw_int_join",
+        "pick",
+    );
+    assert!(!lir.contains("tag_int("), "{lir}");
+    assert!(lir.contains("const Int(7)"), "{lir}");
+}
+
+/// A match of a raw Int against literals compares words, with no call into
+/// the runtime.
+#[test]
+fn an_int_literal_match_compares_raw_words() {
+    let lir = lir_of(
+        r#"
+fn named(n: Int) -> String {
+    match n % 4 {
+        0 -> "zero",
+        1 -> "one",
+        _ -> "many",
+    }
+}
+
+fn main() with IO {
+    print(named(9))
+}
+"#,
+        "raw_int_match",
+        "named",
+    );
+    assert!(!lir.contains("call CmpEq("), "{lir}");
+    assert_eq!(lir.matches("icmp eq").count(), 2, "{lir}");
+}
