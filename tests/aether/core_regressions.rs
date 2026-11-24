@@ -2774,3 +2774,74 @@ fn main() { f(to_string(5) + "a", true) }
         Ok(())
     );
 }
+
+/// How many calls to `callee` in `def` are bound by a `let` whose body does
+/// more than return the result. Such a call is not the function's last act,
+/// so it is not a tail call.
+fn calls_held_by_a_let(def: &CoreExpr, callee: flux::syntax::Identifier) -> usize {
+    count_matching(def, &|expr| {
+        matches!(
+            expr,
+            CoreExpr::Let { var, rhs, body, .. } if matches!(
+                rhs.as_ref(),
+                CoreExpr::AetherCall { func, .. } if matches!(
+                    func.as_ref(),
+                    CoreExpr::Var { var: callee_var, .. } if callee_var.name == callee
+                )
+            ) && !returns_binder(body, var.id)
+        )
+    })
+}
+
+fn returns_binder(body: &CoreExpr, id: flux::core::CoreBinderId) -> bool {
+    match body {
+        CoreExpr::Var { var, .. } => var.binder == Some(id),
+        CoreExpr::Return { value, .. } => returns_binder(value, id),
+        _ => false,
+    }
+}
+
+/// `r` holds the Int a recursive call returns, and only goes back out. It
+/// stays the call's uniform result: unboxing it and boxing it again would put
+/// work after the call, and a long loop would overflow the stack.
+#[test]
+fn an_int_call_result_bound_and_returned_stays_a_tail_call() {
+    let (core, interner) = lowered_core_and_interner(
+        r#"
+fn count_let(n: Int, acc: Int) -> Int {
+    if n == 0 {
+        acc
+    } else {
+        let r = count_let(n - 1, acc + 1)
+        r
+    }
+}
+"#,
+    );
+    let def = core
+        .defs()
+        .iter()
+        .find(|def| interner.try_resolve(def.name) == Some("count_let"))
+        .expect("count_let");
+    assert_eq!(calls_held_by_a_let(&def.expr, def.name), 0, "{:?}", def.expr);
+}
+
+/// `return ping(n)` returns an Int call's result as it is.
+#[test]
+fn returning_an_int_call_keeps_the_tail_call() {
+    let (core, interner) = lowered_core_and_interner(
+        r#"
+fn ping(n: Int) -> Int { if n == 0 { 0 } else { return pong(n - 1); } }
+fn pong(n: Int) -> Int { return ping(n); }
+"#,
+    );
+    let def = |name| {
+        core.defs()
+            .iter()
+            .find(|def| interner.try_resolve(def.name) == Some(name))
+            .unwrap_or_else(|| panic!("{name}"))
+    };
+    let (ping, pong) = (def("ping"), def("pong"));
+    assert_eq!(calls_held_by_a_let(&ping.expr, pong.name), 0, "{:?}", ping.expr);
+    assert_eq!(calls_held_by_a_let(&pong.expr, ping.name), 0, "{:?}", pong.expr);
+}
