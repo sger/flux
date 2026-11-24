@@ -1544,7 +1544,9 @@ impl<'a> FnEmitter<'a> {
             }
 
             // ── Pointer-tag tag/untag ──────────────────────────────
-            LirInstr::TagInt { dst, raw } => {
+            // @KI-039: a box is a tagged word until native code boxes big
+            // Ints, and `release` has nothing to let go.
+            LirInstr::TagInt { dst, raw } | LirInstr::BoxInt { dst, raw } => {
                 // Pointer-tag int: (raw << 1) | 1
                 let shifted = self.tmp();
                 self.emit(LlvmInstr::Binary {
@@ -1562,7 +1564,7 @@ impl<'a> FnEmitter<'a> {
                     rhs: self.i64_const(1),
                 });
             }
-            LirInstr::UntagInt { dst, val } => {
+            LirInstr::UntagInt { dst, val } | LirInstr::UnboxInt { dst, val, .. } => {
                 // Pointer-tag untag int: val >> 1 (arithmetic shift)
                 self.emit(LlvmInstr::Binary {
                     dst: self.var_local(*dst),

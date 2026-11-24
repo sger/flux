@@ -625,6 +625,8 @@ fn instr_operand_reps(instr: &LirInstr) -> Vec<(LirVar, Rep, &'static str)> {
         LirInstr::TagInt { raw, .. }
         | LirInstr::TagFloat { raw, .. }
         | LirInstr::TagBool { raw, .. } => vec![(*raw, Raw, "the word to tag")],
+        LirInstr::BoxInt { raw, .. } => vec![(*raw, Raw, "the Int to box")],
+        LirInstr::UnboxInt { val, .. } => vec![(*val, Uniform, "the word to unbox")],
         LirInstr::TagPtr { ptr, .. } => vec![(*ptr, Raw, "the pointer to tag")],
         LirInstr::UntagInt { val, .. }
         | LirInstr::UntagFloat { val, .. }
@@ -719,6 +721,7 @@ fn raw_result(instr: &LirInstr) -> Option<LirVar> {
     match instr {
         LirInstr::Alloc { dst, .. }
         | LirInstr::UntagInt { dst, .. }
+        | LirInstr::UnboxInt { dst, .. }
         | LirInstr::UntagFloat { dst, .. }
         | LirInstr::UntagBool { dst, .. }
         | LirInstr::UntagPtr { dst, .. }
@@ -1168,6 +1171,23 @@ mod tests {
             ],
         );
         assert_eq!(rules(&program(vec![f])), vec![Rule::JoinReps]);
+    }
+
+    /// `UnboxInt` makes a raw Int of a uniform word, and `BoxInt` a uniform
+    /// word of a raw Int; neither takes the other kind.
+    #[test]
+    fn boxing_takes_and_gives_the_right_words() {
+        let unbox = |val| LirInstr::UnboxInt { dst: v(2), val: v(val), release: false };
+        let sum = LirInstr::IAdd { dst: v(3), a: v(2), b: v(2) };
+        let boxed = LirInstr::BoxInt { dst: v(4), raw: v(3) };
+        let program = single(vec![unbox(0), sum, boxed], LirTerminator::Return(v(4)));
+        assert_eq!(rules(&program), Vec::<Rule>::new());
+
+        let program = single(vec![untag(), unbox(1)], LirTerminator::Return(v(0)));
+        assert_eq!(rules(&program), vec![Rule::RawInUniform]);
+        let program =
+            single(vec![LirInstr::BoxInt { dst: v(2), raw: v(0) }], LirTerminator::Return(v(2)));
+        assert_eq!(rules(&program), vec![Rule::UniformInRaw]);
     }
 
     /// `LirConst::Int` is a raw word: arithmetic takes it, a return does not.

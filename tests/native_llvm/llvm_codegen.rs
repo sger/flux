@@ -260,6 +260,43 @@ fn factorial(n, acc) {
     );
 }
 
+/// Until native code boxes big Ints (KI-039), `UnboxInt` is the untag
+/// shift and `BoxInt` the tag, whether or not the unbox releases its word.
+#[test]
+fn boxing_instructions_emit_the_tag_and_untag() {
+    let mut program = LirProgram::new();
+    program.push_function(LirFunction {
+        name: "rebox".to_string(),
+        id: LirFuncId(1),
+        qualified_name: "rebox".to_string(),
+        is_dict_def: false,
+        params: vec![LirVar(0)],
+        blocks: vec![LirBlock {
+            id: BlockId(0),
+            params: Vec::new(),
+            instrs: vec![
+                LirInstr::UnboxInt { dst: LirVar(1), val: LirVar(0), release: true },
+                LirInstr::BoxInt { dst: LirVar(2), raw: LirVar(1) },
+            ],
+            terminator: LirTerminator::Return(LirVar(2)),
+            locs: Vec::new(),
+            term_loc: Default::default(),
+        }],
+        next_var: 3,
+        capture_vars: Vec::new(),
+        param_reps: Vec::new(),
+        raw_ints: std::collections::HashSet::new(),
+        result_rep: FluxRep::TaggedRep,
+        debug: None,
+    });
+    let ll = emit_llvm_ir(&program);
+    let rebox = llvm_function_text(&ll, "flux_rebox");
+    assert!(rebox.contains("%v1 = ashr i64 %v0, 1"), "{rebox}");
+    assert!(rebox.contains("shl i64 %v1, 1"), "{rebox}");
+    assert!(rebox.contains("%v2 = or i64"), "{rebox}");
+    assert!(!rebox.contains("call"), "{rebox}");
+}
+
 /// `LirConst::Int` is a raw word, emitted as the number itself. A
 /// `BigInt` literal keeps the truncated tagged word until big Ints are
 /// boxed (KI-039).

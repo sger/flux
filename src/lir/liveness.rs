@@ -195,6 +195,8 @@ pub(crate) fn instr_def(instr: &LirInstr) -> Option<LirVar> {
         | LirInstr::Alloc { dst, .. }
         | LirInstr::TagInt { dst, .. }
         | LirInstr::UntagInt { dst, .. }
+        | LirInstr::BoxInt { dst, .. }
+        | LirInstr::UnboxInt { dst, .. }
         | LirInstr::TagFloat { dst, .. }
         | LirInstr::UntagFloat { dst, .. }
         | LirInstr::GetTag { dst, .. }
@@ -244,10 +246,12 @@ pub(crate) fn instr_uses(instr: &LirInstr) -> Vec<LirVar> {
         LirInstr::StoreI32 { ptr, .. } => vec![*ptr],
         LirInstr::Alloc { .. } => Vec::new(),
         LirInstr::TagInt { raw, .. }
+        | LirInstr::BoxInt { raw, .. }
         | LirInstr::TagFloat { raw, .. }
         | LirInstr::TagPtr { ptr: raw, .. }
         | LirInstr::TagBool { raw, .. } => vec![*raw],
         LirInstr::UntagInt { val, .. }
+        | LirInstr::UnboxInt { val, .. }
         | LirInstr::UntagFloat { val, .. }
         | LirInstr::GetTag { val, .. }
         | LirInstr::UntagPtr { val, .. }

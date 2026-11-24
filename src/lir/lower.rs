@@ -5760,6 +5760,11 @@ fn display_instr(instr: &LirInstr) -> String {
         }
         LirInstr::TagInt { dst, raw } => format!("{dst} = tag_int({raw})"),
         LirInstr::UntagInt { dst, val } => format!("{dst} = untag_int({val})"),
+        LirInstr::BoxInt { dst, raw } => format!("{dst} = box_int({raw})"),
+        LirInstr::UnboxInt { dst, val, release } => {
+            let how = if *release { "unbox_int_move" } else { "unbox_int" };
+            format!("{dst} = {how}({val})")
+        }
         LirInstr::TagFloat { dst, raw } => format!("{dst} = tag_float({raw})"),
         LirInstr::UntagFloat { dst, val } => format!("{dst} = untag_float({val})"),
         LirInstr::GetTag { dst, val } => format!("{dst} = get_tag({val})"),

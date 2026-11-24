@@ -131,6 +131,15 @@ pub enum LirInstr {
     TagBool { dst: LirVar, raw: LirVar },
     /// Untag a boolean to 0 or 1.
     UntagBool { dst: LirVar, val: LirVar },
+    /// A raw Int as a uniform word: inline when it fits 63 bits, otherwise
+    /// a box. Unlike `TagInt`, which is only for words known to fit.
+    /// @KI-039: emitted like `TagInt` until native code boxes big Ints.
+    BoxInt { dst: LirVar, raw: LirVar },
+    /// The raw Int a uniform word holds, inline or boxed. With `release`, the
+    /// word is given away here and a box it names is let go.
+    /// @KI-039: emitted like `UntagInt`, ignoring `release`, until native
+    /// code boxes big Ints.
+    UnboxInt { dst: LirVar, val: LirVar, release: bool },
 
     // ── Inline arithmetic (no C call overhead) ──────────────────────
     /// Integer addition on raw (untagged) i64 values.
