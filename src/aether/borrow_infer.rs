@@ -593,8 +593,8 @@ fn pattern_variables(pat: &crate::core::CorePat, out: &mut Vec<CoreBinderId>) {
 }
 
 /// Whether evaluating `expr` makes a value with a reference of its own: a
-/// constructor, a closure, a collection literal, or what a Flux function
-/// returns. A runtime function's result can be a view of an argument.
+/// constructor, a closure, a collection literal, an Int box, or what a Flux
+/// function returns. A runtime function's result can be a view of an argument.
 fn makes_fresh_value(expr: &CoreExpr, registry: &BorrowRegistry) -> bool {
     match expr {
         CoreExpr::Con { .. } | CoreExpr::Lam { .. } => true,
@@ -605,6 +605,7 @@ fn makes_fresh_value(expr: &CoreExpr, registry: &BorrowRegistry) -> bool {
                 | crate::core::CorePrimOp::MakeTuple
                 | crate::core::CorePrimOp::MakeHash
                 | crate::core::CorePrimOp::Interpolate
+                | crate::core::CorePrimOp::BoxInt
         ),
         CoreExpr::App { func, .. } => match func.as_ref() {
             CoreExpr::Var { var, .. } => !matches!(
@@ -1459,6 +1460,12 @@ mod tests {
             span: span(),
         });
         assert_eq!(fresh, BorrowMode::Owned);
+        let boxed = lending_loop_mode(|n, _, _| CoreExpr::PrimOp {
+            op: crate::core::CorePrimOp::BoxInt,
+            args: vec![var_ref(n)],
+            span: span(),
+        });
+        assert_eq!(boxed, BorrowMode::Owned, "a BoxInt result is a fresh value");
         assert_eq!(lending_loop_mode(|_, prev, _| var_ref(prev)), BorrowMode::Borrowed);
         assert_eq!(lending_loop_mode(|_, _, t| var_ref(t)), BorrowMode::Borrowed);
     }
