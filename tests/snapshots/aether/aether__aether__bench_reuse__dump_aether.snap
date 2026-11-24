@@ -243,14 +243,14 @@ lam(f, x) ->
   drop <sym:2000016>#117 in
     x#116
 ── fn map ──
-  Dups: 1  Drops: 9  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
+  Dups: 1  Drops: 8  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
   FreshAllocs: 0
   verifier: ok
 lam(arr, f) ->
   letrec map_go =
     lam(idx, acc) ->
       let idx =
-        UnboxInt(idx#122)
+        UnboxIntMove(idx#122)
       let <sym:4001419> =
         let <sym:4001418> =
           Len(arr#119)
@@ -259,17 +259,36 @@ lam(arr, f) ->
         ICmpGe(idx#1931, <sym:8001932>#1932)
       case <sym:4001419>#1419 of
         true ->
-          drop idx#122 in
-            acc#123
+          acc#123
         _ ->
           let <sym:4001420> =
-            Index(arr#119, idx#122)
-          drop idx#122 in
-            case <sym:4001420>#1420 of
-              Some(v) ->
-                drop_specialized <sym:4001420>#1420 {
-                  unique ->
-                    free_shell <sym:4001420>#1420 in
+            let <sym:8001933> =
+              BoxInt(idx#1931)
+            let <sym:7000002> =
+              Index(arr#119, <sym:8001933>#1933)
+            drop <sym:8001933>#1933 in
+              <sym:7000002>#4026531842
+          case <sym:4001420>#1420 of
+            Some(v) ->
+              drop_specialized <sym:4001420>#1420 {
+                unique ->
+                  free_shell <sym:4001420>#1420 in
+                    let <sym:4001421> =
+                      IAdd(idx#1931, 1)
+                    let <sym:4001423> =
+                      let <sym:4001422> =
+                        aether_call[owned] f#120(v#124)
+                      let <sym:7000001> =
+                        aether_call[borrowed, borrowed] push#207(acc#123, <sym:4001422>#1422)
+                      drop <sym:4001422>#1422 in
+                        <sym:7000001>#4026531841
+                    drop acc#123 in
+                      let <sym:8001934> =
+                        BoxInt(<sym:4001421>#1421)
+                      aether_call[owned, owned] map_go#121(<sym:8001934>#1934, <sym:4001423>#1423)
+                shared ->
+                  dup v#124 in
+                    drop <sym:4001420>#1420 in
                       let <sym:4001421> =
                         IAdd(idx#1931, 1)
                       let <sym:4001423> =
@@ -280,33 +299,17 @@ lam(arr, f) ->
                         drop <sym:4001422>#1422 in
                           <sym:7000001>#4026531841
                       drop acc#123 in
-                        let <sym:8001933> =
+                        let <sym:8001934> =
                           BoxInt(<sym:4001421>#1421)
-                        aether_call[owned, owned] map_go#121(<sym:8001933>#1933, <sym:4001423>#1423)
-                  shared ->
-                    dup v#124 in
-                      drop <sym:4001420>#1420 in
-                        let <sym:4001421> =
-                          IAdd(idx#1931, 1)
-                        let <sym:4001423> =
-                          let <sym:4001422> =
-                            aether_call[owned] f#120(v#124)
-                          let <sym:7000001> =
-                            aether_call[borrowed, borrowed] push#207(acc#123, <sym:4001422>#1422)
-                          drop <sym:4001422>#1422 in
-                            <sym:7000001>#4026531841
-                        drop acc#123 in
-                          let <sym:8001933> =
-                            BoxInt(<sym:4001421>#1421)
-                          aether_call[owned, owned] map_go#121(<sym:8001933>#1933, <sym:4001423>#1423)
-                }
-              _ ->
-                drop <sym:4001420>#1420 in
-                  let <sym:4001424> =
-                    IAdd(idx#1931, 1)
-                  let <sym:8001934> =
-                    BoxInt(<sym:4001424>#1424)
-                  aether_call[owned, owned] map_go#121(<sym:8001934>#1934, acc#123)
+                        aether_call[owned, owned] map_go#121(<sym:8001934>#1934, <sym:4001423>#1423)
+              }
+            _ ->
+              drop <sym:4001420>#1420 in
+                let <sym:4001424> =
+                  IAdd(idx#1931, 1)
+                let <sym:8001935> =
+                  BoxInt(<sym:4001424>#1424)
+                aether_call[owned, owned] map_go#121(<sym:8001935>#1935, acc#123)
   let <sym:4001425> =
     MakeArray()
   let <sym:7000000> =
@@ -314,59 +317,62 @@ lam(arr, f) ->
   drop map_go#121 in
     <sym:7000000>#4026531840
 ── fn filter ──
-  Dups: 1  Drops: 9  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 1  Drops: 8  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(arr, pred) ->
   letrec filter_go =
     lam(idx, acc) ->
       let idx =
-        UnboxInt(idx#129)
+        UnboxIntMove(idx#129)
       let <sym:4001427> =
         let <sym:4001426> =
           Len(arr#126)
-        let <sym:8001936> =
+        let <sym:8001937> =
           UnboxInt(<sym:4001426>#1426)
-        ICmpGe(idx#1935, <sym:8001936>#1936)
+        ICmpGe(idx#1936, <sym:8001937>#1937)
       case <sym:4001427>#1427 of
         true ->
-          drop idx#129 in
-            acc#130
+          acc#130
         _ ->
           let <sym:4001428> =
-            Index(arr#126, idx#129)
-          drop idx#129 in
-            case <sym:4001428>#1428 of
-              Some(v) ->
-                let <sym:4001429> =
-                  aether_call[owned] pred#127(dup v#131 in v#131)
-                case <sym:4001429>#1429 of
-                  true ->
-                    drop <sym:4001429>#1429 in
-                      let <sym:4001430> =
-                        IAdd(idx#1935, 1)
-                      let <sym:4001431> =
-                        aether_call[borrowed, borrowed] push#207(acc#130, v#131)
-                        drop acc#130 in
-                      drop <sym:4001428>#1428 in
-                          let <sym:8001937> =
-                            BoxInt(<sym:4001430>#1430)
-                          aether_call[owned, owned] filter_go#128(<sym:8001937>#1937, <sym:4001431>#1431)
-                  _ ->
-                      drop <sym:4001429>#1429 in
+            let <sym:8001938> =
+              BoxInt(idx#1936)
+            let <sym:7000001> =
+              Index(arr#126, <sym:8001938>#1938)
+            drop <sym:8001938>#1938 in
+              <sym:7000001>#4026531841
+          case <sym:4001428>#1428 of
+            Some(v) ->
+              let <sym:4001429> =
+                aether_call[owned] pred#127(dup v#131 in v#131)
+              case <sym:4001429>#1429 of
+                true ->
+                  drop <sym:4001429>#1429 in
+                    let <sym:4001430> =
+                      IAdd(idx#1936, 1)
+                    let <sym:4001431> =
+                      aether_call[borrowed, borrowed] push#207(acc#130, v#131)
+                      drop acc#130 in
                     drop <sym:4001428>#1428 in
-                        let <sym:4001432> =
-                          IAdd(idx#1935, 1)
-                        let <sym:8001938> =
-                          BoxInt(<sym:4001432>#1432)
-                        aether_call[owned, owned] filter_go#128(<sym:8001938>#1938, acc#130)
-              _ ->
-                drop <sym:4001428>#1428 in
-                  let <sym:4001433> =
-                    IAdd(idx#1935, 1)
-                  let <sym:8001939> =
-                    BoxInt(<sym:4001433>#1433)
-                  aether_call[owned, owned] filter_go#128(<sym:8001939>#1939, acc#130)
+                        let <sym:8001939> =
+                          BoxInt(<sym:4001430>#1430)
+                        aether_call[owned, owned] filter_go#128(<sym:8001939>#1939, <sym:4001431>#1431)
+                _ ->
+                    drop <sym:4001429>#1429 in
+                  drop <sym:4001428>#1428 in
+                      let <sym:4001432> =
+                        IAdd(idx#1936, 1)
+                      let <sym:8001940> =
+                        BoxInt(<sym:4001432>#1432)
+                      aether_call[owned, owned] filter_go#128(<sym:8001940>#1940, acc#130)
+            _ ->
+              drop <sym:4001428>#1428 in
+                let <sym:4001433> =
+                  IAdd(idx#1936, 1)
+                let <sym:8001941> =
+                  BoxInt(<sym:4001433>#1433)
+                aether_call[owned, owned] filter_go#128(<sym:8001941>#1941, acc#130)
   let <sym:4001434> =
     MakeArray()
   let <sym:7000000> =
@@ -374,149 +380,174 @@ lam(arr, pred) ->
   drop filter_go#128 in
     <sym:7000000>#4026531840
 ── fn fold ──
-  Dups: 1  Drops: 5  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
+  Dups: 1  Drops: 4  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
   FreshAllocs: 0
   verifier: ok
 lam(arr, acc, f) ->
   letrec fold_go =
     lam(idx, a) ->
       let idx =
-        UnboxInt(idx#137)
+        UnboxIntMove(idx#137)
       let <sym:4001436> =
         let <sym:4001435> =
           Len(arr#133)
-        let <sym:8001941> =
+        let <sym:8001943> =
           UnboxInt(<sym:4001435>#1435)
-        ICmpGe(idx#1940, <sym:8001941>#1941)
+        ICmpGe(idx#1942, <sym:8001943>#1943)
       case <sym:4001436>#1436 of
         true ->
-          drop idx#137 in
-            a#138
+          a#138
         _ ->
           let <sym:4001437> =
-            Index(arr#133, idx#137)
-          drop idx#137 in
-            case <sym:4001437>#1437 of
-              Some(v) ->
-                drop_specialized <sym:4001437>#1437 {
-                  unique ->
-                    free_shell <sym:4001437>#1437 in
+            let <sym:8001944> =
+              BoxInt(idx#1942)
+            let <sym:7000001> =
+              Index(arr#133, <sym:8001944>#1944)
+            drop <sym:8001944>#1944 in
+              <sym:7000001>#4026531841
+          case <sym:4001437>#1437 of
+            Some(v) ->
+              drop_specialized <sym:4001437>#1437 {
+                unique ->
+                  free_shell <sym:4001437>#1437 in
+                    let <sym:4001438> =
+                      IAdd(idx#1942, 1)
+                    let <sym:4001439> =
+                      aether_call[owned, owned] f#135(a#138, v#139)
+                    let <sym:8001945> =
+                      BoxInt(<sym:4001438>#1438)
+                    aether_call[owned, owned] fold_go#136(<sym:8001945>#1945, <sym:4001439>#1439)
+                shared ->
+                  dup v#139 in
+                    drop <sym:4001437>#1437 in
                       let <sym:4001438> =
-                        IAdd(idx#1940, 1)
+                        IAdd(idx#1942, 1)
                       let <sym:4001439> =
                         aether_call[owned, owned] f#135(a#138, v#139)
-                      let <sym:8001942> =
+                      let <sym:8001945> =
                         BoxInt(<sym:4001438>#1438)
-                      aether_call[owned, owned] fold_go#136(<sym:8001942>#1942, <sym:4001439>#1439)
-                  shared ->
-                    dup v#139 in
-                      drop <sym:4001437>#1437 in
-                        let <sym:4001438> =
-                          IAdd(idx#1940, 1)
-                        let <sym:4001439> =
-                          aether_call[owned, owned] f#135(a#138, v#139)
-                        let <sym:8001942> =
-                          BoxInt(<sym:4001438>#1438)
-                        aether_call[owned, owned] fold_go#136(<sym:8001942>#1942, <sym:4001439>#1439)
-                }
-              _ ->
-                drop <sym:4001437>#1437 in
-                  let <sym:4001440> =
-                    IAdd(idx#1940, 1)
-                  let <sym:8001943> =
-                    BoxInt(<sym:4001440>#1440)
-                  aether_call[owned, owned] fold_go#136(<sym:8001943>#1943, a#138)
+                      aether_call[owned, owned] fold_go#136(<sym:8001945>#1945, <sym:4001439>#1439)
+              }
+            _ ->
+              drop <sym:4001437>#1437 in
+                let <sym:4001440> =
+                  IAdd(idx#1942, 1)
+                let <sym:8001946> =
+                  BoxInt(<sym:4001440>#1440)
+                aether_call[owned, owned] fold_go#136(<sym:8001946>#1946, a#138)
   let <sym:7000000> =
     aether_call[owned, owned] fold_go#136(0, acc#134)
   drop fold_go#136 in
     <sym:7000000>#4026531840
 ── fn each ──
-  Dups: 1  Drops: 7  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
+  Dups: 1  Drops: 6  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
   FreshAllocs: 0
   verifier: ok
 lam(arr, f) ->
   letrec each_go =
     lam(idx) ->
       let idx =
-        UnboxInt(idx#144)
+        UnboxIntMove(idx#144)
       let <sym:4001442> =
         let <sym:4001441> =
           Len(arr#141)
-        let <sym:8001945> =
+        let <sym:8001948> =
           UnboxInt(<sym:4001441>#1441)
-        ICmpGe(idx#1944, <sym:8001945>#1945)
+        ICmpGe(idx#1947, <sym:8001948>#1948)
       case <sym:4001442>#1442 of
         true ->
-          drop idx#144 in
-            MakeTuple()
+          MakeTuple()
         _ ->
           let <sym:4001443> =
-            Index(arr#141, idx#144)
-          drop idx#144 in
-            case <sym:4001443>#1443 of
-              Some(v) ->
-                drop_specialized <sym:4001443>#1443 {
-                  unique ->
-                    free_shell <sym:4001443>#1443 in
+            let <sym:8001949> =
+              BoxInt(idx#1947)
+            let <sym:7000001> =
+              Index(arr#141, <sym:8001949>#1949)
+            drop <sym:8001949>#1949 in
+              <sym:7000001>#4026531841
+          case <sym:4001443>#1443 of
+            Some(v) ->
+              drop_specialized <sym:4001443>#1443 {
+                unique ->
+                  free_shell <sym:4001443>#1443 in
+                    let <sym:2000017> =
+                      aether_call[owned] f#142(v#145)
+                    drop <sym:2000017>#146 in
+                      let <sym:4001444> =
+                        IAdd(idx#1947, 1)
+                      let <sym:8001950> =
+                        BoxInt(<sym:4001444>#1444)
+                      aether_call[owned] each_go#143(<sym:8001950>#1950)
+                shared ->
+                  dup v#145 in
+                    drop <sym:4001443>#1443 in
                       let <sym:2000017> =
                         aether_call[owned] f#142(v#145)
                       drop <sym:2000017>#146 in
                         let <sym:4001444> =
-                          IAdd(idx#1944, 1)
-                        let <sym:8001946> =
+                          IAdd(idx#1947, 1)
+                        let <sym:8001950> =
                           BoxInt(<sym:4001444>#1444)
-                        aether_call[owned] each_go#143(<sym:8001946>#1946)
-                  shared ->
-                    dup v#145 in
-                      drop <sym:4001443>#1443 in
-                        let <sym:2000017> =
-                          aether_call[owned] f#142(v#145)
-                        drop <sym:2000017>#146 in
-                          let <sym:4001444> =
-                            IAdd(idx#1944, 1)
-                          let <sym:8001946> =
-                            BoxInt(<sym:4001444>#1444)
-                          aether_call[owned] each_go#143(<sym:8001946>#1946)
-                }
-              _ ->
-                drop <sym:4001443>#1443 in
-                  let <sym:4001445> =
-                    IAdd(idx#1944, 1)
-                  let <sym:8001947> =
-                    BoxInt(<sym:4001445>#1445)
-                  aether_call[owned] each_go#143(<sym:8001947>#1947)
+                        aether_call[owned] each_go#143(<sym:8001950>#1950)
+              }
+            _ ->
+              drop <sym:4001443>#1443 in
+                let <sym:4001445> =
+                  IAdd(idx#1947, 1)
+                let <sym:8001951> =
+                  BoxInt(<sym:4001445>#1445)
+                aether_call[owned] each_go#143(<sym:8001951>#1951)
   let <sym:7000000> =
     aether_call[owned] each_go#143(0)
   drop each_go#143 in
     <sym:7000000>#4026531840
 ── fn any ──
-  Dups: 1  Drops: 9  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
+  Dups: 1  Drops: 8  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
   FreshAllocs: 0
   verifier: ok
 lam(arr, pred) ->
   letrec any_go =
     lam(idx) ->
       let idx =
-        UnboxInt(idx#151)
+        UnboxIntMove(idx#151)
       let <sym:4001447> =
         let <sym:4001446> =
           Len(arr#148)
-        let <sym:8001949> =
+        let <sym:8001953> =
           UnboxInt(<sym:4001446>#1446)
-        ICmpGe(idx#1948, <sym:8001949>#1949)
+        ICmpGe(idx#1952, <sym:8001953>#1953)
       case <sym:4001447>#1447 of
         true ->
-          drop idx#151 in
-            false
+          false
         _ ->
           let <sym:4001448> =
-            Index(arr#148, idx#151)
-          drop idx#151 in
-            case <sym:4001448>#1448 of
-              Some(v) ->
-                drop_specialized <sym:4001448>#1448 {
-                  unique ->
-                    free_shell <sym:4001448>#1448 in
+            let <sym:8001954> =
+              BoxInt(idx#1952)
+            let <sym:7000001> =
+              Index(arr#148, <sym:8001954>#1954)
+            drop <sym:8001954>#1954 in
+              <sym:7000001>#4026531841
+          case <sym:4001448>#1448 of
+            Some(v) ->
+              drop_specialized <sym:4001448>#1448 {
+                unique ->
+                  free_shell <sym:4001448>#1448 in
+                    let <sym:4001449> =
+                      aether_call[owned] pred#149(v#152)
+                    case <sym:4001449>#1449 of
+                      true ->
+                        drop <sym:4001449>#1449 in
+                          true
+                      _ ->
+                        drop <sym:4001449>#1449 in
+                          let <sym:4001450> =
+                            IAdd(idx#1952, 1)
+                          let <sym:8001955> =
+                            BoxInt(<sym:4001450>#1450)
+                          aether_call[owned] any_go#150(<sym:8001955>#1955)
+                shared ->
+                  dup v#152 in
+                    drop <sym:4001448>#1448 in
                       let <sym:4001449> =
                         aether_call[owned] pred#149(v#152)
                       case <sym:4001449>#1449 of
@@ -526,305 +557,307 @@ lam(arr, pred) ->
                         _ ->
                           drop <sym:4001449>#1449 in
                             let <sym:4001450> =
-                              IAdd(idx#1948, 1)
-                            let <sym:8001950> =
+                              IAdd(idx#1952, 1)
+                            let <sym:8001955> =
                               BoxInt(<sym:4001450>#1450)
-                            aether_call[owned] any_go#150(<sym:8001950>#1950)
-                  shared ->
-                    dup v#152 in
-                      drop <sym:4001448>#1448 in
-                        let <sym:4001449> =
-                          aether_call[owned] pred#149(v#152)
-                        case <sym:4001449>#1449 of
-                          true ->
-                            drop <sym:4001449>#1449 in
-                              true
-                          _ ->
-                            drop <sym:4001449>#1449 in
-                              let <sym:4001450> =
-                                IAdd(idx#1948, 1)
-                              let <sym:8001950> =
-                                BoxInt(<sym:4001450>#1450)
-                              aether_call[owned] any_go#150(<sym:8001950>#1950)
-                }
-              _ ->
-                drop <sym:4001448>#1448 in
-                  let <sym:4001451> =
-                    IAdd(idx#1948, 1)
-                  let <sym:8001951> =
-                    BoxInt(<sym:4001451>#1451)
-                  aether_call[owned] any_go#150(<sym:8001951>#1951)
+                            aether_call[owned] any_go#150(<sym:8001955>#1955)
+              }
+            _ ->
+              drop <sym:4001448>#1448 in
+                let <sym:4001451> =
+                  IAdd(idx#1952, 1)
+                let <sym:8001956> =
+                  BoxInt(<sym:4001451>#1451)
+                aether_call[owned] any_go#150(<sym:8001956>#1956)
   let <sym:7000000> =
     aether_call[owned] any_go#150(0)
   drop any_go#150 in
     <sym:7000000>#4026531840
 ── fn all ──
-  Dups: 1  Drops: 9  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
+  Dups: 1  Drops: 8  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
   FreshAllocs: 0
   verifier: ok
 lam(arr, pred) ->
   letrec all_go =
     lam(idx) ->
       let idx =
-        UnboxInt(idx#157)
+        UnboxIntMove(idx#157)
       let <sym:4001453> =
         let <sym:4001452> =
           Len(arr#154)
-        let <sym:8001953> =
+        let <sym:8001958> =
           UnboxInt(<sym:4001452>#1452)
-        ICmpGe(idx#1952, <sym:8001953>#1953)
+        ICmpGe(idx#1957, <sym:8001958>#1958)
       case <sym:4001453>#1453 of
         true ->
-          drop idx#157 in
-            true
+          true
         _ ->
           let <sym:4001454> =
-            Index(arr#154, idx#157)
-          drop idx#157 in
-            case <sym:4001454>#1454 of
-              Some(v) ->
-                drop_specialized <sym:4001454>#1454 {
-                  unique ->
-                    free_shell <sym:4001454>#1454 in
+            let <sym:8001959> =
+              BoxInt(idx#1957)
+            let <sym:7000001> =
+              Index(arr#154, <sym:8001959>#1959)
+            drop <sym:8001959>#1959 in
+              <sym:7000001>#4026531841
+          case <sym:4001454>#1454 of
+            Some(v) ->
+              drop_specialized <sym:4001454>#1454 {
+                unique ->
+                  free_shell <sym:4001454>#1454 in
+                    let <sym:4001455> =
+                      aether_call[owned] pred#155(v#158)
+                    case <sym:4001455>#1455 of
+                      true ->
+                        drop <sym:4001455>#1455 in
+                          let <sym:4001456> =
+                            IAdd(idx#1957, 1)
+                          let <sym:8001960> =
+                            BoxInt(<sym:4001456>#1456)
+                          aether_call[owned] all_go#156(<sym:8001960>#1960)
+                      _ ->
+                        drop <sym:4001455>#1455 in
+                          false
+                shared ->
+                  dup v#158 in
+                    drop <sym:4001454>#1454 in
                       let <sym:4001455> =
                         aether_call[owned] pred#155(v#158)
                       case <sym:4001455>#1455 of
                         true ->
                           drop <sym:4001455>#1455 in
                             let <sym:4001456> =
-                              IAdd(idx#1952, 1)
-                            let <sym:8001954> =
+                              IAdd(idx#1957, 1)
+                            let <sym:8001960> =
                               BoxInt(<sym:4001456>#1456)
-                            aether_call[owned] all_go#156(<sym:8001954>#1954)
+                            aether_call[owned] all_go#156(<sym:8001960>#1960)
                         _ ->
                           drop <sym:4001455>#1455 in
                             false
-                  shared ->
-                    dup v#158 in
-                      drop <sym:4001454>#1454 in
-                        let <sym:4001455> =
-                          aether_call[owned] pred#155(v#158)
-                        case <sym:4001455>#1455 of
-                          true ->
-                            drop <sym:4001455>#1455 in
-                              let <sym:4001456> =
-                                IAdd(idx#1952, 1)
-                              let <sym:8001954> =
-                                BoxInt(<sym:4001456>#1456)
-                              aether_call[owned] all_go#156(<sym:8001954>#1954)
-                          _ ->
-                            drop <sym:4001455>#1455 in
-                              false
-                }
-              _ ->
-                drop <sym:4001454>#1454 in
-                  let <sym:4001457> =
-                    IAdd(idx#1952, 1)
-                  let <sym:8001955> =
-                    BoxInt(<sym:4001457>#1457)
-                  aether_call[owned] all_go#156(<sym:8001955>#1955)
+              }
+            _ ->
+              drop <sym:4001454>#1454 in
+                let <sym:4001457> =
+                  IAdd(idx#1957, 1)
+                let <sym:8001961> =
+                  BoxInt(<sym:4001457>#1457)
+                aether_call[owned] all_go#156(<sym:8001961>#1961)
   let <sym:7000000> =
     aether_call[owned] all_go#156(0)
   drop all_go#156 in
     <sym:7000000>#4026531840
 ── fn find ──
-  Dups: 2  Drops: 8  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
+  Dups: 2  Drops: 7  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
   FreshAllocs: 0
   verifier: ok
 lam(arr, pred) ->
   letrec find_go =
     lam(idx) ->
       let idx =
-        UnboxInt(idx#163)
+        UnboxIntMove(idx#163)
       let <sym:4001459> =
         let <sym:4001458> =
           Len(arr#160)
-        let <sym:8001957> =
+        let <sym:8001963> =
           UnboxInt(<sym:4001458>#1458)
-        ICmpGe(idx#1956, <sym:8001957>#1957)
+        ICmpGe(idx#1962, <sym:8001963>#1963)
       case <sym:4001459>#1459 of
         true ->
-          drop idx#163 in
-            None
+          None
         _ ->
           let <sym:4001460> =
-            Index(arr#160, idx#163)
-          drop idx#163 in
-            case <sym:4001460>#1460 of
-              Some(v) ->
-                dup v#164 in
-                  let <sym:4001461> =
-                    aether_call[owned] pred#161(dup v#164 in v#164)
-                  case <sym:4001461>#1461 of
-                    true ->
+            let <sym:8001964> =
+              BoxInt(idx#1962)
+            let <sym:7000001> =
+              Index(arr#160, <sym:8001964>#1964)
+            drop <sym:8001964>#1964 in
+              <sym:7000001>#4026531841
+          case <sym:4001460>#1460 of
+            Some(v) ->
+              dup v#164 in
+                let <sym:4001461> =
+                  aether_call[owned] pred#161(dup v#164 in v#164)
+                case <sym:4001461>#1461 of
+                  true ->
+                    drop <sym:4001461>#1461 in
+                      reuse <sym:4001460>#1460 as Some mask=0x0(v#164)
+                  _ ->
+                        drop v#164 in
                       drop <sym:4001461>#1461 in
-                        reuse <sym:4001460>#1460 as Some mask=0x0(v#164)
-                    _ ->
-                          drop v#164 in
-                        drop <sym:4001461>#1461 in
-                      drop <sym:4001460>#1460 in
-                            let <sym:4001462> =
-                              IAdd(idx#1956, 1)
-                            let <sym:8001958> =
-                              BoxInt(<sym:4001462>#1462)
-                            aether_call[owned] find_go#162(<sym:8001958>#1958)
-              _ ->
-                drop <sym:4001460>#1460 in
-                  let <sym:4001463> =
-                    IAdd(idx#1956, 1)
-                  let <sym:8001959> =
-                    BoxInt(<sym:4001463>#1463)
-                  aether_call[owned] find_go#162(<sym:8001959>#1959)
+                    drop <sym:4001460>#1460 in
+                          let <sym:4001462> =
+                            IAdd(idx#1962, 1)
+                          let <sym:8001965> =
+                            BoxInt(<sym:4001462>#1462)
+                          aether_call[owned] find_go#162(<sym:8001965>#1965)
+            _ ->
+              drop <sym:4001460>#1460 in
+                let <sym:4001463> =
+                  IAdd(idx#1962, 1)
+                let <sym:8001966> =
+                  BoxInt(<sym:4001463>#1463)
+                aether_call[owned] find_go#162(<sym:8001966>#1966)
   let <sym:7000000> =
     aether_call[owned] find_go#162(0)
   drop find_go#162 in
     <sym:7000000>#4026531840
 ── fn count ──
-  Dups: 1  Drops: 11  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
+  Dups: 1  Drops: 8  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
   FreshAllocs: 0
   verifier: ok
 lam(arr, pred) ->
   letrec count_go =
     lam(idx, n) ->
       let idx =
-        UnboxInt(idx#169)
+        UnboxIntMove(idx#169)
       let n =
-        UnboxInt(n#170)
+        UnboxIntMove(n#170)
       let <sym:4001465> =
         let <sym:4001464> =
           Len(arr#166)
-        let <sym:8001961> =
+        let <sym:8001968> =
           UnboxInt(<sym:4001464>#1464)
-        ICmpGe(idx#1960, <sym:8001961>#1961)
+        ICmpGe(idx#1967, <sym:8001968>#1968)
       case <sym:4001465>#1465 of
         true ->
-          drop idx#169 in
-            n#170
+          let <sym:8001970> =
+            BoxInt(n#1969)
+          <sym:8001970>#1970
         _ ->
           let <sym:4001466> =
-            Index(arr#166, idx#169)
-          drop idx#169 in
-            case <sym:4001466>#1466 of
-              Some(v) ->
-                drop_specialized <sym:4001466>#1466 {
-                  unique ->
-                    free_shell <sym:4001466>#1466 in
+            let <sym:8001971> =
+              BoxInt(idx#1967)
+            let <sym:7000001> =
+              Index(arr#166, <sym:8001971>#1971)
+            drop <sym:8001971>#1971 in
+              <sym:7000001>#4026531841
+          case <sym:4001466>#1466 of
+            Some(v) ->
+              drop_specialized <sym:4001466>#1466 {
+                unique ->
+                  free_shell <sym:4001466>#1466 in
+                    let <sym:4001467> =
+                      aether_call[owned] pred#167(v#171)
+                    case <sym:4001467>#1467 of
+                      true ->
+                        drop <sym:4001467>#1467 in
+                          let <sym:4001468> =
+                            IAdd(idx#1967, 1)
+                          let <sym:4001469> =
+                            IAdd(n#1969, 1)
+                          let <sym:8001972> =
+                            BoxInt(<sym:4001468>#1468)
+                          let <sym:8001973> =
+                            BoxInt(<sym:4001469>#1469)
+                          aether_call[owned, owned] count_go#168(<sym:8001972>#1972, <sym:8001973>#1973)
+                      _ ->
+                        drop <sym:4001467>#1467 in
+                          let <sym:4001470> =
+                            IAdd(idx#1967, 1)
+                          let <sym:8001974> =
+                            BoxInt(<sym:4001470>#1470)
+                          let <sym:8001975> =
+                            BoxInt(n#1969)
+                          aether_call[owned, owned] count_go#168(<sym:8001974>#1974, <sym:8001975>#1975)
+                shared ->
+                  dup v#171 in
+                    drop <sym:4001466>#1466 in
                       let <sym:4001467> =
                         aether_call[owned] pred#167(v#171)
                       case <sym:4001467>#1467 of
                         true ->
-                            drop n#170 in
                           drop <sym:4001467>#1467 in
-                              let <sym:4001468> =
-                                IAdd(idx#1960, 1)
-                              let <sym:4001469> =
-                                IAdd(n#1962, 1)
-                              let <sym:8001963> =
-                                BoxInt(<sym:4001468>#1468)
-                              let <sym:8001964> =
-                                BoxInt(<sym:4001469>#1469)
-                              aether_call[owned, owned] count_go#168(<sym:8001963>#1963, <sym:8001964>#1964)
+                            let <sym:4001468> =
+                              IAdd(idx#1967, 1)
+                            let <sym:4001469> =
+                              IAdd(n#1969, 1)
+                            let <sym:8001972> =
+                              BoxInt(<sym:4001468>#1468)
+                            let <sym:8001973> =
+                              BoxInt(<sym:4001469>#1469)
+                            aether_call[owned, owned] count_go#168(<sym:8001972>#1972, <sym:8001973>#1973)
                         _ ->
                           drop <sym:4001467>#1467 in
                             let <sym:4001470> =
-                              IAdd(idx#1960, 1)
-                            let <sym:8001965> =
+                              IAdd(idx#1967, 1)
+                            let <sym:8001974> =
                               BoxInt(<sym:4001470>#1470)
-                            aether_call[owned, owned] count_go#168(<sym:8001965>#1965, n#170)
-                  shared ->
-                    dup v#171 in
-                      drop <sym:4001466>#1466 in
-                        let <sym:4001467> =
-                          aether_call[owned] pred#167(v#171)
-                        case <sym:4001467>#1467 of
-                          true ->
-                              drop n#170 in
-                            drop <sym:4001467>#1467 in
-                                let <sym:4001468> =
-                                  IAdd(idx#1960, 1)
-                                let <sym:4001469> =
-                                  IAdd(n#1962, 1)
-                                let <sym:8001963> =
-                                  BoxInt(<sym:4001468>#1468)
-                                let <sym:8001964> =
-                                  BoxInt(<sym:4001469>#1469)
-                                aether_call[owned, owned] count_go#168(<sym:8001963>#1963, <sym:8001964>#1964)
-                          _ ->
-                            drop <sym:4001467>#1467 in
-                              let <sym:4001470> =
-                                IAdd(idx#1960, 1)
-                              let <sym:8001965> =
-                                BoxInt(<sym:4001470>#1470)
-                              aether_call[owned, owned] count_go#168(<sym:8001965>#1965, n#170)
-                }
-              _ ->
-                drop <sym:4001466>#1466 in
-                  let <sym:4001471> =
-                    IAdd(idx#1960, 1)
-                  let <sym:8001966> =
-                    BoxInt(<sym:4001471>#1471)
-                  aether_call[owned, owned] count_go#168(<sym:8001966>#1966, n#170)
+                            let <sym:8001975> =
+                              BoxInt(n#1969)
+                            aether_call[owned, owned] count_go#168(<sym:8001974>#1974, <sym:8001975>#1975)
+              }
+            _ ->
+              drop <sym:4001466>#1466 in
+                let <sym:4001471> =
+                  IAdd(idx#1967, 1)
+                let <sym:8001976> =
+                  BoxInt(<sym:4001471>#1471)
+                let <sym:8001977> =
+                  BoxInt(n#1969)
+                aether_call[owned, owned] count_go#168(<sym:8001976>#1976, <sym:8001977>#1977)
   let <sym:7000000> =
     aether_call[owned, owned] count_go#168(0, 0)
   drop count_go#168 in
     <sym:7000000>#4026531840
 ── fn flat_map ──
-  Dups: 1  Drops: 5  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
+  Dups: 1  Drops: 4  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
   FreshAllocs: 0
   verifier: ok
 lam(arr, f) ->
   letrec flat_map_go =
     lam(idx, acc) ->
       let idx =
-        UnboxInt(idx#176)
+        UnboxIntMove(idx#176)
       let <sym:4001473> =
         let <sym:4001472> =
           Len(arr#173)
-        let <sym:8001968> =
+        let <sym:8001979> =
           UnboxInt(<sym:4001472>#1472)
-        ICmpGe(idx#1967, <sym:8001968>#1968)
+        ICmpGe(idx#1978, <sym:8001979>#1979)
       case <sym:4001473>#1473 of
         true ->
-          drop idx#176 in
-            acc#177
+          acc#177
         _ ->
           let <sym:4001474> =
-            Index(arr#173, idx#176)
-          drop idx#176 in
-            case <sym:4001474>#1474 of
-              Some(v) ->
-                drop_specialized <sym:4001474>#1474 {
-                  unique ->
-                    free_shell <sym:4001474>#1474 in
+            let <sym:8001980> =
+              BoxInt(idx#1978)
+            let <sym:7000001> =
+              Index(arr#173, <sym:8001980>#1980)
+            drop <sym:8001980>#1980 in
+              <sym:7000001>#4026531841
+          case <sym:4001474>#1474 of
+            Some(v) ->
+              drop_specialized <sym:4001474>#1474 {
+                unique ->
+                  free_shell <sym:4001474>#1474 in
+                    let <sym:4001475> =
+                      IAdd(idx#1978, 1)
+                    let <sym:4001477> =
+                      let <sym:4001476> =
+                        aether_call[owned] f#174(v#178)
+                      aether_call[owned, owned] concat#395(acc#177, <sym:4001476>#1476)
+                    let <sym:8001981> =
+                      BoxInt(<sym:4001475>#1475)
+                    aether_call[owned, owned] flat_map_go#175(<sym:8001981>#1981, <sym:4001477>#1477)
+                shared ->
+                  dup v#178 in
+                    drop <sym:4001474>#1474 in
                       let <sym:4001475> =
-                        IAdd(idx#1967, 1)
+                        IAdd(idx#1978, 1)
                       let <sym:4001477> =
                         let <sym:4001476> =
                           aether_call[owned] f#174(v#178)
                         aether_call[owned, owned] concat#395(acc#177, <sym:4001476>#1476)
-                      let <sym:8001969> =
+                      let <sym:8001981> =
                         BoxInt(<sym:4001475>#1475)
-                      aether_call[owned, owned] flat_map_go#175(<sym:8001969>#1969, <sym:4001477>#1477)
-                  shared ->
-                    dup v#178 in
-                      drop <sym:4001474>#1474 in
-                        let <sym:4001475> =
-                          IAdd(idx#1967, 1)
-                        let <sym:4001477> =
-                          let <sym:4001476> =
-                            aether_call[owned] f#174(v#178)
-                          aether_call[owned, owned] concat#395(acc#177, <sym:4001476>#1476)
-                        let <sym:8001969> =
-                          BoxInt(<sym:4001475>#1475)
-                        aether_call[owned, owned] flat_map_go#175(<sym:8001969>#1969, <sym:4001477>#1477)
-                }
-              _ ->
-                drop <sym:4001474>#1474 in
-                  let <sym:4001478> =
-                    IAdd(idx#1967, 1)
-                  let <sym:8001970> =
-                    BoxInt(<sym:4001478>#1478)
-                  aether_call[owned, owned] flat_map_go#175(<sym:8001970>#1970, acc#177)
+                      aether_call[owned, owned] flat_map_go#175(<sym:8001981>#1981, <sym:4001477>#1477)
+              }
+            _ ->
+              drop <sym:4001474>#1474 in
+                let <sym:4001478> =
+                  IAdd(idx#1978, 1)
+                let <sym:8001982> =
+                  BoxInt(<sym:4001478>#1478)
+                aether_call[owned, owned] flat_map_go#175(<sym:8001982>#1982, acc#177)
   let <sym:4001479> =
     MakeArray()
   let <sym:7000000> =
@@ -832,58 +865,61 @@ lam(arr, f) ->
   drop flat_map_go#175 in
     <sym:7000000>#4026531840
 ── fn flatten ──
-  Dups: 1  Drops: 5  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
+  Dups: 1  Drops: 4  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
   FreshAllocs: 0
   verifier: ok
 lam(arr) ->
   letrec flatten_go =
     lam(idx, acc) ->
       let idx =
-        UnboxInt(idx#182)
+        UnboxIntMove(idx#182)
       let <sym:4001481> =
         let <sym:4001480> =
           Len(arr#180)
-        let <sym:8001972> =
+        let <sym:8001984> =
           UnboxInt(<sym:4001480>#1480)
-        ICmpGe(idx#1971, <sym:8001972>#1972)
+        ICmpGe(idx#1983, <sym:8001984>#1984)
       case <sym:4001481>#1481 of
         true ->
-          drop idx#182 in
-            acc#183
+          acc#183
         _ ->
           let <sym:4001482> =
-            Index(arr#180, idx#182)
-          drop idx#182 in
-            case <sym:4001482>#1482 of
-              Some(v) ->
-                drop_specialized <sym:4001482>#1482 {
-                  unique ->
-                    free_shell <sym:4001482>#1482 in
+            let <sym:8001985> =
+              BoxInt(idx#1983)
+            let <sym:7000001> =
+              Index(arr#180, <sym:8001985>#1985)
+            drop <sym:8001985>#1985 in
+              <sym:7000001>#4026531841
+          case <sym:4001482>#1482 of
+            Some(v) ->
+              drop_specialized <sym:4001482>#1482 {
+                unique ->
+                  free_shell <sym:4001482>#1482 in
+                    let <sym:4001483> =
+                      IAdd(idx#1983, 1)
+                    let <sym:4001484> =
+                      aether_call[owned, owned] concat#395(acc#183, v#184)
+                    let <sym:8001986> =
+                      BoxInt(<sym:4001483>#1483)
+                    aether_call[owned, owned] flatten_go#181(<sym:8001986>#1986, <sym:4001484>#1484)
+                shared ->
+                  dup v#184 in
+                    drop <sym:4001482>#1482 in
                       let <sym:4001483> =
-                        IAdd(idx#1971, 1)
+                        IAdd(idx#1983, 1)
                       let <sym:4001484> =
                         aether_call[owned, owned] concat#395(acc#183, v#184)
-                      let <sym:8001973> =
+                      let <sym:8001986> =
                         BoxInt(<sym:4001483>#1483)
-                      aether_call[owned, owned] flatten_go#181(<sym:8001973>#1973, <sym:4001484>#1484)
-                  shared ->
-                    dup v#184 in
-                      drop <sym:4001482>#1482 in
-                        let <sym:4001483> =
-                          IAdd(idx#1971, 1)
-                        let <sym:4001484> =
-                          aether_call[owned, owned] concat#395(acc#183, v#184)
-                        let <sym:8001973> =
-                          BoxInt(<sym:4001483>#1483)
-                        aether_call[owned, owned] flatten_go#181(<sym:8001973>#1973, <sym:4001484>#1484)
-                }
-              _ ->
-                drop <sym:4001482>#1482 in
-                  let <sym:4001485> =
-                    IAdd(idx#1971, 1)
-                  let <sym:8001974> =
-                    BoxInt(<sym:4001485>#1485)
-                  aether_call[owned, owned] flatten_go#181(<sym:8001974>#1974, acc#183)
+                      aether_call[owned, owned] flatten_go#181(<sym:8001986>#1986, <sym:4001484>#1484)
+              }
+            _ ->
+              drop <sym:4001482>#1482 in
+                let <sym:4001485> =
+                  IAdd(idx#1983, 1)
+                let <sym:8001987> =
+                  BoxInt(<sym:4001485>#1485)
+                aether_call[owned, owned] flatten_go#181(<sym:8001987>#1987, acc#183)
   let <sym:4001486> =
     MakeArray()
   let <sym:7000000> =
@@ -891,7 +927,7 @@ lam(arr) ->
   drop flatten_go#181 in
     <sym:7000000>#4026531840
 ── fn zip ──
-  Dups: 2  Drops: 12  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 2  Drops: 11  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(a_arr, b_arr) ->
@@ -901,68 +937,75 @@ lam(a_arr, b_arr) ->
         Len(a_arr#186)
       let <sym:4001488> =
         Len(b_arr#187)
-      let <sym:8001975> =
+      let <sym:8001988> =
         UnboxInt(<sym:4001487>#1487)
-      let <sym:8001976> =
+      let <sym:8001989> =
         UnboxInt(<sym:4001488>#1488)
-      ICmpLt(<sym:8001975>#1975, <sym:8001976>#1976)
+      ICmpLt(<sym:8001988>#1988, <sym:8001989>#1989)
     case <sym:4001489>#1489 of
       true ->
-        let <sym:8001977> =
+        let <sym:8001990> =
           Len(a_arr#186)
-        UnboxInt(<sym:8001977>#1977)
+        UnboxInt(<sym:8001990>#1990)
       _ ->
-        let <sym:8001978> =
+        let <sym:8001991> =
           Len(b_arr#187)
-        UnboxInt(<sym:8001978>#1978)
+        UnboxInt(<sym:8001991>#1991)
   let min_len =
     BoxInt(min_len#193)
   letrec zip_go =
     lam(idx, acc) ->
       let min_len =
-        UnboxInt(min_len#1979)
+        UnboxInt(min_len#1992)
       let idx =
-        UnboxInt(idx#189)
+        UnboxIntMove(idx#189)
       let <sym:4001490> =
-        ICmpGe(idx#1980, min_len#1981)
+        ICmpGe(idx#1993, min_len#1994)
       case <sym:4001490>#1490 of
         true ->
-          drop idx#189 in
-            acc#190
+          acc#190
         _ ->
           let <sym:4001491> =
-            Index(a_arr#186, idx#189)
+            let <sym:8001995> =
+              BoxInt(idx#1993)
+            let <sym:7000003> =
+              Index(a_arr#186, <sym:8001995>#1995)
+            drop <sym:8001995>#1995 in
+              <sym:7000003>#4026531843
           case <sym:4001491>#1491 of
             Some(va) ->
               let <sym:4001492> =
-                Index(b_arr#187, idx#189)
-              drop idx#189 in
-                case <sym:4001492>#1492 of
-                  Some(vb) ->
-                    let <sym:4001493> =
-                      IAdd(idx#1980, 1)
-                    let <sym:4001495> =
-                      let <sym:4001494> =
-                        MakeTuple(dup va#191 in va#191, dup vb#192 in vb#192)
-                      let <sym:7000001> =
-                        aether_call[borrowed, borrowed] push#207(acc#190, <sym:4001494>#1494)
-                      drop <sym:4001494>#1494 in
-                        <sym:7000001>#4026531841
-                        drop acc#190 in
-                      drop <sym:4001492>#1492 in
-                    drop <sym:4001491>#1491 in
-                          let <sym:8001982> =
-                            BoxInt(<sym:4001493>#1493)
-                          aether_call[owned, owned] zip_go#188(<sym:8001982>#1982, <sym:4001495>#1495)
-                  _ ->
-                      drop <sym:4001492>#1492 in
-                    drop <sym:4001491>#1491 in
-                        acc#190
+                let <sym:8001996> =
+                  BoxInt(idx#1993)
+                let <sym:7000002> =
+                  Index(b_arr#187, <sym:8001996>#1996)
+                drop <sym:8001996>#1996 in
+                  <sym:7000002>#4026531842
+              case <sym:4001492>#1492 of
+                Some(vb) ->
+                  let <sym:4001493> =
+                    IAdd(idx#1993, 1)
+                  let <sym:4001495> =
+                    let <sym:4001494> =
+                      MakeTuple(dup va#191 in va#191, dup vb#192 in vb#192)
+                    let <sym:7000001> =
+                      aether_call[borrowed, borrowed] push#207(acc#190, <sym:4001494>#1494)
+                    drop <sym:4001494>#1494 in
+                      <sym:7000001>#4026531841
+                      drop acc#190 in
+                    drop <sym:4001492>#1492 in
+                  drop <sym:4001491>#1491 in
+                        let <sym:8001997> =
+                          BoxInt(<sym:4001493>#1493)
+                        aether_call[owned, owned] zip_go#188(<sym:8001997>#1997, <sym:4001495>#1495)
+                _ ->
+                    drop <sym:4001492>#1492 in
+                  drop <sym:4001491>#1491 in
+                      acc#190
             _ ->
-                drop idx#189 in
               drop <sym:4001491>#1491 in
-                  acc#190
-  drop min_len#1979 in
+                acc#190
+  drop min_len#1992 in
     let <sym:4001496> =
       MakeArray()
     let <sym:7000000> =
@@ -993,9 +1036,9 @@ lam(arr) ->
   let <sym:4001500> =
     let <sym:4001499> =
       Len(arr#211)
-    let <sym:8001983> =
+    let <sym:8001998> =
       UnboxInt(<sym:4001499>#1499)
-    ICmpEq(<sym:8001983>#1983, 0)
+    ICmpEq(<sym:8001998>#1998, 0)
   case <sym:4001500>#1500 of
     true ->
       MakeArray()
@@ -1028,9 +1071,9 @@ lam(arr) ->
         UnboxIntMove(a#223)
       let x =
         UnboxIntMove(x#224)
-      let <sym:8001986> =
-        IAdd(a#1984, x#1985)
-      BoxInt(<sym:8001986>#1986)
+      let <sym:8002001> =
+        IAdd(a#1999, x#2000)
+      BoxInt(<sym:8002001>#2001)
   let <sym:7000000> =
     aether_call[owned, owned, borrowed] fold#360(arr#222, 0, <sym:4001506>#1506)
   drop <sym:4001506>#1506 in
@@ -1046,71 +1089,79 @@ lam(arr) ->
         UnboxIntMove(a#227)
       let x =
         UnboxIntMove(x#228)
-      let <sym:8001989> =
-        IMul(a#1987, x#1988)
-      BoxInt(<sym:8001989>#1989)
+      let <sym:8002004> =
+        IMul(a#2002, x#2003)
+      BoxInt(<sym:8002004>#2004)
   let <sym:7000000> =
     aether_call[owned, owned, borrowed] fold#360(arr#226, 1, <sym:4001507>#1507)
   drop <sym:4001507>#1507 in
     <sym:7000000>#4026531840
 ── fn maximum ──
-  Dups: 2  Drops: 11  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
+  Dups: 2  Drops: 9  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
   FreshAllocs: 0
   verifier: ok
 lam(arr) ->
   letrec maximum_go =
     lam(i, best) ->
       let i =
-        UnboxInt(i#233)
+        UnboxIntMove(i#233)
       let best =
-        UnboxInt(best#234)
+        UnboxIntMove(best#234)
       let <sym:4001509> =
         let <sym:4001508> =
           Len(arr#230)
-        let <sym:8001991> =
+        let <sym:8002006> =
           UnboxInt(<sym:4001508>#1508)
-        ICmpGe(i#1990, <sym:8001991>#1991)
+        ICmpGe(i#2005, <sym:8002006>#2006)
       case <sym:4001509>#1509 of
         true ->
-          drop i#233 in
-            best#234
+          let <sym:8002008> =
+            BoxInt(best#2007)
+          <sym:8002008>#2008
         _ ->
           let <sym:4001510> =
-            Index(arr#230, i#233)
-          drop i#233 in
-            case <sym:4001510>#1510 of
-              Some(v) ->
-                let v =
-                  UnboxInt(v#235)
-                let <sym:4001511> =
-                  IAdd(i#1990, 1)
-                let <sym:4001513> =
-                  let <sym:4001512> =
-                    ICmpGt(v#1992, best#1993)
-                  case <sym:4001512>#1512 of
-                    true ->
-                      drop best#234 in
-                        dup v#235 in
-                          v#235
-                    _ ->
-                      best#234
-                drop <sym:4001510>#1510 in
-                  let <sym:8001994> =
-                    BoxInt(<sym:4001511>#1511)
-                  aether_call[owned, owned] maximum_go#232(<sym:8001994>#1994, <sym:4001513>#1513)
-              _ ->
-                drop <sym:4001510>#1510 in
-                  let <sym:4001514> =
-                    IAdd(i#1990, 1)
-                  let <sym:8001995> =
-                    BoxInt(<sym:4001514>#1514)
-                  aether_call[owned, owned] maximum_go#232(<sym:8001995>#1995, best#234)
+            let <sym:8002009> =
+              BoxInt(i#2005)
+            let <sym:7000001> =
+              Index(arr#230, <sym:8002009>#2009)
+            drop <sym:8002009>#2009 in
+              <sym:7000001>#4026531841
+          case <sym:4001510>#1510 of
+            Some(v) ->
+              let v =
+                UnboxInt(v#235)
+              let <sym:4001511> =
+                IAdd(i#2005, 1)
+              let <sym:4001513> =
+                let <sym:4001512> =
+                  ICmpGt(v#2010, best#2007)
+                case <sym:4001512>#1512 of
+                  true ->
+                    dup v#235 in
+                      v#235
+                  _ ->
+                    let <sym:8002011> =
+                      BoxInt(best#2007)
+                    <sym:8002011>#2011
+              drop <sym:4001510>#1510 in
+                let <sym:8002012> =
+                  BoxInt(<sym:4001511>#1511)
+                aether_call[owned, owned] maximum_go#232(<sym:8002012>#2012, <sym:4001513>#1513)
+            _ ->
+              drop <sym:4001510>#1510 in
+                let <sym:4001514> =
+                  IAdd(i#2005, 1)
+                let <sym:8002013> =
+                  BoxInt(<sym:4001514>#1514)
+                let <sym:8002014> =
+                  BoxInt(best#2007)
+                aether_call[owned, owned] maximum_go#232(<sym:8002013>#2013, <sym:8002014>#2014)
   let <sym:4001516> =
     let <sym:4001515> =
       Len(arr#230)
-    let <sym:8001996> =
+    let <sym:8002015> =
       UnboxInt(<sym:4001515>#1515)
-    ICmpEq(<sym:8001996>#1996, 0)
+    ICmpEq(<sym:8002015>#2015, 0)
   case <sym:4001516>#1516 of
     true ->
       drop maximum_go#232 in
@@ -1140,63 +1191,71 @@ lam(arr) ->
           drop <sym:4001517>#1517 in
               0
 ── fn minimum ──
-  Dups: 2  Drops: 11  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
+  Dups: 2  Drops: 9  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
   FreshAllocs: 0
   verifier: ok
 lam(arr) ->
   letrec minimum_go =
     lam(i, best) ->
       let i =
-        UnboxInt(i#240)
+        UnboxIntMove(i#240)
       let best =
-        UnboxInt(best#241)
+        UnboxIntMove(best#241)
       let <sym:4001519> =
         let <sym:4001518> =
           Len(arr#237)
-        let <sym:8001998> =
+        let <sym:8002017> =
           UnboxInt(<sym:4001518>#1518)
-        ICmpGe(i#1997, <sym:8001998>#1998)
+        ICmpGe(i#2016, <sym:8002017>#2017)
       case <sym:4001519>#1519 of
         true ->
-          drop i#240 in
-            best#241
+          let <sym:8002019> =
+            BoxInt(best#2018)
+          <sym:8002019>#2019
         _ ->
           let <sym:4001520> =
-            Index(arr#237, i#240)
-          drop i#240 in
-            case <sym:4001520>#1520 of
-              Some(v) ->
-                let v =
-                  UnboxInt(v#242)
-                let <sym:4001521> =
-                  IAdd(i#1997, 1)
-                let <sym:4001523> =
-                  let <sym:4001522> =
-                    ICmpLt(v#1999, best#2000)
-                  case <sym:4001522>#1522 of
-                    true ->
-                      drop best#241 in
-                        dup v#242 in
-                          v#242
-                    _ ->
-                      best#241
-                drop <sym:4001520>#1520 in
-                  let <sym:8002001> =
-                    BoxInt(<sym:4001521>#1521)
-                  aether_call[owned, owned] minimum_go#239(<sym:8002001>#2001, <sym:4001523>#1523)
-              _ ->
-                drop <sym:4001520>#1520 in
-                  let <sym:4001524> =
-                    IAdd(i#1997, 1)
-                  let <sym:8002002> =
-                    BoxInt(<sym:4001524>#1524)
-                  aether_call[owned, owned] minimum_go#239(<sym:8002002>#2002, best#241)
+            let <sym:8002020> =
+              BoxInt(i#2016)
+            let <sym:7000001> =
+              Index(arr#237, <sym:8002020>#2020)
+            drop <sym:8002020>#2020 in
+              <sym:7000001>#4026531841
+          case <sym:4001520>#1520 of
+            Some(v) ->
+              let v =
+                UnboxInt(v#242)
+              let <sym:4001521> =
+                IAdd(i#2016, 1)
+              let <sym:4001523> =
+                let <sym:4001522> =
+                  ICmpLt(v#2021, best#2018)
+                case <sym:4001522>#1522 of
+                  true ->
+                    dup v#242 in
+                      v#242
+                  _ ->
+                    let <sym:8002022> =
+                      BoxInt(best#2018)
+                    <sym:8002022>#2022
+              drop <sym:4001520>#1520 in
+                let <sym:8002023> =
+                  BoxInt(<sym:4001521>#1521)
+                aether_call[owned, owned] minimum_go#239(<sym:8002023>#2023, <sym:4001523>#1523)
+            _ ->
+              drop <sym:4001520>#1520 in
+                let <sym:4001524> =
+                  IAdd(i#2016, 1)
+                let <sym:8002024> =
+                  BoxInt(<sym:4001524>#1524)
+                let <sym:8002025> =
+                  BoxInt(best#2018)
+                aether_call[owned, owned] minimum_go#239(<sym:8002024>#2024, <sym:8002025>#2025)
   let <sym:4001526> =
     let <sym:4001525> =
       Len(arr#237)
-    let <sym:8002003> =
+    let <sym:8002026> =
       UnboxInt(<sym:4001525>#1525)
-    ICmpEq(<sym:8002003>#2003, 0)
+    ICmpEq(<sym:8002026>#2026, 0)
   case <sym:4001526>#1526 of
     true ->
       drop minimum_go#239 in
@@ -1235,21 +1294,21 @@ lam(arr) ->
   let n =
     UnboxInt(n#247)
   let <sym:4001528> =
-    ICmpEq(n#2004, 0)
+    ICmpEq(n#2027, 0)
   case <sym:4001528>#1528 of
     true ->
       None
     _ ->
       let <sym:4001529> =
-        ISub(n#2004, 1)
-      let <sym:8002005> =
+        ISub(n#2027, 1)
+      let <sym:8002028> =
         BoxInt(<sym:4001529>#1529)
       let <sym:7000000> =
-        Index(arr#246, <sym:8002005>#2005)
-      drop <sym:8002005>#2005 in
+        Index(arr#246, <sym:8002028>#2028)
+      drop <sym:8002028>#2028 in
         <sym:7000000>#4026531840
 ── fn range ──
-  Dups: 0  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 0  Drops: 3  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(start, stop) ->
@@ -1258,23 +1317,26 @@ lam(start, stop) ->
       let stop =
         UnboxInt(stop#250)
       let i =
-        UnboxInt(i#252)
+        UnboxIntMove(i#252)
       let <sym:4001530> =
-        ICmpGe(i#2006, stop#2007)
+        ICmpGe(i#2029, stop#2030)
       case <sym:4001530>#1530 of
         true ->
-          drop i#252 in
-            acc#253
+          acc#253
         _ ->
           let <sym:4001531> =
-            IAdd(i#2006, 1)
+            IAdd(i#2029, 1)
           let <sym:4001532> =
-            aether_call[borrowed, borrowed] push#207(acc#253, i#252)
-            drop i#252 in
+            let <sym:8002031> =
+              BoxInt(i#2029)
+            let <sym:7000001> =
+              aether_call[borrowed, borrowed] push#207(acc#253, <sym:8002031>#2031)
+            drop <sym:8002031>#2031 in
+              <sym:7000001>#4026531841
           drop acc#253 in
-              let <sym:8002008> =
-                BoxInt(<sym:4001531>#1531)
-              aether_call[owned, owned] range_go#251(<sym:8002008>#2008, <sym:4001532>#1532)
+            let <sym:8002032> =
+              BoxInt(<sym:4001531>#1531)
+            aether_call[owned, owned] range_go#251(<sym:8002032>#2032, <sym:4001532>#1532)
   let <sym:4001533> =
     MakeArray()
   let <sym:7000000> =
@@ -1294,31 +1356,35 @@ lam(__dict_m8_466C6F772E4F7264_Ord, arr) ->
   drop <sym:4001534>#1534 in
     <sym:7000000>#4026531840
 ── fn sort_by ──
-  Dups: 3  Drops: 19  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 3
+  Dups: 3  Drops: 17  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 2
   FreshAllocs: 0
   verifier: ok
 lam(__dict_m8_466C6F772E4F7264_Ord, arr, f) ->
   letrec insert_tagged =
     lam(sorted, pair, idx) ->
       let idx =
-        UnboxInt(idx#270)
+        UnboxIntMove(idx#270)
       let <sym:4001536> =
         let <sym:4001535> =
           Len(sorted#268)
-        let <sym:8002010> =
+        let <sym:8002034> =
           UnboxInt(<sym:4001535>#1535)
-        ICmpGe(idx#2009, <sym:8002010>#2010)
+        ICmpGe(idx#2033, <sym:8002034>#2034)
       case <sym:4001536>#1536 of
         true ->
-          drop idx#270 in
-            let <sym:7000003> =
-              aether_call[borrowed, borrowed] push#207(sorted#268, pair#269)
-              drop sorted#268 in
-            drop pair#269 in
-                <sym:7000003>#4026531843
+          let <sym:7000007> =
+            aether_call[borrowed, borrowed] push#207(sorted#268, pair#269)
+            drop sorted#268 in
+          drop pair#269 in
+              <sym:7000007>#4026531847
         _ ->
           let <sym:4001537> =
-            Index(sorted#268, idx#270)
+            let <sym:8002035> =
+              BoxInt(idx#2033)
+            let <sym:7000006> =
+              Index(sorted#268, <sym:8002035>#2035)
+            drop <sym:8002035>#2035 in
+              <sym:7000006>#4026531846
           case <sym:4001537>#1537 of
             Some(current) ->
               let <sym:4001540> =
@@ -1331,72 +1397,82 @@ lam(__dict_m8_466C6F772E4F7264_Ord, arr, f) ->
                 case <sym:4001540>#1540 of
                   true ->
                     let left =
-                      aether_call[borrowed, borrowed, borrowed] slice#213(sorted#268, 0, idx#270)
+                      let <sym:8002036> =
+                        BoxInt(idx#2033)
+                      let <sym:7000005> =
+                        aether_call[borrowed, borrowed, borrowed] slice#213(sorted#268, 0, <sym:8002036>#2036)
+                      drop <sym:8002036>#2036 in
+                        <sym:7000005>#4026531845
                     let right =
                       let <sym:4001541> =
                         Len(sorted#268)
-                      aether_call[borrowed, borrowed, borrowed] slice#213(sorted#268, idx#270, <sym:4001541>#1541)
-                      drop sorted#268 in
-                    drop idx#270 in
-                        let <sym:4001543> =
-                          let <sym:4001542> =
-                            MakeArray(pair#269)
-                          aether_call[owned, owned] concat#395(left#273, <sym:4001542>#1542)
-                        aether_call[owned, owned] concat#395(<sym:4001543>#1543, right#272)
-                  _ ->
-                    drop idx#270 in
-                      let <sym:4001544> =
-                        IAdd(idx#2009, 1)
-                      let <sym:8002011> =
-                        BoxInt(<sym:4001544>#1544)
-                      aether_call[owned, owned, owned] insert_tagged#267(sorted#268, pair#269, <sym:8002011>#2011)
-            _ ->
-                drop idx#270 in
-              drop <sym:4001537>#1537 in
-                  let <sym:7000004> =
-                    aether_call[borrowed, borrowed] push#207(sorted#268, pair#269)
+                      let <sym:8002037> =
+                        BoxInt(idx#2033)
+                      let <sym:7000004> =
+                        aether_call[borrowed, borrowed, borrowed] slice#213(sorted#268, <sym:8002037>#2037, <sym:4001541>#1541)
+                      drop <sym:8002037>#2037 in
+                        <sym:7000004>#4026531844
                     drop sorted#268 in
-                  drop pair#269 in
-                      <sym:7000004>#4026531844
+                      let <sym:4001543> =
+                        let <sym:4001542> =
+                          MakeArray(pair#269)
+                        aether_call[owned, owned] concat#395(left#273, <sym:4001542>#1542)
+                      aether_call[owned, owned] concat#395(<sym:4001543>#1543, right#272)
+                  _ ->
+                    let <sym:4001544> =
+                      IAdd(idx#2033, 1)
+                    let <sym:8002038> =
+                      BoxInt(<sym:4001544>#1544)
+                    aether_call[owned, owned, owned] insert_tagged#267(sorted#268, pair#269, <sym:8002038>#2038)
+            _ ->
+              drop <sym:4001537>#1537 in
+                let <sym:7000008> =
+                  aether_call[borrowed, borrowed] push#207(sorted#268, pair#269)
+                  drop sorted#268 in
+                drop pair#269 in
+                    <sym:7000008>#4026531848
   letrec sort_by_go =
     lam(idx, pairs) ->
       let idx =
-        UnboxInt(idx#264)
+        UnboxIntMove(idx#264)
       let <sym:4001546> =
         let <sym:4001545> =
           Len(arr#259)
-        let <sym:8002013> =
+        let <sym:8002040> =
           UnboxInt(<sym:4001545>#1545)
-        ICmpGe(idx#2012, <sym:8002013>#2013)
+        ICmpGe(idx#2039, <sym:8002040>#2040)
       case <sym:4001546>#1546 of
         true ->
-          drop idx#264 in
-            pairs#265
+          pairs#265
         _ ->
           let <sym:4001547> =
-            Index(arr#259, idx#264)
-          drop idx#264 in
-            case <sym:4001547>#1547 of
-              Some(v) ->
-                let <sym:4001548> =
-                  IAdd(idx#2012, 1)
-                let <sym:4001551> =
-                  let <sym:4001550> =
-                    let <sym:4001549> =
-                      aether_call[owned] f#260(dup v#266 in v#266)
-                    MakeTuple(<sym:4001549>#1549, dup v#266 in v#266)
-                  aether_call[owned, owned, owned] insert_tagged#267(pairs#265, <sym:4001550>#1550, 0)
-                drop <sym:4001547>#1547 in
-                  let <sym:8002014> =
-                    BoxInt(<sym:4001548>#1548)
-                  aether_call[owned, owned] sort_by_go#263(<sym:8002014>#2014, <sym:4001551>#1551)
-              _ ->
-                drop <sym:4001547>#1547 in
-                  let <sym:4001552> =
-                    IAdd(idx#2012, 1)
-                  let <sym:8002015> =
-                    BoxInt(<sym:4001552>#1552)
-                  aether_call[owned, owned] sort_by_go#263(<sym:8002015>#2015, pairs#265)
+            let <sym:8002041> =
+              BoxInt(idx#2039)
+            let <sym:7000003> =
+              Index(arr#259, <sym:8002041>#2041)
+            drop <sym:8002041>#2041 in
+              <sym:7000003>#4026531843
+          case <sym:4001547>#1547 of
+            Some(v) ->
+              let <sym:4001548> =
+                IAdd(idx#2039, 1)
+              let <sym:4001551> =
+                let <sym:4001550> =
+                  let <sym:4001549> =
+                    aether_call[owned] f#260(dup v#266 in v#266)
+                  MakeTuple(<sym:4001549>#1549, dup v#266 in v#266)
+                aether_call[owned, owned, owned] insert_tagged#267(pairs#265, <sym:4001550>#1550, 0)
+              drop <sym:4001547>#1547 in
+                let <sym:8002042> =
+                  BoxInt(<sym:4001548>#1548)
+                aether_call[owned, owned] sort_by_go#263(<sym:8002042>#2042, <sym:4001551>#1551)
+            _ ->
+              drop <sym:4001547>#1547 in
+                let <sym:4001552> =
+                  IAdd(idx#2039, 1)
+                let <sym:8002043> =
+                  BoxInt(<sym:4001552>#1552)
+                aether_call[owned, owned] sort_by_go#263(<sym:8002043>#2043, pairs#265)
   drop insert_tagged#267 in
     let <sym:4001554> =
       let <sym:4001553> =
@@ -1417,53 +1493,27 @@ lam(__dict_m8_466C6F772E4F7264_Ord, arr, f) ->
       drop <sym:4001555>#1555 in
         <sym:7000000>#4026531840
 ── fn take ──
-  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
+  Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 1
   FreshAllocs: 0
   verifier: ok
 lam(arr, n) ->
   let n =
-    UnboxInt(n#276)
+    UnboxIntMove(n#276)
   let <sym:4001558> =
     let <sym:4001557> =
       let <sym:4001556> =
         Len(arr#275)
-      let <sym:8002017> =
+      let <sym:8002045> =
         UnboxInt(<sym:4001556>#1556)
-      ICmpGt(n#2016, <sym:8002017>#2017)
+      ICmpGt(n#2044, <sym:8002045>#2045)
     case <sym:4001557>#1557 of
       true ->
         Len(arr#275)
       _ ->
-        n#276
-  let <sym:7000000> =
-    aether_call[borrowed, borrowed, borrowed] slice#213(arr#275, 0, <sym:4001558>#1558)
-  drop n#276 in
-    <sym:7000000>#4026531840
-── fn drop ──
-  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
-  FreshAllocs: 0
-  verifier: ok
-lam(arr, n) ->
-  let n =
-    UnboxInt(n#279)
-  let <sym:4001561> =
-    let <sym:4001560> =
-      let <sym:4001559> =
-        Len(arr#278)
-      let <sym:8002019> =
-        UnboxInt(<sym:4001559>#1559)
-      ICmpGt(n#2018, <sym:8002019>#2019)
-    case <sym:4001560>#1560 of
-      true ->
-        Len(arr#278)
-      _ ->
-        n#279
-  let <sym:4001562> =
-    Len(arr#278)
-  let <sym:7000000> =
-    aether_call[borrowed, borrowed, borrowed] slice#213(arr#278, <sym:4001561>#1561, <sym:4001562>#1562)
-  drop n#279 in
-    <sym:7000000>#4026531840
+        let <sym:8002046> =
+          BoxInt(n#2044)
+        <sym:8002046>#2046
+  aether_call[borrowed, borrowed, borrowed] slice#213(arr#275, 0, <sym:4001558>#1558)
 ── fn swap ──
   Dups: 0  Drops: 7  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
@@ -1494,51 +1544,56 @@ lam(arr, i, j) ->
       drop <sym:4001563>#1563 in
         arr#281
 ── fn enumerate ──
-  Dups: 1  Drops: 7  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 1  Drops: 6  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(arr) ->
   letrec enumerate_go =
     lam(idx, acc) ->
       let idx =
-        UnboxInt(idx#289)
+        UnboxIntMove(idx#289)
       let <sym:4001567> =
         let <sym:4001566> =
           Len(arr#287)
-        let <sym:8002021> =
+        let <sym:8002051> =
           UnboxInt(<sym:4001566>#1566)
-        ICmpGe(idx#2020, <sym:8002021>#2021)
+        ICmpGe(idx#2050, <sym:8002051>#2051)
       case <sym:4001567>#1567 of
         true ->
-          drop idx#289 in
-            acc#290
+          acc#290
         _ ->
           let <sym:4001568> =
-            Index(arr#287, idx#289)
+            let <sym:8002052> =
+              BoxInt(idx#2050)
+            let <sym:7000002> =
+              Index(arr#287, <sym:8002052>#2052)
+            drop <sym:8002052>#2052 in
+              <sym:7000002>#4026531842
           case <sym:4001568>#1568 of
             Some(v) ->
               let <sym:4001569> =
-                IAdd(idx#2020, 1)
+                IAdd(idx#2050, 1)
               let <sym:4001571> =
                 let <sym:4001570> =
-                  MakeTuple(idx#289, dup v#291 in v#291)
+                  let <sym:8002053> =
+                    BoxInt(idx#2050)
+                  MakeTuple(<sym:8002053>#2053, dup v#291 in v#291)
                 let <sym:7000001> =
                   aether_call[borrowed, borrowed] push#207(acc#290, <sym:4001570>#1570)
                 drop <sym:4001570>#1570 in
                   <sym:7000001>#4026531841
                 drop acc#290 in
               drop <sym:4001568>#1568 in
-                  let <sym:8002022> =
+                  let <sym:8002054> =
                     BoxInt(<sym:4001569>#1569)
-                  aether_call[owned, owned] enumerate_go#288(<sym:8002022>#2022, <sym:4001571>#1571)
+                  aether_call[owned, owned] enumerate_go#288(<sym:8002054>#2054, <sym:4001571>#1571)
             _ ->
-                drop idx#289 in
               drop <sym:4001568>#1568 in
-                  let <sym:4001572> =
-                    IAdd(idx#2020, 1)
-                  let <sym:8002023> =
-                    BoxInt(<sym:4001572>#1572)
-                  aether_call[owned, owned] enumerate_go#288(<sym:8002023>#2023, acc#290)
+                let <sym:4001572> =
+                  IAdd(idx#2050, 1)
+                let <sym:8002055> =
+                  BoxInt(<sym:4001572>#1572)
+                aether_call[owned, owned] enumerate_go#288(<sym:8002055>#2055, acc#290)
   let <sym:4001573> =
     MakeArray()
   let <sym:7000000> =
@@ -1546,7 +1601,7 @@ lam(arr) ->
   drop enumerate_go#288 in
     <sym:7000000>#4026531840
 ── fn tabulate ──
-  Dups: 0  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 0  Drops: 3  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(n, f) ->
@@ -1555,27 +1610,28 @@ lam(n, f) ->
       let n =
         UnboxInt(n#293)
       let i =
-        UnboxInt(i#296)
+        UnboxIntMove(i#296)
       let <sym:4001574> =
-        ICmpGe(i#2024, n#2025)
+        ICmpGe(i#2056, n#2057)
       case <sym:4001574>#1574 of
         true ->
-          drop i#296 in
-            acc#297
+          acc#297
         _ ->
           let <sym:4001575> =
-            IAdd(i#2024, 1)
+            IAdd(i#2056, 1)
           let <sym:4001577> =
             let <sym:4001576> =
-              aether_call[owned] f#294(i#296)
+              let <sym:8002058> =
+                BoxInt(i#2056)
+              aether_call[owned] f#294(<sym:8002058>#2058)
             let <sym:7000001> =
               aether_call[borrowed, borrowed] push#207(acc#297, <sym:4001576>#1576)
             drop <sym:4001576>#1576 in
               <sym:7000001>#4026531841
           drop acc#297 in
-            let <sym:8002026> =
+            let <sym:8002059> =
               BoxInt(<sym:4001575>#1575)
-            aether_call[owned, owned] tabulate_go#295(<sym:8002026>#2026, <sym:4001577>#1577)
+            aether_call[owned, owned] tabulate_go#295(<sym:8002059>#2059, <sym:4001577>#1577)
   let <sym:4001578> =
     MakeArray()
   let <sym:7000000> =
@@ -1619,27 +1675,31 @@ lam(xs) ->
   drop from_list_go#300 in
     <sym:7000000>#4026531840
 ── fn find_index ──
-  Dups: 1  Drops: 8  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
+  Dups: 1  Drops: 6  Reuses: 1  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fip
   FreshAllocs: 0
   verifier: ok
 lam(arr, pred) ->
   letrec find_index_go =
     lam(idx) ->
       let idx =
-        UnboxInt(idx#309)
+        UnboxIntMove(idx#309)
       let <sym:4001582> =
         let <sym:4001581> =
           Len(arr#306)
-        let <sym:8002028> =
+        let <sym:8002061> =
           UnboxInt(<sym:4001581>#1581)
-        ICmpGe(idx#2027, <sym:8002028>#2028)
+        ICmpGe(idx#2060, <sym:8002061>#2061)
       case <sym:4001582>#1582 of
         true ->
-          drop idx#309 in
-            None
+          None
         _ ->
           let <sym:4001583> =
-            Index(arr#306, idx#309)
+            let <sym:8002062> =
+              BoxInt(idx#2060)
+            let <sym:7000001> =
+              Index(arr#306, <sym:8002062>#2062)
+            drop <sym:8002062>#2062 in
+              <sym:7000001>#4026531841
           case <sym:4001583>#1583 of
             Some(v) ->
               dup v#310 in
@@ -1648,83 +1708,90 @@ lam(arr, pred) ->
                 case <sym:4001584>#1584 of
                   true ->
                     drop <sym:4001584>#1584 in
-                      reuse <sym:4001583>#1583 as Some(idx#309)
+                      let <sym:8002063> =
+                        BoxInt(idx#2060)
+                      reuse <sym:4001583>#1583 as Some(<sym:8002063>#2063)
                   _ ->
-                        drop idx#309 in
                       drop <sym:4001584>#1584 in
                     drop <sym:4001583>#1583 in
-                          let <sym:4001585> =
-                            IAdd(idx#2027, 1)
-                          let <sym:8002029> =
-                            BoxInt(<sym:4001585>#1585)
-                          aether_call[owned] find_index_go#308(<sym:8002029>#2029)
+                        let <sym:4001585> =
+                          IAdd(idx#2060, 1)
+                        let <sym:8002064> =
+                          BoxInt(<sym:4001585>#1585)
+                        aether_call[owned] find_index_go#308(<sym:8002064>#2064)
             _ ->
-                drop idx#309 in
               drop <sym:4001583>#1583 in
-                  let <sym:4001586> =
-                    IAdd(idx#2027, 1)
-                  let <sym:8002030> =
-                    BoxInt(<sym:4001586>#1586)
-                  aether_call[owned] find_index_go#308(<sym:8002030>#2030)
+                let <sym:4001586> =
+                  IAdd(idx#2060, 1)
+                let <sym:8002065> =
+                  BoxInt(<sym:4001586>#1586)
+                aether_call[owned] find_index_go#308(<sym:8002065>#2065)
   let <sym:7000000> =
     aether_call[owned] find_index_go#308(0)
   drop find_index_go#308 in
     <sym:7000000>#4026531840
 ── fn each_indexed ──
-  Dups: 1  Drops: 7  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
+  Dups: 1  Drops: 6  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
   FreshAllocs: 0
   verifier: ok
 lam(arr, f) ->
   letrec each_indexed_go =
     lam(idx) ->
       let idx =
-        UnboxInt(idx#315)
+        UnboxIntMove(idx#315)
       let <sym:4001588> =
         let <sym:4001587> =
           Len(arr#312)
-        let <sym:8002032> =
+        let <sym:8002067> =
           UnboxInt(<sym:4001587>#1587)
-        ICmpGe(idx#2031, <sym:8002032>#2032)
+        ICmpGe(idx#2066, <sym:8002067>#2067)
       case <sym:4001588>#1588 of
         true ->
-          drop idx#315 in
-            MakeTuple()
+          MakeTuple()
         _ ->
           let <sym:4001589> =
-            Index(arr#312, idx#315)
+            let <sym:8002068> =
+              BoxInt(idx#2066)
+            let <sym:7000001> =
+              Index(arr#312, <sym:8002068>#2068)
+            drop <sym:8002068>#2068 in
+              <sym:7000001>#4026531841
           case <sym:4001589>#1589 of
             Some(v) ->
               drop_specialized <sym:4001589>#1589 {
                 unique ->
                   free_shell <sym:4001589>#1589 in
                     let <sym:2000018> =
-                      aether_call[owned, owned] f#313(idx#315, v#316)
+                      let <sym:8002069> =
+                        BoxInt(idx#2066)
+                      aether_call[owned, owned] f#313(<sym:8002069>#2069, v#316)
                     drop <sym:2000018>#317 in
                       let <sym:4001590> =
-                        IAdd(idx#2031, 1)
-                      let <sym:8002033> =
+                        IAdd(idx#2066, 1)
+                      let <sym:8002070> =
                         BoxInt(<sym:4001590>#1590)
-                      aether_call[owned] each_indexed_go#314(<sym:8002033>#2033)
+                      aether_call[owned] each_indexed_go#314(<sym:8002070>#2070)
                 shared ->
                   dup v#316 in
                     drop <sym:4001589>#1589 in
                       let <sym:2000018> =
-                        aether_call[owned, owned] f#313(idx#315, v#316)
+                        let <sym:8002069> =
+                          BoxInt(idx#2066)
+                        aether_call[owned, owned] f#313(<sym:8002069>#2069, v#316)
                       drop <sym:2000018>#317 in
                         let <sym:4001590> =
-                          IAdd(idx#2031, 1)
-                        let <sym:8002033> =
+                          IAdd(idx#2066, 1)
+                        let <sym:8002070> =
                           BoxInt(<sym:4001590>#1590)
-                        aether_call[owned] each_indexed_go#314(<sym:8002033>#2033)
+                        aether_call[owned] each_indexed_go#314(<sym:8002070>#2070)
               }
             _ ->
-                drop idx#315 in
               drop <sym:4001589>#1589 in
-                  let <sym:4001591> =
-                    IAdd(idx#2031, 1)
-                  let <sym:8002034> =
-                    BoxInt(<sym:4001591>#1591)
-                  aether_call[owned] each_indexed_go#314(<sym:8002034>#2034)
+                let <sym:4001591> =
+                  IAdd(idx#2066, 1)
+                let <sym:8002071> =
+                  BoxInt(<sym:4001591>#1591)
+                aether_call[owned] each_indexed_go#314(<sym:8002071>#2071)
   let <sym:7000000> =
     aether_call[owned] each_indexed_go#314(0)
   drop each_indexed_go#314 in
@@ -1853,47 +1920,50 @@ lam(size, init, pairs, f) ->
     drop accum_go#331 in
       <sym:7000000>#4026531840
 ── fn to_list ──
-  Dups: 1  Drops: 5  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
+  Dups: 1  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(arr) ->
   letrec to_list_go =
     lam(idx) ->
       let idx =
-        UnboxInt(idx#342)
+        UnboxIntMove(idx#342)
       let <sym:4001603> =
         let <sym:4001602> =
           Len(arr#340)
-        let <sym:8002036> =
+        let <sym:8002073> =
           UnboxInt(<sym:4001602>#1602)
-        ICmpGe(idx#2035, <sym:8002036>#2036)
+        ICmpGe(idx#2072, <sym:8002073>#2073)
       case <sym:4001603>#1603 of
         true ->
-          drop idx#342 in
-            Nil
+          Nil
         _ ->
           let <sym:4001604> =
-            Index(arr#340, idx#342)
-          drop idx#342 in
-            case <sym:4001604>#1604 of
-              Some(v) ->
-                let <sym:4001606> =
-                  let <sym:4001605> =
-                    IAdd(idx#2035, 1)
-                  let <sym:8002037> =
-                    BoxInt(<sym:4001605>#1605)
-                  aether_call[owned] to_list_go#341(<sym:8002037>#2037)
-                let <sym:7000001> =
-                  Cons(dup v#343 in v#343, <sym:4001606>#1606)
-                drop <sym:4001604>#1604 in
-                  <sym:7000001>#4026531841
-              _ ->
-                drop <sym:4001604>#1604 in
-                  let <sym:4001607> =
-                    IAdd(idx#2035, 1)
-                  let <sym:8002038> =
-                    BoxInt(<sym:4001607>#1607)
-                  aether_call[owned] to_list_go#341(<sym:8002038>#2038)
+            let <sym:8002074> =
+              BoxInt(idx#2072)
+            let <sym:7000002> =
+              Index(arr#340, <sym:8002074>#2074)
+            drop <sym:8002074>#2074 in
+              <sym:7000002>#4026531842
+          case <sym:4001604>#1604 of
+            Some(v) ->
+              let <sym:4001606> =
+                let <sym:4001605> =
+                  IAdd(idx#2072, 1)
+                let <sym:8002075> =
+                  BoxInt(<sym:4001605>#1605)
+                aether_call[owned] to_list_go#341(<sym:8002075>#2075)
+              let <sym:7000001> =
+                Cons(dup v#343 in v#343, <sym:4001606>#1606)
+              drop <sym:4001604>#1604 in
+                <sym:7000001>#4026531841
+            _ ->
+              drop <sym:4001604>#1604 in
+                let <sym:4001607> =
+                  IAdd(idx#2072, 1)
+                let <sym:8002076> =
+                  BoxInt(<sym:4001607>#1607)
+                aether_call[owned] to_list_go#341(<sym:8002076>#2076)
   let <sym:7000000> =
     aether_call[owned] to_list_go#341(0)
   drop to_list_go#341 in
@@ -2168,14 +2238,14 @@ lam(xs, pred) ->
     _ ->
       None
 ── fn count ──
-  Dups: 4  Drops: 12  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
+  Dups: 4  Drops: 10  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
   FreshAllocs: 0
   verifier: ok
 lam(xs, pred) ->
   letrec count_go =
     lam(ys, n) ->
       let n =
-        UnboxInt(n#417)
+        UnboxIntMove(n#417)
       case ys#416 of
         Cons(h, t) ->
           drop_specialized ys#416 {
@@ -2185,41 +2255,45 @@ lam(xs, pred) ->
                   aether_call[owned] pred#414(dup h#418 in h#418)
                 case <sym:4001626>#1626 of
                   true ->
-                      drop n#417 in
                     drop <sym:4001626>#1626 in
-                        let <sym:4001627> =
-                          IAdd(n#2039, 1)
-                        let <sym:8002040> =
-                          BoxInt(<sym:4001627>#1627)
-                        drop h#418 in
-                          aether_call[owned, owned] count_go#415(t#419, <sym:8002040>#2040)
-                  _ ->
+                      let <sym:4001627> =
+                        IAdd(n#2077, 1)
+                      let <sym:8002078> =
+                        BoxInt(<sym:4001627>#1627)
                       drop h#418 in
+                        aether_call[owned, owned] count_go#415(t#419, <sym:8002078>#2078)
+                  _ ->
                     drop <sym:4001626>#1626 in
-                        aether_call[owned, owned] count_go#415(t#419, n#417)
+                      let <sym:8002079> =
+                        BoxInt(n#2077)
+                      drop h#418 in
+                        aether_call[owned, owned] count_go#415(t#419, <sym:8002079>#2079)
             shared ->
               let <sym:4001626> =
                 aether_call[owned] pred#414(dup h#418 in h#418)
               case <sym:4001626>#1626 of
                 true ->
-                    drop n#417 in
                   drop <sym:4001626>#1626 in
-                      let <sym:4001627> =
-                        IAdd(n#2039, 1)
-                      let <sym:8002040> =
-                        BoxInt(<sym:4001627>#1627)
-                      dup t#419 in
-                        drop ys#416 in
-                          aether_call[owned, owned] count_go#415(t#419, <sym:8002040>#2040)
-                _ ->
-                  drop <sym:4001626>#1626 in
+                    let <sym:4001627> =
+                      IAdd(n#2077, 1)
+                    let <sym:8002078> =
+                      BoxInt(<sym:4001627>#1627)
                     dup t#419 in
                       drop ys#416 in
-                        aether_call[owned, owned] count_go#415(t#419, n#417)
+                        aether_call[owned, owned] count_go#415(t#419, <sym:8002078>#2078)
+                _ ->
+                  drop <sym:4001626>#1626 in
+                    let <sym:8002079> =
+                      BoxInt(n#2077)
+                    dup t#419 in
+                      drop ys#416 in
+                        aether_call[owned, owned] count_go#415(t#419, <sym:8002079>#2079)
           }
         _ ->
           drop ys#416 in
-            n#417
+            let <sym:8002080> =
+              BoxInt(n#2077)
+            <sym:8002080>#2080
   let <sym:7000000> =
     aether_call[owned, owned] count_go#415(xs#413, 0)
   drop count_go#415 in
@@ -2248,7 +2322,7 @@ lam(xs, n) ->
       let remaining =
         UnboxIntMove(remaining#431)
       let <sym:4001628> =
-        ICmpLe(remaining#2041, 0)
+        ICmpLe(remaining#2081, 0)
       case <sym:4001628>#1628 of
         true ->
           drop ys#430 in
@@ -2259,23 +2333,23 @@ lam(xs, n) ->
               drop_specialized ys#430 {
                 unique ->
                   let <sym:4001629> =
-                    ISub(remaining#2041, 1)
+                    ISub(remaining#2081, 1)
                   let <sym:4001630> =
                     reuse ys#430 as Cons mask=0x2(h#433, acc#432)
-                  let <sym:8002042> =
+                  let <sym:8002082> =
                     BoxInt(<sym:4001629>#1629)
-                  aether_call[owned, owned, owned] take_acc#429(t#434, <sym:8002042>#2042, <sym:4001630>#1630)
+                  aether_call[owned, owned, owned] take_acc#429(t#434, <sym:8002082>#2082, <sym:4001630>#1630)
                 shared ->
                   dup h#433 in
                     dup t#434 in
                       drop ys#430 in
                         let <sym:4001629> =
-                          ISub(remaining#2041, 1)
+                          ISub(remaining#2081, 1)
                         let <sym:4001630> =
                           Cons(h#433, acc#432)
-                        let <sym:8002042> =
+                        let <sym:8002082> =
                           BoxInt(<sym:4001629>#1629)
-                        aether_call[owned, owned, owned] take_acc#429(t#434, <sym:8002042>#2042, <sym:4001630>#1630)
+                        aether_call[owned, owned, owned] take_acc#429(t#434, <sym:8002082>#2082, <sym:4001630>#1630)
               }
             _ ->
               drop ys#430 in
@@ -2294,7 +2368,7 @@ lam(xs, n) ->
   let n =
     UnboxIntMove(n#437)
   let <sym:4001632> =
-    ICmpLe(n#2043, 0)
+    ICmpLe(n#2083, 0)
   case <sym:4001632>#1632 of
     true ->
       xs#436
@@ -2306,18 +2380,18 @@ lam(xs, n) ->
               free_shell xs#436 in
                 drop h#438 in
                   let <sym:4001633> =
-                    ISub(n#2043, 1)
-                  let <sym:8002044> =
+                    ISub(n#2083, 1)
+                  let <sym:8002084> =
                     BoxInt(<sym:4001633>#1633)
-                  aether_call[owned, owned] drop#435(t#439, <sym:8002044>#2044)
+                  aether_call[owned, owned] drop#435(t#439, <sym:8002084>#2084)
             shared ->
               dup t#439 in
                 drop xs#436 in
                   let <sym:4001633> =
-                    ISub(n#2043, 1)
-                  let <sym:8002044> =
+                    ISub(n#2083, 1)
+                  let <sym:8002084> =
                     BoxInt(<sym:4001633>#1633)
-                  aether_call[owned, owned] drop#435(t#439, <sym:8002044>#2044)
+                  aether_call[owned, owned] drop#435(t#439, <sym:8002084>#2084)
           }
         _ ->
           drop xs#436 in
@@ -2404,7 +2478,7 @@ lam(xs, n) ->
   let n =
     UnboxIntMove(n#455)
   let <sym:4001638> =
-    ICmpLe(n#2045, 0)
+    ICmpLe(n#2085, 0)
   case <sym:4001638>#1638 of
     true ->
       let <sym:4001639> =
@@ -2418,10 +2492,10 @@ lam(xs, n) ->
               free_shell xs#454 in
                 let <sym:4001641> =
                   let <sym:4001640> =
-                    ISub(n#2045, 1)
-                  let <sym:8002046> =
+                    ISub(n#2085, 1)
+                  let <sym:8002086> =
                     BoxInt(<sym:4001640>#1640)
-                  aether_call[owned, owned] split_at#453(t#457, <sym:8002046>#2046)
+                  aether_call[owned, owned] split_at#453(t#457, <sym:8002086>#2086)
                 case <sym:4001641>#1641 of
                   (left, right) ->
                     let <sym:4001642> =
@@ -2436,10 +2510,10 @@ lam(xs, n) ->
                   drop xs#454 in
                     let <sym:4001641> =
                       let <sym:4001640> =
-                        ISub(n#2045, 1)
-                      let <sym:8002046> =
+                        ISub(n#2085, 1)
+                      let <sym:8002086> =
                         BoxInt(<sym:4001640>#1640)
-                      aether_call[owned, owned] split_at#453(t#457, <sym:8002046>#2046)
+                      aether_call[owned, owned] split_at#453(t#457, <sym:8002086>#2086)
                     case <sym:4001641>#1641 of
                       (left, right) ->
                         let <sym:4001642> =
@@ -2565,39 +2639,39 @@ lam(xs) ->
     _ ->
       Nil
 ── fn length ──
-  Dups: 1  Drops: 6  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
+  Dups: 1  Drops: 4  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
   FreshAllocs: 0
   verifier: ok
 lam(xs) ->
   letrec length_go =
     lam(ys, acc) ->
       let acc =
-        UnboxInt(acc#503)
+        UnboxIntMove(acc#503)
       case ys#502 of
         Cons(h, t) ->
           drop_specialized ys#502 {
             unique ->
               free_shell ys#502 in
-                  drop h#504 in
-                drop acc#503 in
-                    let <sym:4001654> =
-                      IAdd(acc#2047, 1)
-                    let <sym:8002048> =
-                      BoxInt(<sym:4001654>#1654)
-                    aether_call[owned, owned] length_go#501(t#505, <sym:8002048>#2048)
+                drop h#504 in
+                  let <sym:4001654> =
+                    IAdd(acc#2087, 1)
+                  let <sym:8002088> =
+                    BoxInt(<sym:4001654>#1654)
+                  aether_call[owned, owned] length_go#501(t#505, <sym:8002088>#2088)
             shared ->
               dup t#505 in
-                  drop ys#502 in
-                drop acc#503 in
-                    let <sym:4001654> =
-                      IAdd(acc#2047, 1)
-                    let <sym:8002048> =
-                      BoxInt(<sym:4001654>#1654)
-                    aether_call[owned, owned] length_go#501(t#505, <sym:8002048>#2048)
+                drop ys#502 in
+                  let <sym:4001654> =
+                    IAdd(acc#2087, 1)
+                  let <sym:8002088> =
+                    BoxInt(<sym:4001654>#1654)
+                  aether_call[owned, owned] length_go#501(t#505, <sym:8002088>#2088)
           }
         _ ->
           drop ys#502 in
-            acc#503
+            let <sym:8002089> =
+              BoxInt(acc#2087)
+            <sym:8002089>#2089
   let <sym:7000000> =
     aether_call[owned, owned] length_go#501(xs#500, 0)
   drop length_go#501 in
@@ -2639,7 +2713,7 @@ lam(xs) ->
       drop xs#507 in
         aether_call[owned] panic#1210("init called on empty list")
 ── fn range ──
-  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(start, stop) ->
@@ -2648,21 +2722,22 @@ lam(start, stop) ->
       let stop =
         UnboxInt(stop#518)
       let current =
-        UnboxInt(current#520)
+        UnboxIntMove(current#520)
       let <sym:4001656> =
-        ICmpGe(current#2049, stop#2050)
+        ICmpGe(current#2090, stop#2091)
       case <sym:4001656>#1656 of
         true ->
-          drop current#520 in
-            aether_call[owned] reverse#522(acc#521)
+          aether_call[owned] reverse#522(acc#521)
         _ ->
           let <sym:4001657> =
-            IAdd(current#2049, 1)
+            IAdd(current#2090, 1)
           let <sym:4001658> =
-            Cons(current#520, acc#521)
-          let <sym:8002051> =
+            let <sym:8002092> =
+              BoxInt(current#2090)
+            Cons(<sym:8002092>#2092, acc#521)
+          let <sym:8002093> =
             BoxInt(<sym:4001657>#1657)
-          aether_call[owned, owned] range_go#519(<sym:8002051>#2051, <sym:4001658>#1658)
+          aether_call[owned, owned] range_go#519(<sym:8002093>#2093, <sym:4001658>#1658)
   let <sym:4001659> =
     Nil
   let <sym:7000000> =
@@ -2913,7 +2988,7 @@ lam(xs, n) ->
   let n =
     UnboxIntMove(n#601)
   let <sym:4001692> =
-    ICmpLt(n#2052, 0)
+    ICmpLt(n#2094, 0)
   case <sym:4001692>#1692 of
     true ->
       None
@@ -2921,16 +2996,16 @@ lam(xs, n) ->
       case xs#600 of
         Cons(h, t) ->
           let <sym:4001693> =
-            ICmpEq(n#2052, 0)
+            ICmpEq(n#2094, 0)
           case <sym:4001693>#1693 of
             true ->
               Some(dup h#602 in h#602)
             _ ->
               let <sym:4001694> =
-                ISub(n#2052, 1)
-              let <sym:8002053> =
+                ISub(n#2094, 1)
+              let <sym:8002095> =
                 BoxInt(<sym:4001694>#1694)
-              aether_call[borrowed, owned] nth#599(t#603, <sym:8002053>#2053)
+              aether_call[borrowed, owned] nth#599(t#603, <sym:8002095>#2095)
         _ ->
           None
 ── fn replicate ──
@@ -2941,7 +3016,7 @@ lam(n, x) ->
   let n =
     UnboxIntMove(n#605)
   let <sym:4001695> =
-    ICmpLe(n#2054, 0)
+    ICmpLe(n#2096, 0)
   case <sym:4001695>#1695 of
     true ->
       drop x#606 in
@@ -2949,10 +3024,10 @@ lam(n, x) ->
     _ ->
       let <sym:4001697> =
         let <sym:4001696> =
-          ISub(n#2054, 1)
-        let <sym:8002055> =
+          ISub(n#2096, 1)
+        let <sym:8002097> =
           BoxInt(<sym:4001696>#1696)
-        aether_call[owned, owned] replicate#604(<sym:8002055>#2055, dup x#606 in x#606)
+        aether_call[owned, owned] replicate#604(<sym:8002097>#2097, dup x#606 in x#606)
       Cons(x#606, <sym:4001697>#1697)
 ── fn iterate ──
   Dups: 1  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
@@ -2962,7 +3037,7 @@ lam(x, f, n) ->
   let n =
     UnboxIntMove(n#610)
   let <sym:4001698> =
-    ICmpLe(n#2056, 0)
+    ICmpLe(n#2098, 0)
   case <sym:4001698>#1698 of
     true ->
       drop x#608 in
@@ -2972,10 +3047,10 @@ lam(x, f, n) ->
         let <sym:4001699> =
           aether_call[owned] f#609(dup x#608 in x#608)
         let <sym:4001700> =
-          ISub(n#2056, 1)
-        let <sym:8002057> =
+          ISub(n#2098, 1)
+        let <sym:8002099> =
           BoxInt(<sym:4001700>#1700)
-        aether_call[owned, borrowed, owned] iterate#607(<sym:4001699>#1699, f#609, <sym:8002057>#2057)
+        aether_call[owned, borrowed, owned] iterate#607(<sym:4001699>#1699, f#609, <sym:8002099>#2099)
       Cons(x#608, <sym:4001701>#1701)
 ── fn unfold ──
   Dups: 2  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
@@ -3034,89 +3109,89 @@ lam(__dict_m8_466C6F772E4F7264_Ord, xs) ->
     _ ->
       None
 ── fn sum ──
-  Dups: 2  Drops: 7  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
+  Dups: 2  Drops: 5  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
   FreshAllocs: 0
   verifier: ok
 lam(xs) ->
   letrec sum_go =
     lam(ys, acc) ->
       let acc =
-        UnboxInt(acc#638)
+        UnboxIntMove(acc#638)
       case ys#637 of
         Cons(h, t) ->
           drop_specialized ys#637 {
             unique ->
               free_shell ys#637 in
-                drop acc#638 in
-                  let h =
-                    UnboxInt(h#639)
-                  drop h#639 in
-                    let <sym:4001711> =
-                      IAdd(acc#2058, h#2059)
-                    let <sym:8002060> =
-                      BoxInt(<sym:4001711>#1711)
-                    aether_call[owned, owned] sum_go#636(t#640, <sym:8002060>#2060)
+                let h =
+                  UnboxInt(h#639)
+                drop h#639 in
+                  let <sym:4001711> =
+                    IAdd(acc#2100, h#2101)
+                  let <sym:8002102> =
+                    BoxInt(<sym:4001711>#1711)
+                  aether_call[owned, owned] sum_go#636(t#640, <sym:8002102>#2102)
             shared ->
               dup h#639 in
                 dup t#640 in
-                    drop ys#637 in
-                  drop acc#638 in
-                      let h =
-                        UnboxInt(h#639)
-                      drop h#639 in
-                        let <sym:4001711> =
-                          IAdd(acc#2058, h#2059)
-                        let <sym:8002060> =
-                          BoxInt(<sym:4001711>#1711)
-                        aether_call[owned, owned] sum_go#636(t#640, <sym:8002060>#2060)
+                  drop ys#637 in
+                    let h =
+                      UnboxInt(h#639)
+                    drop h#639 in
+                      let <sym:4001711> =
+                        IAdd(acc#2100, h#2101)
+                      let <sym:8002102> =
+                        BoxInt(<sym:4001711>#1711)
+                      aether_call[owned, owned] sum_go#636(t#640, <sym:8002102>#2102)
           }
         _ ->
           drop ys#637 in
-            acc#638
+            let <sym:8002103> =
+              BoxInt(acc#2100)
+            <sym:8002103>#2103
   let <sym:7000000> =
     aether_call[owned, owned] sum_go#636(xs#635, 0)
   drop sum_go#636 in
     <sym:7000000>#4026531840
 ── fn product ──
-  Dups: 2  Drops: 7  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
+  Dups: 2  Drops: 5  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
   FreshAllocs: 0
   verifier: ok
 lam(xs) ->
   letrec product_go =
     lam(ys, acc) ->
       let acc =
-        UnboxInt(acc#645)
+        UnboxIntMove(acc#645)
       case ys#644 of
         Cons(h, t) ->
           drop_specialized ys#644 {
             unique ->
               free_shell ys#644 in
-                drop acc#645 in
-                  let h =
-                    UnboxInt(h#646)
-                  drop h#646 in
-                    let <sym:4001712> =
-                      IMul(acc#2061, h#2062)
-                    let <sym:8002063> =
-                      BoxInt(<sym:4001712>#1712)
-                    aether_call[owned, owned] product_go#643(t#647, <sym:8002063>#2063)
+                let h =
+                  UnboxInt(h#646)
+                drop h#646 in
+                  let <sym:4001712> =
+                    IMul(acc#2104, h#2105)
+                  let <sym:8002106> =
+                    BoxInt(<sym:4001712>#1712)
+                  aether_call[owned, owned] product_go#643(t#647, <sym:8002106>#2106)
             shared ->
               dup h#646 in
                 dup t#647 in
-                    drop ys#644 in
-                  drop acc#645 in
-                      let h =
-                        UnboxInt(h#646)
-                      drop h#646 in
-                        let <sym:4001712> =
-                          IMul(acc#2061, h#2062)
-                        let <sym:8002063> =
-                          BoxInt(<sym:4001712>#1712)
-                        aether_call[owned, owned] product_go#643(t#647, <sym:8002063>#2063)
+                  drop ys#644 in
+                    let h =
+                      UnboxInt(h#646)
+                    drop h#646 in
+                      let <sym:4001712> =
+                        IMul(acc#2104, h#2105)
+                      let <sym:8002106> =
+                        BoxInt(<sym:4001712>#1712)
+                      aether_call[owned, owned] product_go#643(t#647, <sym:8002106>#2106)
           }
         _ ->
           drop ys#644 in
-            acc#645
+            let <sym:8002107> =
+              BoxInt(acc#2104)
+            <sym:8002107>#2107
   let <sym:7000000> =
     aether_call[owned, owned] product_go#643(xs#642, 1)
   drop product_go#643 in
@@ -3186,43 +3261,46 @@ lam(__dict_m7_466C6F772E4571_Eq, xs, key) ->
       drop __dict_m7_466C6F772E4571_Eq#660 in
           None
 ── fn enumerate_go ──
-  Dups: 2  Drops: 3  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
+  Dups: 2  Drops: 2  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(xs, i) ->
   let i =
-    UnboxInt(i#670)
+    UnboxIntMove(i#670)
   case xs#669 of
     Cons(h, t) ->
       drop_specialized xs#669 {
         unique ->
           let <sym:4001719> =
-            MakeTuple(i#670, h#671)
+            let <sym:8002109> =
+              BoxInt(i#2108)
+            MakeTuple(<sym:8002109>#2109, h#671)
           let <sym:4001721> =
             let <sym:4001720> =
-              IAdd(i#2064, 1)
-            let <sym:8002065> =
+              IAdd(i#2108, 1)
+            let <sym:8002110> =
               BoxInt(<sym:4001720>#1720)
-            aether_call[owned, owned] enumerate_go#668(t#672, <sym:8002065>#2065)
+            aether_call[owned, owned] enumerate_go#668(t#672, <sym:8002110>#2110)
           reuse xs#669 as Cons(<sym:4001719>#1719, <sym:4001721>#1721)
         shared ->
           dup h#671 in
             dup t#672 in
               drop xs#669 in
                 let <sym:4001719> =
-                  MakeTuple(i#670, h#671)
+                  let <sym:8002109> =
+                    BoxInt(i#2108)
+                  MakeTuple(<sym:8002109>#2109, h#671)
                 let <sym:4001721> =
                   let <sym:4001720> =
-                    IAdd(i#2064, 1)
-                  let <sym:8002065> =
+                    IAdd(i#2108, 1)
+                  let <sym:8002110> =
                     BoxInt(<sym:4001720>#1720)
-                  aether_call[owned, owned] enumerate_go#668(t#672, <sym:8002065>#2065)
+                  aether_call[owned, owned] enumerate_go#668(t#672, <sym:8002110>#2110)
                 Cons(<sym:4001719>#1719, <sym:4001721>#1721)
       }
     _ ->
-        drop xs#669 in
-      drop i#670 in
-          Nil
+      drop xs#669 in
+        Nil
 ── fn intersperse_rest ──
   Dups: 4  Drops: 3  Reuses: 1  DropSpecs: 1  BorrowedCallGuards: 0  FBIP: fbip(3)
   FreshAllocs: 3
@@ -3365,11 +3443,11 @@ lam(xs, key_fn) ->
       aether_call[owned] length#499(dup xs#733 in xs#733)
     let <sym:4001735> =
       UnboxIntMove(<sym:4001735>#1735)
-    IDiv(<sym:4001735>#2066, 2)
+    IDiv(<sym:4001735>#2111, 2)
   let <sym:4001736> =
-    let <sym:8002067> =
+    let <sym:8002112> =
       BoxInt(mid#737)
-    aether_call[owned, owned] split_at#453(xs#733, <sym:8002067>#2067)
+    aether_call[owned, owned] split_at#453(xs#733, <sym:8002112>#2112)
   case <sym:4001736>#1736 of
     (left, right) ->
       drop_specialized <sym:4001736>#1736 {
@@ -3737,25 +3815,30 @@ lam(__dict_m7_466C6F772E4571_Eq, x, y) ->
           _ ->
             true
 ── fn print_all [yield×2] ──
-  Dups: 2  Drops: 7  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  Yields: 2  Handles: 0  HandlerArms: 0
+  Dups: 2  Drops: 6  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  Yields: 2  Handles: 0  HandlerArms: 0
   FreshAllocs: 0
   verifier: ok
 lam(arr) ->
   letrec pa_go =
     lam(i) ->
       let i =
-        UnboxInt(i#912)
+        UnboxIntMove(i#912)
       let <sym:4001774> =
         let <sym:4001773> =
           Len(arr#909)
-        let <sym:8002073> =
+        let <sym:8002118> =
           UnboxInt(<sym:4001773>#1773)
-        ICmpLt(i#2072, <sym:8002073>#2073)
+        ICmpLt(i#2117, <sym:8002118>#2118)
       case <sym:4001774>#1774 of
         true ->
           let <sym:2000021> =
             let <sym:4001775> =
-              Index(arr#909, i#912)
+              let <sym:8002119> =
+                BoxInt(i#2117)
+              let <sym:7000001> =
+                Index(arr#909, <sym:8002119>#2119)
+              drop <sym:8002119>#2119 in
+                <sym:7000001>#4026531841
             case <sym:4001775>#1775 of
               Some(v) ->
                 let <sym:7000000> =
@@ -3766,41 +3849,44 @@ lam(arr) ->
               _ ->
                 drop <sym:4001775>#1775 in
                   perform /*yield_to*/ Console.print("")
-            drop i#912 in
           drop <sym:2000021>#913 in
-              let <sym:4001776> =
-                IAdd(i#2072, 1)
-              let <sym:8002074> =
-                BoxInt(<sym:4001776>#1776)
-              aether_call[owned] pa_go#911(<sym:8002074>#2074)
+            let <sym:4001776> =
+              IAdd(i#2117, 1)
+            let <sym:8002120> =
+              BoxInt(<sym:4001776>#1776)
+            aether_call[owned] pa_go#911(<sym:8002120>#2120)
         _ ->
-          drop i#912 in
-            MakeTuple()
+          MakeTuple()
   let <sym:2000020> =
     aether_call[owned] pa_go#911(0)
     drop pa_go#911 in
   drop <sym:2000020>#910 in
       ()
 ── fn println_all [yield×2] ──
-  Dups: 2  Drops: 7  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  Yields: 2  Handles: 0  HandlerArms: 0
+  Dups: 2  Drops: 6  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  Yields: 2  Handles: 0  HandlerArms: 0
   FreshAllocs: 0
   verifier: ok
 lam(arr) ->
   letrec pla_go =
     lam(i) ->
       let i =
-        UnboxInt(i#919)
+        UnboxIntMove(i#919)
       let <sym:4001778> =
         let <sym:4001777> =
           Len(arr#916)
-        let <sym:8002076> =
+        let <sym:8002122> =
           UnboxInt(<sym:4001777>#1777)
-        ICmpLt(i#2075, <sym:8002076>#2076)
+        ICmpLt(i#2121, <sym:8002122>#2122)
       case <sym:4001778>#1778 of
         true ->
           let <sym:2000023> =
             let <sym:4001779> =
-              Index(arr#916, i#919)
+              let <sym:8002123> =
+                BoxInt(i#2121)
+              let <sym:7000001> =
+                Index(arr#916, <sym:8002123>#2123)
+              drop <sym:8002123>#2123 in
+                <sym:7000001>#4026531841
             case <sym:4001779>#1779 of
               Some(v) ->
                 let <sym:7000000> =
@@ -3811,16 +3897,14 @@ lam(arr) ->
               _ ->
                 drop <sym:4001779>#1779 in
                   perform /*yield_to*/ Console.println("")
-            drop i#919 in
           drop <sym:2000023>#920 in
-              let <sym:4001780> =
-                IAdd(i#2075, 1)
-              let <sym:8002077> =
-                BoxInt(<sym:4001780>#1780)
-              aether_call[owned] pla_go#918(<sym:8002077>#2077)
+            let <sym:4001780> =
+              IAdd(i#2121, 1)
+            let <sym:8002124> =
+              BoxInt(<sym:4001780>#1780)
+            aether_call[owned] pla_go#918(<sym:8002124>#2124)
         _ ->
-          drop i#919 in
-            MakeTuple()
+          MakeTuple()
   let <sym:2000022> =
     aether_call[owned] pla_go#918(0)
     drop pla_go#918 in
@@ -3835,48 +3919,51 @@ lam(path) ->
     perform /*yield_to*/ FileSystem.read_file(path#923)
   Split(content#924, "\n")
 ── fn parse_ints ──
-  Dups: 0  Drops: 6  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 0  Drops: 5  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(arr) ->
   letrec pi_go =
     lam(i, result) ->
       let i =
-        UnboxInt(i#928)
+        UnboxIntMove(i#928)
       let <sym:4001782> =
         let <sym:4001781> =
           Len(arr#926)
-        let <sym:8002079> =
+        let <sym:8002126> =
           UnboxInt(<sym:4001781>#1781)
-        ICmpGe(i#2078, <sym:8002079>#2079)
+        ICmpGe(i#2125, <sym:8002126>#2126)
       case <sym:4001782>#1782 of
         true ->
-          drop i#928 in
-            result#929
+          result#929
         _ ->
           let <sym:4001783> =
-            Index(arr#926, i#928)
-          drop i#928 in
-            case <sym:4001783>#1783 of
-              Some(s) ->
-                let <sym:4001784> =
-                  IAdd(i#2078, 1)
-                let <sym:4001786> =
-                  let <sym:4001785> =
-                    ParseInt(s#930)
-                  aether_call[borrowed, borrowed] Array.push(result#929, <sym:4001785>#1785)
-                  drop result#929 in
-                drop <sym:4001783>#1783 in
-                    let <sym:8002080> =
-                      BoxInt(<sym:4001784>#1784)
-                    aether_call[owned, owned] pi_go#927(<sym:8002080>#2080, <sym:4001786>#1786)
-              _ ->
-                drop <sym:4001783>#1783 in
-                  let <sym:4001787> =
-                    IAdd(i#2078, 1)
-                  let <sym:8002081> =
-                    BoxInt(<sym:4001787>#1787)
-                  aether_call[owned, owned] pi_go#927(<sym:8002081>#2081, result#929)
+            let <sym:8002127> =
+              BoxInt(i#2125)
+            let <sym:7000001> =
+              Index(arr#926, <sym:8002127>#2127)
+            drop <sym:8002127>#2127 in
+              <sym:7000001>#4026531841
+          case <sym:4001783>#1783 of
+            Some(s) ->
+              let <sym:4001784> =
+                IAdd(i#2125, 1)
+              let <sym:4001786> =
+                let <sym:4001785> =
+                  ParseInt(s#930)
+                aether_call[borrowed, borrowed] Array.push(result#929, <sym:4001785>#1785)
+                drop result#929 in
+              drop <sym:4001783>#1783 in
+                  let <sym:8002128> =
+                    BoxInt(<sym:4001784>#1784)
+                  aether_call[owned, owned] pi_go#927(<sym:8002128>#2128, <sym:4001786>#1786)
+            _ ->
+              drop <sym:4001783>#1783 in
+                let <sym:4001787> =
+                  IAdd(i#2125, 1)
+                let <sym:8002129> =
+                  BoxInt(<sym:4001787>#1787)
+                aether_call[owned, owned] pi_go#927(<sym:8002129>#2129, result#929)
   let <sym:4001788> =
     MakeArray()
   let <sym:7000000> =
@@ -3895,7 +3982,7 @@ lam(s, sep) ->
   drop parts#934 in
     <sym:7000000>#4026531840
 ── fn gcd ──
-  Dups: 0  Drops: 3  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(a, b) ->
@@ -3905,93 +3992,49 @@ lam(a, b) ->
     UnboxIntMove(b#1022)
   let aa =
     let <sym:4001791> =
-      ICmpLt(a#2093, 0)
+      ICmpLt(a#2141, 0)
     case <sym:4001791>#1791 of
       true ->
-        ISub(0, a#2093)
+        ISub(0, a#2141)
       _ ->
-        a#2093
+        a#2141
   let bb =
     let <sym:4001792> =
-      ICmpLt(b#2094, 0)
+      ICmpLt(b#2142, 0)
     case <sym:4001792>#1792 of
       true ->
-        ISub(0, b#2094)
+        ISub(0, b#2142)
       _ ->
-        b#2094
+        b#2142
   letrec gcd_go =
     lam(x, y) ->
       let x =
-        UnboxInt(x#1024)
+        UnboxIntMove(x#1024)
       let y =
-        UnboxInt(y#1025)
+        UnboxIntMove(y#1025)
       let <sym:4001793> =
-        ICmpEq(y#2095, 0)
+        ICmpEq(y#2143, 0)
       case <sym:4001793>#1793 of
         true ->
-          drop y#1025 in
-            x#1024
+          let <sym:8002145> =
+            BoxInt(x#2144)
+          <sym:8002145>#2145
         _ ->
-          drop x#1024 in
-            let <sym:4001794> =
-              IMod(x#2096, y#2095)
-            let <sym:8002097> =
-              BoxInt(<sym:4001794>#1794)
-            aether_call[owned, owned] gcd_go#1023(y#1025, <sym:8002097>#2097)
-  let <sym:8002098> =
+          let <sym:4001794> =
+            IMod(x#2144, y#2143)
+          let <sym:8002146> =
+            BoxInt(y#2143)
+          let <sym:8002147> =
+            BoxInt(<sym:4001794>#1794)
+          aether_call[owned, owned] gcd_go#1023(<sym:8002146>#2146, <sym:8002147>#2147)
+  let <sym:8002148> =
     BoxInt(aa#1027)
-  let <sym:8002099> =
+  let <sym:8002149> =
     BoxInt(bb#1026)
   let <sym:7000000> =
-    aether_call[owned, owned] gcd_go#1023(<sym:8002098>#2098, <sym:8002099>#2099)
+    aether_call[owned, owned] gcd_go#1023(<sym:8002148>#2148, <sym:8002149>#2149)
   drop gcd_go#1023 in
     <sym:7000000>#4026531840
-── fn lcm ──
-  Dups: 0  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
-  FreshAllocs: 0
-  verifier: ok
-lam(a, b) ->
-  let a =
-    UnboxInt(a#1029)
-  let b =
-    UnboxInt(b#1030)
-  let <sym:4001795> =
-    ICmpEq(a#2100, 0)
-  case <sym:4001795>#1795 of
-    true ->
-        drop b#1030 in
-      drop a#1029 in
-          0
-    _ ->
-      let <sym:4001796> =
-        ICmpEq(b#2101, 0)
-      case <sym:4001796>#1796 of
-        true ->
-            drop b#1030 in
-          drop a#1029 in
-              0
-        _ ->
-          let g =
-            aether_call[owned, owned] gcd#1020(a#1029, b#1030)
-          let g =
-            UnboxIntMove(g#1033)
-          let q =
-            IDiv(a#2100, g#2102)
-          let <sym:4001798> =
-            let <sym:4001797> =
-              IMul(q#1032, b#2101)
-            ICmpLt(<sym:4001797>#1797, 0)
-          case <sym:4001798>#1798 of
-            true ->
-              let <sym:4001799> =
-                IMul(q#1032, b#2101)
-              let <sym:8002103> =
-                ISub(0, <sym:4001799>#1799)
-              BoxInt(<sym:8002103>#2103)
-            _ ->
-              let <sym:8002104> =
-                IMul(q#1032, b#2101)
-              BoxInt(<sym:8002104>#2104)
 ── fn unwrap ──
   Dups: 1  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
@@ -4121,9 +4164,9 @@ lam(s, prefix) ->
   let <sym:4001821> =
     let <sym:4001820> =
       Len(s#1284)
-    let <sym:8002129> =
+    let <sym:8002181> =
       UnboxInt(<sym:4001820>#1820)
-    ICmpGt(plen#2128, <sym:8002129>#2129)
+    ICmpGt(plen#2180, <sym:8002181>#2181)
   case <sym:4001821>#1821 of
     true ->
       false
@@ -4148,65 +4191,66 @@ lam(s, suffix) ->
   let plen =
     UnboxInt(plen#1290)
   let <sym:4001823> =
-    ICmpGt(plen#2130, slen#2131)
+    ICmpGt(plen#2182, slen#2183)
   case <sym:4001823>#1823 of
     true ->
       false
     _ ->
       let <sym:4001825> =
         let <sym:4001824> =
-          ISub(slen#2131, plen#2130)
-        let <sym:8002132> =
+          ISub(slen#2183, plen#2182)
+        let <sym:8002184> =
           BoxInt(<sym:4001824>#1824)
         let <sym:7000001> =
-          Substring(s#1288, <sym:8002132>#2132, slen#1291)
-        drop <sym:8002132>#2132 in
+          Substring(s#1288, <sym:8002184>#2184, slen#1291)
+        drop <sym:8002184>#2184 in
           <sym:7000001>#4026531841
       let <sym:7000000> =
         Eq(<sym:4001825>#1825, suffix#1289)
       drop <sym:4001825>#1825 in
         <sym:7000000>#4026531840
 ── fn chars ──
-  Dups: 0  Drops: 6  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 0  Drops: 5  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(s) ->
   letrec chars_go =
     lam(i, result) ->
       let i =
-        UnboxInt(i#1295)
+        UnboxIntMove(i#1295)
       let <sym:4001827> =
         let <sym:4001826> =
           Len(s#1293)
-        let <sym:8002134> =
+        let <sym:8002186> =
           UnboxInt(<sym:4001826>#1826)
-        ICmpGe(i#2133, <sym:8002134>#2134)
+        ICmpGe(i#2185, <sym:8002186>#2186)
       case <sym:4001827>#1827 of
         true ->
-          drop i#1295 in
-            result#1296
+          result#1296
         _ ->
           let <sym:4001828> =
-            IAdd(i#2133, 1)
+            IAdd(i#2185, 1)
           let <sym:4001831> =
             let <sym:4001830> =
               let <sym:4001829> =
-                IAdd(i#2133, 1)
-              let <sym:8002135> =
+                IAdd(i#2185, 1)
+              let <sym:8002187> =
+                BoxInt(i#2185)
+              let <sym:8002188> =
                 BoxInt(<sym:4001829>#1829)
               let <sym:7000002> =
-                Substring(s#1293, i#1295, <sym:8002135>#2135)
-              drop <sym:8002135>#2135 in
-                <sym:7000002>#4026531842
+                Substring(s#1293, <sym:8002187>#2187, <sym:8002188>#2188)
+                drop <sym:8002188>#2188 in
+              drop <sym:8002187>#2187 in
+                  <sym:7000002>#4026531842
             let <sym:7000001> =
               aether_call[borrowed, borrowed] Array.push(result#1296, <sym:4001830>#1830)
             drop <sym:4001830>#1830 in
               <sym:7000001>#4026531841
-            drop result#1296 in
-          drop i#1295 in
-              let <sym:8002136> =
-                BoxInt(<sym:4001828>#1828)
-              aether_call[owned, owned] chars_go#1294(<sym:8002136>#2136, <sym:4001831>#1831)
+          drop result#1296 in
+            let <sym:8002189> =
+              BoxInt(<sym:4001828>#1828)
+            aether_call[owned, owned] chars_go#1294(<sym:8002189>#2189, <sym:4001831>#1831)
   let <sym:4001832> =
     MakeArray()
   let <sym:7000000> =
@@ -4214,16 +4258,16 @@ lam(s) ->
   drop chars_go#1294 in
     <sym:7000000>#4026531840
 ── fn join ──
-  Dups: 1  Drops: 11  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
+  Dups: 1  Drops: 10  Reuses: 0  DropSpecs: 1  BorrowedCallGuards: 0  FreeShells: 1
   FreshAllocs: 0
   verifier: ok
 lam(arr, sep) ->
   let <sym:4001834> =
     let <sym:4001833> =
       Len(arr#1298)
-    let <sym:8002137> =
+    let <sym:8002190> =
       UnboxInt(<sym:4001833>#1833)
-    ICmpEq(<sym:8002137>#2137, 0)
+    ICmpEq(<sym:8002190>#2190, 0)
   case <sym:4001834>#1834 of
     true ->
       ""
@@ -4231,44 +4275,47 @@ lam(arr, sep) ->
       letrec join_go =
         lam(i, result) ->
           let i =
-            UnboxInt(i#1302)
+            UnboxIntMove(i#1302)
           let <sym:4001836> =
             let <sym:4001835> =
               Len(arr#1298)
-            let <sym:8002139> =
+            let <sym:8002192> =
               UnboxInt(<sym:4001835>#1835)
-            ICmpGe(i#2138, <sym:8002139>#2139)
+            ICmpGe(i#2191, <sym:8002192>#2192)
           case <sym:4001836>#1836 of
             true ->
-              drop i#1302 in
-                result#1303
+              result#1303
             _ ->
               let <sym:4001837> =
-                Index(arr#1298, i#1302)
-              drop i#1302 in
-                case <sym:4001837>#1837 of
-                  Some(v) ->
-                    let <sym:4001838> =
-                      IAdd(i#2138, 1)
-                    let <sym:4001840> =
-                      let <sym:4001839> =
-                        Add(result#1303, sep#1299)
-                      let <sym:7000001> =
-                        Add(<sym:4001839>#1839, v#1304)
-                      drop <sym:4001839>#1839 in
-                        <sym:7000001>#4026531841
-                      drop result#1303 in
-                    drop <sym:4001837>#1837 in
-                        let <sym:8002140> =
-                          BoxInt(<sym:4001838>#1838)
-                        aether_call[owned, owned] join_go#1301(<sym:8002140>#2140, <sym:4001840>#1840)
-                  _ ->
-                    drop <sym:4001837>#1837 in
-                      let <sym:4001841> =
-                        IAdd(i#2138, 1)
-                      let <sym:8002141> =
-                        BoxInt(<sym:4001841>#1841)
-                      aether_call[owned, owned] join_go#1301(<sym:8002141>#2141, result#1303)
+                let <sym:8002193> =
+                  BoxInt(i#2191)
+                let <sym:7000002> =
+                  Index(arr#1298, <sym:8002193>#2193)
+                drop <sym:8002193>#2193 in
+                  <sym:7000002>#4026531842
+              case <sym:4001837>#1837 of
+                Some(v) ->
+                  let <sym:4001838> =
+                    IAdd(i#2191, 1)
+                  let <sym:4001840> =
+                    let <sym:4001839> =
+                      Add(result#1303, sep#1299)
+                    let <sym:7000001> =
+                      Add(<sym:4001839>#1839, v#1304)
+                    drop <sym:4001839>#1839 in
+                      <sym:7000001>#4026531841
+                    drop result#1303 in
+                  drop <sym:4001837>#1837 in
+                      let <sym:8002194> =
+                        BoxInt(<sym:4001838>#1838)
+                      aether_call[owned, owned] join_go#1301(<sym:8002194>#2194, <sym:4001840>#1840)
+                _ ->
+                  drop <sym:4001837>#1837 in
+                    let <sym:4001841> =
+                      IAdd(i#2191, 1)
+                    let <sym:8002195> =
+                      BoxInt(<sym:4001841>#1841)
+                    aether_call[owned, owned] join_go#1301(<sym:8002195>#2195, result#1303)
       let <sym:4001842> =
         Index(arr#1298, 0)
       case <sym:4001842>#1842 of
@@ -4293,7 +4340,7 @@ lam(arr, sep) ->
           drop <sym:4001842>#1842 in
               ""
 ── fn str_contains ──
-  Dups: 0  Drops: 5  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 0  Drops: 4  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(s, needle) ->
@@ -4306,7 +4353,7 @@ lam(s, needle) ->
   let nlen =
     UnboxInt(nlen#1319)
   let <sym:4001843> =
-    ICmpGt(nlen#2142, slen#2143)
+    ICmpGt(nlen#2196, slen#2197)
   case <sym:4001843>#1843 of
     true ->
       false
@@ -4318,67 +4365,69 @@ lam(s, needle) ->
           let slen =
             UnboxInt(slen#1320)
           let i =
-            UnboxInt(i#1318)
+            UnboxIntMove(i#1318)
           let <sym:4001845> =
             let <sym:4001844> =
-              IAdd(i#2144, nlen#2145)
-            ICmpGt(<sym:4001844>#1844, slen#2146)
+              IAdd(i#2198, nlen#2199)
+            ICmpGt(<sym:4001844>#1844, slen#2200)
           case <sym:4001845>#1845 of
             true ->
-              drop i#1318 in
-                false
+              false
             _ ->
               let <sym:4001848> =
                 let <sym:4001847> =
                   let <sym:4001846> =
-                    IAdd(i#2144, nlen#2145)
-                  let <sym:8002147> =
+                    IAdd(i#2198, nlen#2199)
+                  let <sym:8002201> =
+                    BoxInt(i#2198)
+                  let <sym:8002202> =
                     BoxInt(<sym:4001846>#1846)
                   let <sym:7000002> =
-                    Substring(s#1315, i#1318, <sym:8002147>#2147)
-                  drop <sym:8002147>#2147 in
-                    <sym:7000002>#4026531842
+                    Substring(s#1315, <sym:8002201>#2201, <sym:8002202>#2202)
+                    drop <sym:8002202>#2202 in
+                  drop <sym:8002201>#2201 in
+                      <sym:7000002>#4026531842
                 let <sym:7000001> =
                   Eq(<sym:4001847>#1847, needle#1316)
                 drop <sym:4001847>#1847 in
                   <sym:7000001>#4026531841
-              drop i#1318 in
-                case <sym:4001848>#1848 of
-                  true ->
-                    true
-                  _ ->
-                    let <sym:4001849> =
-                      IAdd(i#2144, 1)
-                    let <sym:8002148> =
-                      BoxInt(<sym:4001849>#1849)
-                    aether_call[owned] sc_go#1317(<sym:8002148>#2148)
+              case <sym:4001848>#1848 of
+                true ->
+                  true
+                _ ->
+                  let <sym:4001849> =
+                    IAdd(i#2198, 1)
+                  let <sym:8002203> =
+                    BoxInt(<sym:4001849>#1849)
+                  aether_call[owned] sc_go#1317(<sym:8002203>#2203)
       let <sym:7000000> =
         aether_call[owned] sc_go#1317(0)
       drop sc_go#1317 in
         <sym:7000000>#4026531840
 ── fn build_list ──
-  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  FBIP: fbip(1)
   FreshAllocs: 1
   verifier: ok
 lam(n) ->
   letrec build_go =
     lam(i, acc) ->
       let i =
-        UnboxInt(i#1324)
+        UnboxIntMove(i#1324)
       let <sym:4001850> =
-        ICmpLe(i#2149, 0)
+        ICmpLe(i#2204, 0)
       case <sym:4001850>#1850 of
         true ->
-          drop i#1324 in
-            acc#1325
+          acc#1325
         _ ->
           let <sym:4001851> =
-            ISub(i#2149, 1)
+            ISub(i#2204, 1)
           let <sym:4001852> =
-            Cons(i#1324, acc#1325)
-          let <sym:8002150> =
+            let <sym:8002205> =
+              BoxInt(i#2204)
+            Cons(<sym:8002205>#2205, acc#1325)
+          let <sym:8002206> =
             BoxInt(<sym:4001851>#1851)
-          aether_call[owned, owned] build_go#1323(<sym:8002150>#2150, <sym:4001852>#1852)
+          aether_call[owned, owned] build_go#1323(<sym:8002206>#2206, <sym:4001852>#1852)
   let <sym:4001853> =
     Nil
   let <sym:7000000> =
@@ -4438,34 +4487,34 @@ lam(xs, iterations) ->
       let i =
         UnboxIntMove(i#1344)
       let <sym:4001858> =
-        ICmpLe(i#2153, 0)
+        ICmpLe(i#2209, 0)
       case <sym:4001858>#1858 of
         true ->
           current#1345
         _ ->
           let <sym:4001859> =
-            ISub(i#2153, 1)
+            ISub(i#2209, 1)
           let <sym:4001861> =
             let <sym:4001860> =
               lam(x) ->
                 let x =
                   UnboxIntMove(x#1346)
-                let <sym:8002155> =
-                  IAdd(x#2154, 1)
-                BoxInt(<sym:8002155>#2155)
+                let <sym:8002211> =
+                  IAdd(x#2210, 1)
+                BoxInt(<sym:8002211>#2211)
             let <sym:7000001> =
               aether_call[owned, borrowed] my_map#1326(current#1345, <sym:4001860>#1860)
             drop <sym:4001860>#1860 in
               <sym:7000001>#4026531841
-          let <sym:8002156> =
+          let <sym:8002212> =
             BoxInt(<sym:4001859>#1859)
-          aether_call[owned, owned] map_go#1343(<sym:8002156>#2156, <sym:4001861>#1861)
+          aether_call[owned, owned] map_go#1343(<sym:8002212>#2212, <sym:4001861>#1861)
   let <sym:7000000> =
     aether_call[owned, owned] map_go#1343(iterations#1342, xs#1341)
   drop map_go#1343 in
     <sym:7000000>#4026531840
 ── fn bench_len ──
-  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(xs, iterations) ->
@@ -4474,33 +4523,34 @@ lam(xs, iterations) ->
       let i =
         UnboxIntMove(i#1351)
       let total =
-        UnboxInt(total#1352)
+        UnboxIntMove(total#1352)
       let <sym:4001862> =
-        ICmpLe(i#2157, 0)
+        ICmpLe(i#2213, 0)
       case <sym:4001862>#1862 of
         true ->
-          total#1352
+          let <sym:8002215> =
+            BoxInt(total#2214)
+          <sym:8002215>#2215
         _ ->
-          drop total#1352 in
-            let <sym:4001863> =
-              ISub(i#2157, 1)
-            let <sym:4001865> =
-              let <sym:4001864> =
-                aether_call[borrowed] my_len#1331(xs#1348)
-              let <sym:4001864> =
-                UnboxIntMove(<sym:4001864>#1864)
-              IAdd(total#2158, <sym:4001864>#2159)
-            let <sym:8002160> =
-              BoxInt(<sym:4001863>#1863)
-            let <sym:8002161> =
-              BoxInt(<sym:4001865>#1865)
-            aether_call[owned, owned] len_go#1350(<sym:8002160>#2160, <sym:8002161>#2161)
+          let <sym:4001863> =
+            ISub(i#2213, 1)
+          let <sym:4001865> =
+            let <sym:4001864> =
+              aether_call[borrowed] my_len#1331(xs#1348)
+            let <sym:4001864> =
+              UnboxIntMove(<sym:4001864>#1864)
+            IAdd(total#2214, <sym:4001864>#2216)
+          let <sym:8002217> =
+            BoxInt(<sym:4001863>#1863)
+          let <sym:8002218> =
+            BoxInt(<sym:4001865>#1865)
+          aether_call[owned, owned] len_go#1350(<sym:8002217>#2217, <sym:8002218>#2218)
   let <sym:7000000> =
     aether_call[owned, owned] len_go#1350(iterations#1349, 0)
   drop len_go#1350 in
     <sym:7000000>#4026531840
 ── fn bench_fold ──
-  Dups: 0  Drops: 3  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
+  Dups: 0  Drops: 2  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
   verifier: ok
 lam(xs, iterations) ->
@@ -4509,39 +4559,40 @@ lam(xs, iterations) ->
       let i =
         UnboxIntMove(i#1357)
       let total =
-        UnboxInt(total#1358)
+        UnboxIntMove(total#1358)
       let <sym:4001866> =
-        ICmpLe(i#2162, 0)
+        ICmpLe(i#2219, 0)
       case <sym:4001866>#1866 of
         true ->
-          total#1358
+          let <sym:8002221> =
+            BoxInt(total#2220)
+          <sym:8002221>#2221
         _ ->
-          drop total#1358 in
-            let sum =
-              let <sym:4001867> =
-                lam(acc, x) ->
-                  let acc =
-                    UnboxIntMove(acc#1360)
-                  let x =
-                    UnboxIntMove(x#1361)
-                  let <sym:8002165> =
-                    IAdd(acc#2163, x#2164)
-                  BoxInt(<sym:8002165>#2165)
-              let <sym:7000001> =
-                aether_call[borrowed, owned, borrowed] fold_left#1334(xs#1354, 0, <sym:4001867>#1867)
-              drop <sym:4001867>#1867 in
-                <sym:7000001>#4026531841
-            let sum =
-              UnboxIntMove(sum#1359)
-            let <sym:4001868> =
-              ISub(i#2162, 1)
-            let <sym:4001869> =
-              IAdd(total#2166, sum#2167)
-            let <sym:8002168> =
-              BoxInt(<sym:4001868>#1868)
-            let <sym:8002169> =
-              BoxInt(<sym:4001869>#1869)
-            aether_call[owned, owned] fold_go#1356(<sym:8002168>#2168, <sym:8002169>#2169)
+          let sum =
+            let <sym:4001867> =
+              lam(acc, x) ->
+                let acc =
+                  UnboxIntMove(acc#1360)
+                let x =
+                  UnboxIntMove(x#1361)
+                let <sym:8002224> =
+                  IAdd(acc#2222, x#2223)
+                BoxInt(<sym:8002224>#2224)
+            let <sym:7000001> =
+              aether_call[borrowed, owned, borrowed] fold_left#1334(xs#1354, 0, <sym:4001867>#1867)
+            drop <sym:4001867>#1867 in
+              <sym:7000001>#4026531841
+          let sum =
+            UnboxIntMove(sum#1359)
+          let <sym:4001868> =
+            ISub(i#2219, 1)
+          let <sym:4001869> =
+            IAdd(total#2220, sum#2225)
+          let <sym:8002226> =
+            BoxInt(<sym:4001868>#1868)
+          let <sym:8002227> =
+            BoxInt(<sym:4001869>#1869)
+          aether_call[owned, owned] fold_go#1356(<sym:8002226>#2226, <sym:8002227>#2227)
   let <sym:7000000> =
     aether_call[owned, owned] fold_go#1356(iterations#1355, 0)
   drop fold_go#1356 in
@@ -4567,7 +4618,7 @@ lam() ->
         aether_call[owned] __resume_default#1399(<sym:4001925>#1925)
 
 ── Total ──
-  Dups: 209  Drops: 567  Reuses: 16  DropSpecs: 44  BorrowedCallGuards: 16  FBIP: fbip(54)  FreeShells: 31  Yields: 11  Handles: 5  HandlerArms: 11
+  Dups: 209  Drops: 514  Reuses: 16  DropSpecs: 44  BorrowedCallGuards: 15  FBIP: fbip(54)  FreeShells: 31  Yields: 11  Handles: 5  HandlerArms: 11
   FreshAllocs: 54
 
 [ 1 of 18] Compiling  Add

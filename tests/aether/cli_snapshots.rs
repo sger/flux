@@ -307,10 +307,11 @@ fn raw_int_and_bool_values_are_not_reference_counted() {
     // tree, so it is copied out of the borrowed tree; the Bool is not.
     let counts = aether_counts(&dump, "root_entry").unwrap_or_default();
     assert!(counts.starts_with("Dups: 1  Drops: 0 "), "root_entry: {counts}\n{dump}");
-    // `build` releases its nested `build_go` closure, and `build_go` its two
-    // Int parameters on the path that does not pass them on.
+    // `build` releases its nested `build_go` closure. `build_go` reads its
+    // Int parameters raw, so their unboxes consume them and each call gets
+    // fresh boxes: nothing counts them.
     let counts = aether_counts(&dump, "build").unwrap_or_default();
-    assert!(counts.starts_with("Dups: 0  Drops: 3 "), "build: {counts}\n{dump}");
+    assert!(counts.starts_with("Dups: 0  Drops: 1 "), "build: {counts}\n{dump}");
 }
 
 #[test]

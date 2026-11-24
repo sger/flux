@@ -171,14 +171,42 @@ fn a_parameter_used_only_uniform_is_not_unboxed() {
 }
 
 #[test]
-fn a_parameter_used_both_ways_is_borrowed_by_its_unbox() {
-    // fn f(n: Int) = { let m = n + 1; g(n, m) }
+fn a_parameter_used_both_ways_is_consumed_and_reboxed() {
+    // fn f(n: Int) = { let m = n + 1; g(n, m) }: `g` gets a fresh box, so
+    // nothing counts `n`.
     let (n, m) = (int_binder(1), int_binder(2));
     let body = let_(m, op(CorePrimOp::IAdd, vec![v(n), int(1)]), call(vec![v(n), v(m)]));
     assert_eq!(
         boxed(vec![n], body),
-        "\\(v1) -> let v902:I = UnboxInt(v1); let v2:I = IAdd(v902, 1); \
-         let v903 = BoxInt(v2); g(v1, v903)"
+        "\\(v1) -> let v902:I = UnboxIntMove(v1); let v2:I = IAdd(v902, 1); \
+         let v903 = BoxInt(v902); let v904 = BoxInt(v2); g(v903, v904)"
+    );
+}
+
+#[test]
+fn a_parameter_read_raw_and_returned_is_reboxed() {
+    // fn f(n: Int) = match n { 0 -> 1, _ -> n }
+    let n = int_binder(1);
+    let body = case(
+        v(n),
+        vec![alt(CorePat::Lit(CoreLit::Int(0)), None, int(1)), alt(CorePat::Wildcard, None, v(n))],
+    );
+    assert_eq!(
+        boxed(vec![n], body),
+        "\\(v1) -> let v902:I = UnboxIntMove(v1); case v902 { 0 -> 1 | _ -> let v903 = BoxInt(v902); v903 }"
+    );
+}
+
+#[test]
+fn a_lambda_capturing_a_parameter_read_raw_gets_a_fresh_box() {
+    // fn f(n: Int) = { let m = n + 1; let k = fn(y) { g(n) }; k }
+    let (n, m, k, y) = (int_binder(1), int_binder(2), tagged(3), tagged(4));
+    let inner = lam(vec![y], call(vec![v(n)]));
+    let body = let_(m, op(CorePrimOp::IAdd, vec![v(n), int(1)]), let_(k, inner, v(k)));
+    assert_eq!(
+        boxed(vec![n], body),
+        "\\(v1) -> let v902:I = UnboxIntMove(v1); let v2:I = IAdd(v902, 1); \
+         let v903 = BoxInt(v902); let v3 = \\(v4) -> g(v903); v3"
     );
 }
 

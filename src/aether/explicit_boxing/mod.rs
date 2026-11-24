@@ -10,8 +10,12 @@
 //!
 //! A parameter, pattern field, handler parameter or capture that holds an
 //! Int stays a uniform word (a *source*). Its raw copy is made once, at the
-//! top of the scope, and only when something needs it raw; uniform uses
-//! read the source itself, so a field passed on unchanged is not reboxed.
+//! top of the scope, and only when something needs it raw. A field's
+//! uniform uses read the source itself, so a field passed on unchanged is
+//! not reboxed. A parameter read raw is consumed by its unbox instead, and
+//! each uniform use gets a fresh box: reading the parameter's own word would
+//! have Aether count it, a copy per use and natively an unwind cleanup
+//! around every call it is live across.
 
 pub(crate) mod check;
 pub(crate) mod reps;
@@ -103,6 +107,9 @@ struct Source {
     /// Whether its type says Int. A uniform parameter of another type is a
     /// source only for the raw reads Int operations already make of it.
     int: bool,
+    /// A parameter something reads raw: its raw copy consumes it at entry,
+    /// and each uniform use boxes that copy afresh.
+    rebox: bool,
 }
 
 type Lets = Vec<(CoreBinder, CoreExpr)>;
@@ -177,6 +184,7 @@ impl Boxer {
             read_uniform: false,
             movable: true,
             int: false,
+            rebox: false,
         });
         let index = self.sources.len() - 1;
         self.env.insert(binder.id, Slot::Source(index));
@@ -184,7 +192,14 @@ impl Boxer {
     }
 
     fn new_source(&mut self, tagged: CoreBinder, movable: bool) -> usize {
-        self.sources.push(Source { tagged, raw: None, read_uniform: false, movable, int: true });
+        self.sources.push(Source {
+            tagged,
+            raw: None,
+            read_uniform: false,
+            movable,
+            int: true,
+            rebox: false,
+        });
         self.sources.len() - 1
     }
 
@@ -203,6 +218,18 @@ impl Boxer {
     fn uniform_read(&mut self, index: usize) -> CoreBinder {
         self.sources[index].read_uniform = true;
         self.sources[index].tagged
+    }
+
+    /// A source as a uniform word: the source itself, or a fresh box of its
+    /// raw copy once that copy consumes it, bound in `lets`.
+    fn uniform_word(&mut self, index: usize, span: Span, lets: &mut Lets) -> CoreBinder {
+        if !self.sources[index].rebox {
+            return self.uniform_read(index);
+        }
+        let raw = self.raw_copy(index);
+        let boxed = self.mint(FluxRep::TaggedRep, None);
+        lets.push((boxed, prim(CorePrimOp::BoxInt, CoreExpr::bound_var(&raw, span), span)));
+        boxed
     }
 
     /// The variable `var` as `want`, binding a conversion in `lets` when it
@@ -225,7 +252,7 @@ impl Boxer {
                 CoreExpr::bound_var(&raw, span)
             }
             (Slot::Source(index), Rep::Uniform) => {
-                let tagged = self.uniform_read(index);
+                let tagged = self.uniform_word(index, span, lets);
                 CoreExpr::bound_var(&tagged, span)
             }
         }
@@ -301,7 +328,11 @@ impl Boxer {
                 (Slot::Uniform, Rep::Raw) => {
                     prim(CorePrimOp::UnboxInt, CoreExpr::Var { var, span }, span)
                 }
-                _ => self.var_as(var, span, want, &mut Vec::new()),
+                _ => {
+                    let mut lets = Vec::new();
+                    let var = self.var_as(var, span, want, &mut lets);
+                    wrap(lets, var)
+                }
             },
             CoreExpr::Lit(..) => expr,
             CoreExpr::Lam { params, param_types, result_ty, body, span } => {
@@ -485,7 +516,9 @@ impl Boxer {
                     Slot::Source(index) if matches_int_literals(&alts) => {
                         CoreExpr::bound_var(&self.raw_copy(index), span)
                     }
-                    Slot::Source(index) => CoreExpr::bound_var(&self.uniform_read(index), span),
+                    Slot::Source(index) => {
+                        CoreExpr::bound_var(&self.uniform_word(index, span, &mut lets), span)
+                    }
                     _ => CoreExpr::Var { var, span },
                 },
                 other => self.expr(other, Rep::Uniform),
@@ -544,7 +577,12 @@ impl Boxer {
         let bound: Vec<_> = params.iter().map(|param| param.id).collect();
         let (restore, mut sources) = self.capture(&body, &bound, span, lets);
         for param in &mut params {
-            sources.extend(self.param_source(param));
+            if let Some(index) = self.param_source(param) {
+                let int = self.sources[index].int;
+                self.sources[index].rebox =
+                    self.reads_raw(&body, param.id, int, &mut HashSet::new());
+                sources.push(index);
+            }
         }
         let body = self.expr(body, Rep::Uniform);
         let body = self.with_raw_copies(&sources, body);
@@ -601,7 +639,7 @@ impl Boxer {
             let tagged = match slot {
                 Slot::Uniform => continue,
                 // The closure holds the parameter itself, as any uniform word.
-                Slot::Source(outer) if !self.sources[outer].int => {
+                Slot::Source(outer) if !self.sources[outer].int && !self.sources[outer].rebox => {
                     self.uniform_read(outer);
                     restore.push((id, slot));
                     self.env.insert(id, Slot::Uniform);
@@ -613,14 +651,94 @@ impl Boxer {
                     lets.push((boxed, prim(CorePrimOp::BoxInt, raw, span)));
                     boxed
                 }
-                Slot::Source(outer) => self.uniform_read(outer),
+                Slot::Source(outer) => self.uniform_word(outer, span, lets),
             };
             let index = self.new_source(tagged, false);
+            if let Slot::Source(outer) = slot {
+                self.sources[index].int = self.sources[outer].int;
+            }
             restore.push((id, slot));
             self.env.insert(id, Slot::Source(index));
             sources.push(index);
         }
         (restore, sources)
+    }
+
+    /// Whether `expr` reads the variable `id` raw outside the functions it
+    /// defines: as an argument of an Int operation, of a generic one that
+    /// becomes an Int operation (when `int` says the variable is an Int), or
+    /// as a scrutinee matched against Int literals. `ints` collects the raw
+    /// locals seen on the way. A wrong answer costs a rebox, never a wrong
+    /// program.
+    fn reads_raw(
+        &self,
+        expr: &CoreExpr,
+        id: CoreBinderId,
+        int: bool,
+        ints: &mut HashSet<CoreBinderId>,
+    ) -> bool {
+        let is_var =
+            |e: &CoreExpr| matches!(e, CoreExpr::Var { var, .. } if var.binder == Some(id));
+        match expr {
+            CoreExpr::Var { .. } | CoreExpr::Lit(..) | CoreExpr::Lam { .. } => false,
+            CoreExpr::PrimOp { op, args, .. } => {
+                let int_arg = |e: &CoreExpr| match e {
+                    CoreExpr::Lit(CoreLit::Int(_), _) => true,
+                    CoreExpr::Var { var, .. } => {
+                        var.binder == Some(id)
+                            || var.binder.is_some_and(|b| ints.contains(&b))
+                            || matches!(self.slot(var), Slot::Raw(_))
+                            || matches!(self.slot(var), Slot::Source(i) if self.sources[i].int)
+                    }
+                    _ => false,
+                };
+                let raw_op = takes_raw(*op)
+                    || (int
+                        && int_op(*op).is_some()
+                        && args.len() == 2
+                        && args.iter().all(int_arg));
+                (raw_op && args.iter().any(is_var))
+                    || args.iter().any(|arg| self.reads_raw(arg, id, int, ints))
+            }
+            CoreExpr::App { func, args, .. } => {
+                self.reads_raw(func, id, int, ints)
+                    || args.iter().any(|arg| self.reads_raw(arg, id, int, ints))
+            }
+            CoreExpr::Con { fields: args, .. } | CoreExpr::Perform { args, .. } => {
+                args.iter().any(|arg| self.reads_raw(arg, id, int, ints))
+            }
+            CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+                self.reads_raw(object, id, int, ints)
+            }
+            CoreExpr::Return { value, .. } => self.reads_raw(value, id, int, ints),
+            CoreExpr::Let { var, rhs, body, .. } => {
+                let in_rhs = self.reads_raw(rhs, id, int, ints);
+                if var.rep == FluxRep::IntRep {
+                    ints.insert(var.id);
+                }
+                in_rhs || self.reads_raw(body, id, int, ints)
+            }
+            CoreExpr::LetRec { rhs, body, .. } => {
+                self.reads_raw(rhs, id, int, ints) || self.reads_raw(body, id, int, ints)
+            }
+            CoreExpr::LetRecGroup { bindings, body, .. } => {
+                bindings.iter().any(|(_, rhs)| self.reads_raw(rhs, id, int, ints))
+                    || self.reads_raw(body, id, int, ints)
+            }
+            CoreExpr::Case { scrutinee, alts, .. } => {
+                (is_var(scrutinee) && matches_int_literals(alts))
+                    || self.reads_raw(scrutinee, id, int, ints)
+                    || alts.iter().any(|alt| {
+                        alt.guard.as_ref().is_some_and(|guard| self.reads_raw(guard, id, int, ints))
+                            || self.reads_raw(&alt.rhs, id, int, ints)
+                    })
+            }
+            // Handler clauses are functions of their own.
+            CoreExpr::Handle { body, parameter, .. } => {
+                self.reads_raw(body, id, int, ints)
+                    || parameter.as_ref().is_some_and(|p| self.reads_raw(p, id, int, ints))
+            }
+        }
     }
 
     /// `body` after the raw copies its sources needed. A copy consumes its
