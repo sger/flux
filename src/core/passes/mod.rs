@@ -514,7 +514,7 @@ fn collect_max_pattern_binder_id(pat: &CorePat, max: &mut u32) {
 /// backend. Compare with GHC's `-dcore-lint`, which is opt-in but also fatal
 /// when enabled.
 #[allow(clippy::result_large_err)]
-fn core_lint_stage(
+pub(crate) fn core_lint_stage(
     program: &CoreProgram,
     stage: &'static str,
     interner: Option<&Interner>,
