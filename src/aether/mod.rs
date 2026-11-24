@@ -25,6 +25,9 @@ pub mod callee;
 pub mod check_fbip;
 pub mod display;
 pub mod drop_spec;
+// Wired into the pipeline once the pass exists.
+#[allow(dead_code)]
+pub mod explicit_boxing;
 pub mod fbip_analysis;
 pub mod free_vars;
 pub mod fusion;
