@@ -1518,6 +1518,12 @@ impl<'a> FnLower<'a> {
             LirTerminator::Return(_) if !self.last_loc.is_none() => self.last_loc,
             _ => self.current_loc,
         };
+        // A call may yield, and `cont_split` then carries what is live past
+        // it in the continuation's closure, as uniform words. A raw i1 must
+        // not stand in for its Bool there, so an untag after a call untags.
+        if matches!(term, LirTerminator::Call { .. }) {
+            self.bool_raw_source.clear();
+        }
         let block = &mut self.func.blocks[self.current_block];
         block.terminator = term;
         block.term_loc = loc;
