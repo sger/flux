@@ -2845,3 +2845,33 @@ fn pong(n: Int) -> Int { return ping(n); }
     assert_eq!(calls_held_by_a_let(&ping.expr, pong.name), 0, "{:?}", ping.expr);
     assert_eq!(calls_held_by_a_let(&pong.expr, ping.name), 0, "{:?}", pong.expr);
 }
+
+/// tak reads each Int parameter raw and also passes it on. The parameter is
+/// consumed by its unbox and each call gets a fresh box, so nothing counts
+/// the parameters: counting them would cost a copy per call, and natively an
+/// unwind cleanup on every recursive call.
+#[test]
+fn a_parameter_read_raw_and_passed_on_is_not_counted() {
+    let (core, interner) = lowered_core_and_interner(
+        r#"
+fn tak(x: Int, y: Int, z: Int) -> Int {
+    if y < x {
+        tak(tak(x - 1, y, z), tak(y - 1, z, x), tak(z - 1, x, y))
+    } else {
+        z
+    }
+}
+"#,
+    );
+    let tak =
+        core.defs().iter().find(|def| interner.try_resolve(def.name) == Some("tak")).expect("tak");
+    let counted = count_matching(&tak.expr, &|expr| {
+        matches!(expr, CoreExpr::Dup { .. } | CoreExpr::Drop { .. })
+    });
+    assert_eq!(counted, 0, "{:?}", tak.expr);
+    let modes = &tak.borrow_signature.as_ref().expect("a signature").params;
+    assert!(
+        modes.iter().all(|mode| *mode == flux::aether::borrow_infer::BorrowMode::Owned),
+        "{modes:?}"
+    );
+}
