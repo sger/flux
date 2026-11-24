@@ -207,10 +207,13 @@ impl Boxer {
         if let Some(raw) = self.sources[index].raw {
             return raw;
         }
-        // The raw copy takes the source's name: when the copy consumed the
-        // source, it is the only binder a debugger can show the value by.
-        let name = self.sources[index].tagged.name;
-        let raw = self.mint(FluxRep::IntRep, Some(name));
+        // A parameter read raw is consumed by its copy, which is then the
+        // only binder a debugger can show the value by, so the copy takes
+        // its name. Any other source stays alive and shows the value itself:
+        // a second binder of the same name would show it twice.
+        let source = &self.sources[index];
+        let name = (source.movable && source.rebox).then_some(source.tagged.name);
+        let raw = self.mint(FluxRep::IntRep, name);
         self.sources[index].raw = Some(raw);
         raw
     }

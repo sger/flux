@@ -175,11 +175,11 @@ lam(collection, expected) ->
     UnboxIntMove(expected#98)
   let actual =
     Len(collection#97)
-  let actual =
+  let <sym:8001853> =
     UnboxInt(actual#100)
   let <sym:2000012> =
     let <sym:4001369> =
-      ICmpEq(actual#1853, expected#1854)
+      ICmpEq(<sym:8001853>#1853, expected#1854)
     case <sym:4001369>#1369 of
       true ->
         MakeTuple()
@@ -955,12 +955,12 @@ lam(a_arr, b_arr) ->
     BoxInt(min_len#193)
   letrec zip_go =
     lam(idx, acc) ->
-      let min_len =
+      let <sym:8001918> =
         UnboxInt(min_len#1916)
       let idx =
         UnboxIntMove(idx#189)
       let <sym:4001447> =
-        ICmpGe(idx#1917, min_len#1918)
+        ICmpGe(idx#1917, <sym:8001918>#1918)
       case <sym:4001447>#1447 of
         true ->
           acc#190
@@ -1128,13 +1128,13 @@ lam(arr) ->
               <sym:7000001>#4026531841
           case <sym:4001467>#1467 of
             Some(v) ->
-              let v =
+              let <sym:8001934> =
                 UnboxInt(v#235)
               let <sym:4001468> =
                 IAdd(i#1929, 1)
               let <sym:4001470> =
                 let <sym:4001469> =
-                  ICmpGt(v#1934, best#1931)
+                  ICmpGt(<sym:8001934>#1934, best#1931)
                 case <sym:4001469>#1469 of
                   true ->
                     dup v#235 in
@@ -1222,13 +1222,13 @@ lam(arr) ->
               <sym:7000001>#4026531841
           case <sym:4001477>#1477 of
             Some(v) ->
-              let v =
+              let <sym:8001945> =
                 UnboxInt(v#242)
               let <sym:4001478> =
                 IAdd(i#1940, 1)
               let <sym:4001480> =
                 let <sym:4001479> =
-                  ICmpLt(v#1945, best#1942)
+                  ICmpLt(<sym:8001945>#1945, best#1942)
                 case <sym:4001479>#1479 of
                   true ->
                     dup v#242 in
@@ -1291,16 +1291,16 @@ lam(arr) ->
 lam(arr) ->
   let n =
     Len(arr#246)
-  let n =
+  let <sym:8001951> =
     UnboxInt(n#247)
   let <sym:4001485> =
-    ICmpEq(n#1951, 0)
+    ICmpEq(<sym:8001951>#1951, 0)
   case <sym:4001485>#1485 of
     true ->
       None
     _ ->
       let <sym:4001486> =
-        ISub(n#1951, 1)
+        ISub(<sym:8001951>#1951, 1)
       let <sym:8001952> =
         BoxInt(<sym:4001486>#1486)
       let <sym:7000000> =
@@ -1314,12 +1314,12 @@ lam(arr) ->
 lam(start, stop) ->
   letrec range_go =
     lam(i, acc) ->
-      let stop =
+      let <sym:8001954> =
         UnboxInt(stop#250)
       let i =
         UnboxIntMove(i#252)
       let <sym:4001487> =
-        ICmpGe(i#1953, stop#1954)
+        ICmpGe(i#1953, <sym:8001954>#1954)
       case <sym:4001487>#1487 of
         true ->
           acc#253
@@ -1607,12 +1607,12 @@ lam(arr) ->
 lam(n, f) ->
   letrec tabulate_go =
     lam(i, acc) ->
-      let n =
+      let <sym:8001981> =
         UnboxInt(n#293)
       let i =
         UnboxIntMove(i#296)
       let <sym:4001531> =
-        ICmpGe(i#1980, n#1981)
+        ICmpGe(i#1980, <sym:8001981>#1981)
       case <sym:4001531>#1531 of
         true ->
           acc#297
@@ -2719,12 +2719,12 @@ lam(xs) ->
 lam(start, stop) ->
   letrec range_go =
     lam(current, acc) ->
-      let stop =
+      let <sym:8002015> =
         UnboxInt(stop#518)
       let current =
         UnboxIntMove(current#520)
       let <sym:4001613> =
-        ICmpGe(current#2014, stop#2015)
+        ICmpGe(current#2014, <sym:8002015>#2015)
       case <sym:4001613>#1613 of
         true ->
           aether_call[owned] reverse#522(acc#521)
@@ -3122,11 +3122,11 @@ lam(xs) ->
           drop_specialized ys#637 {
             unique ->
               free_shell ys#637 in
-                let h =
+                let <sym:8002025> =
                   UnboxInt(h#639)
                 drop h#639 in
                   let <sym:4001668> =
-                    IAdd(acc#2024, h#2025)
+                    IAdd(acc#2024, <sym:8002025>#2025)
                   let <sym:8002026> =
                     BoxInt(<sym:4001668>#1668)
                   aether_call[owned, owned] sum_go#636(t#640, <sym:8002026>#2026)
@@ -3134,11 +3134,11 @@ lam(xs) ->
               dup h#639 in
                 dup t#640 in
                   drop ys#637 in
-                    let h =
+                    let <sym:8002025> =
                       UnboxInt(h#639)
                     drop h#639 in
                       let <sym:4001668> =
-                        IAdd(acc#2024, h#2025)
+                        IAdd(acc#2024, <sym:8002025>#2025)
                       let <sym:8002026> =
                         BoxInt(<sym:4001668>#1668)
                       aether_call[owned, owned] sum_go#636(t#640, <sym:8002026>#2026)
@@ -3166,11 +3166,11 @@ lam(xs) ->
           drop_specialized ys#644 {
             unique ->
               free_shell ys#644 in
-                let h =
+                let <sym:8002029> =
                   UnboxInt(h#646)
                 drop h#646 in
                   let <sym:4001669> =
-                    IMul(acc#2028, h#2029)
+                    IMul(acc#2028, <sym:8002029>#2029)
                   let <sym:8002030> =
                     BoxInt(<sym:4001669>#1669)
                   aether_call[owned, owned] product_go#643(t#647, <sym:8002030>#2030)
@@ -3178,11 +3178,11 @@ lam(xs) ->
               dup h#646 in
                 dup t#647 in
                   drop ys#644 in
-                    let h =
+                    let <sym:8002029> =
                       UnboxInt(h#646)
                     drop h#646 in
                       let <sym:4001669> =
-                        IMul(acc#2028, h#2029)
+                        IMul(acc#2028, <sym:8002029>#2029)
                       let <sym:8002030> =
                         BoxInt(<sym:4001669>#1669)
                       aether_call[owned, owned] product_go#643(t#647, <sym:8002030>#2030)
@@ -3441,9 +3441,9 @@ lam(xs, key_fn) ->
   let mid =
     let <sym:4001692> =
       aether_call[owned] length#499(dup xs#733 in xs#733)
-    let <sym:4001692> =
+    let <sym:8002035> =
       UnboxIntMove(<sym:4001692>#1692)
-    IDiv(<sym:4001692>#2035, 2)
+    IDiv(<sym:8002035>#2035, 2)
   let <sym:4001693> =
     let <sym:8002036> =
       BoxInt(mid#737)
@@ -4159,14 +4159,14 @@ lam(xs, ys) ->
 lam(s, prefix) ->
   let plen =
     Len(prefix#1285)
-  let plen =
+  let <sym:8002104> =
     UnboxInt(plen#1286)
   let <sym:4001778> =
     let <sym:4001777> =
       Len(s#1284)
     let <sym:8002105> =
       UnboxInt(<sym:4001777>#1777)
-    ICmpGt(plen#2104, <sym:8002105>#2105)
+    ICmpGt(<sym:8002104>#2104, <sym:8002105>#2105)
   case <sym:4001778>#1778 of
     true ->
       false
@@ -4184,21 +4184,21 @@ lam(s, prefix) ->
 lam(s, suffix) ->
   let slen =
     Len(s#1288)
-  let slen =
+  let <sym:8002107> =
     UnboxInt(slen#1291)
   let plen =
     Len(suffix#1289)
-  let plen =
+  let <sym:8002106> =
     UnboxInt(plen#1290)
   let <sym:4001780> =
-    ICmpGt(plen#2106, slen#2107)
+    ICmpGt(<sym:8002106>#2106, <sym:8002107>#2107)
   case <sym:4001780>#1780 of
     true ->
       false
     _ ->
       let <sym:4001782> =
         let <sym:4001781> =
-          ISub(slen#2107, plen#2106)
+          ISub(<sym:8002107>#2107, <sym:8002106>#2106)
         let <sym:8002108> =
           BoxInt(<sym:4001781>#1781)
         let <sym:7000001> =
@@ -4346,30 +4346,30 @@ lam(arr, sep) ->
 lam(s, needle) ->
   let slen =
     Len(s#1315)
-  let slen =
+  let <sym:8002121> =
     UnboxInt(slen#1320)
   let nlen =
     Len(needle#1316)
-  let nlen =
+  let <sym:8002120> =
     UnboxInt(nlen#1319)
   let <sym:4001800> =
-    ICmpGt(nlen#2120, slen#2121)
+    ICmpGt(<sym:8002120>#2120, <sym:8002121>#2121)
   case <sym:4001800>#1800 of
     true ->
       false
     _ ->
       letrec sc_go =
         lam(i) ->
-          let nlen =
+          let <sym:8002123> =
             UnboxInt(nlen#1319)
-          let slen =
+          let <sym:8002124> =
             UnboxInt(slen#1320)
           let i =
             UnboxIntMove(i#1318)
           let <sym:4001802> =
             let <sym:4001801> =
-              IAdd(i#2122, nlen#2123)
-            ICmpGt(<sym:4001801>#1801, slen#2124)
+              IAdd(i#2122, <sym:8002123>#2123)
+            ICmpGt(<sym:4001801>#1801, <sym:8002124>#2124)
           case <sym:4001802>#1802 of
             true ->
               false
@@ -4377,7 +4377,7 @@ lam(s, needle) ->
               let <sym:4001805> =
                 let <sym:4001804> =
                   let <sym:4001803> =
-                    IAdd(i#2122, nlen#2123)
+                    IAdd(i#2122, <sym:8002123>#2123)
                   let <sym:8002125> =
                     BoxInt(i#2122)
                   let <sym:8002126> =

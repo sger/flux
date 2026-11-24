@@ -182,10 +182,10 @@ lam(xs) ->
             drop <sym:7500000>#3758096384 in
               let <sym:4000069> =
                 aether_call[owned] my_len$own#137(t#16)
-              let <sym:4000069> =
+              let <sym:8000127> =
                 UnboxIntMove(<sym:4000069>#69)
               let <sym:8000128> =
-                IAdd(1, <sym:4000069>#127)
+                IAdd(1, <sym:8000127>#127)
               BoxInt(<sym:8000128>#128)
         shared ->
           let <sym:7000000> =
@@ -206,15 +206,15 @@ lam(xs) ->
       drop_specialized xs#23 {
         unique ->
           free_shell xs#23 in
-            let h =
+            let <sym:8000129> =
               UnboxInt(h#24)
             drop h#24 in
               let <sym:4000072> =
                 aether_call[owned] my_sum$own#138(t#25)
-              let <sym:4000072> =
+              let <sym:8000130> =
                 UnboxIntMove(<sym:4000072>#72)
               let <sym:8000131> =
-                IAdd(h#129, <sym:4000072>#130)
+                IAdd(<sym:8000129>#129, <sym:8000130>#130)
               BoxInt(<sym:8000131>#131)
         shared ->
           let <sym:7000000> =
