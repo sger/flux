@@ -2,8 +2,8 @@
 Maintained Aether forwarding/wrapper fixture.
 Transformed-Core assertions cover:
 - a fresh outer `Pair2` wrapper with one inner forwarded-child `Reuse`
-- a near-miss twin that stays fresh because two wrapper fields compete for
-the same forwarded child token
+- a near-miss twin whose two wrapper fields compete for the matched cell: one
+reuses it, and the other and the outer wrapper stay fresh
 */
 
 // parity-expected-stdout-begin

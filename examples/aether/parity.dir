@@ -6,7 +6,7 @@ bench_reuse_blocked.flx: expect-reuse: 0
 bench_reuse_enabled.flx: expect-reuse: 1
 fbip_success_cases.flx: expect-reuse: 3
 fbip_vacuous.flx: expect-allocs: 0
-forwarded_wrapper_reuse.flx: expect-reuse: 1
+forwarded_wrapper_reuse.flx: expect-reuse: 2
 hof_recursive_suite.flx: expect-reuse: 2
 opt_corpus_positive.flx: expect-reuse: 5
 reuse_alias_spines.flx: expect-reuse: 2
