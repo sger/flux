@@ -1466,6 +1466,23 @@ mod tests {
             span: span(),
         });
         assert_eq!(boxed, BorrowMode::Owned, "a BoxInt result is a fresh value");
+        // `let t = BoxInt(n); [t]`, as explicit boxing writes a call's boxed
+        // argument: the chain's value is its tail's.
+        let chained = lending_loop_mode(|n, _, t| CoreExpr::Let {
+            var: t,
+            rhs: Box::new(CoreExpr::PrimOp {
+                op: crate::core::CorePrimOp::BoxInt,
+                args: vec![var_ref(n)],
+                span: span(),
+            }),
+            body: Box::new(CoreExpr::PrimOp {
+                op: crate::core::CorePrimOp::MakeList,
+                args: vec![var_ref(t)],
+                span: span(),
+            }),
+            span: span(),
+        });
+        assert_eq!(chained, BorrowMode::Owned, "a let chain gives what its tail gives");
         assert_eq!(lending_loop_mode(|_, prev, _| var_ref(prev)), BorrowMode::Borrowed);
         assert_eq!(lending_loop_mode(|_, _, t| var_ref(t)), BorrowMode::Borrowed);
     }
