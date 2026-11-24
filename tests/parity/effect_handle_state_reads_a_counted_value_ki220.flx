@@ -1,0 +1,37 @@
+// expect: success
+// bug: KI-220. The expression that gives a handle its initial state runs
+//       before the handle, so what it reads is still needed there. Aether
+//       planned it as if nothing came after it: a String it read was
+//       released before the read, or consumed by the clause without a copy.
+// parity-expected-stdout-begin
+// 5
+// 4
+// parity-expected-stdout-end
+
+effect Counter {
+    next : () -> Int
+}
+
+fn count_twice() -> Int with Counter {
+    let a = perform Counter.next()
+    a + perform Counter.next()
+}
+
+// The clause consumes `s` too.
+fn grow(s: String) -> Int {
+    count_twice() handle Counter([s, s]) {
+        next(resume, state) -> resume(len(state), [s | state])
+    }
+}
+
+// Only the initial state reads `s`.
+fn keep(s: String) -> Int {
+    count_twice() handle Counter([s, s]) {
+        next(resume, state) -> resume(len(state), state)
+    }
+}
+
+fn main() with IO {
+    print(grow("a"))
+    print(keep("b"))
+}
