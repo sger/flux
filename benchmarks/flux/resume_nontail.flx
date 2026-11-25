@@ -1,0 +1,44 @@
+// effect-handlers-bench's resume_nontail: operator(i) is performed for
+// i = n down to 1, and its clause does work after the resume returns, so
+// every resume is a call that comes back. Repeated 1000 times, each run
+// starting from the last one's result.
+import Flow.Env as Env
+import Flow.Array as Array
+
+effect Op {
+    operator : (Int) -> Unit
+}
+
+fn combine(x: Int, y: Int) -> Int {
+    abs(x - 503 * y + 37) % 1009
+}
+
+fn loop(i: Int, s: Int) -> Int with Op {
+    if i == 0 { s } else {
+        perform Op.operator(i)
+        loop(i - 1, s)
+    }
+}
+
+// A clause can't hold a block, so the work after the resume is `combine`.
+fn run(n: Int, s: Int) -> Int {
+    loop(n, s) handle Op { operator(resume, x) -> combine(x, resume(())) }
+}
+
+fn repeat(n: Int, l: Int, s: Int) -> Int {
+    if l == 0 { s } else { repeat(n, l - 1, run(n, s)) }
+}
+
+// The workload size: the program's first argument, or the size the suite
+// was written with. `cargo xtask bench` passes a smaller one to the VM.
+fn size(default: Int) -> Int with Env {
+    match Array.get(Env.args(), 1) {
+        Some(s) -> parse_int(s),
+        None -> default,
+    }
+}
+
+fn main() with IO {
+    let n = size(10000)
+    print(repeat(n, 1000, 0))
+}

@@ -1,0 +1,45 @@
+// parity: vm, llvm
+// expect: success
+// bug: benchmarks/flux/resume_nontail.flx and its direct-style twin at
+//      effect-handlers-bench's small size, 5, where both give 37: a clause
+//      that works on what its resume returns, five deep, 1000 times.
+// parity-expected-stdout-begin
+// 37
+// 37
+// parity-expected-stdout-end
+
+effect Op {
+    operator : (Int) -> Unit
+}
+
+fn combine(x: Int, y: Int) -> Int {
+    abs(x - 503 * y + 37) % 1009
+}
+
+fn loop(i: Int, s: Int) -> Int with Op {
+    if i == 0 { s } else {
+        perform Op.operator(i)
+        loop(i - 1, s)
+    }
+}
+
+fn run(n: Int, s: Int) -> Int {
+    loop(n, s) handle Op { operator(resume, x) -> combine(x, resume(())) }
+}
+
+fn run_direct(i: Int, s: Int) -> Int {
+    if i == 0 { s } else { combine(i, run_direct(i - 1, s)) }
+}
+
+fn repeat(n: Int, l: Int, s: Int) -> Int {
+    if l == 0 { s } else { repeat(n, l - 1, run(n, s)) }
+}
+
+fn repeat_direct(n: Int, l: Int, s: Int) -> Int {
+    if l == 0 { s } else { repeat_direct(n, l - 1, run_direct(n, s)) }
+}
+
+fn main() with IO {
+    print(repeat(5, 1000, 0))
+    print(repeat_direct(5, 1000, 0))
+}

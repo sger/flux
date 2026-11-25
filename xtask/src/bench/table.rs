@@ -116,6 +116,8 @@ pub const BENCHMARKS: &[Benchmark] = &[
         "2000",
         "100000",
     ),
+    // KI-231: natively the suite's size of 10000 takes minutes.
+    effect_bench("resume_nontail", "Non-Tail Resume", "resume-nontail", true, "400", "700"),
 ];
 
 /// A benchmark's name, or `core`, `extended`, `effects` or `all`.

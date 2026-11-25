@@ -1,0 +1,30 @@
+// resume_nontail without effects: the same nesting of `combine`, as a
+// recursion that does its work after the call returns.
+import Flow.Env as Env
+import Flow.Array as Array
+
+fn combine(x: Int, y: Int) -> Int {
+    abs(x - 503 * y + 37) % 1009
+}
+
+fn run(i: Int, s: Int) -> Int {
+    if i == 0 { s } else { combine(i, run(i - 1, s)) }
+}
+
+fn repeat(n: Int, l: Int, s: Int) -> Int {
+    if l == 0 { s } else { repeat(n, l - 1, run(n, s)) }
+}
+
+// The workload size: the program's first argument, or the size the suite
+// was written with. `cargo xtask bench` passes a smaller one to the VM.
+fn size(default: Int) -> Int with Env {
+    match Array.get(Env.args(), 1) {
+        Some(s) -> parse_int(s),
+        None -> default,
+    }
+}
+
+fn main() with IO {
+    let n = size(10000)
+    print(repeat(n, 1000, 0))
+}
