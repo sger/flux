@@ -68,82 +68,6 @@ Severity is about consequence, not effort:
 
 ## Open
 
-### KI-223 — Natively, the value a clause resumes with leaks when the `perform` runs in a function the handled expression calls
-
-**Severity:** Medium (a leak each time the clause resumes) · **Area:** Aether, drop insertion (`src/aether/insert.rs`) · **Verified:** 2026-11-25 (4c6aaa11), `--native --leak-check` · **From:** the KI-186 fixture's `llvm_heap` way
-
-```flux
-effect Ask { ask : () -> String }
-
-fn callee() -> String with Ask {
-    perform Ask.ask() + "!"
-}
-
-fn main() with IO {
-    print(callee() handle Ask { ask(resume) -> resume("a" + "1") })
-}
-```
-
-```
-$ flux resumed.flx --native --leak-check
-"a1!"
-leak: 1 block still live at exit
-  a String (16 bytes) allocated at <handler Ask.ask> (resumed.flx:8:55)
-```
-
-The leaked block is `"a1"`, the value the clause gives to `resume`. Binding
-the `perform` by a `let` first leaks the same. With the `perform` in the
-handled expression itself, `(perform Ask.ask() + "!") handle Ask { … }`,
-nothing leaks unless the clause resumes twice. The VM prints the same.
-
-The runtime hands the continuation the value `resume` was given, with its
-reference, so the `perform`'s result is owned. Drop insertion doesn't count it
-as a fresh value (`fresh_result`), so `callee`'s plan reads it in the `+` and
-never releases it. A `perform` in the handled expression is usually rewritten
-to a direct call of the clause, whose result does count as fresh; a clause
-that resumes twice keeps it a real `perform`.
-
-### KI-222 — Natively, a counted value that a handler clause reads leaks when nothing reads it after the `handle`
-
-**Severity:** Medium (a leak each time the `handle` runs) · **Area:** Aether, drop insertion around `handle` (`src/aether/insert.rs`) · **Verified:** 2026-11-25 (4bd931e0), `--native --leak-check` · **From:** the KI-039 plan's P2.6 fixtures
-
-```flux
-effect Ask {
-    ask : () -> String
-}
-
-fn asked(s: String) -> String {
-    (perform Ask.ask() + "!") handle Ask { ask(resume) -> resume(s) }
-}
-
-fn main() with IO {
-    print(asked("a" + "b"))
-}
-```
-
-```
-$ flux asked.flx --native --leak-check
-"ab!"
-leak: 1 block still live at exit
-  a String (16 bytes) allocated at main (asked.flx:10:17)
-```
-
-The leaked block is `s`, which only the clause reads. A `let` that only the
-clause reads leaks the same way. When the function reads the value again
-after the `handle`, as in `let k = s + "b"`, then the `handle`, then `r + k`,
-nothing leaks.
-
-**Partly fixed 2026-11-25 (4bd931e0).** The `handle`'s own value leaked too,
-whenever it was counted, as in `(perform Ask.ask() + "!") handle Ask { … }`
-returned or bound by a `let`. Drop insertion held it in a temporary and
-copied it before releasing what the body read, although the runtime hands it
-back with the reference the body or a clause made. Now the body and the
-clauses are planned as owned, and a `handle` counts as a fresh value
-(`fresh_result`). Fixture: `effect_handle_value_is_released_ki222.flx`.
-
-**Not yet known:** where the clause's copy goes. The handler closure that
-`EvvInsert` takes may never be released with its captures.
-
 ### KI-221 — On the VM, a function whose body is a `handle` with a computed initial state returns the state
 
 **Severity:** High (a wrong answer, silently) · **Area:** VM lowering of `handle` · **Verified:** 2026-11-24 (d019178e) · **From:** the KI-039 plan's `explicit_boxing` step, while writing the KI-220 fixture
@@ -453,79 +377,6 @@ parity fixture has an operation of two parameters; `lib/Flow/Effects.flx`,
 which isn't compiled, is the only place one is written.
 
 The fuzz generator writes operations of at most one parameter.
-
-### KI-186 — A handler clause that reads a value the handled call takes over stops the compiler with E999
-
-**Severity:** Medium (valid programs refused, with an internal error) · **Area:** Aether, ownership, effect handlers · **Verified:** 2026-11-25 (e30faeb6) · **From:** 0190 S17c (`cargo xtask fuzz --seed 1 --with effects --gen-only`, case 65 of 200)
-
-```flux
-effect Eff { op : (Int) -> Int }
-
-fn f(s: String) -> String with Eff {
-    let x: Int = perform Eff.op(1);
-    s
-}
-
-fn run(n: Int) -> String {
-    let s: String = ("ab" + to_string(n));
-    f(s) handle Eff { op(resume, p) -> resume(len(s)) }
-}
-
-fn main() with IO {
-    print(run(3));
-}
-```
-
-On every way this stops with `error[E999]: Aether Verification Failed`: "the
-ownership plan for `run` is unsound … binder … is read after it was released"
-(`UsedAfterRelease`, after `lower_core_to_aether_program`). The same `let` in
-`main` does it too.
-
-It needs both: the handled call takes `s` over (here `f` returns it), and the
-clause reads `s`. With `f` only reading `s` (`(x + len(s))`), or with `s` a
-parameter of `run` rather than a `let`, it prints. A lambda that captures `s`
-in the same place (`f(s, \(n: Int) -> (n + len(s)))`) also works. So the
-plan releases `s` at the call, and doesn't count the clause, which reads it
-later, as a use.
-
-The verifier refuses the plan, so nothing runs wrong.
-
-The first full-generator hunt (`cargo xtask fuzz --seed 2 --with
-classes,values,effects,async,modules`, 2026-11-11) hit it in 5 programs of
-200 (cases 70, 145, 159, 169 and 182), all in a handled `let` in `main`. There
-the call doesn't return the value: putting it in a constructor in the call's
-arguments is enough to take it over. Case 70 reduced to:
-
-```flux
-effect Eff { op : None -> String }
-
-fn f(a: Either<String, String>) -> String with Eff { "" }
-fn g() -> String { "" }
-
-fn main() with IO {
-    let s: String = g();
-    let v: String = f(Left(s)) handle Eff { op(resume, p) -> resume(s) };
-}
-```
-
-`Right(s)`, a user constructor `C(s, None)`, and a list `["", s, s]` passed
-through `map` do the same.
-
-Since the KI-039 plan's `explicit_boxing` step an `Int` does it too, where it
-used to print: a `let` bound to a call's `Int` result is a counted word, as a
-`String` is. With `s: Int = seed(n)` and the clause `resume(s + p)`, 116786cb
-prints `21`; e30faeb6 stops with E999 on both backends. `cargo xtask fuzz --seed 2 --with classes,values,effects` hit
-it in case 0 of 50.
-
-The cause is the order Aether gives a `handle`. Both backends make each
-clause a closure when the handle is installed, before the body runs
-(`lower_handler_clause_aether` in `src/lir/lower.rs`, `HandleScope` in
-`src/core/to_ir/fn_ctx.rs`), and making it retains what the clause captures.
-Drop insertion (`src/aether/insert.rs`) instead plans a clause beside the
-body, as another branch, and doesn't lend it its captures, so a clause that
-gives one away (`resume(s)`) gives away the outer reference. The verifier
-(`check_reads_after_release` in `src/aether/verify.rs`) reads the captures
-after the body, and that is the E999.
 
 ### KI-189 — On the VM, a record update on a record type from another module gives back the record unchanged
 
@@ -3594,6 +3445,185 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-223 — Natively, the value a clause resumes with leaks when the `perform` runs in a function the handled expression calls — FIXED 2026-11-25
+
+**Severity:** Medium (a leak each time the clause resumes) · **Area:** Aether, drop insertion (`src/aether/insert.rs`) · **Verified:** 2026-11-25 (4c6aaa11), `--native --leak-check` · **From:** the KI-186 fixture's `llvm_heap` way
+
+```flux
+effect Ask { ask : () -> String }
+
+fn callee() -> String with Ask {
+    perform Ask.ask() + "!"
+}
+
+fn main() with IO {
+    print(callee() handle Ask { ask(resume) -> resume("a" + "1") })
+}
+```
+
+```
+$ flux resumed.flx --native --leak-check
+"a1!"
+leak: 1 block still live at exit
+  a String (16 bytes) allocated at <handler Ask.ask> (resumed.flx:8:55)
+```
+
+The leaked block is `"a1"`, the value the clause gives to `resume`. Binding
+the `perform` by a `let` first leaks the same. With the `perform` in the
+handled expression itself, `(perform Ask.ask() + "!") handle Ask { … }`,
+nothing leaks unless the clause resumes twice. The VM prints the same.
+
+The runtime hands the continuation the value `resume` was given, with its
+reference, so the `perform`'s result is owned. Drop insertion doesn't count it
+as a fresh value (`fresh_result`), so `callee`'s plan reads it in the `+` and
+never releases it. A `perform` in the handled expression is usually rewritten
+to a direct call of the clause, whose result does count as fresh; a clause
+that resumes twice keeps it a real `perform`.
+
+**Fixed 2026-11-25.** Drop insertion counts a `perform`'s result as a value
+of its own (`fresh_result` in `src/aether/insert.rs`), so a function
+releases it after its last use. The prelude's `read_lines` now releases
+the file's contents that way too, which it never did. Tests:
+`a_perform_result_is_released_after_its_last_read` in
+`src/aether/insert.rs`, and
+`tests/parity/effect_resumed_value_is_released_ki223.flx`.
+
+
+### KI-222 — Natively, a counted value that a handler clause reads leaks when nothing reads it after the `handle` — FIXED 2026-11-25
+
+**Severity:** Medium (a leak each time the `handle` runs) · **Area:** Aether, drop insertion around `handle` (`src/aether/insert.rs`) · **Verified:** 2026-11-25 (4bd931e0), `--native --leak-check` · **From:** the KI-039 plan's P2.6 fixtures
+
+```flux
+effect Ask {
+    ask : () -> String
+}
+
+fn asked(s: String) -> String {
+    (perform Ask.ask() + "!") handle Ask { ask(resume) -> resume(s) }
+}
+
+fn main() with IO {
+    print(asked("a" + "b"))
+}
+```
+
+```
+$ flux asked.flx --native --leak-check
+"ab!"
+leak: 1 block still live at exit
+  a String (16 bytes) allocated at main (asked.flx:10:17)
+```
+
+The leaked block is `s`, which only the clause reads. A `let` that only the
+clause reads leaks the same way. When the function reads the value again
+after the `handle`, as in `let k = s + "b"`, then the `handle`, then `r + k`,
+nothing leaks.
+
+**Partly fixed 2026-11-25 (4bd931e0).** The `handle`'s own value leaked too,
+whenever it was counted, as in `(perform Ask.ask() + "!") handle Ask { … }`
+returned or bound by a `let`. Drop insertion held it in a temporary and
+copied it before releasing what the body read, although the runtime hands it
+back with the reference the body or a clause made. Now the body and the
+clauses are planned as owned, and a `handle` counts as a fresh value
+(`fresh_result`). Fixture: `effect_handle_value_is_released_ki222.flx`.
+
+**Fixed 2026-11-25**, with [KI-186](#ki-186). The clause's copy was never
+the leak: the prompt releases the evidence, and with it the clause's
+closure and what it captured. The function's own reference was. Drop
+insertion planned the clause beside the body, so a clause that gave its
+capture to `resume` looked as if it took the function's reference over.
+Now a clause is planned as a lambda is: it copies a capture it gives away,
+and the function releases its reference after the `handle`. Test:
+`tests/parity/effect_clause_only_reads_a_capture_ki222.flx`.
+
+
+### KI-186 — A handler clause that reads a value the handled call takes over stops the compiler with E999 — FIXED 2026-11-25
+
+**Severity:** Medium (valid programs refused, with an internal error) · **Area:** Aether, ownership, effect handlers · **Verified:** 2026-11-25 (e30faeb6) · **From:** 0190 S17c (`cargo xtask fuzz --seed 1 --with effects --gen-only`, case 65 of 200)
+
+```flux
+effect Eff { op : (Int) -> Int }
+
+fn f(s: String) -> String with Eff {
+    let x: Int = perform Eff.op(1);
+    s
+}
+
+fn run(n: Int) -> String {
+    let s: String = ("ab" + to_string(n));
+    f(s) handle Eff { op(resume, p) -> resume(len(s)) }
+}
+
+fn main() with IO {
+    print(run(3));
+}
+```
+
+On every way this stops with `error[E999]: Aether Verification Failed`: "the
+ownership plan for `run` is unsound … binder … is read after it was released"
+(`UsedAfterRelease`, after `lower_core_to_aether_program`). The same `let` in
+`main` does it too.
+
+It needs both: the handled call takes `s` over (here `f` returns it), and the
+clause reads `s`. With `f` only reading `s` (`(x + len(s))`), or with `s` a
+parameter of `run` rather than a `let`, it prints. A lambda that captures `s`
+in the same place (`f(s, \(n: Int) -> (n + len(s)))`) also works. So the
+plan releases `s` at the call, and doesn't count the clause, which reads it
+later, as a use.
+
+The verifier refuses the plan, so nothing runs wrong.
+
+The first full-generator hunt (`cargo xtask fuzz --seed 2 --with
+classes,values,effects,async,modules`, 2026-11-11) hit it in 5 programs of
+200 (cases 70, 145, 159, 169 and 182), all in a handled `let` in `main`. There
+the call doesn't return the value: putting it in a constructor in the call's
+arguments is enough to take it over. Case 70 reduced to:
+
+```flux
+effect Eff { op : None -> String }
+
+fn f(a: Either<String, String>) -> String with Eff { "" }
+fn g() -> String { "" }
+
+fn main() with IO {
+    let s: String = g();
+    let v: String = f(Left(s)) handle Eff { op(resume, p) -> resume(s) };
+}
+```
+
+`Right(s)`, a user constructor `C(s, None)`, and a list `["", s, s]` passed
+through `map` do the same.
+
+Since the KI-039 plan's `explicit_boxing` step an `Int` does it too, where it
+used to print: a `let` bound to a call's `Int` result is a counted word, as a
+`String` is. With `s: Int = seed(n)` and the clause `resume(s + p)`, 116786cb
+prints `21`; e30faeb6 stops with E999 on both backends. `cargo xtask fuzz --seed 2 --with classes,values,effects` hit
+it in case 0 of 50.
+
+The cause is the order Aether gives a `handle`. Both backends make each
+clause a closure when the handle is installed, before the body runs
+(`lower_handler_clause_aether` in `src/lir/lower.rs`, `HandleScope` in
+`src/core/to_ir/fn_ctx.rs`), and making it retains what the clause captures.
+Drop insertion (`src/aether/insert.rs`) instead plans a clause beside the
+body, as another branch, and doesn't lend it its captures, so a clause that
+gives one away (`resume(s)`) gives away the outer reference. The verifier
+(`check_reads_after_release` in `src/aether/verify.rs`) reads the captures
+after the body, and that is the E999.
+
+**Fixed 2026-11-25.** Drop insertion plans each clause as a lambda: its
+captures are lent, so one it gives away is copied, and the function keeps
+its own reference, which it releases after the `handle`
+(`src/aether/insert.rs`). The verifier reads a clause's captures where the
+handle is installed, after its initial state and before its body, and
+rejects a clause that gives a capture away without a copy
+(`ClauseConsumesCapture`, `src/aether/verify.rs`). Tests:
+`a_clause_copies_a_capture_it_gives_away` and
+`a_capture_the_body_takes_over_is_read_at_install` in
+`src/aether/insert.rs`, three `handle` tests in `src/aether/verify.rs`, and
+`tests/parity/effect_clause_reads_a_value_the_call_takes_ki186.flx`. Fuzz
+seed 1 case 26 and seed 2 case 0 now compile and agree on all six ways.
+
 
 ### KI-220 — A counted value read by a handler's initial state is released too early — FIXED 2026-11-24
 
