@@ -1,0 +1,38 @@
+// parity: vm, llvm, llvm_heap
+// expect: success
+// bug: KI-222. Natively a counted value that only a handler clause reads
+//      leaked when nothing read it after the handle: a parameter, a let, or
+//      an Int let bound to a call. The clause's closure takes its own
+//      reference when the handle is installed, so the function releases its
+//      reference after the handle.
+// parity-expected-stdout-begin
+// "ab!"
+// "cd!"
+// 22
+// parity-expected-stdout-end
+
+effect Ask { ask : () -> String }
+
+effect Num { num : () -> Int }
+
+fn seed(n: Int) -> Int { n * 7 }
+
+fn asked(s: String) -> String {
+    (perform Ask.ask() + "!") handle Ask { ask(resume) -> resume(s) }
+}
+
+fn asked_let(n: Int) -> String {
+    let s: String = ("c" + "d");
+    (perform Ask.ask() + "!") handle Ask { ask(resume) -> resume(s) }
+}
+
+fn numbered(n: Int) -> Int {
+    let s: Int = seed(n);
+    (perform Num.num() + 1) handle Num { num(resume) -> resume(s) }
+}
+
+fn main() with IO {
+    print(asked("a" + "b"))
+    print(asked_let(0))
+    print(numbered(3))
+}
