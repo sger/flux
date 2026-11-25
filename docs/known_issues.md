@@ -68,6 +68,58 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-225 — A `resume` called after its clause has returned runs without the handler
+
+**Severity:** High (an "unhandled effect" stop where Koka and OCaml run on) · **Area:** effect handlers, both backends · **Verified:** 2026-11-25 (2b138517, and `main` at 64005292) · **From:** writing the effects benchmarks (effect-handlers-bench's generator, Koka's mstate)
+
+```flux
+effect Ask {
+    ask : () -> Int
+}
+
+type Step = Done(Int) | More(() -> Step)
+
+fn twice() -> Step with Ask {
+    let a = perform Ask.ask()
+    let b = perform Ask.ask()
+    Done(a + b)
+}
+
+fn run(s: Step, n: Int) -> Int {
+    match s {
+        Done(v) -> v,
+        More(k) -> next(k, n),
+    }
+}
+
+fn next(k: () -> Step, n: Int) -> Int {
+    let s = k()
+    run(s, n + 1)
+}
+
+fn main() with IO {
+    let first = twice() handle Ask { ask(resume) -> More(\() -> resume(1)) }
+    print(run(first, 0))
+}
+```
+
+The clause keeps `resume` in a closure and returns. When `run` calls the
+closure, the continuation performs `Ask` again and finds no handler. The VM
+stops with `error[E1009]: unhandled effect: Ask`, and native code with
+`flux_yield_to: unhandled effect`. With deep handlers, as in Koka and OCaml 5,
+resuming puts the handler back around the continuation, and the program
+prints `2`.
+
+It blocks two common forms:
+- generators that hand out the rest of a traversal as a thunk;
+- state-passing handlers whose clauses return `\s -> …` that resumes later, as in Koka's `mstate`.
+
+Proposal 0199 calls `resume` an ordinary function that can be captured in a
+closure, but nothing says what handler a later call runs under.
+
+**Not yet known:** whether this is meant, and so needs a diagnostic, or the
+continuation should carry its handler.
+
 ### KI-224 — Natively, a parameterized handler gives a wrong value once its body has performed more than 8 times
 
 **Severity:** High (a wrong answer, silently) · **Area:** native effects runtime, yield continuations (`runtime/c/`, `flux_yield_extend`) · **Verified:** 2026-11-25 (2b138517, and `main` at 64005292) · **From:** writing the effects benchmarks (effect-handlers-bench's countdown and iterator)
