@@ -1,14 +1,24 @@
+use std::rc::Rc;
+
+// Subterms are shared, as in the Flux version: `deriv` uses `f` and `g` more
+// than once, and a clone of an `Expr` copies one node, not the whole tree.
 #[derive(Clone)]
 enum Expr {
     Val(i64),
     Var(i64),
-    Add(Box<Expr>, Box<Expr>),
-    Mul(Box<Expr>, Box<Expr>),
-    Pow(Box<Expr>, Box<Expr>),
-    Ln(Box<Expr>),
+    Add(Rc<Expr>, Rc<Expr>),
+    Mul(Rc<Expr>, Rc<Expr>),
+    Pow(Rc<Expr>, Rc<Expr>),
+    Ln(Rc<Expr>),
 }
 
 const STEPS: usize = 10;
+
+/// Takes the node out when this is its only reference, as Perceus reuses a
+/// unique cell, and copies just that node when it is shared.
+fn take(expr: Rc<Expr>) -> Expr {
+    Rc::try_unwrap(expr).unwrap_or_else(|shared| (*shared).clone())
+}
 
 fn pown(a: i64, n: i64) -> i64 {
     if n == 0 {
@@ -31,30 +41,30 @@ fn add(f: Expr, g: Expr) -> Expr {
                     other
                 } else {
                     match other {
-                        Expr::Add(left, right) => match (*left, *right) {
+                        Expr::Add(left, right) => match (take(left), take(right)) {
                             (Expr::Val(m), tail) => add(Expr::Val(n + m), tail),
                             (head, Expr::Val(m)) => add(Expr::Val(n + m), head),
                             (lhs, rhs) => Expr::Add(
-                                Box::new(Expr::Val(n)),
-                                Box::new(Expr::Add(Box::new(lhs), Box::new(rhs))),
+                                Rc::new(Expr::Val(n)),
+                                Rc::new(Expr::Add(Rc::new(lhs), Rc::new(rhs))),
                             ),
                         },
-                        other => Expr::Add(Box::new(Expr::Val(n)), Box::new(other)),
+                        other => Expr::Add(Rc::new(Expr::Val(n)), Rc::new(other)),
                     }
                 }
             }
         },
-        Expr::Add(left, right) => add(*left, add(*right, g)),
+        Expr::Add(left, right) => add(take(left), add(take(right), g)),
         other => match g {
             Expr::Val(0) => other,
             Expr::Val(n) => add(Expr::Val(n), other),
-            Expr::Add(left, right) => match (*left, *right) {
+            Expr::Add(left, right) => match (take(left), take(right)) {
                 (Expr::Val(n), tail) => add(Expr::Val(n), add(other, tail)),
                 (head, tail) => {
-                    Expr::Add(Box::new(other), Box::new(Expr::Add(Box::new(head), Box::new(tail))))
+                    Expr::Add(Rc::new(other), Rc::new(Expr::Add(Rc::new(head), Rc::new(tail))))
                 }
             },
-            rhs => Expr::Add(Box::new(other), Box::new(rhs)),
+            rhs => Expr::Add(Rc::new(other), Rc::new(rhs)),
         },
     }
 }
@@ -70,31 +80,31 @@ fn mul(f: Expr, g: Expr) -> Expr {
                     other
                 } else {
                     match other {
-                        Expr::Mul(left, right) => match (*left, *right) {
+                        Expr::Mul(left, right) => match (take(left), take(right)) {
                             (Expr::Val(m), tail) => mul(Expr::Val(n * m), tail),
                             (head, Expr::Val(m)) => mul(Expr::Val(n * m), head),
                             (lhs, rhs) => Expr::Mul(
-                                Box::new(Expr::Val(n)),
-                                Box::new(Expr::Mul(Box::new(lhs), Box::new(rhs))),
+                                Rc::new(Expr::Val(n)),
+                                Rc::new(Expr::Mul(Rc::new(lhs), Rc::new(rhs))),
                             ),
                         },
-                        other => Expr::Mul(Box::new(Expr::Val(n)), Box::new(other)),
+                        other => Expr::Mul(Rc::new(Expr::Val(n)), Rc::new(other)),
                     }
                 }
             }
         },
-        Expr::Mul(left, right) => mul(*left, mul(*right, g)),
+        Expr::Mul(left, right) => mul(take(left), mul(take(right), g)),
         other => match g {
             Expr::Val(0) => Expr::Val(0),
             Expr::Val(1) => other,
             Expr::Val(n) => mul(Expr::Val(n), other),
-            Expr::Mul(left, right) => match (*left, *right) {
+            Expr::Mul(left, right) => match (take(left), take(right)) {
                 (Expr::Val(n), tail) => mul(Expr::Val(n), mul(other, tail)),
                 (head, tail) => {
-                    Expr::Mul(Box::new(other), Box::new(Expr::Mul(Box::new(head), Box::new(tail))))
+                    Expr::Mul(Rc::new(other), Rc::new(Expr::Mul(Rc::new(head), Rc::new(tail))))
                 }
             },
-            rhs => Expr::Mul(Box::new(other), Box::new(rhs)),
+            rhs => Expr::Mul(Rc::new(other), Rc::new(rhs)),
         },
     }
 }
@@ -110,7 +120,7 @@ fn pow(f: Expr, g: Expr) -> Expr {
                     match other {
                         Expr::Val(0) => Expr::Val(1),
                         Expr::Val(1) => Expr::Val(m),
-                        other => Expr::Pow(Box::new(Expr::Val(m)), Box::new(other)),
+                        other => Expr::Pow(Rc::new(Expr::Val(m)), Rc::new(other)),
                     }
                 }
             }
@@ -120,7 +130,7 @@ fn pow(f: Expr, g: Expr) -> Expr {
             Expr::Val(1) => other,
             rhs => match other {
                 Expr::Val(0) => Expr::Val(0),
-                lhs => Expr::Pow(Box::new(lhs), Box::new(rhs)),
+                lhs => Expr::Pow(Rc::new(lhs), Rc::new(rhs)),
             },
         },
     }
@@ -129,7 +139,7 @@ fn pow(f: Expr, g: Expr) -> Expr {
 fn ln(f: Expr) -> Expr {
     match f {
         Expr::Val(1) => Expr::Val(0),
-        other => Expr::Ln(Box::new(other)),
+        other => Expr::Ln(Rc::new(other)),
     }
 }
 
@@ -143,15 +153,15 @@ fn deriv(x: i64, expr: Expr) -> Expr {
                 Expr::Val(0)
             }
         }
-        Expr::Add(f, g) => add(deriv(x, *f), deriv(x, *g)),
+        Expr::Add(f, g) => add(deriv(x, take(f)), deriv(x, take(g))),
         Expr::Mul(f, g) => {
-            let f_expr = *f;
-            let g_expr = *g;
+            let f_expr = take(f);
+            let g_expr = take(g);
             add(mul(f_expr.clone(), deriv(x, g_expr.clone())), mul(g_expr, deriv(x, f_expr)))
         }
         Expr::Pow(f, g) => {
-            let f_expr = *f;
-            let g_expr = *g;
+            let f_expr = take(f);
+            let g_expr = take(g);
             mul(
                 pow(f_expr.clone(), g_expr.clone()),
                 add(
@@ -164,7 +174,7 @@ fn deriv(x: i64, expr: Expr) -> Expr {
             )
         }
         Expr::Ln(f) => {
-            let f_expr = *f;
+            let f_expr = take(f);
             mul(deriv(x, f_expr.clone()), pow(f_expr, Expr::Val(-1)))
         }
     }

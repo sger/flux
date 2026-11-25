@@ -1,7 +1,10 @@
-#[derive(Clone)]
+use std::rc::Rc;
+
+// Each partial solution shares its tail with the one it was built from, as
+// the Flux, Go and Haskell versions do.
 enum Solution {
     Nil,
-    Cons(i64, Box<Solution>),
+    Cons(i64, Rc<Solution>),
 }
 
 fn safe(queen: i64, diag: i64, xs: &Solution) -> bool {
@@ -13,15 +16,15 @@ fn safe(queen: i64, diag: i64, xs: &Solution) -> bool {
     }
 }
 
-fn place(n: i64, row: i64, soln: &Solution) -> i64 {
+fn place(n: i64, row: i64, soln: &Rc<Solution>) -> i64 {
     if row == 0 { 1 } else { try_col(n, row, soln, n) }
 }
 
-fn try_col(n: i64, row: i64, soln: &Solution, col: i64) -> i64 {
+fn try_col(n: i64, row: i64, soln: &Rc<Solution>, col: i64) -> i64 {
     if col <= 0 {
         0
     } else if safe(col, 1, soln) {
-        place(n, row - 1, &Solution::Cons(col, Box::new(soln.clone())))
+        place(n, row - 1, &Rc::new(Solution::Cons(col, Rc::clone(soln))))
             + try_col(n, row, soln, col - 1)
     } else {
         try_col(n, row, soln, col - 1)
@@ -29,7 +32,7 @@ fn try_col(n: i64, row: i64, soln: &Solution, col: i64) -> i64 {
 }
 
 fn queens(n: i64) -> i64 {
-    place(n, n, &Solution::Nil)
+    place(n, n, &Rc::new(Solution::Nil))
 }
 
 fn main() {
