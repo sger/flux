@@ -33,27 +33,43 @@ Extended benchmarks:
 - `rbtree2`: alternate red-black-tree variant with a different value shape
 - `sfib`: a tail-recursive loop over 32-bit ints that wrap
 
-The scripts need a release `flux` with the native backend:
+## Tools
+
+The harness is `cargo xtask bench` (`xtask/src/bench/`). It runs the same way on Linux,
+macOS and Windows. It needs [hyperfine](https://github.com/sharkdp/hyperfine). Profiling
+uses [samply](https://github.com/mstange/samply), and comparing criterion runs uses
+[critcmp](https://github.com/BurntSushi/critcmp). All three install with cargo:
 
 ```bash
-cargo build --release --features llvm --bin flux
+cargo install --locked hyperfine samply critcmp
 ```
 
-Each benchmark runs Flux twice: on the VM (`<name>/flux`), and as a native binary that
-`bench.sh` emits with `-O` into `target/bench/` before timing starts (`<name>/flux-native`). The
-native case times only the compiled program, not the compiler.
-
-Run the curated groups:
+## Running
 
 ```bash
-scripts/bench/bench.sh core
-scripts/bench/bench.sh extended
-scripts/bench/bench.sh all
+cargo xtask bench nqueens          # one benchmark
+cargo xtask bench core             # or extended, or all
 ```
 
-The Erlang, Elixir and Go ports run when `erlc`, `elixirc` or `go` is installed; `bench.sh`
-compiles them before timing starts and skips a case whose toolchain is missing. Pass an
-empty command to leave one out, for example `--go-cmd ""`.
+`scripts/bench/bench.sh` forwards its arguments to `cargo xtask bench`.
+
+The harness first builds a release `flux` with the native backend and the Rust ports
+(`--no-build` skips this). Each benchmark runs Flux twice: on the VM (`<name>/flux`), and
+as a native binary emitted with `-O` into `target/bench/` (`<name>/flux-native`). The
+native case times only the compiled program, not the compiler. The Python, Haskell
+(`ghc`), OCaml (`ocamlopt`), Erlang, Elixir and Go ports are compiled into `target/` when
+their toolchain is on `PATH`. A case whose toolchain is missing is skipped with a note.
+
+Before timing, every case runs once and must print what the Flux VM prints. A port that
+prints something else stops that benchmark before it is timed, and the run fails. Flux's
+`print` shows a String in quotes, and the check ignores those quotes. `--no-check` skips
+the check. The VM's check run also writes its `flux --metrics` counts.
+
+Without `--runs`, hyperfine picks between 3 and 50 runs, as many as fit in its time
+budget, so a short program gets enough samples and a long one isn't run for an hour.
+`--warmup` defaults to 1. Other options are `--full` (the larger workload, for a
+benchmark that has one), `--save-baseline`, `--no-readme`, `--report-file <path>` and
+`--no-native`.
 
 `--vms` also times two interpreters against their own native code: the Haskell program
 under GHCi (`ghc -e`, which runs bytecode) and the Go program under
@@ -61,38 +77,76 @@ under GHCi (`ghc -e`, which runs bytecode) and the Go program under
 
 ```bash
 go install github.com/traefik/yaegi/cmd/yaegi@latest
-scripts/bench/bench.sh rbtree --vms
+cargo xtask bench rbtree --vms
 ```
 
 Both interpreters are slow on the larger workloads: yaegi takes minutes on `deriv` and
 `nqueens`, and over ten on `binarytrees --full`.
 
-Run grouped flamewatch workflows:
+## Results and baselines
+
+A run writes hyperfine's JSON to `target/bench/<name>.json` and the report to
+`target/bench/<name>.md` (`<name>_full` with `--full`). The report also replaces the
+benchmark's block in this file, unless `--no-readme` is given. For each case it shows
+mean, standard deviation, minimum, maximum, peak memory and instructions retired, and
+the time as a multiple of the native Flux binary's. hyperfine reads the instruction count
+from the CPU on Linux and macOS.
+
+Baselines are kept per kind of machine, in `benchmarks/baselines/<os>-<arch>/` (for
+example `macos-aarch64`, `linux-x86_64`). Against the baseline, the report gives each
+case's now / baseline ratio, the Mann–Whitney U p-value over every run's time, and the
+instructions ratio, then the geometric mean of the ratios. The VM counts from
+`flux --metrics` are compared with the baseline's `<name>.metrics.tsv`. The comparison
+never fails a run.
+
+How to read it:
+
+- Instruction counts move by well under 1% between runs of the same binary, and time
+  moves by several percent. A change in time with no change in instructions is usually
+  the machine, not the code.
+- A p below 0.05 means the change is unlikely to be noise. With fewer than 4 runs a side
+  it can't get that low. Across many cases, about one in twenty unchanged ones will dip
+  below 0.05 by chance.
+- The VM counts repeat exactly, except `compiler_allocs`, which moves by a few dozen.
+
+Record a baseline on a quiet machine: on mains power, with Low Power Mode or power
+saving off, and with other heavy programs closed. Then commit it:
+
+```bash
+cargo xtask bench all --save-baseline
+```
+
+## Profiling
+
+```bash
+cargo xtask bench cfold --profile vm       # the VM, from a `profiling` build of flux
+cargo xtask bench cfold --profile native   # a native binary built with -g
+```
+
+samply records the run, saves it to `target/bench/<name>-<way>.profile.json.gz` and
+opens it in the Firefox Profiler; `samply load <file>` opens it again. The `profiling`
+Cargo profile is release with line tables, so the profile names the VM's Rust functions.
+
+On Linux, `scripts/bench/bench_benchmark_flamewatch.sh` still draws flamegraphs with
+`cargo flamegraph`:
 
 ```bash
 scripts/bench/bench_benchmark_flamewatch.sh core
 scripts/bench/bench_benchmark_flamewatch.sh extended --native
 ```
 
-Grouped flamewatch runs keep per-benchmark artifacts such as `flamegraph-cfold-vm.svg` and `flamegraph-rbtree_del-native.svg` in the repo root.
-`--native` profiles a `-g` binary emitted into `target/bench/`, using the `flamegraph`
-command that `cargo install flamegraph` provides.
+## Compiler microbenchmarks
 
-## Results and baselines
-
-Every run writes hyperfine's JSON results to `target/bench/<name>.json` (`<name>_full.json`
-with `--full`). The report then compares each case with the committed baseline in
-`benchmarks/baselines/` and gives the VM's time as a multiple of native's. It prints a
-line instead of the table when no baseline exists yet. The comparison is informational:
-it never fails a run.
-
-Record a new baseline on a quiet machine, and commit it:
+`benches/` holds criterion benchmarks of the compiler's own code (lexer, parser, Aether,
+HAMT and others). Save a baseline on the base branch and one on yours, then compare
+them with critcmp:
 
 ```bash
-scripts/bench/bench.sh all --save-baseline
+cargo bench --bench lexer_bench -- --save-baseline main
+git switch my-branch
+cargo bench --bench lexer_bench -- --save-baseline branch
+critcmp main branch
 ```
-
-A baseline only compares well with runs on the machine that recorded it.
 
 ## Compiler phase times
 
@@ -145,10 +199,10 @@ ocamlopt -I +unix unix.cmxa -o target/release/binarytrees_ocaml benchmarks/ocaml
 ./target/release/binarytrees_ocaml
 ```
 
-Run the cross-language benchmark with `hyperfine`:
+Run the cross-language benchmark:
 
 ```bash
-scripts/bench/bench.sh binarytrees
+cargo xtask bench binarytrees
 ```
 
 By default this uses the smaller smoke workload with `n = 8` for every language.
@@ -156,36 +210,23 @@ Flux uses `benchmarks/flux/binarytrees_smoke.flx`, and Rust/Python/Haskell are i
 To benchmark the aligned full baseline instead:
 
 ```bash
-scripts/bench/bench.sh binarytrees --full
-```
-
-Equivalent explicit commands:
-
-```bash
-scripts/bench/bench.sh binarytrees \
-  --flux-cmd './target/release/flux benchmarks/flux/binarytrees.flx' \
-  --rust-cmd './target/release/binarytrees_rust 21' \
-  --python-cmd 'python3 benchmarks/python/binarytrees.py 21' \
-  --haskell-cmd './target/release/binarytrees_hs 21' \
-  --ocaml-cmd './target/release/binarytrees_ocaml 21'
+cargo xtask bench binarytrees --full
 ```
 
 Useful options:
 
 ```bash
-scripts/bench/bench.sh binarytrees --full --runs 3 --warmup 1
-scripts/bench/bench.sh binarytrees --runs 30 --warmup 5
-scripts/bench/bench.sh binarytrees --no-flux-native
-scripts/bench/bench.sh binarytrees --report-file reports/binarytrees_$(date +%F).md
-scripts/bench/bench.sh binarytrees --haskell-cmd 'runghc benchmarks/haskell/binarytrees.hs'
+cargo xtask bench binarytrees --full --runs 3 --warmup 1
+cargo xtask bench binarytrees --runs 30 --warmup 5
+cargo xtask bench binarytrees --no-native
+cargo xtask bench binarytrees --report-file reports/binarytrees_$(date +%F).md
 ```
 
 Profile binarytrees specifically:
 
 ```bash
-scripts/bench/bench_benchmark_flamewatch.sh binarytrees
-scripts/bench/bench_benchmark_flamewatch.sh binarytrees --full --runs 3 --warmup 1
-scripts/bench/bench_benchmark_flamewatch.sh binarytrees --native
+cargo xtask bench binarytrees --profile vm
+cargo xtask bench binarytrees --full --profile native
 ```
 
 Latest report:
@@ -252,14 +293,14 @@ ocamlopt -o target/release/cfold_ocaml benchmarks/ocaml/cfold.ml
 Run the cross-language benchmark:
 
 ```bash
-scripts/bench/bench.sh cfold
+cargo xtask bench cfold
 ```
 
 Profile the Flux implementation:
 
 ```bash
-scripts/bench/bench_benchmark_flamewatch.sh cfold
-scripts/bench/bench_benchmark_flamewatch.sh cfold --native
+cargo xtask bench cfold --profile vm
+cargo xtask bench cfold --profile native
 ```
 
 Latest report:
@@ -325,14 +366,14 @@ ocamlopt -o target/release/deriv_ocaml benchmarks/ocaml/deriv.ml
 Run the cross-language benchmark:
 
 ```bash
-scripts/bench/bench.sh deriv
+cargo xtask bench deriv
 ```
 
 Profile the Flux implementation:
 
 ```bash
-scripts/bench/bench_benchmark_flamewatch.sh deriv
-scripts/bench/bench_benchmark_flamewatch.sh deriv --native
+cargo xtask bench deriv --profile vm
+cargo xtask bench deriv --profile native
 ```
 
 Latest report:
@@ -398,14 +439,14 @@ ocamlopt -o target/release/nqueens_ocaml benchmarks/ocaml/nqueens.ml
 Run the cross-language benchmark:
 
 ```bash
-scripts/bench/bench.sh nqueens
+cargo xtask bench nqueens
 ```
 
 Profile the Flux implementation:
 
 ```bash
-scripts/bench/bench_benchmark_flamewatch.sh nqueens
-scripts/bench/bench_benchmark_flamewatch.sh nqueens --native
+cargo xtask bench nqueens --profile vm
+cargo xtask bench nqueens --profile native
 ```
 
 Latest report:
@@ -471,14 +512,14 @@ ocamlopt -o target/release/qsort_ocaml benchmarks/ocaml/qsort.ml
 Run the cross-language benchmark:
 
 ```bash
-scripts/bench/bench.sh qsort
+cargo xtask bench qsort
 ```
 
 Profile the Flux implementation:
 
 ```bash
-scripts/bench/bench_benchmark_flamewatch.sh qsort
-scripts/bench/bench_benchmark_flamewatch.sh qsort --native
+cargo xtask bench qsort --profile vm
+cargo xtask bench qsort --profile native
 ```
 
 Latest report:
@@ -544,14 +585,14 @@ ocamlopt -o target/release/rbtree_ck_ocaml benchmarks/ocaml/rbtree_ck.ml
 Run the cross-language benchmark:
 
 ```bash
-scripts/bench/bench.sh rbtree_ck
+cargo xtask bench rbtree_ck
 ```
 
 Profile the Flux implementation:
 
 ```bash
-scripts/bench/bench_benchmark_flamewatch.sh rbtree_ck
-scripts/bench/bench_benchmark_flamewatch.sh rbtree_ck --native
+cargo xtask bench rbtree_ck --profile vm
+cargo xtask bench rbtree_ck --profile native
 ```
 
 Latest report:
@@ -597,7 +638,7 @@ Sources:
 Run the cross-language benchmark:
 
 ```bash
-scripts/bench/bench.sh rbtree
+cargo xtask bench rbtree
 ```
 
 Latest report:
@@ -643,7 +684,7 @@ Sources:
 Run the cross-language benchmark:
 
 ```bash
-scripts/bench/bench.sh rbtree2
+cargo xtask bench rbtree2
 ```
 
 Latest report:
@@ -689,7 +730,7 @@ Sources:
 Run the cross-language benchmark:
 
 ```bash
-scripts/bench/bench.sh rbtree_del
+cargo xtask bench rbtree_del
 ```
 
 Latest report:
@@ -745,7 +786,7 @@ Sources:
 Run the cross-language benchmark:
 
 ```bash
-scripts/bench/bench.sh nbody
+cargo xtask bench nbody
 ```
 
 Latest report:
@@ -769,7 +810,7 @@ Sources:
 Run the cross-language benchmark:
 
 ```bash
-scripts/bench/bench.sh tak
+cargo xtask bench tak
 ```
 
 Latest report:
@@ -803,7 +844,7 @@ Sources:
 Run the cross-language benchmark:
 
 ```bash
-scripts/bench/bench.sh sfib
+cargo xtask bench sfib
 ```
 
 Latest report:
