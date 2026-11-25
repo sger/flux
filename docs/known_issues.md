@@ -68,6 +68,56 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-222 — Natively, a `handle` whose value is counted leaks it, and so does each counted value its clauses read
+
+**Severity:** Medium (a leak each time the `handle` runs) · **Area:** Aether, drop insertion around `handle` (`src/aether/insert.rs`) · **Verified:** 2026-11-25 (9968ff76, and `main` at 64005292), `--native --leak-check` · **From:** the KI-039 plan's P2.6 fixtures
+
+```flux
+effect Ask {
+    ask : () -> String
+}
+
+fn asked() -> String {
+    (perform Ask.ask() + "!") handle Ask { ask(resume) -> resume("z") }
+}
+
+fn main() with IO {
+    print(asked())
+}
+```
+
+```
+$ flux asked.flx --native --leak-check
+"z!"
+leak: 1 block still live at exit
+  a String (16 bytes) allocated at asked (asked.flx:6:6)
+```
+
+The leaked block is the `handle`'s value, the String the body builds.
+`--dump-aether` shows a `dup` of that value right after the `handle`, and
+`--dump-lir` shows `%12 = call YieldPrompt(...)`, `dup %12`, `ret %12`. The
+runtime hands the body's result back owned, so nothing balances the `dup`.
+It leaks the same way when a `let` binds the `handle` and the `let` is then
+used.
+
+A counted value that a clause reads leaks too:
+
+```flux
+fn asked(s: String) -> String {
+    (perform Ask.ask() + "!") handle Ask { ask(resume) -> resume(s) }
+}
+```
+
+`print(asked("a" + "b"))` leaves two blocks live: the argument `s` and the
+`handle`'s value. A `let` the clause reads leaks the same way, whether or not
+it is read again after the `handle`.
+
+An Int value is not counted, so a `handle` of Ints doesn't leak.
+
+**Not yet known:** whether the two leaks have one cause. The first looks like
+Aether treating a `handle`'s value as borrowed. The second may be the handler
+closure, which `EvvInsert` takes, never being released with its captures.
+
 ### KI-221 — On the VM, a function whose body is a `handle` with a computed initial state returns the state
 
 **Severity:** High (a wrong answer, silently) · **Area:** VM lowering of `handle` · **Verified:** 2026-11-24 (d019178e) · **From:** the KI-039 plan's `explicit_boxing` step, while writing the KI-220 fixture
