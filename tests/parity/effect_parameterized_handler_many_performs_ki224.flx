@@ -1,0 +1,67 @@
+// parity: vm, llvm
+// expect: success
+// bug: KI-224. Natively, past 8 performs the runtime folds the pending
+//      frames into one closure, and with a parameterized handler that fold
+//      took two arguments where it is called with one, so the handle's value
+//      was a closure, or the sum of the first 8 emits.
+// parity-expected-stdout-begin
+// 7
+// 8
+// 19
+// 190
+// 999
+// 499500
+// parity-expected-stdout-end
+
+effect Counter {
+    next : () -> Int
+}
+
+effect Emit {
+    emit : (Int) -> ()
+    total : () -> Int
+}
+
+fn count(i: Int) -> Int with Counter {
+    let x = perform Counter.next()
+    if i == 0 { x } else { count(i - 1) }
+}
+
+fn emit_from(i: Int, n: Int) with Emit {
+    if i == n { () } else {
+        perform Emit.emit(i)
+        emit_from(i + 1, n)
+    }
+}
+
+fn summed(n: Int) -> Int with Emit {
+    emit_from(0, n)
+    perform Emit.total()
+}
+
+fn counted(n: Int) -> Int {
+    count(n - 1) handle Counter(0) { next(resume, s) -> resume(s, s + 1) }
+}
+
+fn keep(x: Int) -> Int { x }
+
+// The clause's resume isn't its last act, so it gets a delimiting resume.
+fn counted_non_tail(n: Int) -> Int {
+    count(n - 1) handle Counter(0) { next(resume, s) -> keep(resume(s, s + 1)) }
+}
+
+fn sum_of(n: Int) -> Int {
+    summed(n) handle Emit(0) {
+        emit(resume, e, s) -> resume((), s + e),
+        total(resume, s) -> resume(s, s)
+    }
+}
+
+fn main() with IO {
+    print(counted(8))
+    print(counted(9))
+    print(counted_non_tail(20))
+    print(sum_of(20))
+    print(counted(1000))
+    print(sum_of(1000))
+}
