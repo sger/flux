@@ -68,6 +68,39 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-227 — On the VM, a continuation resumed twice loses a handler installed inside it
+
+**Severity:** High (an "unhandled effect" stop where native code is right) · **Area:** VM continuations, multi-shot resume · **Verified:** 2026-11-25 (2b138517, and `main` at 64005292) · **From:** writing the effects benchmarks (effect-handlers-bench's triples)
+
+```flux
+effect Flip {
+    flip : () -> Bool
+}
+
+effect Fail {
+    fail : () -> Int
+}
+
+fn pick() -> Int with Flip, Fail {
+    if perform Flip.flip() { 1 } else { perform Fail.fail() }
+}
+
+fn main() with IO {
+    print((pick() handle Fail { fail(resume) -> 1 }) handle Flip { flip(resume) -> resume(true) + resume(false) })
+}
+```
+
+Native code prints `2`: the first resume gives `1`, and the second performs
+`Fail`, whose handler gives `1`. The VM stops with `error[E1009]: unhandled
+effect: Fail (no matching handle block)`. The `Fail` handler is installed
+inside the continuation that `flip` captures, so resuming it should put
+`Fail` back.
+
+A related failure, maybe with the same cause: a continuation resumed twice
+that then performs an operation of a stateful handler around the multi-shot
+one stops on the VM with `E1009 Cannot add Uninit and Uninit`, where native
+code is right.
+
 ### KI-226 — A handler clause can't perform an effect, even one the enclosing function declares
 
 **Severity:** Medium (rejected with E400; some programs have no workaround) · **Area:** type inference, effect rows of handler clauses · **Verified:** 2026-11-25 (2b138517, and `main` at 64005292) · **From:** writing the effects benchmarks (effect-handlers-bench's parsing_dollars and handler_sieve)
