@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 
 def wrap32(v: int) -> int:
     m = v % 4294967296
@@ -20,7 +22,8 @@ def sfib(n: int) -> int:
 
 
 def main() -> int:
-    print(sfib(20000000))
+    n = int(sys.argv[1]) if len(sys.argv) > 1 else 20000000
+    print(sfib(n))
     return 0
 
 

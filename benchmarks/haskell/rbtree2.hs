@@ -1,11 +1,10 @@
+import System.Environment
+
 data Color = Red | Black
 
 data Tree a b
   = Leaf
   | Node !Color !(Tree a b) !a !b !(Tree a b)
-
-limit :: Integer
-limit = 100000
 
 foldTree :: (a -> b -> s -> s) -> Tree a b -> s -> s
 foldTree _ Leaf b = b
@@ -71,4 +70,10 @@ countTrue :: Tree Integer Bool -> Integer
 countTrue tree = foldTree (\_ v acc -> if v then acc + 1 else acc) tree 0
 
 main :: IO ()
-main = print (countTrue (mkMapAux limit Leaf))
+main = do
+  args <- getArgs
+  let limit =
+        case args of
+          [] -> 100000
+          (arg : _) -> read arg
+  print (countTrue (mkMapAux limit Leaf))

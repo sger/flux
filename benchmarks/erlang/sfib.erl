@@ -1,11 +1,19 @@
 -module(sfib).
--export([main/0]).
+-export([main/0, main/1]).
 
 %% Port of benchmarks/flux/sfib.flx. Erlang integers never overflow, so the
 %% 32-bit wrap is explicit.
 
 main() ->
-    io:format("~b~n", [sfibx(20000000, 1, 2)]).
+    run(20000000).
+
+main([]) ->
+    run(20000000);
+main([Arg | _]) ->
+    run(list_to_integer(Arg)).
+
+run(N) ->
+    io:format("~b~n", [sfibx(N, 1, 2)]).
 
 wrap32(V) ->
     M = V band 16#FFFFFFFF,

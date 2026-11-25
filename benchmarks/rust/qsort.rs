@@ -1,6 +1,6 @@
-type Elem = u32;
+use std::env;
 
-const N: usize = 32;
+type Elem = u32;
 
 fn bad_rand(seed: Elem) -> Elem {
     seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223)
@@ -73,10 +73,10 @@ fn sort_and_checksum(i: usize) -> u64 {
     check_sorted_checksum(&xs)
 }
 
-fn bench() -> u64 {
+fn bench(n: usize) -> u64 {
     let mut acc = 0_u64;
-    for _ in 0..N {
-        for i in 0..N {
+    for _ in 0..n {
+        for i in 0..n {
             acc += sort_and_checksum(i);
         }
     }
@@ -84,5 +84,6 @@ fn bench() -> u64 {
 }
 
 fn main() {
-    println!("{}", bench());
+    let n = env::args().nth(1).and_then(|value| value.parse::<usize>().ok()).unwrap_or(32);
+    println!("{}", bench(n));
 }

@@ -2,12 +2,12 @@
 // same starting state.
 #![allow(clippy::excessive_precision)]
 
+use std::env;
 use std::f64::consts::PI;
 
 const SOLAR_MASS: f64 = 4.0 * PI * PI;
 const DAYS_PER_YEAR: f64 = 365.24;
 const DT: f64 = 0.01;
-const STEPS: usize = 50_000;
 
 #[derive(Clone, Copy)]
 struct Body {
@@ -127,10 +127,11 @@ fn advance(bodies: &mut [Body]) {
 }
 
 fn main() {
+    let steps = env::args().nth(1).and_then(|value| value.parse::<usize>().ok()).unwrap_or(50_000);
     let mut bodies = initial();
     offset_momentum(&mut bodies);
     println!("{}", (energy(&bodies) * 1.0e9).round());
-    for _ in 0..STEPS {
+    for _ in 0..steps {
         advance(&mut bodies);
     }
     println!("{}", (energy(&bodies) * 1.0e9).round());

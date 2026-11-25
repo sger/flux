@@ -1,13 +1,15 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"strconv"
+)
 
 const (
 	red   = 0
 	black = 1
 )
-
-const limit = 100000
 
 // A nil *Tree is Leaf. Nodes are never mutated: insert and delete copy the
 // path they walk and share the rest, as the Flux version does.
@@ -226,5 +228,13 @@ func mkMapAux(total, n int, tree *Tree) *Tree {
 }
 
 func main() {
+	// The limit is the last argument: under `yaegi run <path> <limit>`,
+	// os.Args still holds the interpreter's own "run" and path in front of it.
+	limit := 100000
+	if len(os.Args) > 1 {
+		if v, err := strconv.Atoi(os.Args[len(os.Args)-1]); err == nil {
+			limit = v
+		}
+	}
 	fmt.Println(countTrue(mkMapAux(limit, limit, nil)))
 }

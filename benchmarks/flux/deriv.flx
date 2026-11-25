@@ -1,3 +1,6 @@
+import Flow.Env as Env
+import Flow.Array as Array
+
 type Expr = Val(Int) | Var(Int) | Add(Expr, Expr) | Mul(Expr, Expr) | Pow(Expr, Expr) | Ln(Expr)
 
 fn pown(a: Int, n: Int) -> Int {
@@ -166,8 +169,17 @@ fn nest(step: Int, remaining: Int, expr: Expr) with IO {
     }
 }
 
+// The workload size: the program's first argument, or the size the suite
+// was written with. `cargo xtask bench` passes a smaller one to the VM.
+fn size(default: Int) -> Int with Env {
+    match Array.get(Env.args(), 1) {
+        Some(s) -> parse_int(s),
+        None -> default,
+    }
+}
+
 fn main() with IO {
     let x = Var(1)
     let expr0 = pow(x, x)
-    nest(0, 10, expr0)
+    nest(0, size(10), expr0)
 }

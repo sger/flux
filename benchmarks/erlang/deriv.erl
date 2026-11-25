@@ -1,11 +1,19 @@
 -module(deriv).
--export([main/0]).
+-export([main/0, main/1]).
 
 %% Port of benchmarks/flux/deriv.flx.
 
 main() ->
+    run(10).
+
+main([]) ->
+    run(10);
+main([Arg | _]) ->
+    run(list_to_integer(Arg)).
+
+run(N) ->
     X = {var, 1},
-    nest(0, 10, pow(X, X)).
+    nest(0, N, pow(X, X)).
 
 nest(_Step, 0, _Expr) ->
     ok;

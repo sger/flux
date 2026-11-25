@@ -1,3 +1,6 @@
+import Flow.Env as Env
+import Flow.Array as Array
+
 type Solution = Nil | Cons(Int, Solution)
 
 fn safe(queen: Int, diag: Int, xs: Solution) -> Bool {
@@ -33,6 +36,15 @@ fn queens(n: Int) -> Int {
     place(n, n, Nil)
 }
 
+// The workload size: the program's first argument, or the size the suite
+// was written with. `cargo xtask bench` passes a smaller one to the VM.
+fn size(default: Int) -> Int with Env {
+    match Array.get(Env.args(), 1) {
+        Some(s) -> parse_int(s),
+        None -> default,
+    }
+}
+
 fn main() with IO {
-    print("#{queens(13)}")
+    print("#{queens(size(13))}")
 }

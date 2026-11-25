@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 
 def safe(queen: int, diag: int, xs) -> bool:
     if xs is None:
@@ -29,7 +31,8 @@ def queens(n: int) -> int:
 
 
 def main() -> int:
-    print(queens(13))
+    n = int(sys.argv[1]) if len(sys.argv) > 1 else 13
+    print(queens(n))
     return 0
 
 

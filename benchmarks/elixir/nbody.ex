@@ -4,12 +4,17 @@ defmodule Bench.Nbody do
   @solar_mass 4.0 * @pi * @pi
   @days_per_year 365.24
   @dt 0.01
-  @steps 50_000
 
-  def main(_args \\ []) do
+  def main(args \\ []) do
+    steps =
+      case args do
+        [size | _] -> String.to_integer(size)
+        [] -> 50_000
+      end
+
     bodies = offset_momentum(initial())
     IO.puts("#{round(energy(bodies) * 1.0e9)}")
-    IO.puts("#{round(energy(run(bodies, @steps)) * 1.0e9)}")
+    IO.puts("#{round(energy(run(bodies, steps)) * 1.0e9)}")
   end
 
   defp planet(x, y, z, vx, vy, vz, mass) do

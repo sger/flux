@@ -1,5 +1,5 @@
 -module(nbody).
--export([main/0]).
+-export([main/0, main/1]).
 
 %% Port of benchmarks/flux/nbody.flx. A body is {X, Y, Z, VX, VY, VZ, Mass}.
 
@@ -7,12 +7,19 @@
 -define(SOLAR_MASS, (4.0 * ?PI * ?PI)).
 -define(DAYS_PER_YEAR, 365.24).
 -define(DT, 0.01).
--define(STEPS, 50000).
 
 main() ->
+    bench(50000).
+
+main([]) ->
+    bench(50000);
+main([Arg | _]) ->
+    bench(list_to_integer(Arg)).
+
+bench(Steps) ->
     Bodies = offset_momentum(initial()),
     io:format("~b~n", [round(energy(Bodies) * 1.0e9)]),
-    io:format("~b~n", [round(energy(run(Bodies, ?STEPS)) * 1.0e9)]).
+    io:format("~b~n", [round(energy(run(Bodies, Steps)) * 1.0e9)]).
 
 planet(X, Y, Z, VX, VY, VZ, Mass) ->
     {X, Y, Z, VX * ?DAYS_PER_YEAR, VY * ?DAYS_PER_YEAR, VZ * ?DAYS_PER_YEAR, Mass * ?SOLAR_MASS}.

@@ -1,6 +1,10 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"strconv"
+)
 
 const (
 	kVal = iota
@@ -198,9 +202,17 @@ func count(expr *Expr) int {
 }
 
 func main() {
+	// The step count is the last argument: under `yaegi run <path> <steps>`,
+	// os.Args still holds the interpreter's own "run" and path in front of it.
+	steps := 10
+	if len(os.Args) > 1 {
+		if v, err := strconv.Atoi(os.Args[len(os.Args)-1]); err == nil {
+			steps = v
+		}
+	}
 	x := vr(1)
 	expr := pow(x, x)
-	for step := 0; step < 10; step++ {
+	for step := 0; step < steps; step++ {
 		expr = deriv(1, expr)
 		fmt.Printf("%d count: %d\n", step+1, count(expr))
 	}

@@ -1,6 +1,6 @@
 import Flow.Array as Array
+import Flow.Env as Env
 
-let n = 32
 let rand_mod = 4294967296
 
 fn bad_rand(seed: Int) -> Int {
@@ -88,6 +88,16 @@ fn bench_outer(limit: Int, iter: Int, acc: Int) -> Int {
     }
 }
 
+// The workload size: the program's first argument, or the size the suite
+// was written with. `cargo xtask bench` passes a smaller one to the VM.
+fn size(default: Int) -> Int with Env {
+    match Array.get(Env.args(), 1) {
+        Some(s) -> parse_int(s),
+        None -> default,
+    }
+}
+
 fn main() with IO {
+    let n = size(32)
     print("#{bench_outer(n, 0, 0)}")
 }

@@ -1,6 +1,10 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"strconv"
+)
 
 func tak(x, y, z int) int {
 	if y < x {
@@ -10,5 +14,13 @@ func tak(x, y, z int) int {
 }
 
 func main() {
-	fmt.Println(tak(30, 20, 10))
+	// The n is the last argument: under `yaegi run <path> <n>`,
+	// os.Args still holds the interpreter's own "run" and path in front of it.
+	n := 30
+	if len(os.Args) > 1 {
+		if v, err := strconv.Atoi(os.Args[len(os.Args)-1]); err == nil {
+			n = v
+		}
+	}
+	fmt.Println(tak(n, n*2/3, n/3))
 }

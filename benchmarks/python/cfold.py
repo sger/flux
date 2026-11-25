@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import sys
+import threading
 
-DEPTH = 12
 
 
 def var(value: int) -> tuple[str, int]:
@@ -120,12 +120,20 @@ def eval_expr(expr) -> int:
 
 
 def main() -> int:
-    sys.setrecursionlimit(20000)
-    original = mk_expr(DEPTH, 1)
-    optimized = const_folding(reassoc(mk_expr(DEPTH, 1)))
+    depth = int(sys.argv[1]) if len(sys.argv) > 1 else 12
+    sys.setrecursionlimit(10_000_000)
+    original = mk_expr(depth, 1)
+    optimized = const_folding(reassoc(mk_expr(depth, 1)))
     print(f"{eval_expr(original)} {eval_expr(optimized)}")
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # The reassociated expression nests about 2**depth deep, past the main
+    # thread's stack, so the work runs on a thread with a large one.
+    threading.stack_size(1 << 30)
+    result = []
+    worker = threading.Thread(target=lambda: result.append(main()))
+    worker.start()
+    worker.join()
+    raise SystemExit(result[0] if result else 1)

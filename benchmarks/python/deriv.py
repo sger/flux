@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import sys
 
-STEPS = 10
 
 
 def val(n: int):
@@ -165,9 +164,10 @@ def count(expr) -> int:
 
 
 def main() -> int:
+    steps = int(sys.argv[1]) if len(sys.argv) > 1 else 10
     sys.setrecursionlimit(200000)
     expr = pow_(var(1), var(1))
-    for step in range(STEPS):
+    for step in range(steps):
         expr = deriv(1, expr)
         print(f"{step + 1} count: {count(expr)}")
     return 0

@@ -1,14 +1,20 @@
 -module(qsort).
--export([main/0]).
+-export([main/0, main/1]).
 
 %% Port of benchmarks/flux/qsort.flx. Flux builds Array<Int> values by
 %% concatenation; this port uses lists, keeping the first-element pivot and the
 %% two separate partition passes (collect_lt / collect_ge).
 
--define(N, 32).
-
 main() ->
-    io:format("~b~n", [bench_outer(?N, 0, 0)]).
+    run(32).
+
+main([]) ->
+    run(32);
+main([Arg | _]) ->
+    run(list_to_integer(Arg)).
+
+run(N) ->
+    io:format("~b~n", [bench_outer(N, 0, 0)]).
 
 bad_rand(Seed) -> (Seed * 1664525 + 1013904223) rem 4294967296.
 

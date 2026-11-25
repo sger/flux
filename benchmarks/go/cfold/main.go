@@ -1,6 +1,10 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"strconv"
+)
 
 const (
 	kVar = iota
@@ -126,7 +130,15 @@ func eval(expr *Expr) int {
 }
 
 func main() {
-	original := mkExpr(12, 1)
-	optimized := constFolding(reassoc(mkExpr(12, 1)))
+	// The depth is the last argument: under `yaegi run <path> <depth>`,
+	// os.Args still holds the interpreter's own "run" and path in front of it.
+	depth := 12
+	if len(os.Args) > 1 {
+		if v, err := strconv.Atoi(os.Args[len(os.Args)-1]); err == nil {
+			depth = v
+		}
+	}
+	original := mkExpr(depth, 1)
+	optimized := constFolding(reassoc(mkExpr(depth, 1)))
 	fmt.Printf("%d %d\n", eval(original), eval(optimized))
 }

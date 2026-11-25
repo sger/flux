@@ -1,6 +1,6 @@
 type elem = int
 
-let n = 32
+let n = try int_of_string (Array.get Sys.argv 1) with _ -> 32
 let mask = 0xFFFF_FFFF
 
 let bad_rand seed =

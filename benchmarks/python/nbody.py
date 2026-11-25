@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import math
+import sys
 
 PI = 3.141592653589793
 SOLAR_MASS = 4.0 * PI * PI
 DAYS_PER_YEAR = 365.24
 DT = 0.01
-STEPS = 50000
 
 
 def planet(x, y, z, vx, vy, vz, mass):
@@ -81,10 +81,11 @@ def advance(bodies) -> None:
 
 
 def main() -> int:
+    steps = int(sys.argv[1]) if len(sys.argv) > 1 else 50000
     bodies = initial()
     offset_momentum(bodies)
     print(round(energy(bodies) * 1.0e9))
-    for _ in range(STEPS):
+    for _ in range(steps):
         advance(bodies)
     print(round(energy(bodies) * 1.0e9))
     return 0

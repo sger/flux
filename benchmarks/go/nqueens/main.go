@@ -1,6 +1,10 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"strconv"
+)
 
 // A nil *Solution is Nil. Cells are never mutated, so every partial solution
 // shares its tail with the one it was built from.
@@ -42,5 +46,13 @@ func queens(n int) int {
 }
 
 func main() {
-	fmt.Println(queens(13))
+	// The board size is the last argument: under `yaegi run <path> <size>`,
+	// os.Args still holds the interpreter's own "run" and path in front of it.
+	n := 13
+	if len(os.Args) > 1 {
+		if v, err := strconv.Atoi(os.Args[len(os.Args)-1]); err == nil {
+			n = v
+		}
+	}
+	fmt.Println(queens(n))
 }

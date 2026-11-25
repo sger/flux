@@ -1,3 +1,6 @@
+import Flow.Env as Env
+import Flow.Array as Array
+
 type Expr = Var(Int) | Val(Int) | Add(Expr, Expr) | Mul(Expr, Expr)
 
 fn dec(n: Int) -> Int {
@@ -75,8 +78,18 @@ fn eval(expr: Expr) -> Int {
     }
 }
 
+// The workload size: the program's first argument, or the size the suite
+// was written with. `cargo xtask bench` passes a smaller one to the VM.
+fn size(default: Int) -> Int with Env {
+    match Array.get(Env.args(), 1) {
+        Some(s) -> parse_int(s),
+        None -> default,
+    }
+}
+
 fn main() with IO {
-    let original = mk_expr(12, 1)
-    let optimized = const_folding(reassoc(mk_expr(12, 1)))
+    let n = size(12)
+    let original = mk_expr(n, 1)
+    let optimized = const_folding(reassoc(mk_expr(n, 1)))
     print("#{eval(original)} #{eval(optimized)}")
 }

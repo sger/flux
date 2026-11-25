@@ -1,3 +1,5 @@
+use std::env;
+
 #[derive(Clone, Copy)]
 enum Color {
     Red,
@@ -15,8 +17,6 @@ struct Del(Tree, bool);
 
 #[derive(Clone)]
 struct Delmin(Del, i64, bool);
-
-const LIMIT: i64 = 100_000;
 
 fn count_true(tree: &Tree) -> i64 {
     match tree {
@@ -267,10 +267,11 @@ fn mk_map_aux(total: i64, n: i64, tree: Tree) -> Tree {
 }
 
 fn main() {
+    let limit = env::args().nth(1).and_then(|value| value.parse::<i64>().ok()).unwrap_or(100_000);
     let handle = std::thread::Builder::new()
         .stack_size(64 * 1024 * 1024)
-        .spawn(|| {
-            println!("{}", count_true(&mk_map_aux(LIMIT, LIMIT, Tree::Leaf)));
+        .spawn(move || {
+            println!("{}", count_true(&mk_map_aux(limit, limit, Tree::Leaf)));
         })
         .expect("spawn rbtree_del benchmark");
     handle.join().expect("run rbtree_del benchmark");

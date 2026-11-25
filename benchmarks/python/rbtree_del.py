@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import sys
 
-LIMIT = 100_000
 RED = "red"
 BLACK = "black"
 
@@ -178,8 +177,9 @@ def mk_map_aux(total: int, n: int, tree):
 
 
 def main() -> int:
+    limit = int(sys.argv[1]) if len(sys.argv) > 1 else 100_000
     sys.setrecursionlimit(200000)
-    print(count_true(mk_map_aux(LIMIT, LIMIT, None)))
+    print(count_true(mk_map_aux(limit, limit, None)))
     return 0
 
 

@@ -1,7 +1,13 @@
 defmodule Bench.Sfib do
   # Elixir integers never overflow, so the 32-bit wrap is explicit.
-  def main(_args \\ []) do
-    IO.puts("#{sfibx(20_000_000, 1, 2)}")
+  def main(args \\ []) do
+    n =
+      case args do
+        [size | _] -> String.to_integer(size)
+        [] -> 20_000_000
+      end
+
+    IO.puts("#{sfibx(n, 1, 2)}")
   end
 
   defp wrap32(v) do

@@ -1,7 +1,13 @@
 defmodule Bench.Deriv do
-  def main(_args \\ []) do
+  def main(args \\ []) do
+    n =
+      case args do
+        [size | _] -> String.to_integer(size)
+        [] -> 10
+      end
+
     x = {:var, 1}
-    nest(0, 10, pow(x, x))
+    nest(0, n, pow(x, x))
   end
 
   defp pown(_a, 0), do: 1

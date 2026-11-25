@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 
 def tak(x: int, y: int, z: int) -> int:
     if y < x:
@@ -10,7 +12,8 @@ def tak(x: int, y: int, z: int) -> int:
 
 
 def main() -> int:
-    print(tak(30, 20, 10))
+    n = int(sys.argv[1]) if len(sys.argv) > 1 else 30
+    print(tak(n, n * 2 // 3, n // 3))
     return 0
 
 

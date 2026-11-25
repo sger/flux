@@ -1,8 +1,11 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"strconv"
+)
 
-const n = 32
 const randMod = 4294967296
 
 func badRand(seed int) int {
@@ -73,6 +76,14 @@ func sortAndChecksum(i int) int {
 }
 
 func main() {
+	// The size is the last argument: under `yaegi run <path> <size>`,
+	// os.Args still holds the interpreter's own "run" and path in front of it.
+	n := 32
+	if len(os.Args) > 1 {
+		if v, err := strconv.Atoi(os.Args[len(os.Args)-1]); err == nil {
+			n = v
+		}
+	}
 	acc := 0
 	for iter := 0; iter < n; iter++ {
 		for i := 0; i < n; i++ {

@@ -1,8 +1,12 @@
 defmodule Bench.RbtreeCk do
-  @limit 100_000
+  def main(args \\ []) do
+    limit =
+      case args do
+        [size | _] -> String.to_integer(size)
+        [] -> 100_000
+      end
 
-  def main(_args \\ []) do
-    IO.puts("#{count_true(mk_map_aux(@limit, :leaf))}")
+    IO.puts("#{count_true(mk_map_aux(limit, :leaf))}")
   end
 
   defp count_true(:leaf), do: 0

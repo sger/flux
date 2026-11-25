@@ -8,7 +8,7 @@ let pi = 3.141592653589793
 let solar_mass = 4.0 *. pi *. pi
 let days_per_year = 365.24
 let dt = 0.01
-let steps = 50000
+let steps = try int_of_string (Array.get Sys.argv 1) with _ -> 50000
 
 let planet x y z vx vy vz mass =
   { x; y; z;

@@ -4,11 +4,9 @@ import Data.Array.IArray
 import Data.Array.MArray
 import Data.Array.ST
 import Data.Word
+import System.Environment
 
 type Elem = Word32
-
-n :: Int
-n = 32
 
 badRand :: Elem -> Elem
 badRand seed = seed * 1664525 + 1013904223
@@ -103,4 +101,10 @@ benchOuter limit iter acc =
     else acc
 
 main :: IO ()
-main = print (benchOuter n 0 0)
+main = do
+  args <- getArgs
+  let n =
+        case args of
+          [] -> 32
+          (arg : _) -> read arg
+  print (benchOuter n 0 0)

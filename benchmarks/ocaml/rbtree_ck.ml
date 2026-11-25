@@ -8,7 +8,7 @@ type tree =
 | Node of color * tree * int * bool * tree
 ;;
 
-let limit = 100000
+let limit = try int_of_string (Array.get Sys.argv 1) with _ -> 100000
 ;;
 
 let rec count_true tree =

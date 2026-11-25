@@ -1,13 +1,19 @@
 -module(rbtree2).
--export([main/0]).
+-export([main/0, main/1]).
 
 %% Port of benchmarks/flux/rbtree2.flx. Node(c, l, k, v, r) is {C, L, K, V, R}
 %% with C = red | black; Leaf is the atom leaf.
 
--define(LIMIT, 100000).
-
 main() ->
-    io:format("~b~n", [count_true(mk_map_aux(?LIMIT, leaf))]).
+    run(100000).
+
+main([]) ->
+    run(100000);
+main([Arg | _]) ->
+    run(list_to_integer(Arg)).
+
+run(Limit) ->
+    io:format("~b~n", [count_true(mk_map_aux(Limit, leaf))]).
 
 count_true(leaf) -> 0;
 count_true({_, L, _, V, R}) ->

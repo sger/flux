@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-N = 32
+import sys
+
 MASK = 0xFFFFFFFF
 
 
@@ -64,16 +65,17 @@ def sort_and_checksum(i: int) -> int:
     return check_sorted_checksum(xs)
 
 
-def bench() -> int:
+def bench(n: int) -> int:
     acc = 0
-    for _ in range(N):
-        for i in range(N):
+    for _ in range(n):
+        for i in range(n):
             acc += sort_and_checksum(i)
     return acc
 
 
 def main() -> int:
-    print(bench())
+    n = int(sys.argv[1]) if len(sys.argv) > 1 else 32
+    print(bench(n))
     return 0
 
 

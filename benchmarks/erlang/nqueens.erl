@@ -1,10 +1,18 @@
 -module(nqueens).
--export([main/0]).
+-export([main/0, main/1]).
 
 %% Port of benchmarks/flux/nqueens.flx. Solution is a plain list.
 
 main() ->
-    io:format("~b~n", [queens(13)]).
+    run(13).
+
+main([]) ->
+    run(13);
+main([Arg | _]) ->
+    run(list_to_integer(Arg)).
+
+run(N) ->
+    io:format("~b~n", [queens(N)]).
 
 safe(_, _, []) -> true;
 safe(Queen, Diag, [Q | Tail]) ->

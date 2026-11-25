@@ -28,4 +28,5 @@ let queens n =
 ;;
 
 let () =
-  Printf.printf "%d\n" (queens 13)
+  let n = try int_of_string (Array.get Sys.argv 1) with _ -> 13 in
+  Printf.printf "%d\n" (queens n)

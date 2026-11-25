@@ -1,3 +1,4 @@
+use std::env;
 use std::rc::Rc;
 
 // Each partial solution shares its tail with the one it was built from, as
@@ -36,5 +37,6 @@ fn queens(n: i64) -> i64 {
 }
 
 fn main() {
-    println!("{}", queens(13));
+    let n = env::args().nth(1).and_then(|value| value.parse::<i64>().ok()).unwrap_or(13);
+    println!("{}", queens(n));
 }

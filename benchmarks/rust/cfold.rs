@@ -1,3 +1,5 @@
+use std::env;
+
 #[derive(Debug)]
 enum Expr {
     Var(()),
@@ -5,8 +7,6 @@ enum Expr {
     Add(Box<Expr>, Box<Expr>),
     Mul(Box<Expr>, Box<Expr>),
 }
-
-const DEPTH: i64 = 12;
 
 fn dec(n: i64) -> i64 {
     if n == 0 { 0 } else { n - 1 }
@@ -88,11 +88,12 @@ fn eval(expr: &Expr) -> i64 {
 }
 
 fn main() {
+    let depth = env::args().nth(1).and_then(|value| value.parse::<i64>().ok()).unwrap_or(12);
     let handle = std::thread::Builder::new()
         .stack_size(64 * 1024 * 1024)
-        .spawn(|| {
-            let original = mk_expr(DEPTH, 1);
-            let optimized = const_folding(reassoc(mk_expr(DEPTH, 1)));
+        .spawn(move || {
+            let original = mk_expr(depth, 1);
+            let optimized = const_folding(reassoc(mk_expr(depth, 1)));
             println!("{} {}", eval(&original), eval(&optimized));
         })
         .expect("spawn cfold benchmark");

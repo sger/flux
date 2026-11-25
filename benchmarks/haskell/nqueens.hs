@@ -1,3 +1,5 @@
+import System.Environment
+
 data Solution = Nil | Cons !Int !Solution
 
 safe queen diag xs
@@ -20,5 +22,10 @@ place n row soln
 queens n
   = place n n Nil
 
-main
-  = print (queens 13)
+main = do
+  args <- getArgs
+  let n =
+        case args of
+          [] -> 13
+          (arg : _) -> read arg
+  print (queens n)

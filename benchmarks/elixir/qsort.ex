@@ -1,9 +1,14 @@
 defmodule Bench.Qsort do
-  @n 32
   @rand_mod 4_294_967_296
 
-  def main(_args \\ []) do
-    IO.puts("#{bench_outer(@n, 0, 0)}")
+  def main(args \\ []) do
+    n =
+      case args do
+        [size | _] -> String.to_integer(size)
+        [] -> 32
+      end
+
+    IO.puts("#{bench_outer(n, 0, 0)}")
   end
 
   defp bad_rand(seed), do: rem(seed * 1_664_525 + 1_013_904_223, @rand_mod)

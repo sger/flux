@@ -66,7 +66,8 @@ let rec eeval e =
  | Add (e1, e2) -> eeval e1 + eeval e2
  | Mul (e1, e2) -> eeval e1 * eeval e2;;
 
-let e  = (mk_expr 12 1) in
+let n = try int_of_string (Array.get Sys.argv 1) with _ -> 12 in
+let e  = (mk_expr n 1) in
 let v1 = eeval e in
 let v2 = eeval (const_folding (reassoc e)) in
-Printf.printf "%8d %8d\n" v1 v2;;
+Printf.printf "%d %d\n" v1 v2;;

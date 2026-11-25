@@ -1,3 +1,5 @@
+use std::env;
+
 fn sfib(mut n: i64) -> i32 {
     let (mut x1, mut x2): (i32, i32) = (1, 2);
     while n > 0 {
@@ -12,5 +14,6 @@ fn sfib(mut n: i64) -> i32 {
 }
 
 fn main() {
-    println!("{}", sfib(20_000_000));
+    let n = env::args().nth(1).and_then(|value| value.parse::<i64>().ok()).unwrap_or(20_000_000);
+    println!("{}", sfib(n));
 }

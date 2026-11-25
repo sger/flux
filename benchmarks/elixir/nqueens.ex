@@ -1,6 +1,12 @@
 defmodule Bench.Nqueens do
-  def main(_args \\ []) do
-    IO.puts("#{queens(13)}")
+  def main(args \\ []) do
+    n =
+      case args do
+        [size | _] -> String.to_integer(size)
+        [] -> 13
+      end
+
+    IO.puts("#{queens(n)}")
   end
 
   defp safe(_queen, _diag, []), do: true

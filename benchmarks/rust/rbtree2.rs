@@ -1,3 +1,5 @@
+use std::env;
+
 #[derive(Clone, Copy)]
 enum Color {
     Red,
@@ -9,8 +11,6 @@ enum Tree {
     Leaf,
     Node(Color, Box<Tree>, i128, bool, Box<Tree>),
 }
-
-const LIMIT: i128 = 100_000;
 
 fn count_true(tree: &Tree) -> i128 {
     match tree {
@@ -150,10 +150,11 @@ fn mk_map_aux(n: i128, tree: Tree) -> Tree {
 }
 
 fn main() {
+    let limit = env::args().nth(1).and_then(|value| value.parse::<i128>().ok()).unwrap_or(100_000);
     let handle = std::thread::Builder::new()
         .stack_size(64 * 1024 * 1024)
-        .spawn(|| {
-            println!("{}", count_true(&mk_map_aux(LIMIT, Tree::Leaf)));
+        .spawn(move || {
+            println!("{}", count_true(&mk_map_aux(limit, Tree::Leaf)));
         })
         .expect("spawn rbtree2 benchmark");
     handle.join().expect("run rbtree2 benchmark");

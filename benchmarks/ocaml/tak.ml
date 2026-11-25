@@ -4,4 +4,5 @@ let rec tak x y z =
 ;;
 
 let () =
-  Printf.printf "%d\n" (tak 30 20 10)
+  let n = try int_of_string (Array.get Sys.argv 1) with _ -> 30 in
+  Printf.printf "%d\n" (tak n (n * 2 / 3) (n / 3))

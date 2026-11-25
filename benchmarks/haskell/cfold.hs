@@ -1,3 +1,5 @@
+import System.Environment
+
 data Expr = Var Integer
   | Val Integer
   | Add Expr Expr
@@ -52,8 +54,13 @@ eval (Add l r) = eval l + eval r
 eval (Mul l r) = eval l * eval r
 
 main :: IO ()
-main =
-  let e  = (mk_expr 12 1) in
-  let v₁ = eval e in
-  let v₂ = eval (const_folding (reassoc e)) in
+main = do
+  args <- getArgs
+  let n =
+        case args of
+          [] -> 12
+          (arg : _) -> read arg
+  let e  = (mk_expr n 1)
+  let v₁ = eval e
+  let v₂ = eval (const_folding (reassoc e))
   putStrLn (show v₁ ++ " " ++ show v₂)

@@ -1,4 +1,7 @@
 // x, y, z, vx, vy, vz, mass
+import Flow.Env as Env
+import Flow.Array as Array
+
 type Body = Body(Float, Float, Float, Float, Float, Float, Float)
 
 type Bodies = BNil | BCons(Body, Bodies)
@@ -128,10 +131,19 @@ fn run(bs: Bodies, n: Int) -> Bodies {
     if n == 0 { bs } else { run(advance_from(bs, bs, 0), n - 1) }
 }
 
+// The workload size: the program's first argument, or the size the suite
+// was written with. `cargo xtask bench` passes a smaller one to the VM.
+fn size(default: Int) -> Int with Env {
+    match Array.get(Env.args(), 1) {
+        Some(s) -> parse_int(s),
+        None -> default,
+    }
+}
+
 fn main() with IO {
     let bs = offset_momentum(initial())
     // Flux has no fixed-precision float formatting; nine rounded decimals,
     // printed as a whole number, compare across every port.
     print(round(energy(bs) * 1.0e9))
-    print(round(energy(run(bs, 50000)) * 1.0e9))
+    print(round(energy(run(bs, size(50000))) * 1.0e9))
 }

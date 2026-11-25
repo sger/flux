@@ -140,15 +140,16 @@ let count e =
   count_expr e
 ;;
 
-let rec loop i e =
-  if i = 10 then ()
+let rec loop steps i e =
+  if i = steps then ()
   else
     let e' = d 1 e in
     Printf.printf "%d count: %d\n" (i + 1) (count e');
-    loop (i + 1) e'
+    loop steps (i + 1) e'
 ;;
 
 let () =
   let x = Var 1 in
   let f = pow x x in
-  loop 0 f
+  let steps = try int_of_string (Array.get Sys.argv 1) with _ -> 10 in
+  loop steps 0 f

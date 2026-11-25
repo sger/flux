@@ -1,3 +1,4 @@
+use std::env;
 use std::rc::Rc;
 
 // Subterms are shared, as in the Flux version: `deriv` uses `f` and `g` more
@@ -11,8 +12,6 @@ enum Expr {
     Pow(Rc<Expr>, Rc<Expr>),
     Ln(Rc<Expr>),
 }
-
-const STEPS: usize = 10;
 
 /// Takes the node out when this is its only reference, as Perceus reuses a
 /// unique cell, and copies just that node when it is shared.
@@ -189,8 +188,9 @@ fn count(expr: &Expr) -> usize {
 }
 
 fn main() {
+    let steps = env::args().nth(1).and_then(|value| value.parse::<usize>().ok()).unwrap_or(10);
     let mut expr = pow(Expr::Var(1), Expr::Var(1));
-    for step in 0..STEPS {
+    for step in 0..steps {
         expr = deriv(1, expr);
         println!("{} count: {}", step + 1, count(&expr));
     }

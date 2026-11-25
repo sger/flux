@@ -1,3 +1,5 @@
+import System.Environment
+
 data Body = Body !Double !Double !Double !Double !Double !Double !Double
 
 solarMass, daysPerYear, dt :: Double
@@ -76,6 +78,11 @@ run 0 bodies = bodies
 run n bodies = let next = advance bodies in foldr seq () next `seq` run (n - 1) next
 
 main = do
+  args <- getArgs
+  let steps =
+        case args of
+          [] -> 50000
+          (arg : _) -> read arg
   let bodies = offsetMomentum initial
   print (round (energy bodies * 1.0e9) :: Integer)
-  print (round (energy (run 50000 bodies) * 1.0e9) :: Integer)
+  print (round (energy (run steps bodies) * 1.0e9) :: Integer)

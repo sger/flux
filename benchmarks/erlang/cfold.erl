@@ -1,11 +1,19 @@
 -module(cfold).
--export([main/0]).
+-export([main/0, main/1]).
 
 %% Port of benchmarks/flux/cfold.flx.
 
 main() ->
-    Original = mk_expr(12, 1),
-    Optimized = const_folding(reassoc(mk_expr(12, 1))),
+    run(12).
+
+main([]) ->
+    run(12);
+main([Arg | _]) ->
+    run(list_to_integer(Arg)).
+
+run(N) ->
+    Original = mk_expr(N, 1),
+    Optimized = const_folding(reassoc(mk_expr(N, 1))),
     io:format("~b ~b~n", [eval(Original), eval(Optimized)]).
 
 dec(0) -> 0;

@@ -1,3 +1,5 @@
+import System.Environment
+
 data Expr =
     Val Int
   | Var String
@@ -75,6 +77,11 @@ deriv i f = do
   pure f'
 
 main = do
+  args <- getArgs
+  let n =
+        case args of
+          [] -> 10
+          (arg : _) -> read arg
   let x = Var "x"
   let f = pow x x
-  nest deriv 10 f
+  nest deriv n f

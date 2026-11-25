@@ -12,4 +12,5 @@ let rec sfibx n x1 x2 =
 ;;
 
 let () =
-  Printf.printf "%d\n" (sfibx 20000000 1 2)
+  let n = try int_of_string (Array.get Sys.argv 1) with _ -> 20000000 in
+  Printf.printf "%d\n" (sfibx n 1 2)

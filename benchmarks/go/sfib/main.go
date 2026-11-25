@@ -1,6 +1,10 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"strconv"
+)
 
 func sfib(n int) int32 {
 	var x1, x2 int32 = 1, 2
@@ -15,5 +19,13 @@ func sfib(n int) int32 {
 }
 
 func main() {
-	fmt.Println(sfib(20000000))
+	// The n is the last argument: under `yaegi run <path> <n>`,
+	// os.Args still holds the interpreter's own "run" and path in front of it.
+	n := 20000000
+	if len(os.Args) > 1 {
+		if v, err := strconv.Atoi(os.Args[len(os.Args)-1]); err == nil {
+			n = v
+		}
+	}
+	fmt.Println(sfib(n))
 }

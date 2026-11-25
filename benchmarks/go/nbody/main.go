@@ -3,13 +3,14 @@ package main
 import (
 	"fmt"
 	"math"
+	"os"
+	"strconv"
 )
 
 const (
 	solarMass   = 4.0 * math.Pi * math.Pi
 	daysPerYear = 365.24
 	dt          = 0.01
-	steps       = 50000
 )
 
 type Body struct {
@@ -95,6 +96,14 @@ func advance(bodies []Body) {
 }
 
 func main() {
+	// The step count is the last argument: under `yaegi run <path> <steps>`,
+	// os.Args still holds the interpreter's own "run" and path in front of it.
+	steps := 50000
+	if len(os.Args) > 1 {
+		if v, err := strconv.Atoi(os.Args[len(os.Args)-1]); err == nil {
+			steps = v
+		}
+	}
 	bodies := initial()
 	offsetMomentum(bodies)
 	fmt.Println(int64(math.Round(energy(bodies) * 1e9)))

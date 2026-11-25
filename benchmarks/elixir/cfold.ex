@@ -1,7 +1,13 @@
 defmodule Bench.Cfold do
-  def main(_args \\ []) do
-    original = mk_expr(12, 1)
-    optimized = const_folding(reassoc(mk_expr(12, 1)))
+  def main(args \\ []) do
+    n =
+      case args do
+        [size | _] -> String.to_integer(size)
+        [] -> 12
+      end
+
+    original = mk_expr(n, 1)
+    optimized = const_folding(reassoc(mk_expr(n, 1)))
     IO.puts("#{eval(original)} #{eval(optimized)}")
   end
 
