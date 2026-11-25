@@ -28,23 +28,18 @@ Expected output for all three: `10426 10426`.
 cargo xtask bench cfold --runs 30 --warmup 5
 ```
 
-4. Generate VM flamegraph on the benchmark workload:
+4. Profile the VM on the benchmark workload:
 
 ```bash
-scripts/bench/bench_benchmark_flamewatch.sh cfold --skip-build
+cargo xtask bench cfold --profile vm
 ```
 
-This writes `flamegraph.svg` at the project root and prints the top hot paths.
-
-5. Inspect top runtime hotspots from the generated SVG:
-
-```bash
-perl -ne 'while(/<title>([^<]+)<\/title>/g){$t=$1; if($t =~ /^(.*) \(([0-9,]+) samples, ([0-9.]+)%\)$/){$n=$1;$p=$3; if(!defined $m{$n} || $p>$m{$n}){$m{$n}=$p;} }} END { for $k (keys %m){ printf "%.2f\t%s\n", $m{$k}, $k; } }' flamegraph.svg | sort -nr | head -n 20
-```
+samply records the run and opens it in the Firefox Profiler. Invert the call tree to
+see the hottest functions first.
 
 Why this order:
 - Comparison tells you if Flux got faster/slower vs Rust/Python.
-- Flamegraph then tells you where VM time is still being spent.
+- The profile then tells you where VM time is still being spent.
 
 ## Rules for Fair Comparison
 

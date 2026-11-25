@@ -31,10 +31,12 @@ cargo xtask bench cfold --runs 30 --warmup 5
 2. Then profile VM hotspots:
 
 ```bash
-CARGO_PROFILE_RELEASE_DEBUG=true cargo flamegraph --reverse --bin flux -- examples/io/aoc_day1_part2_profile.flx
+cargo build --profile profiling --features llvm --bin flux
+samply record target/profiling/flux examples/io/aoc_day1_part2_profile.flx
 ```
 
-3. Review `flamegraph.svg` and optimize the top nodes.
+3. In the Firefox Profiler samply opens, invert the call tree and optimize the top
+   functions.
 
 ### 1) Run correctness check
 

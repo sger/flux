@@ -124,13 +124,14 @@ cargo xtask bench cfold --profile native   # a native binary built with -g
 samply records the run, saves it to `target/bench/<name>-<way>.profile.json.gz` and
 opens it in the Firefox Profiler; `samply load <file>` opens it again. The `profiling`
 Cargo profile is release with line tables, so the profile names the VM's Rust functions.
+The Firefox Profiler's call tree, inverted, lists the hottest functions first. Its flame
+graph view replaces the SVGs `cargo flamegraph` drew.
 
-On Linux, `scripts/bench/bench_benchmark_flamewatch.sh` still draws flamegraphs with
-`cargo flamegraph`:
+To profile a program outside `benchmarks/`, run samply on the same build:
 
 ```bash
-scripts/bench/bench_benchmark_flamewatch.sh core
-scripts/bench/bench_benchmark_flamewatch.sh extended --native
+cargo build --profile profiling --features llvm --bin flux
+samply record target/profiling/flux examples/io/aoc_day1.flx
 ```
 
 ## Compiler microbenchmarks
