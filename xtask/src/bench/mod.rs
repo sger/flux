@@ -713,6 +713,25 @@ mod tests {
         assert_eq!(first_difference("a", "a\nb"), Some((2, "(no line)".into(), "b".into())));
     }
 
+    fn cargo(arg: &str) -> Command {
+        let mut cmd = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
+        cmd.arg(arg);
+        cmd
+    }
+
+    /// A build that fails must stop the run: a dropped case hid a broken
+    /// port, and Haskell and OCaml timed the binary an earlier build left.
+    #[test]
+    fn a_port_that_fails_to_build_stops_the_run() {
+        let err = build_port("OCaml", "countdown", &mut cargo("--no-such-flag")).unwrap_err();
+        assert!(err.contains("OCaml") && err.contains("countdown"), "{err}");
+    }
+
+    #[test]
+    fn a_port_that_builds_gives_its_case() {
+        assert!(build_port("Go", "countdown", &mut cargo("--version")).is_ok());
+    }
+
     #[test]
     fn metrics_are_read_as_key_and_count() {
         let parsed = parse_metrics("vm_allocs\t12\nbad line\naether_dups\t3\n");
