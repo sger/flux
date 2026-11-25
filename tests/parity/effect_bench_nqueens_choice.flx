@@ -1,0 +1,64 @@
+// parity: vm, llvm
+// expect: success
+// bug: benchmarks/flux/nqueens_choice.flx and its direct-style twin at
+//      effect-handlers-bench's small size, 5, where both count 10
+//      placements: `pick` resumed once per row from a helper, `fail`
+//      never resumed.
+// parity-expected-stdout-begin
+// 10
+// 10
+// parity-expected-stdout-end
+
+effect Search {
+    pick : (Int) -> Int
+    fail : () -> List<Int>
+}
+
+fn safe(queen: Int, diag: Int, xs: List<Int>) -> Bool {
+    match xs {
+        [] -> true,
+        [q | qs] -> if queen != q && queen != q + diag && queen != q - diag {
+            safe(queen, diag + 1, qs)
+        } else { false },
+    }
+}
+
+fn place(size: Int, column: Int) -> List<Int> with Search {
+    if column == 0 { [] } else {
+        let rest = place(size, column - 1)
+        let next = perform Search.pick(size)
+        if safe(next, 1, rest) { [next | rest] } else { perform Search.fail() }
+    }
+}
+
+fn counted(n: Int) -> Int with Search {
+    let _ = place(n, n)
+    1
+}
+
+fn each(resume, i: Int, size: Int, a: Int) -> Int {
+    if i == size { a + resume(i) } else { each(resume, i + 1, size, a + resume(i)) }
+}
+
+fn run(n: Int) -> Int {
+    counted(n) handle Search {
+        pick(resume, size) -> each(resume, 1, size, 0),
+        fail(resume) -> 0
+    }
+}
+
+fn place_direct(size: Int, column: Int, rest: List<Int>) -> Int {
+    if column > size { 1 } else { rows(size, column, rest, 1, 0) }
+}
+
+fn rows(size: Int, column: Int, rest: List<Int>, row: Int, a: Int) -> Int {
+    if row > size { a } else {
+        let found = if safe(row, 1, rest) { place_direct(size, column + 1, [row | rest]) } else { 0 }
+        rows(size, column, rest, row + 1, a + found)
+    }
+}
+
+fn main() with IO {
+    print(run(5))
+    print(place_direct(5, 1, []))
+}

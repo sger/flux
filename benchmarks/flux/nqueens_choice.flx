@@ -1,0 +1,60 @@
+// effect-handlers-bench's nqueens: queens are placed one column at a time,
+// each row picked by a `pick` effect whose clause resumes once for every
+// row, and a clash `fail`s without resuming. The handler counts the
+// placements that reach the last column.
+import Flow.Env as Env
+import Flow.Array as Array
+
+effect Search {
+    pick : (Int) -> Int
+    fail : () -> List<Int>
+}
+
+fn safe(queen: Int, diag: Int, xs: List<Int>) -> Bool {
+    match xs {
+        [] -> true,
+        [q | qs] -> if queen != q && queen != q + diag && queen != q - diag {
+            safe(queen, diag + 1, qs)
+        } else { false },
+    }
+}
+
+fn place(size: Int, column: Int) -> List<Int> with Search {
+    if column == 0 { [] } else {
+        let rest = place(size, column - 1)
+        let next = perform Search.pick(size)
+        if safe(next, 1, rest) { [next | rest] } else { perform Search.fail() }
+    }
+}
+
+fn counted(n: Int) -> Int with Search {
+    let _ = place(n, n)
+    1
+}
+
+// Resumes with every row and adds up the placements. `resume` stays
+// unannotated: on the VM a resume passed to a parameter of function type
+// fails the runtime type check (KI-228).
+fn each(resume, i: Int, size: Int, a: Int) -> Int {
+    if i == size { a + resume(i) } else { each(resume, i + 1, size, a + resume(i)) }
+}
+
+fn run(n: Int) -> Int {
+    counted(n) handle Search {
+        pick(resume, size) -> each(resume, 1, size, 0),
+        fail(resume) -> 0
+    }
+}
+
+// The workload size: the program's first argument, or the size the suite
+// was written with. `cargo xtask bench` passes a smaller one to the VM.
+fn size(default: Int) -> Int with Env {
+    match Array.get(Env.args(), 1) {
+        Some(s) -> parse_int(s),
+        None -> default,
+    }
+}
+
+fn main() with IO {
+    print(run(size(12)))
+}
