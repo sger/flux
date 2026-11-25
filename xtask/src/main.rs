@@ -100,6 +100,9 @@
 //!     (Mann–Whitney p, geomean), writes target/bench/<name>.md and the
 //!     README block; --profile records a samply profile instead
 //!     (`bench/`)
+//! cargo xtask bench stats-diff <base.json> <head.json>
+//!     compare two flux --stats-json files phase by phase, with the counts
+//!     that changed (`bench/stats_diff.rs`)
 //! ```
 //!
 //! Relative paths are taken from the repository root.
@@ -146,6 +149,7 @@ const USAGE: &str = "usage:
   cargo xtask phase <phase>... [--dry-run] [-- <nextest args>] | --list
   cargo xtask bench <benchmark | core | extended | all> [--runs <n>] [--warmup <n>] [--full] [--save-baseline] [--no-check] [--no-readme] [--report-file <path>] [--no-native] [--vms] [--no-build]
   cargo xtask bench <benchmark> --profile vm|native [--full] [--no-build]
+  cargo xtask bench stats-diff <base.json> <head.json>
   cargo xtask tidy";
 
 fn main() -> ExitCode {
@@ -368,6 +372,13 @@ fn dispatch(root: &Path, args: &[String]) -> Result<bool, String> {
             if args.flag("--help") | args.flag("-h") {
                 println!("{USAGE}");
                 return Ok(true);
+            }
+            if args.flag("stats-diff") {
+                let usage = || format!("bench stats-diff: which two files?\n{USAGE}");
+                let base = args.positional()?.ok_or_else(usage)?;
+                let head = args.positional()?.ok_or_else(usage)?;
+                args.finish()?;
+                return bench::stats_diff::run(root, &resolve(root, &base), &resolve(root, &head));
             }
             let profile = match args.value("--profile")? {
                 Some(way) => Some(

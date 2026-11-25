@@ -161,10 +161,10 @@ counts `--stats` shows, with `null` for a count the backend does not have.
 ./target/release/flux examples/guide/arithmetic.flx --native > /dev/null
 ./target/release/flux examples/guide/arithmetic.flx --native --no-cache --stats-json cold.json
 ./target/release/flux examples/guide/arithmetic.flx --native --stats-json warm.json
-python3 scripts/bench/stats_diff.py cold.json warm.json
+cargo xtask bench stats-diff cold.json warm.json
 ```
 
-`stats_diff.py` prints each phase's time in both files and their ratio, then
+`stats-diff` prints each phase's time in both files and their ratio, then
 any count that changed. Times are single runs, so a small difference is noise.
 
 ## Binary Trees

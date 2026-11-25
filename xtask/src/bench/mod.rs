@@ -13,6 +13,7 @@
 mod hyperfine;
 mod report;
 mod stats;
+pub mod stats_diff;
 mod table;
 
 use std::fs;
