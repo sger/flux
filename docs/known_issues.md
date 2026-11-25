@@ -68,6 +68,48 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-232 — Natively, a loop that performs once per turn takes time that grows with the square of its turns
+
+**Severity:** Medium (correct output; natively slower than the VM from a few thousand turns) · **Area:** native effects runtime, yield continuations (`runtime/c/effects.c`) · **Verified:** 2026-11-25 (3b332a85, and `main` at 64005292) · **From:** sizing the countdown benchmark
+
+```flux
+effect Tick {
+    tick : (Int) -> ()
+}
+
+fn countdown(i: Int) -> Int with Tick {
+    if i == 0 { i } else {
+        perform Tick.tick(i)
+        countdown(i - 1)
+    }
+}
+
+fn main() with IO {
+    print(countdown(64000) handle Tick { tick(resume, x) -> resume(()) })
+}
+```
+
+Both backends print `0`. Built with `--native -O --emit-binary`, with `n`
+read from the command line:
+
+| n | Native | Native peak RSS | VM |
+|---:|---:|---:|---:|
+| 16,000 | 0.82 s | 3.7 MiB | – |
+| 32,000 | 3.55 s | 5.3 MiB | – |
+| 64,000 | 15.3 s | 8.4 MiB | – |
+| 128,000 | – | – | 0.09 s |
+
+Natively, each doubling of `n` takes about four times as long, and memory
+grows with `n`. The clause resumes as its last act, and the handler has no
+state. effect-handlers-bench's countdown, a state handler read and written
+once per turn, scales the same way (0.42 s at 8,000, 1.79 s at 16,000), so
+it can't run natively at the suite's 200,000,000. Perhaps the recursive call
+after the perform stops being a tail call: each turn would leave a pending
+frame, `flux_yield_extend` folds them 8 at a time, and every later perform
+would pass through the folds already made. Not confirmed in the code.
+Related to [KI-231](#ki-231), which is about nested resumes that aren't
+tail calls.
+
 ### KI-231 — Natively, nested non-tail resumes take time that grows with the square of their depth
 
 **Severity:** Medium (correct output; natively slower than the VM from a depth of about 1,000) · **Area:** native effects runtime, continuations · **Verified:** 2026-11-25 (84ea6551, and `main` at 64005292) · **From:** sizing the resume_nontail benchmark
