@@ -1,0 +1,41 @@
+// parity: vm, llvm, llvm_heap
+// expect: success
+// bug: KI-223. Natively the value a clause resumes with leaked when the
+//      perform ran in a function the handled expression calls, with or
+//      without a let, and when a clause resumed twice into a body that reads
+//      the perform's result: drop insertion did not count a perform's result
+//      as a value of its own.
+// parity-expected-stdout-begin
+// "a1!"
+// "b2!"
+// "uv-uv-"
+// parity-expected-stdout-end
+
+effect Ask { ask : () -> String }
+
+fn callee() -> String with Ask {
+    perform Ask.ask() + "!"
+}
+
+fn callee_let() -> String with Ask {
+    let t: String = perform Ask.ask();
+    t + "!"
+}
+
+fn in_callee() -> String {
+    callee() handle Ask { ask(resume) -> resume("a" + "1") }
+}
+
+fn in_callee_let() -> String {
+    callee_let() handle Ask { ask(resume) -> resume("b" + "2") }
+}
+
+fn resumed_twice() -> String {
+    (perform Ask.ask() + "-") handle Ask { ask(resume) -> (resume("u" + "v") + resume("u" + "v")) }
+}
+
+fn main() with IO {
+    print(in_callee())
+    print(in_callee_let())
+    print(resumed_twice())
+}

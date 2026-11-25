@@ -3719,6 +3719,33 @@ mod tests {
         assert_eq!(views_consumed(&out), 0, "{out:?}");
     }
 
+    /// KI-223: the runtime hands a `perform` the value its clause resumed
+    /// with, with a reference of its own, so `let t = perform ask(); t + "!"`
+    /// releases `t` after the read.
+    #[test]
+    fn a_perform_result_is_released_after_its_last_read() {
+        let mut interner = Interner::new();
+        let t = binder(&mut interner, 1, "t");
+        let perform = CoreExpr::Perform {
+            effect: interner.intern("Ask"),
+            operation: interner.intern("ask"),
+            args: vec![],
+            owned_after: Vec::new(),
+            span: Span::default(),
+        };
+        let read = CoreExpr::PrimOp {
+            op: CorePrimOp::Add,
+            args: vec![var(t), CoreExpr::Lit(CoreLit::String("!".into()), Span::default())],
+            span: Span::default(),
+        };
+
+        let out = insert_dup_drop_with_registry(
+            lam(vec![], let_(t, perform, read)),
+            &BorrowRegistry::default(),
+        );
+        assert_eq!(drops(&out, t), 1, "{out:?}");
+    }
+
     /// KI-186: the handled call takes `s` over and the clause reads it. The
     /// clause took its reference when the handle was installed, so the plan
     /// is sound.
