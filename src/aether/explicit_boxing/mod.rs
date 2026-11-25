@@ -754,6 +754,8 @@ impl Boxer {
             let Some(raw) = source.raw.take() else {
                 continue;
             };
+            // @KI-148: consuming the parameter makes it owned, so a literal a
+            // self tail call passes moves in and the call stays a jump.
             let op = if source.movable && !source.read_uniform {
                 CorePrimOp::UnboxIntMove
             } else {
