@@ -83,6 +83,12 @@ debug = 1
 debug-assertions = false
 overflow-checks = false
 
+# Release code with line tables, so a profiler such as samply can name the
+# VM's Rust functions in a profile of the code that `--release` times.
+[profile.profiling]
+inherits = "release"
+debug = "line-tables-only"
+
 [[bench]]
 name = "lexer_bench"
 harness = false
