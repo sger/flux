@@ -315,7 +315,7 @@ fn prepare_cases(
             &hs,
             &hs_source,
         ]);
-        proc::run(&mut cmd).map_err(|e| format!("ghc: {e}"))?;
+        build_port("Haskell", name, &mut cmd)?;
     }
     if at(root, &hs).is_file() {
         cases.push(Case { name: format!("{name}/haskell"), argv: with_arg(vec![hs]) });
@@ -338,7 +338,7 @@ fn prepare_cases(
             cmd.args(["-I", "+unix", "unix.cmxa"]);
         }
         cmd.args(["-o", at(root, &ml).to_str().unwrap_or_default(), &format!("{name}.ml")]);
-        proc::run(&mut cmd).map_err(|e| format!("ocamlopt: {e}"))?;
+        build_port("OCaml", name, &mut cmd)?;
     }
     if at(root, &ml).is_file() {
         cases.push(Case { name: format!("{name}/ocaml"), argv: with_arg(vec![ml]) });
@@ -351,7 +351,7 @@ fn prepare_cases(
         fs::create_dir_all(root.join(&erlang_dir)).map_err(|e| format!("{erlang_dir}: {e}"))?;
         let mut cmd = Command::new(erlc);
         cmd.current_dir(root).args(["-o", &erlang_dir, &format!("benchmarks/erlang/{name}.erl")]);
-        if proc::run(&mut cmd).map_err(|e| format!("erlc: {e}"))? == 0 {
+        if build_port("Erlang", name, &mut cmd)? {
             let mut argv = vec![tool("erl"), "-noshell".into(), "-pa".into(), erlang_dir.clone()];
             argv.extend(["-run".into(), name.into(), "main".into()]);
             argv.extend(arg.iter().cloned());
@@ -367,7 +367,7 @@ fn prepare_cases(
         fs::create_dir_all(root.join(&elixir_dir)).map_err(|e| format!("{elixir_dir}: {e}"))?;
         let mut cmd = Command::new(elixirc);
         cmd.current_dir(root).args(["-o", &elixir_dir, &format!("benchmarks/elixir/{name}.ex")]);
-        if proc::run(&mut cmd).map_err(|e| format!("elixirc: {e}"))? == 0 {
+        if build_port("Elixir", name, &mut cmd)? {
             let mut argv = vec![tool("elixir"), "-pa".into(), elixir_dir.clone(), "-e".into()];
             argv.push(format!("Bench.{}.main(System.argv())", b.elixir_module()));
             if !arg.is_empty() {
@@ -389,7 +389,7 @@ fn prepare_cases(
             at(root, &go).to_str().unwrap_or_default(),
             &format!("./{name}"),
         ]);
-        if proc::run(&mut cmd).map_err(|e| format!("go build: {e}"))? == 0 {
+        if build_port("Go", name, &mut cmd)? {
             cases.push(Case { name: format!("{name}/go"), argv: with_arg(vec![go]) });
         }
     } else {
@@ -659,6 +659,13 @@ fn python() -> Option<String> {
             .status()
             .is_ok_and(|s| s.success())
     })
+}
+
+/// Runs the build of `name`'s port in `lang`, and says whether it built.
+fn build_port(lang: &str, name: &str, cmd: &mut Command) -> Result<bool, String> {
+    let tool = Path::new(cmd.get_program()).file_name().unwrap_or_default().to_string_lossy();
+    let tool = tool.into_owned();
+    Ok(proc::run(cmd).map_err(|e| format!("the {lang} port of {name}: {tool}: {e}"))? == 0)
 }
 
 /// Whether `binary` is missing or older than `source`.
