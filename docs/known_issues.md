@@ -1333,50 +1333,58 @@ in `operand_widths` in the bytecode emitter. A heap profiler would say which
 of these allocates per `let` per `let`. The `let_chain` test of `cargo xtask
 scale` fails until it is fixed.
 
-### KI-148 — Natively, a self tail call that passes a literal to a borrowed parameter is not a jump, and a long loop overflows the stack
+### KI-148 — Natively, a self tail call that lends a literal to a borrowed parameter is not a jump, and a long loop overflows the stack
 
-**Severity:** Medium · **Area:** Aether, borrow inference, native backend · **Verified:** 2026-10-31 (7361fb04) · **From:** adding `benchmarks/flux/sfib.flx`
+**Severity:** Medium · **Area:** Aether, borrow inference, native backend · **Verified:** 2026-11-25 (4599c3c2) · **From:** adding `benchmarks/flux/sfib.flx`
 
-A recursive tail call stops being compiled as a jump when it passes an `Int`
-literal to a parameter that borrow inference made borrowed. Each turn through
-that call keeps a frame, and the native binary dies with a stack overflow:
+A recursive tail call stops being compiled as a jump when it passes a literal
+to a parameter that borrow inference made borrowed. Each turn through that
+call keeps a frame, and the native binary dies with a stack overflow:
 
 ```flux
-fn walk(n: Int, x: Int) -> Int {
-    if n <= 0 { 0 } else if x > 5 { walk(n - 1, 0) } else { walk(n - 1, 9) }
+fn walk(n: Int, s: String) -> Int {
+    if n <= 0 { 0 } else if len(s) > 1 { walk(n - 1, "a") } else { walk(n - 1, "bb") }
 }
-fn main() with IO { print(walk(10000000, 0)) }
+fn main() with IO { print(walk(10000000, "a")) }
 ```
 
 The VM prints `0`. Natively the program exits with "native program terminated
-by signal 10", and lldb shows the fault at a stack address inside `walk`.
-`--dump-aether` reports `aether_call[borrowed, borrowed] walk` and
-`BorrowedCallGuards: 2`. In the LLVM (`--emit-llvm --no-cache`), each such call
-is a `flux_dup` of the literal, an `invoke` of `@flux_walk` that is not a tail
-call, and a `flux_drop` after it returns. The copy and the release do nothing
-useful for an `Int`.
+by signal 10". `--dump-aether` reports `BorrowedCallGuards: 2` for `walk`. In
+the LLVM (`--emit-llvm --no-cache`), each such call is a `flux_dup` of the
+literal, an `invoke` of `@flux_walk` that is not a tail call, and a
+`flux_drop` after it returns.
 
-| Change to `walk` | Inferred | Native, 10M turns |
+An `Int` parameter that is only lent to a callee that borrows it, as in
+`fn wide(x: Int) -> Bool { len(to_string(x)) > 1 }`, does the same:
+`walk(n - 1, 0)` with `if wide(x)` as the test gets 2 guards and crashes.
+`tests/parity/tail_call_lends_a_literal_to_a_borrowed_parameter_ki148.flx`
+runs both loops 2,000,000 times and skips the native ways.
+
+**Partly fixed 2026-11-25 (17987628).** Since explicit_boxing runs before
+borrow inference, an `Int` parameter that is read raw is consumed by its
+unbox (`UnboxIntMove`, `src/aether/explicit_boxing/mod.rs`), which makes it
+owned. The literal then moves in, no guard is needed, and the call is a jump.
+That covers an `Int` parameter compared or computed with in its own function,
+and one passed to a callee that does, whose parameter is owned for the same
+reason. The entry's first reproduction, where `x > 5` reads `x`, now prints
+`0` natively, and so does `sfib`. Before that commit:
+
+| Change to `walk(n: Int, x: Int)`, with `if x > 5` | Inferred | Native, 10M turns |
 |---|---|---|
-| as above | `[borrowed, borrowed]`, 2 guards | crashes |
+| `walk(n - 1, 0)` and `walk(n - 1, 9)` | `[borrowed, borrowed]`, 2 guards | crashes |
 | `walk(n - 1, x - 1)` in place of `walk(n - 1, 0)` | `[borrowed, borrowed]`, 1 guard | crashes |
 | base case returns `x` instead of `0` | `[borrowed, owned]`, no guard | prints `0` |
 
-The second row also shows that the fresh `x - 1` does not make `x` owned. That
+The second row also shows that the fresh `x - 1` did not make `x` owned. That
 is the rule KI-128 relies on to keep a tail call a jump (`TailCaller`,
-`src/aether/borrow_infer.rs`).
-
-`benchmarks/flux/sfib.flx` hits this. Its restart branch is
-`sfibx(n - 1, 1, 2)`, `x2` is borrowed, and the native binary crashes between
-100,000 and 1,000,000 turns. The benchmark runs with `--no-flux-native` until
-this is fixed. A loop that takes the guarded call only rarely survives, so the
-guard count alone does not say whether a program will crash.
+`src/aether/borrow_infer.rs`), and it is unchanged.
+`tests/parity/tail_call_passes_an_int_literal_to_a_parameter_read_raw_ki148.flx`
+guards the fixed part.
 
 Workaround: make the parameter owned, for example by returning it from the base
 case.
 
-Not yet known: whether a literal of a heap type (a string) is guarded the same
-way, and whether the guard should be skipped for unboxed values or the
+Not yet known: whether the guard should be skipped for a literal, or the
 `TailCaller` rule should count a literal or a primop result as fresh. Either fix
 is in Aether, so it needs `cargo xtask verify`.
 
