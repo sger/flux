@@ -1,0 +1,80 @@
+// parity: vm, llvm, llvm_verify, llvm_heap
+// expect: success
+// bug: natively an Int let live across a perform is boxed into the
+//      continuation and unboxed where it resumes. Here the continuation is
+//      split again by a second perform, resumed twice, and made once per turn
+//      of a loop; an Int let is also read by a handler clause and by a
+//      closure that outlives the function that made it.
+// parity-expected-stdout-begin
+// 1271
+// 3011
+// 500500
+// 26
+// 16
+// -6
+// parity-expected-stdout-end
+
+effect Counter {
+    next : () -> Int
+}
+
+effect Flip {
+    flip : () -> Bool
+}
+
+effect Ask {
+    ask : () -> Int
+}
+
+// `base` is live across both performs.
+fn two_reads(n: Int) -> Int with Counter {
+    let base = n * 7 - 3
+    let a = perform Counter.next()
+    let b = perform Counter.next()
+    a * 10 + b + base
+}
+
+// Both resumes read `base`, and each then performs again.
+fn flip_then_ask(n: Int) -> Int with Flip, Ask {
+    let base = n * 100 + 1
+    let b = perform Flip.flip()
+    let c = perform Ask.ask()
+    if b { base + c } else { base * 2 + c }
+}
+
+// `acc` is live across the perform on every turn.
+fn sum_asked(i: Int, acc: Int) -> Int with Ask {
+    if i == 0 {
+        acc
+    } else {
+        let got = perform Ask.ask()
+        sum_asked(i - 1, acc + got + i - 1)
+    }
+}
+
+// `k` is read outside the clause too, so it stays a let the clause captures.
+fn ask_plus(n: Int) -> Int {
+    let k = n * 2 + 1
+    let r = (perform Ask.ask() + 3) handle Ask { ask(resume) -> resume(k) }
+    r + k
+}
+
+// The test reads `k`, so it stays a let the closure captures.
+fn make_adder(n: Int) -> (Int) -> Int {
+    let k = n * 3 - 2
+    if k > 100 { \(x: Int) -> x } else { \(x: Int) -> x + k }
+}
+
+fn main() with IO {
+    print(two_reads(180) handle Counter(1) { next(resume, state) -> resume(state, state + 3) })
+    print(
+        (flip_then_ask(10) handle Flip { flip(resume) -> resume(true) + resume(false) })
+            handle Ask { ask(resume) -> resume(4) }
+    )
+    print(sum_asked(1000, 0) handle Ask { ask(resume) -> resume(1) })
+    print(ask_plus(5) + 1)
+    let four_more = make_adder(4)
+    print(four_more(6))
+    let five_less = make_adder(-1)
+    print(five_less(-1))
+}
