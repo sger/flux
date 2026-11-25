@@ -1688,6 +1688,9 @@ fn fresh_result(
         CoreExpr::Var { var, .. } => var.binder.is_some_and(|id| fresh.contains(&id)),
         // @KI-222: a handle's body and clauses each give it an owned value.
         CoreExpr::Con { .. } | CoreExpr::Lam { .. } | CoreExpr::Handle { .. } => true,
+        // @KI-223: the runtime hands a `perform` the value its clause gave
+        // `resume`, with that reference.
+        CoreExpr::Perform { .. } => true,
         // Natively every Float is a new heap box: a literal, a negation, or
         // the result of float arithmetic.
         CoreExpr::Lit(CoreLit::Float(_), _) => true,

@@ -3815,7 +3815,7 @@ lam(__dict_m7_466C6F772E4571_Eq, x, y) ->
           _ ->
             true
 ── fn print_all [yield×2] ──
-  Dups: 2  Drops: 6  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  Yields: 2  Handles: 0  HandlerArms: 0
+  Dups: 1  Drops: 6  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  Yields: 2  Handles: 0  HandlerArms: 0
   FreshAllocs: 0
   verifier: ok
 lam(arr) ->
@@ -3843,9 +3843,8 @@ lam(arr) ->
               Some(v) ->
                 let <sym:7000000> =
                   perform /*yield_to*/ Console.print(dup v#914 in v#914)
-                dup <sym:7000000>#4026531840 in
-                  drop <sym:4001734>#1734 in
-                    <sym:7000000>#4026531840
+                drop <sym:4001734>#1734 in
+                  <sym:7000000>#4026531840
               _ ->
                 drop <sym:4001734>#1734 in
                   perform /*yield_to*/ Console.print("")
@@ -3863,7 +3862,7 @@ lam(arr) ->
   drop <sym:2000020>#910 in
       ()
 ── fn println_all [yield×2] ──
-  Dups: 2  Drops: 6  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  Yields: 2  Handles: 0  HandlerArms: 0
+  Dups: 1  Drops: 6  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  Yields: 2  Handles: 0  HandlerArms: 0
   FreshAllocs: 0
   verifier: ok
 lam(arr) ->
@@ -3891,9 +3890,8 @@ lam(arr) ->
               Some(v) ->
                 let <sym:7000000> =
                   perform /*yield_to*/ Console.println(dup v#921 in v#921)
-                dup <sym:7000000>#4026531840 in
-                  drop <sym:4001738>#1738 in
-                    <sym:7000000>#4026531840
+                drop <sym:4001738>#1738 in
+                  <sym:7000000>#4026531840
               _ ->
                 drop <sym:4001738>#1738 in
                   perform /*yield_to*/ Console.println("")
@@ -3911,13 +3909,16 @@ lam(arr) ->
   drop <sym:2000022>#917 in
       ()
 ── fn read_lines [yield×1] ──
-  Dups: 0  Drops: 0  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  Yields: 1  Handles: 0  HandlerArms: 0
+  Dups: 0  Drops: 1  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0  Yields: 1  Handles: 0  HandlerArms: 0
   FreshAllocs: 0
   verifier: ok
 lam(path) ->
   let content =
     perform /*yield_to*/ FileSystem.read_file(path#923)
-  Split(content#924, "\n")
+  let <sym:7000000> =
+    Split(content#924, "\n")
+  drop content#924 in
+    <sym:7000000>#4026531840
 ── fn parse_ints ──
   Dups: 0  Drops: 5  Reuses: 0  DropSpecs: 0  BorrowedCallGuards: 0
   FreshAllocs: 0
@@ -4490,7 +4491,7 @@ lam() ->
         aether_call[owned] __resume_default#1358(<sym:4001853>#1853)
 
 ── Total ──
-  Dups: 210  Drops: 501  Reuses: 18  DropSpecs: 46  BorrowedCallGuards: 14  FBIP: fbip(55)  FreeShells: 31  Yields: 11  Handles: 5  HandlerArms: 11
+  Dups: 208  Drops: 502  Reuses: 18  DropSpecs: 46  BorrowedCallGuards: 14  FBIP: fbip(55)  FreeShells: 31  Yields: 11  Handles: 5  HandlerArms: 11
   FreshAllocs: 55
 
 [ 1 of 18] Compiling  Add
