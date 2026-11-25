@@ -68,9 +68,9 @@ Severity is about consequence, not effort:
 
 ## Open
 
-### KI-232 — Natively, a loop that performs once per turn takes time that grows with the square of its turns
+### KI-232 — Natively, a loop that performs once per turn and works on its recursive call's result takes time that grows with the square of its turns
 
-**Severity:** Medium (correct output; natively slower than the VM from a few thousand turns) · **Area:** native effects runtime, yield continuations (`runtime/c/effects.c`) · **Verified:** 2026-11-25 (3b332a85, and `main` at 64005292) · **From:** sizing the countdown benchmark
+**Severity:** Medium (correct output; natively slower than the VM from a few thousand turns) · **Area:** native effects runtime, yield continuations (`runtime/c/effects.c`), tail calls (`src/lir/lower.rs`) · **Verified:** 2026-11-25 (3b332a85, and `main` at 64005292; partly fixed at cef10ef0) · **From:** sizing the countdown benchmark
 
 ```flux
 effect Tick {
@@ -97,7 +97,7 @@ read from the command line:
 | 16,000 | 0.82 s | 3.7 MiB | – |
 | 32,000 | 3.55 s | 5.3 MiB | – |
 | 64,000 | 15.3 s | 8.4 MiB | – |
-| 128,000 | – | – | 0.09 s |
+| 128,000 | – | – | 0.14 s |
 
 Natively, each doubling of `n` takes about four times as long, and memory
 grows with `n`. The clause resumes as its last act, and the handler has no
@@ -110,31 +110,29 @@ would pass through the folds already made. Not confirmed in the code.
 Related to [KI-231](#ki-231), which is about nested resumes that aren't
 tail calls.
 
-### KI-231 — Natively, nested non-tail resumes take time that grows with the square of their depth
+**Partly fixed 2026-11-25 (cef10ef0).** The recursive call wasn't a tail
+call: `promote_tail_calls` kept a frame for every call to a function that
+may yield, a rule from native async (7d24a068). Its continuation only
+returned the result. Each turn left one more of them pending, folded 8 at a
+time, and every later perform yielded through all the folds. Such a call to a
+local function is now a tail call. The loop above is linear: 0.17 s at
+10,000,000, with peak RSS flat at 2.2 MiB. effect-handlers-bench's countdown
+runs at its 200,000,000 in 14.7 s. Test:
+`an_effectful_call_whose_result_is_returned_is_a_tail_call_ki232`
+(`tests/native_llvm/llvm_codegen.rs`).
 
-**Severity:** Medium (correct output; natively slower than the VM from a depth of about 1,000) · **Area:** native effects runtime, continuations · **Verified:** 2026-11-25 (84ea6551, and `main` at 64005292) · **From:** sizing the resume_nontail benchmark
+What remains is a loop whose frame has work left after the recursive call,
+as in `countdown(i - 1) + 1`. Every turn's frame is then real work, still
+pending across the performs after it:
 
-`benchmarks/flux/resume_nontail.flx` performs `operator(i)` for `i` from
-`n` down to 1. The clause resumes, then works on the result
-(`combine(x, resume(()))`), so the resumes nest `n` deep. That runs 1000
-times. Built with `--native -O --emit-binary`:
+| n | Native | Native peak RSS | VM |
+|---:|---:|---:|---:|
+| 8,000 | 0.38 s | 2.9 MiB | – |
+| 16,000 | 0.81 s | 3.7 MiB | 0.10 s |
+| 32,000 | 3.52 s | 5.3 MiB | 0.10 s |
+| 64,000 | – | – | 0.12 s |
 
-| n | Native | VM |
-|---:|---:|---:|
-| 250 | 0.21 s | 0.63 s |
-| 500 | 0.78 s | 1.15 s |
-| 1,000 | 2.97 s | 2.16 s |
-| 2,000 | 12.9 s | 5.68 s |
-| 10,000 | 342 s | – |
-
-Natively, each doubling of `n` takes four times as long; on the VM, twice.
-`resume_nontail_direct.flx`, the same recursion without a handler, takes
-0.09 s natively at 10,000. Every result is right (860 at 10,000, as
-effect-handlers-bench gives). A resume that has to return seems to cost time
-in proportion to the resumes already pending, perhaps by copying or walking
-the continuation chain each time. Not confirmed in the code.
-
-The benchmark runs at 700 rather than the suite's 10,000.
+A fix would keep a fold from being walked again by each perform inside it.
 
 ### KI-230 — Natively, each `handle` whose clause doesn't resume leaves stack behind, and about a million of them overflow it
 
@@ -3731,6 +3729,41 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-231 — Natively, nested non-tail resumes take time that grows with the square of their depth — FIXED 2026-11-25
+
+**Severity:** Medium (correct output; natively slower than the VM from a depth of about 1,000) · **Area:** native effects runtime, continuations · **Verified:** 2026-11-25 (84ea6551, and `main` at 64005292) · **From:** sizing the resume_nontail benchmark
+
+`benchmarks/flux/resume_nontail.flx` performs `operator(i)` for `i` from
+`n` down to 1. The clause resumes, then works on the result
+(`combine(x, resume(()))`), so the resumes nest `n` deep. That runs 1000
+times. Built with `--native -O --emit-binary`:
+
+| n | Native | VM |
+|---:|---:|---:|
+| 250 | 0.21 s | 0.63 s |
+| 500 | 0.78 s | 1.15 s |
+| 1,000 | 2.97 s | 2.16 s |
+| 2,000 | 12.9 s | 5.68 s |
+| 10,000 | 342 s | – |
+
+Natively, each doubling of `n` takes four times as long; on the VM, twice.
+`resume_nontail_direct.flx`, the same recursion without a handler, takes
+0.09 s natively at 10,000. Every result is right (860 at 10,000, as
+effect-handlers-bench gives). A resume that has to return seems to cost time
+in proportion to the resumes already pending, perhaps by copying or walking
+the continuation chain each time. Not confirmed in the code.
+
+The benchmark runs at 700 rather than the suite's 10,000.
+
+**Fixed 2026-11-25 (cef10ef0)**, by the change for [KI-232](#ki-232): a call
+to a function that may yield, whose result is returned, is now a tail call.
+resume_nontail's `loop` calls itself after its perform, the shape KI-232
+describes, so each turn left a frame pending across the performs after it.
+The resumes still nest `n` deep, and time is now linear in `n`, so the
+nesting wasn't the cause. Natively the benchmark now takes
+0.06 s at 1,000, 0.12 s at 2,000 and 0.59 s at 10,000, and still gives 860
+at 10,000.
 
 ### KI-224 — Natively, a parameterized handler gives a wrong value once its body has performed more than 8 times — FIXED 2026-11-25
 
