@@ -1027,10 +1027,14 @@ fn plan_expr(
             }
         }
         CoreExpr::Handle { body, effect, parameter, handlers, span } => {
+            // @KI-222: the runtime hands the handle's value back with the
+            // reference its body or a clause made (`YieldPrompt` neither takes
+            // nor adds one), so each of them gives an owned value and the
+            // handle's value is fresh (`fresh_result`).
             let body_plan = plan_expr(
                 *body,
                 tail_env.clone(),
-                demand,
+                ValueDemand::Owned,
                 position,
                 registry,
                 scope,
@@ -1059,7 +1063,7 @@ fn plan_expr(
                 let handler_plan = plan_expr(
                     handler.body,
                     tail_env.clone(),
-                    demand,
+                    ValueDemand::Owned,
                     TailPosition::Tail,
                     registry,
                     scope,
@@ -1662,7 +1666,8 @@ fn fresh_result(
 ) -> bool {
     match expr {
         CoreExpr::Var { var, .. } => var.binder.is_some_and(|id| fresh.contains(&id)),
-        CoreExpr::Con { .. } | CoreExpr::Lam { .. } => true,
+        // @KI-222: a handle's body and clauses each give it an owned value.
+        CoreExpr::Con { .. } | CoreExpr::Lam { .. } | CoreExpr::Handle { .. } => true,
         // Natively every Float is a new heap box: a literal, a negation, or
         // the result of float arithmetic.
         CoreExpr::Lit(CoreLit::Float(_), _) => true,
@@ -2113,10 +2118,11 @@ fn gives_away(expr: &CoreExpr, whole: &BTreeSet<CoreBinderId>, owned: bool) -> b
         }
         CoreExpr::Perform { args, .. } => args.iter().any(|arg| gives_away(arg, whole, true)),
         CoreExpr::Return { value, .. } => gives_away(value, whole, true),
+        // The handle takes its body's and its clauses' values (KI-222).
         CoreExpr::Handle { body, parameter, handlers, .. } => {
             parameter.as_ref().is_some_and(|parameter| gives_away(parameter, whole, true))
-                || gives_away(body, whole, owned)
-                || handlers.iter().any(|h| gives_away(&h.body, whole, owned))
+                || gives_away(body, whole, true)
+                || handlers.iter().any(|h| gives_away(&h.body, whole, true))
         }
         // A closure's body is another function, and a capture is lent to it.
         CoreExpr::Lam { .. } => false,
