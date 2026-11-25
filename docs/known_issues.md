@@ -68,6 +68,32 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-228 — On the VM, `resume` passed to a parameter annotated with a function type fails the runtime type check
+
+**Severity:** Low (loud; leaving the parameter unannotated works) · **Area:** VM runtime boundary checks (`src/runtime/runtime_type.rs`) · **Verified:** 2026-11-25 (2b138517, and `main` at 64005292) · **From:** writing the effects benchmarks (effect-handlers-bench's nqueens)
+
+```flux
+effect Ask {
+    ask : () -> Int
+}
+
+fn twice(resume: (Int) -> Int) -> Int {
+    resume(1) + resume(1)
+}
+
+fn one() -> Int with Ask {
+    perform Ask.ask() + 1
+}
+
+fn main() with IO {
+    print(one() handle Ask { ask(resume) -> twice(resume) })
+}
+```
+
+Native code prints `4`. The VM stops with `error[E1004]: Type Error`, "this
+value has runtime type `Continuation`", expected `(Int) -> Int`, at the call
+to `twice`. With `fn twice(resume)`, the VM prints `4`.
+
 ### KI-227 — On the VM, a continuation resumed twice loses a handler installed inside it
 
 **Severity:** High (an "unhandled effect" stop where native code is right) · **Area:** VM continuations, multi-shot resume · **Verified:** 2026-11-25 (2b138517, and `main` at 64005292) · **From:** writing the effects benchmarks (effect-handlers-bench's triples)
