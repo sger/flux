@@ -1,0 +1,41 @@
+// parity: vm, llvm
+// expect: success
+// bug: benchmarks/flux/countdown.flx and its direct-style twin at
+//      effect-handlers-bench's small size, 5, where both give 0: a state
+//      handler read and written once per turn, and the same loop without it.
+//      The third line runs 20 turns, past the 8 pending frames KI-224 broke.
+// parity-expected-stdout-begin
+// 0
+// 0
+// 0
+// parity-expected-stdout-end
+
+effect State {
+    get : () -> Int
+    set : (Int) -> ()
+}
+
+fn countdown() -> Int with State {
+    let i = perform State.get()
+    if i == 0 { i } else {
+        perform State.set(i - 1)
+        countdown()
+    }
+}
+
+fn run(n: Int) -> Int {
+    countdown() handle State(n) {
+        get(resume, s) -> resume(s, s),
+        set(resume, x, s) -> resume((), x)
+    }
+}
+
+fn countdown_direct(i: Int) -> Int {
+    if i == 0 { i } else { countdown_direct(i - 1) }
+}
+
+fn main() with IO {
+    print(run(5))
+    print(countdown_direct(5))
+    print(run(20))
+}

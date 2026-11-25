@@ -1,0 +1,38 @@
+// effect-handlers-bench's countdown: a state handler holds a counter, and
+// the loop reads it, then writes it one lower, until it reads 0. Each turn
+// performs twice, and every clause resumes as its last act.
+import Flow.Env as Env
+import Flow.Array as Array
+
+effect State {
+    get : () -> Int
+    set : (Int) -> ()
+}
+
+fn countdown() -> Int with State {
+    let i = perform State.get()
+    if i == 0 { i } else {
+        perform State.set(i - 1)
+        countdown()
+    }
+}
+
+fn run(n: Int) -> Int {
+    countdown() handle State(n) {
+        get(resume, s) -> resume(s, s),
+        set(resume, x, s) -> resume((), x)
+    }
+}
+
+// The workload size: the program's first argument, or the size the suite
+// was written with. `cargo xtask bench` passes a smaller one to the VM.
+fn size(default: Int) -> Int with Env {
+    match Array.get(Env.args(), 1) {
+        Some(s) -> parse_int(s),
+        None -> default,
+    }
+}
+
+fn main() with IO {
+    print(run(size(200000000)))
+}

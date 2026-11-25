@@ -36,6 +36,7 @@ Extended benchmarks:
 
 Effects benchmarks, from [effect-handlers-bench](https://github.com/effect-handlers/effect-handlers-bench):
 
+- `countdown`: a state handler's counter, read and written once per turn down to 0
 - `fibonacci_recursive`: doubly recursive Fibonacci with no effects, the group's baseline
 - `product_early`: an abort, whose clause never resumes, from 1000 frames deep
 - `resume_nontail`: a clause that works on what its resume returns, the resumes nested deep
@@ -102,6 +103,7 @@ written with. The harness runs each benchmark at one of two sizes, listed in
 | `nbody` | simulation steps | 20,000 | 250,000 |
 | `tak` | `n` in `tak(n, 2n/3, n/3)` | 27 | 33 |
 | `sfib` | loop iterations | 5,000,000 | 200,000,000 |
+| `countdown` | the counter's starting value | 2,000,000 | 20,000,000 |
 | `fibonacci_recursive` | `n` in `fib(n)` | 33 | 42 |
 | `product_early` | products of [1000, …, 0] | 2,000 | 100,000 |
 | `resume_nontail` | nesting depth of the resumes, each run 1000 times | 400 | 10,000 |
@@ -1112,6 +1114,40 @@ From `flux --metrics` on the VM case. They are the same on every run of the same
 | `vm_allocs` | 27780752 | – | – |
 | `vm_instructions` | 211668574 | – | – |
 <!-- sfib-report:end -->
+
+## Countdown
+
+effect-handlers-bench's `countdown`: a parameterized `State` handler holds a counter.
+The loop reads it with `get`, then writes it one lower with `set`, until it reads 0, so
+each turn performs twice. Both clauses resume as their last act. The direct-style twin
+passes the counter as the loop's parameter. Natively that loop compiles to almost
+nothing, so the native effect overhead is mostly the cost of the handler.
+
+The suite runs it at `n` = 200,000,000. That takes about 15 s natively, so the full size
+is 20,000,000.
+
+Sources:
+
+- `benchmarks/flux/countdown.flx`
+- `benchmarks/flux/countdown_direct.flx`
+- `benchmarks/rust/countdown.rs`
+- `benchmarks/go/countdown/main.go`
+- `benchmarks/haskell/countdown.hs`
+- `benchmarks/ocaml/countdown.ml`
+- `benchmarks/python/countdown.py`
+- `benchmarks/erlang/countdown.erl`
+- `benchmarks/elixir/countdown.ex`
+
+Run the cross-language benchmark:
+
+```bash
+cargo xtask bench countdown
+```
+
+Latest report:
+
+<!-- countdown-report:start -->
+<!-- countdown-report:end -->
 
 ## Recursive Fibonacci
 

@@ -190,6 +190,10 @@ name = "tak_rust"
 path = "benchmarks/rust/tak.rs"
 
 [[bin]]
+name = "countdown_rust"
+path = "benchmarks/rust/countdown.rs"
+
+[[bin]]
 name = "product_early_rust"
 path = "benchmarks/rust/product_early.rs"
 
