@@ -3569,6 +3569,98 @@ mod tests {
         assert_eq!(views_consumed(&stored), 0, "{stored:?}");
     }
 
+    /// `handle { body } with ask(resume) -> clause`.
+    fn handle_of(
+        interner: &mut Interner,
+        resume: CoreBinder,
+        body: CoreExpr,
+        clause: CoreExpr,
+    ) -> CoreExpr {
+        CoreExpr::Handle {
+            body: Box::new(body),
+            effect: crate::syntax::builtin_effects::io_effect_symbol(interner),
+            parameter: None,
+            handlers: vec![CoreHandler {
+                operation: interner.intern("ask"),
+                params: vec![],
+                param_types: vec![],
+                resume,
+                resume_ty: None,
+                state: None,
+                state_ty: None,
+                body: clause,
+                span: Span::default(),
+            }],
+            span: Span::default(),
+        }
+    }
+
+    fn apply(func: CoreBinder, args: Vec<CoreExpr>) -> CoreExpr {
+        CoreExpr::App { func: Box::new(var(func)), args, span: Span::default() }
+    }
+
+    fn unit() -> CoreExpr {
+        CoreExpr::Lit(CoreLit::Unit, Span::default())
+    }
+
+    fn let_(var: CoreBinder, rhs: CoreExpr, body: CoreExpr) -> CoreExpr {
+        CoreExpr::Let { var, rhs: Box::new(rhs), body: Box::new(body), span: Span::default() }
+    }
+
+    /// The runtime hands a handle's value back with the reference its body
+    /// or clause made, so releasing a closure after the handle copies
+    /// nothing.
+    #[test]
+    fn a_handle_value_is_not_copied_after_the_handle() {
+        let mut interner = Interner::new();
+        let resume = binder(&mut interner, 1, "resume");
+        let f = binder(&mut interner, 2, "f");
+        let body = let_(
+            f,
+            lam(vec![], unit()),
+            handle_of(&mut interner, resume, apply(f, vec![]), apply(resume, vec![unit()])),
+        );
+
+        let out = insert_dup_drop_with_registry(lam(vec![], body), &BorrowRegistry::default());
+        assert_eq!(drops(&out, f), 1, "{out:?}");
+        assert!(!format!("{out:?}").contains("Dup {"), "{out:?}");
+    }
+
+    /// explicit_boxing puts the box a clause captures between the closure
+    /// the handle's body calls and the handle. Releasing the box first left
+    /// the handle's value looking like a view of the closure, so the closure
+    /// was never released.
+    #[test]
+    fn a_closure_a_handle_body_calls_is_released_past_a_box_the_clause_captures() {
+        let mut interner = Interner::new();
+        let n = CoreBinder::with_rep(CoreBinderId(1), interner.intern("n"), FluxRep::IntRep);
+        let resume = binder(&mut interner, 2, "resume");
+        let f = binder(&mut interner, 3, "f");
+        let b = binder(&mut interner, 4, "b");
+        let r = binder(&mut interner, 5, "r");
+        let boxed =
+            CoreExpr::PrimOp { op: CorePrimOp::BoxInt, args: vec![var(n)], span: Span::default() };
+        let read = CoreExpr::PrimOp {
+            op: CorePrimOp::UnboxInt,
+            args: vec![var(r)],
+            span: Span::default(),
+        };
+        // The clause only reads the box, so the box is released after the
+        // handle.
+        let clause_read = CoreExpr::PrimOp {
+            op: CorePrimOp::UnboxInt,
+            args: vec![var(b)],
+            span: Span::default(),
+        };
+        let handled =
+            handle_of(&mut interner, resume, apply(f, vec![]), apply(resume, vec![clause_read]));
+        let body = let_(r, let_(f, lam(vec![], unit()), let_(b, boxed, handled)), read);
+
+        let out = insert_dup_drop_with_registry(lam(vec![n], body), &BorrowRegistry::default());
+        assert_eq!(drops(&out, f), 1, "{out:?}");
+        assert_eq!(drops(&out, b), 1, "{out:?}");
+    }
+
     #[test]
     fn read_only_closure_capture_does_not_dup_capture() {
         let mut interner = Interner::new();
