@@ -90,7 +90,7 @@ fn eval(expr: &Expr) -> i64 {
 fn main() {
     let depth = env::args().nth(1).and_then(|value| value.parse::<i64>().ok()).unwrap_or(12);
     let handle = std::thread::Builder::new()
-        .stack_size(64 * 1024 * 1024)
+        .stack_size(1024 * 1024 * 1024)
         .spawn(move || {
             let original = mk_expr(depth, 1);
             let optimized = const_folding(reassoc(mk_expr(depth, 1)));
