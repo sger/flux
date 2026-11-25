@@ -34,10 +34,12 @@ Extended benchmarks:
 - `rbtree2`: alternate red-black-tree variant with a different value shape
 - `sfib`: a tail-recursive loop over 32-bit ints that wrap
 
-Effects benchmarks, from [effect-handlers-bench](https://github.com/effect-handlers/effect-handlers-bench):
+Effects benchmarks, from [effect-handlers-bench](https://github.com/effect-handlers/effect-handlers-bench),
+and `counter` from [Koka](https://github.com/koka-lang/koka)'s `test/bench`:
 
 - `countdown`: a state handler's counter, read and written once per turn down to 0
 - `iterator`: a range from 0 to `n`, emitted one value at a time into a handler's sum
+- `counter`: a state handler counted down to 0 beside the loop's own step count
 - `fibonacci_recursive`: doubly recursive Fibonacci with no effects, the group's baseline
 - `product_early`: an abort, whose clause never resumes, from 1000 frames deep
 - `resume_nontail`: a clause that works on what its resume returns, the resumes nested deep
@@ -107,6 +109,7 @@ written with. The harness runs each benchmark at one of two sizes, listed in
 | `sfib` | loop iterations | 5,000,000 | 200,000,000 |
 | `countdown` | the counter's starting value | 2,000,000 | 20,000,000 |
 | `iterator` | the range's upper end | 2,000,000 | 40,000,000 |
+| `counter` | the state's starting value | 2,000,000 | 20,000,000 |
 | `fibonacci_recursive` | `n` in `fib(n)` | 33 | 42 |
 | `product_early` | products of [1000, …, 0] | 2,000 | 100,000 |
 | `resume_nontail` | nesting depth of the resumes, each run 1000 times | 400 | 10,000 |
@@ -1183,6 +1186,40 @@ Latest report:
 
 <!-- iterator-report:start -->
 <!-- iterator-report:end -->
+
+## Counter
+
+Koka's `counter` (`test/bench/koka/counter.kk`): a parameterized `State` handler holds a
+value that the loop reads with `get` and writes one lower with `set`, while the loop
+counts its own steps in a parameter, so it prints the starting value. It differs from
+countdown in that second value, carried through the loop beside the handler's. The
+direct-style twin carries both as parameters.
+
+Koka runs it at 100,100,100. That takes about 8 s natively, so the full size is
+20,000,000.
+
+Sources:
+
+- `benchmarks/flux/counter.flx`
+- `benchmarks/flux/counter_direct.flx`
+- `benchmarks/rust/counter.rs`
+- `benchmarks/go/counter/main.go`
+- `benchmarks/haskell/counter.hs`
+- `benchmarks/ocaml/counter.ml`
+- `benchmarks/python/counter.py`
+- `benchmarks/erlang/counter.erl`
+- `benchmarks/elixir/counter.ex`
+
+Run the cross-language benchmark:
+
+```bash
+cargo xtask bench counter
+```
+
+Latest report:
+
+<!-- counter-report:start -->
+<!-- counter-report:end -->
 
 ## Recursive Fibonacci
 

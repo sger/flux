@@ -1,0 +1,41 @@
+// parity: vm, llvm
+// expect: success
+// bug: benchmarks/flux/counter.flx and its direct-style twin at 5, where
+//      both give 5: a state handler counted down beside a step count, and
+//      the same loop without it. The third line runs 20 steps, past the 8
+//      pending frames KI-224 broke.
+// parity-expected-stdout-begin
+// 5
+// 5
+// 20
+// parity-expected-stdout-end
+
+effect State {
+    get : () -> Int
+    set : (Int) -> ()
+}
+
+fn counter(c: Int) -> Int with State {
+    let i = perform State.get()
+    if i == 0 { c } else {
+        perform State.set(i - 1)
+        counter(c + 1)
+    }
+}
+
+fn run(n: Int) -> Int {
+    counter(0) handle State(n) {
+        get(resume, s) -> resume(s, s),
+        set(resume, x, s) -> resume((), x)
+    }
+}
+
+fn counter_direct(i: Int, c: Int) -> Int {
+    if i == 0 { c } else { counter_direct(i - 1, c + 1) }
+}
+
+fn main() with IO {
+    print(run(5))
+    print(counter_direct(5, 0))
+    print(run(20))
+}

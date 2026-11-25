@@ -1,0 +1,21 @@
+// counter without effects: the state is the loop's parameter, beside the
+// step count.
+import Flow.Env as Env
+import Flow.Array as Array
+
+fn counter(i: Int, c: Int) -> Int {
+    if i == 0 { c } else { counter(i - 1, c + 1) }
+}
+
+// The workload size: the program's first argument, or the size the suite
+// was written with. `cargo xtask bench` passes a smaller one to the VM.
+fn size(default: Int) -> Int with Env {
+    match Array.get(Env.args(), 1) {
+        Some(s) -> parse_int(s),
+        None -> default,
+    }
+}
+
+fn main() with IO {
+    print(counter(size(100100100), 0))
+}
