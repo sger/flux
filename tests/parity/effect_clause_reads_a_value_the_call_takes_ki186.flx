@@ -1,0 +1,76 @@
+// parity: vm, llvm, vm_opt, llvm_opt, vm_verify, llvm_verify, llvm_heap
+// expect: success
+// bug: KI-186. A handler clause that reads a value the handled call takes
+//      over stopped the compiler with E999 (UsedAfterRelease): a String, an
+//      Int let bound to a call's result, a parameter, or a value passed in a
+//      constructor. Each clause's closure takes its captures when the handle
+//      is installed, before the body runs; a clause that gives one away, as
+//      `resume(s)` does, copies it, even when it resumes twice.
+// parity-expected-stdout-begin
+// "ab3"
+// 21
+// "pq"
+// "cdcd"
+// "ef-ef-ef"
+// parity-expected-stdout-end
+
+effect Eff { op : (Int) -> Int }
+
+effect Ask { ask : () -> String }
+
+fn f(s: String) -> String with Eff {
+    let x: Int = perform Eff.op(1);
+    s
+}
+
+fn g(s: Int) -> Int with Eff {
+    let x: Int = perform Eff.op(1);
+    s
+}
+
+fn seed(n: Int) -> Int { n * 7 }
+
+// The call returns `s`, and the clause reads it.
+fn string_taken(n: Int) -> String {
+    let s: String = ("ab" + to_string(n));
+    f(s) handle Eff { op(resume, p) -> resume(len(s)) }
+}
+
+// The same with an Int that is a counted word: a let bound to a call.
+fn int_taken(n: Int) -> Int {
+    let s: Int = seed(n);
+    g(s) handle Eff { op(resume, p) -> resume(s + p) }
+}
+
+fn param_taken(s: String) -> String {
+    f(s) handle Eff { op(resume, p) -> resume(len(s)) }
+}
+
+fn pick(a: Either<String, String>) -> String with Ask {
+    let t: String = perform Ask.ask();
+    match a {
+        Left(x) -> x + t,
+        Right(y) -> y,
+    }
+}
+
+// The call takes `s` inside a constructor and performs, so the clause runs
+// and gives its capture to `resume`.
+fn constructor_taken() -> String {
+    let s: String = ("c" + "d");
+    pick(Left(s)) handle Ask { ask(resume) -> resume(s) }
+}
+
+// The clause resumes twice with its capture.
+fn resumed_twice(s: String) -> String {
+    let r: String = (perform Ask.ask() + "-") handle Ask { ask(resume) -> (resume(s) + resume(s)) };
+    r + s
+}
+
+fn main() with IO {
+    print(string_taken(3));
+    print(int_taken(3));
+    print(param_taken("p" + "q"));
+    print(constructor_taken());
+    print(resumed_twice("e" + "f"));
+}

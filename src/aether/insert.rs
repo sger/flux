@@ -3667,6 +3667,64 @@ mod tests {
         assert_eq!(drops(&out, b), 1, "{out:?}");
     }
 
+    /// The first `handle` in `expr`, through lambdas, lets, dups and drops.
+    fn handle_in(expr: &CoreExpr) -> Option<&CoreExpr> {
+        match expr {
+            CoreExpr::Handle { .. } => Some(expr),
+            CoreExpr::Lam { body, .. }
+            | CoreExpr::Dup { body, .. }
+            | CoreExpr::Drop { body, .. } => handle_in(body),
+            CoreExpr::Let { rhs, body, .. } => handle_in(rhs).or_else(|| handle_in(body)),
+            _ => None,
+        }
+    }
+
+    /// KI-186: a clause's closure takes its own reference to each capture
+    /// when the handle is installed, so `resume(s)` gives away a copy, and the
+    /// function releases its own reference, outside the clause.
+    #[test]
+    fn a_clause_copies_a_capture_it_gives_away() {
+        let mut interner = Interner::new();
+        let s = binder(&mut interner, 1, "s");
+        let resume = binder(&mut interner, 2, "resume");
+        let handled = handle_of(&mut interner, resume, unit(), apply(resume, vec![var(s)]));
+
+        let out = insert_dup_drop_with_registry(lam(vec![s], handled), &BorrowRegistry::default());
+        let Some(CoreExpr::Handle { handlers, .. }) = handle_in(&out) else {
+            unreachable!("the plan keeps the handle: {out:?}");
+        };
+        assert_eq!(dups(&handlers[0].body, s), 1, "{out:?}");
+        assert_eq!(drops(&handlers[0].body, s), 0, "{out:?}");
+        assert_eq!(drops(&out, s), 1, "{out:?}");
+        assert_eq!(views_consumed(&out), 0, "{out:?}");
+    }
+
+    /// KI-186: the handled call takes `s` over and the clause reads it. The
+    /// clause took its reference when the handle was installed, so the plan
+    /// is sound.
+    #[test]
+    fn a_capture_the_body_takes_over_is_read_at_install() {
+        let mut interner = Interner::new();
+        let s = binder(&mut interner, 1, "s");
+        let resume = binder(&mut interner, 2, "resume");
+        let [g, f, len] = ["g", "f", "len"].map(|name| interner.intern(name));
+        let mut registry = BorrowRegistry::default();
+        registry.by_name.insert(
+            len,
+            crate::aether::borrow_infer::BorrowSignature::new(
+                vec![BorrowMode::Borrowed],
+                crate::aether::borrow_infer::BorrowProvenance::BaseRuntime,
+            ),
+        );
+        let clause = apply(resume, vec![call(len, vec![var(s)])]);
+        let handled = handle_of(&mut interner, resume, call(f, vec![var(s)]), clause);
+        let expr = lam(vec![], let_(s, call(g, vec![]), handled));
+
+        let out = insert_dup_drop_with_registry(expr, &registry);
+        let result = crate::aether::verify::verify_def_contract_aether(&out, None);
+        assert!(result.is_ok(), "{result:?}\n{out:?}");
+    }
+
     #[test]
     fn read_only_closure_capture_does_not_dup_capture() {
         let mut interner = Interner::new();

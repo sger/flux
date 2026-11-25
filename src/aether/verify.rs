@@ -2566,6 +2566,72 @@ mod tests {
         assert!(!contract_errors(&plan).contains(&AetherErrorKind::UsedAfterRelease));
     }
 
+    /// `handle(parameter) { body } with ask(resume) -> clause`.
+    fn handle_ask(
+        interner: &mut Interner,
+        resume: CoreBinder,
+        parameter: Option<CoreExpr>,
+        body: CoreExpr,
+        clause: CoreExpr,
+    ) -> CoreExpr {
+        CoreExpr::Handle {
+            body: Box::new(body),
+            effect: interner.intern("Ask"),
+            parameter: parameter.map(Box::new),
+            handlers: vec![crate::aether::AetherHandler {
+                operation: interner.intern("ask"),
+                params: vec![],
+                param_types: vec![],
+                resume,
+                resume_ty: None,
+                state: None,
+                state_ty: None,
+                body: clause,
+                span: s(),
+            }],
+            span: s(),
+        }
+    }
+
+    /// KI-186: a clause's closure takes its captures when the handle is
+    /// installed, before the body runs, so the body may give `s` away.
+    #[test]
+    fn a_clause_reads_its_captures_when_the_handle_is_installed() {
+        let mut interner = Interner::new();
+        let [f, x, resume] = ["f", "s", "resume"].map(|name| interner.intern(name));
+        let (f, x, resume) = (binder(1, f), binder(2, x), binder(3, resume));
+        let clause = give(resume, dup(x, v(x)));
+        let plan = lam(vec![f, x], handle_ask(&mut interner, resume, None, give(f, v(x)), clause));
+        assert!(contract_errors(&plan).is_empty(), "{:?}", contract_errors(&plan));
+    }
+
+    /// The handle's initial state is computed before a clause is installed on
+    /// the VM, so a capture it releases is gone by then.
+    #[test]
+    fn a_capture_released_before_the_handle_is_installed_is_rejected() {
+        let mut interner = Interner::new();
+        let [x, resume] = ["s", "resume"].map(|name| interner.intern(name));
+        let (x, resume) = (binder(1, x), binder(2, resume));
+        let state = drop_in(x, CoreExpr::Lit(CoreLit::Int(0), s()));
+        let clause = give(resume, dup(x, v(x)));
+        let body = CoreExpr::Lit(CoreLit::Unit, s());
+        let plan = lam(vec![x], handle_ask(&mut interner, resume, Some(state), body, clause));
+        assert!(contract_errors(&plan).contains(&AetherErrorKind::UsedAfterRelease));
+    }
+
+    /// The closure keeps its reference to a capture for every run of the
+    /// clause, so a clause that gives one away without a copy gives away a
+    /// reference it does not own.
+    #[test]
+    fn a_clause_that_gives_a_capture_away_without_a_copy_is_rejected() {
+        let mut interner = Interner::new();
+        let [x, resume] = ["s", "resume"].map(|name| interner.intern(name));
+        let (x, resume) = (binder(1, x), binder(2, resume));
+        let body = CoreExpr::Lit(CoreLit::Unit, s());
+        let plan = lam(vec![x], handle_ask(&mut interner, resume, None, body, give(resume, v(x))));
+        assert!(!contract_errors(&plan).is_empty());
+    }
+
     fn views_consumed(
         def: &CoreExpr,
         signature: Option<&crate::aether::borrow_infer::BorrowSignature>,
