@@ -11,6 +11,9 @@
 pub enum Group {
     Core,
     Extended,
+    /// Programs written with effect handlers, from effect-handlers-bench and
+    /// Koka's suite.
+    Effects,
 }
 
 pub struct Benchmark {
@@ -21,11 +24,19 @@ pub struct Benchmark {
     pub group: Group,
     pub smoke: &'static str,
     pub full: &'static str,
+    /// Whether the program has a direct-style twin,
+    /// `benchmarks/flux/{name}_direct.flx`: the same computation without
+    /// effect handlers, timed beside it for the effect overhead.
+    pub twin: bool,
 }
 
 impl Benchmark {
     pub fn flux_program(&self) -> String {
         format!("benchmarks/flux/{}.flx", self.name)
+    }
+
+    pub fn flux_twin(&self) -> Option<String> {
+        self.twin.then(|| format!("benchmarks/flux/{}_direct.flx", self.name))
     }
 
     /// The size every program of this benchmark is run with.
@@ -59,7 +70,19 @@ const fn bench(
     smoke: &'static str,
     full: &'static str,
 ) -> Benchmark {
-    Benchmark { name, title, tag, group, smoke, full }
+    Benchmark { name, title, tag, group, smoke, full, twin: false }
+}
+
+/// An effects benchmark; `twin` says it has a direct-style twin.
+const fn effect_bench(
+    name: &'static str,
+    title: &'static str,
+    tag: &'static str,
+    twin: bool,
+    smoke: &'static str,
+    full: &'static str,
+) -> Benchmark {
+    Benchmark { name, title, tag, group: Group::Effects, smoke, full, twin }
 }
 
 // Sizes measured on an Apple M5 Pro: smoke runs take 0.5–2.5 s on the VM,
@@ -85,9 +108,17 @@ pub const BENCHMARKS: &[Benchmark] = &[
         "1000000",
     ),
     bench("sfib", "Wrapping Fibonacci", "sfib", Group::Extended, "5000000", "200000000"),
+    effect_bench(
+        "product_early",
+        "Product with Early Exit",
+        "product-early",
+        true,
+        "2000",
+        "100000",
+    ),
 ];
 
-/// A benchmark's name, or `core`, `extended` or `all`.
+/// A benchmark's name, or `core`, `extended`, `effects` or `all`.
 pub fn select(target: &str) -> Result<Vec<&'static Benchmark>, String> {
     let in_group = |group: Option<Group>| -> Vec<&'static Benchmark> {
         BENCHMARKS.iter().filter(|b| group.is_none_or(|g| b.group == g)).collect()
@@ -95,10 +126,14 @@ pub fn select(target: &str) -> Result<Vec<&'static Benchmark>, String> {
     match target {
         "core" => Ok(in_group(Some(Group::Core))),
         "extended" => Ok(in_group(Some(Group::Extended))),
+        "effects" => Ok(in_group(Some(Group::Effects))),
         "all" => Ok(in_group(None)),
         name => BENCHMARKS.iter().find(|b| b.name == name).map(|b| vec![b]).ok_or_else(|| {
             let names: Vec<&str> = BENCHMARKS.iter().map(|b| b.name).collect();
-            format!("unknown benchmark {name}; one of {}, or core, extended, all", names.join(", "))
+            format!(
+                "unknown benchmark {name}; one of {}, or core, extended, effects, all",
+                names.join(", ")
+            )
         }),
     }
 }
@@ -111,8 +146,10 @@ mod tests {
     fn groups_hold_every_benchmark_once() {
         let core = select("core").unwrap().len();
         let extended = select("extended").unwrap().len();
-        assert_eq!(core + extended, select("all").unwrap().len());
+        let effects = select("effects").unwrap().len();
+        assert_eq!(core + extended + effects, select("all").unwrap().len());
         assert_eq!(core, 8);
+        assert!(select("effects").unwrap().iter().all(|b| b.group == Group::Effects));
     }
 
     #[test]
@@ -120,6 +157,9 @@ mod tests {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
         for b in BENCHMARKS {
             assert!(root.join(b.flux_program()).is_file(), "{}", b.flux_program());
+            if let Some(twin) = b.flux_twin() {
+                assert!(root.join(&twin).is_file(), "{twin}");
+            }
             let (smoke, full): (u64, u64) = (b.smoke.parse().unwrap(), b.full.parse().unwrap());
             assert!(smoke < full, "{}: the full size is the larger", b.name);
         }

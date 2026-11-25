@@ -23,6 +23,9 @@ pub struct Report<'a> {
     pub baseline_metrics: &'a [(String, u64)],
     pub vm: &'a str,
     pub native: &'a str,
+    /// The direct-style twin's cases, when the benchmark has one.
+    pub vm_direct: &'a str,
+    pub native_direct: &'a str,
 }
 
 /// One benchmark's line in a group's summary.
@@ -32,6 +35,23 @@ pub struct Outcome {
     pub vm_vs_baseline: Option<f64>,
     pub native_vs_baseline: Option<f64>,
     pub vm_over_native: Option<f64>,
+    /// The effectful program's time over its direct-style twin's.
+    pub vm_overhead: Option<f64>,
+    pub native_overhead: Option<f64>,
+}
+
+impl Outcome {
+    pub fn failed(name: &str) -> Outcome {
+        Outcome {
+            name: name.to_string(),
+            passed: false,
+            vm_vs_baseline: None,
+            native_vs_baseline: None,
+            vm_over_native: None,
+            vm_overhead: None,
+            native_overhead: None,
+        }
+    }
 }
 
 pub fn render(r: &Report<'_>) -> String {
@@ -81,6 +101,17 @@ pub fn render(r: &Report<'_>) -> String {
     }
     if let Some(ratio) = vm_over_native(r.cases, r.vm, r.native) {
         let _ = writeln!(out, "\nVM / native: {ratio:.2}×");
+    }
+    let vm_overhead = over(r.cases, r.vm, r.vm_direct);
+    let native_overhead = over(r.cases, r.native, r.native_direct);
+    if vm_overhead.is_some() || native_overhead.is_some() {
+        let shown = |r: Option<f64>| r.map_or("–".to_string(), |r| format!("{r:.2}×"));
+        let _ = writeln!(
+            out,
+            "\nEffect overhead (with handlers / direct style): VM {}, native {}",
+            shown(vm_overhead),
+            shown(native_overhead),
+        );
     }
 
     if let Some((path, baseline)) = &r.baseline {
@@ -159,32 +190,62 @@ fn render_metrics(out: &mut String, metrics: &[(String, u64)], baseline: &[(Stri
     }
 }
 
-/// The table that ends a group run, with a geomean row.
+/// The table that ends a group run, with a geomean row. The effect
+/// overhead columns appear when some benchmark has a direct-style twin.
 pub fn summary(outcomes: &[Outcome]) -> String {
+    let overheads = outcomes.iter().any(|o| o.vm_overhead.is_some() || o.native_overhead.is_some());
     let mut out = String::from(
-        "## Summary\n\n| Benchmark | VM now / baseline | Native now / baseline | VM / native |\n\
-         |:---|---:|---:|---:|\n",
+        "## Summary\n\n| Benchmark | VM now / baseline | Native now / baseline | VM / native |",
     );
+    let mut rule = String::from("|:---|---:|---:|---:|");
+    if overheads {
+        out.push_str(" VM effect overhead | Native effect overhead |");
+        rule.push_str("---:|---:|");
+    }
+    let _ = writeln!(out, "\n{rule}");
     let ratio = |r: Option<f64>| r.map_or("–".to_string(), |r| format!("{r:.3}×"));
-    for o in outcomes {
-        let name = if o.passed { o.name.clone() } else { format!("{} (failed)", o.name) };
-        let _ = writeln!(
+    let factor = |r: Option<f64>| r.map_or("–".to_string(), |r| format!("{r:.1}×"));
+    let overhead = |r: Option<f64>| r.map_or("–".to_string(), |r| format!("{r:.2}×"));
+    let row = |out: &mut String, name: &str, cells: [Option<f64>; 5]| {
+        let _ = write!(
             out,
             "| {name} | {} | {} | {} |",
-            ratio(o.vm_vs_baseline),
-            ratio(o.native_vs_baseline),
-            o.vm_over_native.map_or("–".to_string(), |r| format!("{r:.1}×")),
+            ratio(cells[0]),
+            ratio(cells[1]),
+            factor(cells[2])
+        );
+        if overheads {
+            let _ = write!(out, " {} | {} |", overhead(cells[3]), overhead(cells[4]));
+        }
+        out.push('\n');
+    };
+    for o in outcomes {
+        let name = if o.passed { o.name.clone() } else { format!("{} (failed)", o.name) };
+        row(
+            &mut out,
+            &name,
+            [
+                o.vm_vs_baseline,
+                o.native_vs_baseline,
+                o.vm_over_native,
+                o.vm_overhead,
+                o.native_overhead,
+            ],
         );
     }
     let column = |pick: fn(&Outcome) -> Option<f64>| {
         geomean(&outcomes.iter().filter_map(pick).collect::<Vec<_>>())
     };
-    let _ = writeln!(
-        out,
-        "| **geomean** | {} | {} | {} |",
-        ratio(column(|o| o.vm_vs_baseline)),
-        ratio(column(|o| o.native_vs_baseline)),
-        column(|o| o.vm_over_native).map_or("–".to_string(), |r| format!("{r:.1}×")),
+    row(
+        &mut out,
+        "**geomean**",
+        [
+            column(|o| o.vm_vs_baseline),
+            column(|o| o.native_vs_baseline),
+            column(|o| o.vm_over_native),
+            column(|o| o.vm_overhead),
+            column(|o| o.native_overhead),
+        ],
     );
     out
 }
@@ -194,7 +255,12 @@ pub fn find<'a>(cases: &'a [Case], name: &str) -> Option<&'a Case> {
 }
 
 pub fn vm_over_native(cases: &[Case], vm: &str, native: &str) -> Option<f64> {
-    Some(mean(&find(cases, vm)?.times) / mean(&find(cases, native)?.times))
+    over(cases, vm, native)
+}
+
+/// The mean time of the case `a` over that of `b`, when both ran.
+pub fn over(cases: &[Case], a: &str, b: &str) -> Option<f64> {
+    Some(mean(&find(cases, a)?.times) / mean(&find(cases, b)?.times))
 }
 
 /// Replaces what lies between `<!-- tag-report:start -->` and its end
@@ -291,10 +357,62 @@ mod tests {
             baseline_metrics: &[("vm_allocs".into(), 100)],
             vm: "b/flux",
             native: "b/flux-native",
+            vm_direct: "b/flux-direct",
+            native_direct: "b/flux-native-direct",
         });
         assert!(text.contains("VM / native: 20.50×"), "{text}");
+        assert!(!text.contains("Effect overhead"), "{text}");
         assert!(text.contains("| slower |"), "{text}");
         assert!(text.contains("| within noise |"), "{text}");
         assert!(text.contains("| `vm_allocs` | 110 | 100 | +10.00% |"), "{text}");
+    }
+
+    #[test]
+    fn a_report_with_a_twin_shows_the_effect_overhead() {
+        let cases = [
+            case("e/flux", &[3.0; 4]),
+            case("e/flux-direct", &[2.0; 4]),
+            case("e/flux-native", &[0.5; 4]),
+            case("e/flux-native-direct", &[0.1; 4]),
+        ];
+        let text = render(&Report {
+            title: "E",
+            generated: "now".into(),
+            platform: "macos-aarch64",
+            runs: "4".into(),
+            warmup: 1,
+            workload: "10 (smoke)".into(),
+            toolchains: &[],
+            cases: &cases,
+            baseline: None,
+            metrics: &[],
+            baseline_metrics: &[],
+            vm: "e/flux",
+            native: "e/flux-native",
+            vm_direct: "e/flux-direct",
+            native_direct: "e/flux-native-direct",
+        });
+        assert!(
+            text.contains("Effect overhead (with handlers / direct style): VM 1.50×, native 5.00×"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn a_summary_gets_overhead_columns_only_when_a_benchmark_has_a_twin() {
+        let plain = Outcome { vm_over_native: Some(100.0), ..Outcome::failed("tak") };
+        assert!(!summary(&[plain]).contains("effect overhead"));
+
+        let twin = Outcome {
+            passed: true,
+            vm_overhead: Some(2.0),
+            native_overhead: Some(8.0),
+            ..Outcome::failed("countdown")
+        };
+        let text = summary(&[Outcome { passed: true, ..Outcome::failed("fib") }, twin]);
+        assert!(text.contains("| VM effect overhead | Native effect overhead |"), "{text}");
+        assert!(text.contains("| countdown | – | – | – | 2.00× | 8.00× |"), "{text}");
+        assert!(text.contains("| fib | – | – | – | – | – |"), "{text}");
+        assert!(text.contains("| **geomean** | – | – | – | 2.00× | 8.00× |"), "{text}");
     }
 }

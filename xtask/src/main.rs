@@ -88,7 +88,7 @@
 //! cargo xtask phase <phase>... [--dry-run] [-- <nextest args>]
 //! cargo xtask phase --list
 //!     run the tests for compiler phases (`affected.rs`)
-//! cargo xtask bench <benchmark | core | extended | all> [--runs <n>] [--warmup <n>]
+//! cargo xtask bench <benchmark | core | extended | effects | all> [--runs <n>] [--warmup <n>]
 //!                   [--full] [--save-baseline] [--no-check] [--no-readme]
 //!                   [--report-file <path>] [--no-vm] [--no-native] [--vms] [--no-build]
 //! cargo xtask bench <benchmark> --profile vm|native [--full] [--no-build]
@@ -99,8 +99,9 @@
 //!     what the VM prints (--no-check skips that), and that VM run writes
 //!     flux --metrics; compares with benchmarks/baselines/<os>-<arch>/
 //!     (Mann–Whitney p, geomean), writes target/bench/<name>.md and the
-//!     README block; --profile records a samply profile instead
-//!     (`bench/`)
+//!     README block; an effects benchmark also times its direct-style
+//!     twin and reports the effect overhead; --profile records a samply
+//!     profile instead (`bench/`)
 //! cargo xtask bench stats-diff <base.json> <head.json>
 //!     compare two flux --stats-json files phase by phase, with the counts
 //!     that changed (`bench/stats_diff.rs`)
@@ -148,7 +149,7 @@ const USAGE: &str = "usage:
   cargo xtask scale [--flux <path>] [<test>...]
   cargo xtask affected [<base ref>] [--path <path>]... [--dry-run] [-- <nextest args>]
   cargo xtask phase <phase>... [--dry-run] [-- <nextest args>] | --list
-  cargo xtask bench <benchmark | core | extended | all> [--runs <n>] [--warmup <n>] [--full] [--save-baseline] [--no-check] [--no-readme] [--report-file <path>] [--no-vm] [--no-native] [--vms] [--no-build]
+  cargo xtask bench <benchmark | core | extended | effects | all> [--runs <n>] [--warmup <n>] [--full] [--save-baseline] [--no-check] [--no-readme] [--report-file <path>] [--no-vm] [--no-native] [--vms] [--no-build]
   cargo xtask bench <benchmark> --profile vm|native [--full] [--no-build]
   cargo xtask bench stats-diff <base.json> <head.json>
   cargo xtask tidy";

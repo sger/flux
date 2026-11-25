@@ -42,7 +42,7 @@ impl ProfileWay {
 }
 
 pub struct Options {
-    /// A benchmark's name, or `core`, `extended` or `all`.
+    /// A benchmark's name, or `core`, `extended`, `effects` or `all`.
     pub target: String,
     /// An exact number of runs; otherwise hyperfine picks between 3 and 50.
     pub runs: Option<usize>,
@@ -101,13 +101,7 @@ pub fn run_bench(root: &Path, options: &Options) -> Result<bool, String> {
             Ok(outcome) => outcomes.push(outcome),
             Err(e) => {
                 eprintln!("{}: {e}", benchmark.name);
-                outcomes.push(report::Outcome {
-                    name: benchmark.name.to_string(),
-                    passed: false,
-                    vm_vs_baseline: None,
-                    native_vs_baseline: None,
-                    vm_over_native: None,
-                });
+                outcomes.push(report::Outcome::failed(benchmark.name));
             }
         }
     }
@@ -128,18 +122,13 @@ fn run_one(
     let cases = prepare_cases(root, b, full, options)?;
     let vm = format!("{}/flux", b.name);
     let native = format!("{}/flux-native", b.name);
-    let failed = |name: &str| report::Outcome {
-        name: name.to_string(),
-        passed: false,
-        vm_vs_baseline: None,
-        native_vs_baseline: None,
-        vm_over_native: None,
-    };
+    let vm_direct = format!("{}/flux-direct", b.name);
+    let native_direct = format!("{}/flux-native-direct", b.name);
 
     let metrics_file = root.join(BENCH_DIR).join(format!("{}{suffix}.metrics.tsv", b.name));
     let _ = fs::remove_file(&metrics_file);
     if options.check && !check_outputs(root, &cases, &vm, &metrics_file)? {
-        return Ok(failed(b.name));
+        return Ok(report::Outcome::failed(b.name));
     }
 
     let results_file = format!("{BENCH_DIR}/{}{suffix}.json", b.name);
@@ -196,6 +185,8 @@ fn run_one(
         baseline_metrics: &baseline_metrics,
         vm: &vm,
         native: &native,
+        vm_direct: &vm_direct,
+        native_direct: &native_direct,
     });
     println!("\n{text}");
 
@@ -239,6 +230,8 @@ fn run_one(
         vm_vs_baseline: vs_baseline(&vm),
         native_vs_baseline: vs_baseline(&native),
         vm_over_native: report::vm_over_native(&results, &vm, &native),
+        vm_overhead: report::over(&results, &vm, &vm_direct),
+        native_overhead: report::over(&results, &native, &native_direct),
     })
 }
 
@@ -257,28 +250,42 @@ fn prepare_cases(
         argv.extend(arg.iter().cloned());
         argv
     };
-    let program = b.flux_program();
+    // The program, then its direct-style twin, if it has one: the twin's
+    // cases end in `-direct`, and must print the same answer.
+    let mut programs = vec![(b.flux_program(), "", "")];
+    if let Some(twin) = b.flux_twin() {
+        programs.push((twin, "-direct", "_direct"));
+    }
     let mut cases = Vec::new();
     if options.vm {
-        // A Flux program's own arguments follow `--`.
-        cases.push(Case {
-            name: format!("{name}/flux"),
-            argv: vec![exe("./target/release/flux"), program.clone(), "--".into(), size.clone()],
-        });
+        for (program, case_suffix, _) in &programs {
+            // A Flux program's own arguments follow `--`.
+            cases.push(Case {
+                name: format!("{name}/flux{case_suffix}"),
+                argv: vec![
+                    exe("./target/release/flux"),
+                    program.clone(),
+                    "--".into(),
+                    size.clone(),
+                ],
+            });
+        }
     }
     let skip = |lang: &str, why: &str| println!("{name}: no {lang} case: {why}");
 
     if options.native {
-        let out = format!("{BENCH_DIR}/{name}_flux");
-        let mut cmd = Command::new(root.join(exe("target/release/flux")));
-        cmd.current_dir(root).args([&program, "--native", "-O", "--emit-binary", "-o", &out]);
-        if proc::run(&mut cmd).map_err(|e| format!("flux --native: {e}"))? != 0 {
-            return Err(format!("could not build the native binary of {program}"));
+        for (program, case_suffix, file_suffix) in &programs {
+            let out = format!("{BENCH_DIR}/{name}{file_suffix}_flux");
+            let mut cmd = Command::new(root.join(exe("target/release/flux")));
+            cmd.current_dir(root).args([program, "--native", "-O", "--emit-binary", "-o", &out]);
+            if proc::run(&mut cmd).map_err(|e| format!("flux --native: {e}"))? != 0 {
+                return Err(format!("could not build the native binary of {program}"));
+            }
+            cases.push(Case {
+                name: format!("{name}/flux-native{case_suffix}"),
+                argv: with_arg(vec![exe(&format!("./{out}"))]),
+            });
         }
-        cases.push(Case {
-            name: format!("{name}/flux-native"),
-            argv: with_arg(vec![exe(&format!("./{out}"))]),
-        });
     }
 
     let rust = exe(&format!("./target/release/{name}_rust"));
