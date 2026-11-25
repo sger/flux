@@ -68,6 +68,53 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-230 — Natively, each `handle` whose clause doesn't resume leaves stack behind, and about a million of them overflow it
+
+**Severity:** Medium (a crash after many aborts; nothing leaks on the heap) · **Area:** native effects runtime, aborting clauses · **Verified:** 2026-11-25 (6463f738, and `main` at 64005292) · **From:** sizing the product_early benchmark
+
+```flux
+import Flow.Env as Env
+import Flow.Array as Array
+
+effect Abort {
+    done : (Int) -> Int
+}
+
+fn one() -> Int with Abort {
+    perform Abort.done(1)
+}
+
+fn caught() -> Int {
+    one() handle Abort { done(resume, r) -> r }
+}
+
+fn run(i: Int, a: Int) -> Int {
+    if i == 0 { a } else { run(i - 1, a + caught()) }
+}
+
+fn main() with IO {
+    let n = match Array.get(Env.args(), 1) { Some(s) -> parse_int(s), None -> 5 }
+    print(run(n, 0))
+}
+```
+
+Built with `--native -O --emit-binary` and run with an argument:
+
+| n | Exit | Peak RSS |
+|---:|:---|---:|
+| 100,000 | 0, prints `100000` | 10 MB |
+| 1,000,000 | 138 (SIGBUS) | 69 MB |
+| 4,000,000 | 138 (SIGBUS) | 69 MB |
+
+The VM prints `n`. `run` is a tail call, and `--leak-check` finds no block
+live at exit, so the growth looks like the stack: each `handle` whose clause
+returns without resuming seems to leave its frames, about 60 bytes, until
+the stack runs out. Not confirmed in the code.
+
+effect-handlers-bench's product_early runs one such `handle` per turn. It
+crashes the same way at 1,000,000 turns, and runs at its suite size of
+100,000.
+
 ### KI-229 — A function annotated `-> ()` is rejected, even when its body is `()`
 
 **Severity:** Low (loud; leaving the return type out works) · **Area:** type annotations, the unit type · **Verified:** 2026-11-25 (2b138517, and `main` at 64005292) · **From:** writing the effects benchmarks
