@@ -1,0 +1,27 @@
+// expect: success
+// skip-way: llvm, llvm_opt: KI-148 a literal lent to a borrowed parameter keeps the self tail call a call
+// bug: KI-148. A self tail call that passes a literal to a parameter that
+//      stays borrowed keeps a dup and a drop around the call, so it is not a
+//      jump and each loop below overflows the native stack: a String
+//      literal, and an Int that is only lent to a callee.
+// parity-expected-stdout-begin
+// 0
+// 0
+// parity-expected-stdout-end
+
+// `s` is only read by `len`, which borrows it.
+fn walk_string(n: Int, s: String) -> Int {
+    if n <= 0 { 0 } else if len(s) > 1 { walk_string(n - 1, "a") } else { walk_string(n - 1, "bb") }
+}
+
+fn wide(x: Int) -> Bool { len(to_string(x)) > 1 }
+
+// `x` is only lent to `wide`, which never reads it raw.
+fn walk_lent(n: Int, x: Int) -> Int {
+    if n <= 0 { 0 } else if wide(x) { walk_lent(n - 1, 0) } else { walk_lent(n - 1, 10) }
+}
+
+fn main() with IO {
+    print(walk_string(2000000, "a"))
+    print(walk_lent(2000000, 0))
+}

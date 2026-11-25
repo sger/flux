@@ -1,0 +1,40 @@
+// parity: vm, llvm
+// expect: success
+// bug: KI-148. A self tail call that passes an Int literal kept a dup and a
+//      drop around the call when the parameter was borrowed, so it was not a
+//      jump and each loop below overflowed the native stack. An Int parameter
+//      read raw, here or in a callee, now takes ownership of its argument.
+// parity-expected-stdout-begin
+// 0
+// 0
+// 2
+// parity-expected-stdout-end
+
+// `x` is compared in its own function.
+fn walk(n: Int, x: Int) -> Int {
+    if n <= 0 { 0 } else if x > 5 { walk(n - 1, 0) } else { walk(n - 1, 9) }
+}
+
+fn same(a: Int, b: Int) -> Bool { a == b }
+
+// `x` is compared in a callee.
+fn walk_via(n: Int, x: Int) -> Int {
+    if n <= 0 { 0 } else if same(x, 9) { walk_via(n - 1, 0) } else { walk_via(n - 1, 9) }
+}
+
+// A loop that restarts from literals, as `benchmarks/flux/sfib.flx` does.
+fn restart(n: Int, x1: Int, x2: Int) -> Int {
+    if n <= 0 {
+        x1
+    } else if x2 > 1000 {
+        restart(n - 1, 1, 2)
+    } else {
+        restart(n - 1, x2 - x1, x1 * x2 + x1)
+    }
+}
+
+fn main() with IO {
+    print(walk(2000000, 0))
+    print(walk_via(2000000, 0))
+    print(restart(2000000, 1, 2))
+}
