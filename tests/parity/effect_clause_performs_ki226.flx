@@ -1,0 +1,49 @@
+// parity: vm, llvm
+// expect: success
+// bug: KI-226. A handler clause was compiled as a function with no
+//      effects, so performing an effect its enclosing function declares,
+//      or calling a function that does, was rejected with E400. A clause
+//      performing an effect a handle around it provides already worked.
+// parity-expected-stdout-begin
+// 7
+// 7
+// 8
+// parity-expected-stdout-end
+
+effect Read {
+    read : () -> Int
+}
+
+effect Stop {
+    stop : () -> Int
+}
+
+fn reads() -> Int with Read {
+    perform Read.read()
+}
+
+fn stop_now() -> Int with Stop {
+    perform Stop.stop()
+}
+
+fn performs_in_clause() -> Int with Stop {
+    reads() handle Read { read(resume) -> perform Stop.stop() }
+}
+
+fn calls_in_clause() -> Int with Stop {
+    reads() handle Read { read(resume) -> stop_now() }
+}
+
+fn reads_plus_one() -> Int with Read {
+    perform Read.read() + 1
+}
+
+fn handled_around() -> Int {
+    (reads_plus_one() handle Read { read(resume) -> resume(perform Stop.stop()) }) handle Stop { stop(resume) -> resume(7) }
+}
+
+fn main() with IO {
+    print(performs_in_clause() handle Stop { stop(resume) -> 7 })
+    print(calls_in_clause() handle Stop { stop(resume) -> 7 })
+    print(handled_around())
+}

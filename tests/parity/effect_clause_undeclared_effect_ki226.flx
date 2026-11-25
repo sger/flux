@@ -1,0 +1,25 @@
+// parity: vm, llvm
+// expect: compile_error
+// bug: KI-226. A clause may perform what its enclosing function declares;
+//      here the function declares nothing and no handle provides Stop, so
+//      it must stay an error.
+
+effect Read {
+    read : () -> Int
+}
+
+effect Stop {
+    stop : () -> Int
+}
+
+fn reads() -> Int with Read {
+    perform Read.read()
+}
+
+fn undeclared() -> Int {
+    reads() handle Read { read(resume) -> perform Stop.stop() } //~ E400
+}
+
+fn main() with IO {
+    print(undeclared() handle Stop { stop(resume) -> 7 })
+}

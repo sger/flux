@@ -1,0 +1,21 @@
+// parity: vm, llvm
+// expect: compile_error
+// bug: KI-226. A clause runs outside its own handler, so performing its
+//      own effect needs a provider outside: here neither the function nor
+//      a handle around it provides Ask, and it must stay an error.
+
+effect Ask {
+    ask : () -> Int
+}
+
+fn asks() -> Int with Ask {
+    perform Ask.ask()
+}
+
+fn alone() -> Int {
+    asks() handle Ask { ask(resume) -> resume(perform Ask.ask()) } //~ E400
+}
+
+fn main() with IO {
+    print(alone())
+}
