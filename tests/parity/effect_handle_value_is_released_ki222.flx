@@ -1,0 +1,28 @@
+// parity: vm, llvm, llvm_heap
+// expect: success
+// bug: KI-222. Natively the value of a handle was copied after the handle,
+//      although the runtime hands it back with the reference its body made,
+//      so a String value leaked: returned from the function, or bound by a
+//      let and then used.
+// parity-expected-stdout-begin
+// "z!"
+// "y!."
+// parity-expected-stdout-end
+
+effect Ask {
+    ask : () -> String
+}
+
+fn returned() -> String {
+    (perform Ask.ask() + "!") handle Ask { ask(resume) -> resume("z") }
+}
+
+fn bound() -> String {
+    let r = (perform Ask.ask() + "!") handle Ask { ask(resume) -> resume("y") }
+    r + "."
+}
+
+fn main() with IO {
+    print(returned())
+    print(bound())
+}
