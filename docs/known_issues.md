@@ -68,6 +68,50 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-224 — Natively, a parameterized handler gives a wrong value once its body has performed more than 8 times
+
+**Severity:** High (a wrong answer, silently) · **Area:** native effects runtime, yield continuations (`runtime/c/`, `flux_yield_extend`) · **Verified:** 2026-11-25 (2b138517, and `main` at 64005292) · **From:** writing the effects benchmarks (effect-handlers-bench's countdown and iterator)
+
+```flux
+effect Counter {
+    next : () -> Int
+}
+
+fn count(i: Int) -> Int with Counter {
+    let x = perform Counter.next()
+    if i == 0 { x } else { count(i - 1) }
+}
+
+fn run(n: Int) -> Int {
+    count(n) handle Counter(0) { next(resume, s) -> resume(s, s + 1) }
+}
+
+fn main() with IO {
+    print(run(7))
+    print(run(8))
+}
+```
+
+The VM prints `7` and `8`. Natively, with or without `-O`, it prints `7`
+and `<unknown obj=0xf5>`, a closure (printed as in [KI-182](#ki-182)):
+`run(7)` performs 8 times, `run(8)` 9 times. Every count past 8 gives a
+closure. A handler that sums into its state instead, as in
+
+```flux
+summed(n) handle Emit(0) {
+    emit(resume, e, s) -> resume((), s + e),
+    total(resume, s) -> resume(s, s)
+}
+```
+
+over `range(0, 1000000)`, prints `28` natively, the sum of the first 8
+values, where the VM prints `500000500000`.
+
+The same loops through a handler without state are right natively. 8 is
+where native yield continuations start to be composed
+(`tests/parity/effect_yield_conts_overflow.flx`: "compresses at 8 frames"),
+so that path likely loses the handler's state. Not confirmed in the code.
+
 ### KI-221 — On the VM, a function whose body is a `handle` with a computed initial state returns the state
 
 **Severity:** High (a wrong answer, silently) · **Area:** VM lowering of `handle` · **Verified:** 2026-11-24 (d019178e) · **From:** the KI-039 plan's `explicit_boxing` step, while writing the KI-220 fixture
