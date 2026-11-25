@@ -13,7 +13,8 @@ Benchmark sources are organized by language:
 
 ## Curated Suite
 
-The benchmark suite is split into a smaller `core` set and a broader `extended` set.
+The benchmark suite is split into a smaller `core` set, a broader `extended` set, and an
+`effects` set of programs written with effect handlers.
 
 Core benchmarks:
 
@@ -33,6 +34,18 @@ Extended benchmarks:
 - `rbtree2`: alternate red-black-tree variant with a different value shape
 - `sfib`: a tail-recursive loop over 32-bit ints that wrap
 
+Effects benchmarks, from [effect-handlers-bench](https://github.com/effect-handlers/effect-handlers-bench):
+
+- `fibonacci_recursive`: doubly recursive Fibonacci with no effects, the group's baseline
+- `product_early`: an abort, whose clause never resumes, from 1000 frames deep
+- `resume_nontail`: a clause that works on what its resume returns, the resumes nested deep
+- `nqueens_choice`: backtracking through a `pick` resumed once per row, and a `fail`
+
+Each effects program but `fibonacci_recursive` has a direct-style twin,
+`benchmarks/flux/<name>_direct.flx`: the same computation without effect handlers. Their
+time ratio is the effect overhead. The other languages' ports follow the twin, except
+OCaml's, which use OCaml 5's effect handlers where a clause resumes at most once.
+
 ## Tools
 
 The harness is `cargo xtask bench` (`xtask/src/bench/`). It runs the same way on Linux,
@@ -48,7 +61,7 @@ cargo install --locked hyperfine samply critcmp
 
 ```bash
 cargo xtask bench nqueens          # one benchmark
-cargo xtask bench core             # or extended, or all
+cargo xtask bench core             # or extended, effects, or all
 ```
 
 The harness first builds a release `flux` with the native backend and the Rust ports
@@ -57,6 +70,11 @@ as a native binary emitted with `-O` into `target/bench/` (`<name>/flux-native`)
 native case times only the compiled program, not the compiler. The Python, Haskell
 (`ghc`), OCaml (`ocamlopt`), Erlang, Elixir and Go ports are compiled into `target/` when
 their toolchain is on `PATH`. A case whose toolchain is missing is skipped with a note.
+
+An effects benchmark also times its direct-style twin, on the VM (`<name>/flux-direct`)
+and natively (`<name>/flux-native-direct`). The report adds a line giving the effect
+overhead on each backend, the time with handlers over the time in direct style, and a
+group's summary adds the two as columns.
 
 Before timing, every case runs once and must print what the Flux VM prints. A port that
 prints something else stops that benchmark before it is timed, and the run fails. Flux's
@@ -84,6 +102,10 @@ written with. The harness runs each benchmark at one of two sizes, listed in
 | `nbody` | simulation steps | 20,000 | 250,000 |
 | `tak` | `n` in `tak(n, 2n/3, n/3)` | 27 | 33 |
 | `sfib` | loop iterations | 5,000,000 | 200,000,000 |
+| `fibonacci_recursive` | `n` in `fib(n)` | 33 | 42 |
+| `product_early` | products of [1000, …, 0] | 2,000 | 100,000 |
+| `resume_nontail` | nesting depth of the resumes, each run 1000 times | 400 | 700 |
+| `nqueens_choice` | board size | 10 | 12 |
 
 ```bash
 cargo xtask bench core --full --no-vm   # native Flux against the other languages
@@ -1090,3 +1112,298 @@ From `flux --metrics` on the VM case. They are the same on every run of the same
 | `vm_allocs` | 27780752 | – | – |
 | `vm_instructions` | 211668574 | – | – |
 <!-- sfib-report:end -->
+
+## Recursive Fibonacci
+
+effect-handlers-bench's `fibonacci_recursive`: `fib(42)` by double recursion, with no
+effects. It measures the cost of calls in pure code, the baseline for the rest of the
+effects group, so it has no direct-style twin. The suite's description gives each output
+one number up, `fib(n + 1)`; its reference program, like these, starts from `fib(0) = 0`.
+
+Sources:
+
+- `benchmarks/flux/fibonacci_recursive.flx`
+- `benchmarks/rust/fibonacci_recursive.rs`
+- `benchmarks/go/fibonacci_recursive/main.go`
+- `benchmarks/haskell/fibonacci-recursive.hs`
+- `benchmarks/ocaml/fibonacci_recursive.ml`
+- `benchmarks/python/fibonacci_recursive.py`
+- `benchmarks/erlang/fibonacci_recursive.erl`
+- `benchmarks/elixir/fibonacci_recursive.ex`
+
+Run the cross-language benchmark:
+
+```bash
+cargo xtask bench fibonacci_recursive
+```
+
+Latest report:
+
+<!-- fibonacci-recursive-report:start -->
+# Recursive Fibonacci Benchmark Report
+
+- Generated: 2026-11-25 19:07 UTC
+- Machine: macos-aarch64
+- Runs: 3 to 50, as hyperfine chose, warmup: 1
+- Workload: 33 (smoke)
+- Toolchains: flux 31c290a3; hyperfine 2.0.0; rustc 1.100.0 (0ef1bc386 2026-11-09); Python 3.9.6; ghc 9.10.3; ocamlopt 5.5.2; erlang OTP 29; elixir 1.20.5; go1.27.4 darwin/arm64
+
+| Case | Mean | ± σ | Min | Max | Peak RSS | Instructions | × native |
+|:---|---:|---:|---:|---:|---:|---:|---:|
+| `fibonacci_recursive/flux` | 1.117 s | 7.10 ms | 1.112 s | 1.125 s | 19.2 MiB | 34.14 G | 80.38× |
+| `fibonacci_recursive/flux-native` | 13.9 ms | 0.31 ms | 13.3 ms | 14.9 ms | 2.1 MiB | 214.5 M | 1.00× |
+| `fibonacci_recursive/rust` | 6.23 ms | 0.23 ms | 5.92 ms | 6.79 ms | 2.0 MiB | 112.6 M | 0.45× |
+| `fibonacci_recursive/python` | 475.3 ms | 3.24 ms | 470.1 ms | 479.2 ms | 9.5 MiB | 13.91 G | 34.21× |
+| `fibonacci_recursive/haskell` | 28.8 ms | 0.80 ms | 25.5 ms | 29.8 ms | 11.4 MiB | 251.8 M | 2.07× |
+| `fibonacci_recursive/ocaml` | 10.2 ms | 0.53 ms | 9.61 ms | 11.9 ms | 2.6 MiB | 235.7 M | 0.74× |
+| `fibonacci_recursive/erlang` | 90.2 ms | 4.87 ms | 86.4 ms | 108.9 ms | 75.8 MiB | 1.86 G | 6.49× |
+| `fibonacci_recursive/elixir` | 149.9 ms | 4.34 ms | 145.9 ms | 163.4 ms | 82.5 MiB | 2.76 G | 10.79× |
+| `fibonacci_recursive/go` | 10.5 ms | 0.80 ms | 9.46 ms | 13.1 ms | 4.4 MiB | 207.7 M | 0.75× |
+
+VM / native: 80.38×
+
+No baseline for macos-aarch64 yet: record one with --save-baseline.
+
+### VM counts
+
+From `flux --metrics` on the VM case. They are the same on every run of the same compiler.
+
+| Count | Now | Baseline | Change |
+|:---|---:|---:|---:|
+| `aether_allocs` | 0 | – | – |
+| `aether_drops` | 38 | – | – |
+| `aether_dups` | 1 | – | – |
+| `aether_reuses` | 0 | – | – |
+| `bytecode_bytes` | 6083 | – | – |
+| `compiler_allocs` | 1978945 | – | – |
+| `core_size` | 251 | – | – |
+| `vm_allocs` | 2977 | – | – |
+| `vm_instructions` | 147444883 | – | – |
+<!-- fibonacci-recursive-report:end -->
+
+## Product with Early Exit
+
+effect-handlers-bench's `product_early`: the product of [1000, 999, …, 0], left through
+an `Abort` effect at the first zero, whose clause returns without resuming. That runs
+100,000 times. The direct-style twin returns 0 at the zero and multiplies it back up
+through the 1000 frames above.
+
+Natively, each `handle` whose clause doesn't resume leaves stack behind, so about a
+million turns crash ([KI-230](../docs/known_issues.md#ki-230)); the suite's 100,000 run.
+
+Sources:
+
+- `benchmarks/flux/product_early.flx`
+- `benchmarks/flux/product_early_direct.flx`
+- `benchmarks/rust/product_early.rs`
+- `benchmarks/go/product_early/main.go`
+- `benchmarks/haskell/product-early.hs`
+- `benchmarks/ocaml/product_early.ml`
+- `benchmarks/python/product_early.py`
+- `benchmarks/erlang/product_early.erl`
+- `benchmarks/elixir/product_early.ex`
+
+Run the cross-language benchmark:
+
+```bash
+cargo xtask bench product_early
+```
+
+Latest report:
+
+<!-- product-early-report:start -->
+# Product with Early Exit Benchmark Report
+
+- Generated: 2026-11-25 19:07 UTC
+- Machine: macos-aarch64
+- Runs: 3 to 50, as hyperfine chose, warmup: 1
+- Workload: 2000 (smoke)
+- Toolchains: flux 31c290a3; hyperfine 2.0.0; rustc 1.100.0 (0ef1bc386 2026-11-09); Python 3.9.6; ghc 9.10.3; ocamlopt 5.5.2; erlang OTP 29; elixir 1.20.5; go1.27.4 darwin/arm64
+
+| Case | Mean | ± σ | Min | Max | Peak RSS | Instructions | × native |
+|:---|---:|---:|---:|---:|---:|---:|---:|
+| `product_early/flux` | 1.108 s | 7.30 ms | 1.100 s | 1.115 s | 19.5 MiB | 32.18 G | 32.93× |
+| `product_early/flux-direct` | 1.166 s | 42.1 ms | 1.130 s | 1.212 s | 19.6 MiB | 33.42 G | 34.65× |
+| `product_early/flux-native` | 33.6 ms | 0.84 ms | 32.5 ms | 37.6 ms | 2.4 MiB | 682.1 M | 1.00× |
+| `product_early/flux-native-direct` | 2.79 ms | 0.09 ms | 2.63 ms | 3.07 ms | 2.2 MiB | 27.0 M | 0.08× |
+| `product_early/rust` | 1.20 ms | 0.06 ms | 1.14 ms | 1.48 ms | 2.0 MiB | 14.0 M | 0.04× |
+| `product_early/python` | 136.0 ms | 1.96 ms | 133.3 ms | 139.5 ms | 10.4 MiB | 2.86 G | 4.04× |
+| `product_early/haskell` | 16.5 ms | 1.92 ms | 13.8 ms | 28.4 ms | 11.4 MiB | 137.6 M | 0.49× |
+| `product_early/ocaml` | 6.08 ms | 0.22 ms | 5.77 ms | 7.05 ms | 44.6 MiB | 73.2 M | 0.18× |
+| `product_early/erlang` | 86.5 ms | 1.04 ms | 85.2 ms | 90.8 ms | 75.8 MiB | 1.59 G | 2.57× |
+| `product_early/elixir` | 147.9 ms | 4.90 ms | 144.5 ms | 163.5 ms | 82.8 MiB | 2.50 G | 4.40× |
+| `product_early/go` | 7.70 ms | 0.15 ms | 7.30 ms | 8.01 ms | 4.5 MiB | 44.9 M | 0.23× |
+
+VM / native: 32.93×
+
+Effect overhead (with handlers / direct style): VM 0.95×, native 12.06×
+
+No baseline for macos-aarch64 yet: record one with --save-baseline.
+
+### VM counts
+
+From `flux --metrics` on the VM case. They are the same on every run of the same compiler.
+
+| Count | Now | Baseline | Change |
+|:---|---:|---:|---:|
+| `aether_allocs` | 1 | – | – |
+| `aether_drops` | 37 | – | – |
+| `aether_dups` | 2 | – | – |
+| `aether_reuses` | 0 | – | – |
+| `bytecode_bytes` | 6225 | – | – |
+| `compiler_allocs` | 1991723 | – | – |
+| `core_size` | 310 | – | – |
+| `vm_allocs` | 40074002 | – | – |
+| `vm_instructions` | 62122915 | – | – |
+<!-- product-early-report:end -->
+
+## Non-Tail Resume
+
+effect-handlers-bench's `resume_nontail`: `operator(i)` is performed for `i` from `n`
+down to 1, and each clause combines its argument with what the resume returns, so the
+resumes nest `n` deep. That runs 1000 times, each run starting from the last one's
+result. The direct-style twin does the same combining after a call returns.
+
+The suite runs it at `n` = 10,000. Natively, nested resumes take time that grows with the
+square of their depth ([KI-231](../docs/known_issues.md#ki-231)): 10,000 takes minutes, so
+the harness uses 400 and 700.
+
+Sources:
+
+- `benchmarks/flux/resume_nontail.flx`
+- `benchmarks/flux/resume_nontail_direct.flx`
+- `benchmarks/rust/resume_nontail.rs`
+- `benchmarks/go/resume_nontail/main.go`
+- `benchmarks/haskell/resume-nontail.hs`
+- `benchmarks/ocaml/resume_nontail.ml`
+- `benchmarks/python/resume_nontail.py`
+- `benchmarks/erlang/resume_nontail.erl`
+- `benchmarks/elixir/resume_nontail.ex`
+
+Run the cross-language benchmark:
+
+```bash
+cargo xtask bench resume_nontail
+```
+
+Latest report:
+
+<!-- resume-nontail-report:start -->
+# Non-Tail Resume Benchmark Report
+
+- Generated: 2026-11-25 19:08 UTC
+- Machine: macos-aarch64
+- Runs: 3 to 50, as hyperfine chose, warmup: 1
+- Workload: 400 (smoke)
+- Toolchains: flux 31c290a3; hyperfine 2.0.0; rustc 1.100.0 (0ef1bc386 2026-11-09); Python 3.9.6; ghc 9.10.3; ocamlopt 5.5.2; erlang OTP 29; elixir 1.20.5; go1.27.4 darwin/arm64
+
+| Case | Mean | ± σ | Min | Max | Peak RSS | Instructions | × native |
+|:---|---:|---:|---:|---:|---:|---:|---:|
+| `resume_nontail/flux` | 897.6 ms | 2.36 ms | 894.9 ms | 899.1 ms | 21.1 MiB | 25.62 G | 1.91× |
+| `resume_nontail/flux-direct` | 356.4 ms | 4.40 ms | 349.9 ms | 363.0 ms | 19.4 MiB | 9.54 G | 0.76× |
+| `resume_nontail/flux-native` | 470.0 ms | 4.84 ms | 464.2 ms | 476.5 ms | 3.9 MiB | 12.26 G | 1.00× |
+| `resume_nontail/flux-native-direct` | 3.82 ms | 0.09 ms | 3.68 ms | 4.16 ms | 2.1 MiB | 32.0 M | 0.01× |
+| `resume_nontail/rust` | 3.35 ms | 0.45 ms | 2.99 ms | 5.13 ms | 2.0 MiB | 24.4 M | 0.01× |
+| `resume_nontail/python` | 64.8 ms | 1.53 ms | 63.2 ms | 70.4 ms | 9.8 MiB | 1.44 G | 0.14× |
+| `resume_nontail/haskell` | 16.5 ms | 0.72 ms | 14.2 ms | 18.3 ms | 11.4 MiB | 62.2 M | 0.04× |
+| `resume_nontail/ocaml` | 10.1 ms | 0.31 ms | 9.83 ms | 11.4 ms | 4.8 MiB | 91.5 M | 0.02× |
+| `resume_nontail/erlang` | 79.2 ms | 0.92 ms | 77.0 ms | 82.3 ms | 75.8 MiB | 1.57 G | 0.17× |
+| `resume_nontail/elixir` | 138.5 ms | 3.55 ms | 136.0 ms | 149.7 ms | 82.6 MiB | 2.46 G | 0.29× |
+| `resume_nontail/go` | 3.79 ms | 0.13 ms | 3.48 ms | 4.13 ms | 4.5 MiB | 29.9 M | 0.01× |
+
+VM / native: 1.91×
+
+Effect overhead (with handlers / direct style): VM 2.52×, native 122.95×
+
+No baseline for macos-aarch64 yet: record one with --save-baseline.
+
+### VM counts
+
+From `flux --metrics` on the VM case. They are the same on every run of the same compiler.
+
+| Count | Now | Baseline | Change |
+|:---|---:|---:|---:|
+| `aether_allocs` | 0 | – | – |
+| `aether_drops` | 39 | – | – |
+| `aether_dups` | 4 | – | – |
+| `aether_reuses` | 0 | – | – |
+| `bytecode_bytes` | 6255 | – | – |
+| `compiler_allocs` | 1991405 | – | – |
+| `core_size` | 307 | – | – |
+| `vm_allocs` | 33217983 | – | – |
+| `vm_instructions` | 24830895 | – | – |
+<!-- resume-nontail-report:end -->
+
+## N-Queens by Choice
+
+effect-handlers-bench's `nqueens`, named apart from the core `nqueens`: each column's row
+comes from a `pick` effect whose clause resumes once for every row, a clash `fail`s
+without resuming, and the handler counts the placements that reach the last column, 14,200
+on a board of 12. The direct-style twin searches the same tree with a loop over the rows.
+OCaml 5's continuations resume at most once, so its port is direct style too.
+
+Sources:
+
+- `benchmarks/flux/nqueens_choice.flx`
+- `benchmarks/flux/nqueens_choice_direct.flx`
+- `benchmarks/rust/nqueens_choice.rs`
+- `benchmarks/go/nqueens_choice/main.go`
+- `benchmarks/haskell/nqueens-choice.hs`
+- `benchmarks/ocaml/nqueens_choice.ml`
+- `benchmarks/python/nqueens_choice.py`
+- `benchmarks/erlang/nqueens_choice.erl`
+- `benchmarks/elixir/nqueens_choice.ex`
+
+Run the cross-language benchmark:
+
+```bash
+cargo xtask bench nqueens_choice
+```
+
+Latest report:
+
+<!-- nqueens-choice-report:start -->
+# N-Queens by Choice Benchmark Report
+
+- Generated: 2026-11-25 19:08 UTC
+- Machine: macos-aarch64
+- Runs: 3 to 50, as hyperfine chose, warmup: 1
+- Workload: 10 (smoke)
+- Toolchains: flux 31c290a3; hyperfine 2.0.0; rustc 1.100.0 (0ef1bc386 2026-11-09); Python 3.9.6; ghc 9.10.3; ocamlopt 5.5.2; erlang OTP 29; elixir 1.20.5; go1.27.4 darwin/arm64
+
+| Case | Mean | ± σ | Min | Max | Peak RSS | Instructions | × native |
+|:---|---:|---:|---:|---:|---:|---:|---:|
+| `nqueens_choice/flux` | 1.563 s | 17.4 ms | 1.544 s | 1.578 s | 19.3 MiB | 43.05 G | 70.28× |
+| `nqueens_choice/flux-direct` | 919.9 ms | 8.94 ms | 911.6 ms | 929.4 ms | 19.1 MiB | 25.38 G | 41.35× |
+| `nqueens_choice/flux-native` | 22.2 ms | 0.26 ms | 21.8 ms | 23.1 ms | 2.1 MiB | 536.5 M | 1.00× |
+| `nqueens_choice/flux-native-direct` | 3.48 ms | 0.12 ms | 3.26 ms | 4.06 ms | 2.1 MiB | 44.7 M | 0.16× |
+| `nqueens_choice/rust` | 3.64 ms | 0.43 ms | 3.31 ms | 5.17 ms | 2.0 MiB | 43.9 M | 0.16× |
+| `nqueens_choice/python` | 76.3 ms | 1.88 ms | 72.6 ms | 81.0 ms | 9.5 MiB | 1.89 G | 3.43× |
+| `nqueens_choice/haskell` | 16.7 ms | 0.55 ms | 15.0 ms | 18.5 ms | 11.4 MiB | 102.2 M | 0.75× |
+| `nqueens_choice/ocaml` | 4.15 ms | 0.31 ms | 3.72 ms | 5.10 ms | 3.4 MiB | 48.2 M | 0.19× |
+| `nqueens_choice/erlang` | 81.0 ms | 3.57 ms | 78.0 ms | 97.2 ms | 75.9 MiB | 1.57 G | 3.64× |
+| `nqueens_choice/elixir` | 139.4 ms | 2.62 ms | 136.3 ms | 149.3 ms | 82.4 MiB | 2.47 G | 6.27× |
+| `nqueens_choice/go` | 3.86 ms | 0.14 ms | 3.61 ms | 4.29 ms | 5.0 MiB | 38.9 M | 0.17× |
+
+VM / native: 70.28×
+
+Effect overhead (with handlers / direct style): VM 1.70×, native 6.38×
+
+No baseline for macos-aarch64 yet: record one with --save-baseline.
+
+### VM counts
+
+From `flux --metrics` on the VM case. They are the same on every run of the same compiler.
+
+| Count | Now | Baseline | Change |
+|:---|---:|---:|---:|
+| `aether_allocs` | 1 | – | – |
+| `aether_drops` | 42 | – | – |
+| `aether_dups` | 5 | – | – |
+| `aether_reuses` | 0 | – | – |
+| `bytecode_bytes` | 6347 | – | – |
+| `compiler_allocs` | 2003174 | – | – |
+| `core_size` | 378 | – | – |
+| `vm_allocs` | 48866972 | – | – |
+| `vm_instructions` | 55187765 | – | – |
+<!-- nqueens-choice-report:end -->
