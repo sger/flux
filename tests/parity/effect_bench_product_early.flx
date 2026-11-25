@@ -1,0 +1,49 @@
+// parity: vm, llvm
+// expect: success
+// bug: benchmarks/flux/product_early.flx and its direct-style twin at
+//      effect-handlers-bench's small size, 5, where both give 0: an abort
+//      whose clause never resumes, from 1000 frames deep, five times.
+// parity-expected-stdout-begin
+// 0
+// 0
+// parity-expected-stdout-end
+
+effect Abort {
+    done : (Int) -> Int
+}
+
+fn product(xs: List<Int>) -> Int with Abort {
+    match xs {
+        [] -> 0,
+        [y | ys] -> if y == 0 { perform Abort.done(0) } else { y * product(ys) },
+    }
+}
+
+fn product_direct(xs: List<Int>) -> Int {
+    match xs {
+        [] -> 0,
+        [y | ys] -> if y == 0 { 0 } else { y * product_direct(ys) },
+    }
+}
+
+fn enumerate(i: Int) -> List<Int> {
+    if i < 0 { [] } else { [i | enumerate(i - 1)] }
+}
+
+fn run_product(xs: List<Int>) -> Int {
+    product(xs) handle Abort { done(resume, r) -> r }
+}
+
+fn run(xs: List<Int>, i: Int, a: Int) -> Int {
+    if i == 0 { a } else { run(xs, i - 1, a + run_product(xs)) }
+}
+
+fn run_direct(xs: List<Int>, i: Int, a: Int) -> Int {
+    if i == 0 { a } else { run_direct(xs, i - 1, a + product_direct(xs)) }
+}
+
+fn main() with IO {
+    let xs = enumerate(1000)
+    print(run(xs, 5, 0))
+    print(run_direct(xs, 5, 0))
+}

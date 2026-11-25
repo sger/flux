@@ -1,0 +1,42 @@
+// effect-handlers-bench's product_early: the product of [1000, 999, ..., 0],
+// left early through an abort effect at the first zero, and summed n times.
+// The clause never resumes, so each product unwinds 1000 frames at once.
+import Flow.Env as Env
+import Flow.Array as Array
+
+effect Abort {
+    done : (Int) -> Int
+}
+
+fn product(xs: List<Int>) -> Int with Abort {
+    match xs {
+        [] -> 0,
+        [y | ys] -> if y == 0 { perform Abort.done(0) } else { y * product(ys) },
+    }
+}
+
+fn enumerate(i: Int) -> List<Int> {
+    if i < 0 { [] } else { [i | enumerate(i - 1)] }
+}
+
+fn run_product(xs: List<Int>) -> Int {
+    product(xs) handle Abort { done(resume, r) -> r }
+}
+
+fn run(xs: List<Int>, i: Int, a: Int) -> Int {
+    if i == 0 { a } else { run(xs, i - 1, a + run_product(xs)) }
+}
+
+// The workload size: the program's first argument, or the size the suite
+// was written with. `cargo xtask bench` passes a smaller one to the VM.
+fn size(default: Int) -> Int with Env {
+    match Array.get(Env.args(), 1) {
+        Some(s) -> parse_int(s),
+        None -> default,
+    }
+}
+
+fn main() with IO {
+    let n = size(100000)
+    print(run(enumerate(1000), n, 0))
+}
