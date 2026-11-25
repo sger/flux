@@ -68,6 +68,27 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-229 — A function annotated `-> ()` is rejected, even when its body is `()`
+
+**Severity:** Low (loud; leaving the return type out works) · **Area:** type annotations, the unit type · **Verified:** 2026-11-25 (2b138517, and `main` at 64005292) · **From:** writing the effects benchmarks
+
+```flux
+fn nothing() -> () { () }
+
+fn main() with IO {
+    nothing()
+    print(1)
+}
+```
+
+Both backends reject it with `error[E300]: Return Type Mismatch`, "this
+expression has type `()`" and "`nothing` was declared to return `Unit`". The
+help suggests changing the return type to `()`, which is what it already is.
+Without the annotation the program prints `1`. An effect operation declared
+`-> ()` works, and so does one declared `-> Unit`. A function annotated
+`-> Unit` with a `()` body is rejected the same way, so the annotation and
+the value have two different unit types.
+
 ### KI-228 — On the VM, `resume` passed to a parameter annotated with a function type fails the runtime type check
 
 **Severity:** Low (loud; leaving the parameter unannotated works) · **Area:** VM runtime boundary checks (`src/runtime/runtime_type.rs`) · **Verified:** 2026-11-25 (2b138517, and `main` at 64005292) · **From:** writing the effects benchmarks (effect-handlers-bench's nqueens)
