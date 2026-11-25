@@ -88,11 +88,24 @@
 //! cargo xtask phase <phase>... [--dry-run] [-- <nextest args>]
 //! cargo xtask phase --list
 //!     run the tests for compiler phases (`affected.rs`)
+//! cargo xtask bench <benchmark | core | extended | all> [--runs <n>] [--warmup <n>]
+//!                   [--full] [--save-baseline] [--no-check] [--no-readme]
+//!                   [--report-file <path>] [--no-native] [--vms] [--no-build]
+//! cargo xtask bench <benchmark> --profile vm|native [--full] [--no-build]
+//!     time benchmarks/ on the Flux VM, as a native binary and as every
+//!     port with a toolchain on this machine, with hyperfine (between 3 and
+//!     50 runs unless --runs); each case first runs once and must print
+//!     what the VM prints (--no-check skips that), and that VM run writes
+//!     flux --metrics; compares with benchmarks/baselines/<os>-<arch>/
+//!     (Mann–Whitney p, geomean), writes target/bench/<name>.md and the
+//!     README block; --profile records a samply profile instead
+//!     (`bench/`)
 //! ```
 //!
 //! Relative paths are taken from the repository root.
 
 mod affected;
+mod bench;
 mod bisect;
 mod census;
 mod compare;
@@ -131,6 +144,8 @@ const USAGE: &str = "usage:
   cargo xtask scale [--flux <path>] [<test>...]
   cargo xtask affected [<base ref>] [--path <path>]... [--dry-run] [-- <nextest args>]
   cargo xtask phase <phase>... [--dry-run] [-- <nextest args>] | --list
+  cargo xtask bench <benchmark | core | extended | all> [--runs <n>] [--warmup <n>] [--full] [--save-baseline] [--no-check] [--no-readme] [--report-file <path>] [--no-native] [--vms] [--no-build]
+  cargo xtask bench <benchmark> --profile vm|native [--full] [--no-build]
   cargo xtask tidy";
 
 fn main() -> ExitCode {
@@ -348,6 +363,36 @@ fn dispatch(root: &Path, args: &[String]) -> Result<bool, String> {
             let repo = affected::Repo::load(root)?;
             let selection = affected::select_for_phases(&repo, &phases)?;
             affected::run_selection(root, &selection, passthrough, dry_run)
+        }
+        "bench" => {
+            if args.flag("--help") | args.flag("-h") {
+                println!("{USAGE}");
+                return Ok(true);
+            }
+            let profile = match args.value("--profile")? {
+                Some(way) => Some(
+                    bench::ProfileWay::parse(&way)
+                        .ok_or(format!("--profile is vm or native, not {way}\n{USAGE}"))?,
+                ),
+                None => None,
+            };
+            let options = bench::Options {
+                runs: args.number("--runs")?,
+                warmup: args.number("--warmup")?.unwrap_or(1),
+                full: args.flag("--full"),
+                save_baseline: args.flag("--save-baseline"),
+                check: !args.flag("--no-check"),
+                readme: !args.flag("--no-readme"),
+                report_file: args.value("--report-file")?.map(|f| resolve(root, &f)),
+                // `--no-flux-native` is bench.sh's name for it.
+                native: !(args.flag("--no-native") | args.flag("--no-flux-native")),
+                vms: args.flag("--vms"),
+                build: !args.flag("--no-build"),
+                profile,
+                target: args.positional()?.ok_or(USAGE)?,
+            };
+            args.finish()?;
+            bench::run_bench(root, &options)
         }
         "tidy" => {
             args.finish()?;
