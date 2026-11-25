@@ -255,30 +255,41 @@ Latest report:
 <!-- binarytrees-report:start -->
 # Binary Trees Benchmark Report
 
-- Generated: 2026-10-30 17:23:59 UTC
-- Runs: 20
-- Warmup: 2
-- Full baseline: no
+- Generated: 2026-11-25 09:48 UTC
+- Machine: macos-aarch64
+- Runs: 3 to 50, as hyperfine chose, warmup: 1
+- Workload: 12 (smoke)
+- Toolchains: flux 2c0d4ca3; hyperfine 2.0.0; rustc 1.100.0 (0ef1bc386 2026-11-09); Python 3.9.6; erlang OTP 29; elixir 1.20.5; go1.27.4 darwin/arm64
 
-| Command | Mean Wall Time [ms] | Change | Factor |
-|:---|---:|---:|:---|
-| `binarytrees/flux` | 106.8 ± 1.2 |  |  |
-| `binarytrees/flux-native` | 1.9 ± 0.1 | -98.2% | (54.8x faster) |
-| `binarytrees/rust` | 1.4 ± 0.2 | -98.7% | (76.8x faster) |
-| `binarytrees/python` | 9.5 ± 0.2 | -91.1% | (11.2x faster) |
+| Case | Mean | ± σ | Min | Max | Peak RSS | Instructions | × native |
+|:---|---:|---:|---:|---:|---:|---:|---:|
+| `binarytrees/flux` | 454.2 ms | 1.79 ms | 450.6 ms | 455.1 ms | 21.0 MiB | 12.21 G | 134.27× |
+| `binarytrees/flux-native` | 3.38 ms | 0.09 ms | 3.16 ms | 3.65 ms | 2.3 MiB | 66.3 M | 1.00× |
+| `binarytrees/rust` | 17.9 ms | 1.59 ms | 16.0 ms | 24.4 ms | 2.5 MiB | 531.3 M | 5.30× |
+| `binarytrees/python` | 95.7 ms | 1.10 ms | 93.8 ms | 98.7 ms | 10.6 MiB | 2.38 G | 28.29× |
+| `binarytrees/erlang` | 76.6 ms | 0.81 ms | 74.8 ms | 78.1 ms | 76.6 MiB | 1.61 G | 22.65× |
+| `binarytrees/elixir` | 135.2 ms | 2.78 ms | 131.9 ms | 142.5 ms | 83.1 MiB | 2.52 G | 39.98× |
+| `binarytrees/go` | 7.25 ms | 0.21 ms | 6.85 ms | 8.13 ms | 10.1 MiB | 160.9 M | 2.14× |
 
-### Against baseline
+VM / native: 134.27×
 
-Baseline: `benchmarks/baselines/binarytrees.json`
+No baseline for macos-aarch64 yet: record one with --save-baseline.
 
-| Command | Mean now | Baseline mean | Now / baseline |
+### VM counts
+
+From `flux --metrics` on the VM case. They are the same on every run of the same compiler.
+
+| Count | Now | Baseline | Change |
 |:---|---:|---:|---:|
-| `binarytrees/flux` | 106.8 ms | 106.8 ms | 1.00x |
-| `binarytrees/flux-native` | 1.9 ms | 1.9 ms | 1.00x |
-| `binarytrees/rust` | 1.4 ms | 1.4 ms | 1.00x |
-| `binarytrees/python` | 9.5 ms | 9.5 ms | 1.00x |
-
-VM / native: 54.78x
+| `aether_allocs` | 0 | – | – |
+| `aether_drops` | 50 | – | – |
+| `aether_dups` | 6 | – | – |
+| `aether_reuses` | 0 | – | – |
+| `bytecode_bytes` | 6398 | – | – |
+| `compiler_allocs` | 2032267 | – | – |
+| `core_size` | 510 | – | – |
+| `vm_allocs` | 12237161 | – | – |
+| `vm_instructions` | 22720475 | – | – |
 <!-- binarytrees-report:end -->
 
 ## Constant Folding
@@ -329,29 +340,41 @@ Latest report:
 <!-- cfold-report:start -->
 # Constant Folding Benchmark Report
 
-- Generated: 2026-10-30 17:24:02 UTC
-- Runs: 20
-- Warmup: 2
+- Generated: 2026-11-25 09:49 UTC
+- Machine: macos-aarch64
+- Runs: 3 to 50, as hyperfine chose, warmup: 1
+- Workload: 16 (smoke)
+- Toolchains: flux 2c0d4ca3; hyperfine 2.0.0; rustc 1.100.0 (0ef1bc386 2026-11-09); Python 3.9.6; erlang OTP 29; elixir 1.20.5; go1.27.4 darwin/arm64
 
-| Command | Mean Wall Time [ms] | Change | Factor |
-|:---|---:|---:|:---|
-| `cfold/flux` | 118.5 ± 1.6 |  |  |
-| `cfold/flux-native` | 2.0 ± 0.2 | -98.3% | (58.3x faster) |
-| `cfold/rust` | 2.4 ± 0.2 | -98.0% | (49.7x faster) |
-| `cfold/python` | 12.9 ± 0.5 | -89.1% | (9.2x faster) |
+| Case | Mean | ± σ | Min | Max | Peak RSS | Instructions | × native |
+|:---|---:|---:|---:|---:|---:|---:|---:|
+| `cfold/flux` | 532.3 ms | 6.57 ms | 524.5 ms | 539.5 ms | 65.0 MiB | 14.30 G | 81.39× |
+| `cfold/flux-native` | 6.54 ms | 0.13 ms | 6.26 ms | 6.94 ms | 11.6 MiB | 90.8 M | 1.00× |
+| `cfold/rust` | 19.0 ms | 0.76 ms | 17.9 ms | 22.3 ms | 33.4 MiB | 436.9 M | 2.91× |
+| `cfold/python` | 162.3 ms | 3.39 ms | 156.0 ms | 169.1 ms | 96.0 MiB | 3.50 G | 24.83× |
+| `cfold/erlang` | 88.1 ms | 2.24 ms | 85.4 ms | 99.2 ms | 121.8 MiB | 1.78 G | 13.47× |
+| `cfold/elixir` | 148.6 ms | 8.04 ms | 141.6 ms | 173.6 ms | 127.0 MiB | 2.69 G | 22.72× |
+| `cfold/go` | 15.7 ms | 0.52 ms | 14.7 ms | 17.0 ms | 31.9 MiB | 519.2 M | 2.41× |
 
-### Against baseline
+VM / native: 81.39×
 
-Baseline: `benchmarks/baselines/cfold.json`
+No baseline for macos-aarch64 yet: record one with --save-baseline.
 
-| Command | Mean now | Baseline mean | Now / baseline |
+### VM counts
+
+From `flux --metrics` on the VM case. They are the same on every run of the same compiler.
+
+| Count | Now | Baseline | Change |
 |:---|---:|---:|---:|
-| `cfold/flux` | 118.5 ms | 118.5 ms | 1.00x |
-| `cfold/flux-native` | 2.0 ms | 2.0 ms | 1.00x |
-| `cfold/rust` | 2.4 ms | 2.4 ms | 1.00x |
-| `cfold/python` | 12.9 ms | 12.9 ms | 1.00x |
-
-VM / native: 58.27x
+| `aether_allocs` | 0 | – | – |
+| `aether_drops` | 72 | – | – |
+| `aether_dups` | 28 | – | – |
+| `aether_reuses` | 10 | – | – |
+| `bytecode_bytes` | 6985 | – | – |
+| `compiler_allocs` | 2055643 | – | – |
+| `core_size` | 584 | – | – |
+| `vm_allocs` | 17968490 | – | – |
+| `vm_instructions` | 21058862 | – | – |
 <!-- cfold-report:end -->
 
 ## Symbolic Differentiation
@@ -402,29 +425,41 @@ Latest report:
 <!-- deriv-report:start -->
 # Symbolic Differentiation Benchmark Report
 
-- Generated: 2026-10-30 17:37:45 UTC
-- Runs: 3
-- Warmup: 1
+- Generated: 2026-11-25 09:49 UTC
+- Machine: macos-aarch64
+- Runs: 3 to 50, as hyperfine chose, warmup: 1
+- Workload: 8 (smoke)
+- Toolchains: flux 2c0d4ca3; hyperfine 2.0.0; rustc 1.100.0 (0ef1bc386 2026-11-09); Python 3.9.6; erlang OTP 29; elixir 1.20.5; go1.27.4 darwin/arm64
 
-| Command | Mean Wall Time [min] | Change | Factor |
-|:---|---:|---:|:---|
-| `deriv/flux` | 1.0 ± 0.0 |  |  |
-| `deriv/flux-native` | 0.0 ± 0.0 | -96.3% | (27.0x faster) |
-| `deriv/rust` | 0.1 ± 0.0 | -93.6% | (15.6x faster) |
-| `deriv/python` | 0.1 ± 0.0 | -88.5% | (8.7x faster) |
+| Case | Mean | ± σ | Min | Max | Peak RSS | Instructions | × native |
+|:---|---:|---:|---:|---:|---:|---:|---:|
+| `deriv/flux` | 1.202 s | 7.09 ms | 1.196 s | 1.210 s | 50.6 MiB | 30.99 G | 142.88× |
+| `deriv/flux-native` | 8.41 ms | 0.16 ms | 8.05 ms | 8.76 ms | 12.6 MiB | 174.5 M | 1.00× |
+| `deriv/rust` | 24.3 ms | 0.77 ms | 22.9 ms | 26.6 ms | 29.7 MiB | 573.5 M | 2.89× |
+| `deriv/python` | 271.6 ms | 3.12 ms | 267.3 ms | 276.8 ms | 33.9 MiB | 5.70 G | 32.29× |
+| `deriv/erlang` | 99.1 ms | 4.92 ms | 94.2 ms | 120.9 ms | 123.9 MiB | 1.84 G | 11.78× |
+| `deriv/elixir` | 167.6 ms | 14.9 ms | 157.2 ms | 207.8 ms | 129.3 MiB | 2.77 G | 19.93× |
+| `deriv/go` | 16.0 ms | 0.45 ms | 15.1 ms | 17.1 ms | 23.3 MiB | 579.6 M | 1.90× |
 
-### Against baseline
+VM / native: 142.88×
 
-Baseline: `benchmarks/baselines/deriv.json`
+No baseline for macos-aarch64 yet: record one with --save-baseline.
 
-| Command | Mean now | Baseline mean | Now / baseline |
+### VM counts
+
+From `flux --metrics` on the VM case. They are the same on every run of the same compiler.
+
+| Count | Now | Baseline | Change |
 |:---|---:|---:|---:|
-| `deriv/flux` | 61.970 s | 61.970 s | 1.00x |
-| `deriv/flux-native` | 2.294 s | 2.294 s | 1.00x |
-| `deriv/rust` | 3.985 s | 3.985 s | 1.00x |
-| `deriv/python` | 7.098 s | 7.098 s | 1.00x |
-
-VM / native: 27.02x
+| `aether_allocs` | 0 | – | – |
+| `aether_drops` | 79 | – | – |
+| `aether_dups` | 39 | – | – |
+| `aether_reuses` | 18 | – | – |
+| `bytecode_bytes` | 7904 | – | – |
+| `compiler_allocs` | 2112369 | – | – |
+| `core_size` | 922 | – | – |
+| `vm_allocs` | 40518041 | – | – |
+| `vm_instructions` | 49171565 | – | – |
 <!-- deriv-report:end -->
 
 ## N-Queens
@@ -475,29 +510,41 @@ Latest report:
 <!-- nqueens-report:start -->
 # N-Queens Benchmark Report
 
-- Generated: 2026-10-30 17:45:53 UTC
-- Runs: 3
-- Warmup: 1
+- Generated: 2026-11-25 09:50 UTC
+- Machine: macos-aarch64
+- Runs: 3 to 50, as hyperfine chose, warmup: 1
+- Workload: 11 (smoke)
+- Toolchains: flux 2c0d4ca3; hyperfine 2.0.0; rustc 1.100.0 (0ef1bc386 2026-11-09); Python 3.9.6; erlang OTP 29; elixir 1.20.5; go1.27.4 darwin/arm64
 
-| Command | Mean Wall Time [min] | Change | Factor |
-|:---|---:|---:|:---|
-| `nqueens/flux` | 1.8 ± 0.0 |  |  |
-| `nqueens/flux-native` | 0.1 ± 0.0 | -96.0% | (25.1x faster) |
-| `nqueens/rust` | 0.0 ± 0.0 | -99.1% | (106.7x faster) |
-| `nqueens/python` | 0.2 ± 0.0 | -90.9% | (11.0x faster) |
+| Case | Mean | ± σ | Min | Max | Peak RSS | Instructions | × native |
+|:---|---:|---:|---:|---:|---:|---:|---:|
+| `nqueens/flux` | 2.606 s | 11.9 ms | 2.592 s | 2.614 s | 19.1 MiB | 71.87 G | 182.35× |
+| `nqueens/flux-native` | 14.3 ms | 0.24 ms | 13.6 ms | 14.7 ms | 2.1 MiB | 185.5 M | 1.00× |
+| `nqueens/rust` | 13.8 ms | 1.62 ms | 13.2 ms | 22.5 ms | 2.0 MiB | 165.2 M | 0.97× |
+| `nqueens/python` | 543.2 ms | 6.24 ms | 539.4 ms | 554.1 ms | 9.6 MiB | 14.60 G | 38.01× |
+| `nqueens/erlang` | 94.0 ms | 0.83 ms | 92.4 ms | 95.4 ms | 75.7 MiB | 1.82 G | 6.58× |
+| `nqueens/elixir` | 155.4 ms | 4.12 ms | 150.2 ms | 169.2 ms | 82.4 MiB | 2.72 G | 10.87× |
+| `nqueens/go` | 13.1 ms | 0.38 ms | 12.8 ms | 15.6 ms | 4.5 MiB | 121.1 M | 0.92× |
 
-### Against baseline
+VM / native: 182.35×
 
-Baseline: `benchmarks/baselines/nqueens.json`
+No baseline for macos-aarch64 yet: record one with --save-baseline.
 
-| Command | Mean now | Baseline mean | Now / baseline |
+### VM counts
+
+From `flux --metrics` on the VM case. They are the same on every run of the same compiler.
+
+| Count | Now | Baseline | Change |
 |:---|---:|---:|---:|
-| `nqueens/flux` | 106.610 s | 106.610 s | 1.00x |
-| `nqueens/flux-native` | 4.246 s | 4.246 s | 1.00x |
-| `nqueens/rust` | 999.3 ms | 999.3 ms | 1.00x |
-| `nqueens/python` | 9.655 s | 9.655 s | 1.00x |
-
-VM / native: 25.11x
+| `aether_allocs` | 0 | – | – |
+| `aether_drops` | 43 | – | – |
+| `aether_dups` | 6 | – | – |
+| `aether_reuses` | 0 | – | – |
+| `bytecode_bytes` | 6245 | – | – |
+| `compiler_allocs` | 1997370 | – | – |
+| `core_size` | 376 | – | – |
+| `vm_allocs` | 50257371 | – | – |
+| `vm_instructions` | 188827722 | – | – |
 <!-- nqueens-report:end -->
 
 ## Quicksort
@@ -548,29 +595,41 @@ Latest report:
 <!-- qsort-report:start -->
 # Quicksort Benchmark Report
 
-- Generated: 2026-10-30 17:53:55 UTC
-- Runs: 20
-- Warmup: 2
+- Generated: 2026-11-25 09:50 UTC
+- Machine: macos-aarch64
+- Runs: 3 to 50, as hyperfine chose, warmup: 1
+- Workload: 48 (smoke)
+- Toolchains: flux 2c0d4ca3; hyperfine 2.0.0; rustc 1.100.0 (0ef1bc386 2026-11-09); Python 3.9.6; erlang OTP 29; elixir 1.20.5; go1.27.4 darwin/arm64
 
-| Command | Mean Wall Time [ms] | Change | Factor |
-|:---|---:|---:|:---|
-| `qsort/flux` | 258.8 ± 3.8 |  |  |
-| `qsort/flux-native` | 8.8 ± 0.5 | -96.6% | (29.4x faster) |
-| `qsort/rust` | 0.7 ± 0.0 | -99.7% | (352.8x faster) |
-| `qsort/python` | 12.3 ± 0.4 | -95.2% | (21.0x faster) |
+| Case | Mean | ± σ | Min | Max | Peak RSS | Instructions | × native |
+|:---|---:|---:|---:|---:|---:|---:|---:|
+| `qsort/flux` | 771.4 ms | 2.62 ms | 768.9 ms | 774.1 ms | 19.3 MiB | 20.66 G | 33.29× |
+| `qsort/flux-native` | 23.2 ms | 0.56 ms | 22.2 ms | 25.8 ms | 2.2 MiB | 543.0 M | 1.00× |
+| `qsort/rust` | 1.55 ms | 0.05 ms | 1.45 ms | 1.70 ms | 2.1 MiB | 18.9 M | 0.07× |
+| `qsort/python` | 40.2 ms | 1.71 ms | 38.7 ms | 50.3 ms | 9.7 MiB | 780.8 M | 1.73× |
+| `qsort/erlang` | 80.0 ms | 1.73 ms | 77.7 ms | 87.6 ms | 75.7 MiB | 1.56 G | 3.45× |
+| `qsort/elixir` | 140.2 ms | 4.57 ms | 136.3 ms | 159.2 ms | 82.5 MiB | 2.46 G | 6.05× |
+| `qsort/go` | 7.82 ms | 0.68 ms | 7.36 ms | 11.4 ms | 10.8 MiB | 135.3 M | 0.34× |
 
-### Against baseline
+VM / native: 33.29×
 
-Baseline: `benchmarks/baselines/qsort.json`
+No baseline for macos-aarch64 yet: record one with --save-baseline.
 
-| Command | Mean now | Baseline mean | Now / baseline |
+### VM counts
+
+From `flux --metrics` on the VM case. They are the same on every run of the same compiler.
+
+| Count | Now | Baseline | Change |
 |:---|---:|---:|---:|
-| `qsort/flux` | 258.8 ms | 258.8 ms | 1.00x |
-| `qsort/flux-native` | 8.8 ms | 8.8 ms | 1.00x |
-| `qsort/rust` | 0.7 ms | 0.7 ms | 1.00x |
-| `qsort/python` | 12.3 ms | 12.3 ms | 1.00x |
-
-VM / native: 29.37x
+| `aether_allocs` | 0 | – | – |
+| `aether_drops` | 66 | – | – |
+| `aether_dups` | 6 | – | – |
+| `aether_reuses` | 0 | – | – |
+| `bytecode_bytes` | 6871 | – | – |
+| `compiler_allocs` | 2054042 | – | – |
+| `core_size` | 727 | – | – |
+| `vm_allocs` | 24707096 | – | – |
+| `vm_instructions` | 32980006 | – | – |
 <!-- qsort-report:end -->
 
 ## Red-Black Tree
@@ -621,29 +680,41 @@ Latest report:
 <!-- rbtree-ck-report:start -->
 # Red-Black Tree Benchmark Report
 
-- Generated: 2026-10-30 17:28:08 UTC
-- Runs: 20
-- Warmup: 2
+- Generated: 2026-11-25 09:52 UTC
+- Machine: macos-aarch64
+- Runs: 3 to 50, as hyperfine chose, warmup: 1
+- Workload: 50000 (smoke)
+- Toolchains: flux 2c0d4ca3; hyperfine 2.0.0; rustc 1.100.0 (0ef1bc386 2026-11-09); Python 3.9.6; erlang OTP 29; elixir 1.20.5; go1.27.4 darwin/arm64
 
-| Command | Mean Wall Time [s] | Change | Factor |
-|:---|---:|---:|:---|
-| `rbtree_ck/flux` | 5.079 ± 0.050 |  |  |
-| `rbtree_ck/flux-native` | 0.189 ± 0.001 | -96.3% | (26.9x faster) |
-| `rbtree_ck/rust` | 0.046 ± 0.001 | -99.1% | (109.3x faster) |
-| `rbtree_ck/python` | 0.261 ± 0.003 | -94.9% | (19.5x faster) |
+| Case | Mean | ± σ | Min | Max | Peak RSS | Instructions | × native |
+|:---|---:|---:|---:|---:|---:|---:|---:|
+| `rbtree_ck/flux` | 2.412 s | 23.8 ms | 2.397 s | 2.439 s | 27.5 MiB | 63.69 G | 180.30× |
+| `rbtree_ck/flux-native` | 13.4 ms | 0.28 ms | 13.0 ms | 14.1 ms | 4.8 MiB | 352.0 M | 1.00× |
+| `rbtree_ck/rust` | 30.1 ms | 0.76 ms | 28.2 ms | 32.3 ms | 8.9 MiB | 842.6 M | 2.25× |
+| `rbtree_ck/python` | 235.8 ms | 2.21 ms | 232.2 ms | 240.2 ms | 15.4 MiB | 5.79 G | 17.63× |
+| `rbtree_ck/erlang` | 83.9 ms | 0.95 ms | 82.3 ms | 87.0 ms | 84.9 MiB | 1.67 G | 6.27× |
+| `rbtree_ck/elixir` | 144.1 ms | 3.16 ms | 138.2 ms | 153.8 ms | 91.0 MiB | 2.56 G | 10.77× |
+| `rbtree_ck/go` | 23.3 ms | 0.49 ms | 22.5 ms | 24.9 ms | 12.1 MiB | 675.3 M | 1.74× |
 
-### Against baseline
+VM / native: 180.30×
 
-Baseline: `benchmarks/baselines/rbtree_ck.json`
+No baseline for macos-aarch64 yet: record one with --save-baseline.
 
-| Command | Mean now | Baseline mean | Now / baseline |
+### VM counts
+
+From `flux --metrics` on the VM case. They are the same on every run of the same compiler.
+
+| Count | Now | Baseline | Change |
 |:---|---:|---:|---:|
-| `rbtree_ck/flux` | 5.079 s | 5.079 s | 1.00x |
-| `rbtree_ck/flux-native` | 188.9 ms | 188.9 ms | 1.00x |
-| `rbtree_ck/rust` | 46.5 ms | 46.5 ms | 1.00x |
-| `rbtree_ck/python` | 260.7 ms | 260.7 ms | 1.00x |
-
-VM / native: 26.89x
+| `aether_allocs` | 0 | – | – |
+| `aether_drops` | 64 | – | – |
+| `aether_dups` | 45 | – | – |
+| `aether_reuses` | 17 | – | – |
+| `bytecode_bytes` | 7831 | – | – |
+| `compiler_allocs` | 2079740 | – | – |
+| `core_size` | 645 | – | – |
+| `vm_allocs` | 81997993 | – | – |
+| `vm_instructions` | 104410666 | – | – |
 <!-- rbtree-ck-report:end -->
 
 ## Red-Black Tree
@@ -667,29 +738,41 @@ Latest report:
 <!-- rbtree-report:start -->
 # Red-Black Tree Insert Benchmark Report
 
-- Generated: 2026-10-30 17:30:11 UTC
-- Runs: 20
-- Warmup: 2
+- Generated: 2026-11-25 09:52 UTC
+- Machine: macos-aarch64
+- Runs: 3 to 50, as hyperfine chose, warmup: 1
+- Workload: 50000 (smoke)
+- Toolchains: flux 2c0d4ca3; hyperfine 2.0.0; rustc 1.100.0 (0ef1bc386 2026-11-09); Python 3.9.6; erlang OTP 29; elixir 1.20.5; go1.27.4 darwin/arm64
 
-| Command | Mean Wall Time [s] | Change | Factor |
-|:---|---:|---:|:---|
-| `rbtree/flux` | 5.078 ± 0.062 |  |  |
-| `rbtree/flux-native` | 0.192 ± 0.001 | -96.2% | (26.5x faster) |
-| `rbtree/rust` | 0.047 ± 0.001 | -99.1% | (109.0x faster) |
-| `rbtree/python` | 0.252 ± 0.002 | -95.0% | (20.1x faster) |
+| Case | Mean | ± σ | Min | Max | Peak RSS | Instructions | × native |
+|:---|---:|---:|---:|---:|---:|---:|---:|
+| `rbtree/flux` | 2.352 s | 17.3 ms | 2.335 s | 2.370 s | 27.4 MiB | 63.72 G | 175.43× |
+| `rbtree/flux-native` | 13.4 ms | 0.80 ms | 12.7 ms | 16.9 ms | 4.8 MiB | 352.7 M | 1.00× |
+| `rbtree/rust` | 34.7 ms | 1.46 ms | 29.9 ms | 37.5 ms | 8.9 MiB | 861.2 M | 2.59× |
+| `rbtree/python` | 238.2 ms | 11.4 ms | 223.2 ms | 253.7 ms | 15.4 MiB | 5.58 G | 17.77× |
+| `rbtree/erlang` | 97.5 ms | 10.8 ms | 86.2 ms | 127.7 ms | 85.0 MiB | 1.69 G | 7.27× |
+| `rbtree/elixir` | 150.3 ms | 9.50 ms | 138.3 ms | 181.4 ms | 91.3 MiB | 2.57 G | 11.21× |
+| `rbtree/go` | 22.1 ms | 0.43 ms | 21.3 ms | 24.0 ms | 12.0 MiB | 674.4 M | 1.65× |
 
-### Against baseline
+VM / native: 175.43×
 
-Baseline: `benchmarks/baselines/rbtree.json`
+No baseline for macos-aarch64 yet: record one with --save-baseline.
 
-| Command | Mean now | Baseline mean | Now / baseline |
+### VM counts
+
+From `flux --metrics` on the VM case. They are the same on every run of the same compiler.
+
+| Count | Now | Baseline | Change |
 |:---|---:|---:|---:|
-| `rbtree/flux` | 5.078 s | 5.078 s | 1.00x |
-| `rbtree/flux-native` | 191.7 ms | 191.7 ms | 1.00x |
-| `rbtree/rust` | 46.6 ms | 46.6 ms | 1.00x |
-| `rbtree/python` | 252.5 ms | 252.5 ms | 1.00x |
-
-VM / native: 26.49x
+| `aether_allocs` | 0 | – | – |
+| `aether_drops` | 65 | – | – |
+| `aether_dups` | 45 | – | – |
+| `aether_reuses` | 17 | – | – |
+| `bytecode_bytes` | 7830 | – | – |
+| `compiler_allocs` | 2080456 | – | – |
+| `core_size` | 647 | – | – |
+| `vm_allocs` | 81997993 | – | – |
+| `vm_instructions` | 104460666 | – | – |
 <!-- rbtree-report:end -->
 
 ## Red-Black Tree 2
@@ -713,29 +796,41 @@ Latest report:
 <!-- rbtree2-report:start -->
 # Red-Black Tree Insert BigInt Benchmark Report
 
-- Generated: 2026-10-30 17:32:15 UTC
-- Runs: 20
-- Warmup: 2
+- Generated: 2026-11-25 09:52 UTC
+- Machine: macos-aarch64
+- Runs: 3 to 50, as hyperfine chose, warmup: 1
+- Workload: 50000 (smoke)
+- Toolchains: flux 2c0d4ca3; hyperfine 2.0.0; rustc 1.100.0 (0ef1bc386 2026-11-09); Python 3.9.6; erlang OTP 29; elixir 1.20.5; go1.27.4 darwin/arm64
 
-| Command | Mean Wall Time [s] | Change | Factor |
-|:---|---:|---:|:---|
-| `rbtree2/flux` | 5.139 ± 0.059 |  |  |
-| `rbtree2/flux-native` | 0.192 ± 0.002 | -96.3% | (26.7x faster) |
-| `rbtree2/rust` | 0.053 ± 0.001 | -99.0% | (96.6x faster) |
-| `rbtree2/python` | 0.254 ± 0.002 | -95.1% | (20.2x faster) |
+| Case | Mean | ± σ | Min | Max | Peak RSS | Instructions | × native |
+|:---|---:|---:|---:|---:|---:|---:|---:|
+| `rbtree2/flux` | 2.365 s | 22.8 ms | 2.348 s | 2.391 s | 27.4 MiB | 63.71 G | 177.45× |
+| `rbtree2/flux-native` | 13.3 ms | 0.24 ms | 12.9 ms | 14.1 ms | 4.8 MiB | 352.0 M | 1.00× |
+| `rbtree2/rust` | 34.4 ms | 1.44 ms | 31.2 ms | 37.4 ms | 12.0 MiB | 880.0 M | 2.58× |
+| `rbtree2/python` | 222.9 ms | 3.35 ms | 217.6 ms | 231.5 ms | 15.4 MiB | 5.57 G | 16.72× |
+| `rbtree2/erlang` | 85.0 ms | 2.63 ms | 81.1 ms | 97.9 ms | 85.0 MiB | 1.67 G | 6.38× |
+| `rbtree2/elixir` | 142.8 ms | 1.08 ms | 141.5 ms | 145.6 ms | 91.1 MiB | 2.55 G | 10.71× |
+| `rbtree2/go` | 23.3 ms | 0.45 ms | 22.6 ms | 24.7 ms | 12.1 MiB | 673.6 M | 1.75× |
 
-### Against baseline
+VM / native: 177.45×
 
-Baseline: `benchmarks/baselines/rbtree2.json`
+No baseline for macos-aarch64 yet: record one with --save-baseline.
 
-| Command | Mean now | Baseline mean | Now / baseline |
+### VM counts
+
+From `flux --metrics` on the VM case. They are the same on every run of the same compiler.
+
+| Count | Now | Baseline | Change |
 |:---|---:|---:|---:|
-| `rbtree2/flux` | 5.139 s | 5.139 s | 1.00x |
-| `rbtree2/flux-native` | 192.3 ms | 192.3 ms | 1.00x |
-| `rbtree2/rust` | 53.2 ms | 53.2 ms | 1.00x |
-| `rbtree2/python` | 254.0 ms | 254.0 ms | 1.00x |
-
-VM / native: 26.73x
+| `aether_allocs` | 0 | – | – |
+| `aether_drops` | 64 | – | – |
+| `aether_dups` | 45 | – | – |
+| `aether_reuses` | 17 | – | – |
+| `bytecode_bytes` | 7836 | – | – |
+| `compiler_allocs` | 2081052 | – | – |
+| `core_size` | 653 | – | – |
+| `vm_allocs` | 81997993 | – | – |
+| `vm_instructions` | 104460666 | – | – |
 <!-- rbtree2-report:end -->
 
 ## Red-Black Tree Delete
@@ -759,29 +854,41 @@ Latest report:
 <!-- rbtree-del-report:start -->
 # Red-Black Tree Delete Benchmark Report
 
-- Generated: 2026-10-30 17:26:05 UTC
-- Runs: 20
-- Warmup: 2
+- Generated: 2026-11-25 09:50 UTC
+- Machine: macos-aarch64
+- Runs: 3 to 50, as hyperfine chose, warmup: 1
+- Workload: 50000 (smoke)
+- Toolchains: flux 2c0d4ca3; hyperfine 2.0.0; rustc 1.100.0 (0ef1bc386 2026-11-09); Python 3.9.6; erlang OTP 29; elixir 1.20.5; go1.27.4 darwin/arm64
 
-| Command | Mean Wall Time [s] | Change | Factor |
-|:---|---:|---:|:---|
-| `rbtree_del/flux` | 5.102 ± 0.042 |  |  |
-| `rbtree_del/flux-native` | 0.165 ± 0.003 | -96.8% | (30.9x faster) |
-| `rbtree_del/rust` | 0.048 ± 0.001 | -99.1% | (105.4x faster) |
-| `rbtree_del/python` | 0.245 ± 0.002 | -95.2% | (20.9x faster) |
+| Case | Mean | ± σ | Min | Max | Peak RSS | Instructions | × native |
+|:---|---:|---:|---:|---:|---:|---:|---:|
+| `rbtree_del/flux` | 2.464 s | 27.3 ms | 2.441 s | 2.494 s | 26.1 MiB | 64.75 G | 167.76× |
+| `rbtree_del/flux-native` | 14.7 ms | 0.55 ms | 14.0 ms | 17.4 ms | 4.4 MiB | 354.1 M | 1.00× |
+| `rbtree_del/rust` | 33.9 ms | 1.23 ms | 32.2 ms | 38.3 ms | 11.2 MiB | 891.8 M | 2.31× |
+| `rbtree_del/python` | 224.6 ms | 2.00 ms | 221.1 ms | 227.7 ms | 14.4 MiB | 5.39 G | 15.29× |
+| `rbtree_del/erlang` | 85.4 ms | 3.62 ms | 82.6 ms | 99.3 ms | 85.2 MiB | 1.67 G | 5.81× |
+| `rbtree_del/elixir` | 142.4 ms | 0.84 ms | 140.5 ms | 143.6 ms | 91.3 MiB | 2.57 G | 9.69× |
+| `rbtree_del/go` | 23.9 ms | 0.30 ms | 23.5 ms | 24.8 ms | 11.0 MiB | 685.0 M | 1.63× |
 
-### Against baseline
+VM / native: 167.76×
 
-Baseline: `benchmarks/baselines/rbtree_del.json`
+No baseline for macos-aarch64 yet: record one with --save-baseline.
 
-| Command | Mean now | Baseline mean | Now / baseline |
+### VM counts
+
+From `flux --metrics` on the VM case. They are the same on every run of the same compiler.
+
+| Count | Now | Baseline | Change |
 |:---|---:|---:|---:|
-| `rbtree_del/flux` | 5.102 s | 5.102 s | 1.00x |
-| `rbtree_del/flux-native` | 164.9 ms | 164.9 ms | 1.00x |
-| `rbtree_del/rust` | 48.4 ms | 48.4 ms | 1.00x |
-| `rbtree_del/python` | 244.5 ms | 244.5 ms | 1.00x |
-
-VM / native: 30.94x
+| `aether_allocs` | 0 | – | – |
+| `aether_drops` | 71 | – | – |
+| `aether_dups` | 92 | – | – |
+| `aether_reuses` | 18 | – | – |
+| `bytecode_bytes` | 9570 | – | – |
+| `compiler_allocs` | 2179534 | – | – |
+| `core_size` | 1053 | – | – |
+| `vm_allocs` | 83534581 | – | – |
+| `vm_instructions` | 106005037 | – | – |
 <!-- rbtree-del-report:end -->
 
 ## N-Body
@@ -813,6 +920,43 @@ cargo xtask bench nbody
 Latest report:
 
 <!-- nbody-report:start -->
+# N-Body Benchmark Report
+
+- Generated: 2026-11-25 09:51 UTC
+- Machine: macos-aarch64
+- Runs: 3 to 50, as hyperfine chose, warmup: 1
+- Workload: 20000 (smoke)
+- Toolchains: flux 2c0d4ca3; hyperfine 2.0.0; rustc 1.100.0 (0ef1bc386 2026-11-09); Python 3.9.6; erlang OTP 29; elixir 1.20.5; go1.27.4 darwin/arm64
+
+| Case | Mean | ± σ | Min | Max | Peak RSS | Instructions | × native |
+|:---|---:|---:|---:|---:|---:|---:|---:|
+| `nbody/flux` | 1.847 s | 18.4 ms | 1.826 s | 1.859 s | 19.6 MiB | 51.17 G | 30.77× |
+| `nbody/flux-native` | 60.0 ms | 1.27 ms | 57.8 ms | 63.6 ms | 2.1 MiB | 1.77 G | 1.00× |
+| `nbody/rust` | 1.59 ms | 0.05 ms | 1.46 ms | 1.79 ms | 1.9 MiB | 19.2 M | 0.03× |
+| `nbody/python` | 115.7 ms | 1.46 ms | 112.9 ms | 118.4 ms | 9.9 MiB | 2.85 G | 1.93× |
+| `nbody/erlang` | 93.8 ms | 2.33 ms | 90.1 ms | 104.8 ms | 75.8 MiB | 1.85 G | 1.56× |
+| `nbody/elixir` | 152.2 ms | 1.19 ms | 150.1 ms | 154.0 ms | 82.5 MiB | 2.75 G | 2.54× |
+| `nbody/go` | 2.27 ms | 0.06 ms | 2.12 ms | 2.41 ms | 4.4 MiB | 33.4 M | 0.04× |
+
+VM / native: 30.77×
+
+No baseline for macos-aarch64 yet: record one with --save-baseline.
+
+### VM counts
+
+From `flux --metrics` on the VM case. They are the same on every run of the same compiler.
+
+| Count | Now | Baseline | Change |
+|:---|---:|---:|---:|
+| `aether_allocs` | 0 | – | – |
+| `aether_drops` | 132 | – | – |
+| `aether_dups` | 26 | – | – |
+| `aether_reuses` | 3 | – | – |
+| `bytecode_bytes` | 8106 | – | – |
+| `compiler_allocs` | 2120545 | – | – |
+| `core_size` | 864 | – | – |
+| `vm_allocs` | 59045606 | – | – |
+| `vm_instructions` | 100706154 | – | – |
 <!-- nbody-report:end -->
 
 ## Takeuchi
@@ -837,6 +981,43 @@ cargo xtask bench tak
 Latest report:
 
 <!-- tak-report:start -->
+# Takeuchi Benchmark Report
+
+- Generated: 2026-11-25 09:51 UTC
+- Machine: macos-aarch64
+- Runs: 3 to 50, as hyperfine chose, warmup: 1
+- Workload: 27 (smoke)
+- Toolchains: flux 2c0d4ca3; hyperfine 2.0.0; rustc 1.100.0 (0ef1bc386 2026-11-09); Python 3.9.6; erlang OTP 29; elixir 1.20.5; go1.27.4 darwin/arm64
+
+| Case | Mean | ± σ | Min | Max | Peak RSS | Instructions | × native |
+|:---|---:|---:|---:|---:|---:|---:|---:|
+| `tak/flux` | 1.772 s | 13.0 ms | 1.758 s | 1.782 s | 19.1 MiB | 51.57 G | 164.00× |
+| `tak/flux-native` | 10.8 ms | 0.24 ms | 10.4 ms | 11.2 ms | 2.1 MiB | 280.1 M | 1.00× |
+| `tak/rust` | 9.62 ms | 0.07 ms | 9.44 ms | 9.80 ms | 2.0 MiB | 261.7 M | 0.89× |
+| `tak/python` | 606.2 ms | 11.7 ms | 594.5 ms | 619.8 ms | 9.5 MiB | 16.13 G | 56.09× |
+| `tak/erlang` | 94.3 ms | 5.51 ms | 89.9 ms | 120.1 ms | 75.9 MiB | 1.94 G | 8.72× |
+| `tak/elixir` | 153.5 ms | 4.64 ms | 150.1 ms | 170.1 ms | 82.4 MiB | 2.83 G | 14.21× |
+| `tak/go` | 12.2 ms | 0.74 ms | 11.4 ms | 13.7 ms | 4.4 MiB | 287.2 M | 1.13× |
+
+VM / native: 164.00×
+
+No baseline for macos-aarch64 yet: record one with --save-baseline.
+
+### VM counts
+
+From `flux --metrics` on the VM case. They are the same on every run of the same compiler.
+
+| Count | Now | Baseline | Change |
+|:---|---:|---:|---:|
+| `aether_allocs` | 0 | – | – |
+| `aether_drops` | 36 | – | – |
+| `aether_dups` | 2 | – | – |
+| `aether_reuses` | 0 | – | – |
+| `bytecode_bytes` | 6108 | – | – |
+| `compiler_allocs` | 1985694 | – | – |
+| `core_size` | 304 | – | – |
+| `vm_allocs` | 31662351 | – | – |
+| `vm_instructions` | 142469083 | – | – |
 <!-- tak-report:end -->
 
 ## Wrapping Fibonacci
@@ -871,4 +1052,41 @@ cargo xtask bench sfib
 Latest report:
 
 <!-- sfib-report:start -->
+# Wrapping Fibonacci Benchmark Report
+
+- Generated: 2026-11-25 09:53 UTC
+- Machine: macos-aarch64
+- Runs: 3 to 50, as hyperfine chose, warmup: 1
+- Workload: 5000000 (smoke)
+- Toolchains: flux 2c0d4ca3; hyperfine 2.0.0; rustc 1.100.0 (0ef1bc386 2026-11-09); Python 3.9.6; erlang OTP 29; elixir 1.20.5; go1.27.4 darwin/arm64
+
+| Case | Mean | ± σ | Min | Max | Peak RSS | Instructions | × native |
+|:---|---:|---:|---:|---:|---:|---:|---:|
+| `sfib/flux` | 2.414 s | 28.7 ms | 2.381 s | 2.435 s | 19.0 MiB | 68.83 G | 377.12× |
+| `sfib/flux-native` | 6.40 ms | 0.13 ms | 6.22 ms | 6.90 ms | 2.1 MiB | 104.4 M | 1.00× |
+| `sfib/rust` | 7.39 ms | 0.28 ms | 7.22 ms | 8.56 ms | 2.0 MiB | 53.6 M | 1.15× |
+| `sfib/python` | 622.2 ms | 3.31 ms | 619.8 ms | 627.1 ms | 9.5 MiB | 17.22 G | 97.20× |
+| `sfib/erlang` | 96.9 ms | 2.91 ms | 94.1 ms | 104.7 ms | 75.7 MiB | 1.97 G | 15.13× |
+| `sfib/elixir` | 162.1 ms | 6.65 ms | 154.7 ms | 179.6 ms | 82.6 MiB | 2.89 G | 25.32× |
+| `sfib/go` | 4.27 ms | 0.41 ms | 3.45 ms | 5.44 ms | 4.5 MiB | 78.2 M | 0.67× |
+
+VM / native: 377.12×
+
+No baseline for macos-aarch64 yet: record one with --save-baseline.
+
+### VM counts
+
+From `flux --metrics` on the VM case. They are the same on every run of the same compiler.
+
+| Count | Now | Baseline | Change |
+|:---|---:|---:|---:|
+| `aether_allocs` | 0 | – | – |
+| `aether_drops` | 36 | – | – |
+| `aether_dups` | 2 | – | – |
+| `aether_reuses` | 0 | – | – |
+| `bytecode_bytes` | 6149 | – | – |
+| `compiler_allocs` | 1986671 | – | – |
+| `core_size` | 307 | – | – |
+| `vm_allocs` | 27780752 | – | – |
+| `vm_instructions` | 211668574 | – | – |
 <!-- sfib-report:end -->
