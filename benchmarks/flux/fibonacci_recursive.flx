@@ -1,0 +1,21 @@
+// effect-handlers-bench's fibonacci_recursive: doubly recursive Fibonacci
+// with no effects, the baseline the effects group's calls compare with.
+import Flow.Env as Env
+import Flow.Array as Array
+
+fn fibonacci(n: Int) -> Int {
+    if n == 0 { 0 } else if n == 1 { 1 } else { fibonacci(n - 1) + fibonacci(n - 2) }
+}
+
+// The workload size: the program's first argument, or the size the suite
+// was written with. `cargo xtask bench` passes a smaller one to the VM.
+fn size(default: Int) -> Int with Env {
+    match Array.get(Env.args(), 1) {
+        Some(s) -> parse_int(s),
+        None -> default,
+    }
+}
+
+fn main() with IO {
+    print(fibonacci(size(42)))
+}

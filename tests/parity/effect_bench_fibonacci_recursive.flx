@@ -1,0 +1,17 @@
+// parity: vm, llvm
+// expect: success
+// bug: benchmarks/flux/fibonacci_recursive.flx, the effects group's
+//      baseline with no effects, at effect-handlers-bench's small size, 5.
+//      Its reference program starts from fib(0) = 0, so fib(5) = 5; the
+//      suite's description lists fib(6), 8.
+// parity-expected-stdout-begin
+// 5
+// parity-expected-stdout-end
+
+fn fibonacci(n: Int) -> Int {
+    if n == 0 { 0 } else if n == 1 { 1 } else { fibonacci(n - 1) + fibonacci(n - 2) }
+}
+
+fn main() with IO {
+    print(fibonacci(5))
+}
