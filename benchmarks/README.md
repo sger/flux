@@ -104,7 +104,7 @@ written with. The harness runs each benchmark at one of two sizes, listed in
 | `sfib` | loop iterations | 5,000,000 | 200,000,000 |
 | `fibonacci_recursive` | `n` in `fib(n)` | 33 | 42 |
 | `product_early` | products of [1000, …, 0] | 2,000 | 100,000 |
-| `resume_nontail` | nesting depth of the resumes, each run 1000 times | 400 | 700 |
+| `resume_nontail` | nesting depth of the resumes, each run 1000 times | 400 | 10,000 |
 | `nqueens_choice` | board size | 10 | 12 |
 
 ```bash
@@ -1264,9 +1264,8 @@ down to 1, and each clause combines its argument with what the resume returns, s
 resumes nest `n` deep. That runs 1000 times, each run starting from the last one's
 result. The direct-style twin does the same combining after a call returns.
 
-The suite runs it at `n` = 10,000. Natively, nested resumes take time that grows with the
-square of their depth ([KI-231](../docs/known_issues.md#ki-231)): 10,000 takes minutes, so
-the harness uses 400 and 700.
+The full size is the suite's `n` = 10,000. The smoke size is 400, which keeps a VM run
+to a few seconds.
 
 Sources:
 
