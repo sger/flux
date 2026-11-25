@@ -68,6 +68,41 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-223 — Natively, the value a clause resumes with leaks when the `perform` runs in a function the handled expression calls
+
+**Severity:** Medium (a leak each time the clause resumes) · **Area:** Aether, drop insertion (`src/aether/insert.rs`) · **Verified:** 2026-11-25 (4c6aaa11), `--native --leak-check` · **From:** the KI-186 fixture's `llvm_heap` way
+
+```flux
+effect Ask { ask : () -> String }
+
+fn callee() -> String with Ask {
+    perform Ask.ask() + "!"
+}
+
+fn main() with IO {
+    print(callee() handle Ask { ask(resume) -> resume("a" + "1") })
+}
+```
+
+```
+$ flux resumed.flx --native --leak-check
+"a1!"
+leak: 1 block still live at exit
+  a String (16 bytes) allocated at <handler Ask.ask> (resumed.flx:8:55)
+```
+
+The leaked block is `"a1"`, the value the clause gives to `resume`. Binding
+the `perform` by a `let` first leaks the same. With the `perform` in the
+handled expression itself, `(perform Ask.ask() + "!") handle Ask { … }`,
+nothing leaks unless the clause resumes twice. The VM prints the same.
+
+The runtime hands the continuation the value `resume` was given, with its
+reference, so the `perform`'s result is owned. Drop insertion doesn't count it
+as a fresh value (`fresh_result`), so `callee`'s plan reads it in the `+` and
+never releases it. A `perform` in the handled expression is usually rewritten
+to a direct call of the clause, whose result does count as fresh; a clause
+that resumes twice keeps it a real `perform`.
+
 ### KI-222 — Natively, a counted value that a handler clause reads leaks when nothing reads it after the `handle`
 
 **Severity:** Medium (a leak each time the `handle` runs) · **Area:** Aether, drop insertion around `handle` (`src/aether/insert.rs`) · **Verified:** 2026-11-25 (4bd931e0), `--native --leak-check` · **From:** the KI-039 plan's P2.6 fixtures
