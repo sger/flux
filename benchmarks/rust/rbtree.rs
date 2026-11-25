@@ -151,7 +151,7 @@ fn mk_map_aux(n: i64, tree: Tree) -> Tree {
 fn main() {
     let limit = env::args().nth(1).and_then(|value| value.parse::<i64>().ok()).unwrap_or(100_000);
     let handle = std::thread::Builder::new()
-        .stack_size(64 * 1024 * 1024)
+        .stack_size(1024 * 1024 * 1024)
         .spawn(move || {
             println!("{}", count_true(&mk_map_aux(limit, Tree::Leaf)));
         })
