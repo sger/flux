@@ -194,6 +194,10 @@ name = "countdown_rust"
 path = "benchmarks/rust/countdown.rs"
 
 [[bin]]
+name = "iterator_rust"
+path = "benchmarks/rust/iterator.rs"
+
+[[bin]]
 name = "product_early_rust"
 path = "benchmarks/rust/product_early.rs"
 

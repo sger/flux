@@ -1,0 +1,43 @@
+// effect-handlers-bench's iterator: an ascending range from 0 to n is
+// emitted one value at a time, and the handler adds each into its state.
+// Flux can't read a handler's state after the handle, so a second
+// operation, total, reads the sum back.
+import Flow.Env as Env
+import Flow.Array as Array
+
+effect Emit {
+    emit : (Int) -> ()
+    total : () -> Int
+}
+
+fn range(l: Int, u: Int) with Emit {
+    if l > u { () } else {
+        perform Emit.emit(l)
+        range(l + 1, u)
+    }
+}
+
+fn summed(n: Int) -> Int with Emit {
+    range(0, n)
+    perform Emit.total()
+}
+
+fn run(n: Int) -> Int {
+    summed(n) handle Emit(0) {
+        emit(resume, e, s) -> resume((), s + e),
+        total(resume, s) -> resume(s, s)
+    }
+}
+
+// The workload size: the program's first argument, or the size the suite
+// was written with. `cargo xtask bench` passes a smaller one to the VM.
+fn size(default: Int) -> Int with Env {
+    match Array.get(Env.args(), 1) {
+        Some(s) -> parse_int(s),
+        None -> default,
+    }
+}
+
+fn main() with IO {
+    print(run(size(40000000)))
+}

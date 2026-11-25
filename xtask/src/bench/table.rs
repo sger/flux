@@ -111,6 +111,7 @@ pub const BENCHMARKS: &[Benchmark] = &[
     // The suite's 200000000 takes about 15 s natively, past the full size's
     // 0.1-2 s.
     effect_bench("countdown", "Countdown", "countdown", true, "2000000", "20000000"),
+    effect_bench("iterator", "Iterator", "iterator", true, "2000000", "40000000"),
     // No effects: the group's baseline for the cost of a call.
     effect_bench(
         "fibonacci_recursive",

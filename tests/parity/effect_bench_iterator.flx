@@ -1,0 +1,45 @@
+// parity: vm, llvm
+// expect: success
+// bug: benchmarks/flux/iterator.flx and its direct-style twin at
+//      effect-handlers-bench's small size, 5, where both give 15: a range
+//      emitted into a handler's sum, and the same range added up directly.
+//      The third line emits 21 values, past the 8 pending frames KI-224 broke.
+// parity-expected-stdout-begin
+// 15
+// 15
+// 210
+// parity-expected-stdout-end
+
+effect Emit {
+    emit : (Int) -> ()
+    total : () -> Int
+}
+
+fn range(l: Int, u: Int) with Emit {
+    if l > u { () } else {
+        perform Emit.emit(l)
+        range(l + 1, u)
+    }
+}
+
+fn summed(n: Int) -> Int with Emit {
+    range(0, n)
+    perform Emit.total()
+}
+
+fn run(n: Int) -> Int {
+    summed(n) handle Emit(0) {
+        emit(resume, e, s) -> resume((), s + e),
+        total(resume, s) -> resume(s, s)
+    }
+}
+
+fn range_direct(l: Int, u: Int, s: Int) -> Int {
+    if l > u { s } else { range_direct(l + 1, u, s + l) }
+}
+
+fn main() with IO {
+    print(run(5))
+    print(range_direct(0, 5, 0))
+    print(run(20))
+}

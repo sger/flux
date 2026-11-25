@@ -37,6 +37,7 @@ Extended benchmarks:
 Effects benchmarks, from [effect-handlers-bench](https://github.com/effect-handlers/effect-handlers-bench):
 
 - `countdown`: a state handler's counter, read and written once per turn down to 0
+- `iterator`: a range from 0 to `n`, emitted one value at a time into a handler's sum
 - `fibonacci_recursive`: doubly recursive Fibonacci with no effects, the group's baseline
 - `product_early`: an abort, whose clause never resumes, from 1000 frames deep
 - `resume_nontail`: a clause that works on what its resume returns, the resumes nested deep
@@ -105,6 +106,7 @@ written with. The harness runs each benchmark at one of two sizes, listed in
 | `tak` | `n` in `tak(n, 2n/3, n/3)` | 27 | 33 |
 | `sfib` | loop iterations | 5,000,000 | 200,000,000 |
 | `countdown` | the counter's starting value | 2,000,000 | 20,000,000 |
+| `iterator` | the range's upper end | 2,000,000 | 40,000,000 |
 | `fibonacci_recursive` | `n` in `fib(n)` | 33 | 42 |
 | `product_early` | products of [1000, …, 0] | 2,000 | 100,000 |
 | `resume_nontail` | nesting depth of the resumes, each run 1000 times | 400 | 10,000 |
@@ -1149,6 +1151,38 @@ Latest report:
 
 <!-- countdown-report:start -->
 <!-- countdown-report:end -->
+
+## Iterator
+
+effect-handlers-bench's `iterator`: the values from 0 to `n` are emitted one at a time
+through an `Emit` effect, and a parameterized handler adds each into its state. Flux can't
+read a handler's state after the `handle`, so a second operation, `total`, reads the sum
+back: one perform more than the suite's other versions. The clauses resume as their last
+act. The direct-style twin adds the range into an accumulator. The full size is the
+suite's `n` = 40,000,000, whose sum is 800000020000000.
+
+Sources:
+
+- `benchmarks/flux/iterator.flx`
+- `benchmarks/flux/iterator_direct.flx`
+- `benchmarks/rust/iterator.rs`
+- `benchmarks/go/iterator/main.go`
+- `benchmarks/haskell/iterator.hs`
+- `benchmarks/ocaml/iterator.ml`
+- `benchmarks/python/iterator.py`
+- `benchmarks/erlang/iterator.erl`
+- `benchmarks/elixir/iterator.ex`
+
+Run the cross-language benchmark:
+
+```bash
+cargo xtask bench iterator
+```
+
+Latest report:
+
+<!-- iterator-report:start -->
+<!-- iterator-report:end -->
 
 ## Recursive Fibonacci
 
