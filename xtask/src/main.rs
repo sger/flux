@@ -93,7 +93,8 @@
 //!                   [--report-file <path>] [--no-vm] [--no-native] [--vms] [--no-build]
 //! cargo xtask bench <benchmark> --profile vm|native [--full] [--no-build]
 //!     time benchmarks/ on the Flux VM, as a native binary and as every
-//!     port with a toolchain on this machine, with hyperfine (between 3 and
+//!     port with a toolchain on this machine (a port that fails to build
+//!     stops the run), with hyperfine (between 3 and
 //!     50 runs unless --runs), at each benchmark's smoke size or with
 //!     --full its full one (`bench/table.rs`); each case first runs once and must print
 //!     what the VM prints (--no-check skips that), and that VM run writes

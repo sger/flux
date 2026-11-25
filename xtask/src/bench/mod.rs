@@ -236,7 +236,8 @@ fn run_one(
 }
 
 /// Builds each port this machine has a toolchain for, and returns the
-/// cases to time. A missing toolchain drops its case with a note.
+/// cases to time. A missing toolchain drops its case with a note; a port
+/// that fails to build stops the run.
 fn prepare_cases(
     root: &Path,
     b: &Benchmark,
@@ -351,13 +352,12 @@ fn prepare_cases(
         fs::create_dir_all(root.join(&erlang_dir)).map_err(|e| format!("{erlang_dir}: {e}"))?;
         let mut cmd = Command::new(erlc);
         cmd.current_dir(root).args(["-o", &erlang_dir, &format!("benchmarks/erlang/{name}.erl")]);
-        if build_port("Erlang", name, &mut cmd)? {
-            let mut argv = vec![tool("erl"), "-noshell".into(), "-pa".into(), erlang_dir.clone()];
-            argv.extend(["-run".into(), name.into(), "main".into()]);
-            argv.extend(arg.iter().cloned());
-            argv.extend(["-s".into(), "init".into(), "stop".into()]);
-            cases.push(Case { name: format!("{name}/erlang"), argv });
-        }
+        build_port("Erlang", name, &mut cmd)?;
+        let mut argv = vec![tool("erl"), "-noshell".into(), "-pa".into(), erlang_dir.clone()];
+        argv.extend(["-run".into(), name.into(), "main".into()]);
+        argv.extend(arg.iter().cloned());
+        argv.extend(["-s".into(), "init".into(), "stop".into()]);
+        cases.push(Case { name: format!("{name}/erlang"), argv });
     } else {
         skip("Erlang", "erlc is not installed");
     }
@@ -367,15 +367,14 @@ fn prepare_cases(
         fs::create_dir_all(root.join(&elixir_dir)).map_err(|e| format!("{elixir_dir}: {e}"))?;
         let mut cmd = Command::new(elixirc);
         cmd.current_dir(root).args(["-o", &elixir_dir, &format!("benchmarks/elixir/{name}.ex")]);
-        if build_port("Elixir", name, &mut cmd)? {
-            let mut argv = vec![tool("elixir"), "-pa".into(), elixir_dir.clone(), "-e".into()];
-            argv.push(format!("Bench.{}.main(System.argv())", b.elixir_module()));
-            if !arg.is_empty() {
-                argv.push("--".into());
-                argv.extend(arg.iter().cloned());
-            }
-            cases.push(Case { name: format!("{name}/elixir"), argv });
+        build_port("Elixir", name, &mut cmd)?;
+        let mut argv = vec![tool("elixir"), "-pa".into(), elixir_dir.clone(), "-e".into()];
+        argv.push(format!("Bench.{}.main(System.argv())", b.elixir_module()));
+        if !arg.is_empty() {
+            argv.push("--".into());
+            argv.extend(arg.iter().cloned());
         }
+        cases.push(Case { name: format!("{name}/elixir"), argv });
     } else {
         skip("Elixir", "elixirc is not installed");
     }
@@ -389,9 +388,8 @@ fn prepare_cases(
             at(root, &go).to_str().unwrap_or_default(),
             &format!("./{name}"),
         ]);
-        if build_port("Go", name, &mut cmd)? {
-            cases.push(Case { name: format!("{name}/go"), argv: with_arg(vec![go]) });
-        }
+        build_port("Go", name, &mut cmd)?;
+        cases.push(Case { name: format!("{name}/go"), argv: with_arg(vec![go]) });
     } else {
         skip("Go", "go is not installed");
     }
@@ -661,11 +659,18 @@ fn python() -> Option<String> {
     })
 }
 
-/// Runs the build of `name`'s port in `lang`, and says whether it built.
-fn build_port(lang: &str, name: &str, cmd: &mut Command) -> Result<bool, String> {
+/// Runs the build of `name`'s port in `lang`. A build that fails stops the
+/// run: skipping the case would hide the broken port, and an older binary
+/// left by an earlier build would be timed in place of the edited source.
+fn build_port(lang: &str, name: &str, cmd: &mut Command) -> Result<(), String> {
     let tool = Path::new(cmd.get_program()).file_name().unwrap_or_default().to_string_lossy();
     let tool = tool.into_owned();
-    Ok(proc::run(cmd).map_err(|e| format!("the {lang} port of {name}: {tool}: {e}"))? == 0)
+    match proc::run(cmd).map_err(|e| format!("the {lang} port of {name}: {tool}: {e}"))? {
+        0 => Ok(()),
+        code => {
+            Err(format!("could not build the {lang} port of {name}: {tool} exited with {code}"))
+        }
+    }
 }
 
 /// Whether `binary` is missing or older than `source`.

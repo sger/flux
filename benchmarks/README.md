@@ -70,7 +70,8 @@ The harness first builds a release `flux` with the native backend and the Rust p
 as a native binary emitted with `-O` into `target/bench/` (`<name>/flux-native`). The
 native case times only the compiled program, not the compiler. The Python, Haskell
 (`ghc`), OCaml (`ocamlopt`), Erlang, Elixir and Go ports are compiled into `target/` when
-their toolchain is on `PATH`. A case whose toolchain is missing is skipped with a note.
+their toolchain is on `PATH`. A case whose toolchain is missing is skipped with a note. A
+port that fails to build stops the run with the compiler's error.
 
 An effects benchmark also times its direct-style twin, on the VM (`<name>/flux-direct`)
 and natively (`<name>/flux-native-direct`). The report adds a line giving the effect
