@@ -1,0 +1,80 @@
+// parity: vm, llvm, llvm_verify, llvm_heap
+// expect: success
+// bug: natively an Int let whose value is a match or an if joins its arms
+//      as raw words, each arm turned raw where it ends, and a match on Int
+//      literals compares a raw scrutinee, which a variable alternative binds
+//      and its guard reads. Each function is called so that every arm runs.
+// parity-expected-stdout-begin
+// 4
+// 10
+// 6
+// 7
+// -1
+// 11
+// -40
+// 7
+// 100
+// 18
+// 15
+// 1
+// -3
+// -17
+// 21
+// parity-expected-stdout-end
+
+// A let chain in one branch; a match with a nested if in the other.
+fn nested(a: Int, b: Int) -> Int {
+    let r: Int = if a == 0 {
+        let t = b + 1
+        t * 2 - 1
+    } else {
+        match b {
+            1 -> 5,
+            2 -> if a > 3 { a } else { 0 - a },
+            _ -> a + b,
+        }
+    }
+    r + 1
+}
+
+// A negative literal in one arm, a parameter in the other.
+fn signed(flag: Bool, x: Int) -> Int {
+    let r: Int = if flag { -41 } else { x }
+    r + 1
+}
+
+// A guard reads the scrutinee a variable alternative binds.
+fn classify(n: Int) -> Int {
+    match n % 7 {
+        0 -> 100,
+        k if k > 4 -> k * 3,
+        k -> k - 1,
+    }
+}
+
+// A scrutinee that can be negative.
+fn below(n: Int) -> Int {
+    match n - 10 {
+        0 -> -3,
+        k if k < -15 -> k - 1,
+        k -> k * 3,
+    }
+}
+
+fn main() with IO {
+    print(nested(0, 1))
+    print(nested(0, 4))
+    print(nested(6, 1))
+    print(nested(6, 2))
+    print(nested(2, 2))
+    print(nested(4, 6))
+    print(signed(true, 9))
+    print(signed(false, 6))
+    print(classify(14))
+    print(classify(6))
+    print(classify(12))
+    print(classify(9))
+    print(below(10))
+    print(below(-6))
+    print(below(17))
+}

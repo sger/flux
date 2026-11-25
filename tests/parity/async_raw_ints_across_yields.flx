@@ -1,0 +1,69 @@
+// parity: vm, llvm, llvm_verify, llvm_heap
+// expect: success
+// bug: natively an Int let live across an async wait is boxed into the
+//      continuation and unboxed where the task resumes: across yield_now and
+//      sleep, in both branches of both, and across a Task.await.
+// parity-expected-stdout-begin
+// 22
+// -9
+// 41
+// 1003
+// parity-expected-stdout-end
+
+import Flow.Task as Task
+import Flow.Async exposing (..)
+
+// Each let is read before the wait and after it, so it is live across.
+fn waits(n: Int) -> Int with Async {
+    let base = n * 3
+    if base > 1000 { 0 } else {
+        yield_now()
+        sleep(1)
+        base + 1
+    }
+}
+
+fn left(n: Int) -> Int with Async {
+    let x = n - 10
+    if x > 1000 { 0 } else {
+        yield_now()
+        x + 1
+    }
+}
+
+fn right(n: Int) -> Int with Async {
+    let y = n * 2
+    if y > 1000 { 0 } else {
+        yield_now()
+        y + 1
+    }
+}
+
+fn left_of_zero() -> Int with Async { left(0) }
+
+fn right_of_twenty() -> Int with Async { right(20) }
+
+fn branches() -> (Int, Int) with Async {
+    both(left_of_zero, right_of_twenty)
+}
+
+fn joined(n: Int) -> Int with Async {
+    let base = n * 2 + 1
+    if base > 10000 { 0 } else {
+        let t = Task.spawn(fn() { 2 })
+        let got = Task.await(t)
+        base + got
+    }
+}
+
+fn waits_on_seven() -> Int with Async { waits(7) }
+
+fn joined_on_500() -> Int with Async { joined(500) }
+
+fn main() with IO {
+    print(run_async(waits_on_seven))
+    let pair = run_async(branches)
+    print(pair.0)
+    print(pair.1)
+    print(run_async(joined_on_500))
+}
