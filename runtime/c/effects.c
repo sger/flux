@@ -693,6 +693,8 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
     return result;
 }
 
+static int64_t compose_into_closure(int delimits, int takes_state);
+
 /*
  * Extend the continuation chain during yield propagation.
  * Called by each function as it unwinds after detecting yield.
@@ -701,8 +703,11 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
  */
 int64_t flux_yield_extend(int64_t cont) {
     if (flux_thread_ctx.conts_count >= FLUX_EFFECT_CONTS_MAX) {
-        /* Overflow: compose existing conts into one, then add the new one. */
-        int64_t composed = flux_compose_conts();
+        /* Overflow: compose existing conts into one, then add the new one.
+         * @KI-224: the fold is a frame like the others, called with one
+         * value, so it never takes the handler's state, even when the
+         * resume built from all the frames later does. */
+        int64_t composed = compose_into_closure(0, 0);
         flux_thread_ctx.conts[0] = composed;
         flux_thread_ctx.conts_count = 1;
     }
@@ -795,8 +800,6 @@ int64_t flux_compose_trampoline_closure_entry(int64_t closure_raw, int64_t *args
  * Single cont: returns it directly — no trampoline overhead.
  * Multiple conts: packages into an array and wraps in a trampoline closure.
  */
-static int64_t compose_into_closure(int delimits);
-
 int64_t flux_compose_conts(void) {
     if (flux_thread_ctx.conts_count == 0) {
         return flux_make_none();
@@ -806,7 +809,7 @@ int64_t flux_compose_conts(void) {
         flux_thread_ctx.conts_count = 0;
         return result;
     }
-    return compose_into_closure(0);
+    return compose_into_closure(0, flux_thread_ctx.op_state != 0);
 }
 
 /*
@@ -818,10 +821,12 @@ int64_t flux_compose_resume(void) {
     if (flux_thread_ctx.conts_count == 0) {
         return flux_make_none();
     }
-    return compose_into_closure(1);
+    return compose_into_closure(1, flux_thread_ctx.op_state != 0);
 }
 
-static int64_t compose_into_closure(int delimits) {
+/* `takes_state`: the closure is a resume a parameterized handler's clause
+ * calls as resume(v, s). */
+static int64_t compose_into_closure(int delimits, int takes_state) {
     /* Package continuations into an array. */
     int64_t *elems = flux_thread_ctx.conts;
     int32_t count = flux_thread_ctx.conts_count;
@@ -850,7 +855,7 @@ static int64_t compose_into_closure(int delimits) {
     };
     struct FluxClosureLayout *clo = (struct FluxClosureLayout *)mem;
     clo->fn_ptr          = (void *)flux_compose_trampoline_closure_entry;
-    clo->remaining_arity = (flux_thread_ctx.op_state != 0) ? 2 : 1;
+    clo->remaining_arity = takes_state ? 2 : 1;
     clo->capture_count   = 2;
     clo->applied_count   = 0;
     clo->_pad            = 0;
