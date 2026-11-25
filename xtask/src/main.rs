@@ -90,11 +90,12 @@
 //!     run the tests for compiler phases (`affected.rs`)
 //! cargo xtask bench <benchmark | core | extended | all> [--runs <n>] [--warmup <n>]
 //!                   [--full] [--save-baseline] [--no-check] [--no-readme]
-//!                   [--report-file <path>] [--no-native] [--vms] [--no-build]
+//!                   [--report-file <path>] [--no-vm] [--no-native] [--vms] [--no-build]
 //! cargo xtask bench <benchmark> --profile vm|native [--full] [--no-build]
 //!     time benchmarks/ on the Flux VM, as a native binary and as every
 //!     port with a toolchain on this machine, with hyperfine (between 3 and
-//!     50 runs unless --runs); each case first runs once and must print
+//!     50 runs unless --runs), at each benchmark's smoke size or with
+//!     --full its full one (`bench/table.rs`); each case first runs once and must print
 //!     what the VM prints (--no-check skips that), and that VM run writes
 //!     flux --metrics; compares with benchmarks/baselines/<os>-<arch>/
 //!     (Mann–Whitney p, geomean), writes target/bench/<name>.md and the
@@ -147,7 +148,7 @@ const USAGE: &str = "usage:
   cargo xtask scale [--flux <path>] [<test>...]
   cargo xtask affected [<base ref>] [--path <path>]... [--dry-run] [-- <nextest args>]
   cargo xtask phase <phase>... [--dry-run] [-- <nextest args>] | --list
-  cargo xtask bench <benchmark | core | extended | all> [--runs <n>] [--warmup <n>] [--full] [--save-baseline] [--no-check] [--no-readme] [--report-file <path>] [--no-native] [--vms] [--no-build]
+  cargo xtask bench <benchmark | core | extended | all> [--runs <n>] [--warmup <n>] [--full] [--save-baseline] [--no-check] [--no-readme] [--report-file <path>] [--no-vm] [--no-native] [--vms] [--no-build]
   cargo xtask bench <benchmark> --profile vm|native [--full] [--no-build]
   cargo xtask bench stats-diff <base.json> <head.json>
   cargo xtask tidy";
@@ -397,6 +398,7 @@ fn dispatch(root: &Path, args: &[String]) -> Result<bool, String> {
                 report_file: args.value("--report-file")?.map(|f| resolve(root, &f)),
                 // `--no-flux-native` is bench.sh's name for it.
                 native: !(args.flag("--no-native") | args.flag("--no-flux-native")),
+                vm: !args.flag("--no-vm"),
                 vms: args.flag("--vms"),
                 build: !args.flag("--no-build"),
                 profile,

@@ -12,8 +12,9 @@ pub struct Report<'a> {
     pub platform: &'a str,
     pub runs: String,
     pub warmup: usize,
-    /// Whether the full workload ran, for a benchmark that has two.
-    pub full: Option<bool>,
+    /// The size every program ran with, and whether it is the smoke or
+    /// the full one.
+    pub workload: String,
     pub toolchains: &'a [(String, String)],
     pub cases: &'a [Case],
     /// The baseline's path, as the report shows it, and its cases.
@@ -39,9 +40,7 @@ pub fn render(r: &Report<'_>) -> String {
     let _ = writeln!(out, "- Generated: {}", r.generated);
     let _ = writeln!(out, "- Machine: {}", r.platform);
     let _ = writeln!(out, "- Runs: {}, warmup: {}", r.runs, r.warmup);
-    if let Some(full) = r.full {
-        let _ = writeln!(out, "- Full workload: {}", if full { "yes" } else { "no" });
-    }
+    let _ = writeln!(out, "- Workload: {}", r.workload);
     if !r.toolchains.is_empty() {
         // `rustc -V` and `go version` already start with the tool's name.
         let label = |(name, version): &(String, String)| {
@@ -284,7 +283,7 @@ mod tests {
             platform: "macos-aarch64",
             runs: "4".into(),
             warmup: 1,
-            full: None,
+            workload: "10 (smoke)".into(),
             toolchains: &[],
             cases: &cases,
             baseline: Some(("base.json".into(), &base)),

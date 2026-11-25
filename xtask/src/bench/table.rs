@@ -1,18 +1,16 @@
-//! The benchmarks `cargo xtask bench` knows, and the groups they belong to.
+//! The benchmarks `cargo xtask bench` knows, the sizes it runs them at, and
+//! the groups they belong to.
+//!
+//! Every program, the Flux one and each port, takes its workload size as
+//! its first argument. The smoke size keeps a VM run to a few seconds; the
+//! full size (`--full`) gives a native run of 100 ms or more, so process
+//! startup is a small part of what is timed, as nofib's fast and slow modes
+//! do.
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Group {
     Core,
     Extended,
-}
-
-/// A smaller and a larger input, for a benchmark whose default run is short.
-pub struct Workload {
-    pub smoke_flux: &'static str,
-    pub full_flux: &'static str,
-    /// The argument every other port takes.
-    pub smoke_arg: &'static str,
-    pub full_arg: &'static str,
 }
 
 pub struct Benchmark {
@@ -21,21 +19,18 @@ pub struct Benchmark {
     /// The `<!-- <tag>-report:start -->` marker in `benchmarks/README.md`.
     pub tag: &'static str,
     pub group: Group,
-    pub workload: Option<Workload>,
+    pub smoke: &'static str,
+    pub full: &'static str,
 }
 
 impl Benchmark {
-    pub fn flux_program(&self, full: bool) -> String {
-        match &self.workload {
-            Some(w) if full => w.full_flux.to_string(),
-            Some(w) => w.smoke_flux.to_string(),
-            None => format!("benchmarks/flux/{}.flx", self.name),
-        }
+    pub fn flux_program(&self) -> String {
+        format!("benchmarks/flux/{}.flx", self.name)
     }
 
-    /// The argument the other ports take, if this benchmark has one.
-    pub fn port_arg(&self, full: bool) -> Option<&'static str> {
-        self.workload.as_ref().map(|w| if full { w.full_arg } else { w.smoke_arg })
+    /// The size every program of this benchmark is run with.
+    pub fn size(&self, full: bool) -> &'static str {
+        if full { self.full } else { self.smoke }
     }
 
     /// The Haskell sources name a benchmark with dashes.
@@ -56,39 +51,40 @@ impl Benchmark {
     }
 }
 
-const fn plain(
+const fn bench(
     name: &'static str,
     title: &'static str,
     tag: &'static str,
     group: Group,
+    smoke: &'static str,
+    full: &'static str,
 ) -> Benchmark {
-    Benchmark { name, title, tag, group, workload: None }
+    Benchmark { name, title, tag, group, smoke, full }
 }
 
+// Sizes measured on an Apple M5 Pro: smoke runs take 0.5–2.5 s on the VM,
+// full runs 0.1–2 s natively. The programs' own defaults, used when no size
+// is given, are the sizes the suite was first written with.
 pub const BENCHMARKS: &[Benchmark] = &[
-    Benchmark {
-        name: "binarytrees",
-        title: "Binary Trees",
-        tag: "binarytrees",
-        group: Group::Core,
-        workload: Some(Workload {
-            smoke_flux: "benchmarks/flux/binarytrees_smoke.flx",
-            full_flux: "benchmarks/flux/binarytrees.flx",
-            smoke_arg: "8",
-            full_arg: "21",
-        }),
-    },
-    plain("cfold", "Constant Folding", "cfold", Group::Core),
-    plain("deriv", "Symbolic Differentiation", "deriv", Group::Core),
-    plain("nqueens", "N-Queens", "nqueens", Group::Core),
-    plain("qsort", "Quicksort", "qsort", Group::Core),
-    plain("rbtree_del", "Red-Black Tree Delete", "rbtree-del", Group::Core),
-    plain("nbody", "N-Body", "nbody", Group::Core),
-    plain("tak", "Takeuchi", "tak", Group::Core),
-    plain("rbtree_ck", "Red-Black Tree", "rbtree-ck", Group::Extended),
-    plain("rbtree", "Red-Black Tree Insert", "rbtree", Group::Extended),
-    plain("rbtree2", "Red-Black Tree Insert BigInt", "rbtree2", Group::Extended),
-    plain("sfib", "Wrapping Fibonacci", "sfib", Group::Extended),
+    bench("binarytrees", "Binary Trees", "binarytrees", Group::Core, "12", "21"),
+    bench("cfold", "Constant Folding", "cfold", Group::Core, "16", "20"),
+    bench("deriv", "Symbolic Differentiation", "deriv", Group::Core, "8", "10"),
+    bench("nqueens", "N-Queens", "nqueens", Group::Core, "11", "13"),
+    bench("qsort", "Quicksort", "qsort", Group::Core, "48", "96"),
+    bench("rbtree_del", "Red-Black Tree Delete", "rbtree-del", Group::Core, "50000", "1000000"),
+    bench("nbody", "N-Body", "nbody", Group::Core, "20000", "250000"),
+    bench("tak", "Takeuchi", "tak", Group::Core, "27", "33"),
+    bench("rbtree_ck", "Red-Black Tree", "rbtree-ck", Group::Extended, "50000", "1000000"),
+    bench("rbtree", "Red-Black Tree Insert", "rbtree", Group::Extended, "50000", "1000000"),
+    bench(
+        "rbtree2",
+        "Red-Black Tree Insert BigInt",
+        "rbtree2",
+        Group::Extended,
+        "50000",
+        "1000000",
+    ),
+    bench("sfib", "Wrapping Fibonacci", "sfib", Group::Extended, "5000000", "200000000"),
 ];
 
 /// A benchmark's name, or `core`, `extended` or `all`.
@@ -120,12 +116,12 @@ mod tests {
     }
 
     #[test]
-    fn each_benchmark_has_its_flux_source() {
+    fn each_benchmark_has_its_flux_source_and_two_sizes() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
         for b in BENCHMARKS {
-            for full in [false, true] {
-                assert!(root.join(b.flux_program(full)).is_file(), "{}", b.flux_program(full));
-            }
+            assert!(root.join(b.flux_program()).is_file(), "{}", b.flux_program());
+            let (smoke, full): (u64, u64) = (b.smoke.parse().unwrap(), b.full.parse().unwrap());
+            assert!(smoke < full, "{}: the full size is the larger", b.name);
         }
     }
 
@@ -134,7 +130,7 @@ mod tests {
         let b = select("rbtree_del").unwrap()[0];
         assert_eq!(b.elixir_module(), "RbtreeDel");
         assert_eq!(b.haskell_source(), "benchmarks/haskell/rbtree-del.hs");
-        assert_eq!(b.port_arg(true), None);
-        assert_eq!(select("binarytrees").unwrap()[0].port_arg(true), Some("21"));
+        assert_eq!(b.size(false), "50000");
+        assert_eq!(select("binarytrees").unwrap()[0].size(true), "21");
     }
 }

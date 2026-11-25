@@ -53,6 +53,8 @@ pub struct Options {
     pub readme: bool,
     pub report_file: Option<PathBuf>,
     pub native: bool,
+    /// Whether to time the Flux VM; `--full` runs take minutes on it.
+    pub vm: bool,
     pub vms: bool,
     pub build: bool,
     pub profile: Option<ProfileWay>,
@@ -70,9 +72,6 @@ const BENCH_DIR: &str = "target/bench";
 /// Returns whether every benchmark ran and every port agreed.
 pub fn run_bench(root: &Path, options: &Options) -> Result<bool, String> {
     let benchmarks = table::select(&options.target)?;
-    if options.full && benchmarks.len() == 1 && benchmarks[0].workload.is_none() {
-        return Err(format!("{} has no separate full workload", benchmarks[0].name));
-    }
     if let Some(way) = options.profile {
         let [benchmark] = benchmarks[..] else {
             return Err("--profile takes one benchmark, not a group".into());
@@ -124,7 +123,7 @@ fn run_one(
     options: &Options,
     hyperfine: &Path,
 ) -> Result<report::Outcome, String> {
-    let full = options.full && b.workload.is_some();
+    let full = options.full;
     let suffix = if full { "_full" } else { "" };
     let cases = prepare_cases(root, b, full, options)?;
     let vm = format!("{}/flux", b.name);
@@ -189,7 +188,7 @@ fn run_one(
         platform: &platform,
         runs,
         warmup: options.warmup,
-        full: b.workload.as_ref().map(|_| full),
+        workload: format!("{} ({})", b.size(full), if full { "full" } else { "smoke" }),
         toolchains: &toolchains,
         cases: &results,
         baseline: baseline.as_deref().map(|cases| (baseline_file.clone(), cases)),
@@ -252,16 +251,21 @@ fn prepare_cases(
     options: &Options,
 ) -> Result<Vec<Case>, String> {
     let name = b.name;
-    let arg: Vec<String> = b.port_arg(full).into_iter().map(String::from).collect();
+    let size = b.size(full).to_string();
+    let arg = [size.clone()];
     let with_arg = |mut argv: Vec<String>| {
         argv.extend(arg.iter().cloned());
         argv
     };
-    let program = b.flux_program(full);
-    let mut cases = vec![Case {
-        name: format!("{name}/flux"),
-        argv: vec![exe("./target/release/flux"), program.clone()],
-    }];
+    let program = b.flux_program();
+    let mut cases = Vec::new();
+    if options.vm {
+        // A Flux program's own arguments follow `--`.
+        cases.push(Case {
+            name: format!("{name}/flux"),
+            argv: vec![exe("./target/release/flux"), program.clone(), "--".into(), size.clone()],
+        });
+    }
     let skip = |lang: &str, why: &str| println!("{name}: no {lang} case: {why}");
 
     if options.native {
@@ -273,7 +277,7 @@ fn prepare_cases(
         }
         cases.push(Case {
             name: format!("{name}/flux-native"),
-            argv: vec![exe(&format!("./{out}"))],
+            argv: with_arg(vec![exe(&format!("./{out}"))]),
         });
     }
 
@@ -422,8 +426,10 @@ fn check_outputs(
     for case in cases {
         let mut argv = case.argv.clone();
         if case.name == vm {
-            argv.push("--metrics".into());
-            argv.push(metrics_file.to_string_lossy().into_owned());
+            // Before the `--` that starts the program's own arguments.
+            let at = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
+            argv.insert(at, metrics_file.to_string_lossy().into_owned());
+            argv.insert(at, "--metrics".into());
         }
         let program = match argv[0].strip_prefix("./") {
             Some(relative) => root.join(relative),
@@ -514,7 +520,8 @@ fn parse_metrics(text: &str) -> Vec<(String, u64)> {
 fn profile(root: &Path, b: &Benchmark, way: ProfileWay, options: &Options) -> Result<bool, String> {
     let samply =
         on_path("samply").ok_or("samply is not installed: cargo install --locked samply")?;
-    let program = b.flux_program(options.full);
+    let program = b.flux_program();
+    let size = b.size(options.full).to_string();
     let way_name = if way == ProfileWay::Vm { "vm" } else { "native" };
     let saved = format!("{BENCH_DIR}/{}-{way_name}.profile.json.gz", b.name);
     fs::create_dir_all(root.join(BENCH_DIR)).map_err(|e| format!("{BENCH_DIR}: {e}"))?;
@@ -523,7 +530,7 @@ fn profile(root: &Path, b: &Benchmark, way: ProfileWay, options: &Options) -> Re
     }
     let flux = root.join(exe("target/profiling/flux"));
     let target: Vec<String> = match way {
-        ProfileWay::Vm => vec![flux.to_string_lossy().into_owned(), program],
+        ProfileWay::Vm => vec![flux.to_string_lossy().into_owned(), program, "--".into(), size],
         ProfileWay::Native => {
             let out = format!("{BENCH_DIR}/{}_flux_g", b.name);
             let mut cmd = Command::new(&flux);
@@ -539,8 +546,7 @@ fn profile(root: &Path, b: &Benchmark, way: ProfileWay, options: &Options) -> Re
             if proc::run(&mut cmd).map_err(|e| format!("flux --native: {e}"))? != 0 {
                 return Err(format!("could not build the native binary of {program}"));
             }
-            // A Flux program has its input built in; only the ports take one.
-            vec![root.join(exe(&out)).to_string_lossy().into_owned()]
+            vec![root.join(exe(&out)).to_string_lossy().into_owned(), size]
         }
     };
     let mut cmd = Command::new(samply);

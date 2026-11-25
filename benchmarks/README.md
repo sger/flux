@@ -63,11 +63,36 @@ prints something else stops that benchmark before it is timed, and the run fails
 `print` shows a String in quotes, and the check ignores those quotes. `--no-check` skips
 the check. The VM's check run also writes its `flux --metrics` counts.
 
+Every program, the Flux one and each port, takes its workload size as its first
+argument (Flux reads it after `--`), and without one runs at the size the suite was
+written with. The harness runs each benchmark at one of two sizes, listed in
+`xtask/src/bench/table.rs`, as nofib's fast and slow modes do:
+
+- the smoke size, by default: the VM takes 0.5–2.5 s, so a whole group stays short;
+- the full size, with `--full`: the native binary takes 0.1–2 s, so process startup is
+  a small part of what is timed. The VM takes minutes at these sizes, and `--no-vm`
+  leaves it out.
+
+| Benchmark | Size means | Smoke | Full |
+|:---|:---|---:|---:|
+| `binarytrees` | maximum tree depth | 12 | 21 |
+| `cfold` | expression depth | 16 | 20 |
+| `deriv` | derivative steps | 8 | 10 |
+| `nqueens` | board size | 11 | 13 |
+| `qsort` | n rounds of sorting arrays of length 0 to n−1 | 48 | 96 |
+| `rbtree_del`, `rbtree_ck`, `rbtree`, `rbtree2` | keys inserted | 50,000 | 1,000,000 |
+| `nbody` | simulation steps | 20,000 | 250,000 |
+| `tak` | `n` in `tak(n, 2n/3, n/3)` | 27 | 33 |
+| `sfib` | loop iterations | 5,000,000 | 200,000,000 |
+
+```bash
+cargo xtask bench core --full --no-vm   # native Flux against the other languages
+```
+
 Without `--runs`, hyperfine picks between 3 and 50 runs, as many as fit in its time
 budget, so a short program gets enough samples and a long one isn't run for an hour.
-`--warmup` defaults to 1. Other options are `--full` (the larger workload, for a
-benchmark that has one), `--save-baseline`, `--no-readme`, `--report-file <path>` and
-`--no-native`.
+`--warmup` defaults to 1. Other options are `--save-baseline`, `--no-readme`,
+`--report-file <path>` and `--no-native`.
 
 `--vms` also times two interpreters against their own native code: the Haskell program
 under GHCi (`ghc -e`, which runs bytecode) and the Go program under
@@ -172,7 +197,6 @@ any count that changed. Times are single runs, so a small difference is noise.
 Sources:
 
 - `benchmarks/flux/binarytrees.flx`
-- `benchmarks/flux/binarytrees_smoke.flx`
 - `benchmarks/rust/binarytrees.rs`
 - `benchmarks/haskell/binarytrees.hs`
 - `benchmarks/ocaml/binarytrees.ml`
@@ -204,9 +228,7 @@ Run the cross-language benchmark:
 cargo xtask bench binarytrees
 ```
 
-By default this uses the smaller smoke workload with `n = 8` for every language.
-Flux uses `benchmarks/flux/binarytrees_smoke.flx`, and Rust/Python/Haskell are invoked with `8`.
-To benchmark the aligned full baseline instead:
+By default every language runs at depth 12; to run at depth 21 instead:
 
 ```bash
 cargo xtask bench binarytrees --full
