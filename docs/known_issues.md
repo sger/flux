@@ -421,7 +421,7 @@ The fuzz generator writes operations of at most one parameter.
 
 ### KI-186 — A handler clause that reads a value the handled call takes over stops the compiler with E999
 
-**Severity:** Medium (valid programs refused, with an internal error) · **Area:** Aether, ownership, effect handlers · **Verified:** 2026-11-10 (97685ab1) · **From:** 0190 S17c (`cargo xtask fuzz --seed 1 --with effects --gen-only`, case 65 of 200)
+**Severity:** Medium (valid programs refused, with an internal error) · **Area:** Aether, ownership, effect handlers · **Verified:** 2026-11-25 (e30faeb6) · **From:** 0190 S17c (`cargo xtask fuzz --seed 1 --with effects --gen-only`, case 65 of 200)
 
 ```flux
 effect Eff { op : (Int) -> Int }
@@ -475,6 +475,22 @@ fn main() with IO {
 
 `Right(s)`, a user constructor `C(s, None)`, and a list `["", s, s]` passed
 through `map` do the same.
+
+Since the KI-039 plan's `explicit_boxing` step an `Int` does it too, where it
+used to print: a `let` bound to a call's `Int` result is a counted word, as a
+`String` is. With `s: Int = seed(n)` and the clause `resume(s + p)`, 116786cb
+prints `21`; e30faeb6 stops with E999 on both backends. `cargo xtask fuzz --seed 2 --with classes,values,effects` hit
+it in case 0 of 50.
+
+The cause is the order Aether gives a `handle`. Both backends make each
+clause a closure when the handle is installed, before the body runs
+(`lower_handler_clause_aether` in `src/lir/lower.rs`, `HandleScope` in
+`src/core/to_ir/fn_ctx.rs`), and making it retains what the clause captures.
+Drop insertion (`src/aether/insert.rs`) instead plans a clause beside the
+body, as another branch, and doesn't lend it its captures, so a clause that
+gives one away (`resume(s)`) gives away the outer reference. The verifier
+(`check_reads_after_release` in `src/aether/verify.rs`) reads the captures
+after the body, and that is the E999.
 
 ### KI-189 — On the VM, a record update on a record type from another module gives back the record unchanged
 
