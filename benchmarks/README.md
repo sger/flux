@@ -787,10 +787,10 @@ port prints the same number.
 On the VM, an Int past 2^45 is stored on the heap, and `x1 * x2` often gets there,
 so the VM time includes those allocations.
 
-The native binary crashes with a stack overflow: the restart call passes
-literals to a borrowed parameter, so it is not compiled as a jump
-([KI-148](../docs/known_issues.md#ki-148)). Until that is fixed, run this
-benchmark with `--no-flux-native`.
+The restart call passes literals to `x1` and `x2`. Both are read as Ints, so
+both are owned and the call is a jump; before 17987628 they were borrowed,
+and the native binary crashed with a stack overflow
+([KI-148](../docs/known_issues.md#ki-148)).
 
 Sources:
 
