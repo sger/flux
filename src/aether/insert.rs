@@ -1040,7 +1040,13 @@ fn plan_expr(
                 scope,
                 field_parents,
             );
-            let mut incoming_envs = vec![body_plan.env_before.clone()];
+            // @KI-186: each clause is a closure made when the handle is
+            // installed, before the body runs, and making it retains what the
+            // clause captures (`lower_handler_clause_aether`, the VM's
+            // `HandleScope`). So a clause is planned as a lambda is: inside
+            // it a capture is lent, and the function keeps its own reference,
+            // which it releases after the handle as it would any other.
+            let mut env_before = body_plan.env_before.clone();
             let mut planned_handlers = Vec::with_capacity(handlers.len());
 
             for handler in handlers {
@@ -1058,11 +1064,16 @@ fn plan_expr(
                 // and releases the operation's argument once the clause
                 // returns (`runtime/c/effects.c`): one given away is copied
                 // (0189 V3).
-                let lent = scope.lend(shadow_ids.iter().copied());
+                let captured: Vec<CoreBinderId> =
+                    super::free_vars::collect_free_vars_aether(&handler.body)
+                        .into_iter()
+                        .filter(|id| !shadow_ids.contains(id))
+                        .collect();
+                let lent = scope.lend(shadow_ids.iter().copied().chain(captured));
 
                 let handler_plan = plan_expr(
                     handler.body,
-                    tail_env.clone(),
+                    AetherEnv::default(),
                     ValueDemand::Owned,
                     TailPosition::Tail,
                     registry,
@@ -1074,9 +1085,18 @@ fn plan_expr(
                 }
                 scope.unlend(lent);
 
-                let mut env_before = handler_plan.env_before.clone();
-                env_before.remove_all(shadow_ids);
-                incoming_envs.push(env_before);
+                // Sorted for a deterministic plan (proposal 0174 D1).
+                let mut captures: Vec<CoreBinderId> = handler_plan
+                    .env_before
+                    .live
+                    .iter()
+                    .copied()
+                    .filter(|id| !shadow_ids.contains(id))
+                    .collect();
+                captures.sort();
+                for capture in captures {
+                    env_before.mark_borrowed(capture);
+                }
 
                 planned_handlers.push(AetherHandler {
                     operation: handler.operation,
@@ -1091,16 +1111,15 @@ fn plan_expr(
                 });
             }
 
-            let joined = join_branch_envs(&incoming_envs);
-
-            // @KI-220: the initial state is computed before the body and the
-            // clauses run, so what they need stays live across it. The handle
-            // gives the state to the runtime, which releases it with the
-            // handler.
+            // @KI-220: the initial state is computed before the body runs, so
+            // what the body needs stays live across it. Natively the clauses
+            // are installed before it too, so their captures do as well. The
+            // handle gives the state to the runtime, which releases it with
+            // the handler.
             let parameter_plan = parameter.map(|p| {
                 plan_expr(
                     *p,
-                    joined.clone(),
+                    env_before.clone(),
                     ValueDemand::Owned,
                     TailPosition::NonTail,
                     registry,
@@ -1108,7 +1127,8 @@ fn plan_expr(
                     field_parents,
                 )
             });
-            let env_before = parameter_plan.as_ref().map_or(joined, |plan| plan.env_before.clone());
+            let env_before =
+                parameter_plan.as_ref().map_or(env_before, |plan| plan.env_before.clone());
 
             AetherPlan {
                 expr: CoreExpr::Handle {

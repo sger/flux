@@ -44,6 +44,10 @@ pub enum AetherErrorKind {
     /// A guard gives a value away without copying it. A failed guard falls
     /// through to the later arms, which may still use it (audit M2).
     GuardConsumes,
+    /// A handler clause gives away a value it captures without copying it.
+    /// The clause's closure keeps its reference for every run of the clause
+    /// and releases it with the handler (KI-186).
+    ClauseConsumesCapture,
     /// A binder read after a path released it, or a view read after the
     /// value holding it was released without a copy of the view first.
     UsedAfterRelease,
@@ -74,6 +78,9 @@ pub enum AetherDiagnosticKind {
     /// A guard gives a value away without a copy; the contract reports it
     /// as `GuardConsumes`.
     GuardConsumed,
+    /// A handler clause gives a capture away without a copy; the contract
+    /// reports it as `ClauseConsumesCapture`.
+    ClauseCaptureConsumed,
 }
 
 /// Verify the fatal Aether contract for an expression.
@@ -126,15 +133,14 @@ pub fn verify_def_contract_aether(
     // by `verify_contract_aether` have not placed yet.
     check_reuse_tokens(expr, None, &mut errors);
     check_reads_after_release(expr, &mut ReleasedSoFar::default(), &mut errors);
-    errors.extend(
-        verify_def_views_aether(expr, signature)
-            .into_iter()
-            .filter(|diag| diag.kind == AetherDiagnosticKind::GuardConsumed)
-            .map(|diag| AetherError {
-                kind: AetherErrorKind::GuardConsumes,
-                message: diag.message,
-            }),
-    );
+    errors.extend(verify_def_views_aether(expr, signature).into_iter().filter_map(|diag| {
+        let kind = match diag.kind {
+            AetherDiagnosticKind::GuardConsumed => AetherErrorKind::GuardConsumes,
+            AetherDiagnosticKind::ClauseCaptureConsumed => AetherErrorKind::ClauseConsumesCapture,
+            AetherDiagnosticKind::MissedReuse | AetherDiagnosticKind::ViewConsumed => return None,
+        };
+        Some(AetherError { kind, message: diag.message })
+    }));
     if let (AetherExpr::Lam { params, body, .. }, Some(signature)) = (expr, signature) {
         let borrowed = borrowed_params(params, signature);
         if !borrowed.is_empty() {
@@ -196,6 +202,9 @@ struct Views {
     /// Giving one away without a copy breaks the contract; a value bound
     /// inside the guard is an ordinary view.
     lent: HashSet<CoreBinderId>,
+    /// The values the enclosing handler clause captures, and other names
+    /// for them. Giving one away without a copy breaks the contract.
+    captured: HashSet<CoreBinderId>,
 }
 
 impl Views {
@@ -228,6 +237,10 @@ impl Views {
             _ if self.lent.contains(&binder) => diags.push(AetherDiagnostic {
                 kind: AetherDiagnosticKind::GuardConsumed,
                 message: format!("guard gives away {binder:?} without a copy"),
+            }),
+            _ if self.captured.contains(&binder) => diags.push(AetherDiagnostic {
+                kind: AetherDiagnosticKind::ClauseCaptureConsumed,
+                message: format!("handler clause gives away its capture {binder:?} without a copy"),
             }),
             _ => diags.push(AetherDiagnostic {
                 kind: AetherDiagnosticKind::ViewConsumed,
@@ -280,6 +293,9 @@ fn check_views(
                 {
                     if of.binder.is_some_and(|b| views.lent.contains(&b)) {
                         views.lent.insert(var.id);
+                    }
+                    if of.binder.is_some_and(|b| views.captured.contains(&b)) {
+                        views.captured.insert(var.id);
                     }
                     views.bind(var, true);
                 }
@@ -415,6 +431,7 @@ fn check_views(
                     .copied()
                     .collect();
                 let mut inner = views.function(&handler.body, &own);
+                inner.captured = inner.binders.clone();
                 for binder in &own {
                     inner.bind(binder, true);
                 }
@@ -1002,9 +1019,9 @@ fn check_reads_after_release(
                 check_reads_after_release(parameter, path, errors);
                 path.give(parameter);
             }
-            check_reads_after_release(body, path, errors);
-            // Installing a clause reads what it captures; the clause runs as
-            // a function of its own.
+            // @KI-186: installing a clause reads what it captures, before the
+            // body runs. The VM installs after the initial state and native
+            // code before it; reading here, after the state, holds for both.
             for handler in handlers {
                 let own: Vec<CoreBinderId> = handler
                     .params
@@ -1018,6 +1035,10 @@ fn check_reads_after_release(
                         path.read(binder, errors);
                     }
                 }
+            }
+            check_reads_after_release(body, path, errors);
+            // Each clause runs as a function of its own.
+            for handler in handlers {
                 let params = handler
                     .params
                     .iter()
@@ -2629,7 +2650,7 @@ mod tests {
         let (x, resume) = (binder(1, x), binder(2, resume));
         let body = CoreExpr::Lit(CoreLit::Unit, s());
         let plan = lam(vec![x], handle_ask(&mut interner, resume, None, body, give(resume, v(x))));
-        assert!(!contract_errors(&plan).is_empty());
+        assert!(contract_errors(&plan).contains(&AetherErrorKind::ClauseConsumesCapture));
     }
 
     fn views_consumed(
