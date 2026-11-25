@@ -84,5 +84,5 @@ Scope: VM/runtime hot-path tuning driven by AoC Day 1 profiling.
    - `cargo bench --bench aoc_day1_bench -- --save-baseline perf-optimized`
 2. Compare after each runtime change:
    - `cargo bench --bench aoc_day1_bench -- --baseline perf-optimized`
-3. Use no-shell/run-only comparisons for cross-language checks:
-   - `scripts/bench/bench.sh --native --runs 30 --warmup 5`
+3. Compare with the other languages on the benchmark suite:
+   - `cargo xtask bench core --runs 30 --warmup 5`

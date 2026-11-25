@@ -376,7 +376,7 @@ hyperfine -N --warmup "$FLUX_WARMUP" --runs "$FLUX_RUNS" \
 echo
 
 echo "== Cross-language benchmark =="
-BENCH_CMD=("$SCRIPT_DIR/bench.sh" "$BENCHMARK" --no-shell --runs "$RUNS" --warmup "$WARMUP")
+BENCH_CMD=(cargo xtask bench "$BENCHMARK" --runs "$RUNS" --warmup "$WARMUP")
 if [[ "${#EXTRA_BENCH_ARGS[@]}" -gt 0 ]]; then
   BENCH_CMD+=("${EXTRA_BENCH_ARGS[@]}")
 fi

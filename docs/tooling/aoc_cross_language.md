@@ -25,7 +25,7 @@ Expected output for all three: `10426 10426`.
 3. Run cross-language comparison:
 
 ```bash
-scripts/bench/bench.sh cfold --runs 30 --warmup 5
+cargo xtask bench cfold --runs 30 --warmup 5
 ```
 
 4. Generate VM flamegraph on the benchmark workload:
@@ -59,7 +59,7 @@ Why this order:
 Use:
 
 ```bash
-scripts/bench/bench.sh --help
+cargo xtask bench --help
 ```
 
 ## Recommended Setup
@@ -73,13 +73,13 @@ scripts/bench/bench.sh --help
 ### `cfold`
 
 ```bash
-scripts/bench/bench.sh cfold --runs 30 --warmup 3
+cargo xtask bench cfold --runs 30 --warmup 3
 ```
 
 ### `binarytrees`
 
 ```bash
-scripts/bench/bench.sh binarytrees --runs 30 --warmup 3
+cargo xtask bench binarytrees --runs 30 --warmup 3
 ```
 
 ## Optional: Compile + Run vs Run-only

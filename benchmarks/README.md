@@ -51,8 +51,6 @@ cargo xtask bench nqueens          # one benchmark
 cargo xtask bench core             # or extended, or all
 ```
 
-`scripts/bench/bench.sh` forwards its arguments to `cargo xtask bench`.
-
 The harness first builds a release `flux` with the native backend and the Rust ports
 (`--no-build` skips this). Each benchmark runs Flux twice: on the VM (`<name>/flux`), and
 as a native binary emitted with `-O` into `target/bench/` (`<name>/flux-native`). The
