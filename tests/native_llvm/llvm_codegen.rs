@@ -633,3 +633,43 @@ fn main() with IO {
     assert!(!lir.contains("call CmpEq("), "{lir}");
     assert_eq!(lir.matches("icmp eq").count(), 2, "{lir}");
 }
+
+/// A call to a function that may yield, whose result is only returned, is
+/// a tail call, so a loop that performs once per turn leaves no frame
+/// behind each turn for the next perform to yield through (KI-232). A call
+/// whose result is worked on stays a call.
+#[test]
+fn an_effectful_call_whose_result_is_returned_is_a_tail_call_ki232() {
+    let source = r#"
+effect Tick {
+    tick : (Int) -> ()
+}
+
+fn countdown(i: Int) -> Int with Tick {
+    if i == 0 { i } else {
+        perform Tick.tick(i)
+        countdown(i - 1)
+    }
+}
+
+fn summed(i: Int) -> Int with Tick {
+    if i == 0 { i } else {
+        perform Tick.tick(i)
+        summed(i - 1) + 1
+    }
+}
+
+fn main() with IO {
+    print(countdown(3) handle Tick { tick(resume, x) -> resume(()) })
+    print(summed(3) handle Tick { tick(resume, x) -> resume(()) })
+}
+"#;
+    let direct_call =
+        |lir: &str| lir.lines().any(|l| l.contains("= call ") && l.contains("[direct "));
+    let tail = lir_of(source, "effectful_tail_call_ki232", "countdown");
+    assert!(tail.contains("tailcall "), "{tail}");
+    assert!(!direct_call(&tail), "{tail}");
+    let not_tail = lir_of(source, "effectful_tail_call_ki232", "summed");
+    assert!(!not_tail.contains("tailcall "), "{not_tail}");
+    assert!(direct_call(&not_tail), "{not_tail}");
+}
