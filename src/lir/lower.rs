@@ -969,7 +969,9 @@ fn lower_aether_program_inner(
 ///
 /// Only promotes direct-style calls. Indirect calls through
 /// `flux_call_closure` have a different prototype and must not be marked as
-/// tail calls (causes Bus errors on Apple clang).
+/// tail calls (causes Bus errors on Apple clang). A call to a local function
+/// that may yield is promoted like any other; one to another module's
+/// suspending function is not.
 fn promote_tail_calls(program: &mut LirProgram) {
     let async_funcs = direct_async_func_ids(program);
 
@@ -1076,7 +1078,16 @@ fn promote_tail_calls(program: &mut LirProgram) {
                                 | CallKind::DirectClosure { .. }
                                 | CallKind::DirectExtern { .. }
                         )
-                        && !call_kind_is_direct_async(kind, &async_funcs)
+                        // @KI-232: a local call that may yield is a tail call
+                        // too. Its continuation would only return the result,
+                        // so on a yield the callee's sentinel is what this
+                        // frame returns anyway, and keeping the frame left one
+                        // more pending continuation per call: a loop that
+                        // performs each turn took time growing with the square
+                        // of its turns. Another module's suspending function
+                        // is still called from a frame of its own.
+                        && !(matches!(kind, CallKind::DirectExtern { .. })
+                            && call_kind_is_direct_async(kind, &async_funcs))
                 } else {
                     false
                 };
