@@ -68,6 +68,32 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-231 — Natively, nested non-tail resumes take time that grows with the square of their depth
+
+**Severity:** Medium (correct output; natively slower than the VM from a depth of about 1,000) · **Area:** native effects runtime, continuations · **Verified:** 2026-11-25 (84ea6551, and `main` at 64005292) · **From:** sizing the resume_nontail benchmark
+
+`benchmarks/flux/resume_nontail.flx` performs `operator(i)` for `i` from
+`n` down to 1. The clause resumes, then works on the result
+(`combine(x, resume(()))`), so the resumes nest `n` deep. That runs 1000
+times. Built with `--native -O --emit-binary`:
+
+| n | Native | VM |
+|---:|---:|---:|
+| 250 | 0.21 s | 0.63 s |
+| 500 | 0.78 s | 1.15 s |
+| 1,000 | 2.97 s | 2.16 s |
+| 2,000 | 12.9 s | 5.68 s |
+| 10,000 | 342 s | – |
+
+Natively, each doubling of `n` takes four times as long; on the VM, twice.
+`resume_nontail_direct.flx`, the same recursion without a handler, takes
+0.09 s natively at 10,000. Every result is right (860 at 10,000, as
+effect-handlers-bench gives). A resume that has to return seems to cost time
+in proportion to the resumes already pending, perhaps by copying or walking
+the continuation chain each time. Not confirmed in the code.
+
+The benchmark runs at 700 rather than the suite's 10,000.
+
 ### KI-230 — Natively, each `handle` whose clause doesn't resume leaves stack behind, and about a million of them overflow it
 
 **Severity:** Medium (a crash after many aborts; nothing leaks on the heap) · **Area:** native effects runtime, aborting clauses · **Verified:** 2026-11-25 (6463f738, and `main` at 64005292) · **From:** sizing the product_early benchmark
