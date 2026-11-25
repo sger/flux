@@ -1142,25 +1142,25 @@ Latest report:
 <!-- fibonacci-recursive-report:start -->
 # Recursive Fibonacci Benchmark Report
 
-- Generated: 2026-11-25 19:07 UTC
+- Generated: 2026-11-25 19:24 UTC
 - Machine: macos-aarch64
 - Runs: 3 to 50, as hyperfine chose, warmup: 1
 - Workload: 33 (smoke)
-- Toolchains: flux 31c290a3; hyperfine 2.0.0; rustc 1.100.0 (0ef1bc386 2026-11-09); Python 3.9.6; ghc 9.10.3; ocamlopt 5.5.2; erlang OTP 29; elixir 1.20.5; go1.27.4 darwin/arm64
+- Toolchains: flux 4a439075; hyperfine 2.0.0; rustc 1.100.0 (0ef1bc386 2026-11-09); Python 3.9.6; ghc 9.10.3; ocamlopt 5.5.2; erlang OTP 29; elixir 1.20.5; go1.27.4 darwin/arm64
 
 | Case | Mean | ± σ | Min | Max | Peak RSS | Instructions | × native |
 |:---|---:|---:|---:|---:|---:|---:|---:|
-| `fibonacci_recursive/flux` | 1.117 s | 7.10 ms | 1.112 s | 1.125 s | 19.2 MiB | 34.14 G | 80.38× |
-| `fibonacci_recursive/flux-native` | 13.9 ms | 0.31 ms | 13.3 ms | 14.9 ms | 2.1 MiB | 214.5 M | 1.00× |
-| `fibonacci_recursive/rust` | 6.23 ms | 0.23 ms | 5.92 ms | 6.79 ms | 2.0 MiB | 112.6 M | 0.45× |
-| `fibonacci_recursive/python` | 475.3 ms | 3.24 ms | 470.1 ms | 479.2 ms | 9.5 MiB | 13.91 G | 34.21× |
-| `fibonacci_recursive/haskell` | 28.8 ms | 0.80 ms | 25.5 ms | 29.8 ms | 11.4 MiB | 251.8 M | 2.07× |
-| `fibonacci_recursive/ocaml` | 10.2 ms | 0.53 ms | 9.61 ms | 11.9 ms | 2.6 MiB | 235.7 M | 0.74× |
-| `fibonacci_recursive/erlang` | 90.2 ms | 4.87 ms | 86.4 ms | 108.9 ms | 75.8 MiB | 1.86 G | 6.49× |
-| `fibonacci_recursive/elixir` | 149.9 ms | 4.34 ms | 145.9 ms | 163.4 ms | 82.5 MiB | 2.76 G | 10.79× |
-| `fibonacci_recursive/go` | 10.5 ms | 0.80 ms | 9.46 ms | 13.1 ms | 4.4 MiB | 207.7 M | 0.75× |
+| `fibonacci_recursive/flux` | 1.071 s | 17.2 ms | 1.058 s | 1.091 s | 19.1 MiB | 34.14 G | 77.71× |
+| `fibonacci_recursive/flux-native` | 13.8 ms | 0.28 ms | 13.2 ms | 14.2 ms | 2.1 MiB | 214.4 M | 1.00× |
+| `fibonacci_recursive/rust` | 6.17 ms | 0.22 ms | 5.79 ms | 6.49 ms | 2.0 MiB | 112.6 M | 0.45× |
+| `fibonacci_recursive/python` | 463.3 ms | 3.76 ms | 458.7 ms | 470.1 ms | 9.5 MiB | 13.91 G | 33.60× |
+| `fibonacci_recursive/haskell` | 21.8 ms | 6.32 ms | 15.6 ms | 28.8 ms | 11.4 MiB | 251.7 M | 1.58× |
+| `fibonacci_recursive/ocaml` | 10.1 ms | 0.53 ms | 9.42 ms | 11.3 ms | 2.6 MiB | 235.6 M | 0.73× |
+| `fibonacci_recursive/erlang` | 84.4 ms | 1.97 ms | 81.8 ms | 92.7 ms | 60.8 MiB | 1.83 G | 6.12× |
+| `fibonacci_recursive/elixir` | 143.4 ms | 5.36 ms | 139.7 ms | 159.5 ms | 67.7 MiB | 2.73 G | 10.40× |
+| `fibonacci_recursive/go` | 9.89 ms | 0.40 ms | 8.96 ms | 10.6 ms | 4.4 MiB | 207.5 M | 0.72× |
 
-VM / native: 80.38×
+VM / native: 77.71×
 
 No baseline for macos-aarch64 yet: record one with --save-baseline.
 
@@ -1175,7 +1175,7 @@ From `flux --metrics` on the VM case. They are the same on every run of the same
 | `aether_dups` | 1 | – | – |
 | `aether_reuses` | 0 | – | – |
 | `bytecode_bytes` | 6083 | – | – |
-| `compiler_allocs` | 1978945 | – | – |
+| `compiler_allocs` | 1979086 | – | – |
 | `core_size` | 251 | – | – |
 | `vm_allocs` | 2977 | – | – |
 | `vm_instructions` | 147444883 | – | – |
@@ -1214,29 +1214,29 @@ Latest report:
 <!-- product-early-report:start -->
 # Product with Early Exit Benchmark Report
 
-- Generated: 2026-11-25 19:07 UTC
+- Generated: 2026-11-25 19:25 UTC
 - Machine: macos-aarch64
 - Runs: 3 to 50, as hyperfine chose, warmup: 1
 - Workload: 2000 (smoke)
-- Toolchains: flux 31c290a3; hyperfine 2.0.0; rustc 1.100.0 (0ef1bc386 2026-11-09); Python 3.9.6; ghc 9.10.3; ocamlopt 5.5.2; erlang OTP 29; elixir 1.20.5; go1.27.4 darwin/arm64
+- Toolchains: flux 4a439075; hyperfine 2.0.0; rustc 1.100.0 (0ef1bc386 2026-11-09); Python 3.9.6; ghc 9.10.3; ocamlopt 5.5.2; erlang OTP 29; elixir 1.20.5; go1.27.4 darwin/arm64
 
 | Case | Mean | ± σ | Min | Max | Peak RSS | Instructions | × native |
 |:---|---:|---:|---:|---:|---:|---:|---:|
-| `product_early/flux` | 1.108 s | 7.30 ms | 1.100 s | 1.115 s | 19.5 MiB | 32.18 G | 32.93× |
-| `product_early/flux-direct` | 1.166 s | 42.1 ms | 1.130 s | 1.212 s | 19.6 MiB | 33.42 G | 34.65× |
-| `product_early/flux-native` | 33.6 ms | 0.84 ms | 32.5 ms | 37.6 ms | 2.4 MiB | 682.1 M | 1.00× |
-| `product_early/flux-native-direct` | 2.79 ms | 0.09 ms | 2.63 ms | 3.07 ms | 2.2 MiB | 27.0 M | 0.08× |
-| `product_early/rust` | 1.20 ms | 0.06 ms | 1.14 ms | 1.48 ms | 2.0 MiB | 14.0 M | 0.04× |
-| `product_early/python` | 136.0 ms | 1.96 ms | 133.3 ms | 139.5 ms | 10.4 MiB | 2.86 G | 4.04× |
-| `product_early/haskell` | 16.5 ms | 1.92 ms | 13.8 ms | 28.4 ms | 11.4 MiB | 137.6 M | 0.49× |
-| `product_early/ocaml` | 6.08 ms | 0.22 ms | 5.77 ms | 7.05 ms | 44.6 MiB | 73.2 M | 0.18× |
-| `product_early/erlang` | 86.5 ms | 1.04 ms | 85.2 ms | 90.8 ms | 75.8 MiB | 1.59 G | 2.57× |
-| `product_early/elixir` | 147.9 ms | 4.90 ms | 144.5 ms | 163.5 ms | 82.8 MiB | 2.50 G | 4.40× |
-| `product_early/go` | 7.70 ms | 0.15 ms | 7.30 ms | 8.01 ms | 4.5 MiB | 44.9 M | 0.23× |
+| `product_early/flux` | 909.9 ms | 11.3 ms | 898.9 ms | 921.4 ms | 19.5 MiB | 27.58 G | 27.39× |
+| `product_early/flux-direct` | 936.6 ms | 11.5 ms | 928.7 ms | 949.8 ms | 19.6 MiB | 28.82 G | 28.19× |
+| `product_early/flux-native` | 33.2 ms | 0.71 ms | 32.2 ms | 35.0 ms | 2.4 MiB | 682.1 M | 1.00× |
+| `product_early/flux-native-direct` | 2.87 ms | 0.49 ms | 2.42 ms | 4.50 ms | 2.2 MiB | 26.9 M | 0.09× |
+| `product_early/rust` | 1.17 ms | 0.09 ms | 1.07 ms | 1.46 ms | 2.0 MiB | 13.9 M | 0.04× |
+| `product_early/python` | 137.6 ms | 11.0 ms | 129.6 ms | 177.6 ms | 10.5 MiB | 2.86 G | 4.14× |
+| `product_early/haskell` | 16.1 ms | 0.66 ms | 13.9 ms | 17.6 ms | 11.4 MiB | 137.5 M | 0.48× |
+| `product_early/ocaml` | 6.43 ms | 0.52 ms | 5.86 ms | 8.32 ms | 44.6 MiB | 74.7 M | 0.19× |
+| `product_early/erlang` | 84.8 ms | 5.27 ms | 80.4 ms | 105.7 ms | 60.9 MiB | 1.57 G | 2.55× |
+| `product_early/elixir` | 142.1 ms | 3.33 ms | 138.8 ms | 154.0 ms | 67.8 MiB | 2.48 G | 4.28× |
+| `product_early/go` | 7.73 ms | 0.46 ms | 7.22 ms | 9.49 ms | 4.5 MiB | 44.8 M | 0.23× |
 
-VM / native: 32.93×
+VM / native: 27.39×
 
-Effect overhead (with handlers / direct style): VM 0.95×, native 12.06×
+Effect overhead (with handlers / direct style): VM 0.97×, native 11.59×
 
 No baseline for macos-aarch64 yet: record one with --save-baseline.
 
@@ -1251,7 +1251,7 @@ From `flux --metrics` on the VM case. They are the same on every run of the same
 | `aether_dups` | 2 | – | – |
 | `aether_reuses` | 0 | – | – |
 | `bytecode_bytes` | 6225 | – | – |
-| `compiler_allocs` | 1991723 | – | – |
+| `compiler_allocs` | 1991749 | – | – |
 | `core_size` | 310 | – | – |
 | `vm_allocs` | 40074002 | – | – |
 | `vm_instructions` | 62122915 | – | – |
@@ -1291,29 +1291,29 @@ Latest report:
 <!-- resume-nontail-report:start -->
 # Non-Tail Resume Benchmark Report
 
-- Generated: 2026-11-25 19:08 UTC
+- Generated: 2026-11-25 19:25 UTC
 - Machine: macos-aarch64
 - Runs: 3 to 50, as hyperfine chose, warmup: 1
 - Workload: 400 (smoke)
-- Toolchains: flux 31c290a3; hyperfine 2.0.0; rustc 1.100.0 (0ef1bc386 2026-11-09); Python 3.9.6; ghc 9.10.3; ocamlopt 5.5.2; erlang OTP 29; elixir 1.20.5; go1.27.4 darwin/arm64
+- Toolchains: flux 4a439075; hyperfine 2.0.0; rustc 1.100.0 (0ef1bc386 2026-11-09); Python 3.9.6; ghc 9.10.3; ocamlopt 5.5.2; erlang OTP 29; elixir 1.20.5; go1.27.4 darwin/arm64
 
 | Case | Mean | ± σ | Min | Max | Peak RSS | Instructions | × native |
 |:---|---:|---:|---:|---:|---:|---:|---:|
-| `resume_nontail/flux` | 897.6 ms | 2.36 ms | 894.9 ms | 899.1 ms | 21.1 MiB | 25.62 G | 1.91× |
-| `resume_nontail/flux-direct` | 356.4 ms | 4.40 ms | 349.9 ms | 363.0 ms | 19.4 MiB | 9.54 G | 0.76× |
-| `resume_nontail/flux-native` | 470.0 ms | 4.84 ms | 464.2 ms | 476.5 ms | 3.9 MiB | 12.26 G | 1.00× |
-| `resume_nontail/flux-native-direct` | 3.82 ms | 0.09 ms | 3.68 ms | 4.16 ms | 2.1 MiB | 32.0 M | 0.01× |
-| `resume_nontail/rust` | 3.35 ms | 0.45 ms | 2.99 ms | 5.13 ms | 2.0 MiB | 24.4 M | 0.01× |
-| `resume_nontail/python` | 64.8 ms | 1.53 ms | 63.2 ms | 70.4 ms | 9.8 MiB | 1.44 G | 0.14× |
-| `resume_nontail/haskell` | 16.5 ms | 0.72 ms | 14.2 ms | 18.3 ms | 11.4 MiB | 62.2 M | 0.04× |
-| `resume_nontail/ocaml` | 10.1 ms | 0.31 ms | 9.83 ms | 11.4 ms | 4.8 MiB | 91.5 M | 0.02× |
-| `resume_nontail/erlang` | 79.2 ms | 0.92 ms | 77.0 ms | 82.3 ms | 75.8 MiB | 1.57 G | 0.17× |
-| `resume_nontail/elixir` | 138.5 ms | 3.55 ms | 136.0 ms | 149.7 ms | 82.6 MiB | 2.46 G | 0.29× |
-| `resume_nontail/go` | 3.79 ms | 0.13 ms | 3.48 ms | 4.13 ms | 4.5 MiB | 29.9 M | 0.01× |
+| `resume_nontail/flux` | 737.4 ms | 5.55 ms | 731.8 ms | 744.3 ms | 21.2 MiB | 21.66 G | 1.59× |
+| `resume_nontail/flux-direct` | 310.6 ms | 3.36 ms | 306.1 ms | 316.1 ms | 19.2 MiB | 8.65 G | 0.67× |
+| `resume_nontail/flux-native` | 462.5 ms | 4.73 ms | 454.0 ms | 467.8 ms | 3.9 MiB | 12.26 G | 1.00× |
+| `resume_nontail/flux-native-direct` | 3.79 ms | 0.18 ms | 3.49 ms | 4.27 ms | 2.1 MiB | 32.0 M | 0.01× |
+| `resume_nontail/rust` | 3.01 ms | 0.08 ms | 2.89 ms | 3.21 ms | 2.0 MiB | 24.2 M | 0.01× |
+| `resume_nontail/python` | 62.7 ms | 1.49 ms | 60.7 ms | 70.3 ms | 9.8 MiB | 1.44 G | 0.14× |
+| `resume_nontail/haskell` | 16.6 ms | 0.93 ms | 14.5 ms | 18.8 ms | 11.4 MiB | 62.1 M | 0.04× |
+| `resume_nontail/ocaml` | 10.1 ms | 0.17 ms | 9.82 ms | 10.5 ms | 4.9 MiB | 91.4 M | 0.02× |
+| `resume_nontail/erlang` | 76.3 ms | 1.15 ms | 74.1 ms | 80.5 ms | 60.8 MiB | 1.54 G | 0.17× |
+| `resume_nontail/elixir` | 133.8 ms | 1.32 ms | 131.2 ms | 136.5 ms | 67.7 MiB | 2.44 G | 0.29× |
+| `resume_nontail/go` | 3.71 ms | 0.14 ms | 3.43 ms | 3.97 ms | 4.5 MiB | 29.7 M | 0.01× |
 
-VM / native: 1.91×
+VM / native: 1.59×
 
-Effect overhead (with handlers / direct style): VM 2.52×, native 122.95×
+Effect overhead (with handlers / direct style): VM 2.37×, native 122.09×
 
 No baseline for macos-aarch64 yet: record one with --save-baseline.
 
@@ -1328,7 +1328,7 @@ From `flux --metrics` on the VM case. They are the same on every run of the same
 | `aether_dups` | 4 | – | – |
 | `aether_reuses` | 0 | – | – |
 | `bytecode_bytes` | 6255 | – | – |
-| `compiler_allocs` | 1991405 | – | – |
+| `compiler_allocs` | 1991438 | – | – |
 | `core_size` | 307 | – | – |
 | `vm_allocs` | 33217983 | – | – |
 | `vm_instructions` | 24830895 | – | – |
@@ -1365,29 +1365,29 @@ Latest report:
 <!-- nqueens-choice-report:start -->
 # N-Queens by Choice Benchmark Report
 
-- Generated: 2026-11-25 19:08 UTC
+- Generated: 2026-11-25 19:25 UTC
 - Machine: macos-aarch64
 - Runs: 3 to 50, as hyperfine chose, warmup: 1
 - Workload: 10 (smoke)
-- Toolchains: flux 31c290a3; hyperfine 2.0.0; rustc 1.100.0 (0ef1bc386 2026-11-09); Python 3.9.6; ghc 9.10.3; ocamlopt 5.5.2; erlang OTP 29; elixir 1.20.5; go1.27.4 darwin/arm64
+- Toolchains: flux 4a439075; hyperfine 2.0.0; rustc 1.100.0 (0ef1bc386 2026-11-09); Python 3.9.6; ghc 9.10.3; ocamlopt 5.5.2; erlang OTP 29; elixir 1.20.5; go1.27.4 darwin/arm64
 
 | Case | Mean | ± σ | Min | Max | Peak RSS | Instructions | × native |
 |:---|---:|---:|---:|---:|---:|---:|---:|
-| `nqueens_choice/flux` | 1.563 s | 17.4 ms | 1.544 s | 1.578 s | 19.3 MiB | 43.05 G | 70.28× |
-| `nqueens_choice/flux-direct` | 919.9 ms | 8.94 ms | 911.6 ms | 929.4 ms | 19.1 MiB | 25.38 G | 41.35× |
-| `nqueens_choice/flux-native` | 22.2 ms | 0.26 ms | 21.8 ms | 23.1 ms | 2.1 MiB | 536.5 M | 1.00× |
-| `nqueens_choice/flux-native-direct` | 3.48 ms | 0.12 ms | 3.26 ms | 4.06 ms | 2.1 MiB | 44.7 M | 0.16× |
-| `nqueens_choice/rust` | 3.64 ms | 0.43 ms | 3.31 ms | 5.17 ms | 2.0 MiB | 43.9 M | 0.16× |
-| `nqueens_choice/python` | 76.3 ms | 1.88 ms | 72.6 ms | 81.0 ms | 9.5 MiB | 1.89 G | 3.43× |
-| `nqueens_choice/haskell` | 16.7 ms | 0.55 ms | 15.0 ms | 18.5 ms | 11.4 MiB | 102.2 M | 0.75× |
-| `nqueens_choice/ocaml` | 4.15 ms | 0.31 ms | 3.72 ms | 5.10 ms | 3.4 MiB | 48.2 M | 0.19× |
-| `nqueens_choice/erlang` | 81.0 ms | 3.57 ms | 78.0 ms | 97.2 ms | 75.9 MiB | 1.57 G | 3.64× |
-| `nqueens_choice/elixir` | 139.4 ms | 2.62 ms | 136.3 ms | 149.3 ms | 82.4 MiB | 2.47 G | 6.27× |
-| `nqueens_choice/go` | 3.86 ms | 0.14 ms | 3.61 ms | 4.29 ms | 5.0 MiB | 38.9 M | 0.17× |
+| `nqueens_choice/flux` | 1.293 s | 14.1 ms | 1.282 s | 1.309 s | 19.5 MiB | 37.17 G | 60.90× |
+| `nqueens_choice/flux-direct` | 754.2 ms | 2.56 ms | 752.2 ms | 757.1 ms | 19.3 MiB | 22.24 G | 35.53× |
+| `nqueens_choice/flux-native` | 21.2 ms | 0.27 ms | 20.7 ms | 22.0 ms | 2.1 MiB | 536.4 M | 1.00× |
+| `nqueens_choice/flux-native-direct` | 3.34 ms | 0.12 ms | 3.10 ms | 3.66 ms | 2.1 MiB | 44.6 M | 0.16× |
+| `nqueens_choice/rust` | 3.32 ms | 0.08 ms | 3.15 ms | 3.47 ms | 2.0 MiB | 41.9 M | 0.16× |
+| `nqueens_choice/python` | 74.6 ms | 1.36 ms | 70.8 ms | 77.8 ms | 9.5 MiB | 1.89 G | 3.51× |
+| `nqueens_choice/haskell` | 15.8 ms | 0.50 ms | 13.6 ms | 16.6 ms | 11.4 MiB | 102.1 M | 0.75× |
+| `nqueens_choice/ocaml` | 3.84 ms | 0.11 ms | 3.60 ms | 4.14 ms | 3.4 MiB | 48.1 M | 0.18× |
+| `nqueens_choice/erlang` | 76.5 ms | 1.00 ms | 74.7 ms | 78.7 ms | 60.8 MiB | 1.56 G | 3.60× |
+| `nqueens_choice/elixir` | 137.0 ms | 6.73 ms | 132.1 ms | 162.0 ms | 67.5 MiB | 2.46 G | 6.45× |
+| `nqueens_choice/go` | 3.76 ms | 0.14 ms | 3.43 ms | 4.09 ms | 5.0 MiB | 38.8 M | 0.18× |
 
-VM / native: 70.28×
+VM / native: 60.90×
 
-Effect overhead (with handlers / direct style): VM 1.70×, native 6.38×
+Effect overhead (with handlers / direct style): VM 1.71×, native 6.36×
 
 No baseline for macos-aarch64 yet: record one with --save-baseline.
 
@@ -1402,7 +1402,7 @@ From `flux --metrics` on the VM case. They are the same on every run of the same
 | `aether_dups` | 5 | – | – |
 | `aether_reuses` | 0 | – | – |
 | `bytecode_bytes` | 6347 | – | – |
-| `compiler_allocs` | 2003174 | – | – |
+| `compiler_allocs` | 2003220 | – | – |
 | `core_size` | 378 | – | – |
 | `vm_allocs` | 48866972 | – | – |
 | `vm_instructions` | 55187765 | – | – |
