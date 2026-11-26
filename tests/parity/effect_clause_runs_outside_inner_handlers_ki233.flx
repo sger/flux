@@ -3,9 +3,10 @@
 // bug: KI-233. A clause runs in its handle's context: its perform of Log
 //      reaches the Log(1) handler outside its handle, not the Log(2) one
 //      between the handle and the perform. The VM stopped with "missing
-//      handler frame for evidence marker", and native code gave 2.
+//      handler frame for evidence marker", and native code gave 20. The
+//      clause multiplies after its resume, so it isn't tail-resumptive.
 // parity-expected-stdout-begin
-// 1
+// 10
 // parity-expected-stdout-end
 
 effect Ask {
@@ -25,7 +26,7 @@ fn body() -> Int with Ask {
 }
 
 fn mid() -> Int with Log {
-    body() handle Ask { ask(resume) -> resume(perform Log.get()) * 1 }
+    body() handle Ask { ask(resume) -> resume(perform Log.get()) * 10 }
 }
 
 fn main() with IO {

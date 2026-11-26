@@ -1219,17 +1219,22 @@ impl VM {
                 // Side effect: HandlerFrame pushed onto handler_stack
                 let const_idx = Self::read_u16_fast(instructions, ip + 1);
                 let const_val = self.const_get(const_idx);
-                let (effect, ops, has_state, desc_is_discard) = match &const_val {
-                    Value::HandlerDescriptor(desc) => {
-                        (desc.effect, desc.ops.clone(), desc.has_state, desc.is_discard)
-                    }
-                    other => {
-                        return Err(format!(
-                            "OpHandle: expected HandlerDescriptor constant, got {}",
-                            other.type_name()
-                        ));
-                    }
-                };
+                let (effect, ops, has_state, desc_is_discard, desc_tail_resumptive) =
+                    match &const_val {
+                        Value::HandlerDescriptor(desc) => (
+                            desc.effect,
+                            desc.ops.clone(),
+                            desc.has_state,
+                            desc.is_discard,
+                            desc.tail_resumptive,
+                        ),
+                        other => {
+                            return Err(format!(
+                                "OpHandle: expected HandlerDescriptor constant, got {}",
+                                other.type_name()
+                            ));
+                        }
+                    };
                 let n = ops.len();
                 let state = if has_state { Some(self.pop_untracked()?) } else { None };
                 // Pop closures in reverse (last pushed = last arm)
@@ -1269,6 +1274,7 @@ impl VM {
                     is_direct: false,
                     is_discard: desc_is_discard,
                     resume_boundary: false,
+                    tail_resumptive: desc_tail_resumptive,
                 });
                 Ok(3)
             }
@@ -1324,6 +1330,7 @@ impl VM {
                     is_direct: true,
                     is_discard: false,
                     resume_boundary: false,
+                    tail_resumptive: true,
                 });
                 Ok(3)
             }
@@ -1435,6 +1442,10 @@ impl VM {
                     self.frame_index = entry_frame_index;
                     self.handler_stack.truncate(handler_pos + 1);
                     self.reset_sp(entry_sp)?;
+                    // @KI-233: the clause runs outside its handler.
+                    if !self.handler_stack[handler_pos].tail_resumptive {
+                        self.context.evidence = self.handler_stack[handler_pos].saved_evv.clone();
+                    }
 
                     // Call the arm with Value::None as the resume parameter
                     // (handler won't use it since it never resumes).
@@ -1494,6 +1505,17 @@ impl VM {
                     }
                     self.handler_stack.truncate(handler_pos + 1);
                     self.context.yield_state.clear();
+                    // @KI-233: the clause runs in its handle's context, so a
+                    // perform in it reaches the handlers outside the handle,
+                    // not this one or those between it and the perform. The
+                    // handle's OpEndHandle puts `saved_evv` back after the
+                    // clause anyway; a resume installs the evidence it
+                    // captured (KI-227), and a non-tail one gives the clause's
+                    // back on return (KI-237). A tail-resumptive clause stays
+                    // under the perform's evidence, as natively.
+                    if !handler.tail_resumptive {
+                        self.context.evidence = handler.saved_evv.clone();
+                    }
 
                     self.push(Value::Closure(arm_closure))?;
                     self.push(cont_val)?;

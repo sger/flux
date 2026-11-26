@@ -34,4 +34,9 @@ pub struct HandlerFrame {
     /// called it (KI-237). No `OpEndHandle` runs for it: it comes off when
     /// a frame returns into `entry_frame_index`, taking `saved_evv` back.
     pub resume_boundary: bool,
+    /// The handle's clauses are tail-resumptive, as the native backend
+    /// decides it. @KI-233: any other clause runs under `saved_evv`, the
+    /// handle's own evidence, so a perform in it reaches the handlers
+    /// outside the handle, its own effect's included.
+    pub tail_resumptive: bool,
 }

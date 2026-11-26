@@ -311,7 +311,7 @@ impl Compiler {
                 this.emit_store_binding(binding);
                 Ok(())
             }
-            IrInstr::HandleScope { effect, arms, initial_state, dest, .. } => {
+            IrInstr::HandleScope { effect, arms, initial_state, tail_resumptive, dest, .. } => {
                 // 1. Emit arm closures (each arm is a MakeClosure)
                 for arm in arms {
                     for cap in &arm.capture_vars {
@@ -355,6 +355,7 @@ impl Compiler {
                         .collect(),
                     has_state: initial_state.is_some(),
                     is_discard: false, // TODO: detect from evidence pass
+                    tail_resumptive: *tail_resumptive,
                 };
                 let const_idx = this.add_constant(Value::HandlerDescriptor(Rc::new(descriptor)));
                 this.emit(OpCode::OpHandle, &[const_idx]);

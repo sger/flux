@@ -1052,6 +1052,7 @@ mod tests {
             op_names: vec!["op".into()],
             has_state: false,
             is_discard: false,
+            tail_resumptive: false,
         }));
 
         let perform_descriptor = Value::PerformDescriptor(Rc::new(PerformDescriptor {
@@ -1106,6 +1107,7 @@ mod tests {
             is_direct: false,
             is_discard: false,
             resume_boundary: false,
+            tail_resumptive: false,
         });
         vm.context.cancel_scope = crate::runtime::r#async::context::CancelScope::Cancelled;
 

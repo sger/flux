@@ -85,7 +85,7 @@ fn evidence_transform(expr: CoreExpr, next_id: &mut u32, evidence: &EvidenceMap)
     match expr {
         // Handle: check if all handlers are tail-resumptive.
         CoreExpr::Handle { body, effect, parameter, handlers, span } => {
-            if is_core_handler_tail_resumptive(&handlers) {
+            if is_core_handler_tail_resumptive(effect, &handlers) {
                 // Build evidence bindings for each handler arm.
                 let mut new_evidence = evidence.clone();
                 let mut ev_bindings: Vec<(CoreBinder, CoreExpr)> = Vec::new();

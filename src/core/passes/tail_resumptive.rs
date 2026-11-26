@@ -4,11 +4,61 @@
 /// one call to `resume(expr)` as its terminal expression on every code path.
 /// For these handlers, the `evidence_pass` can rewrite Perform/Handle into
 /// explicit evidence passing (direct function calls).
-use crate::core::{CoreBinderId, CoreExpr, CoreHandler};
+use crate::{
+    core::{CoreBinderId, CoreExpr, CoreHandler},
+    syntax::Identifier,
+};
 
-/// Returns `true` if **all** arms of a handler are tail-resumptive.
-pub fn is_core_handler_tail_resumptive(handlers: &[CoreHandler]) -> bool {
-    handlers.iter().all(|h| is_arm_tail_resumptive(h.resume.id, &h.body))
+/// Returns `true` if **all** arms of a handler for `effect` are
+/// tail-resumptive.
+///
+/// @KI-233: an arm that performs `effect` itself is not. A clause runs
+/// outside its own handler, and the paths for a tail-resumptive handler call
+/// the clause where the perform was, under that handler: the clause's perform
+/// would reach it again.
+pub fn is_core_handler_tail_resumptive(effect: Identifier, handlers: &[CoreHandler]) -> bool {
+    handlers
+        .iter()
+        .all(|h| is_arm_tail_resumptive(h.resume.id, &h.body) && !performs_effect(&h.body, effect))
+}
+
+/// Whether `expr` performs `effect` anywhere in it, lambdas included, other
+/// than in the body of a `handle` for `effect` inside it, which reaches that
+/// handle.
+pub fn performs_effect(expr: &CoreExpr, effect: Identifier) -> bool {
+    let children: Vec<&CoreExpr> = match expr {
+        CoreExpr::Var { .. } | CoreExpr::Lit(..) => Vec::new(),
+        CoreExpr::Perform { effect: performed, args, .. } => {
+            if *performed == effect {
+                return true;
+            }
+            args.iter().collect()
+        }
+        CoreExpr::Lam { body, .. } => vec![body],
+        CoreExpr::App { func, args, .. } => std::iter::once(func.as_ref()).chain(args).collect(),
+        CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => vec![rhs, body],
+        CoreExpr::LetRecGroup { bindings, body, .. } => bindings
+            .iter()
+            .map(|(_, rhs)| rhs.as_ref())
+            .chain(std::iter::once(body.as_ref()))
+            .collect(),
+        CoreExpr::Case { scrutinee, alts, .. } => std::iter::once(scrutinee.as_ref())
+            .chain(alts.iter().flat_map(|alt| alt.guard.iter().chain(std::iter::once(&alt.rhs))))
+            .collect(),
+        CoreExpr::Con { fields: args, .. } | CoreExpr::PrimOp { args, .. } => args.iter().collect(),
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            vec![object]
+        }
+        CoreExpr::Return { value, .. } => vec![value],
+        CoreExpr::Handle { body, effect: handled, parameter, handlers, .. } => {
+            std::iter::once(body.as_ref())
+                .filter(|_| *handled != effect)
+                .chain(parameter.as_deref())
+                .chain(handlers.iter().map(|h| &h.body))
+                .collect()
+        }
+    };
+    children.into_iter().any(|child| performs_effect(child, effect))
 }
 
 /// Check whether a handler arm body terminates with `resume(v)` on every path.

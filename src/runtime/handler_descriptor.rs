@@ -20,4 +20,8 @@ pub struct HandlerDescriptor {
     /// continuation capture entirely — just unwind and call the arm directly.
     /// (Perceus Section 2.7.1: non-linear control flow safety.)
     pub is_discard: bool,
+    /// The clauses are tail-resumptive (KI-233): one runs under the evidence
+    /// where the perform was, any other under the handle's own, so that a
+    /// perform in it reaches the handlers outside the handle.
+    pub tail_resumptive: bool,
 }

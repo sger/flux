@@ -1175,6 +1175,9 @@ pub struct Compiler {
     // The effect of each handler clause being compiled, with the length of
     // `handled_effects` where the clause starts (KI-233).
     pub(super) clause_effects: Vec<(Symbol, usize)>,
+    // How many performs compiled so far reach their own clause's handler
+    // (KI-233): a handle whose clauses add to it isn't direct.
+    pub(super) own_clause_performs: usize,
     // Compile-time handler scope stack for static handler resolution.
     // Tracks active handle blocks and their operations for OpPerformDirectIndexed.
     pub(super) handler_scopes: Vec<HandlerScope>,
@@ -1807,6 +1810,7 @@ impl Compiler {
             function_param_effect_rows: Vec::new(),
             handled_effects: Vec::new(),
             clause_effects: Vec::new(),
+            own_clause_performs: 0,
             handler_scopes: Vec::new(),
             captured_local_indices: Vec::new(),
             free_vars: HashSet::new(),
@@ -7317,6 +7321,7 @@ impl Compiler {
                     op_names: desc.op_names.clone(),
                     has_state: desc.has_state,
                     is_discard: desc.is_discard,
+                    tail_resumptive: desc.tail_resumptive,
                 },
             )),
             Value::PerformDescriptor(desc) => Value::PerformDescriptor(std::rc::Rc::new(
@@ -7975,13 +7980,15 @@ impl Compiler {
         rows
     }
 
-    /// Whether performing `effect` here would reach the handler of a clause
-    /// being compiled: the effect is the clause's own, and no `handle` inside
-    /// the clause provides it.
+    /// Whether a call that performs `effect` here would reach the handler of
+    /// a clause being compiled: the effect is the clause's own, and no
+    /// `handle` inside the clause provides it.
     ///
-    /// @KI-233: both runtimes run a clause under its own handler, so such a
-    /// perform reaches the clause again, without end. Until they run it
-    /// outside, it is rejected here.
+    /// @KI-233: a clause runs outside its own handler, which the backends
+    /// arrange by keeping such a handler off their tail-resumptive paths.
+    /// They find it from a `perform` written in the clause; a call that
+    /// performs the effect they can't see, as Core carries no effect rows,
+    /// so such a call is still rejected here.
     pub(super) fn reaches_own_clause_handler(&self, effect: Symbol) -> bool {
         self.clause_effects.iter().any(|&(own, depth)| {
             own == effect

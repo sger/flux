@@ -3878,13 +3878,11 @@ impl Compiler {
             )?;
         }
 
+        // @KI-233: a perform of the clause's own effect, written in the
+        // clause, reaches the handler outside its own; the clause runs there.
+        // Its handle is then compiled as one that isn't direct.
         if self.reaches_own_clause_handler(effect) {
-            let what = if lowered_from_call {
-                format!("Calling `{}`", self.sym(op))
-            } else {
-                format!("Performing `{}`", self.sym(op))
-            };
-            return Err(self.own_clause_handler_error(effect, what, span));
+            self.own_clause_performs += 1;
         }
         if !self.is_effect_available(effect) {
             let effect_name = self.sym(effect).to_string();
@@ -4120,6 +4118,7 @@ impl Compiler {
             _ => None,
         };
 
+        let own_clause_performs_before = self.own_clause_performs;
         for arm in arms {
             let (op_params, _op_ret) = self.effect_operation_function_parts(
                 effect,
@@ -4234,8 +4233,11 @@ impl Compiler {
         }
 
         // Detect tail-resumptive handlers and emit the optimized opcode.
-        let is_direct = parameter.is_none()
-            && crate::compiler::tail_resumptive::is_handler_tail_resumptive(arms);
+        // @KI-233: a clause that performs its own effect runs outside its
+        // handler, which a direct one, called where the perform was, doesn't.
+        let tail_resumptive = crate::compiler::tail_resumptive::is_handler_tail_resumptive(arms)
+            && self.own_clause_performs == own_clause_performs_before;
+        let is_direct = parameter.is_none() && tail_resumptive;
         // Save operations for handler scope before moving into descriptor.
         let scope_ops = operations.clone();
 
@@ -4282,6 +4284,10 @@ impl Compiler {
                 .collect(),
             has_state: parameter.is_some(),
             is_discard,
+            // @KI-233: as the native flag decides it, as near as the AST
+            // shows it: the clause of any other runs under the handle's
+            // evidence.
+            tail_resumptive,
         }));
 
         let desc_idx = self.add_constant(desc);

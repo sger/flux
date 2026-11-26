@@ -45,6 +45,7 @@ pub use inline::inline_trivial_lets;
 pub use inliner::inline_lets;
 pub use primop_promote::promote_builtins;
 pub use specialize::specialize_known_shapes;
+pub use tail_resumptive::performs_effect;
 
 use std::collections::HashSet;
 

@@ -415,6 +415,9 @@ impl<'a> FnCtx<'a> {
                     effect: *effect,
                     arms: scope_arms,
                     initial_state,
+                    // As the native backend's Core path: every resume is
+                    // delimited, which is right for any clause.
+                    tail_resumptive: false,
                     body_entry: body_block_id,
                     body_result: dest, // will be set below via jump arg
                     dest,
@@ -711,6 +714,10 @@ impl<'a> FnCtx<'a> {
                     effect: *effect,
                     arms: scope_arms,
                     initial_state,
+                    // @KI-233: the same flag as the native evidence entry's.
+                    tail_resumptive: crate::aether::tail_resumptive::handle_is_tail_resumptive(
+                        *effect, handlers,
+                    ),
                     body_entry: body_block_id,
                     body_result: dest,
                     dest,

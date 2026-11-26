@@ -1,0 +1,29 @@
+// parity: vm, llvm, vm_opt, llvm_opt
+// expect: success
+// skip-way: llvm, llvm_opt: KI-238 natively the outer clause, which doesn't resume, is serviced at the inner prompt, so the + 1000 still runs (1007)
+// bug: KI-233. The inner clause forwards to the outer Ask handler, whose
+//      clause doesn't resume: the whole outer handle gives 7, and the
+//      + 1000 after inner() never runs.
+// parity-expected-stdout-begin
+// 7
+// parity-expected-stdout-end
+
+effect Ask {
+    ask : () -> Int
+}
+
+fn asks() -> Int with Ask {
+    perform Ask.ask()
+}
+
+fn inner() -> Int with Ask {
+    asks() handle Ask { ask(resume) -> resume(perform Ask.ask() + 1) }
+}
+
+fn outer_body() -> Int with Ask {
+    inner() + 1000
+}
+
+fn main() with IO {
+    print(outer_body() handle Ask { ask(resume) -> 7 })
+}

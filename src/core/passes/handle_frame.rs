@@ -26,7 +26,7 @@ use super::tail_resumptive::is_core_handler_tail_resumptive;
 pub fn handle_body_frames(expr: CoreExpr) -> CoreExpr {
     match map_children(expr, handle_body_frames) {
         CoreExpr::Handle { body, effect, parameter, handlers, span }
-            if !is_core_handler_tail_resumptive(&handlers)
+            if !is_core_handler_tail_resumptive(effect, &handlers)
                 && !is_one_call(&body)
                 && in_frame(&body, &|e| {
                     matches!(
@@ -175,6 +175,43 @@ mod tests {
             args: vec![int(1)],
             span: Span::default(),
         }
+    }
+
+    fn handlers_of(expr: CoreExpr) -> Vec<CoreHandler> {
+        match expr {
+            CoreExpr::Handle { handlers, .. } => handlers,
+            other => panic!("expected a handle, got {other:?}"),
+        }
+    }
+
+    fn resume_of(arg: CoreExpr) -> CoreExpr {
+        CoreExpr::App {
+            func: Box::new(CoreExpr::bound_var(&binder(1), Span::default())),
+            args: vec![arg],
+            span: Span::default(),
+        }
+    }
+
+    /// A clause that performs its handler's own effect runs outside the
+    /// handler, which the tail-resumptive paths, calling it where the perform
+    /// was, can't give it (KI-233). A perform of another effect, or of the
+    /// same one under a `handle` for it inside the clause, keeps the handler
+    /// tail-resumptive.
+    #[test]
+    fn a_clause_that_performs_its_own_effect_is_not_tail_resumptive_ki233() {
+        let ask = Symbol::new(900);
+        let other = CoreExpr::Perform {
+            effect: Symbol::new(950),
+            operation: Symbol::new(951),
+            args: Vec::new(),
+            span: Span::default(),
+        };
+        let tr =
+            |clause| is_core_handler_tail_resumptive(ask, &handlers_of(handle(int(0), clause)));
+        assert!(tr(resume_x()));
+        assert!(!tr(resume_of(perform())));
+        assert!(tr(resume_of(other)));
+        assert!(tr(resume_of(handle(perform(), resume_x()))));
     }
 
     #[test]

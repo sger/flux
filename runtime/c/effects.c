@@ -1039,6 +1039,9 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
     while (flux_thread_ctx.yielding != 0) {
         int is_ours = (flux_thread_ctx.marker == m);
         int64_t yield_evv_local = flux_thread_ctx.yield_evv;
+        /* @KI-233: the evidence the handle was installed under: this
+         * prompt's own, or the foreign handler entry's parent below. */
+        int64_t handle_evv = saved_evv;
 
         if (!is_ours) {
             /* Slice 5-tr-nested: the re-yield targets a different handler.
@@ -1057,6 +1060,7 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
              * itself — flux_thread_ctx.clause was set by flux_yield_to based on
              * evv_lookup(htag) at the yield site, so it's the correct
              * foreign handler's clause. */
+            handle_evv = arr->data[idx * EVV_ENTRY_WORDS + EVV_PARENT_OFF];
         }
 
         /* Keep the yield-site evv active for the duration of the clause
@@ -1092,8 +1096,16 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
          * — including any resume it calls into the composed continuation —
          * sees the full handler chain the yield was performed under (slice
          * 5-tr-fix: matters for nested handlers where an inner handle may
-         * have unwound before the outer prompt decides to resume). */
-        flux_thread_ctx.current_evv = yield_evv;
+         * have unwound before the outer prompt decides to resume).
+         *
+         * @KI-233: only for a tail-resumptive clause, whose resume above
+         * installs no evidence of its own. Any other clause runs under the
+         * evidence its handle was installed under, as a deep handler's clause
+         * runs outside it: a perform there reaches the handlers outside the
+         * handle, its own effect's included, not this one or those between
+         * it and the perform. Its delimiting resume installs the yield-site
+         * evidence for the code it runs. */
+        flux_thread_ctx.current_evv = tail_resumptive ? yield_evv : handle_evv;
 
         /* Call the handler clause: clause(resume, [arg], [state]).
          * op_arg carries the reference the perform gave flux_yield_to.

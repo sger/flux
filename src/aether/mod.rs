@@ -35,6 +35,7 @@ pub mod owned_clone;
 pub mod reuse;
 pub mod reuse_analysis;
 pub mod reuse_spec;
+pub mod tail_resumptive;
 pub mod verify;
 
 use crate::core::{
