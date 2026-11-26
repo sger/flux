@@ -3878,12 +3878,6 @@ impl Compiler {
             )?;
         }
 
-        // @KI-233: a perform of the clause's own effect, written in the
-        // clause, reaches the handler outside its own; the clause runs there.
-        // Its handle is then compiled as one that isn't direct.
-        if self.reaches_own_clause_handler(effect) {
-            self.own_clause_performs += 1;
-        }
         if !self.is_effect_available(effect) {
             let effect_name = self.sym(effect).to_string();
             let (message, label) = if lowered_from_call {
@@ -4118,7 +4112,6 @@ impl Compiler {
             _ => None,
         };
 
-        let own_clause_performs_before = self.own_clause_performs;
         for arm in arms {
             let (op_params, _op_ret) = self.effect_operation_function_parts(
                 effect,
@@ -4233,11 +4226,24 @@ impl Compiler {
         }
 
         // Detect tail-resumptive handlers and emit the optimized opcode.
-        // @KI-233: a clause that performs its own effect runs outside its
-        // handler, which a direct one, called where the perform was, doesn't.
-        let tail_resumptive = crate::compiler::tail_resumptive::is_handler_tail_resumptive(arms)
-            && self.own_clause_performs == own_clause_performs_before;
-        let is_direct = parameter.is_none() && tail_resumptive;
+        // @KI-243: a clause in place runs under its handle's evidence, which
+        // `OpPerform` installs. A direct one is called where the perform was,
+        // under the perform's, so only a clause that reads none is direct.
+        let tail_resumptive = crate::compiler::tail_resumptive::is_handler_tail_resumptive(arms);
+        // The default handlers' clauses call the routed intrinsics, which
+        // perform nothing.
+        let interner = &self.interner;
+        let reads_no_evidence =
+            crate::compiler::tail_resumptive::arms_perform_nothing(arms, &|name| {
+                let name = interner.resolve(name);
+                crate::ast::route_effectful_primops::routed_intrinsic_names().any(|n| n == name)
+            });
+        let is_direct = parameter.is_none() && tail_resumptive && reads_no_evidence;
+        let kind = match (tail_resumptive, reads_no_evidence) {
+            (true, true) => crate::aether::tail_resumptive::HandleKind::InPlacePure,
+            (true, false) => crate::aether::tail_resumptive::HandleKind::InPlace,
+            (false, _) => crate::aether::tail_resumptive::HandleKind::Captured,
+        };
         // Save operations for handler scope before moving into descriptor.
         let scope_ops = operations.clone();
 
@@ -4284,10 +4290,9 @@ impl Compiler {
                 .collect(),
             has_state: parameter.is_some(),
             is_discard,
-            // @KI-233: as the native flag decides it, as near as the AST
-            // shows it: the clause of any other runs under the handle's
-            // evidence.
-            tail_resumptive,
+            // @KI-233, @KI-243: as the native kind decides it, as near as
+            // the AST shows it.
+            kind,
         }));
 
         let desc_idx = self.add_constant(desc);

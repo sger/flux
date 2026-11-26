@@ -24,11 +24,13 @@ const SHAPES: &[(&str, &str, (u64, u64, u64))] = &[
     print(keyed_size(keyed))",
         (8, 8, 0),
     ),
+    // Less the continuation each perform built until its clause, which resumes
+    // as its last act, ran in place (KI-244).
     (
         "effectful",
         "let noted = noted_walk(make_tree(1)) handle Note { note(resume) -> resume(1) }
     print(noted)",
-        (16, 16, 0),
+        (7, 7, 0),
     ),
     ("field_handed_on", "print(nodes(make_tree(2)))", (9, 9, 0)),
     (

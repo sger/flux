@@ -1219,22 +1219,17 @@ impl VM {
                 // Side effect: HandlerFrame pushed onto handler_stack
                 let const_idx = Self::read_u16_fast(instructions, ip + 1);
                 let const_val = self.const_get(const_idx);
-                let (effect, ops, has_state, desc_is_discard, desc_tail_resumptive) =
-                    match &const_val {
-                        Value::HandlerDescriptor(desc) => (
-                            desc.effect,
-                            desc.ops.clone(),
-                            desc.has_state,
-                            desc.is_discard,
-                            desc.tail_resumptive,
-                        ),
-                        other => {
-                            return Err(format!(
-                                "OpHandle: expected HandlerDescriptor constant, got {}",
-                                other.type_name()
-                            ));
-                        }
-                    };
+                let (effect, ops, has_state, desc_is_discard, desc_kind) = match &const_val {
+                    Value::HandlerDescriptor(desc) => {
+                        (desc.effect, desc.ops.clone(), desc.has_state, desc.is_discard, desc.kind)
+                    }
+                    other => {
+                        return Err(format!(
+                            "OpHandle: expected HandlerDescriptor constant, got {}",
+                            other.type_name()
+                        ));
+                    }
+                };
                 let n = ops.len();
                 let state = if has_state { Some(self.pop_untracked()?) } else { None };
                 // Pop closures in reverse (last pushed = last arm)
@@ -1274,7 +1269,7 @@ impl VM {
                     is_direct: false,
                     is_discard: desc_is_discard,
                     resume_boundary: false,
-                    tail_resumptive: desc_tail_resumptive,
+                    kind: desc_kind,
                 });
                 Ok(3)
             }
@@ -1330,7 +1325,9 @@ impl VM {
                     is_direct: true,
                     is_discard: false,
                     resume_boundary: false,
-                    tail_resumptive: true,
+                    // The AST compiler makes a handle direct only if its
+                    // clauses read no evidence (KI-243).
+                    kind: crate::aether::tail_resumptive::HandleKind::InPlacePure,
                 });
                 Ok(3)
             }
@@ -1422,6 +1419,61 @@ impl VM {
                     // The arm's caller is at the perform, not past it.
                     self.call_ips[self.frame_index] = ip;
                     Ok(0)
+                } else if self.handler_stack[handler_pos].kind.in_place() {
+                    // @KI-243, @KI-244: a clause that resumes once, as its
+                    // last act, runs on top of the perform, as a call whose
+                    // value is the perform's, with no continuation captured.
+                    // It runs in its handle's context: under `saved_evv`, so
+                    // a perform in it reaches the handlers outside the handle,
+                    // never this one or one installed between the handle and
+                    // the perform. A bare boundary entered at the perform's
+                    // frame puts the perform's evidence back when the arm
+                    // returns into it (`leave_resume_boundaries`); a clause
+                    // that reads no evidence needs neither.
+                    let handler = &self.handler_stack[handler_pos];
+                    let reads_evidence =
+                        handler.kind == crate::aether::tail_resumptive::HandleKind::InPlace;
+                    let marker = handler.marker;
+                    let handle_evv = handler.saved_evv.clone();
+                    self.frames[self.frame_index].ip += 4;
+                    if reads_evidence {
+                        let perform_evv = std::mem::replace(&mut self.context.evidence, handle_evv);
+                        self.handler_stack.push(HandlerFrame {
+                            effect: crate::syntax::Identifier::new(u32::MAX),
+                            arms: Rc::new(Vec::new()),
+                            // Never issued: no perform finds it.
+                            marker: 0,
+                            saved_evv: perform_evv,
+                            state: None,
+                            entry_frame_index: self.frame_index,
+                            entry_sp: self.sp,
+                            entry_handler_stack_len: self.handler_stack.len(),
+                            is_direct: false,
+                            is_discard: false,
+                            resume_boundary: true,
+                            kind: crate::aether::tail_resumptive::HandleKind::Captured,
+                        });
+                    }
+                    self.push(Value::Closure(arm_closure))?;
+                    // A parameterized clause's `resume(v, s)` sets the state
+                    // of this handler and gives back `v`.
+                    let resume = if has_handler_state {
+                        let mut resume = crate::runtime::continuation::Continuation::default();
+                        resume.in_place_marker = Some(marker);
+                        Value::Continuation(Rc::new(std::cell::RefCell::new(resume)))
+                    } else {
+                        self.make_identity_closure()
+                    };
+                    self.push(resume)?;
+                    for arg in perform_args {
+                        self.push(arg)?;
+                    }
+                    if let Some(state) = handler_state {
+                        self.push(state)?;
+                    }
+                    self.execute_call(1 + arity + usize::from(has_handler_state))?;
+                    self.call_ips[self.frame_index] = ip;
+                    Ok(0)
                 } else if is_discard {
                     // Discard handler: never resumes. Skip continuation capture
                     // entirely — just unwind to handler entry and call the arm.
@@ -1443,9 +1495,7 @@ impl VM {
                     self.handler_stack.truncate(handler_pos + 1);
                     self.reset_sp(entry_sp)?;
                     // @KI-233: the clause runs outside its handler.
-                    if !self.handler_stack[handler_pos].tail_resumptive {
-                        self.context.evidence = self.handler_stack[handler_pos].saved_evv.clone();
-                    }
+                    self.context.evidence = self.handler_stack[handler_pos].saved_evv.clone();
 
                     // Call the arm with Value::None as the resume parameter
                     // (handler won't use it since it never resumes).
@@ -1511,11 +1561,8 @@ impl VM {
                     // handle's OpEndHandle puts `saved_evv` back after the
                     // clause anyway; a resume installs the evidence it
                     // captured (KI-227), and a non-tail one gives the clause's
-                    // back on return (KI-237). A tail-resumptive clause stays
-                    // under the perform's evidence, as natively.
-                    if !handler.tail_resumptive {
-                        self.context.evidence = handler.saved_evv.clone();
-                    }
+                    // back on return (KI-237).
+                    self.context.evidence = handler.saved_evv.clone();
 
                     self.push(Value::Closure(arm_closure))?;
                     self.push(cont_val)?;

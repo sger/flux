@@ -559,7 +559,7 @@ mod tests {
             op_names: vec!["print".into()],
             has_state: false,
             is_discard: false,
-            tail_resumptive: false,
+            kind: crate::aether::tail_resumptive::HandleKind::Captured,
         }));
         let perform = Value::PerformDescriptor(std::rc::Rc::new(PerformDescriptor {
             effect: Identifier::new(107),

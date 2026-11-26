@@ -46,6 +46,7 @@ impl VM {
             state_marker: None,
             handler: None,
             evidence: None,
+            in_place_marker: None,
             debug_serials: Vec::new(),
         })))
     }
@@ -377,6 +378,32 @@ impl VM {
             Value::Continuation(rc) => rc,
             _ => unreachable!("execute_resume called with non-Continuation callee"),
         };
+        // @KI-243: a parameterized clause run in place resumes by setting its
+        // handler's state and returning `v`, the perform's value.
+        let in_place_marker = cont_rc.borrow().in_place_marker;
+        if let Some(marker) = in_place_marker {
+            let next_state = next_state.ok_or_else(|| {
+                "parameterized handler resume expects next state argument".to_string()
+            })?;
+            let handler =
+                self.handler_stack.iter_mut().rfind(|h| h.marker == marker).ok_or_else(|| {
+                    "parameterized handler resume could not find handler frame".to_string()
+                })?;
+            handler.state = Some(next_state);
+            let slot = match caller_ip_advance {
+                Some(advance) => {
+                    self.frames[self.frame_index].ip += advance;
+                    return_slot
+                }
+                None => {
+                    let slot = self.pop_frame_return_slot();
+                    self.leave_resume_boundaries();
+                    slot
+                }
+            };
+            self.reset_sp(slot)?;
+            return self.push(resume_val);
+        }
 
         // Sole-owner fast path: move the `Continuation` out of its `Rc` and
         // reuse its buffers. Only a multi-shot resume (the captured value is

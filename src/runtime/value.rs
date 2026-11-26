@@ -874,6 +874,7 @@ pub struct ArcContinuation {
     pub entry_frame_index: usize,
     pub inner_handlers: Vec<ArcHandlerFrame>,
     pub state_marker: Option<u32>,
+    pub in_place_marker: Option<u32>,
 }
 
 /// Arc-based call frame — mirrors [`crate::runtime::frame::Frame`].
@@ -915,7 +916,7 @@ pub struct ArcHandlerFrame {
     pub is_direct: bool,
     pub is_discard: bool,
     pub resume_boundary: bool,
-    pub tail_resumptive: bool,
+    pub kind: crate::aether::tail_resumptive::HandleKind,
 }
 
 /// Promote a `Value` tree into an `ArcValue` tree.
@@ -990,6 +991,7 @@ fn promote_continuation(c: &Continuation) -> Result<ArcContinuation, String> {
             .map(promote_handler_frame)
             .collect::<Result<Vec<_>, _>>()?,
         state_marker: c.state_marker,
+        in_place_marker: c.in_place_marker,
     })
 }
 
@@ -1049,7 +1051,7 @@ fn promote_handler_frame(
         is_direct: hf.is_direct,
         is_discard: hf.is_discard,
         resume_boundary: hf.resume_boundary,
-        tail_resumptive: hf.tail_resumptive,
+        kind: hf.kind,
     })
 }
 
@@ -1143,6 +1145,7 @@ fn demote_continuation(c: ArcContinuation) -> Continuation {
         state_marker: c.state_marker,
         handler: None,
         evidence: None,
+        in_place_marker: c.in_place_marker,
         debug_serials: Vec::new(),
     }
 }
@@ -1194,7 +1197,7 @@ fn demote_handler_frame(hf: ArcHandlerFrame) -> crate::runtime::handler_frame::H
         is_direct: hf.is_direct,
         is_discard: hf.is_discard,
         resume_boundary: hf.resume_boundary,
-        tail_resumptive: hf.tail_resumptive,
+        kind: hf.kind,
     }
 }
 

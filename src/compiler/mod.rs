@@ -1175,9 +1175,6 @@ pub struct Compiler {
     // The effect of each handler clause being compiled, with the length of
     // `handled_effects` where the clause starts (KI-233).
     pub(super) clause_effects: Vec<(Symbol, usize)>,
-    // How many performs compiled so far reach their own clause's handler
-    // (KI-233): a handle whose clauses add to it isn't direct.
-    pub(super) own_clause_performs: usize,
     // Compile-time handler scope stack for static handler resolution.
     // Tracks active handle blocks and their operations for OpPerformDirectIndexed.
     pub(super) handler_scopes: Vec<HandlerScope>,
@@ -1810,7 +1807,6 @@ impl Compiler {
             function_param_effect_rows: Vec::new(),
             handled_effects: Vec::new(),
             clause_effects: Vec::new(),
-            own_clause_performs: 0,
             handler_scopes: Vec::new(),
             captured_local_indices: Vec::new(),
             free_vars: HashSet::new(),
@@ -7321,7 +7317,7 @@ impl Compiler {
                     op_names: desc.op_names.clone(),
                     has_state: desc.has_state,
                     is_discard: desc.is_discard,
-                    tail_resumptive: desc.tail_resumptive,
+                    kind: desc.kind,
                 },
             )),
             Value::PerformDescriptor(desc) => Value::PerformDescriptor(std::rc::Rc::new(

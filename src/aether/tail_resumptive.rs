@@ -1,7 +1,8 @@
-//! Whether a handle's clauses are tail-resumptive, as both backends decide
-//! it from Aether: natively the evidence entry's flag, on the VM the
-//! handler frame's. A tail-resumptive clause runs where the perform was,
-//! under the evidence there; any other runs under its handle's.
+//! Where a handle's clauses run, as both backends decide it from Aether:
+//! natively the evidence entry's flag, on the VM the handler frame's. A
+//! clause that resumes once, as its last act, runs where the perform was;
+//! any other at its handle's prompt. Either runs in its handle's context,
+//! unless it reads no evidence (KI-233, KI-243).
 
 use crate::aether::{AetherExpr, AetherHandler};
 use crate::core::CoreBinderId;
@@ -13,10 +14,11 @@ use crate::syntax::Identifier;
 ///
 /// @KI-185: the entry has one flag for all its clauses, so a handle has the
 /// kind every one of its clauses allows.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum HandleKind {
     /// At the handle's prompt, under the evidence the handle was installed
     /// under, with a `resume` that delimits (KI-233).
+    #[default]
     Captured = 0,
     /// At the prompt, under the perform's evidence, with a `resume` that only
     /// runs the frames between the perform and the prompt, so a loop of
@@ -30,6 +32,24 @@ pub enum HandleKind {
     /// In place, with the perform's evidence left as it is: the clause reads
     /// none.
     InPlacePure = 3,
+}
+
+impl HandleKind {
+    /// Whether the clauses run where the perform was.
+    pub fn in_place(self) -> bool {
+        matches!(self, Self::InPlace | Self::InPlacePure)
+    }
+
+    /// The kind a byte written as `kind as u8` names.
+    pub fn from_u8(byte: u8) -> Option<Self> {
+        match byte {
+            0 => Some(Self::Captured),
+            1 => Some(Self::LastActPure),
+            2 => Some(Self::InPlace),
+            3 => Some(Self::InPlacePure),
+            _ => None,
+        }
+    }
 }
 
 /// The kind of a handle with these clauses. `parameterized`: the handle has
@@ -125,20 +145,6 @@ pub fn performs_nothing(expr: &AetherExpr, resume: CoreBinderId) -> bool {
         }
     };
     children.into_iter().all(|child| performs_nothing(child, resume))
-}
-
-/// Whether every clause of a handle for `effect` resumes only as its last
-/// act, and none performs `effect`.
-///
-/// @KI-185: the entry has one flag for all its clauses, so it is set only
-/// when every clause resumes as its last act. @KI-233: a clause that
-/// performs the handle's own effect runs outside the handle, which a
-/// tail-resumptive clause, run under the evidence where the perform was,
-/// would not.
-pub fn handle_is_tail_resumptive(effect: Identifier, handlers: &[AetherHandler]) -> bool {
-    handlers.iter().all(|h| {
-        resumes_only_as_last_act(&h.body, h.resume.id) && !performs_effect(&h.body, effect)
-    })
 }
 
 /// Whether `expr` performs `effect` anywhere in it, lambdas included, other

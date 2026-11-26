@@ -785,6 +785,7 @@ mod tests {
                 state_marker: None,
                 handler: None,
                 evidence: None,
+                in_place_marker: None,
                 debug_serials: Vec::new(),
             };
             let mut fiber = Fiber::new(WorkerId(1));

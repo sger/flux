@@ -53,6 +53,11 @@ pub struct Continuation {
     pub handler: Option<HandlerFrame>,
     pub evidence: Option<EvidenceVector>,
 
+    /// The `resume` of a parameterized clause run in place (KI-243): no
+    /// frames, only the marker of the handler whose state `resume(v, s)`
+    /// sets before it gives back `v`.
+    pub in_place_marker: Option<u32>,
+
     /// While a debugger is attached: the serials of the calls in `frames`,
     /// so a resumed frame is the same call to it (0188 S7). Empty otherwise.
     pub debug_serials: Vec<u64>,
@@ -212,6 +217,7 @@ mod tests {
             state_marker: None,
             handler: None,
             evidence: None,
+            in_place_marker: None,
             debug_serials: Vec::new(),
         })));
         let outer = Value::Continuation(Rc::new(RefCell::new(Continuation {
@@ -224,6 +230,7 @@ mod tests {
             state_marker: None,
             handler: None,
             evidence: None,
+            in_place_marker: None,
             debug_serials: Vec::new(),
         })));
 
@@ -262,6 +269,7 @@ mod tests {
             state_marker: None,
             handler: None,
             evidence: None,
+            in_place_marker: None,
             debug_serials: Vec::new(),
         }
     }

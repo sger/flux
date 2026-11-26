@@ -595,11 +595,10 @@ pub enum IrInstr {
         effect: Identifier,
         arms: Vec<HandleScopeArm>,
         initial_state: Option<IrVar>,
-        /// The clauses are tail-resumptive, as the native backend decides it
-        /// (`aether::tail_resumptive::handle_is_tail_resumptive`): one runs
-        /// under the evidence where the perform was, any other under the
-        /// handle's (KI-233).
-        tail_resumptive: bool,
+        /// Where the clauses run, as the native backend decides it
+        /// (`aether::tail_resumptive::handle_kind`): in place at the perform,
+        /// or at the handle under its own evidence (KI-233, KI-243).
+        kind: crate::aether::tail_resumptive::HandleKind,
         /// Entry block for the handled body.
         body_entry: BlockId,
         /// Var holding the body's result (set in the body blocks).

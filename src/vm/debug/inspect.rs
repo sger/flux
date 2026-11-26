@@ -616,6 +616,9 @@ impl<'a> Inspector<'a> {
             .handler_stack
             .iter()
             .rev()
+            // The boundary an in-place clause puts back its perform's
+            // evidence with handles nothing (KI-243).
+            .filter(|handler| handler.marker != 0)
             .map(|handler| {
                 let arm_name = handler
                     .arms

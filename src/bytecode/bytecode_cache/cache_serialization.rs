@@ -181,7 +181,7 @@ pub(super) fn write_object_naming(
             }
             writer.write_all(&[u8::from(desc.has_state)])?;
             writer.write_all(&[u8::from(desc.is_discard)])?;
-            writer.write_all(&[u8::from(desc.tail_resumptive)])
+            writer.write_all(&[desc.kind as u8])
         }
         Value::PerformDescriptor(desc) => {
             writer.write_all(&[17])?;
@@ -287,8 +287,8 @@ pub(super) fn read_object_naming(reader: &mut File, own_file: Option<&str>) -> O
             reader.read_exact(&mut has_state).ok()?;
             let mut is_discard = [0u8; 1];
             reader.read_exact(&mut is_discard).ok()?;
-            let mut tail_resumptive = [0u8; 1];
-            reader.read_exact(&mut tail_resumptive).ok()?;
+            let mut kind = [0u8; 1];
+            reader.read_exact(&mut kind).ok()?;
             Some(Value::HandlerDescriptor(std::rc::Rc::new(HandlerDescriptor {
                 effect,
                 effect_name,
@@ -296,7 +296,7 @@ pub(super) fn read_object_naming(reader: &mut File, own_file: Option<&str>) -> O
                 op_names,
                 has_state: has_state[0] != 0,
                 is_discard: is_discard[0] != 0,
-                tail_resumptive: tail_resumptive[0] != 0,
+                kind: crate::aether::tail_resumptive::HandleKind::from_u8(kind[0])?,
             })))
         }
         17 => Some(Value::PerformDescriptor(std::rc::Rc::new(PerformDescriptor {
