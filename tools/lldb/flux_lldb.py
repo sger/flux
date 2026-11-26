@@ -1141,9 +1141,11 @@ def handlers(thread):
     found.reverse()
     # In a handler's arm, the handlers inside it are suspended with the
     # frames that performed: the arm runs under its own handler and those
-    # outside it.
+    # outside it. An arm that runs in place (proposal 0205) suspends nothing,
+    # and one that performs nothing keeps the perform's evidence, which still
+    # holds the handlers inside its handle; it is shown the same way.
     shown = logical_stack(thread)
-    if len(shown) > 1 and shown[1].kind == "label" and shown[0].frame is not None:
+    if shown and shown[0].frame is not None:
         arm = shown[0].frame.GetFunctionName()
         arms = [entry[1] for entry in found]
         if arm in arms:
