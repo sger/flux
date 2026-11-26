@@ -314,7 +314,9 @@ Files touched in slices 4-prereq / 4:
   suppression; `lower_perform` flips to `YieldTo` under
   `FLUX_YIELD_CHECKS=1` and falls back to `PerformDirect` otherwise.
 - `src/lir/cont_split.rs` — suppressed calls are excluded from continuation
-  synthesis.
+  synthesis. *(Since 2026-11-26, KI-241, so is a call into Flux code whose
+  continuation only returns its result: it would extend a frame that does
+  nothing, once per yield.)*
 - `src/lir/emit_llvm.rs` — suppressed calls skip the post-call yield-check
   branch.
 - `src/lir/emit_llvm.rs` — `build_yield_block_instrs` now handles
