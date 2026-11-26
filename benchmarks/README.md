@@ -42,6 +42,7 @@ and `counter` from [Koka](https://github.com/koka-lang/koka)'s `test/bench`:
 - `counter`: a state handler counted down to 0 beside the loop's own step count
 - `generator`: a tree walk's yields kept as a stream of resumes, pulled to the end
 - `triples`: the decreasing triples that sum to `n`, found by a flip resumed twice at every choice
+- `tree_explore`: every path of a tree explored by a choose resumed twice, under a state kept across the branches
 - `fibonacci_recursive`: doubly recursive Fibonacci with no effects, the group's baseline
 - `product_early`: an abort, whose clause never resumes, from 1000 frames deep
 - `resume_nontail`: a clause that works on what its resume returns, the resumes nested deep
@@ -114,6 +115,7 @@ written with. The harness runs each benchmark at one of two sizes, listed in
 | `counter` | the state's starting value | 2,000,000 | 20,000,000 |
 | `generator` | the tree's height | 17 | 23 |
 | `triples` | `n`, the largest number and the target sum | 200 | 300 |
+| `tree_explore` | the tree's height | 11 | 16 |
 | `fibonacci_recursive` | `n` in `fib(n)` | 33 | 42 |
 | `product_early` | products of [1000, …, 0] | 2,000 | 100,000 |
 | `resume_nontail` | nesting depth of the resumes, each run 1000 times | 400 | 10,000 |
@@ -1381,6 +1383,45 @@ From `flux --metrics` on the VM case. They are the same on every run of the same
 | `vm_allocs` | 36041570 | – | – |
 | `vm_instructions` | 50774017 | – | – |
 <!-- triples-report:end -->
+
+## Tree Explore
+
+effect-handlers-bench's `tree_explore`: every path from the root of a tree of height `n`,
+whose two subtrees are the same tree, is explored by a `Choose` handler that resumes twice
+and concatenates both branches' results. Before each step down, a state becomes
+`operator(state, value)`, where `operator(x, y)` is `|x − 503y + 37|` mod 1009, and each path's
+result is `operator` folded back up the path. The exploration runs ten times, each starting
+from the previous run's maximum. Koka keeps the state in a `var`; here it is a parameterized
+`St` handler around the `Choose` one. As proposal 0169 says, a handler outside the resumed
+continuation keeps its state across the branches, so both give the same answers. `++` is
+`concat`, and the list a path gives is built in a function of its own, `one`, since a
+`handle` around `[explore(t)]` itself is rejected (KI-239). The direct-style twin threads
+the state by hand and expands each choice into its two branches' results. OCaml's
+continuations are one-shot, so its port follows the twin too. The full size is the suite's
+height of 16, whose answer is 1005.
+
+Sources:
+
+- `benchmarks/flux/tree_explore.flx`
+- `benchmarks/flux/tree_explore_direct.flx`
+- `benchmarks/rust/tree_explore.rs`
+- `benchmarks/go/tree_explore/main.go`
+- `benchmarks/haskell/tree_explore.hs`
+- `benchmarks/ocaml/tree_explore.ml`
+- `benchmarks/python/tree_explore.py`
+- `benchmarks/erlang/tree_explore.erl`
+- `benchmarks/elixir/tree_explore.ex`
+
+Run the cross-language benchmark:
+
+```bash
+cargo xtask bench tree_explore
+```
+
+Latest report:
+
+<!-- tree-explore-report:start -->
+<!-- tree-explore-report:end -->
 
 ## Recursive Fibonacci
 

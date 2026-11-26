@@ -1,0 +1,120 @@
+// parity: vm, llvm
+// expect: success
+// bug: benchmarks/flux/tree_explore.flx and its direct-style twin: a choose
+//      resumed twice under a state handler that keeps its state across the
+//      branches, and the same exploration with the state threaded by hand.
+//      Both give 923 at height 3, as the version without effects does, and
+//      the program gives the suite's 946 at its small size, 5.
+// parity-expected-stdout-begin
+// 923
+// 923
+// 946
+// parity-expected-stdout-end
+
+import Flow.List as List
+
+type Tree = Leaf | Node(Tree, Int, Tree)
+
+effect Choose {
+    choose : () -> Bool
+}
+
+effect St {
+    get : () -> Int
+    set : (Int) -> ()
+}
+
+fn make(n: Int) -> Tree {
+    if n == 0 { Leaf } else {
+        let t = make(n - 1)
+        Node(t, n, t)
+    }
+}
+
+fn operator(x: Int, y: Int) -> Int {
+    let d = x - 503 * y + 37
+    let a = if d < 0 { 0 - d } else { d }
+    a % 1009
+}
+
+fn explore(t: Tree) -> Int with Choose, St {
+    match t {
+        Leaf -> perform St.get(),
+        Node(l, v, r) -> visit(l, v, r),
+    }
+}
+
+fn visit(l: Tree, v: Int, r: Tree) -> Int with Choose, St {
+    let next = if perform Choose.choose() { l } else { r }
+    perform St.set(operator(perform St.get(), v))
+    operator(v, explore(next))
+}
+
+// KI-239: a `handle` around `[explore(t)]` itself is rejected, so the list
+// is built in a function of its own.
+fn one(t: Tree) -> List<Int> with Choose, St {
+    [explore(t)]
+}
+
+fn paths(t: Tree) -> List<Int> with St {
+    one(t) handle Choose { choose(resume) -> concat([resume(true), resume(false)]) }
+}
+
+fn biggest(xs: List<Int>, m: Int) -> Int {
+    match xs {
+        [] -> m,
+        [h | t] -> biggest(t, if h > m { h } else { m }),
+    }
+}
+
+fn turn(i: Int, t: Tree) -> Int with St {
+    if i == 0 { perform St.get() } else {
+        perform St.set(biggest(paths(t), 0))
+        turn(i - 1, t)
+    }
+}
+
+fn run(n: Int) -> Int {
+    turn(10, make(n)) handle St(0) { get(resume, s) -> resume(s, s), set(resume, x, s) -> resume((), x) }
+}
+
+type R = R(List<Int>, Int)
+
+
+
+fn wrap(v: Int, xs: List<Int>) -> List<Int> {
+    match xs {
+        [] -> [],
+        [h | t] -> [operator(v, h) | wrap(v, t)],
+    }
+}
+
+fn explore_direct(t: Tree, s: Int) -> R {
+    match t {
+        Leaf -> R([s], s),
+        Node(l, v, r) -> node_direct(l, v, r, s),
+    }
+}
+
+fn node_direct(l: Tree, v: Int, r: Tree, s: Int) -> R {
+    match explore_direct(l, operator(s, v)) {
+        R(xs, s2) -> match explore_direct(r, operator(s2, v)) {
+            R(ys, s4) -> R(concat([wrap(v, xs), wrap(v, ys)]), s4),
+        },
+    }
+}
+
+
+fn turn_direct(i: Int, t: Tree, s: Int) -> Int {
+    if i == 0 { s } else {
+        match explore_direct(t, s) {
+            R(xs, _) -> turn_direct(i - 1, t, biggest(xs, 0)),
+        }
+    }
+}
+
+fn main() with IO {
+    print(run(3))
+    print(turn_direct(10, make(3), 0))
+    print(run(5))
+}

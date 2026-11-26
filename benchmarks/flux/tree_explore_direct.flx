@@ -1,0 +1,72 @@
+// tree_explore without effects: the state is threaded by hand through the
+// branches in order, and each choice expands into its two branches' results,
+// mapped through what follows the choice.
+import Flow.Env as Env
+import Flow.Array as Array
+import Flow.List as List
+
+type Tree = Leaf | Node(Tree, Int, Tree)
+type R = R(List<Int>, Int)
+
+fn make(n: Int) -> Tree {
+    if n == 0 { Leaf } else {
+        let t = make(n - 1)
+        Node(t, n, t)
+    }
+}
+
+fn operator(x: Int, y: Int) -> Int {
+    let d = x - 503 * y + 37
+    let a = if d < 0 { 0 - d } else { d }
+    a % 1009
+}
+
+fn wrap(v: Int, xs: List<Int>) -> List<Int> {
+    match xs {
+        [] -> [],
+        [h | t] -> [operator(v, h) | wrap(v, t)],
+    }
+}
+
+fn explore(t: Tree, s: Int) -> R {
+    match t {
+        Leaf -> R([s], s),
+        Node(l, v, r) -> node(l, v, r, s),
+    }
+}
+
+fn node(l: Tree, v: Int, r: Tree, s: Int) -> R {
+    match explore(l, operator(s, v)) {
+        R(xs, s2) -> match explore(r, operator(s2, v)) {
+            R(ys, s4) -> R(concat([wrap(v, xs), wrap(v, ys)]), s4),
+        },
+    }
+}
+
+fn biggest(xs: List<Int>, m: Int) -> Int {
+    match xs {
+        [] -> m,
+        [h | t] -> biggest(t, if h > m { h } else { m }),
+    }
+}
+
+fn turn(i: Int, t: Tree, s: Int) -> Int {
+    if i == 0 { s } else {
+        match explore(t, s) {
+            R(xs, _) -> turn(i - 1, t, biggest(xs, 0)),
+        }
+    }
+}
+
+// The workload size: the program's first argument, or the size the suite
+// was written with. `cargo xtask bench` passes a smaller one to the VM.
+fn size(default: Int) -> Int with Env {
+    match Array.get(Env.args(), 1) {
+        Some(s) -> parse_int(s),
+        None -> default,
+    }
+}
+
+fn main() with IO {
+    print(turn(10, make(size(16)), 0))
+}

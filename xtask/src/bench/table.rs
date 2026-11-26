@@ -118,6 +118,7 @@ pub const BENCHMARKS: &[Benchmark] = &[
     // 0.1-2 s.
     effect_bench("generator", "Generator", "generator", true, "17", "23"),
     effect_bench("triples", "Triples", "triples", true, "200", "300"),
+    effect_bench("tree_explore", "Tree Explore", "tree-explore", true, "11", "16"),
     // No effects: the group's baseline for the cost of a call.
     effect_bench(
         "fibonacci_recursive",

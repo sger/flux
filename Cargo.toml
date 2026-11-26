@@ -210,6 +210,10 @@ name = "triples_rust"
 path = "benchmarks/rust/triples.rs"
 
 [[bin]]
+name = "tree_explore_rust"
+path = "benchmarks/rust/tree_explore.rs"
+
+[[bin]]
 name = "product_early_rust"
 path = "benchmarks/rust/product_early.rs"
 

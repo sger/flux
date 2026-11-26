@@ -1,0 +1,89 @@
+// effect-handlers-bench's tree_explore: every path from the root of a tree
+// of height n, whose subtrees are shared, is explored by a choose resumed
+// twice, which concatenates both branches' results. Before each step down
+// the state becomes operator(state, value); each path's result is operator
+// folded back up it. Ten turns, each starting from the previous maximum.
+// Prints 946 at 5, 1005 at 16. The state is a parameterized handler around
+// the choose, where Koka has a `var`: as proposal 0169 says, a handler
+// outside the resumed continuation keeps its state across the branches.
+import Flow.Env as Env
+import Flow.Array as Array
+import Flow.List as List
+
+type Tree = Leaf | Node(Tree, Int, Tree)
+
+effect Choose {
+    choose : () -> Bool
+}
+
+effect St {
+    get : () -> Int
+    set : (Int) -> ()
+}
+
+fn make(n: Int) -> Tree {
+    if n == 0 { Leaf } else {
+        let t = make(n - 1)
+        Node(t, n, t)
+    }
+}
+
+fn operator(x: Int, y: Int) -> Int {
+    let d = x - 503 * y + 37
+    let a = if d < 0 { 0 - d } else { d }
+    a % 1009
+}
+
+fn explore(t: Tree) -> Int with Choose, St {
+    match t {
+        Leaf -> perform St.get(),
+        Node(l, v, r) -> visit(l, v, r),
+    }
+}
+
+fn visit(l: Tree, v: Int, r: Tree) -> Int with Choose, St {
+    let next = if perform Choose.choose() { l } else { r }
+    perform St.set(operator(perform St.get(), v))
+    operator(v, explore(next))
+}
+
+// KI-239: a `handle` around `[explore(t)]` itself is rejected, so the list
+// is built in a function of its own.
+fn one(t: Tree) -> List<Int> with Choose, St {
+    [explore(t)]
+}
+
+fn paths(t: Tree) -> List<Int> with St {
+    one(t) handle Choose { choose(resume) -> concat([resume(true), resume(false)]) }
+}
+
+fn biggest(xs: List<Int>, m: Int) -> Int {
+    match xs {
+        [] -> m,
+        [h | t] -> biggest(t, if h > m { h } else { m }),
+    }
+}
+
+fn turn(i: Int, t: Tree) -> Int with St {
+    if i == 0 { perform St.get() } else {
+        perform St.set(biggest(paths(t), 0))
+        turn(i - 1, t)
+    }
+}
+
+fn run(n: Int) -> Int {
+    turn(10, make(n)) handle St(0) { get(resume, s) -> resume(s, s), set(resume, x, s) -> resume((), x) }
+}
+
+// The workload size: the program's first argument, or the size the suite
+// was written with. `cargo xtask bench` passes a smaller one to the VM.
+fn size(default: Int) -> Int with Env {
+    match Array.get(Env.args(), 1) {
+        Some(s) -> parse_int(s),
+        None -> default,
+    }
+}
+
+fn main() with IO {
+    print(run(size(16)))
+}
