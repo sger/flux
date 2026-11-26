@@ -68,6 +68,65 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-236 — Natively, a parameterized handler's state is a copy in each evidence vector, so a `set` made inside a nested `handle` is lost when it returns, and resumes of one continuation share state
+
+**Severity:** High (wrong values, silently) · **Area:** native effects runtime, parameterized handlers (`runtime/c/effects.c`) · **Verified:** 2026-11-26 (9469e0c2; the multi-shot cases also on `main` at 64005292) · **From:** fixing KI-227
+
+```flux
+effect St {
+    get : () -> Int
+    set : (Int) -> ()
+}
+
+effect Log {
+    log : (Int) -> ()
+}
+
+fn work() -> Int with St, Log {
+    perform St.set(5)
+    perform Log.log(1)
+    perform St.get()
+}
+
+fn inner() -> Int with St {
+    work() handle Log { log(resume, x) -> resume(()) }
+}
+
+fn outer() -> Int with St {
+    let a = inner()
+    a * 10 + perform St.get()
+}
+
+fn main() with IO {
+    print(outer() handle St(0) { get(resume, s) -> resume(s, s), set(resume, x, s) -> resume((), x) })
+}
+```
+
+The VM prints `55`. Native code prints `50`: the `set(5)` made inside the
+`Log` handle is gone once that handle returns.
+
+Proposal 0169 makes a handler's state continuation state, threaded through
+the run in order: a handler outside a captured continuation keeps every
+`set`, and one installed inside it starts each resume from the state it was
+captured with. Native code breaks both:
+
+| Program | Expected | Native |
+|---|---|---|
+| the program above | 55 | 50 |
+| an outer `St` around a multi-shot `choose` (`resume(true) + resume(false)`); branch one sets 1, branch two adds 10; `get` after the `choose` handle | 12, then 11 | 12, then 0 |
+| an `St` handler inside the continuation `flip` captures, resumed twice; each branch reads, sets and reads | 6 | 7 |
+
+The cause: a handler's state is a plain value inside each evidence-vector
+entry (`EVV_STATE_OFF`). `flux_evv_insert` copies every entry into the new
+handle's vector, and `flux_update_state_for_marker` writes into whichever
+vector is current. A write inside a nested handle goes into its copy, and
+`flux_yield_prompt` puts the outer vector back when it returns. A
+delimiting resume (`compose_into_closure`, since KI-225) keeps one captured
+vector and runs every resume under it, so the inner handler's state written
+by one resume is what the next reads.
+
+Probes: `.verify/ki227/05`, `06` and `08`.
+
 ### KI-235 — On the VM, a tail call to another function that releases a value first keeps a frame, so a loop through two functions overflows the stack
 
 **Severity:** Medium (a crash on a long loop; one function calling itself works) · **Area:** VM backend, tail calls (Aether → `cfg/` → `src/compiler/cfg_bytecode.rs`) · **Verified:** 2026-11-26 (b125141e, and `main` at 64005292) · **From:** fixing KI-234
