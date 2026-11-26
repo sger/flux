@@ -68,6 +68,56 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-239 — A call that performs an effect of the enclosing function is rejected with E400 inside a `handle` whose expression isn't a plain call
+
+**Severity:** Medium (loud; moving the expression into a function works) · **Area:** the compiler's effect check (`src/compiler/expression.rs`), both backends · **Verified:** 2026-11-26 (a2720ba3, and `main` at 64005292) · **From:** writing the tree_explore benchmark
+
+```flux
+effect Choose {
+    choose : () -> Bool
+}
+
+effect St {
+    get : () -> Int
+}
+
+fn pick() -> Int with Choose, St {
+    if perform Choose.choose() { perform St.get() } else { 2 }
+}
+
+fn run() -> Int with St {
+    (pick() + 1) handle Choose { choose(resume) -> resume(true) + resume(false) }
+}
+
+fn main() with IO {
+    print(run() handle St { get(resume) -> resume(10) })
+}
+```
+
+`run` declares `St` and the `handle` provides `Choose`, so `pick` has both,
+and the program should print `14`. Both backends reject it: `error[E400]:
+Missing Ambient Effect`, "Call to `pick` requires effect `St` in this
+function signature", at `pick`.
+
+| Handled expression (`.verify/ki239/`) | Result |
+|---|---|
+| `pick()` alone, or `one()` where `fn one() -> List<Int> with Choose, St { [pick()] }` | runs |
+| `(pick() + 1)` | E400 |
+| `[pick()]` | E400 |
+| `[only_choose()]`, a call that needs `Choose` only | runs |
+
+So the handled effect is available in the expression and the enclosing
+function's are not, once the expression is more than a call. A tuple,
+`(pick(), 0)`, compiles; natively it then crashes, which is
+[KI-240](#ki-240).
+
+Not yet known: which path the expression takes. The message is the
+compiler's check for a call (`Call to … requires effect …`), which reads
+the effects of the current function and the handled ones.
+
+Workaround: put the expression in a function of its own, which the
+`handle` calls. tree_explore's `paths` does (`one`).
+
 ### KI-238 — Natively, a perform to an outer handler from inside a resumed continuation is handled at the innermost prompt, so the outer clause's work after `resume` lands in the wrong place
 
 **Severity:** High (wrong values or a crash) · **Area:** native effects runtime, prompts (`runtime/c/effects.c`, `flux_yield_prompt`) · **Verified:** 2026-11-26 (9469e0c2) · **From:** fixing KI-227
