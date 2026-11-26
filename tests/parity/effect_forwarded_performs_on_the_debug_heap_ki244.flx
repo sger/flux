@@ -1,0 +1,80 @@
+// parity: vm, llvm, llvm_heap
+// expect: success
+// bug: KI-244. effect_forwarded_performs_ki244.flx at an eighth of its
+//      sizes, small enough for the debug heap: a clause that runs in place
+//      and forwards its perform, or performs on a path that doesn't resume,
+//      releases what it holds and leaks nothing.
+// parity-expected-stdout-begin
+// 25000
+// 2500
+// 25000
+// 62500
+// parity-expected-stdout-end
+
+effect Ask {
+    ask : () -> Int
+}
+
+effect Two {
+    a : () -> Int
+    b : (Int) -> Int
+}
+
+fn go(i: Int, acc: Int) -> Int with Ask {
+    if i == 0 { acc } else { go(i - 1, acc + perform Ask.ask()) }
+}
+
+fn inner(t: Int) -> Int with Ask {
+    go(t, 0) handle Ask { ask(resume) -> resume(perform Ask.ask()) }
+}
+
+fn chain(d: Int, t: Int) -> Int with Ask {
+    if d == 0 { go(t, 0) } else { chain(d - 1, t) handle Ask { ask(resume) -> resume(perform Ask.ask()) } }
+}
+
+fn go_two(i: Int, acc: Int) -> Int with Two {
+    if i == 0 { acc } else { go_two(i - 1, acc + perform Two.b(perform Two.a())) }
+}
+
+fn inner_two(t: Int) -> Int with Two {
+    go_two(t, 0) handle Two {
+        a(resume) -> resume(perform Two.a()),
+        b(resume, x) -> resume(perform Two.b(x))
+    }
+}
+
+effect Read {
+    read : () -> Int
+}
+
+effect Stop {
+    stop : () -> Int
+}
+
+fn count(acc: Int) -> Int with Read {
+    let c = perform Read.read()
+    if c == 0 { acc } else { count(acc + c) }
+}
+
+// KI-239: a handle around `count(0)` itself is rejected.
+fn counted() -> Int with Read {
+    count(0)
+}
+
+fn reads(n: Int) -> Int with Stop {
+    counted() handle Read(0) {
+        read(resume, i) -> if i > n { perform Stop.stop() } else {
+            if i == n { resume(0, i + 1) } else { resume(1, i + 1) }
+        }
+    }
+}
+
+fn main() with IO {
+    print(inner(25000) handle Ask { ask(resume) -> resume(1) })
+    print(chain(10, 2500) handle Ask { ask(resume) -> resume(1) })
+    print(inner_two(12500) handle Two {
+        a(resume) -> resume(1),
+        b(resume, x) -> resume(x + 1)
+    })
+    print(reads(62500) handle Stop { stop(resume) -> 0 })
+}

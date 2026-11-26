@@ -1,4 +1,4 @@
-// parity: vm, llvm, vm_opt, llvm_opt, llvm_heap
+// parity: vm, llvm, vm_opt, llvm_opt
 // expect: success
 // bug: KI-244. Natively each perform a clause forwarded to an outer handler
 //      left C stack behind, so a long loop of them overflowed it. Lines:
@@ -6,7 +6,9 @@
 //      chain of 10 handlers (20000); a handler of two operations forwarding
 //      both, 100,000 times each (200000); 500,000 reads from a handler with
 //      a state whose clause performs Stop on the path that doesn't resume,
-//      a path these reads never take (500000).
+//      a path these reads never take (500000). The sizes are those that
+//      overflowed; the debug heap takes about 30 s at them, so llvm_heap
+//      runs effect_forwarded_performs_on_the_debug_heap_ki244.flx instead.
 // parity-expected-stdout-begin
 // 200000
 // 20000
