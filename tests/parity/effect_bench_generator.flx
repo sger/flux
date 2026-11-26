@@ -1,0 +1,75 @@
+// parity: vm, llvm
+// expect: success
+// bug: benchmarks/flux/generator.flx and its direct-style twin. At height 3
+//      both give 11, 2^(n+1) - n - 2: a tree walk's yields kept as a stream
+//      of resumes, each called after its clause has returned (KI-225), and
+//      the same tree summed directly. The third line pulls 1023 values at
+//      height 10, each through a tail call that passes on a closure's
+//      result (KI-234).
+// parity-expected-stdout-begin
+// 11
+// 11
+// 2036
+// parity-expected-stdout-end
+
+type Tree = Leaf | Node(Tree, Int, Tree)
+type Gen = Empty | Thunk(Int, () -> Gen)
+
+effect Yield {
+    yield : (Int) -> ()
+}
+
+fn make(n: Int) -> Tree {
+    if n == 0 { Leaf } else {
+        let t = make(n - 1)
+        Node(t, n, t)
+    }
+}
+
+fn visit(l: Tree, v: Int, r: Tree) with Yield {
+    iterate(l)
+    perform Yield.yield(v)
+    iterate(r)
+}
+
+fn iterate(t: Tree) with Yield {
+    match t {
+        Leaf -> (),
+        Node(l, v, r) -> visit(l, v, r),
+    }
+}
+
+fn walk(t: Tree) -> Gen with Yield {
+    iterate(t)
+    Empty
+}
+
+fn generate(t: Tree) -> Gen {
+    walk(t) handle Yield { yield(resume, v) -> Thunk(v, \() -> resume(())) }
+}
+
+// One function, not two: the VM keeps a frame for a tail call to another
+// function that releases a value first (KI-235).
+fn sum(a: Int, g: Gen) -> Int {
+    match g {
+        Empty -> a,
+        Thunk(v, f) -> sum(v + a, f()),
+    }
+}
+
+fn run(n: Int) -> Int {
+    sum(0, generate(make(n)))
+}
+
+fn total(t: Tree, a: Int) -> Int {
+    match t {
+        Leaf -> a,
+        Node(l, v, r) -> total(r, total(l, a) + v),
+    }
+}
+
+fn main() with IO {
+    print(run(3))
+    print(total(make(3), 0))
+    print(run(10))
+}

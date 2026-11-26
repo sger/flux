@@ -114,6 +114,9 @@ pub const BENCHMARKS: &[Benchmark] = &[
     effect_bench("iterator", "Iterator", "iterator", true, "2000000", "40000000"),
     // Koka's 100100100 takes about 8 s natively, past the full size's 0.1-2 s.
     effect_bench("counter", "Counter", "counter", true, "2000000", "20000000"),
+    // The suite's height of 25 takes about 4.4 s natively, past the full size's
+    // 0.1-2 s.
+    effect_bench("generator", "Generator", "generator", true, "17", "23"),
     // No effects: the group's baseline for the cost of a call.
     effect_bench(
         "fibonacci_recursive",

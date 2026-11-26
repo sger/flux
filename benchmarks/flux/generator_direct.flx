@@ -1,0 +1,32 @@
+// generator without effects: the same tree, summed by a walk in order.
+import Flow.Env as Env
+import Flow.Array as Array
+
+type Tree = Leaf | Node(Tree, Int, Tree)
+
+fn make(n: Int) -> Tree {
+    if n == 0 { Leaf } else {
+        let t = make(n - 1)
+        Node(t, n, t)
+    }
+}
+
+fn total(t: Tree, a: Int) -> Int {
+    match t {
+        Leaf -> a,
+        Node(l, v, r) -> total(r, total(l, a) + v),
+    }
+}
+
+// The workload size: the program's first argument, or the size the suite
+// was written with. `cargo xtask bench` passes a smaller one to the VM.
+fn size(default: Int) -> Int with Env {
+    match Array.get(Env.args(), 1) {
+        Some(s) -> parse_int(s),
+        None -> default,
+    }
+}
+
+fn main() with IO {
+    print(total(make(size(25)), 0))
+}

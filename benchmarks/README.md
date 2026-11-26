@@ -40,6 +40,7 @@ and `counter` from [Koka](https://github.com/koka-lang/koka)'s `test/bench`:
 - `countdown`: a state handler's counter, read and written once per turn down to 0
 - `iterator`: a range from 0 to `n`, emitted one value at a time into a handler's sum
 - `counter`: a state handler counted down to 0 beside the loop's own step count
+- `generator`: a tree walk's yields kept as a stream of resumes, pulled to the end
 - `fibonacci_recursive`: doubly recursive Fibonacci with no effects, the group's baseline
 - `product_early`: an abort, whose clause never resumes, from 1000 frames deep
 - `resume_nontail`: a clause that works on what its resume returns, the resumes nested deep
@@ -110,6 +111,7 @@ written with. The harness runs each benchmark at one of two sizes, listed in
 | `countdown` | the counter's starting value | 2,000,000 | 20,000,000 |
 | `iterator` | the range's upper end | 2,000,000 | 40,000,000 |
 | `counter` | the state's starting value | 2,000,000 | 20,000,000 |
+| `generator` | the tree's height | 17 | 23 |
 | `fibonacci_recursive` | `n` in `fib(n)` | 33 | 42 |
 | `product_early` | products of [1000, …, 0] | 2,000 | 100,000 |
 | `resume_nontail` | nesting depth of the resumes, each run 1000 times | 400 | 10,000 |
@@ -1220,6 +1222,41 @@ Latest report:
 
 <!-- counter-report:start -->
 <!-- counter-report:end -->
+
+## Generator
+
+effect-handlers-bench's `generator`: a tree of height `n`, whose two subtrees are the same
+tree, is walked in order, and each value is yielded through a `Yield` effect. The clause
+doesn't resume. It returns the value with a thunk that calls `resume`, so the walk
+becomes a stream of continuations, each resumed after its clause has returned, and `sum`
+pulls it to the end. It prints 2^(n+1) − n − 2. The direct-style twin sums the tree in a
+walk. OCaml's port keeps each continuation in a thunk the same way.
+
+The suite's height of 25, whose sum is 67108837, takes about 4.4 s natively, so the full
+size is 23, whose sum is 16777191.
+
+Sources:
+
+- `benchmarks/flux/generator.flx`
+- `benchmarks/flux/generator_direct.flx`
+- `benchmarks/rust/generator.rs`
+- `benchmarks/go/generator/main.go`
+- `benchmarks/haskell/generator.hs`
+- `benchmarks/ocaml/generator.ml`
+- `benchmarks/python/generator.py`
+- `benchmarks/erlang/generator.erl`
+- `benchmarks/elixir/generator.ex`
+
+Run the cross-language benchmark:
+
+```bash
+cargo xtask bench generator
+```
+
+Latest report:
+
+<!-- generator-report:start -->
+<!-- generator-report:end -->
 
 ## Recursive Fibonacci
 
