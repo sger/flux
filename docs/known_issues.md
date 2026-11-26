@@ -453,47 +453,6 @@ Native code prints `4`. The VM stops with `error[E1004]: Type Error`, "this
 value has runtime type `Continuation`", expected `(Int) -> Int`, at the call
 to `twice`. With `fn twice(resume)`, the VM prints `4`.
 
-### KI-227 — On the VM, a continuation resumed twice loses a handler installed inside it
-
-**Severity:** High (an "unhandled effect" stop where native code is right) · **Area:** VM continuations, multi-shot resume · **Verified:** 2026-11-25 (2b138517, and `main` at 64005292) · **From:** writing the effects benchmarks (effect-handlers-bench's triples)
-
-```flux
-effect Flip {
-    flip : () -> Bool
-}
-
-effect Fail {
-    fail : () -> Int
-}
-
-fn pick() -> Int with Flip, Fail {
-    if perform Flip.flip() { 1 } else { perform Fail.fail() }
-}
-
-fn main() with IO {
-    print((pick() handle Fail { fail(resume) -> 1 }) handle Flip { flip(resume) -> resume(true) + resume(false) })
-}
-```
-
-Native code prints `2`: the first resume gives `1`, and the second performs
-`Fail`, whose handler gives `1`. The VM stops with `error[E1009]: unhandled
-effect: Fail (no matching handle block)`. The `Fail` handler is installed
-inside the continuation that `flip` captures, so resuming it should put
-`Fail` back.
-
-The cause: `OpPerform` finds a handler through `context.evidence`, and a
-resume puts the continuation's inner handlers back on `handler_stack` but
-not their evidence. The first resume's inner `handle Fail` ends inside it
-and resets the evidence to what it was before `Fail`, and the non-tail
-resume restores the caller's frames and handlers but not its evidence. The
-evidence at the perform is in `Continuation.evidence` (since KI-225), unused
-on this path.
-
-A related failure, a continuation resumed twice that then performs an
-operation of a stateful handler around the multi-shot one, has another
-cause: [KI-237](#ki-237). Native code is not right there either; see
-[KI-236](#ki-236).
-
 ### KI-221 — On the VM, a function whose body is a `handle` with a computed initial state returns the state
 
 **Severity:** High (a wrong answer, silently) · **Area:** VM lowering of `handle` · **Verified:** 2026-11-24 (d019178e) · **From:** the KI-039 plan's `explicit_boxing` step, while writing the KI-220 fixture
@@ -3871,6 +3830,57 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-227 — On the VM, a continuation resumed twice loses a handler installed inside it — FIXED 2026-11-26
+
+**Severity:** High (an "unhandled effect" stop where native code is right) · **Area:** VM continuations, multi-shot resume · **Verified:** 2026-11-25 (2b138517, and `main` at 64005292) · **From:** writing the effects benchmarks (effect-handlers-bench's triples)
+
+```flux
+effect Flip {
+    flip : () -> Bool
+}
+
+effect Fail {
+    fail : () -> Int
+}
+
+fn pick() -> Int with Flip, Fail {
+    if perform Flip.flip() { 1 } else { perform Fail.fail() }
+}
+
+fn main() with IO {
+    print((pick() handle Fail { fail(resume) -> 1 }) handle Flip { flip(resume) -> resume(true) + resume(false) })
+}
+```
+
+Native code prints `2`: the first resume gives `1`, and the second performs
+`Fail`, whose handler gives `1`. The VM stops with `error[E1009]: unhandled
+effect: Fail (no matching handle block)`. The `Fail` handler is installed
+inside the continuation that `flip` captures, so resuming it should put
+`Fail` back.
+
+The cause: `OpPerform` finds a handler through `context.evidence`, and a
+resume puts the continuation's inner handlers back on `handler_stack` but
+not their evidence. The first resume's inner `handle Fail` ends inside it
+and resets the evidence to what it was before `Fail`, and the non-tail
+resume restores the caller's frames and handlers but not its evidence. The
+evidence at the perform is in `Continuation.evidence` (since KI-225), unused
+on this path.
+
+A related failure, a continuation resumed twice that then performs an
+operation of a stateful handler around the multi-shot one, has another
+cause: [KI-237](#ki-237). Native code is not right there either; see
+[KI-236](#ki-236).
+
+**Fixed 2026-11-26** (876a764e). `execute_resume` installs the evidence the
+continuation was captured with before its frames run, and a non-tail resume
+puts the caller's evidence back after them, as `resume_escaped` does. A
+fiber's continuation carries none and leaves the evidence alone. The
+handlers installed inside the continuation, and their state, come from its
+own copy each time, so each resume also starts from the state an inner
+parameterized handler had at capture (`.verify/ki227/06` gives 6 on the
+VM). effect-handlers-bench's triples now runs on the VM. Fixture:
+`effect_multishot_restores_inner_handlers_ki227.flx`.
 
 ### KI-234 — A recursive tail call that passes on a closure call's result is not a jump, so a loop pulling a stream of closures overflows the stack — FIXED 2026-11-26
 
