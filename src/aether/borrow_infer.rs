@@ -1492,6 +1492,19 @@ mod tests {
         assert_eq!(lending_loop_mode(|_, _, t| var_ref(t)), BorrowMode::Borrowed);
     }
 
+    /// KI-234: what a closure returns is the caller's, as what a Flux function
+    /// returns is, so passing it on in a recursive tail call makes the
+    /// parameter owned, as a stream pulled by `sum(a, f())` needs.
+    #[test]
+    fn a_recursive_tail_call_passing_a_closure_calls_result_makes_the_parameter_owned_ki234() {
+        let called = lending_loop_mode(|_, _, t| CoreExpr::App {
+            func: Box::new(var_ref(t)),
+            args: Vec::new(),
+            span: span(),
+        });
+        assert_eq!(called, BorrowMode::Owned, "a closure call's result is a fresh value");
+    }
+
     fn cons_alt(fields: Vec<crate::core::CorePat>, rhs: CoreExpr) -> crate::core::CoreAlt {
         crate::core::CoreAlt {
             pat: crate::core::CorePat::Con { tag: crate::core::CoreTag::Cons, fields },

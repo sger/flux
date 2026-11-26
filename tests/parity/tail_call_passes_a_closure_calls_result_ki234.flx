@@ -1,0 +1,27 @@
+// parity: vm, llvm, vm_opt, llvm_opt
+// expect: success
+// bug: KI-234. A recursive tail call that passed on a closure call's result
+//      lent it to a borrowed parameter, so the caller's release came after
+//      the call and each turn kept a frame. Pulling a stream of closures
+//      2,000,000 times crashed natively. The same loop split across two
+//      functions is `tail_call_to_another_function_ki235.flx`.
+// parity-expected-stdout-begin
+// 2000001000000
+// parity-expected-stdout-end
+
+type Gen = Empty | Thunk(Int, () -> Gen)
+
+fn gen(i: Int) -> Gen {
+    if i == 0 { Empty } else { Thunk(i, \() -> gen(i - 1)) }
+}
+
+fn pull(a: Int, g: Gen) -> Int {
+    match g {
+        Empty -> a,
+        Thunk(v, f) -> pull(v + a, f()),
+    }
+}
+
+fn main() with IO {
+    print(pull(0, gen(2000000)))
+}

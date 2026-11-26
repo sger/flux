@@ -279,6 +279,48 @@ fn a_walk_passing_on_a_field_stays_a_jump_at_any_depth_ki163() {
     }
 }
 
+const STREAM_OF_CLOSURES: &str = r"type Gen = Empty | Thunk(Int, () -> Gen)
+
+fn gen(i: Int) -> Gen {
+    if i == 0 { Empty } else { Thunk(i, \() -> gen(i - 1)) }
+}
+
+fn sum(a: Int, g: Gen) -> Int {
+    match g {
+        Empty -> a,
+        Thunk(v, f) -> sum_next(v + a, f),
+    }
+}
+
+fn sum_next(a: Int, f: () -> Gen) -> Int {
+    let g = f()
+    sum(a, g)
+}
+
+fn pull(a: Int, g: Gen) -> Int {
+    match g {
+        Empty -> a,
+        Thunk(v, f) -> pull(v + a, f()),
+    }
+}
+
+fn main() with IO {
+    print(sum(0, gen(SIZE)))
+    print(pull(0, gen(SIZE)))
+}
+";
+
+/// A stream of closures pulled two ways: through `sum_next`, and by `pull`
+/// itself (KI-234). `sum` and `pull` own each cell a closure call gives them,
+/// so they free it as they go. Neither may leave a block per cell or free one
+/// twice.
+#[test]
+fn a_stream_pulled_by_a_tail_call_frees_each_cell_once_ki234() {
+    let scratch = Scratch::new("debug-heap-stream-of-closures");
+    let (allocs, frees, live) = per_thousand_cells(&scratch, "stream", STREAM_OF_CLOSURES);
+    assert_eq!((allocs, live), (frees, 0), "stream: {allocs} {frees} {live}");
+}
+
 const CLOSURE_PER_TURN: &str = r"fn numbers(n) {
     [n, n + 1, n + 2]
 }
