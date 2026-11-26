@@ -68,6 +68,57 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-241 — Natively, a tail-recursive loop that performs once per turn is quadratic when another handler is installed outside the one it performs to
+
+**Severity:** Medium (correct output; natively far slower than the VM from a few thousand turns) · **Area:** native effects runtime, yield continuations (`runtime/c/effects.c`) · **Verified:** 2026-11-26 (11d08782, and `main` at 64005292) · **From:** writing the parsing_dollars benchmark
+
+```flux
+effect Read {
+    read : () -> Int
+}
+
+effect Stop {
+    stop : () -> Int
+}
+
+fn go(i: Int) -> Int with Read {
+    let c = perform Read.read()
+    if i == 0 { c } else { go(i - 1) }
+}
+
+fn inner(n: Int) -> Int with Stop {
+    go(n) handle Read { read(resume) -> resume(1) }
+}
+
+fn main() with IO {
+    print(inner(40000) handle Stop { stop(resume) -> 0 })
+}
+```
+
+Both backends print `1`. Built with `--native -O --emit-binary`, with `n`
+read from the command line (`.verify/ki241/`):
+
+| Program | n = 10,000 | 20,000 | 40,000 | Peak RSS at 40,000 | VM at 40,000 |
+|---|---:|---:|---:|---:|---:|
+| `01`: the loop above | 0.56 s | 1.62 s | 7.12 s | 5.9 MiB | 0.12 s |
+| `02`: no `Stop` handler outside | 0.20 s | 0.00 s | 0.00 s | 2.1 MiB | 0.13 s |
+| `03`: the loop performs `Stop` at the end | 0.58 s | 1.65 s | 7.70 s | 5.9 MiB | 0.13 s |
+
+The call to `go` is a tail call, the case KI-232's partial fix made linear,
+and without an outer handler it is. With one, each doubling of `n` takes
+about four times as long and memory grows with `n`, even when the outer
+handler is never performed to. On `main`, without KI-232's partial fix,
+`02` is quadratic too, and `01` takes 14.2 s at 40,000.
+
+parsing_dollars is this shape: the parser loops on `read`, inside the
+`stop` and `emit` handlers. It reads about n²/2 chars, so the suite's
+20,000 lines take 2×10⁸ performs. At 400 lines (80,600 reads) it takes
+31 s natively.
+
+Not yet known: what each turn leaves behind. Memory grows, so something
+is kept per perform, perhaps a continuation or an evidence vector that the
+outer handler's prompt keeps alive. Related to [KI-232](#ki-232).
+
 ### KI-240 — A `handle` whose expression builds a tuple, list or constructor around an effectful call crashes natively, or fails on the VM
 
 **Severity:** High (a crash) · **Area:** handles whose body is not a call, both backends' effects lowering · **Verified:** 2026-11-26 (a2720ba3, and `main` at 64005292) · **From:** filing KI-239
