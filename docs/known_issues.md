@@ -68,6 +68,39 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-238 — Natively, a perform to an outer handler from inside a resumed continuation is handled at the innermost prompt, so the outer clause's work after `resume` lands in the wrong place
+
+**Severity:** High (wrong values or a crash) · **Area:** native effects runtime, prompts (`runtime/c/effects.c`, `flux_yield_prompt`) · **Verified:** 2026-11-26 (9469e0c2) · **From:** fixing KI-227
+
+The program of [KI-237](#ki-237) should print `100`. Native code prints
+`60`. With `resume(10) + 1` in the `Ask` clause both give `32`, by
+coincidence.
+
+`flux_yield_prompt` services a yield for another handler inline when that
+handler's marker is in the yield-site evidence ("slice 5-tr-nested"). The
+outer handler's clause then runs in the innermost prompt's loop, with a
+`resume` composed only from the frames up to that prompt, and its result
+becomes that prompt's result. That is right when the clause resumes as its
+last act. For any other clause, the work after `resume` (`* 2` here) is
+applied at the inner prompt, once per branch, instead of around the whole
+rest of the computation, and the outer handle never sees the clause's
+result.
+
+When the inner prompt belongs to an escaping resume's trampoline (KI-225),
+the misplaced result has the wrong type. `.verify/ki227/10`: a thunk keeps
+`resume`, and the resumed code performs `Ask`, whose clause is
+`resume(10) + 1`. The clause adds 1 to the `Step` the thunk should return,
+and the `match` on it traps (signal 5). The VM prints `<uninit>` there,
+which is KI-237.
+
+The code says the inline path is there because the outer prompt's C frame
+may already have unwound. Koka's prompts instead add themselves to the
+continuation and pass a foreign yield outwards (`prompt`,
+`lib/std/core/hnd.kk`).
+
+Neither triples nor tree_explore performs to an outer handler whose clause
+does work after `resume`, so native code gives their expected results.
+
 ### KI-237 — On the VM, a non-tail `resume` runs its continuation in a nested loop, so a perform there to an outer handler that captures corrupts the frames
 
 **Severity:** High (wrong values or a crash) · **Area:** VM continuations (`src/vm/function_call.rs`, `execute_resume`, `resume_escaped`) · **Verified:** 2026-11-26 (9469e0c2) · **From:** fixing KI-227
