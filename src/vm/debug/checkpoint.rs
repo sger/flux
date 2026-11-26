@@ -113,10 +113,8 @@ impl Checkpoint {
         control.tail_calls.clone_from(&self.tail_calls);
         control.serials.clone_from(&self.serials);
         control.next_serial = self.next_serial;
-        // Checkpoints are taken in the top-level loop, where no resume runs.
         control.suspensions.clone_from(&self.suspensions);
         control.pending_suspension = None;
-        control.resumes.clear();
         control.top_ip = None;
         if let Some(mark) = self.tape.clone() {
             replay::rewind_to(mark);

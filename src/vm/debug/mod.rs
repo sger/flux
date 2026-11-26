@@ -314,8 +314,6 @@ pub(crate) struct DebugControl {
     pub(crate) suspensions: Vec<effects::Suspension>,
     /// A perform's frames, until its arm's frame is pushed.
     pending_suspension: Option<effects::Suspension>,
-    /// Frames non-tail resumes took off the stack, outermost first.
-    pub(crate) resumes: Vec<effects::ResumeNote>,
     /// The instruction the top frame is shown at, when that is not its `ip`:
     /// a stop right after `resume`, at the perform.
     pub(crate) top_ip: Option<usize>,
@@ -381,7 +379,6 @@ impl DebugState {
                 rewind: None,
                 suspensions: Vec::new(),
                 pending_suspension: None,
-                resumes: Vec::new(),
                 top_ip: None,
                 catch: ExceptionKind::ALL
                     .into_iter()
@@ -943,12 +940,10 @@ impl VM {
         control.next_serial += 1;
         // The arm of a perform that took frames off the stack.
         if let Some(mut suspension) = control.pending_suspension.take() {
-            if control.resumes.is_empty() {
-                let serials = &control.serials;
-                control.suspensions.retain(|old| {
-                    old.arm_index < index && serials.get(old.arm_index) == Some(&old.arm_serial)
-                });
-            }
+            let serials = &control.serials;
+            control.suspensions.retain(|old| {
+                old.arm_index < index && serials.get(old.arm_index) == Some(&old.arm_serial)
+            });
             suspension.arm_index = index;
             suspension.arm_serial = control.serials[index];
             control.suspensions.push(suspension);

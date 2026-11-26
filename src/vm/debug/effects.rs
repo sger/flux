@@ -2,11 +2,8 @@
 //!
 //! While a handler arm runs, the frames that performed the operation are
 //! not on `VM.frames`: the general path moved them into a `Continuation`,
-//! and a handler that never resumes dropped them. While a resumed
-//! continuation runs, the arm that called `resume` is off the stack too,
-//! kept by `execute_resume` until the continuation returns. The debugger
-//! notes both, only while it is attached, so the stack it shows is the
-//! logical one:
+//! and a handler that never resumes dropped them. The debugger notes them,
+//! only while it is attached, so the stack it shows is the logical one:
 //!
 //! ```text
 //! #0 <handler Flip.flip> at app.flx:17:25
@@ -16,14 +13,13 @@
 //! ```
 //!
 //! and, once `resume` runs the continuation, the resumed frames above the
-//! arm that resumed them. Stepping measures depth on that logical stack, so
-//! stepping over `resume(x)` runs the continuation and stops back in the arm.
-
-use crate::runtime::frame::Frame;
-use crate::runtime::value::Value;
+//! frame that called it, where `resume_on_top` puts them (KI-237), and no
+//! longer below the arm. Stepping measures depth on that logical stack, where
+//! the suspended frames still count, so stepping over `resume(x)` runs the
+//! continuation and stops back in the arm.
 
 use super::super::VM;
-use super::{DebugControl, FrameSummary, TailCalls, inspect};
+use super::{DebugControl, FrameSummary, inspect};
 
 /// Frames a perform took off the stack, shown below the arm handling it.
 #[derive(Debug, Clone)]
@@ -37,41 +33,17 @@ pub(crate) struct Suspension {
     pub(crate) frames: Vec<SuspendedFrame>,
     /// False for a handler that never resumes: its frames are gone.
     pub(crate) resumable: bool,
+    /// The serials of the frames' calls, which the continuation keeps.
+    pub(crate) serials: Vec<u64>,
+    /// While a `resume` runs the continuation above this VM frame, the
+    /// frames are live there and not shown below the arm.
+    pub(crate) covered_at: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct SuspendedFrame {
     pub(crate) summary: FrameSummary,
     pub(crate) artificial: bool,
-}
-
-/// The frames a non-tail `resume` took off the stack while the continuation
-/// runs: the arm that called it, and any frame between the handle site and
-/// the arm. They come back when the continuation returns.
-#[derive(Debug, Clone)]
-pub(crate) struct ResumeNote {
-    /// The handle site's frame index: the resumed frames start above it.
-    pub(crate) entry: usize,
-    /// The logical depth of the frame that called `resume`: the resumed
-    /// frames are deeper.
-    pub(crate) top_depth: usize,
-    /// Outermost first.
-    pub(crate) hidden: Vec<HiddenFrame>,
-    /// The value stack from `stack_from`, for the hidden frames' variables.
-    pub(crate) stack_from: usize,
-    pub(crate) stack: Vec<Value>,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct HiddenFrame {
-    pub(crate) index: usize,
-    pub(crate) frame: Frame,
-    /// The instruction the frame is at: the `resume` call, or the call that
-    /// is running.
-    pub(crate) ip: usize,
-    last_line: Option<(usize, usize)>,
-    serial: u64,
-    pub(crate) tail_calls: TailCalls,
 }
 
 impl DebugControl {
@@ -82,25 +54,19 @@ impl DebugControl {
     }
 
     /// The depth of VM frame `index` on the logical stack: the frames a
-    /// perform suspended count below the arm handling it, and a resumed
-    /// continuation's frames count above the arm that resumed it.
+    /// perform suspended count below the arm handling it. They still count
+    /// while a `resume` runs them above (`covered_at`), so the resumed
+    /// frames are deeper than the frame that called it.
     pub(crate) fn logical_depth(&self, index: usize, frame_index: usize) -> usize {
-        let note = self.resumes.iter().rev().find(|note| note.entry < index);
-        let (base, above) = match note {
-            Some(note) => (note.top_depth + (index - note.entry), note.entry),
-            None => (index, 0),
-        };
         let suspended: usize = self
             .suspensions
             .iter()
             .filter(|suspension| {
-                (note.is_none() || suspension.arm_index > above)
-                    && suspension.arm_index <= index
-                    && self.suspension_live(suspension, frame_index)
+                suspension.arm_index <= index && self.suspension_live(suspension, frame_index)
             })
             .map(|suspension| suspension.frames.len())
             .sum();
-        base + suspended
+        index + suspended
     }
 }
 
@@ -133,11 +99,19 @@ impl VM {
             return Vec::new();
         };
         let control = &mut state.control;
-        control.pending_suspension =
-            Some(Suspension { arm_index: 0, arm_serial: 0, operation, frames, resumable });
-        (entry + 1..=self.frame_index)
+        let serials: Vec<u64> = (entry + 1..=self.frame_index)
             .map(|index| control.serials.get(index).copied().unwrap_or(0))
-            .collect()
+            .collect();
+        control.pending_suspension = Some(Suspension {
+            arm_index: 0,
+            arm_serial: 0,
+            operation,
+            frames,
+            resumable,
+            serials: serials.clone(),
+            covered_at: None,
+        });
+        serials
     }
 
     /// A fiber parks: the serials of the calls `entry + 1 ..= frame_index`
@@ -153,65 +127,36 @@ impl VM {
             .collect()
     }
 
-    /// A non-tail `resume` is about to run a continuation above frame
-    /// `entry`: keep the frames it will cover, the arm among them.
+    /// `resume_on_top` runs the continuation whose calls had `serials`
+    /// above VM frame `base`: its suspension's frames are live there now.
     #[cold]
     #[inline(never)]
-    pub(in crate::vm) fn debug_note_resume_start(&mut self, entry: usize) {
-        let top = self.frame_index;
+    pub(in crate::vm) fn debug_cover_suspension(&mut self, base: usize, serials: &[u64]) {
         let Some(state) = self.debugger.as_mut() else {
             return;
         };
-        let control = &mut state.control;
-        let top_depth = control.logical_depth(top, top);
-        let hidden: Vec<HiddenFrame> = (entry + 1..=top)
-            .map(|index| HiddenFrame {
-                index,
-                frame: self.frames[index].clone(),
-                ip: if index == top {
-                    self.frames[index].ip
-                } else {
-                    self.call_ips.get(index + 1).copied().unwrap_or(self.frames[index].ip)
-                },
-                last_line: control.last_line.get(index).copied().flatten(),
-                serial: control.serials.get(index).copied().unwrap_or(0),
-                tail_calls: control.tail_calls.get(index).cloned().unwrap_or_default(),
-            })
-            .collect();
-        let stack_from = hidden.first().map_or(self.sp, |frame| frame.frame.base_pointer);
-        let stack = self.stack[stack_from.min(self.sp)..self.sp]
-            .iter()
-            .map(super::super::slot::from_slot_ref)
-            .collect();
-        control.resumes.push(ResumeNote { entry, top_depth, hidden, stack_from, stack });
+        if serials.is_empty() {
+            return;
+        }
+        if let Some(suspension) =
+            state.control.suspensions.iter_mut().rev().find(|s| s.serials == serials)
+        {
+            suspension.covered_at = Some(base);
+        }
     }
 
-    /// The continuation a non-tail `resume` ran has returned: the frames it
-    /// covered are back, with what the debugger knew about them.
+    /// The continuations resumed above VM frame `base` have returned: their
+    /// suspensions show below their arms again.
     #[cold]
     #[inline(never)]
-    pub(in crate::vm) fn debug_note_resume_end(&mut self) {
+    pub(in crate::vm) fn debug_uncover_suspensions(&mut self, base: usize) {
         let Some(state) = self.debugger.as_mut() else {
             return;
         };
-        let control = &mut state.control;
-        let Some(note) = control.resumes.pop() else {
-            return;
-        };
-        for frame in note.hidden {
-            let index = frame.index;
-            if control.last_line.len() <= index {
-                control.last_line.resize(index + 1, None);
+        for suspension in &mut state.control.suspensions {
+            if suspension.covered_at == Some(base) {
+                suspension.covered_at = None;
             }
-            control.last_line[index] = frame.last_line;
-            if control.serials.len() <= index {
-                control.serials.resize(index + 1, 0);
-            }
-            control.serials[index] = frame.serial;
-            if control.tail_calls.len() <= index {
-                control.tail_calls.resize_with(index + 1, TailCalls::default);
-            }
-            control.tail_calls[index] = frame.tail_calls;
         }
     }
 

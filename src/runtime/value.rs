@@ -914,6 +914,7 @@ pub struct ArcHandlerFrame {
     pub entry_handler_stack_len: usize,
     pub is_direct: bool,
     pub is_discard: bool,
+    pub resume_boundary: bool,
 }
 
 /// Promote a `Value` tree into an `ArcValue` tree.
@@ -1046,6 +1047,7 @@ fn promote_handler_frame(
         entry_handler_stack_len: hf.entry_handler_stack_len,
         is_direct: hf.is_direct,
         is_discard: hf.is_discard,
+        resume_boundary: hf.resume_boundary,
     })
 }
 
@@ -1189,6 +1191,7 @@ fn demote_handler_frame(hf: ArcHandlerFrame) -> crate::runtime::handler_frame::H
         entry_handler_stack_len: hf.entry_handler_stack_len,
         is_direct: hf.is_direct,
         is_discard: hf.is_discard,
+        resume_boundary: hf.resume_boundary,
     }
 }
 

@@ -62,11 +62,6 @@ pub struct HandlerView {
 enum FrameSource {
     /// `VM.frames[index]`.
     Live(usize),
-    /// Frame `frame` of resume note `note`.
-    Hidden {
-        note: usize,
-        frame: usize,
-    },
     /// Frame `frame` (outermost first) of the suspension below the arm at
     /// VM frame `arm`.
     Suspended {
@@ -313,12 +308,9 @@ impl<'a> Inspector<'a> {
             out.push((source, frame));
         };
         for (index, frame) in vm.frames.iter().enumerate().take(last + 1).skip(first) {
-            if let Some(suspension) = control
-                .suspensions
-                .iter()
-                .rev()
-                .find(|s| s.arm_index == index && control.suspension_live(s, top))
-            {
+            if let Some(suspension) = control.suspensions.iter().rev().find(|s| {
+                s.arm_index == index && s.covered_at.is_none() && control.suspension_live(s, top)
+            }) {
                 for (k, suspended) in suspension.frames.iter().enumerate() {
                     let (name, location) = &suspended.summary;
                     push(
@@ -381,29 +373,6 @@ impl<'a> Inspector<'a> {
                 FrameSource::Live(index),
                 summary_frame(&name, location.as_ref(), artificial, tail, FrameKind::Live),
             );
-            for (note_index, note) in control.resumes.iter().enumerate() {
-                if note.entry != index {
-                    continue;
-                }
-                for (k, hidden) in note.hidden.iter().enumerate() {
-                    let function = &hidden.frame.closure.function;
-                    let info = function.debug_info.as_ref();
-                    let name = function_name(info, hidden.index);
-                    let artificial = is_artificial(info.and_then(|info| info.name.as_deref()));
-                    let location = location_at(function, hidden.ip);
-                    push(
-                        &mut out,
-                        FrameSource::Hidden { note: note_index, frame: k },
-                        summary_frame(
-                            &name,
-                            location.as_ref(),
-                            artificial,
-                            elided(Some(&hidden.tail_calls)),
-                            FrameKind::Live,
-                        ),
-                    );
-                }
-            }
         }
         out
     }
@@ -429,18 +398,6 @@ impl<'a> Inspector<'a> {
                     closure: frame.closure.clone(),
                     ip: self.frame_ip(index),
                     slots: self.vm.stack[from..to].iter().map(slot::from_slot_ref).collect(),
-                })
-            }
-            FrameSource::Hidden { note, frame } => {
-                let note = self.control.resumes.get(note)?;
-                let hidden = note.hidden.get(frame)?;
-                let count = hidden.frame.closure.function.num_locals;
-                let from = hidden.frame.base_pointer.checked_sub(note.stack_from)?;
-                let to = (from + count).min(note.stack.len());
-                Some(FrameView {
-                    closure: hidden.frame.closure.clone(),
-                    ip: hidden.ip,
-                    slots: note.stack.get(from..to)?.to_vec(),
                 })
             }
             FrameSource::Suspended { arm, frame } => {
@@ -574,15 +531,6 @@ impl<'a> Inspector<'a> {
                     None => captured_value(&frame.closure, name)
                         .map(|value| counted(value, 0, path, &parts)),
                 }
-            }
-            FrameSource::Hidden { note, frame } => {
-                let note = self.control.resumes.get(note).ok_or_else(missing)?;
-                let hidden = note.hidden.get(frame).ok_or_else(missing)?;
-                // The note's values are the debugger's copies.
-                let from =
-                    hidden.frame.base_pointer.checked_sub(note.stack_from).ok_or_else(missing)?;
-                let locals = note.stack.get(from..).ok_or_else(missing)?;
-                in_locals(locals, &hidden.frame.closure, hidden.ip, 1)
             }
             FrameSource::Suspended { .. } | FrameSource::Parked { .. } => self
                 .in_continuation(&source, |locals, closure, ip| in_locals(locals, closure, ip, 0)),

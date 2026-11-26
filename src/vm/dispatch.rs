@@ -214,6 +214,7 @@ impl VM {
                     ));
                 }
                 let return_slot = self.pop_frame_return_slot();
+                self.leave_resume_boundaries();
                 self.reset_sp(return_slot)?;
                 self.push(return_value)?;
                 Ok(0)
@@ -244,6 +245,7 @@ impl VM {
                     ));
                 }
                 let return_slot = self.pop_frame_return_slot();
+                self.leave_resume_boundaries();
                 self.reset_sp(return_slot)?;
                 self.push(Value::None)?;
                 Ok(0)
@@ -983,6 +985,7 @@ impl VM {
                     return_value = Value::None;
                 }
                 let return_slot = self.pop_frame_return_slot();
+                self.leave_resume_boundaries();
                 self.reset_sp(return_slot)?;
                 self.push(return_value)?;
                 Ok(0)
@@ -1265,6 +1268,7 @@ impl VM {
                     entry_handler_stack_len: self.handler_stack.len(),
                     is_direct: false,
                     is_discard: desc_is_discard,
+                    resume_boundary: false,
                 });
                 Ok(3)
             }
@@ -1319,6 +1323,7 @@ impl VM {
                     entry_handler_stack_len: self.handler_stack.len(),
                     is_direct: true,
                     is_discard: false,
+                    resume_boundary: false,
                 });
                 Ok(3)
             }

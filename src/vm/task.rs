@@ -1105,6 +1105,7 @@ mod tests {
             entry_handler_stack_len: 0,
             is_direct: false,
             is_discard: false,
+            resume_boundary: false,
         });
         vm.context.cancel_scope = crate::runtime::r#async::context::CancelScope::Cancelled;
 

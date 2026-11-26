@@ -355,10 +355,10 @@ impl VM {
     /// `num_args` must be 1 (the resume value) or 2 for parameterized
     /// handlers (`resume_value`, `next_state`).
     ///
-    /// Tail-position resume transfers control directly to the captured
-    /// continuation. Non-tail resume runs the captured continuation to the
-    /// handler boundary, restores the caller frame, and pushes the continuation
-    /// result in the ordinary call result slot.
+    /// A tail-position resume whose handler is still installed transfers
+    /// control to the continuation where it was captured. Any other resume
+    /// runs the continuation on top of the frame that called it
+    /// (`resume_on_top`), as a call does.
     pub(super) fn execute_resume(
         &mut self,
         num_args: usize,
@@ -372,22 +372,6 @@ impl VM {
         let next_state = if num_args == 2 { Some(self.pop_untracked()?) } else { None };
         let resume_val = self.pop_untracked()?;
         let cont_val = self.pop_untracked()?; // the callee (Continuation)
-        let next_state_for_caller = next_state.clone();
-
-        if caller_ip_advance.is_some() && self.debugger.is_some() {
-            let entry = match &cont_val {
-                Value::Continuation(rc) => rc.borrow().entry_frame_index,
-                _ => self.frame_index,
-            };
-            self.debug_note_resume_start(entry);
-        }
-        let caller = caller_ip_advance.map(|advance| {
-            let mut frame = self.current_frame().clone();
-            frame.ip += advance;
-            let stack =
-                self.stack[..self.sp].iter().map(super::slot::from_slot_ref).collect::<Vec<_>>();
-            (self.frame_index, frame, stack, self.handler_stack.clone())
-        });
 
         let cont_rc = match cont_val {
             Value::Continuation(rc) => rc,
@@ -402,36 +386,41 @@ impl VM {
             Ok(cell) => cell.into_inner(),
             Err(rc) => rc.borrow().clone(),
         };
-        // @KI-225: the handler that caught the perform is gone when the
-        // clause has returned and `resume` was kept and called later.
         let evidence = cont_shell.evidence.take();
-        if let Some(handler) = cont_shell.handler.take()
-            && !self.handler_stack.iter().any(|h| h.marker == handler.marker)
-        {
-            let ran = self.resume_escaped(
-                &mut cont_shell,
-                handler,
-                evidence.unwrap_or_default(),
-                resume_val,
-                next_state,
-                return_slot,
-                caller_ip_advance,
-            );
-            if caller_ip_advance.is_some() && self.debugger.is_some() {
-                self.debug_note_resume_end();
+        let handler = cont_shell.handler.take();
+        // @KI-237: a non-tail resume runs its frames on top of the caller's,
+        // not in a loop of its own over the frames it was captured above: a
+        // perform there to a handler further out captures through the caller
+        // like through any frame. @KI-225: so does a resume whose handler is
+        // gone, its clause having returned.
+        if let Some(handler) = handler {
+            let installed = self.handler_stack.iter().any(|h| h.marker == handler.marker);
+            if caller_ip_advance.is_some() || !installed {
+                let ran = self.resume_on_top(
+                    &mut cont_shell,
+                    handler,
+                    evidence.unwrap_or_default(),
+                    resume_val,
+                    next_state,
+                    return_slot,
+                    caller_ip_advance,
+                );
+                if self.cont_pool.len() < crate::runtime::continuation::CONT_POOL_CAP {
+                    self.cont_pool.push(cont_shell);
+                }
+                return ran;
             }
-            if self.cont_pool.len() < crate::runtime::continuation::CONT_POOL_CAP {
-                self.cont_pool.push(cont_shell);
-            }
-            return ran;
+        } else if caller_ip_advance.is_some() {
+            return Err("non-tail resume of a continuation without its handler".to_string());
         }
         // @KI-227: the frames run under the evidence they were captured
         // with. An inner `handle` that ended during an earlier resume of the
         // same continuation took its entry out of the current evidence, and
         // its frame goes back on `handler_stack` below. A fiber's
         // continuation carries none.
-        let caller_evidence =
-            evidence.map(|captured| std::mem::replace(&mut self.context.evidence, captured));
+        if let Some(captured) = evidence {
+            self.context.evidence = captured;
+        }
         let entry_frame_index = cont_shell.entry_frame_index;
         let entry_sp = cont_shell.entry_sp;
         let captured_sp = cont_shell.sp;
@@ -510,63 +499,27 @@ impl VM {
         if self.debugger.is_some() {
             self.debug_note_resumed(entry_frame_index, &debug_serials)?;
         }
-
-        if let Some((caller_frame_index, caller_frame, caller_stack, mut caller_handlers)) = caller
-        {
-            let ran = self.nested(|vm| {
-                while vm.frame_index > entry_frame_index {
-                    if vm.current_frame().ip >= vm.current_frame().instructions().len() {
-                        return Err("resumed continuation exited without return".to_string());
-                    }
-                    vm.execute_current_instruction(Some(entry_frame_index + 1))?;
-                }
-                Ok(())
-            });
-            if self.debugger.is_some() {
-                self.debug_note_resume_end();
-            }
-            ran?;
-
-            let result = self.pop()?;
-            if let (Some(marker), Some(next_state)) = (state_marker, next_state_for_caller)
-                && let Some(handler) = caller_handlers.iter_mut().rfind(|h| h.marker == marker)
-            {
-                handler.state = Some(next_state);
-            }
-
-            self.ensure_stack_capacity(caller_stack.len() + 1)?;
-            for (i, v) in caller_stack.into_iter().enumerate() {
-                self.stack_set(i, v);
-            }
-            self.sp = return_slot;
-            self.handler_stack = caller_handlers;
-            if let Some(caller_evidence) = caller_evidence {
-                self.context.evidence = caller_evidence;
-            }
-            if caller_frame_index >= self.frames.len() {
-                self.frames.push(caller_frame);
-            } else {
-                self.frames[caller_frame_index] = caller_frame;
-            }
-            self.frame_index = caller_frame_index;
-            self.push(result)?;
-        }
-
         Ok(())
     }
 
-    /// Resumes a continuation whose handler is no longer installed: its
-    /// clause has returned, and `resume` was kept and called later (KI-225).
+    /// Runs a continuation on top of the frame that called `resume`, as a
+    /// call does (KI-237), and as a deep handler's resume does, with its
+    /// handler put back around it (KI-225).
     ///
-    /// As a deep handler's resume does, it puts the handler back around the
-    /// resumed frames, with the evidence in place at the perform, so a
-    /// perform there runs the clause again, and what the clause gives is
-    /// what `resume` returns. The frames go on top of the caller, wherever
-    /// it is: those they were captured above may be gone or in other use, so
-    /// every position they hold moves with them. A `resume` in tail position
-    /// then returns from the caller's frame.
+    /// A copy of the handler goes on the handler stack, marked
+    /// `resume_boundary` and entered at the calling frame, with the
+    /// caller's evidence to restore. The handlers installed inside the
+    /// continuation go above it, then the evidence at the perform, the
+    /// stack slice and the frames, every position moved by the same amount.
+    /// The dispatch loop carries on in the top frame. When a frame returns
+    /// into the caller (`leave_resume_boundaries`), the copy comes off and
+    /// the returned value is what `resume` gives. A perform in the frames to
+    /// the resumed handler finds the copy; one to a handler further out
+    /// captures through the caller's frame like through any other. A
+    /// `resume` in tail position first returns from the caller's frame, so
+    /// the continuation's value goes where the caller's would.
     #[allow(clippy::too_many_arguments)]
-    fn resume_escaped(
+    fn resume_on_top(
         &mut self,
         cont: &mut Continuation,
         mut handler: HandlerFrame,
@@ -582,21 +535,27 @@ impl VM {
                 .map(|offset| offset + to)
                 .ok_or_else(|| "resumed continuation holds a position below its boundary".into())
         }
+        // The `resume` call, where the caller shows while the frames run.
+        let call_ip = self.frames[self.frame_index].ip;
+        let base_sp = match caller_ip_advance {
+            Some(advance) => {
+                self.frames[self.frame_index].ip += advance;
+                return_slot
+            }
+            None => self.pop_frame_return_slot(),
+        };
         let base_frame = self.frame_index;
-        let base_sp = return_slot;
-        if let Some(advance) = caller_ip_advance {
-            self.frames[base_frame].ip += advance;
-        }
         // Positions move with the handler's entry: the captured stack starts
         // at the outermost frame's base, above the slot that frame returns to.
         let (entry_frame, entry_sp) = (cont.entry_frame_index, handler.entry_sp);
         let saved_handlers = self.handler_stack.len();
-        let saved_evidence = std::mem::replace(&mut self.context.evidence, evidence);
 
         let handlers_from = handler.entry_handler_stack_len;
         handler.entry_frame_index = base_frame;
         handler.entry_sp = base_sp;
         handler.entry_handler_stack_len = saved_handlers;
+        handler.saved_evv = std::mem::replace(&mut self.context.evidence, evidence);
+        handler.resume_boundary = true;
         if cont.state_marker == Some(handler.marker) {
             handler.state = Some(next_state.ok_or_else(|| {
                 "parameterized handler resume expects next state argument".to_string()
@@ -633,31 +592,34 @@ impl VM {
             let below = self.frame_index - 1;
             if below > base_frame {
                 self.call_ips[self.frame_index] = self.frames[below].ip.saturating_sub(1);
+            } else if caller_ip_advance.is_some() {
+                self.call_ips[self.frame_index] = call_ip;
             }
         }
-        cont.debug_serials.clear();
-
-        let ran = self.nested(|vm| {
-            while vm.frame_index > base_frame {
-                if vm.current_frame().ip >= vm.current_frame().instructions().len() {
-                    return Err("resumed continuation exited without return".to_string());
-                }
-                vm.execute_current_instruction(Some(base_frame + 1))?;
-            }
-            Ok(())
-        });
-        self.handler_stack.truncate(saved_handlers);
-        self.context.evidence = saved_evidence;
-        ran?;
-
-        let result = self.pop()?;
-        if caller_ip_advance.is_none() {
-            let caller_return = self.pop_frame_return_slot();
-            self.reset_sp(caller_return)?;
-        } else {
-            self.reset_sp(return_slot)?;
+        let debug_serials = std::mem::take(&mut cont.debug_serials);
+        if self.debugger.is_some() {
+            self.debug_cover_suspension(base_frame, &debug_serials);
+            self.debug_note_resumed(base_frame, &debug_serials)?;
         }
-        self.push(result)
+        Ok(())
+    }
+
+    /// Takes off the handler copies a `resume` put back above the frame
+    /// being returned into, as `OpEndHandle` does for a `handle`: the
+    /// continuation they covered has returned (KI-237).
+    #[inline(always)]
+    pub(super) fn leave_resume_boundaries(&mut self) {
+        while let Some(top) = self.handler_stack.last()
+            && top.resume_boundary
+            && top.entry_frame_index == self.frame_index
+        {
+            if let Some(handler) = self.handler_stack.pop() {
+                self.context.evidence = handler.saved_evv;
+            }
+            if self.debugger.is_some() {
+                self.debug_uncover_suspensions(self.frame_index);
+            }
+        }
     }
 
     /// Runs `body`, a dispatch loop nested inside an instruction of the

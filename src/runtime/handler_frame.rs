@@ -30,4 +30,8 @@ pub struct HandlerFrame {
     /// capture entirely, unwinds the stack to handler entry, and calls the arm
     /// directly. (Perceus Section 2.7.1: non-linear control flow safety.)
     pub is_discard: bool,
+    /// A copy of a handler that a `resume` put back above the frame that
+    /// called it (KI-237). No `OpEndHandle` runs for it: it comes off when
+    /// a frame returns into `entry_frame_index`, taking `saved_evv` back.
+    pub resume_boundary: bool,
 }
