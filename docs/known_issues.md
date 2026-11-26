@@ -302,45 +302,6 @@ that then performs an operation of a stateful handler around the multi-shot
 one stops on the VM with `E1009 Cannot add Uninit and Uninit`, where native
 code is right.
 
-### KI-226 — A handler clause can't perform an effect, even one the enclosing function declares
-
-**Severity:** Medium (rejected with E400; some programs have no workaround) · **Area:** type inference, effect rows of handler clauses · **Verified:** 2026-11-25 (2b138517, and `main` at 64005292) · **From:** writing the effects benchmarks (effect-handlers-bench's parsing_dollars and handler_sieve)
-
-```flux
-effect Read {
-    read : () -> Int
-}
-
-effect Stop {
-    stop : () -> Int
-}
-
-fn reads() -> Int with Read {
-    perform Read.read()
-}
-
-fn stopping() -> Int with Stop {
-    reads() handle Read { read(resume) -> perform Stop.stop() }
-}
-
-fn main() with IO {
-    print(stopping() handle Stop { stop(resume) -> 7 })
-}
-```
-
-Both backends reject it: `error[E400]: Missing Ambient Effect`, "Performing
-`stop` requires effect `Stop` in this function signature", at the `perform`
-in the clause, though `stopping` declares `with Stop`. Calling a function
-that performs it is rejected the same way. So is a clause that performs the
-operation it handles, to reach an outer handler of the same effect. That is
-how effect-handlers-bench's handler_sieve forwards a test to the handler of
-the previous prime.
-
-A clause body looks checked against the empty effect row, as a lambda's is
-([KI-029](#ki-029)). Not confirmed in the code. A clause that only resumes
-can sometimes be rewritten so the handled code performs instead. A
-forwarding clause can't.
-
 ### KI-225 — A `resume` called after its clause has returned runs without the handler
 
 **Severity:** High (an "unhandled effect" stop where Koka and OCaml run on) · **Area:** effect handlers, both backends · **Verified:** 2026-11-25 (2b138517, and `main` at 64005292) · **From:** writing the effects benchmarks (effect-handlers-bench's generator, Koka's mstate)
@@ -3770,6 +3731,58 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-226 — A handler clause can't perform an effect, even one the enclosing function declares — FIXED 2026-11-26
+
+**Severity:** Medium (rejected with E400; some programs have no workaround) · **Area:** type inference, effect rows of handler clauses · **Verified:** 2026-11-25 (2b138517, and `main` at 64005292) · **From:** writing the effects benchmarks (effect-handlers-bench's parsing_dollars and handler_sieve)
+
+```flux
+effect Read {
+    read : () -> Int
+}
+
+effect Stop {
+    stop : () -> Int
+}
+
+fn reads() -> Int with Read {
+    perform Read.read()
+}
+
+fn stopping() -> Int with Stop {
+    reads() handle Read { read(resume) -> perform Stop.stop() }
+}
+
+fn main() with IO {
+    print(stopping() handle Stop { stop(resume) -> 7 })
+}
+```
+
+Both backends reject it: `error[E400]: Missing Ambient Effect`, "Performing
+`stop` requires effect `Stop` in this function signature", at the `perform`
+in the clause, though `stopping` declares `with Stop`. Calling a function
+that performs it is rejected the same way. So is a clause that performs the
+operation it handles, to reach an outer handler of the same effect. That is
+how effect-handlers-bench's handler_sieve forwards a test to the handler of
+the previous prime.
+
+A clause body looks checked against the empty effect row, as a lambda's is
+([KI-029](#ki-029)). Not confirmed in the code. A clause that only resumes
+can sometimes be rewritten so the handled code performs instead. A
+forwarding clause can't.
+
+**Fixed 2026-11-26 (0cdd438f).** The compiler built each clause as a
+function with no effects (`compile_handle`, `src/compiler/expression.rs`),
+so its effect check found nothing available. A clause now gets the
+`ambient` row: the enclosing function's effects and those of the handles
+around it in the same function. Type inference no longer treats a clause's
+own effect as handled inside it (`infer_handle_arm_body`), since a clause
+runs outside its own handler. A clause that performs its own effect, as
+handler_sieve's forwarding does, is still rejected, with E400 "Clause
+Performs Its Own Effect": the runtimes run a clause under its own handler,
+[KI-233](#ki-233). Fixtures: `effect_clause_performs_ki226.flx`, and
+`effect_clause_own_effect_unprovided_ki226.flx` and
+`effect_clause_undeclared_effect_ki226.flx`, which must stay errors.
 
 ### KI-231 — Natively, nested non-tail resumes take time that grows with the square of their depth — FIXED 2026-11-25
 
