@@ -68,6 +68,46 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-240 — A `handle` whose expression builds a tuple, list or constructor around an effectful call crashes natively, or fails on the VM
+
+**Severity:** High (a crash) · **Area:** handles whose body is not a call, both backends' effects lowering · **Verified:** 2026-11-26 (a2720ba3, and `main` at 64005292) · **From:** filing KI-239
+
+```flux
+effect Choose {
+    choose : () -> Bool
+}
+
+fn only_choose() -> Int with Choose {
+    if perform Choose.choose() { 1 } else { 2 }
+}
+
+fn main() with IO {
+    let r = (only_choose(), 0) handle Choose { choose(resume) -> resume(true) }
+    match r { (a, b) -> print(a) }
+}
+```
+
+It should print `1`. The VM does. The native binary dies with SIGSEGV,
+with and without `-O`.
+
+| Handled expression, clause (`.verify/ki239/`) | VM | Native |
+|---|---|---|
+| `(only_choose(), 0)`, `resume(true)` | 1 | SIGSEGV |
+| `Some(only_choose())`, `resume(true)` | 1 | signal 5 (signal 11 with `-O`) |
+| `[only_choose()]`, `resume(true)` | 1 | signal 5 |
+| `[only_choose()]`, `concat([resume(true), resume(false)])` | 3 | 3 |
+| `(only_choose(), 0)`, `match resume(true) { p -> p }` | `E1001 Not A Function` | 1 |
+
+Natively it fails when the clause resumes as its last act, and works when
+the clause does something after `resume`; on the VM the other way round.
+A plain call as the handled expression works on both backends with either
+clause, and so does moving the tuple into a function the `handle` calls.
+
+Not yet known: how each backend lowers a `handle` whose body is not a call.
+The pattern suggests the body's frame: natively the tail-resumptive path
+folds the pending continuations into the perform's caller, and on the VM
+a non-tail resume runs the frames above the handle's entry.
+
 ### KI-239 — A call that performs an effect of the enclosing function is rejected with E400 inside a `handle` whose expression isn't a plain call
 
 **Severity:** Medium (loud; moving the expression into a function works) · **Area:** the compiler's effect check (`src/compiler/expression.rs`), both backends · **Verified:** 2026-11-26 (a2720ba3, and `main` at 64005292) · **From:** writing the tree_explore benchmark
