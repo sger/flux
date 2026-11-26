@@ -198,7 +198,7 @@ The pattern suggests the body's frame: natively the tail-resumptive path
 folds the pending continuations into the perform's caller, and on the VM
 a non-tail resume runs the frames above the handle's entry.
 
-### KI-239 — A call that performs an effect of the enclosing function is rejected with E400 inside a `handle` whose expression isn't a plain call
+### KI-239 — A call that performs an effect of the enclosing function is rejected with E400 inside a `handle` whose expression isn't a plain call, or is a call with arguments under a clause that performs
 
 **Severity:** Medium (loud; moving the expression into a function works) · **Area:** the compiler's effect check (`src/compiler/expression.rs`), both backends · **Verified:** 2026-11-26 (a2720ba3, and `main` at 64005292) · **From:** writing the tree_explore benchmark
 
@@ -241,12 +241,34 @@ function's are not, once the expression is more than a call. A tuple,
 `(pick(), 0)`, compiles; natively it then crashes, which is
 [KI-240](#ki-240).
 
-Not yet known: which path the expression takes. The message is the
-compiler's check for a call (`Call to … requires effect …`), which reads
-the effects of the current function and the handled ones.
+A plain call fails too, once it has an argument and the clause performs
+an effect of its own (found writing parsing_dollars, 2026-11-26, on
+11d08782):
 
-Workaround: put the expression in a function of its own, which the
-`handle` calls. tree_explore's `paths` does (`one`).
+```flux
+fn go(a: Int) -> Int with Read, Emit, Stop { … }
+
+fn run() -> Int with Emit, Stop {
+    go(0) handle Read { read(resume) -> perform Stop.stop() }
+}
+```
+
+| Handled call and clause (`.verify/ki239/`) | Result |
+|---|---|
+| `go(0)`, `perform Stop.stop()` (`12`) | E400, "Call to `go` requires effect `Emit`" |
+| `go()`, `perform Stop.stop()` (`13`) | 7 |
+| `go(0)`, `resume(3)` (`14`) | 3 |
+
+On `main` at 64005292, `13` is rejected too: a clause couldn't perform
+before [KI-226](#ki-226) was fixed.
+
+Not yet known: which path the expression takes. The message is the
+compiler's check for a call (`Call to … requires effect …`, at
+`src/compiler/expression.rs`, the row check in the named-call path), whose
+`is_effect_available` doesn't find the enclosing function's effects.
+
+Workaround: put the expression in a function of its own, with no
+arguments, which the `handle` calls. tree_explore's `paths` does (`one`).
 
 ### KI-238 — Natively, a perform to an outer handler from inside a resumed continuation is handled at the innermost prompt, so the outer clause's work after `resume` lands in the wrong place
 
