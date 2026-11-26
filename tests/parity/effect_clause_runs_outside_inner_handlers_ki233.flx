@@ -1,0 +1,33 @@
+// parity: vm, llvm
+// expect: success
+// bug: KI-233. A clause runs in its handle's context: its perform of Log
+//      reaches the Log(1) handler outside its handle, not the Log(2) one
+//      between the handle and the perform. The VM stopped with "missing
+//      handler frame for evidence marker", and native code gave 2.
+// parity-expected-stdout-begin
+// 1
+// parity-expected-stdout-end
+
+effect Ask {
+    ask : () -> Int
+}
+
+effect Log {
+    get : () -> Int
+}
+
+fn asks() -> Int with Ask {
+    perform Ask.ask()
+}
+
+fn body() -> Int with Ask {
+    asks() handle Log { get(resume) -> resume(2) }
+}
+
+fn mid() -> Int with Log {
+    body() handle Ask { ask(resume) -> resume(perform Log.get()) * 1 }
+}
+
+fn main() with IO {
+    print(mid() handle Log { get(resume) -> resume(1) })
+}

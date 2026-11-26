@@ -1,10 +1,13 @@
 // parity: vm, llvm
-// expect: compile_error
-// bug: KI-233. A clause runs under its own handler at run time, so a clause
-//      that performs its own effect, here to forward to the outer Ask
-//      handler as handler_sieve does, reached itself again: a stack
-//      overflow on the VM, a hang natively. Until the runtimes are fixed it
-//      is rejected at compile time.
+// expect: success
+// bug: KI-233. A clause ran under its own handler, so a clause that
+//      performs its own effect, here to forward to the outer Ask handler as
+//      handler_sieve does, reached itself again: a stack overflow on the VM,
+//      a hang natively, and then a compile-time rejection. A clause runs
+//      outside its handler, so the perform reaches the outer one.
+// parity-expected-stdout-begin
+// 101
+// parity-expected-stdout-end
 
 effect Ask {
     ask : () -> Int
@@ -15,7 +18,7 @@ fn asks() -> Int with Ask {
 }
 
 fn inner() -> Int with Ask {
-    asks() handle Ask { ask(resume) -> resume(perform Ask.ask() + 1) } //~ E400
+    asks() handle Ask { ask(resume) -> resume(perform Ask.ask() + 1) }
 }
 
 fn main() with IO {

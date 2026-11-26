@@ -1,0 +1,28 @@
+// parity: vm, llvm
+// expect: success
+// bug: KI-233. Three nested Ask handlers, each clause forwarding to the
+//      next one out and adding to its answer, as handler_sieve's primes do:
+//      each perform in a clause reaches the handler outside that clause's.
+// parity-expected-stdout-begin
+// 111
+// parity-expected-stdout-end
+
+effect Ask {
+    ask : () -> Int
+}
+
+fn asks() -> Int with Ask {
+    perform Ask.ask()
+}
+
+fn level2() -> Int with Ask {
+    asks() handle Ask { ask(resume) -> resume(perform Ask.ask() + 10) }
+}
+
+fn level1() -> Int with Ask {
+    level2() handle Ask { ask(resume) -> resume(perform Ask.ask() + 1) }
+}
+
+fn main() with IO {
+    print(level1() handle Ask { ask(resume) -> resume(100) })
+}
