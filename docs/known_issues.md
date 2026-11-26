@@ -101,65 +101,6 @@ continuation and pass a foreign yield outwards (`prompt`,
 Neither triples nor tree_explore performs to an outer handler whose clause
 does work after `resume`, so native code gives their expected results.
 
-### KI-236 — Natively, a parameterized handler's state is a copy in each evidence vector, so a `set` made inside a nested `handle` is lost when it returns, and resumes of one continuation share state
-
-**Severity:** High (wrong values, silently) · **Area:** native effects runtime, parameterized handlers (`runtime/c/effects.c`) · **Verified:** 2026-11-26 (9469e0c2; the multi-shot cases also on `main` at 64005292) · **From:** fixing KI-227
-
-```flux
-effect St {
-    get : () -> Int
-    set : (Int) -> ()
-}
-
-effect Log {
-    log : (Int) -> ()
-}
-
-fn work() -> Int with St, Log {
-    perform St.set(5)
-    perform Log.log(1)
-    perform St.get()
-}
-
-fn inner() -> Int with St {
-    work() handle Log { log(resume, x) -> resume(()) }
-}
-
-fn outer() -> Int with St {
-    let a = inner()
-    a * 10 + perform St.get()
-}
-
-fn main() with IO {
-    print(outer() handle St(0) { get(resume, s) -> resume(s, s), set(resume, x, s) -> resume((), x) })
-}
-```
-
-The VM prints `55`. Native code prints `50`: the `set(5)` made inside the
-`Log` handle is gone once that handle returns.
-
-Proposal 0169 makes a handler's state continuation state, threaded through
-the run in order: a handler outside a captured continuation keeps every
-`set`, and one installed inside it starts each resume from the state it was
-captured with. Native code breaks both:
-
-| Program | Expected | Native |
-|---|---|---|
-| the program above | 55 | 50 |
-| an outer `St` around a multi-shot `choose` (`resume(true) + resume(false)`); branch one sets 1, branch two adds 10; `get` after the `choose` handle | 12, then 11 | 12, then 0 |
-| an `St` handler inside the continuation `flip` captures, resumed twice; each branch reads, sets and reads | 6 | 7 |
-
-The cause: a handler's state is a plain value inside each evidence-vector
-entry (`EVV_STATE_OFF`). `flux_evv_insert` copies every entry into the new
-handle's vector, and `flux_update_state_for_marker` writes into whichever
-vector is current. A write inside a nested handle goes into its copy, and
-`flux_yield_prompt` puts the outer vector back when it returns. A
-delimiting resume (`compose_into_closure`, since KI-225) keeps one captured
-vector and runs every resume under it, so the inner handler's state written
-by one resume is what the next reads.
-
-Probes: `.verify/ki227/05`, `06` and `08`.
-
 ### KI-235 — On the VM, a tail call to another function that releases a value first keeps a frame, so a loop through two functions overflows the stack
 
 **Severity:** Medium (a crash on a long loop; one function calling itself works) · **Area:** VM backend, tail calls (Aether → `cfg/` → `src/compiler/cfg_bytecode.rs`) · **Verified:** 2026-11-26 (b125141e, and `main` at 64005292) · **From:** fixing KI-234
@@ -3776,6 +3717,84 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-236 — Natively, a parameterized handler's state is a copy in each evidence vector, so a `set` made inside a nested `handle` is lost when it returns, and resumes of one continuation share state — FIXED 2026-11-26
+
+**Severity:** High (wrong values, silently) · **Area:** native effects runtime, parameterized handlers (`runtime/c/effects.c`) · **Verified:** 2026-11-26 (9469e0c2; the multi-shot cases also on `main` at 64005292) · **From:** fixing KI-227
+
+```flux
+effect St {
+    get : () -> Int
+    set : (Int) -> ()
+}
+
+effect Log {
+    log : (Int) -> ()
+}
+
+fn work() -> Int with St, Log {
+    perform St.set(5)
+    perform Log.log(1)
+    perform St.get()
+}
+
+fn inner() -> Int with St {
+    work() handle Log { log(resume, x) -> resume(()) }
+}
+
+fn outer() -> Int with St {
+    let a = inner()
+    a * 10 + perform St.get()
+}
+
+fn main() with IO {
+    print(outer() handle St(0) { get(resume, s) -> resume(s, s), set(resume, x, s) -> resume((), x) })
+}
+```
+
+The VM prints `55`. Native code prints `50`: the `set(5)` made inside the
+`Log` handle is gone once that handle returns.
+
+Proposal 0169 makes a handler's state continuation state, threaded through
+the run in order: a handler outside a captured continuation keeps every
+`set`, and one installed inside it starts each resume from the state it was
+captured with. Native code breaks both:
+
+| Program | Expected | Native |
+|---|---|---|
+| the program above | 55 | 50 |
+| an outer `St` around a multi-shot `choose` (`resume(true) + resume(false)`); branch one sets 1, branch two adds 10; `get` after the `choose` handle | 12, then 11 | 12, then 0 |
+| an `St` handler inside the continuation `flip` captures, resumed twice; each branch reads, sets and reads | 6 | 7 |
+
+The cause: a handler's state is a plain value inside each evidence-vector
+entry (`EVV_STATE_OFF`). `flux_evv_insert` copies every entry into the new
+handle's vector, and `flux_update_state_for_marker` writes into whichever
+vector is current. A write inside a nested handle goes into its copy, and
+`flux_yield_prompt` puts the outer vector back when it returns. A
+delimiting resume (`compose_into_closure`, since KI-225) keeps one captured
+vector and runs every resume under it, so the inner handler's state written
+by one resume is what the next reads.
+
+Probes: `.verify/ki227/05`, `06` and `08`.
+
+**Fixed 2026-11-26** (686c0399). A parameterized handle's entry holds a
+cell for its state (`FLUX_OBJ_CELL`, one scanned field), made by
+`flux_evv_insert`. The entries copied into the evidence of a handle inside
+it share the cell, so `flux_update_state_for_marker` writes the state every
+vector of that handle sees, and `flux_yield_to` and `flux_perform_direct`
+read it there. A delimiting resume keeps, at capture, a copy of the
+evidence whose entries above its handler's have cells of their own holding
+the states then (`evv_copy_inner_states`), and each call runs under a fresh
+copy of that, which the prompt releases. Only resumes whose continuation
+holds a parameterized handler of its own pay for the copies. The
+resumed handler's own entry still shares its cell and takes `s'`, as every
+parameterized resume gives a state. As Koka's `prompt-local-var` does, the
+states inside the continuation are put back before each resume. All three
+programs give the expected answers, and tree_explore gives the suite's 1005
+at height 16. countdown and counter, which `set` a state in a loop, cost
+within the noise (0–4%). `flux handlers` in lldb reads the state through
+the cell (`tools/lldb/flux_lldb.py`). Fixture:
+`effect_handler_state_threads_through_resumes_ki236.flx`.
 
 ### KI-237 — On the VM, a non-tail `resume` runs its continuation in a nested loop, so a perform there to an outer handler that captures corrupts the frames — FIXED 2026-11-26
 
