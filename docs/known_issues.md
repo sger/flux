@@ -107,57 +107,6 @@ such reconciling, so an abort to a unit-typed handle can't be written.
 Workaround: give the operation and the handled code a non-unit type. Flux
 operations aren't polymorphic, so triples' `fail` already returns `Int`.
 
-### KI-241 — Natively, a tail-recursive loop that performs once per turn is quadratic when another handler is installed outside the one it performs to
-
-**Severity:** Medium (correct output; natively far slower than the VM from a few thousand turns) · **Area:** native effects runtime, yield continuations (`runtime/c/effects.c`) · **Verified:** 2026-11-26 (11d08782, and `main` at 64005292) · **From:** writing the parsing_dollars benchmark
-
-```flux
-effect Read {
-    read : () -> Int
-}
-
-effect Stop {
-    stop : () -> Int
-}
-
-fn go(i: Int) -> Int with Read {
-    let c = perform Read.read()
-    if i == 0 { c } else { go(i - 1) }
-}
-
-fn inner(n: Int) -> Int with Stop {
-    go(n) handle Read { read(resume) -> resume(1) }
-}
-
-fn main() with IO {
-    print(inner(40000) handle Stop { stop(resume) -> 0 })
-}
-```
-
-Both backends print `1`. Built with `--native -O --emit-binary`, with `n`
-read from the command line (`.verify/ki241/`):
-
-| Program | n = 10,000 | 20,000 | 40,000 | Peak RSS at 40,000 | VM at 40,000 |
-|---|---:|---:|---:|---:|---:|
-| `01`: the loop above | 0.56 s | 1.62 s | 7.12 s | 5.9 MiB | 0.12 s |
-| `02`: no `Stop` handler outside | 0.20 s | 0.00 s | 0.00 s | 2.1 MiB | 0.13 s |
-| `03`: the loop performs `Stop` at the end | 0.58 s | 1.65 s | 7.70 s | 5.9 MiB | 0.13 s |
-
-The call to `go` is a tail call, the case KI-232's partial fix made linear,
-and without an outer handler it is. With one, each doubling of `n` takes
-about four times as long and memory grows with `n`, even when the outer
-handler is never performed to. On `main`, without KI-232's partial fix,
-`02` is quadratic too, and `01` takes 14.2 s at 40,000.
-
-parsing_dollars is this shape: the parser loops on `read`, inside the
-`stop` and `emit` handlers. It reads about n²/2 chars, so the suite's
-20,000 lines take 2×10⁸ performs. At 400 lines (80,600 reads) it takes
-31 s natively.
-
-Not yet known: what each turn leaves behind. Memory grows, so something
-is kept per perform, perhaps a continuation or an evidence vector that the
-outer handler's prompt keeps alive. Related to [KI-232](#ki-232).
-
 ### KI-240 — A `handle` whose expression builds a tuple, list or constructor around an effectful call crashes natively, or fails on the VM
 
 **Severity:** High (a crash) · **Area:** handles whose body is not a call, both backends' effects lowering · **Verified:** 2026-11-26 (a2720ba3, and `main` at 64005292) · **From:** filing KI-239
@@ -447,6 +396,10 @@ pending across the performs after it:
 | 64,000 | – | – | 0.12 s |
 
 A fix would keep a fold from being walked again by each perform inside it.
+
+A loop under another handler stayed quadratic for another reason: its
+clause's `resume` kept a continuation that only returned the result
+([KI-241](#ki-241), fixed).
 
 ### KI-230 — Natively, each `handle` whose clause doesn't resume leaves stack behind, and about a million of them overflow it
 
@@ -3919,6 +3872,88 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-241 — Natively, a tail-recursive loop that performs once per turn is quadratic when another handler is installed outside the one it performs to — FIXED 2026-11-26
+
+**Severity:** Medium (correct output; natively far slower than the VM from a few thousand turns) · **Area:** native effects runtime, yield continuations (`runtime/c/effects.c`) · **Verified:** 2026-11-26 (11d08782, and `main` at 64005292) · **From:** writing the parsing_dollars benchmark
+
+```flux
+effect Read {
+    read : () -> Int
+}
+
+effect Stop {
+    stop : () -> Int
+}
+
+fn go(i: Int) -> Int with Read {
+    let c = perform Read.read()
+    if i == 0 { c } else { go(i - 1) }
+}
+
+fn inner(n: Int) -> Int with Stop {
+    go(n) handle Read { read(resume) -> resume(1) }
+}
+
+fn main() with IO {
+    print(inner(40000) handle Stop { stop(resume) -> 0 })
+}
+```
+
+Both backends print `1`. Built with `--native -O --emit-binary`, with `n`
+read from the command line (`.verify/ki241/`):
+
+| Program | n = 10,000 | 20,000 | 40,000 | Peak RSS at 40,000 | VM at 40,000 |
+|---|---:|---:|---:|---:|---:|
+| `01`: the loop above | 0.56 s | 1.62 s | 7.12 s | 5.9 MiB | 0.12 s |
+| `02`: no `Stop` handler outside | 0.20 s | 0.00 s | 0.00 s | 2.1 MiB | 0.13 s |
+| `03`: the loop performs `Stop` at the end | 0.58 s | 1.65 s | 7.70 s | 5.9 MiB | 0.13 s |
+
+The call to `go` is a tail call, the case KI-232's partial fix made linear,
+and without an outer handler it is. With one, each doubling of `n` takes
+about four times as long and memory grows with `n`, even when the outer
+handler is never performed to. On `main`, without KI-232's partial fix,
+`02` is quadratic too, and `01` takes 14.2 s at 40,000.
+
+parsing_dollars is this shape: the parser loops on `read`, inside the
+`stop` and `emit` handlers. It reads about n²/2 chars, so the suite's
+20,000 lines take 2×10⁸ performs. At 400 lines (80,600 reads) it takes
+31 s natively.
+
+Not yet known: what each turn leaves behind. Memory grows, so something
+is kept per perform, perhaps a continuation or an evidence vector that the
+outer handler's prompt keeps alive. Related to [KI-232](#ki-232).
+
+**Fixed 2026-11-26** (9f58e4e8). The cause was the handler clause, not
+the loop. A clause written in a function whose effects may suspend, like
+`inner` above, has its calls marked as ones that can yield. So its
+`resume(1)` got a continuation, `bb1(%r): ret %r`, which only returned the
+result. On each perform the clause extended it, the prompt composed it with
+the loop's own, and the trampoline extended every earlier one again: the
+chain grew by one per turn, folded 8 at a time, and each perform walked
+it. A clause in `main` (02) gets no yield check there, so it stayed linear.
+
+`cont_split` now gives no continuation to a call into Flux code whose
+continuation only returns its result, using the return-tail test
+`promote_tail_calls` already used (now `lir::return_tail_blocks`). On a
+yield, such a frame returns the callee's sentinel, which is what the
+continuation would have returned. A perform keeps its own continuation
+even when it only returns, as a clause's `resume` is built from the chain,
+and so does a call to a C function that suspends. A fiber that suspends in
+Flux code reached only through skipped calls, as `Flow.Fs.read_file`
+through a function value, now has no continuation; resuming it gives back
+the value (`runtime/c/tasks.c`).
+
+`01` and `03` take 0.02 s at 1,000,000 natively, with peak RSS flat at
+2.1 MiB. The parsing_dollars program takes 0.56 s at 5,000 lines (12.5M
+reads) and 8.95 s at the suite's 20,000 (200M reads).
+
+Tests: `a_call_whose_continuation_only_returns_its_result_gets_none_ki241`
+and `a_call_that_starts_the_chain_keeps_a_continuation_that_only_returns_ki241`
+(`src/lir/cont_split.rs`),
+`a_clause_that_resumes_as_its_last_act_extends_nothing_ki241`
+(`tests/native_llvm/llvm_codegen.rs`), and the fixture
+`async_suspend_under_frames_that_only_return_ki241.flx`.
 
 ### KI-236 — Natively, a parameterized handler's state is a copy in each evidence vector, so a `set` made inside a nested `handle` is lost when it returns, and resumes of one continuation share state — FIXED 2026-11-26
 
