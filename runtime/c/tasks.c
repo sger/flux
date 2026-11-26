@@ -971,7 +971,14 @@ int64_t flux_async_call0(int64_t closure) {
     return flux_call_closure_c(closure, NULL, 0);
 }
 
+/* @KI-241: a fiber that suspended where every frame above the suspension
+ * only returned what it called has no continuation (flux_compose_conts gives
+ * None): those frames extend nothing. Resuming it is the value itself, which
+ * the continuation would have taken over and returned. */
 int64_t flux_async_resume1(int64_t continuation, int64_t value) {
+    if (continuation == FLUX_NONE) {
+        return value;
+    }
     int64_t args[1] = { value };
     return flux_call_closure_c(continuation, args, 1);
 }
@@ -981,6 +988,11 @@ int32_t flux_async_try_call0(int64_t closure, int64_t *out) {
 }
 
 int32_t flux_async_try_resume1(int64_t continuation, int64_t value, int64_t *out) {
+    /* @KI-241: no continuation, as in flux_async_resume1. */
+    if (continuation == FLUX_NONE) {
+        *out = value;
+        return 1;
+    }
     return flux_try_resume1_raw(continuation, value, out);
 }
 

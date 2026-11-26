@@ -981,85 +981,9 @@ fn promote_tail_calls(program: &mut LirProgram) {
             continue;
         }
 
-        // Phase 1: identify "return tail" blocks — blocks where a value
-        // entering as the block param flows directly to Return.
-        //
-        // A block is a return tail if:
-        //   - it has exactly one param
-        //   - all instructions are phi-bridge Copies (Copy where dst is a
-        //     block param of a successor)
-        //   - terminator is Return(param) or Return(copy_dst)
-        //   - OR terminator is Jump to another return-tail block whose param
-        //     it copies its own param into. A jump that forwards some other
-        //     value returns that value, not the call's result (KI-173).
-        let mut is_return_tail = vec![false; num_blocks];
-
-        // Collect which vars are block params (for phi-bridge detection).
-        let block_param_set: HashSet<u32> =
-            func.blocks.iter().flat_map(|b| b.params.iter().map(|v| v.0)).collect();
-
-        // First pass: direct Return(param) with no non-phi instructions.
-        for (idx, block) in func.blocks.iter().enumerate() {
-            if block.params.len() != 1 {
-                continue;
-            }
-            let param = block.params[0];
-
-            // Check all instructions are phi-bridge Copies.
-            let all_phi_bridge = block.instrs.iter().all(|instr| {
-                matches!(instr, LirInstr::Copy { dst, .. } if block_param_set.contains(&dst.0))
-            });
-            if !all_phi_bridge {
-                continue;
-            }
-
-            // Find the "effective return value" — either param directly or
-            // a Copy destination that is then returned.
-            match &block.terminator {
-                LirTerminator::Return(v) if *v == param => {
-                    is_return_tail[idx] = true;
-                }
-                LirTerminator::Return(v) if forwards(block, param, *v) => {
-                    is_return_tail[idx] = true;
-                }
-                _ => {}
-            }
-        }
-
-        // Fixed-point: propagate through Copy+Jump chains.
-        loop {
-            let mut changed = false;
-            for idx in 0..num_blocks {
-                if is_return_tail[idx] {
-                    continue;
-                }
-                let block = &func.blocks[idx];
-                if block.params.len() != 1 {
-                    continue;
-                }
-
-                let all_phi_bridge = block.instrs.iter().all(|instr| {
-                    matches!(instr, LirInstr::Copy { dst, .. } if block_param_set.contains(&dst.0))
-                });
-                if !all_phi_bridge {
-                    continue;
-                }
-
-                if let LirTerminator::Jump(target) = &block.terminator {
-                    let target_idx = target.0 as usize;
-                    if target_idx < num_blocks
-                        && is_return_tail[target_idx]
-                        && forwards(block, block.params[0], func.blocks[target_idx].params[0])
-                    {
-                        is_return_tail[idx] = true;
-                        changed = true;
-                    }
-                }
-            }
-            if !changed {
-                break;
-            }
-        }
+        // Phase 1: the blocks a call's result flows through to `Return`
+        // with no work on the way.
+        let return_tails = return_tail_blocks(func);
 
         // Phase 2: promote eligible Call → TailCall.
         for idx in 0..num_blocks {
@@ -1070,7 +994,7 @@ fn promote_tail_calls(program: &mut LirProgram) {
                     let cont_idx = cont.0 as usize;
                     yield_cont.is_none()
                         && cont_idx < num_blocks
-                        && is_return_tail[cont_idx]
+                        && return_tails.contains(cont)
                         && func.blocks[cont_idx].params == [*dst]
                         && matches!(
                             kind,
@@ -1102,14 +1026,6 @@ fn promote_tail_calls(program: &mut LirProgram) {
             }
         }
     }
-}
-
-/// Whether `block` leaves `from` in `to`: the last copy into `to` reads `from`.
-fn forwards(block: &LirBlock, from: LirVar, to: LirVar) -> bool {
-    block.instrs.iter().rev().find_map(|instr| match instr {
-        LirInstr::Copy { dst, src } if *dst == to => Some(*src == from),
-        _ => None,
-    }) == Some(true)
 }
 
 thread_local! {

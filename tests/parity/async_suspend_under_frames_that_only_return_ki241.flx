@@ -1,0 +1,28 @@
+// parity: vm, llvm, llvm_opt
+// expect: success
+// bug: KI-241. A call whose continuation only returns its result extends
+//      none, so a fiber that suspends where every frame above only returns
+//      what it calls (here Flow.Fs.read_file, reached through a function
+//      value) has no continuation; resuming it must give back the value.
+// parity-expected-stdout-begin
+// Ok("payload")
+// parity-expected-stdout-end
+
+import Flow.Async exposing (run_async_with, with_fs_pool_size)
+import Flow.Fs as Fs
+
+fn via(p: String, f: (String) -> Result<String, IoError> with FileSystem) -> Result<String, IoError> with Async, FileSystem {
+    f(p)
+}
+
+fn action() -> Result<String, IoError> with Async, FileSystem {
+    via("target/test-scratch/async_suspend_under_frames_that_only_return_ki241/v.txt", Fs.read_file)
+}
+
+fn main() -> Unit with IO {
+    let base = "target/test-scratch/async_suspend_under_frames_that_only_return_ki241"
+    let made = Fs.create_dir_all(base)
+    let wrote = Fs.write_file(base + "/v.txt", "payload")
+    print(run_async_with(with_fs_pool_size(1), action))
+    let removed = Fs.remove_dir_all(base)
+}

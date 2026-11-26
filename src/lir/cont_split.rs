@@ -18,7 +18,8 @@
 //! - Only runs when `FLUX_YIELD_CHECKS=1` is set in the environment (same
 //!   gate as slice 3a's emission).
 //! - Leaves `Call.yield_cont = None` when the cont block has no successors
-//!   reachable from entry — nothing to continue.
+//!   reachable from entry, or only returns the call's result (a return
+//!   tail, as `promote_tail_calls` finds them) — nothing to continue.
 //! - Synthesized functions are queued again, so the calls copied into them
 //!   are pointed at a continuation too: the one made for the call they copy.
 
@@ -181,6 +182,7 @@ fn collect_call_sites(
     suspending_externs: &std::collections::HashSet<String>,
 ) -> Vec<CallSite> {
     let mut sites = Vec::new();
+    let return_tails = crate::lir::return_tail_blocks(func);
     for block in &func.blocks {
         if let LirTerminator::Call {
             dst, cont, kind, suppress_yield_check, yield_cont, held, ..
@@ -191,6 +193,29 @@ fn collect_call_sites(
                 continue;
             }
             if !crate::lir::call_kind_is_direct_async_in(kind, async_funcs, suspending_externs) {
+                continue;
+            }
+            // @KI-241: a continuation that only returns the call's result
+            // does nothing: on a yield the frame returns the callee's
+            // sentinel, which is what it would return. Extended anyway, it
+            // was one more pending frame per yield; a clause resuming as its
+            // last act kept one per perform, so a loop of performs walked
+            // all the earlier ones each turn. Only a call into Flux code is
+            // skipped. A perform starts the chain and keeps its continuation,
+            // even an empty one: a clause's `resume` is built from the chain,
+            // and from an empty one there is none. A call to a C function
+            // that suspends keeps its own too. A suspension in Flux code
+            // reached only through skipped calls (a primop's, as
+            // `Flow.Fs.read_file` makes) leaves a fiber no continuation,
+            // which `flux_async_resume1` takes as the value itself.
+            if matches!(
+                kind,
+                crate::lir::CallKind::Direct { .. }
+                    | crate::lir::CallKind::DirectClosure { .. }
+                    | crate::lir::CallKind::Indirect { .. }
+            ) && return_tails.contains(cont)
+                && func.blocks.iter().any(|b| b.id == *cont && b.params == [*dst])
+            {
                 continue;
             }
             // We can't allocate the synth id here without &mut program; defer
@@ -1017,6 +1042,42 @@ mod tests {
         assert!(collect_call_sites(&f, &HashSet::new(), &HashSet::new()).is_empty());
     }
 
+    /// `clause(resume) { %1 = call(kind) resume(); bb1(%1): <cont_instrs>; ret %1 }`.
+    fn call_then_return(kind: CallKind, cont_instrs: Vec<LirInstr>) -> LirFunction {
+        let mut f = empty_function(0, "clause");
+        let [v_resume, v_dst] = [0, 1].map(LirVar);
+        f.params = vec![v_resume];
+        for (id, params, instrs, terminator) in [
+            (
+                0,
+                Vec::new(),
+                Vec::new(),
+                LirTerminator::Call {
+                    dst: v_dst,
+                    func: v_resume,
+                    args: Vec::new(),
+                    cont: BlockId(1),
+                    kind,
+                    suppress_yield_check: false,
+                    yield_cont: None,
+                    held: None,
+                },
+            ),
+            (1, vec![v_dst], cont_instrs, LirTerminator::Return(v_dst)),
+        ] {
+            f.blocks.push(LirBlock {
+                locs: Vec::new(),
+                term_loc: Default::default(),
+                id: BlockId(id),
+                params,
+                instrs,
+                terminator,
+            });
+        }
+        f.next_var = 2;
+        f
+    }
+
     /// A call that may yield, whose continuation only returns its result,
     /// needs no continuation: on a yield the frame returns the callee's
     /// sentinel, which is what the continuation would return. A clause that
@@ -1026,40 +1087,26 @@ mod tests {
     #[test]
     fn a_call_whose_continuation_only_returns_its_result_gets_none_ki241() {
         let sites_with = |cont_instrs: Vec<LirInstr>| {
-            let mut f = empty_function(0, "clause");
-            let [v_resume, v_dst] = [0, 1].map(LirVar);
-            f.params = vec![v_resume];
-            for (id, params, instrs, terminator) in [
-                (
-                    0,
-                    Vec::new(),
-                    Vec::new(),
-                    LirTerminator::Call {
-                        dst: v_dst,
-                        func: v_resume,
-                        args: Vec::new(),
-                        cont: BlockId(1),
-                        kind: CallKind::Indirect { async_capable: true },
-                        suppress_yield_check: false,
-                        yield_cont: None,
-                        held: None,
-                    },
-                ),
-                (1, vec![v_dst], cont_instrs, LirTerminator::Return(v_dst)),
-            ] {
-                f.blocks.push(LirBlock {
-                    locs: Vec::new(),
-                    term_loc: Default::default(),
-                    id: BlockId(id),
-                    params,
-                    instrs,
-                    terminator,
-                });
-            }
-            f.next_var = 2;
+            let f = call_then_return(CallKind::Indirect { async_capable: true }, cont_instrs);
             collect_call_sites(&f, &HashSet::new(), &HashSet::new()).len()
         };
         assert_eq!(sites_with(Vec::new()), 0);
         assert_eq!(sites_with(vec![LirInstr::Drop { val: LirVar(0) }]), 1);
+    }
+
+    /// A perform starts the chain of continuations, so it keeps its own even
+    /// when that only returns: a clause's `resume` is built from the chain,
+    /// and from an empty one there is none. A call to a C function that
+    /// suspends keeps its own too (KI-241).
+    #[test]
+    fn a_call_that_starts_the_chain_keeps_a_continuation_that_only_returns_ki241() {
+        let perform = call_then_return(CallKind::YieldTo, Vec::new());
+        assert_eq!(collect_call_sites(&perform, &HashSet::new(), &HashSet::new()).len(), 1);
+
+        let symbol = "flux_suspends".to_string();
+        let suspending =
+            call_then_return(CallKind::DirectExtern { symbol: symbol.clone() }, Vec::new());
+        let externs: HashSet<String> = [symbol].into_iter().collect();
+        assert_eq!(collect_call_sites(&suspending, &HashSet::new(), &externs).len(), 1);
     }
 }

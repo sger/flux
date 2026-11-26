@@ -706,6 +706,74 @@ pub fn direct_async_func_ids(program: &LirProgram) -> HashSet<LirFuncId> {
     async_funcs
 }
 
+/// The "return tail" blocks of `func`: blocks whose one param flows to
+/// `Return` with no work on the way. A call whose continuation is one of
+/// them, taking the call's result as that param, only has its result
+/// returned.
+///
+/// A block is a return tail if:
+///   - it has exactly one param;
+///   - all its instructions are phi-bridge `Copy`s (into a block param);
+///   - its terminator is `Return(param)`, or `Return` of a copy of it;
+///   - OR its terminator is a `Jump` to another return tail whose param it
+///     copies its own param into. A jump that forwards some other value
+///     returns that value, not the call's result (KI-173).
+///
+/// Keyed by block id, which `cont_split`'s continuations don't keep equal to
+/// a block's position. @KI-241: shared by `promote_tail_calls` and
+/// `cont_split`, which gives such a call no continuation.
+pub(crate) fn return_tail_blocks(func: &LirFunction) -> HashSet<BlockId> {
+    let block_param_set: HashSet<LirVar> =
+        func.blocks.iter().flat_map(|b| b.params.iter().copied()).collect();
+    let by_id: HashMap<BlockId, &LirBlock> = func.blocks.iter().map(|b| (b.id, b)).collect();
+    let bridges_only = |block: &LirBlock| {
+        block.params.len() == 1
+            && block.instrs.iter().all(
+                |instr| matches!(instr, LirInstr::Copy { dst, .. } if block_param_set.contains(dst)),
+            )
+    };
+
+    let mut tails: HashSet<BlockId> = func
+        .blocks
+        .iter()
+        .filter(|block| {
+            bridges_only(block)
+                && matches!(&block.terminator, LirTerminator::Return(v)
+                    if *v == block.params[0] || forwards(block, block.params[0], *v))
+        })
+        .map(|block| block.id)
+        .collect();
+
+    // Fixed point: propagate through Copy+Jump chains.
+    loop {
+        let mut changed = false;
+        for block in &func.blocks {
+            if tails.contains(&block.id) || !bridges_only(block) {
+                continue;
+            }
+            if let LirTerminator::Jump(target) = &block.terminator
+                && tails.contains(target)
+                && by_id.get(target).is_some_and(|t| forwards(block, block.params[0], t.params[0]))
+            {
+                tails.insert(block.id);
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    tails
+}
+
+/// Whether `block` leaves `from` in `to`: the last copy into `to` reads `from`.
+fn forwards(block: &LirBlock, from: LirVar, to: LirVar) -> bool {
+    block.instrs.iter().rev().find_map(|instr| match instr {
+        LirInstr::Copy { dst, src } if *dst == to => Some(*src == from),
+        _ => None,
+    }) == Some(true)
+}
+
 fn function_has_direct_async_site(
     func: &LirFunction,
     async_funcs: &HashSet<LirFuncId>,
