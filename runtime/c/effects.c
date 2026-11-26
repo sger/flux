@@ -754,8 +754,17 @@ int64_t flux_compose_trampoline_closure_entry(int64_t closure_raw, int64_t *args
     int64_t *payload = (int64_t *)((char *)clo_ptr + 24);
     int64_t conts_arr = payload[0];
     int32_t marker = (int32_t)flux_untag_int(payload[1]);
-    int delimits = flux_untag_int(payload[2]) != 0;
+    int64_t captured_evv = payload[2];
+    int delimits = flux_untag_int(payload[3]) != 0;
     int64_t entry_evv = flux_thread_ctx.current_evv;
+
+    /* @KI-225: run under the evidence the resume was captured with, so a
+     * perform reaches this handler even after its clause has returned, and
+     * a new state goes to its entry. The prompt below puts the caller's
+     * evidence back. Inside the clause the two are the same. */
+    if (delimits && captured_evv != 0) {
+        flux_thread_ctx.current_evv = captured_evv;
+    }
 
     if (nargs >= 2) {
         flux_update_state_for_marker(marker, args_ptr[1]);
@@ -840,10 +849,16 @@ static int64_t compose_into_closure(int delimits, int takes_state) {
      * Header size = 24 bytes; payload is i64-aligned. We stash the conts
      * array (tagged pointer) as the single capture. */
     int64_t marker = flux_tag_int((int64_t)flux_thread_ctx.marker);
-    /* conts + marker + delimits; only the first two are scanned. */
-    uint32_t payload_bytes = (uint32_t)(3 * sizeof(int64_t));
+    /* @KI-225: a delimiting resume keeps the evidence it was captured
+     * under, the handler's and those inside it, with a reference of its
+     * own: called after its clause has returned, it runs under them again,
+     * not under its caller's. */
+    int64_t evv = delimits ? flux_thread_ctx.yield_evv : 0;
+    flux_dup(evv);
+    /* conts + marker + evidence + delimits; the first three are scanned. */
+    uint32_t payload_bytes = (uint32_t)(4 * sizeof(int64_t));
     uint32_t size = 24 + payload_bytes;
-    void *mem = flux_gc_alloc_header(size, 2 /* scan_fsize = 2 captures */,
+    void *mem = flux_gc_alloc_header(size, 3 /* scan_fsize = 3 captures */,
                                      FLUX_OBJ_CLOSURE);
     struct FluxClosureLayout {
         void   *fn_ptr;
@@ -856,12 +871,13 @@ static int64_t compose_into_closure(int delimits, int takes_state) {
     struct FluxClosureLayout *clo = (struct FluxClosureLayout *)mem;
     clo->fn_ptr          = (void *)flux_compose_trampoline_closure_entry;
     clo->remaining_arity = takes_state ? 2 : 1;
-    clo->capture_count   = 2;
+    clo->capture_count   = 3;
     clo->applied_count   = 0;
     clo->_pad            = 0;
     clo->payload[0]      = arr;
     clo->payload[1]      = marker;
-    clo->payload[2]      = flux_tag_int(delimits);
+    clo->payload[2]      = evv;
+    clo->payload[3]      = flux_tag_int(delimits);
 
     return flux_tag_ptr(mem);
 }

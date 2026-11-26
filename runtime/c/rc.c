@@ -816,7 +816,14 @@ move_down:
     offset = flux_scan_offset(header_of(ptr)->obj_tag);
     fields = (int64_t *)((char *)ptr + offset * 8);
 
-    if (scan_fsize == 0) {
+    if (header_of(ptr)->obj_tag == FLUX_OBJ_EVIDENCE) {
+        /* @KI-225: evidence has no scannable fields (its scan_fsize is 0)
+         * but a scanner of its own, as in flux_drop. A resume closure holds
+         * one, and freed as a leaf here it kept its handlers, states and
+         * parent alive. */
+        flux_drop_evidence(ptr);
+    }
+    else if (scan_fsize == 0) {
         /* Leaf node: free directly. */
         flux_block_free(ptr);
     }
