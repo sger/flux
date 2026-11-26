@@ -2875,3 +2875,85 @@ fn tak(x: Int, y: Int, z: Int) -> Int {
         "{modes:?}"
     );
 }
+
+/// The kind of each handle in the function `name`, in the order the walk
+/// meets them.
+fn handle_kinds_in(
+    core: &AetherProgram,
+    interner: &Interner,
+    name: &str,
+) -> Vec<flux::aether::tail_resumptive::HandleKind> {
+    let def = core
+        .defs()
+        .iter()
+        .find(|def| interner.try_resolve(def.name) == Some(name))
+        .unwrap_or_else(|| panic!("the program defines `{name}`"));
+    collect_core_exprs(&def.expr)
+        .into_iter()
+        .filter_map(|expr| match expr {
+            CoreExpr::Handle { handlers, parameter, .. } => {
+                Some(flux::aether::tail_resumptive::handle_kind(handlers, parameter.is_some()))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Clauses as drop insertion leaves them: one that forwards, one that
+/// performs before resuming with a state, and one that only computes run
+/// in place, the last without switching evidence; one that resumes on one
+/// branch only runs at the prompt, and only because it performs nothing
+/// (KI-243, KI-244).
+#[test]
+fn a_clause_that_resumes_once_as_its_last_act_runs_in_place_ki243() {
+    use flux::aether::tail_resumptive::HandleKind;
+    let (core, interner) = lowered_core_and_interner(
+        r#"
+effect Ask {
+    ask : () -> Int
+}
+
+effect Log {
+    get : () -> Int
+}
+
+effect Counter {
+    tick : () -> Int
+}
+
+fn asks() -> Int with Ask {
+    perform Ask.ask()
+}
+
+fn forwards() -> Int with Ask {
+    asks() handle Ask { ask(resume) -> resume(perform Ask.ask()) }
+}
+
+fn ticks() -> Int with Counter {
+    perform Counter.tick()
+}
+
+fn counted() -> Int with Log {
+    ticks() handle Counter(0) { tick(resume, s) -> resume(s + perform Log.get(), s + 1) }
+}
+
+fn measured(msg: String) -> Int {
+    asks() handle Ask { ask(resume) -> resume(len(msg)) }
+}
+
+fn maybe(stop: Bool) -> Int {
+    asks() handle Ask { ask(resume) -> if stop { 0 } else { resume(7) } }
+}
+
+fn maybe_logged(stop: Bool) -> Int with Log {
+    asks() handle Ask { ask(resume) -> if stop { 0 } else { resume(perform Log.get()) } }
+}
+"#,
+    );
+    let kinds = |name| handle_kinds_in(&core, &interner, name);
+    assert_eq!(kinds("forwards"), [HandleKind::InPlace]);
+    assert_eq!(kinds("counted"), [HandleKind::InPlace]);
+    assert_eq!(kinds("measured"), [HandleKind::InPlacePure]);
+    assert_eq!(kinds("maybe"), [HandleKind::LastActPure]);
+    assert_eq!(kinds("maybe_logged"), [HandleKind::Captured]);
+}

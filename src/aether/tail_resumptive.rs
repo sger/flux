@@ -7,6 +7,126 @@ use crate::aether::{AetherExpr, AetherHandler};
 use crate::core::CoreBinderId;
 use crate::syntax::Identifier;
 
+/// Where a handle's clauses run, as both backends read it from the handle's
+/// evidence entry (natively) or handler frame (on the VM). Its values are
+/// the native entry's flag.
+///
+/// @KI-185: the entry has one flag for all its clauses, so a handle has the
+/// kind every one of its clauses allows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HandleKind {
+    /// At the handle's prompt, under the evidence the handle was installed
+    /// under, with a `resume` that delimits (KI-233).
+    Captured = 0,
+    /// At the prompt, under the perform's evidence, with a `resume` that only
+    /// runs the frames between the perform and the prompt, so a loop of
+    /// performs keeps a flat stack. Only for clauses that read no evidence:
+    /// a clause that performs runs in its handle's context (KI-243).
+    LastActPure = 1,
+    /// Where the perform was, called as a function, under the evidence the
+    /// handle was installed under, with no continuation captured (proposal
+    /// 0205, part A).
+    InPlace = 2,
+    /// In place, with the perform's evidence left as it is: the clause reads
+    /// none.
+    InPlacePure = 3,
+}
+
+/// The kind of a handle with these clauses. `parameterized`: the handle has
+/// a state, so a clause resumes with `resume(v, s)`.
+///
+/// @KI-243: a clause in place runs under its handle's evidence, so one that
+/// performs, its own effect included (KI-233), can run in place. A clause
+/// that only resumes as its last act, with a branch that doesn't, can't run
+/// in place, and runs where the perform's evidence is only if it performs
+/// nothing.
+pub fn handle_kind(handlers: &[AetherHandler], parameterized: bool) -> HandleKind {
+    let arity = if parameterized { 2 } else { 1 };
+    let pure = handlers.iter().all(|h| performs_nothing(&h.body, h.resume.id));
+    if handlers.iter().all(|h| resumes_once_as_last_act(&h.body, h.resume.id, arity)) {
+        if pure { HandleKind::InPlacePure } else { HandleKind::InPlace }
+    } else if pure && handlers.iter().all(|h| resumes_only_as_last_act(&h.body, h.resume.id)) {
+        HandleKind::LastActPure
+    } else {
+        HandleKind::Captured
+    }
+}
+
+/// Whether every path through a clause ends in exactly one call of `resume`
+/// with `arity` arguments, and `resume` appears nowhere else: the clause can
+/// run as a function at the perform, with `resume` giving back its argument.
+pub fn resumes_once_as_last_act(body: &AetherExpr, resume: CoreBinderId, arity: usize) -> bool {
+    let mentions = |expr: &AetherExpr| {
+        crate::aether::free_vars::collect_free_vars_aether(expr).contains(&resume)
+    };
+    let last = |expr: &AetherExpr| resumes_once_as_last_act(expr, resume, arity);
+    match body {
+        AetherExpr::App { func, args, .. } | AetherExpr::AetherCall { func, args, .. } if matches!(func.as_ref(), AetherExpr::Var { var, .. } if var.binder == Some(resume)) => {
+            args.len() == arity && !args.iter().any(mentions)
+        }
+        AetherExpr::Let { rhs, body, .. } | AetherExpr::LetRec { rhs, body, .. } => {
+            !mentions(rhs) && last(body)
+        }
+        AetherExpr::LetRecGroup { bindings, body, .. } => {
+            !bindings.iter().any(|(_, rhs)| mentions(rhs)) && last(body)
+        }
+        AetherExpr::Case { scrutinee, alts, .. } => {
+            !mentions(scrutinee)
+                && alts
+                    .iter()
+                    .all(|alt| !alt.guard.as_ref().is_some_and(mentions) && last(&alt.rhs))
+        }
+        AetherExpr::Dup { var, body, .. }
+        | AetherExpr::Drop { var, body, .. }
+        | AetherExpr::FreeShell { var, body, .. } => var.binder != Some(resume) && last(body),
+        AetherExpr::DropSpecialized { unique_body, shared_body, .. } => {
+            last(unique_body) && last(shared_body)
+        }
+        _ => false,
+    }
+}
+
+/// Whether a clause reads no evidence: it performs nothing, installs no
+/// handler and calls nothing but `resume`, any of which could perform.
+/// Primops, constructors and lambdas it only builds don't.
+pub fn performs_nothing(expr: &AetherExpr, resume: CoreBinderId) -> bool {
+    let children: Vec<&AetherExpr> = match expr {
+        AetherExpr::Var { .. } | AetherExpr::Lit(..) | AetherExpr::Lam { .. } => Vec::new(),
+        AetherExpr::Perform { .. } | AetherExpr::Handle { .. } => return false,
+        AetherExpr::App { func, args, .. } | AetherExpr::AetherCall { func, args, .. } => {
+            if !matches!(func.as_ref(), AetherExpr::Var { var, .. } if var.binder == Some(resume)) {
+                return false;
+            }
+            args.iter().collect()
+        }
+        AetherExpr::Dup { body, .. }
+        | AetherExpr::Drop { body, .. }
+        | AetherExpr::FreeShell { body, .. } => vec![body],
+        AetherExpr::Let { rhs, body, .. } | AetherExpr::LetRec { rhs, body, .. } => {
+            vec![rhs, body]
+        }
+        AetherExpr::LetRecGroup { bindings, body, .. } => bindings
+            .iter()
+            .map(|(_, rhs)| rhs.as_ref())
+            .chain(std::iter::once(body.as_ref()))
+            .collect(),
+        AetherExpr::Case { scrutinee, alts, .. } => std::iter::once(scrutinee.as_ref())
+            .chain(alts.iter().flat_map(|alt| alt.guard.iter().chain(std::iter::once(&alt.rhs))))
+            .collect(),
+        AetherExpr::Con { fields: args, .. }
+        | AetherExpr::Reuse { fields: args, .. }
+        | AetherExpr::PrimOp { args, .. } => args.iter().collect(),
+        AetherExpr::MemberAccess { object, .. } | AetherExpr::TupleField { object, .. } => {
+            vec![object]
+        }
+        AetherExpr::Return { value, .. } => vec![value],
+        AetherExpr::DropSpecialized { unique_body, shared_body, .. } => {
+            vec![unique_body, shared_body]
+        }
+    };
+    children.into_iter().all(|child| performs_nothing(child, resume))
+}
+
 /// Whether every clause of a handle for `effect` resumes only as its last
 /// act, and none performs `effect`.
 ///

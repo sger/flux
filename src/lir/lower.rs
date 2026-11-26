@@ -6519,6 +6519,38 @@ mod tests {
         assert!(resumes_only_as_last_act(&AetherExpr::bound_var(v, Span::default()), resume.id));
     }
 
+    /// A clause runs in place only if each path ends in one call of `resume`
+    /// with the handle's arity, and `resume` appears nowhere else: not in a
+    /// branch that never resumes, not in a `let` before the call, not in its
+    /// arguments (KI-243).
+    #[test]
+    fn a_clause_runs_in_place_only_if_it_resumes_once_as_its_last_act_ki243() {
+        use crate::aether::tail_resumptive::resumes_once_as_last_act;
+        let [resume, v, x] = [1, 2, 3].map(|id| mk_binder(id, Identifier::new(id)));
+        let span = Span::default();
+        let call = |args: Vec<AetherExpr>| AetherExpr::App {
+            func: Box::new(AetherExpr::bound_var(resume, span)),
+            args,
+            span,
+        };
+        assert!(resumes_once_as_last_act(&resume_call(resume, v), resume.id, 1));
+        assert!(!resumes_once_as_last_act(&resume_call(resume, v), resume.id, 2));
+        assert!(!resumes_once_as_last_act(&AetherExpr::bound_var(v, span), resume.id, 1));
+        assert!(!resumes_once_as_last_act(
+            &call(vec![AetherExpr::bound_var(resume, span)]),
+            resume.id,
+            1
+        ));
+        let resumed_before = AetherExpr::Let {
+            var: x,
+            rhs: Box::new(resume_call(resume, v)),
+            body: Box::new(resume_call(resume, x)),
+            span,
+        };
+        assert!(!resumes_once_as_last_act(&resumed_before, resume.id, 1));
+        assert!(resumes_only_as_last_act(&AetherExpr::bound_var(v, span), resume.id));
+    }
+
     /// A clause that performs its handle's own effect isn't tail-resumptive,
     /// even when it ends with its resume; one that performs another is
     /// (KI-233).
