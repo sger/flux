@@ -1463,6 +1463,10 @@ impl Compiler {
         required_effects.sort_by_key(|symbol| self.sym(*symbol).to_string());
 
         for required_name in required_effects {
+            if self.reaches_own_clause_handler(required_name) {
+                let what = format!("Calling `{function_name}`, which performs it,");
+                return Err(self.own_clause_handler_error(required_name, what, function.span()));
+            }
             if !self.is_effect_available(required_name) {
                 let missing = self.sym(required_name).to_string();
                 return Err(Self::boxed(
@@ -3874,6 +3878,14 @@ impl Compiler {
             )?;
         }
 
+        if self.reaches_own_clause_handler(effect) {
+            let what = if lowered_from_call {
+                format!("Calling `{}`", self.sym(op))
+            } else {
+                format!("Performing `{}`", self.sym(op))
+            };
+            return Err(self.own_clause_handler_error(effect, what, span));
+        }
         if !self.is_effect_available(effect) {
             let effect_name = self.sym(effect).to_string();
             let (message, label) = if lowered_from_call {
@@ -4194,14 +4206,25 @@ impl Compiler {
             // compile_function_literal emits OpClosure, leaving a closure on the stack.
             // The arm's entry site is at the arm, not at the `handle`.
             let handle_span = self.current_span.replace(arm_span);
+            // @KI-226: a clause may perform what the enclosing function
+            // declares and what the handles around this one provide: the
+            // `ambient` row is both. The arm's own effect isn't among them
+            // yet (the handled expression is compiled under it below), as a
+            // clause runs outside its own handler.
+            let ambient = crate::syntax::effect_expr::EffectExpr::RowVar {
+                name: self.interner.intern("ambient"),
+                span: arm_span,
+            };
+            self.clause_effects.push((effect, self.handled_effects.len()));
             let compiled = self.compile_function_literal(
                 ExprId::UNSET,
                 &params,
                 &parameter_types,
                 &None,
-                &[],
+                std::slice::from_ref(&ambient),
                 &arm_block,
             );
+            self.clause_effects.pop();
             self.current_span = handle_span;
             compiled?;
         }

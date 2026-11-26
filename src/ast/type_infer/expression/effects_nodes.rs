@@ -115,7 +115,10 @@ impl InferCtx<'_> {
             self.bind_handle_arm_params(arm, &param_tys, parameter_ty);
             self.bind_handle_arm_resume(arm, &op_ret_ty, parameter_ty, handled_ty);
         }
-        let body_ty = self.with_handle_effect(effect, |ctx| ctx.infer_expression(&arm.body));
+        // @KI-226: a clause runs outside its own handler, so its own effect
+        // is available in it only as the function and the handles around it
+        // provide it, as in the compiler's check.
+        let body_ty = self.infer_expression(&arm.body);
         self.env.leave_scope();
         body_ty
     }

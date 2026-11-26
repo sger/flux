@@ -1172,6 +1172,9 @@ pub struct Compiler {
     pub(super) function_param_effect_rows: Vec<HashMap<Symbol, effect_rows::EffectRow>>,
     // Effects currently handled by enclosing `handle ...` scopes.
     pub(super) handled_effects: Vec<Symbol>,
+    // The effect of each handler clause being compiled, with the length of
+    // `handled_effects` where the clause starts (KI-233).
+    pub(super) clause_effects: Vec<(Symbol, usize)>,
     // Compile-time handler scope stack for static handler resolution.
     // Tracks active handle blocks and their operations for OpPerformDirectIndexed.
     pub(super) handler_scopes: Vec<HandlerScope>,
@@ -1803,6 +1806,7 @@ impl Compiler {
             function_effects: Vec::new(),
             function_param_effect_rows: Vec::new(),
             handled_effects: Vec::new(),
+            clause_effects: Vec::new(),
             handler_scopes: Vec::new(),
             captured_local_indices: Vec::new(),
             free_vars: HashSet::new(),
@@ -1919,6 +1923,7 @@ impl Compiler {
         self.function_effects.clear();
         self.function_param_effect_rows.clear();
         self.handled_effects.clear();
+        self.clause_effects.clear();
         self.effect_ops_registry.clear();
         self.effect_op_signatures.clear();
         self.effect_row_aliases.clear();
@@ -7968,6 +7973,50 @@ impl Compiler {
             rows.insert(*param, effect_rows::EffectRow::from_effect_exprs(effects));
         }
         rows
+    }
+
+    /// Whether performing `effect` here would reach the handler of a clause
+    /// being compiled: the effect is the clause's own, and no `handle` inside
+    /// the clause provides it.
+    ///
+    /// @KI-233: both runtimes run a clause under its own handler, so such a
+    /// perform reaches the clause again, without end. Until they run it
+    /// outside, it is rejected here.
+    pub(super) fn reaches_own_clause_handler(&self, effect: Symbol) -> bool {
+        self.clause_effects.iter().any(|&(own, depth)| {
+            own == effect
+                && self.handled_effects.get(depth..).is_none_or(|inner| !inner.contains(&effect))
+        })
+    }
+
+    /// The error for `what` (a perform, or a call that performs) reaching its
+    /// own clause's handler; see [`Self::reaches_own_clause_handler`].
+    pub(super) fn own_clause_handler_error(
+        &self,
+        effect: Symbol,
+        what: String,
+        span: Span,
+    ) -> Box<Diagnostic> {
+        let effect_name = self.sym(effect).to_string();
+        Self::boxed(
+            Diagnostic::make_error_dynamic(
+                "E400",
+                "CLAUSE PERFORMS ITS OWN EFFECT",
+                ErrorType::Compiler,
+                format!(
+                    "{what} inside a clause of the `{effect_name}` handler would reach that same handler, which isn't supported yet."
+                ),
+                Some(format!(
+                    "Perform `{effect_name}` in the handled code instead, or handle it again inside the clause."
+                )),
+                self.file_path.clone(),
+                span,
+            )
+            .with_display_title("Clause Performs Its Own Effect")
+            .with_category(DiagnosticCategory::Effects)
+            .with_phase(crate::diagnostics::DiagnosticPhase::Effect)
+            .with_primary_label(span, "reaches its own handler"),
+        )
     }
 
     pub(super) fn with_handled_effect<F, R>(&mut self, effect: Symbol, f: F) -> R
