@@ -1047,7 +1047,7 @@ fn more_frames_than_the_runtime_keeps_in_one_continuation() {
         return;
     };
     let scratch = built("overflow.flx");
-    let Some(session) = flux_session(&lldb, &scratch, "app", ("overflow.flx", 49), &["flux bt"])
+    let Some(session) = flux_session(&lldb, &scratch, "app", ("overflow.flx", 51), &["flux bt"])
     else {
         return;
     };

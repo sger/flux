@@ -1,5 +1,7 @@
 // Ten frames between a perform and its handler: more than the runtime's
 // eight continuation slots, so `resume` is a composed closure (0188 S7).
+// The clause works after `resume`, so it captures them: one that resumes as
+// its last act runs at the perform, with nothing suspended (proposal 0205).
 effect Ask {
     value : () -> Int
 }
@@ -46,7 +48,7 @@ fn level1() -> Int with Ask {
 
 fn main() with IO {
     let result = level1() handle Ask {
-        value(resume) -> resume(1)
+        value(resume) -> resume(1) * 2
     }
     print(to_string(result))
 }
