@@ -68,6 +68,71 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-234 — A recursive tail call that passes on a closure call's result is not a jump, so a loop pulling a stream of closures overflows the stack
+
+**Severity:** Medium (a crash on a long stream; no workaround survives `-O`) · **Area:** Aether, borrow inference (`src/aether/borrow_infer.rs`), both backends · **Verified:** 2026-11-26 (b2f0f766, and `main` at 64005292) · **From:** writing the generator benchmark
+
+```flux
+import Flow.Env as Env
+import Flow.Array as Array
+
+type Gen = Empty | Thunk(Int, () -> Gen)
+
+fn gen(i: Int) -> Gen {
+    if i == 0 { Empty } else { Thunk(i, \() -> gen(i - 1)) }
+}
+
+fn sum(a: Int, g: Gen) -> Int {
+    match g {
+        Empty -> a,
+        Thunk(v, f) -> sum_next(v + a, f),
+    }
+}
+
+fn sum_next(a: Int, f: () -> Gen) -> Int {
+    let g = f()
+    sum(a, g)
+}
+
+fn main() with IO {
+    let n = match Array.get(Env.args(), 1) { Some(s) -> parse_int(s), None -> 1000000 }
+    print(sum(0, gen(n)))
+}
+```
+
+Every call in the loop is a tail call, so it should run in constant stack
+and print `n(n+1)/2`. Built with `--native -O --emit-binary`:
+
+| n | VM | Native |
+|---:|:---|:---|
+| 100,000 | prints `5000050000` | prints `5000050000`, 13 MB peak RSS |
+| 1,000,000 | `E1009 stack overflow` | prints `500000500000`, 116 MB |
+| 2,000,000 | `E1009 stack overflow` | 138 (SIGBUS), 162 MB |
+
+Writing the arm as `Thunk(v, f) -> sum(v + a, f())`, with no `sum_next`,
+gives the same crash natively at 2,000,000.
+
+`--dump-aether` shows the cause. `sum`'s `g` is inferred borrowed, so
+the call `sum(a, g)` lends the closure's result, and a `drop` follows the
+call (`aether_call[owned, borrowed] sum(…)`, then `drop`). With the drop
+after it, the call isn't a jump, and each turn keeps a frame and its
+stream cell. KI-128's rule makes a parameter owned when a recursive tail
+call passes it a fresh value (`TailCaller`). But `makes_fresh_value`
+counts a call as fresh only when its callee resolves to a Flux function.
+A closure resolves to `BorrowCallee::Unknown`, so its result doesn't
+count.
+
+Calling the closure through `fn force(f: () -> Gen) -> Gen { f() }` makes
+`g` owned and the loop constant-stack, but only without `-O`. With `-O`,
+`force` is inlined back into a closure call. effect-handlers-bench's
+generator sums its stream this way. With `force` and no `-O`, it runs at
+the suite's height of 25 natively in 2 MB.
+
+Not yet known: whether every closure call returns a value its caller owns.
+The comment on `makes_fresh_value` gives a runtime function's result,
+which can be a view of an argument, as the reason `Unknown` is left out.
+A fix is in Aether, so it needs `cargo xtask verify`.
+
 ### KI-233 — A handler clause runs under its own handler, so a clause that performs its own effect reaches itself
 
 **Severity:** Medium (rejected at compile time with E400 until fixed; handler_sieve can't be written) · **Area:** VM and native effects runtimes (`src/vm/dispatch.rs`, `runtime/c/effects.c`) · **Verified:** 2026-11-26 (3a718d3e with the KI-226 fix applied, before the compile-time rejection) · **From:** fixing KI-226
