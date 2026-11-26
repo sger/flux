@@ -1,4 +1,6 @@
-use crate::runtime::{frame::Frame, handler_frame::HandlerFrame, value::Value};
+use crate::runtime::{
+    evidence::EvidenceVector, frame::Frame, handler_frame::HandlerFrame, value::Value,
+};
 
 /// Upper bound on the per-VM free-list of recycled [`Continuation`] shells
 /// (see `VM::cont_pool`). Steady-state fiber park/resume cycles one shell back
@@ -43,6 +45,13 @@ pub struct Continuation {
     /// Handler marker whose state should be replaced when this continuation is
     /// resumed with `resume(value, next_state)`.
     pub state_marker: Option<u32>,
+
+    /// The handler that caught the perform, and the evidence in place at the
+    /// perform, its own and that of the handlers inside it. A resume called
+    /// after the clause has returned finds the handler gone and puts both
+    /// back (KI-225). `None` for a fiber's suspension.
+    pub handler: Option<HandlerFrame>,
+    pub evidence: Option<EvidenceVector>,
 
     /// While a debugger is attached: the serials of the calls in `frames`,
     /// so a resumed frame is the same call to it (0188 S7). Empty otherwise.
@@ -108,6 +117,8 @@ impl Continuation {
                 let mut c = pieces.pop().expect("len == 1");
                 c.inner_handlers = inner_handlers;
                 c.state_marker = state_marker;
+                c.handler = None;
+                c.evidence = None;
                 Ok(c)
             }
             n => {
@@ -131,6 +142,8 @@ impl Continuation {
                 result.entry_frame_index = outermost_entry_frame_index;
                 result.inner_handlers = inner_handlers;
                 result.state_marker = state_marker;
+                result.handler = None;
+                result.evidence = None;
 
                 // Walk outermost-first so frames land deepest-first in `result.frames`.
                 for mut piece in pieces.drain(..).rev() {
@@ -197,6 +210,8 @@ mod tests {
             entry_frame_index: 1,
             inner_handlers: vec![],
             state_marker: None,
+            handler: None,
+            evidence: None,
             debug_serials: Vec::new(),
         })));
         let outer = Value::Continuation(Rc::new(RefCell::new(Continuation {
@@ -207,6 +222,8 @@ mod tests {
             entry_frame_index: 0,
             inner_handlers: vec![],
             state_marker: None,
+            handler: None,
+            evidence: None,
             debug_serials: Vec::new(),
         })));
 
@@ -243,6 +260,8 @@ mod tests {
             entry_frame_index,
             inner_handlers: vec![],
             state_marker: None,
+            handler: None,
+            evidence: None,
             debug_serials: Vec::new(),
         }
     }

@@ -1481,6 +1481,12 @@ impl VM {
                     {
                         continuation.borrow_mut().debug_serials = debug_serials;
                     }
+                    // @KI-225: a resume kept past the clause puts these back.
+                    if let Value::Continuation(continuation) = &cont_val {
+                        let mut continuation = continuation.borrow_mut();
+                        continuation.handler = Some(handler.clone());
+                        continuation.evidence = Some(self.context.evidence.clone());
+                    }
                     self.handler_stack.truncate(handler_pos + 1);
                     self.context.yield_state.clear();
 

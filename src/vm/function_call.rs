@@ -44,6 +44,8 @@ impl VM {
             entry_frame_index: self.frame_index.saturating_sub(1),
             inner_handlers: vec![],
             state_marker: None,
+            handler: None,
+            evidence: None,
             debug_serials: Vec::new(),
         })))
     }
@@ -68,6 +70,8 @@ impl VM {
         shell.entry_frame_index = frame_index.saturating_sub(1);
         shell.inner_handlers.clear();
         shell.state_marker = None;
+        shell.handler = None;
+        shell.evidence = None;
         shell
     }
 
@@ -398,6 +402,29 @@ impl VM {
             Ok(cell) => cell.into_inner(),
             Err(rc) => rc.borrow().clone(),
         };
+        // @KI-225: the handler that caught the perform is gone when the
+        // clause has returned and `resume` was kept and called later.
+        let evidence = cont_shell.evidence.take();
+        if let Some(handler) = cont_shell.handler.take()
+            && !self.handler_stack.iter().any(|h| h.marker == handler.marker)
+        {
+            let ran = self.resume_escaped(
+                &mut cont_shell,
+                handler,
+                evidence.unwrap_or_default(),
+                resume_val,
+                next_state,
+                return_slot,
+                caller_ip_advance,
+            );
+            if caller_ip_advance.is_some() && self.debugger.is_some() {
+                self.debug_note_resume_end();
+            }
+            if self.cont_pool.len() < crate::runtime::continuation::CONT_POOL_CAP {
+                self.cont_pool.push(cont_shell);
+            }
+            return ran;
+        }
         let entry_frame_index = cont_shell.entry_frame_index;
         let entry_sp = cont_shell.entry_sp;
         let captured_sp = cont_shell.sp;
@@ -516,6 +543,111 @@ impl VM {
         }
 
         Ok(())
+    }
+
+    /// Resumes a continuation whose handler is no longer installed: its
+    /// clause has returned, and `resume` was kept and called later (KI-225).
+    ///
+    /// As a deep handler's resume does, it puts the handler back around the
+    /// resumed frames, with the evidence in place at the perform, so a
+    /// perform there runs the clause again, and what the clause gives is
+    /// what `resume` returns. The frames go on top of the caller, wherever
+    /// it is: those they were captured above may be gone or in other use, so
+    /// every position they hold moves with them. A `resume` in tail position
+    /// then returns from the caller's frame.
+    #[allow(clippy::too_many_arguments)]
+    fn resume_escaped(
+        &mut self,
+        cont: &mut Continuation,
+        mut handler: HandlerFrame,
+        evidence: crate::runtime::evidence::EvidenceVector,
+        resume_val: Value,
+        next_state: Option<Value>,
+        return_slot: usize,
+        caller_ip_advance: Option<usize>,
+    ) -> Result<(), String> {
+        fn moved(value: usize, from: usize, to: usize) -> Result<usize, String> {
+            value
+                .checked_sub(from)
+                .map(|offset| offset + to)
+                .ok_or_else(|| "resumed continuation holds a position below its boundary".into())
+        }
+        let base_frame = self.frame_index;
+        let base_sp = return_slot;
+        if let Some(advance) = caller_ip_advance {
+            self.frames[base_frame].ip += advance;
+        }
+        // Positions move with the handler's entry: the captured stack starts
+        // at the outermost frame's base, above the slot that frame returns to.
+        let (entry_frame, entry_sp) = (cont.entry_frame_index, handler.entry_sp);
+        let saved_handlers = self.handler_stack.len();
+        let saved_evidence = std::mem::replace(&mut self.context.evidence, evidence);
+
+        let handlers_from = handler.entry_handler_stack_len;
+        handler.entry_frame_index = base_frame;
+        handler.entry_sp = base_sp;
+        handler.entry_handler_stack_len = saved_handlers;
+        if cont.state_marker == Some(handler.marker) {
+            handler.state = Some(next_state.ok_or_else(|| {
+                "parameterized handler resume expects next state argument".to_string()
+            })?);
+        } else if next_state.is_some() {
+            return Err("non-parameterized resume received next state argument".to_string());
+        }
+        self.handler_stack.push(handler);
+        for mut inner in cont.inner_handlers.drain(..) {
+            inner.entry_frame_index = moved(inner.entry_frame_index, entry_frame, base_frame)?;
+            inner.entry_sp = moved(inner.entry_sp, entry_sp, base_sp)?;
+            inner.entry_handler_stack_len =
+                moved(inner.entry_handler_stack_len, handlers_from, saved_handlers)?;
+            self.handler_stack.push(inner);
+        }
+
+        let captured_sp = moved(cont.sp, entry_sp, base_sp)?;
+        let stack_base = moved(cont.entry_sp, entry_sp, base_sp)?;
+        self.reset_sp(base_sp)?;
+        self.ensure_stack_capacity(captured_sp + 1)?;
+        for slot in base_sp..stack_base {
+            self.stack_set(slot, Value::None);
+        }
+        for (i, v) in cont.stack.drain(..).enumerate() {
+            self.stack_set(stack_base + i, v);
+        }
+        self.stack_set(captured_sp, resume_val);
+        self.sp = captured_sp + 1;
+
+        for mut frame in cont.frames.drain(..) {
+            frame.base_pointer = moved(frame.base_pointer, entry_sp, base_sp)?;
+            frame.return_slot = moved(frame.return_slot, entry_sp, base_sp)?;
+            self.push_frame(frame);
+            let below = self.frame_index - 1;
+            if below > base_frame {
+                self.call_ips[self.frame_index] = self.frames[below].ip.saturating_sub(1);
+            }
+        }
+        cont.debug_serials.clear();
+
+        let ran = self.nested(|vm| {
+            while vm.frame_index > base_frame {
+                if vm.current_frame().ip >= vm.current_frame().instructions().len() {
+                    return Err("resumed continuation exited without return".to_string());
+                }
+                vm.execute_current_instruction(Some(base_frame + 1))?;
+            }
+            Ok(())
+        });
+        self.handler_stack.truncate(saved_handlers);
+        self.context.evidence = saved_evidence;
+        ran?;
+
+        let result = self.pop()?;
+        if caller_ip_advance.is_none() {
+            let caller_return = self.pop_frame_return_slot();
+            self.reset_sp(caller_return)?;
+        } else {
+            self.reset_sp(return_slot)?;
+        }
+        self.push(result)
     }
 
     /// Runs `body`, a dispatch loop nested inside an instruction of the

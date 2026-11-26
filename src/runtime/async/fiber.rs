@@ -518,6 +518,8 @@ mod tests {
             entry_frame_index: 0,
             inner_handlers: vec![],
             state_marker: Some(7),
+            handler: None,
+            evidence: None,
             debug_serials: Vec::new(),
         };
         let mut f = Fiber::new(WorkerId(2));
