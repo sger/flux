@@ -1256,6 +1256,49 @@ cargo xtask bench generator
 Latest report:
 
 <!-- generator-report:start -->
+# Generator Benchmark Report
+
+- Generated: 2026-11-26 08:41 UTC
+- Machine: macos-aarch64
+- Runs: 3 to 50, as hyperfine chose, warmup: 1
+- Workload: 17 (smoke)
+- Toolchains: flux c4f695dd; hyperfine 2.0.0; rustc 1.100.0 (0ef1bc386 2026-11-09); Python 3.9.6; ghc 9.10.3; ocamlopt 5.5.2; erlang OTP 29; elixir 1.20.5; go1.27.4 darwin/arm64
+
+| Case | Mean | ± σ | Min | Max | Peak RSS | Instructions | × native |
+|:---|---:|---:|---:|---:|---:|---:|---:|
+| `generator/flux` | 1.152 s | 6.47 ms | 1.144 s | 1.156 s | 19.6 MiB | 31.14 G | 72.61× |
+| `generator/flux-direct` | 180.4 ms | 1.88 ms | 177.4 ms | 184.0 ms | 19.3 MiB | 3.87 G | 11.37× |
+| `generator/flux-native` | 15.9 ms | 0.26 ms | 15.3 ms | 16.6 ms | 2.1 MiB | 384.1 M | 1.00× |
+| `generator/flux-native-direct` | 1.65 ms | 0.07 ms | 1.55 ms | 1.91 ms | 2.1 MiB | 25.7 M | 0.10× |
+| `generator/rust` | 1.24 ms | 0.05 ms | 1.18 ms | 1.37 ms | 2.0 MiB | 15.4 M | 0.08× |
+| `generator/python` | 23.8 ms | 0.50 ms | 22.6 ms | 24.9 ms | 9.3 MiB | 424.8 M | 1.50× |
+| `generator/haskell` | 16.3 ms | 0.65 ms | 14.1 ms | 17.0 ms | 11.4 MiB | 56.2 M | 1.03× |
+| `generator/ocaml` | 4.94 ms | 0.37 ms | 4.58 ms | 6.34 ms | 4.8 MiB | 44.7 M | 0.31× |
+| `generator/erlang` | 73.3 ms | 1.07 ms | 71.6 ms | 75.7 ms | 61.0 MiB | 1.50 G | 4.62× |
+| `generator/elixir` | 130.9 ms | 1.13 ms | 129.0 ms | 132.8 ms | 67.7 MiB | 2.41 G | 8.25× |
+| `generator/go` | 1.72 ms | 0.10 ms | 1.59 ms | 2.11 ms | 4.4 MiB | 21.1 M | 0.11× |
+
+VM / native: 72.61×
+
+Effect overhead (with handlers / direct style): VM 6.38×, native 9.61×
+
+No baseline for macos-aarch64 yet: record one with --save-baseline.
+
+### VM counts
+
+From `flux --metrics` on the VM case. They are the same on every run of the same compiler.
+
+| Count | Now | Baseline | Change |
+|:---|---:|---:|---:|
+| `aether_allocs` | 0 | – | – |
+| `aether_drops` | 42 | – | – |
+| `aether_dups` | 4 | – | – |
+| `aether_reuses` | 0 | – | – |
+| `bytecode_bytes` | 6405 | – | – |
+| `compiler_allocs` | 2001192 | – | – |
+| `core_size` | 311 | – | – |
+| `vm_allocs` | 62458526 | – | – |
+| `vm_instructions` | 11536447 | – | – |
 <!-- generator-report:end -->
 
 ## Recursive Fibonacci
