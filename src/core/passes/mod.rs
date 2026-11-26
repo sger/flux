@@ -259,12 +259,19 @@ fn run_semantic_core_passes_with_optional_interner(
 
     // ── Stage 2: Normalization passes (run once) ─────────────────────────
     let scope = lint_scope(program);
+    let pure_calls: std::collections::HashSet<_> = interner
+        .map(|interner| {
+            crate::ast::route_effectful_primops::routed_intrinsic_names()
+                .filter_map(|name| interner.lookup(name))
+                .collect()
+        })
+        .unwrap_or_default();
     // The order may change the fresh binders `next_id` hands out, never the
     // program (0190 §9).
     for index in crate::shared::shuffle::visit_order(program.defs.len(), "core-normalize") {
         let def = &mut program.defs[index];
         let e = std::mem::replace(&mut def.expr, sentinel.clone());
-        let e = evidence_pass(e, &mut next_id);
+        let e = evidence_pass(e, &mut next_id, &pure_calls);
         check_pass(def, &e, "evidence_pass", scope.as_ref(), interner)?;
         let e = handle_body_frames(e);
         check_pass(def, &e, "handle_body_frames", scope.as_ref(), interner)?;

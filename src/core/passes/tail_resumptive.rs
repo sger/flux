@@ -4,6 +4,8 @@
 /// one call to `resume(expr)` as its terminal expression on every code path.
 /// For these handlers, the `evidence_pass` can rewrite Perform/Handle into
 /// explicit evidence passing (direct function calls).
+use std::collections::HashSet;
+
 use crate::{
     core::{CoreBinderId, CoreExpr, CoreHandler},
     syntax::Identifier,
@@ -59,6 +61,44 @@ pub fn performs_effect(expr: &CoreExpr, effect: Identifier) -> bool {
         }
     };
     children.into_iter().any(|child| performs_effect(child, effect))
+}
+
+/// Whether a clause reads no evidence: it performs nothing, installs no
+/// handler and calls nothing but `resume` and `pure_calls`, as any other
+/// call could perform. Primops, constructors and lambdas it only builds
+/// don't. Aether's `performs_nothing`, over Core, where the prelude's
+/// intrinsics are still calls.
+pub fn performs_nothing(
+    expr: &CoreExpr,
+    resume: CoreBinderId,
+    pure_calls: &HashSet<Identifier>,
+) -> bool {
+    let children: Vec<&CoreExpr> = match expr {
+        CoreExpr::Var { .. } | CoreExpr::Lit(..) | CoreExpr::Lam { .. } => Vec::new(),
+        CoreExpr::Perform { .. } | CoreExpr::Handle { .. } => return false,
+        CoreExpr::App { func, args, .. } => {
+            let pure_call = matches!(func.as_ref(), CoreExpr::Var { var, .. } if pure_calls.contains(&var.name));
+            if !is_resume_var(resume, func) && !pure_call {
+                return false;
+            }
+            args.iter().collect()
+        }
+        CoreExpr::Let { rhs, body, .. } | CoreExpr::LetRec { rhs, body, .. } => vec![rhs, body],
+        CoreExpr::LetRecGroup { bindings, body, .. } => bindings
+            .iter()
+            .map(|(_, rhs)| rhs.as_ref())
+            .chain(std::iter::once(body.as_ref()))
+            .collect(),
+        CoreExpr::Case { scrutinee, alts, .. } => std::iter::once(scrutinee.as_ref())
+            .chain(alts.iter().flat_map(|alt| alt.guard.iter().chain(std::iter::once(&alt.rhs))))
+            .collect(),
+        CoreExpr::Con { fields: args, .. } | CoreExpr::PrimOp { args, .. } => args.iter().collect(),
+        CoreExpr::MemberAccess { object, .. } | CoreExpr::TupleField { object, .. } => {
+            vec![object]
+        }
+        CoreExpr::Return { value, .. } => vec![value],
+    };
+    children.into_iter().all(|child| performs_nothing(child, resume, pure_calls))
 }
 
 /// Check whether a handler arm body terminates with `resume(v)` on every path.

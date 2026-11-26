@@ -138,6 +138,12 @@ pub struct RoutingResult {
     pub routed_call_perform_ids: std::collections::HashSet<ExprId>,
 }
 
+/// The intrinsics the default handlers call. Each runs its primop and
+/// performs nothing, so a clause that calls one reads no evidence.
+pub fn routed_intrinsic_names() -> impl Iterator<Item = &'static str> {
+    ROUTED_PRIMOPS.iter().map(|routed| routed.internal_name)
+}
+
 /// `user_redefined_builtin_effects`: effect names that have a user-written
 /// `effect E { ... }` declaration somewhere in the compilation set (this
 /// module or any preloaded dependency). When a user effect shadows one of

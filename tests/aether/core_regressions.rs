@@ -2957,3 +2957,44 @@ fn maybe_logged(stop: Bool) -> Int with Log {
     assert_eq!(kinds("maybe"), [HandleKind::LastActPure]);
     assert_eq!(kinds("maybe_logged"), [HandleKind::Captured]);
 }
+
+/// The evidence pass calls a clause directly at a perform written in its
+/// handle's body only when the clause reads no evidence: a direct call runs
+/// it under the perform's handlers. A clause that performs keeps the
+/// perform, which the runtime serves in the handle's context (KI-243).
+#[test]
+fn a_perform_whose_clause_performs_is_left_to_the_runtime_ki243() {
+    let (core, interner) = lowered_core_and_interner(
+        r#"
+effect Ask {
+    ask : () -> Int
+}
+
+effect Log {
+    get : () -> Int
+}
+
+fn logged() -> Int with Log {
+    (perform Ask.ask() handle Log { get(resume) -> resume(2) }) handle Ask { ask(resume) -> resume(perform Log.get()) }
+}
+
+fn pure() -> Int {
+    perform Ask.ask() handle Ask { ask(resume) -> resume(5) }
+}
+"#,
+    );
+    let ask = interner.lookup("Ask").expect("the program names Ask");
+    let asks_in = |name: &str| {
+        let def = core
+            .defs()
+            .iter()
+            .find(|def| interner.try_resolve(def.name) == Some(name))
+            .unwrap_or_else(|| panic!("the program defines `{name}`"));
+        count_matching(
+            &def.expr,
+            &|expr| matches!(expr, CoreExpr::Perform { effect, .. } if *effect == ask),
+        )
+    };
+    assert_eq!(asks_in("logged"), 1);
+    assert_eq!(asks_in("pure"), 0);
+}
