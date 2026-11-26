@@ -310,6 +310,14 @@ continuation and pass a foreign yield outwards (`prompt`,
 Neither triples nor tree_explore performs to an outer handler whose clause
 does work after `resume`, so native code gives their expected results.
 
+The same path takes a perform from a clause to the handler outside it,
+which KI-233's fix allows (2026-11-26, 184c35d3). When the outer clause
+doesn't resume, its result becomes the inner handle's, and the code after
+that handle still runs: `effect_clause_forwards_to_an_aborting_outer_ki233.flx`
+should print `7` and prints `1007` natively, so it skips `llvm` and
+`llvm_opt`. A forwarding chain whose clauses all resume as their last act,
+handler_sieve's, gives the right answers.
+
 ### KI-235 — On the VM, a tail call to another function that releases a value first keeps a frame, so a loop through two functions overflows the stack
 
 **Severity:** Medium (a crash on a long loop; one function calling itself works) · **Area:** VM backend, tail calls (Aether → `cfg/` → `src/compiler/cfg_bytecode.rs`) · **Verified:** 2026-11-26 (b125141e, and `main` at 64005292) · **From:** fixing KI-234
@@ -347,47 +355,6 @@ open.
 
 Fixture: `tail_call_to_another_function_ki235.flx`, which skips `vm` and
 `vm_opt` until this is fixed.
-
-### KI-233 — A handler clause runs under its own handler, so a clause that performs its own effect reaches itself
-
-**Severity:** Medium (rejected at compile time with E400 until fixed; handler_sieve can't be written) · **Area:** VM and native effects runtimes (`src/vm/dispatch.rs`, `runtime/c/effects.c`) · **Verified:** 2026-11-26 (3a718d3e with the KI-226 fix applied, before the compile-time rejection) · **From:** fixing KI-226
-
-```flux
-effect Ask {
-    ask : () -> Int
-}
-
-fn asks() -> Int with Ask {
-    perform Ask.ask()
-}
-
-fn inner() -> Int with Ask {
-    asks() handle Ask { ask(resume) -> resume(perform Ask.ask() + 1) }
-}
-
-fn main() with IO {
-    print(inner() handle Ask { ask(resume) -> resume(100) })
-}
-```
-
-A deep handler's clause runs outside that handler, so the inner clause's
-`perform Ask.ask()` should reach the outer `Ask` handler, and the program
-should print `101`. effect-handlers-bench's handler_sieve forwards each
-test to the previous prime's handler this way.
-
-With the compile check of KI-226 lifted, the VM stops with `E1009 stack
-overflow` and the native binary never ends: the perform finds the clause's
-own handler again. The VM takes the most recent evidence entry
-(`dispatch.rs`, `OpPerform`), and `flux_yield_prompt` keeps the yield
-site's evidence vector, which holds the handler itself, while the clause
-runs. A clause performing another effect works on both backends.
-
-Until the runtimes run a clause outside its own handler, the compiler
-rejects a perform of a clause's own effect, or a call that performs it,
-unless a `handle` inside the clause provides it: E400, "Clause Performs Its
-Own Effect" (`reaches_own_clause_handler`, `src/compiler/mod.rs`). Fixture:
-`effect_clause_performs_own_effect_ki233.flx`, which expects that error;
-once fixed it should run and print 101.
 
 ### KI-232 — Natively, a loop that performs once per turn and works on its recursive call's result takes time that grows with the square of its turns
 
@@ -3931,6 +3898,87 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 ## Resolved
 
+### KI-233 — A handler clause runs under its own handler, so a clause that performs its own effect reaches itself — FIXED 2026-11-26
+
+**Severity:** Medium (rejected at compile time with E400 until fixed; handler_sieve can't be written) · **Area:** VM and native effects runtimes (`src/vm/dispatch.rs`, `runtime/c/effects.c`) · **Verified:** 2026-11-26 (3a718d3e with the KI-226 fix applied, before the compile-time rejection) · **From:** fixing KI-226
+
+```flux
+effect Ask {
+    ask : () -> Int
+}
+
+fn asks() -> Int with Ask {
+    perform Ask.ask()
+}
+
+fn inner() -> Int with Ask {
+    asks() handle Ask { ask(resume) -> resume(perform Ask.ask() + 1) }
+}
+
+fn main() with IO {
+    print(inner() handle Ask { ask(resume) -> resume(100) })
+}
+```
+
+A deep handler's clause runs outside that handler, so the inner clause's
+`perform Ask.ask()` should reach the outer `Ask` handler, and the program
+should print `101`. effect-handlers-bench's handler_sieve forwards each
+test to the previous prime's handler this way.
+
+With the compile check of KI-226 lifted, the VM stops with `E1009 stack
+overflow` and the native binary never ends: the perform finds the clause's
+own handler again. The VM takes the most recent evidence entry
+(`dispatch.rs`, `OpPerform`), and `flux_yield_prompt` keeps the yield
+site's evidence vector, which holds the handler itself, while the clause
+runs. A clause performing another effect works on both backends.
+
+Until the runtimes run a clause outside its own handler, the compiler
+rejects a perform of a clause's own effect, or a call that performs it,
+unless a `handle` inside the clause provides it: E400, "Clause Performs Its
+Own Effect" (`reaches_own_clause_handler`, `src/compiler/mod.rs`). Fixture:
+`effect_clause_performs_own_effect_ki233.flx`, which expects that error;
+once fixed it should run and print 101.
+
+**Fixed 2026-11-26** (184c35d3). A deep handler's clause runs in its
+handle's context. Clauses ran in four places, and each needed it:
+
+- The Core evidence pass, `handle_frame`, both backends' tail-resumptive
+  flag (`aether::tail_resumptive::handle_is_tail_resumptive`) and the AST
+  compiler's direct handlers call a tail-resumptive clause where the
+  perform was, under the evidence there. A clause that performs its
+  handler's own effect now makes the handler not tail-resumptive
+  (`performs_effect`).
+- On the VM, `OpPerform` runs any other clause under the handler's
+  `saved_evv`. The flag reaches the VM in a new `tail_resumptive` field on
+  `IrInstr::HandleScope`, `HandlerDescriptor` and `HandlerFrame`, as the
+  native evidence entry has had.
+- Natively, `flux_yield_prompt` runs such a clause under the prompt's saved
+  evidence, or a foreign entry's parent when it services the yield inline.
+
+The clause's `resume` installs the evidence it captured, as before.
+
+A perform of the clause's own effect written in the clause is no longer
+rejected. A call that performs it still is, with the same E400: Core
+carries no effect rows, so the tail-resumptive analysis can't see the
+effect through the call.
+
+The fix also changed which handler a non-tail-resumptive clause's other
+performs reach: the handlers outside its handle, not one installed between
+the handle and the perform. Before, the VM stopped there with "missing
+handler frame for evidence marker", and native code took the inner one. A
+tail-resumptive clause still runs under the handlers between,
+[KI-243](#ki-243).
+
+Fixtures: `effect_clause_performs_own_effect_ki233.flx` (101),
+`effect_clause_forwards_through_a_chain_ki233.flx` (111),
+`effect_clause_runs_outside_inner_handlers_ki233.flx` (10), and
+`effect_clause_forwards_to_an_aborting_outer_ki233.flx` (7, VM only:
+[KI-238](#ki-238)). Unit tests:
+`a_clause_that_performs_its_own_effect_is_not_tail_resumptive_ki233`
+(`src/core/passes/handle_frame.rs`) and
+`a_clause_that_performs_its_handles_effect_is_not_tail_resumptive_ki233`
+(`src/lir/lower.rs`).
+
 ### KI-241 — Natively, a tail-recursive loop that performs once per turn is quadratic when another handler is installed outside the one it performs to — FIXED 2026-11-26
 
 **Severity:** Medium (correct output; natively far slower than the VM from a few thousand turns) · **Area:** native effects runtime, yield continuations (`runtime/c/effects.c`) · **Verified:** 2026-11-26 (11d08782, and `main` at 64005292) · **From:** writing the parsing_dollars benchmark
@@ -4427,9 +4475,9 @@ so its effect check found nothing available. A clause now gets the
 around it in the same function. Type inference no longer treats a clause's
 own effect as handled inside it (`infer_handle_arm_body`), since a clause
 runs outside its own handler. A clause that performs its own effect, as
-handler_sieve's forwarding does, is still rejected, with E400 "Clause
-Performs Its Own Effect": the runtimes run a clause under its own handler,
-[KI-233](#ki-233). Fixtures: `effect_clause_performs_ki226.flx`, and
+handler_sieve's forwarding does, was still rejected, with E400 "Clause
+Performs Its Own Effect": the runtimes ran a clause under its own handler,
+[KI-233](#ki-233), since fixed for a perform written in the clause. Fixtures: `effect_clause_performs_ki226.flx`, and
 `effect_clause_own_effect_unprovided_ki226.flx` and
 `effect_clause_undeclared_effect_ki226.flx`, which must stay errors.
 
