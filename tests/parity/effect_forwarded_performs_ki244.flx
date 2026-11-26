@@ -4,11 +4,14 @@
 //      left C stack behind, so a long loop of them overflowed it. Lines:
 //      200,000 performs forwarded once (200000); 20,000 forwarded through a
 //      chain of 10 handlers (20000); a handler of two operations forwarding
-//      both, 100,000 times each (200000).
+//      both, 100,000 times each (200000); 500,000 reads from a handler with
+//      a state whose clause performs Stop on the path that doesn't resume,
+//      a path these reads never take (500000).
 // parity-expected-stdout-begin
 // 200000
 // 20000
 // 200000
+// 500000
 // parity-expected-stdout-end
 
 effect Ask {
@@ -43,6 +46,32 @@ fn inner_two(t: Int) -> Int with Two {
     }
 }
 
+effect Read {
+    read : () -> Int
+}
+
+effect Stop {
+    stop : () -> Int
+}
+
+fn count(acc: Int) -> Int with Read {
+    let c = perform Read.read()
+    if c == 0 { acc } else { count(acc + c) }
+}
+
+// KI-239: a handle around `count(0)` itself is rejected.
+fn counted() -> Int with Read {
+    count(0)
+}
+
+fn reads(n: Int) -> Int with Stop {
+    counted() handle Read(0) {
+        read(resume, i) -> if i > n { perform Stop.stop() } else {
+            if i == n { resume(0, i + 1) } else { resume(1, i + 1) }
+        }
+    }
+}
+
 fn main() with IO {
     print(inner(200000) handle Ask { ask(resume) -> resume(1) })
     print(chain(10, 20000) handle Ask { ask(resume) -> resume(1) })
@@ -50,4 +79,5 @@ fn main() with IO {
         a(resume) -> resume(1),
         b(resume, x) -> resume(x + 1)
     })
+    print(reads(500000) handle Stop { stop(resume) -> 0 })
 }
