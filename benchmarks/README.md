@@ -1406,7 +1406,7 @@ Sources:
 - `benchmarks/flux/tree_explore_direct.flx`
 - `benchmarks/rust/tree_explore.rs`
 - `benchmarks/go/tree_explore/main.go`
-- `benchmarks/haskell/tree_explore.hs`
+- `benchmarks/haskell/tree-explore.hs`
 - `benchmarks/ocaml/tree_explore.ml`
 - `benchmarks/python/tree_explore.py`
 - `benchmarks/erlang/tree_explore.erl`
