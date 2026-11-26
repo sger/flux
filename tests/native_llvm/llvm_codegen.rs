@@ -673,3 +673,60 @@ fn main() with IO {
     assert!(!not_tail.contains("tailcall "), "{not_tail}");
     assert!(direct_call(&not_tail), "{not_tail}");
 }
+
+/// A clause that resumes as its last act, written in a function whose
+/// effects may suspend, gives `resume` no continuation of its own: one that
+/// only returned the result was extended once per perform, so a loop of
+/// performs under another handler took time growing with the square of its
+/// turns (KI-241). A clause that works on `resume`'s result keeps one.
+#[test]
+fn a_clause_that_resumes_as_its_last_act_extends_nothing_ki241() {
+    let source = r#"
+effect Read {
+    read : () -> Int
+}
+
+effect Stop {
+    stop : () -> Int
+}
+
+fn go(i: Int) -> Int with Read {
+    let c = perform Read.read()
+    if i == 0 { c } else { go(i - 1) }
+}
+
+fn last(n: Int) -> Int with Stop {
+    go(n) handle Read { read(resume) -> resume(1) }
+}
+
+fn worked(n: Int) -> Int with Stop {
+    go(n) handle Read { read(resume) -> resume(1) + 1 }
+}
+
+fn main() with IO {
+    print(last(3) handle Stop { stop(resume) -> 0 })
+    print(worked(3) handle Stop { stop(resume) -> 0 })
+}
+"#;
+    let ran = crate::support::flux_runner::flux_source(source, "clause_extends_nothing_ki241")
+        .native()
+        .no_cache()
+        .args(&["--emit-llvm"])
+        .run();
+    assert!(ran.success, "--emit-llvm failed:\n{}", ran.stderr);
+    let clause = |owner: &str| -> String {
+        let marker = format!("_{owner}_handler_");
+        let start = ran
+            .stdout
+            .lines()
+            .position(|l| {
+                l.starts_with("define ") && l.contains(&marker) && !l.contains(".closure_entry")
+            })
+            .unwrap_or_else(|| panic!("no clause of `{owner}` in the IR:\n{}", ran.stdout));
+        ran.stdout.lines().skip(start).take_while(|l| *l != "}").collect::<Vec<_>>().join("\n")
+    };
+    let last = clause("last");
+    assert!(!last.contains("@flux_yield_extend"), "{last}");
+    let worked = clause("worked");
+    assert!(worked.contains("@flux_yield_extend"), "{worked}");
+}

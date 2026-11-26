@@ -1016,4 +1016,50 @@ mod tests {
 
         assert!(collect_call_sites(&f, &HashSet::new(), &HashSet::new()).is_empty());
     }
+
+    /// A call that may yield, whose continuation only returns its result,
+    /// needs no continuation: on a yield the frame returns the callee's
+    /// sentinel, which is what the continuation would return. A clause that
+    /// resumes as its last act is such a call, and its continuation, kept
+    /// once per perform, made a loop of performs quadratic (KI-241). One
+    /// whose continuation does work still gets one.
+    #[test]
+    fn a_call_whose_continuation_only_returns_its_result_gets_none_ki241() {
+        let sites_with = |cont_instrs: Vec<LirInstr>| {
+            let mut f = empty_function(0, "clause");
+            let [v_resume, v_dst] = [0, 1].map(LirVar);
+            f.params = vec![v_resume];
+            for (id, params, instrs, terminator) in [
+                (
+                    0,
+                    Vec::new(),
+                    Vec::new(),
+                    LirTerminator::Call {
+                        dst: v_dst,
+                        func: v_resume,
+                        args: Vec::new(),
+                        cont: BlockId(1),
+                        kind: CallKind::Indirect { async_capable: true },
+                        suppress_yield_check: false,
+                        yield_cont: None,
+                        held: None,
+                    },
+                ),
+                (1, vec![v_dst], cont_instrs, LirTerminator::Return(v_dst)),
+            ] {
+                f.blocks.push(LirBlock {
+                    locs: Vec::new(),
+                    term_loc: Default::default(),
+                    id: BlockId(id),
+                    params,
+                    instrs,
+                    terminator,
+                });
+            }
+            f.next_var = 2;
+            collect_call_sites(&f, &HashSet::new(), &HashSet::new()).len()
+        };
+        assert_eq!(sites_with(Vec::new()), 0);
+        assert_eq!(sites_with(vec![LirInstr::Drop { val: LirVar(0) }]), 1);
+    }
 }
