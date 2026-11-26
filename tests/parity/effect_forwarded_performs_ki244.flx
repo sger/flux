@@ -1,0 +1,53 @@
+// parity: vm, llvm, vm_opt, llvm_opt, llvm_heap
+// expect: success
+// bug: KI-244. Natively each perform a clause forwarded to an outer handler
+//      left C stack behind, so a long loop of them overflowed it. Lines:
+//      200,000 performs forwarded once (200000); 20,000 forwarded through a
+//      chain of 10 handlers (20000); a handler of two operations forwarding
+//      both, 100,000 times each (200000).
+// parity-expected-stdout-begin
+// 200000
+// 20000
+// 200000
+// parity-expected-stdout-end
+
+effect Ask {
+    ask : () -> Int
+}
+
+effect Two {
+    a : () -> Int
+    b : (Int) -> Int
+}
+
+fn go(i: Int, acc: Int) -> Int with Ask {
+    if i == 0 { acc } else { go(i - 1, acc + perform Ask.ask()) }
+}
+
+fn inner(t: Int) -> Int with Ask {
+    go(t, 0) handle Ask { ask(resume) -> resume(perform Ask.ask()) }
+}
+
+fn chain(d: Int, t: Int) -> Int with Ask {
+    if d == 0 { go(t, 0) } else { chain(d - 1, t) handle Ask { ask(resume) -> resume(perform Ask.ask()) } }
+}
+
+fn go_two(i: Int, acc: Int) -> Int with Two {
+    if i == 0 { acc } else { go_two(i - 1, acc + perform Two.b(perform Two.a())) }
+}
+
+fn inner_two(t: Int) -> Int with Two {
+    go_two(t, 0) handle Two {
+        a(resume) -> resume(perform Two.a()),
+        b(resume, x) -> resume(perform Two.b(x))
+    }
+}
+
+fn main() with IO {
+    print(inner(200000) handle Ask { ask(resume) -> resume(1) })
+    print(chain(10, 20000) handle Ask { ask(resume) -> resume(1) })
+    print(inner_two(100000) handle Two {
+        a(resume) -> resume(1),
+        b(resume, x) -> resume(x + 1)
+    })
+}

@@ -1,0 +1,77 @@
+// parity: vm, llvm, vm_opt, llvm_opt, llvm_heap
+// expect: success
+// bug: KI-243. A clause that resumes as its last act runs in its handle's
+//      context: a perform in it reaches the handlers outside its handle,
+//      never one installed between the handle and the perform. Lines: a Log
+//      handler between them, the perform in a called function (1); the same
+//      with the perform written in the handle's body (1); a parameterized
+//      handler whose clause performs and sets its state (12); a clause whose
+//      perform goes to an outer clause that resumes on one branch only, with
+//      work after that perform in the clause and at the perform site (15).
+// parity-expected-stdout-begin
+// 1
+// 1
+// 12
+// 15
+// parity-expected-stdout-end
+
+effect Ask {
+    ask : () -> Int
+}
+
+effect Log {
+    get : () -> Int
+}
+
+effect Counter {
+    tick : () -> Int
+}
+
+fn asks() -> Int with Ask {
+    perform Ask.ask()
+}
+
+fn body() -> Int with Ask {
+    asks() handle Log { get(resume) -> resume(2) }
+}
+
+fn mid() -> Int with Log {
+    body() handle Ask { ask(resume) -> resume(perform Log.get()) }
+}
+
+fn written_in_body() -> Int with Log {
+    (perform Ask.ask() handle Log { get(resume) -> resume(2) }) handle Ask { ask(resume) -> resume(perform Log.get()) }
+}
+
+fn ticks() -> Int with Counter {
+    let a = perform Counter.tick()
+    let b = perform Counter.tick()
+    a * 10 + b
+}
+
+fn ticks_under_log() -> Int with Counter {
+    ticks() handle Log { get(resume) -> resume(100) }
+}
+
+fn counted() -> Int with Log {
+    ticks_under_log() handle Counter(0) { tick(resume, s) -> resume(s + perform Log.get(), s + 1) }
+}
+
+fn asks_plus_one() -> Int with Ask {
+    perform Ask.ask() + 1
+}
+
+fn doubled() -> Int with Log {
+    asks_plus_one() handle Ask { ask(resume) -> resume(perform Log.get() * 2) }
+}
+
+fn maybe(stop: Bool) -> Int {
+    doubled() handle Log { get(resume) -> if stop { 0 } else { resume(7) } }
+}
+
+fn main() with IO {
+    print(mid() handle Log { get(resume) -> resume(1) })
+    print(written_in_body() handle Log { get(resume) -> resume(1) })
+    print(counted() handle Log { get(resume) -> resume(1) })
+    print(maybe(false))
+}
