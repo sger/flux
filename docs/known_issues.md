@@ -68,6 +68,45 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-242 — A clause that doesn't resume can't give back unit: E300, "expected type: Unit, found type: ()"
+
+**Severity:** Medium (loud; a non-unit type works) · **Area:** type inference of handler clauses, the two spellings of unit · **Verified:** 2026-11-26 (11d08782, and `main` at 64005292) · **From:** writing the parsing_dollars benchmark
+
+```flux
+effect Stop {
+    stop : () -> ()
+}
+
+fn s() with Stop {
+    perform Stop.stop()
+}
+
+fn main() with IO {
+    s() handle Stop { stop(resume) -> () }
+    print(1)
+}
+```
+
+The clause aborts: it gives back unit, the handled expression's type, and
+the program should print `1`. Both backends reject it with `error[E300]:
+Type Mismatch` at `s()`: "expected type: Unit, found type: ()".
+
+| Clause (`.verify/ki242/`) | Result |
+|---|---|
+| `stop(resume) -> ()` | E300 |
+| `stop(resume) -> unit()`, where `fn unit() { () }` | E300 |
+| `stop(resume) -> resume(())` | 1 |
+| `stop : () -> Int`, `s() -> Int`, `stop(resume) -> 0` | 0 |
+
+Writing the operation's result as `Unit` or annotating `s` makes no
+difference. The note under [KI-093](#ki-093) records that `Unit` and `()`
+don't unify, and that one site, `resume_argument_type_for_operation_return`,
+reconciles them for `resume`'s argument. A clause's own result has no
+such reconciling, so an abort to a unit-typed handle can't be written.
+
+Workaround: give the operation and the handled code a non-unit type. Flux
+operations aren't polymorphic, so triples' `fail` already returns `Int`.
+
 ### KI-241 — Natively, a tail-recursive loop that performs once per turn is quadratic when another handler is installed outside the one it performs to
 
 **Severity:** Medium (correct output; natively far slower than the VM from a few thousand turns) · **Area:** native effects runtime, yield continuations (`runtime/c/effects.c`) · **Verified:** 2026-11-26 (11d08782, and `main` at 64005292) · **From:** writing the parsing_dollars benchmark
