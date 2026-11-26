@@ -565,6 +565,19 @@ ship only the single-shot/tail-resumptive subset first and track multi-shot
 parameterized handlers as a follow-up. The semantics above are still the
 target language rule.
 
+Two consequences follow, for a continuation resumed more than once:
+
+- A handler outside the captured continuation is not part of it. Its state
+  is threaded through the run in order: a `set` made in one branch is seen
+  by the next, and is still there after the inner `handle` returns.
+- A handler installed inside the captured continuation is part of it. Each
+  resume starts from the state that handler had when the continuation was
+  captured.
+
+Both backends follow this since 2026-11-26 (KI-227, KI-236, KI-237):
+`tests/parity/effect_handler_state_threads_through_resumes_ki236.flx` and
+`effect_resume_then_outer_perform_ki237.flx`.
+
 ## Diagnostics
 
 Add a dedicated diagnostic for parameterized handler shape errors. It should
@@ -704,6 +717,8 @@ Exit gate:
 
 Status: implemented for the documented single-shot VM/native paths, with
 multi-shot and direct-body native continuation edges tracked as follow-up.
+Multi-shot parameterized handlers are green on both backends since
+2026-11-26 (KI-227, KI-236, KI-237).
 
 Add coverage around the semantic boundaries most likely to regress.
 
@@ -715,7 +730,7 @@ Add coverage around the semantic boundaries most likely to regress.
 - Effectful initializer expressions require their own ambient effects.
 - Handler arm fallthrough follows the existing ordinary-handler rule.
 - Multi-shot parameterized handlers are either proven green across VM/native
-  or explicitly tracked as a follow-up.
+  or explicitly tracked as a follow-up. (Green since 2026-11-26.)
 - Direct-body native parameterized Console interception
   (`println(...) handle Console(init) { ... }`) is tracked as a native
   continuation edge; the covered operational Console fixture exercises the
@@ -788,8 +803,9 @@ Proposal 0169 ships when:
 
 ## Remaining Follow-Up
 
-- Multi-shot parameterized handler parity, if VM/native behavior still
-  differs after the single-shot implementation.
+- ~~Multi-shot parameterized handler parity, if VM/native behavior still
+  differs after the single-shot implementation.~~ Done 2026-11-26: see
+  §Non-tail and Multi-shot Semantics.
 - Direct-body native continuation resumption for parameterized builtin
   handlers. The current green Console parity fixture routes the captured
   operation through a helper function; the direct expression form still needs

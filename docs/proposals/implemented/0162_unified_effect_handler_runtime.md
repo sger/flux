@@ -29,6 +29,10 @@ to effect declarations or capability grants (those live in [Proposal
 
 ### Today: two algorithms, parity-by-luck
 
+*(The state when this proposal was written, 2026-04-18. Both backends now
+resume a continuation any number of times, with one semantics; see proposal
+0169, §Non-tail and Multi-shot Semantics.)*
+
 | | VM (Rust) | LLVM (C runtime) |
 |---|---|---|
 | **perform** | Copy `Vec<Frame>` + `Vec<Value>` into `Continuation` | `setjmp` saves C stack |
@@ -298,7 +302,9 @@ What slice 4 now proves:
 - The native yield path is coherent enough for single-shot non-TR handlers.
 - Multi-shot is still not solved. `tests/parity/effect_multi_shot.flx` under
   `FLUX_YIELD_CHECKS=1` still fails, which is expected until the later
-  continuation-composition/runtime slices land.
+  continuation-composition/runtime slices land. *(Since solved:
+  `effect_multi_shot.flx` passes on both backends, and multi-shot resume with
+  handler state agrees since 2026-11-26, KI-227, KI-236 and KI-237.)*
 
 Files touched in slices 4-prereq / 4:
 

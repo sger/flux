@@ -143,6 +143,50 @@ fn main() with IO {
 
 The `handle` expression wraps a computation and intercepts every `perform Console.print(...)` call, running the handler arm instead. When the handler arm returns, the result flows back to the `perform` call site.
 
+### Resuming
+
+An arm that names `resume` as its first parameter gets the rest of the computation from the `perform`. `resume(v)` carries on with `v` as the `perform`'s result, under the same handler again, and gives back what the handled expression comes to. An arm can call `resume` once, keep it and call it later, call it more than once, or not call it at all:
+
+```flux
+effect Flip {
+    flip : () -> Bool
+}
+
+fn pick() -> Int with Flip {
+    if perform Flip.flip() { 1 } else { 10 }
+}
+
+fn main() with IO {
+    print(pick() handle Flip { flip(resume) -> resume(true) + resume(false) })   // 11
+}
+```
+
+A handler with a parameter, `handle Counter(41) { ... }`, passes its state to each arm as the last parameter, and `resume(v, next)` carries on with `next` as the state:
+
+```flux
+effect Counter {
+    get : () -> Int
+    set : (Int) -> ()
+}
+
+fn bump() -> Int with Counter {
+    perform Counter.set(perform Counter.get() + 1)
+    perform Counter.get()
+}
+
+fn main() with IO {
+    print(bump() handle Counter(41) {
+        get(resume, s) -> resume(s, s),
+        set(resume, n, s) -> resume((), n),
+    })   // 42
+}
+```
+
+When a computation is resumed more than once, the state follows two rules:
+
+- A handler outside the resumed computation keeps every change: a `set` made while one `resume` runs is seen by the next, and after the inner `handle` returns.
+- A handler installed inside the resumed computation is part of it: each `resume` starts from the state it had at the `perform`.
+
 ### Semantics and error codes
 
 | Situation | Error |

@@ -493,6 +493,10 @@ Track the C native effect runtime separately from source-level effect semantics:
   `FLUX_YIELD_CHECKS=0` direct path reports E1200/E1201. This divergence is
   documented in `tests/native_llvm/effect_multi_shot_tests.rs` and should be
   revisited before declaring one cross-backend handler semantics story.
+  *Superseded (2026-11-26): the VM resumes a continuation any number of
+  times, and both backends follow one semantics for multi-shot resume and
+  handler state, which `tests/parity/` checks (KI-227, KI-236, KI-237;
+  proposal 0169, §Non-tail and Multi-shot Semantics).*
 
 #### Status (2026-04-25): item-by-item disposition
 
@@ -503,7 +507,7 @@ Track the C native effect runtime separately from source-level effect semantics:
 | 3 | Yield payload globals: RC roots or documented invariant | ✅ documented invariant |
 | 4 | Process-global state vs. concurrency | ⚠ documented limitation, deferred |
 | 5 | Windows/MSVC closure-entry symbol export | ⚠ deferred (Windows native blocker) |
-| 6 | VM/native multi-shot resume divergence | ⚠ documented as deliberate, not a bug |
+| 6 | VM/native multi-shot resume divergence | ✅ superseded: the backends agree (2026-11-26) |
 
 **Item 1 (closed by commit `7a342513`, 2026-04-24).** `EvvArray` entries
 hold five tagged words per entry: htag, marker, handler, parent_evv,
@@ -569,8 +573,11 @@ real Windows-native blocker and is best handled as part of a dedicated
 Windows porting workstream rather than retrofitted onto this polish
 track.
 
-**Item 6 (multi-shot divergence, deliberate).** The divergence is still
-present and is by design, not a bug:
+**Item 6 (multi-shot divergence, deliberate).** *Superseded (2026-11-26):
+the VM is multi-shot, the backends follow one semantics, and parity covers
+multi-shot (`effect_multi_shot*.flx`, and the KI-227, KI-236 and KI-237
+fixtures). What follows records the state on 2026-04-25.* The divergence was
+still present then, and taken to be by design:
 
 - VM: enforces one-shot via continuation guard slots (E1009 on second
   resume).
@@ -595,7 +602,7 @@ This track deliberately does not:
 - Migrate process-global state to thread-local storage (item 4 deferral).
 - Add MSVC export plumbing (item 5 deferral).
 - Force VM/native convergence on multi-shot semantics (item 6 is a
-  design choice, not a hardening item).
+  design choice, not a hardening item). Since done, 2026-11-26.
 - Switch yield payload globals to RC roots (item 3 — the borrowed
   invariant is sound and the cost would be per-yield).
 

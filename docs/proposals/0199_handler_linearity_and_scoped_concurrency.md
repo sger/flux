@@ -42,7 +42,9 @@ Two guarantees about control flow that Flux describes but does not check:
   also does not support multi-shot (it enforces one-shot continuations)". The
   test `tests/vm_runtime/vm_tests.rs:204` resumes twice and expects `3`.
 - Nothing detects a continuation that escapes its arm, stored in a closure, and
-  is called after the `handle` returned.
+  is called after the `handle` returned. (Since KI-225, 2026-11-26, such a
+  resume runs under its handler again, with deep-handler semantics, on both
+  backends. What is missing is the static check.)
 
 Some effects are meaningful to resume many times (choice, backtracking,
 generators). Others wrap a resource that cannot be duplicated: reading a line
@@ -167,7 +169,8 @@ reference, but this is untested today.
 
 **A5. Docs.** The 0171 one-shot text and the E1201 message describe behaviour
 that no longer exists. The E1201 message is diagnostic text: the maintainer
-rewrites it.
+rewrites it. (0171's text is marked superseded since 2026-11-26; the E1201
+message is still to rewrite.)
 
 ### Part B: concurrency
 
