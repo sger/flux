@@ -3906,8 +3906,11 @@ foreign yield outwards, which would fix both.
 place, and a forwarded perform is a chain of calls that return. The program
 above prints `200000` natively, where on Windows it overflowed the stack
 (status 0xC00000FD), and so do 20,000 performs forwarded through a chain of
-10 handlers. Test: `effect_forwarded_performs_ki244.flx`. handler_sieve
-itself was not rerun.
+10 handlers. A clause that only resumes as its last act, with a path that
+performs and doesn't resume, can't run in place; it keeps a `resume` that
+doesn't delimit, so 500,000 reads from such a handler, parsing_dollars'
+shape, don't nest a prompt each. Test: `effect_forwarded_performs_ki244.flx`.
+handler_sieve itself was not rerun.
 
 What stays: a forwarding loop of clauses that don't run in place, such as
 one that works after its `resume`, still leaves C stack behind, since the
@@ -3977,7 +3980,10 @@ calls it on top of the perform. A perform in it reaches the handlers outside
 the handle. One that reads no evidence keeps the perform's, natively and in
 the AST compiler's direct handles. Any other clause runs at the prompt under
 its handle's evidence, except one that only resumes as its last act and
-performs nothing, which keeps the flat path it had. The Core evidence pass
+performs nothing, which keeps the flat path it had. Natively one that only
+resumes as its last act and performs keeps the flat path too, under its
+handle's evidence: its `resume` doesn't delimit, and puts the perform's
+evidence back for the frames it runs. The Core evidence pass
 calls a clause directly only if it reads no evidence. The second effect is
 gone too: both VM compile paths run a clause in its handle's context,
 whichever of them decides it is tail-resumptive.
