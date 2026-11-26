@@ -68,6 +68,47 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-233 — A handler clause runs under its own handler, so a clause that performs its own effect reaches itself
+
+**Severity:** Medium (rejected at compile time with E400 until fixed; handler_sieve can't be written) · **Area:** VM and native effects runtimes (`src/vm/dispatch.rs`, `runtime/c/effects.c`) · **Verified:** 2026-11-26 (3a718d3e with the KI-226 fix applied, before the compile-time rejection) · **From:** fixing KI-226
+
+```flux
+effect Ask {
+    ask : () -> Int
+}
+
+fn asks() -> Int with Ask {
+    perform Ask.ask()
+}
+
+fn inner() -> Int with Ask {
+    asks() handle Ask { ask(resume) -> resume(perform Ask.ask() + 1) }
+}
+
+fn main() with IO {
+    print(inner() handle Ask { ask(resume) -> resume(100) })
+}
+```
+
+A deep handler's clause runs outside that handler, so the inner clause's
+`perform Ask.ask()` should reach the outer `Ask` handler, and the program
+should print `101`. effect-handlers-bench's handler_sieve forwards each
+test to the previous prime's handler this way.
+
+With the compile check of KI-226 lifted, the VM stops with `E1009 stack
+overflow` and the native binary never ends: the perform finds the clause's
+own handler again. The VM takes the most recent evidence entry
+(`dispatch.rs`, `OpPerform`), and `flux_yield_prompt` keeps the yield
+site's evidence vector, which holds the handler itself, while the clause
+runs. A clause performing another effect works on both backends.
+
+Until the runtimes run a clause outside its own handler, the compiler
+rejects a perform of a clause's own effect, or a call that performs it,
+unless a `handle` inside the clause provides it: E400, "Clause Performs Its
+Own Effect" (`reaches_own_clause_handler`, `src/compiler/mod.rs`). Fixture:
+`effect_clause_performs_own_effect_ki233.flx`, which expects that error;
+once fixed it should run and print 101.
+
 ### KI-232 — Natively, a loop that performs once per turn and works on its recursive call's result takes time that grows with the square of its turns
 
 **Severity:** Medium (correct output; natively slower than the VM from a few thousand turns) · **Area:** native effects runtime, yield continuations (`runtime/c/effects.c`), tail calls (`src/lir/lower.rs`) · **Verified:** 2026-11-25 (3b332a85, and `main` at 64005292; partly fixed at cef10ef0) · **From:** sizing the countdown benchmark
