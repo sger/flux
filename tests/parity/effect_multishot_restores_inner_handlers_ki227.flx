@@ -1,0 +1,52 @@
+// parity: vm, llvm
+// expect: success
+// bug: KI-227. A continuation resumed more than once runs under the handlers
+//      installed inside it each time. The first resume's inner `handle Fail`
+//      ended inside it and took its evidence along, and the VM's second
+//      resume put the handler back but not its evidence: "unhandled effect:
+//      Fail". Lines: two shots, the failing one second (2) and first (2);
+//      three shots (1 + 10 + 10); effect-handlers-bench's triples at its
+//      small size, 10 (779312).
+// parity-expected-stdout-begin
+// 2
+// 2
+// 21
+// 779312
+// parity-expected-stdout-end
+
+effect Flip {
+    flip : () -> Bool
+}
+
+effect Fail {
+    fail : () -> Int
+}
+
+fn pick() -> Int with Flip, Fail {
+    if perform Flip.flip() { 1 } else { perform Fail.fail() }
+}
+
+fn choice(n: Int) -> Int with Flip, Fail {
+    if n < 1 { perform Fail.fail() } else {
+        if perform Flip.flip() { n } else { choice(n - 1) }
+    }
+}
+
+fn hashed(n: Int, s: Int) -> Int with Flip, Fail {
+    let i = choice(n)
+    let j = choice(i - 1)
+    let k = choice(j - 1)
+    if i + j + k == s { (53 * i + 2809 * j + 148877 * k) % 1000000007 } else { perform Fail.fail() }
+}
+
+fn triples(n: Int) -> Int {
+    (hashed(n, n) handle Fail { fail(resume) -> 0 })
+        handle Flip { flip(resume) -> (resume(true) + resume(false)) % 1000000007 }
+}
+
+fn main() with IO {
+    print((pick() handle Fail { fail(resume) -> 1 }) handle Flip { flip(resume) -> resume(true) + resume(false) })
+    print((pick() handle Fail { fail(resume) -> 1 }) handle Flip { flip(resume) -> resume(false) + resume(true) })
+    print((pick() handle Fail { fail(resume) -> 10 }) handle Flip { flip(resume) -> resume(true) + resume(false) + resume(false) })
+    print(triples(10))
+}
