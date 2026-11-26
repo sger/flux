@@ -1,0 +1,170 @@
+// parity: vm, llvm
+// expect: success
+// bug: KI-225. A resume kept in a closure and called after its clause has
+//      returned ran without its handler: the next perform found none. With
+//      deep handlers, as in Koka and OCaml 5, resuming puts the handler back
+//      around the continuation, and what resume returns is the handled
+//      result. The VM also lost the frames between the handle and a deeper
+//      caller, even when the continuation performed nothing more.
+// parity-expected-stdout-begin
+// 2
+// 42
+// 11
+// 10
+// 10
+// 15
+// 15
+// parity-expected-stdout-end
+
+effect Ask {
+    ask : () -> Int
+}
+
+type Step = Done(Int) | More(() -> Step)
+
+// The KI's example: the second perform runs after the clause returned.
+fn twice() -> Step with Ask {
+    let a = perform Ask.ask()
+    let b = perform Ask.ask()
+    Done(a + b)
+}
+
+fn run(s: Step) -> Int {
+    match s {
+        Done(v) -> v,
+        More(k) -> next(k),
+    }
+}
+
+fn next(k: () -> Step) -> Int {
+    let s = k()
+    run(s)
+}
+
+// A continuation that performs nothing more, resumed three calls deeper
+// than its handle.
+fn once() -> Step with Ask {
+    let a = perform Ask.ask()
+    Done(a + 1)
+}
+
+fn deeper1(s: Step) -> Int {
+    let r = deeper2(s)
+    r + 0
+}
+
+fn deeper2(s: Step) -> Int {
+    let r = run(s)
+    r + 0
+}
+
+// effect-handlers-bench's generator at height 3.
+type Tree = Leaf | Node(Tree, Int, Tree)
+type Gen = Empty | Thunk(Int, () -> Gen)
+
+effect Yield {
+    yield : (Int) -> ()
+}
+
+fn make(n: Int) -> Tree {
+    if n == 0 { Leaf } else {
+        let t = make(n - 1)
+        Node(t, n, t)
+    }
+}
+
+fn visit(l: Tree, v: Int, r: Tree) with Yield {
+    iterate(l)
+    perform Yield.yield(v)
+    iterate(r)
+}
+
+fn iterate(t: Tree) with Yield {
+    match t {
+        Leaf -> (),
+        Node(l, v, r) -> visit(l, v, r),
+    }
+}
+
+fn walk(t: Tree) -> Gen with Yield {
+    iterate(t)
+    Empty
+}
+
+fn sum(a: Int, g: Gen) -> Int {
+    match g {
+        Empty -> a,
+        Thunk(v, f) -> sum_next(v + a, f),
+    }
+}
+
+fn sum_next(a: Int, f: () -> Gen) -> Int {
+    let g = f()
+    sum(a, g)
+}
+
+// Koka's mstate shape: the clauses return functions of the state.
+effect St {
+    get : () -> Int
+    set : (Int) -> ()
+}
+
+fn counter(c: Int) -> Int with St {
+    let i = perform St.get()
+    if i == 0 { c } else {
+        perform St.set(i - 1)
+        counter(c + 1)
+    }
+}
+
+fn body() -> ((Int) -> Int) with St {
+    let r = counter(0)
+    \(s: Int) -> r
+}
+
+fn mstate(n: Int) -> Int {
+    let f = body() handle St {
+        get(resume) -> \(s: Int) -> {
+            let k = resume(s)
+            k(s)
+        },
+        set(resume, x) -> \(s: Int) -> {
+            let k = resume(())
+            k(x)
+        }
+    }
+    f(n)
+}
+
+// A parameterized handler whose resume escapes, then gets a new state.
+effect Counter {
+    peek : () -> Int
+}
+
+type Seen = Read(Int) | Seen(Int, () -> Seen)
+
+fn reads() -> Seen with Counter {
+    let a = perform Counter.peek()
+    let b = perform Counter.peek()
+    Read(b)
+}
+
+fn seen(s: Seen) -> Int with IO {
+    match s {
+        Read(v) -> v,
+        Seen(v, k) -> seen_next(v, k),
+    }
+}
+
+fn seen_next(v: Int, k: () -> Seen) -> Int with IO {
+    print(v)
+    seen(k())
+}
+
+fn main() with IO {
+    print(run(twice() handle Ask { ask(resume) -> More(\() -> resume(1)) }))
+    print(deeper1(once() handle Ask { ask(resume) -> More(\() -> resume(41)) }))
+    print(sum(0, walk(make(3)) handle Yield { yield(resume, x) -> Thunk(x, \() -> resume(())) }))
+    print(mstate(10))
+    print(seen(reads() handle Counter(10) { peek(resume, s) -> Seen(s, \() -> resume(s, s + 5)) }))
+}
