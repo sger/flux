@@ -1784,6 +1784,8 @@ fn calls_fresh_library_primop(func: &CoreExpr, registry: Option<&BorrowRegistry>
 }
 
 /// Whether a call to `func` runs a Flux function rather than a runtime one.
+/// Borrow inference's `makes_fresh_value` reads Core calls by the same rule
+/// (KI-234).
 fn calls_flux(func: &CoreExpr, registry: Option<&BorrowRegistry>) -> bool {
     match func {
         CoreExpr::Var { var, .. } => match registry {

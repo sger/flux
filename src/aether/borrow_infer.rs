@@ -594,7 +594,9 @@ fn pattern_variables(pat: &crate::core::CorePat, out: &mut Vec<CoreBinderId>) {
 
 /// Whether evaluating `expr` makes a value with a reference of its own: a
 /// constructor, a closure, a collection literal, an Int box, or what a Flux
-/// function returns. A runtime function's result can be a view of an argument.
+/// function or a closure returns: a closure's body is Flux, and returns an
+/// owned value even when it ends in a runtime call. A runtime function called
+/// by name can return a view of an argument.
 /// A `let` chain gives what its tail gives, as when explicit boxing binds a
 /// call's boxed arguments around the call.
 fn makes_fresh_value(expr: &CoreExpr, registry: &BorrowRegistry) -> bool {
@@ -612,12 +614,23 @@ fn makes_fresh_value(expr: &CoreExpr, registry: &BorrowRegistry) -> bool {
                 | crate::core::CorePrimOp::Interpolate
                 | crate::core::CorePrimOp::BoxInt
         ),
+        // @KI-234: a closure's result is the caller's too, as RC insertion
+        // already plans it (`calls_flux`, `insert.rs`), so a stream pulled by
+        // `sum(a, f())` gives each cell away and the call stays a jump.
         CoreExpr::App { func, .. } => match func.as_ref() {
-            CoreExpr::Var { var, .. } => !matches!(
-                registry.resolve_var_ref(var),
-                BorrowCallee::BaseRuntime(_) | BorrowCallee::Unknown
-            ),
-            _ => false,
+            CoreExpr::Var { var, .. } => match registry.resolve_var_ref(var) {
+                BorrowCallee::BaseRuntime(_) => false,
+                BorrowCallee::Unknown => var.binder.is_some(),
+                _ => true,
+            },
+            CoreExpr::MemberAccess { object, member, .. } => match object.as_ref() {
+                CoreExpr::Var { var, .. } => !matches!(
+                    registry.resolve_member_access_callee(var.name, *member),
+                    BorrowCallee::BaseRuntime(_) | BorrowCallee::Unknown
+                ),
+                _ => false,
+            },
+            _ => true,
         },
         _ => false,
     }
