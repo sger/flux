@@ -125,6 +125,8 @@ frames, so each forwarded perform adds a layer that is never unwound.
 Koka's prompts instead add themselves to the continuation and pass a
 foreign yield outwards, which would fix both.
 
+The fix is planned in [proposal 0205](proposals/0205_native_prompts_and_in_place_clauses.md), part A. handler_sieve's clauses run in place, so a forwarded perform is a chain of nested calls unwound when it returns. Part B alone, wrapping the foreign yield, makes the loop above quadratic instead of crashing: 0.01 s at 2,000 and 0.24 s at 8,000.
+
 ### KI-243 — A tail-resumptive clause runs under the handlers installed between its handle and the perform
 
 **Severity:** Medium (wrong values, silently, in an uncommon shape; both backends agree) · **Area:** tail-resumptive handlers: the Core evidence pass, `aether::tail_resumptive`, `flux_yield_prompt` (`runtime/c/effects.c`), `OpPerform` (`src/vm/dispatch.rs`) · **Verified:** 2026-11-26 (184c35d3; on `main` at 64005292 a clause can't perform at all, KI-226) · **From:** fixing KI-233
@@ -180,6 +182,8 @@ an AST-compiled function on the VM, so the two backends can print `2` and
 A fix would run every clause under its handle's evidence and have a
 tail-resumptive `resume` install the yield site's for the code it runs,
 which costs the single-continuation fast path its directness.
+
+The fix is planned in [proposal 0205](proposals/0205_native_prompts_and_in_place_clauses.md), part A: a clause that resumes exactly once, as its last act, runs in place under its handle's evidence, as Koka's `under1` runs an operation.
 
 ### KI-242 — A clause that doesn't resume can't give back unit: E300, "expected type: Unit, found type: ()"
 
@@ -374,6 +378,8 @@ that handle still runs: `effect_clause_forwards_to_an_aborting_outer_ki233.flx`
 should print `7` and prints `1007` natively, so it skips `llvm` and
 `llvm_opt`. A forwarding chain whose clauses all resume as their last act,
 handler_sieve's, gives the right answers.
+
+The fix is planned in [proposal 0205](proposals/0205_native_prompts_and_in_place_clauses.md), part B: a prompt wraps a foreign yield and re-enters itself on resume, as Koka's do. A first attempt, which added the prompt after the frames below it instead of around them, broke five fixtures (`.verify/ki238/outward_prompt_wip.patch`). Its tests are on `fix/ki238` (`fea7aefa`).
 
 ### KI-235 — On the VM, a tail call to another function that releases a value first keeps a frame, so a loop through two functions overflows the stack
 
