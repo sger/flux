@@ -68,123 +68,6 @@ Severity is about consequence, not effort:
 
 ## Open
 
-### KI-244 — Natively, each perform that a clause forwards to an outer handler leaves C stack behind, so a few hundred thousand overflow it
-
-**Severity:** High (a crash, SIGBUS) · **Area:** native effects runtime, prompts (`runtime/c/effects.c`, `flux_yield_prompt`) · **Verified:** 2026-11-26 (091a8c70; on `main` at 64005292 a clause can't perform, KI-226 and KI-233) · **From:** writing the handler_sieve benchmark
-
-```flux
-effect Ask {
-    ask : () -> Int
-}
-
-fn go(i: Int, acc: Int) -> Int with Ask {
-    if i == 0 { acc } else { go(i - 1, acc + perform Ask.ask()) }
-}
-
-fn inner(t: Int) -> Int with Ask {
-    go(t, 0) handle Ask { ask(resume) -> resume(perform Ask.ask()) }
-}
-
-fn main() with IO {
-    print(inner(200000) handle Ask { ask(resume) -> resume(1) })
-}
-```
-
-Each of the 200,000 performs is forwarded by the inner clause to the outer
-handler. Both backends should print `200000`. The VM does, in 0.23 s.
-Natively (`-O`) the binary dies with signal 10 (SIGBUS) on the stack guard,
-at about 156,000 performs.
-
-`.verify/ki244/01` forwards `t` performs through a chain of `d` such
-handlers. The largest `t` that runs natively falls as `d` grows, so the
-stack used grows with the number of forwarding steps, `d × t`:
-
-| d | largest t that runs | d × t |
-|---:|---:|---:|
-| 1 | about 156,000 | 156,000 |
-| 3 | about 78,000 | 234,000 |
-| 10 | about 29,000 | 293,000 |
-| 30 | about 10,000 | 308,000 |
-| 100 | about 3,200 | 317,000 |
-
-The VM runs `d = 30, t = 100,000` in 1.2 s. Raising the stack limit with
-`ulimit -s` doesn't move the crash. Without forwarding, a loop of 100,000
-performs runs natively. That holds for a clause that isn't tail-resumptive
-(`02`), and for one that is (`03`).
-
-handler_sieve is this shape: each prime's handler forwards to the previous
-one. Natively it crashes between 2,000 and 2,500 with `-O` (303 and 367
-primes), and between 1,000 and 1,500 without. The VM gives the suite's
-answers up to 10,000 (`04`).
-
-Not yet known: which frames stay. The likely path is the inline service of
-[KI-238](#ki-238). The inner prompt runs the outer clause in its own loop.
-That clause's `resume` runs the inner clause's continuation, whose
-delimiting `resume` runs the rest of the computation on top of those
-frames, so each forwarded perform adds a layer that is never unwound.
-Koka's prompts instead add themselves to the continuation and pass a
-foreign yield outwards, which would fix both.
-
-The fix is planned in [proposal 0205](proposals/0205_native_prompts_and_in_place_clauses.md), part A. handler_sieve's clauses run in place, so a forwarded perform is a chain of nested calls unwound when it returns. Part B alone, wrapping the foreign yield, makes the loop above quadratic instead of crashing: 0.01 s at 2,000 and 0.24 s at 8,000.
-
-### KI-243 — A tail-resumptive clause runs under the handlers installed between its handle and the perform
-
-**Severity:** Medium (wrong values, silently, in an uncommon shape; both backends agree) · **Area:** tail-resumptive handlers: the Core evidence pass, `aether::tail_resumptive`, `flux_yield_prompt` (`runtime/c/effects.c`), `OpPerform` (`src/vm/dispatch.rs`) · **Verified:** 2026-11-26 (184c35d3; on `main` at 64005292 a clause can't perform at all, KI-226) · **From:** fixing KI-233
-
-```flux
-effect Ask {
-    ask : () -> Int
-}
-
-effect Log {
-    get : () -> Int
-}
-
-fn asks() -> Int with Ask {
-    perform Ask.ask()
-}
-
-fn body() -> Int with Ask {
-    asks() handle Log { get(resume) -> resume(2) }
-}
-
-fn mid() -> Int with Log {
-    body() handle Ask { ask(resume) -> resume(perform Log.get()) }
-}
-
-fn main() with IO {
-    print(mid() handle Log { get(resume) -> resume(1) })
-}
-```
-
-A clause runs in its handle's context, so the `Ask` clause's `perform
-Log.get()` should reach the `Log(1)` handler outside `mid`'s handle, and the
-program should print `1`. Both backends print `2`: the `Log(2)` handler
-between the handle and the perform answers it (`.verify/ki233/05`).
-
-The clause resumes as its last act, so its handler is tail-resumptive, and
-each path that runs such a clause runs it where the perform was:
-- the Core evidence pass calls it in place;
-- natively its `resume` comes from `flux_compose_conts`, which installs no
-  evidence, so the prompt keeps the yield site's;
-- the VM takes the same flag and does the same.
-
-With `resume(perform Log.get()) * 10`, which isn't tail-resumptive, both
-print `10`, the right answer, since [KI-233](#ki-233)'s fix.
-
-A second effect: the VM compiles a function through the AST compiler when
-the CFG path can't take it, and the AST sees a clause before Core
-simplifies it. A clause like `resume(perform Log.get()) * 1`, which Core
-simplifies to a tail-resumptive one, is tail-resumptive natively and not in
-an AST-compiled function on the VM, so the two backends can print `2` and
-`1` for it.
-
-A fix would run every clause under its handle's evidence and have a
-tail-resumptive `resume` install the yield site's for the code it runs,
-which costs the single-continuation fast path its directness.
-
-The fix is planned in [proposal 0205](proposals/0205_native_prompts_and_in_place_clauses.md), part A: a clause that resumes exactly once, as its last act, runs in place under its handle's evidence, as Koka's `under1` runs an operation.
-
 ### KI-242 — A clause that doesn't resume can't give back unit: E300, "expected type: Unit, found type: ()"
 
 **Severity:** Medium (loud; a non-unit type works) · **Area:** type inference of handler clauses, the two spellings of unit · **Verified:** 2026-11-26 (11d08782, and `main` at 64005292) · **From:** writing the parsing_dollars benchmark
@@ -3960,6 +3843,156 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-244 — Natively, each perform that a clause forwards to an outer handler leaves C stack behind, so a few hundred thousand overflow it — FIXED 2026-11-26
+
+**Severity:** High (a crash, SIGBUS) · **Area:** native effects runtime, prompts (`runtime/c/effects.c`, `flux_yield_prompt`) · **Verified:** 2026-11-26 (091a8c70; on `main` at 64005292 a clause can't perform, KI-226 and KI-233) · **From:** writing the handler_sieve benchmark
+
+```flux
+effect Ask {
+    ask : () -> Int
+}
+
+fn go(i: Int, acc: Int) -> Int with Ask {
+    if i == 0 { acc } else { go(i - 1, acc + perform Ask.ask()) }
+}
+
+fn inner(t: Int) -> Int with Ask {
+    go(t, 0) handle Ask { ask(resume) -> resume(perform Ask.ask()) }
+}
+
+fn main() with IO {
+    print(inner(200000) handle Ask { ask(resume) -> resume(1) })
+}
+```
+
+Each of the 200,000 performs is forwarded by the inner clause to the outer
+handler. Both backends should print `200000`. The VM does, in 0.23 s.
+Natively (`-O`) the binary dies with signal 10 (SIGBUS) on the stack guard,
+at about 156,000 performs.
+
+`.verify/ki244/01` forwards `t` performs through a chain of `d` such
+handlers. The largest `t` that runs natively falls as `d` grows, so the
+stack used grows with the number of forwarding steps, `d × t`:
+
+| d | largest t that runs | d × t |
+|---:|---:|---:|
+| 1 | about 156,000 | 156,000 |
+| 3 | about 78,000 | 234,000 |
+| 10 | about 29,000 | 293,000 |
+| 30 | about 10,000 | 308,000 |
+| 100 | about 3,200 | 317,000 |
+
+The VM runs `d = 30, t = 100,000` in 1.2 s. Raising the stack limit with
+`ulimit -s` doesn't move the crash. Without forwarding, a loop of 100,000
+performs runs natively. That holds for a clause that isn't tail-resumptive
+(`02`), and for one that is (`03`).
+
+handler_sieve is this shape: each prime's handler forwards to the previous
+one. Natively it crashes between 2,000 and 2,500 with `-O` (303 and 367
+primes), and between 1,000 and 1,500 without. The VM gives the suite's
+answers up to 10,000 (`04`).
+
+Not yet known: which frames stay. The likely path is the inline service of
+[KI-238](#ki-238). The inner prompt runs the outer clause in its own loop.
+That clause's `resume` runs the inner clause's continuation, whose
+delimiting `resume` runs the rest of the computation on top of those
+frames, so each forwarded perform adds a layer that is never unwound.
+Koka's prompts instead add themselves to the continuation and pass a
+foreign yield outwards, which would fix both.
+
+**Fixed 2026-11-26**, with [KI-243](#ki-243): a clause that forwards with
+`resume(perform Ask.ask())` resumes once, as its last act, so it runs in
+place, and a forwarded perform is a chain of calls that return. The program
+above prints `200000` natively, where on Windows it overflowed the stack
+(status 0xC00000FD), and so do 20,000 performs forwarded through a chain of
+10 handlers. Test: `effect_forwarded_performs_ki244.flx`. handler_sieve
+itself was not rerun.
+
+What stays: a forwarding loop of clauses that don't run in place, such as
+one that works after its `resume`, still leaves C stack behind, since the
+inner prompt still serves the outer clause inline ([KI-238](#ki-238)). Part B
+of proposal 0205 removes that.
+
+
+### KI-243 — A tail-resumptive clause runs under the handlers installed between its handle and the perform — FIXED 2026-11-26
+
+**Severity:** Medium (wrong values, silently, in an uncommon shape; both backends agree) · **Area:** tail-resumptive handlers: the Core evidence pass, `aether::tail_resumptive`, `flux_yield_prompt` (`runtime/c/effects.c`), `OpPerform` (`src/vm/dispatch.rs`) · **Verified:** 2026-11-26 (184c35d3; on `main` at 64005292 a clause can't perform at all, KI-226) · **From:** fixing KI-233
+
+```flux
+effect Ask {
+    ask : () -> Int
+}
+
+effect Log {
+    get : () -> Int
+}
+
+fn asks() -> Int with Ask {
+    perform Ask.ask()
+}
+
+fn body() -> Int with Ask {
+    asks() handle Log { get(resume) -> resume(2) }
+}
+
+fn mid() -> Int with Log {
+    body() handle Ask { ask(resume) -> resume(perform Log.get()) }
+}
+
+fn main() with IO {
+    print(mid() handle Log { get(resume) -> resume(1) })
+}
+```
+
+A clause runs in its handle's context, so the `Ask` clause's `perform
+Log.get()` should reach the `Log(1)` handler outside `mid`'s handle, and the
+program should print `1`. Both backends print `2`: the `Log(2)` handler
+between the handle and the perform answers it (`.verify/ki233/05`).
+
+The clause resumes as its last act, so its handler is tail-resumptive, and
+each path that runs such a clause runs it where the perform was:
+- the Core evidence pass calls it in place;
+- natively its `resume` comes from `flux_compose_conts`, which installs no
+  evidence, so the prompt keeps the yield site's;
+- the VM takes the same flag and does the same.
+
+With `resume(perform Log.get()) * 10`, which isn't tail-resumptive, both
+print `10`, the right answer, since [KI-233](#ki-233)'s fix.
+
+A second effect: the VM compiles a function through the AST compiler when
+the CFG path can't take it, and the AST sees a clause before Core
+simplifies it. A clause like `resume(perform Log.get()) * 1`, which Core
+simplifies to a tail-resumptive one, is tail-resumptive natively and not in
+an AST-compiled function on the VM, so the two backends can print `2` and
+`1` for it.
+
+**Fixed 2026-11-26**, with [KI-244](#ki-244), by stage S1 of
+[proposal 0205](proposals/0205_native_prompts_and_in_place_clauses.md). A
+handle's kind (`handle_kind` in `src/aether/tail_resumptive.rs`) says where
+its clauses run. A clause that resumes exactly once, as its last act, runs in
+place, under its handle's evidence: natively `flux_perform`
+(`runtime/c/effects.c`) calls it at the perform, and the VM's `OpPerform`
+calls it on top of the perform. A perform in it reaches the handlers outside
+the handle. One that reads no evidence keeps the perform's, natively and in
+the AST compiler's direct handles. Any other clause runs at the prompt under
+its handle's evidence, except one that only resumes as its last act and
+performs nothing, which keeps the flat path it had. The Core evidence pass
+calls a clause directly only if it reads no evidence. The second effect is
+gone too: both VM compile paths run a clause in its handle's context,
+whichever of them decides it is tail-resumptive.
+
+An in-place clause runs under its entry's parent evidence. After a resume
+that copied the states of the handlers inside its continuation
+([KI-236](#ki-236)), that parent still holds the cells from before the copy,
+as the evidence a clause at the prompt runs under does.
+
+Tests: `effect_clause_runs_in_its_handles_context_ki243.flx` (1, 1, 12, 15);
+`a_clause_that_resumes_once_as_its_last_act_runs_in_place_ki243` and
+`a_perform_whose_clause_performs_is_left_to_the_runtime_ki243` in
+`tests/aether/core_regressions.rs`; the rule tests in `src/lir/lower.rs` and
+`src/compiler/tail_resumptive.rs`.
+
 
 ### KI-233 — A handler clause runs under its own handler, so a clause that performs its own effect reaches itself — FIXED 2026-11-26
 
