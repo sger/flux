@@ -1,0 +1,42 @@
+// parity: vm, llvm, vm_opt, llvm_opt
+// expect: success
+// skip-way: vm, vm_opt: KI-235 a tail call to another function that releases a value first keeps a frame on the VM
+// bug: KI-235. Two loops whose calls are all tail calls, each passing
+//      through a second function that releases a value just before its
+//      tail call: a fresh list, and a closure whose result is the next
+//      stream cell. The VM keeps a frame per turn and overflows its stack.
+// parity-expected-stdout-begin
+// 2000000
+// 2000001000000
+// parity-expected-stdout-end
+
+fn walk(n: Int, a: Int) -> Int {
+    if n == 0 { a } else { step(n, a, [n]) }
+}
+
+fn step(n: Int, a: Int, xs: List<Int>) -> Int {
+    walk(n - 1, a + len(xs))
+}
+
+type Gen = Empty | Thunk(Int, () -> Gen)
+
+fn gen(i: Int) -> Gen {
+    if i == 0 { Empty } else { Thunk(i, \() -> gen(i - 1)) }
+}
+
+fn sum(a: Int, g: Gen) -> Int {
+    match g {
+        Empty -> a,
+        Thunk(v, f) -> sum_next(v + a, f),
+    }
+}
+
+fn sum_next(a: Int, f: () -> Gen) -> Int {
+    let g = f()
+    sum(a, g)
+}
+
+fn main() with IO {
+    print(walk(2000000, 0))
+    print(sum(0, gen(2000000)))
+}
