@@ -18,7 +18,9 @@ This proposal makes the native runtime follow Koka's design in two parts:
 
 - **Part A.** A clause that resumes exactly once, as its last act, runs in
   place at the perform site, under the evidence of its own `handle`. No
-  continuation is captured (Koka's `under1`).
+  continuation is captured. This is Koka's `under1`, which Koka uses for
+  clauses written with `fun` or `val`. Flux finds these clauses by analysis,
+  not from a keyword.
 - **Part B.** Every other clause runs at its own handler's prompt. A prompt
   that sees a yield for another handler wraps the continuation captured so
   far, re-entering itself around it, and passes the yield outwards (Koka's
@@ -27,6 +29,10 @@ This proposal makes the native runtime follow Koka's design in two parts:
 
 The VM already gives the semantics these parts give. It changes only where
 it agreed with native code on KI-243.
+
+Koka, OCaml 5 and GHC all give the rule this proposal relies on: a clause
+runs outside its own handler, and resuming puts back the handlers inside the
+continuation (see [Prior art](#prior-art)).
 
 ## Motivation
 [motivation]: #motivation
@@ -86,14 +92,15 @@ KI-237 fixtures among them.
 - **A forwarding loop grows even when wrapped right.** Each turn nests the
   clause's pending prompt around the next resume, so the crash becomes
   quadratic time: 0.01 s at 2,000 turns and 0.24 s at 8,000. Only running a
-  tail-resumptive clause in place keeps such a loop flat.
+  tail-resumptive clause in place keeps such a loop flat. Koka has the same
+  limit, for the same reason (see [Part B](#part-b-prompts-that-wrap-a-foreign-yield)).
 
 ## Guide-level explanation
 [guide-level-explanation]: #guide-level-explanation
 
 Nothing changes for Flux programmers. Programs that print the wrong value
 natively today (KI-238, KI-243) print what the VM prints. Programs that
-crash (KI-244) run.
+crash (KI-244) run, when their forwarding clauses resume as their last act.
 
 For compiler and runtime contributors, two rules:
 
@@ -115,16 +122,32 @@ For compiler and runtime contributors, two rules:
 **Which clauses.** A clause is *in-place* when every path through it ends
 in exactly one call of `resume`, and `resume` appears nowhere else.
 - This is Core's tail-resumptive rule (`core/passes/tail_resumptive.rs`).
+  It is what Koka's `fun` clause means: Koka builds it with `clause-tail`,
+  "resumes exactly once at the end".
+- **Koka chooses by keyword; Flux infers.** Koka turns `fun` and `val` into
+  `clause-tail` and every `ctl` into a yield to the prompt, even a `ctl`
+  that ends in `resume(x)`. Its resume analysis is not used. Flux has no
+  such keywords, so it keeps the analysis.
 - The native flag's rule, `resumes_only_as_last_act`
   (`aether/tail_resumptive.rs`), is looser. It accepts a branch that never
   resumes, which a clause running in place can't express, because it can't
   leave its handle except by performing.
 - **KI-233's exclusion goes for in-place clauses.** A clause that performs
   its own effect can be in-place, because running under its handle's
-  evidence already takes the perform to the next handler out.
+  evidence already takes the perform to the next handler out. Koka's
+  `cancelation-scope` (`lib/std/async/async.kk`) relies on this: in its
+  `override handle`, `fun is-scope-canceled` performs `is-scope-canceled`,
+  which reaches the enclosing scope's handler.
 - A handle whose clauses are all in-place is an *in-place handle*. Its
-  evidence entry gets a third flag value beside the native flag's two, so
-  the runtime can tell an in-place handle from one that only resumes last.
+  evidence entry needs a flag value of its own (see
+  [Unresolved questions](#unresolved-questions)).
+
+**Clauses that perform nothing.** An in-place clause that performs no
+effect needs no evidence switch: nothing in it reads the evidence. Koka's
+simplifier turns `clause-tail` into `clause-tail-noop` in that case, which
+calls the clause with no switch at all. Flux does the same: such a clause is
+called directly, with no switch and no restore. countdown's, iterator's and
+counter's clauses are of this kind, so the switch costs them nothing.
 
 **Native.**
 - A perform whose handler entry is in-place calls the clause where the
@@ -134,8 +157,10 @@ in exactly one call of `resume`, and `resume` appears nowhere else.
 - After the clause, `current_evv` goes back to the perform's.
 - **If the clause yields** (it performed something a capturing handler
   serves), the perform extends a continuation that re-enters the in-place
-  call: it runs the rest of the clause under the parent evidence, then
-  restores the perform's. That is Koka's `under1x`.
+  call. That is Koka's `under1x`. When it is resumed, it reads the evidence
+  it is called under, sets the entry's parent, runs the rest of the clause,
+  and restores what it read. It does not restore the evidence of the
+  original perform, which is stale after an escaped or async resume.
 - **The perform site.** Today it is a `CallKind::YieldTo` terminator that
   always yields. It becomes a call that may return a value, with the usual
   yield check after it. `flux_perform_direct` is the starting point, without
@@ -157,7 +182,8 @@ switch. There are two choices:
   then runs in place;
 - the pass wraps its call in an evidence switch.
 
-The first is smaller and is proposed.
+The first is smaller and is proposed. It keeps the direct call exactly where
+Koka drops the switch, for clauses that perform nothing.
 
 **Effects.**
 - **KI-243:** an in-place clause runs under its handle's evidence.
@@ -184,12 +210,23 @@ it.
 **Re-entry.** Called with `x`, the closure:
 - reads the evidence it is called under, w0′ (the resumer's, outside this
   handler);
-- installs w1′ = w0′ plus this handle's entry;
+- installs w1′ = w0′ plus this handle's entry, with the entry's parent
+  (`EVV_PARENT_OFF`) set to w0′;
 - runs `inner(x)` under w1′;
 - runs the prompt loop on what that gives (a value, or a yield it now
   serves), and restores w0′ on the way out.
 
 This is Koka's `w1' = if evv-eq(w0, w0') then w1 else evv-insert(w0', ev)`.
+
+**The entry's parent follows the re-entry.** Koka's `evv-insert` sets the
+handler's parent evidence (`ev.hevv`) on every insert, "at init, or due to
+non-scoped resumptions". Every rule that reads the parent depends on it: a
+clause at the prompt runs under it (KI-233), and an in-place clause switches
+to it (Part A). Flux copies an entry's words into each evidence array, so the
+re-entry writes w0′ into the copy it inserts, and the entry the handle was
+installed with is left alone. Without that, a clause reached after an
+escaped or async resume would run under the evidence of the place the handle
+was installed.
 
 **Evidence.** It is rebuilt from the outside in as prompts are re-entered.
 So a delimiting `resume` installs only its own handler's level, not the
@@ -200,10 +237,14 @@ whole yield-site evidence it captures today.
   prompt is still on the stack. Its state cell is shared, so a `set` while
   one branch runs is seen by the next.
 - **A handle inside the resumed computation** is re-entered by every resume
-  of it. Its re-entry closure keeps the state the handle had at the yield,
-  and each re-entry installs a fresh cell with that value. That is what
-  Koka's `prompt-local-var` does (`loc := v` before the resume), and it
-  replaces `evv_copy_inner_states`.
+  of it. Its re-entry closure keeps the value the state had at the yield,
+  and each re-entry writes that value back into the entry's cell before it
+  runs `inner`. That is Koka's `prompt-local-var`: it saves `v = loc` at the
+  yield, and its re-entry does `loc := v`, into the same cell. A yield that
+  later passes the re-entered prompt saves the value as it is then.
+- The cell already lives in the entry (`EVV_STATE_OFF`), shared by every
+  copy of it, so write-back allocates nothing. It replaces
+  `evv_copy_inner_states`.
 
 **LIR.** A prompt that passes a yield outwards returns the sentinel. So the
 code after a `handle` in the same function needs a continuation and a yield
@@ -215,11 +256,29 @@ check. The prompt becomes a call terminator, `CallKind::Prompt`, that calls
 - The enclosing handles' evidence, held across the prompt for KI-133's
   landing pad, moves to the call's `HeldAcross::scoped`.
 
+**Composed continuations resumed twice.** A continuation that holds a
+re-entry closure may be resumed more than once. Koka's `kcompose` runs each
+part in order and, when the composed closure is shared, copies each part
+before it calls it, so the captured chain is never used up. GHC copies the
+captured stack on every resume for the same reason. Flux's composition does
+the same: it consumes the chain only when it holds the only reference.
+
 **Effects.**
 - **KI-238:** a clause runs at its own prompt with the whole continuation.
-- **KI-244:** no frames are left under a resume.
+- **KI-244:** no frames are left under a resume by a foreign yield.
 - The escaped resume of `.verify/ki227/10` gets its `Ask` served by `main`'s
   prompt.
+
+**What part B does not fix.** A clause still runs inside its prompt's C
+frame, as in Koka, where `clause(resume)` carries the comment "TODO: we
+should exit prompt first, and then execute clause to use constant stack
+space when resuming". Koka composes continuations by nested calls, with no
+trampoline, so a resume there rebuilds as much C stack as it captured. So a
+forwarding loop of clauses that are not in-place still grows, in Koka as in
+Flux: the attempt's quadratic time. KI-244 is fixed for in-place clauses,
+which handler_sieve's are. A clause that does work after its `resume` and
+forwards in a loop keeps a size limit (see [Testing](#testing) and
+[Rationale](#rationale-and-alternatives)).
 
 ### Part C: async
 
@@ -228,8 +287,17 @@ Today it passes prompts without leaving anything behind, and a fiber
 resumed inside a `handle` runs without that handle's prompt. Performs there
 are then served inline by whatever prompt is around. With part B the
 fiber's continuation re-enters each prompt it passed. That makes a
-suspended fiber resume under its handlers as the VM's does. Every async,
-task, channel and fs fixture is the check.
+suspended fiber resume under its handlers as the VM's does.
+
+Koka's async works this way. Its scheduler is a stack of ordinary handlers,
+and `do-await` hands its resume to the event loop. The event loop calls that
+resume under evidence of its own, so each prompt the fiber passed is
+re-entered through its `Yielding` closure, and `evv-insert` gives each entry
+the event loop's context as its parent. Part C depends on that last step in
+part B: a fiber resumed by the scheduler must not see the evidence of the
+place where it suspended.
+
+Every async, task, channel and fs fixture is the check.
 
 ### Testing
 
@@ -246,6 +314,21 @@ task, channel and fs fixture is the check.
   `arith_raw_ints_in_handlers_and_closures`.
 - **KI-243:** `.verify/ki233/05` should print 1 on both backends, which
   becomes a fixture.
+- **New fixtures, from the other implementations:**
+  - **A non-tail resume, then a perform to the outer handler**, in the shape
+    of OCaml's `testsuite/tests/backtrace/backtrace_effects_nested.ml`: an
+    inner clause does `1 + resume(())`, and the resumed body then performs
+    to the outer handler, which resumes. OCaml prints 43.
+  - **Multi-shot through nested prompts**, in the shape of GHC's
+    `testsuite/tests/rts/continuations/cont_nondet_handler.hs`: a choice
+    effect performed inside another handler's body, resumed twice, with
+    every combination printed.
+  - **The entry's parent after a resume from elsewhere:** an in-place
+    clause that performs, reached through a resume that escaped its clause,
+    and again through an async resume. Its perform reaches the handler
+    outside its `handle` at the resume, not where the handle was installed.
+  - **A forwarding loop of clauses that are not in-place**, at a size that
+    runs, with the limit part B leaves recorded in a known issue.
 - **The probes:** `.verify/ki238`, `.verify/ki244` (chains of `d` handlers
   forwarding `t` performs) and `.verify/hs`.
 - **handler_sieve** at 60,000 natively (171848738).
@@ -261,8 +344,9 @@ task, channel and fs fixture is the check.
   KI-243 and KI-244 and unblocks handler_sieve. It doesn't depend on part B,
   as in-place clauses never go through the inline service.
 - **S2, part B:** prompts wrap foreign yields, the prompt becomes a call
-  terminator, evidence is rebuilt on re-entry, and KI-236's state follows
-  the re-entry closure. It fixes KI-238.
+  terminator, evidence is rebuilt on re-entry with the entry's parent set,
+  and KI-236's state is written back on re-entry. It fixes KI-238. The
+  in-place clause's parent update lands here too, with its test.
 - **S3, part C:** async through prompts, with the fixtures it moves.
 
 Each stage goes on its own branch: tests first, then the fix, then
@@ -274,11 +358,15 @@ Each stage goes on its own branch: tests first, then the fix, then
 - **Every native program with nested handlers changes how it runs** in S2.
   Today's inline service is fast in the common case where an outer clause
   resumes as its last act. Each foreign yield will allocate a re-entry
-  closure and compose the frames under it.
-- **Part A adds an evidence switch** and a restore to every in-place perform,
-  and a branch on the entry's flag to every perform.
+  closure and compose the frames under it. Koka pays the same.
+- **Part A adds an evidence switch** and a restore to each in-place perform
+  whose clause performs, and a branch on the entry's flag to every perform.
+  Clauses that perform nothing skip the switch.
 - **The runtime has a third kind of clause call.** In-place joins the plain
   composition and the delimiting trampoline. Each needs its own tests.
+- **A forwarding loop of clauses that are not in-place still grows.** Part B
+  keeps the clause inside its prompt's frame, as Koka does. Only GHC's and
+  OCaml's way, below, removes that.
 
 ## Rationale and alternatives
 [rationale-and-alternatives]: #rationale-and-alternatives
@@ -296,26 +384,94 @@ Each stage goes on its own branch: tests first, then the fix, then
   composed continuation to know that a re-entry closure follows a tail call
   of `resume`. Part A gives the same for the clauses that matter and fixes
   KI-243 as well.
-- **Stack switching, as OCaml 5's fibers do.** One-shot, it fits neither
-  multi-shot resume nor the yield-check design the native backend is built
-  on (proposal 0162).
+- **Run a clause after its prompt has returned.** This is how GHC and OCaml
+  keep every forwarding loop flat, whatever the clause does.
+  - GHC's `control0#` removes the prompt and runs the clause where the
+    prompt was. A deep handler pushes the prompt again inside `resume`.
+  - OCaml runs the clause on the parent fiber, in place of the call that
+    installed or resumed the handler, and a `continue` in tail position is
+    a jump.
+  - In a runtime built on yield checks, the prompt would have to return to
+    the code at the `handle`, which would call the clause in a loop and
+    re-enter the prompt from `resume`. That is Koka's TODO. It is a larger
+    change to the prompt and to LIR than part B, and part A already covers
+    the clauses that forward in practice. It stays a future possibility.
+- **Stack switching, as OCaml 5's fibers do.**
+  - **What doesn't fit:** it needs stacks the runtime manages, a calling
+    convention the LLVM backend and C calls into the runtime don't have, and
+    a different design from the yield checks that native code is built on
+    (proposal 0162). OCaml's continuations are one-shot, but that is a
+    choice, not a limit of fibers. Its runtime copied fibers to clone a
+    continuation from 2016 until 2021, and dropped that for cost and for
+    linear resources. Multi-shot on fibers means copying stacks, as GHC does.
+  - **What carries over:**
+    - The handler lives in the captured segment, so resuming puts it back.
+      Part B's re-entry closure does the same for a runtime without fibers.
+    - The performing chain is detached before the clause runs, which is
+      KI-243's rule.
+    - A handler that declines appends its fiber to the continuation and
+      jumps outwards; it never serves the effect itself. OCaml's append
+      changes the chain in place, which only one-shot continuations allow.
+      Flux's re-entry closures are the multi-shot form of it.
 
 ## Prior art
 [prior-art]: #prior-art
 
+The versions read are koka `2d0d6f4851`, ocaml `bc1c440270` and ghc
+`56bb91d95f`.
+
 - **Koka.**
-  - `lib/std/core/hnd.kk`: `prompt` wraps a foreign yield with `yield-cont`
-    and re-inserts its evidence on re-entry. `under1` and `under1x` run an
-    operation in place under the handler's evidence. `prompt-local-var`
-    restores a local's value before each resume.
-  - The comment at `clause(resume)` in `prompt` notes the stack the clause
-    uses inside the prompt: "we should exit prompt first ... to use constant
-    stack space when resuming".
+  - `lib/std/core/hnd.kk`:
+    - `prompt` (lines 384-418): its `Yielding` arm wraps a foreign yield
+      with `yield-cont` and re-inserts its evidence on re-entry. Its `Yield`
+      arm restores the evidence outside the handler (`evv-set(w0)`) and then
+      calls the clause.
+    - `under1` and `under1x` (lines 588-603) run an operation in place under
+      the handler's evidence. `under1x` re-reads the evidence when resumed.
+    - The clause builders (lines 655-667): `clause-control1` yields to the
+      prompt; `clause-tail1` calls `under1`; `clause-tail-noop1` calls the
+      operation with no evidence switch.
+    - `prompt-local-var` (lines 469-472) writes a local's saved value back
+      before each resume.
+    - The comment at `clause(resume)`, line 418, is the TODO quoted in part
+      B.
+  - `lib/std/core/inline/hnd.c`:
+    - `kk_evv_insert` (lines 140-146) sets the handler's parent evidence on
+      every insert.
+    - `kcompose` (lines 266-306) runs composed continuations by nested
+      calls, copying them when they are shared.
+  - `src/Type/Infer.hs`, lines 846-866, maps `fun` and `val` to
+    `clause-tail` and `ctl` to `clause-control`. `src/Core/Simplify.hs`,
+    lines 463-465, turns `clause-tail` into `clause-tail-noop` for a clause
+    that performs nothing.
+  - `lib/std/async/async.kk`, lines 266-287: the async scheduler as
+    ordinary handlers.
   - Xie and Leijen, *Generalized Evidence Passing for Effect Handlers* (ICFP
     2021).
-- **OCaml 5:** deep handlers on one-shot fibers. A clause runs outside its
-  handler, and `continue k (perform e)` reaches the handler outside, which
-  is handler_sieve's shape.
+- **OCaml 5.**
+  - Deep handlers on one-shot fibers (`runtime/amd64.S`: `caml_perform`,
+    `caml_reperform`, `caml_resume`). A clause runs on the parent fiber,
+    outside its handler, and `continue k (perform e)` reaches the handler
+    outside, which is handler_sieve's shape. A declining handler forwards in
+    constant time and stack.
+  - `testsuite/tests/backtrace/backtrace_effects_nested.ml`: a clause's work
+    after `continue` belongs to the outer continuation, KI-238's shape.
+  - The manual on one-shot continuations
+    (`manual/src/refman/extensions/effects.etex`, lines 571-580), and
+    `caml_clone_continuation`, removed in `6b33e61c97` (2021).
+  - Sivaramakrishnan et al., *Retrofitting Effect Handlers onto OCaml* (PLDI
+    2021).
+- **GHC.**
+  - The primops `prompt#` and `control0#`
+    (`compiler/GHC/Builtin/primops.txt.pp`, lines 3085-3109): `control0#`
+    runs its function with the prompt removed, so the clause runs outside
+    its handler.
+  - `rts/Continuation.c` and `rts/ContinuationOps.cmm`: capture copies the
+    stack up to the matching prompt, inner prompts included, and every
+    resume copies it back, leaving the captured continuation as it was.
+  - `testsuite/tests/rts/continuations/cont_nondet_handler.hs`, line 17: a
+    deep handler pushes its prompt again inside `resume`
+    (`prompt tag . k`), which is part B's re-entry.
 - **The Flux VM:** captured continuations put back at the handler's entry
   for a tail resume, `saved_evv` for a clause's evidence (KI-233), and
   `resume_boundary` (KI-237).
@@ -323,24 +479,30 @@ Each stage goes on its own branch: tests first, then the fix, then
 ## Unresolved questions
 [unresolved-questions]: #unresolved-questions
 
-- **The third value of the native flag.** Today's flag can't mark in-place
-  separately from "resumes only as its last act, with branches that don't".
-  Either a third value, or the in-place rule replaces the looser one and
-  those clauses capture.
+- **The native flag.** Today's flag can't mark in-place separately from
+  "resumes only as its last act, with branches that don't". Koka's
+  precedent is to have only the in-place rule: a clause that is not in-place
+  captures. That is proposed, with a third flag value kept only if S1's
+  timings show clauses with a non-resuming branch, which today keep a loop
+  flat, getting slower.
 - **How the native debugger shows an in-place clause.** It would appear as a
   frame on top of the perform, where today it is the prompt's. The debug
   suite will say whether stepping and backtraces need work.
-- **What the evidence switch costs** per in-place perform, against today's
-  yield and compose, on countdown, iterator and counter.
+- **What the evidence switch costs** per in-place perform whose clause
+  performs, against today's yield and compose. Clauses that perform nothing
+  don't switch.
 - **Async in S3:** whether a fiber suspended inside a `handle` and resumed on
-  another worker needs anything more than the re-entry closure.
+  another worker needs anything more than the re-entry closure. State
+  written back into a shared cell assumes one resume of a continuation runs
+  at a time. If one continuation could run on two workers at once, each
+  re-entry would need a fresh cell, as `evv_copy_inner_states` gives today.
 
 ## Future possibilities
 [future-possibilities]: #future-possibilities
 
-- **Koka's TODO for clauses inside the prompt.** Running a non-in-place
-  clause after unwinding its prompt would make every resume constant in C
-  stack.
+- **Run every clause after its prompt has returned**, as GHC and OCaml do
+  and as Koka's TODO asks. It would make every resume constant in C stack,
+  whatever the clause does after `resume`.
 - **The evidence pass could keep its direct calls** for clauses that perform,
   with an explicit evidence switch in Core, if S1's timings show the
   runtime's in-place branch costs more than the pass saves.
