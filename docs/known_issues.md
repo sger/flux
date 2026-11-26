@@ -68,6 +68,63 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-244 — Natively, each perform that a clause forwards to an outer handler leaves C stack behind, so a few hundred thousand overflow it
+
+**Severity:** High (a crash, SIGBUS) · **Area:** native effects runtime, prompts (`runtime/c/effects.c`, `flux_yield_prompt`) · **Verified:** 2026-11-26 (091a8c70; on `main` at 64005292 a clause can't perform, KI-226 and KI-233) · **From:** writing the handler_sieve benchmark
+
+```flux
+effect Ask {
+    ask : () -> Int
+}
+
+fn go(i: Int, acc: Int) -> Int with Ask {
+    if i == 0 { acc } else { go(i - 1, acc + perform Ask.ask()) }
+}
+
+fn inner(t: Int) -> Int with Ask {
+    go(t, 0) handle Ask { ask(resume) -> resume(perform Ask.ask()) }
+}
+
+fn main() with IO {
+    print(inner(200000) handle Ask { ask(resume) -> resume(1) })
+}
+```
+
+Each of the 200,000 performs is forwarded by the inner clause to the outer
+handler. Both backends should print `200000`. The VM does, in 0.23 s.
+Natively (`-O`) the binary dies with signal 10 (SIGBUS) on the stack guard,
+at about 156,000 performs.
+
+`.verify/ki244/01` forwards `t` performs through a chain of `d` such
+handlers. The largest `t` that runs natively falls as `d` grows, so the
+stack used grows with the number of forwarding steps, `d × t`:
+
+| d | largest t that runs | d × t |
+|---:|---:|---:|
+| 1 | about 156,000 | 156,000 |
+| 3 | about 78,000 | 234,000 |
+| 10 | about 29,000 | 293,000 |
+| 30 | about 10,000 | 308,000 |
+| 100 | about 3,200 | 317,000 |
+
+The VM runs `d = 30, t = 100,000` in 1.2 s. Raising the stack limit with
+`ulimit -s` doesn't move the crash. Without forwarding, a loop of 100,000
+performs runs natively. That holds for a clause that isn't tail-resumptive
+(`02`), and for one that is (`03`).
+
+handler_sieve is this shape: each prime's handler forwards to the previous
+one. Natively it crashes between 2,000 and 2,500 with `-O` (303 and 367
+primes), and between 1,000 and 1,500 without. The VM gives the suite's
+answers up to 10,000 (`04`).
+
+Not yet known: which frames stay. The likely path is the inline service of
+[KI-238](#ki-238). The inner prompt runs the outer clause in its own loop.
+That clause's `resume` runs the inner clause's continuation, whose
+delimiting `resume` runs the rest of the computation on top of those
+frames, so each forwarded perform adds a layer that is never unwound.
+Koka's prompts instead add themselves to the continuation and pass a
+foreign yield outwards, which would fix both.
+
 ### KI-243 — A tail-resumptive clause runs under the handlers installed between its handle and the perform
 
 **Severity:** Medium (wrong values, silently, in an uncommon shape; both backends agree) · **Area:** tail-resumptive handlers: the Core evidence pass, `aether::tail_resumptive`, `flux_yield_prompt` (`runtime/c/effects.c`), `OpPerform` (`src/vm/dispatch.rs`) · **Verified:** 2026-11-26 (184c35d3; on `main` at 64005292 a clause can't perform at all, KI-226) · **From:** fixing KI-233
