@@ -1,0 +1,9 @@
+aether_allocs	0
+aether_drops	40
+aether_dups	4
+aether_reuses	0
+bytecode_bytes	6411
+compiler_allocs	2001410
+core_size	353
+vm_allocs	41781987
+vm_instructions	42854035

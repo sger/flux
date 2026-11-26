@@ -1506,6 +1506,49 @@ cargo xtask bench parsing_dollars
 Latest report:
 
 <!-- parsing-dollars-report:start -->
+# Parsing Dollars Benchmark Report
+
+- Generated: 2026-11-26 11:46 UTC
+- Machine: macos-aarch64
+- Runs: 3 to 50, as hyperfine chose, warmup: 1
+- Workload: 1500 (smoke)
+- Toolchains: flux 9a481b61; hyperfine 2.0.0; rustc 1.100.0 (0ef1bc386 2026-11-09); Python 3.9.6; ghc 9.10.3; ocamlopt 5.5.2; erlang OTP 29; elixir 1.20.5; go1.27.4 darwin/arm64
+
+| Case | Mean | ± σ | Min | Max | Peak RSS | Instructions | × native |
+|:---|---:|---:|---:|---:|---:|---:|---:|
+| `parsing_dollars/flux` | 1.045 s | 11.7 ms | 1.034 s | 1.057 s | 19.5 MiB | 30.05 G | 19.84× |
+| `parsing_dollars/flux-direct` | 388.9 ms | 4.69 ms | 383.8 ms | 398.0 ms | 19.4 MiB | 11.13 G | 7.38× |
+| `parsing_dollars/flux-native` | 52.7 ms | 1.09 ms | 50.1 ms | 56.1 ms | 2.1 MiB | 1.48 G | 1.00× |
+| `parsing_dollars/flux-native-direct` | 2.30 ms | 0.07 ms | 2.15 ms | 2.47 ms | 2.1 MiB | 32.8 M | 0.04× |
+| `parsing_dollars/rust` | 1.13 ms | 0.05 ms | 1.05 ms | 1.26 ms | 2.0 MiB | 13.4 M | 0.02× |
+| `parsing_dollars/python` | 63.5 ms | 2.31 ms | 59.5 ms | 68.2 ms | 9.3 MiB | 1.59 G | 1.20× |
+| `parsing_dollars/haskell` | 16.5 ms | 0.60 ms | 14.3 ms | 17.1 ms | 11.4 MiB | 54.0 M | 0.31× |
+| `parsing_dollars/ocaml` | 16.2 ms | 0.38 ms | 15.7 ms | 18.4 ms | 4.8 MiB | 188.2 M | 0.31× |
+| `parsing_dollars/erlang` | 75.1 ms | 1.08 ms | 72.0 ms | 77.9 ms | 61.1 MiB | 1.54 G | 1.43× |
+| `parsing_dollars/elixir` | 132.6 ms | 1.40 ms | 130.0 ms | 136.7 ms | 67.7 MiB | 2.44 G | 2.52× |
+| `parsing_dollars/go` | 2.19 ms | 0.11 ms | 2.02 ms | 2.52 ms | 4.4 MiB | 34.4 M | 0.04× |
+
+VM / native: 19.84×
+
+Effect overhead (with handlers / direct style): VM 2.69×, native 22.90×
+
+No baseline for macos-aarch64 yet: record one with --save-baseline.
+
+### VM counts
+
+From `flux --metrics` on the VM case. They are the same on every run of the same compiler.
+
+| Count | Now | Baseline | Change |
+|:---|---:|---:|---:|
+| `aether_allocs` | 0 | – | – |
+| `aether_drops` | 40 | – | – |
+| `aether_dups` | 4 | – | – |
+| `aether_reuses` | 0 | – | – |
+| `bytecode_bytes` | 6411 | – | – |
+| `compiler_allocs` | 2001410 | – | – |
+| `core_size` | 353 | – | – |
+| `vm_allocs` | 41781987 | – | – |
+| `vm_instructions` | 42854035 | – | – |
 <!-- parsing-dollars-report:end -->
 
 ## Recursive Fibonacci
