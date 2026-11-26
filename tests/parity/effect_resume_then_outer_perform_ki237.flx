@@ -1,0 +1,132 @@
+// parity: vm, llvm
+// expect: success
+// bug: KI-237. A non-tail resume ran its continuation in a nested loop on the
+//      VM, so a perform there to a handler further out that captures unwound
+//      past the loop and corrupted the frames. Lines: an outer state handler
+//      read and set in both branches of a multi-shot choose (12); a non-tail
+//      outer clause asked from both branches (32); an escaping resume whose
+//      code reads and sets an outer state handler (7); effect-handlers-bench's
+//      tree_explore at height 3 (923, as the version without effects gives).
+// parity-expected-stdout-begin
+// 12
+// 32
+// 7
+// 923
+// parity-expected-stdout-end
+
+import Flow.List as List
+
+effect Choose {
+    choose : () -> Bool
+}
+
+effect St {
+    get : () -> Int
+    set : (Int) -> ()
+}
+
+effect Ask {
+    ask : () -> Int
+}
+
+effect Yld {
+    y : () -> ()
+}
+
+fn explore_sum() -> Int with Choose, St {
+    let b = perform Choose.choose()
+    let s = perform St.get()
+    perform St.set(if b { s + 1 } else { s + 10 })
+    perform St.get()
+}
+
+fn sums() -> Int with St {
+    explore_sum() handle Choose { choose(resume) -> resume(true) + resume(false) }
+}
+
+fn asked() -> Int with Choose, Ask {
+    let b = perform Choose.choose()
+    let a = perform Ask.ask()
+    if b { a } else { a * 2 }
+}
+
+fn asks() -> Int with Ask {
+    asked() handle Choose { choose(resume) -> resume(true) + resume(false) }
+}
+
+type Step = Done(Int) | More(() -> Step)
+
+fn stepped() -> Step with Yld, St {
+    perform Yld.y()
+    let a = perform St.get()
+    perform St.set(37)
+    Done(a + 4)
+}
+
+fn gen() -> Step with St {
+    stepped() handle Yld { y(resume) -> More(\() -> resume(())) }
+}
+
+fn run(s: Step) -> Int with St {
+    match s {
+        Done(v) -> v,
+        More(k) -> run(k()),
+    }
+}
+
+type Tree = Leaf | Node(Tree, Int, Tree)
+
+fn make(n: Int) -> Tree {
+    if n == 0 { Leaf } else {
+        let t = make(n - 1)
+        Node(t, n, t)
+    }
+}
+
+fn operator(x: Int, y: Int) -> Int {
+    let d = x - 503 * y + 37
+    let a = if d < 0 { 0 - d } else { d }
+    a % 1009
+}
+
+fn explore(t: Tree) -> Int with Choose, St {
+    match t {
+        Leaf -> perform St.get(),
+        Node(l, v, r) -> visit(l, v, r),
+    }
+}
+
+fn visit(l: Tree, v: Int, r: Tree) -> Int with Choose, St {
+    let next = if perform Choose.choose() { l } else { r }
+    perform St.set(operator(perform St.get(), v))
+    operator(v, explore(next))
+}
+
+fn one(t: Tree) -> List<Int> with Choose, St {
+    [explore(t)]
+}
+
+fn paths(t: Tree) -> List<Int> with St {
+    one(t) handle Choose { choose(resume) -> concat([resume(true), resume(false)]) }
+}
+
+fn biggest(xs: List<Int>, m: Int) -> Int {
+    match xs {
+        [] -> m,
+        [h | t] -> biggest(t, if h > m { h } else { m }),
+    }
+}
+
+fn turn(i: Int, t: Tree) -> Int with St {
+    if i == 0 { perform St.get() } else {
+        perform St.set(biggest(paths(t), 0))
+        turn(i - 1, t)
+    }
+}
+
+fn main() with IO {
+    print(sums() handle St(0) { get(resume, s) -> resume(s, s), set(resume, x, s) -> resume((), x) })
+    print(asks() handle Ask { ask(resume) -> resume(10) + 1 })
+    print(run(gen()) handle St(3) { get(resume, s) -> resume(s, s), set(resume, x, s) -> resume((), x) })
+    print(turn(10, make(3)) handle St(0) { get(resume, s) -> resume(s, s), set(resume, x, s) -> resume((), x) })
+}
