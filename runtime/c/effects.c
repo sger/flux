@@ -66,7 +66,9 @@ typedef struct FluxEffectContext {
     int64_t  op_arg;               /* performed argument (unused for 0-arity) */
     int64_t  op_state;             /* current handler parameter, or 0 when absent */
     int32_t  op_arity;             /* user-visible arity of the op (0 or 1) */
-    int32_t  clause_tail_resumptive; /* the clause only resumes as its last act */
+    int32_t  clause_tail_resumptive; /* the clause only resumes as its last act:
+                                      * 1 under the perform's evidence, 2 under
+                                      * its handle's (EVV_KIND_LAST_ACT) */
     int64_t  conts[FLUX_EFFECT_CONTS_MAX]; /* accumulated continuation closures */
     int32_t  conts_count;
     int64_t  yield_evv;            /* current_evv at yield time (slice 5-tr-fix) */
@@ -260,6 +262,12 @@ void flux_effect_context_release(void *snapshot_raw) {
 #define EVV_KIND_LAST_ACT_PURE 1 /* at the prompt, under the perform's */
 #define EVV_KIND_IN_PLACE      2 /* at the perform, under the handle's */
 #define EVV_KIND_IN_PLACE_PURE 3 /* at the perform, under the perform's */
+#define EVV_KIND_LAST_ACT      4 /* at the prompt, under the handle's, flat resume */
+
+/* The `resume` a prompt gives a clause (compose_into_closure's `mode`). */
+#define RESUME_FLAT       0 /* runs the frames, under the caller's evidence */
+#define RESUME_DELIMITS   1 /* under the captured evidence, in a new prompt */
+#define RESUME_FLAT_UNDER 2 /* under the captured evidence, in no prompt */
 
 /* Layout: { int32_t count; int64_t entries[]; } where entries are packed. */
 typedef struct {
@@ -532,8 +540,9 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
     flux_thread_ctx.op_arity    = (int32_t)flux_untag_int(arity);
     /* @KI-243: only a clause that reads no evidence runs at the prompt under
      * the perform's. flux_perform runs an in-place handle's clauses itself. */
+    int64_t kind = flux_untag_int(entry[EVV_TAIL_OFF]);
     flux_thread_ctx.clause_tail_resumptive =
-        flux_untag_int(entry[EVV_TAIL_OFF]) == EVV_KIND_LAST_ACT_PURE;
+        kind == EVV_KIND_LAST_ACT_PURE ? 1 : kind == EVV_KIND_LAST_ACT ? 2 : 0;
     flux_thread_ctx.conts_count = 0;
     /* Slice 5-tr-fix: capture the evv at yield time so the composed
      * continuation can re-install it on resume. Nested handlers rely on
@@ -760,7 +769,7 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
     return result;
 }
 
-static int64_t compose_into_closure(int delimits, int takes_state);
+static int64_t compose_into_closure(int mode, int takes_state);
 
 /*
  * Extend the continuation chain during yield propagation.
@@ -774,7 +783,7 @@ int64_t flux_yield_extend(int64_t cont) {
          * @KI-224: the fold is a frame like the others, called with one
          * value, so it never takes the handler's state, even when the
          * resume built from all the frames later does. */
-        int64_t composed = compose_into_closure(0, 0);
+        int64_t composed = compose_into_closure(RESUME_FLAT, 0);
         flux_thread_ctx.conts[0] = composed;
         flux_thread_ctx.conts_count = 1;
     }
@@ -896,7 +905,7 @@ static void in_place_wrap(int64_t marker, int64_t parent, int64_t cell, int64_t 
         flux_thread_ctx.conts_count = 0;
     } else if (flux_thread_ctx.conts_count > 1) {
         /* A frame like the others, called with one value (KI-224). */
-        inner = compose_into_closure(0, 0);
+        inner = compose_into_closure(RESUME_FLAT, 0);
     }
     uint32_t size = 24 + (uint32_t)(5 * sizeof(int64_t));
     void *mem = flux_gc_alloc_header(size, 3 /* inner, parent, cell */, FLUX_OBJ_CLOSURE);
@@ -1043,7 +1052,8 @@ int64_t flux_compose_trampoline_closure_entry(int64_t closure_raw, int64_t *args
     int64_t conts_arr = payload[0];
     int32_t marker = (int32_t)flux_untag_int(payload[1]);
     int64_t captured_evv = payload[2];
-    int delimits = flux_untag_int(payload[3]) != 0;
+    int mode = (int)flux_untag_int(payload[3]);
+    int delimits = mode == RESUME_DELIMITS;
     int64_t entry_evv = flux_thread_ctx.current_evv;
     int64_t run_evv = 0;
 
@@ -1060,6 +1070,13 @@ int64_t flux_compose_trampoline_closure_entry(int64_t closure_raw, int64_t *args
         } else {
             flux_thread_ctx.current_evv = captured_evv;
         }
+    } else if (mode == RESUME_FLAT_UNDER) {
+        /* @KI-243, @KI-244: the clause ran under its handle's evidence; the
+         * frames it resumes run under the perform's, which hold this
+         * handler's entry and its cell, the same ones, not copies: no prompt
+         * comes after them, so a perform there goes on to the prompt that
+         * ran the clause, and the stack stays flat. */
+        flux_thread_ctx.current_evv = captured_evv;
     }
 
     if (nargs >= 2) {
@@ -1090,6 +1107,9 @@ int64_t flux_compose_trampoline_closure_entry(int64_t closure_raw, int64_t *args
     if (delimits) {
         return flux_yield_prompt(flux_tag_int((int64_t)marker), entry_evv, result, run_evv);
     }
+    if (mode == RESUME_FLAT_UNDER && flux_thread_ctx.yielding == 0) {
+        flux_thread_ctx.current_evv = entry_evv;
+    }
     return result;
 }
 
@@ -1114,7 +1134,7 @@ int64_t flux_compose_conts(void) {
         flux_thread_ctx.conts_count = 0;
         return result;
     }
-    return compose_into_closure(0, flux_thread_ctx.op_state != 0);
+    return compose_into_closure(RESUME_FLAT, flux_thread_ctx.op_state != 0);
 }
 
 /*
@@ -1126,12 +1146,23 @@ int64_t flux_compose_resume(void) {
     if (flux_thread_ctx.conts_count == 0) {
         return flux_make_none();
     }
-    return compose_into_closure(1, flux_thread_ctx.op_state != 0);
+    return compose_into_closure(RESUME_DELIMITS, flux_thread_ctx.op_state != 0);
 }
 
-/* `takes_state`: the closure is a resume a parameterized handler's clause
- * calls as resume(v, s). */
-static int64_t compose_into_closure(int delimits, int takes_state) {
+/* The `resume` of a clause that resumes only as its last act but runs under
+ * its handle's evidence (EVV_KIND_LAST_ACT): flat, as flux_compose_conts's,
+ * with the perform's evidence put back for the frames it runs. */
+static int64_t flux_compose_flat_resume(void) {
+    if (flux_thread_ctx.conts_count == 0) {
+        return flux_make_none();
+    }
+    return compose_into_closure(RESUME_FLAT_UNDER, flux_thread_ctx.op_state != 0);
+}
+
+/* `mode`: RESUME_FLAT, RESUME_DELIMITS or RESUME_FLAT_UNDER. `takes_state`:
+ * the closure is a resume a parameterized handler's clause calls as
+ * resume(v, s). */
+static int64_t compose_into_closure(int mode, int takes_state) {
     /* Package continuations into an array. */
     int64_t *elems = flux_thread_ctx.conts;
     int32_t count = flux_thread_ctx.conts_count;
@@ -1149,15 +1180,16 @@ static int64_t compose_into_closure(int delimits, int takes_state) {
      * under, the handler's and those inside it, with a reference of its
      * own: called after its clause has returned, it runs under them again,
      * not under its caller's. */
-    int64_t evv = delimits ? flux_thread_ctx.yield_evv : 0;
-    if (evv != 0 && evv_has_inner_state(evv_unbox(evv), flux_thread_ctx.marker)) {
+    int64_t evv = mode != RESUME_FLAT ? flux_thread_ctx.yield_evv : 0;
+    if (mode == RESUME_DELIMITS && evv != 0 &&
+        evv_has_inner_state(evv_unbox(evv), flux_thread_ctx.marker)) {
         /* @KI-236: the states of the handlers inside the continuation as
          * they are now, for every resume of it to start from. */
         evv = evv_copy_inner_states(evv, flux_thread_ctx.marker);
     } else {
         flux_dup(evv);
     }
-    /* conts + marker + evidence + delimits; the first three are scanned. */
+    /* conts + marker + evidence + mode; the first three are scanned. */
     uint32_t payload_bytes = (uint32_t)(4 * sizeof(int64_t));
     uint32_t size = 24 + payload_bytes;
     void *mem = flux_gc_alloc_header(size, 3 /* scan_fsize = 3 captures */,
@@ -1179,7 +1211,7 @@ static int64_t compose_into_closure(int delimits, int takes_state) {
     clo->payload[0]      = arr;
     clo->payload[1]      = marker;
     clo->payload[2]      = evv;
-    clo->payload[3]      = flux_tag_int(delimits);
+    clo->payload[3]      = flux_tag_int(mode);
 
     return flux_tag_ptr(mem);
 }
@@ -1312,7 +1344,9 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
          * a perform inside its resume can go on to this loop instead of a
          * prompt of its own: a loop of such performs keeps a flat stack. */
         int64_t resume_cont FLUX_RELEASED =
-            tail_resumptive ? flux_compose_conts() : flux_compose_resume();
+            tail_resumptive == 1   ? flux_compose_conts()
+            : tail_resumptive == 2 ? flux_compose_flat_resume()
+                                   : flux_compose_resume();
 
         /* Clear yield state so the clause sees a clean slate (it may re-yield). */
         flux_thread_ctx.yielding    = 0;
@@ -1331,14 +1365,14 @@ int64_t flux_yield_prompt(int64_t marker, int64_t saved_evv, int64_t body_result
          * 5-tr-fix: matters for nested handlers where an inner handle may
          * have unwound before the outer prompt decides to resume).
          *
-         * @KI-233: only for a tail-resumptive clause, whose resume above
-         * installs no evidence of its own. Any other clause runs under the
-         * evidence its handle was installed under, as a deep handler's clause
-         * runs outside it: a perform there reaches the handlers outside the
-         * handle, its own effect's included, not this one or those between
-         * it and the perform. Its delimiting resume installs the yield-site
-         * evidence for the code it runs. */
-        flux_thread_ctx.current_evv = tail_resumptive ? yield_evv : handle_evv;
+         * @KI-233: only for a tail-resumptive clause that reads no evidence,
+         * whose resume above installs none of its own. Any other clause runs
+         * under the evidence its handle was installed under, as a deep
+         * handler's clause runs outside it: a perform there reaches the
+         * handlers outside the handle, its own effect's included, not this
+         * one or those between it and the perform. Its resume installs the
+         * yield-site evidence for the code it runs (KI-243). */
+        flux_thread_ctx.current_evv = tail_resumptive == 1 ? yield_evv : handle_evv;
 
         /* Call the handler clause: clause(resume, [arg], [state]).
          * op_arg carries the reference the perform gave flux_yield_to.

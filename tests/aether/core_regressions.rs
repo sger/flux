@@ -2902,8 +2902,9 @@ fn handle_kinds_in(
 /// Clauses as drop insertion leaves them: one that forwards, one that
 /// performs before resuming with a state, and one that only computes run
 /// in place, the last without switching evidence; one that resumes on one
-/// branch only runs at the prompt, and only because it performs nothing
-/// (KI-243, KI-244).
+/// branch only runs at the prompt with a `resume` that doesn't delimit,
+/// under the perform's evidence only if it performs nothing (KI-243,
+/// KI-244).
 #[test]
 fn a_clause_that_resumes_once_as_its_last_act_runs_in_place_ki243() {
     use flux::aether::tail_resumptive::HandleKind;
@@ -2955,7 +2956,7 @@ fn maybe_logged(stop: Bool) -> Int with Log {
     assert_eq!(kinds("counted"), [HandleKind::InPlace]);
     assert_eq!(kinds("measured"), [HandleKind::InPlacePure]);
     assert_eq!(kinds("maybe"), [HandleKind::LastActPure]);
-    assert_eq!(kinds("maybe_logged"), [HandleKind::Captured]);
+    assert_eq!(kinds("maybe_logged"), [HandleKind::LastAct]);
 }
 
 /// The evidence pass calls a clause directly at a perform written in its

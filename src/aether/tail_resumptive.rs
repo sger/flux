@@ -32,6 +32,12 @@ pub enum HandleKind {
     /// In place, with the perform's evidence left as it is: the clause reads
     /// none.
     InPlacePure = 3,
+    /// At the prompt, under the evidence the handle was installed under,
+    /// with a `resume` like `LastActPure`'s that also puts the perform's
+    /// evidence back for the frames it runs. For a clause that resumes as its
+    /// last act on some paths and performs: one that can't run in place, yet
+    /// would nest a prompt per perform with a `resume` that delimits.
+    LastAct = 4,
 }
 
 impl HandleKind {
@@ -47,6 +53,7 @@ impl HandleKind {
             1 => Some(Self::LastActPure),
             2 => Some(Self::InPlace),
             3 => Some(Self::InPlacePure),
+            4 => Some(Self::LastAct),
             _ => None,
         }
     }
@@ -60,13 +67,18 @@ impl HandleKind {
 /// that only resumes as its last act, with a branch that doesn't, can't run
 /// in place, and runs where the perform's evidence is only if it performs
 /// nothing.
+///
+/// @KI-244: one that performs still gets a `resume` that doesn't delimit,
+/// as it did before KI-243 was fixed: with one that does, each perform its
+/// resumed code makes nests another prompt, and a loop of them overflows
+/// the C stack.
 pub fn handle_kind(handlers: &[AetherHandler], parameterized: bool) -> HandleKind {
     let arity = if parameterized { 2 } else { 1 };
     let pure = handlers.iter().all(|h| performs_nothing(&h.body, h.resume.id));
     if handlers.iter().all(|h| resumes_once_as_last_act(&h.body, h.resume.id, arity)) {
         if pure { HandleKind::InPlacePure } else { HandleKind::InPlace }
-    } else if pure && handlers.iter().all(|h| resumes_only_as_last_act(&h.body, h.resume.id)) {
-        HandleKind::LastActPure
+    } else if handlers.iter().all(|h| resumes_only_as_last_act(&h.body, h.resume.id)) {
+        if pure { HandleKind::LastActPure } else { HandleKind::LastAct }
     } else {
         HandleKind::Captured
     }
