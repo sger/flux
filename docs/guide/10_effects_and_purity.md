@@ -187,6 +187,8 @@ When a computation is resumed more than once, the state follows two rules:
 - A handler outside the resumed computation keeps every change: a `set` made while one `resume` runs is seen by the next, and after the inner `handle` returns.
 - A handler installed inside the resumed computation is part of it: each `resume` starts from the state it had at the `perform`.
 
+A clause runs outside its own handler, where the `handle` is. A `perform` of the same effect inside a clause goes to the next handler out, so a handler can pass an operation on: `ask(resume) -> resume(perform Ask.ask() + 1)` asks the outer `Ask` handler and adds 1.
+
 ### Semantics and error codes
 
 | Situation | Error |
