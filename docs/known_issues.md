@@ -105,7 +105,8 @@ reconciles them for `resume`'s argument. A clause's own result has no
 such reconciling, so an abort to a unit-typed handle can't be written.
 
 Workaround: give the operation and the handled code a non-unit type. Flux
-operations aren't polymorphic, so triples' `fail` already returns `Int`.
+operations aren't polymorphic, so triples' `fail` already returns `Int`,
+and so does parsing_dollars' `stop`.
 
 ### KI-240 — A `handle` whose expression builds a tuple, list or constructor around an effectful call crashes natively, or fails on the VM
 
@@ -217,7 +218,8 @@ compiler's check for a call (`Call to … requires effect …`, at
 `is_effect_available` doesn't find the enclosing function's effects.
 
 Workaround: put the expression in a function of its own, with no
-arguments, which the `handle` calls. tree_explore's `paths` does (`one`).
+arguments, which the `handle` calls. tree_explore's `paths` does (`one`),
+and parsing_dollars' `fed` (`start`).
 
 ### KI-238 — Natively, a perform to an outer handler from inside a resumed continuation is handled at the innermost prompt, so the outer clause's work after `resume` lands in the wrong place
 
