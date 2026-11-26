@@ -1337,6 +1337,49 @@ cargo xtask bench triples
 Latest report:
 
 <!-- triples-report:start -->
+# Triples Benchmark Report
+
+- Generated: 2026-11-26 09:53 UTC
+- Machine: macos-aarch64
+- Runs: 3 to 50, as hyperfine chose, warmup: 1
+- Workload: 200 (smoke)
+- Toolchains: flux a7c22efa; hyperfine 2.0.0; rustc 1.100.0 (0ef1bc386 2026-11-09); Python 3.9.6; ghc 9.10.3; ocamlopt 5.5.2; erlang OTP 29; elixir 1.20.5; go1.27.4 darwin/arm64
+
+| Case | Mean | ± σ | Min | Max | Peak RSS | Instructions | × native |
+|:---|---:|---:|---:|---:|---:|---:|---:|
+| `triples/flux` | 1.404 s | 6.17 ms | 1.400 s | 1.411 s | 19.3 MiB | 36.41 G | 11.58× |
+| `triples/flux-direct` | 326.2 ms | 2.64 ms | 322.4 ms | 330.2 ms | 19.2 MiB | 8.47 G | 2.69× |
+| `triples/flux-native` | 121.3 ms | 1.03 ms | 119.5 ms | 123.4 ms | 2.2 MiB | 3.08 G | 1.00× |
+| `triples/flux-native-direct` | 1.65 ms | 0.07 ms | 1.55 ms | 1.83 ms | 2.1 MiB | 24.3 M | 0.01× |
+| `triples/rust` | 1.65 ms | 0.08 ms | 1.57 ms | 1.95 ms | 2.0 MiB | 22.9 M | 0.01× |
+| `triples/python` | 47.4 ms | 0.97 ms | 45.1 ms | 49.3 ms | 9.3 MiB | 1.20 G | 0.39× |
+| `triples/haskell` | 16.5 ms | 0.32 ms | 14.8 ms | 16.8 ms | 11.4 MiB | 60.3 M | 0.14× |
+| `triples/ocaml` | 2.23 ms | 0.24 ms | 1.98 ms | 3.15 ms | 2.6 MiB | 40.2 M | 0.02× |
+| `triples/erlang` | 75.0 ms | 0.80 ms | 73.4 ms | 76.4 ms | 61.1 MiB | 1.55 G | 0.62× |
+| `triples/elixir` | 133.6 ms | 2.32 ms | 131.5 ms | 143.1 ms | 67.9 MiB | 2.45 G | 1.10× |
+| `triples/go` | 2.30 ms | 0.10 ms | 2.14 ms | 2.58 ms | 4.4 MiB | 37.6 M | 0.02× |
+
+VM / native: 11.58×
+
+Effect overhead (with handlers / direct style): VM 4.31×, native 73.38×
+
+No baseline for macos-aarch64 yet: record one with --save-baseline.
+
+### VM counts
+
+From `flux --metrics` on the VM case. They are the same on every run of the same compiler.
+
+| Count | Now | Baseline | Change |
+|:---|---:|---:|---:|
+| `aether_allocs` | 0 | – | – |
+| `aether_drops` | 42 | – | – |
+| `aether_dups` | 3 | – | – |
+| `aether_reuses` | 0 | – | – |
+| `bytecode_bytes` | 6215 | – | – |
+| `compiler_allocs` | 1994296 | – | – |
+| `core_size` | 344 | – | – |
+| `vm_allocs` | 36041570 | – | – |
+| `vm_instructions` | 50774017 | – | – |
 <!-- triples-report:end -->
 
 ## Recursive Fibonacci
