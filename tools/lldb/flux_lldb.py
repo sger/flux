@@ -69,6 +69,9 @@ OBJ_BIGINT = 0xF6
 OBJ_EVIDENCE = 0xF7
 OBJ_FLOAT = 0xF8
 OBJ_THUNK = 0xF9
+# A parameterized handler's state, in a cell its evidence entries share
+# (KI-236). It never reaches a Flux value.
+OBJ_CELL = 0xFB
 KNOWN_OBJECTS = {
     OBJ_STRING,
     OBJ_ADT,
@@ -1127,6 +1130,9 @@ def handlers(thread):
         base = word + 8 + 8 * EVV_ENTRY_WORDS * index
         clause = memory.word(base + 16)
         state = memory.word(base + 32)
+        if (state and not state & 1 and state % 8 == 0 and MIN_PTR <= state < MAX_PTR
+                and memory.u8(state - 3) == OBJ_CELL):
+            state = memory.word(state)
         code = memory.word(clause) if clause else None
         _, function = _function_at(target, code) if code else (None, None)
         arm = function.GetName() if function is not None else ""

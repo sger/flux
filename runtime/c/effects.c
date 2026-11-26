@@ -236,7 +236,8 @@ void flux_effect_context_release(void *snapshot_raw) {
  *   [1] marker     — handler instance id (tagged int)
  *   [2] handler    — handler clause closure (tagged pointer)
  *   [3] parent_evv — saved evidence vector
- *   [4] state      — parameterized handler state, or 0 when absent
+ *   [4] state      — a cell holding a parameterized handler's state, or 0
+ *                    when absent
  *
  * The vector itself is stored as a FluxArray (obj_tag FLUX_OBJ_EVIDENCE)
  * with length = number of entries * 4 words.
@@ -276,6 +277,22 @@ static EvvArray *evv_alloc(int32_t count) {
     EvvArray *arr = (EvvArray *)flux_gc_alloc_header(size, 0, FLUX_OBJ_EVIDENCE);
     arr->count = count;
     return arr;
+}
+
+/* @KI-236: a parameterized handler's state is one cell per handle. The
+ * entries copied into the evidence of a handle inside it share the cell, so a
+ * resume that sets the state there sets it for the handle itself, and it is
+ * still set when the inner handle returns. The cell takes the reference to
+ * `value`. */
+static int64_t state_cell_new(int64_t value) {
+    int64_t *cell = (int64_t *)flux_gc_alloc_header(sizeof(int64_t), 1, FLUX_OBJ_CELL);
+    cell[0] = value;
+    return flux_tag_ptr(cell);
+}
+
+/* The state in an entry's cell, borrowed; 0 for a handler without one. */
+static int64_t state_cell_value(int64_t slot) {
+    return slot ? ((int64_t *)flux_untag_ptr(slot))[0] : 0;
 }
 
 static void evv_dup_owned_fields(const int64_t *entry) {
@@ -366,7 +383,7 @@ int64_t flux_evv_insert(int64_t evv, int64_t htag, int64_t marker, int64_t handl
     entry[EVV_MARKER_OFF]  = marker;
     entry[EVV_HANDLER_OFF] = handler;
     entry[EVV_PARENT_OFF]  = evv;  /* save parent evv for restoration */
-    entry[EVV_STATE_OFF]   = state;
+    entry[EVV_STATE_OFF]   = state ? state_cell_new(state) : 0;
     entry[EVV_TAIL_OFF]    = tail_resumptive;
     /* The handle gives the clause and the state; the parent stays the
      * caller's, so the entry takes a reference of its own. */
@@ -405,6 +422,41 @@ static int evv_lookup_by_marker(EvvArray *arr, int32_t marker) {
         }
     }
     return -1;
+}
+
+/* @KI-236: whether the evidence holds the state of a handle inside the one
+ * `marker` names: one the continuation a resume of it runs installed. */
+static int evv_has_inner_state(EvvArray *arr, int32_t marker) {
+    int idx = evv_lookup_by_marker(arr, marker);
+    if (idx < 0) return 0;
+    for (int32_t i = idx + 1; i < arr->count; i++) {
+        if (arr->data[i * EVV_ENTRY_WORDS + EVV_STATE_OFF] != 0) return 1;
+    }
+    return 0;
+}
+
+/* @KI-236: a copy of `evv` whose entries above `marker`'s have cells of their
+ * own, holding what their cells hold now; the others share their cells. A
+ * handler inside a continuation is part of it, so each resume starts from the
+ * state it had when the continuation was captured. */
+static int64_t evv_copy_inner_states(int64_t evv, int32_t marker) {
+    EvvArray *old = evv_unbox(evv);
+    int idx = evv_lookup_by_marker(old, marker);
+    EvvArray *arr = evv_alloc(old->count);
+    memcpy(arr->data, old->data, (size_t)old->count * EVV_ENTRY_WORDS * sizeof(int64_t));
+    for (int32_t i = 0; i < old->count; i++) {
+        int64_t *entry = &arr->data[i * EVV_ENTRY_WORDS];
+        flux_dup(entry[EVV_HANDLER_OFF]);
+        flux_dup(entry[EVV_PARENT_OFF]);
+        if (i > idx && entry[EVV_STATE_OFF] != 0) {
+            int64_t value = state_cell_value(entry[EVV_STATE_OFF]);
+            flux_dup(value);
+            entry[EVV_STATE_OFF] = state_cell_new(value);
+        } else {
+            flux_dup(entry[EVV_STATE_OFF]);
+        }
+    }
+    return evv_box(arr);
 }
 
 /*
@@ -465,7 +517,7 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
     flux_thread_ctx.op_arg      = arg;
     /* The clause gets a reference of its own to the state: a resume with a
      * new one releases the entry's while the clause may still read it. */
-    flux_thread_ctx.op_state    = entry[EVV_STATE_OFF];
+    flux_thread_ctx.op_state    = state_cell_value(entry[EVV_STATE_OFF]);
     flux_dup(flux_thread_ctx.op_state);
     flux_thread_ctx.op_arity    = (int32_t)flux_untag_int(arity);
     flux_thread_ctx.clause_tail_resumptive =
@@ -533,8 +585,11 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
 static void flux_update_state_for_marker(int32_t marker, int64_t next_state) {
     EvvArray *arr = evv_unbox(flux_thread_ctx.current_evv);
     int idx = evv_lookup_by_marker(arr, marker);
-    if (idx >= 0) {
-        int64_t *slot = &arr->data[idx * EVV_ENTRY_WORDS + EVV_STATE_OFF];
+    int64_t cell = idx >= 0 ? arr->data[idx * EVV_ENTRY_WORDS + EVV_STATE_OFF] : 0;
+    if (cell != 0) {
+        /* @KI-236: into the handle's cell, which every evidence vector that
+         * copied its entry shares. */
+        int64_t *slot = &((int64_t *)flux_untag_ptr(cell))[0];
         int64_t previous = *slot;
         *slot = next_state;
         flux_drop(previous);
@@ -601,7 +656,7 @@ int64_t flux_perform_direct(int64_t htag, int64_t optag, int64_t arg, int64_t re
     int64_t *entry = &arr->data[idx * EVV_ENTRY_WORDS];
     int32_t marker = (int32_t)flux_untag_int(entry[EVV_MARKER_OFF]);
     int64_t clause = evv_clause_for(entry[EVV_HANDLER_OFF], htag, optag);
-    int64_t state = entry[EVV_STATE_OFF];
+    int64_t state = state_cell_value(entry[EVV_STATE_OFF]);
     /* As in flux_yield_to: the clause's own reference to the state. */
     flux_dup(state);
 
@@ -757,13 +812,21 @@ int64_t flux_compose_trampoline_closure_entry(int64_t closure_raw, int64_t *args
     int64_t captured_evv = payload[2];
     int delimits = flux_untag_int(payload[3]) != 0;
     int64_t entry_evv = flux_thread_ctx.current_evv;
+    int64_t run_evv = 0;
 
     /* @KI-225: run under the evidence the resume was captured with, so a
      * perform reaches this handler even after its clause has returned, and
      * a new state goes to its entry. The prompt below puts the caller's
-     * evidence back. Inside the clause the two are the same. */
+     * evidence back. Inside the clause the two are the same. @KI-236: with
+     * the states of the handlers inside the continuation as they were
+     * captured, in cells of this run's own; the prompt releases them. */
     if (delimits && captured_evv != 0) {
-        flux_thread_ctx.current_evv = captured_evv;
+        if (evv_has_inner_state(evv_unbox(captured_evv), marker)) {
+            run_evv = evv_copy_inner_states(captured_evv, marker);
+            flux_thread_ctx.current_evv = run_evv;
+        } else {
+            flux_thread_ctx.current_evv = captured_evv;
+        }
     }
 
     if (nargs >= 2) {
@@ -792,7 +855,7 @@ int64_t flux_compose_trampoline_closure_entry(int64_t closure_raw, int64_t *args
      * there is handled at this resume, and its clause's result is the value
      * `resume` returns, so the clause that called it goes on with that. */
     if (delimits) {
-        return flux_yield_prompt(flux_tag_int((int64_t)marker), entry_evv, result, 0);
+        return flux_yield_prompt(flux_tag_int((int64_t)marker), entry_evv, result, run_evv);
     }
     return result;
 }
@@ -854,7 +917,13 @@ static int64_t compose_into_closure(int delimits, int takes_state) {
      * own: called after its clause has returned, it runs under them again,
      * not under its caller's. */
     int64_t evv = delimits ? flux_thread_ctx.yield_evv : 0;
-    flux_dup(evv);
+    if (evv != 0 && evv_has_inner_state(evv_unbox(evv), flux_thread_ctx.marker)) {
+        /* @KI-236: the states of the handlers inside the continuation as
+         * they are now, for every resume of it to start from. */
+        evv = evv_copy_inner_states(evv, flux_thread_ctx.marker);
+    } else {
+        flux_dup(evv);
+    }
     /* conts + marker + evidence + delimits; the first three are scanned. */
     uint32_t payload_bytes = (uint32_t)(4 * sizeof(int64_t));
     uint32_t size = 24 + payload_bytes;

@@ -76,6 +76,9 @@ static inline void *flux_untag_ptr(int64_t val) {
 #define FLUX_OBJ_FLOAT    0xF8
 #define FLUX_OBJ_THUNK    0xF9
 #define FLUX_OBJ_MAP      0xFA
+/* @KI-236: a parameterized handler's state, one scanned field that the
+ * evidence entries of the handle and of every handle inside it share. */
+#define FLUX_OBJ_CELL     0xFB
 
 static inline uint8_t flux_obj_tag(void *ptr) {
     /* Read obj_tag from the FluxHeader at ptr - 8.

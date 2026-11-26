@@ -286,6 +286,7 @@ static const char *debug_kind(uint8_t obj_tag) {
         case FLUX_OBJ_FLOAT:    return "a Float";
         case FLUX_OBJ_THUNK:    return "a thunk";
         case FLUX_OBJ_MAP:      return "a Map node";
+        case FLUX_OBJ_CELL:     return "a handler's state";
         default:                return "a value";
     }
 }
