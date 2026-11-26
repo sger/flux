@@ -43,6 +43,7 @@ and `counter` from [Koka](https://github.com/koka-lang/koka)'s `test/bench`:
 - `generator`: a tree walk's yields kept as a stream of resumes, pulled to the end
 - `triples`: the decreasing triples that sum to `n`, found by a flip resumed twice at every choice
 - `tree_explore`: every path of a tree explored by a choose resumed twice, under a state kept across the branches
+- `parsing_dollars`: a parser that reads, emits and stops through three handlers, one of whose clauses performs into the next
 - `fibonacci_recursive`: doubly recursive Fibonacci with no effects, the group's baseline
 - `product_early`: an abort, whose clause never resumes, from 1000 frames deep
 - `resume_nontail`: a clause that works on what its resume returns, the resumes nested deep
@@ -116,6 +117,7 @@ written with. The harness runs each benchmark at one of two sizes, listed in
 | `generator` | the tree's height | 17 | 23 |
 | `triples` | `n`, the largest number and the target sum | 200 | 300 |
 | `tree_explore` | the tree's height | 11 | 16 |
+| `parsing_dollars` | lines of dollars in the input | 1,500 | 8,000 |
 | `fibonacci_recursive` | `n` in `fib(n)` | 33 | 42 |
 | `product_early` | products of [1000, …, 0] | 2,000 | 100,000 |
 | `resume_nontail` | nesting depth of the resumes, each run 1000 times | 400 | 10,000 |
@@ -1465,6 +1467,46 @@ From `flux --metrics` on the VM case. They are the same on every run of the same
 | `vm_allocs` | 43250946 | – | – |
 | `vm_instructions` | 33703217 | – | – |
 <!-- tree-explore-report:end -->
+
+## Parsing Dollars
+
+effect-handlers-bench's `parsing_dollars`: the input is `n` lines, line `i` holding `i`
+dollars, read one char at a time. The parser counts each line's dollars and emits the count.
+A `Read` handler with two counters makes the chars, and past the last line its clause
+performs `Stop`, which a handler outside it catches without resuming. An `Emit` handler
+outside both sums the counts, so the program prints `n(n+1)/2`. There are about `n²/2`
+reads, each resumed once as the clause's last act. Koka's `sum` returns its `var` after the
+action; here a second operation, `total`, reads the sum back, and the two counters are one
+tuple state. `stop` returns an `Int`, since Flux operations aren't polymorphic and a clause
+that doesn't resume can't give back unit (KI-242). The handled call is `start()`, a
+function of its own around `parse(0)`, since a `handle` around a call with an argument,
+under a clause that performs, is rejected (KI-239). The direct-style twin makes each char
+from the counters where it reads it. OCaml's port uses OCaml 5's effect handlers, as the
+suite's does, with `stop` an exception. The suite's 20,000 lines take about 9 s natively,
+so the full size is 8,000 lines, whose answer is 32004000.
+
+Sources:
+
+- `benchmarks/flux/parsing_dollars.flx`
+- `benchmarks/flux/parsing_dollars_direct.flx`
+- `benchmarks/rust/parsing_dollars.rs`
+- `benchmarks/go/parsing_dollars/main.go`
+- `benchmarks/haskell/parsing-dollars.hs`
+- `benchmarks/ocaml/parsing_dollars.ml`
+- `benchmarks/python/parsing_dollars.py`
+- `benchmarks/erlang/parsing_dollars.erl`
+- `benchmarks/elixir/parsing_dollars.ex`
+
+Run the cross-language benchmark:
+
+```bash
+cargo xtask bench parsing_dollars
+```
+
+Latest report:
+
+<!-- parsing-dollars-report:start -->
+<!-- parsing-dollars-report:end -->
 
 ## Recursive Fibonacci
 

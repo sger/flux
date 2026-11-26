@@ -214,6 +214,10 @@ name = "tree_explore_rust"
 path = "benchmarks/rust/tree_explore.rs"
 
 [[bin]]
+name = "parsing_dollars_rust"
+path = "benchmarks/rust/parsing_dollars.rs"
+
+[[bin]]
 name = "product_early_rust"
 path = "benchmarks/rust/product_early.rs"
 

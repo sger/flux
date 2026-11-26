@@ -1,0 +1,83 @@
+// effect-handlers-bench's parsing_dollars: the input is n lines, line i
+// holding i dollars, read one char at a time (10 is a newline, 36 a
+// dollar). The parser counts each line's dollars and emits the count; a
+// Read handler with two counters makes the chars, and performs Stop past
+// the last line, which a Stop handler outside it catches without resuming.
+// An Emit handler outside both sums the counts. Prints 55 at 10, and
+// n(n+1)/2 in general. Koka's `sum` returns its `var` after the action;
+// here a second operation, `total`, reads the sum back, and the two
+// counters are one tuple state.
+import Flow.Env as Env
+import Flow.Array as Array
+
+effect Read {
+    read : () -> Int
+}
+
+effect Emit {
+    emit : (Int) -> ()
+    total : () -> Int
+}
+
+// KI-242: a clause that doesn't resume can't give back unit, and
+// operations aren't polymorphic, so `stop` returns an Int where Koka's
+// returns any type.
+effect Stop {
+    stop : () -> Int
+}
+
+fn parse(a: Int) -> Int with Read, Emit, Stop {
+    let c = perform Read.read()
+    if c == 36 { parse(a + 1) } else {
+        if c == 10 {
+            perform Emit.emit(a)
+            parse(0)
+        } else { perform Stop.stop() }
+    }
+}
+
+// KI-239: a `handle` around `parse(0)` itself, a call with an argument
+// under a clause that performs, is rejected, so the call is a function of
+// its own.
+fn start() -> Int with Read, Emit, Stop {
+    parse(0)
+}
+
+fn fed(n: Int) -> Int with Emit, Stop {
+    start() handle Read((0, 0)) {
+        read(resume, s) -> match s {
+            (i, j) -> if i > n { perform Stop.stop() } else {
+                if j == 0 { resume(10, (i + 1, i + 1)) } else { resume(36, (i, j - 1)) }
+            }
+        }
+    }
+}
+
+fn caught(n: Int) -> Int with Emit {
+    fed(n) handle Stop { stop(resume) -> 0 }
+}
+
+fn summed(n: Int) -> Int with Emit {
+    caught(n)
+    perform Emit.total()
+}
+
+fn run(n: Int) -> Int {
+    summed(n) handle Emit(0) {
+        emit(resume, e, s) -> resume((), s + e),
+        total(resume, s) -> resume(s, s)
+    }
+}
+
+// The workload size: the program's first argument, or the size the suite
+// was written with. `cargo xtask bench` passes a smaller one to the VM.
+fn size(default: Int) -> Int with Env {
+    match Array.get(Env.args(), 1) {
+        Some(s) -> parse_int(s),
+        None -> default,
+    }
+}
+
+fn main() with IO {
+    print(run(size(20000)))
+}

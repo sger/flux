@@ -119,6 +119,9 @@ pub const BENCHMARKS: &[Benchmark] = &[
     effect_bench("generator", "Generator", "generator", true, "17", "23"),
     effect_bench("triples", "Triples", "triples", true, "200", "300"),
     effect_bench("tree_explore", "Tree Explore", "tree-explore", true, "11", "16"),
+    // The suite's 20000 lines take about 9 s natively, past the full size's
+    // 0.1-2 s: the reads grow with the square of the lines.
+    effect_bench("parsing_dollars", "Parsing Dollars", "parsing-dollars", true, "1500", "8000"),
     // No effects: the group's baseline for the cost of a call.
     effect_bench(
         "fibonacci_recursive",

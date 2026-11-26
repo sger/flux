@@ -1,0 +1,89 @@
+// parity: vm, llvm
+// expect: success
+// bug: benchmarks/flux/parsing_dollars.flx and its direct-style twin at
+//      effect-handlers-bench's small size, 10, where both give the suite's
+//      55: a Read handler whose clause performs Stop into the handler
+//      outside it, under an Emit handler that sums. The third line is the
+//      program at 300, n(n+1)/2.
+// parity-expected-stdout-begin
+// 55
+// 55
+// 45150
+// parity-expected-stdout-end
+
+effect Read {
+    read : () -> Int
+}
+
+effect Emit {
+    emit : (Int) -> ()
+    total : () -> Int
+}
+
+// KI-242: a clause that doesn't resume can't give back unit, and
+// operations aren't polymorphic, so `stop` returns an Int where Koka's
+// returns any type.
+effect Stop {
+    stop : () -> Int
+}
+
+fn parse(a: Int) -> Int with Read, Emit, Stop {
+    let c = perform Read.read()
+    if c == 36 { parse(a + 1) } else {
+        if c == 10 {
+            perform Emit.emit(a)
+            parse(0)
+        } else { perform Stop.stop() }
+    }
+}
+
+// KI-239: a `handle` around `parse(0)` itself, a call with an argument
+// under a clause that performs, is rejected, so the call is a function of
+// its own.
+fn start() -> Int with Read, Emit, Stop {
+    parse(0)
+}
+
+fn fed(n: Int) -> Int with Emit, Stop {
+    start() handle Read((0, 0)) {
+        read(resume, s) -> match s {
+            (i, j) -> if i > n { perform Stop.stop() } else {
+                if j == 0 { resume(10, (i + 1, i + 1)) } else { resume(36, (i, j - 1)) }
+            }
+        }
+    }
+}
+
+fn caught(n: Int) -> Int with Emit {
+    fed(n) handle Stop { stop(resume) -> 0 }
+}
+
+fn summed(n: Int) -> Int with Emit {
+    caught(n)
+    perform Emit.total()
+}
+
+fn run(n: Int) -> Int {
+    summed(n) handle Emit(0) {
+        emit(resume, e, s) -> resume((), s + e),
+        total(resume, s) -> resume(s, s)
+    }
+}
+
+fn feed_direct(n: Int, i: Int, j: Int, a: Int, s: Int) -> Int {
+    if i > n { s } else {
+        if j == 0 { parse_direct(n, i + 1, i + 1, 10, a, s) } else { parse_direct(n, i, j - 1, 36, a, s) }
+    }
+}
+
+fn parse_direct(n: Int, i: Int, j: Int, c: Int, a: Int, s: Int) -> Int {
+    if c == 36 { feed_direct(n, i, j, a + 1, s) } else {
+        if c == 10 { feed_direct(n, i, j, 0, s + a) } else { s }
+    }
+}
+
+fn main() with IO {
+    print(run(10))
+    print(feed_direct(10, 0, 0, 0, 0))
+    print(run(300))
+}
