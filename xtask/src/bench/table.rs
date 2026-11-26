@@ -117,6 +117,7 @@ pub const BENCHMARKS: &[Benchmark] = &[
     // The suite's height of 25 takes about 4.4 s natively, past the full size's
     // 0.1-2 s.
     effect_bench("generator", "Generator", "generator", true, "17", "23"),
+    effect_bench("triples", "Triples", "triples", true, "200", "300"),
     // No effects: the group's baseline for the cost of a call.
     effect_bench(
         "fibonacci_recursive",

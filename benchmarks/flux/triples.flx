@@ -1,0 +1,47 @@
+// effect-handlers-bench's triples: the strictly decreasing triples i > j > k
+// that sum to n, found by flipping at each choice and failing when a choice
+// runs out or the sum is wrong. Flip resumes twice; Fail gives 0. Prints the
+// sum of their hashes mod 1000000007 (779312 at 10, 460212934 at 300).
+// Flux operations aren't polymorphic, so `fail` returns an Int, and the hash
+// is taken inside the handled code rather than of a returned tuple.
+import Flow.Env as Env
+import Flow.Array as Array
+
+effect Flip {
+    flip : () -> Bool
+}
+
+effect Fail {
+    fail : () -> Int
+}
+
+fn choice(n: Int) -> Int with Flip, Fail {
+    if n < 1 { perform Fail.fail() } else {
+        if perform Flip.flip() { n } else { choice(n - 1) }
+    }
+}
+
+fn hashed(n: Int, s: Int) -> Int with Flip, Fail {
+    let i = choice(n)
+    let j = choice(i - 1)
+    let k = choice(j - 1)
+    if i + j + k == s { (53 * i + 2809 * j + 148877 * k) % 1000000007 } else { perform Fail.fail() }
+}
+
+fn run(n: Int) -> Int {
+    (hashed(n, n) handle Fail { fail(resume) -> 0 })
+        handle Flip { flip(resume) -> (resume(true) + resume(false)) % 1000000007 }
+}
+
+// The workload size: the program's first argument, or the size the suite
+// was written with. `cargo xtask bench` passes a smaller one to the VM.
+fn size(default: Int) -> Int with Env {
+    match Array.get(Env.args(), 1) {
+        Some(s) -> parse_int(s),
+        None -> default,
+    }
+}
+
+fn main() with IO {
+    print(run(size(10)))
+}

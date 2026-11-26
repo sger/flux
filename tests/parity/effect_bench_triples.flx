@@ -1,0 +1,62 @@
+// parity: vm, llvm
+// expect: success
+// bug: benchmarks/flux/triples.flx and its direct-style twin at
+//      effect-handlers-bench's small size, 10, where both give the suite's
+//      779312: a flip resumed twice at every choice, with a Fail handler
+//      inside it, and the same triples visited in loops. The third line is
+//      the program at 30, as the Python port gives it.
+// parity-expected-stdout-begin
+// 779312
+// 779312
+// 33527270
+// parity-expected-stdout-end
+
+effect Flip {
+    flip : () -> Bool
+}
+
+effect Fail {
+    fail : () -> Int
+}
+
+fn choice(n: Int) -> Int with Flip, Fail {
+    if n < 1 { perform Fail.fail() } else {
+        if perform Flip.flip() { n } else { choice(n - 1) }
+    }
+}
+
+fn hashed(n: Int, s: Int) -> Int with Flip, Fail {
+    let i = choice(n)
+    let j = choice(i - 1)
+    let k = choice(j - 1)
+    if i + j + k == s { (53 * i + 2809 * j + 148877 * k) % 1000000007 } else { perform Fail.fail() }
+}
+
+fn run(n: Int) -> Int {
+    (hashed(n, n) handle Fail { fail(resume) -> 0 })
+        handle Flip { flip(resume) -> (resume(true) + resume(false)) % 1000000007 }
+}
+
+fn hash(i: Int, j: Int, k: Int) -> Int {
+    (53 * i + 2809 * j + 148877 * k) % 1000000007
+}
+
+fn ks(i: Int, j: Int, k: Int, s: Int, acc: Int) -> Int {
+    if k < 1 { acc } else {
+        ks(i, j, k - 1, s, if i + j + k == s { (acc + hash(i, j, k)) % 1000000007 } else { acc })
+    }
+}
+
+fn js(i: Int, j: Int, s: Int, acc: Int) -> Int {
+    if j < 1 { acc } else { js(i, j - 1, s, ks(i, j, j - 1, s, acc)) }
+}
+
+fn is(i: Int, s: Int, acc: Int) -> Int {
+    if i < 1 { acc } else { is(i - 1, s, js(i, i - 1, s, acc)) }
+}
+
+fn main() with IO {
+    print(run(10))
+    print(is(10, 10, 0))
+    print(run(30))
+}

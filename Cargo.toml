@@ -206,6 +206,10 @@ name = "generator_rust"
 path = "benchmarks/rust/generator.rs"
 
 [[bin]]
+name = "triples_rust"
+path = "benchmarks/rust/triples.rs"
+
+[[bin]]
 name = "product_early_rust"
 path = "benchmarks/rust/product_early.rs"
 

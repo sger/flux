@@ -41,6 +41,7 @@ and `counter` from [Koka](https://github.com/koka-lang/koka)'s `test/bench`:
 - `iterator`: a range from 0 to `n`, emitted one value at a time into a handler's sum
 - `counter`: a state handler counted down to 0 beside the loop's own step count
 - `generator`: a tree walk's yields kept as a stream of resumes, pulled to the end
+- `triples`: the decreasing triples that sum to `n`, found by a flip resumed twice at every choice
 - `fibonacci_recursive`: doubly recursive Fibonacci with no effects, the group's baseline
 - `product_early`: an abort, whose clause never resumes, from 1000 frames deep
 - `resume_nontail`: a clause that works on what its resume returns, the resumes nested deep
@@ -112,6 +113,7 @@ written with. The harness runs each benchmark at one of two sizes, listed in
 | `iterator` | the range's upper end | 2,000,000 | 40,000,000 |
 | `counter` | the state's starting value | 2,000,000 | 20,000,000 |
 | `generator` | the tree's height | 17 | 23 |
+| `triples` | `n`, the largest number and the target sum | 200 | 300 |
 | `fibonacci_recursive` | `n` in `fib(n)` | 33 | 42 |
 | `product_early` | products of [1000, …, 0] | 2,000 | 100,000 |
 | `resume_nontail` | nesting depth of the resumes, each run 1000 times | 400 | 10,000 |
@@ -1300,6 +1302,42 @@ From `flux --metrics` on the VM case. They are the same on every run of the same
 | `vm_allocs` | 62458526 | – | – |
 | `vm_instructions` | 11536447 | – | – |
 <!-- generator-report:end -->
+
+## Triples
+
+effect-handlers-bench's `triples`: the strictly decreasing triples `i > j > k` that sum to
+`n` are found through two effects. `choice(n)` performs `Flip.flip` and returns `n` or tries
+`n - 1`, and performs `Fail.fail` when it runs out; three choices make a triple, and one with
+the wrong sum fails. The `Flip` handler resumes twice, adding both branches mod 1000000007,
+and the `Fail` handler, inside it, gives 0. The program prints the sum of the triples' hashes,
+`(53i + 2809j + 148877k)` mod 1000000007. Flux operations aren't polymorphic, so `fail`
+returns an `Int`, and the hash is taken inside the handled code rather than of a returned
+tuple. The direct-style twin visits the same triples in loops. OCaml's continuations are
+one-shot, so its port follows the twin too. The full size is the suite's `n` = 300, whose
+answer is 460212934.
+
+Sources:
+
+- `benchmarks/flux/triples.flx`
+- `benchmarks/flux/triples_direct.flx`
+- `benchmarks/rust/triples.rs`
+- `benchmarks/go/triples/main.go`
+- `benchmarks/haskell/triples.hs`
+- `benchmarks/ocaml/triples.ml`
+- `benchmarks/python/triples.py`
+- `benchmarks/erlang/triples.erl`
+- `benchmarks/elixir/triples.ex`
+
+Run the cross-language benchmark:
+
+```bash
+cargo xtask bench triples
+```
+
+Latest report:
+
+<!-- triples-report:start -->
+<!-- triples-report:end -->
 
 ## Recursive Fibonacci
 
