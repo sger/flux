@@ -1,6 +1,6 @@
 - Feature Name: Native prompts that wrap a foreign yield, and tail-resumptive clauses run in place
 - Start Date: 2026-11-26
-- Status: Draft
+- Status: Partially Implemented (S1 on `fix/ki243-ki244`, see [S1 as built](#s1-as-built); S2 and S3 open)
 - Proposal PR:
 - Flux Issue: KI-238, KI-243, KI-244
 
@@ -302,7 +302,7 @@ Every async, task, channel and fs fixture is the check.
 ### Testing
 
 - **The tests committed for KI-238 and KI-244** (`fea7aefa`, branch
-  `fix/ki238`):
+  `fix/ki238`; S1 wrote its own, see [S1 as built](#s1-as-built)):
   - `effect_outer_clause_works_after_resume_ki238.flx` (120, 11);
   - `effect_forwarded_performs_ki244.flx` (200000);
   - `effect_clause_forwards_to_an_aborting_outer_ki233.flx`, without its
@@ -351,6 +351,128 @@ Every async, task, channel and fs fixture is the check.
 
 Each stage goes on its own branch: tests first, then the fix, then
 `cargo xtask verify`.
+
+### S1 as built
+
+S1 is on `fix/ki243-ki244`, from `bench/effects` (`d9bbf7cb`), in nine
+commits, `293387f1` to `ffa09727`. It fixes KI-243 on both backends and
+KI-244 natively.
+
+**The handle's kind.** One flag per handle, `HandleKind` in
+`src/aether/tail_resumptive.rs`. It is stored in the native evidence entry
+(`EVV_TAIL_OFF`) and in the VM's handler frame and descriptor, and written
+to the bytecode cache as a byte. A handle gets the kind all its clauses
+allow.
+
+| Value | Kind | Rule | Where its clauses run |
+|---:|---|---|---|
+| 0 | `Captured` | anything else | at the prompt, under the handle's evidence, with a `resume` that delimits |
+| 1 | `LastActPure` | each clause only resumes as its last act, and none performs | at the prompt, under the perform's evidence, with a flat `resume` |
+| 2 | `InPlace` | each clause resumes exactly once as its last act, with arity 1, or 2 with a state, and mentions `resume` nowhere else | at the perform, under the entry's parent evidence |
+| 3 | `InPlacePure` | `InPlace`, and none performs | at the perform, with no evidence switch |
+| 4 | `LastAct` | as `LastActPure`, but a clause performs | at the prompt, under the handle's evidence, with a flat `resume` that puts the perform's evidence back |
+
+"Performs" is syntactic and cautious: a `perform`, a `handle`, or a call to
+anything but `resume`, except the intrinsics the prelude's default handlers
+call (`routed_intrinsic_names` in `src/ast/route_effectful_primops.rs`).
+
+**Native** (`runtime/c/effects.c`):
+- **`flux_perform`** replaces `flux_yield_to` as the perform's call. For an
+  in-place handle it calls the clause itself, with a static `resume`. That
+  `resume` is either the identity, or a closure that writes the state into
+  `flux_thread_ctx.in_place_cell`.
+- **If the clause yields,** its frames are wrapped in a re-entry closure,
+  `flux_in_place_reentry_entry`, which is Koka's `under1x`. The yield gets
+  the perform's evidence.
+- **The perform terminator** in LIR now returns `flux_perform`'s value, with
+  a yield check after it that is always on.
+- **The prompt** gives a `LastAct` clause a `resume` in a third mode,
+  `RESUME_FLAT_UNDER`. It doesn't delimit, but sets the perform's evidence
+  for the frames it runs, so a loop of performs comes back to the same
+  prompt and keeps the stack flat.
+
+**VM.**
+- `OpPerform` calls an in-place arm on top of the perform. For `InPlace` it
+  first pushes a bare boundary handler frame, with marker 0,
+  `resume_boundary` set, and the perform's evidence as `saved_evv`, which
+  puts the evidence back when the arm returns.
+- With a state, `resume` is a `Continuation` carrying `in_place_marker`.
+- Every other clause runs under `saved_evv`.
+- **The AST compiler** (`-g`, and functions the CFG path can't take) emits
+  `OpHandleDirect` only when the clauses are tail-resumptive and perform
+  nothing. Otherwise it emits `OpHandle` with `InPlace` or `Captured`.
+
+**Core.** The evidence pass calls a clause directly only when every clause
+performs nothing. The first choice in Part A.
+
+**Where it differs from Part A.**
+- **The flag has five values, not three.** The [Unresolved
+  questions](#unresolved-questions) proposed only the in-place rule. Without
+  `LastAct`, a clause that resumes as its last act and performs on a branch
+  that doesn't resume became `Captured`. Its delimiting `resume` nested a
+  prompt per perform, and parsing_dollars overflowed the C stack from about
+  400 lines.
+- **The tests were written here.** The KI-238 and KI-244 tests from
+  `fea7aefa` and the `handler_sieve` benchmark aren't on this branch.
+  - `tests/parity/effect_clause_runs_in_its_handles_context_ki243.flx` (1, 1,
+    12, 15);
+  - `tests/parity/effect_forwarded_performs_ki244.flx` (200000, 20000,
+    200000, 500000);
+  - the kind tests in `tests/aether/core_regressions.rs`, `src/lir/lower.rs`
+    and `src/compiler/tail_resumptive.rs`.
+
+**Checked** on Windows x86-64:
+- the suite, clippy and fmt, the native and debug suites;
+- `cargo xtask verify s1b --base e0`, where every difference from the base
+  is expected or fails on the base too;
+- fuzz seeds 1 and 2 with classes, values and effects, 50 of 50 agreeing on
+  each.
+
+**Native timings** of the effects group at full size, against `d9bbf7cb`:
+
+| Benchmark | Time ÷ base |
+|---|---:|
+| iterator | 0.279× |
+| counter | 0.353× |
+| countdown | 0.359× |
+| tree_explore | 0.401× |
+| generator | 0.957× |
+| product_early | 0.983× |
+| nqueens_choice | 1.032× |
+| resume_nontail | 1.060× |
+| triples | 1.072× |
+| parsing_dollars | 1.085× |
+| geomean | 0.690× |
+
+None crosses the 10% line.
+
+**Not checked:**
+- **handler_sieve,** which isn't on the branch.
+- **The native debugger fixtures,** which Windows skips. The lldb `handlers`
+  fixtures (`effect_state`, `effect_tail_resumptive`) need a run on macOS.
+- **Releasing what an in-place clause holds when a panic unwinds it**
+  (POSIX only), under `llvm_heap` on macOS.
+
+**Follow-ups:**
+- **The cost on handles that don't run in place.** parsing_dollars (+8.5%),
+  triples, resume_nontail and nqueens_choice got slower; not profiled yet.
+  The likely costs are the call through `flux_perform` before
+  `flux_yield_to`, and the yield check after the perform, which is now
+  always on. `LastAct` adds two evidence switches per perform. The LIR
+  could call `flux_yield_to` directly when the handle's kind is known not
+  to be in place. Profile first:
+  `cargo xtask bench parsing_dollars --full --no-vm --profile native`, on
+  the branch and on the base.
+- **A flag per operation,** not per handle, so one clause that can't run
+  in place doesn't keep its handle's others at the prompt.
+- **Core's tail-resumptive rule** (`core/passes/tail_resumptive.rs`)
+  doesn't check that `resume` appears nowhere else. In a clause that
+  performs nothing, `let x = resume(1); resume(x)` is still rewritten with
+  the identity `resume`.
+- **`tail_call_to_another_function_ki235.flx`** skips its VM ways for
+  KI-235, but not `vm_cached`, which fails the same way on the base.
+- **Bring in handler_sieve** and the `fea7aefa` tests, and run handler_sieve
+  natively at 60,000.
 
 ## Drawbacks
 [drawbacks]: #drawbacks
@@ -479,18 +601,20 @@ The versions read are koka `2d0d6f4851`, ocaml `bc1c440270` and ghc
 ## Unresolved questions
 [unresolved-questions]: #unresolved-questions
 
-- **The native flag.** Today's flag can't mark in-place separately from
-  "resumes only as its last act, with branches that don't". Koka's
-  precedent is to have only the in-place rule: a clause that is not in-place
-  captures. That is proposed, with a third flag value kept only if S1's
-  timings show clauses with a non-resuming branch, which today keep a loop
-  flat, getting slower.
+- **The native flag.** *Settled in S1.* Today's flag can't mark in-place
+  separately from "resumes only as its last act, with branches that don't".
+  Koka's precedent is to have only the in-place rule: a clause that is not
+  in-place captures. S1 found that rule overflows the stack for a clause
+  with a non-resuming branch that performs (parsing_dollars), so such a
+  clause keeps a flat `resume` under its handle's evidence, the kind
+  `LastAct` (see [S1 as built](#s1-as-built)).
 - **How the native debugger shows an in-place clause.** It would appear as a
   frame on top of the perform, where today it is the prompt's. The debug
   suite will say whether stepping and backtraces need work.
 - **What the evidence switch costs** per in-place perform whose clause
   performs, against today's yield and compose. Clauses that perform nothing
-  don't switch.
+  don't switch. S1's timings didn't separate this cost; the handles that
+  don't run in place got 3–9% slower (see [S1 as built](#s1-as-built)).
 - **Async in S3:** whether a fiber suspended inside a `handle` and resumed on
   another worker needs anything more than the re-entry closure. State
   written back into a shared cell assumes one resume of a continuation runs
