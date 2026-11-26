@@ -72,7 +72,7 @@ Severity is about consequence, not effort:
 
 **Severity:** High (wrong values or a crash) · **Area:** native effects runtime, prompts (`runtime/c/effects.c`, `flux_yield_prompt`) · **Verified:** 2026-11-26 (9469e0c2) · **From:** fixing KI-227
 
-The program of [KI-237](#ki-237) should print `100`. Native code prints
+The program of [KI-237](#ki-237) should print `120`. Native code prints
 `60`. With `resume(10) + 1` in the `Ask` clause both give `32`, by
 coincidence.
 
@@ -100,60 +100,6 @@ continuation and pass a foreign yield outwards (`prompt`,
 
 Neither triples nor tree_explore performs to an outer handler whose clause
 does work after `resume`, so native code gives their expected results.
-
-### KI-237 — On the VM, a non-tail `resume` runs its continuation in a nested loop, so a perform there to an outer handler that captures corrupts the frames
-
-**Severity:** High (wrong values or a crash) · **Area:** VM continuations (`src/vm/function_call.rs`, `execute_resume`, `resume_escaped`) · **Verified:** 2026-11-26 (9469e0c2) · **From:** fixing KI-227
-
-```flux
-effect Choose {
-    choose : () -> Bool
-}
-
-effect Ask {
-    ask : () -> Int
-}
-
-fn body() -> Int with Choose, Ask {
-    let b = perform Choose.choose()
-    let a = perform Ask.ask()
-    if b { a } else { a * 2 }
-}
-
-fn paths() -> Int with Ask {
-    body() handle Choose { choose(resume) -> resume(true) + resume(false) }
-}
-
-fn main() with IO {
-    print(paths() handle Ask { ask(resume) -> resume(10) * 2 })
-}
-```
-
-With deep handlers the first ask's `resume(10)` runs the rest of the first
-branch and the whole `choose` clause, whose second branch asks again (its
-clause gives `20 * 2 = 40`), so `choose` gives `50` and the program prints
-`100`. The VM stops with `E1009 Invalid Operation`. (Native code prints
-`60`, which is [KI-238](#ki-238).)
-
-A non-tail resume (`execute_resume` with a caller) puts the continuation's
-frames where they were captured, over the clause's own frame, which it
-keeps in Rust along with a copy of the stack and the handler stack. It then
-runs the frames in a nested dispatch loop until they return to the
-handler's entry frame. A perform in them to a handler further out that
-captures (on the VM every handler that isn't tail-resumptive, and every
-parameterized one) unwinds frames below that boundary. The loop then stops
-early, takes the wrong value as the resume's result, and leaves the outer
-clause's frame in the slot of the frame it replaced: `Invalid Operation`
-(adding `Uninit`) or `Not A Function` follow. After the loop,
-`handler_stack = caller_handlers` also puts back the state of every handler
-outside the resumed one as it was before the resume, so a `set` on an outer
-handler inside a branch is lost to the next. `resume_escaped` (KI-225) runs
-its frames in the same kind of nested loop.
-
-tree_explore performs `get` and `set` on an outer state handler inside each
-branch of a multi-shot `choose`, and stops this way.
-
-Probes: `.verify/ki227/05`, `07`, `09` and `10`.
 
 ### KI-236 — Natively, a parameterized handler's state is a copy in each evidence vector, so a `set` made inside a nested `handle` is lost when it returns, and resumes of one continuation share state
 
@@ -3830,6 +3776,90 @@ to direct dispatch when a unit cannot define the dictionary it references.
 
 
 ## Resolved
+
+### KI-237 — On the VM, a non-tail `resume` runs its continuation in a nested loop, so a perform there to an outer handler that captures corrupts the frames — FIXED 2026-11-26
+
+**Severity:** High (wrong values or a crash) · **Area:** VM continuations (`src/vm/function_call.rs`, `execute_resume`, `resume_escaped`) · **Verified:** 2026-11-26 (9469e0c2) · **From:** fixing KI-227
+
+```flux
+effect Choose {
+    choose : () -> Bool
+}
+
+effect Ask {
+    ask : () -> Int
+}
+
+fn body() -> Int with Choose, Ask {
+    let b = perform Choose.choose()
+    let a = perform Ask.ask()
+    if b { a } else { a * 2 }
+}
+
+fn paths() -> Int with Ask {
+    body() handle Choose { choose(resume) -> resume(true) + resume(false) }
+}
+
+fn main() with IO {
+    print(paths() handle Ask { ask(resume) -> resume(10) * 2 })
+}
+```
+
+With deep handlers the first ask's `resume(10)` runs the rest of the first
+branch and the whole `choose` clause. Its second branch asks again, and
+that clause's `resume(10)` runs the rest of the second branch and the
+`choose` clause's addition, `10 + 20 = 30`, which it doubles: `60`. That is
+what the first ask's `resume` gives, so the program prints `120`. The VM
+stops with `E1009 Invalid Operation`. (Native code prints `60`, which is
+[KI-238](#ki-238).)
+
+A non-tail resume (`execute_resume` with a caller) puts the continuation's
+frames where they were captured, over the clause's own frame, which it
+keeps in Rust along with a copy of the stack and the handler stack. It then
+runs the frames in a nested dispatch loop until they return to the
+handler's entry frame. A perform in them to a handler further out that
+captures (on the VM every handler that isn't tail-resumptive, and every
+parameterized one) unwinds frames below that boundary. The loop then stops
+early, takes the wrong value as the resume's result, and leaves the outer
+clause's frame in the slot of the frame it replaced: `Invalid Operation`
+(adding `Uninit`) or `Not A Function` follow. After the loop,
+`handler_stack = caller_handlers` also puts back the state of every handler
+outside the resumed one as it was before the resume, so a `set` on an outer
+handler inside a branch is lost to the next. `resume_escaped` (KI-225) runs
+its frames in the same kind of nested loop.
+
+tree_explore performs `get` and `set` on an outer state handler inside each
+branch of a multi-shot `choose`, and stops this way.
+
+Probes: `.verify/ki227/05`, `07`, `09` and `10`.
+
+**Fixed 2026-11-26** (238558da). Every non-tail resume, and a tail resume
+whose handler is gone, now runs the continuation on top of the frame that
+called it (`resume_on_top`, which KI-225's `resume_escaped` became): a copy
+of the handler goes on the handler stack entered at that frame, marked
+`resume_boundary` and holding the caller's evidence, then the inner
+handlers, the captured evidence, the stack slice and the frames, all
+rebased. There is no nested loop and no copy of the caller's stack, frames
+or handlers. When a frame returns into the caller
+(`leave_resume_boundaries`, from the three return opcodes), the copy comes
+off and its evidence goes back, as `OpEndHandle` does; the value is what
+`resume` gives. A capture to a handler further out walks the resumed
+frames, the caller's and those below like any others, and takes the copy
+along in `inner_handlers`. The outer handlers' state is no longer put back,
+so a `set` in one branch is seen by the next. The example prints `120`;
+`.verify/ki227/05` gives `12` and `1211`, `10` gives `11` and `12` gives
+`7` and `107`.
+
+The debugger had kept the frames a resume covered in resume notes; there
+are none now. A suspension whose continuation runs above it is marked
+covered and not shown below its arm, and still counts for depth, so
+stepping over `resume` runs the continuation. The VM debug transcripts are
+unchanged.
+
+Fixture: `effect_resume_then_outer_perform_ki237.flx`, which holds the cases
+native code also gets right: with `+ 1` in the `Ask` clause (32), the state
+in the branches (12), an escaping resume reading and setting outer state
+(7), and tree_explore at height 3 (923).
 
 ### KI-227 — On the VM, a continuation resumed twice loses a handler installed inside it — FIXED 2026-11-26
 
