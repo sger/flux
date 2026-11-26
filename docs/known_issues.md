@@ -68,6 +68,60 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-237 — On the VM, a non-tail `resume` runs its continuation in a nested loop, so a perform there to an outer handler that captures corrupts the frames
+
+**Severity:** High (wrong values or a crash) · **Area:** VM continuations (`src/vm/function_call.rs`, `execute_resume`, `resume_escaped`) · **Verified:** 2026-11-26 (9469e0c2) · **From:** fixing KI-227
+
+```flux
+effect Choose {
+    choose : () -> Bool
+}
+
+effect Ask {
+    ask : () -> Int
+}
+
+fn body() -> Int with Choose, Ask {
+    let b = perform Choose.choose()
+    let a = perform Ask.ask()
+    if b { a } else { a * 2 }
+}
+
+fn paths() -> Int with Ask {
+    body() handle Choose { choose(resume) -> resume(true) + resume(false) }
+}
+
+fn main() with IO {
+    print(paths() handle Ask { ask(resume) -> resume(10) * 2 })
+}
+```
+
+With deep handlers the first ask's `resume(10)` runs the rest of the first
+branch and the whole `choose` clause, whose second branch asks again (its
+clause gives `20 * 2 = 40`), so `choose` gives `50` and the program prints
+`100`. The VM stops with `E1009 Invalid Operation`. (Native code prints
+`60`, which is [KI-238](#ki-238).)
+
+A non-tail resume (`execute_resume` with a caller) puts the continuation's
+frames where they were captured, over the clause's own frame, which it
+keeps in Rust along with a copy of the stack and the handler stack. It then
+runs the frames in a nested dispatch loop until they return to the
+handler's entry frame. A perform in them to a handler further out that
+captures (on the VM every handler that isn't tail-resumptive, and every
+parameterized one) unwinds frames below that boundary. The loop then stops
+early, takes the wrong value as the resume's result, and leaves the outer
+clause's frame in the slot of the frame it replaced: `Invalid Operation`
+(adding `Uninit`) or `Not A Function` follow. After the loop,
+`handler_stack = caller_handlers` also puts back the state of every handler
+outside the resumed one as it was before the resume, so a `set` on an outer
+handler inside a branch is lost to the next. `resume_escaped` (KI-225) runs
+its frames in the same kind of nested loop.
+
+tree_explore performs `get` and `set` on an outer state handler inside each
+branch of a multi-shot `choose`, and stops this way.
+
+Probes: `.verify/ki227/05`, `07`, `09` and `10`.
+
 ### KI-236 — Natively, a parameterized handler's state is a copy in each evidence vector, so a `set` made inside a nested `handle` is lost when it returns, and resumes of one continuation share state
 
 **Severity:** High (wrong values, silently) · **Area:** native effects runtime, parameterized handlers (`runtime/c/effects.c`) · **Verified:** 2026-11-26 (9469e0c2; the multi-shot cases also on `main` at 64005292) · **From:** fixing KI-227
@@ -394,10 +448,18 @@ effect: Fail (no matching handle block)`. The `Fail` handler is installed
 inside the continuation that `flip` captures, so resuming it should put
 `Fail` back.
 
-A related failure, maybe with the same cause: a continuation resumed twice
-that then performs an operation of a stateful handler around the multi-shot
-one stops on the VM with `E1009 Cannot add Uninit and Uninit`, where native
-code is right.
+The cause: `OpPerform` finds a handler through `context.evidence`, and a
+resume puts the continuation's inner handlers back on `handler_stack` but
+not their evidence. The first resume's inner `handle Fail` ends inside it
+and resets the evidence to what it was before `Fail`, and the non-tail
+resume restores the caller's frames and handlers but not its evidence. The
+evidence at the perform is in `Continuation.evidence` (since KI-225), unused
+on this path.
+
+A related failure, a continuation resumed twice that then performs an
+operation of a stateful handler around the multi-shot one, has another
+cause: [KI-237](#ki-237). Native code is not right there either; see
+[KI-236](#ki-236).
 
 ### KI-221 — On the VM, a function whose body is a `handle` with a computed initial state returns the state
 
