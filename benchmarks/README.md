@@ -1421,6 +1421,49 @@ cargo xtask bench tree_explore
 Latest report:
 
 <!-- tree-explore-report:start -->
+# Tree Explore Benchmark Report
+
+- Generated: 2026-11-26 10:15 UTC
+- Machine: macos-aarch64
+- Runs: 3 to 50, as hyperfine chose, warmup: 1
+- Workload: 11 (smoke)
+- Toolchains: flux 6b4a4df0; hyperfine 2.0.0; rustc 1.100.0 (0ef1bc386 2026-11-09); Python 3.9.6; ghc 9.10.3; ocamlopt 5.5.2; erlang OTP 29; elixir 1.20.5; go1.27.4 darwin/arm64
+
+| Case | Mean | ± σ | Min | Max | Peak RSS | Instructions | × native |
+|:---|---:|---:|---:|---:|---:|---:|---:|
+| `tree_explore/flux` | 990.9 ms | 8.57 ms | 981.5 ms | 998.3 ms | 20.2 MiB | 26.70 G | 58.09× |
+| `tree_explore/flux-direct` | 704.3 ms | 13.9 ms | 691.1 ms | 724.0 ms | 20.1 MiB | 19.77 G | 41.29× |
+| `tree_explore/flux-native` | 17.1 ms | 0.54 ms | 16.4 ms | 18.2 ms | 2.2 MiB | 430.5 M | 1.00× |
+| `tree_explore/flux-native-direct` | 3.64 ms | 0.09 ms | 3.50 ms | 3.91 ms | 2.2 MiB | 60.0 M | 0.21× |
+| `tree_explore/rust` | 1.92 ms | 0.06 ms | 1.83 ms | 2.09 ms | 2.2 MiB | 39.6 M | 0.11× |
+| `tree_explore/python` | 40.7 ms | 0.52 ms | 39.1 ms | 41.7 ms | 9.7 MiB | 910.0 M | 2.38× |
+| `tree_explore/haskell` | 16.0 ms | 0.79 ms | 13.7 ms | 18.2 ms | 11.4 MiB | 104.2 M | 0.94× |
+| `tree_explore/ocaml` | 2.29 ms | 0.16 ms | 2.12 ms | 2.77 ms | 4.9 MiB | 42.5 M | 0.13× |
+| `tree_explore/erlang` | 74.7 ms | 0.87 ms | 72.7 ms | 77.1 ms | 61.0 MiB | 1.54 G | 4.38× |
+| `tree_explore/elixir` | 132.8 ms | 0.83 ms | 131.3 ms | 134.3 ms | 67.8 MiB | 2.45 G | 7.79× |
+| `tree_explore/go` | 2.15 ms | 0.09 ms | 1.98 ms | 2.39 ms | 6.5 MiB | 31.5 M | 0.13× |
+
+VM / native: 58.09×
+
+Effect overhead (with handlers / direct style): VM 1.41×, native 4.69×
+
+No baseline for macos-aarch64 yet: record one with --save-baseline.
+
+### VM counts
+
+From `flux --metrics` on the VM case. They are the same on every run of the same compiler.
+
+| Count | Now | Baseline | Change |
+|:---|---:|---:|---:|
+| `aether_allocs` | 0 | – | – |
+| `aether_drops` | 46 | – | – |
+| `aether_dups` | 11 | – | – |
+| `aether_reuses` | 0 | – | – |
+| `bytecode_bytes` | 6555 | – | – |
+| `compiler_allocs` | 2019562 | – | – |
+| `core_size` | 437 | – | – |
+| `vm_allocs` | 43250946 | – | – |
+| `vm_instructions` | 33703217 | – | – |
 <!-- tree-explore-report:end -->
 
 ## Recursive Fibonacci
