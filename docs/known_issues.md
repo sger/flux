@@ -68,6 +68,44 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-235 — On the VM, a tail call to another function that releases a value first keeps a frame, so a loop through two functions overflows the stack
+
+**Severity:** Medium (a crash on a long loop; one function calling itself works) · **Area:** VM backend, tail calls (Aether → `cfg/` → `src/compiler/cfg_bytecode.rs`) · **Verified:** 2026-11-26 (b125141e, and `main` at 64005292) · **From:** fixing KI-234
+
+```flux
+fn walk(n: Int, a: Int) -> Int {
+    if n == 0 { a } else { step(n, a, [n]) }
+}
+
+fn step(n: Int, a: Int, xs: List<Int>) -> Int {
+    walk(n - 1, a + len(xs))
+}
+
+fn main() with IO {
+    print(walk(2000000, 0))
+}
+```
+
+Each call in the loop is a tail call, so it should run in constant stack
+and print `2000000`. Native does, in 2 MB. The VM prints `10000` with
+10,000 turns, and stops with `E1009 stack overflow` from 100,000 turns on.
+
+The Aether is what a jump needs. `step` owns `xs`, and releases it before
+the call: `drop xs in aether_call[owned, owned] walk(…)`. Without the list,
+the same two functions with only `Int` parameters run 20,000,000 turns in
+constant stack, so the VM does turn some tail calls to another function into
+jumps. A stream of closures pulled through two functions (`sum` and
+`sum_next` in KI-234) fails the same way.
+
+Not yet known: where the frame comes from. `cfg_bytecode.rs` emits
+`OpTailCall` only for a function calling itself, and compiles a tail call
+to another function as `OpCall` and a return. The `Int`-only loop doesn't
+take that path, but where it is handled, and why the release stops it, is
+open.
+
+Fixture: `tail_call_to_another_function_ki235.flx`, which skips `vm` and
+`vm_opt` until this is fixed.
+
 ### KI-234 — A recursive tail call that passes on a closure call's result is not a jump, so a loop pulling a stream of closures overflows the stack
 
 **Severity:** Medium (a crash on a long stream; no workaround survives `-O`) · **Area:** Aether, borrow inference (`src/aether/borrow_infer.rs`), both backends · **Verified:** 2026-11-26 (b2f0f766, and `main` at 64005292) · **From:** writing the generator benchmark
