@@ -1,0 +1,113 @@
+// parity: vm, llvm
+// expect: success
+// bug: KI-236. A parameterized handler's state is continuation state
+//      (proposal 0169): a handler outside a captured continuation keeps
+//      every `set`, and one inside it starts each resume from the state it
+//      was captured with. Natively the state was a copy in each evidence
+//      vector. Lines: a set made inside a nested handle, read after it (55);
+//      an outer state across both branches of a multi-shot choose (12), and
+//      read after the choose handle too (1211); an inner state per branch
+//      (6); an escaping resume setting an outer state, read after (107).
+// parity-expected-stdout-begin
+// 55
+// 12
+// 1211
+// 6
+// 107
+// parity-expected-stdout-end
+
+effect St {
+    get : () -> Int
+    set : (Int) -> ()
+}
+
+effect Log {
+    log : (Int) -> ()
+}
+
+effect Choose {
+    choose : () -> Bool
+}
+
+effect Flip {
+    flip : () -> Bool
+}
+
+effect Yld {
+    y : () -> ()
+}
+
+fn logged() -> Int with St, Log {
+    perform St.set(5)
+    perform Log.log(1)
+    perform St.get()
+}
+
+fn inner() -> Int with St {
+    logged() handle Log { log(resume, x) -> resume(()) }
+}
+
+fn outer() -> Int with St {
+    let a = inner()
+    a * 10 + perform St.get()
+}
+
+fn explore() -> Int with Choose, St {
+    let b = perform Choose.choose()
+    let s = perform St.get()
+    perform St.set(if b { s + 1 } else { s + 10 })
+    perform St.get()
+}
+
+fn paths() -> Int with St {
+    explore() handle Choose { choose(resume) -> resume(true) + resume(false) }
+}
+
+fn both() -> Int with St {
+    let r = paths()
+    r * 100 + perform St.get()
+}
+
+fn step() -> Int with Flip, St {
+    let b = perform Flip.flip()
+    let s = perform St.get()
+    perform St.set(if b { s + 1 } else { s + 5 })
+    perform St.get()
+}
+
+fn counted() -> Int with Flip {
+    step() handle St(0) { get(resume, s) -> resume(s, s), set(resume, x, s) -> resume((), x) }
+}
+
+type Step = Done(Int) | More(() -> Step)
+
+fn stepped() -> Step with Yld, St {
+    perform Yld.y()
+    let a = perform St.get()
+    perform St.set(37)
+    Done(a + 4)
+}
+
+fn gen() -> Step with St {
+    stepped() handle Yld { y(resume) -> More(\() -> resume(())) }
+}
+
+fn run(s: Step) -> Int with St {
+    match s {
+        Done(v) -> v,
+        More(k) -> run(k()),
+    }
+}
+
+fn after() -> Int with St {
+    let r = run(gen())
+    r * 10 + perform St.get()
+}
+
+fn main() with IO {
+    print(outer() handle St(0) { get(resume, s) -> resume(s, s), set(resume, x, s) -> resume((), x) })
+    print(paths() handle St(0) { get(resume, s) -> resume(s, s), set(resume, x, s) -> resume((), x) })
+    print(both() handle St(0) { get(resume, s) -> resume(s, s), set(resume, x, s) -> resume((), x) })
+    print(counted() handle Flip { flip(resume) -> resume(true) + resume(false) })
+    print(after() handle St(3) { get(resume, s) -> resume(s, s), set(resume, x, s) -> resume((), x) })
+}
