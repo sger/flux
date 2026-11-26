@@ -425,6 +425,13 @@ impl VM {
             }
             return ran;
         }
+        // @KI-227: the frames run under the evidence they were captured
+        // with. An inner `handle` that ended during an earlier resume of the
+        // same continuation took its entry out of the current evidence, and
+        // its frame goes back on `handler_stack` below. A fiber's
+        // continuation carries none.
+        let caller_evidence =
+            evidence.map(|captured| std::mem::replace(&mut self.context.evidence, captured));
         let entry_frame_index = cont_shell.entry_frame_index;
         let entry_sp = cont_shell.entry_sp;
         let captured_sp = cont_shell.sp;
@@ -533,6 +540,9 @@ impl VM {
             }
             self.sp = return_slot;
             self.handler_stack = caller_handlers;
+            if let Some(caller_evidence) = caller_evidence {
+                self.context.evidence = caller_evidence;
+            }
             if caller_frame_index >= self.frames.len() {
                 self.frames.push(caller_frame);
             } else {
