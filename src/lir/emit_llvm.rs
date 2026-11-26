@@ -1089,14 +1089,7 @@ impl<'a> FnEmitter<'a> {
                         v.push(default.0);
                         v
                     }
-                    LirTerminator::Call { cont, kind, .. } => {
-                        // Slice 5-tr-fix: `CallKind::YieldTo` always returns
-                        // the sentinel (never falls through), so its cont
-                        // block is dead in the parent — emitting it would
-                        // reference `dst` which is only bound via the
-                        // synthesized continuation fn, not in this function.
-                        if matches!(kind, CallKind::YieldTo) { vec![] } else { vec![cont.0] }
-                    }
+                    LirTerminator::Call { cont, .. } => vec![cont.0],
                     LirTerminator::MatchCtor { arms, default, .. } => {
                         let mut v: Vec<_> = arms.iter().map(|a| a.target.0).collect();
                         v.push(default.0);
@@ -3188,10 +3181,20 @@ impl<'a> FnEmitter<'a> {
                         );
                     }
                     CallKind::YieldTo => {
-                        // Proposal 0162 Phase 3 slice 5-tr-fix: the YieldTo
-                        // PrimCall has already been emitted as the last
-                        // instruction of this block; no call to emit here.
-                        // The yield-check branch below handles propagation.
+                        // Proposal 0162 Phase 3 slice 5-tr-fix: the PrimCall
+                        // that performs or suspends is already the last
+                        // instruction of this block, and `func` is its
+                        // result. @KI-244: a perform whose clause runs in
+                        // place gives back the clause's value, which is the
+                        // perform's; otherwise it yields, and the check below
+                        // takes the yield path.
+                        self.emit(LlvmInstr::Binary {
+                            dst: self.var_local(*dst),
+                            op: LlvmValueKind::Add,
+                            ty: LlvmType::i64(),
+                            lhs: self.var(*func),
+                            rhs: self.i64_const(0),
+                        });
                     }
                 }
                 // A frame that holds references across the call releases
@@ -3208,17 +3211,11 @@ impl<'a> FnEmitter<'a> {
                     self.invoke_at = Some((self.current_instrs.len() - 1, released));
                 }
                 if matches!(kind, CallKind::YieldTo) {
-                    // Slice 5-tr-fix: YieldTo always yields by construction —
-                    // skip the is_yielding branch and go straight to the yield
-                    // path (extend the continuation + return the sentinel).
-                    // The parent's cont block is only ever entered via the
-                    // synthesized continuation fn, never via straight-line
-                    // fall-through, so %dst is never defined in the parent.
-                    let (instrs, term) = self.build_yield_block_instrs(yield_cont.as_ref());
-                    for instr in instrs {
-                        self.emit(instr);
-                    }
-                    term
+                    // @KI-244: a perform may give back a value now, so it
+                    // checks for a yield as a call does, even with yield
+                    // checks off: a parameterized effect's perform takes this
+                    // path regardless.
+                    self.emit_yield_check_after_call(*cont, yield_cont.as_ref())
                 } else if self.emit_yield_checks && !suppress_yield_check && yield_cont.is_some() {
                     // Slice 3b-ii: emit `flux_is_yielding` + cond-br. On the
                     // yield path, build a closure over the synthesized
@@ -3958,7 +3955,7 @@ fn primop_c_name(op: &CorePrimOp) -> String {
         CorePrimOp::EvvSet => return "flux_evv_set".to_string(),
         CorePrimOp::FreshMarker => return "flux_fresh_marker".to_string(),
         CorePrimOp::EvvInsert => return "flux_evv_insert".to_string(),
-        CorePrimOp::YieldTo => return "flux_yield_to".to_string(),
+        CorePrimOp::YieldTo => return "flux_perform".to_string(),
         CorePrimOp::YieldExtend => return "flux_yield_extend".to_string(),
         CorePrimOp::YieldPrompt => return "flux_yield_prompt".to_string(),
         CorePrimOp::IsYielding => return "flux_is_yielding".to_string(),
@@ -4116,7 +4113,7 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
                 LlvmType::i64(),
             ],
         ),
-        "flux_yield_to" => (
+        "flux_yield_to" | "flux_perform" => (
             LlvmType::i64(),
             vec![LlvmType::i64(), LlvmType::i64(), LlvmType::i64(), LlvmType::i64()],
         ),
@@ -4420,11 +4417,14 @@ fn known_c_decl(name: &str) -> Option<LlvmDecl> {
         ),
         _ => return None,
     };
+    // @KI-244: `flux_perform` runs a clause in place, Flux code a panic can
+    // unwind through.
+    let attrs = if name == "flux_perform" { flux_fn_attrs() } else { vec!["nounwind".to_string()] };
     Some(LlvmDecl {
         linkage: Linkage::External,
         name: GlobalId(name.to_string()),
         sig: LlvmFunctionSig { ret, params, varargs: false, call_conv: CallConv::Ccc },
-        attrs: vec!["nounwind".to_string()],
+        attrs,
     })
 }
 

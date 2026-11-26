@@ -76,6 +76,10 @@ typedef struct FluxEffectContext {
     /* Legacy direct-perform short-circuit detector. */
     int32_t  resume_called;
     int32_t  direct_resume_marker;
+    /* @KI-243: the state cell of the parameterized handler whose clause runs
+     * in place, which its `resume(v, s)` sets. Borrowed from the handler's
+     * evidence entry, and set again by whatever runs the clause's frames. */
+    int64_t  in_place_cell;
 } FluxEffectContext;
 
 static FLUX_TLS FluxEffectContext flux_thread_ctx;
@@ -249,7 +253,13 @@ void flux_effect_context_release(void *snapshot_raw) {
 #define EVV_HANDLER_OFF  2
 #define EVV_PARENT_OFF   3
 #define EVV_STATE_OFF    4
-#define EVV_TAIL_OFF     5  /* tagged int: the clause is tail-resumptive */
+#define EVV_TAIL_OFF     5  /* tagged int: the handle's kind, one of: */
+
+/* Where a handle's clauses run (`aether::tail_resumptive::HandleKind`). */
+#define EVV_KIND_CAPTURED      0 /* at the prompt, under the handle's evidence */
+#define EVV_KIND_LAST_ACT_PURE 1 /* at the prompt, under the perform's */
+#define EVV_KIND_IN_PLACE      2 /* at the perform, under the handle's */
+#define EVV_KIND_IN_PLACE_PURE 3 /* at the perform, under the perform's */
 
 /* Layout: { int32_t count; int64_t entries[]; } where entries are packed. */
 typedef struct {
@@ -520,8 +530,10 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
     flux_thread_ctx.op_state    = state_cell_value(entry[EVV_STATE_OFF]);
     flux_dup(flux_thread_ctx.op_state);
     flux_thread_ctx.op_arity    = (int32_t)flux_untag_int(arity);
+    /* @KI-243: only a clause that reads no evidence runs at the prompt under
+     * the perform's. flux_perform runs an in-place handle's clauses itself. */
     flux_thread_ctx.clause_tail_resumptive =
-        flux_untag_int(entry[EVV_TAIL_OFF]) != 0;
+        flux_untag_int(entry[EVV_TAIL_OFF]) == EVV_KIND_LAST_ACT_PURE;
     flux_thread_ctx.conts_count = 0;
     /* Slice 5-tr-fix: capture the evv at yield time so the composed
      * continuation can re-install it on resume. Nested handlers rely on
@@ -768,6 +780,227 @@ int64_t flux_yield_extend(int64_t cont) {
     }
     flux_thread_ctx.conts[flux_thread_ctx.conts_count++] = cont;
     return FLUX_YIELD_SENTINEL;
+}
+
+/* ── In-place clauses (proposal 0205, part A) ──────────────────────── */
+
+/*
+ * @KI-243, @KI-244: a clause that resumes exactly once, as its last act, runs
+ * where the perform was, called as a function under the evidence its handle
+ * was installed under, as Koka's `under1` does. Its `resume` gives back its
+ * argument, which is the perform's value, so nothing is captured, and a
+ * clause that forwards to an outer handler is a call that returns.
+ *
+ * The two `resume`s are static closures, laid out as the compiler lays out
+ * the closure of a function that captures nothing: a sticky count, so a copy
+ * or a release of one does nothing.
+ */
+typedef struct {
+    int32_t refcount;
+    uint8_t scan_fsize;
+    uint8_t obj_tag;
+    uint16_t pad;
+    void   *fn_ptr;
+    int32_t remaining_arity;
+    int32_t capture_count;
+    int32_t applied_count;
+    int32_t _pad;
+} FluxStaticClosure;
+
+static int64_t flux_resume_in_place_entry(int64_t closure_raw, int64_t *args_ptr, int32_t nargs) {
+    (void)closure_raw;
+    (void)nargs;
+    return args_ptr[0];
+}
+
+/* `resume(v, s)`: the cell takes the reference to `s`. */
+static int64_t flux_resume_in_place_state_entry(int64_t closure_raw, int64_t *args_ptr,
+                                                int32_t nargs) {
+    (void)closure_raw;
+    (void)nargs;
+    int64_t cell = flux_thread_ctx.in_place_cell;
+    if (cell != 0) {
+        int64_t *slot = &((int64_t *)flux_untag_ptr(cell))[0];
+        int64_t previous = *slot;
+        *slot = args_ptr[1];
+        flux_drop(previous);
+    } else {
+        flux_drop(args_ptr[1]);
+    }
+    return args_ptr[0];
+}
+
+static FluxStaticClosure flux_resume_in_place = {
+    0x40000000, 0, FLUX_OBJ_CLOSURE, 0, (void *)flux_resume_in_place_entry, 1, 0, 0, 0,
+};
+static FluxStaticClosure flux_resume_in_place_state = {
+    0x40000000, 0, FLUX_OBJ_CLOSURE, 0, (void *)flux_resume_in_place_state_entry, 2, 0, 0, 0,
+};
+
+static void in_place_wrap(int64_t marker, int64_t parent, int64_t cell, int64_t pure,
+                          int64_t resumer_evv);
+
+/*
+ * The continuation of an in-place clause that yielded: what is left of the
+ * clause, run again where it was. Koka's `under1x`. It runs the clause's
+ * frames under its handle's evidence, as found in the evidence it is called
+ * under, and puts that evidence back after them for the frames at the
+ * perform. Payload: [inner, parent, cell, marker, pure]; the first three are
+ * counted.
+ */
+static int64_t flux_in_place_reentry_entry(int64_t closure_raw, int64_t *args_ptr, int32_t nargs) {
+    (void)nargs;
+    int64_t *payload = (int64_t *)((char *)flux_untag_ptr(closure_raw) + 24);
+    int64_t inner  = payload[0];
+    int64_t parent = payload[1];
+    int64_t cell   = payload[2];
+    int64_t marker = payload[3];
+    int64_t pure   = payload[4];
+
+    int64_t w0 = flux_thread_ctx.current_evv;
+    int64_t saved_cell = flux_thread_ctx.in_place_cell;
+    /* The entry in the evidence this runs under, whose cell may be a copy
+     * of its own (KI-236); the captured ones if it isn't there. */
+    EvvArray *arr = evv_unbox(w0);
+    int idx = evv_lookup_by_marker(arr, (int32_t)flux_untag_int(marker));
+    int64_t run_parent = idx >= 0 ? arr->data[idx * EVV_ENTRY_WORDS + EVV_PARENT_OFF] : parent;
+    int64_t run_cell = idx >= 0 ? arr->data[idx * EVV_ENTRY_WORDS + EVV_STATE_OFF] : cell;
+    if (!flux_untag_int(pure)) flux_thread_ctx.current_evv = run_parent;
+    flux_thread_ctx.in_place_cell = run_cell;
+
+    int64_t result = args_ptr[0];
+    if (inner != 0) {
+        int64_t arg_slot[1] = { result };
+        result = flux_call_closure_c(inner, arg_slot, 1);
+    }
+    if (flux_thread_ctx.yielding != 0) {
+        in_place_wrap(marker, parent, cell, pure, w0);
+    }
+    flux_thread_ctx.current_evv = w0;
+    flux_thread_ctx.in_place_cell = saved_cell;
+    return result;
+}
+
+/*
+ * The clause yielded: the frames it extended are all its own, since the
+ * perform that yielded started the chain afresh. Fold them into one closure
+ * and put a re-entry around it, so whatever resumes them runs them in the
+ * clause's place again. `resumer_evv` is the evidence of the frames below
+ * the clause; a resumer installs the yield's evidence, so the yield takes it.
+ */
+static void in_place_wrap(int64_t marker, int64_t parent, int64_t cell, int64_t pure,
+                          int64_t resumer_evv) {
+    int64_t inner = 0;
+    if (flux_thread_ctx.conts_count == 1) {
+        inner = flux_thread_ctx.conts[0];
+        flux_thread_ctx.conts_count = 0;
+    } else if (flux_thread_ctx.conts_count > 1) {
+        /* A frame like the others, called with one value (KI-224). */
+        inner = compose_into_closure(0, 0);
+    }
+    uint32_t size = 24 + (uint32_t)(5 * sizeof(int64_t));
+    void *mem = flux_gc_alloc_header(size, 3 /* inner, parent, cell */, FLUX_OBJ_CLOSURE);
+    struct {
+        void   *fn_ptr;
+        int32_t remaining_arity;
+        int32_t capture_count;
+        int32_t applied_count;
+        int32_t _pad;
+        int64_t payload[5];
+    } *clo = mem;
+    clo->fn_ptr          = (void *)flux_in_place_reentry_entry;
+    clo->remaining_arity = 1;
+    clo->capture_count   = 3;
+    clo->applied_count   = 0;
+    clo->_pad            = 0;
+    clo->payload[0]      = inner;
+    clo->payload[1]      = parent;
+    clo->payload[2]      = cell;
+    clo->payload[3]      = marker;
+    clo->payload[4]      = pure;
+    flux_dup(parent);
+    flux_dup(cell);
+    flux_thread_ctx.conts[0] = flux_tag_ptr(mem);
+    flux_thread_ctx.conts_count = 1;
+    flux_thread_ctx.yield_evv = resumer_evv;
+}
+
+/* As the prompt's FLUX_RELEASED below: what the perform owns is released
+ * when a panic in the clause unwinds through it, on POSIX, where the runtime
+ * is built with `-fexceptions`. Windows releases it on the normal path only. */
+#ifdef _WIN32
+#define FLUX_PERFORM_RELEASED
+#else
+static void flux_perform_release(int64_t *val) { flux_drop(*val); }
+#define FLUX_PERFORM_RELEASED __attribute__((cleanup(flux_perform_release)))
+#endif
+
+/*
+ * Perform an effect. A handle whose clauses run in place has its clause
+ * called here, and its value is the perform's; any other is yielded to
+ * (flux_yield_to), and the caller's yield check takes it to the prompt.
+ */
+int64_t flux_perform(int64_t htag, int64_t optag, int64_t arg_given, int64_t arity) {
+    EvvArray *arr = evv_unbox(flux_thread_ctx.current_evv);
+    int idx = evv_lookup(arr, htag);
+    if (idx < 0) {
+        flux_unhandled_effect("flux_perform", htag);
+    }
+    int64_t *entry = &arr->data[idx * EVV_ENTRY_WORDS];
+    int64_t kind = flux_untag_int(entry[EVV_TAIL_OFF]);
+    if (kind != EVV_KIND_IN_PLACE && kind != EVV_KIND_IN_PLACE_PURE) {
+        return flux_yield_to(htag, optag, arg_given, arity);
+    }
+
+    /* The clause only borrows the argument the perform gave, and the state
+     * it is called with. */
+    int64_t arg FLUX_PERFORM_RELEASED = arg_given;
+    int64_t marker = entry[EVV_MARKER_OFF];
+    int64_t clause = evv_clause_for(entry[EVV_HANDLER_OFF], htag, optag);
+    int64_t parent = entry[EVV_PARENT_OFF];
+    int64_t cell = entry[EVV_STATE_OFF];
+    int64_t pure = kind == EVV_KIND_IN_PLACE_PURE;
+    /* As in flux_yield_to: the clause's own reference to the state. */
+    int64_t state FLUX_PERFORM_RELEASED = state_cell_value(cell);
+    flux_dup(state);
+
+    int64_t saved_evv = flux_thread_ctx.current_evv;
+    int64_t saved_cell = flux_thread_ctx.in_place_cell;
+    /* A clause runs in its handle's context: a perform in it reaches the
+     * handlers outside the handle, never this one or one installed between
+     * the handle and the perform. One that reads no evidence needs no
+     * switch. */
+    if (!pure) flux_thread_ctx.current_evv = parent;
+    flux_thread_ctx.in_place_cell = cell;
+    int64_t resume = flux_tag_ptr(cell != 0 ? (void *)&flux_resume_in_place_state.fn_ptr
+                                            : (void *)&flux_resume_in_place.fn_ptr);
+
+    int64_t argc = flux_untag_int(arity);
+    int64_t result;
+    if (state != 0 && argc <= 0) {
+        int64_t args[2] = { resume, state };
+        result = flux_call_closure_c(clause, args, 2);
+    } else if (state != 0) {
+        int64_t args[3] = { resume, arg, state };
+        result = flux_call_closure_c(clause, args, 3);
+    } else if (argc <= 0) {
+        int64_t args[1] = { resume };
+        result = flux_call_closure_c(clause, args, 1);
+    } else {
+        int64_t args[2] = { resume, arg };
+        result = flux_call_closure_c(clause, args, 2);
+    }
+#ifdef _WIN32
+    flux_drop(arg);
+    flux_drop(state);
+#endif
+
+    if (flux_thread_ctx.yielding != 0) {
+        in_place_wrap(marker, parent, cell, flux_tag_int(pure), saved_evv);
+    }
+    flux_thread_ctx.current_evv = saved_evv;
+    flux_thread_ctx.in_place_cell = saved_cell;
+    return result;
 }
 
 /*

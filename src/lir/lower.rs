@@ -3382,12 +3382,13 @@ impl<'a> FnLower<'a> {
             none
         };
 
+        // @KI-243, @KI-244: the entry says where the runtime runs its
+        // clauses: in place at the perform, or at this handle's prompt.
         let tail_resumptive = self.fresh_var();
-        let resumes_last =
-            crate::aether::tail_resumptive::handle_is_tail_resumptive(effect, handlers);
+        let kind = crate::aether::tail_resumptive::handle_kind(handlers, parameter.is_some());
         self.emit(LirInstr::Const {
             dst: tail_resumptive,
-            value: LirConst::Tagged(crate::lir::nanbox_tag_int(i64::from(resumes_last))),
+            value: LirConst::Tagged(crate::lir::nanbox_tag_int(kind as i64)),
         });
 
         let new_evv = self.fresh_var();
@@ -4154,13 +4155,14 @@ impl<'a> FnLower<'a> {
             ))
             || self.active_parameterized_effects.contains(&effect);
         if use_yield_path {
-            // Slice 5-tr-fix: emit the YieldTo PrimCall inline (its return
-            // value is the sentinel and isn't used), then close the current
-            // block with a Call-shaped terminator so `cont_split` synthesizes
-            // a continuation over "the rest of the work" and the emit
+            // Slice 5-tr-fix: emit the YieldTo PrimCall inline, then close
+            // the current block with a Call-shaped terminator, whose `func`
+            // is the PrimCall's result, so `cont_split` synthesizes a
+            // continuation over "the rest of the work" and the emit
             // pipeline's yield-check branch fires. `result` is bound as a
-            // block param of the cont block — it holds the resume value when
-            // the continuation is invoked.
+            // block param of the cont block: the resume value when the
+            // continuation is invoked, or, @KI-244, the value of a clause
+            // the runtime ran in place.
             let sink = self.fresh_var();
             self.emit(LirInstr::PrimCall {
                 dst: Some(sink),
@@ -4171,12 +4173,9 @@ impl<'a> FnLower<'a> {
             let cont_idx = self.new_block();
             let cont_id = BlockId(cont_idx as u32);
             self.func.blocks[cont_idx].params.push(result);
-
-            let dummy_func = self.fresh_var();
-            self.emit(LirInstr::Const { dst: dummy_func, value: LirConst::None });
             self.set_terminator(LirTerminator::Call {
                 dst: result,
-                func: dummy_func,
+                func: sink,
                 args: Vec::new(),
                 cont: cont_id,
                 kind: CallKind::YieldTo,
@@ -4252,12 +4251,9 @@ impl<'a> FnLower<'a> {
             let cont_idx = self.new_block();
             let cont_id = BlockId(cont_idx as u32);
             self.func.blocks[cont_idx].params.push(result);
-
-            let dummy_func = self.fresh_var();
-            self.emit(LirInstr::Const { dst: dummy_func, value: LirConst::None });
             self.set_terminator(LirTerminator::Call {
                 dst: result,
-                func: dummy_func,
+                func: sink,
                 args: Vec::new(),
                 cont: cont_id,
                 kind: CallKind::YieldTo,
@@ -4486,12 +4482,9 @@ impl<'a> FnLower<'a> {
                 let cont_idx = self.new_block();
                 let cont_id = BlockId(cont_idx as u32);
                 self.func.blocks[cont_idx].params.push(result);
-
-                let dummy_func = self.fresh_var();
-                self.emit(LirInstr::Const { dst: dummy_func, value: LirConst::None });
                 self.set_terminator(LirTerminator::Call {
                     dst: result,
-                    func: dummy_func,
+                    func: sink,
                     args: Vec::new(),
                     cont: cont_id,
                     kind: CallKind::YieldTo,
