@@ -68,6 +68,62 @@ Severity is about consequence, not effort:
 
 ## Open
 
+### KI-243 — A tail-resumptive clause runs under the handlers installed between its handle and the perform
+
+**Severity:** Medium (wrong values, silently, in an uncommon shape; both backends agree) · **Area:** tail-resumptive handlers: the Core evidence pass, `aether::tail_resumptive`, `flux_yield_prompt` (`runtime/c/effects.c`), `OpPerform` (`src/vm/dispatch.rs`) · **Verified:** 2026-11-26 (184c35d3; on `main` at 64005292 a clause can't perform at all, KI-226) · **From:** fixing KI-233
+
+```flux
+effect Ask {
+    ask : () -> Int
+}
+
+effect Log {
+    get : () -> Int
+}
+
+fn asks() -> Int with Ask {
+    perform Ask.ask()
+}
+
+fn body() -> Int with Ask {
+    asks() handle Log { get(resume) -> resume(2) }
+}
+
+fn mid() -> Int with Log {
+    body() handle Ask { ask(resume) -> resume(perform Log.get()) }
+}
+
+fn main() with IO {
+    print(mid() handle Log { get(resume) -> resume(1) })
+}
+```
+
+A clause runs in its handle's context, so the `Ask` clause's `perform
+Log.get()` should reach the `Log(1)` handler outside `mid`'s handle, and the
+program should print `1`. Both backends print `2`: the `Log(2)` handler
+between the handle and the perform answers it (`.verify/ki233/05`).
+
+The clause resumes as its last act, so its handler is tail-resumptive, and
+each path that runs such a clause runs it where the perform was:
+- the Core evidence pass calls it in place;
+- natively its `resume` comes from `flux_compose_conts`, which installs no
+  evidence, so the prompt keeps the yield site's;
+- the VM takes the same flag and does the same.
+
+With `resume(perform Log.get()) * 10`, which isn't tail-resumptive, both
+print `10`, the right answer, since [KI-233](#ki-233)'s fix.
+
+A second effect: the VM compiles a function through the AST compiler when
+the CFG path can't take it, and the AST sees a clause before Core
+simplifies it. A clause like `resume(perform Log.get()) * 1`, which Core
+simplifies to a tail-resumptive one, is tail-resumptive natively and not in
+an AST-compiled function on the VM, so the two backends can print `2` and
+`1` for it.
+
+A fix would run every clause under its handle's evidence and have a
+tail-resumptive `resume` install the yield site's for the code it runs,
+which costs the single-continuation fast path its directness.
+
 ### KI-242 — A clause that doesn't resume can't give back unit: E300, "expected type: Unit, found type: ()"
 
 **Severity:** Medium (loud; a non-unit type works) · **Area:** type inference of handler clauses, the two spellings of unit · **Verified:** 2026-11-26 (11d08782, and `main` at 64005292) · **From:** writing the parsing_dollars benchmark
