@@ -355,8 +355,9 @@ Each stage goes on its own branch: tests first, then the fix, then
 ### S1 as built
 
 S1 is on `fix/ki243-ki244`, from `bench/effects` (`d9bbf7cb`), in nine
-commits, `293387f1` to `ffa09727`. It fixes KI-243 on both backends and
-KI-244 natively.
+commits, `293387f1` to `ffa09727`, and five that the checks on macOS led to,
+`0d6221a5` to `d9a4e265`. It fixes KI-243 on both backends and KI-244
+natively.
 
 **The handle's kind.** One flag per handle, `HandleKind` in
 `src/aether/tail_resumptive.rs`. It is stored in the native evidence entry
@@ -378,14 +379,18 @@ call (`routed_intrinsic_names` in `src/ast/route_effectful_primops.rs`).
 
 **Native** (`runtime/c/effects.c`):
 - **`flux_perform`** replaces `flux_yield_to` as the perform's call. For an
-  in-place handle it calls the clause itself, with a static `resume`. That
-  `resume` is either the identity, or a closure that writes the state into
-  `flux_thread_ctx.in_place_cell`.
+  in-place handle it calls the clause itself, in `perform_in_place`, with a
+  static `resume`. That `resume` is either the identity, or a closure that
+  writes the state into `flux_thread_ctx.in_place_cell`. For any other
+  handle it yields from the entry it has looked up, without
+  `perform_in_place`'s frame.
 - **If the clause yields,** its frames are wrapped in a re-entry closure,
   `flux_in_place_reentry_entry`, which is Koka's `under1x`. The yield gets
   the perform's evidence.
 - **The perform terminator** in LIR now returns `flux_perform`'s value, with
-  a yield check after it that is always on.
+  a yield check after it that is always on. The check compares that value
+  with `FLUX_YIELD_SENTINEL`, which `flux_perform` gives back exactly when it
+  yields, instead of calling `flux_is_yielding`.
 - **The prompt** gives a `LastAct` clause a `resume` in a third mode,
   `RESUME_FLAT_UNDER`. It doesn't delimit, but sets the perform's evidence
   for the frames it runs, so a loop of performs comes back to the same
@@ -417,7 +422,9 @@ performs nothing. The first choice in Part A.
   - `tests/parity/effect_clause_runs_in_its_handles_context_ki243.flx` (1, 1,
     12, 15);
   - `tests/parity/effect_forwarded_performs_ki244.flx` (200000, 20000,
-    200000, 500000);
+    200000, 500000), and
+    `effect_forwarded_performs_on_the_debug_heap_ki244.flx`, the same loops
+    at an eighth of the sizes, on `llvm_heap`;
   - the kind tests in `tests/aether/core_regressions.rs`, `src/lir/lower.rs`
     and `src/compiler/tail_resumptive.rs`.
 
@@ -428,41 +435,72 @@ performs nothing. The first choice in Part A.
 - fuzz seeds 1 and 2 with classes, values and effects, 50 of 50 agreeing on
   each.
 
-**Native timings** of the effects group at full size, against `d9bbf7cb`:
+**Checked** on macOS aarch64:
+- the parity corpus on each fixture's ways, the native suite and the fast
+  tests;
+- the native debugger suite: 156 of 157. The one failure,
+  `a_handler_arm_shows_the_frames_it_suspended_and_the_handlers`, fails on
+  the base too (see the follow-ups);
+- the panic fixtures and the KI-243 fixture on `llvm`, `llvm_heap` and
+  `llvm_opt`, with no leaks;
+- handler_sieve's probe natively at 60,000, with and without `-O`
+  (171848738). It crashed from about 2,500 before S1.
 
-| Benchmark | Time ÷ base |
-|---|---:|
-| iterator | 0.279× |
-| counter | 0.353× |
-| countdown | 0.359× |
-| tree_explore | 0.401× |
-| generator | 0.957× |
-| product_early | 0.983× |
-| nqueens_choice | 1.032× |
-| resume_nontail | 1.060× |
-| triples | 1.072× |
-| parsing_dollars | 1.085× |
-| geomean | 0.690× |
+**What the macOS checks changed.**
+- **The perform's cost.** On macOS parsing_dollars ran 1.10× the base's
+  instructions and triples 1.09×. Two thirds of it was the perform's call
+  shape, not the kinds: `flux_perform` paid the in-place call's frame and a
+  second lookup before it yielded, and every perform then called
+  `flux_is_yielding`. `748041f9` and `d9a4e265` remove both; the table below
+  is after them.
+- **The native debugger.** Two tests failed because of S1. overflow.flx's
+  clause, `resume(1)`, now runs in place and suspends nothing, so it does
+  work after `resume` to keep testing a composed continuation (`0d6221a5`).
+  And in an `InPlacePure` arm, which switches no evidence, lldb's
+  `flux handlers` listed the handlers inside the arm's handle; it now lists
+  the arm's own handler and those outside it, as the VM does (`d88bbefe`).
+- **The KI-244 fixture on `llvm_heap`** took 30 s, linearly, past
+  `parity-check`'s 20 s, so the debug heap runs it at an eighth of its sizes
+  in a fixture of its own (`e447142d`).
 
-None crosses the 10% line.
+**Native timings** of the effects group at full size, against `d9bbf7cb`.
+Windows x86-64 is before the macOS changes; macOS aarch64 is after them,
+with hyperfine's instruction counts, which vary far less than time.
+
+| Benchmark | Windows, time | macOS, time | macOS, instructions |
+|---|---:|---:|---:|
+| iterator | 0.279× | 0.242× | 0.278× |
+| counter | 0.353× | 0.270× | 0.308× |
+| countdown | 0.359× | 0.289× | 0.313× |
+| tree_explore | 0.401× | 0.416× | 0.391× |
+| fibonacci_recursive | 0.992× | 0.961× | 0.999× |
+| product_early | 0.983× | 0.975× | 1.000× |
+| generator | 0.957× | 1.042× | 1.010× |
+| nqueens_choice | 1.032× | 1.016× | 1.015× |
+| resume_nontail | 1.060× | 1.057× | 1.018× |
+| triples | 1.072× | 1.074× | 1.020× |
+| parsing_dollars | 1.085× | 1.079× | 1.038× |
+| geomean | 0.690× | 0.655× | 0.667× |
+
+None crosses the 10% line. On macOS the times of the programs whose
+instructions moved 2–4% move 4–8%, inside the run-to-run noise of this
+machine at these sizes.
 
 **Not checked:**
-- **handler_sieve,** which isn't on the branch.
-- **The native debugger fixtures,** which Windows skips. The lldb `handlers`
-  fixtures (`effect_state`, `effect_tail_resumptive`) need a run on macOS.
-- **Releasing what an in-place clause holds when a panic unwinds it**
-  (POSIX only), under `llvm_heap` on macOS.
+- **The Windows timings after the macOS changes.**
+- **handler_sieve in the suite;** only its probe has run.
 
 **Follow-ups:**
-- **The cost on handles that don't run in place.** parsing_dollars (+8.5%),
-  triples, resume_nontail and nqueens_choice got slower; not profiled yet.
-  The likely costs are the call through `flux_perform` before
-  `flux_yield_to`, and the yield check after the perform, which is now
-  always on. `LastAct` adds two evidence switches per perform. The LIR
-  could call `flux_yield_to` directly when the handle's kind is known not
-  to be in place. Profile first:
-  `cargo xtask bench parsing_dollars --full --no-vm --profile native`, on
-  the branch and on the base.
+- **What handles that don't run in place still pay:** 1.5–4% more
+  instructions. On parsing_dollars about half of what is left is
+  `LastAct`'s resume, which holds a reference to the perform's evidence and
+  switches it twice; the rest is the call to `flux_perform` itself.
+- **A clause's own handler under lldb.** In an arm that runs under its
+  handle's evidence, a `Captured` one since KI-233 or an `InPlace` one,
+  `flux handlers` can't find the arm's own handler: the evidence it reads no
+  longer holds it. `a_handler_arm_shows_the_frames_it_suspended_and_the_handlers`
+  fails for this on `bench/effects` too. The VM's debugger lists its
+  handler frames instead, which still hold it.
 - **A flag per operation,** not per handle, so one clause that can't run
   in place doesn't keep its handle's others at the prompt.
 - **Core's tail-resumptive rule** (`core/passes/tail_resumptive.rs`)
@@ -471,8 +509,7 @@ None crosses the 10% line.
   the identity `resume`.
 - **`tail_call_to_another_function_ki235.flx`** skips its VM ways for
   KI-235, but not `vm_cached`, which fails the same way on the base.
-- **Bring in handler_sieve** and the `fea7aefa` tests, and run handler_sieve
-  natively at 60,000.
+- **Bring in handler_sieve** and the `fea7aefa` tests.
 
 ## Drawbacks
 [drawbacks]: #drawbacks
@@ -608,13 +645,15 @@ The versions read are koka `2d0d6f4851`, ocaml `bc1c440270` and ghc
   with a non-resuming branch that performs (parsing_dollars), so such a
   clause keeps a flat `resume` under its handle's evidence, the kind
   `LastAct` (see [S1 as built](#s1-as-built)).
-- **How the native debugger shows an in-place clause.** It would appear as a
-  frame on top of the perform, where today it is the prompt's. The debug
-  suite will say whether stepping and backtraces need work.
+- **How the native debugger shows an in-place clause.** *Settled in S1.* It
+  appears as a frame on top of the perform, with live frames below it, not
+  suspended ones. Stepping and backtraces needed no change; `flux handlers`
+  did (see [S1 as built](#s1-as-built)).
 - **What the evidence switch costs** per in-place perform whose clause
   performs, against today's yield and compose. Clauses that perform nothing
-  don't switch. S1's timings didn't separate this cost; the handles that
-  don't run in place got 3–9% slower (see [S1 as built](#s1-as-built)).
+  don't switch. S1's timings didn't separate this cost. The handles that
+  don't run in place got 3–9% slower at first, mostly from the perform's
+  call shape, and 1.5–4% after the fix (see [S1 as built](#s1-as-built)).
 - **Async in S3:** whether a fiber suspended inside a `handle` and resumed on
   another worker needs anything more than the re-entry closure. State
   written back into a shared cell assumes one resume of a continuation runs
