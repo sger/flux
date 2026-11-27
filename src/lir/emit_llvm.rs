@@ -2834,10 +2834,14 @@ impl<'a> FnEmitter<'a> {
     /// stub (`ret i64 FLUX_YIELD_SENTINEL`), which silently drops the
     /// continuation. The pre-pass runs whenever `FLUX_YIELD_CHECKS=1`, so in
     /// that configuration `yield_cont` is populated for every normal Call.
+    /// `sentinel_result`: the call's result, when the callee gives back
+    /// `FLUX_YIELD_SENTINEL` exactly when it yields, so the check compares it
+    /// instead of calling `flux_is_yielding`.
     fn emit_yield_check_after_call(
         &mut self,
         cont: BlockId,
         yield_cont: Option<&YieldCont>,
+        sentinel_result: Option<LlvmOperand>,
     ) -> LlvmTerminator {
         // Label ids unique per call site.
         let slot = self.next_tmp;
@@ -2845,30 +2849,40 @@ impl<'a> FnEmitter<'a> {
         let yield_label = LabelId(format!("yield.{slot}"));
         let cont_label = LabelId(format!("yield.cont.{slot}"));
 
-        // Declare C runtime helpers we rely on.
-        self.needed_decls.insert("flux_is_yielding".to_string());
-
-        // %y = call i32 @flux_is_yielding()
-        let y = self.tmp();
-        self.emit(LlvmInstr::Call {
-            dst: Some(y.clone()),
-            tail: false,
-            call_conv: Some(CallConv::Ccc),
-            ret_ty: LlvmType::i32(),
-            callee: LlvmOperand::Global(GlobalId("flux_is_yielding".to_string())),
-            args: Vec::new(),
-            attrs: Vec::new(),
-        });
-
-        // %y_nz = icmp ne i32 %y, 0
         let y_nz = self.tmp();
-        self.emit(LlvmInstr::Icmp {
-            dst: y_nz.clone(),
-            op: LlvmCmpOp::Ne,
-            ty: LlvmType::i32(),
-            lhs: LlvmOperand::Local(y),
-            rhs: LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 }),
-        });
+        if let Some(result) = sentinel_result {
+            // %y_nz = icmp eq i64 %result, FLUX_YIELD_SENTINEL
+            self.emit(LlvmInstr::Icmp {
+                dst: y_nz.clone(),
+                op: LlvmCmpOp::Eq,
+                ty: LlvmType::i64(),
+                lhs: result,
+                rhs: self.i64_const(FLUX_YIELD_SENTINEL),
+            });
+        } else {
+            self.needed_decls.insert("flux_is_yielding".to_string());
+
+            // %y = call i32 @flux_is_yielding()
+            let y = self.tmp();
+            self.emit(LlvmInstr::Call {
+                dst: Some(y.clone()),
+                tail: false,
+                call_conv: Some(CallConv::Ccc),
+                ret_ty: LlvmType::i32(),
+                callee: LlvmOperand::Global(GlobalId("flux_is_yielding".to_string())),
+                args: Vec::new(),
+                attrs: Vec::new(),
+            });
+
+            // %y_nz = icmp ne i32 %y, 0
+            self.emit(LlvmInstr::Icmp {
+                dst: y_nz.clone(),
+                op: LlvmCmpOp::Ne,
+                ty: LlvmType::i32(),
+                lhs: LlvmOperand::Local(y),
+                rhs: LlvmOperand::Const(LlvmConst::Int { bits: 32, value: 0 }),
+            });
+        }
 
         // The yield block: build continuation closure + flux_yield_extend.
         let yield_block_instrs = self.build_yield_block_instrs(yield_cont);
@@ -3117,6 +3131,7 @@ impl<'a> FnEmitter<'a> {
                 yield_cont,
                 held,
             } => {
+                let mut sentinel_result = None;
                 match kind {
                     CallKind::Direct { func_id } => {
                         // Direct call: call @flux_<name>(i64 %a0, i64 %a1, ...)
@@ -3187,7 +3202,23 @@ impl<'a> FnEmitter<'a> {
                         // result. @KI-244: a perform whose clause runs in
                         // place gives back the clause's value, which is the
                         // perform's; otherwise it yields, and the check below
-                        // takes the yield path.
+                        // takes the yield path. `flux_perform` gives back the
+                        // sentinel exactly when it yields, which a call to
+                        // `flux_is_yielding` after every perform cost more
+                        // than the perform itself saved; the async primops
+                        // may yield without giving it back.
+                        let performed = self.var(*func);
+                        if matches!(
+                            self.current_instrs.last(),
+                            Some(LlvmInstr::Call {
+                                dst: Some(called),
+                                callee: LlvmOperand::Global(GlobalId(name)),
+                                ..
+                            }) if name == "flux_perform"
+                                && performed == LlvmOperand::Local(called.clone())
+                        ) {
+                            sentinel_result = Some(performed);
+                        }
                         self.emit(LlvmInstr::Binary {
                             dst: self.var_local(*dst),
                             op: LlvmValueKind::Add,
@@ -3215,7 +3246,7 @@ impl<'a> FnEmitter<'a> {
                     // checks for a yield as a call does, even with yield
                     // checks off: a parameterized effect's perform takes this
                     // path regardless.
-                    self.emit_yield_check_after_call(*cont, yield_cont.as_ref())
+                    self.emit_yield_check_after_call(*cont, yield_cont.as_ref(), sentinel_result)
                 } else if self.emit_yield_checks && !suppress_yield_check && yield_cont.is_some() {
                     // Slice 3b-ii: emit `flux_is_yielding` + cond-br. On the
                     // yield path, build a closure over the synthesized
@@ -3225,7 +3256,7 @@ impl<'a> FnEmitter<'a> {
                     // continuation are known non-suspending call sites after
                     // cont_split filtering, so they must not observe a stale
                     // yielding flag and return a bare sentinel.
-                    self.emit_yield_check_after_call(*cont, yield_cont.as_ref())
+                    self.emit_yield_check_after_call(*cont, yield_cont.as_ref(), None)
                 } else {
                     // Default output (yield checks disabled): branch straight
                     // to `cont`. Byte-identical to pre-slice-3a IR.
