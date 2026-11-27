@@ -513,16 +513,10 @@ static int64_t evv_clause_for(int64_t handler, int64_t htag, int64_t optag) {
  * The caller must check flux_thread_ctx.yielding after every call and propagate
  * the sentinel + extend continuations as needed.
  */
-int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
-
-    EvvArray *arr = evv_unbox(flux_thread_ctx.current_evv);
-    int idx = evv_lookup(arr, htag);
-
-    if (idx < 0) {
-        flux_unhandled_effect("flux_yield_to", htag);
-    }
-
-    int64_t *entry = &arr->data[idx * EVV_ENTRY_WORDS];
+/* Yields to the handler whose evidence entry is `entry`. flux_perform
+ * calls it with the entry it has already looked up. */
+static inline __attribute__((always_inline)) int64_t yield_to_entry(int64_t *entry, int64_t htag, int64_t optag, int64_t arg,
+                                     int64_t arity) {
     int32_t m = (int32_t)flux_untag_int(entry[EVV_MARKER_OFF]);
     int64_t clause = evv_clause_for(entry[EVV_HANDLER_OFF], htag, optag);
 
@@ -552,6 +546,15 @@ int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
     flux_thread_ctx.yield_evv         = flux_thread_ctx.current_evv;
 
     return FLUX_YIELD_SENTINEL;
+}
+
+int64_t flux_yield_to(int64_t htag, int64_t optag, int64_t arg, int64_t arity) {
+    EvvArray *arr = evv_unbox(flux_thread_ctx.current_evv);
+    int idx = evv_lookup(arr, htag);
+    if (idx < 0) {
+        flux_unhandled_effect("flux_yield_to", htag);
+    }
+    return yield_to_entry(&arr->data[idx * EVV_ENTRY_WORDS], htag, optag, arg, arity);
 }
 
 /*
@@ -949,6 +952,9 @@ static void flux_perform_release(int64_t *val) { flux_drop(*val); }
  * called here, and its value is the perform's; any other is yielded to
  * (flux_yield_to), and the caller's yield check takes it to the prompt.
  */
+static int64_t perform_in_place(int64_t *entry, int64_t kind, int64_t htag, int64_t optag,
+                                int64_t arg_given, int64_t arity);
+
 int64_t flux_perform(int64_t htag, int64_t optag, int64_t arg_given, int64_t arity) {
     EvvArray *arr = evv_unbox(flux_thread_ctx.current_evv);
     int idx = evv_lookup(arr, htag);
@@ -958,9 +964,16 @@ int64_t flux_perform(int64_t htag, int64_t optag, int64_t arg_given, int64_t ari
     int64_t *entry = &arr->data[idx * EVV_ENTRY_WORDS];
     int64_t kind = flux_untag_int(entry[EVV_TAIL_OFF]);
     if (kind != EVV_KIND_IN_PLACE && kind != EVV_KIND_IN_PLACE_PURE) {
-        return flux_yield_to(htag, optag, arg_given, arity);
+        return yield_to_entry(entry, htag, optag, arg_given, arity);
     }
+    return perform_in_place(entry, kind, htag, optag, arg_given, arity);
+}
 
+/* Kept out of flux_perform, so that a perform that yields doesn't pay for
+ * this call's frame: its cleanups and argument arrays. */
+static __attribute__((noinline)) int64_t perform_in_place(int64_t *entry, int64_t kind,
+                                                          int64_t htag, int64_t optag,
+                                                          int64_t arg_given, int64_t arity) {
     /* The clause only borrows the argument the perform gave, and the state
      * it is called with. */
     int64_t arg FLUX_PERFORM_RELEASED = arg_given;
